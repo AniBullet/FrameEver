@@ -29,6 +29,21 @@ if (Test-Path "$ffmpegDevDir\include") {
     }
 }
 
+# Use CMake that supports "Visual Studio 17 2022" (whisper-rs-sys)
+if ($env:OS -eq "Windows_NT") {
+    $preferredDirs = @(
+        "$env:ProgramFiles\CMake\bin",
+        "$env:ProgramFiles(x86)\CMake\bin"
+    )
+    $vs2022Cmake = Get-ChildItem -Path "$env:ProgramFiles(x86)\Microsoft Visual Studio\2022" -Recurse -Filter "cmake.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($vs2022Cmake) { $preferredDirs = @($vs2022Cmake.DirectoryName) + $preferredDirs }
+    $preferredCmakeDir = $preferredDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
+    $currentCmake = (Get-Command cmake -ErrorAction SilentlyContinue).Source
+    if ($currentCmake -match "2019\\Community" -and $preferredCmakeDir) {
+        $env:Path = "$preferredCmakeDir;$env:Path"
+    }
+}
+
 # Setup LLVM/libclang for bindgen
 $llvmPaths = @(
     "C:\Program Files\LLVM\bin",
