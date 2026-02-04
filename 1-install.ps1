@@ -61,14 +61,61 @@ else {
     }
 }
 
+# Check CMake
+Write-Host ""
+Write-Host "[3/7] Checking CMake..." -ForegroundColor Yellow
+Refresh-Path
+$cmake = Get-Command cmake -ErrorAction SilentlyContinue
+if ($cmake) {
+    $cmakeVersion = cmake --version | Select-String "version" | Select-Object -First 1
+    Write-Host "  OK CMake installed: $cmakeVersion" -ForegroundColor Green
+}
+else {
+    Write-Host "  Installing CMake..." -ForegroundColor Yellow
+    winget install --id=Kitware.CMake --silent --accept-source-agreements --accept-package-agreements
+    Refresh-Path
+    $cmake = Get-Command cmake -ErrorAction SilentlyContinue
+    if ($cmake) {
+        Write-Host "  OK CMake installed" -ForegroundColor Green
+        $needsRestart = $true
+    }
+    else {
+        Write-Host "  OK CMake installed (restart terminal to use)" -ForegroundColor Yellow
+        $needsRestart = $true
+    }
+}
+
 # Check Rust
 Write-Host ""
-Write-Host "[3/5] Checking Rust..." -ForegroundColor Yellow
+Write-Host "[4/7] Checking Rust..." -ForegroundColor Yellow
 Refresh-Path
 $rust = Get-Command rustc -ErrorAction SilentlyContinue
 if ($rust) {
-    $rustVersion = rustc --version
-    Write-Host "  OK $rustVersion" -ForegroundColor Green
+    # Try to get version
+    $rustVersion = rustc --version 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  OK $rustVersion" -ForegroundColor Green
+    }
+    else {
+        # rustc exists but no default toolchain configured
+        Write-Host "  Configuring Rust default toolchain..." -ForegroundColor Yellow
+        $rustup = Get-Command rustup -ErrorAction SilentlyContinue
+        if ($rustup) {
+            rustup default stable 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                $rustVersion = rustc --version
+                Write-Host "  OK $rustVersion" -ForegroundColor Green
+            }
+            else {
+                Write-Host "  ERROR: Failed to configure Rust" -ForegroundColor Red
+                exit 1
+            }
+        }
+        else {
+            Write-Host "  ERROR: rustup not found" -ForegroundColor Red
+            exit 1
+        }
+    }
 }
 else {
     Write-Host "  Installing Rust..." -ForegroundColor Yellow
@@ -116,9 +163,71 @@ else {
     }
 }
 
+# Configure Cargo git-fetch-with-cli (required for Git dependencies)
+$cargoConfigDir = "$env:USERPROFILE\.cargo"
+$cargoConfigFile = "$cargoConfigDir\config.toml"
+
+if (-not (Test-Path $cargoConfigFile)) {
+    if (-not (Test-Path $cargoConfigDir)) {
+        New-Item -ItemType Directory -Force -Path $cargoConfigDir | Out-Null
+    }
+    
+    $cargoConfig = @"
+[net]
+git-fetch-with-cli = true
+"@
+    
+    Set-Content -Path $cargoConfigFile -Value $cargoConfig -Encoding UTF8
+    Write-Host "  OK Cargo configured" -ForegroundColor Green
+}
+
+# Auto-detect and configure Git proxy for GitHub access
+Write-Host "  Checking Git proxy configuration..." -ForegroundColor Gray
+
+$gitHttpProxy = git config --global http.proxy 2>$null
+$gitHttpsProxy = git config --global https.proxy 2>$null
+
+if (-not $gitHttpProxy -and -not $gitHttpsProxy) {
+    # Try to detect common VPN proxy ports
+    $commonPorts = @(7890, 10809, 1080, 7891, 10808)
+    $detectedPort = $null
+    
+    foreach ($port in $commonPorts) {
+        try {
+            $tcpClient = New-Object System.Net.Sockets.TcpClient
+            $connect = $tcpClient.BeginConnect("127.0.0.1", $port, $null, $null)
+            $wait = $connect.AsyncWaitHandle.WaitOne(100, $false)
+            
+            if ($wait) {
+                $tcpClient.EndConnect($connect)
+                $detectedPort = $port
+                $tcpClient.Close()
+                break
+            }
+            $tcpClient.Close()
+        }
+        catch {
+            # Port not available, continue
+        }
+    }
+    
+    if ($detectedPort) {
+        $proxyUrl = "http://127.0.0.1:$detectedPort"
+        git config --global http.proxy $proxyUrl 2>$null
+        git config --global https.proxy $proxyUrl 2>$null
+        Write-Host "  OK Auto-configured Git proxy: $proxyUrl" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  OK No proxy detected (direct connection)" -ForegroundColor Green
+    }
+}
+else {
+    Write-Host "  OK Git proxy already configured" -ForegroundColor Green
+}
+
 # Check FFmpeg runtime
 Write-Host ""
-Write-Host "[4/7] Checking FFmpeg runtime..." -ForegroundColor Yellow
+Write-Host "[5/8] Checking FFmpeg runtime..." -ForegroundColor Yellow
 Refresh-Path
 $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
 if ($ffmpeg) {
@@ -140,7 +249,7 @@ else {
 
 # Setup FFmpeg dev environment (required for ffmpeg-sys-next)
 Write-Host ""
-Write-Host "[5/7] Setting up FFmpeg development environment..." -ForegroundColor Yellow
+Write-Host "[6/8] Setting up FFmpeg development environment..." -ForegroundColor Yellow
 
 $ffmpegDevDir = "$env:USERPROFILE\.ffmpeg-dev"
 $projectFfmpegDir = "$PSScriptRoot\target\ffmpeg\bin"
@@ -281,7 +390,7 @@ else {
 
 # Verify Cargo (for better error message)
 Write-Host ""
-Write-Host "[6/7] Verifying Rust Cargo..." -ForegroundColor Yellow
+Write-Host "[7/8] Verifying Rust Cargo..." -ForegroundColor Yellow
 Refresh-Path
 $cargo = Get-Command cargo -ErrorAction SilentlyContinue
 if ($cargo) {
@@ -295,14 +404,19 @@ else {
 
 # Install project dependencies
 Write-Host ""
-Write-Host "[7/7] Installing project dependencies..." -ForegroundColor Yellow
+Write-Host "[8/8] Installing project dependencies..." -ForegroundColor Yellow
 
 $needsInstall = $false
 $lockFile = "$PSScriptRoot\pnpm-lock.yaml"
 $nodeModules = "$PSScriptRoot\node_modules"
+$desktopNodeModules = "$PSScriptRoot\apps\desktop\node_modules"
 
 if (-not (Test-Path $nodeModules)) {
-    Write-Host "  node_modules not found - fresh install needed" -ForegroundColor Gray
+    Write-Host "  Root node_modules not found - fresh install needed" -ForegroundColor Gray
+    $needsInstall = $true
+}
+elseif (-not (Test-Path $desktopNodeModules)) {
+    Write-Host "  Workspace node_modules incomplete - install needed" -ForegroundColor Gray
     $needsInstall = $true
 }
 elseif (-not (Test-Path $lockFile)) {
