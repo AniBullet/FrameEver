@@ -2,6 +2,7 @@ import { DropdownMenu as KDropdownMenu } from "@kobalte/core/dropdown-menu";
 import { cx } from "cva";
 import { createSignal, For, Show, Suspense } from "solid-js";
 import { reconcile } from "solid-js/store";
+import { useI18n } from "~/i18n";
 import { normalizeProject, useEditorContext } from "./context";
 import {
 	DropdownItem,
@@ -14,6 +15,7 @@ import {
 } from "./ui";
 
 export function PresetsDropdown() {
+	const { t } = useI18n();
 	const { setDialog, presets, setProject, project } = useEditorContext();
 	return (
 		<KDropdownMenu gutter={8} placement="bottom">
@@ -144,7 +146,7 @@ export function PresetsDropdown() {
 							<DropdownItem
 								onSelect={() => setDialog({ type: "createPreset", open: true })}
 							>
-								<span>Create new preset</span>
+								<span>{t("editor.presets.createNew")}</span>
 								<IconCapCirclePlus class="ml-auto" />
 							</DropdownItem>
 						</MenuItemList>

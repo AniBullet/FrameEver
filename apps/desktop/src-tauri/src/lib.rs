@@ -3245,6 +3245,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
                         mode: event.mode,
                         capture_system_audio: settings.system_audio,
                         organization_id: settings.organization_id,
+                        quality: None,
                     }
                 })
                 .await;

@@ -2,7 +2,7 @@ import { createEventListenerMap } from "@solid-primitives/event-listener";
 import { cx } from "cva";
 import { createMemo, createRoot, For } from "solid-js";
 import { produce } from "solid-js/store";
-
+import { useI18n } from "~/i18n";
 import { useEditorContext } from "../context";
 import { defaultTextSegment } from "../text";
 import { useTimelineContext } from "./context";
@@ -20,6 +20,7 @@ export function TextTrack(props: {
 	onDragStateChanged: (v: TextSegmentDragState) => void;
 	handleUpdatePlayhead: (e: MouseEvent) => void;
 }) {
+	const { t } = useI18n();
 	const {
 		project,
 		setProject,
@@ -215,7 +216,7 @@ export function TextTrack(props: {
 				each={textSegments()}
 				fallback={
 					<div class="text-center text-sm text-[--text-tertiary] flex flex-col justify-center items-center inset-0 w-full bg-gray-3/20 dark:bg-gray-3/10 hover:bg-gray-3/30 dark:hover:bg-gray-3/20 transition-colors rounded-xl pointer-events-none">
-						<div>Click to add text</div>
+						<div>{t("editor.timeline.addText")}</div>
 						<div class="text-[10px] text-[--text-tertiary]/40 mt-0.5">
 							(Set a label over your video)
 						</div>
@@ -326,7 +327,7 @@ export function TextTrack(props: {
 								)}
 							>
 								<div class="flex flex-col gap-0.5 justify-center items-center text-xs text-gray-1 dark:text-gray-12 w-full min-w-0 overflow-hidden">
-									<span class="opacity-70">Text</span>
+									<span class="opacity-70">{t("editor.timeline.text")}</span>
 									<div class="flex gap-1 items-center text-md w-full min-w-0 justify-center">
 										<span class="truncate max-w-full">
 											{segment.content || "Label"}

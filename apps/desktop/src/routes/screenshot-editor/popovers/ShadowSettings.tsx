@@ -1,6 +1,7 @@
 import { Collapsible as KCollapsible } from "@kobalte/core/collapsible";
 import { cx } from "cva";
 import { createSignal } from "solid-js";
+import { useI18n } from "~/i18n";
 import IconCapChevronDown from "~icons/cap/chevron-down";
 import { Field, Slider } from "../ui";
 
@@ -21,6 +22,7 @@ interface Props {
 }
 
 const ShadowSettings = (props: Props) => {
+	const { t } = useI18n();
 	const [isOpen, setIsOpen] = createSignal(false);
 
 	const handleToggle = () => {
@@ -42,7 +44,7 @@ const ShadowSettings = (props: Props) => {
 				onClick={handleToggle}
 				class="flex gap-1 items-center w-full font-medium text-left transition duration-200 text-gray-12 hover:text-gray-10"
 			>
-				<span class="text-sm">Advanced shadow settings</span>
+				<span class="text-sm">{t("editor.performance.advancedShadow")}</span>
 				<IconCapChevronDown
 					class={cx(
 						"size-5",

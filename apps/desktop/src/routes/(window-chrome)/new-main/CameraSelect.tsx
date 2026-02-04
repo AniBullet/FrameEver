@@ -99,7 +99,7 @@ export default function CameraSelect(props: {
 							onClick={openCameraWindow}
 							onPointerDown={(e) => e.stopPropagation()}
 							class="flex items-center justify-center px-2 py-1 rounded-full bg-gray-6 text-gray-11 hover:bg-gray-7 transition-colors"
-							title="Show camera preview"
+							title={t("main.device.camera.show")}
 						>
 							<IconLucideEyeOff class="size-3.5" />
 						</button>
@@ -241,7 +241,7 @@ export function CameraSelectBase(props: {
 							onClick={openCameraWindow}
 							onPointerDown={(e) => e.stopPropagation()}
 							class="flex items-center justify-center px-2 py-1 rounded-full bg-gray-6 text-gray-11 hover:bg-gray-7 transition-colors"
-							title="Show camera preview"
+							title={t("main.device.camera.show")}
 						>
 							<IconLucideEyeOff class="size-3.5" />
 						</button>

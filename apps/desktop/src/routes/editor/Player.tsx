@@ -7,6 +7,7 @@ import { cx } from "cva";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 
 import Tooltip from "~/components/Tooltip";
+import { useI18n } from "~/i18n";
 import { captionsStore } from "~/store/captions";
 import { commands } from "~/utils/tauri";
 import AspectRatioSelect from "./AspectRatioSelect";
@@ -32,6 +33,7 @@ import { useEditorShortcuts } from "./useEditorShortcuts";
 import { formatTime } from "./utils";
 
 export function PlayerContent() {
+	const { t } = useI18n();
 	const {
 		project,
 		editorInstance,
@@ -252,7 +254,9 @@ export function PlayerContent() {
 					</EditorButton>
 				</div>
 				<div class="flex items-center gap-2">
-					<span class="text-xs font-medium text-gray-11">Preview quality</span>
+					<span class="text-xs font-medium text-gray-11">
+						{t("editor.video.previewQuality")}
+					</span>
 					<KSelect<{ label: string; value: EditorPreviewQuality }>
 						options={previewOptions}
 						optionValue="value"
@@ -330,7 +334,7 @@ export function PlayerContent() {
 					>
 						<IconCapPrev class="text-gray-12 size-3" />
 					</button>
-					<Tooltip kbd={["Space"]} content="Play/Pause video">
+					<Tooltip kbd={["Space"]} content={t("editor.video.play.pause")}>
 						<button
 							type="button"
 							onClick={handlePlayPauseClick}
@@ -377,7 +381,7 @@ export function PlayerContent() {
 						}
 					/>
 					<div class="w-px h-8 rounded-full bg-gray-4" />
-					<Tooltip kbd={["meta", "-"]} content="Zoom out">
+					<Tooltip kbd={["meta", "-"]} content={t("editor.video.zoom.out")}>
 						<IconCapZoomOut
 							onClick={() => {
 								editorState.timeline.transform.updateZoom(
@@ -388,7 +392,7 @@ export function PlayerContent() {
 							class="text-gray-12 size-5 will-change-[opacity] transition-opacity hover:opacity-70"
 						/>
 					</Tooltip>
-					<Tooltip kbd={["meta", "+"]} content="Zoom in">
+					<Tooltip kbd={["meta", "+"]} content={t("editor.video.zoom.in")}>
 						<IconCapZoomIn
 							onClick={() => {
 								editorState.timeline.transform.updateZoom(

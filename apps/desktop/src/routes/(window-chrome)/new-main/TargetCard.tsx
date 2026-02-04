@@ -8,6 +8,7 @@ import type { ComponentProps } from "solid-js";
 import { createMemo, createSignal, Show, splitProps } from "solid-js";
 import toast from "solid-toast";
 import Tooltip from "~/components/Tooltip";
+import { useI18n } from "~/i18n";
 import {
 	type CaptureDisplayWithThumbnail,
 	type CaptureWindowWithThumbnail,
@@ -75,6 +76,7 @@ type TargetCardProps = (
 	};
 
 export default function TargetCard(props: TargetCardProps) {
+	const { t } = useI18n();
 	const [local, rest] = splitProps(props, [
 		"variant",
 		"target",
@@ -388,7 +390,7 @@ export default function TargetCard(props: TargetCardProps) {
 				</div>
 				<Show when={local.variant === "screenshot"}>
 					<div class="flex items-center justify-between px-2 pb-1.5 pt-0.5 gap-1">
-						<Tooltip content="Edit">
+						<Tooltip content={t("editor.common.edit")}>
 							<div
 								role="button"
 								tabIndex={-1}
@@ -398,7 +400,7 @@ export default function TargetCard(props: TargetCardProps) {
 								<IconLucideEdit class="size-3.5" />
 							</div>
 						</Tooltip>
-						<Tooltip content="Copy to clipboard">
+						<Tooltip content={t("editor.common.copy")}>
 							<div
 								role="button"
 								tabIndex={-1}
@@ -408,7 +410,7 @@ export default function TargetCard(props: TargetCardProps) {
 								<IconLucideCopy class="size-3.5" />
 							</div>
 						</Tooltip>
-						<Tooltip content="Save as...">
+						<Tooltip content={t("editor.common.save.as")}>
 							<div
 								role="button"
 								tabIndex={-1}
@@ -433,7 +435,7 @@ export default function TargetCard(props: TargetCardProps) {
 						return (
 							<div class="flex items-center justify-between px-2 pb-1.5 pt-0.5 gap-1">
 								<Show when={isStudio}>
-									<Tooltip content="Edit">
+									<Tooltip content={t("editor.common.edit")}>
 										<div
 											role="button"
 											tabIndex={-1}
@@ -472,7 +474,7 @@ export default function TargetCard(props: TargetCardProps) {
 									</Show>
 								</Show>
 								<Show when={recording.sharing}>
-									<Tooltip content="Open link">
+									<Tooltip content={t("editor.common.open.link")}>
 										<div
 											role="button"
 											tabIndex={-1}
@@ -483,7 +485,7 @@ export default function TargetCard(props: TargetCardProps) {
 										</div>
 									</Tooltip>
 								</Show>
-								<Tooltip content="Open folder">
+								<Tooltip content={t("editor.common.open.folder")}>
 									<div
 										role="button"
 										tabIndex={-1}
@@ -493,7 +495,7 @@ export default function TargetCard(props: TargetCardProps) {
 										<IconLucideFolder class="size-3.5" />
 									</div>
 								</Tooltip>
-								<Tooltip content="Delete">
+								<Tooltip content={t("editor.common.delete")}>
 									<div
 										role="button"
 										tabIndex={-1}

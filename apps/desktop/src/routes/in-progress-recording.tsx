@@ -25,6 +25,7 @@ import {
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { TransitionGroup } from "solid-transition-group";
+import { useI18n } from "~/i18n";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import {
 	createCurrentRecordingQuery,
@@ -70,6 +71,8 @@ export default function () {
 
 function InProgressRecordingInner() {
 	console.log("[in-progress-recording] Inner component rendering");
+
+	const { t } = useI18n();
 
 	const [state, setState] = createSignal<State>(
 		window.COUNTDOWN === 0
@@ -332,10 +335,11 @@ function InProgressRecordingInner() {
 
 	const deleteRecording = createMutation(() => ({
 		mutationFn: async () => {
-			const shouldDelete = await dialog.confirm(
-				"Are you sure you want to delete the recording?",
-				{ title: "Confirm Delete", okLabel: "Delete", cancelLabel: "Cancel" },
-			);
+			const shouldDelete = await dialog.confirm(t("recording.delete.confirm"), {
+				title: t("recording.delete.title"),
+				okLabel: t("common.delete"),
+				cancelLabel: t("common.cancel"),
+			});
 
 			if (!shouldDelete) return;
 
@@ -554,7 +558,7 @@ function InProgressRecordingInner() {
 							type="button"
 							class="text-red-9 transition hover:text-red-11"
 							onClick={() => dismissIssuePanel()}
-							aria-label="Dismiss recording issue"
+							aria-label={t("recording.aria.dismissIssue")}
 						>
 							<IconLucideX class="size-4" />
 						</button>
@@ -571,12 +575,15 @@ function InProgressRecordingInner() {
 									class="flex flex-row items-center gap-[0.25rem] rounded-lg py-[0.25rem] px-[0.5rem] text-red-300 transition-colors duration-100 hover:bg-red-500/[0.08] active:bg-red-500/[0.12] disabled:opacity-60 disabled:hover:bg-transparent"
 									type="button"
 									onClick={() => stopRecording.mutate()}
-									title="Stop recording"
-									aria-label="Stop recording"
+									title={t("recording.aria.stop")}
+									aria-label={t("recording.aria.stop")}
 								>
 									<IconCapStopCircle />
 									<span class="text-[0.875rem] font-[500] tabular-nums">
-										<Show when={!isInitializing()} fallback="Starting">
+										<Show
+											when={!isInitializing()}
+											fallback={t("recording.status.starting")}
+										>
 											<Show
 												when={!isCountdown()}
 												fallback={
@@ -676,7 +683,7 @@ function InProgressRecordingInner() {
 											onClick={() => toggleIssuePanel()}
 											title={issueMessages().join(", ")}
 											aria-pressed={issuePanelVisible() ? "true" : "false"}
-											aria-label="Recording issues"
+											aria-label={t("recording.aria.issues")}
 										>
 											<IconLucideAlertTriangle class="size-5" />
 										</ActionButton>
@@ -692,13 +699,13 @@ function InProgressRecordingInner() {
 											onClick={() => togglePause.mutate()}
 											title={
 												state().variant === "paused"
-													? "Resume recording"
-													: "Pause recording"
+													? t("recording.aria.resume")
+													: t("recording.aria.pause")
 											}
 											aria-label={
 												state().variant === "paused"
-													? "Resume recording"
-													: "Pause recording"
+													? t("recording.aria.resume")
+													: t("recording.aria.pause")
 											}
 										>
 											{state().variant === "paused" ? (
@@ -712,16 +719,16 @@ function InProgressRecordingInner() {
 									<ActionButton
 										disabled={restartRecording.isPending || isCountdown()}
 										onClick={() => restartRecording.mutate()}
-										title="Restart recording"
-										aria-label="Restart recording"
+										title={t("recording.aria.restart")}
+										aria-label={t("recording.aria.restart")}
 									>
 										<IconCapRestart />
 									</ActionButton>
 									<ActionButton
 										disabled={deleteRecording.isPending || isCountdown()}
 										onClick={() => deleteRecording.mutate()}
-										title="Delete recording"
-										aria-label="Delete recording"
+										title={t("recording.aria.delete")}
+										aria-label={t("recording.aria.delete")}
 									>
 										<IconCapTrash />
 									</ActionButton>
@@ -732,8 +739,8 @@ function InProgressRecordingInner() {
 										onClick={() => {
 											void openRecordingSettingsMenu();
 										}}
-										title="Recording settings"
-										aria-label="Recording settings"
+										title={t("recording.aria.settings")}
+										aria-label={t("recording.aria.settings")}
 									>
 										<IconCapSettings class="size-5" />
 									</ActionButton>

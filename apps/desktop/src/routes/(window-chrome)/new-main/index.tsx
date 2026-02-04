@@ -491,7 +491,9 @@ function DeviceListPanel(props: DeviceListPanelProps) {
 				</div>
 			</Show>
 			<Show when={props.isLoading}>
-				<div class="py-6 text-sm text-center text-gray-11">Loading...</div>
+				<div class="py-6 text-sm text-center text-gray-11">
+					{t("main.loading")}
+				</div>
 			</Show>
 			<Show
 				when={
@@ -1533,7 +1535,7 @@ function Page() {
 									});
 								}}
 								aria-haspopup="menu"
-								aria-label="Choose display"
+								aria-label={t("main.aria.chooseDisplay")}
 							/>
 						</div>
 						<div
@@ -1574,7 +1576,7 @@ function Page() {
 									});
 								}}
 								aria-haspopup="menu"
-								aria-label="Choose window"
+								aria-label={t("main.aria.chooseWindow")}
 							/>
 						</div>
 					</div>
@@ -1744,7 +1746,7 @@ function Page() {
 				<Show when={signIn.isPending}>
 					<div class="flex absolute inset-0 justify-center items-center bg-gray-1 animate-in fade-in">
 						<div class="flex flex-col gap-4 justify-center items-center">
-							<span>Signing In...</span>
+							<span>{t("main.signingIn")}</span>
 
 							<Button
 								onClick={() => {

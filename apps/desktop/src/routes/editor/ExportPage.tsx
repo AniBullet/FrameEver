@@ -23,6 +23,7 @@ import { createStore, produce, reconcile } from "solid-js/store";
 import toast from "solid-toast";
 import Tooltip from "~/components/Tooltip";
 import CaptionControlsWindows11 from "~/components/titlebar/controls/CaptionControlsWindows11";
+import { useI18n } from "~/i18n";
 import { createExportTask } from "~/utils/export";
 import {
 	commands,
@@ -109,6 +110,7 @@ interface Settings {
 }
 
 export function ExportPage() {
+	const { t } = useI18n();
 	const {
 		setDialog,
 		editorInstance,
@@ -534,7 +536,7 @@ export function ExportPage() {
 						class="flex items-center gap-1.5"
 					>
 						<IconLucideArrowLeft class="size-4" />
-						<span>Back to Editor</span>
+						<span>{t("editor.video.backToEditor")}</span>
 					</Button>
 					<div data-tauri-drag-region class="flex-1 h-full" />
 					{ostype() === "windows" && <CaptionControlsWindows11 />}
@@ -544,8 +546,10 @@ export function ExportPage() {
 			<div class="flex-1 min-h-0 flex relative">
 				<div class="flex-1 min-h-0 p-5 flex flex-col">
 					<div class="flex items-center gap-1.5 mb-2">
-						<span class="text-sm font-medium text-gray-11">Preview</span>
-						<Tooltip content="This is a rendered frame from your video. Adjust the settings below to see the quality of the final exported video.">
+						<span class="text-sm font-medium text-gray-11">
+							{t("editor.video.preview.label")}
+						</span>
+						<Tooltip content={t("editor.video.preview.hint")}>
 							<IconLucideInfo class="size-3.5 text-gray-9 hover:text-gray-11 cursor-help transition-colors" />
 						</Tooltip>
 					</div>
@@ -559,7 +563,9 @@ export function ExportPage() {
 										fallback={
 											<div class="flex flex-col items-center gap-3 text-gray-10">
 												<IconLucideImage class="size-12 text-gray-8" />
-												<span class="text-sm">Generating preview...</span>
+												<span class="text-sm">
+													{t("editor.video.generatingPreview")}
+												</span>
 											</div>
 										}
 									>
@@ -574,7 +580,7 @@ export function ExportPage() {
 								<>
 									<img
 										src={url()}
-										alt="Export preview"
+										alt={t("editor.video.exportPreview.alt")}
 										class="relative z-0 w-full h-full object-contain"
 									/>
 									<Show when={previewLoading()}>
@@ -733,7 +739,9 @@ export function ExportPage() {
 											menu.popup();
 										}}
 									>
-										<span class="text-gray-11">Organization</span>
+										<span class="text-gray-11">
+											{t("editor.video.organization")}
+										</span>
 										<span class="flex items-center gap-1 text-gray-12">
 											{
 												(
@@ -918,8 +926,8 @@ export function ExportPage() {
 									</For>
 								</div>
 								<div class="flex justify-between text-[10px] text-gray-10 mt-1.5 px-0.5">
-									<span>Smaller file</span>
-									<span>Larger file</span>
+									<span>{t("editor.video.smallerFile")}</span>
+									<span>{t("editor.video.largerFile")}</span>
 								</div>
 
 								<button
@@ -940,13 +948,15 @@ export function ExportPage() {
 											)}
 										/>
 									</div>
-									<span>Advanced</span>
+									<span>{t("editor.video.advanced")}</span>
 								</button>
 
 								<Show when={advancedMode()}>
 									<div class="mt-3 space-y-2">
 										<div class="flex items-center justify-between text-xs">
-											<span class="text-gray-11">Bits per pixel</span>
+											<span class="text-gray-11">
+												{t("editor.video.bitsPerPixel")}
+											</span>
 											<span class="text-gray-12 font-medium tabular-nums">
 												{compressionBpp().toFixed(2)}
 											</span>
@@ -986,7 +996,7 @@ export function ExportPage() {
 													type="button"
 													role="switch"
 													aria-checked={forceFfmpegDecoder()}
-													aria-label="Force FFmpeg decoder"
+													aria-label={t("editor.video.forceFfmpegDecoder")}
 													class="flex items-center gap-2 text-xs text-gray-11 hover:text-gray-12 transition-colors w-full"
 													onClick={() =>
 														setForceFfmpegDecoder(!forceFfmpegDecoder())
@@ -1008,7 +1018,9 @@ export function ExportPage() {
 														/>
 													</div>
 													<div class="text-left">
-														<span class="block">Force FFmpeg decoder</span>
+														<span class="block">
+															{t("editor.video.forceFfmpegDecoder")}
+														</span>
 														<span class="text-[10px] text-gray-9">
 															Skip hardware decoder (auto-fallback enabled)
 														</span>
@@ -1065,7 +1077,9 @@ export function ExportPage() {
 			>
 				<div class="p-4">
 					<div class="flex items-center justify-between mb-4">
-						<h2 class="text-gray-12 font-medium">Quality Preview</h2>
+						<h2 class="text-gray-12 font-medium">
+							{t("editor.video.qualityPreview")}
+						</h2>
 						<button
 							type="button"
 							onClick={() => setPreviewDialogOpen(false)}
@@ -1079,7 +1093,7 @@ export function ExportPage() {
 							{(url) => (
 								<img
 									src={url()}
-									alt="Export preview full size"
+									alt={t("editor.video.exportPreviewFull.alt")}
 									class="w-full h-full object-contain"
 								/>
 							)}
@@ -1356,7 +1370,7 @@ export function ExportPage() {
 														) : (
 															<IconLucideCheck class="transition-colors duration-200 text-gray-1 size-4 svgpathanimation group-hover:text-gray-12" />
 														)}
-														<p>Copy Link</p>
+														<p>{t("editor.video.copyLink")}</p>
 													</Button>
 													<a href={link()} target="_blank" rel="noreferrer">
 														<Button
@@ -1364,7 +1378,7 @@ export function ExportPage() {
 															class="flex gap-2 justify-center items-center"
 														>
 															<IconCapLink class="transition-colors duration-200 text-gray-1 size-4 group-hover:text-gray-12" />
-															<p>Open Link</p>
+															<p>{t("editor.video.openLink")}</p>
 														</Button>
 													</a>
 												</div>

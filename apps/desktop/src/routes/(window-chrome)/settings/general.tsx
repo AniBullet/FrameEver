@@ -80,6 +80,7 @@ const createDefaultGeneralSettings = (): ExtendedGeneralSettingsStore => ({
 	instantModeMaxResolution: 1920,
 	crashRecoveryRecording: true,
 	maxFps: 60,
+	recordingQuality: "standard",
 });
 
 const deriveInitialSettings = (
@@ -504,6 +505,20 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 
 				<SettingGroup title={t("general.recording")}>
 					<SelectSettingItem
+						label={t("general.recording.quality")}
+						description={t("general.recording.quality.description")}
+						value={settings.recordingQuality ?? "standard"}
+						onChange={(value) => handleChange("recordingQuality", value)}
+						options={[
+							{ text: t("general.recording.quality.high"), value: "high" },
+							{
+								text: t("general.recording.quality.standard"),
+								value: "standard",
+							},
+							{ text: t("general.recording.quality.low"), value: "low" },
+						]}
+					/>
+					<SelectSettingItem
 						label={t("general.recording.resolution")}
 						description={t("general.recording.resolution.description")}
 						value={settings.instantModeMaxResolution ?? 1920}
@@ -521,7 +536,9 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 					>
 						<div class="flex flex-col gap-2 items-end min-w-[200px]">
 							<div class="text-xs text-gray-11 font-mono break-all text-right">
-								{settings.recordingsSavePath || defaultRecordingsPath() || "~/Videos/Cap Recordings"}
+								{settings.recordingsSavePath ||
+									defaultRecordingsPath() ||
+									"~/Videos/Cap Recordings"}
 							</div>
 							<div class="flex gap-2">
 								<Button
@@ -742,7 +759,7 @@ function DefaultProjectNameCard(props: {
 		return (
 			<button
 				type="button"
-				title="Click to copy"
+				title={t("common.copy.tooltip")}
 				class="bg-gray-1 hover:bg-gray-5 rounded-md m-0.5 p-0.5 cursor-pointer transition-[color,background-color,transform] ease-out duration-200 active:scale-95"
 				onClick={() => commands.writeClipboardString(props.children)}
 			>
@@ -1031,7 +1048,7 @@ function ExcludedWindowsCard(props: {
 										type="button"
 										class="flex items-center justify-center rounded-full bg-gray-4/70 text-gray-11 transition-colors hover:bg-gray-5 hover:text-gray-12 size-6"
 										onClick={() => void props.onRemove(index())}
-										aria-label="Remove excluded window"
+										aria-label={t("general.excluded.windows.remove")}
 									>
 										<IconLucideX class="size-3" />
 									</button>

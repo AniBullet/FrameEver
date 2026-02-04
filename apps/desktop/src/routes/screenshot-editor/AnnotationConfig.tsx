@@ -2,11 +2,13 @@ import { Popover } from "@kobalte/core/popover";
 import { cx } from "cva";
 import { createMemo, For, type JSX, Show } from "solid-js";
 import Tooltip from "~/components/Tooltip";
+import { useI18n } from "~/i18n";
 import { BACKGROUND_COLORS, hexToRgb, RgbInput, rgbToHex } from "./ColorPicker";
 import { type Annotation, useScreenshotEditorContext } from "./context";
 import { Slider } from "./ui";
 
 export function AnnotationConfigBar() {
+	const { t } = useI18n();
 	const {
 		annotations,
 		selectedAnnotationId,
@@ -235,7 +237,7 @@ function ColorPickerButton(props: {
 
 						<div class="grid grid-cols-6 gap-1.5">
 							<Show when={props.allowTransparent}>
-								<Tooltip content="Transparent">
+								<Tooltip content={t("editor.screenshot.transparent")}>
 									<button
 										type="button"
 										onClick={() => props.onChange("transparent")}

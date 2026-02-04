@@ -6,7 +6,7 @@
 		"build": {
 			"inputs": ["**/*.ts", "**/*.tsx", "!src-tauri/**", "!node_modules/**"],
 			"dependsOn": ["^build"],
-			"outputs": [".next/**", "!.next/cache/**", "dist/**"]
+			"outputs": [".output/**", "public/**", "dist/**"]
 		},
 		"lint": {
 			"cache": false

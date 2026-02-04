@@ -23,6 +23,7 @@ import {
 } from "solid-js";
 import { createStore, produce, type SetStoreFunction } from "solid-js/store";
 import { TransitionGroup } from "solid-transition-group";
+import { useI18n } from "~/i18n";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import { exportVideo } from "~/utils/export";
 import { commands, events, type FramesRendered } from "~/utils/tauri";
@@ -39,6 +40,7 @@ type MediaEntry = {
 };
 
 export default function () {
+	const { t } = useI18n();
 	onMount(() => {
 		document.documentElement.setAttribute("data-transparent-window", "true");
 		document.body.style.background = "transparent";
@@ -177,7 +179,7 @@ export default function () {
 												>
 													<img
 														class="pointer-events-none w-full h-full object-cover absolute inset-0 -z-10 rounded-[7.4px]"
-														alt="media preview"
+														alt={t("recordingsOverlay.mediaPreview.alt")}
 														src={`${convertFileSrc(
 															isRecording
 																? `${media.path}/screenshots/display.jpg`

@@ -21,6 +21,7 @@ import {
 	Suspense,
 } from "solid-js";
 import { createStore } from "solid-js/store";
+import { useI18n } from "~/i18n";
 import { generalSettingsStore } from "~/store";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import { createCameraMutation } from "~/utils/queries";
@@ -55,6 +56,7 @@ const getCameraOnlyInitialState = (): CameraWindowState => ({
 });
 
 export default function () {
+	const { t } = useI18n();
 	document.documentElement.classList.toggle("dark", true);
 
 	const generalSettings = generalSettingsStore.createQuery();
@@ -282,7 +284,7 @@ function NativeCameraPreviewPage(props: { disconnected: Accessor<boolean> }) {
 			{/* The camera preview is rendered in Rust by wgpu */}
 			<Show when={cameraPreviewReady.loading}>
 				<div class="w-full flex-1 flex items-center justify-center">
-					<div class="text-gray-11">Loading camera...</div>
+					<div class="text-gray-11">{t("camera.loading")}</div>
 				</div>
 			</Show>
 		</div>
@@ -826,9 +828,10 @@ function Canvas(props: {
 }
 
 function CameraLoadingState() {
+	const { t } = useI18n();
 	return (
 		<div class="w-full flex-1 flex items-center justify-center">
-			<div class="text-gray-11">Loading camera...</div>
+			<div class="text-gray-11">{t("camera.loading")}</div>
 		</div>
 	);
 }

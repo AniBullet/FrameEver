@@ -212,6 +212,7 @@ async fn create_pipeline(
     mic_feed: Option<Arc<MicrophoneFeedLock>>,
     max_output_size: Option<u32>,
     start_time: Timestamps,
+    bitrate_multiplier: Option<f32>,
 ) -> anyhow::Result<Pipeline> {
     if let Some(mic_feed) = &mic_feed {
         debug!(
@@ -250,6 +251,7 @@ async fn create_pipeline(
         start_time,
         #[cfg(windows)]
         crate::capture_pipeline::EncoderPreferences::new(),
+        bitrate_multiplier.unwrap_or(0.15),
     )
     .await?;
 
@@ -277,6 +279,7 @@ pub struct ActorBuilder {
     mic_feed: Option<Arc<MicrophoneFeedLock>>,
     camera_feed: Option<Arc<crate::feeds::camera::CameraFeedLock>>,
     max_output_size: Option<u32>,
+    bitrate_multiplier: Option<f32>,
     #[cfg(target_os = "macos")]
     excluded_windows: Vec<scap_targets::WindowId>,
 }
@@ -290,6 +293,7 @@ impl ActorBuilder {
             mic_feed: None,
             camera_feed: None,
             max_output_size: None,
+            bitrate_multiplier: None,
             #[cfg(target_os = "macos")]
             excluded_windows: Vec::new(),
         }
@@ -318,6 +322,11 @@ impl ActorBuilder {
         self
     }
 
+    pub fn with_bitrate_multiplier(mut self, multiplier: f32) -> Self {
+        self.bitrate_multiplier = Some(multiplier);
+        self
+    }
+
     #[cfg(target_os = "macos")]
     pub fn with_excluded_windows(mut self, excluded_windows: Vec<scap_targets::WindowId>) -> Self {
         self.excluded_windows = excluded_windows;
@@ -341,6 +350,7 @@ impl ActorBuilder {
                 excluded_windows: self.excluded_windows,
             },
             self.max_output_size,
+            self.bitrate_multiplier,
         )
         .await
     }
@@ -351,6 +361,7 @@ pub async fn spawn_instant_recording_actor(
     recording_dir: PathBuf,
     inputs: RecordingBaseInputs,
     max_output_size: Option<u32>,
+    bitrate_multiplier: Option<f32>,
 ) -> anyhow::Result<ActorHandle> {
     ensure_dir(&recording_dir)?;
 
@@ -447,6 +458,7 @@ pub async fn spawn_instant_recording_actor(
                 inputs.mic_feed.clone(),
                 max_output_size,
                 timestamps,
+                bitrate_multiplier,
             )
             .await?;
 

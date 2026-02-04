@@ -12,6 +12,7 @@ import {
 	For,
 	Show,
 } from "solid-js";
+import { useI18n } from "~/i18n";
 import type { BackgroundSource } from "~/utils/tauri";
 import IconCapBgBlur from "~icons/cap/bg-blur";
 import IconCapCircleX from "~icons/cap/circle-x";
@@ -122,6 +123,7 @@ const BACKGROUND_THEMES = {
 };
 
 export function BackgroundSettingsPopover() {
+	const { t } = useI18n();
 	const {
 		project,
 		setProject,
@@ -334,7 +336,7 @@ export function BackgroundSettingsPopover() {
 															src={photo.url}
 															loading="eager"
 															class="object-cover w-full h-full"
-															alt="Wallpaper option"
+															alt={t("screenshot.editor.wallpaperOption.alt")}
 														/>
 													</KRadioGroup.ItemControl>
 												</KRadioGroup.Item>
@@ -367,7 +369,7 @@ export function BackgroundSettingsPopover() {
 												<img
 													src={convertFileSrc(source())}
 													class="object-cover w-full h-full"
-													alt="Selected background"
+													alt={t("screenshot.editor.selectedBackground.alt")}
 												/>
 												<div class="absolute top-2 right-2">
 													<button

@@ -398,6 +398,8 @@ pub struct StartRecordingInputs {
     pub mode: RecordingMode,
     #[serde(default)]
     pub organization_id: Option<String>,
+    #[serde(default)]
+    pub quality: Option<crate::general_settings::RecordingQuality>,
 }
 
 #[derive(Deserialize, Type, Serialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -839,6 +841,15 @@ pub async fn start_recording(
                             })
                         }
                         RecordingMode::Instant => {
+                            let quality = inputs
+                                .quality
+                                .or_else(|| {
+                                    general_settings
+                                        .as_ref()
+                                        .map(|s| s.recording_quality)
+                                })
+                                .unwrap_or(crate::general_settings::RecordingQuality::Standard);
+
                             let mut builder = instant_recording::Actor::builder(
                                 recording_dir.clone(),
                                 inputs.capture_target.clone(),
@@ -849,7 +860,8 @@ pub async fn start_recording(
                                     .as_ref()
                                     .map(|settings| settings.instant_mode_max_resolution)
                                     .unwrap_or(1920),
-                            );
+                            )
+                            .with_bitrate_multiplier(quality.bits_per_pixel());
 
                             #[cfg(target_os = "macos")]
                             {

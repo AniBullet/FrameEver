@@ -15,6 +15,7 @@ import { produce } from "solid-js/store";
 import "./styles.css";
 
 import Tooltip from "~/components/Tooltip";
+import { useI18n } from "~/i18n";
 import { commands } from "~/utils/tauri";
 import { FPS, type TimelineTrackType, useEditorContext } from "../context";
 import { formatTime } from "../utils";
@@ -79,6 +80,7 @@ const trackDefinitions: TrackDefinition[] = [
 ];
 
 export function Timeline() {
+	const { t } = useI18n();
 	const {
 		project,
 		setProject,
@@ -470,7 +472,7 @@ export function Timeline() {
 						<TimelineMarkings />
 					</div>
 					<div class="absolute bottom-0">
-						<Tooltip content="Add track">
+						<Tooltip content={t("editor.video.add.track")}>
 							<TrackManager
 								options={trackOptions()}
 								onToggle={handleToggleTrack}

@@ -256,7 +256,9 @@ function Inner() {
 				<div class="relative w-screen h-screen flex flex-col items-center justify-center bg-black/70">
 					<div class="absolute inset-0 bg-black/60 -z-10" />
 					<div class="flex flex-col items-center text-white mb-4">
-						<span class="mb-2 text-3xl font-semibold">Camera Only</span>
+						<span class="mb-2 text-3xl font-semibold">
+							{t("targetSelect.cameraOnly")}
+						</span>
 						<span class="text-xs text-gray-11">
 							Record using only your camera and microphone
 						</span>
@@ -921,6 +923,7 @@ function calculateBackoffWithJitter(
 }
 
 function CameraPreviewInline() {
+	const { t } = useI18n();
 	const { rawOptions } = useRecordingOptions();
 	const [frame, setFrame] = createSignal<ImageData | null>(null);
 	const [connectionFailed, setConnectionFailed] = createSignal(false);
@@ -1109,7 +1112,9 @@ function CameraPreviewInline() {
 				fallback={
 					<div class="flex flex-col items-center gap-2 text-center px-4">
 						<IconCapCamera class="size-8 text-gray-9 mb-2" />
-						<div class="text-sm text-gray-11">Please select a camera</div>
+						<div class="text-sm text-gray-11">
+							{t("targetSelect.selectCamera")}
+						</div>
 					</div>
 				}
 			>
@@ -1117,7 +1122,9 @@ function CameraPreviewInline() {
 					when={!connectionFailed()}
 					fallback={
 						<div class="flex flex-col items-center gap-2 text-center px-4">
-							<div class="text-sm text-red-400">Camera connection failed</div>
+							<div class="text-sm text-red-400">
+								{t("targetSelect.cameraFailed")}
+							</div>
 							<button
 								type="button"
 								onClick={handleRetryConnection}
@@ -1130,7 +1137,9 @@ function CameraPreviewInline() {
 				>
 					<Show
 						when={frame()}
-						fallback={<div class="text-sm text-gray-11">Loading camera...</div>}
+						fallback={
+							<div class="text-sm text-gray-11">{t("camera.loading")}</div>
+						}
 					>
 						<canvas ref={canvasRef} class="w-full h-full object-contain" />
 					</Show>

@@ -1,6 +1,7 @@
 import { cx } from "cva";
 import { For } from "solid-js";
 import { Transition } from "solid-transition-group";
+import { useI18n } from "~/i18n";
 import { commands, type RecordingMode } from "~/utils/tauri";
 import IconLucideArrowLeft from "~icons/lucide/arrow-left";
 import { useRecordingOptions } from "../OptionsContext";
@@ -9,32 +10,31 @@ interface ModeInfoPanelProps {
 	onBack: () => void;
 }
 
-const modeOptions = [
+const getModeOptions = (t: (key: string) => string) => [
 	{
 		mode: "instant" as RecordingMode,
-		title: "Instant",
-		description:
-			"Share instantly with a link. Your recording uploads as you record, so you can share it immediately when you're done.",
+		title: () => t("recording.mode.instant"),
+		description: () => t("recording.mode.info.instant.detail"),
 		icon: IconCapInstant,
 	},
 	{
 		mode: "studio" as RecordingMode,
-		title: "Studio",
-		description:
-			"Record locally in the highest quality for editing later. Perfect for creating polished content with effects and transitions.",
+		title: () => t("recording.mode.studio"),
+		description: () => t("recording.mode.info.studio.detail"),
 		icon: IconCapFilmCut,
 	},
 	{
 		mode: "screenshot" as RecordingMode,
-		title: "Screenshot",
-		description:
-			"Capture and annotate screenshots instantly. Great for quick captures, bug reports, and visual communication.",
+		title: () => t("recording.mode.screenshot"),
+		description: () => t("recording.mode.info.screenshot.detail"),
 		icon: IconCapScreenshot,
 	},
 ];
 
 export default function ModeInfoPanel(props: ModeInfoPanelProps) {
+	const { t } = useI18n();
 	const { rawOptions, setOptions } = useRecordingOptions();
+	const modeOptions = getModeOptions(t);
 
 	const handleModeSelect = (mode: RecordingMode) => {
 		setOptions({ mode });
@@ -52,9 +52,11 @@ export default function ModeInfoPanel(props: ModeInfoPanelProps) {
 					focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-9 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-1"
 				>
 					<IconLucideArrowLeft class="size-3 text-gray-11" />
-					<span class="font-medium text-gray-12">Back</span>
+					<span class="font-medium text-gray-12">{t("main.button.back")}</span>
 				</div>
-				<span class="text-xs font-medium text-gray-11">Recording Modes</span>
+				<span class="text-xs font-medium text-gray-11">
+					{t("main.tooltip.recordingModes")}
+				</span>
 			</div>
 			<div class="flex flex-col flex-1 min-h-0 pt-4">
 				<div class="px-1 custom-scroll flex-1 overflow-y-auto">
@@ -105,10 +107,10 @@ export default function ModeInfoPanel(props: ModeInfoPanelProps) {
 															isSelected() ? "text-blue-11" : "text-gray-12",
 														)}
 													>
-														{option.title}
+														{option.title()}
 													</h3>
 													<p class="text-xs leading-relaxed text-gray-11">
-														{option.description}
+														{option.description()}
 													</p>
 												</div>
 											</div>

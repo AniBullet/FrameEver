@@ -10,6 +10,7 @@ import {
 	Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import { useI18n } from "~/i18n";
 
 export type DeviceSelectOverlayProps<T> = {
 	open: boolean;
@@ -30,6 +31,7 @@ export type DeviceSelectOverlayProps<T> = {
 export default function DeviceSelectOverlay<T>(
 	props: DeviceSelectOverlayProps<T>,
 ) {
+	const { t } = useI18n();
 	let overlayRef: HTMLDivElement | undefined;
 	let listRef: HTMLDivElement | undefined;
 	const [searchQuery, setSearchQuery] = createSignal("");
@@ -172,7 +174,7 @@ export default function DeviceSelectOverlay<T>(
 						<div class="px-2 pt-2">
 							<input
 								type="text"
-								placeholder="Search..."
+								placeholder={t("main.placeholder.search")}
 								value={searchQuery()}
 								onInput={(e) => setSearchQuery(e.currentTarget.value)}
 								class="w-full px-3 py-1.5 text-sm rounded-lg outline-none placeholder:text-white/40 text-white"

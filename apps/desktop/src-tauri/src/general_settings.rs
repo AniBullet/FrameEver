@@ -42,6 +42,40 @@ pub enum EditorPreviewQuality {
     Full,
 }
 
+#[derive(Serialize, Deserialize, Type, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RecordingQuality {
+    High,
+    Standard,
+    Low,
+}
+
+impl Default for RecordingQuality {
+    fn default() -> Self {
+        Self::Standard
+    }
+}
+
+impl RecordingQuality {
+    /// 返回该质量级别对应的比特率倍数（相对于标准质量）
+    pub fn bitrate_multiplier(&self) -> f32 {
+        match self {
+            Self::High => 1.5,      // 高质量：1.5倍比特率
+            Self::Standard => 1.0,  // 标准质量：基准比特率
+            Self::Low => 0.6,       // 低质量：0.6倍比特率
+        }
+    }
+
+    /// 返回该质量级别对应的 bits per pixel 值（用于编码器）
+    pub fn bits_per_pixel(&self) -> f32 {
+        match self {
+            Self::High => 0.25,     // 高质量
+            Self::Standard => 0.15, // 标准质量（类似 Social）
+            Self::Low => 0.08,      // 低质量（类似 Web）
+        }
+    }
+}
+
 impl MainWindowRecordingStartBehaviour {
     pub fn perform(&self, window: &tauri::WebviewWindow) -> tauri::Result<()> {
         match self {
@@ -141,6 +175,8 @@ pub struct GeneralSettingsStore {
     pub recordings_save_path: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
+    #[serde(default)]
+    pub recording_quality: RecordingQuality,
 }
 
 fn default_enable_native_camera_preview() -> bool {
@@ -209,6 +245,7 @@ impl Default for GeneralSettingsStore {
             editor_preview_quality: EditorPreviewQuality::Half,
             main_window_position: None,
             camera_window_position: None,
+            recording_quality: RecordingQuality::Standard,
         }
     }
 }

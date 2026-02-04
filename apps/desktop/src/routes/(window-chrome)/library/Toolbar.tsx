@@ -52,7 +52,7 @@ export default function Toolbar(props: Props) {
 								? "bg-gray-5 text-gray-12"
 								: "text-gray-10 hover:text-gray-12"
 						}`}
-						title="网格视图"
+						title={t("library.toolbar.view.grid")}
 					>
 						<IconLucideGrid3x3 class="size-4" />
 					</button>
@@ -64,7 +64,7 @@ export default function Toolbar(props: Props) {
 								? "bg-gray-5 text-gray-12"
 								: "text-gray-10 hover:text-gray-12"
 						}`}
-						title="列表视图"
+						title={t("library.toolbar.view.list")}
 					>
 						<IconLucideList class="size-4" />
 					</button>
@@ -76,7 +76,7 @@ export default function Toolbar(props: Props) {
 								? "bg-gray-5 text-gray-12"
 								: "text-gray-10 hover:text-gray-12"
 						}`}
-						title="紧凑视图"
+						title={t("library.toolbar.view.compact")}
 					>
 						<IconLucideAlignJustify class="size-4" />
 					</button>
@@ -86,7 +86,7 @@ export default function Toolbar(props: Props) {
 					type="button"
 					onClick={props.onRefresh}
 					class="p-2 rounded-lg hover:bg-gray-3 transition-colors text-gray-10 hover:text-gray-12"
-					title="刷新"
+					title={t("library.toolbar.refresh")}
 				>
 					<IconLucideRefreshCw class="size-4" />
 				</button>

@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 
 import Tooltip from "~/components/Tooltip";
+import { useI18n } from "~/i18n";
 import { useRecordingOptions } from "~/routes/(window-chrome)/OptionsContext";
 import { commands } from "~/utils/tauri";
 
@@ -9,6 +10,7 @@ interface ModeProps {
 }
 
 const Mode = (props: ModeProps) => {
+	const { t } = useI18n();
 	const { rawOptions, setOptions } = useRecordingOptions();
 	const [isInfoHovered, setIsInfoHovered] = createSignal(false);
 
@@ -34,7 +36,7 @@ const Mode = (props: ModeProps) => {
 			{!isInfoHovered() && (
 				<Tooltip
 					placement="top"
-					content="Instant mode"
+					content={t("recording.mode.instant")}
 					openDelay={0}
 					closeDelay={0}
 				>
@@ -57,7 +59,7 @@ const Mode = (props: ModeProps) => {
 			{!isInfoHovered() && (
 				<Tooltip
 					placement="top"
-					content="Studio mode"
+					content={t("recording.mode.studio")}
 					openDelay={0}
 					closeDelay={0}
 				>
@@ -80,7 +82,7 @@ const Mode = (props: ModeProps) => {
 			{!isInfoHovered() && (
 				<Tooltip
 					placement="top"
-					content="Screenshot mode"
+					content={t("recording.mode.screenshot")}
 					openDelay={0}
 					closeDelay={0}
 				>

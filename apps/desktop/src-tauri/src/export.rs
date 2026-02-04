@@ -43,55 +43,6 @@ impl ExportSettings {
     }
 }
 
-async fn do_export(
-    project_path: &Path,
-    settings: &ExportSettings,
-    progress: &tauri::ipc::Channel<FramesRendered>,
-    force_ffmpeg: bool,
-) -> Result<PathBuf, String> {
-    let exporter_base = ExporterBase::builder(project_path.to_path_buf())
-        .with_force_ffmpeg_decoder(force_ffmpeg)
-        .build()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let total_frames = exporter_base.total_frames(settings.fps());
-
-    let _ = progress.send(FramesRendered {
-        rendered_count: 0,
-        total_frames,
-    });
-
-    match settings {
-        ExportSettings::Mp4(mp4_settings) => {
-            let progress = progress.clone();
-            mp4_settings
-                .export(exporter_base, move |frame_index| {
-                    progress
-                        .send(FramesRendered {
-                            rendered_count: (frame_index + 1).min(total_frames),
-                            total_frames,
-                        })
-                        .is_ok()
-                })
-                .await
-        }
-        ExportSettings::Gif(gif_settings) => {
-            let progress = progress.clone();
-            gif_settings
-                .export(exporter_base, move |frame_index| {
-                    progress
-                        .send(FramesRendered {
-                            rendered_count: (frame_index + 1).min(total_frames),
-                            total_frames,
-                        })
-                        .is_ok()
-                })
-                .await
-        }
-    }
-}
-
 async fn do_export_with_path(
     project_path: &Path,
     output_path: &Path,

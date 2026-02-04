@@ -458,7 +458,7 @@ function Startup(props: { onClose: () => void }) {
 						<img
 							class="cloud-image w-[100vw] md:w-[80vw] -mr-40"
 							src={cloud1}
-							alt="Cloud One"
+							alt={t("setup.cloudOne.alt")}
 						/>
 					</div>
 					<div
@@ -470,7 +470,7 @@ function Startup(props: { onClose: () => void }) {
 						<img
 							class="cloud-image w-[100vw] md:w-[80vw] -ml-40"
 							src={cloud2}
-							alt="Cloud Two"
+							alt={t("setup.cloudTwo.alt")}
 						/>
 					</div>
 					<div
@@ -482,7 +482,7 @@ function Startup(props: { onClose: () => void }) {
 						<img
 							class="cloud-image w-[180vw] md:w-[180vw]"
 							src={cloud3}
-							alt="Cloud Three"
+							alt={t("setup.cloudThree.alt")}
 						/>
 					</div>
 

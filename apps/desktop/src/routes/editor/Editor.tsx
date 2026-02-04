@@ -30,6 +30,7 @@ import {
 	type Ratio,
 } from "~/components/Cropper";
 import { Toggle } from "~/components/Toggle";
+import { useI18n } from "~/i18n";
 import { composeEventHandlers } from "~/utils/composeEventHandlers";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import { commands, events } from "~/utils/tauri";
@@ -151,6 +152,7 @@ export function Editor() {
 }
 
 function EditorContent(props: { projectPath: string }) {
+	const { t } = useI18n();
 	const ctx = useEditorInstanceContext();
 
 	const errorInfo = () => {
@@ -466,7 +468,7 @@ function Dialogs() {
 
 								return (
 									<DialogContent
-										title="Create Preset"
+										title={t("editor.video.createPreset")}
 										confirm={
 											<Dialog.ConfirmButton
 												disabled={createPreset.isPending}
@@ -480,7 +482,7 @@ function Dialogs() {
 										<Input
 											class="mt-2"
 											value={form.name}
-											placeholder="Enter preset name..."
+											placeholder={t("editor.video.preset.name.placeholder")}
 											onInput={(e) => setForm("name", e.currentTarget.value)}
 										/>
 										<Subfield name="Set as default" class="mt-4">
@@ -514,7 +516,7 @@ function Dialogs() {
 
 								return (
 									<DialogContent
-										title="Rename Preset"
+										title={t("editor.video.renamePreset")}
 										confirm={
 											<Dialog.ConfirmButton
 												disabled={renamePreset.isPending}
@@ -553,7 +555,7 @@ function Dialogs() {
 
 								return (
 									<DialogContent
-										title="Delete Preset"
+										title={t("editor.video.deletePreset")}
 										confirm={
 											<Dialog.ConfirmButton
 												variant="destructive"
@@ -676,7 +678,7 @@ function Dialogs() {
 										<Dialog.Header>
 											<div class="flex flex-row space-x-[2rem]">
 												<div class="flex flex-row items-center space-x-[0.75rem] text-gray-11">
-													<span>Size</span>
+													<span>{t("editor.video.size")}</span>
 													<div class="w-[3.25rem]">
 														<BoundInput field="width" max={display.width} />
 													</div>
@@ -686,7 +688,7 @@ function Dialogs() {
 													</div>
 												</div>
 												<div class="flex flex-row items-center space-x-[0.75rem] text-gray-11">
-													<span>Position</span>
+													<span>{t("editor.video.position")}</span>
 													<div class="w-[3.25rem]">
 														<BoundInput field="x" />
 													</div>
@@ -772,7 +774,7 @@ function Dialogs() {
 													>
 														<img
 															class="shadow pointer-events-none max-h-[70vh]"
-															alt="Current frame"
+															alt={t("editor.video.currentFrame.alt")}
 															src={
 																frameBlobUrl() ??
 																convertFileSrc(

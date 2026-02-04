@@ -1,12 +1,13 @@
 import { cx } from "cva";
 import { type JSX, Show } from "solid-js";
+import { useI18n } from "~/i18n";
 import { createOptionsQuery } from "~/utils/queries";
 import { commands, type RecordingMode } from "~/utils/tauri";
 
 interface ModeOptionProps {
 	mode: RecordingMode;
-	title: string;
-	description: string;
+	title: () => string;
+	description: () => string;
 	icon: (props: { class: string; style?: JSX.CSSProperties }) => JSX.Element;
 	isSelected: boolean;
 	onSelect: (mode: RecordingMode) => void;
@@ -43,10 +44,10 @@ const ModeOption = (props: ModeOptionProps) => {
 						props.isSelected ? "text-blue-11" : "text-gray-12",
 					)}
 				>
-					{props.title}
+					{props.title()}
 				</h3>
 				<p class="text-xs leading-relaxed text-gray-11 line-clamp-3">
-					{props.description}
+					{props.description()}
 				</p>
 			</div>
 		</div>
@@ -54,6 +55,7 @@ const ModeOption = (props: ModeOptionProps) => {
 };
 
 const ModeSelect = (props: { onClose?: () => void; standalone?: boolean }) => {
+	const { t } = useI18n();
 	const { rawOptions, setOptions } = createOptionsQuery();
 
 	const handleModeChange = (mode: RecordingMode) => {
@@ -64,20 +66,20 @@ const ModeSelect = (props: { onClose?: () => void; standalone?: boolean }) => {
 	const modeOptions = [
 		{
 			mode: "instant" as const,
-			title: "Instant",
-			description: "Share instantly with a link. Uploads as you record.",
+			title: () => t("recording.mode.instant"),
+			description: () => t("recording.mode.info.instant"),
 			icon: IconCapInstant,
 		},
 		{
 			mode: "studio" as const,
-			title: "Studio",
-			description: "Highest quality local recording for editing later.",
+			title: () => t("recording.mode.studio"),
+			description: () => t("recording.mode.info.studio"),
 			icon: IconCapFilmCut,
 		},
 		{
 			mode: "screenshot" as const,
-			title: "Screenshot",
-			description: "Capture and annotate screenshots instantly.",
+			title: () => t("recording.mode.screenshot"),
+			description: () => t("recording.mode.info.screenshot"),
 			icon: IconCapScreenshot,
 		},
 	];
