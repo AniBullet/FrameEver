@@ -16,42 +16,17 @@ if (-not (Test-Path "node_modules")) {
     exit 1
 }
 
-# Ensure FFmpeg dev env is set for ffmpeg-sys-next (Windows)
+# Build env: refresh PATH and set vars from 1-install layout (no per-machine special cases)
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 $ffmpegDevDir = "$env:USERPROFILE\.ffmpeg-dev"
-if ($IsWindows -ne $false -and (Test-Path "$ffmpegDevDir\include")) {
-    if (-not $env:FFMPEG_DIR) {
-        $env:FFMPEG_DIR = $ffmpegDevDir
-        $env:FFMPEG_INCLUDE_DIR = "$ffmpegDevDir\include"
-        $env:FFMPEG_LIB_DIR = "$ffmpegDevDir\lib"
-        Write-Host "FFmpeg dev: using $ffmpegDevDir (FFMPEG_DIR)" -ForegroundColor Gray
-    }
+if ($env:OS -eq "Windows_NT" -and (Test-Path "$ffmpegDevDir\include")) {
+    $env:FFMPEG_DIR = $ffmpegDevDir
+    $env:FFMPEG_INCLUDE_DIR = "$ffmpegDevDir\include"
+    $env:FFMPEG_LIB_DIR = "$ffmpegDevDir\lib"
 }
-
-# Recommend MSVC toolchain on Windows (avoids pkg-config requirement)
-$rustTarget = rustc -vV 2>$null | Select-String "host:"
-if ($rustTarget -match "pc-windows-gnu") {
-    Write-Host ""
-    Write-Host "WARNING: You are using the GNU toolchain (pc-windows-gnu)." -ForegroundColor Yellow
-    Write-Host "  FFmpeg build often fails with 'pkg-config could not be found'." -ForegroundColor Yellow
-    Write-Host "  Switch to MSVC toolchain and retry:" -ForegroundColor Yellow
-    Write-Host "    rustup default stable-x86_64-pc-windows-msvc" -ForegroundColor White
-    Write-Host ""
-}
-
-# Use CMake that supports "Visual Studio 17 2022" (whisper-rs-sys); VS2019's CMake does not
 if ($env:OS -eq "Windows_NT") {
-    $preferredDirs = @(
-        "$env:ProgramFiles\CMake\bin",
-        "$env:ProgramFiles(x86)\CMake\bin"
-    )
-    $vs2022Cmake = Get-ChildItem -Path "$env:ProgramFiles(x86)\Microsoft Visual Studio\2022" -Recurse -Filter "cmake.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($vs2022Cmake) { $preferredDirs = @($vs2022Cmake.DirectoryName) + $preferredDirs }
-    $preferredCmakeDir = $preferredDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
-    $currentCmake = (Get-Command cmake -ErrorAction SilentlyContinue).Source
-    if ($currentCmake -match "2019\\Community" -and $preferredCmakeDir) {
-        $env:Path = "$preferredCmakeDir;$env:Path"
-        Write-Host "CMake: using build-compatible path (VS 2022 / Kitware)" -ForegroundColor Gray
-    }
+    $hostTarget = rustc -vV 2>$null | Select-String "host:"
+    if ($hostTarget -match "pc-windows-gnu") { Write-Host "Tip: rustup default stable-x86_64-pc-windows-msvc" -ForegroundColor Yellow }
 }
 
 # Ask build type
@@ -174,14 +149,7 @@ if ($buildExitCode -eq 0) {
     Write-Host ""
     Write-Host "Duration: $($duration.Minutes)m $($duration.Seconds)s" -ForegroundColor White
     Write-Host ""
-    Write-Host "Common issues:" -ForegroundColor Yellow
-    Write-Host "  1. Run .\1-install.ps1 first (installs FFmpeg dev + sets FFMPEG_DIR)" -ForegroundColor White
-    Write-Host "  2. If you see 'pkg-config could not be found': use MSVC toolchain:" -ForegroundColor White
-    Write-Host "     rustup default stable-x86_64-pc-windows-msvc" -ForegroundColor Gray
-    Write-Host "  3. If you see 'Could not create named generator Visual Studio 17 2022':" -ForegroundColor White
-    Write-Host "     Run .\1-install.ps1 (prefers Kitware/VS2022 CMake over VS2019)" -ForegroundColor Gray
-    Write-Host "  4. Restart terminal after 1-install.ps1 so PATH/FFMPEG_DIR take effect" -ForegroundColor White
-    Write-Host "  5. Ensure sufficient disk space (10GB+)" -ForegroundColor White
+    Write-Host "If build failed: run .\1-install.ps1, restart terminal, then retry. See README for requirements." -ForegroundColor Yellow
     Write-Host ""
     exit 1
 }

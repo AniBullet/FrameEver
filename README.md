@@ -57,6 +57,7 @@
 ```powershell
 # 1. 安装依赖（首次运行）
 .\1-install.ps1
+# 安装完成后请重启终端，再执行下面步骤
 
 # 2. 启动开发服务器
 .\2-dev.ps1
@@ -93,7 +94,7 @@ cd apps/desktop && pnpm build:tauri --config src-tauri/tauri.prod.conf.json
 - macOS: `apps/desktop/src-tauri/target/release/bundle/dmg/Cap_aniBullet_*.dmg`
 - Linux: `apps/desktop/src-tauri/target/release/bundle/deb/cap-anibullet_*.deb`
 
-**系统要求**：Node.js 20+ • Rust 1.88+ • FFmpeg
+**系统要求**：Node.js 20+ • Rust 1.88+ (Windows 建议 MSVC) • CMake (Kitware) • FFmpeg • Windows: Visual Studio 2022 Build Tools
 
 </details>
 

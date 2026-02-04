@@ -61,60 +61,39 @@ else {
     }
 }
 
-# Check CMake (whisper-rs-sys needs "Visual Studio 17 2022" generator; VS2019's CMake does not support it)
+# Check CMake (Kitware preferred: supports all VS generators; required for whisper-rs-sys)
 Write-Host ""
 Write-Host "[3/7] Checking CMake..." -ForegroundColor Yellow
 Refresh-Path
-$cmakePreferredDirs = @(
-    "${env:ProgramFiles}\CMake\bin",
-    "${env:ProgramFiles(x86)}\CMake\bin"
-)
-$vs2022Cmake = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022" -Recurse -Filter "cmake.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($vs2022Cmake) { $cmakePreferredDirs = @($vs2022Cmake.DirectoryName) + $cmakePreferredDirs }
-$cmakePreferredDir = $cmakePreferredDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
+$kitwareCmakeBin = "${env:ProgramFiles}\CMake\bin"
+if (-not (Test-Path "$kitwareCmakeBin\cmake.exe")) { $kitwareCmakeBin = "${env:ProgramFiles(x86)}\CMake\bin" }
 $cmake = Get-Command cmake -ErrorAction SilentlyContinue
 if ($cmake) {
-    $cmakeSource = $cmake.Source
-    $cmakeVersion = cmake --version 2>$null | Select-String "version" | Select-Object -First 1
-    if ($cmakeSource -match "2019\\Community") {
-        if ($cmakePreferredDir) {
-            Write-Host "  Detected VS 2019 CMake (incompatible with whisper-rs); preferring build CMake" -ForegroundColor Yellow
-            [System.Environment]::SetEnvironmentVariable("Path", "$cmakePreferredDir;" + [System.Environment]::GetEnvironmentVariable("Path", "User"), "User")
-            $env:Path = "$cmakePreferredDir;$env:Path"
-            $cmake = Get-Command cmake -ErrorAction SilentlyContinue
-            Write-Host "  OK CMake (build-compatible): $($cmake.Source)" -ForegroundColor Green
-        }
-        else {
-            Write-Host "  Installing Kitware CMake (required for whisper-rs, VS 2019 CMake not compatible)..." -ForegroundColor Yellow
-            winget install --id=Kitware.CMake --silent --accept-source-agreements --accept-package-agreements
-            Refresh-Path
-            $kitwareBin = "${env:ProgramFiles}\CMake\bin"
-            if (Test-Path $kitwareBin) {
-                [System.Environment]::SetEnvironmentVariable("Path", "$kitwareBin;" + [System.Environment]::GetEnvironmentVariable("Path", "User"), "User")
-                $env:Path = "$kitwareBin;$env:Path"
-                Write-Host "  OK Kitware CMake installed and preferred" -ForegroundColor Green
-            }
-            else { Write-Host "  OK Kitware CMake installed (restart terminal to use)" -ForegroundColor Yellow }
+    $ver = cmake --version 2>$null | Select-String "version" | Select-Object -First 1
+    Write-Host "  OK CMake: $ver" -ForegroundColor Green
+    if (Test-Path "$kitwareCmakeBin\cmake.exe") {
+        $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+        if ($userPath -notlike "$kitwareCmakeBin*") {
+            [System.Environment]::SetEnvironmentVariable("Path", "$kitwareCmakeBin;$userPath", "User")
+            $env:Path = "$kitwareCmakeBin;$env:Path"
+            Write-Host "  Kitware CMake preferred in PATH" -ForegroundColor Gray
             $needsRestart = $true
         }
     }
-    else {
-        Write-Host "  OK CMake installed: $cmakeVersion" -ForegroundColor Green
-    }
 }
 else {
-    Write-Host "  Installing CMake..." -ForegroundColor Yellow
+    Write-Host "  Installing CMake (Kitware)..." -ForegroundColor Yellow
     winget install --id=Kitware.CMake --silent --accept-source-agreements --accept-package-agreements
     Refresh-Path
-    $cmake = Get-Command cmake -ErrorAction SilentlyContinue
-    if ($cmake) {
+    $kitwareCmakeBin = "${env:ProgramFiles}\CMake\bin"
+    if (-not (Test-Path "$kitwareCmakeBin\cmake.exe")) { $kitwareCmakeBin = "${env:ProgramFiles(x86)}\CMake\bin" }
+    if (Test-Path "$kitwareCmakeBin\cmake.exe") {
+        [System.Environment]::SetEnvironmentVariable("Path", "$kitwareCmakeBin;" + [System.Environment]::GetEnvironmentVariable("Path", "User"), "User")
+        $env:Path = "$kitwareCmakeBin;$env:Path"
         Write-Host "  OK CMake installed" -ForegroundColor Green
-        $needsRestart = $true
     }
-    else {
-        Write-Host "  OK CMake installed (restart terminal to use)" -ForegroundColor Yellow
-        $needsRestart = $true
-    }
+    else { Write-Host "  OK CMake installed (restart terminal to use)" -ForegroundColor Yellow }
+    $needsRestart = $true
 }
 
 # Check Rust
