@@ -1,4 +1,4 @@
-/// <reference types="vinxi/client" />
+/// <reference types="vinxi/types/client" />
 
 interface ImportMetaEnv {
 	readonly VITE_SERVER_URL: string;
