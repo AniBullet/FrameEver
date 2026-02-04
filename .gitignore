@@ -17,6 +17,7 @@ dist-ssr
 .env.test
 target
 .cursorrules
+.yarn
 
 # Editor directories and files
 .vscode/*
@@ -66,3 +67,58 @@ seo/
 .opencode/
 analysis/
 analysis/plans/
+
+# Database files (privacy)
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# Keys and certificates (security)
+*.key
+*.pem
+*.p12
+*.pfx
+*.cer
+*.crt
+*.der
+*.csr
+codesign.keychain
+
+# Build outputs (large files)
+*.dmg
+*.app
+*.exe
+*.msi
+*.AppImage
+*.deb
+*.rpm
+
+# AI models (large files)
+*.bin
+models/
+whisper-models/
+
+# User data directories
+recordings/
+exports/
+test-output/
+user-data/
+app-data/
+
+# Backup and temporary files
+*.bak
+*.backup
+*.tmp
+*~
+*.swp
+*.swo
+
+# OS files
+Thumbs.db
+Desktop.ini
+*.lnk
+._*
+.Spotlight-V100
+.Trashes

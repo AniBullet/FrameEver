@@ -2,7 +2,9 @@ use crate::window_exclusion::WindowExclusion;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use specta::Type;
-use tauri::{AppHandle, Wry};
+use std::path::PathBuf;
+use std::str::FromStr;
+use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_store::StoreExt;
 use tracing::{error, instrument};
 use uuid::Uuid;
@@ -83,8 +85,6 @@ pub struct GeneralSettingsStore {
     #[serde(default = "uuid::Uuid::new_v4")]
     pub instance_id: Uuid,
     #[serde(default)]
-    pub upload_individual_files: bool,
-    #[serde(default)]
     pub hide_dock_icon: bool,
     #[serde(default)]
     pub auto_create_shareable_link: bool,
@@ -123,8 +123,6 @@ pub struct GeneralSettingsStore {
     pub post_deletion_behaviour: PostDeletionBehaviour,
     #[serde(default = "default_excluded_windows")]
     pub excluded_windows: Vec<WindowExclusion>,
-    #[serde(default)]
-    pub delete_instant_recordings_after_upload: bool,
     #[serde(default = "default_instant_mode_max_resolution")]
     pub instant_mode_max_resolution: u32,
     #[serde(default)]
@@ -139,6 +137,10 @@ pub struct GeneralSettingsStore {
     pub main_window_position: Option<WindowPosition>,
     #[serde(default)]
     pub camera_window_position: Option<WindowPosition>,
+    #[serde(default)]
+    pub recordings_save_path: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 fn default_enable_native_camera_preview() -> bool {
@@ -180,7 +182,6 @@ impl Default for GeneralSettingsStore {
     fn default() -> Self {
         Self {
             instance_id: uuid::Uuid::new_v4(),
-            upload_individual_files: false,
             hide_dock_icon: false,
             auto_create_shareable_link: false,
             enable_notifications: true,
@@ -193,13 +194,14 @@ impl Default for GeneralSettingsStore {
             post_studio_recording_behaviour: PostStudioRecordingBehaviour::OpenEditor,
             main_window_recording_start_behaviour: MainWindowRecordingStartBehaviour::Close,
             custom_cursor_capture: true,
+            recordings_save_path: None,
+            language: None,
             server_url: default_server_url(),
             recording_countdown: Some(3),
             enable_native_camera_preview: default_enable_native_camera_preview(),
             auto_zoom_on_clicks: false,
             post_deletion_behaviour: PostDeletionBehaviour::DoNothing,
             excluded_windows: default_excluded_windows(),
-            delete_instant_recordings_after_upload: false,
             instant_mode_max_resolution: 1920,
             default_project_name_template: None,
             crash_recovery_recording: true,
@@ -254,6 +256,167 @@ impl GeneralSettingsStore {
         store.set("general_settings", json!(self));
         store.save().map_err(|e| e.to_string())
     }
+
+    pub fn recordings_path(app: &AppHandle) -> PathBuf {
+        let custom_path = Self::get(app)
+            .ok()
+            .flatten()
+            .and_then(|s| s.recordings_save_path)
+            .and_then(|p| PathBuf::from_str(&p).ok());
+
+        if let Some(path) = custom_path {
+            let recordings_dir = path.join("recordings");
+            if std::fs::create_dir_all(&recordings_dir).is_ok() {
+                return recordings_dir;
+            }
+        }
+
+        let default_base_path = if cfg!(target_os = "windows") {
+            std::env::var("USERPROFILE")
+                .ok()
+                .map(PathBuf::from)
+                .and_then(|p| {
+                    let videos_path = p.join("Videos").join("Cap Recordings");
+                    if std::fs::create_dir_all(&videos_path).is_ok() {
+                        Some(videos_path)
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            app.path().home_dir().ok().and_then(|p| {
+                let videos_path = p.join("Videos").join("Cap Recordings");
+                if std::fs::create_dir_all(&videos_path).is_ok() {
+                    Some(videos_path)
+                } else {
+                    None
+                }
+            })
+        };
+
+        if let Some(base_path) = default_base_path {
+            let recordings_dir = base_path.join("recordings");
+            if std::fs::create_dir_all(&recordings_dir).is_ok() {
+                return recordings_dir;
+            }
+        }
+
+        let fallback_path = app
+            .path()
+            .app_data_dir()
+            .unwrap_or_default()
+            .join("recordings");
+        std::fs::create_dir_all(&fallback_path).unwrap_or_default();
+        fallback_path
+    }
+
+    pub fn exports_video_path(app: &AppHandle) -> PathBuf {
+        let custom_path = Self::get(app)
+            .ok()
+            .flatten()
+            .and_then(|s| s.recordings_save_path)
+            .and_then(|p| PathBuf::from_str(&p).ok());
+
+        if let Some(path) = custom_path {
+            let exports_dir = path.join("exports").join("video");
+            if std::fs::create_dir_all(&exports_dir).is_ok() {
+                return exports_dir;
+            }
+        }
+
+        let default_base_path = if cfg!(target_os = "windows") {
+            std::env::var("USERPROFILE")
+                .ok()
+                .map(PathBuf::from)
+                .and_then(|p| {
+                    let videos_path = p.join("Videos").join("Cap Recordings");
+                    if std::fs::create_dir_all(&videos_path).is_ok() {
+                        Some(videos_path)
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            app.path().home_dir().ok().and_then(|p| {
+                let videos_path = p.join("Videos").join("Cap Recordings");
+                if std::fs::create_dir_all(&videos_path).is_ok() {
+                    Some(videos_path)
+                } else {
+                    None
+                }
+            })
+        };
+
+        if let Some(base_path) = default_base_path {
+            let exports_dir = base_path.join("exports").join("video");
+            if std::fs::create_dir_all(&exports_dir).is_ok() {
+                return exports_dir;
+            }
+        }
+
+        let fallback_path = app
+            .path()
+            .app_data_dir()
+            .unwrap_or_default()
+            .join("exports")
+            .join("video");
+        std::fs::create_dir_all(&fallback_path).unwrap_or_default();
+        fallback_path
+    }
+
+    pub fn exports_screenshot_path(app: &AppHandle) -> PathBuf {
+        let custom_path = Self::get(app)
+            .ok()
+            .flatten()
+            .and_then(|s| s.recordings_save_path)
+            .and_then(|p| PathBuf::from_str(&p).ok());
+
+        if let Some(path) = custom_path {
+            let exports_dir = path.join("exports").join("screenshot");
+            if std::fs::create_dir_all(&exports_dir).is_ok() {
+                return exports_dir;
+            }
+        }
+
+        let default_base_path = if cfg!(target_os = "windows") {
+            std::env::var("USERPROFILE")
+                .ok()
+                .map(PathBuf::from)
+                .and_then(|p| {
+                    let videos_path = p.join("Videos").join("Cap Recordings");
+                    if std::fs::create_dir_all(&videos_path).is_ok() {
+                        Some(videos_path)
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            app.path().home_dir().ok().and_then(|p| {
+                let videos_path = p.join("Videos").join("Cap Recordings");
+                if std::fs::create_dir_all(&videos_path).is_ok() {
+                    Some(videos_path)
+                } else {
+                    None
+                }
+            })
+        };
+
+        if let Some(base_path) = default_base_path {
+            let exports_dir = base_path.join("exports").join("screenshot");
+            if std::fs::create_dir_all(&exports_dir).is_ok() {
+                return exports_dir;
+            }
+        }
+
+        let fallback_path = app
+            .path()
+            .app_data_dir()
+            .unwrap_or_default()
+            .join("exports")
+            .join("screenshot");
+        std::fs::create_dir_all(&fallback_path).unwrap_or_default();
+        fallback_path
+    }
 }
 
 pub fn init(app: &AppHandle) {
@@ -273,6 +436,19 @@ pub fn init(app: &AppHandle) {
     }
 
     println!("GeneralSettingsState managed");
+}
+
+#[tauri::command]
+#[specta::specta]
+#[instrument(skip(app))]
+pub fn get_default_recordings_path(app: AppHandle) -> String {
+    let path = app.path()
+        .video_dir()
+        .ok()
+        .map(|p| p.join("Cap Recordings"));
+    
+    path.and_then(|p| p.to_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "~/Videos/Cap Recordings".to_string())
 }
 
 #[tauri::command]

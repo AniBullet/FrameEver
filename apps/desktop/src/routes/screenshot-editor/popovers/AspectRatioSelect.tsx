@@ -1,5 +1,6 @@
 import { Select as KSelect } from "@kobalte/core/select";
 import { createSignal, Show } from "solid-js";
+import { useI18n } from "~/i18n";
 import type { AspectRatio } from "~/utils/tauri";
 import IconCapChevronDown from "~icons/cap/chevron-down";
 import IconCapLayout from "~icons/cap/layout";
@@ -15,6 +16,7 @@ import {
 } from "../ui";
 
 export function AspectRatioSelect() {
+	const { t } = useI18n();
 	const { project, setProject } = useScreenshotEditorContext();
 	const [open, setOpen] = createSignal(false);
 	let triggerSelect: HTMLDivElement | undefined;
@@ -66,7 +68,7 @@ export function AspectRatioSelect() {
 			<EditorButton<typeof KSelect.Trigger>
 				as={KSelect.Trigger}
 				class="w-20"
-				tooltipText="Aspect Ratio"
+				tooltipText={t("editor.screenshot.aspect.ratio")}
 				leftIcon={<IconCapLayout class="size-4" />}
 				rightIcon={
 					<KSelect.Icon>

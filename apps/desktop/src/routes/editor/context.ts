@@ -23,7 +23,6 @@ import { createStore, produce, reconcile, unwrap } from "solid-js/store";
 import { generalSettingsStore } from "~/store";
 
 import { createPresets } from "~/utils/createPresets";
-import { createCustomDomainQuery } from "~/utils/queries";
 import {
 	type CanvasControls,
 	createImageDataWS,
@@ -704,14 +703,12 @@ export const [EditorContextProvider, useEditorContext] = createContextProvider(
 		const [systemAudioWaveforms] = createResource(() =>
 			commands.getSystemAudioWaveforms(),
 		);
-		const customDomain = createCustomDomainQuery();
 
 		return {
 			...editorInstanceContext,
 			meta() {
 				return props.meta();
 			},
-			customDomain,
 			refetchMeta: () => props.refetchMeta(),
 			editorInstance: props.editorInstance,
 			dialog,

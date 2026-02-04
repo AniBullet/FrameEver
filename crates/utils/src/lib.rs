@@ -2,14 +2,13 @@ use std::{
     borrow::Cow,
     future::Future,
     num::{NonZero, NonZeroI32},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::LazyLock,
 };
 
 use aho_corasick::{AhoCorasickBuilder, MatchKind};
 use tracing::Instrument;
 
-/// Wrapper around tokio::spawn that inherits the current tracing subscriber and span.
 pub fn spawn_actor<F>(future: F) -> tokio::task::JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
@@ -22,6 +21,30 @@ where
 pub fn ensure_dir(path: &PathBuf) -> Result<PathBuf, std::io::Error> {
     std::fs::create_dir_all(path)?;
     Ok(path.clone())
+}
+
+pub fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    if let Err(e) = std::fs::rename(from, to) {
+        if e.raw_os_error() == Some(17) || e.kind() == std::io::ErrorKind::CrossesDevices {
+            std::fs::copy(from, to)?;
+            std::fs::remove_file(from)?;
+            return Ok(());
+        }
+        return Err(e);
+    }
+    Ok(())
+}
+
+pub async fn move_file_async(from: PathBuf, to: PathBuf) -> std::io::Result<()> {
+    if let Err(e) = tokio::fs::rename(&from, &to).await {
+        if e.raw_os_error() == Some(17) || e.kind() == std::io::ErrorKind::CrossesDevices {
+            tokio::fs::copy(&from, &to).await?;
+            tokio::fs::remove_file(&from).await?;
+            return Ok(());
+        }
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// Generates a unique filename by appending incremental numbers if conflicts exist.

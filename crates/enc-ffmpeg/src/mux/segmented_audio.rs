@@ -1,5 +1,6 @@
 use crate::audio::aac::{AACEncoder, AACEncoderError};
 use cap_media_info::AudioInfo;
+use cap_utils::move_file;
 use ffmpeg::{format, frame};
 use serde::Serialize;
 use std::{
@@ -17,7 +18,7 @@ fn atomic_write_json<T: Serialize>(path: &Path, data: &T) -> std::io::Result<()>
     file.write_all(json.as_bytes())?;
     file.sync_all()?;
 
-    std::fs::rename(&temp_path, path)?;
+    move_file(&temp_path, path)?;
 
     if let Some(parent) = path.parent()
         && let Ok(dir) = std::fs::File::open(parent)

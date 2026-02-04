@@ -1,6 +1,7 @@
 import { Popover } from "@kobalte/core/popover";
 import { createMemo, For, Show } from "solid-js";
 import { Toggle } from "~/components/Toggle";
+import { useI18n } from "~/i18n";
 import IconLucidePencil from "~icons/lucide/pencil";
 import IconLucideTrash from "~icons/lucide/trash-2";
 import { BACKGROUND_COLORS, hexToRgb, RgbInput } from "../ColorPicker";
@@ -8,6 +9,7 @@ import { type Annotation, useScreenshotEditorContext } from "../context";
 import { EditorButton, Slider } from "../ui";
 
 export function AnnotationPopover() {
+	const { t } = useI18n();
 	const {
 		annotations,
 		setAnnotations,
@@ -33,7 +35,7 @@ export function AnnotationPopover() {
 			<Popover.Trigger
 				as={EditorButton}
 				leftIcon={<IconLucidePencil class="size-4" />}
-				tooltipText="Annotation Settings"
+				tooltipText={t("editor.screenshot.annotation")}
 				disabled={!selectedAnnotation()}
 			/>
 			<Popover.Portal>

@@ -1,28 +1,28 @@
-import { Button } from "@cap/ui-solid";
 import { A, type RouteSectionProps } from "@solidjs/router";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import * as shell from "@tauri-apps/plugin-shell";
+import { check as checkForUpdates } from "@tauri-apps/plugin-updater";
 import "@total-typescript/ts-reset/filter-boolean";
-import { createResource, For, onMount, Show, Suspense } from "solid-js";
+import {
+	createResource,
+	createSignal,
+	For,
+	onMount,
+	Show,
+	Suspense,
+} from "solid-js";
 import { CapErrorBoundary } from "~/components/CapErrorBoundary";
-import { SignInButton } from "~/components/SignInButton";
-
-import { authStore } from "~/store";
-import { trackEvent } from "~/utils/analytics";
+import { useI18n } from "~/i18n";
 
 const WINDOW_SIZE = { width: 700, height: 540 } as const;
 
 export default function Settings(props: RouteSectionProps) {
-	const auth = authStore.createQuery();
+	const { t } = useI18n();
 	const [version] = createResource(() => getVersion());
-
-	const handleAuth = async () => {
-		if (auth.data) {
-			trackEvent("user_signed_out", { platform: "desktop" });
-			authStore.set(undefined);
-		}
-	};
+	const [updateAvailable, setUpdateAvailable] = createSignal<string | null>(
+		null,
+	);
 
 	onMount(() => {
 		const currentWindow = getCurrentWindow();
@@ -30,6 +30,17 @@ export default function Settings(props: RouteSectionProps) {
 		currentWindow.setSize(
 			new LogicalSize(WINDOW_SIZE.width, WINDOW_SIZE.height),
 		);
+
+		setTimeout(async () => {
+			try {
+				const update = await checkForUpdates();
+				if (update) {
+					setUpdateAvailable(update.version);
+				}
+			} catch (e) {
+				console.error("自动检查更新失败:", e);
+			}
+		}, 2000);
 	});
 
 	return (
@@ -40,48 +51,23 @@ export default function Settings(props: RouteSectionProps) {
 						each={[
 							{
 								href: "general",
-								name: "General",
+								name: t("settings.general"),
 								icon: IconCapSettings,
 							},
 							{
 								href: "hotkeys",
-								name: "Shortcuts",
+								name: t("settings.hotkeys"),
 								icon: IconCapHotkeys,
 							},
 							{
-								href: "recordings",
-								name: "Recordings",
-								icon: IconLucideSquarePlay,
-							},
-							{
-								href: "screenshots",
-								name: "Screenshots",
-								icon: IconLucideImage,
-							},
-							{
-								href: "integrations",
-								name: "Integrations",
-								icon: IconLucideUnplug,
-							},
-							{
-								href: "license",
-								name: "License",
-								icon: IconLucideGift,
-							},
-							{
 								href: "experimental",
-								name: "Experimental",
+								name: t("settings.experimental"),
 								icon: IconCapSettings,
 							},
 							{
 								href: "feedback",
-								name: "Feedback",
+								name: t("settings.feedback"),
 								icon: IconLucideMessageSquarePlus,
-							},
-							{
-								href: "changelog",
-								name: "Changelog",
-								icon: IconLucideBell,
 							},
 						].filter(Boolean)}
 					>
@@ -100,6 +86,21 @@ export default function Settings(props: RouteSectionProps) {
 					</For>
 				</ul>
 				<div class="p-[0.625rem] text-left flex flex-col">
+					<Show when={updateAvailable()}>
+						{(newVersion) => (
+							<A
+								href="general"
+								class="mb-2 px-2 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 transition-colors"
+							>
+								<div class="text-xs font-medium text-blue-11 flex items-center gap-1.5">
+									<IconLucideSparkles class="size-3.5" />
+									<span>
+										{t("app.update.available")} {newVersion()}
+									</span>
+								</div>
+							</A>
+						)}
+					</Show>
 					<Show when={version()}>
 						{(v) => (
 							<div class="mb-2 text-xs text-gray-11 flex flex-col items-start gap-0.5">
@@ -107,24 +108,17 @@ export default function Settings(props: RouteSectionProps) {
 								<button
 									type="button"
 									class="text-gray-11 hover:text-gray-12 underline transition-colors"
-									onClick={() => shell.open("https://cap.so/download/versions")}
+									onClick={() =>
+										shell.open(
+											"https://github.com/AniBullet/Cap-aniBullet/releases",
+										)
+									}
 								>
-									View previous versions
+									{t("settings.versions")}
 								</button>
 							</div>
 						)}
 					</Show>
-					{auth.data ? (
-						<Button
-							onClick={handleAuth}
-							variant={auth.data ? "gray" : "dark"}
-							class="w-full"
-						>
-							Sign Out
-						</Button>
-					) : (
-						<SignInButton>Sign In</SignInButton>
-					)}
 				</div>
 			</div>
 			<div class="overflow-y-hidden flex-1 animate-in">

@@ -13,8 +13,8 @@ import "unfonts.css";
 import "./styles/theme.css";
 
 import { CapErrorBoundary } from "./components/CapErrorBoundary";
+import { I18nProvider } from "./i18n";
 import { generalSettingsStore } from "./store";
-import { initAnonymousUser } from "./utils/analytics";
 import { type AppTheme, commands } from "./utils/tauri";
 import titlebar from "./utils/titlebar-state";
 
@@ -25,17 +25,11 @@ const SettingsLayout = lazy(() => import("./routes/(window-chrome)/settings"));
 const SettingsGeneralPage = lazy(
 	() => import("./routes/(window-chrome)/settings/general"),
 );
-const SettingsRecordingsPage = lazy(
-	() => import("./routes/(window-chrome)/settings/recordings"),
-);
 const SettingsScreenshotsPage = lazy(
 	() => import("./routes/(window-chrome)/settings/screenshots"),
 );
 const SettingsHotkeysPage = lazy(
 	() => import("./routes/(window-chrome)/settings/hotkeys"),
-);
-const SettingsChangelogPage = lazy(
-	() => import("./routes/(window-chrome)/settings/changelog"),
 );
 const SettingsFeedbackPage = lazy(
 	() => import("./routes/(window-chrome)/settings/feedback"),
@@ -43,17 +37,7 @@ const SettingsFeedbackPage = lazy(
 const SettingsExperimentalPage = lazy(
 	() => import("./routes/(window-chrome)/settings/experimental"),
 );
-const SettingsLicensePage = lazy(
-	() => import("./routes/(window-chrome)/settings/license"),
-);
-const SettingsIntegrationsPage = lazy(
-	() => import("./routes/(window-chrome)/settings/integrations"),
-);
-const SettingsS3ConfigPage = lazy(
-	() => import("./routes/(window-chrome)/settings/integrations/s3-config"),
-);
-const UpgradePage = lazy(() => import("./routes/(window-chrome)/upgrade"));
-const UpdatePage = lazy(() => import("./routes/(window-chrome)/update"));
+const LibraryPage = lazy(() => import("./routes/(window-chrome)/library"));
 const CameraPage = lazy(() => import("./routes/camera"));
 const CaptureAreaPage = lazy(() => import("./routes/capture-area"));
 const DebugPage = lazy(() => import("./routes/debug"));
@@ -89,9 +73,11 @@ const queryClient = new QueryClient({
 export default function App() {
 	return (
 		<QueryClientProvider client={queryClient}>
-			<Suspense>
-				<Inner />
-			</Suspense>
+			<I18nProvider>
+				<Suspense>
+					<Inner />
+				</Suspense>
+			</I18nProvider>
 		</QueryClientProvider>
 	);
 }
@@ -101,7 +87,7 @@ function Inner() {
 	createThemeListener(currentWindow);
 
 	onMount(() => {
-		initAnonymousUser();
+		// Theme setup
 	});
 
 	return (
@@ -153,30 +139,18 @@ function Inner() {
 					<Route path="/" component={WindowChromeLayout}>
 						<Route path="/" component={NewMainPage} />
 						<Route path="/setup" component={SetupPage} />
+						<Route path="/library" component={LibraryPage} />
 						<Route path="/settings" component={SettingsLayout}>
 							<Route path="/" component={SettingsGeneralPage} />
 							<Route path="/general" component={SettingsGeneralPage} />
-							<Route path="/recordings" component={SettingsRecordingsPage} />
 							<Route path="/screenshots" component={SettingsScreenshotsPage} />
 							<Route path="/hotkeys" component={SettingsHotkeysPage} />
-							<Route path="/changelog" component={SettingsChangelogPage} />
 							<Route path="/feedback" component={SettingsFeedbackPage} />
 							<Route
 								path="/experimental"
 								component={SettingsExperimentalPage}
 							/>
-							<Route path="/license" component={SettingsLicensePage} />
-							<Route
-								path="/integrations"
-								component={SettingsIntegrationsPage}
-							/>
-							<Route
-								path="/integrations/s3-config"
-								component={SettingsS3ConfigPage}
-							/>
 						</Route>
-						<Route path="/upgrade" component={UpgradePage} />
-						<Route path="/update" component={UpdatePage} />
 					</Route>
 					<Route path="/camera" component={CameraPage} />
 					<Route path="/capture-area" component={CaptureAreaPage} />
@@ -206,22 +180,29 @@ function Inner() {
 
 function createThemeListener(currentWindow: WebviewWindow) {
 	const generalSettings = generalSettingsStore.createQuery();
+	let isUpdating = false;
 
 	createEffect(() => {
-		update(generalSettings.data?.theme ?? null);
+		const theme = generalSettings.data?.theme ?? null;
+		if (!isUpdating && theme) {
+			update(theme);
+		}
 	});
 
 	onMount(async () => {
-		const unlisten = await currentWindow.onThemeChanged((_) =>
-			update(generalSettings.data?.theme),
-		);
+		const unlisten = await currentWindow.onThemeChanged((_) => {
+			const theme = generalSettings.data?.theme;
+			if (!isUpdating && theme) {
+				update(theme);
+			}
+		});
 		onCleanup(() => unlisten?.());
 	});
 
-	function update(appTheme: AppTheme | null | undefined) {
+	function update(appTheme: AppTheme) {
 		if (location.pathname === "/camera") return;
 
-		if (appTheme === undefined || appTheme === null) return;
+		isUpdating = true;
 
 		const isDark =
 			appTheme === "dark" ||
@@ -237,7 +218,14 @@ function createThemeListener(currentWindow: WebviewWindow) {
 		} catch {}
 
 		commands.setTheme(appTheme).then(() => {
-			document.documentElement.classList.toggle("dark", isDark);
+			if (isDark) {
+				document.documentElement.classList.add("dark");
+			} else {
+				document.documentElement.classList.remove("dark");
+			}
+			setTimeout(() => {
+				isUpdating = false;
+			}, 50);
 		});
 	}
 }

@@ -1,6 +1,5 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - "apps/desktop"
+  - "apps/cli"
+  - "packages/ui-solid"
   - "crates/tauri-plugin-*"
-  - "infra"
-  - "scripts/orgIdBackfill"

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 cap-media-info = { path = "../media-info" }
+cap-utils = { path = "../utils" }
 
 ffmpeg.workspace = true
 serde = { workspace = true, features = ["derive"] }

@@ -1,4 +1,5 @@
 use cap_media_info::VideoInfo;
+use cap_utils::move_file;
 use ffmpeg::{format, frame};
 use serde::Serialize;
 use std::{
@@ -34,7 +35,7 @@ fn atomic_write_json<T: Serialize>(path: &Path, data: &T) -> std::io::Result<()>
     file.write_all(json.as_bytes())?;
     file.sync_all()?;
 
-    std::fs::rename(&temp_path, path)?;
+    move_file(&temp_path, path)?;
 
     if let Some(parent) = path.parent()
         && let Ok(dir) = std::fs::File::open(parent)
@@ -480,10 +481,10 @@ impl SegmentedVideoEncoder {
 
         let mut last_error = None;
         for attempt in 0..MAX_RETRIES {
-            match std::fs::rename(from, to) {
+            match move_file(from, to) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
-                    let is_sharing_violation =
+                    let is_sharing_violation: bool =
                         e.raw_os_error() == Some(32) || e.raw_os_error() == Some(33);
 
                     if !is_sharing_violation {
@@ -507,7 +508,7 @@ impl SegmentedVideoEncoder {
 
     #[cfg(not(target_os = "windows"))]
     fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
-        std::fs::rename(from, to)
+        move_file(from, to)
     }
 
     fn collect_orphaned_segments(

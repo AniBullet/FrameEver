@@ -1,22 +1,14 @@
 import { Button } from "@cap/ui-solid";
-import { action, useAction, useSubmission } from "@solidjs/router";
 import { getVersion } from "@tauri-apps/api/app";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { type as ostype } from "@tauri-apps/plugin-os";
+import { open as openUrl } from "@tauri-apps/plugin-shell";
 import { createResource, createSignal, For, Show } from "solid-js";
 import toast from "solid-toast";
+import { useI18n } from "~/i18n";
 
 import { commands, type SystemDiagnostics } from "~/utils/tauri";
-import { apiClient, protectedHeaders } from "~/utils/web-api";
-
-const sendFeedbackAction = action(async (feedback: string) => {
-	const response = await apiClient.desktop.submitFeedback({
-		body: { feedback, os: ostype() as any, version: await getVersion() },
-		headers: await protectedHeaders(),
-	});
-
-	if (response.status !== 200) throw new Error("Failed to submit feedback");
-	return response.body;
-});
 
 async function fetchDiagnostics(): Promise<SystemDiagnostics | null> {
 	try {
@@ -28,23 +20,47 @@ async function fetchDiagnostics(): Promise<SystemDiagnostics | null> {
 }
 
 export default function FeedbackTab() {
-	const [feedback, setFeedback] = createSignal("");
-	const [uploadingLogs, setUploadingLogs] = createSignal(false);
+	const { t } = useI18n();
+	const [exportingLogs, setExportingLogs] = createSignal(false);
 	const [diagnostics] = createResource(fetchDiagnostics);
 
-	const submission = useSubmission(sendFeedbackAction);
-	const sendFeedback = useAction(sendFeedbackAction);
-
-	const handleUploadLogs = async () => {
-		setUploadingLogs(true);
+	const handleExportLogs = async () => {
+		setExportingLogs(true);
 		try {
-			await commands.uploadLogs();
-			toast.success("Logs uploaded successfully");
+			const logs = await commands.getLogs();
+			const version = await getVersion();
+			const os = ostype();
+			const timestamp = new Date()
+				.toISOString()
+				.replace(/:/g, "-")
+				.split(".")[0];
+
+			const logContent = `Cap aniBullet - Debug Logs
+Generated: ${new Date().toLocaleString()}
+Version: ${version}
+OS: ${os}
+
+${logs}`;
+
+			const filePath = await save({
+				defaultPath: `cap-logs-${timestamp}.txt`,
+				filters: [
+					{
+						name: "Text File",
+						extensions: ["txt"],
+					},
+				],
+			});
+
+			if (filePath) {
+				await writeTextFile(filePath, logContent);
+				toast.success(t("feedback.debug.logs.success"));
+			}
 		} catch (error) {
-			toast.error("Failed to upload logs");
-			console.error("Failed to upload logs:", error);
+			toast.error(t("feedback.debug.logs.error"));
+			console.error("Failed to export logs:", error);
 		} finally {
-			setUploadingLogs(false);
+			setExportingLogs(false);
 		}
 	};
 
@@ -53,97 +69,74 @@ export default function FeedbackTab() {
 			<div class="flex-1 custom-scroll">
 				<div class="p-4 space-y-4">
 					<div class="flex flex-col pb-4 border-b border-gray-2">
-						<h2 class="text-lg font-medium text-gray-12">Send Feedback</h2>
-						<p class="text-sm text-gray-10">
-							Help us improve Cap by submitting feedback or reporting bugs.
-							We'll get right on it.
-						</p>
+						<h2 class="text-lg font-medium text-gray-12">
+							{t("feedback.title")}
+						</h2>
+						<p class="text-sm text-gray-10">{t("feedback.description")}</p>
 					</div>
-					<form
-						class="space-y-4"
-						onSubmit={(e) => {
-							e.preventDefault();
-							sendFeedback(feedback());
-						}}
-					>
-						<fieldset disabled={submission.pending}>
-							<div>
-								<textarea
-									value={feedback()}
-									onInput={(e) => setFeedback(e.currentTarget.value)}
-									placeholder="Tell us what you think about Cap..."
-									required
-									minLength={10}
-									class="p-2 w-full h-32 text-[13px] rounded-md border transition-colors duration-200 resize-none bg-gray-2 placeholder:text-gray-10 border-gray-3 text-primary focus:outline-none focus:ring-1 focus:ring-gray-8 hover:border-gray-6"
-								/>
-							</div>
 
-							{submission.error && (
-								<p class="mt-2 text-sm text-red-400">
-									{submission.error.toString()}
-								</p>
-							)}
-
-							{submission.result?.success && (
-								<p class="text-sm text-primary">Thank you for your feedback!</p>
-							)}
-
-							<Button
-								type="submit"
-								size="md"
-								variant="dark"
-								disabled={feedback().trim().length < 4}
-								class="mt-2"
-							>
-								{submission.pending ? "Submitting..." : "Submit Feedback"}
-							</Button>
-						</fieldset>
-					</form>
-
-					<div class="pt-6 border-t border-gray-2">
+					<div class="pt-2">
 						<h3 class="text-sm font-medium text-gray-12 mb-2">
-							Join the Community
+							{t("feedback.project.home")}
 						</h3>
 						<p class="text-sm text-gray-10 mb-3">
-							Have questions, want to share ideas, or just hang out? Join the
-							Cap Discord community.
+							{t("feedback.project.home.description")}
 						</p>
 						<Button
-							onClick={() => window.open("https://cap.link/discord", "_blank")}
+							onClick={() =>
+								openUrl("https://github.com/AniBullet/Cap-aniBullet")
+							}
 							size="md"
 							variant="gray"
 						>
-							Join Discord
+							{t("feedback.project.home.button")}
 						</Button>
 					</div>
 
 					<div class="pt-6 border-t border-gray-2">
 						<h3 class="text-sm font-medium text-gray-12 mb-2">
-							Debug Information
+							{t("feedback.original.community")}
 						</h3>
 						<p class="text-sm text-gray-10 mb-3">
-							Upload your logs to help us diagnose issues with Cap. No personal
-							information is included.
+							{t("feedback.original.community.description")}
 						</p>
 						<Button
-							onClick={handleUploadLogs}
+							onClick={() => openUrl("https://cap.link/discord")}
 							size="md"
 							variant="gray"
-							disabled={uploadingLogs()}
 						>
-							{uploadingLogs() ? "Uploading..." : "Upload Logs"}
+							{t("feedback.original.community.button")}
+						</Button>
+					</div>
+
+					<div class="pt-6 border-t border-gray-2">
+						<h3 class="text-sm font-medium text-gray-12 mb-2">
+							{t("feedback.debug.logs")}
+						</h3>
+						<p class="text-sm text-gray-10 mb-3">
+							{t("feedback.debug.logs.description")}
+						</p>
+						<Button
+							onClick={handleExportLogs}
+							size="md"
+							variant="gray"
+							disabled={exportingLogs()}
+						>
+							{exportingLogs()
+								? t("feedback.debug.logs.exporting")
+								: t("feedback.debug.logs.button")}
 						</Button>
 					</div>
 
 					<div class="pt-6 border-t border-gray-2">
 						<h3 class="text-sm font-medium text-gray-12 mb-3">
-							System Information
+							{t("feedback.system.title")}
 						</h3>
 						<Show
 							when={!diagnostics.loading && diagnostics()}
 							fallback={
 								<p class="text-sm text-gray-10">
-									Loading system information...
+									{t("feedback.system.loading")}
 								</p>
 							}
 						>
@@ -167,7 +160,7 @@ export default function FeedbackTab() {
 											{(ver) => (
 												<div class="space-y-1">
 													<p class="text-gray-11 font-medium">
-														Operating System
+														{t("feedback.system.os")}
 													</p>
 													<p class="text-gray-10 bg-gray-2 px-2 py-1.5 rounded font-mono text-xs">
 														{ver().displayName}
@@ -177,7 +170,9 @@ export default function FeedbackTab() {
 										</Show>
 
 										<div class="space-y-1">
-											<p class="text-gray-11 font-medium">Capture Support</p>
+											<p class="text-gray-11 font-medium">
+												{t("feedback.system.capture.support")}
+											</p>
 											<div class="flex gap-2 flex-wrap">
 												<span
 													class={`px-2 py-1 rounded text-xs ${
@@ -186,8 +181,10 @@ export default function FeedbackTab() {
 															: "bg-red-500/20 text-red-400"
 													}`}
 												>
-													Screen Capture:{" "}
-													{captureSupported ? "Supported" : "Not Supported"}
+													{t("feedback.system.capture.label")}:{" "}
+													{captureSupported
+														? t("feedback.system.supported")
+														: t("feedback.system.notSupported")}
 												</span>
 											</div>
 										</div>
@@ -195,7 +192,7 @@ export default function FeedbackTab() {
 										<Show when={(d.availableEncoders as string[])?.length > 0}>
 											<div class="space-y-1">
 												<p class="text-gray-11 font-medium">
-													Available Encoders
+													{t("feedback.system.encoders")}
 												</p>
 												<div class="flex gap-1.5 flex-wrap">
 													<For each={d.availableEncoders as string[]}>

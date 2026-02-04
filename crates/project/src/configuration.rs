@@ -5,6 +5,7 @@ use std::{
     path::Path,
 };
 
+use cap_utils::move_file;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
@@ -1152,12 +1153,11 @@ impl ProjectConfiguration {
 
         let temp_path = temp_dir().join(uuid::Uuid::new_v4().to_string());
 
-        // Write to temporary file first to ensure readers don't see partial files
         std::fs::write(&temp_path, serde_json::to_string_pretty(self)?)?;
 
-        std::fs::rename(
+        move_file(
             &temp_path,
-            project_path.as_ref().join("project-config.json"),
+            &project_path.as_ref().join("project-config.json"),
         )?;
 
         Ok(())

@@ -10,16 +10,14 @@ import {
 	createSignal,
 	onCleanup,
 	onMount,
-	Show,
 } from "solid-js";
 import Tooltip from "~/components/Tooltip";
 import CaptionControlsWindows11 from "~/components/titlebar/controls/CaptionControlsWindows11";
-import { trackEvent } from "~/utils/analytics";
+import { useI18n } from "~/i18n";
 import { commands } from "~/utils/tauri";
 import { initializeTitlebar } from "~/utils/titlebar-state";
 import { useEditorContext } from "./context";
 import PresetsDropdown from "./PresetsDropdown";
-import ShareButton from "./ShareButton";
 import { EditorButton } from "./ui";
 
 export type ResolutionOption = {
@@ -42,6 +40,7 @@ export interface ExportEstimates {
 }
 
 export function Header() {
+	const { t } = useI18n();
 	const {
 		editorInstance,
 		projectHistory,
@@ -49,7 +48,6 @@ export function Header() {
 		meta,
 		exportState,
 		setExportState,
-		customDomain,
 		editorState,
 		setEditorState,
 	} = useEditorContext();
@@ -80,12 +78,11 @@ export function Header() {
 					onClick={async () => {
 						clearTimelineSelection();
 
-						if (!(await ask("Are you sure you want to delete this recording?")))
-							return;
+						if (!(await ask(t("editor.video.delete.confirm")))) return;
 
 						await commands.editorDeleteProject();
 					}}
-					tooltipText="Delete recording"
+					tooltipText={t("editor.video.delete")}
 					leftIcon={<IconCapTrash class="w-5" />}
 				/>
 				<EditorButton
@@ -95,7 +92,7 @@ export function Header() {
 						console.log({ path: `${editorInstance.path}/` });
 						revealItemInDir(`${editorInstance.path}/`);
 					}}
-					tooltipText="Open recording bundle"
+					tooltipText={t("editor.video.open.bundle")}
 					leftIcon={<IconLucideFolder class="w-5" />}
 				/>
 
@@ -108,7 +105,7 @@ export function Header() {
 					onClick={() => {
 						if (clearTimelineSelection()) return;
 					}}
-					tooltipText="Captions"
+					tooltipText={t("editor.video.captions")}
 					leftIcon={<IconCapCaptions class="w-5" />}
 					comingSoon={true}
 				/>
@@ -116,7 +113,7 @@ export function Header() {
 					onClick={() => {
 						if (clearTimelineSelection()) return;
 					}}
-					tooltipText="Performance"
+					tooltipText={t("editor.video.performance")}
 					leftIcon={<IconCapGauge class="w-[18px]" />}
 					comingSoon={true}
 				/>
@@ -145,7 +142,7 @@ export function Header() {
 					disabled={
 						!projectHistory.canUndo() && !editorState.timeline.selection
 					}
-					tooltipText="Undo"
+					tooltipText={t("editor.video.undo")}
 					leftIcon={<IconCapUndo class="w-5" />}
 				/>
 				<EditorButton
@@ -157,27 +154,23 @@ export function Header() {
 					disabled={
 						!projectHistory.canRedo() && !editorState.timeline.selection
 					}
-					tooltipText="Redo"
+					tooltipText={t("editor.video.redo")}
 					leftIcon={<IconCapRedo class="w-5" />}
 				/>
 				<div data-tauri-drag-region class="flex-1 h-full" />
-				<Show when={customDomain.data}>
-					<ShareButton />
-				</Show>
 				<Button
 					variant="blue"
 					class="flex gap-1.5 justify-center h-[40px] w-full max-w-[100px]"
 					onClick={() => {
 						clearTimelineSelection();
 
-						trackEvent("export_button_clicked");
 						if (exportState.type === "done") setExportState({ type: "idle" });
 
 						setDialog({ type: "export", open: true });
 					}}
 				>
 					<UploadIcon class="size-4" />
-					Export
+					{t("editor.video.export")}
 				</Button>
 				{ostype() === "windows" && <CaptionControlsWindows11 />}
 			</div>

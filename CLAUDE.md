@@ -4,29 +4,25 @@ This file provides comprehensive guidance to Claude Code when working with code 
 
 ## Project Overview
 
-Cap is the open source alternative to Loom. It's a Turborepo monorepo with a Tauri v2 desktop app (Rust + SolidStart) and a Next.js web app. The Next.js app at `apps/web` is the main web application for sharing and management; the desktop app at `apps/desktop` is the cross‑platform recorder/editor (macOS and Windows).
+Cap - aniBullet Edition is a pure desktop screen recording application built with Tauri v2 (Rust + SolidStart). This is a local-first fork that removes all cloud dependencies from the original Cap project.
 
 ### Product Context
-- **Core Purpose**: Screen recording with instant sharing capabilities
-- **Target Users**: Content creators, developers, product managers, support teams
-- **Key Features**: Instant recording, studio mode, AI-generated captions, collaborative comments
-- **Business Model**: Freemium SaaS with usage-based pricing
+- **Core Purpose**: Local screen recording with professional editing capabilities
+- **Target Users**: Content creators, developers, educators who prioritize privacy
+- **Key Features**: Unlimited recording, local storage, offline AI captions (Whisper.cpp), professional editing
+- **Business Model**: Completely free and open source
 
 ## File Location Patterns & Key Directories
 
-### Core Applications
-- `apps/web/` — Next.js web application (sharing, management, dashboard)
-- `apps/desktop/` — Tauri desktop app (recording, editing)
-- `apps/discord-bot/` — Discord integration bot
-- `apps/storybook/` — UI component documentation
+### Core Application
+- `apps/desktop/` — Tauri v2 desktop app (recording, editing)
+  - `src/` — SolidJS frontend code
+  - `src-tauri/` — Rust backend code
+  - `src-tauri/src/` — Core Rust modules
 
 ### Shared Packages
-- `packages/database/` — Drizzle ORM, auth, email templates
-- `packages/ui/` — React components for web app
 - `packages/ui-solid/` — SolidJS components for desktop
 - `packages/utils/` — Shared utilities, types, constants
-- `packages/env/` — Environment variable validation
-- `packages/web-*` — Effect-based web API layers
 
 ### Rust Crates
 - `crates/media*/` — Video/audio processing pipeline
@@ -38,48 +34,36 @@ Cap is the open source alternative to Loom. It's a Turborepo monorepo with a Tau
 ### Important File Patterns
 - `**/tauri.ts` — Auto-generated IPC bindings (DO NOT EDIT)
 - `**/queries.ts` — Auto-generated query bindings (DO NOT EDIT)
-- `apps/web/actions/**/*.ts` — Server Actions ("use server")
-- `packages/database/schema.ts` — Database schema definitions
-- `*.config.*` — Configuration files (Next.js, Tailwind, etc.)
+- `apps/desktop/src-tauri/gen/` — Generated files (DO NOT EDIT)
+- `*.config.*` — Configuration files (Tailwind, Vite, etc.)
 
 ## Key Commands
 
 ### Development
 ```bash
-pnpm dev:web             # Start Next.js dev server (apps/web only)
-pnpm run dev:desktop     # Start Tauri desktop dev (apps/desktop)
-pnpm build               # Build all packages/apps via Turbo
-pnpm lint                # Lint with Biome across the repo
+pnpm dev                 # Start desktop dev server
+pnpm dev:desktop         # Start desktop dev server (alias)
+pnpm build               # Build all packages via Turbo
+pnpm lint                # Lint with Biome
 pnpm format              # Format with Biome
-pnpm typecheck           # TypeScript project references build
+pnpm typecheck           # TypeScript check
+pnpm tauri:build         # Build desktop app (release)
 ```
 
-### Database Operations
+### Desktop-Specific Commands
 ```bash
-pnpm db:generate         # Generate Drizzle migrations
-pnpm db:push             # Push schema changes to MySQL
-pnpm db:studio           # Open Drizzle Studio
-pnpm --dir packages/database db:check  # Verify database schema
-```
-
-### App-Specific Commands
-```bash
-# Web app (apps/web)
-cd apps/web && pnpm dev          # Start Next.js dev server
-
-# Desktop (apps/desktop)
-cd apps/desktop && pnpm dev      # Start SolidStart + Tauri dev
-pnpm tauri:build                 # Build desktop app (release)
+cd apps/desktop && pnpm dev              # Start SolidStart + Tauri dev
+cd apps/desktop && pnpm build:tauri      # Build development version
+cd apps/desktop && pnpm build:tauri --config src-tauri/tauri.prod.conf.json  # Build production version
 ```
 
 ## Development Environment Guidelines
 
 ### Server Management
-- Do not start additional development servers or localhost services unless explicitly asked. Assume the developer already has the environment running and focus on code changes.
-- Prefer `pnpm dev:web` or `pnpm run dev:desktop` when you only need one app. Avoid starting multiple overlapping servers.
-- Avoid running Docker or external services yourself unless requested; root workflows handle them as needed.
-- **Database**: MySQL via Docker Compose; schema managed through Drizzle migrations
-- **Storage**: S3-compatible (AWS, Cloudflare R2, etc.) for video/audio files
+- aniBullet is a pure desktop application with no server dependencies
+- Run `pnpm dev` or `pnpm dev:desktop` to start the development server
+- **Database**: SQLite (local file-based, no server required)
+- **Storage**: Local filesystem (videos saved to user's local drive)
 
 ### Auto-generated Bindings (Desktop)
 - **NEVER EDIT**: `tauri.ts`, `queries.ts` (auto-generated on app load)
@@ -90,39 +74,35 @@ pnpm tauri:build                 # Build desktop app (release)
 ### Common Development Pain Points
 - **Node Version**: Must use Node 20 (specified in package.json engines)
 - **PNPM Version**: Locked to 10.5.2 for consistency
+- **Rust Version**: Requires Rust 1.88+ for compilation
 - **Turbo Cache**: May need clearing if builds behave unexpectedly (`rm -rf .turbo`)
-- **Database Migrations**: Always run `pnpm db:generate` before `pnpm db:push`
 - **Desktop Icons**: Use `unplugin-icons` auto-import instead of manual imports
+- **FFmpeg**: Required for video processing (must be installed on system)
 
 ## Architecture Overview
 
 ### Monorepo Structure
-- `apps/web` — Next.js 14 (App Router) web application
-- `apps/desktop` — Tauri v2 desktop app with SolidStart (SolidJS)
-- `packages/database` — Drizzle ORM (MySQL) + auth utilities
-- `packages/ui` — React UI components for the web
-- `packages/ui-solid` — SolidJS UI components for desktop
+- `apps/desktop` — Tauri v2 desktop app (primary application)
+- `packages/ui-solid` — SolidJS UI components
 - `packages/utils` — Shared utilities and types
-- `packages/env` — Zod-validated build/server env modules
 - `crates/*` — Rust crates for media, rendering, recording, camera, etc.
 
 ### Technology Stack
 - **Package Manager**: pnpm (`pnpm@10.5.2`)
 - **Build System**: Turborepo
-- **Frontend (Web)**: React 19 + Next.js 14.2.x (App Router)
-- **Desktop**: Tauri v2, Rust 2024, SolidStart
-- **Styling**: Tailwind CSS (web consumes `@cap/ui/tailwind`)
-- **Server State**: TanStack Query v5 on web; `@tanstack/solid-query` on desktop
-- **Database**: MySQL (PlanetScale) with Drizzle ORM
-- **AI Integration**: Groq preferred, OpenAI fallback; invoked in Next.js Server Actions
-- **Analytics**: PostHog
-- **Payments**: Stripe
+- **Desktop Framework**: Tauri v2 + Rust 1.88+
+- **Frontend**: SolidJS + SolidStart
+- **Styling**: Tailwind CSS
+- **State Management**: `@tanstack/solid-query` for async state
+- **Database**: SQLite (local, file-based)
+- **AI Integration**: Whisper.cpp (local, offline transcription)
+- **Video Processing**: FFmpeg (local)
 
 ### Critical Architectural Decisions
-1. **AI on the Server**: All Groq/OpenAI calls execute in Server Actions under `apps/web/actions`. Never call AI from client components.
-2. **Authentication**: NextAuth with a custom Drizzle adapter. Session handling via NextAuth cookies; API keys are supported for certain endpoints.
-3. **API Surface**: Prefer Server Actions. When routes are necessary, implement under `app/api/*` (Hono-based utilities present), set proper CORS, and revalidate precisely.
-4. **Desktop IPC**: Use `tauri_specta` for strongly typed commands/events; do not modify generated bindings.
+1. **Local-First**: All data stays on the user's machine - no cloud, no servers
+2. **SQLite Database**: Lightweight local database for metadata and settings
+3. **Desktop IPC**: Use `tauri_specta` for strongly typed commands/events; do not modify generated bindings
+4. **Local AI**: Whisper.cpp for offline transcription - no API keys needed
 
 #### Desktop event pattern
 Rust (emit):
@@ -153,28 +133,11 @@ await events.uploadProgress.listen((event) => {
 
 ### Code Organization Principles
 1. **Follow Local Patterns**: Study neighboring files and shared packages first
-2. **Database Changes**: Always `pnpm db:generate` → `pnpm db:push` → test
-3. **Strict Typing**: Use existing types; validate config via `@cap/env`
-4. **Component Consistency**: Use `@cap/ui` (React) or `@cap/ui-solid` (Solid)
-5. **No Manual Edits**: Never touch auto-generated bindings or schemas
+2. **Strict Typing**: Use existing types from Rust and TypeScript
+3. **Component Consistency**: Use `@cap/ui-solid` for SolidJS components
+4. **No Manual Edits**: Never touch auto-generated bindings (`tauri.ts`, `queries.ts`)
 
 ### Key Implementation Patterns
-
-#### Server Actions (Web App)
-```typescript
-"use server";
-
-import { db } from "@cap/database";
-import { getCurrentUser } from "@cap/database/auth/session";
-
-export async function updateVideo(data: FormData) {
-  const user = await getCurrentUser();
-  if (!user?.id) throw new Error("Unauthorized");
-
-  // Database operations with Drizzle
-  return await db().update(videos).set({ ... }).where(eq(videos.id, id));
-}
-```
 
 #### Desktop IPC Commands
 ```rust
@@ -197,61 +160,53 @@ await events.uploadProgress.listen((event) => {
 });
 ```
 
-#### React Query Patterns
+#### SolidJS Query Patterns (Desktop)
 ```typescript
-// Queries with Server Actions
-const { data, isLoading } = useQuery({
-  queryKey: ["videos", userId],
-  queryFn: () => getUserVideos(),
-  staleTime: 5 * 60 * 1000,
-});
+import { createQuery } from "@tanstack/solid-query";
+import { commands } from "./tauri";
 
-// Mutations with cache updates
-const updateMutation = useMutation({
-  mutationFn: updateVideo,
-  onSuccess: (updated) => {
-    queryClient.setQueryData(["video", updated.id], updated);
-  },
-});
+function VideoList() {
+  const videos = createQuery(() => ({
+    queryKey: ["videos"],
+    queryFn: () => commands.getVideos(),
+  }));
+
+  return (
+    <Show when={!videos.isLoading} fallback={<Skeleton />}>
+      <For each={videos.data}>
+        {(video) => <VideoCard video={video} />}
+      </For>
+    </Show>
+  );
+}
 ```
 
 ## Environment Variables
 
-### Build/Client (selected)
-- `NEXT_PUBLIC_WEB_URL`
-- `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`
-- `NEXT_PUBLIC_DOCKER_BUILD` (enables Next.js standalone output)
+aniBullet is a pure desktop application with minimal configuration needs:
 
-### Server (selected)
-- Core: `DATABASE_URL`, `WEB_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`
-- S3: `CAP_AWS_BUCKET`, `CAP_AWS_REGION`, `CAP_AWS_ACCESS_KEY`, `CAP_AWS_SECRET_KEY`, optional `CAP_AWS_ENDPOINT`, `CAP_AWS_BUCKET_URL`
-- AI: `GROQ_API_KEY`, `OPENAI_API_KEY`
-- Email/Analytics: `RESEND_API_KEY`, `RESEND_FROM_DOMAIN`, `POSTHOG_PERSONAL_API_KEY`, `DUB_API_KEY`, `DEEPGRAM_API_KEY`
-- OAuth: `GOOGLE_CLIENT_ID/SECRET`, `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`
-- Stripe: `STRIPE_SECRET_KEY_TEST`, `STRIPE_SECRET_KEY_LIVE`, `STRIPE_WEBHOOK_SECRET`
-- CDN signing: `CLOUDFRONT_KEYPAIR_ID`, `CLOUDFRONT_KEYPAIR_PRIVATE_KEY`
-- Optional S3 endpoints: `S3_PUBLIC_ENDPOINT`, `S3_INTERNAL_ENDPOINT`
+- **No API keys required** - all processing is local
+- **No database connection strings** - SQLite is file-based
+- **No cloud storage** - files saved to local filesystem
+- Build configuration is in `tauri.conf.json` and `tauri.prod.conf.json`
 
 ## Testing & Build Optimization
 
 ### Testing Strategy
-- **Package-Specific**: Check each `package.json` for test commands
-- **Web App**: Uses Vitest for utilities, no comprehensive frontend tests yet
-- **Desktop**: Vitest for SolidJS components in some packages
-- **Tasks Service**: Jest for API endpoint testing
-- **Rust**: Standard Cargo test framework for crates
+- **Desktop App**: Vitest for SolidJS components
+- **Rust**: Standard Cargo test framework (`cargo test`)
+- **Integration Tests**: Test recording, encoding, export workflows
 
 ### Build Performance
-- **Turborepo Caching**: Aggressive caching across all packages
-- **Cache Invalidation**: Prefer targeted `--filter` over global rebuilds
-- **Docker Builds**: `NEXT_PUBLIC_DOCKER_BUILD=true` enables standalone output
-- **Development**: Incremental builds via TypeScript project references
+- **Turborepo Caching**: Aggressive caching across packages
+- **Rust Incremental Builds**: Recompiles only changed modules
+- **Development**: Fast refresh with Vite + Tauri dev mode
+- **Release Builds**: Optimized with `--release` flag
 
 ### Performance Monitoring
-- **Bundle Analysis**: Check Next.js bundle size regularly
-- **Database Queries**: Monitor with Drizzle Studio
-- **S3 Operations**: Watch for excessive uploads/downloads
-- **Desktop Memory**: Rust crates handle heavy media processing
+- **Desktop Memory**: Rust handles video processing efficiently
+- **File I/O**: Monitor local storage operations
+- **FFmpeg Performance**: Track encoding/export times
 
 ## Troubleshooting Common Issues
 
@@ -260,104 +215,72 @@ const updateMutation = useMutation({
 - **TypeScript errors**: Run `pnpm typecheck` to see project-wide issues
 - **Turbo cache issues**: Clear with `rm -rf .turbo`
 - **Node version mismatch**: Ensure Node 20 is active
-
-### Database Issues
-- **Migration failures**: Check `packages/database/migrations/meta/`
-- **Connection errors**: Verify Docker containers are running
-- **Schema drift**: Run `pnpm --dir packages/database db:check`
+- **Rust compile errors**: Check Cargo.toml dependencies, ensure Rust 1.88+
 
 ### Desktop App Issues
 - **IPC binding errors**: Restart dev server to regenerate `tauri.ts`
-- **Rust compile errors**: Check Cargo.toml dependencies
-- **Permission issues**: macOS/Windows may require app permissions
-- **Recording failures**: Verify screen capture permissions
+- **Permission issues**: macOS/Windows may require screen recording permissions
+- **Recording failures**: 
+  - Verify screen capture permissions in system settings
+  - Check microphone/camera permissions if using those features
+- **FFmpeg errors**: Ensure FFmpeg is installed on system PATH
+- **SQLite errors**: Check file permissions in user's app data directory
 
-### Web App Issues
-- **Auth failures**: Check NextAuth configuration and database
-- **S3 upload errors**: Verify AWS credentials and bucket policies
-- **Server Action errors**: Check network tab for detailed error messages
-- **Hot reload issues**: Restart Next.js dev server
+## SolidJS Coding Standards (Desktop App)
 
-## React/Next.js Coding Standards
+### Data Fetching & State Management
+- Use `@tanstack/solid-query` for async state management
+- Call Tauri commands through auto-generated bindings from `./tauri`
+- Use `createSignal`, `createMemo`, `createResource` for local state
 
-### Data Fetching & Server State
-- Use TanStack Query v5 for all client-side server state and fetching.
-- Use Server Components for initial data when possible; pass `initialData` to client components and let React Query take over.
-- Mutations should call Server Actions directly and perform precise cache updates (`setQueryData`/`setQueriesData`) rather than broad invalidations.
-
-Basic query pattern:
+Basic pattern:
 ```tsx
-import { useQuery } from "@tanstack/react-query";
+import { createQuery } from "@tanstack/solid-query";
+import { commands } from "./tauri";
+import { Show, For } from "solid-js";
 
-function Example() {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["items"],
-    queryFn: fetchItems,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-  });
-  if (isLoading) return <Skeleton />;
-  if (error) return <ErrorState onRetry={() => { /* refetch */ }} />;
-  return <List items={data} />;
+function VideoList() {
+  const videos = createQuery(() => ({
+    queryKey: ["videos"],
+    queryFn: () => commands.getVideos(),
+  }));
+
+  return (
+    <Show when={!videos.isLoading} fallback={<Skeleton />}>
+      <For each={videos.data}>
+        {(video) => <VideoCard video={video} />}
+      </For>
+    </Show>
+  );
 }
 ```
-
-Server Action mutation with targeted cache updates:
-```tsx
-"use client";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { updateItem } from "@/actions/items"; // 'use server'
-
-function useUpdateItem() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: updateItem,
-    onSuccess: (updated) => {
-      qc.setQueriesData({ queryKey: ["items"] }, (old: any[] | undefined) =>
-        old?.map((it) => (it.id === updated.id ? { ...it, ...updated } : it))
-      );
-      qc.setQueryData(["item", updated.id], updated);
-    },
-  });
-}
-```
-
-Minimize `useEffect` usage: compute during render, handle logic in event handlers, and ensure cleanups for any subscriptions/timers.
-
-### Next.js App Router
-- Prefer Server Components for SEO/initial rendering; hydrate interactivity in client components.
-- Co-locate feature components, keep components focused, and use Suspense boundaries for long fetches.
 
 ### UI/UX Guidelines
-- Styling: Tailwind CSS only; stay consistent with spacing and tokens.
-- Loading: Use static skeletons that mirror content; no bouncing animations.
-- Performance: Memoize expensive work; code-split naturally; use Next/Image for remote assets.
+- Styling: Tailwind CSS only; stay consistent with existing design tokens
+- Loading: Use `Show` with fallback for loading states
+- Performance: SolidJS is fine-grained reactive; avoid unnecessary `createMemo`
+- Use `@cap/ui-solid` components for consistency
 
-## Effect Patterns
+## Desktop (SolidJS + Tauri) Patterns
 
-### Managed Runtimes
-- `apps/web/lib/server.ts` builds a `ManagedRuntime` from `Layer.mergeAll` so database, S3, policy, and tracing services are available to every request. Always run server-side effects through `EffectRuntime.runPromise`/`runPromiseExit` from this module so cookie-derived context and `VideoPasswordAttachment` are attached automatically.
-- `apps/web/lib/EffectRuntime.ts` exposes a browser runtime that merges the RPC client and tracing layers. Client code should lean on `useEffectQuery`, `useEffectMutation`, and `useRpcClient`; never call `ManagedRuntime.make` yourself inside components.
+### Data Fetching
+- Use `@tanstack/solid-query` for async state management
+- Never call Tauri commands directly in render; wrap them in queries/mutations
 
-### API Route Construction
-- Next.js API folders under `apps/web/app/api/*` wrap Effect handlers with `@effect/platform`'s `HttpApi`/`HttpApiBuilder`. Follow the existing pattern: declare a contract class via `HttpApi.make`, configure groups/endpoints with `Schema`, and only export the `handler` returned by `apiToHandler(ApiLive)`.
-- Inside `HttpApiBuilder.group` blocks, acquire services (e.g., `Videos`, `S3Buckets`) with `yield*` inside `Effect.gen`. Provide layers using `Layer.provide` rather than manual `provideService` calls so dependencies stay declarative.
-- Map domain-level errors to transport errors with `HttpApiError.*`. Keep error translation exhaustive (`Effect.catchTags`, `Effect.tapErrorCause(Effect.logError)`) to preserve observability.
-- Use `HttpAuthMiddleware` for required auth and `provideOptionalAuth` when guests are allowed. The middleware/utility already hydrate `CurrentUser`, so avoid duplicating session lookups in route handlers.
-- Shared HTTP contracts that power the desktop app live in `packages/web-api-contract-effect`; update them alongside route changes to keep schemas in sync.
+### IPC Communication
+- Always use auto-generated `commands` and `events` from `./tauri`
+- Listen to events with strongly-typed bindings
+- Keep UI logic separate from IPC logic
 
-### Server Components & Effects
-- Server components that need Effect services should call `EffectRuntime.runPromise(effect.pipe(provideOptionalAuth))`. This keeps request cookies, tracing spans, and optional auth consistent with the API layer.
-- Prefer lifting Drizzle queries or other async work into `Effect.gen` blocks and reusing domain services (`Videos`, `VideosPolicy`, etc.) rather than writing ad-hoc logic.
+### File System Operations
+- All file operations go through Tauri commands (security)
+- Use native file dialogs for user file selection
+- Videos saved to user-chosen directories
 
-### Client Integration
-- React Query hooks should wrap Effect workflows with `useEffectQuery`/`useEffectMutation` from `apps/web/lib/EffectRuntime.ts`; these helpers surface Fail/Die causes consistently and plug into tracing/span metadata.
-- When a mutation or query needs the RPC transport, resolve it through `useRpcClient()` and invoke the strongly-typed procedures exposed by `packages/web-domain` instead of reaching into fetch directly.
-
-## Desktop (Solid + Tauri) Patterns
-- Data fetching: `@tanstack/solid-query` for server state.
-- IPC: Call generated `commands` and `events` from `tauri_specta`. Listen directly to generated events and prefer the typed interfaces.
-- Windowing/permissions are handled in Rust; keep UI logic in Solid and avoid mixing IPC with rendering logic.
+### Permissions
+- Screen recording, microphone, camera permissions handled by Tauri
+- Check permissions before starting recording
+- Guide users to system settings if permissions denied
 
 ## Conventions
 - **CRITICAL: NO CODE COMMENTS**: Never add any form of comments to code. This includes:
@@ -431,54 +354,49 @@ for item in &vec { println!("{}", item); }
 value.clamp(min, max)
 ```
 
-## Security & Privacy Considerations
+## Security & Privacy
 
 ### Data Handling
-- **Video Storage**: S3-compatible storage with signed URLs
-- **Database**: MySQL with connection pooling via PlanetScale
-- **Authentication**: NextAuth with custom Drizzle adapter
-- **API Security**: CORS policies, rate limiting via Hono middleware
+- **Video Storage**: Local filesystem only - no cloud uploads
+- **Database**: SQLite local file - no remote connections
+- **Privacy**: All data stays on user's machine
+- **No Analytics**: No tracking, no telemetry
 
-### Privacy Controls
-- **Recording Permissions**: Platform-specific (macOS Screen Recording, Windows)
-- **Data Retention**: User-controlled deletion of recordings
-- **Sharing Controls**: Password protection, expiry dates on shared links
-- **Analytics**: PostHog with privacy-focused configuration
+### Recording Permissions
+- **macOS**: Screen Recording permission required (System Preferences > Privacy & Security)
+- **Windows**: No special permissions for screen recording
+- **Microphone/Camera**: Standard OS permissions when using these features
 
 ## AI & Processing Pipeline
 
-### AI Integration Points
-- **Transcription**: Deepgram API for captions generation
-- **Metadata Generation**: Groq (primary) + OpenAI (fallback) for titles/descriptions
-- **Processing Location**: All AI calls in Next.js Server Actions only
-- **Privacy**: Transcripts stored in database, audio sent to external APIs
+### Local AI (Whisper.cpp)
+- **Transcription**: Offline, local Whisper models
+- **No API Keys**: All processing happens on-device
+- **Privacy**: Audio never leaves the user's machine
+- **Models**: Downloaded once, stored locally
 
 ### Media Processing Flow
 ```
-Desktop Recording → Local Files → Upload to S3 →
-Background Processing (tasks service) →
-Transcription/AI Enhancement → Database Storage
+Screen Capture → Local Memory Buffer → 
+FFmpeg Encoding → Local File →
+Optional: Whisper.cpp Transcription →
+Local SQLite Database
 ```
 
 ## References & Documentation
 
 ### Core Technologies
-- **TanStack Query**: https://tanstack.com/query/latest
-- **React Patterns**: https://react.dev/learn/you-might-not-need-an-effect
 - **Tauri v2**: https://github.com/tauri-apps/tauri
 - **tauri_specta**: https://github.com/oscartbeaumont/tauri-specta
-- **Drizzle ORM**: https://orm.drizzle.team/
 - **SolidJS**: https://solidjs.com/
+- **TanStack Solid Query**: https://tanstack.com/query/latest
+- **FFmpeg**: https://ffmpeg.org/
+- **Whisper.cpp**: https://github.com/ggerganov/whisper.cpp
 
-### Cap-Specific
-- **Self-hosting**: https://cap.so/docs/self-hosting
-- **API Documentation**: Generated from TypeScript contracts
-- **Architecture Decisions**: See individual package READMEs
-
-### Development Resources
-- **Monorepo Guide**: Turborepo documentation
-- **Effect System**: Used in web-backend packages
-- **Media Processing**: FFmpeg documentation for Rust bindings
+### aniBullet-Specific
+- **README**: Development setup and build instructions
+- **AGENTS.md**: Code style and conventions
+- **Rust Crates**: See individual crate documentation in `crates/*/`
 
 ## Code Formatting
 

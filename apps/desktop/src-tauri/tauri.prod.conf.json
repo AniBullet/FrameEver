@@ -1,28 +1,28 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
-	"productName": "Cap",
-	"mainBinaryName": "Cap",
-	"identifier": "so.cap.desktop",
+	"productName": "Cap aniBullet",
+	"mainBinaryName": "Cap aniBullet",
+	"identifier": "so.cap.desktop.anibullet",
 	"build": {
 		"beforeBundleCommand": "node scripts/prodBeforeBundle.js"
 	},
 	"plugins": {
 		"updater": {
-			"active": true,
-			"endpoints": [
-				"https://cdn.crabnebula.app/update/cap/cap/{{target}}-{{arch}}/{{current_version}}"
-			],
-			"dialog": true,
-			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUyOTAzOTdFNzJFQkRFOTMKUldTVDN1dHlmam1RNHFXb1VYTXlrQk1iMFFkcjN0YitqZlA5WnZNY0ZtQ1dvM1dxK211M3VIYUQK"
+			"active": false,
+			"pubkey": ""
 		}
 	},
 	"bundle": {
+		"createUpdaterArtifacts": false,
 		"macOS": {
 			"entitlements": "Entitlements.plist"
 		},
 		"windows": {
+			"nsis": {
+				"languages": ["English", "SimpChinese"]
+			},
 			"wix": {
-				"upgradeCode": "a765d9de-0ecc-55d0-b8a0-61e9d3276664"
+				"upgradeCode": "b876e0ef-1fdd-66e1-c9b1-72fae4387787"
 			}
 		}
 	}

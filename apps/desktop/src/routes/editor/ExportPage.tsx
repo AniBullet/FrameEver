@@ -2,7 +2,6 @@ import { Button } from "@cap/ui-solid";
 import { debounce } from "@solid-primitives/scheduled";
 import { makePersisted } from "@solid-primitives/storage";
 import { createMutation } from "@tanstack/solid-query";
-import { Channel } from "@tauri-apps/api/core";
 import { CheckMenuItem, Menu } from "@tauri-apps/api/menu";
 import { ask, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { remove } from "@tauri-apps/plugin-fs";
@@ -22,20 +21,14 @@ import {
 } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import toast from "solid-toast";
-import { SignInButton } from "~/components/SignInButton";
 import Tooltip from "~/components/Tooltip";
 import CaptionControlsWindows11 from "~/components/titlebar/controls/CaptionControlsWindows11";
-import { authStore } from "~/store";
-import { trackEvent } from "~/utils/analytics";
-import { createSignInMutation } from "~/utils/auth";
 import { createExportTask } from "~/utils/export";
-import { createOrganizationsQuery } from "~/utils/queries";
 import {
 	commands,
 	type ExportCompression,
 	type ExportSettings,
 	type FramesRendered,
-	type UploadProgress,
 } from "~/utils/tauri";
 import { type RenderState, useEditorContext } from "./context";
 import { RESOLUTION_OPTIONS } from "./Header";
@@ -88,12 +81,13 @@ export const EXPORT_TO_OPTIONS = [
 		icon: IconCapCopy,
 		description: "Copy to paste anywhere",
 	},
-	{
-		label: "Shareable Link",
-		value: "link",
-		icon: IconCapLink,
-		description: "Share via Cap cloud",
-	},
+	// 云端分享功能已移除
+	// {
+	// 	label: "Shareable Link",
+	// 	value: "link",
+	// 	icon: IconCapLink,
+	// 	description: "Share via Cap cloud",
+	// },
 ] as const;
 
 type ExportFormat = ExportSettings["format"];
@@ -130,9 +124,6 @@ export function ExportPage() {
 	};
 
 	const projectPath = editorInstance.path;
-
-	const auth = authStore.createQuery();
-	const organisations = createOrganizationsQuery();
 
 	const hasTransparentBackground = () => {
 		const backgroundSource =
@@ -171,8 +162,9 @@ export function ExportPage() {
 		const ret: Partial<Settings> = {};
 		if (hasTransparentBackground() && _settings.format === "Mp4")
 			ret.format = "Gif";
-		else if (_settings.format === "Gif" && _settings.exportTo === "link")
-			ret.format = "Mp4";
+		// 云端上传功能已移除
+		// else if (_settings.format === "Gif" && _settings.exportTo === "link")
+		// 	ret.format = "Mp4";
 		else if (!["Mp4", "Gif"].includes(_settings.format)) ret.format = "Mp4";
 
 		if (!VALID_COMPRESSIONS.includes(_settings.compression))
@@ -233,7 +225,7 @@ export function ExportPage() {
 		);
 	};
 
-	const matchingPreset = () => {
+	const _matchingPreset = () => {
 		const currentBpp = compressionBpp();
 		return COMPRESSION_OPTIONS.find(
 			(opt) => Math.abs(opt.bpp - currentBpp) < 0.001,
@@ -474,12 +466,6 @@ export function ExportPage() {
 
 			setOutputPath(savePath);
 
-			trackEvent("export_started", {
-				resolution: settings.resolution,
-				fps: settings.fps,
-				path: savePath,
-			});
-
 			const videoPath = await exportWithSettings((progress) => {
 				if (isCancelled()) throw new SilentError("Cancelled");
 				setExportState({ type: "rendering", progress });
@@ -512,97 +498,8 @@ export function ExportPage() {
 		},
 	}));
 
-	const upload = createMutation(() => ({
-		mutationFn: async () => {
-			setIsCancelled(false);
-			if (exportState.type !== "idle") return;
-			setExportState(reconcile({ action: "upload", type: "starting" }));
-
-			const existingAuth = await authStore.get();
-			if (!existingAuth) createSignInMutation();
-			trackEvent("create_shareable_link_clicked", {
-				resolution: settings.resolution,
-				fps: settings.fps,
-				has_existing_auth: !!existingAuth,
-			});
-
-			const metadata = await commands.getVideoMetadata(projectPath);
-			const plan = await commands.checkUpgradedAndUpdate();
-			const canShare = {
-				allowed: plan || metadata.duration < 300,
-				reason: !plan && metadata.duration >= 300 ? "upgrade_required" : null,
-			};
-
-			if (!canShare.allowed) {
-				if (canShare.reason === "upgrade_required") {
-					await commands.showWindow("Upgrade");
-					await new Promise((resolve) => setTimeout(resolve, 1000));
-					throw new SilentError();
-				}
-			}
-
-			const uploadChannel = new Channel<UploadProgress>((progress) => {
-				console.log("Upload progress:", progress);
-				setExportState(
-					produce((state) => {
-						if (state.type !== "uploading") return;
-
-						state.progress = Math.round(progress.progress * 100);
-					}),
-				);
-			});
-
-			await exportWithSettings((progress) => {
-				if (isCancelled()) throw new SilentError("Cancelled");
-				setExportState({ type: "rendering", progress });
-			});
-
-			if (isCancelled()) throw new SilentError("Cancelled");
-
-			setExportState({ type: "uploading", progress: 0 });
-
-			console.log({ organizationId: settings.organizationId });
-
-			const result = meta().sharing
-				? await commands.uploadExportedVideo(
-						projectPath,
-						"Reupload",
-						uploadChannel,
-						settings.organizationId ?? null,
-					)
-				: await commands.uploadExportedVideo(
-						projectPath,
-						{ Initial: { pre_created_video: null } },
-						uploadChannel,
-						settings.organizationId ?? null,
-					);
-
-			if (result === "NotAuthenticated")
-				throw new Error("You need to sign in to share recordings");
-			else if (result === "PlanCheckFailed")
-				throw new Error("Failed to verify your subscription status");
-			else if (result === "UpgradeRequired")
-				throw new Error("This feature requires an upgraded plan");
-		},
-		onSuccess: async () => {
-			await refetchMeta();
-			setExportState({ type: "done" });
-		},
-		onError: (error) => {
-			if (isCancelled() || isCancellationError(error)) {
-				setExportState(reconcile({ type: "idle" }));
-				return;
-			}
-			console.error(error);
-			if (!(error instanceof SilentError)) {
-				commands.globalMessageDialog(
-					error instanceof Error ? error.message : "Failed to upload recording",
-				);
-			}
-
-			setExportState(reconcile({ type: "idle" }));
-		},
-	}));
+	// 云端上传功能已完全移除
+	// const upload = createMutation(() => ({ ... }));
 
 	const formatDuration = (seconds: number) => {
 		const hours = Math.floor(seconds / 3600);
@@ -975,9 +872,6 @@ export function ExportPage() {
 													: "bg-transparent border-transparent text-gray-11 hover:bg-gray-3 hover:border-gray-4",
 											)}
 											onClick={() => {
-												trackEvent("export_fps_changed", {
-													fps: option.value,
-												});
 												updateSettings("fps", option.value);
 											}}
 										>
@@ -1129,42 +1023,36 @@ export function ExportPage() {
 					</div>
 
 					<div class="p-4 border-t border-gray-3">
-						{settings.exportTo === "link" && !auth.data ? (
-							<SignInButton class="w-full justify-center">
-								<IconCapLink class="size-4" />
-								<span>Sign in to share</span>
-							</SignInButton>
-						) : (
-							<Button
-								class="w-full gap-2 h-12 text-base"
-								variant="blue"
-								size="lg"
-								onClick={() => {
-									if (settings.exportTo === "file") save.mutate();
-									else if (settings.exportTo === "link") upload.mutate();
-									else copy.mutate();
-								}}
-							>
-								{settings.exportTo === "file" && (
-									<>
-										<IconCapFile class="size-5" />
-										Export to File
-									</>
-								)}
-								{settings.exportTo === "clipboard" && (
-									<>
-										<IconCapCopy class="size-5" />
-										Export to Clipboard
-									</>
-								)}
-								{settings.exportTo === "link" && (
-									<>
-										<IconCapLink class="size-5" />
-										Export to Link
-									</>
-								)}
-							</Button>
-						)}
+						<Button
+							class="w-full gap-2 h-12 text-base"
+							variant="blue"
+							size="lg"
+							onClick={() => {
+								if (settings.exportTo === "file") save.mutate();
+								// 云端上传功能已移除
+								// else if (settings.exportTo === "link") upload.mutate();
+								else copy.mutate();
+							}}
+						>
+							{settings.exportTo === "file" && (
+								<>
+									<IconCapFile class="size-5" />
+									Export to File
+								</>
+							)}
+							{settings.exportTo === "clipboard" && (
+								<>
+									<IconCapCopy class="size-5" />
+									Export to Clipboard
+								</>
+							)}
+							{settings.exportTo === "link" && (
+								<>
+									<IconCapLink class="size-5" />
+									Export to Link
+								</>
+							)}
+						</Button>
 					</div>
 				</div>
 			</div>

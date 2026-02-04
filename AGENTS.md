@@ -1,26 +1,26 @@
 # Repository Guidelines
 
 ## Project Structure & Modules
-- Turborepo monorepo:
-  - `apps/desktop` (Tauri v2 + SolidStart), `apps/web` (Next.js), `apps/cli` (Rust CLI).
-  - `packages/*` shared libs (e.g., `database`, `ui`, `ui-solid`, `utils`, `web-*`).
-  - `crates/*` Rust media/recording/rendering/camera crates.
-  - `scripts/*`, `infra/`, and `packages/local-docker/` for tooling and local services.
+- Turborepo monorepo (desktop-focused):
+  - `apps/desktop` (Tauri v2 + SolidStart) - primary application
+  - `packages/*` shared libs (e.g., `ui-solid`, `utils`)
+  - `crates/*` Rust media/recording/rendering/camera crates
+  - `scripts/*` for development tooling
 
 ## Build, Test, Develop
-- Install: `pnpm install`; setup: `pnpm env-setup` then `pnpm cap-setup`.
-- Dev: `pnpm dev` (web+desktop). Desktop only: `pnpm dev:desktop`. Web only: `pnpm dev:web` or `cd apps/web && pnpm dev`.
-- Build: `pnpm build` (Turbo). Desktop release: `pnpm tauri:build`.
-- DB: `pnpm db:generate` → `pnpm db:push` → `pnpm db:studio`.
-- Docker: `pnpm docker:up | docker:stop | docker:clean`.
-- Quality: `pnpm lint`, `pnpm format`, `pnpm typecheck`. Rust: `cargo build -p <crate>`, `cargo test -p <crate>`.
+- Install: `pnpm install`
+- Dev: `pnpm dev` or `pnpm dev:desktop`
+- Build: `pnpm build` (Turbo)
+- Desktop release: `pnpm tauri:build`
+- Quality: `pnpm lint`, `pnpm format`, `pnpm typecheck`
+- Rust: `cargo build -p <crate>`, `cargo test -p <crate>`, `cargo fmt`
 
 ## Coding Style & Naming
-- TypeScript: 2‑space indent; Biome formats/lints (`pnpm format`).
-- Rust: `rustfmt` + workspace clippy lints.
-- Naming: files kebab‑case (`user-menu.tsx`); components PascalCase; Rust modules snake_case, crates kebab‑case.
-- Runtime: Node 20, pnpm 10.x, Rust 1.88+, Docker for MySQL/MinIO.
-- **NO COMMENTS**: Never add comments to code (`//`, `/* */`, `///`, `//!`, `#`, etc.). Code must be self-explanatory through naming, types, and structure. This applies to all languages (TypeScript, Rust, JavaScript, etc.).
+- TypeScript: 2‑space indent; Biome formats/lints (`pnpm format`)
+- Rust: `rustfmt` + workspace clippy lints (`cargo fmt`)
+- Naming: files kebab‑case (`user-menu.tsx`); components PascalCase; Rust modules snake_case, crates kebab‑case
+- Runtime: Node 20, pnpm 10.x, Rust 1.88+, FFmpeg
+- **NO COMMENTS**: Never add comments to code (`//`, `/* */`, `///`, `//!`, `#`, etc.). Code must be self-explanatory through naming, types, and structure. This applies to all languages (TypeScript, Rust, JavaScript, etc.)
 
 ## Rust Clippy Rules (Workspace Lints)
 All Rust code must respect these workspace-level lints defined in `Cargo.toml`:
@@ -51,21 +51,20 @@ All Rust code must respect these workspace-level lints defined in `Cargo.toml`:
 - Conventional style: `feat:`, `fix:`, `chore:`, `improve:`, `refactor:`, `docs:` (e.g., `fix: hide watermark for pro users`).
 - PRs: clear description, linked issues, screenshots/GIFs for UI, env/migration notes. Keep scope tight and update docs when behavior changes.
 
-## Agent‑Specific Practices (inspired by CLAUDE.md)
-- Do not start extra servers; use `pnpm dev:web` or `pnpm dev:desktop` as needed.
+## Agent‑Specific Practices
+- Do not start extra servers; use `pnpm dev` or `pnpm dev:desktop`.
 - Never edit auto‑generated files: `**/tauri.ts`, `**/queries.ts`, `apps/desktop/src-tauri/gen/**`.
 - Prefer existing scripts and Turbo filters over ad‑hoc commands; clear `.turbo` only when necessary.
-- Database flow: always `db:generate` → `db:push` before relying on new schema.
-- Keep secrets out of VCS; configure via `.env` from `pnpm env-setup`.
+- No database setup needed - SQLite is file-based and auto-initialized.
 - macOS note: desktop permissions (screen/mic) apply to the terminal running `pnpm dev:desktop`.
 - **CRITICAL: NO CODE COMMENTS**: Never add any form of comments (`//`, `/* */`, `///`, `//!`, `#`, etc.) to generated or edited code. Code must be self-explanatory.
 
-## Effect Usage
-- Next.js API routes in `apps/web/app/api/*` are built with `@effect/platform`'s `HttpApi` builder; copy the existing class/group/endpoint pattern instead of ad-hoc handlers.
-- Acquire backend services (e.g., `Videos`, `S3Buckets`) inside `Effect.gen` blocks and wire them through `Layer.provide`/`HttpApiBuilder.group`, translating domain errors to `HttpApiError` variants.
-- Convert the effectful API to a Next.js handler with `apiToHandler(ApiLive)` from `@/lib/server` and export the returned `handler`—avoid calling `runPromise` inside route files.
-- On the server, run effects through `EffectRuntime.runPromise` from `@/lib/server`, typically after `provideOptionalAuth`, so cookies and per-request context are attached automatically.
-- On the client, use `useEffectQuery`/`useEffectMutation` from `@/lib/EffectRuntime`; they already bind the managed runtime and tracing so you shouldn't call `EffectRuntime.run*` directly in components.
+## Desktop Development
+- SolidJS for UI: Use `createSignal`, `createMemo`, `Show`, `For` instead of React patterns.
+- Tauri IPC: Always use auto-generated `commands` and `events` from `./tauri`.
+- State Management: `@tanstack/solid-query` for async state, SolidJS signals for local state.
+- File Operations: All file I/O goes through Tauri commands for security.
+- Local Database: SQLite accessed through Tauri, no direct file access from frontend.
 
 ## Code Formatting
 - Always format code before completing work: run `pnpm format` for TypeScript/JavaScript and `cargo fmt` for Rust.

@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 cap-cursor-info = { path = "../cursor-info" }
+cap-utils = { path = "../utils" }
 
 specta.workspace = true
 serde = { workspace = true }

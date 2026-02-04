@@ -1,6 +1,7 @@
 import { Collapsible } from "@kobalte/core/collapsible";
 import { Popover } from "@kobalte/core/popover";
 import { Toggle } from "~/components/Toggle";
+import { useI18n } from "~/i18n";
 import IconCapEnlarge from "~icons/cap/enlarge";
 import IconCapImage from "~icons/cap/image";
 import IconCapShadow from "~icons/cap/shadow";
@@ -10,6 +11,7 @@ import { useScreenshotEditorContext } from "../context";
 import { EditorButton, Field, Slider } from "../ui";
 
 export function BorderPopover() {
+	const { t } = useI18n();
 	const { project, setProject, activePopover, setActivePopover } =
 		useScreenshotEditorContext();
 
@@ -22,14 +24,16 @@ export function BorderPopover() {
 			<Popover.Trigger
 				as={EditorButton}
 				leftIcon={<IconCapSquare class="size-4" />}
-				tooltipText="Border"
+				tooltipText={t("editor.screenshot.border")}
 				kbd={["E"]}
 			/>
 			<Popover.Portal>
 				<Popover.Content class="z-50 w-[280px] overflow-hidden rounded-xl border border-gray-3 bg-gray-1 shadow-xl animate-in fade-in zoom-in-95 p-4">
 					<div class="flex flex-col gap-4">
 						<div class="flex flex-row justify-between items-center">
-							<span class="text-xs font-medium text-gray-11">Border</span>
+							<span class="text-xs font-medium text-gray-11">
+								{t("editor.screenshot.border")}
+							</span>
 							<Toggle
 								checked={project.background.border?.enabled ?? false}
 								onChange={(enabled) => {

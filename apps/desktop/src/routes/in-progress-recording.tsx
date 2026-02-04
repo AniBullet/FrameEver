@@ -25,7 +25,6 @@ import {
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { TransitionGroup } from "solid-transition-group";
-import { authStore } from "~/store";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import {
 	createCurrentRecordingQuery,
@@ -87,16 +86,6 @@ function InProgressRecordingInner() {
 	const optionsQuery = createOptionsQuery();
 	const startedWithMicrophone = optionsQuery.rawOptions.micName != null;
 	const startedWithCameraInput = optionsQuery.rawOptions.cameraID != null;
-
-	const [authData, setAuthData] = createSignal<{
-		plan?: { upgraded?: boolean };
-	} | null>(null);
-	onMount(() => {
-		authStore
-			.get()
-			.then(setAuthData)
-			.catch(() => setAuthData(null));
-	});
 
 	const audioLevel = createAudioInputLevel();
 	const [disconnectedInputs, setDisconnectedInputs] =
@@ -522,13 +511,8 @@ function InProgressRecordingInner() {
 	};
 
 	const isMaxRecordingLimitEnabled = () => {
-		// Only enforce the limit on instant mode.
-		// We enforce it on studio mode when exporting.
-		return (
-			optionsQuery.rawOptions.mode === "instant" &&
-			// If the data is loaded and the user is not upgraded
-			authData()?.plan?.upgraded === false
-		);
+		// 移除付费限制，允许所有用户无限录制
+		return false;
 	};
 
 	let aborted = false;

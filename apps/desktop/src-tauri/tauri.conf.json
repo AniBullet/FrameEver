@@ -1,8 +1,8 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
-	"productName": "Cap - Development",
-	"identifier": "so.cap.desktop.dev",
-	"mainBinaryName": "Cap - Development",
+	"productName": "Cap aniBullet - Development",
+	"identifier": "so.cap.desktop.anibullet.dev",
+	"mainBinaryName": "Cap aniBullet - Development",
 	"build": {
 		"beforeDevCommand": "pnpm localdev",
 		"devUrl": "http://localhost:3002",
@@ -27,7 +27,10 @@
 		}
 	},
 	"plugins": {
-		"updater": { "active": false, "pubkey": "" },
+		"updater": {
+			"active": false,
+			"pubkey": ""
+		},
 		"deep-link": {
 			"desktop": {
 				"schemes": ["cap-desktop"]
@@ -36,7 +39,7 @@
 	},
 	"bundle": {
 		"active": true,
-		"createUpdaterArtifacts": true,
+		"createUpdaterArtifacts": false,
 		"targets": "all",
 		"icon": [
 			"icons/32x32.png",
@@ -71,10 +74,11 @@
 			"nsis": {
 				"headerImage": "assets/nsis-header.bmp",
 				"sidebarImage": "assets/nsis-sidebar.bmp",
-				"installerIcon": "icons/icon.ico"
+				"installerIcon": "icons/icon.ico",
+				"languages": ["English", "SimpChinese"]
 			},
 			"wix": {
-				"upgradeCode": "79f4309d-ca23-54df-b6f9-826a1d783676",
+				"upgradeCode": "c987f1f0-db34-47f2-d0c2-83fbf5498898",
 				"bannerPath": "assets/wix-banner.bmp",
 				"dialogImagePath": "assets/wix-dialog.bmp"
 			}

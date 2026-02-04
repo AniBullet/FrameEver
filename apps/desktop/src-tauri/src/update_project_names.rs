@@ -272,11 +272,43 @@ async fn migrate_project_filename_async(
 
     let final_path = parent_dir.join(&unique_filename);
 
-    fs::rename(project_path, &final_path)
-        .await
-        .map_err(|e| format!("Failed to rename project directory: {e}"))?;
+    match fs::rename(project_path, &final_path).await {
+        Ok(_) => Ok(final_path),
+        Err(e) if e.raw_os_error() == Some(17) => {
+            tracing::info!(
+                "Cross-device rename detected (error 17), falling back to copy+delete for: {}",
+                project_path.display()
+            );
 
-    Ok(final_path)
+            async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
+                fs::create_dir_all(dst).await?;
+                let mut entries = fs::read_dir(src).await?;
+
+                while let Some(entry) = entries.next_entry().await? {
+                    let src_path = entry.path();
+                    let dst_path = dst.join(entry.file_name());
+
+                    if src_path.is_dir() {
+                        Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
+                    } else {
+                        fs::copy(&src_path, &dst_path).await?;
+                    }
+                }
+                Ok(())
+            }
+
+            copy_dir_recursive(project_path, &final_path)
+                .await
+                .map_err(|e| format!("Failed to copy project directory: {e}"))?;
+
+            fs::remove_dir_all(project_path)
+                .await
+                .map_err(|e| format!("Failed to remove original directory after copy: {e}"))?;
+
+            Ok(final_path)
+        }
+        Err(e) => Err(format!("Failed to rename project directory: {e}")),
+    }
 }
 
 pub fn fast_is_project_filename_uuid(filename: &str) -> bool {

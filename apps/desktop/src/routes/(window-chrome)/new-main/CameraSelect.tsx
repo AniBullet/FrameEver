@@ -7,7 +7,7 @@ import {
 	createSignal,
 	Show,
 } from "solid-js";
-import { trackEvent } from "~/utils/analytics";
+import { useI18n } from "~/i18n";
 import { createCurrentRecordingQuery } from "~/utils/queries";
 import {
 	type CameraInfo,
@@ -18,8 +18,6 @@ import InfoPill from "./InfoPill";
 import TargetSelectInfoPill from "./TargetSelectInfoPill";
 import useRequestPermission from "./useRequestPermission";
 
-const NO_CAMERA = "No Camera";
-
 export default function CameraSelect(props: {
 	disabled?: boolean;
 	options: CameraInfo[];
@@ -29,6 +27,7 @@ export default function CameraSelect(props: {
 	hidePreviewButton?: boolean;
 	onOpen?: () => void;
 }) {
+	const { t } = useI18n();
 	const currentRecording = createCurrentRecordingQuery();
 	const requestPermission = useRequestPermission();
 	const [cameraWindowOpen, setCameraWindowOpen] = createSignal(false);
@@ -91,7 +90,7 @@ export default function CameraSelect(props: {
 			>
 				<IconCapCamera class="text-gray-10 size-4" />
 				<p class="flex-1 text-sm text-left truncate">
-					{props.value?.display_name ?? NO_CAMERA}
+					{props.value?.display_name ?? t("main.device.none.camera")}
 				</p>
 				<div class="flex items-center gap-1">
 					<Show when={showHiddenIndicator()}>
@@ -139,6 +138,7 @@ export function CameraSelectBase(props: {
 	permissions?: OSPermissionsCheck;
 	hidePreviewButton?: boolean;
 }) {
+	const { t } = useI18n();
 	const currentRecording = createCurrentRecordingQuery();
 	const requestPermission = useRequestPermission();
 	const [cameraWindowOpen, setCameraWindowOpen] = createSignal(false);
@@ -210,7 +210,7 @@ export function CameraSelectBase(props: {
 
 					Promise.all([
 						CheckMenuItem.new({
-							text: NO_CAMERA,
+							text: t("main.device.none.camera"),
 							checked: props.value === null,
 							action: () => onChange(null),
 						}),
@@ -232,7 +232,7 @@ export function CameraSelectBase(props: {
 			>
 				<IconCapCamera class={props.iconClass} />
 				<p class="flex-1 text-sm text-left truncate">
-					{props.value?.display_name ?? NO_CAMERA}
+					{props.value?.display_name ?? t("main.device.none.camera")}
 				</p>
 				<div class="flex items-center gap-1">
 					{showHiddenIndicator() && (

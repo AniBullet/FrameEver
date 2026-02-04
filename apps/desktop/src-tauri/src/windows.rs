@@ -311,6 +311,7 @@ pub enum CapWindowId {
     ModeSelect,
     Debug,
     ScreenshotEditor { id: u32 },
+    Library,
 }
 
 impl FromStr for CapWindowId {
@@ -329,6 +330,7 @@ impl FromStr for CapWindowId {
             "upgrade" => Self::Upgrade,
             "mode-select" => Self::ModeSelect,
             "debug" => Self::Debug,
+            "library" => Self::Library,
             s if s.starts_with("editor-") => Self::Editor {
                 id: s
                     .replace("editor-", "")
@@ -379,6 +381,7 @@ impl std::fmt::Display for CapWindowId {
             Self::Editor { id } => write!(f, "editor-{id}"),
             Self::Debug => write!(f, "debug"),
             Self::ScreenshotEditor { id } => write!(f, "screenshot-editor-{id}"),
+            Self::Library => write!(f, "library"),
         }
     }
 }
@@ -401,6 +404,7 @@ impl CapWindowId {
             Self::Camera => "Cap Camera".to_string(),
             Self::RecordingsOverlay => "Cap Recordings Overlay".to_string(),
             Self::TargetSelectOverlay { .. } => "Cap Target Select".to_string(),
+            Self::Library => "Cap Library".to_string(),
             _ => "Cap".to_string(),
         }
     }
@@ -415,6 +419,7 @@ impl CapWindowId {
                 | Self::Settings
                 | Self::Upgrade
                 | Self::ModeSelect
+                | Self::Library
         )
     }
 
@@ -439,7 +444,7 @@ impl CapWindowId {
     #[cfg(target_os = "macos")]
     pub fn traffic_lights_position(&self) -> Option<Option<LogicalPosition<f64>>> {
         match self {
-            Self::Editor { .. } | Self::ScreenshotEditor { .. } => {
+            Self::Editor { .. } | Self::ScreenshotEditor { .. } | Self::Library => {
                 Some(Some(LogicalPosition::new(20.0, 32.0)))
             }
             Self::Camera
@@ -463,6 +468,7 @@ impl CapWindowId {
             Self::Camera => (200.0, 200.0),
             Self::Upgrade => (950.0, 850.0),
             Self::ModeSelect => (580.0, 340.0),
+            Self::Library => (1000.0, 600.0),
             _ => return None,
         })
     }
@@ -502,6 +508,7 @@ pub enum ShowCapWindow {
     ScreenshotEditor {
         path: PathBuf,
     },
+    Library,
 }
 
 impl ShowCapWindow {
@@ -1190,6 +1197,15 @@ impl ShowCapWindow {
                     if let Err(e) = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y)) {
                         warn!("Failed to position Settings window on Windows: {}", e);
                     }
+                }
+
+                #[cfg(not(windows))]
+                window.show().ok();
+
+                #[cfg(windows)]
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    window.show().ok();
                 }
 
                 window
@@ -1884,6 +1900,40 @@ impl ShowCapWindow {
 
                 window
             }
+            Self::Library => {
+                hide_recording_windows(app);
+
+                #[cfg(target_os = "macos")]
+                app.set_activation_policy(tauri::ActivationPolicy::Regular)
+                    .ok();
+
+                let window = self
+                    .window_builder(app, "/library")
+                    .inner_size(1200.0, 800.0)
+                    .min_inner_size(1000.0, 600.0)
+                    .resizable(true)
+                    .maximizable(true)
+                    .minimizable(true)
+                    .closable(true)
+                    .focused(true)
+                    .build()?;
+
+                let (pos_x, pos_y) = cursor_monitor.center_position(1200.0, 800.0);
+                let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
+
+                #[cfg(windows)]
+                {
+                    use tauri::LogicalSize;
+                    if let Err(e) = window.set_size(LogicalSize::new(1200.0, 800.0)) {
+                        warn!("Failed to set Library window size on Windows: {}", e);
+                    }
+                    if let Err(e) = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y)) {
+                        warn!("Failed to position Library window on Windows: {}", e);
+                    }
+                }
+
+                window
+            }
         };
 
         // removing this for now as it causes windows to just stay hidden sometimes -_-
@@ -1994,6 +2044,7 @@ impl ShowCapWindow {
                 let id = s.iter().find(|(p, _)| p == path).unwrap().1;
                 CapWindowId::ScreenshotEditor { id }
             }
+            ShowCapWindow::Library => CapWindowId::Library,
         }
     }
 }

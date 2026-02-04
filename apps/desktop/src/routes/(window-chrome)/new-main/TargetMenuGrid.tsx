@@ -1,6 +1,7 @@
 import { cx } from "cva";
 import { createMemo, For, type JSX, Match, Show, Switch } from "solid-js";
 import { Transition } from "solid-transition-group";
+import { useI18n } from "~/i18n";
 import type {
 	CaptureDisplayWithThumbnail,
 	CaptureWindowWithThumbnail,
@@ -99,6 +100,7 @@ function ViewAllButton(props: { onClick: () => void; label: string }) {
 }
 
 export default function TargetMenuGrid(props: TargetMenuGridProps) {
+	const { t } = useI18n();
 	const items = createMemo(() => props.targets ?? []);
 	const skeletonItems = createMemo(() =>
 		Array.from({ length: props.skeletonCount ?? DEFAULT_SKELETON_COUNT }),
@@ -178,11 +180,14 @@ export default function TargetMenuGrid(props: TargetMenuGridProps) {
 			return (
 				<EmptyState
 					icon={<IconLucideSquarePlay class="size-5 text-gray-10" />}
-					title="No recordings yet"
-					description="Your screen recordings will appear here. Start recording to get started!"
+					title={t("main.overlay.recordings.empty.title")}
+					description={t("main.overlay.recordings.empty.description")}
 					action={
 						onViewAll
-							? { label: "View All Recordings", onClick: onViewAll }
+							? {
+									label: t("main.overlay.recordings.viewall"),
+									onClick: onViewAll,
+								}
 							: undefined
 					}
 				/>
@@ -193,11 +198,14 @@ export default function TargetMenuGrid(props: TargetMenuGridProps) {
 			return (
 				<EmptyState
 					icon={<IconLucideImage class="size-5 text-gray-10" />}
-					title="No screenshots yet"
-					description="Your screenshots will appear here. Take a screenshot to get started!"
+					title={t("main.overlay.screenshots.empty.title")}
+					description={t("main.overlay.screenshots.empty.description")}
 					action={
 						onViewAll
-							? { label: "View All Screenshots", onClick: onViewAll }
+							? {
+									label: t("main.overlay.screenshots.viewall"),
+									onClick: onViewAll,
+								}
 							: undefined
 					}
 				/>
@@ -208,8 +216,8 @@ export default function TargetMenuGrid(props: TargetMenuGridProps) {
 			<div class="col-span-2 py-6 text-sm text-center text-gray-11">
 				{props.emptyMessage ??
 					(props.variant === "display"
-						? "No displays found"
-						: "No windows found")}
+						? t("main.overlay.no.displays")
+						: t("main.overlay.no.windows"))}
 			</div>
 		);
 	};
@@ -377,7 +385,7 @@ export default function TargetMenuGrid(props: TargetMenuGridProps) {
 											{(onViewAll) => (
 												<ViewAllButton
 													onClick={onViewAll()}
-													label="View All Recordings"
+													label={t("main.overlay.recordings.viewall")}
 												/>
 											)}
 										</Show>
@@ -422,7 +430,7 @@ export default function TargetMenuGrid(props: TargetMenuGridProps) {
 											{(onViewAll) => (
 												<ViewAllButton
 													onClick={onViewAll()}
-													label="View All Screenshots"
+													label={t("main.overlay.screenshots.viewall")}
 												/>
 											)}
 										</Show>

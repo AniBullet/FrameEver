@@ -212,6 +212,10 @@ pub async fn open_target_select_overlays(
     {
         task.abort();
     } else {
+        *state
+            .escape_unregistered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = false;
         app.global_shortcut()
             .register("Escape")
             .map_err(|err| error!("Error registering global keyboard shortcut for Escape: {err}"))
@@ -406,6 +410,7 @@ pub async fn focus_window(window_id: WindowId) -> Result<(), String> {
 pub struct WindowFocusManager {
     task: Mutex<Option<JoinHandle<()>>>,
     tasks: Mutex<HashMap<String, JoinHandle<()>>>,
+    escape_unregistered: Mutex<bool>,
 }
 
 impl WindowFocusManager {
@@ -457,18 +462,22 @@ impl WindowFocusManager {
             task.abort();
         }
 
-        // When all overlay windows are closed cleanup shared resources.
         if tasks.is_empty() {
-            // Unregister keyboard shortcut
-            // This messes with other applications if we don't remove it.
-            global_shortcut
-                .unregister("Escape")
-                .map_err(|err| {
-                    error!("Error unregistering global keyboard shortcut for Escape: {err}")
-                })
-                .ok();
+            let mut escape_unregistered = self
+                .escape_unregistered
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
 
-            // Shutdown the cursor tracking task
+            if !*escape_unregistered {
+                global_shortcut
+                    .unregister("Escape")
+                    .map_err(|err| {
+                        error!("Error unregistering global keyboard shortcut for Escape: {err}")
+                    })
+                    .ok();
+                *escape_unregistered = true;
+            }
+
             if let Some(task) = self
                 .task
                 .lock()

@@ -34,9 +34,9 @@ import { Transition } from "solid-transition-group";
 import Mode from "~/components/Mode";
 import { RecoveryToast } from "~/components/RecoveryToast";
 import Tooltip from "~/components/Tooltip";
+import { VersionBadge } from "~/components/VersionBadge";
+import { useI18n } from "~/i18n";
 import { Input } from "~/routes/editor/ui";
-import { authStore } from "~/store";
-import { createSignInMutation } from "~/utils/auth";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import {
 	type CameraWithDetails,
@@ -46,7 +46,6 @@ import {
 import {
 	createCameraMutation,
 	createCurrentRecordingQuery,
-	createLicenseQuery,
 	listDisplaysWithThumbnails,
 	listRecordings,
 	listScreens,
@@ -74,6 +73,7 @@ import IconLucideArrowLeft from "~icons/lucide/arrow-left";
 import IconLucideBug from "~icons/lucide/bug";
 import IconLucideImage from "~icons/lucide/image";
 import IconLucideImport from "~icons/lucide/import";
+import IconLucideLayoutGrid from "~icons/lucide/layout-grid";
 import IconLucideSearch from "~icons/lucide/search";
 import IconLucideSquarePlay from "~icons/lucide/square-play";
 import IconLucideVideo from "~icons/lucide/video";
@@ -85,7 +85,6 @@ import {
 	useRecordingOptions,
 } from "../OptionsContext";
 import CameraSelect from "./CameraSelect";
-import ChangelogButton from "./ChangeLogButton";
 import MicrophoneSelect from "./MicrophoneSelect";
 import ModeInfoPanel from "./ModeInfoPanel";
 import SystemAudio from "./SystemAudio";
@@ -95,7 +94,7 @@ import TargetMenuGrid from "./TargetMenuGrid";
 import TargetTypeButton from "./TargetTypeButton";
 import useRequestPermission from "./useRequestPermission";
 
-const WINDOW_SIZE = { width: 330, height: 395 } as const;
+const WINDOW_SIZE = { width: 420, height: 400 } as const;
 
 const findCamera = (cameras: CameraWithDetails[], id: DeviceOrModelID) => {
 	return cameras.find((c) => {
@@ -340,6 +339,7 @@ function MicrophoneListItem(props: {
 }
 
 function DeviceListPanel(props: DeviceListPanelProps) {
+	const { t } = useI18n();
 	const DB_SCALE = 40;
 	const requestPermission = useRequestPermission();
 	const [focusedIndex, setFocusedIndex] = createSignal(-1);
@@ -519,7 +519,9 @@ function DeviceListPanel(props: DeviceListPanelProps) {
 				>
 					<IconLucideCircleOff class="size-4 shrink-0" />
 					<span class="truncate flex-1">
-						{props.variant === "camera" ? "No Camera" : "No Microphone"}
+						{props.variant === "camera"
+							? t("main.device.none.camera")
+							: t("main.device.none.microphone")}
 					</span>
 					<Show when={isNoneSelected()}>
 						<IconLucideCheck class="size-4 shrink-0" />
@@ -572,22 +574,12 @@ function DeviceListPanel(props: DeviceListPanelProps) {
 }
 
 function TargetMenuPanel(props: TargetMenuPanelProps & SharedTargetMenuProps) {
+	const { t } = useI18n();
 	const [search, setSearch] = createSignal("");
 	const trimmedSearch = createMemo(() => search().trim());
 	const normalizedQuery = createMemo(() => trimmedSearch().toLowerCase());
 	let scrollContainerRef: HTMLDivElement | undefined;
-	const placeholder =
-		props.variant === "display"
-			? "Search displays"
-			: props.variant === "window"
-				? "Search windows"
-				: props.variant === "recording"
-					? "Search recordings"
-					: props.variant === "screenshot"
-						? "Search screenshots"
-						: props.variant === "camera"
-							? "Search cameras"
-							: "Search microphones";
+	const placeholder = t("main.placeholder.search");
 	const noResultsMessage =
 		props.variant === "display"
 			? "No matching displays"
@@ -736,7 +728,7 @@ function TargetMenuPanel(props: TargetMenuPanelProps & SharedTargetMenuProps) {
 					focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-9 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-1"
 				>
 					<IconLucideArrowLeft class="size-3 text-gray-11" />
-					<span class="font-medium text-gray-12">Back</span>
+					<span class="font-medium text-gray-12">{t("main.button.back")}</span>
 				</div>
 				<div class="flex gap-2 flex-1 min-w-0">
 					<div class="relative flex-1 min-w-0 h-[36px] flex items-center">
@@ -768,7 +760,7 @@ function TargetMenuPanel(props: TargetMenuPanelProps & SharedTargetMenuProps) {
 							onClick={handleImport}
 						>
 							<IconLucideImport class="size-3.5" />
-							<span>Import</span>
+							<span>{t("main.button.import")}</span>
 						</Button>
 					</Show>
 				</div>
@@ -827,7 +819,9 @@ function TargetMenuPanel(props: TargetMenuPanelProps & SharedTargetMenuProps) {
 							onSelect={props.onSelect}
 							disabled={props.disabled}
 							emptyMessage={
-								trimmedSearch() ? noResultsMessage : "No cameras found"
+								trimmedSearch()
+									? noResultsMessage
+									: t("main.device.empty.camera")
 							}
 							permissions={props.permissions}
 						/>
@@ -841,7 +835,9 @@ function TargetMenuPanel(props: TargetMenuPanelProps & SharedTargetMenuProps) {
 							onSelect={props.onSelect}
 							disabled={props.disabled}
 							emptyMessage={
-								trimmedSearch() ? noResultsMessage : "No microphones found"
+								trimmedSearch()
+									? noResultsMessage
+									: t("main.device.empty.microphone")
 							}
 							permissions={props.permissions}
 						/>
@@ -916,10 +912,10 @@ function createUpdateCheck() {
 }
 
 function Page() {
+	const { t } = useI18n();
 	const { rawOptions, setOptions } = useRecordingOptions();
 	const currentRecording = createCurrentRecordingQuery();
 	const isRecording = () => !!currentRecording.data;
-	const auth = authStore.createQuery();
 
 	const [hasHiddenMainWindowForPicker, setHasHiddenMainWindowForPicker] =
 		createSignal(false);
@@ -1437,9 +1433,11 @@ function Page() {
 		else setCamera.mutate({ model: null });
 	});
 
-	const license = createLicenseQuery();
-
-	const signIn = createSignInMutation();
+	const signIn = createMutation(() => ({
+		mutationFn: async () => {
+			return Promise.resolve();
+		},
+	}));
 
 	const BaseControls = () => (
 		<div class="space-y-2">
@@ -1511,7 +1509,7 @@ function Page() {
 								onClick={() => {
 									toggleTargetMode("display");
 								}}
-								name="Display"
+								name={t("main.label.display")}
 								class="flex-1 rounded-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 pl-5"
 							/>
 							<TargetDropdownButton
@@ -1552,7 +1550,7 @@ function Page() {
 								onClick={() => {
 									toggleTargetMode("window");
 								}}
-								name="Window"
+								name={t("main.label.window")}
 								class="flex-1 rounded-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 pl-5"
 							/>
 							<TargetDropdownButton
@@ -1588,7 +1586,7 @@ function Page() {
 							onClick={() => {
 								toggleTargetMode("area");
 							}}
-							name="Area"
+							name={t("main.label.area")}
 							class="flex-1"
 						/>
 						<TargetTypeButton
@@ -1598,7 +1596,7 @@ function Page() {
 							onClick={() => {
 								toggleTargetMode("camera");
 							}}
-							name="Camera Only"
+							name={t("main.label.camera")}
 							class="flex-1"
 						/>
 					</div>
@@ -1609,14 +1607,13 @@ function Page() {
 	);
 
 	const startSignInCleanup = listen("start-sign-in", async () => {
-		const abort = new AbortController();
 		for (const win of await getAllWebviewWindows()) {
 			if (win.label.startsWith("target-select-overlay")) {
 				await win.hide();
 			}
 		}
 
-		await signIn.mutateAsync(abort).catch(() => {});
+		await signIn.mutateAsync().catch(() => {});
 
 		for (const win of await getAllWebviewWindows()) {
 			if (win.label.startsWith("target-select-overlay")) {
@@ -1640,7 +1637,7 @@ function Page() {
 					data-tauri-drag-region
 				>
 					<div class="flex gap-1 items-center" data-tauri-drag-region>
-						<Tooltip content={<span>Settings</span>}>
+						<Tooltip content={<span>{t("main.tooltip.settings")}</span>}>
 							<button
 								type="button"
 								onClick={async () => {
@@ -1652,7 +1649,7 @@ function Page() {
 								<IconCapSettings class="transition-colors text-gray-11 size-4 hover:text-gray-12" />
 							</button>
 						</Tooltip>
-						<Tooltip content={<span>Screenshots</span>}>
+						<Tooltip content={<span>{t("main.tooltip.screenshots")}</span>}>
 							<button
 								type="button"
 								onClick={() => {
@@ -1671,7 +1668,7 @@ function Page() {
 								<IconLucideImage class="transition-colors text-gray-11 size-4 hover:text-gray-12" />
 							</button>
 						</Tooltip>
-						<Tooltip content={<span>Recordings</span>}>
+						<Tooltip content={<span>{t("main.tooltip.recordings")}</span>}>
 							<button
 								type="button"
 								onClick={() => {
@@ -1690,7 +1687,18 @@ function Page() {
 								<IconLucideSquarePlay class="transition-colors text-gray-11 size-4 hover:text-gray-12" />
 							</button>
 						</Tooltip>
-						<ChangelogButton />
+						<Tooltip content={<span>{t("main.tooltip.library")}</span>}>
+							<button
+								type="button"
+								onClick={async () => {
+									await commands.showWindow("Library");
+									getCurrentWindow().hide();
+								}}
+								class="flex items-center justify-center size-5 focus:outline-none"
+							>
+								<IconLucideLayoutGrid class="transition-colors text-gray-11 size-4 hover:text-gray-12" />
+							</button>
+						</Tooltip>
 						{import.meta.env.DEV && (
 							<button
 								type="button"
@@ -1711,53 +1719,25 @@ function Page() {
 			<Show when={!activeMenu()}>
 				<div class="flex items-center justify-between mt-[16px] mb-[6px]">
 					<div class="flex items-center space-x-1">
-						<a
-							class="*:w-[92px] *:h-auto text-[--text-primary]"
-							target="_blank"
-							href={
-								auth.data
-									? `${import.meta.env.VITE_SERVER_URL}/dashboard`
-									: import.meta.env.VITE_SERVER_URL
-							}
-						>
+						<div class="*:w-[92px] *:h-auto text-[--text-primary]">
 							<IconCapLogoFullDark class="hidden dark:block" />
 							<IconCapLogoFull class="block dark:hidden" />
-						</a>
-						<ErrorBoundary fallback={null}>
-							<Suspense>
-								<span
-									onClick={async () => {
-										if (license.data?.type !== "pro") {
-											await commands.showWindow("Upgrade");
-										}
-									}}
-									class={cx(
-										"text-[0.6rem] ml-2 rounded-lg border border-gray-5 px-1 py-0.5",
-										license.data?.type === "pro"
-											? "bg-[--blue-400] text-gray-1 dark:text-gray-12"
-											: "bg-gray-3 cursor-pointer hover:bg-gray-5",
-									)}
-								>
-									{license.data?.type === "commercial"
-										? "Commercial"
-										: license.data?.type === "pro"
-											? "Pro"
-											: "Personal"}
-								</span>
-							</Suspense>
-						</ErrorBoundary>
+						</div>
+						<VersionBadge />
 					</div>
-					<Mode
-						onInfoClick={() => {
-							setModeInfoMenuOpen(true);
-							setDisplayMenuOpen(false);
-							setWindowMenuOpen(false);
-							setRecordingsMenuOpen(false);
-							setScreenshotsMenuOpen(false);
-							setCameraMenuOpen(false);
-							setMicrophoneMenuOpen(false);
-						}}
-					/>
+					<div class="flex items-center gap-2">
+						<Mode
+							onInfoClick={() => {
+								setModeInfoMenuOpen(true);
+								setDisplayMenuOpen(false);
+								setWindowMenuOpen(false);
+								setRecordingsMenuOpen(false);
+								setScreenshotsMenuOpen(false);
+								setCameraMenuOpen(false);
+								setMicrophoneMenuOpen(false);
+							}}
+						/>
+					</div>
 				</div>
 			</Show>
 			<div class="flex-1 min-h-0 w-full flex flex-col">
@@ -1768,7 +1748,6 @@ function Page() {
 
 							<Button
 								onClick={() => {
-									signIn.variables?.abort();
 									signIn.reset();
 								}}
 								variant="gray"
@@ -1848,9 +1827,7 @@ function Page() {
 										setRecordingsMenuOpen(false);
 									}}
 									onViewAll={async () => {
-										await commands.showWindow({
-											Settings: { page: "recordings" },
-										});
+										await commands.showWindow("Library");
 										getCurrentWindow().hide();
 									}}
 									uploadProgress={uploadProgress}
@@ -1878,9 +1855,7 @@ function Page() {
 										setScreenshotsMenuOpen(false);
 									}}
 									onViewAll={async () => {
-										await commands.showWindow({
-											Settings: { page: "screenshots" },
-										});
+										await commands.showWindow("Library");
 										getCurrentWindow().hide();
 									}}
 								/>

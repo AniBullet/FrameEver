@@ -12,6 +12,7 @@ use cap_project::{
     RecordingMetaInner, StudioRecordingMeta, StudioRecordingStatus, TimelineConfiguration,
     TimelineSegment, VideoMeta,
 };
+use cap_utils::move_file;
 use relative_path::RelativePathBuf;
 use tracing::{debug, info, warn};
 
@@ -484,7 +485,7 @@ impl RecoveryManager {
                 let source = &segment.display_fragments[0];
                 if source != &display_output {
                     info!("Moving single display fragment to {:?}", display_output);
-                    std::fs::rename(source, &display_output)?;
+                    move_file(source, &display_output)?;
                     let display_dir = segment_dir.join("display");
                     if display_dir.exists()
                         && let Err(e) = std::fs::remove_dir_all(&display_dir)
@@ -539,7 +540,7 @@ impl RecoveryManager {
                     let source = &camera_frags[0];
                     if source != &camera_output {
                         info!("Moving single camera fragment to {:?}", camera_output);
-                        std::fs::rename(source, &camera_output)?;
+                        move_file(source, &camera_output)?;
                         let camera_dir = segment_dir.join("camera");
                         if camera_dir.exists()
                             && let Err(e) = std::fs::remove_dir_all(&camera_dir)
@@ -593,7 +594,7 @@ impl RecoveryManager {
                     if source != &mic_output {
                         if is_ogg {
                             info!("Moving single mic fragment to {:?}", mic_output);
-                            std::fs::rename(source, &mic_output)?;
+                            move_file(source, &mic_output)?;
                         } else {
                             info!("Transcoding single mic fragment to {:?}", mic_output);
                             concatenate_audio_to_ogg(mic_frags, &mic_output)
@@ -640,7 +641,7 @@ impl RecoveryManager {
                     if source != &system_output {
                         if is_ogg {
                             info!("Moving single system audio fragment to {:?}", system_output);
-                            std::fs::rename(source, &system_output)?;
+                            move_file(source, &system_output)?;
                         } else {
                             info!(
                                 "Transcoding single system audio fragment to {:?}",

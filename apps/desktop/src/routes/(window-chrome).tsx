@@ -3,7 +3,14 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type as ostype } from "@tauri-apps/plugin-os";
 import { cx } from "cva";
-import { onCleanup, onMount, type ParentProps, Suspense } from "solid-js";
+import {
+	createSignal,
+	onCleanup,
+	onMount,
+	type ParentProps,
+	Show,
+	Suspense,
+} from "solid-js";
 
 import { AbsoluteInsetLoader } from "~/components/Loader";
 import CaptionControlsMacOS from "~/components/titlebar/controls/CaptionControlsMacOS";
@@ -16,12 +23,16 @@ import {
 
 export default function (props: RouteSectionProps) {
 	let unlistenResize: UnlistenFn | undefined;
+	const [isVisible, setIsVisible] = createSignal(false);
 
 	onMount(async () => {
 		console.log("window chrome mounted");
 		unlistenResize = await initializeTitlebar();
 		const capContext = (window as any).__CAP__;
 		const hasInitialTargetMode = capContext?.initialTargetMode != null;
+
+		setIsVisible(true);
+
 		if (location.pathname === "/" && !hasInitialTargetMode)
 			getCurrentWindow().show();
 	});
@@ -34,45 +45,50 @@ export default function (props: RouteSectionProps) {
 
 	return (
 		<WindowChromeContext>
-			<div
-				class={cx(
-					"flex overflow-hidden flex-col w-screen h-screen max-h-screen divide-y divide-gray-5 bg-gray-1",
-					isMacOS && "rounded-[16px]",
-				)}
+			<Show
+				when={isVisible()}
+				fallback={<div class="w-screen h-screen bg-gray-1" />}
 			>
-				<Header />
+				<div
+					class={cx(
+						"flex overflow-hidden flex-col w-screen h-screen max-h-screen divide-y divide-gray-5 bg-gray-1 animate-in fade-in duration-200",
+						isMacOS && "rounded-[16px]",
+					)}
+				>
+					<Header />
 
-				{/* breaks sometimes */}
-				{/* <Transition
+					{/* breaks sometimes */}
+					{/* <Transition
         mode="outin"
         enterActiveClass="transition-opacity duration-100"
         exitActiveClass="transition-opacity duration-100"
         enterClass="opacity-0"
         exitToClass="opacity-0"
         > */}
-				<Suspense
-					fallback={
-						(() => {
-							console.log("Outer window chrome suspense fallback");
-							return <AbsoluteInsetLoader />;
-						}) as any
-					}
-				>
-					<Inner>
-						{/* prevents flicker idk */}
-						<Suspense
-							fallback={
-								(() => {
-									console.log("Inner window chrome suspense fallback");
-								}) as any
-							}
-						>
-							{props.children}
-						</Suspense>
-					</Inner>
-				</Suspense>
-				{/* </Transition> */}
-			</div>
+					<Suspense
+						fallback={
+							(() => {
+								console.log("Outer window chrome suspense fallback");
+								return <AbsoluteInsetLoader />;
+							}) as any
+						}
+					>
+						<Inner>
+							{/* prevents flicker idk */}
+							<Suspense
+								fallback={
+									(() => {
+										console.log("Inner window chrome suspense fallback");
+									}) as any
+								}
+							>
+								{props.children}
+							</Suspense>
+						</Inner>
+					</Suspense>
+					{/* </Transition> */}
+				</div>
+			</Show>
 		</WindowChromeContext>
 	);
 }

@@ -17,7 +17,6 @@ import {
 	Show,
 } from "solid-js";
 import { Input } from "~/routes/editor/ui";
-import { trackEvent } from "~/utils/analytics";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import { commands, events, type RecordingMeta } from "~/utils/tauri";
 
@@ -85,8 +84,6 @@ export default function Screenshots() {
 	});
 
 	const handleScreenshotClick = (screenshot: Screenshot) => {
-		trackEvent("screenshot_view_clicked");
-		// events.newScreenshotAdded.emit({ path: screenshot.path });
 		commands.showWindow({
 			ScreenshotEditor: {
 				path: screenshot.path,
@@ -95,7 +92,6 @@ export default function Screenshots() {
 	};
 
 	const handleOpenEditor = (path: string) => {
-		trackEvent("screenshot_editor_clicked");
 		commands.showWindow({
 			ScreenshotEditor: {
 				path,
@@ -104,12 +100,10 @@ export default function Screenshots() {
 	};
 
 	const handleOpenFolder = (path: string) => {
-		trackEvent("screenshot_folder_clicked");
 		commands.openFilePath(path);
 	};
 
 	const handleCopyImageToClipboard = (path: string) => {
-		trackEvent("screenshot_copy_clicked");
 		commands.copyScreenshotToClipboard(path);
 	};
 

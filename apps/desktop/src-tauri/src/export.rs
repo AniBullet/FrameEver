@@ -92,6 +92,57 @@ async fn do_export(
     }
 }
 
+async fn do_export_with_path(
+    project_path: &Path,
+    output_path: &Path,
+    settings: &ExportSettings,
+    progress: &tauri::ipc::Channel<FramesRendered>,
+    force_ffmpeg: bool,
+) -> Result<PathBuf, String> {
+    let exporter_base = ExporterBase::builder(project_path.to_path_buf())
+        .with_force_ffmpeg_decoder(force_ffmpeg)
+        .with_output_path(output_path.to_path_buf())
+        .build()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let total_frames = exporter_base.total_frames(settings.fps());
+
+    let _ = progress.send(FramesRendered {
+        rendered_count: 0,
+        total_frames,
+    });
+
+    match settings {
+        ExportSettings::Mp4(mp4_settings) => {
+            let progress = progress.clone();
+            mp4_settings
+                .export(exporter_base, move |frame_index| {
+                    progress
+                        .send(FramesRendered {
+                            rendered_count: (frame_index + 1).min(total_frames),
+                            total_frames,
+                        })
+                        .is_ok()
+                })
+                .await
+        }
+        ExportSettings::Gif(gif_settings) => {
+            let progress = progress.clone();
+            gif_settings
+                .export(exporter_base, move |frame_index| {
+                    progress
+                        .send(FramesRendered {
+                            rendered_count: (frame_index + 1).min(total_frames),
+                            total_frames,
+                        })
+                        .is_ok()
+                })
+                .await
+        }
+    }
+}
+
 fn is_frame_decode_error(error: &str) -> bool {
     error.contains("Failed to decode video frames")
         || error.contains("Too many consecutive frame failures")
@@ -99,13 +150,16 @@ fn is_frame_decode_error(error: &str) -> bool {
 
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(progress, editor))]
+#[instrument(skip(progress, editor, app))]
 pub async fn export_video(
+    app: tauri::AppHandle,
     project_path: PathBuf,
     progress: tauri::ipc::Channel<FramesRendered>,
     settings: ExportSettings,
     editor: OptionalWindowEditorInstance,
 ) -> Result<PathBuf, String> {
+    use crate::general_settings::GeneralSettingsStore;
+
     let force_ffmpeg = true;
     tracing::info!(
         "Using FFmpeg decoder for export (ensures all frames can be decoded regardless of keyframe positions)"
@@ -120,11 +174,35 @@ pub async fn export_video(
         None
     };
 
-    let result = do_export(&project_path, &settings, &progress, force_ffmpeg).await;
+    let _meta = RecordingMeta::load_for_project(&project_path)
+        .map_err(|e| format!("Failed to load recording meta: {}", e))?;
+
+    let output_dir = GeneralSettingsStore::exports_video_path(&app);
+    let file_name = project_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("recording");
+
+    let extension = match settings {
+        ExportSettings::Mp4(_) => "mp4",
+        ExportSettings::Gif(_) => "gif",
+    };
+
+    let output_path = output_dir.join(format!("{}.{}", file_name, extension));
+
+    let result = do_export_with_path(
+        &project_path,
+        &output_path,
+        &settings,
+        &progress,
+        force_ffmpeg,
+    )
+    .await;
 
     match result {
         Ok(path) => {
             info!("Exported to {} completed", path.display());
+
             Ok(path)
         }
         Err(e) if !force_ffmpeg && is_frame_decode_error(&e) => {
@@ -133,7 +211,8 @@ pub async fn export_video(
                 e
             );
 
-            let retry_result = do_export(&project_path, &settings, &progress, true).await;
+            let retry_result =
+                do_export_with_path(&project_path, &output_path, &settings, &progress, true).await;
 
             match retry_result {
                 Ok(path) => {
@@ -144,13 +223,13 @@ pub async fn export_video(
                     Ok(path)
                 }
                 Err(retry_e) => {
-                    sentry::capture_message(&retry_e, sentry::Level::Error);
+                    tracing::error!("Export retry failed: {}", retry_e);
                     Err(retry_e)
                 }
             }
         }
         Err(e) => {
-            sentry::capture_message(&e, sentry::Level::Error);
+            tracing::error!("Export failed: {}", e);
             Err(e)
         }
     }

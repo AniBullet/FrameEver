@@ -7,6 +7,7 @@ import {
 	onCleanup,
 	Show,
 } from "solid-js";
+import { useI18n } from "~/i18n";
 import IconCapZoomIn from "~icons/cap/zoom-in";
 import IconCapZoomOut from "~icons/cap/zoom-out";
 import { EditorButton, Slider } from "../editor/ui";
@@ -23,6 +24,7 @@ const gridStyle = {
 };
 
 export function Preview(props: { zoom: number; setZoom: (z: number) => void }) {
+	const { t } = useI18n();
 	const { latestFrame, annotations, focusAnnotationId, setFocusAnnotationId } =
 		useScreenshotEditorContext();
 	let canvasRef: HTMLCanvasElement | undefined;
@@ -186,7 +188,7 @@ export function Preview(props: { zoom: number; setZoom: (z: number) => void }) {
 			>
 				<div class="absolute left-4 bottom-4 z-10 flex items-center gap-2 bg-gray-1 dark:bg-gray-3 rounded-lg shadow-sm p-1 border border-gray-4">
 					<EditorButton
-						tooltipText="Zoom Out"
+						tooltipText={t("editor.screenshot.zoom.out")}
 						kbd={["meta", "-"]}
 						onClick={zoomOut}
 					>
@@ -202,7 +204,7 @@ export function Preview(props: { zoom: number; setZoom: (z: number) => void }) {
 						formatTooltip={(v) => `${Math.round(v * 100)}%`}
 					/>
 					<EditorButton
-						tooltipText="Zoom In"
+						tooltipText={t("editor.screenshot.zoom.in")}
 						kbd={["meta", "+"]}
 						onClick={zoomIn}
 					>

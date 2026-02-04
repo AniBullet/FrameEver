@@ -33,13 +33,15 @@ export function RoundingPopover() {
 			<Popover.Trigger
 				as={EditorButton}
 				leftIcon={<IconCapCorners class="size-4" />}
-				tooltipText="Corner Rounding"
+				tooltipText={t("editor.screenshot.rounding")}
 			/>
 			<Popover.Portal>
 				<Popover.Content class="z-50 w-[240px] overflow-hidden rounded-xl border border-gray-3 bg-gray-1 shadow-xl animate-in fade-in zoom-in-95 p-4">
 					<div class="flex flex-col gap-4">
 						<div class="flex flex-col gap-2">
-							<span class="text-xs font-medium text-gray-11">Rounding</span>
+							<span class="text-xs font-medium text-gray-11">
+								{t("editor.screenshot.rounding")}
+							</span>
 							<Slider
 								value={[project.background.rounding]}
 								onChange={(v) => setProject("background", "rounding", v[0])}

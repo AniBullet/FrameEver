@@ -18,6 +18,7 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import ModeSelect from "~/components/ModeSelect";
+import { useI18n } from "~/i18n";
 import {
 	commands,
 	type OSPermission,
@@ -31,35 +32,25 @@ function isPermitted(status?: OSPermissionStatus): boolean {
 
 const permissions = [
 	{
-		name: "Screen Recording",
 		key: "screenRecording" as const,
-		description:
-			"Add Cap in System Settings, then restart the app for changes to take effect.",
 		requiresManualGrant: true,
 	},
 	{
-		name: "Accessibility",
 		key: "accessibility" as const,
-		description:
-			"During recording, Cap collects mouse activity locally to generate automatic zoom in segments.",
 		requiresManualGrant: false,
 	},
 	{
-		name: "Microphone",
 		key: "microphone" as const,
-		description: "This permission is required to record audio in your Caps.",
 		requiresManualGrant: false,
 	},
 	{
-		name: "Camera",
 		key: "camera" as const,
-		description:
-			"This permission is required to record your camera in your Caps.",
 		requiresManualGrant: false,
 	},
 ] as const;
 
 export default function () {
+	const { t } = useI18n();
 	const [initialCheck, setInitialCheck] = createSignal(true);
 	const [check, checkActions] = createResource(() =>
 		commands.doPermissionsCheck(initialCheck()),
@@ -90,15 +81,12 @@ export default function () {
 	const openSettings = async (permission: OSPermission) => {
 		await commands.openPermissionSettings(permission);
 		if (permission === "screenRecording") {
-			const shouldRestart = await ask(
-				"After adding Cap in System Settings, you'll need to restart the app for the permission to take effect.",
-				{
-					title: "Restart Required",
-					kind: "info",
-					okLabel: "Restart, I've granted permission",
-					cancelLabel: "No, I still need to add it",
-				},
-			);
+			const shouldRestart = await ask(t("setup.restart.message"), {
+				title: t("setup.restart.title"),
+				kind: "info",
+				okLabel: t("setup.restart.ok"),
+				cancelLabel: t("setup.restart.cancel"),
+			});
 			if (shouldRestart) {
 				await relaunch();
 			}
@@ -133,9 +121,9 @@ export default function () {
 				<div class="flex flex-col items-center">
 					<IconCapLogo class="size-14 mb-3" />
 					<h1 class="text-[1.2rem] font-[700] mb-1 text-[--text-primary]">
-						Permissions Required
+						{t("setup.permissions.title")}
 					</h1>
-					<p class="text-gray-11">Cap needs permissions to run properly.</p>
+					<p class="text-gray-11">{t("setup.permissions.subtitle")}</p>
 				</div>
 
 				<ul class="flex flex-col gap-4 py-8">
@@ -148,10 +136,12 @@ export default function () {
 									<li class="flex flex-row items-center gap-4">
 										<div class="flex flex-col flex-[2]">
 											<span class="font-[500] text-[0.875rem] text-[--text-primary]">
-												{permission.name} Permission
+												{t(`setup.permissions.${permission.key}` as any)}
 											</span>
 											<span class="text-[--text-secondary]">
-												{permission.description}
+												{t(
+													`setup.permissions.${permission.key}.description` as any,
+												)}
 											</span>
 										</div>
 										<Button
@@ -165,11 +155,11 @@ export default function () {
 											disabled={isPermitted(permissionCheck())}
 										>
 											{permissionCheck() === "granted"
-												? "Granted"
+												? t("setup.permissions.granted")
 												: permission.requiresManualGrant ||
 														permissionCheck() === "denied"
-													? "Open Settings"
-													: "Grant Permission"}
+													? t("setup.permissions.openSettings")
+													: t("setup.permissions.grantPermission")}
 										</Button>
 									</li>
 								</Show>
@@ -187,7 +177,7 @@ export default function () {
 					}
 					onClick={() => setCurrentStep("mode")}
 				>
-					Continue
+					{t("setup.permissions.continue")}
 				</Button>
 			</Show>
 
@@ -195,11 +185,9 @@ export default function () {
 				<div class="flex flex-col items-center">
 					<IconCapLogo class="size-14 mb-3" />
 					<h1 class="text-[1.2rem] font-[700] mb-1 text-[--text-primary]">
-						Select Recording Mode
+						{t("setup.mode.title")}
 					</h1>
-					<p class="text-gray-11">
-						Choose how you want to record with Cap. You can change this later.
-					</p>
+					<p class="text-gray-11">{t("setup.mode.subtitle")}</p>
 				</div>
 
 				<div class="w-full py-4">
@@ -207,7 +195,7 @@ export default function () {
 				</div>
 
 				<Button class="px-12" size="lg" onClick={handleContinue}>
-					Continue to Cap
+					{t("setup.mode.continue")}
 				</Button>
 			</Show>
 		</div>
@@ -225,6 +213,7 @@ import cloud3 from "../../assets/illustrations/cloud-3.png";
 import startupAudio from "../../assets/tears-and-fireflies-adi-goldstein.mp3";
 
 function Startup(props: { onClose: () => void }) {
+	const { t } = useI18n();
 	const [audioState, setAudioState] = makePersisted(
 		createStore({ isMuted: false }),
 		{ name: "audioSettings" },
@@ -514,10 +503,10 @@ function Startup(props: { onClose: () => void }) {
 								/>
 							</div>
 							<h1 class="text-5xl md:text-5xl font-bold mb-4 drop-shadow-[0_0_20px_rgba(0,0,0,0.2)]">
-								Welcome to Cap
+								{t("setup.welcome.title")}
 							</h1>
 							<p class="text-2xl opacity-80 max-w-md mx-auto drop-shadow-[0_0_20px_rgba(0,0,0,0.2)]">
-								Beautiful screen recordings, owned by you.
+								{t("setup.welcome.subtitle")}
 							</p>
 						</div>
 
@@ -529,7 +518,7 @@ function Startup(props: { onClose: () => void }) {
 									size="lg"
 									onClick={handleGetStarted}
 								>
-									Get Started
+									{t("setup.welcome.getStarted")}
 								</Button>
 							</Match>
 							<Match when={ostype() === "windows"}>
@@ -544,7 +533,7 @@ function Startup(props: { onClose: () => void }) {
 										getCurrentWindow().close();
 									}}
 								>
-									Continue to Cap
+									{t("setup.welcome.continue")}
 								</Button>
 							</Match>
 						</Switch>

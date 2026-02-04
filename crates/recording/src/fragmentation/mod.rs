@@ -1,6 +1,7 @@
 mod manifest;
 pub use manifest::*;
 
+use cap_utils::move_file;
 use serde::Serialize;
 use std::{
     io::Write,
@@ -17,7 +18,7 @@ pub fn atomic_write_json<T: Serialize>(path: &Path, data: &T) -> std::io::Result
     file.write_all(json.as_bytes())?;
     file.sync_all()?;
 
-    std::fs::rename(&temp_path, path)?;
+    move_file(&temp_path, path)?;
 
     if let Some(parent) = path.parent()
         && let Ok(dir) = std::fs::File::open(parent)

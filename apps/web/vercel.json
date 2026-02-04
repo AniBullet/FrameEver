@@ -1,8 +1,0 @@
-{
-	"$schema": "https://openapi.vercel.sh/vercel.json",
-	"functions": {
-		"app/.well-known/workflow/v1/step/route.js": {
-			"memory": 3009
-		}
-	}
-}

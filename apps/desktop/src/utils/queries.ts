@@ -1,20 +1,11 @@
 import { createEventListener } from "@solid-primitives/event-listener";
 import { makePersisted } from "@solid-primitives/storage";
-import {
-	createQuery,
-	queryOptions,
-	useMutation,
-	useQuery,
-} from "@tanstack/solid-query";
+import { createQuery, queryOptions, useMutation } from "@tanstack/solid-query";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { batch, createEffect, createMemo, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { useRecordingOptions } from "~/routes/(window-chrome)/OptionsContext";
-import {
-	authStore,
-	generalSettingsStore,
-	recordingSettingsStore,
-} from "~/store";
+import { generalSettingsStore, recordingSettingsStore } from "~/store";
 import { createQueryInvalidate } from "./events";
 import {
 	type CameraInfo,
@@ -24,7 +15,6 @@ import {
 	type RecordingTargetMode,
 	type ScreenCaptureTarget,
 } from "./tauri";
-import { orgCustomDomainClient, protectedHeaders } from "./web-api";
 
 export const listWindows = queryOptions({
 	queryKey: ["capture", "windows"] as const,
@@ -227,9 +217,7 @@ export function createLicenseQuery() {
 		queryKey: ["licenseQuery"],
 		queryFn: async () => {
 			const settings = await generalSettingsStore.get();
-			const auth = await authStore.get();
 
-			if (auth?.plan?.upgraded) return { type: "pro" as const, ...auth.plan };
 			if (settings?.commercialLicense)
 				return {
 					type: "commercial" as const,
@@ -241,7 +229,6 @@ export function createLicenseQuery() {
 	}));
 
 	generalSettingsStore.listen(() => query.refetch());
-	authStore.listen(() => query.refetch());
 
 	return query;
 }
@@ -299,41 +286,4 @@ export function createCameraMutation() {
 			},
 		},
 	);
-}
-
-export function createCustomDomainQuery() {
-	return useQuery(() => ({
-		queryKey: ["customDomain"] as const,
-		queryFn: async () => {
-			try {
-				const auth = await authStore.get();
-				if (!auth) return { custom_domain: null, domain_verified: null };
-				const response = await orgCustomDomainClient.getOrgCustomDomain({
-					headers: await protectedHeaders(),
-				});
-				if (response.status === 200) return response.body;
-			} catch (error) {
-				console.error("Error fetching custom domain:", error);
-				return { custom_domain: null, domain_verified: null };
-			}
-		},
-		refetchOnMount: true,
-		refetchOnWindowFocus: true,
-	}));
-}
-
-export function createOrganizationsQuery() {
-	const auth = authStore.createQuery();
-
-	// Refresh organizations if they're missing
-	createEffect(() => {
-		if (
-			auth.data?.user_id &&
-			(!auth.data?.organizations || auth.data.organizations.length === 0)
-		) {
-			commands.updateAuthPlan().catch(console.error);
-		}
-	});
-
-	return () => auth.data?.organizations ?? [];
 }
