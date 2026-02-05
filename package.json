@@ -20,6 +20,8 @@
 		"test:suite:playback": "pnpm with-env cargo run -p cap-test -- suite playback",
 		"test:suite:sync": "pnpm with-env cargo run -p cap-test -- suite sync",
 		"check-tauri-versions": "node scripts/check-tauri-plugin-versions.js",
+		"verify:ci": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/verify-ci-local.ps1",
+		"verify:ci:clippy": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/verify-ci-local.ps1 -ClippyOnly",
 		"clean": "find . -name node_modules -o -name .next -o -name .output -o -name .turbo -o -name dist -type d -prune | xargs rm -rf",
 		"with-env": "dotenv -e .env --"
 	},

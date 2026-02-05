@@ -114,7 +114,7 @@ Rust 的 `ffmpeg-sys-next` crate 在 Windows 上编译时需要：
 ```yaml
 - name: Install FFmpeg via vcpkg
   run: |
-    vcpkg install ffmpeg:x64-windows-static
+    vcpkg install ffmpeg:x64-windows
     echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
 ```
 
@@ -123,14 +123,16 @@ Rust 的 `ffmpeg-sys-next` crate 在 Windows 上编译时需要：
 1. ✅ **完整开发包**：包含头文件、库文件、pkg-config 配置
 2. ✅ **原生支持**：`ffmpeg-sys-next` 在 Windows MSVC 上优先查找 vcpkg
 3. ✅ **预装可用**：GitHub Actions Windows runner 预装 vcpkg
-4. ✅ **静态链接**：使用 `x64-windows-static` 三元组避免运行时依赖
+4. ✅ **triplet 一致**：必须使用 `x64-windows`（与 ffmpeg-sys-next 默认查找的 triplet 一致）；若使用 `x64-windows-static` 会报 "package ffmpeg is not installed for vcpkg triplet x64-windows"
 
 ### 构建流程
 
 ```
-vcpkg 安装 FFmpeg 
+vcpkg 安装 FFmpeg (x64-windows)
   ↓
 设置 VCPKG_ROOT 环境变量
+  ↓
+（Build Desktop/Release）复制 installed/x64-windows/bin/*.dll → target/ffmpeg/bin（供 Tauri 打包）
   ↓
 cargo build (ffmpeg-sys-next 自动找到 vcpkg FFmpeg)
   ↓

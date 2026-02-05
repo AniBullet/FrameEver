@@ -108,8 +108,8 @@ jobs:
           vcpkg version
           Write-Host "VCPKG_INSTALLATION_ROOT: $env:VCPKG_INSTALLATION_ROOT"
           
-          Write-Host "`n=== Installing FFmpeg ==="
-          vcpkg install ffmpeg:x64-windows-static
+          Write-Host "`n=== Installing FFmpeg (x64-windows to match ffmpeg-sys-next default triplet) ==="
+          vcpkg install ffmpeg:x64-windows
           
           Write-Host "`n=== Verifying FFmpeg installation ==="
           vcpkg list | Select-String "ffmpeg"
@@ -171,8 +171,8 @@ jobs:
           vcpkg version
           Write-Host "VCPKG_INSTALLATION_ROOT: $env:VCPKG_INSTALLATION_ROOT"
           
-          Write-Host "`n=== Installing FFmpeg ==="
-          vcpkg install ffmpeg:x64-windows-static
+          Write-Host "`n=== Installing FFmpeg (x64-windows to match ffmpeg-sys-next default triplet) ==="
+          vcpkg install ffmpeg:x64-windows
           
           Write-Host "`n=== Verifying FFmpeg installation ==="
           vcpkg list | Select-String "ffmpeg"
@@ -192,6 +192,15 @@ jobs:
           target: x86_64-pc-windows-msvc
 
       - uses: ./.github/actions/setup-js
+
+      - name: Prepare FFmpeg DLLs for bundle
+        shell: pwsh
+        run: |
+          $binDir = "$env:VCPKG_ROOT\installed\x64-windows\bin"
+          $targetDir = "target\ffmpeg\bin"
+          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+          Copy-Item "$binDir\*.dll" -Destination $targetDir -Force
+          Write-Host "Copied FFmpeg DLLs to $targetDir for Tauri bundle"
 
       - name: Create .env file in root
         run: |
