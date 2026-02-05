@@ -253,7 +253,7 @@ async fn create_pipeline(
             #[cfg(windows)]
             encoder_preferences: crate::capture_pipeline::EncoderPreferences::new(),
             bitrate_multiplier: bitrate_multiplier.unwrap_or(0.15),
-        }
+        },
     )
     .await?;
 
