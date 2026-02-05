@@ -17,7 +17,7 @@ function Refresh-Path {
 }
 
 # Check Node.js
-Write-Host "[1/5] Checking Node.js..." -ForegroundColor Yellow
+Write-Host "[1/9] Checking Node.js..." -ForegroundColor Yellow
 $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) {
     $nodeVersion = node --version
@@ -41,7 +41,7 @@ else {
 
 # Check pnpm
 Write-Host ""
-Write-Host "[2/5] Checking pnpm..." -ForegroundColor Yellow
+Write-Host "[2/9] Checking pnpm..." -ForegroundColor Yellow
 Refresh-Path
 $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
 if ($pnpm) {
@@ -63,7 +63,7 @@ else {
 
 # Check CMake (Kitware preferred: supports all VS generators; required for whisper-rs-sys)
 Write-Host ""
-Write-Host "[3/7] Checking CMake..." -ForegroundColor Yellow
+Write-Host "[3/9] Checking CMake..." -ForegroundColor Yellow
 Refresh-Path
 $kitwareCmakeBin = "${env:ProgramFiles}\CMake\bin"
 if (-not (Test-Path "$kitwareCmakeBin\cmake.exe")) { $kitwareCmakeBin = "${env:ProgramFiles(x86)}\CMake\bin" }
@@ -98,7 +98,7 @@ else {
 
 # Check Rust
 Write-Host ""
-Write-Host "[4/7] Checking Rust..." -ForegroundColor Yellow
+Write-Host "[4/9] Checking Rust..." -ForegroundColor Yellow
 Refresh-Path
 $rust = Get-Command rustc -ErrorAction SilentlyContinue
 if ($rust) {
@@ -236,9 +236,53 @@ else {
     Write-Host "  OK Git proxy already configured" -ForegroundColor Green
 }
 
+# Check MSVC (required for Rust FFI compilation with bindgen)
+Write-Host ""
+Write-Host "[5/9] Checking MSVC C++ Build Tools..." -ForegroundColor Yellow
+Refresh-Path
+
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vcvarsall = $null
+
+if (Test-Path $vswhere) {
+    $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+    if ($vsPath) {
+        $vcvarsall = Join-Path $vsPath "VC\Auxiliary\Build\vcvarsall.bat"
+    }
+}
+
+if (-not $vcvarsall -or -not (Test-Path $vcvarsall)) {
+    $possiblePaths = @(
+        "${env:ProgramFiles}\Microsoft Visual Studio\2022\*\VC\Auxiliary\Build\vcvarsall.bat",
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\*\VC\Auxiliary\Build\vcvarsall.bat",
+        "${env:ProgramFiles}\Microsoft Visual Studio\2019\*\VC\Auxiliary\Build\vcvarsall.bat",
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\*\VC\Auxiliary\Build\vcvarsall.bat"
+    )
+    
+    foreach ($pattern in $possiblePaths) {
+        $found = Get-Item $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) {
+            $vcvarsall = $found.FullName
+            break
+        }
+    }
+}
+
+if ($vcvarsall -and (Test-Path $vcvarsall)) {
+    Write-Host "  OK MSVC Build Tools found" -ForegroundColor Green
+} else {
+    Write-Host "  WARNING: MSVC Build Tools not found" -ForegroundColor Yellow
+    Write-Host "  Rust FFI compilation (bindgen) may fail without MSVC" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  To install:" -ForegroundColor Cyan
+    Write-Host "    Option 1: winget install Microsoft.VisualStudio.2022.BuildTools" -ForegroundColor White
+    Write-Host "    Option 2: Download from https://aka.ms/vs/17/release/vs_BuildTools.exe" -ForegroundColor White
+    Write-Host "             Select: Desktop development with C++" -ForegroundColor White
+}
+
 # Check FFmpeg runtime
 Write-Host ""
-Write-Host "[5/8] Checking FFmpeg runtime..." -ForegroundColor Yellow
+Write-Host "[6/9] Checking FFmpeg runtime..." -ForegroundColor Yellow
 Refresh-Path
 $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
 if ($ffmpeg) {
@@ -258,95 +302,112 @@ else {
     }
 }
 
-# Setup FFmpeg dev environment (required for ffmpeg-sys-next)
+# Setup FFmpeg development environment (using vcpkg for proper Rust FFI support)
 Write-Host ""
-Write-Host "[6/8] Setting up FFmpeg development environment..." -ForegroundColor Yellow
+Write-Host "[7/9] Setting up FFmpeg development environment..." -ForegroundColor Yellow
 
-$ffmpegDevDir = "$env:USERPROFILE\.ffmpeg-dev"
-$projectFfmpegDir = "$PSScriptRoot\target\ffmpeg\bin"
+$vcpkgRoot = "$env:USERPROFILE\.vcpkg"
+$vcpkgExe = "$vcpkgRoot\vcpkg.exe"
 
-# Download pre-built FFmpeg static libraries
-if (-not (Test-Path "$ffmpegDevDir\include\libavcodec\avcodec.h")) {
-    Write-Host "  Downloading FFmpeg dev libraries..." -ForegroundColor Gray
+if (-not (Test-Path $vcpkgExe)) {
+    Write-Host "  Installing vcpkg (package manager for C++ libraries)..." -ForegroundColor Gray
     
-    try {
-        $ffmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip"
-        $ffmpegArchive = "$env:TEMP\ffmpeg-dev.zip"
-        
-        Invoke-WebRequest -Uri $ffmpegUrl -OutFile $ffmpegArchive -UseBasicParsing
-        
-        Write-Host "  Extracting FFmpeg libraries..." -ForegroundColor Gray
-        Expand-Archive -Path $ffmpegArchive -DestinationPath "$env:TEMP\ffmpeg-extract" -Force
-        
-        # Find the extracted directory
-        $extractedDir = Get-ChildItem -Path "$env:TEMP\ffmpeg-extract" -Directory | Select-Object -First 1
-        
-        # Move to final location
-        if (Test-Path $ffmpegDevDir) {
-            Remove-Item $ffmpegDevDir -Recurse -Force
-        }
-        Move-Item -Path $extractedDir.FullName -Destination $ffmpegDevDir
-        
-        # Cleanup
-        Remove-Item $ffmpegArchive -ErrorAction SilentlyContinue
-        Remove-Item "$env:TEMP\ffmpeg-extract" -Recurse -ErrorAction SilentlyContinue
-        
-        Write-Host "  OK FFmpeg dev environment configured" -ForegroundColor Green
+    if (Test-Path $vcpkgRoot) {
+        Remove-Item $vcpkgRoot -Recurse -Force
     }
-    catch {
-        Write-Host "  WARNING: Failed to setup FFmpeg dev environment" -ForegroundColor Yellow
-        Write-Host "  Error: $_" -ForegroundColor Gray
-        Write-Host "  Compilation may fail" -ForegroundColor Gray
+    
+    git clone https://github.com/microsoft/vcpkg.git $vcpkgRoot 2>&1 | Out-Null
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  ERROR: Failed to clone vcpkg" -ForegroundColor Red
+        exit 1
+    }
+    
+    Push-Location $vcpkgRoot
+    .\bootstrap-vcpkg.bat 2>&1 | Out-Null
+    Pop-Location
+    
+    if (Test-Path $vcpkgExe) {
+        Write-Host "  OK vcpkg installed" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  ERROR: vcpkg installation failed" -ForegroundColor Red
+        exit 1
     }
 }
 else {
-    Write-Host "  OK FFmpeg dev environment already configured" -ForegroundColor Green
+    Write-Host "  OK vcpkg already installed" -ForegroundColor Green
 }
 
-# Copy DLLs to project directory for Tauri bundling
-if (Test-Path "$ffmpegDevDir\bin") {
-    $needsCopy = $false
+$ffmpegInstalled = & $vcpkgExe list | Select-String "ffmpeg:x64-windows"
+
+if (-not $ffmpegInstalled) {
+    Write-Host "  Installing FFmpeg development libraries via vcpkg..." -ForegroundColor Yellow
+    Write-Host "  This will take 15-30 minutes (downloads and compiles FFmpeg)..." -ForegroundColor Gray
     
-    if (-not (Test-Path $projectFfmpegDir)) {
-        $needsCopy = $true
+    & $vcpkgExe install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows 2>&1 | Out-Null
+    
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  OK FFmpeg development libraries installed" -ForegroundColor Green
     }
     else {
-        $sourceDlls = Get-ChildItem "$ffmpegDevDir\bin\*.dll"
-        $targetDlls = Get-ChildItem "$projectFfmpegDir\*.dll" -ErrorAction SilentlyContinue
+        Write-Host "  ERROR: FFmpeg installation via vcpkg failed" -ForegroundColor Red
+        exit 1
+    }
+}
+else {
+    Write-Host "  OK FFmpeg development libraries already installed" -ForegroundColor Green
+}
+
+$vcpkgPath = "$vcpkgRoot\installed\x64-windows"
+$currentVcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
+
+if ($currentVcpkgRoot -ne $vcpkgRoot) {
+    Write-Host "  Setting vcpkg environment variables..." -ForegroundColor Gray
+    [System.Environment]::SetEnvironmentVariable("VCPKG_ROOT", $vcpkgRoot, "User")
+    $needsRestart = $true
+}
+
+$env:VCPKG_ROOT = $vcpkgRoot
+
+Write-Host "  Cleaning up old FFmpeg environment variables..." -ForegroundColor Gray
+$oldFfmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
+if ($oldFfmpegDir) {
+    [System.Environment]::SetEnvironmentVariable("FFMPEG_DIR", $null, "User")
+    [System.Environment]::SetEnvironmentVariable("FFMPEG_INCLUDE_DIR", $null, "User")
+    [System.Environment]::SetEnvironmentVariable("FFMPEG_LIB_DIR", $null, "User")
+    Write-Host "  OK Removed old FFmpeg environment variables (now using vcpkg)" -ForegroundColor Green
+    $needsRestart = $true
+}
+
+$vcpkgBinDir = "$vcpkgRoot\installed\x64-windows\bin"
+$projectFfmpegDir = "$PSScriptRoot\target\ffmpeg\bin"
+
+if (Test-Path $vcpkgBinDir) {
+    $vcpkgDlls = Get-ChildItem "$vcpkgBinDir\*.dll" -ErrorAction SilentlyContinue
+    
+    if ($vcpkgDlls.Count -gt 0) {
+        $needsCopy = $false
         
-        if ($sourceDlls.Count -ne $targetDlls.Count) {
+        if (-not (Test-Path $projectFfmpegDir)) {
             $needsCopy = $true
         }
+        else {
+            $targetDlls = Get-ChildItem "$projectFfmpegDir\*.dll" -ErrorAction SilentlyContinue
+            
+            if ($vcpkgDlls.Count -ne $targetDlls.Count) {
+                $needsCopy = $true
+            }
+        }
+        
+        if ($needsCopy) {
+            Write-Host "  Copying FFmpeg DLLs for runtime..." -ForegroundColor Gray
+            New-Item -ItemType Directory -Force -Path $projectFfmpegDir | Out-Null
+            Copy-Item "$vcpkgBinDir\*.dll" -Destination $projectFfmpegDir -Force
+            $dllCount = (Get-ChildItem $projectFfmpegDir -Filter "*.dll").Count
+            Write-Host "  OK Copied $dllCount DLL files" -ForegroundColor Green
+        }
     }
-    
-    if ($needsCopy) {
-        Write-Host "  Copying FFmpeg DLLs to project directory..." -ForegroundColor Gray
-        New-Item -ItemType Directory -Force -Path $projectFfmpegDir | Out-Null
-        Copy-Item "$ffmpegDevDir\bin\*.dll" -Destination $projectFfmpegDir -Force
-        $dllCount = (Get-ChildItem $projectFfmpegDir -Filter "*.dll").Count
-        Write-Host "  OK Copied $dllCount DLL files" -ForegroundColor Green
-    }
-    else {
-        $dllCount = (Get-ChildItem $projectFfmpegDir -Filter "*.dll").Count
-        Write-Host "  OK FFmpeg DLLs already in place ($dllCount files)" -ForegroundColor Green
-    }
-}
-
-# Set environment variables for current session and persist
-if (Test-Path "$ffmpegDevDir\include") {
-    $currentFfmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
-    
-    if ($currentFfmpegDir -ne $ffmpegDevDir) {
-        Write-Host "  Setting FFmpeg environment variables..." -ForegroundColor Gray
-        [System.Environment]::SetEnvironmentVariable("FFMPEG_DIR", $ffmpegDevDir, "User")
-        [System.Environment]::SetEnvironmentVariable("FFMPEG_INCLUDE_DIR", "$ffmpegDevDir\include", "User")
-        [System.Environment]::SetEnvironmentVariable("FFMPEG_LIB_DIR", "$ffmpegDevDir\lib", "User")
-        $needsRestart = $true
-    }
-    
-    $env:FFMPEG_DIR = $ffmpegDevDir
-    $env:FFMPEG_INCLUDE_DIR = "$ffmpegDevDir\include"
-    $env:FFMPEG_LIB_DIR = "$ffmpegDevDir\lib"
 }
 
 # Install LLVM (required for bindgen which generates Rust FFI bindings)
@@ -399,9 +460,24 @@ else {
     }
 }
 
+Write-Host "  Configuring Cargo environment..." -ForegroundColor Gray
+$cargoConfigDir = "$PSScriptRoot\.cargo"
+$cargoConfigFile = "$cargoConfigDir\config.toml"
+
+if (-not (Test-Path $cargoConfigDir)) {
+    New-Item -ItemType Directory -Force -Path $cargoConfigDir | Out-Null
+}
+
+$cargoConfig = @"
+[env]
+"@
+
+Set-Content -Path $cargoConfigFile -Value $cargoConfig -Encoding UTF8
+Write-Host "  OK Cargo configuration updated" -ForegroundColor Green
+
 # Verify Cargo (for better error message)
 Write-Host ""
-Write-Host "[7/8] Verifying Rust Cargo..." -ForegroundColor Yellow
+Write-Host "[8/9] Verifying Rust Cargo..." -ForegroundColor Yellow
 Refresh-Path
 $cargo = Get-Command cargo -ErrorAction SilentlyContinue
 if ($cargo) {
@@ -415,7 +491,7 @@ else {
 
 # Install project dependencies
 Write-Host ""
-Write-Host "[8/8] Installing project dependencies..." -ForegroundColor Yellow
+Write-Host "[9/9] Installing project dependencies..." -ForegroundColor Yellow
 
 $needsInstall = $false
 $lockFile = "$PSScriptRoot\pnpm-lock.yaml"
@@ -481,6 +557,29 @@ if ($needsInstall) {
         Write-Host ""
         exit 1
     }
+}
+
+Write-Host ""
+Write-Host "[9/9] Updating Rust dependencies..." -ForegroundColor Yellow
+Write-Host "  Ensuring all Rust crates are up-to-date..." -ForegroundColor Gray
+
+$cargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
+if ($cargoCmd) {
+    Push-Location "$PSScriptRoot\apps\desktop\src-tauri"
+    try {
+        cargo update 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  Rust dependencies updated successfully" -ForegroundColor Green
+        } else {
+            Write-Host "  Warning: Cargo update returned non-zero exit code (may be harmless)" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  Warning: Could not update Rust dependencies" -ForegroundColor Yellow
+    } finally {
+        Pop-Location
+    }
+} else {
+    Write-Host "  Skipping (cargo not in PATH - will be available after terminal restart)" -ForegroundColor Gray
 }
 
 Write-Host ""

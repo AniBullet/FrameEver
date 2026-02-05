@@ -12,36 +12,14 @@ Write-Host ""
 # Refresh PATH to pick up newly installed tools
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
-# Setup FFmpeg environment variables for compilation
-$ffmpegDevDir = "$env:USERPROFILE\.ffmpeg-dev"
-if (Test-Path "$ffmpegDevDir\include") {
-    $env:FFMPEG_DIR = $ffmpegDevDir
-    $env:FFMPEG_INCLUDE_DIR = "$ffmpegDevDir\include"
-    $env:FFMPEG_LIB_DIR = "$ffmpegDevDir\lib"
-    Write-Host "  FFmpeg environment configured" -ForegroundColor Green
-    
-    # Ensure DLLs are copied to project directory
-    $projectFfmpegDir = "$PSScriptRoot\target\ffmpeg\bin"
-    if (-not (Test-Path $projectFfmpegDir)) {
-        Write-Host "  Copying FFmpeg DLLs to project..." -ForegroundColor Gray
-        New-Item -ItemType Directory -Force -Path $projectFfmpegDir | Out-Null
-        Copy-Item "$ffmpegDevDir\bin\*.dll" -Destination $projectFfmpegDir -Force
-    }
+$vcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
+if (-not $vcpkgRoot) {
+    $vcpkgRoot = "$env:USERPROFILE\.vcpkg"
 }
 
-# Setup LLVM/libclang for bindgen
-$llvmPaths = @(
-    "C:\Program Files\LLVM\bin",
-    "${env:ProgramFiles}\LLVM\bin",
-    "${env:ProgramFiles(x86)}\LLVM\bin"
-)
-
-foreach ($path in $llvmPaths) {
-    if (Test-Path "$path\libclang.dll") {
-        $env:LIBCLANG_PATH = $path
-        Write-Host "  LLVM/libclang environment configured" -ForegroundColor Green
-        break
-    }
+if (Test-Path $vcpkgRoot) {
+    $env:VCPKG_ROOT = $vcpkgRoot
+    Write-Host "  vcpkg environment configured" -ForegroundColor Green
 }
 
 # Verify required tools

@@ -49,54 +49,33 @@
 
 ## 🚀 快速开始
 
-<details>
-<summary>点击展开</summary>
-
-### Windows 一键脚本
-
-```powershell
-# 1. 安装依赖（首次运行）
-.\1-install.ps1
-# 安装完成后请重启终端，再执行下面步骤
-
-# 2. 启动开发服务器
-.\2-dev.ps1
-
-# 3. 构建发布版本
-.\3-build.ps1
-# 选项 1: Development（开发版 - Cap - Development）
-# 选项 2: Production（生产版 - Cap，推荐用于发布）
+```bash
+# 所有平台统一
+./3-build.sh     # 自动检测系统并构建
 ```
 
-**构建版本说明**：
-- **Development** (`Cap aniBullet - Development`)：开发版本，标识为 `so.cap.desktop.anibullet.dev`
-- **Production** (`Cap aniBullet`)：生产版本，标识为 `so.cap.desktop.anibullet`，用于正式发布
+**Windows 专用脚本**：
+```powershell
+.\1-install.ps1  # 安装依赖（首次运行后重启终端）
+.\2-dev.ps1      # 启动开发服务器
+```
 
-### 手动安装
+> 💡 详细构建文档请查看 [BUILD.md](BUILD.md)
+
+---
+
+## 🤖 自动化打包
+
+推送 Git tag 即可触发 GitHub Actions 自动构建所有平台：
 
 ```bash
-# 安装依赖
-pnpm install
-
-# 启动开发
-cd apps/desktop && pnpm dev
-
-# 构建 - 开发版
-cd apps/desktop && pnpm build:tauri
-
-# 构建 - 生产版
-cd apps/desktop && pnpm build:tauri --config src-tauri/tauri.prod.conf.json
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
-**打包文件位置**：
-- Windows: `apps/desktop/src-tauri/target/release/bundle/nsis/Cap_aniBullet_*.exe` (推荐)
-- Windows: `apps/desktop/src-tauri/target/release/bundle/msi/cap-anibullet_*.msi`
-- macOS: `apps/desktop/src-tauri/target/release/bundle/dmg/Cap_aniBullet_*.dmg`
-- Linux: `apps/desktop/src-tauri/target/release/bundle/deb/cap-anibullet_*.deb`
+构建完成后在 [Releases](../../releases) 页面下载对应平台的安装包。
 
-**系统要求**：Node.js 20+ • Rust 1.88+ (Windows 建议 MSVC) • CMake (Kitware) • FFmpeg • Windows: Visual Studio 2022 Build Tools
-
-</details>
+> 💡 详细说明请查看 [BUILD.md](BUILD.md#github-actions-自动打包)
 
 ---
 

@@ -72,7 +72,7 @@ rand = "0.8.5"
 cpal.workspace = true
 keyed_priority_queue = "0.4.2"
 clipboard-rs = "0.2.2"
-whisper-rs = "0.11.0"
+whisper-rs = "0.15.1"
 lazy_static = "1.4.0"
 log = "0.4.20"
 

@@ -9,25 +9,79 @@ Write-Host "  Cap aniBullet - Build Application" -ForegroundColor Cyan
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Check dependencies
+Write-Host "Verifying build prerequisites..." -ForegroundColor Yellow
+
+$allOk = $true
+
 if (-not (Test-Path "node_modules")) {
-    Write-Host "ERROR: node_modules not found" -ForegroundColor Red
-    Write-Host "Please run: .\1-install.ps1" -ForegroundColor Yellow
+    Write-Host "  ERROR: node_modules not found" -ForegroundColor Red
+    Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
+    $allOk = $false
+}
+
+$ffmpegDevDir = "$env:USERPROFILE\.ffmpeg-dev"
+if (-not (Test-Path "$ffmpegDevDir\include\libavutil\avutil.h")) {
+    Write-Host "  ERROR: FFmpeg development files not found" -ForegroundColor Red
+    Write-Host "  Expected: $ffmpegDevDir\include\libavutil\avutil.h" -ForegroundColor Yellow
+    Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
+    $allOk = $false
+}
+
+$cargo = Get-Command cargo -ErrorAction SilentlyContinue
+if (-not $cargo) {
+    Write-Host "  ERROR: Cargo (Rust) not found in PATH" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Solution:" -ForegroundColor Yellow
+    Write-Host "  1. Close this terminal completely" -ForegroundColor White
+    Write-Host "  2. Open a NEW PowerShell window" -ForegroundColor White
+    Write-Host "  3. Run: .\3-build.ps1" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Rust is installed but PATH needs terminal restart." -ForegroundColor Gray
+    $allOk = $false
+}
+
+if (-not $allOk) {
+    Write-Host ""
     exit 1
 }
 
-# Build env: refresh PATH and set vars from 1-install layout (no per-machine special cases)
+Write-Host "  OK Prerequisites verified" -ForegroundColor Green
+Write-Host ""
+
+$arch = $env:PROCESSOR_ARCHITECTURE
+if ($arch -eq "AMD64") {
+    $target = "x86_64-pc-windows-msvc"
+    $archName = "x64"
+} elseif ($arch -eq "ARM64") {
+    $target = "aarch64-pc-windows-msvc"
+    $archName = "ARM64"
+} else {
+    $target = "x86_64-pc-windows-msvc"
+    $archName = "x64"
+}
+
+Write-Host "Detected architecture: $archName ($target)" -ForegroundColor Gray
+Write-Host ""
+
+Write-Host "Setting up build environment..." -ForegroundColor Gray
+
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-$ffmpegDevDir = "$env:USERPROFILE\.ffmpeg-dev"
-if ($env:OS -eq "Windows_NT" -and (Test-Path "$ffmpegDevDir\include")) {
-    $env:FFMPEG_DIR = $ffmpegDevDir
-    $env:FFMPEG_INCLUDE_DIR = "$ffmpegDevDir\include"
-    $env:FFMPEG_LIB_DIR = "$ffmpegDevDir\lib"
+
+$vcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
+if (-not $vcpkgRoot) {
+    $vcpkgRoot = "$env:USERPROFILE\.vcpkg"
 }
-if ($env:OS -eq "Windows_NT") {
-    $hostTarget = rustc -vV 2>$null | Select-String "host:"
-    if ($hostTarget -match "pc-windows-gnu") { Write-Host "Tip: rustup default stable-x86_64-pc-windows-msvc" -ForegroundColor Yellow }
+
+if (Test-Path $vcpkgRoot) {
+    $env:VCPKG_ROOT = $vcpkgRoot
+    Write-Host "  OK vcpkg environment configured" -ForegroundColor Green
+} else {
+    Write-Host "  ERROR: vcpkg not found" -ForegroundColor Red
+    Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
+    exit 1
 }
+
+Write-Host ""
 
 # Ask build type
 Write-Host "Select build type:" -ForegroundColor Yellow
@@ -98,6 +152,8 @@ if ($buildExitCode -eq 0) {
     Write-Host ""
     Write-Host "Build info:" -ForegroundColor Cyan
     Write-Host "  Mode: $buildMode" -ForegroundColor White
+    Write-Host "  Architecture: $archName" -ForegroundColor White
+    Write-Host "  Target: $target" -ForegroundColor White
     Write-Host "  Duration: $($duration.Minutes)m $($duration.Seconds)s" -ForegroundColor White
     Write-Host ""
     

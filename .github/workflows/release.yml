@@ -1,0 +1,214 @@
+name: "Release Build - Local First Edition"
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  APP_CARGO_TOML: apps/desktop/src-tauri/Cargo.toml
+
+jobs:
+  read-version:
+    name: Read Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read_version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Read version number
+        uses: SebRollen/toml-action@v1.0.2
+        id: read_version
+        with:
+          file: ${{ env.APP_CARGO_TOML }}
+          field: "package.version"
+      
+      - name: Show version
+        run: echo "Building version ${{ steps.read_version.outputs.value }}"
+
+  build:
+    name: Build ${{ matrix.settings.platform }}
+    needs: read-version
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - platform: Windows x64
+            target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            bundle: nsis
+          - platform: macOS Intel
+            target: x86_64-apple-darwin
+            runner: macos-latest
+            bundle: dmg
+          - platform: macOS Apple Silicon
+            target: aarch64-apple-darwin
+            runner: macos-latest
+            bundle: dmg
+          - platform: Linux x64
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            bundle: deb
+    runs-on: ${{ matrix.settings.runner }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libgtk-3-dev \
+            libavutil-dev \
+            libavcodec-dev \
+            libavformat-dev \
+            libavfilter-dev \
+            libavdevice-dev \
+            libswscale-dev \
+            libswresample-dev \
+            ffmpeg
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './apps/desktop/src-tauri -> target'
+          shared-key: ${{ matrix.settings.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.5.2'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create .env file
+        shell: bash
+        run: |
+          echo "VITE_ENVIRONMENT=production" >> .env
+          echo "appVersion=${{ needs.read-version.outputs.version }}" >> .env
+
+      - name: Build Tauri app
+        working-directory: apps/desktop
+        run: |
+          pnpm build:tauri --target ${{ matrix.settings.target }} --config src-tauri/tauri.prod.conf.json
+        env:
+          CI: false
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundleDir = "apps/desktop/src-tauri/target/${{ matrix.settings.target }}/release/bundle/nsis"
+          New-Item -ItemType Directory -Force -Path artifacts
+          
+          Get-ChildItem "$bundleDir/*.exe" | ForEach-Object {
+            $newName = $_.Name -replace '(.+)_(.+)_(.+)-setup\.exe$', 'Cap-aniBullet_$2_Windows-x64.exe'
+            Copy-Item $_.FullName "artifacts/$newName"
+          }
+          
+          Write-Host "Prepared Windows artifacts:"
+          Get-ChildItem artifacts/
+
+      - name: Prepare artifacts (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          
+          for dmg in apps/desktop/src-tauri/target/${{ matrix.settings.target }}/release/bundle/dmg/*.dmg; do
+            if [ -f "$dmg" ]; then
+              filename=$(basename "$dmg")
+              if [[ "${{ matrix.settings.target }}" == *"aarch64"* ]]; then
+                arch="macOS-AppleSilicon"
+              else
+                arch="macOS-Intel"
+              fi
+              newname=$(echo "$filename" | sed "s/_\([0-9]*\.[0-9]*\.[0-9]*\)_.*\.dmg/_\1_${arch}.dmg/")
+              cp "$dmg" "artifacts/$newname"
+            fi
+          done
+          
+          echo "Prepared macOS artifacts:"
+          ls -la artifacts/
+
+      - name: Prepare artifacts (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          
+          for deb in apps/desktop/src-tauri/target/${{ matrix.settings.target }}/release/bundle/deb/*.deb; do
+            if [ -f "$deb" ]; then
+              filename=$(basename "$deb")
+              newname=$(echo "$filename" | sed "s/_\([0-9]*\.[0-9]*\.[0-9]*\)_amd64\.deb/_\1_Linux-x64.deb/")
+              cp "$deb" "artifacts/$newname"
+            fi
+          done
+          
+          for appimage in apps/desktop/src-tauri/target/${{ matrix.settings.target }}/release/bundle/appimage/*.AppImage; do
+            if [ -f "$appimage" ]; then
+              filename=$(basename "$appimage")
+              newname=$(echo "$filename" | sed "s/_\([0-9]*\.[0-9]*\.[0-9]*\)_amd64\.AppImage/_\1_Linux-x64.AppImage/")
+              cp "$appimage" "artifacts/$newname"
+            fi
+          done
+          
+          echo "Prepared Linux artifacts:"
+          ls -la artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cap-anibullet-${{ needs.read-version.outputs.version }}-${{ matrix.settings.target }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: [read-version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+      
+      - name: Display structure
+        run: ls -R release-artifacts/
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Cap aniBullet v${{ needs.read-version.outputs.version }}
+          tag_name: ${{ github.ref }}
+          draft: true
+          generate_release_notes: true
+          files: release-artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

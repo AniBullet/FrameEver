@@ -14,3 +14,5 @@ async function initApp() {
 }
 
 initApp();
+
+export default initApp;
