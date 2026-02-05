@@ -450,25 +450,26 @@ function Dialogs() {
 			>
 				{(dialog) => (
 					<Switch>
-						<Match when={dialog().type === "createPreset"}>
-							{(_) => {
-								const [form, setForm] = createStore({
-									name: "",
-									default: false,
-								});
+					<Match when={dialog().type === "createPreset"}>
+						{(_) => {
+							const { t } = useI18n();
+							const [form, setForm] = createStore({
+								name: "",
+								default: false,
+							});
 
-								const createPreset = createMutation(() => ({
-									mutationFn: async () => {
-										await presets.createPreset({ ...form, config: project });
-									},
-									onSuccess: () => {
-										setDialog((d) => ({ ...d, open: false }));
-									},
-								}));
+							const createPreset = createMutation(() => ({
+								mutationFn: async () => {
+									await presets.createPreset({ ...form, config: project });
+								},
+								onSuccess: () => {
+									setDialog((d) => ({ ...d, open: false }));
+								},
+							}));
 
-								return (
-									<DialogContent
-										title={t("editor.video.createPreset")}
+							return (
+								<DialogContent
+									title={t("editor.video.createPreset")}
 										confirm={
 											<Dialog.ConfirmButton
 												disabled={createPreset.isPending}
@@ -494,29 +495,30 @@ function Dialogs() {
 									</DialogContent>
 								);
 							}}
-						</Match>
-						<Match
-							when={(() => {
-								const d = dialog();
-								if (d.type === "renamePreset") return d;
-							})()}
-						>
-							{(dialog) => {
-								const [name, setName] = createSignal(
-									presets.query.data?.presets[dialog().presetIndex].name!,
-								);
+					</Match>
+					<Match
+						when={(() => {
+							const d = dialog();
+							if (d.type === "renamePreset") return d;
+						})()}
+					>
+						{(dialog) => {
+							const { t } = useI18n();
+							const [name, setName] = createSignal(
+								presets.query.data?.presets[dialog().presetIndex].name!,
+							);
 
-								const renamePreset = createMutation(() => ({
-									mutationFn: async () =>
-										presets.renamePreset(dialog().presetIndex, name()),
-									onSuccess: () => {
-										setDialog((d) => ({ ...d, open: false }));
-									},
-								}));
+							const renamePreset = createMutation(() => ({
+								mutationFn: async () =>
+									presets.renamePreset(dialog().presetIndex, name()),
+								onSuccess: () => {
+									setDialog((d) => ({ ...d, open: false }));
+								},
+							}));
 
-								return (
-									<DialogContent
-										title={t("editor.video.renamePreset")}
+							return (
+								<DialogContent
+									title={t("editor.video.renamePreset")}
 										confirm={
 											<Dialog.ConfirmButton
 												disabled={renamePreset.isPending}
@@ -535,27 +537,28 @@ function Dialogs() {
 									</DialogContent>
 								);
 							}}
-						</Match>
-						<Match
-							when={(() => {
-								const d = dialog();
-								if (d.type === "deletePreset") return d;
-							})()}
-						>
-							{(dialog) => {
-								const deletePreset = createMutation(() => ({
-									mutationFn: async () => {
-										await presets.deletePreset(dialog().presetIndex);
-										await presets.query.refetch();
-									},
-									onSuccess: () => {
-										setDialog((d) => ({ ...d, open: false }));
-									},
-								}));
+					</Match>
+					<Match
+						when={(() => {
+							const d = dialog();
+							if (d.type === "deletePreset") return d;
+						})()}
+					>
+						{(dialog) => {
+							const { t } = useI18n();
+							const deletePreset = createMutation(() => ({
+								mutationFn: async () => {
+									await presets.deletePreset(dialog().presetIndex);
+									await presets.query.refetch();
+								},
+								onSuccess: () => {
+									setDialog((d) => ({ ...d, open: false }));
+								},
+							}));
 
-								return (
-									<DialogContent
-										title={t("editor.video.deletePreset")}
+							return (
+								<DialogContent
+									title={t("editor.video.deletePreset")}
 										confirm={
 											<Dialog.ConfirmButton
 												variant="destructive"
@@ -572,16 +575,17 @@ function Dialogs() {
 									</DialogContent>
 								);
 							}}
-						</Match>
-						<Match
-							when={(() => {
-								const d = dialog();
-								if (d.type === "crop") return d;
-							})()}
-						>
-							{(dialog) => {
-								const { setProject: setState, editorInstance } =
-									useEditorContext();
+					</Match>
+					<Match
+						when={(() => {
+							const d = dialog();
+							if (d.type === "crop") return d;
+						})()}
+					>
+						{(dialog) => {
+							const { t } = useI18n();
+							const { setProject: setState, editorInstance } =
+								useEditorContext();
 								const display = editorInstance.recordings.segments[0].display;
 
 								let cropperRef: CropperRef | undefined;

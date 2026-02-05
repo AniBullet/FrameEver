@@ -10,7 +10,7 @@ interface ModeInfoPanelProps {
 	onBack: () => void;
 }
 
-const getModeOptions = (t: (key: string) => string) => [
+const getModeOptions = (t: ReturnType<typeof useI18n>["t"]) => [
 	{
 		mode: "instant" as RecordingMode,
 		title: () => t("recording.mode.instant"),

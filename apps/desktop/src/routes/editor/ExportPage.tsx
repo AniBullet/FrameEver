@@ -106,7 +106,6 @@ interface Settings {
 	exportTo: ExportToOption;
 	resolution: { label: string; value: string; width: number; height: number };
 	compression: ExportCompression;
-	organizationId?: string | null;
 }
 
 export function ExportPage() {
@@ -169,19 +168,10 @@ export function ExportPage() {
 		// 	ret.format = "Mp4";
 		else if (!["Mp4", "Gif"].includes(_settings.format)) ret.format = "Mp4";
 
-		if (!VALID_COMPRESSIONS.includes(_settings.compression))
-			ret.compression = "Maximum";
+	if (!VALID_COMPRESSIONS.includes(_settings.compression))
+		ret.compression = "Maximum";
 
-		Object.defineProperty(ret, "organizationId", {
-			get() {
-				if (!_settings.organizationId && organisations().length > 0)
-					return organisations()[0].id;
-
-				return _settings.organizationId;
-			},
-		});
-
-		return ret;
+	return ret;
 	});
 
 	const [previewUrl, setPreviewUrl] = createSignal<string | null>(null);
@@ -686,18 +676,12 @@ export function ExportPage() {
 														: "bg-transparent border-transparent text-gray-11 hover:bg-gray-3 hover:border-gray-4",
 												)}
 												onClick={() => {
-													setSettings(
-														produce((newSettings) => {
-															newSettings.exportTo =
-																option.value as ExportToOption;
-															if (
-																option.value === "link" &&
-																settings.format === "Gif"
-															) {
-																newSettings.format = "Mp4";
-															}
-														}),
-													);
+												setSettings(
+													produce((newSettings) => {
+														newSettings.exportTo =
+															option.value as ExportToOption;
+													}),
+												);
 												}}
 											>
 												<Icon
@@ -712,65 +696,19 @@ export function ExportPage() {
 									}}
 								</For>
 							</div>
-
-							<Suspense>
-								<Show
-									when={
-										settings.exportTo === "link" && organisations().length > 1
-									}
-								>
-									<button
-										type="button"
-										class="w-full flex items-center justify-between px-3 py-2 mt-3 rounded-lg bg-gray-3 hover:bg-gray-4 transition-colors text-sm"
-										onClick={async () => {
-											const menu = await Menu.new({
-												items: await Promise.all(
-													organisations().map((org) =>
-														CheckMenuItem.new({
-															text: org.name,
-															action: () => {
-																setSettings("organizationId", org.id);
-															},
-															checked: settings.organizationId === org.id,
-														}),
-													),
-												),
-											});
-											menu.popup();
-										}}
-									>
-										<span class="text-gray-11">
-											{t("editor.video.organization")}
-										</span>
-										<span class="flex items-center gap-1 text-gray-12">
-											{
-												(
-													organisations().find(
-														(o) => o.id === settings.organizationId,
-													) ?? organisations()[0]
-												)?.name
-											}
-											<IconCapChevronDown class="size-4" />
-										</span>
-									</button>
-								</Show>
-							</Suspense>
 						</Field>
 
 						<Field name="Format" icon={<IconLucideVideo class="size-4" />}>
 							<div class="flex gap-1.5">
 								<For each={FORMAT_OPTIONS}>
-									{(option) => {
-										const isDisabled = () =>
-											(option.value === "Mp4" && hasTransparentBackground()) ||
-											(option.value === "Gif" && settings.exportTo === "link");
+						{(option) => {
+							const isDisabled = () =>
+								option.value === "Mp4" && hasTransparentBackground();
 
-										const disabledReason = () =>
-											option.value === "Mp4" && hasTransparentBackground()
-												? "MP4 doesn't support transparency"
-												: option.value === "Gif" && settings.exportTo === "link"
-													? "Links require MP4 format"
-													: undefined;
+							const disabledReason = () =>
+								option.value === "Mp4" && hasTransparentBackground()
+									? "MP4 doesn't support transparency"
+									: undefined;
 
 										const button = (
 											<button
@@ -1052,19 +990,13 @@ export function ExportPage() {
 									Export to File
 								</>
 							)}
-							{settings.exportTo === "clipboard" && (
-								<>
-									<IconCapCopy class="size-5" />
-									Export to Clipboard
-								</>
-							)}
-							{settings.exportTo === "link" && (
-								<>
-									<IconCapLink class="size-5" />
-									Export to Link
-								</>
-							)}
-						</Button>
+					{settings.exportTo === "clipboard" && (
+						<>
+							<IconCapCopy class="size-5" />
+							Export to Clipboard
+						</>
+					)}
+				</Button>
 					</div>
 				</div>
 			</div>

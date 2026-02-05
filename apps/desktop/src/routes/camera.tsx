@@ -90,6 +90,7 @@ export default function () {
 }
 
 function NativeCameraPreviewPage(props: { disconnected: Accessor<boolean> }) {
+	const { t } = useI18n();
 	const isCameraOnlyMode = getCameraOnlyMode();
 
 	const [state, setState] = makePersisted(
@@ -308,6 +309,7 @@ function ControlButton(
 // Legacy stuff below
 
 function LegacyCameraPreviewPage(props: { disconnected: Accessor<boolean> }) {
+	const { t } = useI18n();
 	const { rawOptions } = useRecordingOptions();
 	const isCameraOnlyMode = getCameraOnlyMode();
 

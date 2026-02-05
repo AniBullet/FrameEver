@@ -199,6 +199,7 @@ function ColorPickerButton(props: {
 	onChange: (value: string) => void;
 	allowTransparent?: boolean;
 }) {
+	const { t } = useI18n();
 	const rgbValue = createMemo(() => {
 		if (props.value === "transparent")
 			return [0, 0, 0] as [number, number, number];

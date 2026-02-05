@@ -134,11 +134,6 @@ export function MicrophoneSelectBase(props: {
 		if (!props.options) return;
 		props.onChange(item ? item.name : null);
 		if (!item) setDbs();
-
-		trackEvent("microphone_selected", {
-			microphone_name: item?.name ?? null,
-			enabled: !!item,
-		});
 	};
 
 	createTauriEventListener(events.audioInputLevelChange, (dbs) => {

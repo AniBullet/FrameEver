@@ -114,10 +114,10 @@ export default function () {
 								const type = media.type ?? "recording";
 								const isRecording = type !== "screenshot";
 
-								const { copy, save, upload, actionState } =
-									createRecordingMutations(media, (e) => {
-										if (e === "upgradeRequired") setShowUpgradeTooltip(true);
-									});
+							const { copy, save, actionState } =
+								createRecordingMutations(media, (e) => {
+									if (e === "upgradeRequired") setShowUpgradeTooltip(true);
+								});
 
 								const [metadata] = createResource(async () => {
 									if (!isRecording) return null;
@@ -143,8 +143,8 @@ export default function () {
 								const [showUpgradeTooltip, setShowUpgradeTooltip] =
 									createSignal(false);
 
-								const isLoading = () =>
-									copy.isPending || save.isPending || upload.isPending;
+							const isLoading = () =>
+								copy.isPending || save.isPending;
 
 								createFakeWindowBounds(ref, () => media.path);
 
@@ -249,28 +249,7 @@ export default function () {
 															/>
 														)}
 													</Match>
-													<Match
-														when={
-															actionState.type === "upload" && actionState.state
-														}
-														keyed
-													>
-														{(state) => (
-															<ActionProgressOverlay
-																title={
-																	state.type === "rendering"
-																		? "Rendering video"
-																		: state.type === "uploading"
-																			? "Creating shareable link"
-																			: "Shareable link copied"
-																}
-																progressPercentage={actionProgressPercentage(
-																	actionState,
-																)}
-															/>
-														)}
-													</Match>
-												</Switch>
+											</Switch>
 
 												<div
 													style={{
@@ -698,7 +677,7 @@ function createRecordingMutations(
 		type: "idle",
 	});
 
-	return { copy, save, upload, actionState };
+	return { copy, save, actionState };
 }
 
 type ActionState =
@@ -717,17 +696,6 @@ type ActionState =
 				| { type: "rendering"; state: RenderState }
 				| { type: "saving" }
 				| { type: "saved" };
-	  }
-	| {
-			type: "upload";
-			state:
-				| { type: "rendering"; state: RenderState }
-				| {
-						type: "uploading";
-						// 0-100
-						progress: number;
-				  }
-				| { type: "link-copied" };
 	  };
 
 function createRenderProgressCallback(
@@ -775,10 +743,6 @@ function actionProgressPercentage(state: ActionState): number {
 		case "save": {
 			if (state.state.type === "choosing-location") return 0;
 			return state.state.type === "saved" ? 100 : 50;
-		}
-		case "upload": {
-			if (state.state.type === "link-copied") return 100;
-			return state.state.progress;
 		}
 	}
 }

@@ -323,12 +323,16 @@ function createScreenshotEditorContext() {
 				}
 			}
 
-			hasReceivedWebSocketFrame.value = true;
-			setIsRenderReady(true);
+	hasReceivedWebSocketFrame.value = true;
+	setIsRenderReady(true);
 
-			try {
-				const imageData = new ImageData(processedData, width, height);
-				const bitmap = await createImageBitmap(imageData);
+	try {
+		const imageData = new ImageData(
+			new Uint8ClampedArray(processedData.buffer as ArrayBuffer, processedData.byteOffset, processedData.byteLength),
+			width,
+			height
+		);
+		const bitmap = await createImageBitmap(imageData);
 				const existing = latestFrame();
 				if (existing?.bitmap && existing.bitmap !== bitmap) {
 					existing.bitmap.close();

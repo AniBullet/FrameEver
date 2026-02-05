@@ -27,7 +27,12 @@ export default function FeedbackTab() {
 	const handleExportLogs = async () => {
 		setExportingLogs(true);
 		try {
-			const logs = await commands.getLogs();
+			const diagnosticsData = diagnostics();
+			if (!diagnosticsData) {
+				toast.error("No diagnostics data available");
+				return;
+			}
+
 			const version = await getVersion();
 			const os = ostype();
 			const timestamp = new Date()
@@ -35,15 +40,15 @@ export default function FeedbackTab() {
 				.replace(/:/g, "-")
 				.split(".")[0];
 
-			const logContent = `Cap aniBullet - Debug Logs
+			const logContent = `Cap aniBullet - System Diagnostics
 Generated: ${new Date().toLocaleString()}
 Version: ${version}
 OS: ${os}
 
-${logs}`;
+${JSON.stringify(diagnosticsData, null, 2)}`;
 
 			const filePath = await save({
-				defaultPath: `cap-logs-${timestamp}.txt`,
+				defaultPath: `cap-diagnostics-${timestamp}.txt`,
 				filters: [
 					{
 						name: "Text File",
@@ -58,7 +63,7 @@ ${logs}`;
 			}
 		} catch (error) {
 			toast.error(t("feedback.debug.logs.error"));
-			console.error("Failed to export logs:", error);
+			console.error("Failed to export diagnostics:", error);
 		} finally {
 			setExportingLogs(false);
 		}

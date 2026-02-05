@@ -63,7 +63,6 @@ import {
 	type OSPermissionsCheck,
 	type RecordingTargetMode,
 	type ScreenCaptureTarget,
-	type UploadProgress,
 } from "~/utils/tauri";
 import IconCapLogoFull from "~icons/cap/logo-full";
 import IconCapLogoFullDark from "~icons/cap/logo-full-dark";
@@ -157,13 +156,10 @@ type TargetMenuPanelProps =
 	  }
 	| {
 			variant: "recording";
-			targets?: RecordingWithPath[];
-			onSelect: (target: RecordingWithPath) => void;
-			onViewAll: () => void;
-			uploadProgress?: Record<string, number>;
-			reuploadingPaths?: Set<string>;
-			onReupload?: (path: string) => void;
-			onRefetch?: () => void;
+		targets?: RecordingWithPath[];
+		onSelect: (target: RecordingWithPath) => void;
+		onViewAll: () => void;
+		onRefetch?: () => void;
 	  }
 	| {
 			variant: "screenshot";
@@ -802,14 +798,11 @@ function TargetMenuPanel(props: TargetMenuPanelProps & SharedTargetMenuProps) {
 							isLoading={props.isLoading}
 							errorMessage={props.errorMessage}
 							onSelect={props.onSelect}
-							disabled={props.disabled}
-							highlightQuery={trimmedSearch()}
-							emptyMessage={trimmedSearch() ? noResultsMessage : undefined}
-							uploadProgress={props.uploadProgress}
-							reuploadingPaths={props.reuploadingPaths}
-							onReupload={props.onReupload}
-							onRefetch={props.onRefetch}
-							onViewAll={props.onViewAll}
+						disabled={props.disabled}
+						highlightQuery={trimmedSearch()}
+						emptyMessage={trimmedSearch() ? noResultsMessage : undefined}
+						onRefetch={props.onRefetch}
+						onViewAll={props.onViewAll}
 						/>
 					) : props.variant === "camera" ? (
 						<DeviceListPanel
@@ -996,47 +989,7 @@ function Page() {
 
 	const recordings = useQuery(() => listRecordings);
 
-	const [uploadProgress, setUploadProgress] = createStore<
-		Record<string, number>
-	>({});
-	const [reuploadingPaths, setReuploadingPaths] = createSignal<Set<string>>(
-		new Set(),
-	);
-
-	createTauriEventListener(events.uploadProgressEvent, (e) => {
-		if (e.uploaded === e.total) {
-			setUploadProgress(
-				produce((s) => {
-					delete s[e.video_id];
-				}),
-			);
-		} else {
-			const total = Number(e.total);
-			const progress = total > 0 ? (Number(e.uploaded) / total) * 100 : 0;
-			setUploadProgress(e.video_id, progress);
-		}
-	});
-
 	createTauriEventListener(events.recordingDeleted, () => recordings.refetch());
-
-	const handleReupload = async (path: string) => {
-		setReuploadingPaths((prev) => new Set([...prev, path]));
-		try {
-			await commands.uploadExportedVideo(
-				path,
-				"Reupload",
-				new Channel<UploadProgress>(() => {}),
-				null,
-			);
-		} finally {
-			setReuploadingPaths((prev) => {
-				const next = new Set(prev);
-				next.delete(path);
-				return next;
-			});
-			recordings.refetch();
-		}
-	};
 
 	const screenshots = useQuery(() =>
 		queryOptions<ScreenshotWithPath[]>({
@@ -1241,12 +1194,10 @@ function Page() {
 					setOptions({ targetMode: newTargetMode });
 					await commands.closeTargetSelectOverlays();
 				}
-			},
-		);
+		},
+	);
 
-		commands.updateAuthPlan();
-
-		onCleanup(async () => {
+	onCleanup(async () => {
 			(await unlistenFocus)?.();
 			(await unlistenResize)?.();
 			(await unlistenSetTargetMode)?.();
@@ -1829,13 +1780,10 @@ function Page() {
 										setRecordingsMenuOpen(false);
 									}}
 									onViewAll={async () => {
-										await commands.showWindow("Library");
-										getCurrentWindow().hide();
-									}}
-									uploadProgress={uploadProgress}
-									reuploadingPaths={reuploadingPaths()}
-									onReupload={handleReupload}
-									onRefetch={() => recordings.refetch()}
+									await commands.showWindow("Library");
+									getCurrentWindow().hide();
+								}}
+								onRefetch={() => recordings.refetch()}
 								/>
 							) : variant === "screenshot" ? (
 								<TargetMenuPanel

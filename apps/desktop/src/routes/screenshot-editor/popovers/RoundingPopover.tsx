@@ -2,6 +2,7 @@ import { Popover } from "@kobalte/core/popover";
 import { Select as KSelect } from "@kobalte/core/select";
 import { cx } from "cva";
 import { Show, type ValidComponent } from "solid-js";
+import { useI18n } from "~/i18n";
 import IconCapChevronDown from "~icons/cap/chevron-down";
 import IconCapCorners from "~icons/cap/corners";
 import { useScreenshotEditorContext } from "../context";
@@ -21,6 +22,7 @@ const CORNER_STYLE_OPTIONS = [
 ] satisfies Array<{ name: string; value: CornerRoundingType }>;
 
 export function RoundingPopover() {
+	const { t } = useI18n();
 	const { project, setProject, activePopover, setActivePopover } =
 		useScreenshotEditorContext();
 

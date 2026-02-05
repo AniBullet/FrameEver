@@ -565,7 +565,7 @@ Write-Host "  Ensuring all Rust crates are up-to-date..." -ForegroundColor Gray
 
 $cargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
 if ($cargoCmd) {
-    Push-Location "$PSScriptRoot\apps\desktop\src-tauri"
+    Push-Location "$PSScriptRoot\..\apps\desktop\src-tauri"
     try {
         cargo update 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {

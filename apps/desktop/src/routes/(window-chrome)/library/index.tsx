@@ -15,7 +15,7 @@ type ViewMode = "grid" | "list" | "compact";
 const libraryQuery = queryOptions<LibraryItem[]>({
 	queryKey: ["library-items"],
 	queryFn: async () => {
-		const result = await commands.listLibraryItems().catch(() => [] as const);
+		const result = await commands.listLibraryItems().catch(() => [] as LibraryItem[]);
 		return result;
 	},
 	reconcile: "id",
@@ -52,7 +52,7 @@ export default function Library() {
 
 		const type = typeFilter();
 		if (type !== "all") {
-			items = items.filter((item) => {
+			items = items.filter((item: LibraryItem) => {
 				if (type === "videos") return item.itemType === "video";
 				if (type === "screenshots") return item.itemType === "screenshot";
 				return true;
@@ -61,7 +61,7 @@ export default function Library() {
 
 		const status = statusFilter();
 		if (status !== "all") {
-			items = items.filter((item) => {
+			items = items.filter((item: LibraryItem) => {
 				if (status === "editing") return item.status === "editing";
 				if (status === "exported")
 					return (

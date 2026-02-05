@@ -175,10 +175,10 @@ function ListCard(props: {
 
 	const statusLabel = () => {
 		switch (props.item.status) {
-			case "Editing":
+			case "editing":
 				return t("library.status.editing");
-			case "Exported":
-			case "ExportedNoSource":
+			case "exported":
+			case "exportedNoSource":
 				return t("library.status.exported");
 		}
 	};

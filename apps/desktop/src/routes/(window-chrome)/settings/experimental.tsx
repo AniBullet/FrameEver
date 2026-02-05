@@ -21,9 +21,7 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 	const { t } = useI18n();
 	const [settings, setSettings] = createStore<GeneralSettingsStore>(
 		props.initialStore ?? {
-			uploadIndividualFiles: false,
 			hideDockIcon: false,
-			autoCreateShareableLink: false,
 			enableNotifications: true,
 			enableNativeCameraPreview: false,
 			autoZoomOnClicks: false,

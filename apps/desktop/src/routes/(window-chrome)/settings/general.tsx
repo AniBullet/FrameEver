@@ -37,6 +37,7 @@ import {
 	type MainWindowRecordingStartBehaviour,
 	type PostDeletionBehaviour,
 	type PostStudioRecordingBehaviour,
+	type RecordingQuality,
 	type WindowExclusion,
 } from "~/utils/tauri";
 import IconLucidePlus from "~icons/lucide/plus";
@@ -69,9 +70,7 @@ const getWindowOptionLabel = (window: CaptureWindow) => {
 type ExtendedGeneralSettingsStore = GeneralSettingsStore;
 
 const createDefaultGeneralSettings = (): ExtendedGeneralSettingsStore => ({
-	uploadIndividualFiles: false,
 	hideDockIcon: false,
-	autoCreateShareableLink: false,
 	enableNotifications: true,
 	enableNativeCameraPreview: false,
 	autoZoomOnClicks: false,
@@ -360,6 +359,7 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 			| MainWindowRecordingStartBehaviour
 			| PostStudioRecordingBehaviour
 			| PostDeletionBehaviour
+			| RecordingQuality
 			| number,
 	>(props: {
 		label: string;
@@ -545,11 +545,11 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 									size="sm"
 									variant="gray"
 									onClick={async () => {
-										const selected = await open({
-											directory: true,
-											multiple: false,
-											defaultPath: settings.recordingsSavePath,
-										});
+									const selected = await open({
+										directory: true,
+										multiple: false,
+										defaultPath: settings.recordingsSavePath ?? undefined,
+									});
 										if (selected && typeof selected === "string") {
 											await handleChange("recordingsSavePath", selected);
 										}
