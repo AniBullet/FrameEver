@@ -452,7 +452,21 @@ else {
 if ($needsInstall) {
     Write-Host "  This may take a few minutes..." -ForegroundColor Gray
     Write-Host ""
-    pnpm install
+    
+    $lockFile = "$PSScriptRoot\pnpm-lock.yaml"
+    $lockExists = Test-Path $lockFile
+    
+    if ($lockExists) {
+        $lockCreationTime = (Get-Item $lockFile).CreationTime
+        $lockModifiedTime = (Get-Item $lockFile).LastWriteTime
+        
+        if ($lockCreationTime -lt (Get-Date).AddMonths(-1)) {
+            Write-Host "  Lockfile is older than 1 month, regenerating to ensure compatibility..." -ForegroundColor Gray
+            Remove-Item $lockFile -Force
+        }
+    }
+    
+    pnpm install --no-optional=false
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
