@@ -243,15 +243,17 @@ async fn create_pipeline(
     let (screen_capture, system_audio) = screen_source.to_sources().await?;
 
     let output = ScreenCaptureMethod::make_instant_mode_pipeline(
-        screen_capture,
-        system_audio,
-        mic_feed,
-        output_path.clone(),
-        output_resolution,
-        start_time,
-        #[cfg(windows)]
-        crate::capture_pipeline::EncoderPreferences::new(),
-        bitrate_multiplier.unwrap_or(0.15),
+        crate::capture_pipeline::InstantModeConfig {
+            screen_capture,
+            system_audio,
+            mic_feed,
+            output_path: output_path.clone(),
+            output_resolution,
+            start_time,
+            #[cfg(windows)]
+            encoder_preferences: crate::capture_pipeline::EncoderPreferences::new(),
+            bitrate_multiplier: bitrate_multiplier.unwrap_or(0.15),
+        }
     )
     .await?;
 

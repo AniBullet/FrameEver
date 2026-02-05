@@ -49,6 +49,18 @@ impl EncoderPreferences {
     }
 }
 
+pub struct InstantModeConfig {
+    pub screen_capture: screen_capture::VideoSourceConfig,
+    pub system_audio: Option<screen_capture::SystemAudioSourceConfig>,
+    pub mic_feed: Option<Arc<MicrophoneFeedLock>>,
+    pub output_path: PathBuf,
+    pub output_resolution: (u32, u32),
+    pub start_time: Timestamps,
+    #[cfg(windows)]
+    pub encoder_preferences: EncoderPreferences,
+    pub bitrate_multiplier: f32,
+}
+
 pub trait MakeCapturePipeline: ScreenCaptureFormat + std::fmt::Debug + 'static {
     async fn make_studio_mode_pipeline(
         screen_capture: screen_capture::VideoSourceConfig,
@@ -63,14 +75,7 @@ pub trait MakeCapturePipeline: ScreenCaptureFormat + std::fmt::Debug + 'static {
         Self: Sized;
 
     async fn make_instant_mode_pipeline(
-        screen_capture: screen_capture::VideoSourceConfig,
-        system_audio: Option<screen_capture::SystemAudioSourceConfig>,
-        mic_feed: Option<Arc<MicrophoneFeedLock>>,
-        output_path: PathBuf,
-        output_resolution: (u32, u32),
-        start_time: Timestamps,
-        #[cfg(windows)] encoder_preferences: EncoderPreferences,
-        bitrate_multiplier: f32,
+        config: InstantModeConfig,
     ) -> anyhow::Result<OutputPipeline>
     where
         Self: Sized;
@@ -115,29 +120,23 @@ impl MakeCapturePipeline for screen_capture::CMSampleBufferCapture {
     }
 
     async fn make_instant_mode_pipeline(
-        screen_capture: screen_capture::VideoSourceConfig,
-        system_audio: Option<screen_capture::SystemAudioSourceConfig>,
-        mic_feed: Option<Arc<MicrophoneFeedLock>>,
-        output_path: PathBuf,
-        output_resolution: (u32, u32),
-        start_time: Timestamps,
-        _bitrate_multiplier: f32,
+        config: InstantModeConfig,
     ) -> anyhow::Result<OutputPipeline> {
-        let mut output = OutputPipeline::builder(output_path.clone())
-            .with_video::<screen_capture::VideoSource>(screen_capture)
-            .with_timestamps(start_time);
+        let mut output = OutputPipeline::builder(config.output_path.clone())
+            .with_video::<screen_capture::VideoSource>(config.screen_capture)
+            .with_timestamps(config.start_time);
 
-        if let Some(system_audio) = system_audio {
+        if let Some(system_audio) = config.system_audio {
             output = output.with_audio_source::<screen_capture::SystemAudioSource>(system_audio);
         }
 
-        if let Some(mic_feed) = mic_feed {
+        if let Some(mic_feed) = config.mic_feed {
             output = output.with_audio_source::<sources::Microphone>(mic_feed);
         }
 
         output
             .build::<AVFoundationMp4Muxer>(AVFoundationMp4MuxerConfig {
-                output_height: Some(output_resolution.1),
+                output_height: Some(config.output_resolution.1),
             })
             .await
     }
@@ -194,25 +193,18 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
     }
 
     async fn make_instant_mode_pipeline(
-        screen_capture: screen_capture::VideoSourceConfig,
-        system_audio: Option<screen_capture::SystemAudioSourceConfig>,
-        mic_feed: Option<Arc<MicrophoneFeedLock>>,
-        output_path: PathBuf,
-        output_resolution: (u32, u32),
-        start_time: Timestamps,
-        encoder_preferences: EncoderPreferences,
-        bitrate_multiplier: f32,
+        config: InstantModeConfig,
     ) -> anyhow::Result<OutputPipeline> {
-        let d3d_device = screen_capture.d3d_device.clone();
-        let mut output_builder = OutputPipeline::builder(output_path.clone())
-            .with_video::<screen_capture::VideoSource>(screen_capture)
-            .with_timestamps(start_time);
+        let d3d_device = config.screen_capture.d3d_device.clone();
+        let mut output_builder = OutputPipeline::builder(config.output_path.clone())
+            .with_video::<screen_capture::VideoSource>(config.screen_capture)
+            .with_timestamps(config.start_time);
 
-        if let Some(mic_feed) = mic_feed {
+        if let Some(mic_feed) = config.mic_feed {
             output_builder = output_builder.with_audio_source::<sources::Microphone>(mic_feed);
         }
 
-        if let Some(system_audio) = system_audio {
+        if let Some(system_audio) = config.system_audio {
             output_builder =
                 output_builder.with_audio_source::<screen_capture::SystemAudioSource>(system_audio);
         }
@@ -220,14 +212,14 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
         output_builder
             .build::<WindowsMuxer>(WindowsMuxerConfig {
                 pixel_format: screen_capture::Direct3DCapture::PIXEL_FORMAT.as_dxgi(),
-                bitrate_multiplier,
+                bitrate_multiplier: config.bitrate_multiplier,
                 frame_rate: 30u32,
                 d3d_device,
                 output_size: Some(windows::Graphics::SizeInt32 {
-                    Width: output_resolution.0 as i32,
-                    Height: output_resolution.1 as i32,
+                    Width: config.output_resolution.0 as i32,
+                    Height: config.output_resolution.1 as i32,
                 }),
-                encoder_preferences,
+                encoder_preferences: config.encoder_preferences,
                 fragmented: false,
                 frag_duration_us: 2_000_000,
             })
