@@ -15,7 +15,9 @@ type ViewMode = "grid" | "list" | "compact";
 const libraryQuery = queryOptions<LibraryItem[]>({
 	queryKey: ["library-items"],
 	queryFn: async () => {
-		const result = await commands.listLibraryItems().catch(() => [] as LibraryItem[]);
+		const result = await commands
+			.listLibraryItems()
+			.catch(() => [] as LibraryItem[]);
 		return result;
 	},
 	reconcile: "id",

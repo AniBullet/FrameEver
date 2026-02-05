@@ -168,10 +168,10 @@ export function ExportPage() {
 		// 	ret.format = "Mp4";
 		else if (!["Mp4", "Gif"].includes(_settings.format)) ret.format = "Mp4";
 
-	if (!VALID_COMPRESSIONS.includes(_settings.compression))
-		ret.compression = "Maximum";
+		if (!VALID_COMPRESSIONS.includes(_settings.compression))
+			ret.compression = "Maximum";
 
-	return ret;
+		return ret;
 	});
 
 	const [previewUrl, setPreviewUrl] = createSignal<string | null>(null);
@@ -676,12 +676,12 @@ export function ExportPage() {
 														: "bg-transparent border-transparent text-gray-11 hover:bg-gray-3 hover:border-gray-4",
 												)}
 												onClick={() => {
-												setSettings(
-													produce((newSettings) => {
-														newSettings.exportTo =
-															option.value as ExportToOption;
-													}),
-												);
+													setSettings(
+														produce((newSettings) => {
+															newSettings.exportTo =
+																option.value as ExportToOption;
+														}),
+													);
 												}}
 											>
 												<Icon
@@ -701,14 +701,14 @@ export function ExportPage() {
 						<Field name="Format" icon={<IconLucideVideo class="size-4" />}>
 							<div class="flex gap-1.5">
 								<For each={FORMAT_OPTIONS}>
-						{(option) => {
-							const isDisabled = () =>
-								option.value === "Mp4" && hasTransparentBackground();
+									{(option) => {
+										const isDisabled = () =>
+											option.value === "Mp4" && hasTransparentBackground();
 
-							const disabledReason = () =>
-								option.value === "Mp4" && hasTransparentBackground()
-									? "MP4 doesn't support transparency"
-									: undefined;
+										const disabledReason = () =>
+											option.value === "Mp4" && hasTransparentBackground()
+												? "MP4 doesn't support transparency"
+												: undefined;
 
 										const button = (
 											<button
@@ -990,13 +990,13 @@ export function ExportPage() {
 									Export to File
 								</>
 							)}
-					{settings.exportTo === "clipboard" && (
-						<>
-							<IconCapCopy class="size-5" />
-							Export to Clipboard
-						</>
-					)}
-				</Button>
+							{settings.exportTo === "clipboard" && (
+								<>
+									<IconCapCopy class="size-5" />
+									Export to Clipboard
+								</>
+							)}
+						</Button>
 					</div>
 				</div>
 			</div>

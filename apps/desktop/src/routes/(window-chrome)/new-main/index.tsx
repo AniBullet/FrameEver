@@ -156,10 +156,10 @@ type TargetMenuPanelProps =
 	  }
 	| {
 			variant: "recording";
-		targets?: RecordingWithPath[];
-		onSelect: (target: RecordingWithPath) => void;
-		onViewAll: () => void;
-		onRefetch?: () => void;
+			targets?: RecordingWithPath[];
+			onSelect: (target: RecordingWithPath) => void;
+			onViewAll: () => void;
+			onRefetch?: () => void;
 	  }
 	| {
 			variant: "screenshot";
@@ -798,11 +798,11 @@ function TargetMenuPanel(props: TargetMenuPanelProps & SharedTargetMenuProps) {
 							isLoading={props.isLoading}
 							errorMessage={props.errorMessage}
 							onSelect={props.onSelect}
-						disabled={props.disabled}
-						highlightQuery={trimmedSearch()}
-						emptyMessage={trimmedSearch() ? noResultsMessage : undefined}
-						onRefetch={props.onRefetch}
-						onViewAll={props.onViewAll}
+							disabled={props.disabled}
+							highlightQuery={trimmedSearch()}
+							emptyMessage={trimmedSearch() ? noResultsMessage : undefined}
+							onRefetch={props.onRefetch}
+							onViewAll={props.onViewAll}
 						/>
 					) : props.variant === "camera" ? (
 						<DeviceListPanel
@@ -1194,10 +1194,10 @@ function Page() {
 					setOptions({ targetMode: newTargetMode });
 					await commands.closeTargetSelectOverlays();
 				}
-		},
-	);
+			},
+		);
 
-	onCleanup(async () => {
+		onCleanup(async () => {
 			(await unlistenFocus)?.();
 			(await unlistenResize)?.();
 			(await unlistenSetTargetMode)?.();
@@ -1780,10 +1780,10 @@ function Page() {
 										setRecordingsMenuOpen(false);
 									}}
 									onViewAll={async () => {
-									await commands.showWindow("Library");
-									getCurrentWindow().hide();
-								}}
-								onRefetch={() => recordings.refetch()}
+										await commands.showWindow("Library");
+										getCurrentWindow().hide();
+									}}
+									onRefetch={() => recordings.refetch()}
 								/>
 							) : variant === "screenshot" ? (
 								<TargetMenuPanel

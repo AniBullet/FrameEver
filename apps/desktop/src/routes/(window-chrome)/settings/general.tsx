@@ -545,11 +545,11 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 									size="sm"
 									variant="gray"
 									onClick={async () => {
-									const selected = await open({
-										directory: true,
-										multiple: false,
-										defaultPath: settings.recordingsSavePath ?? undefined,
-									});
+										const selected = await open({
+											directory: true,
+											multiple: false,
+											defaultPath: settings.recordingsSavePath ?? undefined,
+										});
 										if (selected && typeof selected === "string") {
 											await handleChange("recordingsSavePath", selected);
 										}

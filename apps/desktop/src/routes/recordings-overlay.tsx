@@ -114,10 +114,12 @@ export default function () {
 								const type = media.type ?? "recording";
 								const isRecording = type !== "screenshot";
 
-							const { copy, save, actionState } =
-								createRecordingMutations(media, (e) => {
-									if (e === "upgradeRequired") setShowUpgradeTooltip(true);
-								});
+								const { copy, save, actionState } = createRecordingMutations(
+									media,
+									(e) => {
+										if (e === "upgradeRequired") setShowUpgradeTooltip(true);
+									},
+								);
 
 								const [metadata] = createResource(async () => {
 									if (!isRecording) return null;
@@ -143,8 +145,7 @@ export default function () {
 								const [showUpgradeTooltip, setShowUpgradeTooltip] =
 									createSignal(false);
 
-							const isLoading = () =>
-								copy.isPending || save.isPending;
+								const isLoading = () => copy.isPending || save.isPending;
 
 								createFakeWindowBounds(ref, () => media.path);
 
@@ -249,7 +250,7 @@ export default function () {
 															/>
 														)}
 													</Match>
-											</Switch>
+												</Switch>
 
 												<div
 													style={{
