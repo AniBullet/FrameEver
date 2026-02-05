@@ -36,7 +36,6 @@ Before anything else, make sure you have the following installed:
 Run `pnpm install`, then run `pnpm cap-setup` to install native dependencies such as FFmpeg.
 
 On Windows, llvm, clang, and VCPKG must be installed.
-On MacOS, cmake must be installed.
 `pnpm cap-setup` does not yet install these dependencies for you.
 
 Run `pnpm env-setup` to generate a `.env` file configured for your environment.
@@ -48,15 +47,12 @@ To run only one of them, use `pnpm dev:desktop` or `pnpm dev:web` respectively.
 
 ### `@cap/desktop` (desktop app)
 
-When running `@cap/desktop` from a terminal on macOS,
-you will need to grant permissions (screen recording, microphone, etc.) to the terminal, not the Cap app.
-For example, if you run `pnpm dev:desktop` in the macOS `Terminal.app`,
-you will need to grant permissions to it instead of `Cap - Development.app`.
+When running `@cap/desktop` from a terminal on Windows,
+you may need to grant permissions (screen recording, microphone, etc.) depending on your Windows settings.
 
 #### Where are my recordings stored?
 
-You can find your recordings at `~/Library/Application Support/so.cap.desktop.dev/recordings` on macOS,
-and `%programfiles%/so.cap.desktop.dev/recordings` on Windows.
+You can find your recordings at `%programfiles%/so.cap.desktop.dev/recordings` on Windows.
 
 ### `@cap/web` (cap.so website)
 

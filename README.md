@@ -5,7 +5,7 @@
 # Cap - aniBullet Edition
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/aniBullet/Cap-aniBullet/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows-blue.svg)](https://github.com/aniBullet/Cap-aniBullet/releases)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Node](https://img.shields.io/badge/node-20%2B-brightgreen.svg)](https://nodejs.org)
 
@@ -49,15 +49,11 @@
 
 ## 🚀 快速开始
 
-```bash
-# 所有平台统一
-./3-build.sh     # 自动检测系统并构建
-```
-
-**Windows 专用脚本**：
+**Windows 构建**：
 ```powershell
-.\1-install.ps1  # 安装依赖（首次运行后重启终端）
-.\2-dev.ps1      # 启动开发服务器
+.\scripts\1-install.ps1  # 安装依赖（首次运行后重启终端）
+.\scripts\2-dev.ps1      # 启动开发服务器
+.\scripts\3-build.ps1    # 构建应用
 ```
 
 > 💡 详细构建文档请查看 [BUILD.md](BUILD.md)
@@ -66,14 +62,14 @@
 
 ## 🤖 自动化打包
 
-推送 Git tag 即可触发 GitHub Actions 自动构建所有平台：
+推送 Git tag 即可触发 GitHub Actions 自动构建 Windows 版本：
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-构建完成后在 [Releases](../../releases) 页面下载对应平台的安装包。
+构建完成后在 [Releases](../../releases) 页面下载 Windows 安装包。
 
 > 💡 详细说明请查看 [BUILD.md](BUILD.md#github-actions-自动打包)
 
@@ -115,7 +111,7 @@ git push origin v0.1.0
 - **数据库**: SQLite (本地)
 - **视频处理**: FFmpeg
 - **AI 引擎**: Whisper.cpp (本地)
-- **跨平台**: Windows / macOS / Linux
+- **平台支持**: Windows only (x64)
 
 ---
 

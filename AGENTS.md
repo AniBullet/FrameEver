@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Modules
-- Turborepo monorepo (desktop-focused):
+- Turborepo monorepo (Windows desktop-focused):
   - `apps/desktop` (Tauri v2 + SolidStart) - primary application
   - `packages/*` shared libs (e.g., `ui-solid`, `utils`)
   - `crates/*` Rust media/recording/rendering/camera crates
@@ -56,7 +56,7 @@ All Rust code must respect these workspace-level lints defined in `Cargo.toml`:
 - Never edit auto‑generated files: `**/tauri.ts`, `**/queries.ts`, `apps/desktop/src-tauri/gen/**`.
 - Prefer existing scripts and Turbo filters over ad‑hoc commands; clear `.turbo` only when necessary.
 - No database setup needed - SQLite is file-based and auto-initialized.
-- macOS note: desktop permissions (screen/mic) apply to the terminal running `pnpm dev:desktop`.
+- Windows note: desktop permissions (screen/mic) may be required depending on Windows settings.
 - **CRITICAL: NO CODE COMMENTS**: Never add any form of comments (`//`, `/* */`, `///`, `//!`, `#`, etc.) to generated or edited code. Code must be self-explanatory.
 
 ## Desktop Development

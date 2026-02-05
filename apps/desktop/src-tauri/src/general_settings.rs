@@ -60,9 +60,9 @@ impl RecordingQuality {
     /// 返回该质量级别对应的比特率倍数（相对于标准质量）
     pub fn bitrate_multiplier(&self) -> f32 {
         match self {
-            Self::High => 1.5,      // 高质量：1.5倍比特率
-            Self::Standard => 1.0,  // 标准质量：基准比特率
-            Self::Low => 0.6,       // 低质量：0.6倍比特率
+            Self::High => 1.5,     // 高质量：1.5倍比特率
+            Self::Standard => 1.0, // 标准质量：基准比特率
+            Self::Low => 0.6,      // 低质量：0.6倍比特率
         }
     }
 
@@ -479,11 +479,12 @@ pub fn init(app: &AppHandle) {
 #[specta::specta]
 #[instrument(skip(app))]
 pub fn get_default_recordings_path(app: AppHandle) -> String {
-    let path = app.path()
+    let path = app
+        .path()
         .video_dir()
         .ok()
         .map(|p| p.join("Cap Recordings"));
-    
+
     path.and_then(|p| p.to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| "~/Videos/Cap Recordings".to_string())
 }

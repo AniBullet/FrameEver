@@ -4,7 +4,7 @@ This file provides comprehensive guidance to Claude Code when working with code 
 
 ## Project Overview
 
-Cap - aniBullet Edition is a pure desktop screen recording application built with Tauri v2 (Rust + SolidStart). This is a local-first fork that removes all cloud dependencies from the original Cap project.
+Cap - aniBullet Edition is a Windows desktop screen recording application built with Tauri v2 (Rust + SolidStart). This is a local-first fork that removes all cloud dependencies from the original Cap project and focuses exclusively on Windows platform support.
 
 ### Product Context
 - **Core Purpose**: Local screen recording with professional editing capabilities
@@ -219,7 +219,7 @@ aniBullet is a pure desktop application with minimal configuration needs:
 
 ### Desktop App Issues
 - **IPC binding errors**: Restart dev server to regenerate `tauri.ts`
-- **Permission issues**: macOS/Windows may require screen recording permissions
+- **Permission issues**: Windows may require screen recording permissions
 - **Recording failures**: 
   - Verify screen capture permissions in system settings
   - Check microphone/camera permissions if using those features
@@ -363,9 +363,8 @@ value.clamp(min, max)
 - **No Analytics**: No tracking, no telemetry
 
 ### Recording Permissions
-- **macOS**: Screen Recording permission required (System Preferences > Privacy & Security)
-- **Windows**: No special permissions for screen recording
-- **Microphone/Camera**: Standard OS permissions when using these features
+- **Windows**: No special permissions required for screen recording
+- **Microphone/Camera**: Standard Windows permissions when using these features
 
 ## AI & Processing Pipeline
 

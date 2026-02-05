@@ -57,8 +57,6 @@ jobs:
 
       - uses: ./.github/actions/setup-js
 
-      - run: pnpm web exec next typegen
-
       - name: Typecheck
         run: pnpm typecheck
 
@@ -97,30 +95,29 @@ jobs:
     name: Clippy
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - target: aarch64-apple-darwin
-            runner: macos-latest
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
-    runs-on: ${{ matrix.settings.runner }}
+    runs-on: windows-latest
     permissions:
       contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install FFmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v3
+        with:
+          ffmpeg-version: release
+          linking-type: static
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.settings.target }}
+          targets: x86_64-pc-windows-msvc
           components: clippy
 
       - uses: ./.github/actions/setup-rust-cache
         with:
-          target: ${{ matrix.settings.target }}
+          target: x86_64-pc-windows-msvc
 
       - name: Create .env file in root
         run: |
@@ -153,27 +150,26 @@ jobs:
     name: Build Desktop
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - target: aarch64-apple-darwin
-            runner: macos-latest
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
-    runs-on: ${{ matrix.settings.runner }}
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install FFmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v3
+        with:
+          ffmpeg-version: release
+          linking-type: static
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.settings.target }}
+          targets: x86_64-pc-windows-msvc
 
       - uses: ./.github/actions/setup-rust-cache
         with:
-          target: ${{ matrix.settings.target }}
+          target: x86_64-pc-windows-msvc
 
       - uses: ./.github/actions/setup-js
 
@@ -191,9 +187,9 @@ jobs:
         working-directory: apps/desktop
         run: |
           pnpm -w cap-setup
-          pnpm tauri build --debug --target ${{ matrix.settings.target }} --no-bundle
+          pnpm tauri build --debug --target x86_64-pc-windows-msvc --no-bundle
         env:
-          RUST_TARGET_TRIPLE: ${{ matrix.settings.target }}
+          RUST_TARGET_TRIPLE: x86_64-pc-windows-msvc
 
   tauri-plugins:
     name: Verify Tauri plugin versions
@@ -217,17 +213,7 @@ jobs:
     name: Rust cache
     needs: changes
     if: needs.changes.outputs.branch == 'main'
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - target: x86_64-apple-darwin
-            runner: macos-latest
-          - target: aarch64-apple-darwin
-            runner: macos-latest
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
-    runs-on: ${{ matrix.settings.runner }}
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -235,11 +221,11 @@ jobs:
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.settings.target }}
+          targets: x86_64-pc-windows-msvc
 
       - uses: ./.github/actions/setup-rust-cache
         with:
-          target: ${{ matrix.settings.target }}
+          target: x86_64-pc-windows-msvc
           save-cache: true
 
       - name: Setup node
@@ -256,5 +242,4 @@ jobs:
         run: cargo check --all --release
 
       - name: Run Clippy
-        if: ${{ matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc' }}
         run: cargo clippy --workspace --all-features --locked -- -D warnings

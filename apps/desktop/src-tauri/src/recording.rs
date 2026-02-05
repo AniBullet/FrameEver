@@ -843,11 +843,7 @@ pub async fn start_recording(
                         RecordingMode::Instant => {
                             let quality = inputs
                                 .quality
-                                .or_else(|| {
-                                    general_settings
-                                        .as_ref()
-                                        .map(|s| s.recording_quality)
-                                })
+                                .or_else(|| general_settings.as_ref().map(|s| s.recording_quality))
                                 .unwrap_or(crate::general_settings::RecordingQuality::Standard);
 
                             let mut builder = instant_recording::Actor::builder(
