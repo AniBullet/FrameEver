@@ -2118,7 +2118,9 @@ fn list_screenshots(app: AppHandle) -> Result<Vec<(PathBuf, RecordingMeta)>, Str
             }
 
             if let Some(ext) = path.extension()
-                && ext != "png" && ext != "jpg" && ext != "jpeg"
+                && ext != "png"
+                && ext != "jpg"
+                && ext != "jpeg"
             {
                 return None;
             }
@@ -2214,139 +2216,142 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
         && let Ok(entries) = std::fs::read_dir(&recordings_dir)
     {
         for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if !path.is_dir() {
-                    continue;
-                }
-
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    let id = name.to_string();
-                    let created_at = path
-                        .metadata()
-                        .and_then(|m| m.created())
-                        .unwrap_or(SystemTime::UNIX_EPOCH)
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as f64;
-
-                    let meta = get_recording_meta(path.clone(), FileType::Recording).ok();
-                    let thumbnail_path = path.join("screenshots/display.jpg");
-                    let thumbnail = if thumbnail_path.exists() {
-                        Some(thumbnail_path)
-                    } else {
-                        None
-                    };
-
-                    items_map.insert(
-                        id.clone(),
-                        LibraryItem {
-                            id: id.clone(),
-                            name: meta
-                                .as_ref()
-                                .map(|m| m.inner.pretty_name.clone())
-                                .unwrap_or(name.to_string()),
-                            item_type: LibraryItemType::Video,
-                            status: LibraryItemStatus::Editing,
-                            cap_project_path: Some(path),
-                            exported_file_path: None,
-                            thumbnail_path: thumbnail,
-                            created_at,
-                            meta,
-                        },
-                    );
-                }
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
             }
+
+            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                let id = name.to_string();
+                let created_at = path
+                    .metadata()
+                    .and_then(|m| m.created())
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as f64;
+
+                let meta = get_recording_meta(path.clone(), FileType::Recording).ok();
+                let thumbnail_path = path.join("screenshots/display.jpg");
+                let thumbnail = if thumbnail_path.exists() {
+                    Some(thumbnail_path)
+                } else {
+                    None
+                };
+
+                items_map.insert(
+                    id.clone(),
+                    LibraryItem {
+                        id: id.clone(),
+                        name: meta
+                            .as_ref()
+                            .map(|m| m.inner.pretty_name.clone())
+                            .unwrap_or(name.to_string()),
+                        item_type: LibraryItemType::Video,
+                        status: LibraryItemStatus::Editing,
+                        cap_project_path: Some(path),
+                        exported_file_path: None,
+                        thumbnail_path: thumbnail,
+                        created_at,
+                        meta,
+                    },
+                );
+            }
+        }
     }
 
     if exports_video_dir.exists()
         && let Ok(entries) = std::fs::read_dir(&exports_video_dir)
     {
         for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
 
-                if let Some(ext) = path.extension()
-                    && ext != "mp4" && ext != "gif"
-                {
-                    continue;
-                }
+            if let Some(ext) = path.extension()
+                && ext != "mp4"
+                && ext != "gif"
+            {
+                continue;
+            }
 
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    let id = name.to_string();
-                    let created_at = path
-                        .metadata()
-                        .and_then(|m| m.created())
-                        .unwrap_or(SystemTime::UNIX_EPOCH)
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as f64;
+            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                let id = name.to_string();
+                let created_at = path
+                    .metadata()
+                    .and_then(|m| m.created())
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as f64;
 
-                    if let Some(existing) = items_map.get_mut(&id) {
-                        existing.exported_file_path = Some(path);
-                        existing.status = LibraryItemStatus::Exported;
-                    } else {
-                        items_map.insert(
-                            id.clone(),
-                            LibraryItem {
-                                id: id.clone(),
-                                name: name.to_string(),
-                                item_type: LibraryItemType::Video,
-                                status: LibraryItemStatus::ExportedNoSource,
-                                cap_project_path: None,
-                                exported_file_path: Some(path),
-                                thumbnail_path: None,
-                                created_at,
-                                meta: None,
-                            },
-                        );
-                    }
+                if let Some(existing) = items_map.get_mut(&id) {
+                    existing.exported_file_path = Some(path);
+                    existing.status = LibraryItemStatus::Exported;
+                } else {
+                    items_map.insert(
+                        id.clone(),
+                        LibraryItem {
+                            id: id.clone(),
+                            name: name.to_string(),
+                            item_type: LibraryItemType::Video,
+                            status: LibraryItemStatus::ExportedNoSource,
+                            cap_project_path: None,
+                            exported_file_path: Some(path),
+                            thumbnail_path: None,
+                            created_at,
+                            meta: None,
+                        },
+                    );
                 }
             }
+        }
     }
 
     if exports_screenshot_dir.exists()
         && let Ok(entries) = std::fs::read_dir(&exports_screenshot_dir)
     {
         for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
-
-                if let Some(ext) = path.extension()
-                    && ext != "png" && ext != "jpg" && ext != "jpeg"
-                {
-                    continue;
-                }
-
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    let id = format!("screenshot-{}", name);
-                    let created_at = path
-                        .metadata()
-                        .and_then(|m| m.created())
-                        .unwrap_or(SystemTime::UNIX_EPOCH)
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs();
-
-                    items_map.insert(
-                        id.clone(),
-                        LibraryItem {
-                            id: id.clone(),
-                            name: name.to_string(),
-                            item_type: LibraryItemType::Screenshot,
-                            status: LibraryItemStatus::ExportedNoSource,
-                            cap_project_path: None,
-                            exported_file_path: Some(path.clone()),
-                            thumbnail_path: Some(path),
-                            created_at: created_at as f64,
-                            meta: None,
-                        },
-                    );
-                }
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
             }
+
+            if let Some(ext) = path.extension()
+                && ext != "png"
+                && ext != "jpg"
+                && ext != "jpeg"
+            {
+                continue;
+            }
+
+            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                let id = format!("screenshot-{}", name);
+                let created_at = path
+                    .metadata()
+                    .and_then(|m| m.created())
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                items_map.insert(
+                    id.clone(),
+                    LibraryItem {
+                        id: id.clone(),
+                        name: name.to_string(),
+                        item_type: LibraryItemType::Screenshot,
+                        status: LibraryItemStatus::ExportedNoSource,
+                        cap_project_path: None,
+                        exported_file_path: Some(path.clone()),
+                        thumbnail_path: Some(path),
+                        created_at: created_at as f64,
+                        meta: None,
+                    },
+                );
+            }
+        }
     }
 
     let mut result: Vec<LibraryItem> = items_map.into_values().collect();

@@ -489,13 +489,7 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
                     false,
                     None::<&str>,
                 )?,
-                &MenuItem::with_id(
-                    app,
-                    TrayItem::Quit,
-                    t("quit", lang_str),
-                    true,
-                    None::<&str>,
-                )?,
+                &MenuItem::with_id(app, TrayItem::Quit, t("quit", lang_str), true, None::<&str>)?,
             ],
         );
     }
