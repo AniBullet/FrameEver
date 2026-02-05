@@ -96,3 +96,53 @@
 可以移除：
 - ⚠️ `publish.yml` - 原版发布流程（含付费服务）
 - ⚠️ `opencode.yml` - AI 代码审查（需 API 密钥）
+
+---
+
+## 🔧 技术说明：FFmpeg 构建配置
+
+### 问题背景
+
+Rust 的 `ffmpeg-sys-next` crate 在 Windows 上编译时需要：
+- FFmpeg **开发文件**（头文件、库文件）
+- **不仅仅是** ffmpeg.exe 二进制文件
+
+### 解决方案
+
+我们使用 **vcpkg** 安装 FFmpeg，而不是 `FedericoCarboni/setup-ffmpeg` action：
+
+```yaml
+- name: Install FFmpeg via vcpkg
+  run: |
+    vcpkg install ffmpeg:x64-windows-static
+    echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+```
+
+### 为什么使用 vcpkg？
+
+1. ✅ **完整开发包**：包含头文件、库文件、pkg-config 配置
+2. ✅ **原生支持**：`ffmpeg-sys-next` 在 Windows MSVC 上优先查找 vcpkg
+3. ✅ **预装可用**：GitHub Actions Windows runner 预装 vcpkg
+4. ✅ **静态链接**：使用 `x64-windows-static` 三元组避免运行时依赖
+
+### 构建流程
+
+```
+vcpkg 安装 FFmpeg 
+  ↓
+设置 VCPKG_ROOT 环境变量
+  ↓
+cargo build (ffmpeg-sys-next 自动找到 vcpkg FFmpeg)
+  ↓
+成功编译
+```
+
+### 诊断日志
+
+工作流包含诊断输出，用于验证每个组件：
+- vcpkg 版本和位置
+- FFmpeg 安装进度
+- 已安装包列表
+- VCPKG_ROOT 环境变量设置
+
+如果遇到构建问题，检查这些日志输出可以快速定位问题。

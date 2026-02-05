@@ -36,12 +36,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install FFmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v3
-        with:
-          ffmpeg-version: release
-          linking-type: static
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install FFmpeg via vcpkg
+        run: |
+          Write-Host "=== vcpkg version and location ==="
+          vcpkg version
+          Write-Host "VCPKG_INSTALLATION_ROOT: $env:VCPKG_INSTALLATION_ROOT"
+          
+          Write-Host "`n=== Installing FFmpeg ==="
+          vcpkg install ffmpeg:x64-windows-static
+          
+          Write-Host "`n=== Verifying FFmpeg installation ==="
+          vcpkg list | Select-String "ffmpeg"
+          
+          Write-Host "`n=== Setting VCPKG_ROOT ==="
+          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "VCPKG_ROOT set to: $env:VCPKG_INSTALLATION_ROOT"
+        shell: pwsh
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
