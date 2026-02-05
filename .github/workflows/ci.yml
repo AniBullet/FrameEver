@@ -125,15 +125,6 @@ jobs:
       - name: Create .env file in root
         run: |
           echo "VITE_ENVIRONMENT=production" >> .env
-          echo "CAP_DESKTOP_SENTRY_URL=https://6a3b6a09e6ae976c2ad6fff710e88748@o4506859771527168.ingest.us.sentry.io/4508330917101568" >> .env
-          echo "NEXT_PUBLIC_WEB_URL=${{ secrets.NEXT_PUBLIC_WEB_URL }}" >> .env
-          echo 'NEXTAUTH_URL=${{ secrets.NEXT_PUBLIC_WEB_URL }}' >> .env
-          echo 'NEXT_PUBLIC_POSTHOG_KEY=${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}' >> .env
-          echo 'NEXT_PUBLIC_POSTHOG_HOST=${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}' >> .env
-          echo 'VITE_POSTHOG_KEY=${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}' >> .env
-          echo 'VITE_POSTHOG_HOST=${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}' >> .env
-          echo 'VITE_SERVER_URL=${{ secrets.NEXT_PUBLIC_WEB_URL }}' >> .env
-
           cat .env >> $GITHUB_ENV
 
       - name: Run setup
@@ -171,9 +162,6 @@ jobs:
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
     runs-on: ${{ matrix.settings.runner }}
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -192,14 +180,6 @@ jobs:
       - name: Create .env file in root
         run: |
           echo "VITE_ENVIRONMENT=production" >> .env
-          echo "CAP_DESKTOP_SENTRY_URL=https://6a3b6a09e6ae976c2ad6fff710e88748@o4506859771527168.ingest.us.sentry.io/4508330917101568" >> .env
-          echo "NEXT_PUBLIC_WEB_URL=${{ secrets.NEXT_PUBLIC_WEB_URL }}" >> .env
-          echo 'NEXTAUTH_URL=${{ secrets.NEXT_PUBLIC_WEB_URL }}' >> .env
-          echo 'NEXT_PUBLIC_POSTHOG_KEY=${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}' >> .env
-          echo 'NEXT_PUBLIC_POSTHOG_HOST=${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}' >> .env
-          echo 'VITE_POSTHOG_KEY=${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}' >> .env
-          echo 'VITE_POSTHOG_HOST=${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}' >> .env
-          echo 'VITE_SERVER_URL=${{ secrets.NEXT_PUBLIC_WEB_URL }}' >> .env
 
       - name: Copy .env to apps/desktop
         run: cp .env apps/desktop/.env
