@@ -279,18 +279,18 @@ fn create_previous_submenu(
     let lang_str = lang.as_str();
 
     if cache.items.is_empty() {
-        let submenu = Submenu::with_id(app, "previous", &t("previous", lang_str), false)?;
+        let submenu = Submenu::with_id(app, "previous", t("previous", lang_str), false)?;
         submenu.append(&MenuItem::with_id(
             app,
             "previous_empty",
-            &t("no_recent", lang_str),
+            t("no_recent", lang_str),
             false,
             None::<&str>,
         )?)?;
         return Ok(submenu);
     }
 
-    let submenu = Submenu::with_id(app, "previous", &t("previous", lang_str), true)?;
+    let submenu = Submenu::with_id(app, "previous", t("previous", lang_str), true)?;
 
     for item in &cache.items {
         let id = TrayItem::PreviousItem(item.path.to_string_lossy().to_string());
@@ -298,7 +298,7 @@ fn create_previous_submenu(
 
         let type_indicator = match &item.item_type {
             PreviousItemType::StudioRecording => "🎬 ",
-            PreviousItemType::InstantRecording { .. } => "⚡ ",
+            PreviousItemType::InstantRecording => "⚡ ",
             PreviousItemType::Screenshot => "📷 ",
         };
         let display_title = format!("{type_indicator}{title}");
@@ -434,7 +434,7 @@ fn create_mode_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
     let lang = get_language(app);
     let lang_str = lang.as_str();
 
-    let submenu = Submenu::with_id(app, "select_mode", &t("select_mode", lang_str), true)?;
+    let submenu = Submenu::with_id(app, "select_mode", t("select_mode", lang_str), true)?;
 
     let modes = [
         (TrayItem::ModeStudio, RecordingMode::Studio, "mode_studio"),
@@ -477,7 +477,7 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
                 &MenuItem::with_id(
                     app,
                     TrayItem::RequestPermissions,
-                    &t("request_permissions", lang_str),
+                    t("request_permissions", lang_str),
                     true,
                     None::<&str>,
                 )?,
@@ -492,7 +492,7 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
                 &MenuItem::with_id(
                     app,
                     TrayItem::Quit,
-                    &t("quit", lang_str),
+                    t("quit", lang_str),
                     true,
                     None::<&str>,
                 )?,
@@ -510,7 +510,7 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
     menu.append(&MenuItem::with_id(
         app,
         TrayItem::OpenCap,
-        &t("open_cap", lang_str),
+        t("open_cap", lang_str),
         true,
         None::<&str>,
     )?)?;
@@ -519,21 +519,21 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
         menu.append(&MenuItem::with_id(
             app,
             TrayItem::RecordDisplay,
-            &t("screenshot_display", lang_str),
+            t("screenshot_display", lang_str),
             true,
             None::<&str>,
         )?)?;
         menu.append(&MenuItem::with_id(
             app,
             TrayItem::RecordWindow,
-            &t("screenshot_window", lang_str),
+            t("screenshot_window", lang_str),
             true,
             None::<&str>,
         )?)?;
         menu.append(&MenuItem::with_id(
             app,
             TrayItem::RecordArea,
-            &t("screenshot_area", lang_str),
+            t("screenshot_area", lang_str),
             true,
             None::<&str>,
         )?)?;
@@ -541,28 +541,28 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
         menu.append(&MenuItem::with_id(
             app,
             TrayItem::RecordDisplay,
-            &t("record_display", lang_str),
+            t("record_display", lang_str),
             true,
             None::<&str>,
         )?)?;
         menu.append(&MenuItem::with_id(
             app,
             TrayItem::RecordWindow,
-            &t("record_window", lang_str),
+            t("record_window", lang_str),
             true,
             None::<&str>,
         )?)?;
         menu.append(&MenuItem::with_id(
             app,
             TrayItem::RecordArea,
-            &t("record_area", lang_str),
+            t("record_area", lang_str),
             true,
             None::<&str>,
         )?)?;
         menu.append(&MenuItem::with_id(
             app,
             TrayItem::TakeScreenshot,
-            &t("take_screenshot", lang_str),
+            t("take_screenshot", lang_str),
             true,
             None::<&str>,
         )?)?;
@@ -571,7 +571,7 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
     menu.append(&MenuItem::with_id(
         app,
         TrayItem::ImportVideo,
-        &t("import_video", lang_str),
+        t("import_video", lang_str),
         true,
         None::<&str>,
     )?)?;
@@ -584,21 +584,21 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
     menu.append(&MenuItem::with_id(
         app,
         TrayItem::ViewAllRecordings,
-        &t("view_all_recordings", lang_str),
+        t("view_all_recordings", lang_str),
         true,
         None::<&str>,
     )?)?;
     menu.append(&MenuItem::with_id(
         app,
         TrayItem::ViewAllScreenshots,
-        &t("view_all_screenshots", lang_str),
+        t("view_all_screenshots", lang_str),
         true,
         None::<&str>,
     )?)?;
     menu.append(&MenuItem::with_id(
         app,
         TrayItem::OpenSettings,
-        &t("settings", lang_str),
+        t("settings", lang_str),
         true,
         None::<&str>,
     )?)?;
@@ -614,7 +614,7 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
     menu.append(&MenuItem::with_id(
         app,
         TrayItem::Quit,
-        &t("quit", lang_str),
+        t("quit", lang_str),
         true,
         None::<&str>,
     )?)?;

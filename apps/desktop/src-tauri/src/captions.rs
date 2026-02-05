@@ -655,7 +655,7 @@ fn process_with_whisper(
             let token_id = token.token_id();
             let token_prob = token.token_probability();
 
-            if is_special_token(&token_text) {
+            if is_special_token(token_text) {
                 log::debug!(
                     "  Token[{t}]: id={token_id}, text={token_text:?} -> SKIPPED (special)"
                 );
@@ -694,7 +694,7 @@ fn process_with_whisper(
                     word_start = Some(token_start);
                     log::debug!("    -> Word start set to {token_start:.2}s");
                 }
-                current_word.push_str(&token_text);
+                current_word.push_str(token_text);
                 log::debug!("    -> Appending to word: '{current_word}'");
             }
             word_end = token_end;

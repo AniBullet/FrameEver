@@ -822,7 +822,7 @@ impl Renderer {
         let _ = self.device.poll(wgpu::PollType::Wait);
 
         drop(std::mem::take(&mut self.texture));
-        drop(std::mem::take(&mut self.aspect_ratio));
+        std::mem::take(&mut self.aspect_ratio);
 
         let surface = self.surface.take();
         let (drop_tx, drop_rx) = oneshot::channel();

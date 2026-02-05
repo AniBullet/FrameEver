@@ -42,18 +42,13 @@ pub enum EditorPreviewQuality {
     Full,
 }
 
-#[derive(Serialize, Deserialize, Type, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Type, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum RecordingQuality {
     High,
+    #[default]
     Standard,
     Low,
-}
-
-impl Default for RecordingQuality {
-    fn default() -> Self {
-        Self::Standard
-    }
 }
 
 impl RecordingQuality {

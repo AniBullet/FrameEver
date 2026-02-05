@@ -188,7 +188,7 @@ impl InProgressRecording {
                 target_name: common.target_name,
             },
             Self::Studio { handle, common, .. } => CompletedRecording::Studio {
-                recording: handle.stop().await?,
+                recording: Box::new(handle.stop().await?),
                 target_name: common.target_name,
             },
         })
@@ -222,7 +222,7 @@ pub enum CompletedRecording {
         target_name: String,
     },
     Studio {
-        recording: studio_recording::CompletedRecording,
+        recording: Box<studio_recording::CompletedRecording>,
         target_name: String,
     },
 }
@@ -1449,7 +1449,7 @@ async fn handle_recording_finish(
                         &app,
                         recording_dir_for_finalize.clone(),
                         screenshots_dir,
-                        recording,
+                        *recording,
                         default_preset,
                     )
                     .await;

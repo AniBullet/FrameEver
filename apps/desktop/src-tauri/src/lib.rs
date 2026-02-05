@@ -2117,10 +2117,10 @@ fn list_screenshots(app: AppHandle) -> Result<Vec<(PathBuf, RecordingMeta)>, Str
                 return None;
             }
 
-            if let Some(ext) = path.extension() {
-                if ext != "png" && ext != "jpg" && ext != "jpeg" {
-                    return None;
-                }
+            if let Some(ext) = path.extension()
+                && ext != "png" && ext != "jpg" && ext != "jpeg"
+            {
+                return None;
             }
 
             let file_name = path.file_stem()?.to_str()?;
@@ -2210,9 +2210,10 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
     let exports_video_dir = GeneralSettingsStore::exports_video_path(&app);
     let exports_screenshot_dir = GeneralSettingsStore::exports_screenshot_path(&app);
 
-    if recordings_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&recordings_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
+    if recordings_dir.exists()
+        && let Ok(entries) = std::fs::read_dir(&recordings_dir)
+    {
+        for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
                 if !path.is_dir() {
                     continue;
@@ -2255,21 +2256,21 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                     );
                 }
             }
-        }
     }
 
-    if exports_video_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&exports_video_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
+    if exports_video_dir.exists()
+        && let Ok(entries) = std::fs::read_dir(&exports_video_dir)
+    {
+        for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
                 if !path.is_file() {
                     continue;
                 }
 
-                if let Some(ext) = path.extension() {
-                    if ext != "mp4" && ext != "gif" {
-                        continue;
-                    }
+                if let Some(ext) = path.extension()
+                    && ext != "mp4" && ext != "gif"
+                {
+                    continue;
                 }
 
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
@@ -2303,21 +2304,21 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                     }
                 }
             }
-        }
     }
 
-    if exports_screenshot_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&exports_screenshot_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
+    if exports_screenshot_dir.exists()
+        && let Ok(entries) = std::fs::read_dir(&exports_screenshot_dir)
+    {
+        for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
                 if !path.is_file() {
                     continue;
                 }
 
-                if let Some(ext) = path.extension() {
-                    if ext != "png" && ext != "jpg" && ext != "jpeg" {
-                        continue;
-                    }
+                if let Some(ext) = path.extension()
+                    && ext != "png" && ext != "jpg" && ext != "jpeg"
+                {
+                    continue;
                 }
 
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
@@ -2346,10 +2347,9 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                     );
                 }
             }
-        }
     }
 
-    let mut result: Vec<LibraryItem> = items_map.into_iter().map(|(_, v)| v).collect();
+    let mut result: Vec<LibraryItem> = items_map.into_values().collect();
     result.sort_by(|a, b| {
         b.created_at
             .partial_cmp(&a.created_at)
@@ -3320,10 +3320,10 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
                                     }
                                 });
                             }
-                            CapWindowId::Settings { .. } | CapWindowId::Library => {
+                            CapWindowId::Settings | CapWindowId::Library => {
                                 api.prevent_close();
                                 let _ = window.hide();
-                                if let Some(main_window) = CapWindowId::Main.get(&app) {
+                                if let Some(main_window) = CapWindowId::Main.get(app) {
                                     let _ = main_window.show();
                                     let _ = main_window.set_focus();
                                 }
