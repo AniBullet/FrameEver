@@ -43,7 +43,7 @@
     {
       "label": "4. 发布正式版",
       "type": "shell",
-      "command": "pwsh",
+      "command": "powershell.exe",
       "args": [
         "-NoProfile",
         "-ExecutionPolicy",
@@ -62,7 +62,7 @@
     {
       "label": "5. 发布测试版",
       "type": "shell",
-      "command": "pwsh",
+      "command": "powershell.exe",
       "args": [
         "-NoProfile",
         "-ExecutionPolicy",
