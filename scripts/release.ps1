@@ -46,7 +46,7 @@ $oldVersion = if ($content -match 'version\s*=\s*"([^"]*)"') { $matches[1] } els
 Write-Host "Current version: $oldVersion" -ForegroundColor Gray
 Write-Host "New version: $Version" -ForegroundColor Gray
 
-$content = $content -replace 'version\s*=\s*"[^"]*"', "version = `"$Version`"", 1
+$content = $content -replace 'version\s*=\s*"[^"]*"', "version = `"$Version`""
 $content | Set-Content $CargoToml -NoNewline
 
 Write-Host "Version number updated" -ForegroundColor Green
