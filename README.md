@@ -58,20 +58,6 @@
 
 > 💡 详细构建文档请查看 [BUILD.md](BUILD.md)
 
----
-
-## 🤖 自动化打包
-
-推送 Git tag 即可触发 GitHub Actions 自动构建 Windows 版本：
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-构建完成后在 [Releases](../../releases) 页面下载 Windows 安装包。
-
-> 💡 详细说明请查看 [BUILD.md](BUILD.md#github-actions-自动打包)
 
 ---
 
