@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "cap-desktop"
 version = "1.0.0"
 description = "Beautiful screen recordings, owned by you."
