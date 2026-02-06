@@ -44,7 +44,10 @@ if ($LASTEXITCODE -eq 0) {
     $remoteTags = git ls-remote --tags origin 2>&1
     if ($remoteTags -match "refs/tags/$tagName") {
         Write-Host "Remote tag $tagName exists, deleting..." -ForegroundColor Yellow
+        $prevErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         git push origin ":refs/tags/$tagName" 2>&1 | Out-Null
+        $ErrorActionPreference = $prevErrorAction
         if ($LASTEXITCODE -eq 0) {
             Write-Host "Old remote tag deleted" -ForegroundColor Green
             Start-Sleep -Seconds 2
@@ -72,7 +75,10 @@ $retryCount = 0
 $tagPushed = $false
 
 while ($retryCount -lt $maxRetries -and -not $tagPushed) {
+    $prevErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $pushTagOutput = git push origin $tagName 2>&1
+    $ErrorActionPreference = $prevErrorAction
     if ($LASTEXITCODE -eq 0) {
         $tagPushed = $true
         Write-Host "Tag pushed successfully" -ForegroundColor Green
