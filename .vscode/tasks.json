@@ -1,0 +1,97 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "1. 安装依赖",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/1-install.ps1",
+      "windows": {
+        "command": "powershell.exe -ExecutionPolicy Bypass -File \"${workspaceFolder}/scripts/1-install.ps1\""
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "2. 开发模式",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/2-dev.ps1",
+      "windows": {
+        "command": "powershell.exe -ExecutionPolicy Bypass -File \"${workspaceFolder}/scripts/2-dev.ps1\""
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "3. 打包应用",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/3-build.ps1",
+      "windows": {
+        "command": "powershell.exe -ExecutionPolicy Bypass -File \"${workspaceFolder}/scripts/3-build.ps1\""
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "4. 发布正式版",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/release.ps1",
+        "${input:releaseVersion}"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "focus": true
+      }
+    },
+    {
+      "label": "5. 发布测试版",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/release.ps1",
+        "${input:preReleaseVersion}",
+        "-PreRelease"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "focus": true
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "releaseVersion",
+      "type": "promptString",
+      "description": "输入版本号（例如：1.0.0）",
+      "default": "1.0.0"
+    },
+    {
+      "id": "preReleaseVersion",
+      "type": "promptString",
+      "description": "输入预发布版本号（例如：1.0.0-pre.1）",
+      "default": "1.0.0-pre.1"
+    }
+  ]
+}
