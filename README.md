@@ -121,18 +121,20 @@
 
 ## 📄 开源协议
 
+**AGPL-3.0** — 与原 [Cap](https://github.com/CapSoftware/Cap) 项目保持一致。
 
-
-**AGPL-3.0** - 与原 [Cap](https://github.com/CapSoftware/Cap) 项目保持一致
+| 项目     | 说明 |
+|----------|------|
+| 修改年份 | 2026 |
+| 基于版本 | 原版 [Cap](https://github.com/CapSoftware/Cap) v0.4.5 |
+| 原版权   | Copyright (c) 2023-present Cap Software, Inc. |
 
 <details>
 <summary>点击展开</summary>
 
 <br>
 
-本项目是基于原 [Cap](https://github.com/CapSoftware/Cap) 项目的合法修改版本，完全遵守 AGPL 3.0 协议
-
-
+本项目是基于原 [Cap](https://github.com/CapSoftware/Cap) 项目的合法修改版本，完全遵守 AGPL 3.0 协议。
 
 - ✅ 保留原始 AGPL 3.0 协议
 - ✅ 公开完整修改后的源代码
