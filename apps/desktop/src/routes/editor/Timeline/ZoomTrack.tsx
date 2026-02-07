@@ -452,7 +452,8 @@ export function ZoomTrack(props: {
 											const maxValue = segment().end - 1;
 
 											for (let i = zoomSegments().length - 1; i >= 0; i--) {
-												const segment = zoomSegments()[i]!;
+												const segment = zoomSegments()[i];
+												if (!segment) continue;
 												if (segment.end <= start) {
 													minValue = segment.end;
 													break;
@@ -568,7 +569,8 @@ export function ZoomTrack(props: {
 											let maxValue = duration();
 
 											for (let i = 0; i < zoomSegments().length; i++) {
-												const segment = zoomSegments()[i]!;
+												const segment = zoomSegments()[i];
+												if (!segment) continue;
 												if (segment.start > end) {
 													maxValue = segment.start;
 													break;

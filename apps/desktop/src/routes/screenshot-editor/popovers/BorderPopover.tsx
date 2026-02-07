@@ -54,7 +54,10 @@ export function BorderPopover() {
 						<Collapsible open={project.background.border?.enabled ?? false}>
 							<Collapsible.Content class="overflow-hidden opacity-0 transition-opacity animate-collapsible-up ui-expanded:animate-collapsible-down ui-expanded:opacity-100">
 								<div class="flex flex-col gap-4">
-									<Field name="Width" icon={<IconCapEnlarge class="size-4" />}>
+									<Field
+										name={t("editor.screenshot.borderWidth")}
+										icon={<IconCapEnlarge class="size-4" />}
+									>
 										<Slider
 											value={[project.background.border?.width ?? 5.0]}
 											onChange={(v) =>
@@ -74,7 +77,10 @@ export function BorderPopover() {
 											formatTooltip="px"
 										/>
 									</Field>
-									<Field name="Color" icon={<IconCapImage class="size-4" />}>
+									<Field
+										name={t("editor.screenshot.color")}
+										icon={<IconCapImage class="size-4" />}
+									>
 										<RgbInput
 											value={project.background.border?.color ?? [0, 0, 0]}
 											onChange={(color) =>
@@ -90,7 +96,10 @@ export function BorderPopover() {
 											}
 										/>
 									</Field>
-									<Field name="Opacity" icon={<IconCapShadow class="size-4" />}>
+									<Field
+										name={t("editor.screenshot.opacity")}
+										icon={<IconCapShadow class="size-4" />}
+									>
 										<Slider
 											value={[project.background.border?.opacity ?? 50.0]}
 											onChange={(v) =>

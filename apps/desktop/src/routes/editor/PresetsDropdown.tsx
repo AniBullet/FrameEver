@@ -24,7 +24,7 @@ export function PresetsDropdown() {
 				leftIcon={<IconCapPresets />}
 				rightIcon={<IconCapChevronDown />}
 			>
-				Presets
+				{t("editor.presets.label")}
 			</EditorButton>
 			<KDropdownMenu.Portal>
 				<Suspense>
@@ -40,7 +40,7 @@ export function PresetsDropdown() {
 								each={presets.query.data?.presets ?? []}
 								fallback={
 									<div class="py-1 w-full text-sm text-center text-gray-11">
-										No Presets
+										{t("editor.presets.empty")}
 									</div>
 								}
 							>

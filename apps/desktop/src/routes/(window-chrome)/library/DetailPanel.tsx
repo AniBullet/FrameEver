@@ -1,9 +1,6 @@
 import { Button } from "@cap/ui-solid";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import * as shell from "@tauri-apps/plugin-shell";
-import { cx } from "cva";
 import { createSignal, Show } from "solid-js";
 import { useI18n } from "~/i18n";
 import { commands, type LibraryItem } from "~/utils/tauri";
@@ -14,6 +11,14 @@ import IconLucideFolder from "~icons/lucide/folder";
 import IconLucidePlay from "~icons/lucide/play";
 import IconLucideTrash from "~icons/lucide/trash-2";
 import IconLucideX from "~icons/lucide/x";
+import {
+	canEdit as canEditItem,
+	canOpen as canOpenItem,
+	canPlay as canPlayItem,
+	editItem,
+	openFolder as openFolderForItem,
+	openWithDefaultApp,
+} from "./library-actions";
 
 type Props = {
 	item: LibraryItem;
@@ -35,43 +40,19 @@ export default function DetailPanel(props: Props) {
 		return "";
 	};
 
-	const canEdit = () => {
-		return props.item.capProjectPath !== null;
-	};
-
-	const canPlay = () => {
-		return (
-			props.item.exportedFilePath !== null && props.item.itemType === "video"
-		);
-	};
-
-	const handleEdit = () => {
-		if (props.item.capProjectPath) {
-			if (props.item.itemType === "video") {
-				commands.showWindow({
-					Editor: { project_path: props.item.capProjectPath },
-				});
-			} else {
-				commands.showWindow({
-					ScreenshotEditor: { path: props.item.capProjectPath },
-				});
-			}
-		}
-	};
-
+	const canEdit = () => canEditItem(props.item);
+	const canPlay = () => canPlayItem(props.item);
+	const canOpen = () => canOpenItem(props.item);
+	const handleEdit = () => editItem(props.item);
 	const handlePlay = () => {
-		if (props.item.exportedFilePath) {
-			shell.open(props.item.exportedFilePath);
-		}
+		if (props.item.exportedFilePath)
+			openWithDefaultApp(props.item.exportedFilePath);
 	};
-
-	const handleOpenFolder = () => {
-		if (props.item.capProjectPath) {
-			revealItemInDir(props.item.capProjectPath);
-		} else if (props.item.exportedFilePath) {
-			revealItemInDir(props.item.exportedFilePath);
-		}
+	const handleOpen = () => {
+		if (props.item.exportedFilePath)
+			openWithDefaultApp(props.item.exportedFilePath);
 	};
+	const handleOpenFolder = () => openFolderForItem(props.item);
 
 	const handleDelete = async () => {
 		const message =
@@ -95,6 +76,12 @@ export default function DetailPanel(props: Props) {
 	};
 
 	const statusLabel = () => {
+		if (
+			props.item.itemType === "screenshot" &&
+			props.item.status === "exportedNoSource"
+		) {
+			return t("library.status.exported");
+		}
 		switch (props.item.status) {
 			case "editing":
 				return t("library.status.editing");
@@ -221,6 +208,18 @@ export default function DetailPanel(props: Props) {
 					>
 						<IconLucidePlay class="size-4" />
 						{t("library.detail.play")}
+					</Button>
+				</Show>
+
+				<Show when={canOpen()}>
+					<Button
+						variant="primary"
+						size="md"
+						class="w-full"
+						onClick={handleOpen}
+					>
+						<IconLucideExternalLink class="size-4" />
+						{t("library.detail.open")}
 					</Button>
 				</Show>
 

@@ -1,6 +1,7 @@
 import { cx } from "cva";
 import type { Component } from "solid-js";
 import Tooltip from "~/components/Tooltip";
+import type { TranslationKey } from "~/i18n";
 import { useI18n } from "~/i18n";
 import IconLucideArrowUpRight from "~icons/lucide/arrow-up-right";
 import IconLucideCircle from "~icons/lucide/circle";
@@ -35,34 +36,39 @@ export function AnnotationTools() {
 			<ToolButton
 				tool="select"
 				icon={IconLucideMousePointer2}
-				label="Select"
+				labelKey="editor.screenshot.tool.select"
 				shortcut="V"
 			/>
 			<ToolButton
 				tool="arrow"
 				icon={IconLucideArrowUpRight}
-				label="Arrow"
+				labelKey="editor.screenshot.tool.arrow"
 				shortcut="A"
 			/>
 			<ToolButton
 				tool="rectangle"
 				icon={IconLucideSquare}
-				label="Rectangle"
+				labelKey="editor.screenshot.tool.rectangle"
 				shortcut="R"
 			/>
 			<ToolButton
 				tool="mask"
 				icon={IconLucideEyeOff}
-				label="Mask"
+				labelKey="editor.screenshot.tool.mask"
 				shortcut="M"
 			/>
 			<ToolButton
 				tool="circle"
 				icon={IconLucideCircle}
-				label="Circle"
+				labelKey="editor.screenshot.tool.circle"
 				shortcut="C"
 			/>
-			<ToolButton tool="text" icon={IconLucideType} label="Text" shortcut="T" />
+			<ToolButton
+				tool="text"
+				icon={IconLucideType}
+				labelKey="editor.screenshot.tool.text"
+				shortcut="T"
+			/>
 		</div>
 	);
 }
@@ -70,14 +76,15 @@ export function AnnotationTools() {
 function ToolButton(props: {
 	tool: AnnotationType | "select";
 	icon: Component<{ class?: string }>;
-	label: string;
+	labelKey: TranslationKey;
 	shortcut?: string;
 }) {
+	const { t } = useI18n();
 	const { activeTool, setActiveTool, setSelectedAnnotationId } =
 		useScreenshotEditorContext();
 	return (
 		<Tooltip
-			content={props.label}
+			content={t(props.labelKey)}
 			kbd={props.shortcut ? [props.shortcut] : undefined}
 		>
 			<button

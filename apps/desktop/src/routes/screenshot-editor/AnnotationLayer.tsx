@@ -7,6 +7,7 @@ import {
 	Show,
 } from "solid-js";
 import { unwrap } from "solid-js/store";
+import { useI18n } from "~/i18n";
 import { getArrowHeadPoints } from "./arrow";
 import {
 	type Annotation,
@@ -21,6 +22,7 @@ export function AnnotationLayer(props: {
 	cssHeight: number;
 	imageRect: { x: number; y: number; width: number; height: number };
 }) {
+	const { t } = useI18n();
 	const {
 		project,
 		annotations,
@@ -209,7 +211,7 @@ export function AnnotationLayer(props: {
 			fillColor: "transparent",
 			opacity: 1,
 			rotation: 0,
-			text: tool === "text" ? "Text" : null,
+			text: tool === "text" ? t("editor.screenshot.tool.text") : null,
 			maskType: tool === "mask" ? "pixelate" : null,
 			maskLevel: tool === "mask" ? 7 : null,
 		};

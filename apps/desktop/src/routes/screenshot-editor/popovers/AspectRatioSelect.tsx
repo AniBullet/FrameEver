@@ -1,5 +1,6 @@
 import { Select as KSelect } from "@kobalte/core/select";
 import { createSignal, Show } from "solid-js";
+import type { TranslationKey } from "~/i18n";
 import { useI18n } from "~/i18n";
 import type { AspectRatio } from "~/utils/tauri";
 import IconCapChevronDown from "~icons/cap/chevron-down";
@@ -7,6 +8,16 @@ import IconCapLayout from "~icons/cap/layout";
 import IconLucideCheckCircle from "~icons/lucide/check-circle-2";
 import { ASPECT_RATIOS } from "../../editor/projectConfig";
 import { useScreenshotEditorContext } from "../context";
+
+const ASPECT_RATIO_LABEL_KEYS: Record<AspectRatio | "auto", TranslationKey> = {
+	auto: "editor.aspectRatio.auto",
+	wide: "editor.aspectRatio.wide",
+	vertical: "editor.aspectRatio.vertical",
+	square: "editor.aspectRatio.square",
+	classic: "editor.aspectRatio.classic",
+	tall: "editor.aspectRatio.tall",
+};
+
 import {
 	EditorButton,
 	MenuItem,
@@ -45,9 +56,7 @@ export function AspectRatioSelect() {
 				return (
 					<MenuItem<typeof KSelect.Item> as={KSelect.Item} item={props.item}>
 						<KSelect.ItemLabel class="flex-1">
-							{props.item.rawValue === "auto"
-								? "Auto"
-								: ASPECT_RATIOS[props.item.rawValue].name}
+							{t(ASPECT_RATIO_LABEL_KEYS[props.item.rawValue])}
 							<Show when={item()}>
 								{(item) => (
 									<span class="text-gray-11">
@@ -79,13 +88,17 @@ export function AspectRatioSelect() {
 			>
 				<KSelect.Value<AspectRatio | "auto">>
 					{(state) => {
-						const text = () => {
-							const option = state.selectedOption();
-							if (option === "auto") return "Auto";
-							const ratio = ASPECT_RATIOS[option].ratio;
-							return `${ratio[0]}:${ratio[1]}`;
-						};
-						return <>{text()}</>;
+						const option = state.selectedOption();
+						if (!option) return null;
+						const text =
+							option === "auto"
+								? t("editor.aspectRatio.auto")
+								: `${ASPECT_RATIOS[option].ratio[0]}:${ASPECT_RATIOS[option].ratio[1]}`;
+						return (
+							<span class="whitespace-nowrap truncate block min-w-0">
+								{text}
+							</span>
+						);
 					}}
 				</KSelect.Value>
 			</EditorButton>

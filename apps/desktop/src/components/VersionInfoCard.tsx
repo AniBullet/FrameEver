@@ -9,13 +9,13 @@ import {
 	Show,
 } from "solid-js";
 import { useI18n } from "~/i18n";
-import { commands } from "~/utils/tauri";
+import { commands, type ReleaseInfo } from "~/utils/tauri";
 
 export const VersionInfoCard: Component = () => {
 	const { t } = useI18n();
 	const [version] = createResource(() => getVersion());
 	const [checking, setChecking] = createSignal(false);
-	const [updateInfo, setUpdateInfo] = createSignal<any>(null);
+	const [updateInfo, setUpdateInfo] = createSignal<ReleaseInfo | null>(null);
 	const [error, setError] = createSignal<string | null>(null);
 	const [autoChecked, setAutoChecked] = createSignal(false);
 

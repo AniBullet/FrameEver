@@ -62,6 +62,6 @@ export function createEventListenerByKey<K extends EventKey>(
 		payload: (typeof events)[K] extends EventListener<infer T> ? T : never,
 	) => void,
 ): void {
-	const eventListener = events[eventKey] as EventListener<any>;
+	const eventListener = events[eventKey] as EventListener<unknown>;
 	createTauriEventListener(eventListener, callback);
 }

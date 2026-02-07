@@ -24,10 +24,10 @@ const translations = {
 	ko: ko,
 } as const;
 
-type TranslationKey = keyof typeof zhCN;
+export type TranslationKey = keyof typeof zhCN;
 
 const I18nContext = createContext<{
-	t: (key: TranslationKey) => string;
+	t: (key: TranslationKey, params?: Record<string, string>) => string;
 	language: () => Language;
 	setLanguage: (lang: Language) => void;
 }>();
@@ -90,8 +90,14 @@ export function I18nProvider(props: ParentProps) {
 		return translations[lang];
 	});
 
-	const t = (key: TranslationKey): string => {
-		return dict()[key] ?? translations["zh-CN"][key] ?? key;
+	const t = (key: TranslationKey, params?: Record<string, string>): string => {
+		let s = dict()[key] ?? translations["zh-CN"][key] ?? key;
+		if (params && typeof s === "string") {
+			for (const [k, v] of Object.entries(params)) {
+				s = s.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+			}
+		}
+		return s;
 	};
 
 	return (

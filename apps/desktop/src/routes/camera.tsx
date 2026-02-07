@@ -14,7 +14,6 @@ import {
 	createEffect,
 	createResource,
 	createSignal,
-	on,
 	onCleanup,
 	onMount,
 	Show,
@@ -27,10 +26,7 @@ import { createTauriEventListener } from "~/utils/createEventListener";
 import { createCameraMutation } from "~/utils/queries";
 import { createLazySignal } from "~/utils/socket";
 import { commands, events } from "~/utils/tauri";
-import {
-	RecordingOptionsProvider,
-	useRecordingOptions,
-} from "./(window-chrome)/OptionsContext";
+import { RecordingOptionsProvider } from "./(window-chrome)/OptionsContext";
 
 type CameraWindowShape = "round" | "square" | "full";
 type CameraWindowState = {
@@ -56,7 +52,6 @@ const getCameraOnlyInitialState = (): CameraWindowState => ({
 });
 
 export default function () {
-	const { t } = useI18n();
 	document.documentElement.classList.toggle("dark", true);
 
 	const generalSettings = generalSettingsStore.createQuery();
@@ -309,8 +304,6 @@ function ControlButton(
 // Legacy stuff below
 
 function LegacyCameraPreviewPage(props: { disconnected: Accessor<boolean> }) {
-	const { t } = useI18n();
-	const { rawOptions } = useRecordingOptions();
 	const isCameraOnlyMode = getCameraOnlyMode();
 
 	const [state, setState] = makePersisted(
@@ -824,7 +817,7 @@ function Canvas(props: {
 			style={style()}
 			width={props.latestFrame()?.data.width}
 			height={props.latestFrame()?.data.height}
-			ref={props.ref!}
+			ref={props.ref}
 		/>
 	);
 }

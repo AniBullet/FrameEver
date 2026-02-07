@@ -289,21 +289,14 @@ impl GeneralSettingsStore {
         store.save().map_err(|e| e.to_string())
     }
 
-    pub fn recordings_path(app: &AppHandle) -> PathBuf {
-        let custom_path = Self::get(app)
-            .ok()
-            .flatten()
-            .and_then(|s| s.recordings_save_path)
-            .and_then(|p| PathBuf::from_str(&p).ok());
-
-        if let Some(path) = custom_path {
-            let recordings_dir = path.join("recordings");
-            if std::fs::create_dir_all(&recordings_dir).is_ok() {
-                return recordings_dir;
+    fn default_recordings_base_path(app: &AppHandle) -> Option<PathBuf> {
+        if let Ok(video_dir) = app.path().video_dir() {
+            let base = video_dir.join("Cap Recordings");
+            if std::fs::create_dir_all(&base).is_ok() {
+                return Some(base);
             }
         }
-
-        let default_base_path = if cfg!(target_os = "windows") {
+        if cfg!(target_os = "windows") {
             std::env::var("USERPROFILE")
                 .ok()
                 .map(PathBuf::from)
@@ -324,22 +317,38 @@ impl GeneralSettingsStore {
                     None
                 }
             })
-        };
+        }
+    }
 
-        if let Some(base_path) = default_base_path {
-            let recordings_dir = base_path.join("recordings");
+    pub fn recordings_base_path(app: &AppHandle) -> PathBuf {
+        let custom_path = Self::get(app)
+            .ok()
+            .flatten()
+            .and_then(|s| s.recordings_save_path)
+            .and_then(|p| PathBuf::from_str(&p).ok());
+
+        if let Some(path) = custom_path {
+            let recordings_dir = path.join("recordings");
             if std::fs::create_dir_all(&recordings_dir).is_ok() {
-                return recordings_dir;
+                return path;
             }
         }
 
-        let fallback_path = app
-            .path()
-            .app_data_dir()
-            .unwrap_or_default()
-            .join("recordings");
+        if let Some(base_path) = Self::default_recordings_base_path(app) {
+            let recordings_dir = base_path.join("recordings");
+            if std::fs::create_dir_all(&recordings_dir).is_ok() {
+                return base_path;
+            }
+        }
+
+        let fallback_base = app.path().app_data_dir().unwrap_or_default();
+        let fallback_path = fallback_base.join("recordings");
         std::fs::create_dir_all(&fallback_path).unwrap_or_default();
-        fallback_path
+        fallback_base
+    }
+
+    pub fn recordings_path(app: &AppHandle) -> PathBuf {
+        Self::recordings_base_path(app).join("recordings")
     }
 
     pub fn exports_video_path(app: &AppHandle) -> PathBuf {
@@ -356,30 +365,7 @@ impl GeneralSettingsStore {
             }
         }
 
-        let default_base_path = if cfg!(target_os = "windows") {
-            std::env::var("USERPROFILE")
-                .ok()
-                .map(PathBuf::from)
-                .and_then(|p| {
-                    let videos_path = p.join("Videos").join("Cap Recordings");
-                    if std::fs::create_dir_all(&videos_path).is_ok() {
-                        Some(videos_path)
-                    } else {
-                        None
-                    }
-                })
-        } else {
-            app.path().home_dir().ok().and_then(|p| {
-                let videos_path = p.join("Videos").join("Cap Recordings");
-                if std::fs::create_dir_all(&videos_path).is_ok() {
-                    Some(videos_path)
-                } else {
-                    None
-                }
-            })
-        };
-
-        if let Some(base_path) = default_base_path {
+        if let Some(base_path) = Self::default_recordings_base_path(app) {
             let exports_dir = base_path.join("exports").join("video");
             if std::fs::create_dir_all(&exports_dir).is_ok() {
                 return exports_dir;
@@ -410,30 +396,7 @@ impl GeneralSettingsStore {
             }
         }
 
-        let default_base_path = if cfg!(target_os = "windows") {
-            std::env::var("USERPROFILE")
-                .ok()
-                .map(PathBuf::from)
-                .and_then(|p| {
-                    let videos_path = p.join("Videos").join("Cap Recordings");
-                    if std::fs::create_dir_all(&videos_path).is_ok() {
-                        Some(videos_path)
-                    } else {
-                        None
-                    }
-                })
-        } else {
-            app.path().home_dir().ok().and_then(|p| {
-                let videos_path = p.join("Videos").join("Cap Recordings");
-                if std::fs::create_dir_all(&videos_path).is_ok() {
-                    Some(videos_path)
-                } else {
-                    None
-                }
-            })
-        };
-
-        if let Some(base_path) = default_base_path {
+        if let Some(base_path) = Self::default_recordings_base_path(app) {
             let exports_dir = base_path.join("exports").join("screenshot");
             if std::fs::create_dir_all(&exports_dir).is_ok() {
                 return exports_dir;
@@ -474,14 +437,9 @@ pub fn init(app: &AppHandle) {
 #[specta::specta]
 #[instrument(skip(app))]
 pub fn get_default_recordings_path(app: AppHandle) -> String {
-    let path = app
-        .path()
-        .video_dir()
-        .ok()
-        .map(|p| p.join("Cap Recordings"));
-
-    path.and_then(|p| p.to_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "~/Videos/Cap Recordings".to_string())
+    GeneralSettingsStore::recordings_base_path(&app)
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[tauri::command]

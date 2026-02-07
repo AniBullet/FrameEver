@@ -51,6 +51,7 @@ export const [TimelineContextProvider, useTimelineContext] =
 				isSegmentVisible,
 			};
 		},
+		// biome-ignore lint/style/noNonNullAssertion: createContextProvider default when provider is always present
 		null!,
 	);
 
@@ -73,10 +74,15 @@ export const [TrackContextProvider, useTrackContext] = createContextProvider(
 			setTrackState,
 		};
 	},
+	// biome-ignore lint/style/noNonNullAssertion: createContextProvider default when provider is always present
 	null!,
 );
 
 export const [SegmentContextProvider, useSegmentContext] =
-	createContextProvider((props: { width: Accessor<number> }) => {
-		return props;
-	}, null!);
+	createContextProvider(
+		(props: { width: Accessor<number> }) => {
+			return props;
+		},
+		// biome-ignore lint/style/noNonNullAssertion: createContextProvider default when provider is always present
+		null!,
+	);

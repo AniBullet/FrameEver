@@ -13,7 +13,7 @@ import "unfonts.css";
 import "./styles/theme.css";
 
 import { CapErrorBoundary } from "./components/CapErrorBoundary";
-import { I18nProvider } from "./i18n";
+import { I18nProvider, useI18n } from "./i18n";
 import { generalSettingsStore } from "./store";
 import { type AppTheme, commands } from "./utils/tauri";
 import titlebar from "./utils/titlebar-state";
@@ -87,7 +87,10 @@ function Inner() {
 	createThemeListener(currentWindow);
 
 	onMount(() => {
-		// Theme setup
+		const preventDefaultContextMenu = (e: MouseEvent) => e.preventDefault();
+		document.addEventListener("contextmenu", preventDefaultContextMenu);
+		return () =>
+			document.removeEventListener("contextmenu", preventDefaultContextMenu);
 	});
 
 	return (
@@ -113,6 +116,7 @@ function Inner() {
 			<CapErrorBoundary>
 				<Router
 					root={(props) => {
+						const { t } = useI18n();
 						const matches = useCurrentMatches();
 
 						onMount(() => {
@@ -126,9 +130,9 @@ function Inner() {
 						return (
 							<Suspense
 								fallback={
-									(() => {
-										console.log("Root suspense fallback showing");
-									}) as any
+									<div class="flex min-h-screen items-center justify-center text-gray-11">
+										{t("main.loading")}
+									</div>
 								}
 							>
 								{props.children}

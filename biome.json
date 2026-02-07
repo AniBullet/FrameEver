@@ -9,7 +9,8 @@
 		"includes": [
 			"**",
 			"!apps/desktop/src/utils/tauri.ts",
-			"!packages/ui-solid/src/auto-imports.d.ts"
+			"!packages/ui-solid/src/auto-imports.d.ts",
+			"!**/.vscode"
 		],
 		"ignoreUnknown": false
 	},
@@ -43,7 +44,29 @@
 		{
 			"includes": ["apps/desktop/**/*"],
 			"linter": {
-				"rules": { "a11y": "off" }
+				"rules": {
+					"a11y": "off"
+				}
+			}
+		},
+		{
+			"includes": ["packages/ui-solid/**/*.css"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noUnknownAtRules": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["apps/desktop/**/*.css"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noUnknownAtRules": "off"
+					}
+				}
 			}
 		}
 	]

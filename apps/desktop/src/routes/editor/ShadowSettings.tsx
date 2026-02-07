@@ -54,7 +54,7 @@ const ShadowSettings = (props: Props) => {
 			<KCollapsible open={isOpen()}>
 				<KCollapsible.Content class="overflow-hidden opacity-0 transition-opacity animate-collapsible-up ui-expanded:animate-collapsible-down ui-expanded:opacity-100">
 					<div class="mt-4 space-y-6 font-medium">
-						<Field name="Size">
+						<Field name={t("editor.performance.shadowSize")}>
 							<Slider
 								value={props.size.value}
 								onChange={props.size.onChange}
@@ -63,7 +63,7 @@ const ShadowSettings = (props: Props) => {
 								step={0.1}
 							/>
 						</Field>
-						<Field name="Opacity">
+						<Field name={t("editor.performance.shadowOpacity")}>
 							<Slider
 								value={props.opacity.value}
 								onChange={props.opacity.onChange}
@@ -72,7 +72,7 @@ const ShadowSettings = (props: Props) => {
 								step={0.1}
 							/>
 						</Field>
-						<Field name="Blur">
+						<Field name={t("editor.performance.shadowBlur")}>
 							<Slider
 								value={props.blur.value}
 								onChange={props.blur.onChange}

@@ -45,7 +45,7 @@ export function AnnotationPopover() {
 							when={selectedAnnotation()}
 							fallback={
 								<div class="text-center text-gray-11 text-xs font-medium">
-									Select an annotation to edit.
+									{t("editor.screenshot.selectAnnotationToEdit")}
 								</div>
 							}
 						>
@@ -53,7 +53,7 @@ export function AnnotationPopover() {
 								<div class="flex flex-col gap-4 animate-in fade-in slide-in-from-top-2">
 									<div class="flex flex-col gap-2">
 										<span class="text-xs font-medium text-gray-11">
-											Stroke Color
+											{t("editor.screenshot.strokeColor")}
 										</span>
 										<RgbInput
 											value={
@@ -93,7 +93,7 @@ export function AnnotationPopover() {
 										<div class="flex flex-col gap-2">
 											<div class="flex flex-row justify-between items-center">
 												<span class="text-xs font-medium text-gray-11">
-													Fill Color
+													{t("editor.screenshot.fillColor")}
 												</span>
 												<Toggle
 													size="sm"
@@ -150,7 +150,7 @@ export function AnnotationPopover() {
 
 									<div class="flex flex-col gap-2">
 										<span class="text-xs font-medium text-gray-11">
-											Stroke Width
+											{t("editor.screenshot.strokeWidth")}
 										</span>
 										<Slider
 											value={[annotation().strokeWidth]}
@@ -163,7 +163,7 @@ export function AnnotationPopover() {
 
 									<div class="flex flex-col gap-2">
 										<span class="text-xs font-medium text-gray-11">
-											Opacity
+											{t("editor.screenshot.opacity")}
 										</span>
 										<Slider
 											value={[annotation().opacity * 100]}
@@ -177,7 +177,7 @@ export function AnnotationPopover() {
 									{annotation().type === "text" && (
 										<div class="flex flex-col gap-2">
 											<span class="text-xs font-medium text-gray-11">
-												Font Size
+												{t("editor.screenshot.fontSize")}
 											</span>
 											<Slider
 												value={[annotation().height || 24]} // Text uses height as font size roughly
@@ -200,7 +200,7 @@ export function AnnotationPopover() {
 												setSelectedAnnotationId(null);
 											}}
 										>
-											Delete Annotation
+											{t("editor.screenshot.deleteAnnotation")}
 										</EditorButton>
 									</div>
 								</div>

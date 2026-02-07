@@ -12,6 +12,7 @@ import {
 	For,
 	Show,
 } from "solid-js";
+import type { TranslationKey } from "~/i18n";
 import { useI18n } from "~/i18n";
 import type { BackgroundSource } from "~/utils/tauri";
 import IconCapBgBlur from "~icons/cap/bg-blur";
@@ -26,13 +27,12 @@ import { BACKGROUND_COLORS, hexToRgb, RgbInput } from "../ColorPicker";
 import { useScreenshotEditorContext } from "../context";
 import { EditorButton, Field, Slider } from "../ui";
 
-// Constants
-const BACKGROUND_SOURCES = {
-	wallpaper: "Wallpaper",
-	image: "Image",
-	color: "Color",
-	gradient: "Gradient",
-} satisfies Record<BackgroundSource["type"], string>;
+const BACKGROUND_SOURCE_KEYS: Record<BackgroundSource["type"], string> = {
+	wallpaper: "editor.screenshot.backgroundSource.wallpaper",
+	image: "editor.screenshot.backgroundSource.image",
+	color: "editor.screenshot.backgroundSource.color",
+	gradient: "editor.screenshot.backgroundSource.gradient",
+};
 
 const BACKGROUND_SOURCES_LIST = [
 	"wallpaper",
@@ -207,7 +207,7 @@ export function BackgroundSettingsPopover() {
 			<Popover.Trigger
 				as={EditorButton}
 				leftIcon={<IconCapImage class="size-4" />}
-				tooltipText="Background"
+				tooltipText={t("editor.screenshot.background")}
 				kbd={["B"]}
 			/>
 			<Popover.Portal>
@@ -218,7 +218,7 @@ export function BackgroundSettingsPopover() {
 					>
 						<Field
 							icon={<IconCapImage class="size-4" />}
-							name="Background Image"
+							name={t("editor.screenshot.backgroundImage")}
 						>
 							<KTabs
 								value={project.background.source.type}
@@ -270,7 +270,7 @@ export function BackgroundSettingsPopover() {
 													class="z-10 flex-1 py-2.5 px-2 text-xs text-gray-11  ui-selected:border-gray-3 ui-selected:bg-gray-3 ui-not-selected:hover:border-gray-7 rounded-[10px] transition-colors duration-200 outline-none border ui-selected:text-gray-12 peer"
 													value={item}
 												>
-													{BACKGROUND_SOURCES[item]}
+													{t(BACKGROUND_SOURCE_KEYS[item] as TranslationKey)}
 												</KTabs.Trigger>
 											);
 										}}
@@ -359,7 +359,7 @@ export function BackgroundSettingsPopover() {
 											>
 												<IconCapImage class="text-gray-11 size-6" />
 												<span class="text-gray-12">
-													Click to select or drag and drop image
+													{t("editor.screenshot.clickToSelectOrDropImage")}
 												</span>
 											</button>
 										}

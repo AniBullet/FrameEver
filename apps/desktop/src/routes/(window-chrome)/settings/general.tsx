@@ -1,5 +1,4 @@
 import { Button } from "@cap/ui-solid";
-import { createWritableMemo } from "@solid-primitives/memo";
 import {
 	isPermissionGranted,
 	requestPermission,
@@ -8,7 +7,7 @@ import { type OsType, type } from "@tauri-apps/plugin-os";
 import "@total-typescript/ts-reset/filter-boolean";
 import { Collapsible } from "@kobalte/core/collapsible";
 import { CheckMenuItem, Menu, MenuItem } from "@tauri-apps/api/menu";
-import { confirm, open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { cx } from "cva";
 import {
 	createEffect,
@@ -366,7 +365,7 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 		description: string;
 		value: T;
 		onChange: (value: T) => void;
-		options: { text: string; value: any }[];
+		options: { text: string; value: T }[];
 	}) => {
 		return (
 			<SettingItem label={props.label} description={props.description}>

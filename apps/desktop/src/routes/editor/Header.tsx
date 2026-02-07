@@ -169,7 +169,7 @@ export function Header() {
 						setDialog({ type: "export", open: true });
 					}}
 				>
-					<UploadIcon class="size-4" />
+					<ExportIcon class="size-4" />
 					{t("editor.video.export")}
 				</Button>
 				{ostype() === "windows" && <CaptionControlsWindows11 />}
@@ -178,7 +178,7 @@ export function Header() {
 	);
 }
 
-const UploadIcon = (props: ComponentProps<"svg">) => {
+const ExportIcon = (props: ComponentProps<"svg">) => {
 	const { exportState } = useEditorContext();
 	return (
 		<svg
@@ -189,17 +189,14 @@ const UploadIcon = (props: ComponentProps<"svg">) => {
 			xmlns="http://www.w3.org/2000/svg"
 			{...props}
 		>
-			{/* Bottom part (the base) */}
 			<path
 				d="M16.6667 10.625V14.1667C16.6667 15.5474 15.5474 16.6667 14.1667 16.6667H5.83333C4.45262 16.6667 3.33333 15.5474 3.33333 14.1667V10.625"
 				stroke="currentColor"
 				stroke-width={1.66667}
 				stroke-linecap="round"
 				stroke-linejoin="round"
-				class="upload-base"
+				class="export-base"
 			/>
-
-			{/* Arrow part */}
 			<path
 				d="M9.99999 3.33333V12.7083M9.99999 3.33333L13.75 7.08333M9.99999 3.33333L6.24999 7.08333"
 				stroke="currentColor"

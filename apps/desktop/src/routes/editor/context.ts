@@ -571,11 +571,6 @@ export const [EditorContextProvider, useEditorContext] = createContextProvider(
 							| { type: "copying" }
 							| { type: "done" }
 					  ))
-					| ({ action: "upload" } & (
-							| RenderState
-							| { type: "uploading"; progress: number }
-							| { type: "done" }
-					  ))
 			  )
 		>({ type: "idle" });
 
@@ -742,7 +737,11 @@ function transformMeta({ pretty_name, ...rawMeta }: RecordingMeta) {
 		throw new Error("Instant mode recordings cannot be edited");
 	}
 
-	let meta;
+	let meta:
+		| (MultipleSegments & { type: "multiple" })
+		| (SingleSegment & {
+				type: "single";
+		  });
 
 	if ("segments" in rawMeta) {
 		meta = {
@@ -798,8 +797,8 @@ export const [EditorInstanceContextProvider, useEditorInstanceContext] =
 			async () => {
 				console.log("[Editor] Creating editor instance...");
 
-				let instance;
-				let lastError;
+				let instance: SerializedEditorInstance | undefined;
+				let lastError: unknown;
 				for (let attempt = 0; attempt < 5; attempt++) {
 					try {
 						instance = await commands.createEditorInstance();
@@ -883,6 +882,7 @@ export const [EditorInstanceContextProvider, useEditorInstanceContext] =
 			performanceMode,
 			setPerformanceMode,
 		};
+		// biome-ignore lint/style/noNonNullAssertion: createContextProvider default when provider is always present
 	}, null!);
 
 function createStoreHistory<T extends Static>(
@@ -956,6 +956,7 @@ export const [TimelineContextProvider, useTimelineContext] =
 				timelineBounds: props.timelineBounds,
 			};
 		},
+		// biome-ignore lint/style/noNonNullAssertion: createContextProvider default when provider is always present
 		null!,
 	);
 
@@ -978,10 +979,15 @@ export const [TrackContextProvider, useTrackContext] = createContextProvider(
 			setTrackState,
 		};
 	},
+	// biome-ignore lint/style/noNonNullAssertion: createContextProvider default when provider is always present
 	null!,
 );
 
 export const [SegmentContextProvider, useSegmentContext] =
-	createContextProvider((props: { width: Accessor<number> }) => {
-		return props;
-	}, null!);
+	createContextProvider(
+		(props: { width: Accessor<number> }) => {
+			return props;
+		},
+		// biome-ignore lint/style/noNonNullAssertion: createContextProvider default when provider is always present
+		null!,
+	);

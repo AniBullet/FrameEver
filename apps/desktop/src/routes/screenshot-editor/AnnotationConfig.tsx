@@ -46,7 +46,13 @@ export function AnnotationConfigBar() {
 					>
 						<div class="flex items-center justify-center gap-6 px-4 h-11">
 							<Show when={!isMask()}>
-								<ConfigItem label={type() === "text" ? "Color" : "Stroke"}>
+								<ConfigItem
+									label={
+										type() === "text"
+											? t("editor.screenshot.color")
+											: t("editor.screenshot.stroke")
+									}
+								>
 									<ColorPickerButton
 										value={ann().strokeColor}
 										onChange={(c) => update("strokeColor", c)}
@@ -56,7 +62,7 @@ export function AnnotationConfigBar() {
 
 							<Show when={type() !== "text" && !isMask()}>
 								<ConfigItem
-									label="Width"
+									label={t("editor.screenshot.strokeWidth")}
 									value={`${Math.round(ann().strokeWidth)}px`}
 								>
 									<Slider
@@ -71,7 +77,7 @@ export function AnnotationConfigBar() {
 							</Show>
 
 							<Show when={type() === "rectangle" || type() === "circle"}>
-								<ConfigItem label="Fill">
+								<ConfigItem label={t("editor.screenshot.fill")}>
 									<ColorPickerButton
 										value={ann().fillColor}
 										onChange={(c) => update("fillColor", c)}
@@ -82,7 +88,7 @@ export function AnnotationConfigBar() {
 
 							<Show when={!isMask()}>
 								<ConfigItem
-									label="Opacity"
+									label={t("editor.screenshot.opacity")}
 									value={`${Math.round(ann().opacity * 100)}%`}
 								>
 									<Slider
@@ -97,7 +103,7 @@ export function AnnotationConfigBar() {
 							</Show>
 
 							<Show when={type() === "mask"}>
-								<ConfigItem label="Style">
+								<ConfigItem label={t("editor.screenshot.style")}>
 									<div class="flex gap-1">
 										<button
 											type="button"
@@ -109,7 +115,7 @@ export function AnnotationConfigBar() {
 											)}
 											onClick={() => update("maskType", "blur")}
 										>
-											Blur
+											{t("editor.screenshot.mask.blur")}
 										</button>
 										<button
 											type="button"
@@ -121,7 +127,7 @@ export function AnnotationConfigBar() {
 											)}
 											onClick={() => update("maskType", "pixelate")}
 										>
-											Pixelate
+											{t("editor.screenshot.mask.pixelate")}
 										</button>
 									</div>
 								</ConfigItem>
@@ -129,7 +135,7 @@ export function AnnotationConfigBar() {
 
 							<Show when={type() === "mask"}>
 								<ConfigItem
-									label="Intensity"
+									label={t("editor.screenshot.mask.intensity")}
 									value={`${Math.round(maskLevel())}`}
 								>
 									<Slider
@@ -145,7 +151,7 @@ export function AnnotationConfigBar() {
 
 							<Show when={type() === "text"}>
 								<ConfigItem
-									label="Size"
+									label={t("editor.screenshot.fontSize")}
 									value={`${Math.round(ann().height)}px`}
 								>
 									<Slider
@@ -166,7 +172,7 @@ export function AnnotationConfigBar() {
 								class="text-xs text-blue-11 font-medium hover:text-blue-9 transition-colors"
 								onClick={() => setSelectedAnnotationId(null)}
 							>
-								Done
+								{t("editor.screenshot.done")}
 							</button>
 						</div>
 					</div>

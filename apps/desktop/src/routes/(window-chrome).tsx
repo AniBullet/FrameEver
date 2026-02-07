@@ -15,20 +15,26 @@ import {
 import { AbsoluteInsetLoader } from "~/components/Loader";
 import CaptionControlsMacOS from "~/components/titlebar/controls/CaptionControlsMacOS";
 import CaptionControlsWindows11 from "~/components/titlebar/controls/CaptionControlsWindows11";
+import { useI18n } from "~/i18n";
 import { initializeTitlebar } from "~/utils/titlebar-state";
 import {
 	useWindowChromeContext,
 	WindowChromeContext,
 } from "./(window-chrome)/Context";
 
+interface WindowWithCap {
+	__CAP__?: { initialTargetMode?: unknown };
+}
+
 export default function (props: RouteSectionProps) {
+	const { t } = useI18n();
 	let unlistenResize: UnlistenFn | undefined;
 	const [isVisible, setIsVisible] = createSignal(false);
 
 	onMount(async () => {
 		console.log("window chrome mounted");
 		unlistenResize = await initializeTitlebar();
-		const capContext = (window as any).__CAP__;
+		const capContext = (window as WindowWithCap).__CAP__;
 		const hasInitialTargetMode = capContext?.initialTargetMode != null;
 
 		setIsVisible(true);
@@ -65,21 +71,13 @@ export default function (props: RouteSectionProps) {
         enterClass="opacity-0"
         exitToClass="opacity-0"
         > */}
-					<Suspense
-						fallback={
-							(() => {
-								console.log("Outer window chrome suspense fallback");
-								return <AbsoluteInsetLoader />;
-							}) as any
-						}
-					>
+					<Suspense fallback={<AbsoluteInsetLoader />}>
 						<Inner>
-							{/* prevents flicker idk */}
 							<Suspense
 								fallback={
-									(() => {
-										console.log("Inner window chrome suspense fallback");
-									}) as any
+									<div class="flex min-h-0 flex-1 items-center justify-center text-gray-11">
+										{t("main.loading")}
+									</div>
 								}
 							>
 								{props.children}
@@ -94,7 +92,8 @@ export default function (props: RouteSectionProps) {
 }
 
 function Header() {
-	const ctx = useWindowChromeContext()!;
+	const ctx = useWindowChromeContext();
+	if (!ctx) return null;
 
 	const isWindows = ostype() === "windows";
 	const isMacOS = ostype() === "macos";

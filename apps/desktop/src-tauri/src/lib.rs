@@ -1527,6 +1527,19 @@ async fn copy_image_to_clipboard(
 
 #[tauri::command]
 #[specta::specta]
+#[instrument(skip(app))]
+fn open_path_with_default_app(app: AppHandle, path: String) -> Result<(), String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("Path is empty".to_string());
+    }
+    app.opener()
+        .open_path(path, None::<&str>)
+        .map_err(|e| format!("Failed to open: {e}"))
+}
+
+#[tauri::command]
+#[specta::specta]
 #[instrument(skip(_app))]
 async fn open_file_path(_app: AppHandle, path: PathBuf) -> Result<(), String> {
     let path_str = path.to_str().ok_or("Invalid path")?;
@@ -2238,6 +2251,9 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                 } else {
                     None
                 };
+                let can_edit = meta
+                    .as_ref()
+                    .is_some_and(|m| matches!(m.inner.inner, RecordingMetaInner::Studio(_)));
 
                 items_map.insert(
                     id.clone(),
@@ -2249,7 +2265,7 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                             .unwrap_or(name.to_string()),
                         item_type: LibraryItemType::Video,
                         status: LibraryItemStatus::Editing,
-                        cap_project_path: Some(path),
+                        cap_project_path: if can_edit { Some(path) } else { None },
                         exported_file_path: None,
                         thumbnail_path: thumbnail,
                         created_at,
@@ -2873,6 +2889,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
             copy_screenshot_to_clipboard,
             copy_image_to_clipboard,
             open_file_path,
+            open_path_with_default_app,
             get_video_metadata,
             create_editor_instance,
             get_editor_project_path,

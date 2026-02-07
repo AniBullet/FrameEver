@@ -41,7 +41,12 @@ const trackIcons: Record<TimelineTrackType, JSX.Element> = {
 
 type TrackDefinition = {
 	type: TimelineTrackType;
-	label: string;
+	labelKey:
+		| "editor.timeline.clip"
+		| "editor.timeline.text"
+		| "editor.timeline.mask"
+		| "editor.timeline.zoom"
+		| "editor.timeline.scene";
 	icon: JSX.Element;
 	locked: boolean;
 };
@@ -49,31 +54,31 @@ type TrackDefinition = {
 const trackDefinitions: TrackDefinition[] = [
 	{
 		type: "clip",
-		label: "Clip",
+		labelKey: "editor.timeline.clip",
 		icon: trackIcons.clip,
 		locked: true,
 	},
 	{
 		type: "text",
-		label: "Text",
+		labelKey: "editor.timeline.text",
 		icon: trackIcons.text,
 		locked: false,
 	},
 	{
 		type: "mask",
-		label: "Mask",
+		labelKey: "editor.timeline.mask",
 		icon: trackIcons.mask,
 		locked: false,
 	},
 	{
 		type: "zoom",
-		label: "Zoom",
+		labelKey: "editor.timeline.zoom",
 		icon: trackIcons.zoom,
 		locked: true,
 	},
 	{
 		type: "scene",
-		label: "Scene",
+		labelKey: "editor.timeline.scene",
 		icon: trackIcons.scene,
 		locked: false,
 	},
@@ -107,6 +112,7 @@ export function Timeline() {
 	const trackOptions = () =>
 		trackDefinitions.map((definition) => ({
 			...definition,
+			label: t(definition.labelKey),
 			active:
 				definition.type === "scene"
 					? trackState().scene

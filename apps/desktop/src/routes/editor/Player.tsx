@@ -244,13 +244,13 @@ export function PlayerContent() {
 				<div class="flex items-center gap-3">
 					<AspectRatioSelect />
 					<EditorButton
-						tooltipText="Crop Video"
+						tooltipText={t("editor.video.crop.tooltip")}
 						onClick={cropDialogHandler}
 						onMouseEnter={preloadCropVideoFull}
 						onFocus={preloadCropVideoFull}
 						leftIcon={<IconCapCrop class="w-5 text-gray-12" />}
 					>
-						Crop
+						{t("editor.video.crop")}
 					</EditorButton>
 				</div>
 				<div class="flex items-center gap-2">

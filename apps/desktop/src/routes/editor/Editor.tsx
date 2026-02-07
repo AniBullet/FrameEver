@@ -60,17 +60,18 @@ const MIN_PLAYER_HEIGHT = MIN_PLAYER_CONTENT_HEIGHT + RESIZE_HANDLE_HEIGHT;
 export function Editor() {
 	const [projectPath] = createResource(() => commands.getEditorProjectPath());
 
-	const rawMetaQuery = createQuery(() => ({
-		queryKey: ["editor", "raw-meta", projectPath()],
-		queryFn: projectPath()
-			? () => commands.getRecordingMetaByPath(projectPath()!)
-			: skipToken,
-		staleTime: Infinity,
-		gcTime: 0,
-		refetchOnWindowFocus: false,
-		refetchOnMount: false,
-		refetchOnReconnect: false,
-	}));
+	const rawMetaQuery = createQuery(() => {
+		const path = projectPath();
+		return {
+			queryKey: ["editor", "raw-meta", path],
+			queryFn: path ? () => commands.getRecordingMetaByPath(path) : skipToken,
+			staleTime: Infinity,
+			gcTime: 0,
+			refetchOnWindowFocus: false,
+			refetchOnMount: false,
+			refetchOnReconnect: false,
+		};
+	});
 
 	const rawImportStatus = createMemo(() => {
 		const meta = rawMetaQuery.data;
@@ -135,24 +136,37 @@ export function Editor() {
 				</div>
 			}
 		>
-			<Match when={importStatus() === "importing" && projectPath()}>
-				<ImportProgress
-					projectPath={projectPath()!}
-					onComplete={handleImportComplete}
-					onError={(error) => console.error("Import failed:", error)}
-				/>
+			<Match
+				when={(() => {
+					const p = projectPath();
+					return importStatus() === "importing" && p ? { path: p } : undefined;
+				})()}
+			>
+				{(v) => (
+					<ImportProgress
+						projectPath={v.path}
+						onComplete={handleImportComplete}
+						onError={(error) => console.error("Import failed:", error)}
+					/>
+				)}
 			</Match>
-			<Match when={importStatus() === "ready" && projectPath()}>
-				<EditorInstanceContextProvider>
-					<EditorContent projectPath={projectPath()!} />
-				</EditorInstanceContextProvider>
+			<Match
+				when={(() => {
+					const p = projectPath();
+					return importStatus() === "ready" && p ? { path: p } : undefined;
+				})()}
+			>
+				{(v) => (
+					<EditorInstanceContextProvider>
+						<EditorContent projectPath={v.path} />
+					</EditorInstanceContextProvider>
+				)}
 			</Match>
 		</Switch>
 	);
 }
 
 function EditorContent(props: { projectPath: string }) {
-	const { t } = useI18n();
 	const ctx = useEditorInstanceContext();
 
 	const errorInfo = () => {
@@ -504,9 +518,9 @@ function Dialogs() {
 						>
 							{(dialog) => {
 								const { t } = useI18n();
-								const [name, setName] = createSignal(
-									presets.query.data?.presets[dialog().presetIndex].name!,
-								);
+								const preset =
+									presets.query.data?.presets[dialog().presetIndex];
+								const [name, setName] = createSignal(preset?.name ?? "");
 
 								const renamePreset = createMutation(() => ({
 									mutationFn: async () =>

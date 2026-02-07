@@ -3,7 +3,7 @@ import Tooltip from "@corvu/tooltip";
 import { createElementBounds } from "@solid-primitives/bounds";
 import { makePersisted } from "@solid-primitives/storage";
 import { createMutation, createQuery } from "@tanstack/solid-query";
-import { Channel, convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { cx } from "cva";
 import {
 	type Accessor,
@@ -19,7 +19,6 @@ import {
 	Show,
 	Suspense,
 	Switch,
-	startTransition,
 } from "solid-js";
 import { createStore, produce, type SetStoreFunction } from "solid-js/store";
 import { TransitionGroup } from "solid-transition-group";

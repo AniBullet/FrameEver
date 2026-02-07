@@ -18,7 +18,7 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import ModeSelect from "~/components/ModeSelect";
-import { useI18n } from "~/i18n";
+import { type TranslationKey, useI18n } from "~/i18n";
 import {
 	commands,
 	type OSPermission,
@@ -136,11 +136,13 @@ export default function () {
 									<li class="flex flex-row items-center gap-4">
 										<div class="flex flex-col flex-[2]">
 											<span class="font-[500] text-[0.875rem] text-[--text-primary]">
-												{t(`setup.permissions.${permission.key}` as any)}
+												{t(
+													`setup.permissions.${permission.key}` as TranslationKey,
+												)}
 											</span>
 											<span class="text-[--text-secondary]">
 												{t(
-													`setup.permissions.${permission.key}.description` as any,
+													`setup.permissions.${permission.key}.description` as TranslationKey,
 												)}
 											</span>
 										</div>

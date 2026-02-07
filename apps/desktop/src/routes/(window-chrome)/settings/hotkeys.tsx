@@ -52,7 +52,9 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 	}>(props.initialStore?.hotkeys ?? {});
 
 	createEffect(() => {
-		hotkeysStore.set({ hotkeys: { ...hotkeys } as any });
+		hotkeysStore.set({
+			hotkeys: { ...hotkeys } as HotkeysStore["hotkeys"],
+		});
 	});
 
 	const [listening, setListening] = createSignal<{

@@ -19,13 +19,13 @@ const ANNOTATION_TYPE_ICONS = {
 	text: IconLucideType,
 };
 
-const ANNOTATION_TYPE_LABELS = {
-	arrow: "Arrow",
-	rectangle: "Rectangle",
-	circle: "Circle",
-	mask: "Mask",
-	text: "Text",
-};
+const ANNOTATION_TYPE_LABEL_KEYS = {
+	arrow: "editor.screenshot.tool.arrow",
+	rectangle: "editor.screenshot.tool.rectangle",
+	circle: "editor.screenshot.tool.circle",
+	mask: "editor.screenshot.tool.mask",
+	text: "editor.screenshot.tool.text",
+} as const;
 
 export function LayersPanel() {
 	const { t } = useI18n();
@@ -55,7 +55,7 @@ export function LayersPanel() {
 				ann.text.length > 12 ? `${ann.text.slice(0, 12)}...` : ann.text;
 			return truncated;
 		}
-		return ANNOTATION_TYPE_LABELS[ann.type];
+		return t(ANNOTATION_TYPE_LABEL_KEYS[ann.type]);
 	};
 
 	const reversedAnnotations = () => [...annotations].reverse();
@@ -224,7 +224,7 @@ export function LayersPanel() {
 								{t("screenshot.editor.noLayers")}
 							</p>
 							<p class="text-[10px] text-gray-8 mt-1">
-								Use the tools above to add annotations
+								{t("editor.screenshot.useToolsToAddAnnotations")}
 							</p>
 						</div>
 					}
@@ -320,7 +320,7 @@ export function LayersPanel() {
 			</div>
 
 			<div class="px-3 py-2 border-t border-gray-3 text-[10px] text-gray-9">
-				Drag to reorder • Top = front
+				{t("editor.screenshot.dragToReorder")}
 			</div>
 		</div>
 	);

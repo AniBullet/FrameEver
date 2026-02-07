@@ -1,6 +1,7 @@
 import { useI18n } from "~/i18n";
 import { Input } from "~/routes/editor/ui";
 import IconLucideAlignJustify from "~icons/lucide/align-justify";
+import IconLucideFolderOpen from "~icons/lucide/folder-open";
 import IconLucideGrid3x3 from "~icons/lucide/grid-3x3";
 import IconLucideList from "~icons/lucide/list";
 import IconLucideRefreshCw from "~icons/lucide/refresh-cw";
@@ -14,6 +15,7 @@ type Props = {
 	viewMode: ViewMode;
 	onViewModeChange: (mode: ViewMode) => void;
 	onRefresh: () => void;
+	onOpenLibraryFolder: () => void;
 };
 
 export default function Toolbar(props: Props) {
@@ -89,6 +91,14 @@ export default function Toolbar(props: Props) {
 					title={t("library.toolbar.refresh")}
 				>
 					<IconLucideRefreshCw class="size-4" />
+				</button>
+				<button
+					type="button"
+					onClick={props.onOpenLibraryFolder}
+					class="p-2 rounded-lg hover:bg-gray-3 transition-colors text-gray-10 hover:text-gray-12"
+					title={t("library.toolbar.openFolder")}
+				>
+					<IconLucideFolderOpen class="size-4" />
 				</button>
 			</div>
 		</div>

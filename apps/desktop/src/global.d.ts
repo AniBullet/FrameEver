@@ -64,14 +64,18 @@ export interface MP4File {
 	onMoovStart?: () => void;
 	onReady?: (info: MP4Info) => void;
 	onError?: (e: string) => void;
-	onSamples?: (id: number, user: any, samples: Sample[]) => void;
+	onSamples?: (id: number, user: unknown, samples: Sample[]) => void;
 
 	appendBuffer(data: MP4ArrayBuffer): number;
 	start(): void;
 	stop(): void;
 	flush(): void;
 
-	setExtractionOptions(id: number, user: any, options: ExtractionOptions): void;
+	setExtractionOptions(
+		id: number,
+		user: unknown,
+		options: ExtractionOptions,
+	): void;
 }
 
 export function createFile(): MP4File;
@@ -100,7 +104,7 @@ export interface Sample {
 	has_redundancy?: number;
 	degradation_priority?: number;
 	offset?: number;
-	subsamples?: any;
+	subsamples?: unknown;
 }
 
 export interface ExtractionOptions {
@@ -123,14 +127,14 @@ export class DataStream {
 	seek(pos: number): void;
 	isEof(): boolean;
 
-	mapFloat32Array(length: number, e?: boolean): any;
-	mapFloat64Array(length: number, e?: boolean): any;
-	mapInt16Array(length: number, e?: boolean): any;
-	mapInt32Array(length: number, e?: boolean): any;
-	mapInt8Array(length: number): any;
-	mapUint16Array(length: number, e?: boolean): any;
-	mapUint32Array(length: number, e?: boolean): any;
-	mapUint8Array(length: number): any;
+	mapFloat32Array(length: number, e?: boolean): Float32Array;
+	mapFloat64Array(length: number, e?: boolean): Float64Array;
+	mapInt16Array(length: number, e?: boolean): Int16Array;
+	mapInt32Array(length: number, e?: boolean): Int32Array;
+	mapInt8Array(length: number): Int8Array;
+	mapUint16Array(length: number, e?: boolean): Uint16Array;
+	mapUint32Array(length: number, e?: boolean): Uint32Array;
+	mapUint8Array(length: number): Uint8Array;
 
 	readInt32Array(length: number, endianness?: boolean): Int32Array;
 	readInt16Array(length: number, endianness?: boolean): Int16Array;
@@ -145,15 +149,15 @@ export class DataStream {
 	readInt16(endianness?: boolean): number;
 	readInt8(): number;
 	readUint32(endianness?: boolean): number;
-	//readUint32Array(length: any, e: any): any
+	//readUint32Array(length: unknown, e: unknown): unknown
 	readUint24(): number;
 	readUint16(endianness?: boolean): number;
 	readUint8(): number;
-	//readUint64(): any
+	//readUint64(): unknown
 	readFloat32(endianness?: boolean): number;
 	readFloat64(endianness?: boolean): number;
-	//readCString(length: number): any
-	//readString(length: number, encoding: any): any
+	//readCString(length: number): unknown
+	//readString(length: number, encoding: unknown): unknown
 
 	static endianness: boolean;
 
@@ -161,6 +165,13 @@ export class DataStream {
 		dst: ArrayBufferLike,
 		dstOffset: number,
 		src: ArrayBufferLike,
+		srcOffset: number,
+		byteLength: number,
+	): void;
+	static memcpy(
+		dst: unknown,
+		dstOffset: number,
+		src: unknown,
 		srcOffset: number,
 		byteLength: number,
 	): void;
@@ -196,24 +207,16 @@ export class DataStream {
 	static LITTLE_ENDIAN: boolean;
 	static BIG_ENDIAN: boolean;
 
-	// TODO add correct types; these are exported by dts-gen
-	readCString(length: any): any;
-	readInt64(): any;
-	readString(length: any, encoding: any): any;
-	readUint64(): any;
-	writeStruct(structDefinition: any, struct: any): void;
-	writeType(t: any, v: any, struct: any): any;
+	readCString(length: number): unknown;
+	readInt64(): unknown;
+	readString(length: number, encoding: string): unknown;
+	readUint64(): unknown;
+	writeStruct(structDefinition: unknown, struct: unknown): void;
+	writeType(t: unknown, v: unknown, struct: unknown): unknown;
 
-	static arrayToNative(array: any, arrayIsLittleEndian: any): any;
-	static flipArrayEndianness(array: any): any;
-	static memcpy(
-		dst: any,
-		dstOffset: any,
-		src: any,
-		srcOffset: any,
-		byteLength: any,
-	): void;
-	static nativeToEndian(array: any, littleEndian: any): any;
+	static arrayToNative(array: unknown, arrayIsLittleEndian: boolean): unknown;
+	static flipArrayEndianness(array: unknown): unknown;
+	static nativeToEndian(array: unknown, littleEndian: boolean): unknown;
 }
 
 export interface TrackOptions {
@@ -229,8 +232,8 @@ export interface TrackOptions {
 	hdlr?: string;
 
 	// video
-	avcDecoderConfigRecord?: any;
-	hevcDecoderConfigRecord?: any;
+	avcDecoderConfigRecord?: unknown;
+	hevcDecoderConfigRecord?: unknown;
 
 	// audio
 	balance?: number;
@@ -271,7 +274,7 @@ export interface SampleOptions {
 	is_depended_on?: number;
 	has_redundancy?: number;
 	degradation_priority?: number;
-	subsamples?: any;
+	subsamples?: unknown;
 }
 
 // TODO add the remaining functions
@@ -305,70 +308,74 @@ export class ISOFile {
 	): ArrayBuffer;
 
 	// TODO add correct types; these are exported by dts-gen
-	add(name: any): any;
-	addBox(box: any): any;
-	appendBuffer(ab: any, last: any): any;
+	add(name: unknown): unknown;
+	addBox(box: unknown): unknown;
+	appendBuffer(ab: unknown, last: unknown): unknown;
 	buildSampleLists(): void;
-	buildTrakSampleLists(trak: any): void;
-	checkBuffer(ab: any): any;
-	createFragment(track_id: any, sampleNumber: any, stream_: any): any;
-	equal(b: any): any;
+	buildTrakSampleLists(trak: unknown): void;
+	checkBuffer(ab: unknown): unknown;
+	createFragment(
+		track_id: unknown,
+		sampleNumber: unknown,
+		stream_: unknown,
+	): unknown;
+	equal(b: unknown): unknown;
 	flattenItemInfo(): void;
 	flush(): void;
-	getAllocatedSampleDataSize(): any;
-	getBox(type: any): any;
-	getBoxes(type: any, returnEarly: any): any;
-	getBuffer(): any;
-	getCodecs(): any;
-	getInfo(): any;
-	getItem(item_id: any): any;
-	getMetaHandler(): any;
-	getPrimaryItem(): any;
-	getSample(trak: any, sampleNum: any): any;
-	getTrackSample(track_id: any, number: any): any;
-	getTrackSamplesInfo(track_id: any): any;
-	hasIncompleteMdat(): any;
-	hasItem(name: any): any;
-	initializeSegmentation(): any;
-	itemToFragmentedTrackFile(_options: any): any;
+	getAllocatedSampleDataSize(): unknown;
+	getBox(type: unknown): unknown;
+	getBoxes(type: unknown, returnEarly: unknown): unknown;
+	getBuffer(): unknown;
+	getCodecs(): unknown;
+	getInfo(): unknown;
+	getItem(item_id: unknown): unknown;
+	getMetaHandler(): unknown;
+	getPrimaryItem(): unknown;
+	getSample(trak: unknown, sampleNum: unknown): unknown;
+	getTrackSample(track_id: unknown, number: unknown): unknown;
+	getTrackSamplesInfo(track_id: unknown): unknown;
+	hasIncompleteMdat(): unknown;
+	hasItem(name: unknown): unknown;
+	initializeSegmentation(): unknown;
+	itemToFragmentedTrackFile(_options: unknown): unknown;
 	parse(): void;
-	print(output: any): void;
-	processIncompleteBox(ret: any): any;
-	processIncompleteMdat(): any;
-	processItems(callback: any): void;
-	processSamples(last: any): void;
-	releaseItem(item_id: any): any;
-	releaseSample(trak: any, sampleNum: any): any;
-	releaseUsedSamples(id: any, sampleNum: any): void;
+	print(output: unknown): void;
+	processIncompleteBox(ret: unknown): unknown;
+	processIncompleteMdat(): unknown;
+	processItems(callback: unknown): void;
+	processSamples(last: unknown): void;
+	releaseItem(item_id: unknown): unknown;
+	releaseSample(trak: unknown, sampleNum: unknown): unknown;
+	releaseUsedSamples(id: unknown, sampleNum: unknown): void;
 	resetTables(): void;
-	restoreParsePosition(): any;
-	save(name: any): void;
+	restoreParsePosition(): unknown;
+	save(name: unknown): void;
 	saveParsePosition(): void;
-	seek(time: any, useRap: any): any;
-	seekTrack(time: any, useRap: any, trak: any): any;
-	setExtractionOptions(id: any, user: any, options: any): void;
-	setSegmentOptions(id: any, user: any, options: any): void;
+	seek(time: unknown, useRap: unknown): unknown;
+	seekTrack(time: unknown, useRap: unknown, trak: unknown): unknown;
+	setExtractionOptions(id: unknown, user: unknown, options: unknown): void;
+	setSegmentOptions(id: unknown, user: unknown, options: unknown): void;
 	start(): void;
 	stop(): void;
-	unsetExtractionOptions(id: any): void;
-	unsetSegmentOptions(id: any): void;
+	unsetExtractionOptions(id: unknown): void;
+	unsetSegmentOptions(id: unknown): void;
 	updateSampleLists(): void;
-	updateUsedBytes(box: any, ret: any): void;
-	write(outstream: any): void;
+	updateUsedBytes(box: unknown, ret: unknown): void;
+	write(outstream: unknown): void;
 
 	static initSampleGroups(
-		trak: any,
-		traf: any,
-		sbgps: any,
-		trak_sgpds: any,
-		traf_sgpds: any,
+		trak: unknown,
+		traf: unknown,
+		sbgps: unknown,
+		trak_sgpds: unknown,
+		traf_sgpds: unknown,
 	): void;
-	static process_sdtp(sdtp: any, sample: any, number: any): void;
+	static process_sdtp(sdtp: unknown, sample: unknown, number: unknown): void;
 	static setSampleGroupProperties(
-		trak: any,
-		sample: any,
-		sample_number: any,
-		sample_groups_info: any,
+		trak: unknown,
+		sample: unknown,
+		sample_number: unknown,
+		sample_groups_info: unknown,
 	): void;
 }
 
@@ -381,297 +388,317 @@ export namespace BoxParser {
 
 		add(name: string): Box;
 		addBox(box: Box): Box;
-		set(name: string, value: any): void;
+		set(name: string, value: unknown): void;
 		addEntry(value: string, prop?: string): void;
-		printHeader(output: any): void;
+		printHeader(output: unknown): void;
 		write(stream: DataStream): void;
 		writeHeader(stream: DataStream, msg?: string): void;
 		computeSize(): void;
 
 		// TODO add types for these
-		parse(stream: any): void;
-		parseDataAndRewind(stream: any): void;
-		parseLanguage(stream: any): void;
-		print(output: any): void;
+		parse(stream: unknown): void;
+		parseDataAndRewind(stream: unknown): void;
+		parseLanguage(stream: unknown): void;
+		print(output: unknown): void;
 	}
 
 	// TODO finish add types for these classes
 	export class AudioSampleEntry extends SampleEntry {
-		constructor(type: any, size: any);
+		constructor(type: unknown, size: unknown);
 
-		getChannelCount(): any;
-		getSampleRate(): any;
-		getSampleSize(): any;
-		isAudio(): any;
-		parse(stream: any): void;
-		write(stream: any): void;
+		getChannelCount(): unknown;
+		getSampleRate(): unknown;
+		getSampleSize(): unknown;
+		isAudio(): unknown;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class CoLLBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class ContainerBox extends Box {
-		constructor(type: any, size: any, uuid: any);
+		constructor(type: unknown, size: unknown, uuid: unknown);
 
-		parse(stream: any): void;
-		print(output: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		print(output: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class FullBox extends Box {
-		constructor(type: any, size: any, uuid: any);
+		constructor(type: unknown, size: unknown, uuid: unknown);
 
-		parse(stream: any): void;
-		parseDataAndRewind(stream: any): void;
-		parseFullHeader(stream: any): void;
-		printHeader(output: any): void;
-		writeHeader(stream: any): void;
+		parse(stream: unknown): void;
+		parseDataAndRewind(stream: unknown): void;
+		parseFullHeader(stream: unknown): void;
+		printHeader(output: unknown): void;
+		writeHeader(stream: unknown): void;
 	}
 
 	export class HintSampleEntry extends SampleEntry {
-		constructor(type: any, size: any);
+		constructor(type: unknown, size: unknown);
 	}
 
 	export class MetadataSampleEntry extends SampleEntry {
-		constructor(type: any, size: any);
+		constructor(type: unknown, size: unknown);
 
-		isMetadata(): any;
+		isMetadata(): unknown;
 	}
 
 	export class OpusSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class SampleEntry extends Box {
-		constructor(type: any, size: any, hdr_size: any, start: any);
+		constructor(
+			type: unknown,
+			size: unknown,
+			hdr_size: unknown,
+			start: unknown,
+		);
 
-		getChannelCount(): any;
-		getCodec(): any;
-		getHeight(): any;
-		getSampleRate(): any;
-		getSampleSize(): any;
-		getWidth(): any;
-		isAudio(): any;
-		isHint(): any;
-		isMetadata(): any;
-		isSubtitle(): any;
-		isVideo(): any;
-		parse(stream: any): void;
-		parseDataAndRewind(stream: any): void;
-		parseFooter(stream: any): void;
-		parseHeader(stream: any): void;
-		write(stream: any): void;
-		writeFooter(stream: any): void;
-		writeHeader(stream: any): void;
+		getChannelCount(): unknown;
+		getCodec(): unknown;
+		getHeight(): unknown;
+		getSampleRate(): unknown;
+		getSampleSize(): unknown;
+		getWidth(): unknown;
+		isAudio(): unknown;
+		isHint(): unknown;
+		isMetadata(): unknown;
+		isSubtitle(): unknown;
+		isVideo(): unknown;
+		parse(stream: unknown): void;
+		parseDataAndRewind(stream: unknown): void;
+		parseFooter(stream: unknown): void;
+		parseHeader(stream: unknown): void;
+		write(stream: unknown): void;
+		writeFooter(stream: unknown): void;
+		writeHeader(stream: unknown): void;
 	}
 
 	export class SampleGroupEntry {
-		constructor(type: any);
+		constructor(type: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class SingleItemTypeReferenceBox extends ContainerBox {
-		constructor(type: any, size: any, hdr_size: any, start: any);
+		constructor(
+			type: unknown,
+			size: unknown,
+			hdr_size: unknown,
+			start: unknown,
+		);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class SingleItemTypeReferenceBoxLarge {
-		constructor(type: any, size: any, hdr_size: any, start: any);
+		constructor(
+			type: unknown,
+			size: unknown,
+			hdr_size: unknown,
+			start: unknown,
+		);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class SmDmBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class SubtitleSampleEntry extends SampleEntry {
-		constructor(type: any, size: any);
+		constructor(type: unknown, size: unknown);
 
-		isSubtitle(): any;
+		isSubtitle(): unknown;
 	}
 
 	export class SystemSampleEntry extends SampleEntry {
-		constructor(type: any, size: any);
+		constructor(type: unknown, size: unknown);
 	}
 
 	export class TextSampleEntry extends SampleEntry {
-		constructor(type: any, size: any);
+		constructor(type: unknown, size: unknown);
 	}
 
 	export class TrackGroupTypeBox extends FullBox {
-		constructor(type: any, size: any);
+		constructor(type: unknown, size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class TrackReferenceTypeBox extends ContainerBox {
-		constructor(type: any, size: any, hdr_size: any, start: any);
+		constructor(
+			type: unknown,
+			size: unknown,
+			hdr_size: unknown,
+			start: unknown,
+		);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 
-		write(stream: any): void;
+		write(stream: unknown): void;
 	}
 
 	export class VisualSampleEntry extends SampleEntry {
-		constructor(type: any, size: any);
+		constructor(type: unknown, size: unknown);
 
-		getHeight(): any;
-		getWidth(): any;
-		isVideo(): any;
-		parse(stream: any): void;
-		write(stream: any): void;
+		getHeight(): unknown;
+		getWidth(): unknown;
+		isVideo(): unknown;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class a1lxBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class a1opBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class alstSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class auxCBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class av01SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class av1CBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class avc1SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class avc2SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class avc3SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class avc4SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class avcCBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class avllSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class avssSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class btrtBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class bxmlBox extends FullBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class clapBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class clefBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class clliBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class co64Box extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class colrBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class cprtBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class cslgBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class cttsBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		unpack(samples: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		unpack(samples: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class dOpsBox extends ContainerBox {
@@ -693,990 +720,990 @@ export namespace BoxParser {
 	}
 
 	export class dac3Box extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class dec3Box extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class dfLaBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class dimmBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class dinfBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class dmaxBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class dmedBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class drefBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class drepBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class dtrtSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class edtsBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class elngBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class elstBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class emsgBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class encaSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class encmSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class encsSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class enctSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class encuSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class encvSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class enofBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class esdsBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class fielBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class freeBox extends Box {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class frmaBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class ftypBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class hdlrBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class hev1SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class hinfBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class hmhdBox extends FullBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class hntiBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class hvc1SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class hvcCBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class idatBox extends Box {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class iinfBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class ilocBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class imirBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class infeBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class iodsBox extends FullBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class ipcoBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class ipmaBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class iproBox extends FullBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class iprpBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 		ipmas: ipmaBox[];
 	}
 
 	export class irefBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class irotBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class ispeBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class kindBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 
-		write(stream: any): void;
+		write(stream: unknown): void;
 	}
 
 	export class levaBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class lselBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class maxrBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class mdatBox extends Box {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class mdcvBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class mdhdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 
-		write(stream: any): void;
+		write(stream: unknown): void;
 	}
 
 	export class mdiaBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class mecoBox extends Box {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class mehdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 
-		write(stream: any): void;
+		write(stream: unknown): void;
 	}
 
 	export class mereBox extends FullBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class metaBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class mettSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class metxSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class mfhdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 
-		write(stream: any): void;
+		write(stream: unknown): void;
 	}
 
 	export class mfraBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 		tfras: tfraBox[];
 	}
 
 	export class mfroBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class minfBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class moofBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 		trafs: trafBox[];
 	}
 
 	export class moovBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 		traks: trakBox[];
 		psshs: psshBox[];
 	}
 
 	export class mp4aSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class msrcTrackGroupTypeBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class mvexBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
 		trexs: trexBox[];
 	}
 
 	export class mvhdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		print(output: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		print(output: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class mvifSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class nmhdBox extends FullBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class npckBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class numpBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class padbBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class paspBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class paylBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class paytBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class pdinBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class pitmBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class pixiBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class pmaxBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class prftBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class profBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class prolSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class psshBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class rashSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class rinfBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class rollSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class saioBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class saizBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class sbgpBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 
-		write(stream: any): void;
+		write(stream: unknown): void;
 	}
 
 	export class sbttSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class schiBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class schmBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class scifSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class scnmSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class sdtpBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class seigSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class sencBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class sgpdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class sidxBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class sinfBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class skipBox extends Box {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class smhdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class ssixBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class stblBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
 		sgpds: sgpdBox[];
 		sbgps: sbgpBox[];
 	}
 
 	export class stcoBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		unpack(samples: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		unpack(samples: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class stdpBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class sthdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class stppSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class strdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class striBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class strkBox extends Box {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class stsaSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class stscBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		unpack(samples: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		unpack(samples: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class stsdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class stsgBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class stshBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class stssBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class stszBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		unpack(samples: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		unpack(samples: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class sttsBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		unpack(samples: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		unpack(samples: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class stviBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class stxtSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
-		parse(stream: any): void;
+		getCodec(): unknown;
+		parse(stream: unknown): void;
 	}
 
 	export class stypBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class stz2Box extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class subsBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class syncSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class taptBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class teleSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class tencBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class tfdtBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class tfhdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class tfraBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class tkhdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		print(output: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		print(output: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class tmaxBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class tminBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class totlBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class tpayBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class tpylBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class trafBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 		truns: trunBox[];
 		sgpd: sgpdBox[];
 		sbgp: sbgpBox[];
 	}
 
 	export class trakBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class trefBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class trepBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class trexBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class trgrBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class trpyBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class trunBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class tsasSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class tsclSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class tselBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class tx3gSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class txtCBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class udtaBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 		kinds: kindBox[];
 	}
 
 	export class viprSampleGroupEntry extends SampleGroupEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class vmhdBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
-		write(stream: any): void;
+		parse(stream: unknown): void;
+		write(stream: unknown): void;
 	}
 
 	export class vp08SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class vp09SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class vpcCBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class vttCBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class vttcBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class vvc1SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class vvcCBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class vvcNSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class vvi1SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		getCodec(): any;
+		getCodec(): unknown;
 	}
 
 	export class vvnCBox extends ContainerBox {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export class vvs1SampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 	}
 
 	export class wvttSampleEntry extends SampleEntry {
-		constructor(size: any);
+		constructor(size: unknown);
 
-		parse(stream: any): void;
+		parse(stream: unknown): void;
 	}
 
 	export const BASIC_BOXES: string[];
@@ -1712,12 +1739,12 @@ export namespace BoxParser {
 	export const TRUN_FLAGS_SIZE: number;
 	export const UUIDs: string[];
 	export const boxCodes: string[];
-	export const containerBoxCodes: any[];
-	export const fullBoxCodes: any[];
+	export const containerBoxCodes: unknown[];
+	export const fullBoxCodes: unknown[];
 
 	export const sampleEntryCodes: {
 		Audio: string[];
-		Hint: any[];
+		Hint: unknown[];
 		Metadata: string[];
 		Subtitle: string[];
 		System: string[];
@@ -1725,76 +1752,82 @@ export namespace BoxParser {
 		Visual: string[];
 	};
 
-	export const sampleGroupEntryCodes: any[];
+	export const sampleGroupEntryCodes: unknown[];
 
-	export const trackGroupTypes: any[];
+	export const trackGroupTypes: unknown[];
 
-	export function addSubBoxArrays(subBoxNames: any): void;
-	export function boxEqual(box_a: any, box_b: any): any;
-	export function boxEqualFields(box_a: any, box_b: any): any;
-	export function createBoxCtor(type: any, parseMethod: any): void;
+	export function addSubBoxArrays(subBoxNames: unknown): void;
+	export function boxEqual(box_a: unknown, box_b: unknown): unknown;
+	export function boxEqualFields(box_a: unknown, box_b: unknown): unknown;
+	export function createBoxCtor(type: unknown, parseMethod: unknown): void;
 	export function createContainerBoxCtor(
-		type: any,
-		parseMethod: any,
-		subBoxNames: any,
+		type: unknown,
+		parseMethod: unknown,
+		subBoxNames: unknown,
 	): void;
 	export function createEncryptedSampleEntryCtor(
-		mediaType: any,
-		type: any,
-		parseMethod: any,
+		mediaType: unknown,
+		type: unknown,
+		parseMethod: unknown,
 	): void;
-	export function createFullBoxCtor(type: any, parseMethod: any): void;
+	export function createFullBoxCtor(type: unknown, parseMethod: unknown): void;
 	export function createMediaSampleEntryCtor(
-		mediaType: any,
-		parseMethod: any,
-		subBoxNames: any,
+		mediaType: unknown,
+		parseMethod: unknown,
+		subBoxNames: unknown,
 	): void;
 	export function createSampleEntryCtor(
-		mediaType: any,
-		type: any,
-		parseMethod: any,
-		subBoxNames: any,
+		mediaType: unknown,
+		type: unknown,
+		parseMethod: unknown,
+		subBoxNames: unknown,
 	): void;
-	export function createSampleGroupCtor(type: any, parseMethod: any): void;
-	export function createTrackGroupCtor(type: any, parseMethod: any): void;
+	export function createSampleGroupCtor(
+		type: unknown,
+		parseMethod: unknown,
+	): void;
+	export function createTrackGroupCtor(
+		type: unknown,
+		parseMethod: unknown,
+	): void;
 	export function createUUIDBox(
-		uuid: any,
-		isFullBox: any,
-		isContainerBox: any,
-		parseMethod: any,
+		uuid: unknown,
+		isFullBox: unknown,
+		isContainerBox: unknown,
+		parseMethod: unknown,
 	): void;
-	export function decimalToHex(d: any, padding: any): any;
+	export function decimalToHex(d: unknown, padding: unknown): unknown;
 	export function initialize(): void;
-	export function parseHex16(stream: any): any;
+	export function parseHex16(stream: unknown): unknown;
 	export function parseOneBox(
-		stream: any,
-		headerOnly: any,
-		parentSize: any,
-	): any;
-	export function parseUUID(stream: any): any;
+		stream: unknown,
+		headerOnly: unknown,
+		parentSize: unknown,
+	): unknown;
+	export function parseUUID(stream: unknown): unknown;
 
 	/* ???
 	namespace UUIDBoxes {
 		export class a2394f525a9b4f14a2446c427c648df4 {
-			constructor(size: any)
+			constructor(size: unknown)
 		}
 
 		export class a5d40b30e81411ddba2f0800200c9a66 {
-			constructor(size: any)
+			constructor(size: unknown)
 
-			parse(stream: any): void
+			parse(stream: unknown): void
 		}
 
 		export class d08a4f1810f34a82b6c832d8aba183d3 {
-			constructor(size: any)
+			constructor(size: unknown)
 
-			parse(stream: any): void
+			parse(stream: unknown): void
 		}
 
 		export class d4807ef2ca3946958e5426cb9e46a79f {
-			constructor(size: any)
+			constructor(size: unknown)
 
-			parse(stream: any): void
+			parse(stream: unknown): void
 		}
 	}
 	*/
@@ -1802,66 +1835,70 @@ export namespace BoxParser {
 
 // TODO Add types for the remaining classes found via dts-gen
 export class MP4BoxStream {
-	constructor(arrayBuffer: any);
+	constructor(arrayBuffer: unknown);
 
-	getEndPosition(): any;
-	getLength(): any;
-	getPosition(): any;
-	isEos(): any;
-	readAnyInt(size: any, signed: any): any;
-	readCString(): any;
-	readInt16(): any;
-	readInt16Array(length: any): any;
-	readInt32(): any;
-	readInt32Array(length: any): any;
-	readInt64(): any;
-	readInt8(): any;
-	readString(length: any): any;
-	readUint16(): any;
-	readUint16Array(length: any): any;
-	readUint24(): any;
-	readUint32(): any;
-	readUint32Array(length: any): any;
-	readUint64(): any;
-	readUint8(): any;
-	readUint8Array(length: any): any;
-	seek(pos: any): any;
+	getEndPosition(): unknown;
+	getLength(): unknown;
+	getPosition(): unknown;
+	isEos(): unknown;
+	readAnyInt(size: unknown, signed: unknown): unknown;
+	readCString(): unknown;
+	readInt16(): unknown;
+	readInt16Array(length: unknown): unknown;
+	readInt32(): unknown;
+	readInt32Array(length: unknown): unknown;
+	readInt64(): unknown;
+	readInt8(): unknown;
+	readString(length: unknown): unknown;
+	readUint16(): unknown;
+	readUint16Array(length: unknown): unknown;
+	readUint24(): unknown;
+	readUint32(): unknown;
+	readUint32Array(length: unknown): unknown;
+	readUint64(): unknown;
+	readUint8(): unknown;
+	readUint8Array(length: unknown): unknown;
+	seek(pos: unknown): unknown;
 }
 
 export class MultiBufferStream {
-	constructor(buffer: any);
+	constructor(buffer: unknown);
 
-	addUsedBytes(nbBytes: any): void;
+	addUsedBytes(nbBytes: unknown): void;
 	cleanBuffers(): void;
-	findEndContiguousBuf(inputindex: any): any;
-	findPosition(fromStart: any, filePosition: any, markAsUsed: any): any;
-	getEndFilePositionAfter(pos: any): any;
-	getEndPosition(): any;
-	getLength(): any;
-	getPosition(): any;
-	initialized(): any;
-	insertBuffer(ab: any): void;
-	logBufferLevel(info: any): void;
-	mergeNextBuffer(): any;
-	reduceBuffer(buffer: any, offset: any, newLength: any): any;
-	seek(filePosition: any, fromStart: any, markAsUsed: any): any;
+	findEndContiguousBuf(inputindex: unknown): unknown;
+	findPosition(
+		fromStart: unknown,
+		filePosition: unknown,
+		markAsUsed: unknown,
+	): unknown;
+	getEndFilePositionAfter(pos: unknown): unknown;
+	getEndPosition(): unknown;
+	getLength(): unknown;
+	getPosition(): unknown;
+	initialized(): unknown;
+	insertBuffer(ab: unknown): void;
+	logBufferLevel(info: unknown): void;
+	mergeNextBuffer(): unknown;
+	reduceBuffer(buffer: unknown, offset: unknown, newLength: unknown): unknown;
+	seek(filePosition: unknown, fromStart: unknown, markAsUsed: unknown): unknown;
 	setAllUsedBytes(): void;
 }
 
 export class Textin4Parser {
 	constructor();
 
-	parseConfig(data: any): any;
-	parseSample(sample: any): any;
+	parseConfig(data: unknown): unknown;
+	parseSample(sample: unknown): unknown;
 }
 
 export class XMLSubtitlein4Parser {
 	constructor();
 
-	parseSample(sample: any): any;
+	parseSample(sample: unknown): unknown;
 }
 
-export function MPEG4DescriptorParser(): any;
+export function MPEG4DescriptorParser(): unknown;
 
 export namespace BoxParser {}
 
@@ -1871,14 +1908,17 @@ export namespace Log {
 	export const LOG_LEVEL_INFO = 2;
 	export const LOG_LEVEL_DEBUG = 1;
 
-	export function debug(module: any, msg: any): void;
-	export function error(module: any, msg: any): void;
-	export function getDurationString(duration: any, _timescale: any): any;
-	export function info(module: any, msg: any): void;
-	export function log(module: any, msg: any): void;
-	export function printRanges(ranges: any): any;
-	export function setLogLevel(level: any): void;
-	export function warn(module: any, msg: any): void;
+	export function debug(module: unknown, msg: unknown): void;
+	export function error(module: unknown, msg: unknown): void;
+	export function getDurationString(
+		duration: unknown,
+		_timescale: unknown,
+	): unknown;
+	export function info(module: unknown, msg: unknown): void;
+	export function log(module: unknown, msg: unknown): void;
+	export function printRanges(ranges: unknown): unknown;
+	export function setLogLevel(level: unknown): void;
+	export function warn(module: unknown, msg: unknown): void;
 }
 
 declare var FLAGS: Flags;

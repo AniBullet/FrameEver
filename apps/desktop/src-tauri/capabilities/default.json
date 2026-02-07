@@ -68,6 +68,7 @@
 			]
 		},
 		"clipboard-manager:allow-write-text",
-		"opener:allow-reveal-item-in-dir"
+		"opener:allow-reveal-item-in-dir",
+		"opener:allow-open-path"
 	]
 }

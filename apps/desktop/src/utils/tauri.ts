@@ -128,6 +128,9 @@ async copyImageToClipboard(data: number[]) : Promise<null> {
 async openFilePath(path: string) : Promise<null> {
     return await TAURI_INVOKE("open_file_path", { path });
 },
+async openPathWithDefaultApp(path: string) : Promise<null> {
+    return await TAURI_INVOKE("open_path_with_default_app", { path });
+},
 async getVideoMetadata(path: string) : Promise<VideoRecordingMetadata> {
     return await TAURI_INVOKE("get_video_metadata", { path });
 },

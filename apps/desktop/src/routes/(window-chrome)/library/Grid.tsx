@@ -3,8 +3,6 @@ import { cx } from "cva";
 import { createSignal, For, Match, Show, Switch } from "solid-js";
 import { useI18n } from "~/i18n";
 import type { LibraryItem } from "~/utils/tauri";
-import IconCapFilmCut from "~icons/cap/film-cut";
-import IconCapInstant from "~icons/cap/instant";
 import IconLucideCheckCircle from "~icons/lucide/check-circle";
 import IconLucideEdit from "~icons/lucide/edit";
 import IconLucideFileVideo from "~icons/lucide/file-video";
@@ -15,8 +13,10 @@ type ViewMode = "grid" | "list" | "compact";
 
 type Props = {
 	items: LibraryItem[];
-	selectedItem: LibraryItem | null;
-	onSelectItem: (item: LibraryItem) => void;
+	selectedIds: Set<string>;
+	onSelect: (e: MouseEvent, item: LibraryItem) => void;
+	onDoubleClickItem: (item: LibraryItem) => void;
+	onContextMenuItem: (e: MouseEvent, item: LibraryItem) => void;
 	viewMode: ViewMode;
 };
 
@@ -29,8 +29,10 @@ export default function Grid(props: Props) {
 						{(item) => (
 							<GridCard
 								item={item}
-								isSelected={props.selectedItem?.id === item.id}
-								onSelect={() => props.onSelectItem(item)}
+								isSelected={props.selectedIds.has(item.id)}
+								onSelect={(e) => props.onSelect(e, item)}
+								onDoubleClick={() => props.onDoubleClickItem(item)}
+								onContextMenu={(e) => props.onContextMenuItem(e, item)}
 							/>
 						)}
 					</For>
@@ -42,8 +44,10 @@ export default function Grid(props: Props) {
 						{(item) => (
 							<ListCard
 								item={item}
-								isSelected={props.selectedItem?.id === item.id}
-								onSelect={() => props.onSelectItem(item)}
+								isSelected={props.selectedIds.has(item.id)}
+								onSelect={(e) => props.onSelect(e, item)}
+								onDoubleClick={() => props.onDoubleClickItem(item)}
+								onContextMenu={(e) => props.onContextMenuItem(e, item)}
 							/>
 						)}
 					</For>
@@ -55,8 +59,10 @@ export default function Grid(props: Props) {
 						{(item) => (
 							<CompactCard
 								item={item}
-								isSelected={props.selectedItem?.id === item.id}
-								onSelect={() => props.onSelectItem(item)}
+								isSelected={props.selectedIds.has(item.id)}
+								onSelect={(e) => props.onSelect(e, item)}
+								onDoubleClick={() => props.onDoubleClickItem(item)}
+								onContextMenu={(e) => props.onContextMenuItem(e, item)}
 							/>
 						)}
 					</For>
@@ -69,7 +75,9 @@ export default function Grid(props: Props) {
 function GridCard(props: {
 	item: LibraryItem;
 	isSelected: boolean;
-	onSelect: () => void;
+	onSelect: (e: MouseEvent) => void;
+	onDoubleClick: () => void;
+	onContextMenu: (e: MouseEvent) => void;
 }) {
 	const { t } = useI18n();
 	const [imageExists, setImageExists] = createSignal(true);
@@ -77,6 +85,9 @@ function GridCard(props: {
 	const thumbnailSrc = () => {
 		if (props.item.thumbnailPath) {
 			return `${convertFileSrc(props.item.thumbnailPath)}?t=${Date.now()}`;
+		}
+		if (props.item.itemType === "screenshot" && props.item.exportedFilePath) {
+			return `${convertFileSrc(props.item.exportedFilePath)}?t=${Date.now()}`;
 		}
 		return "";
 	};
@@ -92,6 +103,12 @@ function GridCard(props: {
 	};
 
 	const statusLabel = () => {
+		if (
+			props.item.itemType === "screenshot" &&
+			props.item.status === "exportedNoSource"
+		) {
+			return t("library.status.exported");
+		}
 		switch (props.item.status) {
 			case "editing":
 				return t("library.status.editing");
@@ -104,7 +121,16 @@ function GridCard(props: {
 	return (
 		<button
 			type="button"
-			onClick={props.onSelect}
+			onClick={(e) => props.onSelect(e)}
+			onDblClick={(e) => {
+				e.preventDefault();
+				props.onDoubleClick();
+			}}
+			onContextMenu={(e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				props.onContextMenu(e);
+			}}
 			class={cx(
 				"group relative flex flex-col bg-gray-2 rounded-xl border-2 transition-all duration-200 overflow-hidden hover:shadow-lg hover:scale-[1.02]",
 				props.isSelected
@@ -161,7 +187,9 @@ function GridCard(props: {
 function ListCard(props: {
 	item: LibraryItem;
 	isSelected: boolean;
-	onSelect: () => void;
+	onSelect: (e: MouseEvent) => void;
+	onDoubleClick: () => void;
+	onContextMenu: (e: MouseEvent) => void;
 }) {
 	const { t } = useI18n();
 	const [imageExists, setImageExists] = createSignal(true);
@@ -170,10 +198,19 @@ function ListCard(props: {
 		if (props.item.thumbnailPath) {
 			return `${convertFileSrc(props.item.thumbnailPath)}?t=${Date.now()}`;
 		}
+		if (props.item.itemType === "screenshot" && props.item.exportedFilePath) {
+			return `${convertFileSrc(props.item.exportedFilePath)}?t=${Date.now()}`;
+		}
 		return "";
 	};
 
 	const statusLabel = () => {
+		if (
+			props.item.itemType === "screenshot" &&
+			props.item.status === "exportedNoSource"
+		) {
+			return t("library.status.exported");
+		}
 		switch (props.item.status) {
 			case "editing":
 				return t("library.status.editing");
@@ -191,7 +228,16 @@ function ListCard(props: {
 	return (
 		<button
 			type="button"
-			onClick={props.onSelect}
+			onClick={(e) => props.onSelect(e)}
+			onDblClick={(e) => {
+				e.preventDefault();
+				props.onDoubleClick();
+			}}
+			onContextMenu={(e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				props.onContextMenu(e);
+			}}
 			class={cx(
 				"flex items-center gap-4 p-4 rounded-lg border-2 transition-all duration-200 hover:shadow-md",
 				props.isSelected
@@ -248,13 +294,18 @@ function ListCard(props: {
 function CompactCard(props: {
 	item: LibraryItem;
 	isSelected: boolean;
-	onSelect: () => void;
+	onSelect: (e: MouseEvent) => void;
+	onDoubleClick: () => void;
+	onContextMenu: (e: MouseEvent) => void;
 }) {
 	const [imageExists, setImageExists] = createSignal(true);
 
 	const thumbnailSrc = () => {
 		if (props.item.thumbnailPath) {
 			return `${convertFileSrc(props.item.thumbnailPath)}?t=${Date.now()}`;
+		}
+		if (props.item.itemType === "screenshot" && props.item.exportedFilePath) {
+			return `${convertFileSrc(props.item.exportedFilePath)}?t=${Date.now()}`;
 		}
 		return "";
 	};
@@ -267,7 +318,16 @@ function CompactCard(props: {
 	return (
 		<button
 			type="button"
-			onClick={props.onSelect}
+			onClick={(e) => props.onSelect(e)}
+			onDblClick={(e) => {
+				e.preventDefault();
+				props.onDoubleClick();
+			}}
+			onContextMenu={(e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				props.onContextMenu(e);
+			}}
 			class={cx(
 				"flex items-center gap-3 px-4 py-2 border-b border-gray-4 transition-colors hover:bg-gray-2",
 				props.isSelected && "bg-blue-1",

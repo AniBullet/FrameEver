@@ -91,7 +91,7 @@ export function SceneTrack(props: {
 					return;
 				}
 
-				const bounds = e.target.getBoundingClientRect()!;
+				const bounds = e.target.getBoundingClientRect();
 
 				let time =
 					(e.clientX - bounds.left) * secsPerPixel() +
@@ -392,7 +392,8 @@ export function SceneTrack(props: {
 										const maxValue = segment.end - 1;
 
 										for (let i = sceneSegments().length - 1; i >= 0; i--) {
-											const segment = sceneSegments()[i]!;
+											const segment = sceneSegments()[i];
+											if (!segment) continue;
 											if (segment.end <= start) {
 												minValue = segment.end;
 												break;
@@ -501,7 +502,8 @@ export function SceneTrack(props: {
 										let maxValue = duration();
 
 										for (let i = 0; i < sceneSegments().length; i++) {
-											const segment = sceneSegments()[i]!;
+											const segment = sceneSegments()[i];
+											if (!segment) continue;
 											if (segment.start > end) {
 												maxValue = segment.start;
 												break;
