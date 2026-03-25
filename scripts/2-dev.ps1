@@ -12,14 +12,22 @@ Write-Host ""
 # Refresh PATH to pick up newly installed tools
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
-$vcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
-if (-not $vcpkgRoot) {
-    $vcpkgRoot = "$env:USERPROFILE\.vcpkg"
+$ffmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
+if ($ffmpegDir -and (Test-Path $ffmpegDir)) {
+    $env:FFMPEG_DIR = $ffmpegDir
+    Write-Host "  FFmpeg environment configured" -ForegroundColor Green
+}
+else {
+    $vcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
+    if ($vcpkgRoot -and (Test-Path $vcpkgRoot)) {
+        $env:VCPKG_ROOT = $vcpkgRoot
+        Write-Host "  vcpkg environment configured" -ForegroundColor Green
+    }
 }
 
-if (Test-Path $vcpkgRoot) {
-    $env:VCPKG_ROOT = $vcpkgRoot
-    Write-Host "  vcpkg environment configured" -ForegroundColor Green
+$libclangPath = [System.Environment]::GetEnvironmentVariable("LIBCLANG_PATH", "User")
+if ($libclangPath -and (Test-Path $libclangPath)) {
+    $env:LIBCLANG_PATH = $libclangPath
 }
 
 # Verify required tools
@@ -66,6 +74,6 @@ Write-Host "Starting development server..." -ForegroundColor Cyan
 Write-Host "Press Ctrl+C to stop" -ForegroundColor Gray
 Write-Host ""
 
-Push-Location "apps\desktop"
+Push-Location "$PSScriptRoot\..\apps\desktop"
 pnpm dev
 Pop-Location

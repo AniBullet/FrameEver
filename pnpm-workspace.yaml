@@ -1,5 +1,9 @@
 packages:
-  - "apps/desktop"
-  - "apps/cli"
-  - "packages/ui-solid"
-  - "crates/tauri-plugin-*"
+  - apps/desktop
+  - apps/cli
+  - packages/ui-solid
+  - crates/tauri-plugin-*
+ignoredBuiltDependencies:
+  - '@parcel/watcher'
+  - '@swc/core'
+  - esbuild

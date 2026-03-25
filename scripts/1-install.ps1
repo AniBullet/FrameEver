@@ -302,91 +302,80 @@ else {
     }
 }
 
-# Setup FFmpeg development environment (using vcpkg for proper Rust FFI support)
+# Setup FFmpeg development environment (pre-built libraries)
 Write-Host ""
 Write-Host "[7/9] Setting up FFmpeg development environment..." -ForegroundColor Yellow
 
-$vcpkgRoot = "$env:USERPROFILE\.vcpkg"
-$vcpkgExe = "$vcpkgRoot\vcpkg.exe"
+$ffmpegDevDir = "$env:USERPROFILE\.ffmpeg-dev"
+$ffmpegVersion = "7.1"
+$ffmpegZipName = "ffmpeg-n${ffmpegVersion}-latest-win64-lgpl-shared-${ffmpegVersion}"
+$ffmpegZipUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/${ffmpegZipName}.zip"
 
-if (-not (Test-Path $vcpkgExe)) {
-    Write-Host "  Installing vcpkg (package manager for C++ libraries)..." -ForegroundColor Gray
-    
-    if (Test-Path $vcpkgRoot) {
-        Remove-Item $vcpkgRoot -Recurse -Force
-    }
-    
-    git clone https://github.com/microsoft/vcpkg.git $vcpkgRoot 2>&1 | Out-Null
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  ERROR: Failed to clone vcpkg" -ForegroundColor Red
-        exit 1
-    }
-    
-    Push-Location $vcpkgRoot
-    .\bootstrap-vcpkg.bat 2>&1 | Out-Null
-    Pop-Location
-    
-    if (Test-Path $vcpkgExe) {
-        Write-Host "  OK vcpkg installed" -ForegroundColor Green
-    }
-    else {
-        Write-Host "  ERROR: vcpkg installation failed" -ForegroundColor Red
-        exit 1
-    }
+$ffmpegLibFile = Get-ChildItem "$ffmpegDevDir\ffmpeg-*\lib\avcodec.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+$ffmpegIncFile = Get-ChildItem "$ffmpegDevDir\ffmpeg-*\include\libavcodec\avcodec.h" -ErrorAction SilentlyContinue | Select-Object -First 1
+
+if ($ffmpegLibFile -and $ffmpegIncFile) {
+    $ffmpegRoot = $ffmpegLibFile.Directory.Parent.FullName
+    Write-Host "  OK FFmpeg dev libraries already installed at $ffmpegRoot" -ForegroundColor Green
 }
 else {
-    Write-Host "  OK vcpkg already installed" -ForegroundColor Green
-}
-
-$ffmpegInstalled = & $vcpkgExe list | Select-String "ffmpeg:x64-windows"
-
-if (-not $ffmpegInstalled) {
-    Write-Host "  Installing FFmpeg development libraries via vcpkg..." -ForegroundColor Yellow
-    Write-Host "  This will take 15-30 minutes (downloads and compiles FFmpeg)..." -ForegroundColor Gray
+    Write-Host "  Downloading pre-built FFmpeg ${ffmpegVersion} dev libraries..." -ForegroundColor Yellow
     
-    & $vcpkgExe install ffmpeg[core,avcodec,avdevice,avfilter,avformat,swresample,swscale]:x64-windows 2>&1 | Out-Null
+    $zipPath = "$env:TEMP\ffmpeg-dev.zip"
     
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "  OK FFmpeg development libraries installed" -ForegroundColor Green
+    try {
+        if (Test-Path $ffmpegDevDir) {
+            Remove-Item $ffmpegDevDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        New-Item -ItemType Directory -Force -Path $ffmpegDevDir | Out-Null
+        
+        Invoke-WebRequest -Uri $ffmpegZipUrl -OutFile $zipPath -UseBasicParsing
+        
+        Write-Host "  Extracting..." -ForegroundColor Gray
+        Expand-Archive -Path $zipPath -DestinationPath $ffmpegDevDir -Force
+        Remove-Item $zipPath -ErrorAction SilentlyContinue
+        
+        $ffmpegLibFile = Get-ChildItem "$ffmpegDevDir\ffmpeg-*\lib\avcodec.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+        
+        if ($ffmpegLibFile) {
+            $ffmpegRoot = $ffmpegLibFile.Directory.Parent.FullName
+            Write-Host "  OK FFmpeg dev libraries installed at $ffmpegRoot" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  ERROR: FFmpeg extraction failed (avcodec.lib not found)" -ForegroundColor Red
+            Write-Host "  Try manual download: $ffmpegZipUrl" -ForegroundColor Yellow
+            exit 1
+        }
     }
-    else {
-        Write-Host "  ERROR: FFmpeg installation via vcpkg failed" -ForegroundColor Red
+    catch {
+        Write-Host "  ERROR: Failed to download FFmpeg" -ForegroundColor Red
+        Write-Host "  Error: $_" -ForegroundColor Red
+        Write-Host "  Try manual download: $ffmpegZipUrl" -ForegroundColor Yellow
         exit 1
     }
 }
-else {
-    Write-Host "  OK FFmpeg development libraries already installed" -ForegroundColor Green
+
+$currentFfmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
+if ($currentFfmpegDir -ne $ffmpegRoot) {
+    [System.Environment]::SetEnvironmentVariable("FFMPEG_DIR", $ffmpegRoot, "User")
+    $needsRestart = $true
 }
+$env:FFMPEG_DIR = $ffmpegRoot
 
-$vcpkgPath = "$vcpkgRoot\installed\x64-windows"
-$currentVcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
-
-if ($currentVcpkgRoot -ne $vcpkgRoot) {
-    Write-Host "  Setting vcpkg environment variables..." -ForegroundColor Gray
-    [System.Environment]::SetEnvironmentVariable("VCPKG_ROOT", $vcpkgRoot, "User")
+$oldVcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
+if ($oldVcpkgRoot) {
+    [System.Environment]::SetEnvironmentVariable("VCPKG_ROOT", $null, "User")
+    Write-Host "  Cleaned old VCPKG_ROOT (no longer needed)" -ForegroundColor Gray
     $needsRestart = $true
 }
 
-$env:VCPKG_ROOT = $vcpkgRoot
+$ffmpegBinDir = "$ffmpegRoot\bin"
+$projectFfmpegDir = "$PSScriptRoot\..\target\ffmpeg\bin"
 
-Write-Host "  Cleaning up old FFmpeg environment variables..." -ForegroundColor Gray
-$oldFfmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
-if ($oldFfmpegDir) {
-    [System.Environment]::SetEnvironmentVariable("FFMPEG_DIR", $null, "User")
-    [System.Environment]::SetEnvironmentVariable("FFMPEG_INCLUDE_DIR", $null, "User")
-    [System.Environment]::SetEnvironmentVariable("FFMPEG_LIB_DIR", $null, "User")
-    Write-Host "  OK Removed old FFmpeg environment variables (now using vcpkg)" -ForegroundColor Green
-    $needsRestart = $true
-}
-
-$vcpkgBinDir = "$vcpkgRoot\installed\x64-windows\bin"
-$projectFfmpegDir = "$PSScriptRoot\target\ffmpeg\bin"
-
-if (Test-Path $vcpkgBinDir) {
-    $vcpkgDlls = Get-ChildItem "$vcpkgBinDir\*.dll" -ErrorAction SilentlyContinue
+if (Test-Path $ffmpegBinDir) {
+    $dlls = Get-ChildItem "$ffmpegBinDir\*.dll" -ErrorAction SilentlyContinue
     
-    if ($vcpkgDlls.Count -gt 0) {
+    if ($dlls.Count -gt 0) {
         $needsCopy = $false
         
         if (-not (Test-Path $projectFfmpegDir)) {
@@ -394,8 +383,7 @@ if (Test-Path $vcpkgBinDir) {
         }
         else {
             $targetDlls = Get-ChildItem "$projectFfmpegDir\*.dll" -ErrorAction SilentlyContinue
-            
-            if ($vcpkgDlls.Count -ne $targetDlls.Count) {
+            if ($dlls.Count -ne $targetDlls.Count) {
                 $needsCopy = $true
             }
         }
@@ -403,61 +391,76 @@ if (Test-Path $vcpkgBinDir) {
         if ($needsCopy) {
             Write-Host "  Copying FFmpeg DLLs for runtime..." -ForegroundColor Gray
             New-Item -ItemType Directory -Force -Path $projectFfmpegDir | Out-Null
-            Copy-Item "$vcpkgBinDir\*.dll" -Destination $projectFfmpegDir -Force
+            Copy-Item "$ffmpegBinDir\*.dll" -Destination $projectFfmpegDir -Force
             $dllCount = (Get-ChildItem $projectFfmpegDir -Filter "*.dll").Count
             Write-Host "  OK Copied $dllCount DLL files" -ForegroundColor Green
         }
     }
 }
 
-# Install LLVM (required for bindgen which generates Rust FFI bindings)
+# Setup LLVM 18 libclang (required for bindgen which generates Rust FFI bindings)
+# NOTE: bindgen 0.70.x is incompatible with LLVM 22+. We pin libclang to LLVM 18.
 Write-Host ""
 Refresh-Path
-$clang = Get-Command clang -ErrorAction SilentlyContinue
 
-if (-not $clang) {
-    Write-Host "  Installing LLVM (required for Rust FFI bindings)..." -ForegroundColor Gray
-    Write-Host "  Installing LLVM via winget..." -ForegroundColor Gray
-    winget install --id=LLVM.LLVM --silent --accept-source-agreements --accept-package-agreements | Out-Null
-    Refresh-Path
-    
-    # Try to find LLVM installation
-    $llvmPaths = @(
-        "C:\Program Files\LLVM\bin",
-        "${env:ProgramFiles}\LLVM\bin",
-        "${env:ProgramFiles(x86)}\LLVM\bin"
-    )
-    
-    $llvmBinDir = $null
-    foreach ($path in $llvmPaths) {
-        if (Test-Path "$path\libclang.dll") {
-            $llvmBinDir = $path
-            break
-        }
-    }
-    
-    if ($llvmBinDir) {
-        $currentLibclangPath = [System.Environment]::GetEnvironmentVariable("LIBCLANG_PATH", "User")
-        if ($currentLibclangPath -ne $llvmBinDir) {
-            [System.Environment]::SetEnvironmentVariable("LIBCLANG_PATH", $llvmBinDir, "User")
-            $needsRestart = $true
-        }
-        $env:LIBCLANG_PATH = $llvmBinDir
-        Write-Host "  OK LLVM installed" -ForegroundColor Green
-    }
-    else {
-        Write-Host "  WARNING: LLVM installed but libclang.dll not found" -ForegroundColor Yellow
-        Write-Host "  You may need to set LIBCLANG_PATH manually" -ForegroundColor Gray
-    }
+$llvm18Dir = "$env:USERPROFILE\.llvm-18"
+$llvm18Bin = "$llvm18Dir\bin"
+
+if (Test-Path "$llvm18Bin\libclang.dll") {
+    Write-Host "  OK LLVM 18 libclang already installed" -ForegroundColor Green
 }
 else {
-    $llvmVersion = clang --version 2>&1 | Select-String "version" | Select-Object -First 1
-    if ($llvmVersion) {
-        Write-Host "  OK LLVM already installed ($llvmVersion)" -ForegroundColor Green
+    Write-Host "  Downloading LLVM 18 libclang (required for Rust FFI bindings)..." -ForegroundColor Yellow
+    $llvm18Url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe"
+    $llvm18Installer = "$env:TEMP\LLVM-18.1.8-win64.exe"
+
+    try {
+        Invoke-WebRequest -Uri $llvm18Url -OutFile $llvm18Installer -UseBasicParsing
+        Write-Host "  Extracting libclang.dll (this takes a moment)..." -ForegroundColor Gray
+
+        $sevenZipPaths = @(
+            "${env:ProgramFiles}\7-Zip\7z.exe",
+            "${env:ProgramFiles(x86)}\7-Zip\7z.exe"
+        )
+        $sevenZip = $null
+        foreach ($p in $sevenZipPaths) {
+            if (Test-Path $p) { $sevenZip = $p; break }
+        }
+
+        if ($sevenZip) {
+            New-Item -ItemType Directory -Force -Path $llvm18Dir | Out-Null
+            & $sevenZip x $llvm18Installer -o"$llvm18Dir" "bin\libclang.dll" -y 2>&1 | Out-Null
+        }
+        else {
+            Write-Host "  7-Zip not found, running LLVM 18 silent installer..." -ForegroundColor Gray
+            Start-Process -FilePath $llvm18Installer -ArgumentList "/S", "/D=$llvm18Dir" -Wait -NoNewWindow
+        }
+
+        Remove-Item $llvm18Installer -ErrorAction SilentlyContinue
+
+        if (Test-Path "$llvm18Bin\libclang.dll") {
+            Write-Host "  OK LLVM 18 libclang installed" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  WARNING: Failed to extract libclang.dll" -ForegroundColor Yellow
+            Write-Host "  Please install LLVM 18 manually from:" -ForegroundColor Gray
+            Write-Host "  $llvm18Url" -ForegroundColor Gray
+        }
     }
-    else {
-        Write-Host "  OK LLVM already installed" -ForegroundColor Green
+    catch {
+        Write-Host "  WARNING: Failed to download LLVM 18" -ForegroundColor Yellow
+        Write-Host "  Error: $_" -ForegroundColor Red
+        Write-Host "  Please install LLVM 18 manually and set LIBCLANG_PATH" -ForegroundColor Gray
     }
+}
+
+if (Test-Path "$llvm18Bin\libclang.dll") {
+    $currentLibclangPath = [System.Environment]::GetEnvironmentVariable("LIBCLANG_PATH", "User")
+    if ($currentLibclangPath -ne $llvm18Bin) {
+        [System.Environment]::SetEnvironmentVariable("LIBCLANG_PATH", $llvm18Bin, "User")
+        $needsRestart = $true
+    }
+    $env:LIBCLANG_PATH = $llvm18Bin
 }
 
 Write-Host "  Configuring Cargo environment..." -ForegroundColor Gray
@@ -494,9 +497,10 @@ Write-Host ""
 Write-Host "[9/9] Installing project dependencies..." -ForegroundColor Yellow
 
 $needsInstall = $false
-$lockFile = "$PSScriptRoot\pnpm-lock.yaml"
-$nodeModules = "$PSScriptRoot\node_modules"
-$desktopNodeModules = "$PSScriptRoot\apps\desktop\node_modules"
+$projectRoot = "$PSScriptRoot\.."
+$lockFile = "$projectRoot\pnpm-lock.yaml"
+$nodeModules = "$projectRoot\node_modules"
+$desktopNodeModules = "$projectRoot\apps\desktop\node_modules"
 
 if (-not (Test-Path $nodeModules)) {
     Write-Host "  Root node_modules not found - fresh install needed" -ForegroundColor Gray
@@ -512,8 +516,8 @@ elseif (-not (Test-Path $lockFile)) {
 }
 else {
     $lockModified = (Get-Item $lockFile).LastWriteTime
-    $workspaceModified = (Get-Item "$PSScriptRoot\pnpm-workspace.yaml").LastWriteTime
-    $packageModified = (Get-Item "$PSScriptRoot\package.json").LastWriteTime
+    $workspaceModified = (Get-Item "$projectRoot\pnpm-workspace.yaml").LastWriteTime
+    $packageModified = (Get-Item "$projectRoot\package.json").LastWriteTime
     
     if ($workspaceModified -gt $lockModified -or $packageModified -gt $lockModified) {
         Write-Host "  Workspace or package.json changed - reinstall needed" -ForegroundColor Gray
@@ -529,7 +533,7 @@ if ($needsInstall) {
     Write-Host "  This may take a few minutes..." -ForegroundColor Gray
     Write-Host ""
     
-    $lockFile = "$PSScriptRoot\pnpm-lock.yaml"
+    $lockFile = "$projectRoot\pnpm-lock.yaml"
     $lockExists = Test-Path $lockFile
     
     if ($lockExists) {
@@ -542,7 +546,9 @@ if ($needsInstall) {
         }
     }
     
+    Push-Location $projectRoot
     pnpm install --no-optional=false
+    Pop-Location
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""

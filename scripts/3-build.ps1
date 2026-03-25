@@ -1,3 +1,8 @@
+param(
+    [ValidateSet("dev", "prod", "")]
+    [string]$Mode = ""
+)
+
 # Cap aniBullet - Build Script
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -13,16 +18,16 @@ Write-Host "Verifying build prerequisites..." -ForegroundColor Yellow
 
 $allOk = $true
 
-if (-not (Test-Path "node_modules")) {
+if (-not (Test-Path "$PSScriptRoot\..\node_modules")) {
     Write-Host "  ERROR: node_modules not found" -ForegroundColor Red
     Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
     $allOk = $false
 }
 
-$ffmpegDevDir = "$env:USERPROFILE\.ffmpeg-dev"
-if (-not (Test-Path "$ffmpegDevDir\include\libavutil\avutil.h")) {
+$ffmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
+if (-not $ffmpegDir -or -not (Test-Path "$ffmpegDir\include\libavutil\avutil.h")) {
     Write-Host "  ERROR: FFmpeg development files not found" -ForegroundColor Red
-    Write-Host "  Expected: $ffmpegDevDir\include\libavutil\avutil.h" -ForegroundColor Yellow
+    Write-Host "  FFMPEG_DIR=$ffmpegDir" -ForegroundColor Yellow
     Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
     $allOk = $false
 }
@@ -67,48 +72,54 @@ Write-Host "Setting up build environment..." -ForegroundColor Gray
 
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
-$vcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
-if (-not $vcpkgRoot) {
-    $vcpkgRoot = "$env:USERPROFILE\.vcpkg"
+$ffmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
+if ($ffmpegDir -and (Test-Path $ffmpegDir)) {
+    $env:FFMPEG_DIR = $ffmpegDir
+    Write-Host "  OK FFmpeg environment configured" -ForegroundColor Green
+}
+else {
+    $vcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
+    if ($vcpkgRoot -and (Test-Path $vcpkgRoot)) {
+        $env:VCPKG_ROOT = $vcpkgRoot
+        Write-Host "  OK vcpkg environment configured" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  ERROR: FFmpeg dev environment not found" -ForegroundColor Red
+        Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
+        exit 1
+    }
 }
 
-if (Test-Path $vcpkgRoot) {
-    $env:VCPKG_ROOT = $vcpkgRoot
-    Write-Host "  OK vcpkg environment configured" -ForegroundColor Green
-} else {
-    Write-Host "  ERROR: vcpkg not found" -ForegroundColor Red
-    Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
-    exit 1
+$libclangPath = [System.Environment]::GetEnvironmentVariable("LIBCLANG_PATH", "User")
+if ($libclangPath -and (Test-Path $libclangPath)) {
+    $env:LIBCLANG_PATH = $libclangPath
 }
 
 Write-Host ""
-
-# Ask build type
-Write-Host "Select build type:" -ForegroundColor Yellow
-Write-Host "  [1] Development (Fast, for testing)" -ForegroundColor White
-Write-Host "  [2] Production Release (Optimized, for distribution)" -ForegroundColor White
-Write-Host ""
-$choice = Read-Host "Enter option (1 or 2)"
 
 $buildMode = ""
 
-switch ($choice) {
-    "1" {
-        $buildMode = "Development"
-        Write-Host ""
-        Write-Host "Selected: Development build" -ForegroundColor Green
-    }
-    "2" {
-        $buildMode = "Production"
-        Write-Host ""
-        Write-Host "Selected: Production build" -ForegroundColor Green
-    }
-    default {
-        Write-Host ""
-        Write-Host "Invalid option, using Development" -ForegroundColor Yellow
-        $buildMode = "Development"
+if ($Mode -eq "prod") {
+    $buildMode = "Production"
+}
+elseif ($Mode -eq "dev") {
+    $buildMode = "Development"
+}
+else {
+    Write-Host "Select build type:" -ForegroundColor Yellow
+    Write-Host "  [1] Development (Fast, for testing)" -ForegroundColor White
+    Write-Host "  [2] Production Release (Optimized, for distribution)" -ForegroundColor White
+    Write-Host ""
+    $choice = Read-Host "Enter option (1 or 2)"
+
+    switch ($choice) {
+        "2" { $buildMode = "Production" }
+        default { $buildMode = "Development" }
     }
 }
+
+Write-Host ""
+Write-Host "Selected: $buildMode build" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Cyan
@@ -125,7 +136,7 @@ Write-Host ""
 $startTime = Get-Date
 
 # Build
-Push-Location "apps\desktop"
+Push-Location "$PSScriptRoot\..\apps\desktop"
 
 if ($buildMode -eq "Production") {
     Write-Host "[1/1] Building Production version..." -ForegroundColor Yellow
