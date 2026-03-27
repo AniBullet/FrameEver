@@ -965,8 +965,9 @@ export function Cropper(
 		e.preventDefault();
 
 		setKeyboardState("pressedKeys", (p) => {
-			p.delete(e.key);
-			return p;
+			const next = new Set(p);
+			next.delete(e.key);
+			return next;
 		});
 
 		setKeyboardState({

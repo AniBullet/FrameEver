@@ -18,6 +18,8 @@ Write-Host "Verifying build prerequisites..." -ForegroundColor Yellow
 
 $allOk = $true
 
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+
 if (-not (Test-Path "$PSScriptRoot\..\node_modules")) {
     Write-Host "  ERROR: node_modules not found" -ForegroundColor Red
     Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
@@ -70,11 +72,13 @@ Write-Host ""
 
 Write-Host "Setting up build environment..." -ForegroundColor Gray
 
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-
 $ffmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
 if ($ffmpegDir -and (Test-Path $ffmpegDir)) {
     $env:FFMPEG_DIR = $ffmpegDir
+    $pkgConfigDir = "$ffmpegDir\lib\pkgconfig"
+    if (Test-Path $pkgConfigDir) {
+        $env:PKG_CONFIG_PATH = $pkgConfigDir
+    }
     Write-Host "  OK FFmpeg environment configured" -ForegroundColor Green
 }
 else {

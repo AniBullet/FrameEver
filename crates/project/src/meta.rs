@@ -232,18 +232,24 @@ impl StudioRecordingMeta {
     pub fn min_fps(&self) -> u32 {
         match self {
             Self::SingleSegment { segment } => segment.display.fps,
-            Self::MultipleSegments { inner, .. } => {
-                inner.segments.iter().map(|s| s.display.fps).min().unwrap()
-            }
+            Self::MultipleSegments { inner, .. } => inner
+                .segments
+                .iter()
+                .map(|s| s.display.fps)
+                .min()
+                .unwrap_or(30),
         }
     }
 
     pub fn max_fps(&self) -> u32 {
         match self {
             Self::SingleSegment { segment } => segment.display.fps,
-            Self::MultipleSegments { inner, .. } => {
-                inner.segments.iter().map(|s| s.display.fps).max().unwrap()
-            }
+            Self::MultipleSegments { inner, .. } => inner
+                .segments
+                .iter()
+                .map(|s| s.display.fps)
+                .max()
+                .unwrap_or(30),
         }
     }
 }

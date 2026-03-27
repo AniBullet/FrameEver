@@ -1044,38 +1044,49 @@ function Page() {
 	};
 
 	const selectDisplayTarget = async (target: CaptureDisplayWithThumbnail) => {
-		setOptions(
-			"captureTarget",
-			reconcile({ variant: "display", id: target.id }),
-		);
-		setDisplayMenuOpen(false);
-		displayTriggerRef?.focus();
-		await commands.openTargetSelectOverlays(
-			{ variant: "display", id: target.id },
-			null,
-			"display",
-		);
-		setOptions("targetMode", "display");
+		if (targetModeTransitioning) return;
+		targetModeTransitioning = true;
+		try {
+			setOptions(
+				"captureTarget",
+				reconcile({ variant: "display", id: target.id }),
+			);
+			setDisplayMenuOpen(false);
+			displayTriggerRef?.focus();
+			await commands.openTargetSelectOverlays(
+				{ variant: "display", id: target.id },
+				null,
+				"display",
+			);
+			setOptions("targetMode", "display");
+		} catch (error) {
+			console.error("Failed to select display target:", error);
+		} finally {
+			targetModeTransitioning = false;
+		}
 	};
 
 	const selectWindowTarget = async (target: CaptureWindowWithThumbnail) => {
-		setOptions(
-			"captureTarget",
-			reconcile({ variant: "window", id: target.id }),
-		);
-		setWindowMenuOpen(false);
-		windowTriggerRef?.focus();
-		await commands.openTargetSelectOverlays(
-			{ variant: "window", id: target.id },
-			null,
-			"window",
-		);
-		setOptions("targetMode", "window");
-
+		if (targetModeTransitioning) return;
+		targetModeTransitioning = true;
 		try {
+			setOptions(
+				"captureTarget",
+				reconcile({ variant: "window", id: target.id }),
+			);
+			setWindowMenuOpen(false);
+			windowTriggerRef?.focus();
+			await commands.openTargetSelectOverlays(
+				{ variant: "window", id: target.id },
+				null,
+				"window",
+			);
+			setOptions("targetMode", "window");
 			await commands.focusWindow(target.id);
 		} catch (error) {
-			console.error("Failed to focus window:", error);
+			console.error("Failed to select window target:", error);
+		} finally {
+			targetModeTransitioning = false;
 		}
 	};
 
@@ -1099,12 +1110,17 @@ function Page() {
 			__CAP__?: { initialTargetMode?: RecordingTargetMode | null };
 		};
 		const targetMode = __CAP__?.initialTargetMode ?? null;
-		if (targetMode) {
-			await commands.openTargetSelectOverlays(null, null, targetMode);
-			setOptions({ targetMode });
-		} else {
-			setOptions({ targetMode });
-			await commands.closeTargetSelectOverlays();
+		try {
+			if (targetMode) {
+				await commands.openTargetSelectOverlays(null, null, targetMode);
+				setOptions({ targetMode });
+			} else {
+				setOptions({ targetMode });
+				await commands.closeTargetSelectOverlays();
+			}
+		} catch (error) {
+			console.error("Failed to initialize target overlays:", error);
+			setOptions({ targetMode: null });
 		}
 
 		const currentWindow = getCurrentWindow();
@@ -1274,28 +1290,36 @@ function Page() {
 		},
 	};
 
+	let targetModeTransitioning = false;
 	const toggleTargetMode = async (
 		mode: "display" | "window" | "area" | "camera",
 	) => {
-		if (isRecording()) return;
-		const nextMode = rawOptions.targetMode === mode ? null : mode;
-		if (nextMode) {
-			if (nextMode === "camera") {
-				setOptions(
-					"captureTarget",
-					reconcile({ variant: "cameraOnly" } as ScreenCaptureTarget),
+		if (isRecording() || targetModeTransitioning) return;
+		targetModeTransitioning = true;
+		try {
+			const nextMode = rawOptions.targetMode === mode ? null : mode;
+			if (nextMode) {
+				if (nextMode === "camera") {
+					setOptions(
+						"captureTarget",
+						reconcile({ variant: "cameraOnly" } as ScreenCaptureTarget),
+					);
+					setOptions("captureSystemAudio", false);
+				}
+				await commands.openTargetSelectOverlays(
+					null,
+					null,
+					nextMode as RecordingTargetMode,
 				);
-				setOptions("captureSystemAudio", false);
+				setOptions("targetMode", nextMode);
+			} else {
+				setOptions("targetMode", nextMode);
+				await commands.closeTargetSelectOverlays();
 			}
-			await commands.openTargetSelectOverlays(
-				null,
-				null,
-				nextMode as RecordingTargetMode,
-			);
-			setOptions("targetMode", nextMode);
-		} else {
-			setOptions("targetMode", nextMode);
-			await commands.closeTargetSelectOverlays();
+		} catch (error) {
+			console.error("Failed to toggle target mode:", error);
+		} finally {
+			targetModeTransitioning = false;
 		}
 	};
 

@@ -1,4 +1,7 @@
-use crate::{AudioFrame, AudioMuxer, Muxer, TaskPool, VideoFrame, VideoMuxer, screen_capture};
+use crate::{
+    AudioFrame, AudioMuxer, Muxer, TaskPool, VideoFrame, VideoMuxer, capture_pipeline::VideoCodec,
+    screen_capture,
+};
 use anyhow::{Context, anyhow};
 use cap_enc_ffmpeg::aac::AACEncoder;
 use cap_media_info::{AudioInfo, VideoInfo};
@@ -112,6 +115,7 @@ pub struct WindowsMuxerConfig {
     pub encoder_preferences: crate::capture_pipeline::EncoderPreferences,
     pub fragmented: bool,
     pub frag_duration_us: i64,
+    pub codec: crate::capture_pipeline::VideoCodec,
 }
 
 impl Muxer for WindowsMuxer {
@@ -165,113 +169,133 @@ impl Muxer for WindowsMuxer {
 
                 let encoder_preferences = &config.encoder_preferences;
 
-                let encoder = (|| {
-                    let fallback = |reason: Option<String>| {
-                        use tracing::{error, info};
+                enum HwEncoder {
+                    H264(
+                        cap_enc_mediafoundation::H264Encoder,
+                        cap_mediafoundation_ffmpeg::H264StreamMuxer,
+                    ),
+                    Hevc(
+                        cap_enc_mediafoundation::HevcEncoder,
+                        cap_mediafoundation_ffmpeg::HevcStreamMuxer,
+                    ),
+                }
 
+                enum SwEncoder {
+                    H264(cap_enc_ffmpeg::h264::H264Encoder),
+                    Hevc(cap_enc_ffmpeg::hevc::HevcEncoder),
+                }
+
+                let codec = config.codec;
+
+                let encoder: anyhow::Result<either::Either<HwEncoder, SwEncoder>> = (|| {
+                    let fallback_width = if output_size.Width > 0 {
+                        output_size.Width as u32
+                    } else {
+                        video_config.width
+                    };
+                    let fallback_height = if output_size.Height > 0 {
+                        output_size.Height as u32
+                    } else {
+                        video_config.height
+                    };
+
+                    let sw_fallback = |reason: Option<String>| -> anyhow::Result<either::Either<HwEncoder, SwEncoder>> {
                         encoder_preferences.force_software_only();
                         if let Some(reason) = reason.as_ref() {
-                            error!("Falling back to software H264 encoder: {reason}");
+                            error!("Falling back to software encoder: {reason}");
                         } else {
-                            info!("Falling back to software H264 encoder");
+                            info!("Falling back to software encoder");
                         }
 
-                        let fallback_width = if output_size.Width > 0 {
-                            output_size.Width as u32
-                        } else {
-                            video_config.width
-                        };
-                        let fallback_height = if output_size.Height > 0 {
-                            output_size.Height as u32
-                        } else {
-                            video_config.height
-                        };
+                        let mut output_guard = output.lock().map_err(|e| {
+                            anyhow!("ScreenSoftwareEncoder: failed to lock output mutex: {e}")
+                        })?;
 
-                        let mut output_guard = match output.lock() {
-                            Ok(guard) => guard,
-                            Err(poisoned) => {
-                                return Err(anyhow!(
-                                    "ScreenSoftwareEncoder: failed to lock output mutex: {}",
-                                    poisoned
-                                ));
-                            }
-                        };
-
-                        cap_enc_ffmpeg::h264::H264Encoder::builder(video_config)
-                            .with_output_size(fallback_width, fallback_height)
-                            .and_then(|builder| builder.build(&mut output_guard))
-                            .map(either::Right)
-                            .map_err(|e| anyhow!("ScreenSoftwareEncoder/{e}"))
+                        match codec {
+                            VideoCodec::H264 => cap_enc_ffmpeg::h264::H264Encoder::builder(video_config)
+                                .with_output_size(fallback_width, fallback_height)
+                                .and_then(|b| b.build(&mut output_guard))
+                                .map(|e| either::Right(SwEncoder::H264(e)))
+                                .map_err(|e| anyhow!("ScreenSoftwareEncoder/{e}")),
+                            VideoCodec::H265 => cap_enc_ffmpeg::hevc::HevcEncoder::builder(video_config)
+                                .with_bpp(config.bitrate_multiplier)
+                                .with_output_size(fallback_width, fallback_height)
+                                .and_then(|b| b.build(&mut output_guard))
+                                .map(|e| either::Right(SwEncoder::Hevc(e)))
+                                .map_err(|e| anyhow!("ScreenSoftwareEncoder/{e}")),
+                        }
                     };
 
                     if encoder_preferences.should_force_software() {
-                        return fallback(None);
+                        return sw_fallback(None);
                     }
 
-                    match cap_enc_mediafoundation::H264Encoder::new_with_scaled_output(
-                        &config.d3d_device,
-                        config.pixel_format,
-                        input_size,
-                        output_size,
-                        config.frame_rate,
-                        config.bitrate_multiplier,
-                    ) {
-                        Ok(encoder) => {
-                            if let Err(e) = encoder.validate() {
-                                return fallback(Some(format!(
-                                    "Hardware encoder validation failed: {e}"
-                                )));
-                            }
+                    let muxer_config = |bitrate: u32| cap_mediafoundation_ffmpeg::MuxerConfig {
+                        width: fallback_width,
+                        height: fallback_height,
+                        fps: config.frame_rate,
+                        bitrate,
+                        fragmented,
+                        frag_duration_us,
+                    };
 
-                            let width = match u32::try_from(output_size.Width) {
-                                Ok(width) if width > 0 => width,
-                                _ => {
-                                    return fallback(Some(format!(
-                                        "Invalid output width: {}",
-                                        output_size.Width
-                                    )));
-                                }
-                            };
-
-                            let height = match u32::try_from(output_size.Height) {
-                                Ok(height) if height > 0 => height,
-                                _ => {
-                                    return fallback(Some(format!(
-                                        "Invalid output height: {}",
-                                        output_size.Height
-                                    )));
-                                }
-                            };
-
-                            let muxer = {
-                                let mut output_guard = match output.lock() {
-                                    Ok(guard) => guard,
-                                    Err(poisoned) => {
-                                        return fallback(Some(format!(
-                                            "Failed to lock output mutex: {poisoned}"
+                    match codec {
+                        VideoCodec::H264 => {
+                            match cap_enc_mediafoundation::H264Encoder::new_with_scaled_output(
+                                &config.d3d_device,
+                                config.pixel_format,
+                                input_size,
+                                output_size,
+                                config.frame_rate,
+                                config.bitrate_multiplier,
+                            ) {
+                                Ok(encoder) => {
+                                    if let Err(e) = encoder.validate() {
+                                        return sw_fallback(Some(format!(
+                                            "Hardware encoder validation failed: {e}"
                                         )));
                                     }
-                                };
 
-                                cap_mediafoundation_ffmpeg::H264StreamMuxer::new(
-                                    &mut output_guard,
-                                    cap_mediafoundation_ffmpeg::MuxerConfig {
-                                        width,
-                                        height,
-                                        fps: config.frame_rate,
-                                        bitrate: encoder.bitrate(),
-                                        fragmented,
-                                        frag_duration_us,
-                                    },
-                                )
-                            };
+                                    let mut output_guard = output.lock().map_err(|e| {
+                                        anyhow!("Failed to lock output mutex: {e}")
+                                    })?;
 
-                            match muxer {
-                                Ok(muxer) => Ok(either::Left((encoder, muxer))),
-                                Err(err) => fallback(Some(err.to_string())),
+                                    match cap_mediafoundation_ffmpeg::H264StreamMuxer::new(
+                                        &mut output_guard,
+                                        muxer_config(encoder.bitrate()),
+                                    ) {
+                                        Ok(muxer) => Ok(either::Left(HwEncoder::H264(encoder, muxer))),
+                                        Err(err) => sw_fallback(Some(err.to_string())),
+                                    }
+                                }
+                                Err(err) => sw_fallback(Some(err.to_string())),
                             }
                         }
-                        Err(err) => fallback(Some(err.to_string())),
+                        VideoCodec::H265 => {
+                            match cap_enc_mediafoundation::HevcEncoder::new_with_scaled_output(
+                                &config.d3d_device,
+                                config.pixel_format,
+                                input_size,
+                                output_size,
+                                config.frame_rate,
+                                config.bitrate_multiplier,
+                            ) {
+                                Ok(encoder) => {
+                                    let mut output_guard = output.lock().map_err(|e| {
+                                        anyhow!("Failed to lock output mutex: {e}")
+                                    })?;
+
+                                    match cap_mediafoundation_ffmpeg::HevcStreamMuxer::new(
+                                        &mut output_guard,
+                                        muxer_config(encoder.bitrate()),
+                                    ) {
+                                        Ok(muxer) => Ok(either::Left(HwEncoder::Hevc(encoder, muxer))),
+                                        Err(err) => sw_fallback(Some(err.to_string())),
+                                    }
+                                }
+                                Err(err) => sw_fallback(Some(err.to_string())),
+                            }
+                        }
                     }
                 })();
 
@@ -300,105 +324,130 @@ impl Muxer for WindowsMuxer {
                     }
                 }
 
+                let frame_interval = Duration::from_secs_f64(1.0 / config.frame_rate as f64);
+
                 match encoder {
-                    either::Left((mut encoder, mut muxer)) => {
-                        trace!("Running native encoder with frame pacing");
-                        let frame_interval = Duration::from_secs_f64(1.0 / config.frame_rate as f64);
+                    either::Left(hw_encoder) => {
+                        trace!("Running hardware encoder with frame pacing");
                         let mut last_texture: Option<windows::Win32::Graphics::Direct3D11::ID3D11Texture2D> = None;
                         let mut first_timestamp: Option<Duration> = None;
                         let mut last_timestamp: Option<Duration> = None;
                         let mut frame_count: u64 = 0;
                         let mut frames_reused: u64 = 0;
 
-                        let result = encoder.run(
-                            Arc::new(AtomicBool::default()),
-                            || {
-                                match video_rx.recv_timeout(frame_interval) {
-                                    Ok(Some((frame, timestamp))) => {
-                                        last_texture = Some(frame.texture().clone());
-                                        last_timestamp = Some(timestamp);
-                                    }
-                                    Ok(None) => {
-                                        trace!("End of stream signal received");
-                                        return Ok(None);
-                                    }
-                                    Err(RecvTimeoutError::Timeout) => {
-                                        if let Some(last_ts) = last_timestamp {
-                                            let new_ts = last_ts.saturating_add(frame_interval);
-                                            last_timestamp = Some(new_ts);
-                                            frames_reused += 1;
-                                            if frames_reused.is_multiple_of(30) {
-                                                debug!(
-                                                    frames_reused = frames_reused,
-                                                    frame_count = frame_count,
-                                                    "Frame pacing: reusing frames due to slow capture"
-                                                );
-                                            }
+                        let mut get_frame = || -> windows::core::Result<Option<(windows::Win32::Graphics::Direct3D11::ID3D11Texture2D, TimeSpan)>> {
+                            match video_rx.recv_timeout(frame_interval) {
+                                Ok(Some((frame, timestamp))) => {
+                                    last_texture = Some(frame.texture().clone());
+                                    last_timestamp = Some(timestamp);
+                                }
+                                Ok(None) => {
+                                    return Ok(None);
+                                }
+                                Err(RecvTimeoutError::Timeout) => {
+                                    if let Some(last_ts) = last_timestamp {
+                                        let new_ts = last_ts.saturating_add(frame_interval);
+                                        last_timestamp = Some(new_ts);
+                                        frames_reused += 1;
+                                        if frames_reused.is_multiple_of(30) {
+                                            debug!(
+                                                frames_reused = frames_reused,
+                                                frame_count = frame_count,
+                                                "Frame pacing: reusing frames due to slow capture"
+                                            );
                                         }
                                     }
-                                    Err(RecvTimeoutError::Disconnected) => {
-                                        trace!("Channel disconnected");
-                                        return Ok(None);
-                                    }
                                 }
-
-                                if let (Some(texture), Some(ts)) = (&last_texture, last_timestamp) {
-                                    let normalized_ts = normalize_timestamp(ts, &mut first_timestamp);
-                                    frame_count += 1;
-                                    let frame_time = duration_to_timespan(normalized_ts);
-                                    Ok(Some((texture.clone(), frame_time)))
-                                } else {
-                                    match video_rx.recv() {
-                                        Ok(Some((frame, timestamp))) => {
-                                            let texture = frame.texture().clone();
-                                            last_texture = Some(texture.clone());
-                                            last_timestamp = Some(timestamp);
-                                            let normalized_ts = normalize_timestamp(timestamp, &mut first_timestamp);
-                                            frame_count = 1;
-                                            let frame_time = duration_to_timespan(normalized_ts);
-                                            Ok(Some((texture, frame_time)))
-                                        }
-                                        Ok(None) | Err(_) => Ok(None),
-                                    }
+                                Err(RecvTimeoutError::Disconnected) => {
+                                    return Ok(None);
                                 }
-                            },
-                            |output_sample| {
-                                let Ok(mut output) = output.lock() else {
-                                    tracing::error!("Failed to lock output mutex - poisoned");
-                                    return Ok(());
-                                };
-
-                                if let Err(e) = muxer.write_sample(&output_sample, &mut output) {
-                                    tracing::error!("WriteSample failed: {e}");
-                                }
-
-                                Ok(())
-                            },
-                        );
-
-                        match result {
-                            Ok(health_status) => {
-                                debug!(
-                                    "Hardware encoder completed: {} frames encoded",
-                                    health_status.total_frames_encoded
-                                );
-                                Ok(())
                             }
-                            Err(e) => {
-                                if e.should_fallback() {
-                                    error!(
-                                        "Hardware encoder failed with recoverable error, marking for software fallback: {}",
-                                        e
-                                    );
-                                    encoder_preferences.force_software_only();
+
+                            if let (Some(texture), Some(ts)) = (&last_texture, last_timestamp) {
+                                let normalized_ts = normalize_timestamp(ts, &mut first_timestamp);
+                                frame_count += 1;
+                                let frame_time = duration_to_timespan(normalized_ts);
+                                Ok(Some((texture.clone(), frame_time)))
+                            } else {
+                                match video_rx.recv() {
+                                    Ok(Some((frame, timestamp))) => {
+                                        let texture = frame.texture().clone();
+                                        last_texture = Some(texture.clone());
+                                        last_timestamp = Some(timestamp);
+                                        let normalized_ts = normalize_timestamp(timestamp, &mut first_timestamp);
+                                        frame_count = 1;
+                                        let frame_time = duration_to_timespan(normalized_ts);
+                                        Ok(Some((texture, frame_time)))
+                                    }
+                                    Ok(None) | Err(_) => Ok(None),
                                 }
-                                Err(anyhow!("Hardware encoder error: {}", e))
+                            }
+                        };
+
+                        match hw_encoder {
+                            HwEncoder::H264(mut encoder, mut muxer) => {
+                                let result = encoder.run(
+                                    Arc::new(AtomicBool::default()),
+                                    &mut get_frame,
+                                    |output_sample| {
+                                        let Ok(mut output) = output.lock() else {
+                                            tracing::error!("Failed to lock output mutex - poisoned");
+                                            return Ok(());
+                                        };
+                                        if let Err(e) = muxer.write_sample(&output_sample, &mut output) {
+                                            tracing::error!("WriteSample failed: {e}");
+                                        }
+                                        Ok(())
+                                    },
+                                );
+
+                                match result {
+                                    Ok(health_status) => {
+                                        debug!(
+                                            "H264 hardware encoder completed: {} frames encoded",
+                                            health_status.total_frames_encoded
+                                        );
+                                        Ok(())
+                                    }
+                                    Err(e) => {
+                                        if e.should_fallback() {
+                                            encoder_preferences.force_software_only();
+                                        }
+                                        Err(anyhow!("Hardware encoder error: {}", e))
+                                    }
+                                }
+                            }
+                            HwEncoder::Hevc(mut encoder, mut muxer) => {
+                                let result = encoder.run(
+                                    Arc::new(AtomicBool::default()),
+                                    &mut get_frame,
+                                    |output_sample| {
+                                        let Ok(mut output) = output.lock() else {
+                                            tracing::error!("Failed to lock output mutex - poisoned");
+                                            return Ok(());
+                                        };
+                                        if let Err(e) = muxer.write_sample(&output_sample, &mut output) {
+                                            tracing::error!("WriteSample failed: {e}");
+                                        }
+                                        Ok(())
+                                    },
+                                );
+
+                                match result {
+                                    Ok(()) => {
+                                        debug!("HEVC hardware encoder completed");
+                                        Ok(())
+                                    }
+                                    Err(e) => {
+                                        encoder_preferences.force_software_only();
+                                        Err(anyhow!("HEVC hardware encoder error: {}", e))
+                                    }
+                                }
                             }
                         }
                     }
-                    either::Right(mut encoder) => {
+                    either::Right(mut sw_encoder) => {
                         trace!("Running software encoder with frame pacing");
-                        let frame_interval = Duration::from_secs_f64(1.0 / config.frame_rate as f64);
                         let mut last_ffmpeg_frame: Option<ffmpeg::frame::Video> = None;
                         let mut first_timestamp: Option<Duration> = None;
                         let mut last_timestamp: Option<Duration> = None;
@@ -452,9 +501,18 @@ impl Muxer for WindowsMuxer {
                                 continue;
                             };
 
-                            encoder
-                                .queue_frame(ffmpeg_frame, normalized_ts, &mut output)
-                                .context("queue_frame")?;
+                            match &mut sw_encoder {
+                                SwEncoder::H264(encoder) => {
+                                    encoder
+                                        .queue_frame(ffmpeg_frame, normalized_ts, &mut output)
+                                        .context("queue_frame")?;
+                                }
+                                SwEncoder::Hevc(encoder) => {
+                                    encoder
+                                        .queue_frame(ffmpeg_frame, normalized_ts, &mut output)
+                                        .context("queue_frame")?;
+                                }
+                            }
                         }
 
                         Ok(())

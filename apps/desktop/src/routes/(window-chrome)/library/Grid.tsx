@@ -7,7 +7,14 @@ import IconLucideCheckCircle from "~icons/lucide/check-circle";
 import IconLucideEdit from "~icons/lucide/edit";
 import IconLucideFileVideo from "~icons/lucide/file-video";
 import IconLucideImage from "~icons/lucide/image";
+import IconLucidePlay from "~icons/lucide/play";
 import IconLucideVideo from "~icons/lucide/video";
+import {
+	canEdit,
+	canPlay,
+	editItem,
+	openWithDefaultApp,
+} from "./library-actions";
 
 type ViewMode = "grid" | "list" | "compact";
 
@@ -165,6 +172,36 @@ function GridCard(props: {
 						{statusLabel()}
 					</span>
 				</div>
+
+				<div class="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+					<Show when={canEdit(props.item)}>
+						<button
+							type="button"
+							class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-9 text-white text-xs font-medium hover:bg-blue-10 transition-colors"
+							onClick={(e) => {
+								e.stopPropagation();
+								editItem(props.item);
+							}}
+						>
+							<IconLucideEdit class="size-3.5" />
+							{t("library.detail.edit")}
+						</button>
+					</Show>
+					<Show when={canPlay(props.item) && props.item.exportedFilePath}>
+						<button
+							type="button"
+							class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900/80 text-white text-xs font-medium hover:bg-gray-900 transition-colors"
+							onClick={(e) => {
+								e.stopPropagation();
+								if (props.item.exportedFilePath)
+									openWithDefaultApp(props.item.exportedFilePath);
+							}}
+						>
+							<IconLucidePlay class="size-3.5" />
+							{t("library.detail.play")}
+						</button>
+					</Show>
+				</div>
 			</div>
 
 			<div class="p-3 flex flex-col gap-1 text-left">
@@ -282,7 +319,20 @@ function ListCard(props: {
 					</p>
 				</div>
 
-				<div class="flex items-center gap-6 text-xs text-gray-11">
+				<div class="flex items-center gap-4 text-xs text-gray-11">
+					<Show when={canEdit(props.item)}>
+						<button
+							type="button"
+							class="flex items-center gap-1 px-2 py-1 rounded bg-blue-3 text-blue-11 hover:bg-blue-4 transition-colors"
+							onClick={(e) => {
+								e.stopPropagation();
+								editItem(props.item);
+							}}
+						>
+							<IconLucideEdit class="size-3" />
+							{t("library.detail.edit")}
+						</button>
+					</Show>
 					<span class="whitespace-nowrap">{statusLabel()}</span>
 					<span class="whitespace-nowrap">{createdDate()}</span>
 				</div>

@@ -1,6 +1,5 @@
 import {
 	createContext,
-	createEffect,
 	createMemo,
 	createSignal,
 	onCleanup,
@@ -33,65 +32,53 @@ const I18nContext = createContext<{
 }>();
 
 export function I18nProvider(props: ParentProps) {
-	const [language, setLanguageSignal] = createSignal<Language>("zh-CN");
+	const [language, setLanguageSignal] = createSignal<Language>("en");
 
 	onMount(async () => {
 		const settings = await generalSettingsStore.get();
 		if (settings?.language) {
-			console.log("[I18n] Initial language from store:", settings.language);
 			setLanguageSignal(settings.language as Language);
 			events.languageChanged.emit();
 		} else {
 			try {
 				const systemLocale = await commands.getSystemLocale();
-				console.log("[I18n] Detected system locale:", systemLocale);
 				const detectedLang = systemLocale as Language;
 				setLanguageSignal(detectedLang);
 				await generalSettingsStore.set({ language: detectedLang });
 				events.languageChanged.emit();
-			} catch (error) {
-				console.error("[I18n] Failed to detect system locale:", error);
+			} catch {
 				setLanguageSignal("en");
 				events.languageChanged.emit();
 			}
 		}
 	});
 
-	createEffect(() => {
-		const interval = setInterval(async () => {
-			const settings = await generalSettingsStore.get();
-			if (settings?.language) {
-				const currentLang = language();
-				if (settings.language !== currentLang) {
-					console.log(
-						"[I18n] Language changed in store:",
-						settings.language,
-						"current:",
-						currentLang,
-					);
-					setLanguageSignal(settings.language as Language);
-				}
+	const unlistenPromise = generalSettingsStore.listen(async () => {
+		const settings = await generalSettingsStore.get();
+		if (settings?.language) {
+			const currentLang = language();
+			if (settings.language !== currentLang) {
+				setLanguageSignal(settings.language as Language);
 			}
-		}, 500);
+		}
+	});
 
-		onCleanup(() => clearInterval(interval));
+	onCleanup(() => {
+		unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
 	});
 
 	const setLanguage = async (lang: Language) => {
-		console.log("[I18n] setLanguage called:", lang);
 		setLanguageSignal(lang);
 		await generalSettingsStore.set({ language: lang });
 		events.languageChanged.emit();
 	};
 
 	const dict = createMemo(() => {
-		const lang = language();
-		console.log("[I18n] Dictionary memo recomputed for language:", lang);
-		return translations[lang];
+		return translations[language()];
 	});
 
 	const t = (key: TranslationKey, params?: Record<string, string>): string => {
-		let s = dict()[key] ?? translations["zh-CN"][key] ?? key;
+		let s = dict()[key] ?? translations["en"][key] ?? key;
 		if (params && typeof s === "string") {
 			for (const [k, v] of Object.entries(params)) {
 				s = s.replace(new RegExp(`\\{${k}\\}`, "g"), v);

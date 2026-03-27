@@ -700,7 +700,8 @@ impl Renderer {
             match event {
                 Ok(frame) => {
                     received_first_frame = true;
-                    let aspect_ratio = frame.inner.width() as f32 / frame.inner.height() as f32;
+                    let aspect_ratio =
+                        frame.inner.width() as f32 / frame.inner.height().max(1) as f32;
                     self.sync_ratio_uniform_and_resize_window_to_it(&window, &state, aspect_ratio)
                         .await;
 

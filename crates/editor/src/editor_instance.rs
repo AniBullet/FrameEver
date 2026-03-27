@@ -397,7 +397,9 @@ impl EditorInstance {
             let mut prefetch_cancel_token: Option<CancellationToken> = None;
 
             loop {
-                preview_rx.changed().await.unwrap();
+                if preview_rx.changed().await.is_err() {
+                    break;
+                }
 
                 loop {
                     let Some((frame_number, fps, resolution_base)) =
@@ -549,7 +551,13 @@ impl EditorInstance {
     fn get_studio_meta(&self) -> &StudioRecordingMeta {
         match &self.meta.inner {
             RecordingMetaInner::Studio(meta) => meta.as_ref(),
-            _ => panic!("Not a studio recording"),
+            _ => {
+                tracing::error!(
+                    "EditorInstance::get_studio_meta called on non-studio recording at {:?}",
+                    self.meta.project_path
+                );
+                panic!("EditorInstance requires a studio recording but found a different type")
+            }
         }
     }
 

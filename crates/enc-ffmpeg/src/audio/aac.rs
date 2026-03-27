@@ -30,7 +30,7 @@ pub struct AACEncoder {
 }
 
 impl AACEncoder {
-    const OUTPUT_BITRATE: usize = 320 * 1000; // 128k
+    const OUTPUT_BITRATE: usize = 128 * 1000;
     const SAMPLE_FORMAT: Sample = Sample::F32(Type::Planar);
 
     pub fn factory(

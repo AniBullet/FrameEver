@@ -49,6 +49,13 @@ impl EncoderPreferences {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VideoCodec {
+    #[default]
+    H264,
+    H265,
+}
+
 pub struct InstantModeConfig {
     pub screen_capture: screen_capture::VideoSourceConfig,
     pub system_audio: Option<screen_capture::SystemAudioSourceConfig>,
@@ -59,6 +66,7 @@ pub struct InstantModeConfig {
     #[cfg(windows)]
     pub encoder_preferences: EncoderPreferences,
     pub bitrate_multiplier: f32,
+    pub codec: VideoCodec,
 }
 
 pub trait MakeCapturePipeline: ScreenCaptureFormat + std::fmt::Debug + 'static {
@@ -187,6 +195,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
                     encoder_preferences,
                     fragmented: false,
                     frag_duration_us: 2_000_000,
+                    codec: VideoCodec::H264,
                 })
                 .await
         }
@@ -222,6 +231,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
                 encoder_preferences: config.encoder_preferences,
                 fragmented: false,
                 frag_duration_us: 2_000_000,
+                codec: config.codec,
             })
             .await
     }

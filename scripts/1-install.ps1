@@ -362,6 +362,37 @@ if ($currentFfmpegDir -ne $ffmpegRoot) {
 }
 $env:FFMPEG_DIR = $ffmpegRoot
 
+# Set PKG_CONFIG_PATH so ffmpeg-sys-next can find FFmpeg via pkg-config
+$ffmpegPkgConfigDir = "$ffmpegRoot\lib\pkgconfig"
+if (Test-Path $ffmpegPkgConfigDir) {
+    $currentPkgConfigPath = [System.Environment]::GetEnvironmentVariable("PKG_CONFIG_PATH", "User")
+    if ($currentPkgConfigPath -ne $ffmpegPkgConfigDir) {
+        [System.Environment]::SetEnvironmentVariable("PKG_CONFIG_PATH", $ffmpegPkgConfigDir, "User")
+        $needsRestart = $true
+    }
+    $env:PKG_CONFIG_PATH = $ffmpegPkgConfigDir
+}
+
+# Install pkg-config (required by ffmpeg-sys-next build script)
+Refresh-Path
+$pkgConfig = Get-Command pkg-config -ErrorAction SilentlyContinue
+if ($pkgConfig) {
+    Write-Host "  OK pkg-config available" -ForegroundColor Green
+}
+else {
+    Write-Host "  Installing pkg-config-lite..." -ForegroundColor Yellow
+    winget install bloodrock.pkg-config-lite --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
+    Refresh-Path
+    $pkgConfig = Get-Command pkg-config -ErrorAction SilentlyContinue
+    if ($pkgConfig) {
+        Write-Host "  OK pkg-config installed" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  OK pkg-config installed (restart terminal to use)" -ForegroundColor Yellow
+        $needsRestart = $true
+    }
+}
+
 $oldVcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
 if ($oldVcpkgRoot) {
     [System.Environment]::SetEnvironmentVariable("VCPKG_ROOT", $null, "User")

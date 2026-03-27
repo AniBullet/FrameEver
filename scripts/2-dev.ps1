@@ -15,6 +15,10 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";"
 $ffmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
 if ($ffmpegDir -and (Test-Path $ffmpegDir)) {
     $env:FFMPEG_DIR = $ffmpegDir
+    $pkgConfigDir = "$ffmpegDir\lib\pkgconfig"
+    if (Test-Path $pkgConfigDir) {
+        $env:PKG_CONFIG_PATH = $pkgConfigDir
+    }
     Write-Host "  FFmpeg environment configured" -ForegroundColor Green
 }
 else {

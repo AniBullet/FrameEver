@@ -45,6 +45,7 @@ pub enum EditorPreviewQuality {
 #[derive(Serialize, Deserialize, Type, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum RecordingQuality {
+    Ultra,
     High,
     #[default]
     Standard,
@@ -52,23 +53,39 @@ pub enum RecordingQuality {
 }
 
 impl RecordingQuality {
-    /// 返回该质量级别对应的比特率倍数（相对于标准质量）
     pub fn bitrate_multiplier(&self) -> f32 {
         match self {
-            Self::High => 1.5,     // 高质量：1.5倍比特率
-            Self::Standard => 1.0, // 标准质量：基准比特率
-            Self::Low => 0.6,      // 低质量：0.6倍比特率
+            Self::Ultra => 2.5,
+            Self::High => 1.5,
+            Self::Standard => 1.0,
+            Self::Low => 0.6,
         }
     }
 
-    /// 返回该质量级别对应的 bits per pixel 值（用于编码器）
-    pub fn bits_per_pixel(&self) -> f32 {
-        match self {
-            Self::High => 0.25,     // 高质量
-            Self::Standard => 0.15, // 标准质量（类似 Social）
-            Self::Low => 0.08,      // 低质量（类似 Web）
+    pub fn bits_per_pixel(&self, codec: RecordingCodec) -> f32 {
+        match codec {
+            RecordingCodec::H264 => match self {
+                Self::Ultra => 0.40,
+                Self::High => 0.25,
+                Self::Standard => 0.15,
+                Self::Low => 0.08,
+            },
+            RecordingCodec::H265 => match self {
+                Self::Ultra => 0.28,
+                Self::High => 0.17,
+                Self::Standard => 0.10,
+                Self::Low => 0.05,
+            },
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Type, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum RecordingCodec {
+    #[default]
+    H264,
+    H265,
 }
 
 impl MainWindowRecordingStartBehaviour {
@@ -172,6 +189,8 @@ pub struct GeneralSettingsStore {
     pub language: Option<String>,
     #[serde(default)]
     pub recording_quality: RecordingQuality,
+    #[serde(default)]
+    pub recording_codec: RecordingCodec,
 }
 
 fn default_enable_native_camera_preview() -> bool {
@@ -241,6 +260,7 @@ impl Default for GeneralSettingsStore {
             main_window_position: None,
             camera_window_position: None,
             recording_quality: RecordingQuality::Standard,
+            recording_codec: RecordingCodec::H264,
         }
     }
 }

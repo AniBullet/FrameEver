@@ -200,7 +200,7 @@ impl AudioRenderer {
             .map(|c| c.offsets)
             .unwrap_or_default();
 
-        let max_samples = tracks
+        let max_samples = match tracks
             .iter()
             .map(|t| {
                 let track_offset_samples = (t.offset(&offsets) * Self::SAMPLE_RATE as f32) as isize;
@@ -208,7 +208,13 @@ impl AudioRenderer {
                 available.max(0) as usize
             })
             .max()
-            .unwrap();
+        {
+            Some(v) => v,
+            None => {
+                self.elapsed_samples += samples;
+                return None;
+            }
+        };
 
         if self.cursor.samples >= max_samples {
             self.elapsed_samples += samples;

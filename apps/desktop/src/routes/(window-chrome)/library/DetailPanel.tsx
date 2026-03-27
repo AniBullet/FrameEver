@@ -63,16 +63,38 @@ export default function DetailPanel(props: Props) {
 		if (!(await ask(message))) return;
 
 		try {
-			const pathToDelete =
-				props.item.capProjectPath || props.item.exportedFilePath;
-			if (pathToDelete) {
-				await commands.deleteLibraryItem(pathToDelete);
+			if (props.item.capProjectPath) {
+				await commands
+					.deleteLibraryItem(props.item.capProjectPath)
+					.catch(() => {});
+			}
+			if (props.item.exportedFilePath) {
+				await commands
+					.deleteLibraryItem(props.item.exportedFilePath)
+					.catch(() => {});
 			}
 			props.onRefetch();
 			props.onClose();
 		} catch (error) {
 			console.error("Failed to delete item:", error);
 		}
+	};
+
+	const formattedDate = () => {
+		const ts = props.item.createdAt;
+		if (!ts) return "";
+		const d = new Date(ts * 1000);
+		return d.toLocaleString();
+	};
+
+	const formattedSize = () => {
+		const bytes = props.item.fileSize;
+		if (!bytes) return null;
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		if (bytes < 1024 * 1024 * 1024)
+			return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+		return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 	};
 
 	const statusLabel = () => {
@@ -161,6 +183,24 @@ export default function DetailPanel(props: Props) {
 							<span class="text-sm text-gray-11">{statusLabel()}</span>
 						</div>
 					</div>
+
+					<Show when={formattedDate()}>
+						<div>
+							<label class="text-xs font-semibold text-gray-11 uppercase tracking-wider">
+								{t("library.detail.createdAt")}
+							</label>
+							<p class="mt-1 text-sm text-gray-11">{formattedDate()}</p>
+						</div>
+					</Show>
+
+					<Show when={formattedSize()}>
+						<div>
+							<label class="text-xs font-semibold text-gray-11 uppercase tracking-wider">
+								{t("library.detail.fileSize")}
+							</label>
+							<p class="mt-1 text-sm text-gray-11">{formattedSize()}</p>
+						</div>
+					</Show>
 
 					<Show when={props.item.capProjectPath}>
 						<div>

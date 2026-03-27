@@ -37,7 +37,7 @@ pub async fn create_camera_preview_ws() -> (Sender<FFmpegVideoFrame>, u16, Cance
                                     frame.height(),
                                     Pixel::RGBA,
                                     1280,
-                                    (1280.0 / (frame.width() as f64 / frame.height() as f64))
+                                    (1280.0 / (frame.width() as f64 / frame.height().max(1) as f64))
                                         as u32,
                                     ffmpeg::software::scaling::flag::Flags::FAST_BILINEAR,
                                 )

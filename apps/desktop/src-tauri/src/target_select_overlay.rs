@@ -439,16 +439,6 @@ impl WindowFocusManager {
                         break;
                     }
 
-                    #[cfg(windows)]
-                    if let Some(cap_main) = cap_main {
-                        let should_refocus = cap_main.is_focused().ok().unwrap_or_default()
-                            || window.is_focused().unwrap_or_default();
-
-                        if !should_refocus {
-                            window.set_focus().ok();
-                        }
-                    }
-
                     tokio::time::sleep(std::time::Duration::from_millis(400)).await;
                 }
             }),

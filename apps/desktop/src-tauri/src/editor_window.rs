@@ -140,7 +140,16 @@ impl<'de, R: Runtime> CommandArg<'de, R> for WindowEditorInstance {
         let instances = window.state::<EditorInstances>();
         let instance = futures::executor::block_on(instances.0.read());
 
-        Ok(Self(instance.get(window.label()).cloned().unwrap()))
+        instance
+            .get(window.label())
+            .cloned()
+            .map(Self)
+            .ok_or_else(|| {
+                tauri::ipc::InvokeError::from(format!(
+                    "No editor instance found for window '{}'",
+                    window.label()
+                ))
+            })
     }
 }
 

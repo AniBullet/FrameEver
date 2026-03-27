@@ -213,6 +213,7 @@ async fn create_pipeline(
     max_output_size: Option<u32>,
     start_time: Timestamps,
     bitrate_multiplier: Option<f32>,
+    codec: crate::capture_pipeline::VideoCodec,
 ) -> anyhow::Result<Pipeline> {
     if let Some(mic_feed) = &mic_feed {
         debug!(
@@ -253,6 +254,7 @@ async fn create_pipeline(
             #[cfg(windows)]
             encoder_preferences: crate::capture_pipeline::EncoderPreferences::new(),
             bitrate_multiplier: bitrate_multiplier.unwrap_or(0.15),
+            codec,
         },
     )
     .await?;
@@ -282,6 +284,7 @@ pub struct ActorBuilder {
     camera_feed: Option<Arc<crate::feeds::camera::CameraFeedLock>>,
     max_output_size: Option<u32>,
     bitrate_multiplier: Option<f32>,
+    codec: crate::capture_pipeline::VideoCodec,
     #[cfg(target_os = "macos")]
     excluded_windows: Vec<scap_targets::WindowId>,
 }
@@ -296,6 +299,7 @@ impl ActorBuilder {
             camera_feed: None,
             max_output_size: None,
             bitrate_multiplier: None,
+            codec: crate::capture_pipeline::VideoCodec::H264,
             #[cfg(target_os = "macos")]
             excluded_windows: Vec::new(),
         }
@@ -329,6 +333,11 @@ impl ActorBuilder {
         self
     }
 
+    pub fn with_codec(mut self, codec: crate::capture_pipeline::VideoCodec) -> Self {
+        self.codec = codec;
+        self
+    }
+
     #[cfg(target_os = "macos")]
     pub fn with_excluded_windows(mut self, excluded_windows: Vec<scap_targets::WindowId>) -> Self {
         self.excluded_windows = excluded_windows;
@@ -353,6 +362,7 @@ impl ActorBuilder {
             },
             self.max_output_size,
             self.bitrate_multiplier,
+            self.codec,
         )
         .await
     }
@@ -364,6 +374,7 @@ pub async fn spawn_instant_recording_actor(
     inputs: RecordingBaseInputs,
     max_output_size: Option<u32>,
     bitrate_multiplier: Option<f32>,
+    codec: crate::capture_pipeline::VideoCodec,
 ) -> anyhow::Result<ActorHandle> {
     ensure_dir(&recording_dir)?;
 
@@ -461,6 +472,7 @@ pub async fn spawn_instant_recording_actor(
                 max_output_size,
                 timestamps,
                 bitrate_multiplier,
+                codec,
             )
             .await?;
 
@@ -503,13 +515,17 @@ pub async fn spawn_instant_recording_actor(
 fn current_time_f64() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs_f64()
 }
 
 fn clamp_size(input: (u32, u32), max: (u32, u32)) -> (u32, u32) {
+    let input = (input.0.max(1), input.1.max(1));
+
+    let ratio = input.0 as f64 / input.1 as f64;
+
     // 16/9-ish
-    if input.0 >= input.1 && (input.0 as f64 / input.1 as f64) <= 16.0 / 9.0 {
+    if input.0 >= input.1 && ratio <= 16.0 / 9.0 {
         let width = ensure_even(max.0.min(input.0));
 
         let height_ratio = input.1 as f64 / input.0 as f64;
@@ -518,7 +534,7 @@ fn clamp_size(input: (u32, u32), max: (u32, u32)) -> (u32, u32) {
         (width, height)
     }
     // 9/16-ish
-    else if input.0 <= input.1 && (input.0 as f64 / input.1 as f64) >= 9.0 / 16.0 {
+    else if input.0 <= input.1 && ratio >= 9.0 / 16.0 {
         let height = ensure_even(max.0.min(input.1));
 
         let width_ratio = input.0 as f64 / input.1 as f64;
@@ -527,7 +543,7 @@ fn clamp_size(input: (u32, u32), max: (u32, u32)) -> (u32, u32) {
         (width, height)
     }
     // ultrawide
-    else if input.0 >= input.1 && (input.0 as f64 / input.1 as f64) > 16.0 / 9.0 {
+    else if input.0 >= input.1 && ratio > 16.0 / 9.0 {
         let height = ensure_even(max.1.min(input.1));
 
         let width_ratio = input.0 as f64 / input.1 as f64;
@@ -536,16 +552,13 @@ fn clamp_size(input: (u32, u32), max: (u32, u32)) -> (u32, u32) {
         (width, height)
     }
     // ultratall
-    else if input.0 < input.1 && (input.0 as f64 / input.1 as f64) <= 9.0 / 16.0 {
-        // swapped since max_width/height assume horizontal
+    else {
         let width = ensure_even(max.1.min(input.0));
 
         let height_ratio = input.1 as f64 / input.0 as f64;
         let height = ensure_even((height_ratio * width as f64).round() as u32);
 
         (width, height)
-    } else {
-        unreachable!()
     }
 }
 

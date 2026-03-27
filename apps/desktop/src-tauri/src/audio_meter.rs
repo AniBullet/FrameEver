@@ -94,7 +94,7 @@ impl PartialOrd for MinNonNan {
 
 impl Ord for MinNonNan {
     fn cmp(&self, other: &MinNonNan) -> Ordering {
-        self.partial_cmp(other).unwrap()
+        self.partial_cmp(other).unwrap_or(Ordering::Equal)
     }
 }
 

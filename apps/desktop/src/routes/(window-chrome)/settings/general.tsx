@@ -36,6 +36,7 @@ import {
 	type MainWindowRecordingStartBehaviour,
 	type PostDeletionBehaviour,
 	type PostStudioRecordingBehaviour,
+	type RecordingCodec,
 	type RecordingQuality,
 	type WindowExclusion,
 } from "~/utils/tauri";
@@ -79,6 +80,7 @@ const createDefaultGeneralSettings = (): ExtendedGeneralSettingsStore => ({
 	crashRecoveryRecording: true,
 	maxFps: 60,
 	recordingQuality: "standard",
+	recordingCodec: "h264",
 });
 
 const deriveInitialSettings = (
@@ -359,6 +361,7 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 			| PostStudioRecordingBehaviour
 			| PostDeletionBehaviour
 			| RecordingQuality
+			| RecordingCodec
 			| number,
 	>(props: {
 		label: string;
@@ -504,11 +507,22 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 
 				<SettingGroup title={t("general.recording")}>
 					<SelectSettingItem
+						label={t("general.recording.codec")}
+						description={t("general.recording.codec.description")}
+						value={settings.recordingCodec ?? "h264"}
+						onChange={(value) => handleChange("recordingCodec", value)}
+						options={[
+							{ text: "H.264", value: "h264" as RecordingCodec },
+							{ text: "H.265 (HEVC)", value: "h265" as RecordingCodec },
+						]}
+					/>
+					<SelectSettingItem
 						label={t("general.recording.quality")}
 						description={t("general.recording.quality.description")}
 						value={settings.recordingQuality ?? "standard"}
 						onChange={(value) => handleChange("recordingQuality", value)}
 						options={[
+							{ text: t("general.recording.quality.ultra"), value: "ultra" },
 							{ text: t("general.recording.quality.high"), value: "high" },
 							{
 								text: t("general.recording.quality.standard"),

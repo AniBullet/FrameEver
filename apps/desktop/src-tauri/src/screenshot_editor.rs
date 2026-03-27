@@ -227,7 +227,10 @@ impl ScreenshotEditorInstances {
                     let studio_meta = StudioRecordingMeta::SingleSegment { segment };
                     RecordingMeta {
                         platform: None,
-                        project_path: path.parent().unwrap().to_path_buf(),
+                        project_path: path
+                            .parent()
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_else(|| path.clone()),
                         pretty_name: "Screenshot".to_string(),
                         sharing: None,
                         inner: RecordingMetaInner::Studio(Box::new(studio_meta.clone())),

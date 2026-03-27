@@ -13,6 +13,7 @@ pub mod sources;
 pub mod studio_recording;
 pub mod sync_calibration;
 
+pub use capture_pipeline::VideoCodec;
 pub use resolution_limits::{H264_MAX_DIMENSION, calculate_gpu_compatible_size};
 
 #[cfg(any(test, feature = "test-utils"))]

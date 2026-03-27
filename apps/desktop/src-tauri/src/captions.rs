@@ -946,13 +946,15 @@ pub async fn save_captions(
                 segment.insert(
                     "start".to_string(),
                     serde_json::Value::Number(
-                        serde_json::Number::from_f64(seg.start as f64).unwrap(),
+                        serde_json::Number::from_f64(seg.start as f64)
+                            .unwrap_or_else(|| serde_json::Number::from(0)),
                     ),
                 );
                 segment.insert(
                     "end".to_string(),
                     serde_json::Value::Number(
-                        serde_json::Number::from_f64(seg.end as f64).unwrap(),
+                        serde_json::Number::from_f64(seg.end as f64)
+                            .unwrap_or_else(|| serde_json::Number::from(0)),
                     ),
                 );
                 segment.insert(
@@ -1038,19 +1040,22 @@ pub async fn save_captions(
     settings_obj.insert(
         "fadeDuration".to_string(),
         serde_json::Value::Number(
-            serde_json::Number::from_f64(settings.fade_duration as f64).unwrap(),
+            serde_json::Number::from_f64(settings.fade_duration as f64)
+                .unwrap_or_else(|| serde_json::Number::from(0)),
         ),
     );
     settings_obj.insert(
         "lingerDuration".to_string(),
         serde_json::Value::Number(
-            serde_json::Number::from_f64(settings.linger_duration as f64).unwrap(),
+            serde_json::Number::from_f64(settings.linger_duration as f64)
+                .unwrap_or_else(|| serde_json::Number::from(0)),
         ),
     );
     settings_obj.insert(
         "wordTransitionDuration".to_string(),
         serde_json::Value::Number(
-            serde_json::Number::from_f64(settings.word_transition_duration as f64).unwrap(),
+            serde_json::Number::from_f64(settings.word_transition_duration as f64)
+                .unwrap_or_else(|| serde_json::Number::from(0)),
         ),
     );
     settings_obj.insert(

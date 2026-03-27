@@ -657,11 +657,14 @@ fn get_codec_and_options(
                 options.set("profile", "baseline");
             }
             "h264_nvenc" => {
-                options.set("preset", "p4");
-                options.set("tune", "ll");
+                options.set("preset", "p6");
+                options.set("tune", "hq");
                 options.set("rc", "vbr");
                 options.set("spatial-aq", "1");
                 options.set("temporal-aq", "1");
+                options.set("rc-lookahead", "32");
+                options.set("bf", "3");
+                options.set("b_adapt", "1");
                 options.set("g", &keyframe_interval_str);
             }
             "h264_qsv" => {
@@ -686,12 +689,10 @@ fn get_codec_and_options(
                     match preset {
                         H264Preset::Slow => "slow",
                         H264Preset::Medium => "medium",
-                        H264Preset::Ultrafast | H264Preset::HighThroughput => "ultrafast",
+                        H264Preset::Ultrafast => "faster",
+                        H264Preset::HighThroughput => "medium",
                     },
                 );
-                if matches!(preset, H264Preset::Ultrafast | H264Preset::HighThroughput) {
-                    options.set("tune", "zerolatency");
-                }
                 options.set("vsync", "1");
                 options.set("g", &keyframe_interval_str);
                 options.set("keyint_min", &keyframe_interval_str);

@@ -668,9 +668,13 @@ pub async fn start_recording(
             win.hide().ok();
         }
     }
-    let _ = ShowCapWindow::InProgressRecording { countdown }
-        .show(&app)
-        .await;
+    let target_display = inputs.capture_target.display().map(|d| d.id());
+    let _ = ShowCapWindow::InProgressRecording {
+        countdown,
+        target_display,
+    }
+    .show(&app)
+    .await;
 
     if let Some(window) = CapWindowId::Main.get(&app) {
         let _ = general_settings
@@ -846,6 +850,20 @@ pub async fn start_recording(
                                 .or_else(|| general_settings.as_ref().map(|s| s.recording_quality))
                                 .unwrap_or(crate::general_settings::RecordingQuality::Standard);
 
+                            let codec = general_settings
+                                .as_ref()
+                                .map(|s| s.recording_codec)
+                                .unwrap_or_default();
+
+                            let video_codec = match codec {
+                                crate::general_settings::RecordingCodec::H264 => {
+                                    cap_recording::VideoCodec::H264
+                                }
+                                crate::general_settings::RecordingCodec::H265 => {
+                                    cap_recording::VideoCodec::H265
+                                }
+                            };
+
                             let mut builder = instant_recording::Actor::builder(
                                 recording_dir.clone(),
                                 inputs.capture_target.clone(),
@@ -857,7 +875,8 @@ pub async fn start_recording(
                                     .map(|settings| settings.instant_mode_max_resolution)
                                     .unwrap_or(1920),
                             )
-                            .with_bitrate_multiplier(quality.bits_per_pixel());
+                            .with_bitrate_multiplier(quality.bits_per_pixel(codec))
+                            .with_codec(video_codec);
 
                             #[cfg(target_os = "macos")]
                             {

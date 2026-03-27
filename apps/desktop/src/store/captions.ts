@@ -102,22 +102,24 @@ function createCaptionsStore() {
 					}));
 				}
 
-				// Try loading from localStorage as backup
-				try {
-					const localCaptionsData = JSON.parse(
-						localStorage.getItem(`captions-${videoPath}`) || "{}",
-					);
-					if (localCaptionsData.segments) {
-						setState("segments", localCaptionsData.segments);
+				if (!captionsData) {
+					// Only use localStorage as fallback when server data is unavailable
+					try {
+						const localCaptionsData = JSON.parse(
+							localStorage.getItem(`captions-${videoPath}`) || "{}",
+						);
+						if (localCaptionsData.segments) {
+							setState("segments", localCaptionsData.segments);
+						}
+						if (localCaptionsData.settings) {
+							setState("settings", {
+								...defaultCaptionSettings,
+								...localCaptionsData.settings,
+							});
+						}
+					} catch (e) {
+						console.error("Error loading saved captions from localStorage:", e);
 					}
-					if (localCaptionsData.settings) {
-						setState("settings", {
-							...defaultCaptionSettings,
-							...localCaptionsData.settings,
-						});
-					}
-				} catch (e) {
-					console.error("Error loading saved captions from localStorage:", e);
 				}
 			} catch (e) {
 				console.error("Error loading captions:", e);

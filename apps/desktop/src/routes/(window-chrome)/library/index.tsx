@@ -1,6 +1,7 @@
 import { createQuery, queryOptions } from "@tanstack/solid-query";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { createMemo, createSignal, onMount, Show } from "solid-js";
+import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { useI18n } from "~/i18n";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import { commands, events, type LibraryItem } from "~/utils/tauri";
@@ -25,6 +26,8 @@ const libraryQuery = queryOptions<LibraryItem[]>({
 	},
 	reconcile: "id",
 	refetchOnMount: "always",
+	staleTime: 0,
+	refetchOnWindowFocus: "always",
 });
 
 export default function Library() {
@@ -46,6 +49,15 @@ export default function Library() {
 
 	onMount(() => {
 		library.refetch();
+
+		const unlistenFocus = getCurrentWindow().onFocusChanged(
+			({ payload: focused }) => {
+				if (focused) library.refetch();
+			},
+		);
+		onCleanup(() => {
+			unlistenFocus.then((u) => u());
+		});
 	});
 
 	createTauriEventListener(events.recordingDeleted, () => library.refetch());
@@ -160,14 +172,22 @@ export default function Library() {
 		setContextMenu({ item, x: e.clientX, y: e.clientY });
 	};
 
+	const deleteAllPathsForItem = async (item: LibraryItem) => {
+		if (item.capProjectPath) {
+			await commands.deleteLibraryItem(item.capProjectPath).catch(() => {});
+		}
+		if (item.exportedFilePath) {
+			await commands.deleteLibraryItem(item.exportedFilePath).catch(() => {});
+		}
+	};
+
 	const handleContextMenuDelete = async (item: LibraryItem) => {
 		const message =
 			item.itemType === "video"
 				? t("library.detail.confirmDeleteRecording")
 				: t("library.detail.confirmDeleteScreenshot");
 		if (!(await ask(message))) return;
-		const pathToDelete = item.capProjectPath || item.exportedFilePath;
-		if (pathToDelete) await commands.deleteLibraryItem(pathToDelete);
+		await deleteAllPathsForItem(item);
 		library.refetch();
 		setContextMenu(null);
 	};
@@ -181,8 +201,7 @@ export default function Library() {
 				: t("library.batch.deleteConfirm", { count: String(toDelete.length) });
 		if (!(await ask(msg))) return;
 		for (const item of toDelete) {
-			const path = item.capProjectPath || item.exportedFilePath;
-			if (path) await commands.deleteLibraryItem(path);
+			await deleteAllPathsForItem(item);
 		}
 		setSelectedIds(new Set<string>());
 		library.refetch();

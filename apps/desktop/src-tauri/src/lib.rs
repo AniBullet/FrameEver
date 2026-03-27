@@ -1637,7 +1637,9 @@ struct SerializedEditorInstance {
 #[specta::specta]
 #[instrument(skip(window))]
 async fn create_editor_instance(window: Window) -> Result<SerializedEditorInstance, String> {
-    let CapWindowId::Editor { id } = CapWindowId::from_str(window.label()).unwrap() else {
+    let CapWindowId::Editor { id } = CapWindowId::from_str(window.label())
+        .map_err(|_| format!("Invalid window label: {}", window.label()))?
+    else {
         return Err("Invalid window".to_string());
     };
 
@@ -1673,7 +1675,9 @@ async fn create_editor_instance(window: Window) -> Result<SerializedEditorInstan
 #[specta::specta]
 #[instrument(skip(window))]
 async fn get_editor_project_path(window: Window) -> Result<PathBuf, String> {
-    let CapWindowId::Editor { id } = CapWindowId::from_str(window.label()).unwrap() else {
+    let CapWindowId::Editor { id } = CapWindowId::from_str(window.label())
+        .map_err(|_| format!("Invalid window label: {}", window.label()))?
+    else {
         return Err("Invalid window".to_string());
     };
 
@@ -2209,7 +2213,9 @@ pub struct LibraryItem {
     pub exported_file_path: Option<PathBuf>,
     pub thumbnail_path: Option<PathBuf>,
     pub created_at: f64,
+    pub file_size: Option<f64>,
     pub meta: Option<RecordingMetaWithMetadata>,
+    pub is_editable: bool,
 }
 
 #[tauri::command]
@@ -2251,9 +2257,12 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                 } else {
                     None
                 };
-                let can_edit = meta
+                let is_editable = meta
                     .as_ref()
                     .is_some_and(|m| matches!(m.inner.inner, RecordingMetaInner::Studio(_)));
+
+                let output_mp4 = path.join("content/output.mp4");
+                let file_size = std::fs::metadata(&output_mp4).ok().map(|m| m.len() as f64);
 
                 items_map.insert(
                     id.clone(),
@@ -2265,11 +2274,13 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                             .unwrap_or(name.to_string()),
                         item_type: LibraryItemType::Video,
                         status: LibraryItemStatus::Editing,
-                        cap_project_path: if can_edit { Some(path) } else { None },
+                        cap_project_path: Some(path),
                         exported_file_path: None,
                         thumbnail_path: thumbnail,
                         created_at,
+                        file_size,
                         meta,
+                        is_editable,
                     },
                 );
             }
@@ -2302,9 +2313,13 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                     .unwrap_or_default()
                     .as_secs() as f64;
 
+                let export_file_size = std::fs::metadata(&path).ok().map(|m| m.len() as f64);
                 if let Some(existing) = items_map.get_mut(&id) {
                     existing.exported_file_path = Some(path);
                     existing.status = LibraryItemStatus::Exported;
+                    if existing.file_size.is_none() {
+                        existing.file_size = export_file_size;
+                    }
                 } else {
                     items_map.insert(
                         id.clone(),
@@ -2317,7 +2332,9 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                             exported_file_path: Some(path),
                             thumbnail_path: None,
                             created_at,
+                            file_size: export_file_size,
                             meta: None,
+                            is_editable: false,
                         },
                     );
                 }
@@ -2352,6 +2369,7 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                     .unwrap_or_default()
                     .as_secs();
 
+                let screenshot_file_size = std::fs::metadata(&path).ok().map(|m| m.len() as f64);
                 items_map.insert(
                     id.clone(),
                     LibraryItem {
@@ -2363,7 +2381,9 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                         exported_file_path: Some(path.clone()),
                         thumbnail_path: Some(path),
                         created_at: created_at as f64,
+                        file_size: screenshot_file_size,
                         meta: None,
+                        is_editable: false,
                     },
                 );
             }
@@ -2387,27 +2407,37 @@ async fn delete_library_item(app: AppHandle, path: String) -> Result<(), String>
     let path = PathBuf::from(path);
 
     if !path.exists() {
-        return Err("Path does not exist".to_string());
+        return Ok(());
+    }
+
+    let canonical_target = path
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve path: {e}"))?;
+    let allowed_roots = [
+        recordings_path(&app),
+        GeneralSettingsStore::exports_video_path(&app),
+        GeneralSettingsStore::exports_screenshot_path(&app),
+    ];
+
+    let is_allowed = allowed_roots
+        .iter()
+        .filter_map(|root| root.canonicalize().ok())
+        .any(|root| canonical_target.starts_with(root));
+    if !is_allowed {
+        return Err("Path is outside allowed library directories".to_string());
     }
 
     if path.is_dir() {
         tokio::fs::remove_dir_all(&path)
             .await
             .map_err(|e| format!("Failed to delete directory: {e}"))?;
-
-        RecordingDeleted { path: path.clone() }.emit(&app).ok();
     } else {
-        let parent = path.parent().ok_or("Failed to get parent directory")?;
-        tokio::fs::remove_dir_all(parent)
+        tokio::fs::remove_file(&path)
             .await
-            .map_err(|e| format!("Failed to delete parent directory: {e}"))?;
-
-        RecordingDeleted {
-            path: parent.to_path_buf(),
-        }
-        .emit(&app)
-        .ok();
+            .map_err(|e| format!("Failed to delete file: {e}"))?;
     }
+
+    RecordingDeleted { path }.emit(&app).ok();
 
     Ok(())
 }

@@ -165,6 +165,7 @@ async fn cleanup_camera_window(
     !still_exists
 }
 
+#[derive(Clone)]
 struct CursorMonitorInfo {
     x: f64,
     y: f64,
@@ -501,6 +502,7 @@ pub enum ShowCapWindow {
     },
     InProgressRecording {
         countdown: Option<u32>,
+        target_display: Option<DisplayId>,
     },
     Upgrade,
     ModeSelect,
@@ -751,7 +753,7 @@ impl ShowCapWindow {
         }
 
         #[cfg(target_os = "macos")]
-        if let Self::InProgressRecording { .. } = self
+        if let Self::InProgressRecording { target_display, .. } = self
             && let Some(window) = self.id(app).get(app)
         {
             use crate::panel_manager::is_window_handle_valid;
@@ -760,7 +762,34 @@ impl ShowCapWindow {
                 debug!("InProgressRecording: reusing existing window");
                 let width = 320.0;
                 let height = 150.0;
-                let recording_monitor = CursorMonitorInfo::get();
+                let recording_monitor = target_display
+                    .as_ref()
+                    .and_then(|id| Display::from_id(id))
+                    .map(|d| {
+                        let bounds = d.raw_handle().logical_bounds();
+                        let (x, y, w, h) = bounds
+                            .map(|b| {
+                                (
+                                    b.position().x(),
+                                    b.position().y(),
+                                    b.size().width(),
+                                    b.size().height(),
+                                )
+                            })
+                            .unwrap_or((
+                                0.0,
+                                0.0,
+                                DEFAULT_FALLBACK_DISPLAY_WIDTH,
+                                DEFAULT_FALLBACK_DISPLAY_HEIGHT,
+                            ));
+                        CursorMonitorInfo {
+                            x,
+                            y,
+                            width: w,
+                            height: h,
+                        }
+                    })
+                    .unwrap_or_else(CursorMonitorInfo::get);
                 let (pos_x, pos_y) = recording_monitor.bottom_center_position(width, height, 120.0);
                 let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
 
@@ -805,12 +834,39 @@ impl ShowCapWindow {
         }
 
         #[cfg(not(target_os = "macos"))]
-        if let Self::InProgressRecording { .. } = self
+        if let Self::InProgressRecording { target_display, .. } = self
             && let Some(window) = self.id(app).get(app)
         {
             let width = 320.0;
             let height = 150.0;
-            let recording_monitor = CursorMonitorInfo::get();
+            let recording_monitor = target_display
+                .as_ref()
+                .and_then(|id| Display::from_id(id))
+                .map(|d| {
+                    let bounds = d.raw_handle().logical_bounds();
+                    let (x, y, w, h) = bounds
+                        .map(|b| {
+                            (
+                                b.position().x(),
+                                b.position().y(),
+                                b.size().width(),
+                                b.size().height(),
+                            )
+                        })
+                        .unwrap_or((
+                            0.0,
+                            0.0,
+                            DEFAULT_FALLBACK_DISPLAY_WIDTH,
+                            DEFAULT_FALLBACK_DISPLAY_HEIGHT,
+                        ));
+                    CursorMonitorInfo {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    }
+                })
+                .unwrap_or_else(CursorMonitorInfo::get);
             let (pos_x, pos_y) = recording_monitor.bottom_center_position(width, height, 120.0);
             let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
             window.show().ok();
@@ -1694,12 +1750,44 @@ impl ShowCapWindow {
 
                 window
             }
-            Self::InProgressRecording { countdown } => {
+            Self::InProgressRecording {
+                countdown,
+                target_display,
+            } => {
                 let width = 320.0;
                 let height = 150.0;
 
                 let title = CapWindowId::RecordingControls.title();
                 let should_protect = should_protect_window(app, &title);
+
+                let target_monitor = target_display
+                    .as_ref()
+                    .and_then(|id| Display::from_id(id))
+                    .map(|d| {
+                        let bounds = d.raw_handle().logical_bounds();
+                        let (x, y, w, h) = bounds
+                            .map(|b| {
+                                (
+                                    b.position().x(),
+                                    b.position().y(),
+                                    b.size().width(),
+                                    b.size().height(),
+                                )
+                            })
+                            .unwrap_or((
+                                0.0,
+                                0.0,
+                                DEFAULT_FALLBACK_DISPLAY_WIDTH,
+                                DEFAULT_FALLBACK_DISPLAY_HEIGHT,
+                            ));
+                        CursorMonitorInfo {
+                            x,
+                            y,
+                            width: w,
+                            height: h,
+                        }
+                    })
+                    .unwrap_or(cursor_monitor);
 
                 #[cfg(target_os = "macos")]
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory)
@@ -1745,15 +1833,15 @@ impl ShowCapWindow {
                     ))
                     .build()?;
 
-                let (pos_x, pos_y) = cursor_monitor.bottom_center_position(width, height, 120.0);
+                let (pos_x, pos_y) = target_monitor.bottom_center_position(width, height, 120.0);
                 let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
 
                 debug!(
-                    "InProgressRecording window: cursor_monitor=({}, {}, {}, {}), pos=({}, {})",
-                    cursor_monitor.x,
-                    cursor_monitor.y,
-                    cursor_monitor.width,
-                    cursor_monitor.height,
+                    "InProgressRecording window: target_monitor=({}, {}, {}, {}), pos=({}, {})",
+                    target_monitor.x,
+                    target_monitor.y,
+                    target_monitor.width,
+                    target_monitor.height,
                     pos_x,
                     pos_y
                 );
@@ -2014,8 +2102,12 @@ impl ShowCapWindow {
             ShowCapWindow::Settings { .. } => CapWindowId::Settings,
             ShowCapWindow::Editor { project_path } => {
                 let state = app.state::<EditorWindowIds>();
-                let s = state.ids.lock().unwrap();
-                let id = s.iter().find(|(path, _)| path == project_path).unwrap().1;
+                let s = state.ids.lock().unwrap_or_else(|e| e.into_inner());
+                let id = s
+                    .iter()
+                    .find(|(path, _)| path == project_path)
+                    .map(|(_, id)| *id)
+                    .unwrap_or(0);
                 CapWindowId::Editor { id }
             }
             ShowCapWindow::RecordingsOverlay => CapWindowId::RecordingsOverlay,
@@ -2036,8 +2128,12 @@ impl ShowCapWindow {
             ShowCapWindow::ModeSelect => CapWindowId::ModeSelect,
             ShowCapWindow::ScreenshotEditor { path } => {
                 let state = app.state::<ScreenshotEditorWindowIds>();
-                let s = state.ids.lock().unwrap();
-                let id = s.iter().find(|(p, _)| p == path).unwrap().1;
+                let s = state.ids.lock().unwrap_or_else(|e| e.into_inner());
+                let id = s
+                    .iter()
+                    .find(|(p, _)| p == path)
+                    .map(|(_, id)| *id)
+                    .unwrap_or(0);
                 CapWindowId::ScreenshotEditor { id }
             }
             ShowCapWindow::Library => CapWindowId::Library,

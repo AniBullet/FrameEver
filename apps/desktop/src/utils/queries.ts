@@ -228,7 +228,10 @@ export function createLicenseQuery() {
 		},
 	}));
 
-	generalSettingsStore.listen(() => query.refetch());
+	const unlistenPromise = generalSettingsStore.listen(() => query.refetch());
+	onCleanup(() => {
+		unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
+	});
 
 	return query;
 }

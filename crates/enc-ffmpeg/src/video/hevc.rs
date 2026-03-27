@@ -468,11 +468,14 @@ fn get_codec_and_options(
                 options.set("max_ref_frames", "1");
             }
             "hevc_nvenc" => {
-                options.set("preset", "p4");
-                options.set("tune", "ll");
+                options.set("preset", "p6");
+                options.set("tune", "hq");
                 options.set("rc", "vbr");
                 options.set("spatial-aq", "1");
                 options.set("temporal-aq", "1");
+                options.set("rc-lookahead", "32");
+                options.set("bf", "3");
+                options.set("b_adapt", "1");
                 options.set("tier", "main");
                 options.set("g", &keyframe_interval_str);
             }
@@ -498,12 +501,9 @@ fn get_codec_and_options(
                     match preset {
                         HevcPreset::Slow => "slow",
                         HevcPreset::Medium => "medium",
-                        HevcPreset::Ultrafast => "ultrafast",
+                        HevcPreset::Ultrafast => "faster",
                     },
                 );
-                if let HevcPreset::Ultrafast = preset {
-                    options.set("tune", "zerolatency");
-                }
                 options.set("g", &keyframe_interval_str);
             }
             _ => {}

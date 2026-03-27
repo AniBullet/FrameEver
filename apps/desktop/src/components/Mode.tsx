@@ -3,7 +3,8 @@ import { createSignal } from "solid-js";
 import Tooltip from "~/components/Tooltip";
 import { useI18n } from "~/i18n";
 import { useRecordingOptions } from "~/routes/(window-chrome)/OptionsContext";
-import { commands } from "~/utils/tauri";
+import { createCurrentRecordingQuery } from "~/utils/queries";
+import { commands, type RecordingMode } from "~/utils/tauri";
 
 interface ModeProps {
 	onInfoClick?: () => void;
@@ -13,6 +14,18 @@ const Mode = (props: ModeProps) => {
 	const { t } = useI18n();
 	const { rawOptions, setOptions } = useRecordingOptions();
 	const [isInfoHovered, setIsInfoHovered] = createSignal(false);
+	const currentRecording = createCurrentRecordingQuery();
+
+	let switching = false;
+	const switchMode = (mode: RecordingMode) => {
+		if (switching || rawOptions.mode === mode || !!currentRecording.data)
+			return;
+		switching = true;
+		setOptions({ mode });
+		commands.setRecordingMode(mode).finally(() => {
+			switching = false;
+		});
+	};
 
 	const handleInfoClick = () => {
 		if (props.onInfoClick) {
@@ -41,10 +54,7 @@ const Mode = (props: ModeProps) => {
 					closeDelay={0}
 				>
 					<div
-						onClick={() => {
-							setOptions({ mode: "instant" });
-							commands.setRecordingMode("instant");
-						}}
+						onClick={() => switchMode("instant")}
 						class={`flex justify-center items-center transition-all duration-200 rounded-full size-7 hover:cursor-pointer ${
 							rawOptions.mode === "instant"
 								? "ring-2 ring-offset-1 ring-offset-gray-1 bg-gray-7 hover:bg-gray-7 ring-blue-500"
@@ -64,10 +74,7 @@ const Mode = (props: ModeProps) => {
 					closeDelay={0}
 				>
 					<div
-						onClick={() => {
-							setOptions({ mode: "studio" });
-							commands.setRecordingMode("studio");
-						}}
+						onClick={() => switchMode("studio")}
 						class={`flex justify-center items-center transition-all duration-200 rounded-full size-7 hover:cursor-pointer ${
 							rawOptions.mode === "studio"
 								? "ring-2 ring-offset-1 ring-offset-gray-1 bg-gray-7 hover:bg-gray-7 ring-blue-500"
@@ -87,10 +94,7 @@ const Mode = (props: ModeProps) => {
 					closeDelay={0}
 				>
 					<div
-						onClick={() => {
-							setOptions({ mode: "screenshot" });
-							commands.setRecordingMode("screenshot");
-						}}
+						onClick={() => switchMode("screenshot")}
 						class={`flex justify-center items-center transition-all duration-200 rounded-full size-7 hover:cursor-pointer ${
 							rawOptions.mode === "screenshot"
 								? "ring-2 ring-offset-1 ring-offset-gray-1 bg-gray-7 hover:bg-gray-7 ring-blue-500"
@@ -105,10 +109,7 @@ const Mode = (props: ModeProps) => {
 			{isInfoHovered() && (
 				<>
 					<div
-						onClick={() => {
-							setOptions({ mode: "instant" });
-							commands.setRecordingMode("instant");
-						}}
+						onClick={() => switchMode("instant")}
 						class={`flex justify-center items-center transition-all duration-200 rounded-full size-7 hover:cursor-pointer ${
 							rawOptions.mode === "instant"
 								? "ring-2 ring-offset-1 ring-offset-gray-1 bg-gray-5 hover:bg-gray-7 ring-blue-500"
@@ -119,10 +120,7 @@ const Mode = (props: ModeProps) => {
 					</div>
 
 					<div
-						onClick={() => {
-							setOptions({ mode: "studio" });
-							commands.setRecordingMode("studio");
-						}}
+						onClick={() => switchMode("studio")}
 						class={`flex justify-center items-center transition-all duration-200 rounded-full size-7 hover:cursor-pointer ${
 							rawOptions.mode === "studio"
 								? "ring-2 ring-offset-1 ring-offset-gray-1 bg-gray-5 hover:bg-gray-7 ring-blue-10"
@@ -133,10 +131,7 @@ const Mode = (props: ModeProps) => {
 					</div>
 
 					<div
-						onClick={() => {
-							setOptions({ mode: "screenshot" });
-							commands.setRecordingMode("screenshot");
-						}}
+						onClick={() => switchMode("screenshot")}
 						class={`flex justify-center items-center transition-all duration-200 rounded-full size-7 hover:cursor-pointer ${
 							rawOptions.mode === "screenshot"
 								? "ring-2 ring-offset-1 ring-offset-gray-1 bg-gray-5 hover:bg-gray-7 ring-blue-10"

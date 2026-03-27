@@ -252,6 +252,13 @@ export function createImageDataWS(
 		if (isCleanedUp) return;
 		isCleanedUp = true;
 
+		if (
+			ws.readyState === WebSocket.OPEN ||
+			ws.readyState === WebSocket.CONNECTING
+		) {
+			ws.close();
+		}
+
 		if (producer) {
 			producer.signalShutdown();
 			producer = null;
@@ -436,6 +443,10 @@ export function createImageDataWS(
 				});
 			}
 
+			if (strideWorker) {
+				strideWorker.onmessage = null;
+				strideWorker.terminate();
+			}
 			strideWorker = new StrideCorrectionWorker();
 			strideWorker.onmessage = (e: MessageEvent<StrideCorrectionResponse>) => {
 				if (e.data.type !== "corrected" || !directCanvas || !directCtx) return;

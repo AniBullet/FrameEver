@@ -6,3 +6,4 @@ pub mod mft;
 pub mod video;
 
 pub use video::H264Encoder;
+pub use video::HevcEncoder;

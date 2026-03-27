@@ -42,8 +42,12 @@ impl ScreenCaptureFormat for Direct3DCapture {
 
     fn audio_info() -> AudioInfo {
         let host = cpal::default_host();
-        let output_device = host.default_output_device().unwrap();
-        let supported_config = output_device.default_output_config().unwrap();
+        let output_device = host
+            .default_output_device()
+            .expect("No default audio output device found. System audio capture requires an active audio device.");
+        let supported_config = output_device
+            .default_output_config()
+            .expect("Failed to get default audio output config from the audio device");
 
         let mut info = AudioInfo::from_stream_config(&supported_config);
         let sample_format = info.sample_format;
