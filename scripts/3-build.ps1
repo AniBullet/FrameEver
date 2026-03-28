@@ -26,10 +26,14 @@ if (-not (Test-Path "$PSScriptRoot\..\node_modules")) {
     $allOk = $false
 }
 
+$projectRoot = "$PSScriptRoot\.."
+$nativeDepsDir = "$projectRoot\target\native-deps"
 $ffmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
-if (-not $ffmpegDir -or -not (Test-Path "$ffmpegDir\include\libavutil\avutil.h")) {
+if ((Test-Path "$nativeDepsDir\include\libavutil\avutil.h")) {
+    $ffmpegDir = (Resolve-Path $nativeDepsDir).Path
+} elseif (-not $ffmpegDir -or -not (Test-Path "$ffmpegDir\include\libavutil\avutil.h")) {
     Write-Host "  ERROR: FFmpeg development files not found" -ForegroundColor Red
-    Write-Host "  FFMPEG_DIR=$ffmpegDir" -ForegroundColor Yellow
+    Write-Host "  Checked: target/native-deps and FFMPEG_DIR=$ffmpegDir" -ForegroundColor Yellow
     Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
     $allOk = $false
 }
@@ -72,30 +76,33 @@ Write-Host ""
 
 Write-Host "Setting up build environment..." -ForegroundColor Gray
 
-$ffmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
-if ($ffmpegDir -and (Test-Path $ffmpegDir)) {
-    $env:FFMPEG_DIR = $ffmpegDir
-    $pkgConfigDir = "$ffmpegDir\lib\pkgconfig"
-    if (Test-Path $pkgConfigDir) {
-        $env:PKG_CONFIG_PATH = $pkgConfigDir
-    }
-    Write-Host "  OK FFmpeg environment configured" -ForegroundColor Green
-}
-else {
-    $vcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
-    if ($vcpkgRoot -and (Test-Path $vcpkgRoot)) {
-        $env:VCPKG_ROOT = $vcpkgRoot
-        Write-Host "  OK vcpkg environment configured" -ForegroundColor Green
-    }
-    else {
+if (Test-Path "$nativeDepsDir\lib\avcodec.lib") {
+    $env:FFMPEG_DIR = (Resolve-Path $nativeDepsDir).Path
+    Write-Host "  OK FFmpeg environment configured (target/native-deps)" -ForegroundColor Green
+} else {
+    $userFfmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
+    if ($userFfmpegDir -and (Test-Path $userFfmpegDir)) {
+        $env:FFMPEG_DIR = $userFfmpegDir
+        Write-Host "  OK FFmpeg environment configured (user env)" -ForegroundColor Green
+    } else {
         Write-Host "  ERROR: FFmpeg dev environment not found" -ForegroundColor Red
         Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
         exit 1
     }
 }
 
+$cargoConfig = "$projectRoot\.cargo\config.toml"
+if (Test-Path $cargoConfig) {
+    $configContent = Get-Content $cargoConfig -Raw
+    if ($configContent -match 'LIBCLANG_PATH\s*=\s*"([^"]+)"') {
+        $libclangFromConfig = $matches[1]
+        if (Test-Path $libclangFromConfig) {
+            $env:LIBCLANG_PATH = $libclangFromConfig
+        }
+    }
+}
 $libclangPath = [System.Environment]::GetEnvironmentVariable("LIBCLANG_PATH", "User")
-if ($libclangPath -and (Test-Path $libclangPath)) {
+if (-not $env:LIBCLANG_PATH -and $libclangPath -and (Test-Path $libclangPath)) {
     $env:LIBCLANG_PATH = $libclangPath
 }
 
