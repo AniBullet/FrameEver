@@ -366,6 +366,36 @@ impl HevcEncoder {
         Ok(())
     }
 
+    pub fn queue_frame_reusable(
+        &mut self,
+        frame: &mut frame::Video,
+        converted_frame: &mut Option<frame::Video>,
+        timestamp: Duration,
+        output: &mut format::context::Output,
+    ) -> Result<(), QueueFrameError> {
+        self.base.update_pts(frame, timestamp, &mut self.encoder);
+
+        let frame_to_send = if let Some(converter) = &mut self.converter {
+            let pts = frame.pts();
+            let converted = converted_frame.get_or_insert_with(|| {
+                frame::Video::new(self.output_format, self.output_width, self.output_height)
+            });
+            converter
+                .run(frame, converted)
+                .map_err(QueueFrameError::Converter)?;
+            converted.set_pts(pts);
+            converted as &frame::Video
+        } else {
+            frame as &frame::Video
+        };
+
+        self.base
+            .send_frame(frame_to_send, output, &mut self.encoder)
+            .map_err(QueueFrameError::Encode)?;
+
+        Ok(())
+    }
+
     pub fn queue_preconverted_frame(
         &mut self,
         mut frame: frame::Video,

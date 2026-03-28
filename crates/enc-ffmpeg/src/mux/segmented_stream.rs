@@ -301,6 +301,34 @@ impl SegmentedVideoEncoder {
         Ok(())
     }
 
+    pub fn queue_frame_reusable(
+        &mut self,
+        frame: &mut frame::Video,
+        converted_frame: &mut Option<frame::Video>,
+        timestamp: Duration,
+    ) -> Result<(), QueueFrameError> {
+        let segment_start = match self.segment_start_time {
+            Some(start) => start,
+            None => {
+                self.segment_start_time = Some(timestamp);
+                timestamp
+            }
+        };
+
+        self.last_frame_timestamp = Some(timestamp);
+
+        self.encoder
+            .queue_frame_reusable(frame, converted_frame, timestamp, &mut self.output)?;
+        self.frames_in_segment += 1;
+
+        let elapsed_in_segment = timestamp.saturating_sub(segment_start);
+        if elapsed_in_segment >= self.segment_duration {
+            self.on_segment_boundary(self.current_index, timestamp);
+        }
+
+        Ok(())
+    }
+
     fn on_segment_boundary(&mut self, completed_index: u32, timestamp: Duration) {
         let segment_start = self.segment_start_time.unwrap_or(Duration::ZERO);
         let segment_duration = timestamp.saturating_sub(segment_start);

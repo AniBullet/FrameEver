@@ -323,7 +323,6 @@ impl WindowsFragmentedM4SMuxer {
                 }
 
                 let frame_interval = Duration::from_secs_f64(1.0 / video_config.fps() as f64);
-                let mut last_ffmpeg_frame: Option<ffmpeg::frame::Video> = None;
                 let mut last_timestamp: Option<Duration> = None;
                 let mut first_timestamp: Option<Duration> = None;
 
@@ -333,75 +332,58 @@ impl WindowsFragmentedM4SMuxer {
                 let mut duplicated_frames = 0u64;
                 const SLOW_THRESHOLD_MS: u128 = 5;
 
+                let mut reusable_frame = ffmpeg::frame::Video::new(
+                    video_config.pixel_format,
+                    video_config.width,
+                    video_config.height,
+                );
+                let mut converted_frame: Option<ffmpeg::frame::Video> = None;
+                let mut has_valid_frame = false;
+
                 let normalize_timestamp =
                     |ts: Duration, first: &mut Option<Duration>| -> Duration {
                         if let Some(first_ts) = *first {
-                            ts.checked_sub(first_ts).unwrap_or(Duration::ZERO)
+                            ts.saturating_sub(first_ts)
                         } else {
                             *first = Some(ts);
                             Duration::ZERO
                         }
                     };
 
-                let encode_frame_fn = |ffmpeg_frame: ffmpeg::frame::Video,
-                                       timestamp: Duration,
-                                       slow_encode_count: &mut u32,
-                                       total_frames: &mut u64,
-                                       encoder: &Arc<Mutex<SegmentedVideoEncoder>>|
-                 -> anyhow::Result<()> {
-                    let encode_start = std::time::Instant::now();
-
-                    match encoder.lock() {
-                        Ok(mut enc) => {
-                            if let Err(e) = enc.queue_frame(ffmpeg_frame, timestamp) {
-                                warn!("Failed to encode frame: {e}");
-                            }
-                        }
-                        Err(_) => {
-                            return Err(anyhow!(
-                                "Encoder mutex poisoned - all subsequent frames would be lost"
-                            ));
-                        }
-                    }
-
-                    let encode_elapsed_ms = encode_start.elapsed().as_millis();
-
-                    if encode_elapsed_ms > SLOW_THRESHOLD_MS {
-                        *slow_encode_count += 1;
-                        if *slow_encode_count <= 5 || slow_encode_count.is_multiple_of(100) {
-                            debug!(
-                                elapsed_ms = encode_elapsed_ms,
-                                count = *slow_encode_count,
-                                "encoder.queue_frame exceeded {}ms threshold",
-                                SLOW_THRESHOLD_MS
-                            );
-                        }
-                    }
-
-                    *total_frames += 1;
-                    Ok(())
-                };
+                let mut next_frame_deadline = std::time::Instant::now();
 
                 loop {
+                    let now = std::time::Instant::now();
+                    let recv_timeout = if now >= next_frame_deadline {
+                        Duration::from_millis(1)
+                    } else {
+                        next_frame_deadline.saturating_duration_since(now)
+                    };
+
                     let convert_start = std::time::Instant::now();
 
-                    let (ffmpeg_frame, timestamp) = match video_rx.recv_timeout(frame_interval) {
-                        Ok(Some((frame, ts))) => match frame.as_ffmpeg() {
-                            Ok(f) => {
-                                last_ffmpeg_frame = Some(f.clone());
+                    let (got_new_frame, timestamp) = match video_rx.recv_timeout(recv_timeout) {
+                        Ok(Some((frame, ts))) => match frame.as_ffmpeg_into(&mut reusable_frame) {
+                            Ok(()) => {
+                                has_valid_frame = true;
                                 last_timestamp = Some(ts);
-                                (Some(f), ts)
+                                (true, ts)
                             }
                             Err(e) => {
                                 warn!("Failed to convert D3D11 frame: {e:?}");
-                                match (&last_ffmpeg_frame, last_timestamp) {
-                                    (Some(f), Some(last_ts)) => {
+                                match (has_valid_frame, last_timestamp) {
+                                    (true, Some(last_ts)) => {
                                         let new_ts = last_ts.saturating_add(frame_interval);
                                         last_timestamp = Some(new_ts);
                                         duplicated_frames += 1;
-                                        (Some(f.clone()), new_ts)
+                                        (false, new_ts)
                                     }
-                                    _ => (None, Duration::ZERO),
+                                    _ => {
+                                        next_frame_deadline = std::time::Instant::now()
+                                            .checked_add(frame_interval)
+                                            .unwrap_or(next_frame_deadline);
+                                        continue;
+                                    }
                                 }
                             }
                         },
@@ -413,19 +395,30 @@ impl WindowsFragmentedM4SMuxer {
                             loop {
                                 match video_rx.recv_timeout(Duration::from_millis(10)) {
                                     Ok(Some((frame, ts))) => {
-                                        if let Ok(f) = frame.as_ffmpeg() {
+                                        if frame.as_ffmpeg_into(&mut reusable_frame).is_ok() {
                                             let normalized_ts =
                                                 normalize_timestamp(ts, &mut first_timestamp);
-                                            if let Err(e) = encode_frame_fn(
-                                                f,
-                                                normalized_ts,
-                                                &mut slow_encode_count,
-                                                &mut total_frames,
-                                                &encoder_clone,
-                                            ) {
-                                                warn!("Failed to encode drained frame: {e}");
-                                                break;
+                                            let encode_start = std::time::Instant::now();
+                                            match encoder_clone.lock() {
+                                                Ok(mut enc) => {
+                                                    if let Err(e) = enc.queue_frame_reusable(
+                                                        &mut reusable_frame,
+                                                        &mut converted_frame,
+                                                        normalized_ts,
+                                                    ) {
+                                                        warn!(
+                                                            "Failed to encode drained frame: {e}"
+                                                        );
+                                                        break;
+                                                    }
+                                                }
+                                                Err(_) => break,
                                             }
+                                            let elapsed = encode_start.elapsed().as_millis();
+                                            if elapsed > SLOW_THRESHOLD_MS {
+                                                slow_encode_count += 1;
+                                            }
+                                            total_frames += 1;
                                             drained += 1;
                                         }
                                     }
@@ -444,35 +437,36 @@ impl WindowsFragmentedM4SMuxer {
                             }
                             break;
                         }
-                        Err(RecvTimeoutError::Timeout) => {
-                            match (&last_ffmpeg_frame, last_timestamp) {
-                                (Some(f), Some(last_ts)) => {
-                                    let new_ts = last_ts.saturating_add(frame_interval);
-                                    last_timestamp = Some(new_ts);
-                                    duplicated_frames += 1;
-                                    (Some(f.clone()), new_ts)
-                                }
-                                _ => continue,
+                        Err(RecvTimeoutError::Timeout) => match (has_valid_frame, last_timestamp) {
+                            (true, Some(last_ts)) => {
+                                let new_ts = last_ts.saturating_add(frame_interval);
+                                last_timestamp = Some(new_ts);
+                                duplicated_frames += 1;
+                                (false, new_ts)
                             }
-                        }
+                            _ => continue,
+                        },
                     };
 
                     let convert_elapsed_ms = convert_start.elapsed().as_millis();
 
-                    let Some(ffmpeg_frame) = ffmpeg_frame else {
+                    if !has_valid_frame {
                         match video_rx.recv() {
                             Ok(Some((frame, ts))) => {
-                                if let Ok(f) = frame.as_ffmpeg() {
-                                    last_ffmpeg_frame = Some(f);
+                                if frame.as_ffmpeg_into(&mut reusable_frame).is_ok() {
+                                    has_valid_frame = true;
                                     last_timestamp = Some(ts);
                                 }
                             }
                             Ok(None) | Err(_) => break,
                         }
+                        next_frame_deadline = std::time::Instant::now()
+                            .checked_add(frame_interval)
+                            .unwrap_or(next_frame_deadline);
                         continue;
-                    };
+                    }
 
-                    if convert_elapsed_ms > SLOW_THRESHOLD_MS {
+                    if got_new_frame && convert_elapsed_ms > SLOW_THRESHOLD_MS {
                         slow_convert_count += 1;
                         if slow_convert_count <= 5 || slow_convert_count.is_multiple_of(100) {
                             debug!(
@@ -485,15 +479,53 @@ impl WindowsFragmentedM4SMuxer {
                     }
 
                     let normalized_ts = normalize_timestamp(timestamp, &mut first_timestamp);
-                    if let Err(e) = encode_frame_fn(
-                        ffmpeg_frame,
-                        normalized_ts,
-                        &mut slow_encode_count,
-                        &mut total_frames,
-                        &encoder_clone,
-                    ) {
-                        error!("Encoder mutex poisoned - encoder thread likely panicked, stopping");
-                        return Err(e);
+
+                    let encode_start = std::time::Instant::now();
+                    match encoder_clone.lock() {
+                        Ok(mut enc) => {
+                            if let Err(e) = enc.queue_frame_reusable(
+                                &mut reusable_frame,
+                                &mut converted_frame,
+                                normalized_ts,
+                            ) {
+                                warn!("Failed to encode frame: {e}");
+                            }
+                        }
+                        Err(_) => {
+                            error!(
+                                "Encoder mutex poisoned - encoder thread likely panicked, stopping"
+                            );
+                            return Err(anyhow!(
+                                "Encoder mutex poisoned - all subsequent frames would be lost"
+                            ));
+                        }
+                    }
+
+                    let encode_elapsed_ms = encode_start.elapsed().as_millis();
+                    if encode_elapsed_ms > SLOW_THRESHOLD_MS {
+                        slow_encode_count += 1;
+                        if slow_encode_count <= 5 || slow_encode_count.is_multiple_of(100) {
+                            debug!(
+                                elapsed_ms = encode_elapsed_ms,
+                                count = slow_encode_count,
+                                "encoder.queue_frame exceeded {}ms threshold",
+                                SLOW_THRESHOLD_MS
+                            );
+                        }
+                    }
+
+                    total_frames += 1;
+
+                    next_frame_deadline = next_frame_deadline
+                        .checked_add(frame_interval)
+                        .unwrap_or_else(|| {
+                            std::time::Instant::now()
+                                .checked_add(frame_interval)
+                                .unwrap()
+                        });
+                    let now = std::time::Instant::now();
+                    if next_frame_deadline < now.checked_sub(frame_interval).unwrap_or(now) {
+                        next_frame_deadline = now;
                     }
                 }
 
@@ -773,7 +805,7 @@ impl WindowsFragmentedM4SCameraMuxer {
                 let normalize_timestamp =
                     |ts: Duration, first: &mut Option<Duration>| -> Duration {
                         if let Some(first_ts) = *first {
-                            ts.checked_sub(first_ts).unwrap_or(Duration::ZERO)
+                            ts.saturating_sub(first_ts)
                         } else {
                             *first = Some(ts);
                             Duration::ZERO

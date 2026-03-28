@@ -46,61 +46,51 @@ fn copy_frame_data(
     }
 }
 
+fn copy_into_ffmpeg_frame(
+    buffer: &scap_direct3d::FrameBuffer<'_>,
+    dest: &mut ffmpeg::frame::Video,
+) {
+    let width = buffer.width() as usize;
+    let height = buffer.height() as usize;
+    let dest_w = dest.width() as usize;
+    let dest_h = dest.height() as usize;
+    let copy_w = width.min(dest_w);
+    let copy_h = height.min(dest_h);
+    let src_bytes = buffer.data();
+    let src_stride = buffer.stride() as usize;
+    let row_length = copy_w * 4;
+    let dest_stride = dest.stride(0);
+    let dest_bytes = dest.data_mut(0);
+    copy_frame_data(
+        src_bytes,
+        src_stride,
+        dest_bytes,
+        dest_stride,
+        row_length,
+        copy_h,
+    );
+}
+
+fn pixel_format_to_ffmpeg(pf: PixelFormat) -> Pixel {
+    match pf {
+        PixelFormat::R8G8B8A8Unorm => Pixel::RGBA,
+        PixelFormat::B8G8R8A8Unorm => Pixel::BGRA,
+    }
+}
+
 impl super::AsFFmpeg for scap_direct3d::Frame {
     fn as_ffmpeg(&self) -> Result<ffmpeg::frame::Video, AsFFmpegError> {
         let buffer = self.as_buffer()?;
+        let ffmpeg_pixel = pixel_format_to_ffmpeg(self.pixel_format());
+        let mut ff_frame = ffmpeg::frame::Video::new(ffmpeg_pixel, self.width(), self.height());
+        copy_into_ffmpeg_frame(&buffer, &mut ff_frame);
+        Ok(ff_frame)
+    }
 
-        let width = self.width() as usize;
-        let height = self.height() as usize;
-
-        let src_bytes = buffer.data();
-        let src_stride = buffer.stride() as usize;
-        let row_length = width * 4;
-
-        match self.pixel_format() {
-            PixelFormat::R8G8B8A8Unorm => {
-                let mut ff_frame = ffmpeg::frame::Video::new(
-                    ffmpeg::format::Pixel::RGBA,
-                    self.width(),
-                    self.height(),
-                );
-
-                let dest_stride = ff_frame.stride(0);
-                let dest_bytes = ff_frame.data_mut(0);
-
-                copy_frame_data(
-                    src_bytes,
-                    src_stride,
-                    dest_bytes,
-                    dest_stride,
-                    row_length,
-                    height,
-                );
-
-                Ok(ff_frame)
-            }
-            PixelFormat::B8G8R8A8Unorm => {
-                let mut ff_frame = ffmpeg::frame::Video::new(
-                    ffmpeg::format::Pixel::BGRA,
-                    self.width(),
-                    self.height(),
-                );
-
-                let dest_stride = ff_frame.stride(0);
-                let dest_bytes = ff_frame.data_mut(0);
-
-                copy_frame_data(
-                    src_bytes,
-                    src_stride,
-                    dest_bytes,
-                    dest_stride,
-                    row_length,
-                    height,
-                );
-
-                Ok(ff_frame)
-            }
-        }
+    fn as_ffmpeg_into(&self, dest: &mut ffmpeg::frame::Video) -> Result<(), AsFFmpegError> {
+        let buffer = self.as_buffer()?;
+        copy_into_ffmpeg_frame(&buffer, dest);
+        Ok(())
     }
 }
 

@@ -27,9 +27,6 @@ use std::{
 use tokio_util::{future::FutureExt as _, sync::CancellationToken};
 use tracing::*;
 
-// const WINDOW_DURATION: Duration = Duration::from_secs(3);
-// const LOG_INTERVAL: Duration = Duration::from_secs(5);
-
 #[derive(Debug)]
 pub struct Direct3DCapture;
 
@@ -143,27 +140,51 @@ impl ScreenFrame {
                 };
                 let mut ff_frame =
                     ffmpeg::frame::Video::new(ffmpeg_pixel, scaled.width, scaled.height);
-                let dest_stride = ff_frame.stride(0);
-                let dest_bytes = ff_frame.data_mut(0);
-                let row_length = (scaled.width * 4) as usize;
-
-                for row in 0..scaled.height as usize {
-                    let src_start = row * row_length;
-                    let dst_start = row * dest_stride;
-                    let copy_len = row_length.min(
-                        scaled
-                            .pixel_data
-                            .len()
-                            .saturating_sub(src_start)
-                            .min(dest_bytes.len().saturating_sub(dst_start)),
-                    );
-                    if copy_len > 0 {
-                        dest_bytes[dst_start..dst_start + copy_len]
-                            .copy_from_slice(&scaled.pixel_data[src_start..src_start + copy_len]);
-                    }
-                }
-
+                Self::copy_scaled_into(&mut ff_frame, scaled);
                 Ok(ff_frame)
+            }
+        }
+    }
+
+    pub fn as_ffmpeg_into(
+        &self,
+        dest: &mut ffmpeg::frame::Video,
+    ) -> Result<(), ::windows::core::Error> {
+        match self {
+            ScreenFrame::Captured(frame) => {
+                use scap_ffmpeg::AsFFmpeg;
+                frame.as_ffmpeg_into(dest)
+            }
+            ScreenFrame::Scaled(scaled) => {
+                Self::copy_scaled_into(dest, scaled);
+                Ok(())
+            }
+        }
+    }
+
+    fn copy_scaled_into(dest: &mut ffmpeg::frame::Video, scaled: &ScaledScreenFrame) {
+        let dest_w = dest.width() as usize;
+        let dest_h = dest.height() as usize;
+        let dest_stride = dest.stride(0);
+        let dest_bytes = dest.data_mut(0);
+        let copy_w = (scaled.width as usize).min(dest_w);
+        let copy_h = (scaled.height as usize).min(dest_h);
+        let row_length = copy_w * 4;
+        let src_row_length = (scaled.width * 4) as usize;
+
+        for row in 0..copy_h {
+            let src_start = row * src_row_length;
+            let dst_start = row * dest_stride;
+            let copy_len = row_length.min(
+                scaled
+                    .pixel_data
+                    .len()
+                    .saturating_sub(src_start)
+                    .min(dest_bytes.len().saturating_sub(dst_start)),
+            );
+            if copy_len > 0 {
+                dest_bytes[dst_start..dst_start + copy_len]
+                    .copy_from_slice(&scaled.pixel_data[src_start..src_start + copy_len]);
             }
         }
     }

@@ -334,9 +334,17 @@ impl Muxer for WindowsMuxer {
                         let mut last_timestamp: Option<Duration> = None;
                         let mut frame_count: u64 = 0;
                         let mut frames_reused: u64 = 0;
+                        let mut next_frame_deadline = std::time::Instant::now();
 
                         let mut get_frame = || -> windows::core::Result<Option<(windows::Win32::Graphics::Direct3D11::ID3D11Texture2D, TimeSpan)>> {
-                            match video_rx.recv_timeout(frame_interval) {
+                            let now = std::time::Instant::now();
+                            let recv_timeout = if now >= next_frame_deadline {
+                                Duration::from_millis(1)
+                            } else {
+                                next_frame_deadline.saturating_duration_since(now)
+                            };
+
+                            match video_rx.recv_timeout(recv_timeout) {
                                 Ok(Some((frame, timestamp))) => {
                                     last_texture = Some(frame.texture().clone());
                                     last_timestamp = Some(timestamp);
@@ -363,6 +371,12 @@ impl Muxer for WindowsMuxer {
                                 }
                             }
 
+                            next_frame_deadline = next_frame_deadline.checked_add(frame_interval).unwrap_or_else(|| std::time::Instant::now().checked_add(frame_interval).unwrap());
+                            let now = std::time::Instant::now();
+                            if next_frame_deadline < now.checked_sub(frame_interval).unwrap_or(now) {
+                                next_frame_deadline = now;
+                            }
+
                             if let (Some(texture), Some(ts)) = (&last_texture, last_timestamp) {
                                 let normalized_ts = normalize_timestamp(ts, &mut first_timestamp);
                                 frame_count += 1;
@@ -376,6 +390,7 @@ impl Muxer for WindowsMuxer {
                                         last_timestamp = Some(timestamp);
                                         let normalized_ts = normalize_timestamp(timestamp, &mut first_timestamp);
                                         frame_count = 1;
+                                        next_frame_deadline = std::time::Instant::now().checked_add(frame_interval).unwrap_or(next_frame_deadline);
                                         let frame_time = duration_to_timespan(normalized_ts);
                                         Ok(Some((texture, frame_time)))
                                     }
@@ -448,24 +463,36 @@ impl Muxer for WindowsMuxer {
                     }
                     either::Right(mut sw_encoder) => {
                         trace!("Running software encoder with frame pacing");
-                        let mut last_ffmpeg_frame: Option<ffmpeg::frame::Video> = None;
+                        let mut reusable_frame = ffmpeg::frame::Video::new(
+                            video_config.pixel_format,
+                            video_config.width,
+                            video_config.height,
+                        );
+                        let mut converted_frame: Option<ffmpeg::frame::Video> = None;
+                        let mut has_valid_frame = false;
                         let mut first_timestamp: Option<Duration> = None;
                         let mut last_timestamp: Option<Duration> = None;
-
-                        use scap_ffmpeg::AsFFmpeg;
+                        let mut next_frame_deadline = std::time::Instant::now();
 
                         loop {
-                            let (ffmpeg_frame, ts) = match video_rx.recv_timeout(frame_interval) {
+                            let now = std::time::Instant::now();
+                            let recv_timeout = if now >= next_frame_deadline {
+                                Duration::from_millis(1)
+                            } else {
+                                next_frame_deadline.saturating_duration_since(now)
+                            };
+
+                            let (_got_new, ts) = match video_rx.recv_timeout(recv_timeout) {
                                 Ok(Some((frame, timestamp))) => {
                                     last_timestamp = Some(timestamp);
-                                    match frame.as_ffmpeg() {
-                                        Ok(f) => {
-                                            last_ffmpeg_frame = Some(f.clone());
-                                            (Some(f), timestamp)
+                                    match frame.as_ffmpeg_into(&mut reusable_frame) {
+                                        Ok(()) => {
+                                            has_valid_frame = true;
+                                            (true, timestamp)
                                         }
                                         Err(e) => {
                                             warn!("Failed to convert frame: {e:?}");
-                                            (last_ffmpeg_frame.clone(), timestamp)
+                                            (false, timestamp)
                                         }
                                     }
                                 }
@@ -474,7 +501,7 @@ impl Muxer for WindowsMuxer {
                                     if let Some(last_ts) = last_timestamp {
                                         let new_ts = last_ts.saturating_add(frame_interval);
                                         last_timestamp = Some(new_ts);
-                                        (last_ffmpeg_frame.clone(), new_ts)
+                                        (false, new_ts)
                                     } else {
                                         continue;
                                     }
@@ -482,18 +509,19 @@ impl Muxer for WindowsMuxer {
                                 Err(RecvTimeoutError::Disconnected) => break,
                             };
 
-                            let Some(ffmpeg_frame) = ffmpeg_frame else {
+                            if !has_valid_frame {
                                 match video_rx.recv() {
                                     Ok(Some((frame, timestamp))) => {
                                         last_timestamp = Some(timestamp);
-                                        if let Ok(f) = frame.as_ffmpeg() {
-                                            last_ffmpeg_frame = Some(f);
+                                        if frame.as_ffmpeg_into(&mut reusable_frame).is_ok() {
+                                            has_valid_frame = true;
                                         }
                                     }
                                     Ok(None) | Err(_) => break,
                                 }
+                                next_frame_deadline = std::time::Instant::now().checked_add(frame_interval).unwrap_or(next_frame_deadline);
                                 continue;
-                            };
+                            }
 
                             let normalized_ts = normalize_timestamp(ts, &mut first_timestamp);
 
@@ -504,14 +532,22 @@ impl Muxer for WindowsMuxer {
                             match &mut sw_encoder {
                                 SwEncoder::H264(encoder) => {
                                     encoder
-                                        .queue_frame(ffmpeg_frame, normalized_ts, &mut output)
+                                        .queue_frame_reusable(&mut reusable_frame, &mut converted_frame, normalized_ts, &mut output)
                                         .context("queue_frame")?;
                                 }
                                 SwEncoder::Hevc(encoder) => {
                                     encoder
-                                        .queue_frame(ffmpeg_frame, normalized_ts, &mut output)
+                                        .queue_frame_reusable(&mut reusable_frame, &mut converted_frame, normalized_ts, &mut output)
                                         .context("queue_frame")?;
                                 }
+                            }
+
+                            drop(output);
+
+                            next_frame_deadline = next_frame_deadline.checked_add(frame_interval).unwrap_or_else(|| std::time::Instant::now().checked_add(frame_interval).unwrap());
+                            let now = std::time::Instant::now();
+                            if next_frame_deadline < now.checked_sub(frame_interval).unwrap_or(now) {
+                                next_frame_deadline = now;
                             }
                         }
 
