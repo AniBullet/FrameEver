@@ -36,8 +36,9 @@ use audio::AppSounds;
 use camera::{CameraPreviewManager, CameraPreviewState};
 use cap_editor::{EditorInstance, EditorState};
 use cap_project::{
-    InstantRecordingMeta, Platform, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
-    SingleSegment, StudioRecordingMeta, StudioRecordingStatus, VideoMeta, XY, ZoomSegment,
+    InstantRecordingMeta, KeyboardTrackSegment, Platform, ProjectConfiguration, RecordingMeta,
+    RecordingMetaInner, SingleSegment, StudioRecordingMeta, StudioRecordingStatus, VideoMeta, XY,
+    ZoomSegment,
 };
 use cap_recording::{
     RecordingMode,
@@ -1927,6 +1928,51 @@ async fn generate_zoom_segments_from_clicks(
 
 #[tauri::command]
 #[specta::specta]
+#[instrument(skip(editor_instance))]
+async fn generate_keyboard_segments(
+    editor_instance: WindowEditorInstance,
+    grouping_threshold_ms: f64,
+    linger_duration_ms: f64,
+    show_modifiers: bool,
+    show_special_keys: bool,
+) -> Result<Vec<KeyboardTrackSegment>, String> {
+    let meta = editor_instance.meta();
+
+    let RecordingMetaInner::Studio(studio_meta) = &meta.inner else {
+        return Ok(vec![]);
+    };
+
+    let segments = match studio_meta.as_ref() {
+        StudioRecordingMeta::MultipleSegments { inner, .. } => &inner.segments,
+        _ => return Ok(vec![]),
+    };
+
+    let mut all_events = cap_project::KeyboardEvents { presses: vec![] };
+
+    for segment in segments {
+        let events = segment.keyboard_events(&meta);
+        all_events.presses.extend(events.presses);
+    }
+
+    all_events.presses.sort_by(|a, b| {
+        a.time_ms
+            .partial_cmp(&b.time_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let grouped = cap_project::group_key_events(
+        &all_events,
+        grouping_threshold_ms,
+        linger_duration_ms,
+        show_modifiers,
+        show_special_keys,
+    );
+
+    Ok(grouped)
+}
+
+#[tauri::command]
+#[specta::specta]
 #[instrument]
 async fn list_audio_devices() -> Result<Vec<String>, ()> {
     if !permissions::do_permissions_check(false)
@@ -2931,6 +2977,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
             set_project_config,
             update_project_config_in_memory,
             generate_zoom_segments_from_clicks,
+            generate_keyboard_segments,
             permissions::open_permission_settings,
             permissions::do_permissions_check,
             permissions::request_permission,
