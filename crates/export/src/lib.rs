@@ -61,8 +61,8 @@ impl ExporterBuilder {
         self
     }
 
-    pub fn with_output_path(mut self, path: PathBuf) -> Self {
-        self.output_path = Some(path);
+    pub fn with_output_path(mut self, output_path: PathBuf) -> Self {
+        self.output_path = Some(output_path);
         self
     }
 
