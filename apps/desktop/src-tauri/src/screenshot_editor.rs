@@ -101,6 +101,9 @@ impl ScreenshotEditorInstances {
             Entry::Vacant(entry) => {
                 let (frame_tx, frame_rx) = watch::channel(None);
                 let (ws_port, ws_shutdown_token) = create_watch_frame_ws(frame_rx).await;
+                if ws_port == 0 {
+                    return Err("Failed to start screenshot editor frame websocket".to_string());
+                }
 
                 let (data, width, height) = {
                     let key = path
@@ -113,6 +116,7 @@ impl ScreenshotEditorInstances {
                     if let Some(frame) = pending_frame {
                         let width = frame.width;
                         let height = frame.height;
+                        let channels = frame.channels;
 
                         if width > MAX_DIMENSION || height > MAX_DIMENSION {
                             return Err(format!(
@@ -122,7 +126,7 @@ impl ScreenshotEditorInstances {
 
                         let expected_len = width
                             .checked_mul(height)
-                            .and_then(|p| p.checked_mul(3))
+                            .and_then(|p| p.checked_mul(channels))
                             .ok_or_else(|| {
                                 format!("Image dimensions overflow: {width}x{height}")
                             })?;
@@ -133,16 +137,26 @@ impl ScreenshotEditorInstances {
 
                         if data.len() != expected_len {
                             return Err(format!(
-                                "Image data length mismatch: expected {expected_len} bytes for {width}x{height} frame, got {}",
+                                "Image data length mismatch: expected {expected_len} bytes for {width}x{height}x{channels} frame, got {}",
                                 data.len()
                             ));
                         }
 
-                        let rgb_img = RgbImage::from_raw(width, height, data).ok_or_else(|| {
-                            format!("Invalid RGB data for {width}x{height} frame")
-                        })?;
-                        let rgba_img: image::RgbaImage = rgb_img.convert();
-                        (rgba_img.into_raw(), width, height)
+                        let rgba_data = if channels == 4 {
+                            let rgba_img = image::RgbaImage::from_raw(width, height, data)
+                                .ok_or_else(|| {
+                                    format!("Invalid RGBA data for {width}x{height} frame")
+                                })?;
+                            rgba_img.into_raw()
+                        } else {
+                            let rgb_img =
+                                RgbImage::from_raw(width, height, data).ok_or_else(|| {
+                                    format!("Invalid RGB data for {width}x{height} frame")
+                                })?;
+                            let rgba_img: image::RgbaImage = rgb_img.convert();
+                            rgba_img.into_raw()
+                        };
+                        (rgba_data, width, height)
                     } else {
                         let image_path = if path.is_dir() {
                             let original = path.join("original.png");
@@ -227,10 +241,7 @@ impl ScreenshotEditorInstances {
                     let studio_meta = StudioRecordingMeta::SingleSegment { segment };
                     RecordingMeta {
                         platform: None,
-                        project_path: path
-                            .parent()
-                            .map(|p| p.to_path_buf())
-                            .unwrap_or_else(|| path.clone()),
+                        project_path: path.parent().unwrap().to_path_buf(),
                         pretty_name: "Screenshot".to_string(),
                         sharing: None,
                         inner: RecordingMetaInner::Studio(Box::new(studio_meta.clone())),
@@ -238,62 +249,61 @@ impl ScreenshotEditorInstances {
                     }
                 };
 
-                let (instance, adapter, device, queue, is_software_adapter) =
-                    if let Some(shared) = gpu_context::get_shared_gpu().await {
-                        (
-                            shared.instance.clone(),
-                            shared.adapter.clone(),
-                            shared.device.clone(),
-                            shared.queue.clone(),
-                            shared.is_software_adapter,
-                        )
-                    } else {
-                        let instance =
-                            Arc::new(wgpu::Instance::new(&wgpu::InstanceDescriptor::default()));
-                        let adapter = Arc::new(
-                            instance
-                                .request_adapter(&wgpu::RequestAdapterOptions {
-                                    power_preference: wgpu::PowerPreference::HighPerformance,
-                                    force_fallback_adapter: false,
-                                    compatible_surface: None,
-                                })
-                                .await
-                                .map_err(|_| "No GPU adapter found".to_string())?,
-                        );
+                let shared = if let Some(gpu) = gpu_context::get_shared_gpu().await {
+                    cap_rendering::SharedWgpuDevice {
+                        instance: (*gpu.instance).clone(),
+                        adapter: (*gpu.adapter).clone(),
+                        device: (*gpu.device).clone(),
+                        queue: (*gpu.queue).clone(),
+                        is_software_adapter: gpu.is_software_adapter,
+                    }
+                } else {
+                    let instance = cap_rendering::create_wgpu_instance().await;
+                    let adapter = instance
+                        .request_adapter(&wgpu::RequestAdapterOptions {
+                            power_preference: wgpu::PowerPreference::HighPerformance,
+                            force_fallback_adapter: false,
+                            compatible_surface: None,
+                        })
+                        .await
+                        .map_err(|_| "No GPU adapter found".to_string())?;
+                    let adapter_info = adapter.get_info();
+                    let is_software_adapter =
+                        cap_rendering::is_software_wgpu_adapter(&adapter_info);
 
-                        let (device, queue) = adapter
-                            .request_device(&wgpu::DeviceDescriptor {
-                                label: Some("cap-rendering-device"),
-                                required_features: wgpu::Features::empty(),
-                                ..Default::default()
-                            })
-                            .await
-                            .map_err(|e| e.to_string())?;
-                        (instance, adapter, Arc::new(device), Arc::new(queue), false)
-                    };
+                    let (device, queue) = adapter
+                        .request_device(&wgpu::DeviceDescriptor {
+                            label: Some("cap-rendering-device"),
+                            required_features: wgpu::Features::empty(),
+                            ..Default::default()
+                        })
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    cap_rendering::SharedWgpuDevice {
+                        instance,
+                        adapter,
+                        device,
+                        queue,
+                        is_software_adapter,
+                    }
+                };
 
                 let options = cap_rendering::RenderOptions {
                     screen_size: cap_project::XY::new(width, height),
                     camera_size: None,
                 };
 
-                // We need to extract the studio meta from the recording meta
                 let studio_meta = match &recording_meta.inner {
                     RecordingMetaInner::Studio(meta) => meta.clone(),
                     _ => return Err("Invalid recording meta for screenshot".to_string()),
                 };
 
-                let constants = RenderVideoConstants {
-                    _instance: (*instance).clone(),
-                    _adapter: (*adapter).clone(),
-                    queue: (*queue).clone(),
-                    device: (*device).clone(),
+                let constants = RenderVideoConstants::from_shared_device(
+                    shared,
                     options,
-                    meta: *studio_meta,
-                    recording_meta: recording_meta.clone(),
-                    background_textures: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
-                    is_software_adapter,
-                };
+                    *studio_meta,
+                    recording_meta.clone(),
+                );
 
                 let (config_tx, mut config_rx) = watch::channel(loaded_config.unwrap_or_default());
 
@@ -346,8 +356,14 @@ impl ScreenshotEditorInstances {
                         let zoom_focus_interpolator = ZoomFocusInterpolator::new(
                             &cursor_events,
                             None,
+                            current_config.cursor.click_spring_config(),
                             current_config.screen_movement_spring,
                             0.0,
+                            current_config
+                                .timeline
+                                .as_ref()
+                                .map(|t| t.zoom_segments.as_slice())
+                                .unwrap_or(&[]),
                         );
 
                         let uniforms = ProjectUniforms::new(
@@ -363,7 +379,7 @@ impl ScreenshotEditorInstances {
                         );
 
                         let rendered_frame = frame_renderer
-                            .render(
+                            .render_immediate(
                                 segment_frames,
                                 uniforms,
                                 &cap_project::CursorEvents::default(),
@@ -373,15 +389,16 @@ impl ScreenshotEditorInstances {
 
                         match rendered_frame {
                             Ok(frame) => {
-                                let _ = frame_tx.send(Some(WSFrame {
+                                let _ = frame_tx.send(Some(std::sync::Arc::new(WSFrame {
                                     data: frame.data,
                                     width: frame.width,
                                     height: frame.height,
                                     stride: frame.padded_bytes_per_row,
                                     frame_number: frame.frame_number,
                                     target_time_ns: frame.target_time_ns,
+                                    format: crate::frame_ws::WSFrameFormat::Rgba,
                                     created_at: Instant::now(),
-                                }));
+                                })));
                             }
                             Err(e) => {
                                 tracing::error!("Failed to render screenshot frame: {e}");

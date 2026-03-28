@@ -28,22 +28,19 @@ pub async fn create_camera_preview_ws() -> (Sender<FFmpegVideoFrame>, u16, Cance
                         converter
                     }
                     _ => {
-                        &mut converter
-                            .insert((
-                                frame.format(),
-                                ffmpeg::software::scaling::Context::get(
-                                    frame.format(),
-                                    frame.width(),
-                                    frame.height(),
-                                    Pixel::RGBA,
-                                    1280,
-                                    (1280.0 / (frame.width() as f64 / frame.height().max(1) as f64))
-                                        as u32,
-                                    ffmpeg::software::scaling::flag::Flags::FAST_BILINEAR,
-                                )
-                                .unwrap(),
-                            ))
-                            .1
+                        let Ok(new_converter) = ffmpeg::software::scaling::Context::get(
+                            frame.format(),
+                            frame.width(),
+                            frame.height(),
+                            Pixel::RGBA,
+                            1280,
+                            (1280.0 / (frame.width() as f64 / frame.height().max(1) as f64)) as u32,
+                            ffmpeg::software::scaling::flag::Flags::FAST_BILINEAR,
+                        ) else {
+                            continue;
+                        };
+
+                        &mut converter.insert((frame.format(), new_converter)).1
                     }
                 };
 
@@ -53,19 +50,22 @@ pub async fn create_camera_preview_ws() -> (Sender<FFmpegVideoFrame>, u16, Cance
                     converter.output().height,
                 );
 
-                converter.run(&frame, &mut new_frame).unwrap();
+                if converter.run(&frame, &mut new_frame).is_err() {
+                    continue;
+                }
 
                 frame = new_frame;
             }
 
             frame_tx_clone
                 .send(WSFrame {
-                    data: frame.data(0).to_vec(),
+                    data: std::sync::Arc::new(frame.data(0).to_vec()),
                     width: frame.width(),
                     height: frame.height(),
                     stride: frame.stride(0) as u32,
                     frame_number: 0,
                     target_time_ns: 0,
+                    format: crate::frame_ws::WSFrameFormat::Rgba,
                     created_at: Instant::now(),
                 })
                 .ok();

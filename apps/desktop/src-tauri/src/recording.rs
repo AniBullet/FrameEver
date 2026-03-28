@@ -201,6 +201,13 @@ impl InProgressRecording {
         }
     }
 
+    pub fn take_health_rx(&mut self) -> Option<cap_recording::HealthReceiver> {
+        match self {
+            Self::Instant { handle, .. } => handle.take_health_rx(),
+            Self::Studio { .. } => None,
+        }
+    }
+
     pub async fn cancel(self) -> anyhow::Result<()> {
         match self {
             Self::Instant { handle, .. } => handle.cancel().await,
@@ -420,6 +427,8 @@ pub enum RecordingEvent {
     Failed { error: String },
     InputLost { input: RecordingInputKind },
     InputRestored { input: RecordingInputKind },
+    Degraded { reason: String },
+    Recovered,
 }
 
 #[derive(Serialize, Type)]
@@ -783,7 +792,7 @@ pub async fn start_recording(
 
             let mut mic_restart_attempts = 0;
 
-            let done_fut = loop {
+            let (done_fut, health_rx) = loop {
                 let mic_feed = match state.mic_feed.ask(microphone::Lock).await {
                     Ok(lock) => Some(Arc::new(lock)),
                     Err(SendError::HandlerError(microphone::LockFeedError::NoInput)) => None,
@@ -803,6 +812,12 @@ pub async fn start_recording(
                                     .as_ref()
                                     .map(|s| s.custom_cursor_capture)
                                     .unwrap_or_default(),
+                            )
+                            .with_keyboard_capture(
+                                general_settings
+                                    .as_ref()
+                                    .map(|s| s.capture_keyboard_events)
+                                    .unwrap_or(true),
                             )
                             .with_fragmented(
                                 general_settings
@@ -922,10 +937,11 @@ pub async fn start_recording(
                 .await;
 
                 match actor_result {
-                    Ok(actor) => {
+                    Ok(mut actor) => {
                         let done_fut = actor.done_fut();
+                        let health_rx = actor.take_health_rx();
                         state.set_current_recording(actor);
-                        break done_fut;
+                        break (done_fut, health_rx);
                     }
                     #[cfg(target_os = "macos")]
                     Err(err) if is_shareable_content_error(&err) => {
@@ -945,14 +961,14 @@ pub async fn start_recording(
                 }
             };
 
-            Ok::<_, anyhow::Error>(done_fut)
+            Ok::<_, anyhow::Error>((done_fut, health_rx))
         }
     };
 
     let actor_task_res = AssertUnwindSafe(actor_task).catch_unwind().await;
 
-    let actor_done_fut = match actor_task_res {
-        Ok(Ok(rx)) => rx,
+    let (actor_done_fut, health_rx) = match actor_task_res {
+        Ok(Ok(v)) => v,
         Ok(Err(err)) => {
             let message = format!("{err:#}");
             handle_spawn_failure(
@@ -1022,6 +1038,41 @@ pub async fn start_recording(
             }
         }
     });
+
+    if let Some(mut health_rx) = health_rx {
+        spawn_actor({
+            let app = app.clone();
+            async move {
+                let mut is_degraded = false;
+                while let Some(event) = health_rx.recv().await {
+                    let reason = match &event {
+                        cap_recording::PipelineHealthEvent::FrameDropRateHigh { rate_pct } => {
+                            Some(format!("High frame drop rate: {rate_pct:.0}%"))
+                        }
+                        cap_recording::PipelineHealthEvent::AudioGapDetected { gap_ms } => {
+                            Some(format!("Audio gap detected: {gap_ms}ms"))
+                        }
+                        cap_recording::PipelineHealthEvent::SourceRestarting => {
+                            Some("Capture source restarting".to_string())
+                        }
+                        cap_recording::PipelineHealthEvent::SourceRestarted => None,
+                    };
+
+                    if let Some(reason) = reason {
+                        if !is_degraded {
+                            is_degraded = true;
+                            RecordingEvent::Degraded { reason }.emit(&app).ok();
+                        }
+                    } else if matches!(event, cap_recording::PipelineHealthEvent::SourceRestarted)
+                        && is_degraded
+                    {
+                        is_degraded = false;
+                        RecordingEvent::Recovered.emit(&app).ok();
+                    }
+                }
+            }
+        });
+    }
 
     AppSounds::StartRecording.play();
 
@@ -2069,6 +2120,8 @@ fn project_config_from_recording(
         scene_segments: Vec::new(),
         mask_segments: Vec::new(),
         text_segments: Vec::new(),
+        caption_segments: Vec::new(),
+        keyboard_segments: Vec::new(),
     });
 
     config
@@ -2090,7 +2143,7 @@ pub fn needs_fragment_remux(recording_dir: &Path, meta: &StudioRecordingMeta) ->
 }
 
 pub fn remux_fragmented_recording(recording_dir: &Path) -> Result<(), String> {
-    let incomplete_recording = RecoveryManager::find_incomplete_single(recording_dir);
+    let incomplete_recording = RecoveryManager::inspect_recording(recording_dir);
 
     if let Some(recording) = incomplete_recording {
         RecoveryManager::recover(&recording)
