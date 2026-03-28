@@ -8,7 +8,7 @@ use cap_project::{
 };
 use cap_rendering::{
     ProjectRecordingsMeta, ProjectUniforms, RecordingSegmentDecoders, RenderVideoConstants,
-    RenderedFrame, SegmentVideoPaths, Video, ZoomFocusInterpolator, get_duration,
+    SegmentVideoPaths, SharedWgpuDevice, Video, ZoomFocusInterpolator, get_duration,
     spring_mass_damper::SpringMassDamperSimulationConfig,
 };
 use std::{
@@ -94,7 +94,8 @@ impl EditorInstance {
     pub async fn new(
         project_path: PathBuf,
         on_state_change: impl Fn(&EditorState) + Send + Sync + 'static,
-        frame_cb: Box<dyn FnMut(RenderedFrame) + Send>,
+        frame_cb: Box<dyn FnMut(editor::EditorFrameOutput) + Send>,
+        shared_device: Option<SharedWgpuDevice>,
     ) -> Result<Arc<Self>, String> {
         if !project_path.exists() {
             return Err(format!("Video path {} not found!", project_path.display()));
@@ -200,6 +201,8 @@ impl EditorInstance {
                     scene_segments: Vec::new(),
                     mask_segments: Vec::new(),
                     text_segments: Vec::new(),
+                    caption_segments: Vec::new(),
+                    keyboard_segments: Vec::new(),
                 });
 
                 if let Err(e) = project.write(&recording_meta.project_path) {
@@ -249,23 +252,36 @@ impl EditorInstance {
             meta.as_ref(),
         )?);
 
-        let segments = create_segments(&recording_meta, meta.as_ref(), false).await?;
-
-        let render_constants = Arc::new(
-            RenderVideoConstants::new(
+        let render_constants = if let Some(shared) = shared_device {
+            let rc = RenderVideoConstants::new_with_device(
+                shared,
+                &recordings.segments,
+                recording_meta.clone(),
+                (**meta).clone(),
+            )
+            .map_err(|e| format!("Failed to create render constants: {e}"))?;
+            Arc::new(rc)
+        } else {
+            let rc = RenderVideoConstants::new(
                 &recordings.segments,
                 recording_meta.clone(),
                 (**meta).clone(),
             )
             .await
-            .map_err(|e| format!("Failed to create render constants: {e}"))?,
-        );
+            .map_err(|e| format!("Failed to create render constants: {e}"))?;
+            Arc::new(rc)
+        };
+
+        let segments = create_segments(&recording_meta, meta.as_ref(), false).await?;
+
+        let layers_rx = editor::start_renderer_layers_creation(&render_constants);
 
         let renderer = Arc::new(editor::Renderer::spawn(
             render_constants.clone(),
             frame_cb,
             &recording_meta,
             meta,
+            layers_rx,
         )?);
 
         let (preview_tx, preview_rx) = watch::channel(None);
@@ -515,11 +531,13 @@ impl EditorInstance {
                                     },
                                 );
 
-                                let zoom_focus_interpolator = ZoomFocusInterpolator::new(
-                                    &segment_medias.cursor,
+                                let zoom_focus_interpolator = ZoomFocusInterpolator::new_arc(
+                                    segment_medias.cursor.clone(),
                                     cursor_smoothing,
+                                    project.cursor.click_spring_config(),
                                     project.screen_movement_spring,
                                     total_duration,
+                                    project.timeline.as_ref().map(|t| t.zoom_segments.as_slice()).unwrap_or(&[]),
                                 );
 
                                 let uniforms = ProjectUniforms::new(
@@ -534,8 +552,7 @@ impl EditorInstance {
                                     &zoom_focus_interpolator,
                                 );
                                 self.renderer
-                                    .render_frame(segment_frames, uniforms, segment_medias.cursor.clone())
-                                    .await;
+                                    .render_frame(segment_frames, uniforms, segment_medias.cursor.clone());
                             } else {
                                 warn!("Preview renderer: no frames returned for frame {}", frame_number);
                             }
@@ -589,6 +606,7 @@ pub struct SegmentMedia {
     pub audio: Option<Arc<AudioData>>,
     pub system_audio: Option<Arc<AudioData>>,
     pub cursor: Arc<CursorEvents>,
+    pub keyboard: Arc<cap_project::KeyboardEvents>,
     pub decoders: RecordingSegmentDecoders,
 }
 
@@ -646,6 +664,7 @@ pub async fn create_segments(
                 audio,
                 system_audio: None,
                 cursor,
+                keyboard: Arc::new(Default::default()),
                 decoders,
             }])
         }
@@ -688,10 +707,13 @@ pub async fn create_segments(
                 .await
                 .map_err(|e| format!("MultipleSegments {i} / {e}"))?;
 
+                let keyboard = Arc::new(s.keyboard_events(recording_meta));
+
                 segments.push(SegmentMedia {
                     audio,
                     system_audio,
                     cursor,
+                    keyboard,
                     decoders,
                 });
             }

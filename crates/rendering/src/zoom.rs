@@ -11,8 +11,8 @@ const SCREEN_SPRING_MASS: f64 = 2.25;
 #[derive(Debug, Clone, Copy)]
 pub struct SegmentsCursor<'a> {
     time: f64,
-    segment: Option<&'a ZoomSegment>,
-    prev_segment: Option<&'a ZoomSegment>,
+    pub segment: Option<&'a ZoomSegment>,
+    pub prev_segment: Option<&'a ZoomSegment>,
     segments: &'a [ZoomSegment],
 }
 
@@ -59,7 +59,7 @@ impl SegmentBounds {
     pub fn from_segment_with_cursor_constraint(
         segment: &ZoomSegment,
         zoom_focus: Coord<RawDisplayUVSpace>,
-        actual_cursor: Option<Coord<RawDisplayUVSpace>>,
+        _actual_cursor: Option<Coord<RawDisplayUVSpace>>,
     ) -> Self {
         let is_auto_mode = matches!(segment.mode, cap_project::ZoomMode::Auto);
 
@@ -69,21 +69,9 @@ impl SegmentBounds {
         };
 
         let (effective_zoom, viewport_center) = if is_auto_mode {
-            if let Some(cursor) = actual_cursor {
-                Self::calculate_zoom_and_center_for_cursor(
-                    focus_pos,
-                    (cursor.x, cursor.y),
-                    segment.amount,
-                    segment.edge_snap_ratio,
-                )
-            } else {
-                let center = Self::calculate_follow_center(
-                    focus_pos,
-                    segment.amount,
-                    segment.edge_snap_ratio,
-                );
-                (segment.amount, center)
-            }
+            let center =
+                Self::calculate_follow_center(focus_pos, segment.amount, segment.edge_snap_ratio);
+            (segment.amount, center)
         } else {
             (segment.amount, focus_pos)
         };
@@ -106,99 +94,36 @@ impl SegmentBounds {
         )
     }
 
+    fn snap_to_edges(scalar: f64, snap_ratio: f64) -> f64 {
+        if snap_ratio <= 0.0 {
+            return scalar;
+        }
+        let lo = snap_ratio;
+        let hi = 1.0 - snap_ratio + 0.0001;
+        if hi <= lo {
+            return 0.5;
+        }
+        ((scalar - lo) / (hi - lo)).clamp(0.0, 1.0)
+    }
+
     fn calculate_follow_center(
         cursor_pos: (f64, f64),
         zoom_amount: f64,
-        _edge_snap_ratio: f64,
+        edge_snap_ratio: f64,
     ) -> (f64, f64) {
-        let viewport_half = 0.5 / zoom_amount;
+        let snapped = (
+            Self::snap_to_edges(cursor_pos.0, edge_snap_ratio),
+            Self::snap_to_edges(cursor_pos.1, edge_snap_ratio),
+        );
 
+        let viewport_half = 0.5 / zoom_amount;
         let min_center = viewport_half;
         let max_center = 1.0 - viewport_half;
 
         (
-            cursor_pos.0.clamp(min_center, max_center),
-            cursor_pos.1.clamp(min_center, max_center),
+            (min_center + snapped.0 * (max_center - min_center)).clamp(min_center, max_center),
+            (min_center + snapped.1 * (max_center - min_center)).clamp(min_center, max_center),
         )
-    }
-
-    fn calculate_zoom_and_center_for_cursor(
-        focus_pos: (f64, f64),
-        cursor_pos: (f64, f64),
-        target_zoom: f64,
-        _edge_snap_ratio: f64,
-    ) -> (f64, (f64, f64)) {
-        let viewport_half = 0.5 / target_zoom;
-        let min_center = viewport_half;
-        let max_center = 1.0 - viewport_half;
-
-        let mut center = (
-            focus_pos.0.clamp(min_center, max_center),
-            focus_pos.1.clamp(min_center, max_center),
-        );
-
-        let viewport_left = center.0 - viewport_half;
-        let viewport_right = center.0 + viewport_half;
-        let viewport_top = center.1 - viewport_half;
-        let viewport_bottom = center.1 + viewport_half;
-
-        let cursor_visible = cursor_pos.0 >= viewport_left
-            && cursor_pos.0 <= viewport_right
-            && cursor_pos.1 >= viewport_top
-            && cursor_pos.1 <= viewport_bottom;
-
-        if cursor_visible {
-            return (target_zoom, center);
-        }
-
-        if cursor_pos.0 < viewport_left {
-            center.0 = (cursor_pos.0 + viewport_half).clamp(min_center, max_center);
-        } else if cursor_pos.0 > viewport_right {
-            center.0 = (cursor_pos.0 - viewport_half).clamp(min_center, max_center);
-        }
-
-        if cursor_pos.1 < viewport_top {
-            center.1 = (cursor_pos.1 + viewport_half).clamp(min_center, max_center);
-        } else if cursor_pos.1 > viewport_bottom {
-            center.1 = (cursor_pos.1 - viewport_half).clamp(min_center, max_center);
-        }
-
-        let new_viewport_left = center.0 - viewport_half;
-        let new_viewport_right = center.0 + viewport_half;
-        let new_viewport_top = center.1 - viewport_half;
-        let new_viewport_bottom = center.1 + viewport_half;
-
-        let cursor_still_visible = cursor_pos.0 >= new_viewport_left
-            && cursor_pos.0 <= new_viewport_right
-            && cursor_pos.1 >= new_viewport_top
-            && cursor_pos.1 <= new_viewport_bottom;
-
-        if cursor_still_visible {
-            return (target_zoom, center);
-        }
-
-        let required_zoom = Self::minimum_zoom_to_show_cursor(cursor_pos);
-        let effective_zoom = target_zoom.min(required_zoom).max(1.0);
-
-        let new_viewport_half = 0.5 / effective_zoom;
-        let new_min_center = new_viewport_half;
-        let new_max_center = 1.0 - new_viewport_half;
-
-        let final_center = (
-            cursor_pos.0.clamp(new_min_center, new_max_center),
-            cursor_pos.1.clamp(new_min_center, new_max_center),
-        );
-
-        (effective_zoom, final_center)
-    }
-
-    fn minimum_zoom_to_show_cursor(cursor_pos: (f64, f64)) -> f64 {
-        let dist_from_edge_x = cursor_pos.0.min(1.0 - cursor_pos.0).max(0.001);
-        let dist_from_edge_y = cursor_pos.1.min(1.0 - cursor_pos.1).max(0.001);
-
-        let min_dist = dist_from_edge_x.min(dist_from_edge_y);
-
-        (0.5 / min_dist).max(1.0)
     }
 
     pub fn new(top_left: XY<f64>, bottom_right: XY<f64>) -> Self {
@@ -279,12 +204,24 @@ impl InterpolatedZoom {
         zoom_focus: Coord<RawDisplayUVSpace>,
         actual_cursor: Option<Coord<RawDisplayUVSpace>>,
     ) -> Self {
+        Self::new_with_cursor_and_end_focus(cursor, zoom_focus, actual_cursor, None, None)
+    }
+
+    pub fn new_with_cursor_and_end_focus(
+        cursor: SegmentsCursor,
+        zoom_focus: Coord<RawDisplayUVSpace>,
+        actual_cursor: Option<Coord<RawDisplayUVSpace>>,
+        segment_end_focus: Option<Coord<RawDisplayUVSpace>>,
+        segment_end_cursor: Option<Coord<RawDisplayUVSpace>>,
+    ) -> Self {
         let use_instant = cursor.segment.map(|s| s.instant_animation).unwrap_or(false);
         if use_instant {
             Self::new_with_easing_and_cursor(
                 cursor,
                 zoom_focus,
                 actual_cursor,
+                segment_end_focus,
+                segment_end_cursor,
                 instant_ease,
                 instant_ease,
             )
@@ -293,6 +230,8 @@ impl InterpolatedZoom {
                 cursor,
                 zoom_focus,
                 actual_cursor,
+                segment_end_focus,
+                segment_end_cursor,
                 spring_ease,
                 spring_ease_out,
             )
@@ -307,39 +246,67 @@ impl InterpolatedZoom {
         cursor: SegmentsCursor,
         zoom_focus: Coord<RawDisplayUVSpace>,
         actual_cursor: Option<Coord<RawDisplayUVSpace>>,
+        segment_end_focus: Option<Coord<RawDisplayUVSpace>>,
+        segment_end_cursor: Option<Coord<RawDisplayUVSpace>>,
         ease_in: impl Fn(f32) -> f32 + Copy,
         ease_out: impl Fn(f32) -> f32 + Copy,
     ) -> InterpolatedZoom {
         let default = SegmentBounds::default();
-        let is_auto_mode = cursor
-            .segment
-            .or(cursor.prev_segment)
-            .map(|s| matches!(s.mode, cap_project::ZoomMode::Auto))
-            .unwrap_or(false);
 
         let result = match (cursor.prev_segment, cursor.segment) {
             (Some(prev_segment), None) => {
-                let zoom_t =
-                    ease_out(t_clamp((cursor.time - prev_segment.end) / ZOOM_DURATION) as f32)
-                        as f64;
+                let raw_t = t_clamp((cursor.time - prev_segment.end) / ZOOM_DURATION);
+                let ease_val = ease_out(raw_t as f32) as f64;
 
-                Self {
-                    t: 1.0 - zoom_t,
-                    bounds: {
-                        let prev_segment_bounds =
-                            SegmentBounds::from_segment_with_cursor_constraint(
-                                prev_segment,
-                                zoom_focus,
-                                actual_cursor,
-                            );
+                let ramp = (raw_t * 5.0).min(1.0);
+                let ramp_smooth = ramp * ramp * (3.0 - 2.0 * ramp);
+                let zoom_t = ease_val * ramp_smooth;
 
-                        SegmentBounds::new(
-                            prev_segment_bounds.top_left * (1.0 - zoom_t)
-                                + default.top_left * zoom_t,
-                            prev_segment_bounds.bottom_right * (1.0 - zoom_t)
-                                + default.bottom_right * zoom_t,
-                        )
-                    },
+                let eased_amount = prev_segment.amount * (1.0 - zoom_t) + 1.0 * zoom_t;
+
+                if eased_amount > 1.001 {
+                    let eased_segment = ZoomSegment {
+                        amount: eased_amount,
+                        ..prev_segment.clone()
+                    };
+                    let is_auto_zoom_out = matches!(prev_segment.mode, cap_project::ZoomMode::Auto);
+                    let focus_for_bounds = if is_auto_zoom_out {
+                        segment_end_focus.unwrap_or(zoom_focus)
+                    } else {
+                        zoom_focus
+                    };
+                    let cursor_for_bounds = if is_auto_zoom_out {
+                        segment_end_cursor.or(actual_cursor)
+                    } else {
+                        actual_cursor
+                    };
+
+                    let bounds = SegmentBounds::from_segment_with_cursor_constraint(
+                        &eased_segment,
+                        focus_for_bounds,
+                        cursor_for_bounds,
+                    );
+                    let bounds = if !is_auto_zoom_out {
+                        if let Some(cursor_coord) = cursor_for_bounds {
+                            Self { t: 1.0, bounds }
+                                .ensure_cursor_visible((cursor_coord.x, cursor_coord.y))
+                                .bounds
+                        } else {
+                            bounds
+                        }
+                    } else {
+                        bounds
+                    };
+
+                    Self {
+                        t: 1.0 - zoom_t,
+                        bounds,
+                    }
+                } else {
+                    Self {
+                        t: 0.0,
+                        bounds: default,
+                    }
                 }
             }
             (None, Some(segment)) => {
@@ -392,6 +359,8 @@ impl InterpolatedZoom {
                         SegmentsCursor::new(segment.start, cursor.segments),
                         zoom_focus,
                         actual_cursor,
+                        segment_end_focus,
+                        segment_end_cursor,
                         ease_in,
                         ease_out,
                     );
@@ -425,8 +394,17 @@ impl InterpolatedZoom {
             },
         };
 
-        if is_auto_mode && let Some(cursor_coord) = actual_cursor {
-            return result.ensure_cursor_visible((cursor_coord.x, cursor_coord.y));
+        let is_auto_mode = cursor
+            .segment
+            .or(cursor.prev_segment)
+            .map(|s| matches!(s.mode, cap_project::ZoomMode::Auto))
+            .unwrap_or(false);
+        let is_zooming_out = cursor.prev_segment.is_some() && cursor.segment.is_none();
+        if is_auto_mode
+            && !is_zooming_out
+            && let Some(cursor_coord) = actual_cursor
+        {
+            return result.ensure_cursor_visible_gentle((cursor_coord.x, cursor_coord.y));
         }
 
         result
@@ -434,6 +412,64 @@ impl InterpolatedZoom {
 }
 
 impl InterpolatedZoom {
+    fn ensure_cursor_visible_gentle(self, cursor_pos: (f64, f64)) -> Self {
+        let current_zoom = self.bounds.bottom_right.x - self.bounds.top_left.x;
+
+        if current_zoom <= 1.001 {
+            return self;
+        }
+
+        let viewport_size = 1.0 / current_zoom;
+        let viewport_left = -self.bounds.top_left.x / current_zoom;
+        let viewport_right = viewport_left + viewport_size;
+        let viewport_top = -self.bounds.top_left.y / current_zoom;
+        let viewport_bottom = viewport_top + viewport_size;
+
+        let margin = viewport_size * 0.03;
+
+        let inner_left = viewport_left + margin;
+        let inner_right = viewport_right - margin;
+        let inner_top = viewport_top + margin;
+        let inner_bottom = viewport_bottom - margin;
+
+        if cursor_pos.0 >= inner_left
+            && cursor_pos.0 <= inner_right
+            && cursor_pos.1 >= inner_top
+            && cursor_pos.1 <= inner_bottom
+        {
+            return self;
+        }
+
+        let mut new_left = viewport_left;
+        let mut new_top = viewport_top;
+
+        if cursor_pos.0 < inner_left {
+            new_left = cursor_pos.0 - margin;
+        } else if cursor_pos.0 > inner_right {
+            new_left = cursor_pos.0 - viewport_size + margin;
+        }
+
+        if cursor_pos.1 < inner_top {
+            new_top = cursor_pos.1 - margin;
+        } else if cursor_pos.1 > inner_bottom {
+            new_top = cursor_pos.1 - viewport_size + margin;
+        }
+
+        new_left = new_left.clamp(0.0, 1.0 - viewport_size);
+        new_top = new_top.clamp(0.0, 1.0 - viewport_size);
+
+        let new_tl_x = -new_left * current_zoom;
+        let new_tl_y = -new_top * current_zoom;
+
+        Self {
+            t: self.t,
+            bounds: SegmentBounds::new(
+                XY::new(new_tl_x, new_tl_y),
+                XY::new(new_tl_x + current_zoom, new_tl_y + current_zoom),
+            ),
+        }
+    }
+
     fn ensure_cursor_visible(self, cursor_pos: (f64, f64)) -> Self {
         let current_zoom = self.bounds.bottom_right.x - self.bounds.top_left.x;
 
@@ -588,6 +624,8 @@ mod test {
         let actual = InterpolatedZoom::new_with_easing_and_cursor(
             c(time, segments),
             Default::default(),
+            None,
+            None,
             None,
             |t| t,
             |t| t,
@@ -919,5 +957,80 @@ mod test {
             cursor_is_visible_in_zoom(&result, cursor_pos),
             "Cursor should be visible in interpolated zoom state"
         );
+    }
+
+    #[test]
+    fn zoom_out_boundary_is_continuous() {
+        let segments = vec![test_segment(2.0, 4.0, 2.0, 0.5, 0.5)];
+
+        let at_boundary = InterpolatedZoom::new_with_easing_and_cursor(
+            c(4.0, &segments),
+            Default::default(),
+            None,
+            None,
+            None,
+            |t| t,
+            |t| t,
+        );
+
+        let epsilon = 1e-9;
+        let just_after = InterpolatedZoom::new_with_easing_and_cursor(
+            c(4.0 + epsilon, &segments),
+            Default::default(),
+            None,
+            None,
+            None,
+            |t| t,
+            |t| t,
+        );
+
+        let dx_tl = (just_after.bounds.top_left.x - at_boundary.bounds.top_left.x).abs();
+        let dy_tl = (just_after.bounds.top_left.y - at_boundary.bounds.top_left.y).abs();
+        let dx_br = (just_after.bounds.bottom_right.x - at_boundary.bounds.bottom_right.x).abs();
+        let dy_br = (just_after.bounds.bottom_right.y - at_boundary.bounds.bottom_right.y).abs();
+
+        let max_jump = dx_tl.max(dy_tl).max(dx_br).max(dy_br);
+        assert!(
+            max_jump < 1e-4,
+            "Bounds jumped {max_jump} at segment boundary; expected near-zero"
+        );
+    }
+
+    #[test]
+    fn zoom_out_early_frames_are_smooth() {
+        let segments = vec![test_segment(2.0, 4.0, 2.0, 0.5, 0.5)];
+
+        let dt = ZOOM_DURATION * 0.01;
+        let mut prev = InterpolatedZoom::new_with_easing_and_cursor(
+            c(4.0, &segments),
+            Default::default(),
+            None,
+            None,
+            None,
+            |t| t,
+            |t| t,
+        );
+
+        for i in 1..=20 {
+            let time = 4.0 + dt * i as f64;
+            let current = InterpolatedZoom::new_with_easing_and_cursor(
+                c(time, &segments),
+                Default::default(),
+                None,
+                None,
+                None,
+                |t| t,
+                |t| t,
+            );
+
+            let dx = (current.bounds.top_left.x - prev.bounds.top_left.x).abs();
+            let dy = (current.bounds.top_left.y - prev.bounds.top_left.y).abs();
+            assert!(
+                dx < 0.02 && dy < 0.02,
+                "Frame jump at step {i} (t={time:.4}): dx={dx:.6} dy={dy:.6}"
+            );
+
+            prev = current;
+        }
     }
 }

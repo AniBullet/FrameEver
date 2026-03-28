@@ -42,6 +42,14 @@ pub enum BackgroundSource {
         to: Color,
         #[serde(default = "default_gradient_angle")]
         angle: u16,
+        #[serde(default)]
+        noise_intensity: Option<f32>,
+        #[serde(default)]
+        noise_scale: Option<f32>,
+        #[serde(default)]
+        animated: Option<bool>,
+        #[serde(default)]
+        animation_speed: Option<f32>,
     },
 }
 
@@ -407,9 +415,11 @@ pub enum CursorType {
 #[serde(rename_all = "camelCase")]
 pub enum CursorAnimationStyle {
     Slow,
+    Smooth,
     #[default]
-    #[serde(alias = "regular", alias = "quick", alias = "rapid", alias = "fast")]
+    #[serde(alias = "regular", alias = "quick", alias = "rapid")]
     Mellow,
+    Fast,
     Custom,
 }
 
@@ -431,9 +441,9 @@ pub struct ClickSpringConfig {
 impl Default for ClickSpringConfig {
     fn default() -> Self {
         Self {
-            tension: 700.0,
+            tension: 530.0,
             mass: 1.0,
-            friction: 30.0,
+            friction: 40.0,
         }
     }
 }
@@ -449,9 +459,9 @@ pub struct ScreenMovementSpring {
 impl Default for ScreenMovementSpring {
     fn default() -> Self {
         Self {
-            stiffness: 200.0,
-            damping: 40.0,
-            mass: 2.25,
+            stiffness: 120.0,
+            damping: 14.0,
+            mass: 1.0,
         }
     }
 }
@@ -464,10 +474,20 @@ impl CursorAnimationStyle {
                 mass: 2.25,
                 friction: 40.0,
             }),
+            Self::Smooth => Some(CursorSmoothingPreset {
+                tension: 80.0,
+                mass: 2.5,
+                friction: 28.0,
+            }),
             Self::Mellow => Some(CursorSmoothingPreset {
                 tension: 470.0,
                 mass: 3.0,
                 friction: 70.0,
+            }),
+            Self::Fast => Some(CursorSmoothingPreset {
+                tension: 380.0,
+                mass: 1.0,
+                friction: 30.0,
             }),
             Self::Custom => None,
         }
@@ -513,7 +533,7 @@ impl Default for CursorConfiguration {
             mass: 3.0,
             friction: 70.0,
             raw: false,
-            motion_blur: 0.5,
+            motion_blur: 0.3,
             use_svg: true,
             rotation_amount: Self::default_rotation_amount(),
             base_rotation: 0.0,
@@ -536,7 +556,7 @@ impl CursorConfiguration {
     }
 
     fn default_rotation_amount() -> f32 {
-        0.5
+        0.15
     }
 
     pub fn cursor_type(&self) -> &CursorType {
@@ -662,6 +682,8 @@ pub struct MaskKeyframes {
 pub struct MaskSegment {
     pub start: f64,
     pub end: f64,
+    #[serde(default)]
+    pub track: u32,
     #[serde(default = "MaskSegment::default_enabled")]
     pub enabled: bool,
     pub mask_type: MaskKind,
@@ -700,6 +722,8 @@ impl MaskSegment {
 pub struct TextSegment {
     pub start: f64,
     pub end: f64,
+    #[serde(default)]
+    pub track: u32,
     #[serde(default = "TextSegment::default_enabled")]
     pub enabled: bool,
     #[serde(default = "TextSegment::default_content")]
@@ -789,6 +813,33 @@ pub struct TimelineConfiguration {
     pub mask_segments: Vec<MaskSegment>,
     #[serde(default)]
     pub text_segments: Vec<TextSegment>,
+    #[serde(default)]
+    pub caption_segments: Vec<CaptionTrackSegment>,
+    #[serde(default)]
+    pub keyboard_segments: Vec<crate::KeyboardTrackSegment>,
+}
+
+#[derive(Type, Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionTrackSegment {
+    pub id: String,
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
+    #[serde(default)]
+    pub words: Vec<CaptionWord>,
+    #[serde(default)]
+    pub fade_duration_override: Option<f32>,
+    #[serde(default)]
+    pub linger_duration_override: Option<f32>,
+    #[serde(default)]
+    pub position_override: Option<String>,
+    #[serde(default)]
+    pub color_override: Option<String>,
+    #[serde(default)]
+    pub background_color_override: Option<String>,
+    #[serde(default)]
+    pub font_size_override: Option<u32>,
 }
 
 impl TimelineConfiguration {
@@ -910,7 +961,7 @@ impl Default for CaptionSettings {
             enabled: false,
             font: "System Sans-Serif".to_string(),
             size: 24,
-            color: "#A0A0A0".to_string(),
+            color: "#FFFFFF".to_string(),
             background_color: "#000000".to_string(),
             background_opacity: 90,
             position: "bottom-center".to_string(),
@@ -933,6 +984,50 @@ impl Default for CaptionSettings {
 pub struct CaptionsData {
     pub segments: Vec<CaptionSegment>,
     pub settings: CaptionSettings,
+}
+
+#[derive(Type, Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct KeyboardSettings {
+    pub enabled: bool,
+    pub font: String,
+    pub size: u32,
+    pub color: String,
+    pub background_color: String,
+    pub background_opacity: u32,
+    pub position: String,
+    pub font_weight: u32,
+    pub fade_duration: f32,
+    pub linger_duration: f32,
+    pub grouping_threshold_ms: f64,
+    pub show_modifiers: bool,
+    pub show_special_keys: bool,
+}
+
+impl Default for KeyboardSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            font: "System Sans-Serif".to_string(),
+            size: 50,
+            color: "#FFFFFF".to_string(),
+            background_color: "#000000".to_string(),
+            background_opacity: 95,
+            position: "bottom-center".to_string(),
+            font_weight: 400,
+            fade_duration: 0.15,
+            linger_duration: 0.8,
+            grouping_threshold_ms: 500.0,
+            show_modifiers: true,
+            show_special_keys: true,
+        }
+    }
+}
+
+#[derive(Type, Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyboardData {
+    pub settings: KeyboardSettings,
 }
 
 #[derive(Type, Serialize, Deserialize, Clone, Copy, Debug, Default)]
@@ -1084,6 +1179,7 @@ pub struct ProjectConfiguration {
     pub hotkeys: HotkeysConfiguration,
     pub timeline: Option<TimelineConfiguration>,
     pub captions: Option<CaptionsData>,
+    pub keyboard: Option<KeyboardData>,
     pub clips: Vec<ClipConfiguration>,
     pub annotations: Vec<Annotation>,
     #[serde(skip_serializing)]
@@ -1107,7 +1203,7 @@ fn camera_config_needs_migration(value: &Value) -> bool {
 
 impl ProjectConfiguration {
     fn default_screen_motion_blur() -> f32 {
-        0.5
+        0.3
     }
 
     pub fn validate(&self) -> Result<(), AnnotationValidationError> {
@@ -1153,6 +1249,7 @@ impl ProjectConfiguration {
 
         let temp_path = temp_dir().join(uuid::Uuid::new_v4().to_string());
 
+        // Write to temporary file first to ensure readers don't see partial files
         std::fs::write(&temp_path, serde_json::to_string_pretty(self)?)?;
 
         move_file(

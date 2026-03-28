@@ -5,22 +5,29 @@ use cap_project::{
 };
 use composite_frame::CompositeVideoFrameUniforms;
 use core::f64;
-use cursor_interpolation::{InterpolatedCursorPosition, interpolate_cursor};
+use cursor_interpolation::{
+    InterpolatedCursorPosition, interpolate_cursor, interpolate_cursor_with_click_spring,
+};
 use decoder::{AsyncVideoDecoderHandle, spawn_decoder};
-use frame_pipeline::{RenderSession, finish_encoder};
-use futures::FutureExt;
+use frame_pipeline::{
+    NV12BufferPool, RenderSession, finish_encoder, finish_encoder_nv12_pooled,
+    flush_pending_readback,
+};
 use futures::future::OptionFuture;
 use layers::{
     Background, BackgroundLayer, BlurLayer, CameraLayer, CaptionsLayer, CursorLayer, DisplayLayer,
-    MaskLayer, TextLayer,
+    KeyboardLayer, MaskLayer, TextLayer,
 };
 use specta::Type;
 use spring_mass_damper::SpringMassDamperSimulationConfig;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use std::{path::PathBuf, time::Instant};
 use tokio::sync::mpsc;
 
-mod composite_frame;
+pub mod composite_frame;
 mod coord;
 pub mod cpu_yuv;
 mod cursor_interpolation;
@@ -42,14 +49,118 @@ pub mod zoom_focus_interpolation;
 
 pub use coord::*;
 pub use decoder::{DecodedFrame, DecoderStatus, DecoderType, PixelFormat};
-pub use frame_pipeline::RenderedFrame;
+pub use frame_pipeline::{GpuOutputFormat, Nv12RenderedFrame, RenderedFrame, SharedNv12Buffer};
 pub use project_recordings::{ProjectRecordingsMeta, SegmentRecordings, Video};
 
+pub use cursor_interpolation::PrecomputedCursorTimeline;
 use mask::interpolate_masks;
 use scene::*;
 use text::{PreparedText, prepare_texts};
 use zoom::*;
 pub use zoom_focus_interpolation::ZoomFocusInterpolator;
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Nv12RenderStartupBreakdownMs {
+    pub ffmpeg_init_ms: u64,
+    pub zoom_focus_interpolators_construct_ms: u64,
+    pub frame_renderer_and_layers_setup_ms: u64,
+    pub frame_index_zero_zoom_precompute_ms: Option<u64>,
+    pub frame_index_zero_decode_ms: Option<u64>,
+    pub frame_index_zero_render_nv12_ms: Option<u64>,
+    pub frame_index_zero_prefetch_decode_parallel_ms: Option<u64>,
+    pub frame_index_zero_join_wall_ms: Option<u64>,
+    pub first_queued_zoom_precompute_ms: Option<u64>,
+    pub first_queued_decode_ms: Option<u64>,
+    pub first_queued_render_nv12_ms: Option<u64>,
+    pub first_queued_prefetch_decode_parallel_ms: Option<u64>,
+    pub first_queued_join_wall_ms: Option<u64>,
+}
+
+impl Nv12RenderStartupBreakdownMs {
+    fn new_header(
+        ffmpeg_init_ms: u64,
+        zoom_focus_interpolators_construct_ms: u64,
+        frame_renderer_and_layers_setup_ms: u64,
+    ) -> Self {
+        Self {
+            ffmpeg_init_ms,
+            zoom_focus_interpolators_construct_ms,
+            frame_renderer_and_layers_setup_ms,
+            frame_index_zero_zoom_precompute_ms: None,
+            frame_index_zero_decode_ms: None,
+            frame_index_zero_render_nv12_ms: None,
+            frame_index_zero_prefetch_decode_parallel_ms: None,
+            frame_index_zero_join_wall_ms: None,
+            first_queued_zoom_precompute_ms: None,
+            first_queued_decode_ms: None,
+            first_queued_render_nv12_ms: None,
+            first_queued_prefetch_decode_parallel_ms: None,
+            first_queued_join_wall_ms: None,
+        }
+    }
+}
+
+pub fn is_software_wgpu_adapter(info: &wgpu::AdapterInfo) -> bool {
+    matches!(info.device_type, wgpu::DeviceType::Cpu)
+        || info
+            .name
+            .to_lowercase()
+            .contains("microsoft basic render driver")
+}
+
+pub async fn create_wgpu_instance() -> wgpu::Instance {
+    #[cfg(not(target_os = "windows"))]
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+
+    #[cfg(target_os = "windows")]
+    let instance = {
+        let dx12_instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::DX12,
+            ..Default::default()
+        });
+        let has_dx12 = dx12_instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })
+            .await
+            .is_ok();
+        if has_dx12 {
+            dx12_instance
+        } else {
+            wgpu::Instance::new(&wgpu::InstanceDescriptor::default())
+        }
+    };
+
+    instance
+}
+
+pub async fn probe_software_adapter() -> Option<(bool, String)> {
+    let instance = create_wgpu_instance().await;
+
+    let adapter = match instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+        })
+        .await
+        .ok()
+    {
+        Some(adapter) => adapter,
+        None => instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                force_fallback_adapter: true,
+                compatible_surface: None,
+            })
+            .await
+            .ok()?,
+    };
+    let info = adapter.get_info();
+    Some((is_software_wgpu_adapter(&info), info.name))
+}
 
 const STANDARD_CURSOR_HEIGHT: f32 = 75.0;
 
@@ -116,12 +227,17 @@ pub struct SegmentVideoPaths {
 
 impl RecordingSegmentDecoders {
     pub async fn new(
-        recording_meta: &RecordingMeta,
+        _recording_meta: &RecordingMeta,
         meta: &StudioRecordingMeta,
         segment: SegmentVideoPaths,
         segment_i: usize,
         force_ffmpeg: bool,
     ) -> Result<Self, String> {
+        let SegmentVideoPaths {
+            display: display_path,
+            camera: camera_path,
+        } = segment;
+
         let latest_start_time = match &meta {
             StudioRecordingMeta::SingleSegment { .. } => None,
             StudioRecordingMeta::MultipleSegments { inner, .. } => {
@@ -129,59 +245,84 @@ impl RecordingSegmentDecoders {
             }
         };
 
-        let screen = spawn_decoder(
-            "screen",
-            recording_meta.project_path.join(segment.display),
-            match &meta {
-                StudioRecordingMeta::SingleSegment { segment } => segment.display.fps,
-                StudioRecordingMeta::MultipleSegments { inner, .. } => {
-                    inner.segments[segment_i].display.fps
-                }
-            },
-            match &meta {
-                StudioRecordingMeta::SingleSegment { .. } => 0.0,
-                StudioRecordingMeta::MultipleSegments { inner, .. } => {
-                    let segment = &inner.segments[segment_i];
+        let screen_fps = match &meta {
+            StudioRecordingMeta::SingleSegment { segment } => segment.display.fps,
+            StudioRecordingMeta::MultipleSegments { inner, .. } => {
+                inner.segments[segment_i].display.fps
+            }
+        };
 
-                    latest_start_time
-                        .zip(segment.display.start_time)
-                        .map(|(latest_start_time, display_time)| latest_start_time - display_time)
-                        .unwrap_or(0.0)
-                }
-            },
-            force_ffmpeg,
-        )
-        .await
-        .map_err(|e| format!("Screen:{e}"))?;
-        let camera = OptionFuture::from(segment.camera.map(|camera| {
+        let camera_fps = match &meta {
+            StudioRecordingMeta::SingleSegment { segment } => {
+                segment.camera.as_ref().map(|camera| camera.fps)
+            }
+            StudioRecordingMeta::MultipleSegments { inner, .. } => inner.segments[segment_i]
+                .camera
+                .as_ref()
+                .map(|camera| camera.fps),
+        };
+
+        let screen_offset = match &meta {
+            StudioRecordingMeta::SingleSegment { .. } => 0.0,
+            StudioRecordingMeta::MultipleSegments { inner, .. } => {
+                let segment = &inner.segments[segment_i];
+
+                latest_start_time
+                    .zip(segment.display.start_time)
+                    .map(|(latest_start_time, display_time)| latest_start_time - display_time)
+                    .unwrap_or(0.0)
+            }
+        };
+
+        let camera_offset = match &meta {
+            StudioRecordingMeta::SingleSegment { .. } => 0.0,
+            StudioRecordingMeta::MultipleSegments { inner, .. } => {
+                let segment = &inner.segments[segment_i];
+
+                latest_start_time
+                    .zip(segment.camera.as_ref().and_then(|camera| camera.start_time))
+                    .map(|(latest_start_time, start_time)| latest_start_time - start_time)
+                    .unwrap_or(0.0)
+            }
+        };
+
+        let screen_future = async {
             spawn_decoder(
-                "camera",
-                recording_meta.project_path.join(camera),
-                match &meta {
-                    StudioRecordingMeta::SingleSegment { segment } => {
-                        segment.camera.as_ref().unwrap().fps
-                    }
-                    StudioRecordingMeta::MultipleSegments { inner, .. } => {
-                        inner.segments[segment_i].camera.as_ref().unwrap().fps
-                    }
-                },
-                match &meta {
-                    StudioRecordingMeta::SingleSegment { .. } => 0.0,
-                    StudioRecordingMeta::MultipleSegments { inner, .. } => {
-                        let segment = &inner.segments[segment_i];
-
-                        latest_start_time
-                            .zip(segment.camera.as_ref().and_then(|c| c.start_time))
-                            .map(|(latest_start_time, start_time)| latest_start_time - start_time)
-                            .unwrap_or(0.0)
-                    }
-                },
+                "screen",
+                display_path,
+                screen_fps,
+                screen_offset,
                 force_ffmpeg,
             )
-            .then(|r| async { r.map_err(|e| format!("Camera:{e}")) })
-        }))
-        .await
-        .transpose()?;
+            .await
+            .map_err(|e| format!("Screen:{e}"))
+        };
+
+        let camera_future = async {
+            let Some(camera_path) = camera_path else {
+                return Ok::<Option<AsyncVideoDecoderHandle>, String>(None);
+            };
+            let camera_fps = camera_fps.ok_or_else(|| "Camera metadata missing".to_string())?;
+            let camera = spawn_decoder(
+                "camera",
+                camera_path,
+                camera_fps,
+                camera_offset,
+                force_ffmpeg,
+            )
+            .await
+            .map_err(|e| format!("Camera:{e}"))?;
+            Ok(Some(camera))
+        };
+
+        #[cfg(target_os = "windows")]
+        let (screen, camera) = tokio::try_join!(screen_future, camera_future)?;
+
+        #[cfg(not(target_os = "windows"))]
+        let screen = screen_future.await?;
+
+        #[cfg(not(target_os = "windows"))]
+        let camera = camera_future.await?;
 
         Ok(Self {
             screen,
@@ -271,6 +412,8 @@ pub enum RenderingError {
     BufferMapFailed(#[from] wgpu::BufferAsyncError),
     #[error("Sending frame to channel failed")]
     ChannelSendFrameFailed(#[from] mpsc::error::SendError<(RenderedFrame, u32)>),
+    #[error("Sending NV12 frame to channel failed")]
+    ChannelSendNv12FrameFailed(#[from] mpsc::error::SendError<(Nv12RenderedFrame, u32)>),
     #[error("Failed to load image: {0}")]
     ImageLoadError(String),
     #[error("Error polling wgpu: {0}")]
@@ -286,6 +429,7 @@ pub enum RenderingError {
 
 pub struct RenderSegment {
     pub cursor: Arc<CursorEvents>,
+    pub keyboard: Arc<cap_project::KeyboardEvents>,
     pub decoders: RecordingSegmentDecoders,
 }
 
@@ -316,17 +460,36 @@ pub async fn render_video_to_channel(
             friction: project.cursor.friction,
         });
 
-    let zoom_focus_interpolators: Vec<ZoomFocusInterpolator> = render_segments
+    let click_spring = project.cursor.click_spring_config();
+
+    let precomputed_cursor_timelines: Vec<Arc<PrecomputedCursorTimeline>> = render_segments
         .iter()
         .map(|segment| {
-            let mut interp = ZoomFocusInterpolator::new(
+            Arc::new(PrecomputedCursorTimeline::new(
                 &segment.cursor,
                 cursor_smoothing,
+                Some(click_spring),
+            ))
+        })
+        .collect();
+
+    let mut zoom_focus_interpolators: Vec<ZoomFocusInterpolator> = render_segments
+        .iter()
+        .zip(precomputed_cursor_timelines.iter())
+        .map(|(segment, precomputed_cursor)| {
+            ZoomFocusInterpolator::new_with_precomputed_cursor(
+                &segment.cursor,
+                cursor_smoothing,
+                click_spring,
                 project.screen_movement_spring,
                 duration,
-            );
-            interp.precompute();
-            interp
+                project
+                    .timeline
+                    .as_ref()
+                    .map(|t| t.zoom_segments.as_slice())
+                    .unwrap_or(&[]),
+                Some(precomputed_cursor.clone()),
+            )
         })
         .collect();
 
@@ -352,9 +515,12 @@ pub async fn render_video_to_channel(
         );
     }
 
+    let needs_camera = !project.camera.hide;
     let mut last_successful_frame: Option<RenderedFrame> = None;
     let mut consecutive_failures = 0u32;
     const MAX_CONSECUTIVE_FAILURES: u32 = 200;
+
+    let mut prefetched_decode: Option<(u32, f64, usize, Option<DecodedSegmentFrames>)> = None;
 
     loop {
         if frame_number >= total_frames {
@@ -378,62 +544,46 @@ pub async fn render_video_to_channel(
         };
 
         let render_segment = &render_segments[segment.recording_clip as usize];
-
-        let mut segment_frames = None;
-        let mut retry_count = 0;
-        const MAX_RETRIES: u32 = 5;
         let is_initial_frame = current_frame_number == 0 || last_successful_frame.is_none();
+        let segment_clip_index = segment.recording_clip as usize;
 
-        while segment_frames.is_none() && retry_count < MAX_RETRIES {
-            if retry_count > 0 {
-                let delay = if is_initial_frame {
-                    500 * (retry_count as u64 + 1)
+        let zoom_until = (current_frame_number as f32 + 1.0) / fps as f32;
+        zoom_focus_interpolators[segment_clip_index].ensure_precomputed_until(zoom_until);
+
+        let segment_frames =
+            if let Some((pf_num, _pf_time, pf_clip, pf_result)) = prefetched_decode.take() {
+                if pf_num == current_frame_number && pf_clip == segment_clip_index {
+                    pf_result
                 } else {
-                    50 * retry_count as u64
-                };
-                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-            }
-
-            segment_frames = if is_initial_frame {
-                render_segment
-                    .decoders
-                    .get_frames_initial(
-                        segment_time as f32,
-                        !project.camera.hide,
+                    decode_segment_frames_with_retry(
+                        &render_segment.decoders,
+                        segment_time,
+                        needs_camera,
                         clip_config.map(|v| v.offsets).unwrap_or_default(),
+                        current_frame_number,
+                        is_initial_frame,
                     )
                     .await
+                }
             } else {
-                render_segment
-                    .decoders
-                    .get_frames(
-                        segment_time as f32,
-                        !project.camera.hide,
-                        clip_config.map(|v| v.offsets).unwrap_or_default(),
-                    )
-                    .await
+                decode_segment_frames_with_retry(
+                    &render_segment.decoders,
+                    segment_time,
+                    needs_camera,
+                    clip_config.map(|v| v.offsets).unwrap_or_default(),
+                    current_frame_number,
+                    is_initial_frame,
+                )
+                .await
             };
 
-            if segment_frames.is_none() {
-                retry_count += 1;
-                if retry_count < MAX_RETRIES {
-                    tracing::warn!(
-                        frame_number = current_frame_number,
-                        segment_time = segment_time,
-                        retry_count = retry_count,
-                        is_initial = is_initial_frame,
-                        "Frame decode failed, retrying..."
-                    );
-                }
-            }
-        }
-
-        let frame = if let Some(segment_frames) = segment_frames {
+        if let Some(segment_frames) = segment_frames {
             consecutive_failures = 0;
 
-            let zoom_focus_interp = &zoom_focus_interpolators[segment.recording_clip as usize];
+            let zoom_focus_interp = &zoom_focus_interpolators[segment_clip_index];
+            let precomputed_cursor = &precomputed_cursor_timelines[segment_clip_index];
 
-            let uniforms = ProjectUniforms::new(
+            let uniforms = ProjectUniforms::new_with_precomputed_cursor(
                 constants,
                 project,
                 current_frame_number,
@@ -443,22 +593,73 @@ pub async fn render_video_to_channel(
                 &segment_frames,
                 duration,
                 zoom_focus_interp,
+                precomputed_cursor,
             );
 
-            match frame_renderer
-                .render(
-                    segment_frames,
-                    uniforms,
-                    &render_segment.cursor,
-                    &mut layers,
-                )
-                .await
-            {
-                Ok(frame) if frame.width > 0 && frame.height > 0 => {
-                    last_successful_frame = Some(frame.clone());
-                    frame
+            let next_frame_number = frame_number;
+            let mut next_prefetch_meta: Option<(f64, usize)> = None;
+            let prefetch_future = if next_frame_number < total_frames {
+                if let Some((next_seg_time, next_segment)) =
+                    project.get_segment_time(next_frame_number as f64 / fps as f64)
+                {
+                    let next_clip_index = next_segment.recording_clip as usize;
+                    next_prefetch_meta = Some((next_seg_time, next_clip_index));
+                    let next_render_segment = &render_segments[next_clip_index];
+                    let next_clip_config = project
+                        .clips
+                        .iter()
+                        .find(|v| v.index == next_segment.recording_clip);
+                    let next_is_initial = last_successful_frame.is_none();
+
+                    Some(decode_segment_frames_with_retry(
+                        &next_render_segment.decoders,
+                        next_seg_time,
+                        needs_camera,
+                        next_clip_config.map(|v| v.offsets).unwrap_or_default(),
+                        next_frame_number,
+                        next_is_initial,
+                    ))
+                } else {
+                    None
                 }
-                Ok(_) => {
+            } else {
+                None
+            };
+
+            let render_result = if let Some(prefetch) = prefetch_future {
+                let (render, decoded) = tokio::join!(
+                    frame_renderer.render(
+                        segment_frames,
+                        uniforms,
+                        &render_segment.cursor,
+                        &mut layers,
+                    ),
+                    prefetch
+                );
+
+                if let Some((next_seg_time, next_clip_index)) = next_prefetch_meta {
+                    prefetched_decode =
+                        Some((next_frame_number, next_seg_time, next_clip_index, decoded));
+                }
+
+                render
+            } else {
+                frame_renderer
+                    .render(
+                        segment_frames,
+                        uniforms,
+                        &render_segment.cursor,
+                        &mut layers,
+                    )
+                    .await
+            };
+
+            match render_result {
+                Ok(Some(frame)) if frame.width > 0 && frame.height > 0 => {
+                    last_successful_frame = Some(frame.clone());
+                    sender.send((frame, current_frame_number)).await?;
+                }
+                Ok(Some(_)) => {
                     tracing::warn!(
                         frame_number = current_frame_number,
                         "Rendered frame has zero dimensions"
@@ -468,11 +669,10 @@ pub async fn render_video_to_channel(
                         fallback.frame_number = current_frame_number;
                         fallback.target_time_ns =
                             (current_frame_number as u64 * 1_000_000_000) / fps as u64;
-                        fallback
-                    } else {
-                        continue;
+                        sender.send((fallback, current_frame_number)).await?;
                     }
                 }
+                Ok(None) => {}
                 Err(e) => {
                     tracing::error!(
                         frame_number = current_frame_number,
@@ -484,7 +684,7 @@ pub async fn render_video_to_channel(
                         fallback.frame_number = current_frame_number;
                         fallback.target_time_ns =
                             (current_frame_number as u64 * 1_000_000_000) / fps as u64;
-                        fallback
+                        sender.send((fallback, current_frame_number)).await?;
                     } else {
                         return Err(e);
                     }
@@ -510,35 +710,561 @@ pub async fn render_video_to_channel(
                     frame_number = current_frame_number,
                     segment_time = segment_time,
                     consecutive_failures = consecutive_failures,
-                    max_retries = MAX_RETRIES,
+                    max_retries = if is_initial_frame {
+                        DECODE_MAX_RETRIES_INITIAL
+                    } else {
+                        DECODE_MAX_RETRIES_STEADY
+                    },
                     "Frame decode failed after retries - using previous frame"
                 );
                 let mut fallback = last_frame.clone();
                 fallback.frame_number = current_frame_number;
                 fallback.target_time_ns =
                     (current_frame_number as u64 * 1_000_000_000) / fps as u64;
-                fallback
+                sender.send((fallback, current_frame_number)).await?;
             } else {
                 tracing::error!(
                     frame_number = current_frame_number,
                     segment_time = segment_time,
-                    max_retries = MAX_RETRIES,
+                    max_retries = if is_initial_frame {
+                        DECODE_MAX_RETRIES_INITIAL
+                    } else {
+                        DECODE_MAX_RETRIES_STEADY
+                    },
                     "First frame decode failed after retries - cannot continue"
                 );
                 continue;
             }
-        };
+        }
+    }
 
-        sender.send((frame, current_frame_number)).await?;
+    if let Some(Ok(final_frame)) = frame_renderer.flush_pipeline().await
+        && final_frame.width > 0
+        && final_frame.height > 0
+    {
+        sender
+            .send((final_frame, frame_number.saturating_sub(1)))
+            .await?;
     }
 
     let total_time = start_time.elapsed();
-    println!(
-        "Render complete. Processed {frame_number} frames in {:?} seconds",
-        total_time.as_secs_f32()
+    tracing::info!(
+        frames = frame_number,
+        elapsed_secs = format!("{:.2}", total_time.as_secs_f32()),
+        "Render complete"
     );
 
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn render_video_to_channel_nv12(
+    constants: &RenderVideoConstants,
+    project: &ProjectConfiguration,
+    sender: mpsc::Sender<(Nv12RenderedFrame, u32)>,
+    recording_meta: &RecordingMeta,
+    meta: &StudioRecordingMeta,
+    render_segments: Vec<RenderSegment>,
+    fps: u32,
+    resolution_base: XY<u32>,
+    recordings: &ProjectRecordingsMeta,
+    stop_after_frames_sent: Option<u32>,
+    startup_breakdown_ms: Option<Arc<Mutex<Option<Nv12RenderStartupBreakdownMs>>>>,
+) -> Result<(), RenderingError> {
+    let ffmpeg_init_start = Instant::now();
+    ffmpeg::init().unwrap();
+    let ffmpeg_init_ms = ffmpeg_init_start.elapsed().as_millis() as u64;
+
+    let start_time = Instant::now();
+
+    let duration = get_duration(recordings, recording_meta, meta, project);
+
+    let total_frames = (fps as f64 * duration).ceil() as u32;
+
+    let cursor_smoothing =
+        (!project.cursor.raw).then_some(spring_mass_damper::SpringMassDamperSimulationConfig {
+            tension: project.cursor.tension,
+            mass: project.cursor.mass,
+            friction: project.cursor.friction,
+        });
+
+    let click_spring = project.cursor.click_spring_config();
+
+    let precomputed_cursor_timelines: Vec<Arc<PrecomputedCursorTimeline>> = render_segments
+        .iter()
+        .map(|segment| {
+            Arc::new(PrecomputedCursorTimeline::new(
+                &segment.cursor,
+                cursor_smoothing,
+                Some(click_spring),
+            ))
+        })
+        .collect();
+
+    let zoom_build_start = Instant::now();
+    let mut zoom_focus_interpolators: Vec<ZoomFocusInterpolator> = render_segments
+        .iter()
+        .zip(precomputed_cursor_timelines.iter())
+        .map(|(segment, precomputed_cursor)| {
+            ZoomFocusInterpolator::new_with_precomputed_cursor(
+                &segment.cursor,
+                cursor_smoothing,
+                click_spring,
+                project.screen_movement_spring,
+                duration,
+                project
+                    .timeline
+                    .as_ref()
+                    .map(|t| t.zoom_segments.as_slice())
+                    .unwrap_or(&[]),
+                Some(precomputed_cursor.clone()),
+            )
+        })
+        .collect();
+    for interp in &mut zoom_focus_interpolators {
+        interp.ensure_precomputed_until(duration as f32 + 1.0);
+    }
+    let zoom_focus_interpolators_construct_ms = zoom_build_start.elapsed().as_millis() as u64;
+
+    let mut frame_number = 0;
+
+    let renderer_setup_start = Instant::now();
+    let mut frame_renderer = FrameRenderer::new(constants);
+
+    let mut layers = RendererLayers::new_with_options(
+        &constants.device,
+        &constants.queue,
+        constants.is_software_adapter,
+    );
+
+    if let Some(first_segment) = render_segments.first() {
+        let (screen_w, screen_h) = first_segment.decoders.screen_video_dimensions();
+        let camera_dims = first_segment.decoders.camera_video_dimensions();
+        layers.prepare_for_video_dimensions(
+            &constants.device,
+            screen_w,
+            screen_h,
+            camera_dims.map(|(w, _)| w),
+            camera_dims.map(|(_, h)| h),
+        );
+    }
+    let frame_renderer_and_layers_setup_ms = renderer_setup_start.elapsed().as_millis() as u64;
+
+    let needs_camera = !project.camera.hide;
+
+    let mut last_successful_frame: Option<Nv12RenderedFrame> = None;
+    let mut consecutive_failures = 0u32;
+    const MAX_CONSECUTIVE_FAILURES: u32 = 200;
+
+    let mut prefetched_decode: Option<(u32, f64, usize, Option<DecodedSegmentFrames>)> = None;
+
+    let mut channel_frames_sent = 0u32;
+    let mut stopped_after_frame_limit = false;
+
+    let mut record_first_frame_nv12_phases = startup_breakdown_ms.is_some();
+
+    loop {
+        if frame_number >= total_frames {
+            break;
+        }
+
+        let Some((segment_time, segment)) =
+            project.get_segment_time(frame_number as f64 / fps as f64)
+        else {
+            break;
+        };
+
+        let clip_config = project
+            .clips
+            .iter()
+            .find(|v| v.index == segment.recording_clip);
+
+        let current_frame_number = {
+            let prev = frame_number;
+            std::mem::replace(&mut frame_number, prev + 1)
+        };
+
+        let render_segment = &render_segments[segment.recording_clip as usize];
+        let is_initial_frame = current_frame_number == 0 || last_successful_frame.is_none();
+        let segment_clip_index = segment.recording_clip as usize;
+
+        let zoom_pre_start = Instant::now();
+        let zoom_until = (current_frame_number as f32 + 1.0) / fps as f32;
+        zoom_focus_interpolators[segment_clip_index].ensure_precomputed_until(zoom_until);
+        let this_zoom_pre_ms = zoom_pre_start.elapsed().as_millis() as u64;
+
+        let decode_wall_start = Instant::now();
+        let segment_frames =
+            if let Some((pf_num, _pf_time, pf_clip, pf_result)) = prefetched_decode.take() {
+                if pf_num == current_frame_number && pf_clip == segment_clip_index {
+                    pf_result
+                } else {
+                    decode_segment_frames_with_retry(
+                        &render_segment.decoders,
+                        segment_time,
+                        needs_camera,
+                        clip_config.map(|v| v.offsets).unwrap_or_default(),
+                        current_frame_number,
+                        is_initial_frame,
+                    )
+                    .await
+                }
+            } else {
+                decode_segment_frames_with_retry(
+                    &render_segment.decoders,
+                    segment_time,
+                    needs_camera,
+                    clip_config.map(|v| v.offsets).unwrap_or_default(),
+                    current_frame_number,
+                    is_initial_frame,
+                )
+                .await
+            };
+        let this_decode_ms = decode_wall_start.elapsed().as_millis() as u64;
+
+        if let Some(segment_frames) = segment_frames {
+            consecutive_failures = 0;
+
+            let zoom_focus_interp = &zoom_focus_interpolators[segment_clip_index];
+            let precomputed_cursor = &precomputed_cursor_timelines[segment_clip_index];
+
+            let uniforms = ProjectUniforms::new_with_precomputed_cursor(
+                constants,
+                project,
+                current_frame_number,
+                fps,
+                resolution_base,
+                &render_segment.cursor,
+                &segment_frames,
+                duration,
+                zoom_focus_interp,
+                precomputed_cursor,
+            );
+
+            let next_frame_number = frame_number;
+            let mut next_prefetch_meta: Option<(f64, usize)> = None;
+            let prefetch_future = if next_frame_number < total_frames {
+                if let Some((next_seg_time, next_segment)) =
+                    project.get_segment_time(next_frame_number as f64 / fps as f64)
+                {
+                    let next_clip_index = next_segment.recording_clip as usize;
+                    next_prefetch_meta = Some((next_seg_time, next_clip_index));
+                    let next_render_segment = &render_segments[next_clip_index];
+                    let next_clip_config = project
+                        .clips
+                        .iter()
+                        .find(|v| v.index == next_segment.recording_clip);
+                    let next_is_initial = last_successful_frame.is_none();
+
+                    Some(decode_segment_frames_with_retry(
+                        &next_render_segment.decoders,
+                        next_seg_time,
+                        needs_camera,
+                        next_clip_config.map(|v| v.offsets).unwrap_or_default(),
+                        next_frame_number,
+                        next_is_initial,
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let (
+                render_result,
+                first_phase_render_ms,
+                first_phase_prefetch_ms,
+                first_phase_join_wall_ms,
+            ) = if let Some(prefetch) = prefetch_future {
+                if record_first_frame_nv12_phases {
+                    let join_wall_start = Instant::now();
+                    let render_fut = async {
+                        let t0 = Instant::now();
+                        let r = frame_renderer
+                            .render_nv12(
+                                segment_frames,
+                                uniforms,
+                                &render_segment.cursor,
+                                &mut layers,
+                            )
+                            .await;
+                        (t0.elapsed(), r)
+                    };
+                    let prefetch_fut = async {
+                        let t0 = Instant::now();
+                        let d = prefetch.await;
+                        (t0.elapsed(), d)
+                    };
+                    let ((render_elapsed, render), (prefetch_elapsed, decoded)) =
+                        tokio::join!(render_fut, prefetch_fut);
+                    if let Some((next_seg_time, next_clip_index)) = next_prefetch_meta {
+                        prefetched_decode =
+                            Some((next_frame_number, next_seg_time, next_clip_index, decoded));
+                    }
+                    (
+                        render,
+                        Some(render_elapsed.as_millis() as u64),
+                        Some(prefetch_elapsed.as_millis() as u64),
+                        Some(join_wall_start.elapsed().as_millis() as u64),
+                    )
+                } else {
+                    let (render, decoded) = tokio::join!(
+                        frame_renderer.render_nv12(
+                            segment_frames,
+                            uniforms,
+                            &render_segment.cursor,
+                            &mut layers,
+                        ),
+                        prefetch
+                    );
+
+                    if let Some((next_seg_time, next_clip_index)) = next_prefetch_meta {
+                        prefetched_decode =
+                            Some((next_frame_number, next_seg_time, next_clip_index, decoded));
+                    }
+
+                    (render, None, None, None)
+                }
+            } else if record_first_frame_nv12_phases {
+                let render_start = Instant::now();
+                let render = frame_renderer
+                    .render_nv12(
+                        segment_frames,
+                        uniforms,
+                        &render_segment.cursor,
+                        &mut layers,
+                    )
+                    .await;
+                (
+                    render,
+                    Some(render_start.elapsed().as_millis() as u64),
+                    None,
+                    None,
+                )
+            } else {
+                let render = frame_renderer
+                    .render_nv12(
+                        segment_frames,
+                        uniforms,
+                        &render_segment.cursor,
+                        &mut layers,
+                    )
+                    .await;
+                (render, None, None, None)
+            };
+
+            if current_frame_number == 0
+                && let Some(ref slot) = startup_breakdown_ms
+                && let Ok(mut guard) = slot.lock()
+            {
+                let b = guard.get_or_insert(Nv12RenderStartupBreakdownMs::new_header(
+                    ffmpeg_init_ms,
+                    zoom_focus_interpolators_construct_ms,
+                    frame_renderer_and_layers_setup_ms,
+                ));
+                b.frame_index_zero_zoom_precompute_ms = Some(this_zoom_pre_ms);
+                b.frame_index_zero_decode_ms = Some(this_decode_ms);
+                b.frame_index_zero_render_nv12_ms = first_phase_render_ms;
+                b.frame_index_zero_prefetch_decode_parallel_ms = first_phase_prefetch_ms;
+                b.frame_index_zero_join_wall_ms = first_phase_join_wall_ms;
+            }
+
+            match render_result {
+                Ok(Some(frame)) if frame.width > 0 && frame.height > 0 => {
+                    if record_first_frame_nv12_phases {
+                        if let Some(ref slot) = startup_breakdown_ms
+                            && let Ok(mut guard) = slot.lock()
+                        {
+                            let b = guard.get_or_insert(Nv12RenderStartupBreakdownMs::new_header(
+                                ffmpeg_init_ms,
+                                zoom_focus_interpolators_construct_ms,
+                                frame_renderer_and_layers_setup_ms,
+                            ));
+                            b.first_queued_zoom_precompute_ms = Some(this_zoom_pre_ms);
+                            b.first_queued_decode_ms = Some(this_decode_ms);
+                            b.first_queued_render_nv12_ms = first_phase_render_ms;
+                            b.first_queued_prefetch_decode_parallel_ms = first_phase_prefetch_ms;
+                            b.first_queued_join_wall_ms = first_phase_join_wall_ms;
+                        }
+                        record_first_frame_nv12_phases = false;
+                    }
+                    last_successful_frame = Some(frame.clone_metadata_with_data());
+                    sender.send((frame, current_frame_number)).await?;
+                    channel_frames_sent += 1;
+                    if stop_after_frames_sent.is_some_and(|m| channel_frames_sent >= m) {
+                        stopped_after_frame_limit = true;
+                        break;
+                    }
+                }
+                Ok(Some(_)) => {
+                    tracing::warn!(
+                        frame_number = current_frame_number,
+                        "Rendered NV12 frame has zero dimensions"
+                    );
+                    if let Some(ref last_frame) = last_successful_frame {
+                        let mut fallback = last_frame.clone_metadata_with_data();
+                        fallback.frame_number = current_frame_number;
+                        fallback.target_time_ns =
+                            (current_frame_number as u64 * 1_000_000_000) / fps as u64;
+                        sender.send((fallback, current_frame_number)).await?;
+                        channel_frames_sent += 1;
+                        if stop_after_frames_sent.is_some_and(|m| channel_frames_sent >= m) {
+                            stopped_after_frame_limit = true;
+                            break;
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::error!(
+                        frame_number = current_frame_number,
+                        error = %e,
+                        "NV12 frame rendering failed"
+                    );
+                    if let Some(ref last_frame) = last_successful_frame {
+                        let mut fallback = last_frame.clone_metadata_with_data();
+                        fallback.frame_number = current_frame_number;
+                        fallback.target_time_ns =
+                            (current_frame_number as u64 * 1_000_000_000) / fps as u64;
+                        sender.send((fallback, current_frame_number)).await?;
+                        channel_frames_sent += 1;
+                        if stop_after_frames_sent.is_some_and(|m| channel_frames_sent >= m) {
+                            stopped_after_frame_limit = true;
+                            break;
+                        }
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        } else {
+            consecutive_failures += 1;
+
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                tracing::error!(
+                    frame_number = current_frame_number,
+                    consecutive_failures = consecutive_failures,
+                    "Too many consecutive frame failures - aborting export"
+                );
+                return Err(RenderingError::FrameDecodeFailed {
+                    frame_number: current_frame_number,
+                    consecutive_failures,
+                });
+            }
+
+            if let Some(ref last_frame) = last_successful_frame {
+                tracing::warn!(
+                    frame_number = current_frame_number,
+                    segment_time = segment_time,
+                    consecutive_failures = consecutive_failures,
+                    max_retries = if is_initial_frame {
+                        DECODE_MAX_RETRIES_INITIAL
+                    } else {
+                        DECODE_MAX_RETRIES_STEADY
+                    },
+                    "Frame decode failed after retries - using previous NV12 frame"
+                );
+                let mut fallback = last_frame.clone_metadata_with_data();
+                fallback.frame_number = current_frame_number;
+                fallback.target_time_ns =
+                    (current_frame_number as u64 * 1_000_000_000) / fps as u64;
+                sender.send((fallback, current_frame_number)).await?;
+                channel_frames_sent += 1;
+                if stop_after_frames_sent.is_some_and(|m| channel_frames_sent >= m) {
+                    stopped_after_frame_limit = true;
+                    break;
+                }
+            } else {
+                tracing::error!(
+                    frame_number = current_frame_number,
+                    segment_time = segment_time,
+                    max_retries = if is_initial_frame {
+                        DECODE_MAX_RETRIES_INITIAL
+                    } else {
+                        DECODE_MAX_RETRIES_STEADY
+                    },
+                    "First frame decode failed after retries - cannot continue"
+                );
+                continue;
+            }
+        }
+    }
+
+    if !stopped_after_frame_limit
+        && let Some(Ok(final_frame)) = frame_renderer.flush_pipeline_nv12().await
+        && final_frame.width > 0
+        && final_frame.height > 0
+    {
+        sender
+            .send((final_frame, frame_number.saturating_sub(1)))
+            .await?;
+    }
+
+    let total_time = start_time.elapsed();
+    tracing::info!(
+        frames = frame_number,
+        elapsed_secs = format!("{:.2}", total_time.as_secs_f32()),
+        "NV12 render complete"
+    );
+
+    Ok(())
+}
+
+const DECODE_MAX_RETRIES_INITIAL: u32 = 5;
+const DECODE_MAX_RETRIES_STEADY: u32 = 2;
+
+async fn decode_segment_frames_with_retry(
+    decoders: &RecordingSegmentDecoders,
+    segment_time: f64,
+    needs_camera: bool,
+    offsets: cap_project::ClipOffsets,
+    current_frame_number: u32,
+    is_initial_frame: bool,
+) -> Option<DecodedSegmentFrames> {
+    let mut result = None;
+    let mut retry_count = 0u32;
+    let max_retries = if is_initial_frame {
+        DECODE_MAX_RETRIES_INITIAL
+    } else {
+        DECODE_MAX_RETRIES_STEADY
+    };
+
+    while result.is_none() && retry_count < max_retries {
+        if retry_count > 0 {
+            let delay = if is_initial_frame {
+                500 * (retry_count as u64 + 1)
+            } else {
+                10
+            };
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        }
+
+        result = if is_initial_frame {
+            decoders
+                .get_frames_initial(segment_time as f32, needs_camera, offsets)
+                .await
+        } else {
+            decoders
+                .get_frames(segment_time as f32, needs_camera, offsets)
+                .await
+        };
+
+        if result.is_none() {
+            retry_count += 1;
+            if retry_count < max_retries {
+                tracing::warn!(
+                    frame_number = current_frame_number,
+                    segment_time = segment_time,
+                    retry_count = retry_count,
+                    is_initial = is_initial_frame,
+                    "Frame decode failed, retrying..."
+                );
+            }
+        }
+    }
+
+    result
 }
 
 pub fn get_duration(
@@ -576,9 +1302,77 @@ pub struct RenderVideoConstants {
     pub recording_meta: RecordingMeta,
     pub background_textures: std::sync::Arc<tokio::sync::RwLock<HashMap<String, wgpu::Texture>>>,
     pub is_software_adapter: bool,
+    adapter_name: String,
+}
+
+pub struct SharedWgpuDevice {
+    pub instance: wgpu::Instance,
+    pub adapter: wgpu::Adapter,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub is_software_adapter: bool,
 }
 
 impl RenderVideoConstants {
+    pub fn new_with_device(
+        shared: SharedWgpuDevice,
+        segments: &[SegmentRecordings],
+        recording_meta: RecordingMeta,
+        meta: StudioRecordingMeta,
+    ) -> Result<Self, RenderingError> {
+        let first_segment = segments.first().ok_or(RenderingError::NoSegments)?;
+
+        let options = RenderOptions {
+            screen_size: XY::new(first_segment.display.width, first_segment.display.height),
+            camera_size: first_segment
+                .camera
+                .as_ref()
+                .map(|c| XY::new(c.width, c.height)),
+        };
+
+        let background_textures = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+
+        let adapter_name = shared.adapter.get_info().name;
+
+        Ok(Self {
+            _instance: shared.instance,
+            _adapter: shared.adapter,
+            device: shared.device,
+            queue: shared.queue,
+            options,
+            background_textures,
+            meta,
+            recording_meta,
+            is_software_adapter: shared.is_software_adapter,
+            adapter_name,
+        })
+    }
+
+    pub fn adapter_name(&self) -> &str {
+        &self.adapter_name
+    }
+
+    pub fn from_shared_device(
+        shared: SharedWgpuDevice,
+        options: RenderOptions,
+        meta: StudioRecordingMeta,
+        recording_meta: RecordingMeta,
+    ) -> Self {
+        let adapter_name = shared.adapter.get_info().name;
+        Self {
+            _instance: shared.instance,
+            _adapter: shared.adapter,
+            device: shared.device,
+            queue: shared.queue,
+            options,
+            background_textures: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+            meta,
+            recording_meta,
+            is_software_adapter: shared.is_software_adapter,
+            adapter_name,
+        }
+    }
+
     pub async fn new(
         segments: &[SegmentRecordings],
         recording_meta: RecordingMeta,
@@ -594,7 +1388,7 @@ impl RenderVideoConstants {
                 .map(|c| XY::new(c.width, c.height)),
         };
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let instance = create_wgpu_instance().await;
 
         let hardware_adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -605,13 +1399,27 @@ impl RenderVideoConstants {
             .await
             .ok();
 
-        let (adapter, is_software_adapter) = if let Some(adapter) = hardware_adapter {
-            tracing::info!(
-                adapter_name = adapter.get_info().name,
-                adapter_backend = ?adapter.get_info().backend,
-                "Using hardware GPU adapter"
-            );
-            (adapter, false)
+        let (adapter, is_software_adapter, adapter_name) = if let Some(adapter) = hardware_adapter {
+            let adapter_info = adapter.get_info();
+            let is_software = is_software_wgpu_adapter(&adapter_info);
+
+            if is_software {
+                tracing::warn!(
+                    adapter_name = adapter_info.name,
+                    adapter_backend = ?adapter_info.backend,
+                    adapter_device_type = ?adapter_info.device_type,
+                    "Hardware adapter behaves like a software renderer"
+                );
+            } else {
+                tracing::info!(
+                    adapter_name = adapter_info.name,
+                    adapter_backend = ?adapter_info.backend,
+                    adapter_device_type = ?adapter_info.device_type,
+                    "Using hardware GPU adapter"
+                );
+            }
+
+            (adapter, is_software, adapter_info.name)
         } else {
             tracing::warn!("No hardware GPU adapter found, attempting software fallback");
             let software_adapter = instance
@@ -623,17 +1431,24 @@ impl RenderVideoConstants {
                 .await
                 .map_err(|_| RenderingError::NoAdapter)?;
 
+            let adapter_info = software_adapter.get_info();
             tracing::info!(
-                adapter_name = software_adapter.get_info().name,
-                adapter_backend = ?software_adapter.get_info().backend,
+                adapter_name = adapter_info.name,
+                adapter_backend = ?adapter_info.backend,
+                adapter_device_type = ?adapter_info.device_type,
                 "Using software adapter (CPU rendering - performance may be reduced)"
             );
-            (software_adapter, true)
+            (software_adapter, true, adapter_info.name)
         };
+
+        let mut required_features = wgpu::Features::empty();
+        if adapter.features().contains(wgpu::Features::PIPELINE_CACHE) {
+            required_features |= wgpu::Features::PIPELINE_CACHE;
+        }
 
         let device_descriptor = wgpu::DeviceDescriptor {
             label: Some("cap-rendering-device"),
-            required_features: wgpu::Features::empty(),
+            required_features,
             ..Default::default()
         };
 
@@ -651,6 +1466,7 @@ impl RenderVideoConstants {
             meta,
             recording_meta,
             is_software_adapter,
+            adapter_name,
         })
     }
 }
@@ -659,8 +1475,10 @@ impl RenderVideoConstants {
 pub struct ProjectUniforms {
     pub output_size: (u32, u32),
     pub cursor_size: f32,
+    pub cursor_x_axis_tilt_radians: f32,
     pub frame_rate: u32,
     pub frame_number: u32,
+    pub recording_time: f64,
     display: CompositeVideoFrameUniforms,
     camera: Option<CompositeVideoFrameUniforms>,
     camera_only: Option<CompositeVideoFrameUniforms>,
@@ -860,8 +1678,8 @@ fn resolve_motion_descriptor(
 
     let zoom_metric = analysis.zoom_magnitude;
     let move_metric = analysis.movement_magnitude;
-    let zoom_strength = (base_amount * zoom_multiplier).min(2.0);
-    let move_strength = (base_amount * move_multiplier).min(2.0);
+    let zoom_strength = base_amount * zoom_multiplier;
+    let move_strength = base_amount * move_multiplier;
 
     if zoom_metric > move_metric && zoom_metric > MOTION_MIN_THRESHOLD && zoom_strength > 0.0 {
         let zoom_amount = (zoom_metric * zoom_strength).min(MAX_ZOOM_AMOUNT);
@@ -891,10 +1709,10 @@ const SCREEN_MAX_PADDING: f64 = 0.4;
 
 const MOTION_BLUR_BASELINE_FPS: f32 = 60.0;
 const MOTION_MIN_THRESHOLD: f32 = 0.003;
-const MOTION_VECTOR_CAP: f32 = 0.85;
-const MAX_ZOOM_AMOUNT: f32 = 0.9;
-const DISPLAY_MOVE_MULTIPLIER: f32 = 0.6;
-const DISPLAY_ZOOM_MULTIPLIER: f32 = 0.45;
+const MOTION_VECTOR_CAP: f32 = 2.0;
+const MAX_ZOOM_AMOUNT: f32 = 2.0;
+const DISPLAY_MOVE_MULTIPLIER: f32 = 1.0;
+const DISPLAY_ZOOM_MULTIPLIER: f32 = 1.0;
 const CAMERA_MULTIPLIER: f32 = 1.0;
 const CAMERA_ONLY_MULTIPLIER: f32 = 0.45;
 
@@ -963,7 +1781,7 @@ impl MotionBlurDescriptor {
 }
 
 impl ProjectUniforms {
-    fn get_crop(options: &RenderOptions, project: &ProjectConfiguration) -> Crop {
+    pub fn get_crop(options: &RenderOptions, project: &ProjectConfiguration) -> Crop {
         project.background.crop.as_ref().cloned().unwrap_or(Crop {
             position: XY { x: 0, y: 0 },
             size: XY {
@@ -1046,7 +1864,7 @@ impl ProjectUniforms {
         let height_scale = resolution_base.y as f32 / base_height as f32;
         let scale = width_scale.min(height_scale);
 
-        let scaled_width = ((base_width as f32 * scale) as u32 + 1) & !1;
+        let scaled_width = ((base_width as f32 * scale) as u32 + 3) & !3;
         let scaled_height = ((base_height as f32 * scale) as u32 + 1) & !1;
         (scaled_width, scaled_height)
     }
@@ -1076,8 +1894,15 @@ impl ProjectUniforms {
 
         let padding = {
             let padding_factor = project.background.padding / 100.0 * SCREEN_MAX_PADDING;
+            let crop_basis = f64::max(cropped_size.x, cropped_size.y);
+            let base_padding = crop_basis * padding_factor;
 
-            f64::max(output_size.x, output_size.y) * padding_factor
+            let (base_w, base_h) = Self::get_base_size(options, project);
+            let output_scale = f64::min(
+                output_size.x / f64::max(base_w as f64, 1.0),
+                output_size.y / f64::max(base_h as f64, 1.0),
+            );
+            base_padding * output_scale
         };
 
         let is_height_constrained = cropped_aspect <= output_aspect;
@@ -1299,6 +2124,83 @@ impl ProjectUniforms {
         total_duration: f64,
         zoom_focus_interpolator: &ZoomFocusInterpolator,
     ) -> Self {
+        let cursor_smoothing = (!project.cursor.raw).then_some(SpringMassDamperSimulationConfig {
+            tension: project.cursor.tension,
+            mass: project.cursor.mass,
+            friction: project.cursor.friction,
+        });
+        let click_spring_cfg = project.cursor.click_spring_config();
+
+        let cursor_interp_fn = |time: f32| -> Option<InterpolatedCursorPosition> {
+            match cursor_smoothing {
+                Some(cfg) => interpolate_cursor_with_click_spring(
+                    cursor_events,
+                    time,
+                    Some(cfg),
+                    Some(click_spring_cfg),
+                ),
+                None => interpolate_cursor(cursor_events, time, None),
+            }
+        };
+
+        Self::new_inner(
+            constants,
+            project,
+            frame_number,
+            fps,
+            resolution_base,
+            cursor_events,
+            segment_frames,
+            total_duration,
+            zoom_focus_interpolator,
+            &cursor_interp_fn,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_precomputed_cursor(
+        constants: &RenderVideoConstants,
+        project: &ProjectConfiguration,
+        frame_number: u32,
+        fps: u32,
+        resolution_base: XY<u32>,
+        cursor_events: &CursorEvents,
+        segment_frames: &DecodedSegmentFrames,
+        total_duration: f64,
+        zoom_focus_interpolator: &ZoomFocusInterpolator,
+        precomputed_cursor: &PrecomputedCursorTimeline,
+    ) -> Self {
+        let cursor_interp_fn = |time: f32| -> Option<InterpolatedCursorPosition> {
+            precomputed_cursor.interpolate(time)
+        };
+
+        Self::new_inner(
+            constants,
+            project,
+            frame_number,
+            fps,
+            resolution_base,
+            cursor_events,
+            segment_frames,
+            total_duration,
+            zoom_focus_interpolator,
+            &cursor_interp_fn,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_inner(
+        constants: &RenderVideoConstants,
+        project: &ProjectConfiguration,
+        frame_number: u32,
+        fps: u32,
+        resolution_base: XY<u32>,
+        _cursor_events: &CursorEvents,
+        segment_frames: &DecodedSegmentFrames,
+        total_duration: f64,
+        zoom_focus_interpolator: &ZoomFocusInterpolator,
+        cursor_interp_fn: &dyn Fn(f32) -> Option<InterpolatedCursorPosition>,
+    ) -> Self {
         let options = &constants.options;
         let output_size = Self::get_output_size(options, project, resolution_base);
         let fps_f32 = fps as f32;
@@ -1335,17 +2237,21 @@ impl ProjectUniforms {
 
         let crop = Self::get_crop(options, project);
 
-        let cursor_smoothing = (!project.cursor.raw).then_some(SpringMassDamperSimulationConfig {
-            tension: project.cursor.tension,
-            mass: project.cursor.mass,
-            friction: project.cursor.friction,
-        });
+        let interpolated_cursor = cursor_interp_fn(cursor_time_for_interp);
+        let prev_interpolated_cursor = cursor_interp_fn(prev_cursor_time_for_interp);
+        let lookback_t = (cursor_time_for_interp - 0.4).max(0.0);
+        let past_cursor_for_tilt = cursor_interp_fn(lookback_t);
 
-        let interpolated_cursor =
-            interpolate_cursor(cursor_events, cursor_time_for_interp, cursor_smoothing);
-
-        let prev_interpolated_cursor =
-            interpolate_cursor(cursor_events, prev_cursor_time_for_interp, cursor_smoothing);
+        let cursor_x_axis_tilt_radians =
+            if let (Some(cur), Some(past)) = (&interpolated_cursor, past_cursor_for_tilt) {
+                let delta_x_norm = cur.position.coord.x - past.position.coord.x;
+                let delta_x_px = delta_x_norm * resolution_base.x as f64;
+                let deg =
+                    (delta_x_px * 0.03 * project.cursor.rotation_amount as f64).clamp(-20.0, 20.0);
+                deg.to_radians() as f32
+            } else {
+                0.0
+            };
 
         let zoom_segments = project
             .timeline
@@ -1359,28 +2265,89 @@ impl ProjectUniforms {
             .map(|t| t.scene_segments.as_slice())
             .unwrap_or(&[]);
 
-        let zoom_focus = zoom_focus_interpolator.interpolate(current_recording_time);
-
-        let prev_zoom_focus = zoom_focus_interpolator.interpolate(prev_recording_time);
+        let segments_cursor = SegmentsCursor::new(frame_time as f64, zoom_segments);
+        let prev_segments_cursor = SegmentsCursor::new(prev_frame_time as f64, zoom_segments);
+        let recording_time_for_zoom_focus_interpolate = segments_cursor
+            .segment
+            .filter(|s| matches!(s.mode, cap_project::ZoomMode::Auto))
+            .map(|s| current_recording_time.min(s.end as f32))
+            .unwrap_or(current_recording_time);
+        let prev_recording_time_for_zoom_focus_interpolate = prev_segments_cursor
+            .segment
+            .filter(|s| matches!(s.mode, cap_project::ZoomMode::Auto))
+            .map(|s| prev_recording_time.min(s.end as f32))
+            .unwrap_or(prev_recording_time);
+        let zoom_focus =
+            zoom_focus_interpolator.interpolate(recording_time_for_zoom_focus_interpolate);
+        let prev_zoom_focus =
+            zoom_focus_interpolator.interpolate(prev_recording_time_for_zoom_focus_interpolate);
 
         let actual_cursor_coord = interpolated_cursor
             .as_ref()
-            .map(|c| Coord::<RawDisplayUVSpace>::new(c.position.coord));
+            .map(|c| Coord::<RawDisplayUVSpace>::new(c.position.coord))
+            .filter(|c| (0.0..=1.0).contains(&c.x) && (0.0..=1.0).contains(&c.y));
 
         let prev_actual_cursor_coord = prev_interpolated_cursor
             .as_ref()
-            .map(|c| Coord::<RawDisplayUVSpace>::new(c.position.coord));
+            .map(|c| Coord::<RawDisplayUVSpace>::new(c.position.coord))
+            .filter(|c| (0.0..=1.0).contains(&c.x) && (0.0..=1.0).contains(&c.y));
 
-        let zoom = InterpolatedZoom::new_with_cursor(
-            SegmentsCursor::new(frame_time as f64, zoom_segments),
+        let segment_end_focus = segments_cursor
+            .prev_segment
+            .filter(|_| segments_cursor.segment.is_none())
+            .map(|prev| {
+                let boundary_recording_time = (current_recording_time as f64
+                    - (frame_time as f64 - prev.end))
+                    .clamp(0.0, prev.end) as f32;
+                zoom_focus_interpolator.interpolate(boundary_recording_time)
+            });
+        let segment_end_cursor = segments_cursor
+            .prev_segment
+            .filter(|_| segments_cursor.segment.is_none())
+            .and_then(|prev| {
+                let boundary_recording_time = (current_recording_time as f64
+                    - (frame_time as f64 - prev.end))
+                    .clamp(0.0, prev.end) as f32;
+                cursor_interp_fn(boundary_recording_time)
+            })
+            .map(|c| Coord::<RawDisplayUVSpace>::new(c.position.coord))
+            .filter(|c| (0.0..=1.0).contains(&c.x) && (0.0..=1.0).contains(&c.y));
+
+        let zoom = InterpolatedZoom::new_with_cursor_and_end_focus(
+            segments_cursor,
             zoom_focus,
             actual_cursor_coord,
+            segment_end_focus,
+            segment_end_cursor,
         );
 
-        let prev_zoom = InterpolatedZoom::new_with_cursor(
-            SegmentsCursor::new(prev_frame_time as f64, zoom_segments),
+        let prev_segment_end_focus = prev_segments_cursor
+            .prev_segment
+            .filter(|_| prev_segments_cursor.segment.is_none())
+            .map(|prev| {
+                let boundary_recording_time = (prev_recording_time as f64
+                    - (prev_frame_time as f64 - prev.end))
+                    .clamp(0.0, prev.end) as f32;
+                zoom_focus_interpolator.interpolate(boundary_recording_time)
+            });
+        let prev_segment_end_cursor = prev_segments_cursor
+            .prev_segment
+            .filter(|_| prev_segments_cursor.segment.is_none())
+            .and_then(|prev| {
+                let boundary_recording_time = (prev_recording_time as f64
+                    - (prev_frame_time as f64 - prev.end))
+                    .clamp(0.0, prev.end) as f32;
+                cursor_interp_fn(boundary_recording_time)
+            })
+            .map(|c| Coord::<RawDisplayUVSpace>::new(c.position.coord))
+            .filter(|c| (0.0..=1.0).contains(&c.x) && (0.0..=1.0).contains(&c.y));
+
+        let prev_zoom = InterpolatedZoom::new_with_cursor_and_end_focus(
+            prev_segments_cursor,
             prev_zoom_focus,
             prev_actual_cursor_coord,
+            prev_segment_end_focus,
+            prev_segment_end_cursor,
         );
 
         let scene =
@@ -1760,6 +2727,7 @@ impl ProjectUniforms {
         Self {
             output_size,
             cursor_size: project.cursor.size as f32,
+            cursor_x_axis_tilt_radians,
             resolution_base,
             display,
             camera,
@@ -1770,6 +2738,7 @@ impl ProjectUniforms {
             interpolated_cursor,
             frame_rate: fps,
             frame_number,
+            recording_time: current_recording_time as f64,
             prev_cursor: prev_interpolated_cursor,
             display_parent_motion_px: display_motion_parent,
             motion_blur_amount: cursor_motion_blur,
@@ -1790,6 +2759,8 @@ pub struct DecodedSegmentFrames {
 pub struct FrameRenderer<'a> {
     constants: &'a RenderVideoConstants,
     session: Option<RenderSession>,
+    nv12_converter: Option<frame_pipeline::RgbaToNv12Converter>,
+    nv12_buffer_pool: NV12BufferPool,
 }
 
 impl<'a> FrameRenderer<'a> {
@@ -1799,6 +2770,8 @@ impl<'a> FrameRenderer<'a> {
         Self {
             constants,
             session: None,
+            nv12_converter: None,
+            nv12_buffer_pool: NV12BufferPool::new(6),
         }
     }
 
@@ -1812,7 +2785,7 @@ impl<'a> FrameRenderer<'a> {
         uniforms: ProjectUniforms,
         cursor: &CursorEvents,
         layers: &mut RendererLayers,
-    ) -> Result<RenderedFrame, RenderingError> {
+    ) -> Result<Option<RenderedFrame>, RenderingError> {
         let mut last_error = None;
 
         for attempt in 0..Self::MAX_RENDER_RETRIES {
@@ -1851,7 +2824,7 @@ impl<'a> FrameRenderer<'a> {
             )
             .await
             {
-                Ok(frame) => return Ok(frame),
+                Ok(opt_frame) => return Ok(opt_frame),
                 Err(RenderingError::BufferMapWaitingFailed) => {
                     tracing::warn!(
                         frame_number = uniforms.frame_number,
@@ -1875,6 +2848,261 @@ impl<'a> FrameRenderer<'a> {
 
         Err(last_error.unwrap_or(RenderingError::BufferMapWaitingFailed))
     }
+
+    pub async fn render_immediate(
+        &mut self,
+        segment_frames: DecodedSegmentFrames,
+        uniforms: ProjectUniforms,
+        cursor: &CursorEvents,
+        layers: &mut RendererLayers,
+    ) -> Result<RenderedFrame, RenderingError> {
+        if let Some(frame) = self
+            .render(segment_frames, uniforms, cursor, layers)
+            .await?
+        {
+            return Ok(frame);
+        }
+        self.flush_pipeline()
+            .await
+            .unwrap_or(Err(RenderingError::BufferMapWaitingFailed))
+    }
+
+    pub async fn flush_pipeline(&mut self) -> Option<Result<RenderedFrame, RenderingError>> {
+        if let Some(session) = &mut self.session {
+            flush_pending_readback(session, &self.constants.device).await
+        } else {
+            None
+        }
+    }
+
+    pub async fn render_immediate_nv12(
+        &mut self,
+        segment_frames: DecodedSegmentFrames,
+        uniforms: ProjectUniforms,
+        cursor: &CursorEvents,
+        layers: &mut RendererLayers,
+    ) -> Result<frame_pipeline::Nv12RenderedFrame, RenderingError> {
+        if let Some(frame) = self
+            .render_nv12(segment_frames, uniforms, cursor, layers)
+            .await?
+        {
+            return Ok(frame);
+        }
+        self.flush_pipeline_nv12()
+            .await
+            .unwrap_or(Err(RenderingError::BufferMapWaitingFailed))
+    }
+
+    pub async fn flush_pipeline_nv12(
+        &mut self,
+    ) -> Option<Result<frame_pipeline::Nv12RenderedFrame, RenderingError>> {
+        let nv12_converter = self.nv12_converter.as_mut()?;
+        let pending = nv12_converter.take_pending()?;
+        Some(
+            pending
+                .wait_with_pool(&self.constants.device, Some(&mut self.nv12_buffer_pool))
+                .await,
+        )
+    }
+
+    pub async fn render_nv12(
+        &mut self,
+        segment_frames: DecodedSegmentFrames,
+        uniforms: ProjectUniforms,
+        cursor: &CursorEvents,
+        layers: &mut RendererLayers,
+    ) -> Result<Option<frame_pipeline::Nv12RenderedFrame>, RenderingError> {
+        if self.constants.is_software_adapter {
+            return self
+                .render_nv12_software_path(segment_frames, uniforms, cursor, layers)
+                .await;
+        }
+
+        self.render_nv12_gpu_path(segment_frames, uniforms, cursor, layers)
+            .await
+    }
+
+    async fn render_nv12_software_path(
+        &mut self,
+        segment_frames: DecodedSegmentFrames,
+        uniforms: ProjectUniforms,
+        cursor: &CursorEvents,
+        layers: &mut RendererLayers,
+    ) -> Result<Option<frame_pipeline::Nv12RenderedFrame>, RenderingError> {
+        let rgba_frame = self
+            .render(segment_frames, uniforms.clone(), cursor, layers)
+            .await?;
+
+        let Some(rgba_frame) = rgba_frame else {
+            return Ok(None);
+        };
+
+        let width = rgba_frame.width;
+        let height = rgba_frame.height;
+        let padded_bytes_per_row = rgba_frame.padded_bytes_per_row;
+        let frame_number = rgba_frame.frame_number;
+        let target_time_ns = rgba_frame.target_time_ns;
+
+        let nv12_size = (width as usize) * (height as usize) * 3 / 2;
+        let mut nv12_buf = self.nv12_buffer_pool.acquire(nv12_size);
+
+        let y_stride = width as usize;
+        let uv_stride = width as usize;
+        let y_plane_size = y_stride * height as usize;
+        let uv_plane_size = uv_stride * (height as usize / 2);
+        nv12_buf.resize(y_plane_size + uv_plane_size, 0);
+
+        let src_data = &rgba_frame.data;
+        let src_stride = padded_bytes_per_row as usize;
+
+        for row in 0..height as usize {
+            let src_row = &src_data[row * src_stride..row * src_stride + width as usize * 4];
+            let y_row = &mut nv12_buf[row * y_stride..(row + 1) * y_stride];
+            for col in 0..width as usize {
+                let r = src_row[col * 4] as i32;
+                let g = src_row[col * 4 + 1] as i32;
+                let b = src_row[col * 4 + 2] as i32;
+                y_row[col] = ((16 + ((65 * r + 129 * g + 25 * b + 128) >> 8)) as u8).clamp(16, 235);
+            }
+        }
+
+        let uv_offset = y_plane_size;
+        for row in 0..(height as usize / 2) {
+            let src_row0 =
+                &src_data[row * 2 * src_stride..row * 2 * src_stride + width as usize * 4];
+            let src_row1 = &src_data
+                [(row * 2 + 1) * src_stride..(row * 2 + 1) * src_stride + width as usize * 4];
+            let uv_row =
+                &mut nv12_buf[uv_offset + row * uv_stride..uv_offset + (row + 1) * uv_stride];
+            for col in 0..(width as usize / 2) {
+                let r = (src_row0[col * 8] as i32
+                    + src_row0[col * 8 + 4] as i32
+                    + src_row1[col * 8] as i32
+                    + src_row1[col * 8 + 4] as i32
+                    + 2)
+                    / 4;
+                let g = (src_row0[col * 8 + 1] as i32
+                    + src_row0[col * 8 + 5] as i32
+                    + src_row1[col * 8 + 1] as i32
+                    + src_row1[col * 8 + 5] as i32
+                    + 2)
+                    / 4;
+                let b = (src_row0[col * 8 + 2] as i32
+                    + src_row0[col * 8 + 6] as i32
+                    + src_row1[col * 8 + 2] as i32
+                    + src_row1[col * 8 + 6] as i32
+                    + 2)
+                    / 4;
+                uv_row[col * 2] =
+                    ((128 + ((-38 * r - 74 * g + 112 * b + 128) >> 8)) as u8).clamp(16, 240);
+                uv_row[col * 2 + 1] =
+                    ((128 + ((112 * r - 94 * g - 18 * b + 128) >> 8)) as u8).clamp(16, 240);
+            }
+        }
+
+        Ok(Some(frame_pipeline::Nv12RenderedFrame {
+            data: self.nv12_buffer_pool.wrap(nv12_buf),
+            width,
+            height,
+            y_stride: width,
+            frame_number,
+            target_time_ns,
+            format: frame_pipeline::GpuOutputFormat::Nv12,
+        }))
+    }
+
+    async fn render_nv12_gpu_path(
+        &mut self,
+        segment_frames: DecodedSegmentFrames,
+        uniforms: ProjectUniforms,
+        cursor: &CursorEvents,
+        layers: &mut RendererLayers,
+    ) -> Result<Option<frame_pipeline::Nv12RenderedFrame>, RenderingError> {
+        let mut last_error = None;
+
+        for attempt in 0..Self::MAX_RENDER_RETRIES {
+            if attempt > 0 {
+                tracing::warn!(
+                    frame_number = uniforms.frame_number,
+                    attempt = attempt + 1,
+                    "Retrying NV12 frame render after GPU error"
+                );
+                self.reset_session();
+                self.nv12_converter = None;
+                tokio::time::sleep(std::time::Duration::from_millis(100 * (attempt as u64 + 1)))
+                    .await;
+            }
+
+            let session = self.session.get_or_insert_with(|| {
+                RenderSession::new(
+                    &self.constants.device,
+                    uniforms.output_size.0,
+                    uniforms.output_size.1,
+                )
+            });
+
+            session.update_texture_size(
+                &self.constants.device,
+                uniforms.output_size.0,
+                uniforms.output_size.1,
+            );
+
+            let nv12_converter = self.nv12_converter.get_or_insert_with(|| {
+                frame_pipeline::RgbaToNv12Converter::new(&self.constants.device)
+            });
+
+            let mut encoder = self.constants.device.create_command_encoder(
+                &(wgpu::CommandEncoderDescriptor {
+                    label: Some("Render Encoder (NV12)"),
+                }),
+            );
+
+            if let Err(e) = layers
+                .prepare_with_encoder(
+                    self.constants,
+                    &uniforms,
+                    &segment_frames,
+                    cursor,
+                    &mut encoder,
+                )
+                .await
+            {
+                last_error = Some(e);
+                continue;
+            }
+
+            layers.render(
+                &self.constants.device,
+                &self.constants.queue,
+                &mut encoder,
+                session,
+                &uniforms,
+            );
+
+            match finish_encoder_nv12_pooled(
+                session,
+                nv12_converter,
+                &self.constants.device,
+                &self.constants.queue,
+                &uniforms,
+                encoder,
+                Some(&mut self.nv12_buffer_pool),
+            )
+            .await
+            {
+                Ok(opt_frame) => return Ok(opt_frame),
+                Err(RenderingError::BufferMapWaitingFailed) => {
+                    last_error = Some(RenderingError::BufferMapWaitingFailed);
+                }
+                Err(RenderingError::BufferMapFailed(e)) => {
+                    last_error = Some(RenderingError::BufferMapFailed(e));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err(last_error.unwrap_or(RenderingError::BufferMapWaitingFailed))
+    }
 }
 
 pub struct RendererLayers {
@@ -1887,6 +3115,7 @@ pub struct RendererLayers {
     mask: MaskLayer,
     text: TextLayer,
     captions: CaptionsLayer,
+    keyboard: KeyboardLayer,
 }
 
 impl RendererLayers {
@@ -1899,16 +3128,34 @@ impl RendererLayers {
         queue: &wgpu::Queue,
         prefer_cpu_conversion: bool,
     ) -> Self {
+        let shared_yuv_pipelines = Arc::new(yuv_converter::YuvConverterPipelines::new(device));
+        let shared_composite_pipeline =
+            Arc::new(composite_frame::CompositeVideoFramePipeline::new(device));
+
         Self {
             background: BackgroundLayer::new(device),
             background_blur: BlurLayer::new(device),
-            display: DisplayLayer::new_with_options(device, prefer_cpu_conversion),
+            display: DisplayLayer::new_with_all_shared_pipelines(
+                device,
+                shared_yuv_pipelines.clone(),
+                shared_composite_pipeline.clone(),
+                prefer_cpu_conversion,
+            ),
             cursor: CursorLayer::new(device),
-            camera: CameraLayer::new(device),
-            camera_only: CameraLayer::new(device),
+            camera: CameraLayer::new_with_all_shared_pipelines(
+                device,
+                shared_yuv_pipelines.clone(),
+                shared_composite_pipeline.clone(),
+            ),
+            camera_only: CameraLayer::new_with_all_shared_pipelines(
+                device,
+                shared_yuv_pipelines,
+                shared_composite_pipeline,
+            ),
             mask: MaskLayer::new(device),
             text: TextLayer::new(device, queue),
             captions: CaptionsLayer::new(device, queue),
+            keyboard: KeyboardLayer::new(device, queue),
         }
     }
 
@@ -2010,6 +3257,103 @@ impl RendererLayers {
             constants,
         );
 
+        self.keyboard.prepare(
+            uniforms,
+            segment_frames,
+            XY::new(uniforms.output_size.0, uniforms.output_size.1),
+            constants,
+            self.captions.active_layout(),
+        );
+
+        Ok(())
+    }
+
+    pub async fn prepare_with_encoder(
+        &mut self,
+        constants: &RenderVideoConstants,
+        uniforms: &ProjectUniforms,
+        segment_frames: &DecodedSegmentFrames,
+        cursor: &CursorEvents,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), RenderingError> {
+        self.background
+            .prepare(
+                constants,
+                uniforms,
+                Background::from(uniforms.project.background.source.clone()),
+            )
+            .await?;
+
+        if uniforms.project.background.blur > 0.0 {
+            self.background_blur.prepare(&constants.queue, uniforms);
+        }
+
+        self.display.prepare_with_encoder(
+            &constants.device,
+            &constants.queue,
+            segment_frames,
+            constants.options.screen_size,
+            uniforms.display,
+            encoder,
+        );
+
+        self.cursor.prepare(
+            segment_frames,
+            uniforms.resolution_base,
+            cursor,
+            &uniforms.zoom,
+            uniforms,
+            constants,
+        );
+
+        self.camera.prepare_with_encoder(
+            &constants.device,
+            &constants.queue,
+            uniforms.camera,
+            constants.options.camera_size.and_then(|size| {
+                segment_frames
+                    .camera_frame
+                    .as_ref()
+                    .map(|frame| (size, frame, segment_frames.recording_time))
+            }),
+            encoder,
+        );
+
+        self.camera_only.prepare_with_encoder(
+            &constants.device,
+            &constants.queue,
+            uniforms.camera_only,
+            constants.options.camera_size.and_then(|size| {
+                segment_frames
+                    .camera_frame
+                    .as_ref()
+                    .map(|frame| (size, frame, segment_frames.recording_time))
+            }),
+            encoder,
+        );
+
+        self.text.prepare(
+            &constants.device,
+            &constants.queue,
+            uniforms.output_size,
+            &uniforms.texts,
+        );
+
+        self.captions.prepare(
+            uniforms,
+            segment_frames,
+            XY::new(uniforms.output_size.0, uniforms.output_size.1),
+            constants,
+        );
+
+        self.keyboard.prepare(
+            uniforms,
+            segment_frames,
+            XY::new(uniforms.output_size.0, uniforms.output_size.1),
+            constants,
+            self.captions.active_layout(),
+        );
+
         Ok(())
     }
 
@@ -2097,6 +3441,11 @@ impl RendererLayers {
             self.text.render(&mut pass);
         }
 
+        if self.keyboard.has_content() {
+            let mut pass = render_pass!(session.current_texture_view(), wgpu::LoadOp::Load);
+            self.keyboard.render(&mut pass);
+        }
+
         if self.captions.has_content() {
             let mut pass = render_pass!(session.current_texture_view(), wgpu::LoadOp::Load);
             self.captions.render(&mut pass);
@@ -2111,16 +3460,16 @@ async fn produce_frame(
     cursor: &CursorEvents,
     layers: &mut RendererLayers,
     session: &mut RenderSession,
-) -> Result<RenderedFrame, RenderingError> {
-    layers
-        .prepare(constants, &uniforms, &segment_frames, cursor)
-        .await?;
-
+) -> Result<Option<RenderedFrame>, RenderingError> {
     let mut encoder = constants.device.create_command_encoder(
         &(wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         }),
     );
+
+    layers
+        .prepare_with_encoder(constants, &uniforms, &segment_frames, cursor, &mut encoder)
+        .await?;
 
     layers.render(
         &constants.device,
@@ -2214,15 +3563,6 @@ pub fn create_shader_render_pipeline(
         multiview: None,
         cache: None,
     })
-}
-
-fn srgb_to_linear(c: u16) -> f32 {
-    let c = c as f32 / 255.0;
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
 }
 
 #[cfg(test)]
