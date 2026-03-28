@@ -461,7 +461,7 @@ async fn setup_camera(
 ) -> Result<SetupCameraResult, SetInputError> {
     let camera = find_camera(id).ok_or(SetInputError::DeviceNotFound)?;
     let format = select_camera_format(&camera)?;
-    let frame_rate = format.frame_rate() as u32;
+    let frame_rate = format.frame_rate().round().max(1.0) as u32;
 
     let (ready_tx, ready_rx) = oneshot::channel();
     let mut ready_signal = Some(ready_tx);
@@ -535,7 +535,7 @@ async fn setup_camera(
 ) -> Result<SetupCameraResult, SetInputError> {
     let camera = find_camera(id).ok_or(SetInputError::DeviceNotFound)?;
     let format = select_camera_format(&camera)?;
-    let frame_rate = format.frame_rate() as u32;
+    let frame_rate = format.frame_rate().round().max(1.0) as u32;
 
     let (ready_tx, ready_rx) = oneshot::channel();
     let mut ready_signal = Some(ready_tx);
@@ -719,6 +719,14 @@ impl Message<AddSender> for CameraFeed {
     type Reply = ();
 
     async fn handle(&mut self, msg: AddSender, _: &mut Context<Self, Self::Reply>) -> Self::Reply {
+        if self
+            .senders
+            .iter()
+            .any(|sender| sender.same_channel(&msg.0))
+        {
+            return;
+        }
+
         debug!("CameraFeed: Adding new sender");
         self.senders.push(msg.0);
     }
@@ -732,6 +740,14 @@ impl Message<AddNativeSender> for CameraFeed {
         msg: AddNativeSender,
         _: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
+        if self
+            .native_senders
+            .iter()
+            .any(|sender| sender.same_channel(&msg.0))
+        {
+            return;
+        }
+
         debug!("CameraFeed: Adding new native sender");
         self.native_senders.push(msg.0);
     }
@@ -782,6 +798,16 @@ impl Message<NewFrame> for CameraFeed {
         let mut to_remove = vec![];
 
         for (i, sender) in self.senders.iter().enumerate() {
+            if sender.is_full() {
+                if frame_num.is_multiple_of(30) {
+                    warn!(
+                        "Camera sender {} channel full at frame {}, dropping frame",
+                        i, frame_num
+                    );
+                }
+                continue;
+            }
+
             match sender.try_send(msg.0.clone()) {
                 Ok(()) => {}
                 Err(flume::TrySendError::Full(_)) => {
@@ -828,6 +854,16 @@ impl Message<NewNativeFrame> for CameraFeed {
         let mut to_remove = vec![];
 
         for (i, sender) in self.native_senders.iter().enumerate() {
+            if sender.is_full() {
+                if frame_num.is_multiple_of(30) {
+                    warn!(
+                        "Native camera sender {} channel full at frame {}, dropping frame",
+                        i, frame_num
+                    );
+                }
+                continue;
+            }
+
             match sender.try_send(msg.0.clone()) {
                 Ok(()) => {}
                 Err(flume::TrySendError::Full(_)) => {
