@@ -78,6 +78,7 @@ pub trait MakeCapturePipeline: ScreenCaptureFormat + std::fmt::Debug + 'static {
         fragmented: bool,
         shared_pause_state: Option<SharedPauseState>,
         output_size: Option<(u32, u32)>,
+        fps: u32,
         #[cfg(windows)] encoder_preferences: EncoderPreferences,
     ) -> anyhow::Result<OutputPipeline>
     where
@@ -101,6 +102,7 @@ impl MakeCapturePipeline for screen_capture::CMSampleBufferCapture {
         fragmented: bool,
         shared_pause_state: Option<SharedPauseState>,
         output_size: Option<(u32, u32)>,
+        _fps: u32,
     ) -> anyhow::Result<OutputPipeline> {
         if fragmented {
             let fragments_dir = output_path
@@ -160,6 +162,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
         fragmented: bool,
         shared_pause_state: Option<SharedPauseState>,
         output_size: Option<(u32, u32)>,
+        fps: u32,
         encoder_preferences: EncoderPreferences,
     ) -> anyhow::Result<OutputPipeline> {
         if fragmented {
@@ -188,7 +191,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
                     pixel_format: screen_capture::Direct3DCapture::PIXEL_FORMAT.as_dxgi(),
                     d3d_device,
                     bitrate_multiplier: 0.15f32,
-                    frame_rate: 30u32,
+                    frame_rate: fps,
                     output_size: output_size.map(|(w, h)| windows::Graphics::SizeInt32 {
                         Width: w as i32,
                         Height: h as i32,

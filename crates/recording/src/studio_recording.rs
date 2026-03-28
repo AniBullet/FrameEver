@@ -1080,6 +1080,7 @@ async fn create_segment_pipeline(
             fragmented,
             shared_pause_state.clone(),
             output_size,
+            screen_info.fps(),
             #[cfg(windows)]
             encoder_preferences.clone(),
         )
