@@ -67,6 +67,7 @@ pub struct InstantModeConfig {
     pub encoder_preferences: EncoderPreferences,
     pub bitrate_multiplier: f32,
     pub codec: VideoCodec,
+    pub fps: u32,
 }
 
 pub trait MakeCapturePipeline: ScreenCaptureFormat + std::fmt::Debug + 'static {
@@ -222,7 +223,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
             .build::<WindowsMuxer>(WindowsMuxerConfig {
                 pixel_format: screen_capture::Direct3DCapture::PIXEL_FORMAT.as_dxgi(),
                 bitrate_multiplier: config.bitrate_multiplier,
-                frame_rate: 30u32,
+                frame_rate: config.fps,
                 d3d_device,
                 output_size: Some(windows::Graphics::SizeInt32 {
                     Width: config.output_resolution.0 as i32,

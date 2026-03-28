@@ -255,6 +255,7 @@ async fn create_pipeline(
             encoder_preferences: crate::capture_pipeline::EncoderPreferences::new(),
             bitrate_multiplier: bitrate_multiplier.unwrap_or(0.15),
             codec,
+            fps: screen_info.fps(),
         },
     )
     .await?;
@@ -285,6 +286,7 @@ pub struct ActorBuilder {
     max_output_size: Option<u32>,
     bitrate_multiplier: Option<f32>,
     codec: crate::capture_pipeline::VideoCodec,
+    max_fps: u32,
     #[cfg(target_os = "macos")]
     excluded_windows: Vec<scap_targets::WindowId>,
 }
@@ -300,6 +302,7 @@ impl ActorBuilder {
             max_output_size: None,
             bitrate_multiplier: None,
             codec: crate::capture_pipeline::VideoCodec::H264,
+            max_fps: 60,
             #[cfg(target_os = "macos")]
             excluded_windows: Vec::new(),
         }
@@ -338,6 +341,11 @@ impl ActorBuilder {
         self
     }
 
+    pub fn with_max_fps(mut self, max_fps: u32) -> Self {
+        self.max_fps = max_fps.clamp(1, 120);
+        self
+    }
+
     #[cfg(target_os = "macos")]
     pub fn with_excluded_windows(mut self, excluded_windows: Vec<scap_targets::WindowId>) -> Self {
         self.excluded_windows = excluded_windows;
@@ -363,6 +371,7 @@ impl ActorBuilder {
             self.max_output_size,
             self.bitrate_multiplier,
             self.codec,
+            self.max_fps,
         )
         .await
     }
@@ -375,6 +384,7 @@ pub async fn spawn_instant_recording_actor(
     max_output_size: Option<u32>,
     bitrate_multiplier: Option<f32>,
     codec: crate::capture_pipeline::VideoCodec,
+    max_fps: u32,
 ) -> anyhow::Result<ActorHandle> {
     ensure_dir(&recording_dir)?;
 
@@ -447,7 +457,7 @@ pub async fn spawn_instant_recording_actor(
                 display,
                 crop_bounds,
                 true,
-                30,
+                max_fps,
                 timestamps.system_time(),
                 inputs.capture_system_audio,
                 #[cfg(windows)]

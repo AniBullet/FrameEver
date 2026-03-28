@@ -8,6 +8,7 @@ use windows::{
             Direct3D11::{
                 D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_VIDEO_ENCODER,
                 D3D11_TEX2D_VPIV, D3D11_TEX2D_VPOV, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+                D3D11_VIDEO_COLOR, D3D11_VIDEO_COLOR_0, D3D11_VIDEO_COLOR_YCbCrA,
                 D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, D3D11_VIDEO_PROCESSOR_COLOR_SPACE,
                 D3D11_VIDEO_PROCESSOR_CONTENT_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC,
                 D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_0_255,
@@ -106,6 +107,20 @@ impl VideoProcessor {
 
         // If the input and output resolutions don't match, setup the
         // video processor to preserve the aspect ratio when scaling.
+        unsafe {
+            let black = D3D11_VIDEO_COLOR {
+                Anonymous: D3D11_VIDEO_COLOR_0 {
+                    YCbCr: D3D11_VIDEO_COLOR_YCbCrA {
+                        Y: 0.0,
+                        Cb: 0.5,
+                        Cr: 0.5,
+                        A: 1.0,
+                    },
+                },
+            };
+            video_context.VideoProcessorSetOutputBackgroundColor(&video_processor, true, &black);
+        }
+
         if input_size.Width != output_size.Width || input_size.Height != output_size.Height {
             let dest_rect = compute_dest_rect(&output_size, &input_size);
             let rect = RECT {

@@ -876,7 +876,13 @@ pub async fn start_recording(
                                     .unwrap_or(1920),
                             )
                             .with_bitrate_multiplier(quality.bits_per_pixel(codec))
-                            .with_codec(video_codec);
+                            .with_codec(video_codec)
+                            .with_max_fps(
+                                general_settings
+                                    .as_ref()
+                                    .map(|s| s.max_fps)
+                                    .unwrap_or(60),
+                            );
 
                             #[cfg(target_os = "macos")]
                             {

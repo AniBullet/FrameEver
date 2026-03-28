@@ -215,13 +215,22 @@ impl output_pipeline::VideoSource for VideoSource {
             let video_drop_counter: Arc<AtomicU32> = Arc::new(AtomicU32::new(0));
             let cancel_token = CancellationToken::new();
 
+            const WGC_WARMUP_FRAMES: u32 = 2;
+
             let res = scap_direct3d::Capturer::new(
                 capture_item,
                 settings,
                 {
                     let video_frame_counter = video_frame_counter.clone();
                     let video_drop_counter = video_drop_counter.clone();
+                    let warmup_counter = AtomicU32::new(0);
                     move |frame| {
+                        let warmup = warmup_counter.fetch_add(1, atomic::Ordering::Relaxed);
+                        if warmup < WGC_WARMUP_FRAMES {
+                            trace!("Skipping WGC warmup frame {}", warmup);
+                            return Ok(());
+                        }
+
                         let timestamp = frame.inner().SystemRelativeTime()?;
                         let timestamp = Timestamp::PerformanceCounter(
                             PerformanceCounterTimestamp::new(timestamp.Duration),
