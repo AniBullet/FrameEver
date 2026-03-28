@@ -10,10 +10,6 @@ workspace = true
 name = "decode-benchmark"
 path = "examples/decode-benchmark.rs"
 
-[[example]]
-name = "playback-pipeline-benchmark"
-path = "examples/playback-pipeline-benchmark.rs"
-
 [dependencies]
 cap-media = { path = "../media" }
 cap-project = { path = "../project" }

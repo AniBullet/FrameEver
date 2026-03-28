@@ -148,8 +148,6 @@ pub async fn request_permission(_app: tauri::AppHandle, _permission: OSPermissio
             tracing::warn!("Failed to restore activation policy to Accessory: {err}");
         }
     }
-
-    crate::tray::refresh_tray_menu_for_app(&_app);
 }
 
 #[derive(Serialize, Deserialize, Debug, specta::Type, Clone)]

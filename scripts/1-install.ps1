@@ -302,132 +302,85 @@ else {
     }
 }
 
-# Setup FFmpeg development environment (pre-built libraries)
 Write-Host ""
 Write-Host "[7/9] Setting up FFmpeg development environment..." -ForegroundColor Yellow
 
-$ffmpegDevDir = "$env:USERPROFILE\.ffmpeg-dev"
+$projectRoot = "$PSScriptRoot\.."
+$targetDir = "$projectRoot\target"
 $ffmpegVersion = "7.1"
-$ffmpegZipName = "ffmpeg-n${ffmpegVersion}-latest-win64-lgpl-shared-${ffmpegVersion}"
-$ffmpegZipUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/${ffmpegZipName}.zip"
+$ffmpegZipName = "ffmpeg-${ffmpegVersion}-full_build-shared"
+$ffmpegZipUrl = "https://github.com/GyanD/codexffmpeg/releases/download/${ffmpegVersion}/${ffmpegZipName}.zip"
 
-$ffmpegLibFile = Get-ChildItem "$ffmpegDevDir\ffmpeg-*\lib\avcodec.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
-$ffmpegIncFile = Get-ChildItem "$ffmpegDevDir\ffmpeg-*\include\libavcodec\avcodec.h" -ErrorAction SilentlyContinue | Select-Object -First 1
+New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
 
-if ($ffmpegLibFile -and $ffmpegIncFile) {
-    $ffmpegRoot = $ffmpegLibFile.Directory.Parent.FullName
-    Write-Host "  OK FFmpeg dev libraries already installed at $ffmpegRoot" -ForegroundColor Green
+$ffmpegDir = "$targetDir\ffmpeg"
+$nativeDepsDir = "$targetDir\native-deps"
+$ffmpegZipPath = "$targetDir\ffmpeg-${ffmpegVersion}.zip"
+$downloadNeeded = $false
+
+if (-not (Test-Path "$ffmpegDir\lib\avcodec.lib")) {
+    $downloadNeeded = $true
 }
-else {
-    Write-Host "  Downloading pre-built FFmpeg ${ffmpegVersion} dev libraries..." -ForegroundColor Yellow
-    
-    $zipPath = "$env:TEMP\ffmpeg-dev.zip"
-    
-    try {
-        if (Test-Path $ffmpegDevDir) {
-            Remove-Item $ffmpegDevDir -Recurse -Force -ErrorAction SilentlyContinue
+
+if ($downloadNeeded) {
+    if (-not (Test-Path $ffmpegZipPath)) {
+        Write-Host "  Downloading FFmpeg ${ffmpegVersion} (GyanD stable build)..." -ForegroundColor Yellow
+        try {
+            Invoke-WebRequest -Uri $ffmpegZipUrl -OutFile $ffmpegZipPath -UseBasicParsing
+            Write-Host "  Downloaded ffmpeg-${ffmpegVersion}.zip" -ForegroundColor Gray
         }
-        New-Item -ItemType Directory -Force -Path $ffmpegDevDir | Out-Null
-        
-        Invoke-WebRequest -Uri $ffmpegZipUrl -OutFile $zipPath -UseBasicParsing
-        
-        Write-Host "  Extracting..." -ForegroundColor Gray
-        Expand-Archive -Path $zipPath -DestinationPath $ffmpegDevDir -Force
-        Remove-Item $zipPath -ErrorAction SilentlyContinue
-        
-        $ffmpegLibFile = Get-ChildItem "$ffmpegDevDir\ffmpeg-*\lib\avcodec.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
-        
-        if ($ffmpegLibFile) {
-            $ffmpegRoot = $ffmpegLibFile.Directory.Parent.FullName
-            Write-Host "  OK FFmpeg dev libraries installed at $ffmpegRoot" -ForegroundColor Green
-        }
-        else {
-            Write-Host "  ERROR: FFmpeg extraction failed (avcodec.lib not found)" -ForegroundColor Red
+        catch {
+            Write-Host "  ERROR: Failed to download FFmpeg" -ForegroundColor Red
+            Write-Host "  Error: $_" -ForegroundColor Red
             Write-Host "  Try manual download: $ffmpegZipUrl" -ForegroundColor Yellow
             exit 1
         }
     }
-    catch {
-        Write-Host "  ERROR: Failed to download FFmpeg" -ForegroundColor Red
-        Write-Host "  Error: $_" -ForegroundColor Red
-        Write-Host "  Try manual download: $ffmpegZipUrl" -ForegroundColor Yellow
-        exit 1
+    else {
+        Write-Host "  Using cached ffmpeg-${ffmpegVersion}.zip" -ForegroundColor Gray
     }
-}
 
-$currentFfmpegDir = [System.Environment]::GetEnvironmentVariable("FFMPEG_DIR", "User")
-if ($currentFfmpegDir -ne $ffmpegRoot) {
-    [System.Environment]::SetEnvironmentVariable("FFMPEG_DIR", $ffmpegRoot, "User")
-    $needsRestart = $true
-}
-$env:FFMPEG_DIR = $ffmpegRoot
-
-# Set PKG_CONFIG_PATH so ffmpeg-sys-next can find FFmpeg via pkg-config
-$ffmpegPkgConfigDir = "$ffmpegRoot\lib\pkgconfig"
-if (Test-Path $ffmpegPkgConfigDir) {
-    $currentPkgConfigPath = [System.Environment]::GetEnvironmentVariable("PKG_CONFIG_PATH", "User")
-    if ($currentPkgConfigPath -ne $ffmpegPkgConfigDir) {
-        [System.Environment]::SetEnvironmentVariable("PKG_CONFIG_PATH", $ffmpegPkgConfigDir, "User")
-        $needsRestart = $true
+    Write-Host "  Extracting..." -ForegroundColor Gray
+    Expand-Archive -Path $ffmpegZipPath -DestinationPath $targetDir -Force
+    if (Test-Path $ffmpegDir) {
+        Remove-Item $ffmpegDir -Recurse -Force -ErrorAction SilentlyContinue
     }
-    $env:PKG_CONFIG_PATH = $ffmpegPkgConfigDir
-}
-
-# Install pkg-config (required by ffmpeg-sys-next build script)
-Refresh-Path
-$pkgConfig = Get-Command pkg-config -ErrorAction SilentlyContinue
-if ($pkgConfig) {
-    Write-Host "  OK pkg-config available" -ForegroundColor Green
+    Rename-Item -Path "$targetDir\$ffmpegZipName" -NewName "ffmpeg" -Force
+    Write-Host "  Extracted ffmpeg to target/ffmpeg" -ForegroundColor Gray
 }
 else {
-    Write-Host "  Installing pkg-config-lite..." -ForegroundColor Yellow
-    winget install bloodrock.pkg-config-lite --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
-    Refresh-Path
-    $pkgConfig = Get-Command pkg-config -ErrorAction SilentlyContinue
-    if ($pkgConfig) {
-        Write-Host "  OK pkg-config installed" -ForegroundColor Green
-    }
-    else {
-        Write-Host "  OK pkg-config installed (restart terminal to use)" -ForegroundColor Yellow
+    Write-Host "  Using cached target/ffmpeg" -ForegroundColor Gray
+}
+
+if (-not (Test-Path "$ffmpegDir\lib\avcodec.lib")) {
+    Write-Host "  ERROR: FFmpeg extraction failed (avcodec.lib not found)" -ForegroundColor Red
+    exit 1
+}
+
+New-Item -ItemType Directory -Force -Path "$targetDir\debug" | Out-Null
+$dlls = Get-ChildItem "$ffmpegDir\bin\*.dll" -ErrorAction SilentlyContinue
+if ($dlls.Count -gt 0) {
+    Copy-Item "$ffmpegDir\bin\*.dll" -Destination "$targetDir\debug" -Force
+    Write-Host "  Copied $($dlls.Count) FFmpeg DLLs to target/debug" -ForegroundColor Gray
+}
+
+New-Item -ItemType Directory -Force -Path $nativeDepsDir | Out-Null
+if (Test-Path "$nativeDepsDir\lib") { Remove-Item "$nativeDepsDir\lib" -Recurse -Force }
+if (Test-Path "$nativeDepsDir\include") { Remove-Item "$nativeDepsDir\include" -Recurse -Force }
+Copy-Item "$ffmpegDir\lib" -Destination "$nativeDepsDir\lib" -Recurse -Force
+Copy-Item "$ffmpegDir\include" -Destination "$nativeDepsDir\include" -Recurse -Force
+Write-Host "  Copied lib + include to target/native-deps" -ForegroundColor Gray
+
+foreach ($envName in @("FFMPEG_DIR", "PKG_CONFIG_PATH", "VCPKG_ROOT")) {
+    $oldVal = [System.Environment]::GetEnvironmentVariable($envName, "User")
+    if ($oldVal) {
+        [System.Environment]::SetEnvironmentVariable($envName, $null, "User")
+        Write-Host "  Cleaned old User env: $envName" -ForegroundColor Gray
         $needsRestart = $true
     }
 }
 
-$oldVcpkgRoot = [System.Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User")
-if ($oldVcpkgRoot) {
-    [System.Environment]::SetEnvironmentVariable("VCPKG_ROOT", $null, "User")
-    Write-Host "  Cleaned old VCPKG_ROOT (no longer needed)" -ForegroundColor Gray
-    $needsRestart = $true
-}
-
-$ffmpegBinDir = "$ffmpegRoot\bin"
-$projectFfmpegDir = "$PSScriptRoot\..\target\ffmpeg\bin"
-
-if (Test-Path $ffmpegBinDir) {
-    $dlls = Get-ChildItem "$ffmpegBinDir\*.dll" -ErrorAction SilentlyContinue
-    
-    if ($dlls.Count -gt 0) {
-        $needsCopy = $false
-        
-        if (-not (Test-Path $projectFfmpegDir)) {
-            $needsCopy = $true
-        }
-        else {
-            $targetDlls = Get-ChildItem "$projectFfmpegDir\*.dll" -ErrorAction SilentlyContinue
-            if ($dlls.Count -ne $targetDlls.Count) {
-                $needsCopy = $true
-            }
-        }
-        
-        if ($needsCopy) {
-            Write-Host "  Copying FFmpeg DLLs for runtime..." -ForegroundColor Gray
-            New-Item -ItemType Directory -Force -Path $projectFfmpegDir | Out-Null
-            Copy-Item "$ffmpegBinDir\*.dll" -Destination $projectFfmpegDir -Force
-            $dllCount = (Get-ChildItem $projectFfmpegDir -Filter "*.dll").Count
-            Write-Host "  OK Copied $dllCount DLL files" -ForegroundColor Green
-        }
-    }
-}
+Write-Host "  OK FFmpeg ${ffmpegVersion} dev environment ready" -ForegroundColor Green
 
 # Setup LLVM 18 libclang (required for bindgen which generates Rust FFI bindings)
 # NOTE: bindgen 0.70.x is incompatible with LLVM 22+. We pin libclang to LLVM 18.
@@ -494,8 +447,8 @@ if (Test-Path "$llvm18Bin\libclang.dll") {
     $env:LIBCLANG_PATH = $llvm18Bin
 }
 
-Write-Host "  Configuring Cargo environment..." -ForegroundColor Gray
-$cargoConfigDir = "$PSScriptRoot\.cargo"
+Write-Host "  Configuring .cargo/config.toml..." -ForegroundColor Gray
+$cargoConfigDir = "$projectRoot\.cargo"
 $cargoConfigFile = "$cargoConfigDir\config.toml"
 
 if (-not (Test-Path $cargoConfigDir)) {
@@ -504,10 +457,16 @@ if (-not (Test-Path $cargoConfigDir)) {
 
 $cargoConfig = @"
 [env]
+FFMPEG_DIR = { relative = true, force = true, value = "target/native-deps" }
 "@
 
+if (Test-Path "$llvm18Bin\libclang.dll") {
+    $libclangEscaped = $llvm18Bin.Replace("\", "/")
+    $cargoConfig += "`nLIBCLANG_PATH = `"$libclangEscaped`""
+}
+
 Set-Content -Path $cargoConfigFile -Value $cargoConfig -Encoding UTF8
-Write-Host "  OK Cargo configuration updated" -ForegroundColor Green
+Write-Host "  OK .cargo/config.toml written at project root" -ForegroundColor Green
 
 # Verify Cargo (for better error message)
 Write-Host ""

@@ -188,7 +188,6 @@ impl Mp4ExportSettings {
                 |o| {
                     H264Encoder::builder(video_info)
                         .with_bpp(self.effective_bpp())
-                        .with_export_settings()
                         .with_external_conversion()
                         .build(o)
                 },

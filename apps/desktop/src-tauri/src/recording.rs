@@ -893,10 +893,7 @@ pub async fn start_recording(
                             .with_bitrate_multiplier(quality.bits_per_pixel(codec))
                             .with_codec(video_codec)
                             .with_max_fps(
-                                general_settings
-                                    .as_ref()
-                                    .map(|s| s.max_fps)
-                                    .unwrap_or(60),
+                                general_settings.as_ref().map(|s| s.max_fps).unwrap_or(60),
                             );
 
                             #[cfg(target_os = "macos")]
@@ -1299,7 +1296,7 @@ pub async fn take_screenshot(
 
     let image_width = image.width();
     let image_height = image.height();
-    let image_data = image.into_raw();
+    let image_data = image.into_rgb8().into_raw();
 
     let filename = project_name.replace(":", ".");
     let filename = format!("{}.png", sanitize_filename::sanitize(&filename));
