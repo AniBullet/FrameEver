@@ -87,7 +87,6 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tauri_plugin_notification::{NotificationExt, PermissionState};
 use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_shell::ShellExt;
 use tauri_specta::Event;
 use tokio::sync::{Mutex, RwLock, oneshot, watch};
 use tracing::*;
@@ -183,7 +182,6 @@ pub struct App {
     camera_in_use: bool,
     camera_cleanup_done: bool,
     camera_feed: ActorRef<feeds::camera::CameraFeed>,
-    server_url: String,
     disconnected_inputs: HashSet<RecordingInputKind>,
     was_camera_only_recording: bool,
 }
@@ -2490,22 +2488,6 @@ async fn delete_library_item(app: AppHandle, path: String) -> Result<(), String>
 
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(app))]
-fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    if let Ok(Some(settings)) = GeneralSettingsStore::get(&app)
-        && settings.disable_auto_open_links
-    {
-        return Ok(());
-    }
-
-    app.shell()
-        .open(&url, None)
-        .map_err(|e| format!("Failed to open URL: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
 #[instrument(skip(_app))]
 async fn reset_camera_permissions(_app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -2835,16 +2817,6 @@ async fn check_notification_permissions(app: AppHandle) {
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(app))]
-async fn set_server_url(app: MutableState<'_, App>, server_url: String) -> Result<(), ()> {
-    let mut app = app.write().await;
-    app.server_url = server_url;
-
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(app))]
 async fn set_camera_preview_state(
     app: MutableState<'_, App>,
     state: CameraPreviewState,
@@ -2990,7 +2962,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
             list_screenshots,
             list_library_items,
             delete_library_item,
-            open_external_link,
             hotkeys::set_hotkey,
             reset_camera_permissions,
             reset_microphone_permissions,
@@ -3011,7 +2982,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
             get_editor_meta,
             get_recording_meta_by_path,
             set_pretty_name,
-            set_server_url,
             set_camera_preview_state,
             await_camera_preview_ready,
             captions::create_dir,
@@ -3200,7 +3170,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
             #[cfg(target_os = "macos")]
             app.manage(panel_manager::PanelManager::new());
             app.manage(http_client::HttpClient::default());
-            app.manage(http_client::RetryableHttpClient::default());
             app.manage(PendingScreenshots::default());
             app.manage(FinalizingRecordings::default());
 
@@ -3226,34 +3195,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
             });
 
             {
-                let (server_url, should_update) = if cfg!(debug_assertions)
-                    && let Ok(url) = std::env::var("VITE_SERVER_URL")
-                {
-                    (url, true)
-                } else if let Some(url) = GeneralSettingsStore::get(&app)
-                    .ok()
-                    .flatten()
-                    .map(|v| v.server_url.clone())
-                {
-                    (url, false)
-                } else {
-                    (
-                        option_env!("VITE_SERVER_URL")
-                            .unwrap_or("https://cap.so")
-                            .to_string(),
-                        true,
-                    )
-                };
-
-                // This ensures settings reflects the correct value if it's set at startup
-                if should_update {
-                    GeneralSettingsStore::update(&app, |s| {
-                        s.server_url = server_url.clone();
-                    })
-                    .map_err(|err| warn!("Error updating server URL into settings store: {err}"))
-                    .ok();
-                }
-
                 let camera_preview = CameraPreviewManager::new(&app);
                 let camera_session_id_handle = camera_preview.session_id_handle();
 
@@ -3271,7 +3212,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
                     camera_in_use: false,
                     camera_cleanup_done: false,
                     camera_feed,
-                    server_url,
                     disconnected_inputs: HashSet::new(),
                     was_camera_only_recording: false,
                 })));
@@ -3343,7 +3283,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
                         }),
                         mode: event.mode,
                         capture_system_audio: settings.system_audio,
-                        organization_id: settings.organization_id,
                         quality: None,
                     }
                 })
@@ -3635,7 +3574,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
                     label.starts_with("editor-")
                         || label.starts_with("screenshot-editor-")
                         || label.as_str() == "settings"
-                        || label.as_str() == "signin"
                         || label.as_str() == "setup"
                 });
 
@@ -3647,7 +3585,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
                             label.starts_with("editor-")
                                 || label.starts_with("screenshot-editor-")
                                 || label.as_str() == "settings"
-                                || label.as_str() == "signin"
                                 || label.as_str() == "setup"
                         })
                         .map(|(_, window)| window.clone())

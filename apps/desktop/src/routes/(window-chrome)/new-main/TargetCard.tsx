@@ -1,8 +1,6 @@
-import { ProgressCircle } from "@cap/ui-solid";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ask, save } from "@tauri-apps/plugin-dialog";
 import { remove } from "@tauri-apps/plugin-fs";
-import * as shell from "@tauri-apps/plugin-shell";
 import { cx } from "cva";
 import type { ComponentProps } from "solid-js";
 import { createMemo, createSignal, Show, splitProps } from "solid-js";
@@ -16,14 +14,12 @@ import {
 	type RecordingMeta,
 	type RecordingMetaWithMetadata,
 } from "~/utils/tauri";
-import IconCapLink from "~icons/cap/link";
 import IconCapTrash from "~icons/cap/trash";
 import IconLucideAppWindowMac from "~icons/lucide/app-window-mac";
 import IconLucideCopy from "~icons/lucide/copy";
 import IconLucideEdit from "~icons/lucide/edit";
 import IconLucideFolder from "~icons/lucide/folder";
 import IconLucideImage from "~icons/lucide/image";
-import IconLucideRotateCcw from "~icons/lucide/rotate-ccw";
 import IconLucideSave from "~icons/lucide/save";
 import IconLucideSquarePlay from "~icons/lucide/square-play";
 import IconMdiMonitor from "~icons/mdi/monitor";
@@ -61,9 +57,6 @@ type TargetCardProps = (
 	| {
 			variant: "recording";
 			target: RecordingWithPath;
-			uploadProgress?: number;
-			isReuploading?: boolean;
-			onReupload?: (path: string) => void;
 			onRefetch?: () => void;
 	  }
 	| {
@@ -265,13 +258,6 @@ export default function TargetCard(props: TargetCardProps) {
 		});
 	};
 
-	const handleOpenRecordingLink = (e: MouseEvent) => {
-		e.stopPropagation();
-		const recording = recordingTarget();
-		if (!recording?.sharing) return;
-		shell.open(recording.sharing.link);
-	};
-
 	const handleOpenRecordingFolder = (e: MouseEvent) => {
 		e.stopPropagation();
 		const recording = recordingTarget();
@@ -288,28 +274,11 @@ export default function TargetCard(props: TargetCardProps) {
 		recordingProps()?.onRefetch?.();
 	};
 
-	const handleReupload = (e: MouseEvent) => {
-		e.stopPropagation();
-		const recording = recordingTarget();
-		if (!recording) return;
-		recordingProps()?.onReupload?.(recording.path);
-	};
-
-	const recordingUploadFailed = createMemo(() => {
-		const recording = recordingTarget();
-		if (!recording) return false;
-		return recording.upload?.state === "Failed";
-	});
-
 	const recordingFailed = createMemo(() => {
 		const recording = recordingTarget();
 		if (!recording) return false;
 		return recording.status.status === "Failed";
 	});
-
-	const getUploadProgress = () => recordingProps()?.uploadProgress;
-
-	const getIsReuploading = () => recordingProps()?.isReuploading ?? false;
 
 	return (
 		<button
@@ -359,13 +328,11 @@ export default function TargetCard(props: TargetCardProps) {
 				</Show>
 				<div class="absolute inset-0 border opacity-60 pointer-events-none border-black/5" />
 				<div class="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t to-transparent pointer-events-none from-black/40" />
-				<Show when={recordingFailed() || recordingUploadFailed()}>
+				<Show when={recordingFailed()}>
 					<div class="absolute inset-0 flex items-center justify-center bg-black/75">
 						<div class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-9/20 text-red-11">
 							<IconPhWarningBold class="size-2.5" />
-							<span class="text-[10px] font-medium">
-								{recordingFailed() ? "Recording failed" : "Upload failed"}
-							</span>
+							<span class="text-[10px] font-medium">Recording failed</span>
 						</div>
 					</div>
 				</Show>
@@ -427,10 +394,6 @@ export default function TargetCard(props: TargetCardProps) {
 						const recording = recordingTarget();
 						if (!recording) return null;
 						const isStudio = recording.mode === "studio";
-						const uploadFailed = recordingUploadFailed();
-						const progress = getUploadProgress();
-						const reuploading = getIsReuploading();
-						const hasProgress = progress !== undefined || reuploading;
 
 						return (
 							<div class="flex items-center justify-between px-2 pb-1.5 pt-0.5 gap-1">
@@ -443,45 +406,6 @@ export default function TargetCard(props: TargetCardProps) {
 											class="flex-1 flex items-center justify-center p-1 rounded hover:bg-gray-5 text-gray-11 hover:text-gray-12 transition-colors"
 										>
 											<IconLucideEdit class="size-3.5" />
-										</div>
-									</Tooltip>
-								</Show>
-								<Show when={!isStudio}>
-									<Show
-										when={hasProgress}
-										fallback={
-											<Tooltip
-												content={uploadFailed ? "Retry upload" : "Reupload"}
-											>
-												<div
-													role="button"
-													tabIndex={-1}
-													onClick={handleReupload}
-													class="flex-1 flex items-center justify-center p-1 rounded hover:bg-gray-5 text-gray-11 hover:text-gray-12 transition-colors"
-												>
-													<IconLucideRotateCcw class="size-3.5" />
-												</div>
-											</Tooltip>
-										}
-									>
-										<div class="flex-1 flex items-center justify-center p-1">
-											<ProgressCircle
-												variant="primary"
-												progress={progress ?? 0}
-												size="xs"
-											/>
-										</div>
-									</Show>
-								</Show>
-								<Show when={recording.sharing}>
-									<Tooltip content={t("editor.common.open.link")}>
-										<div
-											role="button"
-											tabIndex={-1}
-											onClick={handleOpenRecordingLink}
-											class="flex-1 flex items-center justify-center p-1 rounded hover:bg-gray-5 text-gray-11 hover:text-gray-12 transition-colors"
-										>
-											<IconCapLink class="size-3.5" />
 										</div>
 									</Tooltip>
 								</Show>

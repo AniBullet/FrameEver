@@ -49,7 +49,6 @@ pub fn handle(app_handle: &AppHandle, urls: Vec<Url>) {
                     ActionParseFromUrlError::Invalid => {
                         eprintln!("Invalid deep link format \"{}\"", &url)
                     }
-                    // Likely login action, not handled here.
                     ActionParseFromUrlError::NotAction => {}
                 })
                 .ok()
@@ -137,7 +136,6 @@ impl DeepLinkAction {
                     mode,
                     capture_target,
                     capture_system_audio,
-                    organization_id: None,
                     quality: None,
                 };
 

@@ -5,15 +5,10 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/solid-query";
-import { listen } from "@tauri-apps/api/event";
-import {
-	getAllWebviewWindows,
-	WebviewWindow,
-} from "@tauri-apps/api/webviewWindow";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import * as dialog from "@tauri-apps/plugin-dialog";
 import { type as ostype } from "@tauri-apps/plugin-os";
-import * as shell from "@tauri-apps/plugin-shell";
 import { cx } from "cva";
 import {
 	createEffect,
@@ -1360,12 +1355,6 @@ function Page() {
 		else setCamera.mutate({ model: null });
 	});
 
-	const signIn = createMutation(() => ({
-		mutationFn: async () => {
-			return Promise.resolve();
-		},
-	}));
-
 	const BaseControls = () => (
 		<div class="space-y-2">
 			<CameraSelect
@@ -1533,22 +1522,6 @@ function Page() {
 		</Transition>
 	);
 
-	const startSignInCleanup = listen("start-sign-in", async () => {
-		for (const win of await getAllWebviewWindows()) {
-			if (win.label.startsWith("target-select-overlay")) {
-				await win.hide();
-			}
-		}
-
-		await signIn.mutateAsync().catch(() => {});
-
-		for (const win of await getAllWebviewWindows()) {
-			if (win.label.startsWith("target-select-overlay")) {
-				await win.show();
-			}
-		}
-	});
-	onCleanup(() => startSignInCleanup.then((cb) => cb()));
 
 	return (
 		<div
@@ -1668,165 +1641,142 @@ function Page() {
 				</div>
 			</Show>
 			<div class="flex-1 min-h-0 w-full flex flex-col">
-				<Show when={signIn.isPending}>
-					<div class="flex absolute inset-0 justify-center items-center bg-gray-1 animate-in fade-in">
-						<div class="flex flex-col gap-4 justify-center items-center">
-							<span>{t("main.signingIn")}</span>
-
-							<Button
-								onClick={() => {
-									signIn.reset();
+				<Show when={activeMenu()} keyed fallback={<TargetSelectionHome />}>
+					{(variant) =>
+						variant === "display" ? (
+							<TargetMenuPanel
+								variant="display"
+								targets={displayTargetsData()}
+								isLoading={displayMenuLoading()}
+								errorMessage={displayErrorMessage()}
+								onSelect={selectDisplayTarget}
+								disabled={isRecording()}
+								onBack={() => {
+									setDisplayMenuOpen(false);
+									displayTriggerRef?.focus();
 								}}
-								variant="gray"
-								class="w-full"
-							>
-								Cancel Sign In
-							</Button>
-						</div>
-					</div>
-				</Show>
-				<Show when={!signIn.isPending}>
-					<Show when={activeMenu()} keyed fallback={<TargetSelectionHome />}>
-						{(variant) =>
-							variant === "display" ? (
-								<TargetMenuPanel
-									variant="display"
-									targets={displayTargetsData()}
-									isLoading={displayMenuLoading()}
-									errorMessage={displayErrorMessage()}
-									onSelect={selectDisplayTarget}
-									disabled={isRecording()}
-									onBack={() => {
-										setDisplayMenuOpen(false);
-										displayTriggerRef?.focus();
-									}}
-								/>
-							) : variant === "window" ? (
-								<TargetMenuPanel
-									variant="window"
-									targets={windowTargetsData()}
-									isLoading={windowMenuLoading()}
-									errorMessage={windowErrorMessage()}
-									onSelect={selectWindowTarget}
-									disabled={isRecording()}
-									onBack={() => {
-										setWindowMenuOpen(false);
-										windowTriggerRef?.focus();
-									}}
-								/>
-							) : variant === "recording" ? (
-								<TargetMenuPanel
-									variant="recording"
-									targets={recordingsData()}
-									isLoading={recordings.isPending}
-									errorMessage={
-										recordings.error ? "Failed to load recordings" : undefined
-									}
-									onSelect={async (recording) => {
-										if (recording.mode === "studio") {
-											let projectPath = recording.path;
+							/>
+						) : variant === "window" ? (
+							<TargetMenuPanel
+								variant="window"
+								targets={windowTargetsData()}
+								isLoading={windowMenuLoading()}
+								errorMessage={windowErrorMessage()}
+								onSelect={selectWindowTarget}
+								disabled={isRecording()}
+								onBack={() => {
+									setWindowMenuOpen(false);
+									windowTriggerRef?.focus();
+								}}
+							/>
+						) : variant === "recording" ? (
+							<TargetMenuPanel
+								variant="recording"
+								targets={recordingsData()}
+								isLoading={recordings.isPending}
+								errorMessage={
+									recordings.error ? "Failed to load recordings" : undefined
+								}
+								onSelect={async (recording) => {
+									if (recording.mode === "studio") {
+										let projectPath = recording.path;
 
-											const needsRecovery =
-												recording.status.status === "InProgress" ||
-												recording.status.status === "NeedsRemux";
+										const needsRecovery =
+											recording.status.status === "InProgress" ||
+											recording.status.status === "NeedsRemux";
 
-											if (needsRecovery) {
-												try {
-													projectPath =
-														await commands.recoverRecording(projectPath);
-												} catch (e) {
-													console.error("Failed to recover recording:", e);
-												}
-											}
-
-											await commands.showWindow({
-												Editor: { project_path: projectPath },
-											});
-										} else {
-											if (recording.sharing?.link) {
-												await shell.open(recording.sharing.link);
+										if (needsRecovery) {
+											try {
+												projectPath =
+													await commands.recoverRecording(projectPath);
+											} catch (e) {
+												console.error("Failed to recover recording:", e);
 											}
 										}
-										getCurrentWindow().hide();
-									}}
-									disabled={isRecording()}
-									onBack={() => {
-										setRecordingsMenuOpen(false);
-									}}
-									onViewAll={async () => {
-										await commands.showWindow("Library");
-										getCurrentWindow().hide();
-									}}
-									onRefetch={() => recordings.refetch()}
-								/>
-							) : variant === "screenshot" ? (
-								<TargetMenuPanel
-									variant="screenshot"
-									targets={screenshotsData()}
-									isLoading={screenshots.isPending}
-									errorMessage={
-										screenshots.error ? "Failed to load screenshots" : undefined
-									}
-									onSelect={async (screenshot) => {
+
 										await commands.showWindow({
-											ScreenshotEditor: {
-												path: screenshot.path,
-											},
+											Editor: { project_path: projectPath },
 										});
-									}}
-									disabled={isRecording()}
-									onBack={() => {
-										setScreenshotsMenuOpen(false);
-									}}
-									onViewAll={async () => {
-										await commands.showWindow("Library");
-										getCurrentWindow().hide();
-									}}
-								/>
-							) : variant === "camera" ? (
-								<TargetMenuPanel
-									variant="camera"
-									targets={devices.cameras}
-									selectedTarget={options.camera() ?? null}
-									isLoading={devices.isPending}
-									onSelect={(c) => {
-										if (!c) setCamera.mutate({ model: null });
-										else if (c.model_id)
-											setCamera.mutate({ model: { ModelID: c.model_id } });
-										else setCamera.mutate({ model: { DeviceID: c.device_id } });
-										setCameraMenuOpen(false);
-									}}
-									disabled={isRecording()}
-									onBack={() => {
-										setCameraMenuOpen(false);
-									}}
-									permissions={devices.permissions}
-								/>
-							) : variant === "microphone" ? (
-								<TargetMenuPanel
-									variant="microphone"
-									targets={devices.microphones}
-									selectedTarget={options.micName() ?? null}
-									isLoading={devices.isPending}
-									onSelect={(v) => {
-										setMicInput.mutate(v?.name ?? null);
-										setMicrophoneMenuOpen(false);
-									}}
-									disabled={isRecording()}
-									onBack={() => {
-										setMicrophoneMenuOpen(false);
-									}}
-									permissions={devices.permissions}
-								/>
-							) : (
-								<ModeInfoPanel
-									onBack={() => {
-										setModeInfoMenuOpen(false);
-									}}
-								/>
-							)
-						}
-					</Show>
+									}
+									getCurrentWindow().hide();
+								}}
+								disabled={isRecording()}
+								onBack={() => {
+									setRecordingsMenuOpen(false);
+								}}
+								onViewAll={async () => {
+									await commands.showWindow("Library");
+									getCurrentWindow().hide();
+								}}
+								onRefetch={() => recordings.refetch()}
+							/>
+						) : variant === "screenshot" ? (
+							<TargetMenuPanel
+								variant="screenshot"
+								targets={screenshotsData()}
+								isLoading={screenshots.isPending}
+								errorMessage={
+									screenshots.error ? "Failed to load screenshots" : undefined
+								}
+								onSelect={async (screenshot) => {
+									await commands.showWindow({
+										ScreenshotEditor: {
+											path: screenshot.path,
+										},
+									});
+								}}
+								disabled={isRecording()}
+								onBack={() => {
+									setScreenshotsMenuOpen(false);
+								}}
+								onViewAll={async () => {
+									await commands.showWindow("Library");
+									getCurrentWindow().hide();
+								}}
+							/>
+						) : variant === "camera" ? (
+							<TargetMenuPanel
+								variant="camera"
+								targets={devices.cameras}
+								selectedTarget={options.camera() ?? null}
+								isLoading={devices.isPending}
+								onSelect={(c) => {
+									if (!c) setCamera.mutate({ model: null });
+									else if (c.model_id)
+										setCamera.mutate({ model: { ModelID: c.model_id } });
+									else setCamera.mutate({ model: { DeviceID: c.device_id } });
+									setCameraMenuOpen(false);
+								}}
+								disabled={isRecording()}
+								onBack={() => {
+									setCameraMenuOpen(false);
+								}}
+								permissions={devices.permissions}
+							/>
+						) : variant === "microphone" ? (
+							<TargetMenuPanel
+								variant="microphone"
+								targets={devices.microphones}
+								selectedTarget={options.micName() ?? null}
+								isLoading={devices.isPending}
+								onSelect={(v) => {
+									setMicInput.mutate(v?.name ?? null);
+									setMicrophoneMenuOpen(false);
+								}}
+								disabled={isRecording()}
+								onBack={() => {
+									setMicrophoneMenuOpen(false);
+								}}
+								permissions={devices.permissions}
+							/>
+						) : (
+							<ModeInfoPanel
+								onBack={() => {
+									setModeInfoMenuOpen(false);
+								}}
+							/>
+						)
+					}
 				</Show>
 			</div>
 			<RecoveryToast />

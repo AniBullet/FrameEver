@@ -132,12 +132,8 @@ pub struct GeneralSettingsStore {
     pub instance_id: Uuid,
     #[serde(default)]
     pub hide_dock_icon: bool,
-    #[serde(default)]
-    pub auto_create_shareable_link: bool,
     #[serde(default = "default_true")]
     pub enable_notifications: bool,
-    #[serde(default)]
-    pub disable_auto_open_links: bool,
     #[serde(default = "default_true")]
     pub has_completed_startup: bool,
     #[serde(default)]
@@ -154,8 +150,6 @@ pub struct GeneralSettingsStore {
     pub main_window_recording_start_behaviour: MainWindowRecordingStartBehaviour,
     #[serde(default = "default_true", rename = "custom_cursor_capture2")]
     pub custom_cursor_capture: bool,
-    #[serde(default = "default_server_url")]
-    pub server_url: String,
     #[serde(default)]
     pub recording_countdown: Option<u32>,
     #[serde(
@@ -226,12 +220,6 @@ fn default_transcription_hints() -> Vec<String> {
     ]
 }
 
-fn default_server_url() -> String {
-    std::option_env!("VITE_SERVER_URL")
-        .unwrap_or("https://cap.so")
-        .to_string()
-}
-
 #[derive(Serialize, Deserialize, Type, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CommercialLicense {
@@ -246,9 +234,7 @@ impl Default for GeneralSettingsStore {
         Self {
             instance_id: uuid::Uuid::new_v4(),
             hide_dock_icon: false,
-            auto_create_shareable_link: false,
             enable_notifications: true,
-            disable_auto_open_links: false,
             has_completed_startup: false,
             theme: AppTheme::System,
             commercial_license: None,
@@ -259,7 +245,6 @@ impl Default for GeneralSettingsStore {
             custom_cursor_capture: true,
             recordings_save_path: None,
             language: None,
-            server_url: default_server_url(),
             recording_countdown: Some(3),
             enable_native_camera_preview: default_enable_native_camera_preview(),
             auto_zoom_on_clicks: false,

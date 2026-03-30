@@ -154,9 +154,6 @@ export function ExportPage() {
 		const ret: Partial<Settings> = {};
 		if (hasTransparentBackground() && _settings.format === "Mp4")
 			ret.format = "Gif";
-		// 云端上传功能已移除
-		// else if (_settings.format === "Gif" && _settings.exportTo === "link")
-		// 	ret.format = "Mp4";
 		else if (!["Mp4", "Gif"].includes(_settings.format)) ret.format = "Mp4";
 
 		if (!VALID_COMPRESSIONS.includes(_settings.compression))
@@ -480,9 +477,6 @@ export function ExportPage() {
 			);
 		},
 	}));
-
-	// 云端上传功能已完全移除
-	// const upload = createMutation(() => ({ ... }));
 
 	const formatDuration = (seconds: number) => {
 		const hours = Math.floor(seconds / 3600);
@@ -979,8 +973,6 @@ export function ExportPage() {
 							size="lg"
 							onClick={() => {
 								if (settings.exportTo === "file") save.mutate();
-								// 云端上传功能已移除
-								// else if (settings.exportTo === "link") upload.mutate();
 								else copy.mutate();
 							}}
 						>

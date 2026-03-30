@@ -5,11 +5,8 @@ use tauri_plugin_notification::NotificationExt;
 pub enum NotificationType {
     VideoSaved,
     VideoCopiedToClipboard,
-    ShareableLinkCopied,
-    UploadFailed,
     VideoSaveFailed,
     VideoCopyFailed,
-    ShareableLinkFailed,
     ScreenshotSaved,
     ScreenshotCopiedToClipboard,
     ScreenshotSaveFailed,
@@ -23,14 +20,6 @@ impl NotificationType {
             NotificationType::VideoCopiedToClipboard => {
                 ("Video Copied", "Video copied to clipboard", false)
             }
-            NotificationType::ShareableLinkCopied => {
-                ("Link Copied", "Link copied to clipboard", false)
-            }
-            NotificationType::UploadFailed => (
-                "Upload Failed",
-                "Unable to upload media. Please try again",
-                true,
-            ),
             NotificationType::VideoSaveFailed => (
                 "Save Failed",
                 "Unable to save video. Please try again",
@@ -39,11 +28,6 @@ impl NotificationType {
             NotificationType::VideoCopyFailed => (
                 "Copy Failed",
                 "Unable to copy video to clipboard. Please try again",
-                true,
-            ),
-            NotificationType::ShareableLinkFailed => (
-                "Share Failed",
-                "Unable to create shareable link. Please try again",
                 true,
             ),
             NotificationType::ScreenshotSaved => {
@@ -67,20 +51,12 @@ impl NotificationType {
 
     #[allow(unused)]
     pub fn message(&self) -> &'static str {
-        match self {
-            NotificationType::UploadFailed => {
-                "Failed to upload your video after multiple attempts. Please try again later."
-            }
-            _ => "",
-        }
+        ""
     }
 
     #[allow(unused)]
     pub fn title(&self) -> &'static str {
-        match self {
-            NotificationType::UploadFailed => "Upload Failed",
-            _ => "",
-        }
+        ""
     }
 }
 

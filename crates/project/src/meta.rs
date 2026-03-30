@@ -41,12 +41,6 @@ pub struct AudioMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct SharingMeta {
-    pub id: String,
-    pub link: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub enum Platform {
     MacOS,
     Windows,
@@ -69,45 +63,12 @@ pub struct RecordingMeta {
     #[serde(skip_serializing, default)]
     pub project_path: PathBuf,
     pub pretty_name: String,
-    #[serde(default)]
-    pub sharing: Option<SharingMeta>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharing: Option<serde_json::Value>,
     #[serde(flatten)]
     pub inner: RecordingMetaInner,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub upload: Option<UploadMeta>,
-}
-
-#[derive(Deserialize, Serialize, Clone, Type, Debug)]
-pub struct S3UploadMeta {
-    pub id: String,
-}
-
-#[derive(Clone, Serialize, Deserialize, specta::Type, Debug)]
-pub struct VideoUploadInfo {
-    pub id: String,
-    pub link: String,
-    pub config: S3UploadMeta,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(tag = "state")]
-pub enum UploadMeta {
-    MultipartUpload {
-        video_id: String,
-        file_path: PathBuf,
-        pre_created_video: VideoUploadInfo,
-        recording_dir: PathBuf,
-    },
-    SinglePartUpload {
-        video_id: String,
-        recording_dir: PathBuf,
-        file_path: PathBuf,
-        screenshot_path: PathBuf,
-    },
-    Failed {
-        error: String,
-    },
-    Complete,
+    pub upload: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

@@ -404,8 +404,6 @@ pub struct StartRecordingInputs {
     pub capture_system_audio: bool,
     pub mode: RecordingMode,
     #[serde(default)]
-    pub organization_id: Option<String>,
-    #[serde(default)]
     pub quality: Option<crate::general_settings::RecordingQuality>,
 }
 
@@ -701,8 +699,6 @@ pub async fn start_recording(
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
-
-    let (finish_upload_tx, _finish_upload_rx) = flume::bounded(1);
 
     debug!("spawning start_recording actor");
 
@@ -1003,7 +999,6 @@ pub async fn start_recording(
             info!("recording wait actor done: {:?}", &res);
             match res {
                 Ok(()) => {
-                    let _ = finish_upload_tx.send(());
                     let _ = RecordingEvent::Stopped.emit(&app);
                 }
                 Err(e) => {

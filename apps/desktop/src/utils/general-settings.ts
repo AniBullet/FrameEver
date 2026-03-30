@@ -14,9 +14,7 @@ export const DEFAULT_TRANSCRIPTION_HINTS = [
 
 export function createDefaultGeneralSettings(): GeneralSettingsStore {
 	return {
-		uploadIndividualFiles: false,
 		hideDockIcon: false,
-		autoCreateShareableLink: false,
 		enableNotifications: true,
 		enableNativeCameraPreview: false,
 		autoZoomOnClicks: false,

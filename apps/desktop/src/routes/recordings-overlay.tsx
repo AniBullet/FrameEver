@@ -335,19 +335,6 @@ export default function () {
 													>
 														<IconCapCopy class="size-[1rem]" />
 													</TooltipIconButton>
-													{/* 云端分享功能已移除 */}
-													{/* <TooltipIconButton
-													class="absolute right-3 bottom-3 z-[998]"
-													tooltipText={
-														recordingMeta.data?.sharing
-															? "Copy Shareable Link"
-															: "Create Shareable Link"
-													}
-													tooltipPlacement="left"
-													onClick={() => upload.mutate()}
-												>
-													<IconCapUpload class="size-[1rem]" />
-												</TooltipIconButton> */}
 													<div class="flex absolute inset-0 justify-center items-center">
 														<Button
 															variant="white"

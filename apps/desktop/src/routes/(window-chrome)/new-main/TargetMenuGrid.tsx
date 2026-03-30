@@ -39,9 +39,6 @@ type WindowGridProps = BaseProps<CaptureWindowWithThumbnail> & {
 
 type RecordingGridProps = BaseProps<RecordingWithPath> & {
 	variant: "recording";
-	uploadProgress?: Record<string, number>;
-	reuploadingPaths?: Set<string>;
-	onReupload?: (path: string) => void;
 	onRefetch?: () => void;
 	onViewAll?: () => void;
 };
@@ -323,63 +320,35 @@ export default function TargetMenuGrid(props: TargetMenuGridProps) {
 								return (
 									<>
 										<For each={items() as RecordingWithPath[]}>
-											{(item, index) => {
-												const videoId = () => {
-													const upload = item.upload;
-													if (!upload) return undefined;
-													if (
-														upload.state === "MultipartUpload" ||
-														upload.state === "SinglePartUpload"
-													) {
-														return upload.video_id;
-													}
-													return undefined;
-												};
-												const progress = () => {
-													const id = videoId();
-													if (!id || !recordingProps.uploadProgress)
-														return undefined;
-													return recordingProps.uploadProgress[id];
-												};
-												const isReuploading = () => {
-													return (
-														recordingProps.reuploadingPaths?.has(item.path) ??
-														false
-													);
-												};
-												return (
-													<Transition
-														appear
-														enterActiveClass="transition duration-200"
-														enterClass="scale-95 opacity-0"
-														enterToClass="scale-100 opacity-100"
-														exitActiveClass="transition duration-200"
-														exitClass="scale-100"
-														exitToClass="scale-95"
+											{(item, index) => (
+												<Transition
+													appear
+													enterActiveClass="transition duration-200"
+													enterClass="scale-95 opacity-0"
+													enterToClass="scale-100 opacity-100"
+													exitActiveClass="transition duration-200"
+													exitClass="scale-100"
+													exitToClass="scale-95"
+												>
+													<div
+														style={{
+															"transition-delay": `${index() * 100}ms`,
+														}}
 													>
-														<div
-															style={{
-																"transition-delay": `${index() * 100}ms`,
-															}}
-														>
-															<TargetCard
-																variant="recording"
-																target={item}
-																onClick={() => recordingProps.onSelect?.(item)}
-																disabled={recordingProps.disabled}
-																onKeyDown={handleKeyDown}
-																class="w-full"
-																data-target-menu-card="true"
-																highlightQuery={recordingProps.highlightQuery}
-																uploadProgress={progress()}
-																isReuploading={isReuploading()}
-																onReupload={recordingProps.onReupload}
-																onRefetch={recordingProps.onRefetch}
-															/>
-														</div>
-													</Transition>
-												);
-											}}
+														<TargetCard
+															variant="recording"
+															target={item}
+															onClick={() => recordingProps.onSelect?.(item)}
+															disabled={recordingProps.disabled}
+															onKeyDown={handleKeyDown}
+															class="w-full"
+															data-target-menu-card="true"
+															highlightQuery={recordingProps.highlightQuery}
+															onRefetch={recordingProps.onRefetch}
+														/>
+													</div>
+												</Transition>
+											)}
 										</For>
 										<Show when={recordingProps.onViewAll}>
 											{(onViewAll) => (
