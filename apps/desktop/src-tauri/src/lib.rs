@@ -1135,18 +1135,18 @@ pub type MutableState<'a, T> = State<'a, Arc<RwLock<T>>>;
 type SingleTuple<T> = (T,);
 
 #[derive(Serialize, Type)]
-struct JsonValue<T>(
+struct TypedJsonValue<T>(
     #[serde(skip)] PhantomData<T>,
     #[specta(type = SingleTuple<T>)] serde_json::Value,
 );
 
-impl<T> Clone for JsonValue<T> {
+impl<T> Clone for TypedJsonValue<T> {
     fn clone(&self) -> Self {
         Self(PhantomData, self.1.clone())
     }
 }
 
-impl<T: Serialize> JsonValue<T> {
+impl<T: Serialize> TypedJsonValue<T> {
     fn new(value: &T) -> Self {
         Self(PhantomData, json!(value))
     }
@@ -1195,12 +1195,12 @@ struct CurrentRecording {
 #[instrument(skip(state))]
 async fn get_current_recording(
     state: MutableState<'_, App>,
-) -> Result<JsonValue<Option<CurrentRecording>>, ()> {
+) -> Result<TypedJsonValue<Option<CurrentRecording>>, ()> {
     let state = state.read().await;
 
     let (mode, capture_target, status) = match &state.recording_state {
         RecordingState::None => {
-            return Ok(JsonValue::new(&None));
+            return Ok(TypedJsonValue::new(&None));
         }
         RecordingState::Pending { mode, target } => (*mode, target, RecordingStatus::Pending),
         RecordingState::Active(inner) => (
@@ -1227,7 +1227,7 @@ async fn get_current_recording(
         ScreenCaptureTarget::CameraOnly => CurrentRecordingTarget::Camera,
     };
 
-    Ok(JsonValue::new(&Some(CurrentRecording {
+    Ok(TypedJsonValue::new(&Some(CurrentRecording {
         target,
         mode,
         status,

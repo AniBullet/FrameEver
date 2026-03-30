@@ -11,6 +11,7 @@ pub struct HevcStreamMuxer {
     is_finished: bool,
     frame_count: u64,
     extradata_set: bool,
+    last_dts: Option<i64>,
 }
 
 impl HevcStreamMuxer {
@@ -63,6 +64,7 @@ impl HevcStreamMuxer {
             is_finished: false,
             frame_count: 0,
             extradata_set: false,
+            last_dts: None,
         })
     }
 
@@ -87,6 +89,20 @@ impl HevcStreamMuxer {
             self.time_base,
             output.stream(self.stream_index).unwrap().time_base(),
         );
+
+        if let Some(dts) = packet.dts() {
+            let adjusted = match self.last_dts {
+                Some(prev) if dts <= prev => prev + 1,
+                _ => dts,
+            };
+            if adjusted != dts {
+                packet.set_dts(Some(adjusted));
+                if packet.pts().map_or(false, |p| p < adjusted) {
+                    packet.set_pts(Some(adjusted));
+                }
+            }
+            self.last_dts = Some(adjusted);
+        }
 
         packet.write_interleaved(output)?;
         self.frame_count += 1;
