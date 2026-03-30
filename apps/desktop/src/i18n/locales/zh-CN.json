@@ -500,6 +500,7 @@
 	"editor.timeline.scene": "场景",
 	"editor.timeline.addMask": "点击添加遮罩",
 	"editor.timeline.mask": "遮罩",
+	"editor.timeline.keyboard": "键盘",
 
 	"editor.performance.advancedShadow": "高级阴影设置",
 	"editor.performance.shadowSize": "大小",

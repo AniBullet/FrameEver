@@ -181,6 +181,15 @@ fn create_d3d_device_with_type(
     }
 }
 
+fn enable_multithread_protection(device: &ID3D11Device) {
+    use windows::Win32::Graphics::Direct3D11::ID3D11Multithread;
+    if let Ok(multithread) = device.cast::<ID3D11Multithread>() {
+        unsafe {
+            let _ = multithread.SetMultithreadProtected(true);
+        }
+    }
+}
+
 fn create_d3d_device_with_warp_fallback() -> windows::core::Result<(ID3D11Device, bool)> {
     let mut device = None;
     let flags = D3D11_CREATE_DEVICE_FLAG::default();
@@ -188,11 +197,17 @@ fn create_d3d_device_with_warp_fallback() -> windows::core::Result<(ID3D11Device
     let result = create_d3d_device_with_type(D3D_DRIVER_TYPE_HARDWARE, flags, &mut device);
 
     match result {
-        Ok(()) => Ok((device.unwrap(), false)),
+        Ok(()) => {
+            let dev = device.unwrap();
+            enable_multithread_protection(&dev);
+            Ok((dev, false))
+        }
         Err(e) if e.code() == DXGI_ERROR_UNSUPPORTED => {
             tracing::info!("Hardware D3D11 device unavailable, attempting WARP fallback");
             create_d3d_device_with_type(D3D_DRIVER_TYPE_WARP, flags, &mut device)?;
-            Ok((device.unwrap(), true))
+            let dev = device.unwrap();
+            enable_multithread_protection(&dev);
+            Ok((dev, true))
         }
         Err(e) => Err(e),
     }

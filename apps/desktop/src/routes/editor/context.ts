@@ -85,7 +85,7 @@ export const getPreviewResolution = (
 	return { x: width, y: height };
 };
 
-export type TimelineTrackType = "clip" | "text" | "zoom" | "scene" | "mask";
+export type TimelineTrackType = "clip" | "text" | "zoom" | "scene" | "mask" | "keyboard";
 
 export const MAX_ZOOM_IN = 3;
 const PROJECT_SAVE_DEBOUNCE_MS = 250;
@@ -646,7 +646,8 @@ export const [EditorContextProvider, useEditorContext] = createContextProvider(
 					| { type: "clip"; indices: number[] }
 					| { type: "scene"; indices: number[] }
 					| { type: "mask"; indices: number[] }
-					| { type: "text"; indices: number[] },
+					| { type: "text"; indices: number[] }
+					| { type: "keyboard"; indices: number[] },
 				transform: {
 					// visible seconds
 					zoom: zoomOutLimit(),
@@ -689,6 +690,7 @@ export const [EditorContextProvider, useEditorContext] = createContextProvider(
 					scene: true,
 					mask: initialMaskTrackEnabled,
 					text: initialTextTrackEnabled,
+					keyboard: false,
 				},
 				hoveredTrack: null as null | TimelineTrackType,
 			},

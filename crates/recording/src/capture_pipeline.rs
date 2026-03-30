@@ -399,5 +399,17 @@ pub fn create_d3d_device()
         }
     }
 
-    Ok(device.unwrap())
+    let device = device.unwrap();
+
+    {
+        use windows::Win32::Graphics::Direct3D11::ID3D11Multithread;
+        use windows::core::Interface;
+        if let Ok(multithread) = device.cast::<ID3D11Multithread>() {
+            unsafe {
+                let _ = multithread.SetMultithreadProtected(true);
+            }
+        }
+    }
+
+    Ok(device)
 }

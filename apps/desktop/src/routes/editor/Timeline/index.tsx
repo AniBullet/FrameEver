@@ -26,6 +26,7 @@ import { type SceneSegmentDragState, SceneTrack } from "./SceneTrack";
 import { type TextSegmentDragState, TextTrack } from "./TextTrack";
 import { TrackIcon, TrackManager } from "./TrackManager";
 import { type ZoomSegmentDragState, ZoomTrack } from "./ZoomTrack";
+import { type KeyboardSegmentDragState, KeyboardTrack } from "./KeyboardTrack";
 
 const TIMELINE_PADDING = 16;
 const TRACK_GUTTER = 64;
@@ -37,6 +38,7 @@ const trackIcons: Record<TimelineTrackType, JSX.Element> = {
 	mask: <IconLucideBoxSelect class="size-4" />,
 	zoom: <IconLucideSearch class="size-4" />,
 	scene: <IconLucideVideo class="size-4" />,
+	keyboard: <IconLucideKeyboard class="size-4" />,
 };
 
 type TrackDefinition = {
@@ -46,7 +48,8 @@ type TrackDefinition = {
 		| "editor.timeline.text"
 		| "editor.timeline.mask"
 		| "editor.timeline.zoom"
-		| "editor.timeline.scene";
+		| "editor.timeline.scene"
+		| "editor.timeline.keyboard";
 	icon: JSX.Element;
 	locked: boolean;
 };
@@ -82,6 +85,12 @@ const trackDefinitions: TrackDefinition[] = [
 		icon: trackIcons.scene,
 		locked: false,
 	},
+	{
+		type: "keyboard",
+		labelKey: "editor.timeline.keyboard",
+		icon: trackIcons.keyboard,
+		locked: true,
+	},
 ];
 
 export function Timeline() {
@@ -109,6 +118,8 @@ export function Timeline() {
 
 	const trackState = () => editorState.timeline.tracks;
 	const sceneAvailable = () => meta().hasCamera && !project.camera.hide;
+	const keyboardAvailable = () =>
+		(project.timeline?.keyboardSegments?.length ?? 0) > 0;
 	const trackOptions = () =>
 		trackDefinitions.map((definition) => ({
 			...definition,
@@ -120,15 +131,25 @@ export function Timeline() {
 						? trackState().mask
 						: definition.type === "text"
 							? trackState().text
-							: true,
-			available: definition.type === "scene" ? sceneAvailable() : true,
+							: definition.type === "keyboard"
+								? trackState().keyboard
+								: true,
+			available:
+				definition.type === "scene"
+					? sceneAvailable()
+					: definition.type === "keyboard"
+						? keyboardAvailable()
+						: true,
 		}));
 	const sceneTrackVisible = () => trackState().scene && sceneAvailable();
+	const keyboardTrackVisible = () =>
+		trackState().keyboard && keyboardAvailable();
 	const visibleTrackCount = () =>
 		2 +
 		(trackState().text ? 1 : 0) +
 		(trackState().mask ? 1 : 0) +
-		(sceneTrackVisible() ? 1 : 0);
+		(sceneTrackVisible() ? 1 : 0) +
+		(keyboardTrackVisible() ? 1 : 0);
 	const trackHeight = () => (visibleTrackCount() > 2 ? "3rem" : "3.25rem");
 
 	function handleToggleTrack(type: TimelineTrackType, next: boolean) {
@@ -148,6 +169,14 @@ export function Timeline() {
 		if (type === "mask") {
 			setEditorState("timeline", "tracks", "mask", next);
 			if (!next && editorState.timeline.selection?.type === "mask") {
+				setEditorState("timeline", "selection", null);
+			}
+			return;
+		}
+
+		if (type === "keyboard") {
+			setEditorState("timeline", "tracks", "keyboard", next);
+			if (!next && editorState.timeline.selection?.type === "keyboard") {
 				setEditorState("timeline", "selection", null);
 			}
 		}
@@ -222,6 +251,7 @@ export function Timeline() {
 	let sceneSegmentDragState = { type: "idle" } as SceneSegmentDragState;
 	let maskSegmentDragState = { type: "idle" } as MaskSegmentDragState;
 	let textSegmentDragState = { type: "idle" } as TextSegmentDragState;
+	let keyboardSegmentDragState = { type: "idle" } as KeyboardSegmentDragState;
 
 	let pendingZoomDelta = 0;
 	let pendingZoomOrigin: number | null = null;
@@ -280,7 +310,8 @@ export function Timeline() {
 			zoomSegmentDragState.type !== "moving" &&
 			sceneSegmentDragState.type !== "moving" &&
 			maskSegmentDragState.type !== "moving" &&
-			textSegmentDragState.type !== "moving"
+			textSegmentDragState.type !== "moving" &&
+			keyboardSegmentDragState.type !== "moving"
 		) {
 			// Guard against missing bounds and clamp computed time to [0, totalDuration()]
 			if (left == null) return;
@@ -576,6 +607,16 @@ export function Timeline() {
 									<SceneTrack
 										onDragStateChanged={(v) => {
 											sceneSegmentDragState = v;
+										}}
+										handleUpdatePlayhead={handleUpdatePlayhead}
+									/>
+								</TrackRow>
+							</Show>
+							<Show when={keyboardTrackVisible()}>
+								<TrackRow icon={trackIcons.keyboard}>
+									<KeyboardTrack
+										onDragStateChanged={(v) => {
+											keyboardSegmentDragState = v;
 										}}
 										handleUpdatePlayhead={handleUpdatePlayhead}
 									/>

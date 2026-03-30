@@ -499,6 +499,7 @@
 	"editor.timeline.scene": "Scene",
 	"editor.timeline.addMask": "Click to add a mask",
 	"editor.timeline.mask": "Mask",
+	"editor.timeline.keyboard": "Keyboard",
 
 	"editor.performance.advancedShadow": "Advanced shadow settings",
 	"editor.performance.shadowSize": "Size",

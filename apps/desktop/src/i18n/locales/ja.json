@@ -499,6 +499,7 @@
 	"editor.timeline.scene": "シーン",
 	"editor.timeline.addMask": "クリックしてマスクを追加",
 	"editor.timeline.mask": "マスク",
+	"editor.timeline.keyboard": "キーボード",
 
 	"editor.performance.advancedShadow": "詳細なシャドウ設定",
 	"editor.performance.shadowSize": "サイズ",

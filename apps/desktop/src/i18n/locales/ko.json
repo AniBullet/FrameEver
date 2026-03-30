@@ -500,6 +500,7 @@
 	"editor.timeline.scene": "장면",
 	"editor.timeline.addMask": "클릭하여 마스크 추가",
 	"editor.timeline.mask": "마스크",
+	"editor.timeline.keyboard": "키보드",
 
 	"editor.performance.advancedShadow": "고급 그림자 설정",
 	"editor.performance.shadowSize": "크기",

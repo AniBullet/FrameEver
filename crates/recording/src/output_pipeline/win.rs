@@ -330,6 +330,7 @@ impl Muxer for WindowsMuxer {
                     either::Left(hw_encoder) => {
                         trace!("Running hardware encoder with frame pacing");
                         let mut last_texture: Option<windows::Win32::Graphics::Direct3D11::ID3D11Texture2D> = None;
+                        let mut _last_screen_frame: Option<screen_capture::ScreenFrame> = None;
                         let mut first_timestamp: Option<Duration> = None;
                         let mut last_timestamp: Option<Duration> = None;
                         let mut frame_count: u64 = 0;
@@ -348,6 +349,7 @@ impl Muxer for WindowsMuxer {
                                 Ok(Some((frame, timestamp))) => {
                                     last_texture = Some(frame.texture().clone());
                                     last_timestamp = Some(timestamp);
+                                    _last_screen_frame = Some(frame);
                                 }
                                 Ok(None) => {
                                     return Ok(None);
@@ -388,6 +390,7 @@ impl Muxer for WindowsMuxer {
                                         let texture = frame.texture().clone();
                                         last_texture = Some(texture.clone());
                                         last_timestamp = Some(timestamp);
+                                        _last_screen_frame = Some(frame);
                                         let normalized_ts = normalize_timestamp(timestamp, &mut first_timestamp);
                                         frame_count = 1;
                                         next_frame_deadline = std::time::Instant::now().checked_add(frame_interval).unwrap_or(next_frame_deadline);
