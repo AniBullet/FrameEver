@@ -312,6 +312,8 @@
 	"experimental.native.camera.description": "webview 내에서 렌더링하는 대신 네이티브 GPU 표면을 사용하여 카메라 미리보기를 표시합니다. 일부 Windows 시스템에서는 작동하지 않으므로 결과가 다를 수 있습니다.",
 	"experimental.auto.zoom.label": "클릭 시 자동 줌",
 	"experimental.auto.zoom.description": "스튜디오 모드 녹화 중 마우스 클릭 주변에 자동으로 줌 세그먼트를 생성합니다. 이를 통해 녹화에서 중요한 상호 작용을 강조 표시할 수 있습니다.",
+	"experimental.keyboard.capture.label": "키보드 이벤트 캡처",
+	"experimental.keyboard.capture.description": "스튜디오 모드 녹화 중 키보드 입력을 기록합니다. 캡처된 키는 에디터에서 오버레이로 표시할 수 있습니다.",
 
 	"feedback.system.title": "시스템 정보",
 	"feedback.system.loading": "시스템 정보를 로드하는 중...",

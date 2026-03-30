@@ -80,18 +80,26 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 								}
 							/>
 						)}
-						<ToggleSettingItem
-							label={t("experimental.auto.zoom.label")}
-							description={t("experimental.auto.zoom.description")}
-							value={!!settings.autoZoomOnClicks}
-							onChange={(value) => {
-								handleChange("autoZoomOnClicks", value);
-								setTimeout(
-									() => window.scrollTo({ top: 0, behavior: "instant" }),
-									5,
-								);
-							}}
-						/>
+					<ToggleSettingItem
+						label={t("experimental.auto.zoom.label")}
+						description={t("experimental.auto.zoom.description")}
+						value={!!settings.autoZoomOnClicks}
+						onChange={(value) => {
+							handleChange("autoZoomOnClicks", value);
+							setTimeout(
+								() => window.scrollTo({ top: 0, behavior: "instant" }),
+								5,
+							);
+						}}
+					/>
+					<ToggleSettingItem
+						label={t("experimental.keyboard.capture.label")}
+						description={t("experimental.keyboard.capture.description")}
+						value={settings.captureKeyboardEvents !== false}
+						onChange={(value) =>
+							handleChange("captureKeyboardEvents", value)
+						}
+					/>
 					</div>
 				</div>
 			</div>

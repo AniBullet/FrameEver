@@ -312,6 +312,8 @@
 	"experimental.native.camera.description": "使用原生 GPU 表面显示摄像头预览，而不是在 webview 中渲染。在某些 Windows 系统上无法使用，因此您的体验可能有所不同。",
 	"experimental.auto.zoom.label": "点击自动缩放",
 	"experimental.auto.zoom.description": "在工作室模式录制期间自动生成鼠标点击周围的缩放片段。这有助于突出显示录制中的重要交互。",
+	"experimental.keyboard.capture.label": "捕获键盘事件",
+	"experimental.keyboard.capture.description": "在工作室模式录制期间记录键盘按键操作。捕获的按键可以在编辑器中显示为叠加层。",
 
 	"feedback.system.title": "系统信息",
 	"feedback.system.loading": "正在加载系统信息...",

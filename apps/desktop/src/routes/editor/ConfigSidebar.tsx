@@ -413,11 +413,6 @@ export function ConfigSidebar() {
 					{
 						id: TAB_IDS.keyboard,
 						icon: IconLucideKeyboard,
-						disabled: !(
-							meta().type === "multiple" &&
-							(meta() as import("~/utils/tauri").MultipleSegments).segments[0]
-								?.keyboard
-						),
 					},
 					// { id: "hotkeys" as const, icon: IconCapHotkeys },
 					].filter(Boolean)}

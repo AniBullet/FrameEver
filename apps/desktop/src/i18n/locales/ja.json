@@ -311,6 +311,8 @@
 	"experimental.native.camera.description": "webview内でレンダリングする代わりに、ネイティブGPUサーフェスを使用してカメラプレビューを表示します。一部のWindowsシステムでは機能しないため、効果は異なる場合があります。",
 	"experimental.auto.zoom.label": "クリック時の自動ズーム",
 	"experimental.auto.zoom.description": "スタジオモード録画中にマウスクリックの周囲に自動的にズームセグメントを生成します。これにより、録画内の重要なインタラクションを強調表示できます。",
+	"experimental.keyboard.capture.label": "キーボードイベントの記録",
+	"experimental.keyboard.capture.description": "スタジオモード録画中にキーボードの押下を記録します。記録されたキーはエディターでオーバーレイとして表示できます。",
 
 	"feedback.system.title": "システム情報",
 	"feedback.system.loading": "システム情報を読み込んでいます...",

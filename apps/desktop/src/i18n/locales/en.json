@@ -311,6 +311,8 @@
 	"experimental.native.camera.description": "Show the camera preview using a native GPU surface instead of rendering it within the webview. This is not functional on certain Windows systems so your mileage may vary.",
 	"experimental.auto.zoom.label": "Auto zoom on clicks",
 	"experimental.auto.zoom.description": "Automatically generate zoom segments around mouse clicks during Studio Mode recordings. This helps highlight important interactions in your recordings.",
+	"experimental.keyboard.capture.label": "Capture keyboard events",
+	"experimental.keyboard.capture.description": "Record keyboard keystrokes during Studio Mode recordings. Captured keys can be displayed as an overlay in the editor.",
 
 	"feedback.system.title": "System Information",
 	"feedback.system.loading": "Loading system information...",

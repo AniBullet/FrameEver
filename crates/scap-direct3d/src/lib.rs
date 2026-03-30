@@ -446,6 +446,8 @@ impl Capturer {
                     let stop_flag = stop_flag.clone();
                     let staging_pool = staging_pool.clone();
 
+                    let mut mirror_texture: Option<(ID3D11Texture2D, u32, u32)> = None;
+
                     move |frame_pool, _| {
                         if stop_flag.load(Ordering::Relaxed) {
                             return Ok(());
@@ -487,12 +489,50 @@ impl Capturer {
                                 staging_pool: staging_pool.clone(),
                             }
                         } else {
+                            let w = size.Width as u32;
+                            let h = size.Height as u32;
+
+                            let needs_recreate = mirror_texture
+                                .as_ref()
+                                .map_or(true, |(_, mw, mh)| *mw != w || *mh != h);
+
+                            if needs_recreate {
+                                let desc = D3D11_TEXTURE2D_DESC {
+                                    Width: w,
+                                    Height: h,
+                                    MipLevels: 1,
+                                    ArraySize: 1,
+                                    Format: settings.pixel_format.as_dxgi(),
+                                    SampleDesc: DXGI_SAMPLE_DESC {
+                                        Count: 1,
+                                        Quality: 0,
+                                    },
+                                    Usage: D3D11_USAGE_DEFAULT,
+                                    BindFlags: (D3D11_BIND_RENDER_TARGET.0
+                                        | D3D11_BIND_SHADER_RESOURCE.0)
+                                        as u32,
+                                    CPUAccessFlags: 0,
+                                    MiscFlags: 0,
+                                };
+                                let mut tex = None;
+                                unsafe {
+                                    d3d_device.CreateTexture2D(&desc, None, Some(&mut tex))?
+                                };
+                                mirror_texture = Some((tex.unwrap(), w, h));
+                            }
+
+                            let (mirror, _, _) = mirror_texture.as_ref().unwrap();
+
+                            unsafe {
+                                d3d_context.CopyResource(mirror, &texture);
+                            }
+
                             Frame {
-                                width: size.Width as u32,
-                                height: size.Height as u32,
+                                width: w,
+                                height: h,
                                 pixel_format: settings.pixel_format,
                                 inner: frame,
-                                texture,
+                                texture: mirror.clone(),
                                 d3d_context: d3d_context.clone(),
                                 d3d_device: d3d_device.clone(),
                                 staging_pool: staging_pool.clone(),
