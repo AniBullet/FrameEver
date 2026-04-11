@@ -2198,13 +2198,6 @@ fn should_protect_window(app: &AppHandle<Wry>, window_title: &str) -> bool {
 
     let settings = GeneralSettingsStore::get(app).ok().flatten();
 
-    if settings
-        .as_ref()
-        .is_some_and(|s| s.disable_content_protection)
-    {
-        return false;
-    }
-
     let matches = |list: &[WindowExclusion]| {
         list.iter()
             .any(|entry| entry.matches(None, None, Some(window_title)))

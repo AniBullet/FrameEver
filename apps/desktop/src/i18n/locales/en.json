@@ -107,8 +107,6 @@
 	"general.recording.delete.instant.description": "After finishing an instant recording, should Cap delete it from your device?",
 	"general.recording.crash.recovery": "Crash-recoverable recording",
 	"general.recording.crash.recovery.description": "Records in fragmented segments that can be recovered if the app crashes or your system loses power. May have slightly higher storage usage during recording",
-	"general.recording.disableContentProtection": "Disable content protection",
-	"general.recording.disableContentProtection.description": "Allow window content to be visible in screen capture and remote desktop. Enable this if windows appear black when using remote desktop tools",
 	"general.recording.fps": "Max capture framerate",
 	"general.recording.fps.description": "Maximum framerate for screen capture. Higher values may cause instability on some systems",
 	"general.recording.fps.warning": "⚠️ Higher framerates may cause frame drops or increased CPU usage on some systems",
@@ -140,6 +138,8 @@
 	"general.excluded.windows.add.description": "Select a window to hide during recording",
 	"general.excluded.windows.reset": "Reset to defaults",
 	"general.excluded.windows.remove": "Remove",
+	"general.excluded.windows.remote.note": "Tip:",
+	"general.excluded.windows.remote.note.description": "When using a remote desktop connection, remove excluded windows or the interface may not display properly.",
 
 	"recording.mode.studio": "Studio Mode",
 	"recording.mode.instant": "Instant Mode",

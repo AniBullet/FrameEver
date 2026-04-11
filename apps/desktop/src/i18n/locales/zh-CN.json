@@ -107,8 +107,6 @@
 	"general.recording.delete.instant.description": "完成快速录制后，Cap 是否从您的设备中删除它？",
 	"general.recording.crash.recovery": "崩溃可恢复录制",
 	"general.recording.crash.recovery.description": "以分段方式录制，如果应用崩溃或系统断电可以恢复。可能会略微增加录制期间的存储使用量",
-	"general.recording.disableContentProtection": "禁用内容保护",
-	"general.recording.disableContentProtection.description": "允许窗口内容在屏幕捕获和远程桌面中可见。如果使用远程桌面工具时窗口显示黑屏，请开启此选项",
 	"general.recording.fps": "最大捕获帧率",
 	"general.recording.fps.description": "屏幕捕获的最大帧率。在某些系统上，较高的值可能导致不稳定",
 	"general.recording.fps.warning": "⚠️ 较高的帧率可能在某些系统上导致掉帧或增加 CPU 使用率",
@@ -141,6 +139,8 @@
 	"general.excluded.windows.add.description": "选择要在录制时隐藏的窗口",
 	"general.excluded.windows.reset": "重置为默认",
 	"general.excluded.windows.remove": "移除",
+	"general.excluded.windows.remote.note": "提示：",
+	"general.excluded.windows.remote.note.description": "使用远程桌面连接时，请移除排除窗口，否则界面将无法正常显示。",
 
 	"recording.mode.studio": "工作室模式",
 	"recording.mode.instant": "快速录制",
