@@ -9,7 +9,6 @@ import {
 	type PhysicalPosition,
 	type PhysicalSize,
 } from "@tauri-apps/api/dpi";
-import { emit } from "@tauri-apps/api/event";
 import {
 	CheckMenuItem,
 	Menu,
@@ -23,7 +22,6 @@ import {
 	createMemo,
 	createSignal,
 	Match,
-	mergeProps,
 	onCleanup,
 	onMount,
 	Show,
@@ -1460,6 +1458,6 @@ function RecordingControls(props: {
 	);
 }
 
-function ShowCapFreeWarning(props: { isInstantMode: boolean }) {
+function ShowCapFreeWarning(_props: { isInstantMode: boolean }) {
 	return null;
 }

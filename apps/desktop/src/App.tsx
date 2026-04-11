@@ -5,7 +5,15 @@ import {
 	type WebviewWindow,
 } from "@tauri-apps/api/webviewWindow";
 import { message } from "@tauri-apps/plugin-dialog";
-import { createEffect, lazy, onCleanup, onMount, Suspense } from "solid-js";
+import {
+	createEffect,
+	createSignal,
+	lazy,
+	onCleanup,
+	onMount,
+	Show,
+	Suspense,
+} from "solid-js";
 import { Toaster } from "solid-toast";
 
 import "@cap/ui-solid/main.css";
@@ -82,7 +90,36 @@ export default function App() {
 	);
 }
 
+function isTauriReady(): boolean {
+	try {
+		const internals = (window as Record<string, unknown>).__TAURI_INTERNALS__;
+		return !!(internals && (internals as Record<string, unknown>).metadata);
+	} catch {
+		return false;
+	}
+}
+
 function Inner() {
+	const [ready, setReady] = createSignal(isTauriReady());
+
+	if (!ready()) {
+		const id = setInterval(() => {
+			if (isTauriReady()) {
+				setReady(true);
+				clearInterval(id);
+			}
+		}, 50);
+		onCleanup(() => clearInterval(id));
+	}
+
+	return (
+		<Show when={ready()}>
+			<InnerContent />
+		</Show>
+	);
+}
+
+function InnerContent() {
 	const currentWindow = getCurrentWebviewWindow();
 	createThemeListener(currentWindow);
 

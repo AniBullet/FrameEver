@@ -54,7 +54,7 @@ self.onmessage = (e: MessageEvent<StrideCorrectionRequest>) => {
 };
 
 export type {
+	ErrorResponse,
 	StrideCorrectionRequest,
 	StrideCorrectionResponse,
-	ErrorResponse,
 };

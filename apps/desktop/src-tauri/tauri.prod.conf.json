@@ -14,15 +14,19 @@
 	},
 	"bundle": {
 		"createUpdaterArtifacts": false,
+		"shortDescription": "Local-first screen recording & editing",
 		"macOS": {
 			"entitlements": "Entitlements.plist"
 		},
 		"windows": {
 			"nsis": {
-				"languages": ["English", "SimpChinese"]
-			},
-			"wix": {
-				"upgradeCode": "b876e0ef-1fdd-66e1-c9b1-72fae4387787"
+				"installMode": "currentUser",
+				"installerHooks": "nsis-hooks.nsh",
+				"languages": ["English", "SimpChinese"],
+				"customLanguageFiles": {
+					"English": "nsis-lang-en.nsh",
+					"SimpChinese": "nsis-lang-zh.nsh"
+				}
 			}
 		}
 	}

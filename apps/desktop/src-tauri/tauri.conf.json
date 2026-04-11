@@ -42,7 +42,8 @@
 	"bundle": {
 		"active": true,
 		"createUpdaterArtifacts": false,
-		"targets": "all",
+		"targets": ["nsis"],
+		"shortDescription": "Local-first screen recording & editing",
 		"icon": [
 			"icons/32x32.png",
 			"icons/128x128.png",
@@ -73,15 +74,16 @@
 		},
 		"windows": {
 			"nsis": {
+				"installMode": "currentUser",
+				"installerHooks": "nsis-hooks.nsh",
 				"headerImage": "assets/nsis-header.bmp",
 				"sidebarImage": "assets/nsis-sidebar.bmp",
 				"installerIcon": "icons/icon.ico",
-				"languages": ["English", "SimpChinese"]
-			},
-			"wix": {
-				"upgradeCode": "c987f1f0-db34-47f2-d0c2-83fbf5498898",
-				"bannerPath": "assets/wix-banner.bmp",
-				"dialogImagePath": "assets/wix-dialog.bmp"
+				"languages": ["English", "SimpChinese"],
+				"customLanguageFiles": {
+					"English": "nsis-lang-en.nsh",
+					"SimpChinese": "nsis-lang-zh.nsh"
+				}
 			}
 		},
 		"fileAssociations": [

@@ -85,7 +85,13 @@ export const getPreviewResolution = (
 	return { x: width, y: height };
 };
 
-export type TimelineTrackType = "clip" | "text" | "zoom" | "scene" | "mask" | "keyboard";
+export type TimelineTrackType =
+	| "clip"
+	| "text"
+	| "zoom"
+	| "scene"
+	| "mask"
+	| "keyboard";
 
 export const MAX_ZOOM_IN = 3;
 const PROJECT_SAVE_DEBOUNCE_MS = 250;

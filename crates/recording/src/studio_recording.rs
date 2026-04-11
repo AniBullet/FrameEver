@@ -1542,7 +1542,6 @@ fn write_in_progress_meta(recording_dir: &Path) -> anyhow::Result<()> {
         platform: Some(Platform::default()),
         project_path: recording_dir.to_path_buf(),
         pretty_name,
-        sharing: None,
         inner: RecordingMetaInner::Studio(Box::new(StudioRecordingMeta::MultipleSegments {
             inner: MultipleSegments {
                 segments: Vec::new(),
@@ -1550,7 +1549,6 @@ fn write_in_progress_meta(recording_dir: &Path) -> anyhow::Result<()> {
                 status: Some(StudioRecordingStatus::InProgress),
             },
         })),
-        upload: None,
     };
 
     meta.save_for_project()

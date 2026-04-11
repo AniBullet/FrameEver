@@ -1,7 +1,7 @@
 [package]
 name = "cap-desktop"
-version = "2.0.0"
-description = "Beautiful screen recordings, owned by you."
+version = "2.0.1"
+description = "Local-first screen recording with professional editing — privacy by default."
 authors = ["aniBullet"]
 edition = "2024"
 

@@ -189,6 +189,8 @@ pub struct GeneralSettingsStore {
     pub recording_quality: RecordingQuality,
     #[serde(default)]
     pub recording_codec: RecordingCodec,
+    #[serde(default)]
+    pub disable_content_protection: bool,
 }
 
 fn default_enable_native_camera_preview() -> bool {
@@ -261,6 +263,7 @@ impl Default for GeneralSettingsStore {
             camera_window_position: None,
             recording_quality: RecordingQuality::Standard,
             recording_codec: RecordingCodec::H264,
+            disable_content_protection: false,
         }
     }
 }

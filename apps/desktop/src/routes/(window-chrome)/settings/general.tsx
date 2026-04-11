@@ -685,6 +685,20 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 					isLoading={windows.loading}
 					isWindows={ostype === "windows"}
 				/>
+
+				<Show when={excludedWindows().length > 0}>
+					<ToggleSettingItem
+						label={t("general.recording.disableContentProtection")}
+						description={t(
+							"general.recording.disableContentProtection.description",
+						)}
+						value={!!settings.disableContentProtection}
+						onChange={async (value) => {
+							await handleChange("disableContentProtection", value);
+							await commands.refreshWindowContentProtection();
+						}}
+					/>
+				</Show>
 			</div>
 		</div>
 	);

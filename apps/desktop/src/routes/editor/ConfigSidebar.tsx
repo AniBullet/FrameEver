@@ -66,8 +66,8 @@ import IconLucideTimer from "~icons/lucide/timer";
 import IconLucideType from "~icons/lucide/type";
 import IconLucideWind from "~icons/lucide/wind";
 import { CaptionsTab } from "./CaptionsTab";
-import { KeyboardTab } from "./KeyboardTab";
 import { type CornerRoundingType, useEditorContext } from "./context";
+import { KeyboardTab } from "./KeyboardTab";
 import { evaluateMask, type MaskKind, type MaskSegment } from "./masks";
 import {
 	DEFAULT_GRADIENT_FROM,
@@ -406,15 +406,15 @@ export function ConfigSidebar() {
 									?.cursor
 							),
 						},
-					{
-						id: "captions" as const,
-						icon: IconCapMessageBubble,
-					},
-					{
-						id: TAB_IDS.keyboard,
-						icon: IconLucideKeyboard,
-					},
-					// { id: "hotkeys" as const, icon: IconCapHotkeys },
+						{
+							id: "captions" as const,
+							icon: IconCapMessageBubble,
+						},
+						{
+							id: TAB_IDS.keyboard,
+							icon: IconLucideKeyboard,
+						},
+						// { id: "hotkeys" as const, icon: IconCapHotkeys },
 					].filter(Boolean)}
 				>
 					{(item) => (
@@ -3087,13 +3087,8 @@ function ZoomSegmentConfig(props: {
 }) {
 	const { t } = useI18n();
 	const generalSettings = generalSettingsStore.createQuery();
-	const {
-		project,
-		setProject,
-		editorInstance,
-		setEditorState,
-		projectHistory,
-	} = useEditorContext();
+	const { project, setProject, editorInstance, projectHistory } =
+		useEditorContext();
 
 	const states = {
 		manual:

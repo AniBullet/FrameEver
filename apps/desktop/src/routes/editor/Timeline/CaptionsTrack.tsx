@@ -29,7 +29,7 @@ export function CaptionsTrack(props: {
 		projectHistory,
 		projectActions,
 	} = useEditorContext();
-	const { secsPerPixel, timelineBounds } = useTimelineContext();
+	const { secsPerPixel } = useTimelineContext();
 
 	const minDuration = () =>
 		Math.max(MIN_SEGMENT_SECS, secsPerPixel() * MIN_SEGMENT_PIXELS);

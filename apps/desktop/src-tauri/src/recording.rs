@@ -632,8 +632,6 @@ pub async fn start_recording(
                 return Err("Use take_screenshot for screenshots".to_string());
             }
         },
-        sharing: None,
-        upload: None,
     };
 
     meta.save_for_project()
@@ -1452,7 +1450,7 @@ async fn handle_recording_finish(
     let screenshots_dir = recording_dir.join("screenshots");
     std::fs::create_dir_all(&screenshots_dir).ok();
 
-    let (meta_inner, sharing) = match completed_recording {
+    let meta_inner = match completed_recording {
         CompletedRecording::Studio { recording, .. } => {
             let meta_inner = RecordingMetaInner::Studio(Box::new(recording.meta.clone()));
 
@@ -1460,7 +1458,6 @@ async fn handle_recording_finish(
                 error!("Failed to load recording meta while saving finished recording: {err}")
             }) {
                 meta.inner = meta_inner.clone();
-                meta.sharing = None;
                 meta.save_for_project()
                     .map_err(|e| format!("Failed to save recording meta: {e}"))?;
             }
@@ -1566,10 +1563,7 @@ async fn handle_recording_finish(
 
             config.write(&recording_dir).map_err(|e| e.to_string())?;
 
-            (
-                RecordingMetaInner::Studio(Box::new(updated_studio_meta)),
-                None,
-            )
+            RecordingMetaInner::Studio(Box::new(updated_studio_meta))
         }
         CompletedRecording::Instant { recording, .. } => {
             let output_path = recording_dir.join("content/output.mp4");
@@ -1614,7 +1608,7 @@ async fn handle_recording_finish(
                 }
             });
 
-            (RecordingMetaInner::Instant(recording.meta), None)
+            RecordingMetaInner::Instant(recording.meta)
         }
     };
 
@@ -1624,7 +1618,6 @@ async fn handle_recording_finish(
         })
     {
         meta.inner = meta_inner.clone();
-        meta.sharing = sharing;
         meta.save_for_project()
             .map_err(|e| format!("Failed to save recording meta: {e}"))?;
     }
@@ -2006,9 +1999,7 @@ pub fn generate_zoom_segments_from_clicks(
         platform: None,
         project_path: recording.project_path.clone(),
         pretty_name: String::new(),
-        sharing: None,
         inner: RecordingMetaInner::Studio(Box::new(recording.meta.clone())),
-        upload: None,
     };
 
     generate_zoom_segments_for_project(&recording_meta, recordings)

@@ -515,9 +515,7 @@ impl Capturer {
                                     MiscFlags: 0,
                                 };
                                 let mut tex = None;
-                                unsafe {
-                                    d3d_device.CreateTexture2D(&desc, None, Some(&mut tex))?
-                                };
+                                unsafe { d3d_device.CreateTexture2D(&desc, None, Some(&mut tex))? };
                                 mirror_texture = Some((tex.unwrap(), w, h));
                             }
 

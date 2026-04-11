@@ -492,7 +492,6 @@ pub async fn start_video_import(app: AppHandle, source_path: PathBuf) -> Result<
         platform: Some(Platform::default()),
         project_path: project_path.clone(),
         pretty_name: project_name.clone(),
-        sharing: None,
         inner: RecordingMetaInner::Studio(Box::new(StudioRecordingMeta::MultipleSegments {
             inner: MultipleSegments {
                 segments: vec![MultipleSegment {
@@ -512,7 +511,6 @@ pub async fn start_video_import(app: AppHandle, source_path: PathBuf) -> Result<
                 status: Some(StudioRecordingStatus::InProgress),
             },
         })),
-        upload: None,
     };
 
     initial_meta
@@ -583,7 +581,6 @@ pub async fn start_video_import(app: AppHandle, source_path: PathBuf) -> Result<
                     platform: Some(Platform::default()),
                     project_path: project_path.clone(),
                     pretty_name: project_name,
-                    sharing: None,
                     inner: RecordingMetaInner::Studio(Box::new(
                         StudioRecordingMeta::MultipleSegments {
                             inner: MultipleSegments {
@@ -607,7 +604,6 @@ pub async fn start_video_import(app: AppHandle, source_path: PathBuf) -> Result<
                             },
                         },
                     )),
-                    upload: None,
                 };
 
                 if let Err(e) = meta.save_for_project() {

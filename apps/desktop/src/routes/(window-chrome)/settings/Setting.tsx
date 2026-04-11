@@ -2,7 +2,6 @@ import type { JSX } from "solid-js";
 import { Toggle } from "~/components/Toggle";
 
 export function SettingItem(props: {
-	pro?: boolean;
 	label: string;
 	description?: string;
 	children: JSX.Element;
@@ -23,7 +22,6 @@ export function SettingItem(props: {
 }
 
 export function ToggleSettingItem(props: {
-	pro?: boolean;
 	label: string;
 	description?: string;
 	value: boolean;

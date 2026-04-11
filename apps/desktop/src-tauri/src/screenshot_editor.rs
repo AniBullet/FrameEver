@@ -243,9 +243,7 @@ impl ScreenshotEditorInstances {
                         platform: None,
                         project_path: path.parent().unwrap().to_path_buf(),
                         pretty_name: "Screenshot".to_string(),
-                        sharing: None,
                         inner: RecordingMetaInner::Studio(Box::new(studio_meta.clone())),
-                        upload: None,
                     }
                 };
 

@@ -63,12 +63,8 @@ pub struct RecordingMeta {
     #[serde(skip_serializing, default)]
     pub project_path: PathBuf,
     pub pretty_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sharing: Option<serde_json::Value>,
     #[serde(flatten)]
     pub inner: RecordingMetaInner,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub upload: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

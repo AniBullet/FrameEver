@@ -78,7 +78,7 @@ export function I18nProvider(props: ParentProps) {
 	});
 
 	const t = (key: TranslationKey, params?: Record<string, string>): string => {
-		let s = dict()[key] ?? translations["en"][key] ?? key;
+		let s = dict()[key] ?? translations.en[key] ?? key;
 		if (params && typeof s === "string") {
 			for (const [k, v] of Object.entries(params)) {
 				s = s.replace(new RegExp(`\\{${k}\\}`, "g"), v);

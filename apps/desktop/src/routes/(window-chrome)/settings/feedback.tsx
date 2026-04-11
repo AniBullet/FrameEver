@@ -106,7 +106,11 @@ ${JSON.stringify(diagnosticsData, null, 2)}`;
 							{t("feedback.original.community.description")}
 						</p>
 						<Button
-							onClick={() => openUrl("https://cap.link/discord")}
+							onClick={() =>
+								openUrl(
+									"https://github.com/AniBullet/Cap-aniBullet/discussions",
+								)
+							}
 							size="md"
 							variant="gray"
 						>

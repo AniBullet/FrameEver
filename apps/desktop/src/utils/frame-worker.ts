@@ -75,12 +75,12 @@ interface RequestFrameMessage {
 }
 
 export type {
-	FrameRenderedMessage,
-	FrameQueuedMessage,
-	RendererModeMessage,
 	DecodedFrame,
 	ErrorMessage,
+	FrameQueuedMessage,
+	FrameRenderedMessage,
 	ReadyMessage,
+	RendererModeMessage,
 	RequestFrameMessage,
 };
 

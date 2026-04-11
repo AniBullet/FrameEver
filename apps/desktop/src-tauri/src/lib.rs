@@ -2196,7 +2196,6 @@ fn list_screenshots(app: AppHandle) -> Result<Vec<(PathBuf, RecordingMeta)>, Str
                 platform: Some(Platform::default()),
                 project_path: path.clone(),
                 pretty_name: file_name.to_string(),
-                sharing: None,
                 inner: RecordingMetaInner::Studio(Box::new(StudioRecordingMeta::SingleSegment {
                     segment: SingleSegment {
                         display: VideoMeta {
@@ -2210,7 +2209,6 @@ fn list_screenshots(app: AppHandle) -> Result<Vec<(PathBuf, RecordingMeta)>, Str
                         cursor: None,
                     },
                 })),
-                upload: None,
             };
 
             Some((path, meta))
@@ -2275,166 +2273,213 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
     let exports_video_dir = GeneralSettingsStore::exports_video_path(&app);
     let exports_screenshot_dir = GeneralSettingsStore::exports_screenshot_path(&app);
 
-    if recordings_dir.exists()
-        && let Ok(entries) = std::fs::read_dir(&recordings_dir)
-    {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                let id = name.to_string();
-                let created_at = path
-                    .metadata()
-                    .and_then(|m| m.created())
-                    .unwrap_or(SystemTime::UNIX_EPOCH)
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as f64;
-
-                let meta = get_recording_meta(path.clone(), FileType::Recording).ok();
-                let thumbnail_path = path.join("screenshots/display.jpg");
-                let thumbnail = if thumbnail_path.exists() {
-                    Some(thumbnail_path)
-                } else {
-                    None
-                };
-                let is_editable = meta
-                    .as_ref()
-                    .is_some_and(|m| matches!(m.inner.inner, RecordingMetaInner::Studio(_)));
-
-                let output_mp4 = path.join("content/output.mp4");
-                let file_size = std::fs::metadata(&output_mp4).ok().map(|m| m.len() as f64);
-
-                items_map.insert(
-                    id.clone(),
-                    LibraryItem {
-                        id: id.clone(),
-                        name: meta
-                            .as_ref()
-                            .map(|m| m.inner.pretty_name.clone())
-                            .unwrap_or(name.to_string()),
-                        item_type: LibraryItemType::Video,
-                        status: LibraryItemStatus::Editing,
-                        cap_project_path: Some(path),
-                        exported_file_path: None,
-                        thumbnail_path: thumbnail,
-                        created_at,
-                        file_size,
-                        meta,
-                        is_editable,
-                    },
-                );
-            }
-        }
-    }
-
-    if exports_video_dir.exists()
-        && let Ok(entries) = std::fs::read_dir(&exports_video_dir)
-    {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            if let Some(ext) = path.extension()
-                && ext != "mp4"
-                && ext != "gif"
-            {
-                continue;
-            }
-
-            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                let id = name.to_string();
-                let created_at = path
-                    .metadata()
-                    .and_then(|m| m.created())
-                    .unwrap_or(SystemTime::UNIX_EPOCH)
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as f64;
-
-                let export_file_size = std::fs::metadata(&path).ok().map(|m| m.len() as f64);
-                if let Some(existing) = items_map.get_mut(&id) {
-                    existing.exported_file_path = Some(path);
-                    existing.status = LibraryItemStatus::Exported;
-                    if existing.file_size.is_none() {
-                        existing.file_size = export_file_size;
+    if recordings_dir.exists() {
+        match std::fs::read_dir(&recordings_dir) {
+            Ok(entries) => {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    if !path.is_dir() {
+                        continue;
                     }
-                } else {
-                    items_map.insert(
-                        id.clone(),
-                        LibraryItem {
-                            id: id.clone(),
-                            name: name.to_string(),
-                            item_type: LibraryItemType::Video,
-                            status: LibraryItemStatus::ExportedNoSource,
-                            cap_project_path: None,
-                            exported_file_path: Some(path),
-                            thumbnail_path: None,
-                            created_at,
-                            file_size: export_file_size,
-                            meta: None,
-                            is_editable: false,
-                        },
-                    );
+
+                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                        let id = name.to_string();
+                        let created_at = path
+                            .metadata()
+                            .and_then(|m| m.created())
+                            .unwrap_or(SystemTime::UNIX_EPOCH)
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as f64;
+
+                        let meta = match get_recording_meta(path.clone(), FileType::Recording) {
+                            Ok(m) => Some(m),
+                            Err(e) => {
+                                warn!(path = %path.display(), error = %e, "Failed to load recording meta, will use fallback heuristic");
+                                None
+                            }
+                        };
+                        let thumbnail_path = path.join("screenshots/display.jpg");
+                        let thumbnail = if thumbnail_path.exists() {
+                            Some(thumbnail_path)
+                        } else {
+                            None
+                        };
+                        let is_editable = meta
+                            .as_ref()
+                            .map(|m| matches!(m.inner.inner, RecordingMetaInner::Studio(_)))
+                            .unwrap_or_else(|| path.join("recording-meta.json").exists());
+
+                        let file_size = std::fs::metadata(path.join("content/output.mp4"))
+                            .or_else(|_| std::fs::metadata(path.join("output/result.mp4")))
+                            .ok()
+                            .map(|m| m.len() as f64);
+
+                        items_map.insert(
+                            id.clone(),
+                            LibraryItem {
+                                id: id.clone(),
+                                name: meta
+                                    .as_ref()
+                                    .map(|m| m.inner.pretty_name.clone())
+                                    .unwrap_or(name.to_string()),
+                                item_type: LibraryItemType::Video,
+                                status: LibraryItemStatus::Editing,
+                                cap_project_path: Some(path),
+                                exported_file_path: None,
+                                thumbnail_path: thumbnail,
+                                created_at,
+                                file_size,
+                                meta,
+                                is_editable,
+                            },
+                        );
+                    }
                 }
             }
-        }
-    }
-
-    if exports_screenshot_dir.exists()
-        && let Ok(entries) = std::fs::read_dir(&exports_screenshot_dir)
-    {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            if let Some(ext) = path.extension()
-                && ext != "png"
-                && ext != "jpg"
-                && ext != "jpeg"
-            {
-                continue;
-            }
-
-            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                let id = format!("screenshot-{}", name);
-                let created_at = path
-                    .metadata()
-                    .and_then(|m| m.created())
-                    .unwrap_or(SystemTime::UNIX_EPOCH)
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-
-                let screenshot_file_size = std::fs::metadata(&path).ok().map(|m| m.len() as f64);
-                items_map.insert(
-                    id.clone(),
-                    LibraryItem {
-                        id: id.clone(),
-                        name: name.to_string(),
-                        item_type: LibraryItemType::Screenshot,
-                        status: LibraryItemStatus::ExportedNoSource,
-                        cap_project_path: None,
-                        exported_file_path: Some(path.clone()),
-                        thumbnail_path: Some(path),
-                        created_at: created_at as f64,
-                        file_size: screenshot_file_size,
-                        meta: None,
-                        is_editable: false,
-                    },
-                );
+            Err(e) => {
+                warn!(path = %recordings_dir.display(), error = %e, "Failed to read recordings directory");
             }
         }
     }
 
-    let mut result: Vec<LibraryItem> = items_map.into_values().collect();
+    if exports_video_dir.exists() {
+        match std::fs::read_dir(&exports_video_dir) {
+            Ok(entries) => {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        continue;
+                    }
+
+                    if let Some(ext) = path.extension()
+                        && ext != "mp4"
+                        && ext != "gif"
+                    {
+                        continue;
+                    }
+
+                    let export_file_size = std::fs::metadata(&path).ok().map(|m| m.len() as f64);
+
+                    if export_file_size == Some(0.0) {
+                        warn!(path = %path.display(), "Skipping zero-byte export file");
+                        continue;
+                    }
+
+                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                        let id = name.to_string();
+                        let created_at = path
+                            .metadata()
+                            .and_then(|m| m.created())
+                            .unwrap_or(SystemTime::UNIX_EPOCH)
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as f64;
+
+                        if let Some(existing) = items_map.get_mut(&id) {
+                            existing.exported_file_path = Some(path);
+                            existing.status = LibraryItemStatus::Exported;
+                            if existing.file_size.is_none() {
+                                existing.file_size = export_file_size;
+                            }
+                        } else {
+                            items_map.insert(
+                                id.clone(),
+                                LibraryItem {
+                                    id: id.clone(),
+                                    name: name.to_string(),
+                                    item_type: LibraryItemType::Video,
+                                    status: LibraryItemStatus::ExportedNoSource,
+                                    cap_project_path: None,
+                                    exported_file_path: Some(path),
+                                    thumbnail_path: None,
+                                    created_at,
+                                    file_size: export_file_size,
+                                    meta: None,
+                                    is_editable: false,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(path = %exports_video_dir.display(), error = %e, "Failed to read exports video directory");
+            }
+        }
+    }
+
+    if exports_screenshot_dir.exists() {
+        match std::fs::read_dir(&exports_screenshot_dir) {
+            Ok(entries) => {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        continue;
+                    }
+
+                    if let Some(ext) = path.extension()
+                        && ext != "png"
+                        && ext != "jpg"
+                        && ext != "jpeg"
+                    {
+                        continue;
+                    }
+
+                    let screenshot_file_size =
+                        std::fs::metadata(&path).ok().map(|m| m.len() as f64);
+
+                    if screenshot_file_size == Some(0.0) {
+                        warn!(path = %path.display(), "Skipping zero-byte screenshot file");
+                        continue;
+                    }
+
+                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                        let id = format!("screenshot-{}", name);
+                        let created_at = path
+                            .metadata()
+                            .and_then(|m| m.created())
+                            .unwrap_or(SystemTime::UNIX_EPOCH)
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+
+                        items_map.insert(
+                            id.clone(),
+                            LibraryItem {
+                                id: id.clone(),
+                                name: name.to_string(),
+                                item_type: LibraryItemType::Screenshot,
+                                status: LibraryItemStatus::ExportedNoSource,
+                                cap_project_path: None,
+                                exported_file_path: Some(path.clone()),
+                                thumbnail_path: Some(path),
+                                created_at: created_at as f64,
+                                file_size: screenshot_file_size,
+                                meta: None,
+                                is_editable: false,
+                            },
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(path = %exports_screenshot_dir.display(), error = %e, "Failed to read exports screenshot directory");
+            }
+        }
+    }
+
+    let mut result: Vec<LibraryItem> = items_map
+        .into_values()
+        .filter(|item| {
+            let dominated_by_missing_export = matches!(item.item_type, LibraryItemType::Video)
+                && matches!(item.status, LibraryItemStatus::Editing)
+                && item.exported_file_path.is_none()
+                && !item.is_editable;
+            !dominated_by_missing_export
+        })
+        .collect();
+
     result.sort_by(|a, b| {
         b.created_at
             .partial_cmp(&a.created_at)
@@ -3135,7 +3180,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
                     CapWindowId::Camera.label().as_str(),
                     CapWindowId::RecordingsOverlay.label().as_str(),
                     CapWindowId::RecordingControls.label().as_str(),
-                    CapWindowId::Upgrade.label().as_str(),
                     "editor",
                     "screenshot-editor",
                 ])
@@ -3448,7 +3492,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
 
                                 return;
                             }
-                            CapWindowId::Upgrade | CapWindowId::ModeSelect => {
+                            CapWindowId::ModeSelect => {
                                 for (label, window) in app.webview_windows() {
                                     if let Ok(id) = CapWindowId::from_str(&label)
                                         && matches!(
@@ -3511,16 +3555,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
                 #[cfg(target_os = "macos")]
                 WindowEvent::Focused(focused) => {
                     let window_id = CapWindowId::from_str(label);
-
-                    if matches!(window_id, Ok(CapWindowId::Upgrade)) {
-                        for (label, window) in app.webview_windows() {
-                            if let Ok(id) = CapWindowId::from_str(&label)
-                                && matches!(id, CapWindowId::TargetSelectOverlay { .. })
-                            {
-                                let _ = window.hide();
-                            }
-                        }
-                    }
 
                     if *focused
                         && let Ok(window_id) = window_id

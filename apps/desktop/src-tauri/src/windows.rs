@@ -307,7 +307,6 @@ pub enum CapWindowId {
     CaptureArea,
     Camera,
     RecordingControls,
-    Upgrade,
     ModeSelect,
     Debug,
     ScreenshotEditor { id: u32 },
@@ -327,7 +326,6 @@ impl FromStr for CapWindowId {
             // legacy identifier
             "in-progress-recording" => Self::RecordingControls,
             "recordings-overlay" => Self::RecordingsOverlay,
-            "upgrade" => Self::Upgrade,
             "mode-select" => Self::ModeSelect,
             "debug" => Self::Debug,
             "library" => Self::Library,
@@ -376,7 +374,6 @@ impl std::fmt::Display for CapWindowId {
             }
             Self::RecordingControls => write!(f, "in-progress-recording"), // legacy identifier
             Self::RecordingsOverlay => write!(f, "recordings-overlay"),
-            Self::Upgrade => write!(f, "upgrade"),
             Self::ModeSelect => write!(f, "mode-select"),
             Self::Editor { id } => write!(f, "editor-{id}"),
             Self::Debug => write!(f, "debug"),
@@ -417,7 +414,6 @@ impl CapWindowId {
                 | Self::Editor { .. }
                 | Self::ScreenshotEditor { .. }
                 | Self::Settings
-                | Self::Upgrade
                 | Self::ModeSelect
                 | Self::Library
         )
@@ -466,7 +462,6 @@ impl CapWindowId {
             Self::ScreenshotEditor { .. } => (800.0, 600.0),
             Self::Settings => (700.0, 540.0),
             Self::Camera => (200.0, 200.0),
-            Self::Upgrade => (950.0, 850.0),
             Self::ModeSelect => (580.0, 340.0),
             Self::Library => (1000.0, 600.0),
             _ => return None,
@@ -504,7 +499,6 @@ pub enum ShowCapWindow {
         countdown: Option<u32>,
         target_display: Option<DisplayId>,
     },
-    Upgrade,
     ModeSelect,
     ScreenshotEditor {
         path: PathBuf,
@@ -1330,38 +1324,6 @@ impl ShowCapWindow {
 
                 window
             }
-            Self::Upgrade => {
-                if let Some(main) = CapWindowId::Main.get(app) {
-                    let _ = main.hide();
-                }
-
-                let window = self
-                    .window_builder(app, "/upgrade")
-                    .inner_size(950.0, 850.0)
-                    .min_inner_size(950.0, 850.0)
-                    .resizable(false)
-                    .focused(true)
-                    .always_on_top(true)
-                    .maximized(false)
-                    .shadow(true)
-                    .build()?;
-
-                let (pos_x, pos_y) = cursor_monitor.center_position(950.0, 850.0);
-                let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
-
-                #[cfg(windows)]
-                {
-                    use tauri::LogicalSize;
-                    if let Err(e) = window.set_size(LogicalSize::new(950.0, 850.0)) {
-                        warn!("Failed to set Upgrade window size on Windows: {}", e);
-                    }
-                    if let Err(e) = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y)) {
-                        warn!("Failed to position Upgrade window on Windows: {}", e);
-                    }
-                }
-
-                window
-            }
             Self::ModeSelect => {
                 if let Some(main) = CapWindowId::Main.get(app) {
                     let _ = main.hide();
@@ -2124,7 +2086,6 @@ impl ShowCapWindow {
             ShowCapWindow::CaptureArea { .. } => CapWindowId::CaptureArea,
             ShowCapWindow::Camera { .. } => CapWindowId::Camera,
             ShowCapWindow::InProgressRecording { .. } => CapWindowId::RecordingControls,
-            ShowCapWindow::Upgrade => CapWindowId::Upgrade,
             ShowCapWindow::ModeSelect => CapWindowId::ModeSelect,
             ShowCapWindow::ScreenshotEditor { path } => {
                 let state = app.state::<ScreenshotEditorWindowIds>();
@@ -2218,16 +2179,39 @@ fn position_traffic_lights_impl(
         .ok();
 }
 
+fn is_remote_desktop_session() -> bool {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_REMOTESESSION};
+        unsafe { GetSystemMetrics(SM_REMOTESESSION) != 0 }
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 fn should_protect_window(app: &AppHandle<Wry>, window_title: &str) -> bool {
+    if is_remote_desktop_session() {
+        return false;
+    }
+
+    let settings = GeneralSettingsStore::get(app).ok().flatten();
+
+    if settings
+        .as_ref()
+        .is_some_and(|s| s.disable_content_protection)
+    {
+        return false;
+    }
+
     let matches = |list: &[WindowExclusion]| {
         list.iter()
             .any(|entry| entry.matches(None, None, Some(window_title)))
     };
 
-    GeneralSettingsStore::get(app)
-        .ok()
-        .flatten()
-        .map(|settings| matches(&settings.excluded_windows))
+    settings
+        .map(|s| matches(&s.excluded_windows))
         .unwrap_or_else(|| matches(&general_settings::default_excluded_windows()))
 }
 

@@ -21,12 +21,12 @@ import { FPS, type TimelineTrackType, useEditorContext } from "../context";
 import { formatTime } from "../utils";
 import { ClipTrack } from "./ClipTrack";
 import { TimelineContextProvider, useTimelineContext } from "./context";
+import { type KeyboardSegmentDragState, KeyboardTrack } from "./KeyboardTrack";
 import { type MaskSegmentDragState, MaskTrack } from "./MaskTrack";
 import { type SceneSegmentDragState, SceneTrack } from "./SceneTrack";
 import { type TextSegmentDragState, TextTrack } from "./TextTrack";
 import { TrackIcon, TrackManager } from "./TrackManager";
 import { type ZoomSegmentDragState, ZoomTrack } from "./ZoomTrack";
-import { type KeyboardSegmentDragState, KeyboardTrack } from "./KeyboardTrack";
 
 const TIMELINE_PADDING = 16;
 const TRACK_GUTTER = 64;

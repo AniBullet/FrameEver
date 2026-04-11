@@ -1522,7 +1522,6 @@ function Page() {
 		</Transition>
 	);
 
-
 	return (
 		<div
 			onMouseEnter={handleMouseEnter}

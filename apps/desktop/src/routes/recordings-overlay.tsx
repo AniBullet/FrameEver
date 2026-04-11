@@ -113,12 +113,8 @@ export default function () {
 								const type = media.type ?? "recording";
 								const isRecording = type !== "screenshot";
 
-								const { copy, save, actionState } = createRecordingMutations(
-									media,
-									(e) => {
-										if (e === "upgradeRequired") setShowUpgradeTooltip(true);
-									},
-								);
+								const { copy, save, actionState } =
+									createRecordingMutations(media);
 
 								const [metadata] = createResource(async () => {
 									if (!isRecording) return null;
@@ -141,8 +137,6 @@ export default function () {
 								});
 
 								const [imageExists, setImageExists] = createSignal(true);
-								const [showUpgradeTooltip, setShowUpgradeTooltip] =
-									createSignal(false);
 
 								const isLoading = () => copy.isPending || save.isPending;
 
@@ -257,9 +251,7 @@ export default function () {
 													}}
 													class={cx(
 														"absolute inset-0 transition-all duration-150 pointer-events-auto rounded-[7.4px] dark:text-gray-100",
-														showUpgradeTooltip()
-															? "opacity-100"
-															: "opacity-0 group-hover:opacity-100",
+														"opacity-0 group-hover:opacity-100",
 														"backdrop-blur p-2",
 													)}
 												>
@@ -355,7 +347,7 @@ export default function () {
 															}}
 															class={cx(
 																"absolute bottom-0 left-0 right-0 font-medium text-gray-4 bg-[#00000080] backdrop-blur-lg px-3 py-2 flex justify-between items-center pointer-events-none transition-all max-w-full overflow-hidden",
-																isLoading() || showUpgradeTooltip()
+																isLoading()
 																	? "opacity-0"
 																	: "group-hover:opacity-0",
 															)}
@@ -514,10 +506,7 @@ function createFakeWindowBounds(
 	});
 }
 
-function createRecordingMutations(
-	media: MediaEntry,
-	_onEvent: (e: "upgradeRequired") => void,
-) {
+function createRecordingMutations(media: MediaEntry) {
 	const type = media.type ?? "recording";
 	const isRecording = type !== "screenshot";
 

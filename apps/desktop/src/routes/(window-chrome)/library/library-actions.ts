@@ -17,10 +17,7 @@ export function canOpen(item: LibraryItem) {
 }
 
 export function canEdit(item: LibraryItem) {
-	if (item.isEditable !== undefined) {
-		return item.isEditable && item.capProjectPath !== null;
-	}
-	return item.capProjectPath !== null && item.status === "editing";
+	return item.isEditable && item.capProjectPath !== null;
 }
 
 export function executePrimaryAction(item: LibraryItem): boolean {
