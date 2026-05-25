@@ -196,6 +196,7 @@ export function ExportPage() {
 		COMPRESSION_TO_BPP[_settings.compression] ?? 0.15,
 	);
 	const [advancedMode, setAdvancedMode] = createSignal(false);
+	const [crfMode, setCrfMode] = createSignal(false);
 	const [forceFfmpegDecoder, setForceFfmpegDecoder] = createSignal(false);
 
 	const isCustomBpp = () => {
@@ -343,6 +344,7 @@ export function ExportPage() {
 						compression: settings.compression,
 						custom_bpp: customBpp,
 						force_ffmpeg_decoder: forceFfmpegDecoder(),
+						crf: crfMode() ? 28 : null,
 					}
 				: {
 						format: "Gif",
@@ -829,138 +831,180 @@ export function ExportPage() {
 								name={t("editor.export.quality")}
 								icon={<IconLucideSparkles class="size-4" />}
 							>
-								<div class="grid grid-cols-4 gap-1.5">
-									<For each={[...COMPRESSION_OPTIONS].reverse()}>
-										{(option) => {
-											const isSelected = () => {
-												if (advancedMode() && isCustomBpp()) return false;
-												return settings.compression === option.value;
-											};
-											return (
-												<button
-													type="button"
-													class={cx(
-														"px-2 py-2 text-xs font-medium rounded-lg border transition-colors",
-														isSelected()
-															? "bg-gray-3 border-gray-5 text-gray-12"
-															: "bg-transparent border-transparent text-gray-11 hover:bg-gray-3 hover:border-gray-4",
-													)}
-													onClick={() => {
-														setPreviewLoading(true);
-														setCompressionBpp(option.bpp);
-														setSettings("compression", option.value);
-													}}
-												>
-													{t(option.labelKey as TranslationKey)}
-												</button>
-											);
-										}}
-									</For>
-								</div>
-								<div class="flex justify-between text-[10px] text-gray-10 mt-1.5 px-0.5">
-									<span>{t("editor.video.smallerFile")}</span>
-									<span>{t("editor.video.largerFile")}</span>
+								<div class="flex items-center gap-2 mb-2">
+									<button
+										type="button"
+										class={cx(
+											"flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors",
+											!crfMode()
+												? "bg-gray-3 border-gray-5 text-gray-12"
+												: "bg-transparent border-transparent text-gray-11 hover:bg-gray-3 hover:border-gray-4",
+										)}
+										onClick={() => setCrfMode(false)}
+									>
+										{t("editor.export.quality.bitrate")}
+									</button>
+									<button
+										type="button"
+										class={cx(
+											"flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors",
+											crfMode()
+												? "bg-blue-3 border-blue-6 text-blue-11"
+												: "bg-transparent border-transparent text-gray-11 hover:bg-gray-3 hover:border-gray-4",
+										)}
+										onClick={() => setCrfMode(true)}
+									>
+										{t("editor.export.quality.smartCompress")}
+									</button>
 								</div>
 
-								<button
-									type="button"
-									class="flex items-center gap-2 mt-3 text-xs text-gray-11 hover:text-gray-12 transition-colors"
-									onClick={() => setAdvancedMode(!advancedMode())}
-								>
-									<div
-										class={cx(
-											"w-8 h-4 rounded-full transition-colors relative",
-											advancedMode() ? "bg-blue-9" : "bg-gray-5",
-										)}
+								<Show when={crfMode()}>
+									<div class="rounded-lg bg-blue-2 border border-blue-4 p-3 text-xs text-blue-11 space-y-1">
+										<p class="font-medium">{t("editor.export.crf.title")}</p>
+										<p class="text-[11px] text-blue-10">
+											{t("editor.export.crf.description")}
+										</p>
+									</div>
+								</Show>
+
+								<Show when={!crfMode()}>
+									<div class="grid grid-cols-4 gap-1.5">
+										<For each={[...COMPRESSION_OPTIONS].reverse()}>
+											{(option) => {
+												const isSelected = () => {
+													if (advancedMode() && isCustomBpp()) return false;
+													return settings.compression === option.value;
+												};
+												return (
+													<button
+														type="button"
+														class={cx(
+															"px-2 py-2 text-xs font-medium rounded-lg border transition-colors",
+															isSelected()
+																? "bg-gray-3 border-gray-5 text-gray-12"
+																: "bg-transparent border-transparent text-gray-11 hover:bg-gray-3 hover:border-gray-4",
+														)}
+														onClick={() => {
+															setPreviewLoading(true);
+															setCompressionBpp(option.bpp);
+															setSettings("compression", option.value);
+														}}
+													>
+														{t(option.labelKey as TranslationKey)}
+													</button>
+												);
+											}}
+										</For>
+									</div>
+									<div class="flex justify-between text-[10px] text-gray-10 mt-1.5 px-0.5">
+										<span>{t("editor.video.smallerFile")}</span>
+										<span>{t("editor.video.largerFile")}</span>
+									</div>
+
+									<button
+										type="button"
+										class="flex items-center gap-2 mt-3 text-xs text-gray-11 hover:text-gray-12 transition-colors"
+										onClick={() => setAdvancedMode(!advancedMode())}
 									>
 										<div
 											class={cx(
-												"absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform",
-												advancedMode() ? "translate-x-4" : "translate-x-0.5",
+												"w-8 h-4 rounded-full transition-colors relative",
+												advancedMode() ? "bg-blue-9" : "bg-gray-5",
 											)}
-										/>
-									</div>
-									<span>{t("editor.video.advanced")}</span>
-								</button>
-
-								<Show when={advancedMode()}>
-									<div class="mt-3 space-y-2">
-										<div class="flex items-center justify-between text-xs">
-											<span class="text-gray-11">
-												{t("editor.video.bitsPerPixel")}
-											</span>
-											<span class="text-gray-12 font-medium tabular-nums">
-												{compressionBpp().toFixed(2)}
-											</span>
+										>
+											<div
+												class={cx(
+													"absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform",
+													advancedMode() ? "translate-x-4" : "translate-x-0.5",
+												)}
+											/>
 										</div>
-										<input
-											type="range"
-											min="0.02"
-											max="0.5"
-											step="0.01"
-											value={compressionBpp()}
-											onInput={(e) => {
-												const value = Number.parseFloat(e.currentTarget.value);
-												setPreviewLoading(true);
-												setCompressionBpp(value);
-												const preset = COMPRESSION_OPTIONS.find(
-													(opt) => Math.abs(opt.bpp - value) < 0.001,
-												);
-												if (preset) {
-													setSettings("compression", preset.value);
-												}
-											}}
-											class="w-full h-1.5 bg-gray-4 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-9 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-110"
-										/>
-										<div class="flex justify-between text-[10px] text-gray-9">
-											<span>{t("editor.export.bppTiny")}</span>
-											<span>{t("editor.export.bppHuge")}</span>
-										</div>
-										<Show when={isCustomBpp()}>
-											<p class="text-[10px] text-amber-11 mt-1">
-												{t("editor.export.usingCustomBitrate")}
-											</p>
-										</Show>
+										<span>{t("editor.video.advanced")}</span>
+									</button>
 
-										<Show when={ostype() === "macos"}>
-											<div class="mt-4 pt-3 border-t border-gray-4">
-												<button
-													type="button"
-													role="switch"
-													aria-checked={forceFfmpegDecoder()}
-													aria-label={t("editor.video.forceFfmpegDecoder")}
-													class="flex items-center gap-2 text-xs text-gray-11 hover:text-gray-12 transition-colors w-full"
-													onClick={() =>
-														setForceFfmpegDecoder(!forceFfmpegDecoder())
+									<Show when={advancedMode()}>
+										<div class="mt-3 space-y-2">
+											<div class="flex items-center justify-between text-xs">
+												<span class="text-gray-11">
+													{t("editor.video.bitsPerPixel")}
+												</span>
+												<span class="text-gray-12 font-medium tabular-nums">
+													{compressionBpp().toFixed(2)}
+												</span>
+											</div>
+											<input
+												type="range"
+												min="0.02"
+												max="0.5"
+												step="0.01"
+												value={compressionBpp()}
+												onInput={(e) => {
+													const value = Number.parseFloat(
+														e.currentTarget.value,
+													);
+													setPreviewLoading(true);
+													setCompressionBpp(value);
+													const preset = COMPRESSION_OPTIONS.find(
+														(opt) => Math.abs(opt.bpp - value) < 0.001,
+													);
+													if (preset) {
+														setSettings("compression", preset.value);
 													}
-												>
-													<div
-														class={cx(
-															"w-8 h-4 rounded-full transition-colors relative flex-shrink-0",
-															forceFfmpegDecoder() ? "bg-blue-9" : "bg-gray-5",
-														)}
+												}}
+												class="w-full h-1.5 bg-gray-4 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-9 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-110"
+											/>
+											<div class="flex justify-between text-[10px] text-gray-9">
+												<span>{t("editor.export.bppTiny")}</span>
+												<span>{t("editor.export.bppHuge")}</span>
+											</div>
+											<Show when={isCustomBpp()}>
+												<p class="text-[10px] text-amber-11 mt-1">
+													{t("editor.export.usingCustomBitrate")}
+												</p>
+											</Show>
+
+											<Show when={ostype() === "macos"}>
+												<div class="mt-4 pt-3 border-t border-gray-4">
+													<button
+														type="button"
+														role="switch"
+														aria-checked={forceFfmpegDecoder()}
+														aria-label={t("editor.video.forceFfmpegDecoder")}
+														class="flex items-center gap-2 text-xs text-gray-11 hover:text-gray-12 transition-colors w-full"
+														onClick={() =>
+															setForceFfmpegDecoder(!forceFfmpegDecoder())
+														}
 													>
 														<div
 															class={cx(
-																"absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform",
+																"w-8 h-4 rounded-full transition-colors relative flex-shrink-0",
 																forceFfmpegDecoder()
-																	? "translate-x-4"
-																	: "translate-x-0.5",
+																	? "bg-blue-9"
+																	: "bg-gray-5",
 															)}
-														/>
-													</div>
-													<div class="text-left">
-														<span class="block">
-															{t("editor.video.forceFfmpegDecoder")}
-														</span>
-														<span class="text-[10px] text-gray-9">
-															{t("editor.export.forceFfmpegDecoderHint")}
-														</span>
-													</div>
-												</button>
-											</div>
-										</Show>
-									</div>
+														>
+															<div
+																class={cx(
+																	"absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform",
+																	forceFfmpegDecoder()
+																		? "translate-x-4"
+																		: "translate-x-0.5",
+																)}
+															/>
+														</div>
+														<div class="text-left">
+															<span class="block">
+																{t("editor.video.forceFfmpegDecoder")}
+															</span>
+															<span class="text-[10px] text-gray-9">
+																{t("editor.export.forceFfmpegDecoderHint")}
+															</span>
+														</div>
+													</button>
+												</div>
+											</Show>
+										</div>
+									</Show>
 								</Show>
 							</Field>
 						</Show>

@@ -527,6 +527,7 @@ function createRecordingMutations(media: MediaEntry) {
 				resolution_base: OUTPUT_SIZE,
 				compression: "Web",
 				custom_bpp: null,
+				crf: null,
 			},
 			onProgress,
 		);

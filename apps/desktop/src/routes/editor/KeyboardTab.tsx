@@ -3,6 +3,7 @@ import { Select as KSelect } from "@kobalte/core/select";
 import { cx } from "cva";
 import { batch, createMemo, createSignal, Show } from "solid-js";
 import { Toggle } from "~/components/Toggle";
+import type { TranslationKey } from "~/i18n";
 import { useI18n } from "~/i18n";
 import {
 	defaultKeyboardSettings,
@@ -12,7 +13,6 @@ import { commands } from "~/utils/tauri";
 import IconCapChevronDown from "~icons/cap/chevron-down";
 import IconCapCircleCheck from "~icons/cap/circle-check";
 import { useEditorContext } from "./context";
-import type { TranslationKey } from "~/i18n";
 import { HexColorInput } from "./text-style";
 import {
 	Field,

@@ -1,6 +1,6 @@
 use crate::ExporterBase;
 use cap_editor::{AudioRenderer, get_audio_segments};
-use cap_enc_ffmpeg::{AudioEncoder, aac::AACEncoder, h264::H264Encoder, mp4::*};
+use cap_enc_ffmpeg::{AudioEncoder, aac::AACEncoder, h264::H264Encoder, hevc::HevcEncoder, mp4::*};
 use cap_media_info::{RawVideoFormat, VideoInfo};
 use cap_project::XY;
 use cap_rendering::{
@@ -61,6 +61,8 @@ pub struct Mp4ExportSettings {
     pub custom_bpp: Option<f32>,
     #[serde(default)]
     pub force_ffmpeg_decoder: bool,
+    #[serde(default)]
+    pub crf: Option<u8>,
 }
 
 impl Mp4ExportSettings {
@@ -179,29 +181,55 @@ impl Mp4ExportSettings {
 
         let project_for_audio = base.project_config.clone();
         let pipeline_start_for_encoder = pipeline_start;
+        let crf_mode = self.crf;
+        let effective_bpp = self.effective_bpp();
         let encoder_thread = tokio::task::spawn_blocking(move || {
             trace!("Creating MP4File encoder (NV12 path)");
 
-            let mut encoder = MP4File::init(
-                "output",
-                base.output_path.clone(),
-                |o| {
-                    H264Encoder::builder(video_info)
-                        .with_bpp(self.effective_bpp())
-                        .with_external_conversion()
-                        .build(o)
-                },
-                |o| {
-                    has_audio.then(|| {
-                        AACEncoder::init(AudioRenderer::info(), o)
-                            .map(|v| v.boxed())
-                            .map_err(Into::into)
-                    })
-                },
-            )
-            .map_err(|v| v.to_string())?;
+            let mut muxer = if let Some(crf) = crf_mode {
+                info!(crf = crf, "Using HEVC CRF export mode");
+                let encoder = HevcMP4File::init(
+                    "output",
+                    base.output_path.clone(),
+                    |o| {
+                        HevcEncoder::builder(video_info)
+                            .with_crf(crf)
+                            .with_external_conversion()
+                            .build(o)
+                    },
+                    |o| {
+                        has_audio.then(|| {
+                            AACEncoder::init(AudioRenderer::info(), o)
+                                .map(|v| v.boxed())
+                                .map_err(Into::into)
+                        })
+                    },
+                )
+                .map_err(|v| v.to_string())?;
+                ExportMuxer::Hevc(encoder)
+            } else {
+                let encoder = MP4File::init(
+                    "output",
+                    base.output_path.clone(),
+                    |o| {
+                        H264Encoder::builder(video_info)
+                            .with_bpp(effective_bpp)
+                            .with_external_conversion()
+                            .build(o)
+                    },
+                    |o| {
+                        has_audio.then(|| {
+                            AACEncoder::init(AudioRenderer::info(), o)
+                                .map(|v| v.boxed())
+                                .map_err(Into::into)
+                        })
+                    },
+                )
+                .map_err(|v| v.to_string())?;
+                ExportMuxer::H264(encoder)
+            };
 
-            info!("Created MP4File encoder (NV12, external conversion, export settings)");
+            info!("Created encoder (NV12, external conversion, export settings)");
 
             let mut audio_renderer = if has_audio {
                 Some(AudioRenderer::new(audio_segments))
@@ -253,7 +281,7 @@ impl Mp4ExportSettings {
                     input.y_stride,
                     input.frame_number as i64,
                 );
-                encoder
+                muxer
                     .queue_video_frame_reusable(
                         &mut reusable_frame,
                         &mut converted_frame,
@@ -261,7 +289,7 @@ impl Mp4ExportSettings {
                     )
                     .map_err(|err| err.to_string())?;
                 if let Some(audio) = audio_frame {
-                    encoder.queue_audio_frame(audio);
+                    muxer.queue_audio_frame(audio);
                 }
                 encoded_frames += 1;
                 if encoded_frames == 1
@@ -284,7 +312,7 @@ impl Mp4ExportSettings {
                 );
             }
 
-            let res = encoder
+            let res = muxer
                 .finish()
                 .map_err(|e| format!("Failed to finish encoding: {e}"))?;
 
@@ -327,6 +355,43 @@ impl Mp4ExportSettings {
         tokio::try_join!(encoder_thread, render_video_task)?;
 
         Ok(output_path)
+    }
+}
+
+enum ExportMuxer {
+    H264(MP4File),
+    Hevc(HevcMP4File),
+}
+
+impl ExportMuxer {
+    fn queue_video_frame_reusable(
+        &mut self,
+        frame: &mut ffmpeg::frame::Video,
+        converted_frame: &mut Option<ffmpeg::frame::Video>,
+        timestamp: Duration,
+    ) -> Result<(), String> {
+        match self {
+            Self::H264(m) => m
+                .queue_video_frame_reusable(frame, converted_frame, timestamp)
+                .map_err(|e| e.to_string()),
+            Self::Hevc(m) => m
+                .queue_video_frame_reusable(frame, converted_frame, timestamp)
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    fn queue_audio_frame(&mut self, frame: ffmpeg::frame::Audio) {
+        match self {
+            Self::H264(m) => m.queue_audio_frame(frame),
+            Self::Hevc(m) => m.queue_audio_frame(frame),
+        }
+    }
+
+    fn finish(&mut self) -> Result<FinishResult, FinishError> {
+        match self {
+            Self::H264(m) => m.finish(),
+            Self::Hevc(m) => m.finish(),
+        }
     }
 }
 

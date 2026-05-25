@@ -17,20 +17,21 @@ use windows::{
             Dxgi::Common::{DXGI_FORMAT, DXGI_FORMAT_NV12},
         },
         Media::MediaFoundation::{
-            self, IMFAttributes, IMFDXGIDeviceManager, IMFMediaEventGenerator, IMFMediaType,
-            IMFSample, IMFTransform, MF_E_INVALIDMEDIATYPE, MF_E_NO_MORE_TYPES,
-            MF_E_TRANSFORM_TYPE_NOT_SET, MF_EVENT_FLAG_NONE, MF_EVENT_TYPE, MF_MT_AVG_BITRATE,
-            MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE,
-            MF_MT_MAX_KEYFRAME_SPACING, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE,
-            MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_TRANSFORM_ASYNC_UNLOCK,
-            MFCreateDXGIDeviceManager, MFCreateDXGISurfaceBuffer, MFCreateMediaType,
-            MFCreateSample, MFMediaType_Video, MFT_ENUM_FLAG, MFT_ENUM_FLAG_HARDWARE,
-            MFT_ENUM_FLAG_TRANSCODE_ONLY, MFT_MESSAGE_COMMAND_FLUSH,
+            self, CODECAPI_AVEncCommonBufferSize, CODECAPI_AVEncCommonMaxBitRate, ICodecAPI,
+            IMFAttributes, IMFDXGIDeviceManager, IMFMediaEventGenerator, IMFMediaType, IMFSample,
+            IMFTransform, MF_E_INVALIDMEDIATYPE, MF_E_NO_MORE_TYPES, MF_E_TRANSFORM_TYPE_NOT_SET,
+            MF_EVENT_FLAG_NONE, MF_EVENT_TYPE, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE,
+            MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_MAX_KEYFRAME_SPACING,
+            MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
+            MF_TRANSFORM_ASYNC_UNLOCK, MFCreateDXGIDeviceManager, MFCreateDXGISurfaceBuffer,
+            MFCreateMediaType, MFCreateSample, MFMediaType_Video, MFT_ENUM_FLAG,
+            MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_TRANSCODE_ONLY, MFT_MESSAGE_COMMAND_FLUSH,
             MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, MFT_MESSAGE_NOTIFY_END_OF_STREAM,
             MFT_MESSAGE_NOTIFY_END_STREAMING, MFT_MESSAGE_NOTIFY_START_OF_STREAM,
             MFT_MESSAGE_SET_D3D_MANAGER, MFT_OUTPUT_DATA_BUFFER, MFT_SET_TYPE_TEST_ONLY,
             MFVideoFormat_HEVC, MFVideoFormat_NV12, MFVideoInterlace_Progressive,
         },
+        System::Variant::VARIANT,
     },
     core::{Error, Interface},
 };
@@ -192,6 +193,9 @@ impl HevcEncoder {
                 .map_err(NewHevcEncoderError::EncoderTransform)?;
         };
 
+        let peak_bitrate = (bitrate as f64 * 1.5) as u32;
+        let buffer_size = bitrate;
+
         let output_type = (|| unsafe {
             let output_type = MFCreateMediaType()?;
             let attributes: IMFAttributes = output_type.cast()?;
@@ -212,6 +216,15 @@ impl HevcEncoder {
             Ok(output_type)
         })()
         .map_err(NewHevcEncoderError::OutputType)?;
+
+        if let Ok(codec_api) = transform.cast::<ICodecAPI>() {
+            let set_u32 = |guid: &windows::core::GUID, val: u32| unsafe {
+                let variant = VARIANT::from(val);
+                let _ = codec_api.SetValue(guid, &variant);
+            };
+            set_u32(&CODECAPI_AVEncCommonMaxBitRate, peak_bitrate);
+            set_u32(&CODECAPI_AVEncCommonBufferSize, buffer_size);
+        }
 
         let input_type: Option<IMFMediaType> = (|| unsafe {
             let mut count = 0;

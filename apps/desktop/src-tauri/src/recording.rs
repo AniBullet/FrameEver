@@ -1600,6 +1600,11 @@ async fn handle_recording_finish(
 
             let app_clone = app.clone();
             let recording_dir_clone = recording_dir.clone();
+            let auto_compress = GeneralSettingsStore::get(app)
+                .ok()
+                .flatten()
+                .map(|s| s.auto_compress_instant)
+                .unwrap_or(false);
             tokio::spawn(async move {
                 for _ in 0..30 {
                     if output_path.exists() {
@@ -1620,6 +1625,44 @@ async fn handle_recording_finish(
                         {
                             Ok(_) => {
                                 info!("Instant recording moved to: {:?}", final_export_path);
+
+                                if auto_compress {
+                                    let export_path = final_export_path.clone();
+                                    tokio::task::spawn_blocking(move || {
+                                        let output_path =
+                                            crate::compress::compressed_path_for(&export_path);
+                                        let temp_path =
+                                            export_path.with_extension("_compressing.mp4");
+                                        match crate::compress::compress_video_blocking(
+                                            &export_path,
+                                            &temp_path,
+                                            28,
+                                            None,
+                                        ) {
+                                            Ok(_) => {
+                                                if let Err(e) =
+                                                    std::fs::rename(&temp_path, &output_path)
+                                                {
+                                                    tracing::error!(
+                                                        "Auto-compress rename failed: {e}"
+                                                    );
+                                                    std::fs::remove_file(&temp_path).ok();
+                                                } else {
+                                                    tracing::info!(
+                                                        "Auto-compressed: {:?}",
+                                                        output_path
+                                                    );
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::error!("Auto-compress failed: {e}");
+                                                std::fs::remove_file(&temp_path).ok();
+                                            }
+                                        }
+                                    })
+                                    .await
+                                    .ok();
+                                }
                             }
                             Err(e) => {
                                 error!("Failed to move instant recording to exports: {}", e);

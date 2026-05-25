@@ -5,6 +5,7 @@ mod audio_meter;
 mod camera;
 mod camera_legacy;
 mod captions;
+mod compress;
 mod deeplink_actions;
 mod editor_window;
 mod export;
@@ -2253,6 +2254,8 @@ pub struct LibraryItem {
     pub status: LibraryItemStatus,
     pub cap_project_path: Option<PathBuf>,
     pub exported_file_path: Option<PathBuf>,
+    pub compressed_file_path: Option<PathBuf>,
+    pub compressed_file_size: Option<f64>,
     pub thumbnail_path: Option<PathBuf>,
     pub created_at: f64,
     pub file_size: Option<f64>,
@@ -2327,6 +2330,8 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                                 status: LibraryItemStatus::Editing,
                                 cap_project_path: Some(path),
                                 exported_file_path: None,
+                                compressed_file_path: None,
+                                compressed_file_size: None,
                                 thumbnail_path: thumbnail,
                                 created_at,
                                 file_size,
@@ -2346,20 +2351,38 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
     if exports_video_dir.exists() {
         match std::fs::read_dir(&exports_video_dir) {
             Ok(entries) => {
-                for entry in entries.filter_map(|e| e.ok()) {
-                    let path = entry.path();
-                    if !path.is_file() {
+                let all_export_paths: Vec<PathBuf> = entries
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.is_file()
+                            && p.extension()
+                                .is_some_and(|ext| ext == "mp4" || ext == "gif")
+                    })
+                    .collect();
+
+                let path_set: std::collections::HashSet<&std::path::Path> =
+                    all_export_paths.iter().map(|p| p.as_path()).collect();
+
+                let derivative_paths: std::collections::HashSet<PathBuf> = all_export_paths
+                    .iter()
+                    .flat_map(|p| {
+                        let compressed = crate::compress::compressed_path_for(p);
+                        let compressing = p.with_file_name(format!(
+                            "{}_compressing.mp4",
+                            p.file_stem().and_then(|s| s.to_str()).unwrap_or("")
+                        ));
+                        [compressed, compressing]
+                    })
+                    .filter(|dp| path_set.contains(dp.as_path()))
+                    .collect();
+
+                for path in &all_export_paths {
+                    if derivative_paths.contains(path.as_path()) {
                         continue;
                     }
 
-                    if let Some(ext) = path.extension()
-                        && ext != "mp4"
-                        && ext != "gif"
-                    {
-                        continue;
-                    }
-
-                    let export_file_size = std::fs::metadata(&path).ok().map(|m| m.len() as f64);
+                    let export_file_size = std::fs::metadata(path).ok().map(|m| m.len() as f64);
 
                     if export_file_size == Some(0.0) {
                         warn!(path = %path.display(), "Skipping zero-byte export file");
@@ -2376,9 +2399,21 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                             .unwrap_or_default()
                             .as_secs() as f64;
 
+                        let compressed_path = crate::compress::compressed_path_for(path);
+                        let (comp_path, comp_size) = if compressed_path.exists() {
+                            let size = std::fs::metadata(&compressed_path)
+                                .ok()
+                                .map(|m| m.len() as f64);
+                            (Some(compressed_path), size)
+                        } else {
+                            (None, None)
+                        };
+
                         if let Some(existing) = items_map.get_mut(&id) {
-                            existing.exported_file_path = Some(path);
+                            existing.exported_file_path = Some(path.clone());
                             existing.status = LibraryItemStatus::Exported;
+                            existing.compressed_file_path = comp_path;
+                            existing.compressed_file_size = comp_size;
                             if existing.file_size.is_none() {
                                 existing.file_size = export_file_size;
                             }
@@ -2391,7 +2426,9 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                                     item_type: LibraryItemType::Video,
                                     status: LibraryItemStatus::ExportedNoSource,
                                     cap_project_path: None,
-                                    exported_file_path: Some(path),
+                                    exported_file_path: Some(path.clone()),
+                                    compressed_file_path: comp_path,
+                                    compressed_file_size: comp_size,
                                     thumbnail_path: None,
                                     created_at,
                                     file_size: export_file_size,
@@ -2453,6 +2490,8 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                                 status: LibraryItemStatus::ExportedNoSource,
                                 cap_project_path: None,
                                 exported_file_path: Some(path.clone()),
+                                compressed_file_path: None,
+                                compressed_file_size: None,
                                 thumbnail_path: Some(path),
                                 created_at: created_at as f64,
                                 file_size: screenshot_file_size,
@@ -2971,6 +3010,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
             fake_window::remove_fake_window,
             focus_captures_panel,
             get_current_recording,
+            compress::compress_video,
             export::export_video,
             export::get_export_estimates,
             export::generate_export_preview,

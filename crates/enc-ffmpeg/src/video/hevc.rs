@@ -26,6 +26,7 @@ pub struct HevcEncoderBuilder {
     preset: HevcPreset,
     output_size: Option<(u32, u32)>,
     external_conversion: bool,
+    crf: Option<u8>,
 }
 
 #[derive(Clone, Copy)]
@@ -57,6 +58,7 @@ impl HevcEncoderBuilder {
             preset: HevcPreset::Ultrafast,
             output_size: None,
             external_conversion: false,
+            crf: None,
         }
     }
 
@@ -84,6 +86,12 @@ impl HevcEncoderBuilder {
         self
     }
 
+    pub fn with_crf(mut self, crf: u8) -> Self {
+        self.crf = Some(crf);
+        self.preset = HevcPreset::Medium;
+        self
+    }
+
     pub fn build(
         self,
         output: &mut format::context::Output,
@@ -106,7 +114,11 @@ impl HevcEncoderBuilder {
             );
         }
 
-        let candidates = get_codec_and_options(&input_config, self.preset);
+        let candidates = if let Some(crf_val) = self.crf {
+            get_codec_and_options_crf(&input_config, crf_val)
+        } else {
+            get_codec_and_options(&input_config, self.preset)
+        };
         if candidates.is_empty() {
             return Err(HevcEncoderError::CodecNotFound);
         }
@@ -125,6 +137,7 @@ impl HevcEncoderBuilder {
                 output_height,
                 self.bpp,
                 self.external_conversion,
+                self.crf,
             ) {
                 Ok(encoder) => {
                     debug!("Using HEVC encoder {}", codec_name);
@@ -150,6 +163,7 @@ impl HevcEncoderBuilder {
         output_height: u32,
         bpp: f32,
         external_conversion: bool,
+        crf: Option<u8>,
     ) -> Result<HevcEncoder, HevcEncoderError> {
         let encoder_supports_input_format = codec
             .video()
@@ -255,17 +269,24 @@ impl HevcEncoderBuilder {
                 ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT709;
         }
 
-        let bitrate = get_bitrate(
-            output_width,
-            output_height,
-            input_config.frame_rate.0 as f32 / input_config.frame_rate.1.max(1) as f32,
-            bpp,
-        );
+        if let Some(crf_val) = crf {
+            unsafe {
+                (*encoder.as_mut_ptr()).global_quality = crf_val as i32;
+            }
+            encoder.set_bit_rate(0);
+        } else {
+            let bitrate = get_bitrate(
+                output_width,
+                output_height,
+                input_config.frame_rate.0 as f32 / input_config.frame_rate.1.max(1) as f32,
+                bpp,
+            );
 
-        encoder.set_bit_rate(bitrate);
-        unsafe {
-            (*encoder.as_mut_ptr()).rc_max_rate = (bitrate as f64 * 1.5) as i64;
-            (*encoder.as_mut_ptr()).rc_buffer_size = bitrate as i32;
+            encoder.set_bit_rate(bitrate);
+            unsafe {
+                (*encoder.as_mut_ptr()).rc_max_rate = (bitrate as f64 * 1.5) as i64;
+                (*encoder.as_mut_ptr()).rc_buffer_size = bitrate as i32;
+            }
         }
 
         let encoder = encoder.open_with(encoder_options)?;
@@ -537,6 +558,79 @@ fn get_codec_and_options(
                         HevcPreset::Ultrafast => "faster",
                     },
                 );
+                options.set("g", &keyframe_interval_str);
+            }
+            _ => {}
+        }
+
+        encoders.push((codec, options));
+    }
+
+    encoders
+}
+
+fn get_codec_and_options_crf(config: &VideoInfo, crf: u8) -> Vec<(Codec, Dictionary<'static>)> {
+    let keyframe_interval_secs = 2;
+    let denominator = config.frame_rate.denominator();
+    let frames_per_sec = config.frame_rate.numerator() as f64
+        / if denominator == 0 { 1 } else { denominator } as f64;
+    let keyframe_interval = (keyframe_interval_secs as f64 * frames_per_sec)
+        .round()
+        .max(1.0) as i32;
+    let keyframe_interval_str = keyframe_interval.to_string();
+    let crf_str = crf.to_string();
+
+    let encoder_priority = get_encoder_priority();
+
+    let mut encoders = Vec::new();
+
+    for encoder_name in encoder_priority {
+        let Some(codec) = encoder::find_by_name(encoder_name) else {
+            continue;
+        };
+
+        let mut options = Dictionary::new();
+
+        match *encoder_name {
+            "hevc_videotoolbox" => {
+                options.set("allow_sw", "1");
+                options.set("q", &crf_str);
+                options.set("g", &keyframe_interval_str);
+            }
+            "hevc_nvenc" => {
+                options.set("preset", "p7");
+                options.set("tune", "hq");
+                options.set("rc", "constqp");
+                options.set("qp", &crf_str);
+                options.set("spatial-aq", "1");
+                options.set("temporal-aq", "1");
+                options.set("rc-lookahead", "32");
+                options.set("bf", "3");
+                options.set("b_adapt", "1");
+                options.set("tier", "main");
+                options.set("g", &keyframe_interval_str);
+            }
+            "hevc_qsv" => {
+                options.set("preset", "slower");
+                options.set("global_quality", &crf_str);
+                options.set("look_ahead", "1");
+                options.set("g", &keyframe_interval_str);
+            }
+            "hevc_amf" => {
+                options.set("quality", "quality");
+                options.set("rc", "cqp");
+                options.set("qp_i", &crf_str);
+                options.set("qp_p", &crf_str);
+                options.set("g", &keyframe_interval_str);
+            }
+            "hevc_mf" => {
+                options.set("hw_encoding", "true");
+                options.set("quality", "0");
+                options.set("g", &keyframe_interval_str);
+            }
+            "libx265" => {
+                options.set("preset", "medium");
+                options.set("crf", &crf_str);
                 options.set("g", &keyframe_interval_str);
             }
             _ => {}

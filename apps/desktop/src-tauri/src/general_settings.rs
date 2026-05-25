@@ -65,16 +65,16 @@ impl RecordingQuality {
     pub fn bits_per_pixel(&self, codec: RecordingCodec) -> f32 {
         match codec {
             RecordingCodec::H264 => match self {
-                Self::Ultra => 0.40,
-                Self::High => 0.25,
-                Self::Standard => 0.15,
-                Self::Low => 0.08,
+                Self::Ultra => 1.0,
+                Self::High => 0.50,
+                Self::Standard => 0.30,
+                Self::Low => 0.15,
             },
             RecordingCodec::H265 => match self {
-                Self::Ultra => 0.28,
-                Self::High => 0.17,
-                Self::Standard => 0.10,
-                Self::Low => 0.05,
+                Self::Ultra => 0.70,
+                Self::High => 0.35,
+                Self::Standard => 0.20,
+                Self::Low => 0.10,
             },
         }
     }
@@ -191,6 +191,8 @@ pub struct GeneralSettingsStore {
     pub recording_codec: RecordingCodec,
     #[serde(default)]
     pub disable_content_protection: bool,
+    #[serde(default)]
+    pub auto_compress_instant: bool,
 }
 
 fn default_enable_native_camera_preview() -> bool {
@@ -264,6 +266,7 @@ impl Default for GeneralSettingsStore {
             recording_quality: RecordingQuality::Standard,
             recording_codec: RecordingCodec::H264,
             disable_content_protection: false,
+            auto_compress_instant: false,
         }
     }
 }

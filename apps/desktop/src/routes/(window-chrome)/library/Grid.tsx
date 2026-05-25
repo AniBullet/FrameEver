@@ -99,6 +99,17 @@ function GridCard(props: {
 		return "";
 	};
 
+	const videoSrc = () => {
+		if (
+			!thumbnailSrc() &&
+			props.item.itemType === "video" &&
+			props.item.exportedFilePath
+		) {
+			return convertFileSrc(props.item.exportedFilePath);
+		}
+		return "";
+	};
+
 	const statusIcon = () => {
 		switch (props.item.status) {
 			case "editing":
@@ -139,7 +150,7 @@ function GridCard(props: {
 				props.onContextMenu(e);
 			}}
 			class={cx(
-				"group relative flex flex-col bg-gray-2 rounded-xl border-2 transition-all duration-200 overflow-hidden hover:shadow-lg hover:scale-[1.02]",
+				"group relative flex flex-col bg-gray-2 rounded-xl border-2 transition-all duration-200 overflow-hidden hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]",
 				props.isSelected
 					? "border-blue-9 shadow-lg"
 					: "border-gray-4 hover:border-gray-6",
@@ -147,7 +158,7 @@ function GridCard(props: {
 		>
 			<div class="aspect-video w-full bg-gray-3 relative overflow-hidden">
 				<Show
-					when={imageExists() && thumbnailSrc()}
+					when={imageExists() && (thumbnailSrc() || videoSrc())}
 					fallback={
 						<div class="absolute inset-0 flex items-center justify-center">
 							{props.item.itemType === "video" ? (
@@ -158,12 +169,25 @@ function GridCard(props: {
 						</div>
 					}
 				>
-					<img
-						src={thumbnailSrc()}
-						alt={props.item.name}
-						class="w-full h-full object-cover"
-						onError={() => setImageExists(false)}
-					/>
+					<Show
+						when={!videoSrc()}
+						fallback={
+							<video
+								src={videoSrc()}
+								preload="metadata"
+								muted
+								class="w-full h-full object-cover"
+								onError={() => setImageExists(false)}
+							/>
+						}
+					>
+						<img
+							src={thumbnailSrc()}
+							alt={props.item.name}
+							class="w-full h-full object-cover"
+							onError={() => setImageExists(false)}
+						/>
+					</Show>
 				</Show>
 
 				<div class="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded-full bg-gray-900/80 backdrop-blur-sm">
@@ -241,6 +265,17 @@ function ListCard(props: {
 		return "";
 	};
 
+	const videoSrc = () => {
+		if (
+			!thumbnailSrc() &&
+			props.item.itemType === "video" &&
+			props.item.exportedFilePath
+		) {
+			return convertFileSrc(props.item.exportedFilePath);
+		}
+		return "";
+	};
+
 	const statusLabel = () => {
 		if (
 			props.item.itemType === "screenshot" &&
@@ -257,9 +292,33 @@ function ListCard(props: {
 		}
 	};
 
-	const createdDate = () => {
-		const date = new Date(props.item.createdAt * 1000);
-		return date.toLocaleString();
+	const relativeDate = () => {
+		const ts = props.item.createdAt;
+		if (!ts) return "";
+		const d = new Date(ts * 1000);
+		const diffMs = Date.now() - d.getTime();
+		const diffMin = Math.floor(diffMs / 60000);
+		const diffHour = Math.floor(diffMs / 3600000);
+		const diffDay = Math.floor(diffMs / 86400000);
+
+		if (diffMin < 1) return t("library.time.justNow");
+		if (diffMin < 60)
+			return t("library.time.minutesAgo", { count: String(diffMin) });
+		if (diffHour < 24)
+			return t("library.time.hoursAgo", { count: String(diffHour) });
+		if (diffDay === 1) return t("library.time.yesterday");
+		if (diffDay < 7)
+			return t("library.time.daysAgo", { count: String(diffDay) });
+		return d.toLocaleDateString();
+	};
+
+	const fileSize = () => {
+		const bytes = props.item.compressedFileSize ?? props.item.fileSize;
+		if (!bytes) return null;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		if (bytes < 1024 * 1024 * 1024)
+			return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+		return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 	};
 
 	return (
@@ -276,7 +335,7 @@ function ListCard(props: {
 				props.onContextMenu(e);
 			}}
 			class={cx(
-				"flex items-center gap-4 p-4 rounded-lg border-2 transition-all duration-200 hover:shadow-md",
+				"flex items-center gap-4 p-4 rounded-lg border-2 transition-all duration-200 hover:shadow-md active:scale-[0.99]",
 				props.isSelected
 					? "border-blue-9 bg-blue-1 shadow-md"
 					: "border-gray-4 bg-gray-2 hover:border-gray-6 hover:bg-gray-3",
@@ -284,7 +343,7 @@ function ListCard(props: {
 		>
 			<div class="w-32 h-20 bg-gray-3 rounded-lg overflow-hidden flex-shrink-0">
 				<Show
-					when={imageExists() && thumbnailSrc()}
+					when={imageExists() && (thumbnailSrc() || videoSrc())}
 					fallback={
 						<div class="w-full h-full flex items-center justify-center">
 							{props.item.itemType === "video" ? (
@@ -295,12 +354,25 @@ function ListCard(props: {
 						</div>
 					}
 				>
-					<img
-						src={thumbnailSrc()}
-						alt={props.item.name}
-						class="w-full h-full object-cover"
-						onError={() => setImageExists(false)}
-					/>
+					<Show
+						when={!videoSrc()}
+						fallback={
+							<video
+								src={videoSrc()}
+								preload="metadata"
+								muted
+								class="w-full h-full object-cover"
+								onError={() => setImageExists(false)}
+							/>
+						}
+					>
+						<img
+							src={thumbnailSrc()}
+							alt={props.item.name}
+							class="w-full h-full object-cover"
+							onError={() => setImageExists(false)}
+						/>
+					</Show>
 				</Show>
 			</div>
 
@@ -334,7 +406,10 @@ function ListCard(props: {
 						</button>
 					</Show>
 					<span class="whitespace-nowrap">{statusLabel()}</span>
-					<span class="whitespace-nowrap">{createdDate()}</span>
+					<Show when={fileSize()}>
+						<span class="whitespace-nowrap text-gray-10">{fileSize()}</span>
+					</Show>
+					<span class="whitespace-nowrap">{relativeDate()}</span>
 				</div>
 			</div>
 		</button>
@@ -348,6 +423,7 @@ function CompactCard(props: {
 	onDoubleClick: () => void;
 	onContextMenu: (e: MouseEvent) => void;
 }) {
+	const { t } = useI18n();
 	const [imageExists, setImageExists] = createSignal(true);
 
 	const thumbnailSrc = () => {
@@ -360,9 +436,35 @@ function CompactCard(props: {
 		return "";
 	};
 
-	const createdDate = () => {
-		const date = new Date(props.item.createdAt * 1000);
-		return date.toLocaleDateString();
+	const videoSrc = () => {
+		if (
+			!thumbnailSrc() &&
+			props.item.itemType === "video" &&
+			props.item.exportedFilePath
+		) {
+			return convertFileSrc(props.item.exportedFilePath);
+		}
+		return "";
+	};
+
+	const relativeDate = () => {
+		const ts = props.item.createdAt;
+		if (!ts) return "";
+		const d = new Date(ts * 1000);
+		const diffMs = Date.now() - d.getTime();
+		const diffMin = Math.floor(diffMs / 60000);
+		const diffHour = Math.floor(diffMs / 3600000);
+		const diffDay = Math.floor(diffMs / 86400000);
+
+		if (diffMin < 1) return t("library.time.justNow");
+		if (diffMin < 60)
+			return t("library.time.minutesAgo", { count: String(diffMin) });
+		if (diffHour < 24)
+			return t("library.time.hoursAgo", { count: String(diffHour) });
+		if (diffDay === 1) return t("library.time.yesterday");
+		if (diffDay < 7)
+			return t("library.time.daysAgo", { count: String(diffDay) });
+		return d.toLocaleDateString();
 	};
 
 	return (
@@ -379,13 +481,13 @@ function CompactCard(props: {
 				props.onContextMenu(e);
 			}}
 			class={cx(
-				"flex items-center gap-3 px-4 py-2 border-b border-gray-4 transition-colors hover:bg-gray-2",
+				"flex items-center gap-3 px-4 py-2 border-b border-gray-4 transition-colors hover:bg-gray-2 active:bg-gray-3",
 				props.isSelected && "bg-blue-1",
 			)}
 		>
 			<div class="w-10 h-10 bg-gray-3 rounded overflow-hidden flex-shrink-0">
 				<Show
-					when={imageExists() && thumbnailSrc()}
+					when={imageExists() && (thumbnailSrc() || videoSrc())}
 					fallback={
 						<div class="w-full h-full flex items-center justify-center">
 							{props.item.itemType === "video" ? (
@@ -396,12 +498,25 @@ function CompactCard(props: {
 						</div>
 					}
 				>
-					<img
-						src={thumbnailSrc()}
-						alt={props.item.name}
-						class="w-full h-full object-cover"
-						onError={() => setImageExists(false)}
-					/>
+					<Show
+						when={!videoSrc()}
+						fallback={
+							<video
+								src={videoSrc()}
+								preload="metadata"
+								muted
+								class="w-full h-full object-cover"
+								onError={() => setImageExists(false)}
+							/>
+						}
+					>
+						<img
+							src={thumbnailSrc()}
+							alt={props.item.name}
+							class="w-full h-full object-cover"
+							onError={() => setImageExists(false)}
+						/>
+					</Show>
 				</Show>
 			</div>
 
@@ -413,7 +528,7 @@ function CompactCard(props: {
 			</span>
 
 			<span class="text-xs text-gray-10 whitespace-nowrap">
-				{createdDate()}
+				{relativeDate()}
 			</span>
 		</button>
 	);

@@ -179,6 +179,9 @@ export default function Library() {
 		if (item.exportedFilePath) {
 			await commands.deleteLibraryItem(item.exportedFilePath).catch(() => {});
 		}
+		if (item.compressedFilePath) {
+			await commands.deleteLibraryItem(item.compressedFilePath).catch(() => {});
+		}
 	};
 
 	const handleContextMenuDelete = async (item: LibraryItem) => {
@@ -299,6 +302,7 @@ export default function Library() {
 								y={menu().y}
 								onClose={() => setContextMenu(null)}
 								onDelete={() => handleContextMenuDelete(menu().item)}
+								onRefetch={handleRefresh}
 							/>
 						)}
 					</Show>

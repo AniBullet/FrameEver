@@ -1,10 +1,13 @@
 import { createEventListener } from "@solid-primitives/event-listener";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { onCleanup, onMount } from "solid-js";
+import toast from "solid-toast";
 import { useI18n } from "~/i18n";
-import type { LibraryItem } from "~/utils/tauri";
+import type { FramesRendered, LibraryItem } from "~/utils/tauri";
 import IconLucideEdit from "~icons/lucide/edit";
 import IconLucideExternalLink from "~icons/lucide/external-link";
 import IconLucideFolder from "~icons/lucide/folder";
+import IconLucideMinimize2 from "~icons/lucide/minimize-2";
 import IconLucidePlay from "~icons/lucide/play";
 import IconLucideTrash from "~icons/lucide/trash-2";
 import {
@@ -22,6 +25,7 @@ type Props = {
 	y: number;
 	onClose: () => void;
 	onDelete: (item: LibraryItem) => void;
+	onRefetch?: () => void;
 };
 
 export default function ContextMenu(props: Props) {
@@ -43,9 +47,16 @@ export default function ContextMenu(props: Props) {
 		});
 	});
 
+	const hasCompressed = () => !!props.item.compressedFilePath;
+
 	const play = () => {
 		if (props.item.exportedFilePath)
 			openWithDefaultApp(props.item.exportedFilePath);
+		props.onClose();
+	};
+	const playCompressed = () => {
+		if (props.item.compressedFilePath)
+			openWithDefaultApp(props.item.compressedFilePath);
 		props.onClose();
 	};
 	const open = () => {
@@ -61,6 +72,49 @@ export default function ContextMenu(props: Props) {
 		openFolderForItem(props.item);
 		props.onClose();
 	};
+	const canCompress = () => {
+		return (
+			(props.item.exportedFilePath?.endsWith(".mp4") ?? false) &&
+			!hasCompressed()
+		);
+	};
+
+	const compress = () => {
+		const inputPath = props.item.exportedFilePath;
+		if (!inputPath) return;
+		props.onClose();
+
+		const progress = new Channel<FramesRendered>((e) => {
+			if (e.totalFrames > 0) {
+				const pct = Math.round((e.renderedCount / e.totalFrames) * 100);
+				toast.loading(`${t("library.detail.compress")}... ${pct}%`, {
+					id: "compress-progress",
+				});
+			}
+		});
+
+		toast.loading(`${t("library.detail.compress")}...`, {
+			id: "compress-progress",
+		});
+
+		invoke("compress_video", {
+			inputPath,
+			crf: 28,
+			progress,
+		})
+			.then(() => {
+				toast.success(t("library.detail.compressComplete"), {
+					id: "compress-progress",
+				});
+				props.onRefetch?.();
+			})
+			.catch((e) => {
+				toast.error(`${t("library.detail.compressFailed")}: ${e}`, {
+					id: "compress-progress",
+				});
+			});
+	};
+
 	const del = () => {
 		props.onDelete(props.item);
 		props.onClose();
@@ -73,27 +127,52 @@ export default function ContextMenu(props: Props) {
 			class="fixed z-[100] min-w-[10rem] py-1 rounded-lg bg-gray-2 border border-gray-4 shadow-lg"
 			style={{ left: `${props.x}px`, top: `${props.y}px` }}
 		>
-			{canPlay(props.item) && (
-				<button
-					type="button"
-					role="menuitem"
-					class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-gray-12 hover:bg-gray-4"
-					onClick={play}
-				>
-					<IconLucidePlay class="size-4" />
-					{t("library.detail.play")}
-				</button>
-			)}
-			{canOpen(props.item) && (
-				<button
-					type="button"
-					role="menuitem"
-					class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-gray-12 hover:bg-gray-4"
-					onClick={open}
-				>
-					<IconLucideExternalLink class="size-4" />
-					{t("library.detail.open")}
-				</button>
+			{hasCompressed() ? (
+				<>
+					<button
+						type="button"
+						role="menuitem"
+						class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-gray-12 hover:bg-gray-4"
+						onClick={play}
+					>
+						<IconLucidePlay class="size-4" />
+						{t("library.detail.playOriginal")}
+					</button>
+					<button
+						type="button"
+						role="menuitem"
+						class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-gray-12 hover:bg-gray-4"
+						onClick={playCompressed}
+					>
+						<IconLucidePlay class="size-4" />
+						{t("library.detail.playCompressed")}
+					</button>
+				</>
+			) : (
+				<>
+					{canPlay(props.item) && (
+						<button
+							type="button"
+							role="menuitem"
+							class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-gray-12 hover:bg-gray-4"
+							onClick={play}
+						>
+							<IconLucidePlay class="size-4" />
+							{t("library.detail.play")}
+						</button>
+					)}
+					{canOpen(props.item) && (
+						<button
+							type="button"
+							role="menuitem"
+							class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-gray-12 hover:bg-gray-4"
+							onClick={open}
+						>
+							<IconLucideExternalLink class="size-4" />
+							{t("library.detail.open")}
+						</button>
+					)}
+				</>
 			)}
 			{canEdit(props.item) && (
 				<button
@@ -115,6 +194,18 @@ export default function ContextMenu(props: Props) {
 				<IconLucideFolder class="size-4" />
 				{t("library.detail.openFolder")}
 			</button>
+			{canCompress() && (
+				<button
+					type="button"
+					role="menuitem"
+					class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-gray-12 hover:bg-gray-4"
+					onClick={compress}
+				>
+					<IconLucideMinimize2 class="size-4" />
+					{t("library.detail.compress")}
+				</button>
+			)}
+			<div class="my-1 border-t border-gray-4" />
 			<button
 				type="button"
 				role="menuitem"
