@@ -3,7 +3,7 @@
 
 use anyhow::anyhow;
 use futures::pin_mut;
-use scap_targets::{Display, DisplayId};
+use scap_targets::{Display, DisplayId, bounds::LogicalBounds};
 use serde::Deserialize;
 use specta::Type;
 use std::{
@@ -41,6 +41,47 @@ const DEFAULT_TRAFFIC_LIGHTS_INSET: LogicalPosition<f64> = LogicalPosition::new(
 
 const DEFAULT_FALLBACK_DISPLAY_WIDTH: f64 = 1920.0;
 const DEFAULT_FALLBACK_DISPLAY_HEIGHT: f64 = 1080.0;
+
+fn calculate_controls_position_for_area(
+    target_display: Option<&DisplayId>,
+    area_bounds: Option<&LogicalBounds>,
+    window_width: f64,
+    window_height: f64,
+) -> (f64, f64) {
+    let monitor = target_display
+        .and_then(Display::from_id)
+        .map(|d| {
+            let bounds = d.raw_handle().logical_bounds();
+            let (x, y, w, h) = bounds
+                .map(|b| {
+                    (
+                        b.position().x(),
+                        b.position().y(),
+                        b.size().width(),
+                        b.size().height(),
+                    )
+                })
+                .unwrap_or((
+                    0.0,
+                    0.0,
+                    DEFAULT_FALLBACK_DISPLAY_WIDTH,
+                    DEFAULT_FALLBACK_DISPLAY_HEIGHT,
+                ));
+            CursorMonitorInfo {
+                x,
+                y,
+                width: w,
+                height: h,
+            }
+        })
+        .unwrap_or_else(CursorMonitorInfo::get);
+
+    if let Some(area) = area_bounds {
+        monitor.bottom_center_of_area(area, window_width, window_height)
+    } else {
+        monitor.bottom_center_position(window_width, window_height, 120.0)
+    }
+}
 
 #[cfg(target_os = "macos")]
 fn is_system_dark_mode() -> bool {
@@ -216,6 +257,38 @@ impl CursorMonitorInfo {
         let pos_x = self.x + (self.width - window_width) / 2.0;
         let pos_y = self.y + self.height - window_height - offset_y;
         (pos_x, pos_y)
+    }
+
+    fn bottom_center_of_area(
+        &self,
+        area: &LogicalBounds,
+        window_width: f64,
+        window_height: f64,
+    ) -> (f64, f64) {
+        let area_x = self.x + area.position().x();
+        let area_y = self.y + area.position().y();
+        let area_w = area.size().width();
+        let area_h = area.size().height();
+
+        let center_x = area_x + area_w / 2.0;
+
+        let margin = 16.0;
+        let below_y = area_y + area_h + margin;
+        let above_y = area_y - window_height - margin;
+
+        let final_y = if below_y + window_height <= self.y + self.height {
+            below_y
+        } else if above_y >= self.y {
+            above_y
+        } else {
+            area_y + area_h - window_height - margin
+        };
+
+        let final_x = (center_x - window_width / 2.0)
+            .max(self.x + margin)
+            .min(self.x + self.width - window_width - margin);
+
+        (final_x, final_y)
     }
 
     fn from_window(window: &tauri::WebviewWindow) -> Self {
@@ -498,6 +571,7 @@ pub enum ShowCapWindow {
     InProgressRecording {
         countdown: Option<u32>,
         target_display: Option<DisplayId>,
+        area_bounds: Option<LogicalBounds>,
     },
     ModeSelect,
     ScreenshotEditor {
@@ -828,40 +902,21 @@ impl ShowCapWindow {
         }
 
         #[cfg(not(target_os = "macos"))]
-        if let Self::InProgressRecording { target_display, .. } = self
+        if let Self::InProgressRecording {
+            target_display,
+            area_bounds,
+            ..
+        } = self
             && let Some(window) = self.id(app).get(app)
         {
             let width = 320.0;
             let height = 150.0;
-            let recording_monitor = target_display
-                .as_ref()
-                .and_then(|id| Display::from_id(id))
-                .map(|d| {
-                    let bounds = d.raw_handle().logical_bounds();
-                    let (x, y, w, h) = bounds
-                        .map(|b| {
-                            (
-                                b.position().x(),
-                                b.position().y(),
-                                b.size().width(),
-                                b.size().height(),
-                            )
-                        })
-                        .unwrap_or((
-                            0.0,
-                            0.0,
-                            DEFAULT_FALLBACK_DISPLAY_WIDTH,
-                            DEFAULT_FALLBACK_DISPLAY_HEIGHT,
-                        ));
-                    CursorMonitorInfo {
-                        x,
-                        y,
-                        width: w,
-                        height: h,
-                    }
-                })
-                .unwrap_or_else(CursorMonitorInfo::get);
-            let (pos_x, pos_y) = recording_monitor.bottom_center_position(width, height, 120.0);
+            let (pos_x, pos_y) = calculate_controls_position_for_area(
+                target_display.as_ref(),
+                area_bounds.as_ref(),
+                width,
+                height,
+            );
             let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
             window.show().ok();
             window.set_focus().ok();
@@ -1715,41 +1770,13 @@ impl ShowCapWindow {
             Self::InProgressRecording {
                 countdown,
                 target_display,
+                area_bounds,
             } => {
                 let width = 320.0;
                 let height = 150.0;
 
                 let title = CapWindowId::RecordingControls.title();
                 let should_protect = should_protect_window(app, &title);
-
-                let target_monitor = target_display
-                    .as_ref()
-                    .and_then(|id| Display::from_id(id))
-                    .map(|d| {
-                        let bounds = d.raw_handle().logical_bounds();
-                        let (x, y, w, h) = bounds
-                            .map(|b| {
-                                (
-                                    b.position().x(),
-                                    b.position().y(),
-                                    b.size().width(),
-                                    b.size().height(),
-                                )
-                            })
-                            .unwrap_or((
-                                0.0,
-                                0.0,
-                                DEFAULT_FALLBACK_DISPLAY_WIDTH,
-                                DEFAULT_FALLBACK_DISPLAY_HEIGHT,
-                            ));
-                        CursorMonitorInfo {
-                            x,
-                            y,
-                            width: w,
-                            height: h,
-                        }
-                    })
-                    .unwrap_or(cursor_monitor);
 
                 #[cfg(target_os = "macos")]
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory)
@@ -1795,17 +1822,17 @@ impl ShowCapWindow {
                     ))
                     .build()?;
 
-                let (pos_x, pos_y) = target_monitor.bottom_center_position(width, height, 120.0);
+                let (pos_x, pos_y) = calculate_controls_position_for_area(
+                    target_display.as_ref(),
+                    area_bounds.as_ref(),
+                    width,
+                    height,
+                );
                 let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
 
                 debug!(
-                    "InProgressRecording window: target_monitor=({}, {}, {}, {}), pos=({}, {})",
-                    target_monitor.x,
-                    target_monitor.y,
-                    target_monitor.width,
-                    target_monitor.height,
-                    pos_x,
-                    pos_y
+                    "InProgressRecording window: pos=({}, {}), area_bounds={:?}",
+                    pos_x, pos_y, area_bounds
                 );
 
                 debug!(

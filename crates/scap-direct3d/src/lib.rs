@@ -72,11 +72,67 @@ impl PixelFormat {
 }
 
 const STAGING_POOL_SIZE: usize = 3;
+const MIRROR_POOL_SIZE: usize = 3;
 
 struct PooledStagingTexture {
     texture: ID3D11Texture2D,
     width: u32,
     height: u32,
+}
+
+struct MirrorTexturePool {
+    textures: Vec<(ID3D11Texture2D, u32, u32)>,
+    index: usize,
+    d3d_device: ID3D11Device,
+    pixel_format: PixelFormat,
+}
+
+impl MirrorTexturePool {
+    fn new(d3d_device: ID3D11Device, pixel_format: PixelFormat) -> Self {
+        Self {
+            textures: Vec::with_capacity(MIRROR_POOL_SIZE),
+            index: 0,
+            d3d_device,
+            pixel_format,
+        }
+    }
+
+    fn acquire(&mut self, width: u32, height: u32) -> windows::core::Result<ID3D11Texture2D> {
+        let needs_recreate =
+            self.textures.is_empty() || self.textures[0].1 != width || self.textures[0].2 != height;
+
+        if needs_recreate {
+            self.textures.clear();
+            let desc = D3D11_TEXTURE2D_DESC {
+                Width: width,
+                Height: height,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: self.pixel_format.as_dxgi(),
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
+                CPUAccessFlags: 0,
+                MiscFlags: 0,
+            };
+            for _ in 0..MIRROR_POOL_SIZE {
+                let mut tex = None;
+                unsafe {
+                    self.d3d_device
+                        .CreateTexture2D(&desc, None, Some(&mut tex))?
+                };
+                self.textures.push((tex.unwrap(), width, height));
+            }
+            self.index = 0;
+        }
+
+        let idx = self.index % self.textures.len();
+        self.index += 1;
+        Ok(self.textures[idx].0.clone())
+    }
 }
 
 pub struct StagingTexturePool {
@@ -274,8 +330,6 @@ pub enum NewCapturerError {
     FramePool(windows::core::Error),
     #[error("CaptureSession: {0}")]
     CaptureSession(windows::core::Error),
-    #[error("CropTexture: {0}")]
-    CropTexture(windows::core::Error),
     #[error("RegisterFrameArrived: {0}")]
     RegisterFrameArrived(windows::core::Error),
     #[error("RegisterClosed: {0}")]
@@ -411,32 +465,7 @@ impl Capturer {
                 .unwrap();
         }
 
-        let crop_data = settings
-            .crop
-            .map(|crop| {
-                let desc = D3D11_TEXTURE2D_DESC {
-                    Width: (crop.right - crop.left),
-                    Height: (crop.bottom - crop.top),
-                    MipLevels: 1,
-                    ArraySize: 1,
-                    Format: settings.pixel_format.as_dxgi(),
-                    SampleDesc: DXGI_SAMPLE_DESC {
-                        Count: 1,
-                        Quality: 0,
-                    },
-                    Usage: D3D11_USAGE_DEFAULT,
-                    BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
-                    CPUAccessFlags: 0,
-                    MiscFlags: 0,
-                };
-
-                let mut texture = None;
-                unsafe { d3d_device.CreateTexture2D(&desc, None, Some(&mut texture)) }
-                    .map_err(NewCapturerError::CropTexture)?;
-
-                Ok::<_, NewCapturerError>((texture.unwrap(), crop))
-            })
-            .transpose()?;
+        let crop_data = settings.crop;
 
         let frame_arrived_token = frame_pool
             .FrameArrived(
@@ -446,7 +475,8 @@ impl Capturer {
                     let stop_flag = stop_flag.clone();
                     let staging_pool = staging_pool.clone();
 
-                    let mut mirror_texture: Option<(ID3D11Texture2D, u32, u32)> = None;
+                    let mut mirror_pool =
+                        MirrorTexturePool::new(d3d_device.clone(), settings.pixel_format);
 
                     move |frame_pool, _| {
                         if stop_flag.load(Ordering::Relaxed) {
@@ -464,10 +494,14 @@ impl Capturer {
                         let dxgi_interface = surface.cast::<IDirect3DDxgiInterfaceAccess>()?;
                         let texture = unsafe { dxgi_interface.GetInterface::<ID3D11Texture2D>() }?;
 
-                        let frame = if let Some((cropped_texture, crop)) = crop_data.clone() {
+                        let frame = if let Some(crop) = crop_data {
+                            let crop_w = crop.right - crop.left;
+                            let crop_h = crop.bottom - crop.top;
+                            let target = mirror_pool.acquire(crop_w, crop_h)?;
+
                             unsafe {
                                 d3d_context.CopySubresourceRegion(
-                                    &cropped_texture,
+                                    &target,
                                     0,
                                     0,
                                     0,
@@ -476,14 +510,15 @@ impl Capturer {
                                     0,
                                     Some(&crop),
                                 );
+                                d3d_context.Flush();
                             }
 
                             Frame {
-                                width: crop.right - crop.left,
-                                height: crop.bottom - crop.top,
+                                width: crop_w,
+                                height: crop_h,
                                 pixel_format: settings.pixel_format,
                                 inner: frame,
-                                texture: cropped_texture,
+                                texture: target,
                                 d3d_context: d3d_context.clone(),
                                 d3d_device: d3d_device.clone(),
                                 staging_pool: staging_pool.clone(),
@@ -492,37 +527,11 @@ impl Capturer {
                             let w = size.Width as u32;
                             let h = size.Height as u32;
 
-                            let needs_recreate = mirror_texture
-                                .as_ref()
-                                .map_or(true, |(_, mw, mh)| *mw != w || *mh != h);
-
-                            if needs_recreate {
-                                let desc = D3D11_TEXTURE2D_DESC {
-                                    Width: w,
-                                    Height: h,
-                                    MipLevels: 1,
-                                    ArraySize: 1,
-                                    Format: settings.pixel_format.as_dxgi(),
-                                    SampleDesc: DXGI_SAMPLE_DESC {
-                                        Count: 1,
-                                        Quality: 0,
-                                    },
-                                    Usage: D3D11_USAGE_DEFAULT,
-                                    BindFlags: (D3D11_BIND_RENDER_TARGET.0
-                                        | D3D11_BIND_SHADER_RESOURCE.0)
-                                        as u32,
-                                    CPUAccessFlags: 0,
-                                    MiscFlags: 0,
-                                };
-                                let mut tex = None;
-                                unsafe { d3d_device.CreateTexture2D(&desc, None, Some(&mut tex))? };
-                                mirror_texture = Some((tex.unwrap(), w, h));
-                            }
-
-                            let (mirror, _, _) = mirror_texture.as_ref().unwrap();
+                            let mirror = mirror_pool.acquire(w, h)?;
 
                             unsafe {
-                                d3d_context.CopyResource(mirror, &texture);
+                                d3d_context.CopyResource(&mirror, &texture);
+                                d3d_context.Flush();
                             }
 
                             Frame {
@@ -530,7 +539,7 @@ impl Capturer {
                                 height: h,
                                 pixel_format: settings.pixel_format,
                                 inner: frame,
-                                texture: mirror.clone(),
+                                texture: mirror,
                                 d3d_context: d3d_context.clone(),
                                 d3d_device: d3d_device.clone(),
                                 staging_pool: staging_pool.clone(),

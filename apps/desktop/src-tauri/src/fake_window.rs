@@ -11,6 +11,23 @@ const RECORDING_CONTROLS_OFFSET_Y: f64 = 120.0;
 
 pub struct FakeWindowBounds(pub Arc<RwLock<HashMap<String, HashMap<String, LogicalBounds>>>>);
 
+pub struct RecordingAreaState(pub Arc<RwLock<Option<RecordingAreaInfo>>>);
+
+pub struct RecordingAreaInfo {
+    pub display_id: DisplayId,
+    pub bounds: LogicalBounds,
+}
+
+pub async fn set_recording_area(app: &AppHandle, display_id: DisplayId, bounds: LogicalBounds) {
+    let state = app.state::<RecordingAreaState>();
+    *state.0.write().await = Some(RecordingAreaInfo { display_id, bounds });
+}
+
+pub async fn clear_recording_area(app: &AppHandle) {
+    let state = app.state::<RecordingAreaState>();
+    *state.0.write().await = None;
+}
+
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(state))]
@@ -77,20 +94,63 @@ pub fn spawn_fake_window_listener(app: AppHandle, window: WebviewWindow) {
 
     tokio::spawn(async move {
         let state = app.state::<FakeWindowBounds>();
+        let area_state = app.state::<RecordingAreaState>();
         let mut current_display_id: Option<DisplayId> = get_display_id_for_cursor();
 
         loop {
             sleep(Duration::from_millis(1000 / 20)).await;
 
             if is_recording_controls && let Some(cursor_display_id) = get_display_id_for_cursor() {
-                let display_changed = current_display_id.as_ref() != Some(&cursor_display_id);
+                let area_info = area_state.0.read().await;
+                match area_info.as_ref() {
+                    Some(info) => {
+                        if current_display_id.as_ref() != Some(&info.display_id)
+                            && let Some(display) = get_display_by_id(&info.display_id)
+                            && let Some(display_bounds) = display.raw_handle().logical_bounds()
+                        {
+                            let area_x = display_bounds.position().x() + info.bounds.position().x();
+                            let area_y = display_bounds.position().y() + info.bounds.position().y();
+                            let area_w = info.bounds.size().width();
+                            let area_h = info.bounds.size().height();
 
-                if display_changed
-                    && let Some(display) = get_display_by_id(&cursor_display_id)
-                    && let Some((pos_x, pos_y)) = calculate_bottom_center_position(&display)
-                {
-                    let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
-                    current_display_id = Some(cursor_display_id);
+                            let margin = 16.0;
+                            let center_x = area_x + area_w / 2.0;
+                            let below_y = area_y + area_h + margin;
+                            let disp_bottom =
+                                display_bounds.position().y() + display_bounds.size().height();
+
+                            let final_y = if below_y + RECORDING_CONTROLS_HEIGHT <= disp_bottom {
+                                below_y
+                            } else {
+                                (area_y - RECORDING_CONTROLS_HEIGHT - margin)
+                                    .max(display_bounds.position().y())
+                            };
+
+                            let final_x = (center_x - RECORDING_CONTROLS_WIDTH / 2.0)
+                                .max(display_bounds.position().x() + margin)
+                                .min(
+                                    display_bounds.position().x() + display_bounds.size().width()
+                                        - RECORDING_CONTROLS_WIDTH
+                                        - margin,
+                                );
+
+                            let _ =
+                                window.set_position(tauri::LogicalPosition::new(final_x, final_y));
+                            current_display_id = Some(info.display_id.clone());
+                        }
+                    }
+                    None => {
+                        let display_changed =
+                            current_display_id.as_ref() != Some(&cursor_display_id);
+
+                        if display_changed
+                            && let Some(display) = get_display_by_id(&cursor_display_id)
+                            && let Some((pos_x, pos_y)) = calculate_bottom_center_position(&display)
+                        {
+                            let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
+                            current_display_id = Some(cursor_display_id);
+                        }
+                    }
                 }
             }
 
@@ -146,4 +206,5 @@ pub fn spawn_fake_window_listener(app: AppHandle, window: WebviewWindow) {
 
 pub fn init(app: &AppHandle) {
     app.manage(FakeWindowBounds(Default::default()));
+    app.manage(RecordingAreaState(Default::default()));
 }

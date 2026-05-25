@@ -213,6 +213,7 @@ impl Muxer for WindowsMuxer {
 
                         match codec {
                             VideoCodec::H264 => cap_enc_ffmpeg::h264::H264Encoder::builder(video_config)
+                                .with_bpp(config.bitrate_multiplier)
                                 .with_output_size(fallback_width, fallback_height)
                                 .and_then(|b| b.build(&mut output_guard))
                                 .map(|e| either::Right(SwEncoder::H264(e)))

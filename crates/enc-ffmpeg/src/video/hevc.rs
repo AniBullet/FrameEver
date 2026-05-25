@@ -263,7 +263,10 @@ impl HevcEncoderBuilder {
         );
 
         encoder.set_bit_rate(bitrate);
-        encoder.set_max_bit_rate(bitrate);
+        unsafe {
+            (*encoder.as_mut_ptr()).rc_max_rate = (bitrate as f64 * 1.5) as i64;
+            (*encoder.as_mut_ptr()).rc_buffer_size = bitrate as i32;
+        }
 
         let encoder = encoder.open_with(encoder_options)?;
 

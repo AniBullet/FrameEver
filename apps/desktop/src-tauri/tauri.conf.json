@@ -73,6 +73,7 @@
 			"frameworks": ["../../../target/native-deps/Spacedrive.framework"]
 		},
 		"windows": {
+			"allowDowngrades": true,
 			"nsis": {
 				"installMode": "currentUser",
 				"installerHooks": "nsis-hooks.nsh",

@@ -1948,7 +1948,7 @@ async fn generate_keyboard_segments(
     let mut all_events = cap_project::KeyboardEvents { presses: vec![] };
 
     for segment in segments {
-        let events = segment.keyboard_events(&meta);
+        let events = segment.keyboard_events(meta);
         all_events.presses.extend(events.presses);
     }
 

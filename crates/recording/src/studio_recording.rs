@@ -673,6 +673,7 @@ pub struct ActorBuilder {
     keyboard_capture: bool,
     fragmented: bool,
     max_fps: u32,
+    bitrate_multiplier: f32,
     #[cfg(target_os = "macos")]
     excluded_windows: Vec<scap_targets::WindowId>,
 }
@@ -689,6 +690,7 @@ impl ActorBuilder {
             keyboard_capture: true,
             fragmented: false,
             max_fps: 60,
+            bitrate_multiplier: 0.15,
             #[cfg(target_os = "macos")]
             excluded_windows: Vec::new(),
         }
@@ -729,6 +731,11 @@ impl ActorBuilder {
         self
     }
 
+    pub fn with_bitrate_multiplier(mut self, bitrate_multiplier: f32) -> Self {
+        self.bitrate_multiplier = bitrate_multiplier;
+        self
+    }
+
     #[cfg(target_os = "macos")]
     pub fn with_excluded_windows(mut self, excluded_windows: Vec<scap_targets::WindowId>) -> Self {
         self.excluded_windows = excluded_windows;
@@ -755,6 +762,7 @@ impl ActorBuilder {
             self.keyboard_capture,
             self.fragmented,
             self.max_fps,
+            self.bitrate_multiplier,
         )
         .await
     }
@@ -768,6 +776,7 @@ async fn spawn_studio_recording_actor(
     keyboard_capture: bool,
     fragmented: bool,
     max_fps: u32,
+    bitrate_multiplier: f32,
 ) -> anyhow::Result<ActorHandle> {
     ensure_dir(&recording_dir)?;
 
@@ -798,6 +807,7 @@ async fn spawn_studio_recording_actor(
         keyboard_capture,
         fragmented,
         max_fps,
+        bitrate_multiplier,
         completion_tx.clone(),
     );
 
@@ -1094,6 +1104,7 @@ struct SegmentPipelineFactory {
     keyboard_capture: bool,
     fragmented: bool,
     max_fps: u32,
+    bitrate_multiplier: f32,
     index: u32,
     completion_tx: watch::Sender<Option<Result<(), PipelineDoneError>>>,
     #[cfg(windows)]
@@ -1110,6 +1121,7 @@ impl SegmentPipelineFactory {
         keyboard_capture: bool,
         fragmented: bool,
         max_fps: u32,
+        bitrate_multiplier: f32,
         completion_tx: watch::Sender<Option<Result<(), PipelineDoneError>>>,
     ) -> Self {
         Self {
@@ -1120,6 +1132,7 @@ impl SegmentPipelineFactory {
             keyboard_capture,
             fragmented,
             max_fps,
+            bitrate_multiplier,
             index: 0,
             completion_tx,
             #[cfg(windows)]
@@ -1144,6 +1157,7 @@ impl SegmentPipelineFactory {
             self.keyboard_capture,
             self.fragmented,
             self.max_fps,
+            self.bitrate_multiplier,
             segment_start_time,
             #[cfg(windows)]
             self.encoder_preferences.clone(),
@@ -1229,6 +1243,7 @@ async fn create_segment_pipeline(
     keyboard_capture: bool,
     fragmented: bool,
     max_fps: u32,
+    bitrate_multiplier: f32,
     start_time: Timestamps,
     #[cfg(windows)] encoder_preferences: crate::capture_pipeline::EncoderPreferences,
 ) -> anyhow::Result<Pipeline> {
@@ -1343,6 +1358,7 @@ async fn create_segment_pipeline(
             shared_pause_state.clone(),
             output_size,
             screen_info.fps(),
+            bitrate_multiplier,
             #[cfg(windows)]
             encoder_preferences.clone(),
         )

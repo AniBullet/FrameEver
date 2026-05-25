@@ -19,6 +19,7 @@
 			"entitlements": "Entitlements.plist"
 		},
 		"windows": {
+			"allowDowngrades": true,
 			"nsis": {
 				"installMode": "currentUser",
 				"installerHooks": "nsis-hooks.nsh",

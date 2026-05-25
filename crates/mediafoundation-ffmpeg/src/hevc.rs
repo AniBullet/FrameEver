@@ -79,10 +79,10 @@ impl HevcStreamMuxer {
 
         let mut packet = self.mf_sample_to_avpacket(sample)?;
 
-        if !self.extradata_set {
-            if let Some(data) = packet.data() {
-                self.try_set_extradata(data, output);
-            }
+        if !self.extradata_set
+            && let Some(data) = packet.data()
+        {
+            self.try_set_extradata(data, output);
         }
 
         packet.rescale_ts(
@@ -97,7 +97,7 @@ impl HevcStreamMuxer {
             };
             if adjusted != dts {
                 packet.set_dts(Some(adjusted));
-                if packet.pts().map_or(false, |p| p < adjusted) {
+                if packet.pts().is_some_and(|p| p < adjusted) {
                     packet.set_pts(Some(adjusted));
                 }
             }
@@ -214,11 +214,8 @@ fn extract_hevc_parameter_sets(data: &[u8]) -> Vec<&[u8]> {
             continue;
         }
         let nal_type = (nal[0] >> 1) & 0x3F;
-        match nal_type {
-            32 | 33 | 34 => {
-                result.push(nal);
-            }
-            _ => {}
+        if (32..=34).contains(&nal_type) {
+            result.push(nal);
         }
     }
     result
@@ -260,10 +257,10 @@ fn find_annexb_nal_units(data: &[u8]) -> Vec<&[u8]> {
         }
     }
 
-    if let Some(s) = start {
-        if s < data.len() {
-            units.push(&data[s..]);
-        }
+    if let Some(s) = start
+        && s < data.len()
+    {
+        units.push(&data[s..]);
     }
 
     units

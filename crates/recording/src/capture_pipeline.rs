@@ -70,6 +70,7 @@ pub struct InstantModeConfig {
     pub fps: u32,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub trait MakeCapturePipeline: ScreenCaptureFormat + std::fmt::Debug + 'static {
     async fn make_studio_mode_pipeline(
         screen_capture: screen_capture::VideoSourceConfig,
@@ -79,6 +80,7 @@ pub trait MakeCapturePipeline: ScreenCaptureFormat + std::fmt::Debug + 'static {
         shared_pause_state: Option<SharedPauseState>,
         output_size: Option<(u32, u32)>,
         fps: u32,
+        bitrate_multiplier: f32,
         #[cfg(windows)] encoder_preferences: EncoderPreferences,
     ) -> anyhow::Result<OutputPipeline>
     where
@@ -103,6 +105,7 @@ impl MakeCapturePipeline for screen_capture::CMSampleBufferCapture {
         shared_pause_state: Option<SharedPauseState>,
         output_size: Option<(u32, u32)>,
         _fps: u32,
+        _bitrate_multiplier: f32,
     ) -> anyhow::Result<OutputPipeline> {
         if fragmented {
             let fragments_dir = output_path
@@ -163,6 +166,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
         shared_pause_state: Option<SharedPauseState>,
         output_size: Option<(u32, u32)>,
         fps: u32,
+        bitrate_multiplier: f32,
         encoder_preferences: EncoderPreferences,
     ) -> anyhow::Result<OutputPipeline> {
         if fragmented {
@@ -177,6 +181,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
                 .build::<WindowsFragmentedM4SMuxer>(WindowsFragmentedM4SMuxerConfig {
                     segment_duration: std::time::Duration::from_secs(3),
                     preset: H264Preset::Ultrafast,
+                    bpp: bitrate_multiplier,
                     output_size,
                     shared_pause_state,
                     disk_space_callback: None,
@@ -190,7 +195,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
                 .build::<WindowsMuxer>(WindowsMuxerConfig {
                     pixel_format: screen_capture::Direct3DCapture::PIXEL_FORMAT.as_dxgi(),
                     d3d_device,
-                    bitrate_multiplier: 0.055f32,
+                    bitrate_multiplier,
                     frame_rate: fps,
                     output_size: output_size.map(|(w, h)| windows::Graphics::SizeInt32 {
                         Width: w as i32,

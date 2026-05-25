@@ -674,9 +674,20 @@ pub async fn start_recording(
         }
     }
     let target_display = inputs.capture_target.display().map(|d| d.id());
+    let area_bounds = match &inputs.capture_target {
+        ScreenCaptureTarget::Area { screen, bounds } => {
+            crate::fake_window::set_recording_area(&app, screen.clone(), *bounds).await;
+            Some(*bounds)
+        }
+        _ => {
+            crate::fake_window::clear_recording_area(&app).await;
+            None
+        }
+    };
     let _ = ShowCapWindow::InProgressRecording {
         countdown,
         target_display,
+        area_bounds,
     }
     .show(&app)
     .await;
@@ -796,11 +807,20 @@ pub async fn start_recording(
                 let actor_result: Result<InProgressRecording, anyhow::Error> = async {
                     match inputs.mode {
                         RecordingMode::Studio => {
+                            let studio_quality = inputs
+                                .quality
+                                .or_else(|| general_settings.as_ref().map(|s| s.recording_quality))
+                                .unwrap_or(crate::general_settings::RecordingQuality::Standard);
+
                             let mut builder = studio_recording::Actor::builder(
                                 recording_dir.clone(),
                                 inputs.capture_target.clone(),
                             )
                             .with_system_audio(inputs.capture_system_audio)
+                            .with_bitrate_multiplier(
+                                studio_quality
+                                    .bits_per_pixel(crate::general_settings::RecordingCodec::H264),
+                            )
                             .with_custom_cursor(
                                 general_settings
                                     .as_ref()
@@ -1179,6 +1199,8 @@ fn mic_actor_not_running(err: &anyhow::Error) -> bool {
 #[specta::specta]
 #[instrument(skip(app, state))]
 pub async fn stop_recording(app: AppHandle, state: MutableState<'_, App>) -> Result<(), String> {
+    crate::fake_window::clear_recording_area(&app).await;
+
     let mut state = state.write().await;
     let Some(current_recording) = state.clear_current_recording() else {
         return Err("Recording not in progress".to_string())?;
@@ -1365,7 +1387,8 @@ async fn handle_recording_end(
     app: &mut App,
     recording_dir: PathBuf,
 ) -> Result<(), String> {
-    // Clear current recording, just in case :)
+    crate::fake_window::clear_recording_area(&handle).await;
+
     app.clear_current_recording();
     app.disconnected_inputs.clear();
     app.camera_in_use = false;

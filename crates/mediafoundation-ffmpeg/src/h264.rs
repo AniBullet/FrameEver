@@ -111,7 +111,7 @@ impl H264StreamMuxer {
             };
             if adjusted != dts {
                 packet.set_dts(Some(adjusted));
-                if packet.pts().map_or(false, |p| p < adjusted) {
+                if packet.pts().is_some_and(|p| p < adjusted) {
                     packet.set_pts(Some(adjusted));
                 }
             }
