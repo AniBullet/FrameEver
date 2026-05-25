@@ -395,46 +395,73 @@ if (Test-Path "$llvm18Bin\libclang.dll") {
 }
 else {
     Write-Host "  Downloading LLVM 18 libclang (required for Rust FFI bindings)..." -ForegroundColor Yellow
-    $llvm18Url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe"
-    $llvm18Installer = "$env:TEMP\LLVM-18.1.8-win64.exe"
+    $llvmVersion = "18.1.8"
+    $llvmTarName = "clang+llvm-${llvmVersion}-x86_64-pc-windows-msvc.tar.xz"
+    $llvmTarUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${llvmVersion}/${llvmTarName}"
+    $llvmTarPath = "$targetDir\${llvmTarName}"
+    $llvmExtractDir = "$targetDir\llvm-18-extract"
+    $llvmSourceBin = "$llvmExtractDir\clang+llvm-${llvmVersion}-x86_64-pc-windows-msvc\bin"
+    $llvmTarMinBytes = 700000000
 
     try {
-        Invoke-WebRequest -Uri $llvm18Url -OutFile $llvm18Installer -UseBasicParsing
-        Write-Host "  Extracting libclang.dll (this takes a moment)..." -ForegroundColor Gray
-
-        $sevenZipPaths = @(
-            "${env:ProgramFiles}\7-Zip\7z.exe",
-            "${env:ProgramFiles(x86)}\7-Zip\7z.exe"
-        )
-        $sevenZip = $null
-        foreach ($p in $sevenZipPaths) {
-            if (Test-Path $p) { $sevenZip = $p; break }
+        $tar = Get-Command tar -ErrorAction SilentlyContinue
+        if (-not $tar) {
+            throw "Windows tar not found. Requires Windows 10 or later."
         }
 
-        if ($sevenZip) {
-            New-Item -ItemType Directory -Force -Path $llvm18Dir | Out-Null
-            & $sevenZip x $llvm18Installer -o"$llvm18Dir" "bin\libclang.dll" -y 2>&1 | Out-Null
+        if (-not (Test-Path "$llvmSourceBin\libclang.dll")) {
+            if (Test-Path $llvmTarPath) {
+                $tarSize = (Get-Item $llvmTarPath).Length
+                if ($tarSize -lt $llvmTarMinBytes) {
+                    Write-Host "  Cached ${llvmTarName} is incomplete, re-downloading..." -ForegroundColor Gray
+                    Remove-Item $llvmTarPath -Force
+                }
+            }
+
+            if (-not (Test-Path $llvmTarPath)) {
+                Write-Host "  Downloading ${llvmTarName} (~800 MB)..." -ForegroundColor Gray
+                Invoke-WebRequest -Uri $llvmTarUrl -OutFile $llvmTarPath -UseBasicParsing
+                $tarSize = (Get-Item $llvmTarPath).Length
+                if ($tarSize -lt $llvmTarMinBytes) {
+                    Remove-Item $llvmTarPath -Force
+                    throw "Download incomplete ($tarSize bytes). Check network and retry."
+                }
+                Write-Host "  Downloaded ${llvmTarName}" -ForegroundColor Gray
+            }
+            else {
+                Write-Host "  Using cached ${llvmTarName}" -ForegroundColor Gray
+            }
+
+            Write-Host "  Extracting libclang (this may take a few minutes)..." -ForegroundColor Gray
+            if (Test-Path $llvmExtractDir) {
+                Remove-Item $llvmExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            New-Item -ItemType Directory -Force -Path $llvmExtractDir | Out-Null
+            & tar -xf $llvmTarPath -C $llvmExtractDir
+            if ($LASTEXITCODE -ne 0) {
+                Remove-Item $llvmExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+                throw "tar extraction failed (exit $LASTEXITCODE)."
+            }
         }
         else {
-            Write-Host "  7-Zip not found, running LLVM 18 silent installer..." -ForegroundColor Gray
-            Start-Process -FilePath $llvm18Installer -ArgumentList "/S", "/D=$llvm18Dir" -Wait -NoNewWindow
+            Write-Host "  Using cached target/llvm-18-extract" -ForegroundColor Gray
         }
 
-        Remove-Item $llvm18Installer -ErrorAction SilentlyContinue
-
-        if (Test-Path "$llvm18Bin\libclang.dll") {
+        if (Test-Path "$llvmSourceBin\libclang.dll") {
+            New-Item -ItemType Directory -Force -Path $llvm18Bin | Out-Null
+            Copy-Item "$llvmSourceBin\*.dll" -Destination $llvm18Bin -Force
             Write-Host "  OK LLVM 18 libclang installed" -ForegroundColor Green
         }
         else {
-            Write-Host "  WARNING: Failed to extract libclang.dll" -ForegroundColor Yellow
-            Write-Host "  Please install LLVM 18 manually from:" -ForegroundColor Gray
-            Write-Host "  $llvm18Url" -ForegroundColor Gray
+            throw "libclang.dll not found after extraction."
         }
     }
     catch {
-        Write-Host "  WARNING: Failed to download LLVM 18" -ForegroundColor Yellow
+        Write-Host "  ERROR: LLVM 18 libclang setup failed" -ForegroundColor Red
         Write-Host "  Error: $_" -ForegroundColor Red
-        Write-Host "  Please install LLVM 18 manually and set LIBCLANG_PATH" -ForegroundColor Gray
+        Write-Host "  Manual download: $llvmTarUrl" -ForegroundColor Gray
+        Write-Host "  Extract bin/*.dll to $llvm18Bin and set LIBCLANG_PATH" -ForegroundColor Gray
+        exit 1
     }
 }
 
@@ -482,102 +509,89 @@ else {
     $needsRestart = $true
 }
 
-# Install project dependencies
 Write-Host ""
 Write-Host "[9/9] Installing project dependencies..." -ForegroundColor Yellow
 
-$needsInstall = $false
 $projectRoot = "$PSScriptRoot\.."
-$lockFile = "$projectRoot\pnpm-lock.yaml"
-$nodeModules = "$projectRoot\node_modules"
-$desktopNodeModules = "$projectRoot\apps\desktop\node_modules"
 
-if (-not (Test-Path $nodeModules)) {
-    Write-Host "  Root node_modules not found - fresh install needed" -ForegroundColor Gray
-    $needsInstall = $true
-}
-elseif (-not (Test-Path $desktopNodeModules)) {
-    Write-Host "  Workspace node_modules incomplete - install needed" -ForegroundColor Gray
-    $needsInstall = $true
-}
-elseif (-not (Test-Path $lockFile)) {
-    Write-Host "  Lock file not found - reinstall needed" -ForegroundColor Gray
-    $needsInstall = $true
-}
-else {
-    $lockModified = (Get-Item $lockFile).LastWriteTime
-    $workspaceModified = (Get-Item "$projectRoot\pnpm-workspace.yaml").LastWriteTime
-    $packageModified = (Get-Item "$projectRoot\package.json").LastWriteTime
-    
-    if ($workspaceModified -gt $lockModified -or $packageModified -gt $lockModified) {
-        Write-Host "  Workspace or package.json changed - reinstall needed" -ForegroundColor Gray
-        $needsInstall = $true
-    }
-    else {
-        Write-Host "  OK Dependencies up to date" -ForegroundColor Green
-        $needsInstall = $false
-    }
-}
+Write-Host "  Syncing pnpm dependencies..." -ForegroundColor Gray
+Push-Location $projectRoot
+pnpm install --no-optional=false --no-frozen-lockfile
+$pnpmExit = $LASTEXITCODE
+Pop-Location
 
-if ($needsInstall) {
-    Write-Host "  This may take a few minutes..." -ForegroundColor Gray
+if ($pnpmExit -ne 0) {
     Write-Host ""
-    
-    $lockFile = "$projectRoot\pnpm-lock.yaml"
-    $lockExists = Test-Path $lockFile
-    
-    if ($lockExists) {
-        $lockCreationTime = (Get-Item $lockFile).CreationTime
-        $lockModifiedTime = (Get-Item $lockFile).LastWriteTime
-        
-        if ($lockCreationTime -lt (Get-Date).AddMonths(-1)) {
-            Write-Host "  Lockfile is older than 1 month, regenerating to ensure compatibility..." -ForegroundColor Gray
-            Remove-Item $lockFile -Force
-        }
-    }
-    
-    Push-Location $projectRoot
-    pnpm install --no-optional=false
-    Pop-Location
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host ""
-        Write-Host "================================================================" -ForegroundColor Red
-        Write-Host "  Installation Failed" -ForegroundColor Red
-        Write-Host "================================================================" -ForegroundColor Red
-        Write-Host ""
-        Write-Host "Common issues:" -ForegroundColor Yellow
-        Write-Host "  1. Network - Check internet connection" -ForegroundColor White
-        Write-Host "  2. Permissions - Try running as Administrator" -ForegroundColor White
-        Write-Host "  3. Restart terminal if tools were just installed" -ForegroundColor White
-        Write-Host ""
-        exit 1
-    }
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host "  Installation Failed" -ForegroundColor Red
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Common issues:" -ForegroundColor Yellow
+    Write-Host "  1. Network - Check internet connection" -ForegroundColor White
+    Write-Host "  2. Permissions - Try running as Administrator" -ForegroundColor White
+    Write-Host "  3. Restart terminal if tools were just installed" -ForegroundColor White
+    Write-Host ""
+    exit 1
 }
+
+Write-Host "  OK pnpm dependencies installed" -ForegroundColor Green
 
 Write-Host ""
-Write-Host "[9/9] Updating Rust dependencies..." -ForegroundColor Yellow
-Write-Host "  Ensuring all Rust crates are up-to-date..." -ForegroundColor Gray
+Write-Host "[9/9] Fetching Rust dependencies (Cargo.lock)..." -ForegroundColor Yellow
 
 $cargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
 if ($cargoCmd) {
-    Push-Location "$PSScriptRoot\..\apps\desktop\src-tauri"
+    Push-Location $projectRoot
     try {
-        cargo update 2>&1 | Out-Null
+        cargo fetch 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "  Rust dependencies updated successfully" -ForegroundColor Green
+            Write-Host "  OK Rust dependencies fetched from Cargo.lock" -ForegroundColor Green
         } else {
-            Write-Host "  Warning: Cargo update returned non-zero exit code (may be harmless)" -ForegroundColor Yellow
+            Write-Host "  ERROR: cargo fetch failed" -ForegroundColor Red
+            exit 1
         }
-    } catch {
-        Write-Host "  Warning: Could not update Rust dependencies" -ForegroundColor Yellow
     } finally {
         Pop-Location
     }
 } else {
     Write-Host "  Skipping (cargo not in PATH - will be available after terminal restart)" -ForegroundColor Gray
+    $needsRestart = $true
 }
 
+Write-Host ""
+Write-Host "  Checking Tauri Rust/NPM version alignment..." -ForegroundColor Gray
+& "$PSScriptRoot\verify-tauri-versions.ps1" -ProjectRoot $projectRoot
+if ($LASTEXITCODE -ne 0) {
+    exit 1
+}
+
+Write-Host ""
+Write-Host "Verifying installation..." -ForegroundColor Yellow
+
+$installIssues = @()
+if (-not (Test-Path "$nativeDepsDir\include\libavutil\avutil.h")) {
+    $installIssues += "FFmpeg dev files (target/native-deps)"
+}
+if (-not (Test-Path "$llvm18Bin\libclang.dll")) {
+    $installIssues += "LLVM 18 libclang ($llvm18Bin)"
+}
+
+if ($installIssues.Count -gt 0) {
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host "  Installation Incomplete" -ForegroundColor Red
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host ""
+    foreach ($issue in $installIssues) {
+        Write-Host "  Missing: $issue" -ForegroundColor Red
+    }
+    Write-Host ""
+    Write-Host "Re-run: .\scripts\1-install.ps1" -ForegroundColor Yellow
+    Write-Host ""
+    exit 1
+}
+
+Write-Host "  OK All native dependencies verified" -ForegroundColor Green
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host "  Installation Complete!" -ForegroundColor Green
@@ -588,11 +602,11 @@ if ($needsRestart) {
     Write-Host "IMPORTANT:" -ForegroundColor Yellow
     Write-Host "  Some tools were just installed." -ForegroundColor Yellow
     Write-Host "  Please CLOSE and REOPEN your terminal," -ForegroundColor Yellow
-    Write-Host "  then run: .\2-dev.ps1" -ForegroundColor White
+    Write-Host "  then run: .\scripts\2-dev.ps1" -ForegroundColor White
 }
 else {
     Write-Host "Next steps:" -ForegroundColor Cyan
-    Write-Host "  .\2-dev.ps1   - Start development" -ForegroundColor White
-    Write-Host "  .\3-build.ps1 - Build application" -ForegroundColor White
+    Write-Host "  .\scripts\2-dev.ps1   - Start development" -ForegroundColor White
+    Write-Host "  .\scripts\3-build.ps1 - Build application" -ForegroundColor White
 }
 Write-Host ""

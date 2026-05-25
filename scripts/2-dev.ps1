@@ -65,15 +65,37 @@ if (-not $cargo) {
     Write-Host "Solution:" -ForegroundColor Yellow
     Write-Host "  1. Close this terminal completely" -ForegroundColor White
     Write-Host "  2. Open a NEW PowerShell window" -ForegroundColor White
-    Write-Host "  3. Run: .\2-dev.ps1" -ForegroundColor White
+    Write-Host "  3. Run: .\scripts\2-dev.ps1" -ForegroundColor White
     Write-Host ""
     Write-Host "Rust is installed but PATH needs terminal restart." -ForegroundColor Gray
     exit 1
 }
 
+if (-not (Test-Path "$nativeDepsDir\include\libavutil\avutil.h")) {
+    Write-Host "  ERROR: FFmpeg development files not found" -ForegroundColor Red
+    Write-Host "  Please run: .\scripts\1-install.ps1" -ForegroundColor Yellow
+    $allOk = $false
+}
+
+$llvm18Bin = "$env:USERPROFILE\.llvm-18\bin"
+$libclangOk = Test-Path "$llvm18Bin\libclang.dll"
+if (-not $libclangOk -and (Test-Path $cargoConfig)) {
+    $configContent = Get-Content $cargoConfig -Raw
+    if ($configContent -match 'LIBCLANG_PATH\s*=\s*"([^"]+)"') {
+        $libclangFromConfig = $matches[1]
+        if (Test-Path "$libclangFromConfig\libclang.dll") {
+            $libclangOk = $true
+        }
+    }
+}
+if (-not $libclangOk) {
+    Write-Host "  ERROR: LLVM 18 libclang not found" -ForegroundColor Red
+    Write-Host "  Please run: .\scripts\1-install.ps1" -ForegroundColor Yellow
+    $allOk = $false
+}
+
 if (-not $allOk) {
     Write-Host ""
-    Write-Host "Please run: .\1-install.ps1" -ForegroundColor Yellow
     exit 1
 }
 

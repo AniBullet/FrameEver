@@ -22,7 +22,7 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";
 
 if (-not (Test-Path "$PSScriptRoot\..\node_modules")) {
     Write-Host "  ERROR: node_modules not found" -ForegroundColor Red
-    Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
+    Write-Host "  Please run: .\scripts\1-install.ps1" -ForegroundColor Yellow
     $allOk = $false
 }
 
@@ -34,7 +34,29 @@ if ((Test-Path "$nativeDepsDir\include\libavutil\avutil.h")) {
 } elseif (-not $ffmpegDir -or -not (Test-Path "$ffmpegDir\include\libavutil\avutil.h")) {
     Write-Host "  ERROR: FFmpeg development files not found" -ForegroundColor Red
     Write-Host "  Checked: target/native-deps and FFMPEG_DIR=$ffmpegDir" -ForegroundColor Yellow
-    Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
+    Write-Host "  Please run: .\scripts\1-install.ps1" -ForegroundColor Yellow
+    $allOk = $false
+}
+
+$llvm18Bin = "$env:USERPROFILE\.llvm-18\bin"
+$libclangOk = Test-Path "$llvm18Bin\libclang.dll"
+if (-not $libclangOk) {
+    $cargoConfigEarly = "$projectRoot\.cargo\config.toml"
+    if (Test-Path $cargoConfigEarly) {
+        $configEarly = Get-Content $cargoConfigEarly -Raw
+        if ($configEarly -match 'LIBCLANG_PATH\s*=\s*"([^"]+)"') {
+            $libclangFromConfigEarly = $matches[1]
+            if (Test-Path "$libclangFromConfigEarly\libclang.dll") {
+                $libclangOk = $true
+                $llvm18Bin = $libclangFromConfigEarly
+            }
+        }
+    }
+}
+if (-not $libclangOk) {
+    Write-Host "  ERROR: LLVM 18 libclang not found" -ForegroundColor Red
+    Write-Host "  Checked: $llvm18Bin and .cargo/config.toml" -ForegroundColor Yellow
+    Write-Host "  Please run: .\scripts\1-install.ps1" -ForegroundColor Yellow
     $allOk = $false
 }
 
@@ -45,13 +67,20 @@ if (-not $cargo) {
     Write-Host "Solution:" -ForegroundColor Yellow
     Write-Host "  1. Close this terminal completely" -ForegroundColor White
     Write-Host "  2. Open a NEW PowerShell window" -ForegroundColor White
-    Write-Host "  3. Run: .\3-build.ps1" -ForegroundColor White
+    Write-Host "  3. Run: .\scripts\3-build.ps1" -ForegroundColor White
     Write-Host ""
     Write-Host "Rust is installed but PATH needs terminal restart." -ForegroundColor Gray
     $allOk = $false
 }
 
 if (-not $allOk) {
+    Write-Host ""
+    exit 1
+}
+
+Write-Host "  Checking Tauri Rust/NPM version alignment..." -ForegroundColor Gray
+& "$PSScriptRoot\verify-tauri-versions.ps1" -ProjectRoot $projectRoot
+if ($LASTEXITCODE -ne 0) {
     Write-Host ""
     exit 1
 }
@@ -86,7 +115,7 @@ if (Test-Path "$nativeDepsDir\lib\avcodec.lib") {
         Write-Host "  OK FFmpeg environment configured (user env)" -ForegroundColor Green
     } else {
         Write-Host "  ERROR: FFmpeg dev environment not found" -ForegroundColor Red
-        Write-Host "  Please run: .\1-install.ps1" -ForegroundColor Yellow
+        Write-Host "  Please run: .\scripts\1-install.ps1" -ForegroundColor Yellow
         exit 1
     }
 }
@@ -227,7 +256,7 @@ if ($buildExitCode -eq 0) {
     Write-Host ""
     Write-Host "Duration: $($duration.Minutes)m $($duration.Seconds)s" -ForegroundColor White
     Write-Host ""
-    Write-Host "If build failed: run .\1-install.ps1, restart terminal, then retry. See README for requirements." -ForegroundColor Yellow
+    Write-Host "If build failed: run .\scripts\1-install.ps1, restart terminal, then retry. See README for requirements." -ForegroundColor Yellow
     Write-Host ""
     exit 1
 }
