@@ -53,9 +53,16 @@ pnpm tauri:build         # Build desktop app (release)
 ### Desktop-Specific Commands
 ```bash
 cd apps/desktop && pnpm dev              # Start SolidStart + Tauri dev
-cd apps/desktop && pnpm build:tauri      # Build development version
-cd apps/desktop && pnpm build:tauri --config src-tauri/tauri.prod.conf.json  # Build production version
+cd apps/desktop && pnpm build:tauri      # Build development version (DO NOT use for testing/release)
+cd apps/desktop && pnpm build:tauri --config src-tauri/tauri.prod.conf.json  # Build production version (ALWAYS use this for packaging/testing)
 ```
+
+### IMPORTANT: Always use production config for packaging
+When asked to "build", "package", or "打包" the app for testing, ALWAYS use the production config:
+```bash
+cd apps/desktop && pnpm build:tauri --config src-tauri/tauri.prod.conf.json
+```
+Never use the bare `pnpm build:tauri` without `--config src-tauri/tauri.prod.conf.json` unless explicitly asked for a development build.
 
 ## Development Environment Guidelines
 

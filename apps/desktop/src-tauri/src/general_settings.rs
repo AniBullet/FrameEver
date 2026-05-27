@@ -193,6 +193,8 @@ pub struct GeneralSettingsStore {
     pub disable_content_protection: bool,
     #[serde(default)]
     pub auto_compress_instant: bool,
+    #[serde(default)]
+    pub auto_compress_delete_original: bool,
 }
 
 fn default_enable_native_camera_preview() -> bool {
@@ -267,6 +269,7 @@ impl Default for GeneralSettingsStore {
             recording_codec: RecordingCodec::H264,
             disable_content_protection: false,
             auto_compress_instant: false,
+            auto_compress_delete_original: false,
         }
     }
 }

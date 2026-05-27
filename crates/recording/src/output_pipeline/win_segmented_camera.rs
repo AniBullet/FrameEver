@@ -243,7 +243,7 @@ impl Muxer for WindowsSegmentedCameraMuxer {
             if let Some(handle) = state.encoder_handle.take() {
                 match wait_for_blocking_thread_finish(
                     handle,
-                    Duration::from_secs(5),
+                    Duration::from_secs(10),
                     "Camera encoder thread",
                 ) {
                     BlockingThreadFinish::Clean => {}
@@ -668,7 +668,7 @@ impl WindowsSegmentedCameraMuxer {
             if let Some(handle) = state.encoder_handle.take() {
                 match wait_for_blocking_thread_finish(
                     handle,
-                    Duration::from_secs(5),
+                    Duration::from_secs(10),
                     "Camera encoder thread during rotation",
                 ) {
                     BlockingThreadFinish::Clean => {}

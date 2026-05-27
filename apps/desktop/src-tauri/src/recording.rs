@@ -441,7 +441,7 @@ pub fn format_project_name<'a>(
     recording_mode: RecordingMode,
     datetime: Option<chrono::DateTime<chrono::Local>>,
 ) -> String {
-    const DEFAULT_FILENAME_TEMPLATE: &str = "{target_name} ({target_kind}) {date} {time}";
+    const DEFAULT_FILENAME_TEMPLATE: &str = "{target_name}_{target_kind}_{date}_{time}";
     const MAX_TARGET_NAME_CHARS: usize = 180;
     let datetime = datetime.unwrap_or(chrono::Local::now());
 
@@ -507,7 +507,7 @@ pub fn format_project_name<'a>(
                     .get(1)
                     .map(|m| m.as_str())
                     .map(moment_format_to_chrono)
-                    .unwrap_or(Cow::Borrowed("%I:%M %p")),
+                    .unwrap_or(Cow::Borrowed("%H-%M-%S")),
             )
             .to_string()
     });
@@ -1600,10 +1600,14 @@ async fn handle_recording_finish(
 
             let app_clone = app.clone();
             let recording_dir_clone = recording_dir.clone();
-            let auto_compress = GeneralSettingsStore::get(app)
-                .ok()
-                .flatten()
+            let settings_snapshot = GeneralSettingsStore::get(app).ok().flatten();
+            let auto_compress = settings_snapshot
+                .as_ref()
                 .map(|s| s.auto_compress_instant)
+                .unwrap_or(false);
+            let delete_original_after_compress = settings_snapshot
+                .as_ref()
+                .map(|s| s.auto_compress_delete_original)
                 .unwrap_or(false);
             tokio::spawn(async move {
                 for _ in 0..30 {
@@ -1629,19 +1633,19 @@ async fn handle_recording_finish(
                                 if auto_compress {
                                     let export_path = final_export_path.clone();
                                     tokio::task::spawn_blocking(move || {
-                                        let output_path =
+                                        let compressed_output =
                                             crate::compress::compressed_path_for(&export_path);
                                         let temp_path =
                                             export_path.with_extension("_compressing.mp4");
                                         match crate::compress::compress_video_blocking(
                                             &export_path,
                                             &temp_path,
-                                            28,
+                                            23,
                                             None,
                                         ) {
                                             Ok(_) => {
                                                 if let Err(e) =
-                                                    std::fs::rename(&temp_path, &output_path)
+                                                    std::fs::rename(&temp_path, &compressed_output)
                                                 {
                                                     tracing::error!(
                                                         "Auto-compress rename failed: {e}"
@@ -1650,8 +1654,17 @@ async fn handle_recording_finish(
                                                 } else {
                                                     tracing::info!(
                                                         "Auto-compressed: {:?}",
-                                                        output_path
+                                                        compressed_output
                                                     );
+                                                    if delete_original_after_compress {
+                                                        if let Err(e) =
+                                                            std::fs::remove_file(&export_path)
+                                                        {
+                                                            tracing::error!(
+                                                                "Failed to delete original after compress: {e}"
+                                                            );
+                                                        }
+                                                    }
                                                 }
                                             }
                                             Err(e) => {
@@ -1662,6 +1675,11 @@ async fn handle_recording_finish(
                                     })
                                     .await
                                     .ok();
+
+                                    let _ = NewStudioRecordingAdded {
+                                        path: recording_dir_clone.clone(),
+                                    }
+                                    .emit(&app_clone);
                                 }
                             }
                             Err(e) => {

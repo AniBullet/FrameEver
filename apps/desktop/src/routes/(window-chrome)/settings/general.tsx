@@ -549,6 +549,13 @@ function Inner(props: { initialStore: GeneralSettingsStore | null }) {
 						value={!!settings.autoCompressInstant}
 						onChange={(value) => handleChange("autoCompressInstant", value)}
 					/>
+					<ToggleSettingItem
+						label={t("general.recording.autoCompressDeleteOriginal")}
+						description={t("general.recording.autoCompressDeleteOriginal.description")}
+						value={!!settings.autoCompressDeleteOriginal}
+						onChange={(value) => handleChange("autoCompressDeleteOriginal", value)}
+						disabled={!settings.autoCompressInstant}
+					/>
 					<SettingItem
 						label={t("general.recording.save.path")}
 						description={t("general.recording.save.path.description")}

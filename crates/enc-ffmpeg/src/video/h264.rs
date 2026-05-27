@@ -661,19 +661,18 @@ fn get_codec_and_options(
                 options.set("profile", "baseline");
             }
             "h264_nvenc" => {
-                options.set("preset", "p6");
-                options.set("tune", "hq");
+                options.set("preset", "p4");
+                options.set("tune", "ll");
                 options.set("rc", "vbr");
                 options.set("spatial-aq", "1");
                 options.set("temporal-aq", "1");
-                options.set("rc-lookahead", "32");
-                options.set("bf", "3");
-                options.set("b_adapt", "1");
+                options.set("rc-lookahead", "0");
+                options.set("bf", "0");
                 options.set("g", &keyframe_interval_str);
             }
             "h264_qsv" => {
                 options.set("preset", "faster");
-                options.set("look_ahead", "1");
+                options.set("look_ahead", "0");
                 options.set("g", &keyframe_interval_str);
             }
             "h264_amf" => {

@@ -47,39 +47,86 @@ fn calculate_controls_position_for_area(
     area_bounds: Option<&LogicalBounds>,
     window_width: f64,
     window_height: f64,
-) -> (f64, f64) {
-    let monitor = target_display
-        .and_then(Display::from_id)
-        .map(|d| {
-            let bounds = d.raw_handle().logical_bounds();
-            let (x, y, w, h) = bounds
-                .map(|b| {
-                    (
-                        b.position().x(),
-                        b.position().y(),
-                        b.size().width(),
-                        b.size().height(),
-                    )
-                })
-                .unwrap_or((
-                    0.0,
-                    0.0,
-                    DEFAULT_FALLBACK_DISPLAY_WIDTH,
-                    DEFAULT_FALLBACK_DISPLAY_HEIGHT,
-                ));
-            CursorMonitorInfo {
-                x,
-                y,
-                width: w,
-                height: h,
+) -> (i32, i32) {
+    let resolve_display = || -> Option<(f64, f64, f64, f64, f64)> {
+        let display = target_display.and_then(Display::from_id)?;
+        let phys = display.raw_handle().physical_bounds()?;
+        let log = display.raw_handle().logical_bounds()?;
+        let scale = if log.size().width() > 0.0 {
+            phys.size().width() / log.size().width()
+        } else {
+            1.0
+        };
+        Some((
+            phys.position().x(),
+            phys.position().y(),
+            phys.size().width(),
+            phys.size().height(),
+            scale,
+        ))
+    };
+
+    let (mon_x, mon_y, mon_w, mon_h, scale) = resolve_display().unwrap_or_else(|| {
+        let display = Display::get_containing_cursor().unwrap_or_else(Display::primary);
+        let phys = display.raw_handle().physical_bounds();
+        let log = display.raw_handle().logical_bounds();
+        match (phys, log) {
+            (Some(p), Some(l)) => {
+                let s = if l.size().width() > 0.0 {
+                    p.size().width() / l.size().width()
+                } else {
+                    1.0
+                };
+                (
+                    p.position().x(),
+                    p.position().y(),
+                    p.size().width(),
+                    p.size().height(),
+                    s,
+                )
             }
-        })
-        .unwrap_or_else(CursorMonitorInfo::get);
+            _ => (
+                0.0,
+                0.0,
+                DEFAULT_FALLBACK_DISPLAY_WIDTH,
+                DEFAULT_FALLBACK_DISPLAY_HEIGHT,
+                1.0,
+            ),
+        }
+    });
+
+    let phys_win_w = window_width * scale;
+    let phys_win_h = window_height * scale;
 
     if let Some(area) = area_bounds {
-        monitor.bottom_center_of_area(area, window_width, window_height)
+        let area_x = mon_x + area.position().x() * scale;
+        let area_y = mon_y + area.position().y() * scale;
+        let area_w = area.size().width() * scale;
+        let area_h = area.size().height() * scale;
+
+        let center_x = area_x + area_w / 2.0;
+        let margin = 16.0 * scale;
+        let below_y = area_y + area_h + margin;
+        let above_y = area_y - phys_win_h - margin;
+
+        let final_y = if below_y + phys_win_h <= mon_y + mon_h {
+            below_y
+        } else if above_y >= mon_y {
+            above_y
+        } else {
+            area_y + area_h - phys_win_h - margin
+        };
+
+        let final_x = (center_x - phys_win_w / 2.0)
+            .max(mon_x + margin)
+            .min(mon_x + mon_w - phys_win_w - margin);
+
+        (final_x as i32, final_y as i32)
     } else {
-        monitor.bottom_center_position(window_width, window_height, 120.0)
+        let offset_y = 120.0 * scale;
+        let pos_x = mon_x + (mon_w - phys_win_w) / 2.0;
+        let pos_y = mon_y + mon_h - phys_win_h - offset_y;
+        (pos_x as i32, pos_y as i32)
     }
 }
 
@@ -257,38 +304,6 @@ impl CursorMonitorInfo {
         let pos_x = self.x + (self.width - window_width) / 2.0;
         let pos_y = self.y + self.height - window_height - offset_y;
         (pos_x, pos_y)
-    }
-
-    fn bottom_center_of_area(
-        &self,
-        area: &LogicalBounds,
-        window_width: f64,
-        window_height: f64,
-    ) -> (f64, f64) {
-        let area_x = self.x + area.position().x();
-        let area_y = self.y + area.position().y();
-        let area_w = area.size().width();
-        let area_h = area.size().height();
-
-        let center_x = area_x + area_w / 2.0;
-
-        let margin = 16.0;
-        let below_y = area_y + area_h + margin;
-        let above_y = area_y - window_height - margin;
-
-        let final_y = if below_y + window_height <= self.y + self.height {
-            below_y
-        } else if above_y >= self.y {
-            above_y
-        } else {
-            area_y + area_h - window_height - margin
-        };
-
-        let final_x = (center_x - window_width / 2.0)
-            .max(self.x + margin)
-            .min(self.x + self.width - window_width - margin);
-
-        (final_x, final_y)
     }
 
     fn from_window(window: &tauri::WebviewWindow) -> Self {
@@ -917,7 +932,7 @@ impl ShowCapWindow {
                 width,
                 height,
             );
-            let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
+            let _ = window.set_position(PhysicalPosition::new(pos_x, pos_y));
             window.show().ok();
             window.set_focus().ok();
             return Ok(window);
@@ -1828,7 +1843,7 @@ impl ShowCapWindow {
                     width,
                     height,
                 );
-                let _ = window.set_position(tauri::LogicalPosition::new(pos_x, pos_y));
+                let _ = window.set_position(PhysicalPosition::new(pos_x, pos_y));
 
                 debug!(
                     "InProgressRecording window: pos=({}, {}), area_bounds={:?}",

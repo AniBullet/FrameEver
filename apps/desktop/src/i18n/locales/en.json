@@ -83,6 +83,8 @@
 	"general.recording.resolution.description": "Choose the maximum resolution for Instant Mode recordings",
 	"general.recording.autoCompress": "Auto-compress instant recordings",
 	"general.recording.autoCompress.description": "Automatically compress instant mode recordings with HEVC after saving",
+	"general.recording.autoCompressDeleteOriginal": "Delete original after compression",
+	"general.recording.autoCompressDeleteOriginal.description": "Remove the uncompressed original file after auto-compression succeeds",
 	"general.recording.save.path": "Recording Save Path",
 	"general.recording.save.path.description": "Default location for saving recordings",
 	"general.recording.save.path.choose": "Choose Folder",

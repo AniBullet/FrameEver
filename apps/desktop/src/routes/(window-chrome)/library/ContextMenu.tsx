@@ -99,7 +99,7 @@ export default function ContextMenu(props: Props) {
 
 		invoke("compress_video", {
 			inputPath,
-			crf: 28,
+			crf: 23,
 			progress,
 		})
 			.then(() => {

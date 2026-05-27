@@ -344,7 +344,7 @@ export function ExportPage() {
 						compression: settings.compression,
 						custom_bpp: customBpp,
 						force_ffmpeg_decoder: forceFfmpegDecoder(),
-						crf: crfMode() ? 28 : null,
+						crf: crfMode() ? 23 : null,
 					}
 				: {
 						format: "Gif",

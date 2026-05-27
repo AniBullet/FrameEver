@@ -83,6 +83,8 @@
 	"general.recording.resolution.description": "インスタントモード録画の最大解像度を選択",
 	"general.recording.autoCompress": "インスタント録画の自動圧縮",
 	"general.recording.autoCompress.description": "インスタントモードの録画保存後にHEVCで自動圧縮する",
+	"general.recording.autoCompressDeleteOriginal": "圧縮後に元ファイルを削除",
+	"general.recording.autoCompressDeleteOriginal.description": "自動圧縮完了後に未圧縮の元ファイルを削除する",
 	"general.recording.save.path": "録画保存パス",
 	"general.recording.save.path.description": "録画ファイルのデフォルト保存場所",
 	"general.recording.save.path.choose": "フォルダーを選択",

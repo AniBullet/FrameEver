@@ -94,6 +94,8 @@ pub fn compress_video_blocking(
         cap_media_info::AudioInfo::new(dec.format(), dec.rate(), dec.channels()).ok()
     });
 
+    let crf = crf.clamp(18, 35);
+
     info!(
         width = width,
         height = height,

@@ -97,7 +97,7 @@ fn finish_encoder_thread(
     handle: JoinHandle<anyhow::Result<()>>,
     label: &str,
 ) -> BlockingThreadFinish {
-    wait_for_blocking_thread_finish(handle, Duration::from_secs(5), label)
+    wait_for_blocking_thread_finish(handle, Duration::from_secs(10), label)
 }
 
 trait FinishableEncoderState {
@@ -367,30 +367,32 @@ impl WindowsFragmentedM4SMuxer {
                     let convert_start = std::time::Instant::now();
 
                     let (got_new_frame, timestamp) = match video_rx.recv_timeout(recv_timeout) {
-                        Ok(Some((frame, ts))) => match frame.as_ffmpeg_into(&mut reusable_frame) {
-                            Ok(()) => {
-                                has_valid_frame = true;
-                                last_timestamp = Some(ts);
-                                (true, ts)
-                            }
-                            Err(e) => {
-                                warn!("Failed to convert D3D11 frame: {e:?}");
-                                match (has_valid_frame, last_timestamp) {
-                                    (true, Some(last_ts)) => {
-                                        let new_ts = last_ts.saturating_add(frame_interval);
-                                        last_timestamp = Some(new_ts);
-                                        duplicated_frames += 1;
-                                        (false, new_ts)
-                                    }
-                                    _ => {
-                                        next_frame_deadline = std::time::Instant::now()
-                                            .checked_add(frame_interval)
-                                            .unwrap_or(next_frame_deadline);
-                                        continue;
+                        Ok(Some((mut frame, ts))) => {
+                            match frame.as_ffmpeg_into(&mut reusable_frame) {
+                                Ok(()) => {
+                                    has_valid_frame = true;
+                                    last_timestamp = Some(ts);
+                                    (true, ts)
+                                }
+                                Err(e) => {
+                                    warn!("Failed to convert D3D11 frame: {e:?}");
+                                    match (has_valid_frame, last_timestamp) {
+                                        (true, Some(last_ts)) => {
+                                            let new_ts = last_ts.saturating_add(frame_interval);
+                                            last_timestamp = Some(new_ts);
+                                            duplicated_frames += 1;
+                                            (false, new_ts)
+                                        }
+                                        _ => {
+                                            next_frame_deadline = std::time::Instant::now()
+                                                .checked_add(frame_interval)
+                                                .unwrap_or(next_frame_deadline);
+                                            continue;
+                                        }
                                     }
                                 }
                             }
-                        },
+                        }
                         Ok(None) | Err(RecvTimeoutError::Disconnected) => {
                             let mut drained = 0u64;
                             let drain_start = std::time::Instant::now();
@@ -398,7 +400,7 @@ impl WindowsFragmentedM4SMuxer {
 
                             loop {
                                 match video_rx.recv_timeout(Duration::from_millis(10)) {
-                                    Ok(Some((frame, ts))) => {
+                                    Ok(Some((mut frame, ts))) => {
                                         if frame.as_ffmpeg_into(&mut reusable_frame).is_ok() {
                                             let normalized_ts =
                                                 normalize_timestamp(ts, &mut first_timestamp);
@@ -456,7 +458,7 @@ impl WindowsFragmentedM4SMuxer {
 
                     if !has_valid_frame {
                         match video_rx.recv() {
-                            Ok(Some((frame, ts))) => {
+                            Ok(Some((mut frame, ts))) => {
                                 if frame.as_ffmpeg_into(&mut reusable_frame).is_ok() {
                                     has_valid_frame = true;
                                     last_timestamp = Some(ts);

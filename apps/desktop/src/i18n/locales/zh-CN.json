@@ -83,6 +83,8 @@
 	"general.recording.resolution.description": "选择快速模式录制的最大分辨率",
 	"general.recording.autoCompress": "快速录制完自动压缩",
 	"general.recording.autoCompress.description": "快速模式录制完成后自动使用 HEVC 压缩视频",
+	"general.recording.autoCompressDeleteOriginal": "压缩后删除原版",
+	"general.recording.autoCompressDeleteOriginal.description": "自动压缩完成后删除未压缩的原始文件",
 	"general.recording.save.path": "录制保存路径",
 	"general.recording.save.path.description": "录制文件的默认保存位置",
 	"general.recording.save.path.choose": "选择文件夹",

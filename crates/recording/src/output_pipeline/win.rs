@@ -487,7 +487,7 @@ impl Muxer for WindowsMuxer {
                             };
 
                             let (_got_new, ts) = match video_rx.recv_timeout(recv_timeout) {
-                                Ok(Some((frame, timestamp))) => {
+                                Ok(Some((mut frame, timestamp))) => {
                                     last_timestamp = Some(timestamp);
                                     match frame.as_ffmpeg_into(&mut reusable_frame) {
                                         Ok(()) => {
@@ -515,7 +515,7 @@ impl Muxer for WindowsMuxer {
 
                             if !has_valid_frame {
                                 match video_rx.recv() {
-                                    Ok(Some((frame, timestamp))) => {
+                                    Ok(Some((mut frame, timestamp))) => {
                                         last_timestamp = Some(timestamp);
                                         if frame.as_ffmpeg_into(&mut reusable_frame).is_ok() {
                                             has_valid_frame = true;

@@ -66,9 +66,9 @@ export default function DetailPanel(props: Props) {
 	};
 
 	const previewSrc = () => {
-		const path = activeFilePath();
-		if (!path) return "";
 		if (props.item.itemType === "screenshot") {
+			const path = activeFilePath();
+			if (!path) return "";
 			return convertFileSrc(path);
 		}
 		if (props.item.thumbnailPath) {
@@ -79,9 +79,9 @@ export default function DetailPanel(props: Props) {
 
 	const videoPreviewSrc = () => {
 		if (props.item.itemType !== "video") return "";
+		if (props.item.thumbnailPath) return "";
 		const path = activeFilePath();
 		if (!path) return "";
-		if (props.item.thumbnailPath) return "";
 		return convertFileSrc(path);
 	};
 
@@ -135,7 +135,7 @@ export default function DetailPanel(props: Props) {
 			id: "compress-progress",
 		});
 
-		invoke("compress_video", { inputPath, crf: 28, progress })
+		invoke("compress_video", { inputPath, crf: 23, progress })
 			.then(() => {
 				toast.success(t("library.detail.compressComplete"), {
 					id: "compress-progress",

@@ -2389,54 +2389,75 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                         continue;
                     }
 
-                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        let id = name.to_string();
-                        let created_at = path
-                            .metadata()
-                            .and_then(|m| m.created())
-                            .unwrap_or(SystemTime::UNIX_EPOCH)
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs() as f64;
+                    let Some(raw_stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                        continue;
+                    };
 
+                    let (id, is_orphan_compressed) =
+                        if let Some(original_stem) = raw_stem.strip_suffix("_compressed") {
+                            let original_path = path.with_file_name(format!("{original_stem}.mp4"));
+                            if !original_path.exists() {
+                                (original_stem.to_string(), true)
+                            } else {
+                                (raw_stem.to_string(), false)
+                            }
+                        } else {
+                            (raw_stem.to_string(), false)
+                        };
+
+                    let created_at = path
+                        .metadata()
+                        .and_then(|m| m.created())
+                        .unwrap_or(SystemTime::UNIX_EPOCH)
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as f64;
+
+                    let (comp_path, comp_size) = if is_orphan_compressed {
+                        (Some(path.clone()), export_file_size)
+                    } else {
                         let compressed_path = crate::compress::compressed_path_for(path);
-                        let (comp_path, comp_size) = if compressed_path.exists() {
+                        if compressed_path.exists() {
                             let size = std::fs::metadata(&compressed_path)
                                 .ok()
                                 .map(|m| m.len() as f64);
                             (Some(compressed_path), size)
                         } else {
                             (None, None)
-                        };
-
-                        if let Some(existing) = items_map.get_mut(&id) {
-                            existing.exported_file_path = Some(path.clone());
-                            existing.status = LibraryItemStatus::Exported;
-                            existing.compressed_file_path = comp_path;
-                            existing.compressed_file_size = comp_size;
-                            if existing.file_size.is_none() {
-                                existing.file_size = export_file_size;
-                            }
-                        } else {
-                            items_map.insert(
-                                id.clone(),
-                                LibraryItem {
-                                    id: id.clone(),
-                                    name: name.to_string(),
-                                    item_type: LibraryItemType::Video,
-                                    status: LibraryItemStatus::ExportedNoSource,
-                                    cap_project_path: None,
-                                    exported_file_path: Some(path.clone()),
-                                    compressed_file_path: comp_path,
-                                    compressed_file_size: comp_size,
-                                    thumbnail_path: None,
-                                    created_at,
-                                    file_size: export_file_size,
-                                    meta: None,
-                                    is_editable: false,
-                                },
-                            );
                         }
+                    };
+
+                    if let Some(existing) = items_map.get_mut(&id) {
+                        existing.exported_file_path = Some(path.clone());
+                        existing.status = LibraryItemStatus::Exported;
+                        existing.compressed_file_path = comp_path;
+                        existing.compressed_file_size = comp_size;
+                        if existing.file_size.is_none() {
+                            existing.file_size = export_file_size;
+                        }
+                    } else {
+                        items_map.insert(
+                            id.clone(),
+                            LibraryItem {
+                                id: id.clone(),
+                                name: if is_orphan_compressed {
+                                    id.clone()
+                                } else {
+                                    raw_stem.to_string()
+                                },
+                                item_type: LibraryItemType::Video,
+                                status: LibraryItemStatus::ExportedNoSource,
+                                cap_project_path: None,
+                                exported_file_path: Some(path.clone()),
+                                compressed_file_path: comp_path,
+                                compressed_file_size: comp_size,
+                                thumbnail_path: None,
+                                created_at,
+                                file_size: export_file_size,
+                                meta: None,
+                                is_editable: false,
+                            },
+                        );
                     }
                 }
             }

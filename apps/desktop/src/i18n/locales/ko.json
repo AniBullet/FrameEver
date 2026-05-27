@@ -83,6 +83,8 @@
 	"general.recording.resolution.description": "인스턴트 모드 녹화의 최대 해상도 선택",
 	"general.recording.autoCompress": "인스턴트 녹화 자동 압축",
 	"general.recording.autoCompress.description": "인스턴트 모드 녹화 저장 후 HEVC로 자동 압축",
+	"general.recording.autoCompressDeleteOriginal": "압축 후 원본 삭제",
+	"general.recording.autoCompressDeleteOriginal.description": "자동 압축 완료 후 압축되지 않은 원본 파일을 삭제",
 	"general.recording.save.path": "녹화 저장 경로",
 	"general.recording.save.path.description": "녹화 파일의 기본 저장 위치",
 	"general.recording.save.path.choose": "폴더 선택",

@@ -26,6 +26,7 @@ export function ToggleSettingItem(props: {
 	description?: string;
 	value: boolean;
 	onChange(v: boolean): void;
+	disabled?: boolean;
 }) {
 	return (
 		<SettingItem {...props}>
@@ -33,6 +34,7 @@ export function ToggleSettingItem(props: {
 				size="sm"
 				checked={props.value}
 				onChange={(v) => props.onChange(v)}
+				disabled={props.disabled}
 			/>
 		</SettingItem>
 	);

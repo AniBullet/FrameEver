@@ -245,7 +245,7 @@ impl Muxer for WindowsSegmentedMuxer {
             if let Some(handle) = state.encoder_handle.take() {
                 match wait_for_blocking_thread_finish(
                     handle,
-                    Duration::from_secs(5),
+                    Duration::from_secs(10),
                     "Screen encoder thread",
                 ) {
                     BlockingThreadFinish::Clean => {}
@@ -593,7 +593,7 @@ impl WindowsSegmentedMuxer {
                         }
                     }
                     either::Right(mut encoder) => {
-                        while let Ok(Some((frame, time))) = video_rx.recv() {
+                        while let Ok(Some((mut frame, time))) = video_rx.recv() {
                             let Ok(mut output) = output_clone.lock() else {
                                 continue;
                             };
@@ -643,7 +643,7 @@ impl WindowsSegmentedMuxer {
             if let Some(handle) = state.encoder_handle.take() {
                 match wait_for_blocking_thread_finish(
                     handle,
-                    Duration::from_secs(5),
+                    Duration::from_secs(10),
                     "Screen encoder thread during rotation",
                 ) {
                     BlockingThreadFinish::Clean => {}
