@@ -8,11 +8,7 @@ use crate::{
 
 #[cfg(target_os = "macos")]
 use crate::output_pipeline::{MacOSFragmentedM4SMuxer, MacOSFragmentedM4SMuxerConfig};
-#[cfg(windows)]
-use crate::output_pipeline::{WindowsFragmentedM4SMuxer, WindowsFragmentedM4SMuxerConfig};
 use anyhow::anyhow;
-#[cfg(windows)]
-use cap_enc_ffmpeg::h264::H264Preset;
 use cap_timestamp::Timestamps;
 use std::{path::PathBuf, sync::Arc};
 
@@ -163,51 +159,32 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
         output_path: PathBuf,
         start_time: Timestamps,
         fragmented: bool,
-        shared_pause_state: Option<SharedPauseState>,
+        _shared_pause_state: Option<SharedPauseState>,
         output_size: Option<(u32, u32)>,
         fps: u32,
         bitrate_multiplier: f32,
         encoder_preferences: EncoderPreferences,
     ) -> anyhow::Result<OutputPipeline> {
-        if fragmented {
-            let fragments_dir = output_path
-                .parent()
-                .map(|p| p.join("display"))
-                .unwrap_or_else(|| output_path.with_file_name("display"));
-
-            OutputPipeline::builder(fragments_dir)
-                .with_video::<screen_capture::VideoSource>(screen_capture)
-                .with_timestamps(start_time)
-                .build::<WindowsFragmentedM4SMuxer>(WindowsFragmentedM4SMuxerConfig {
-                    segment_duration: std::time::Duration::from_secs(3),
-                    preset: H264Preset::Ultrafast,
-                    bpp: bitrate_multiplier,
-                    output_size,
-                    shared_pause_state,
-                    disk_space_callback: None,
-                })
-                .await
-        } else {
-            let d3d_device = screen_capture.d3d_device.clone();
-            OutputPipeline::builder(output_path.clone())
-                .with_video::<screen_capture::VideoSource>(screen_capture)
-                .with_timestamps(start_time)
-                .build::<WindowsMuxer>(WindowsMuxerConfig {
-                    pixel_format: screen_capture::Direct3DCapture::PIXEL_FORMAT.as_dxgi(),
-                    d3d_device,
-                    bitrate_multiplier,
-                    frame_rate: fps,
-                    output_size: output_size.map(|(w, h)| windows::Graphics::SizeInt32 {
-                        Width: w as i32,
-                        Height: h as i32,
-                    }),
-                    encoder_preferences,
-                    fragmented: false,
-                    frag_duration_us: 2_000_000,
-                    codec: VideoCodec::H264,
-                })
-                .await
-        }
+        let _ = fragmented;
+        let d3d_device = screen_capture.d3d_device.clone();
+        OutputPipeline::builder(output_path.clone())
+            .with_video::<screen_capture::VideoSource>(screen_capture)
+            .with_timestamps(start_time)
+            .build::<WindowsMuxer>(WindowsMuxerConfig {
+                pixel_format: screen_capture::Direct3DCapture::PIXEL_FORMAT.as_dxgi(),
+                d3d_device,
+                bitrate_multiplier,
+                frame_rate: fps,
+                output_size: output_size.map(|(w, h)| windows::Graphics::SizeInt32 {
+                    Width: w as i32,
+                    Height: h as i32,
+                }),
+                encoder_preferences,
+                fragmented: false,
+                frag_duration_us: 2_000_000,
+                codec: VideoCodec::H264,
+            })
+            .await
     }
 
     async fn make_instant_mode_pipeline(
