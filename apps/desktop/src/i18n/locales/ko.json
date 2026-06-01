@@ -462,14 +462,12 @@
 	"captureArea.confirm": "확인",
 
 	"main.loading": "로딩 중...",
-	"main.signingIn": "로그인 중...",
 	"main.aria.chooseDisplay": "디스플레이 선택",
 	"main.aria.chooseWindow": "창 선택",
 
 	"editor.video.backToEditor": "편집기로 돌아가기",
 	"editor.video.preview.label": "미리보기",
 	"editor.video.generatingPreview": "미리보기 생성 중...",
-	"editor.video.organization": "구성",
 	"editor.video.smallerFile": "작은 파일",
 	"editor.video.largerFile": "큰 파일",
 	"editor.video.advanced": "고급",

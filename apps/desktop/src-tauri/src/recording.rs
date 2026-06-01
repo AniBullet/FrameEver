@@ -589,8 +589,8 @@ pub async fn start_recording(
         None,
     );
 
-    let filename = project_name.replace(":", ".");
-    let filename = format!("{}.cap", sanitize_filename::sanitize(&filename));
+    let sanitized_name = project_name.replace(":", "-").replace(" ", "_");
+    let filename = format!("{}.cap", sanitize_filename::sanitize(&sanitized_name));
 
     let recordings_base_dir = GeneralSettingsStore::recordings_path(&app);
 
@@ -614,7 +614,7 @@ pub async fn start_recording(
     let meta = RecordingMeta {
         platform: Some(Platform::default()),
         project_path: project_file_path.clone(),
-        pretty_name: project_name.clone(),
+        pretty_name: sanitized_name.clone(),
         inner: match inputs.mode {
             RecordingMode::Studio => {
                 RecordingMetaInner::Studio(Box::new(StudioRecordingMeta::MultipleSegments {
@@ -1313,8 +1313,8 @@ pub async fn take_screenshot(
     let image_height = image.height();
     let image_data = image.into_rgb8().into_raw();
 
-    let filename = project_name.replace(":", ".");
-    let filename = format!("{}.png", sanitize_filename::sanitize(&filename));
+    let sanitized_name = project_name.replace(":", "-").replace(" ", "_");
+    let filename = format!("{}.png", sanitize_filename::sanitize(&sanitized_name));
 
     let screenshots_dir = GeneralSettingsStore::exports_screenshot_path(&app);
 

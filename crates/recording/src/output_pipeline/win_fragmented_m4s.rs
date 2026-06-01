@@ -341,7 +341,6 @@ impl WindowsFragmentedM4SMuxer {
                     video_config.width,
                     video_config.height,
                 );
-                let mut converted_frame: Option<ffmpeg::frame::Video> = None;
                 let mut has_valid_frame = false;
 
                 let normalize_timestamp =
@@ -405,11 +404,11 @@ impl WindowsFragmentedM4SMuxer {
                                             let normalized_ts =
                                                 normalize_timestamp(ts, &mut first_timestamp);
                                             let encode_start = std::time::Instant::now();
+                                            let owned_frame = reusable_frame.clone();
                                             match encoder_clone.lock() {
                                                 Ok(mut enc) => {
-                                                    if let Err(e) = enc.queue_frame_reusable(
-                                                        &mut reusable_frame,
-                                                        &mut converted_frame,
+                                                    if let Err(e) = enc.queue_frame(
+                                                        owned_frame,
                                                         normalized_ts,
                                                     ) {
                                                         warn!(
@@ -487,13 +486,10 @@ impl WindowsFragmentedM4SMuxer {
                     let normalized_ts = normalize_timestamp(timestamp, &mut first_timestamp);
 
                     let encode_start = std::time::Instant::now();
+                    let owned_frame = reusable_frame.clone();
                     match encoder_clone.lock() {
                         Ok(mut enc) => {
-                            if let Err(e) = enc.queue_frame_reusable(
-                                &mut reusable_frame,
-                                &mut converted_frame,
-                                normalized_ts,
-                            ) {
+                            if let Err(e) = enc.queue_frame(owned_frame, normalized_ts) {
                                 warn!("Failed to encode frame: {e}");
                             }
                         }

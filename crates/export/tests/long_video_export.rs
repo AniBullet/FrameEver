@@ -69,7 +69,6 @@ fn create_cap_project(project_dir: &Path, duration_secs: u32) -> Result<(), Stri
 
     let recording_meta = serde_json::json!({
         "pretty_name": "Long Video Test",
-        "sharing": null,
         "display": {
             "path": "content/display.mp4",
             "fps": TEST_VIDEO_FPS

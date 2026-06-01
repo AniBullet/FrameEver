@@ -358,7 +358,6 @@ fn create_cap_project(project_dir: &Path, duration_secs: u32, fps: u32) -> Resul
 
     let recording_meta = serde_json::json!({
         "pretty_name": "Export Benchmark Test",
-        "sharing": null,
         "display": {
             "path": "content/display.mp4",
             "fps": fps

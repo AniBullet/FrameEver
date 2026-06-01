@@ -54,7 +54,6 @@ declare global {
 	}
 }
 
-const MAX_RECORDING_FOR_FREE = 5 * 60 * 1000;
 const NO_MICROPHONE = "No Microphone";
 const NO_WEBCAM = "No Webcam";
 const FAKE_WINDOW_BOUNDS_NAME = "recording-controls-interactive-area";
@@ -513,28 +512,6 @@ function InProgressRecordingInner() {
 		return Math.max(0, t);
 	};
 
-	const isMaxRecordingLimitEnabled = () => {
-		// 移除付费限制，允许所有用户无限录制
-		return false;
-	};
-
-	let aborted = false;
-	createEffect(() => {
-		if (
-			isMaxRecordingLimitEnabled() &&
-			adjustedTime() > MAX_RECORDING_FOR_FREE &&
-			!aborted
-		) {
-			aborted = true;
-			stopRecording.mutate();
-		}
-	});
-
-	const remainingRecordingTime = () => {
-		if (MAX_RECORDING_FOR_FREE < adjustedTime()) return 0;
-		return MAX_RECORDING_FOR_FREE - adjustedTime();
-	};
-
 	const isInitializing = () => state().variant === "initializing";
 	const isCountdown = () => state().variant === "countdown";
 	const countdownCurrent = () => {
@@ -632,12 +609,7 @@ function InProgressRecordingInner() {
 													</div>
 												}
 											>
-												<Show
-													when={isMaxRecordingLimitEnabled()}
-													fallback={formatTime(adjustedTime() / 1000)}
-												>
-													{formatTime(remainingRecordingTime() / 1000)}
-												</Show>
+												{formatTime(adjustedTime() / 1000)}
 											</Show>
 										</Show>
 									</span>

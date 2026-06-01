@@ -310,17 +310,29 @@ impl H264EncoderBuilder {
                 ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT709;
         }
 
-        let bitrate = get_bitrate(
-            output_width,
-            output_height,
-            input_config.frame_rate.0 as f32 / input_config.frame_rate.1 as f32,
-            bpp,
+        let is_cqp_encoder = matches!(
+            codec.name(),
+            "h264_nvenc" | "h264_amf" | "h264_qsv"
         );
 
-        encoder.set_bit_rate(bitrate);
-        unsafe {
-            (*encoder.as_mut_ptr()).rc_max_rate = (bitrate as f64 * 1.5) as i64;
-            (*encoder.as_mut_ptr()).rc_buffer_size = bitrate as i32;
+        if is_cqp_encoder {
+            encoder.set_bit_rate(0);
+            unsafe {
+                (*encoder.as_mut_ptr()).rc_max_rate = 0;
+                (*encoder.as_mut_ptr()).rc_buffer_size = 0;
+            }
+        } else {
+            let bitrate = get_bitrate(
+                output_width,
+                output_height,
+                input_config.frame_rate.0 as f32 / input_config.frame_rate.1 as f32,
+                bpp,
+            );
+            encoder.set_bit_rate(bitrate);
+            unsafe {
+                (*encoder.as_mut_ptr()).rc_max_rate = (bitrate as f64 * 1.5) as i64;
+                (*encoder.as_mut_ptr()).rc_buffer_size = bitrate as i32;
+            }
         }
 
         let encoder = encoder.open_with(encoder_options)?;
@@ -661,23 +673,26 @@ fn get_codec_and_options(
                 options.set("profile", "baseline");
             }
             "h264_nvenc" => {
-                options.set("preset", "p4");
+                options.set("preset", "p5");
                 options.set("tune", "ll");
-                options.set("rc", "vbr");
-                options.set("spatial-aq", "1");
-                options.set("temporal-aq", "1");
+                options.set("rc", "constqp");
+                options.set("qp", "20");
                 options.set("rc-lookahead", "0");
                 options.set("bf", "0");
                 options.set("g", &keyframe_interval_str);
             }
             "h264_qsv" => {
                 options.set("preset", "faster");
+                options.set("global_quality", "20");
                 options.set("look_ahead", "0");
                 options.set("g", &keyframe_interval_str);
             }
             "h264_amf" => {
-                options.set("quality", "balanced");
-                options.set("rc", "vbr_latency");
+                options.set("quality", "quality");
+                options.set("rc", "cqp");
+                options.set("qp_i", "20");
+                options.set("qp_p", "20");
+                options.set("bf", "0");
                 options.set("g", &keyframe_interval_str);
             }
             "h264_mf" => {

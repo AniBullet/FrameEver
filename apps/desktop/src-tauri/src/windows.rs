@@ -295,6 +295,7 @@ impl CursorMonitorInfo {
         (pos_x, pos_y)
     }
 
+    #[allow(dead_code)]
     fn bottom_center_position(
         &self,
         window_width: f64,

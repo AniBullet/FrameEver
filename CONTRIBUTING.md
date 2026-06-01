@@ -1,60 +1,49 @@
-# Cap Contributor Guide
+# Cap-aniBullet Contributor Guide
 
 ## Introduction
 
-### What is Cap?
+### What is Cap-aniBullet?
 
-Cap is an open source and privacy focused alternative to Loom. It's a video messaging tool that allows you to record, edit and share videos in seconds.
-
-The development of Cap is still in its early stages, so please bare with us as we build out this guide.
-
-### What is this guide?
-
-This guide is for anyone who wants to contribute to Cap. It's a work in progress, and will be updated regularly.
+Cap-aniBullet is a local-first, open source screen recording application forked from [Cap](https://github.com/CapSoftware/Cap). It focuses on unlimited local recording, editing, and export without cloud dependencies.
 
 ### How can I contribute?
 
-There are many ways to contribute to Cap. You can:
-
-- [Report a bug](https://github.com/CapSoftware/cap/issues/new)
-- [Suggest a feature (via Discord)](https://discord.com/invite/y8gdQ3WRN3)
+- [Report a bug](https://github.com/AniBullet/Cap-aniBullet/issues/new)
+- [Start a discussion](https://github.com/AniBullet/Cap-aniBullet/discussions)
 - Submit a PR
 
-## Runing Cap
+## Running Cap-aniBullet
 
 ### Development Requirements
 
-Before anything else, make sure you have the following installed:
-
-- Node Version 20+
+- Node 20+
 - Rust 1.88.0+
-- pnpm 8.10.5+
-- Docker ([OrbStack](https://orbstack.dev/) recommended)
+- pnpm 10+
 
 ### General Setup
 
-Run `pnpm install`, then run `pnpm cap-setup` to install native dependencies such as FFmpeg.
+Run `pnpm install`, then run the setup scripts in `scripts/` to install native dependencies (FFmpeg, LLVM, etc.).
 
-On Windows, llvm, clang, and VCPKG must be installed.
-`pnpm cap-setup` does not yet install these dependencies for you.
-
-Run `pnpm env-setup` to generate a `.env` file configured for your environment.
-It will ask you which apps you intend to run, whether you'd like to use Docker to run S3 (MinIO) and MySQL locally,
-and allow you to provide overrides as needed.
-
-To run both `@cap/desktop` and `@cap/web` together, use `pnpm dev`.
-To run only one of them, use `pnpm dev:desktop` or `pnpm dev:web` respectively.
+On Windows, see `BUILD.md` for detailed instructions.
 
 ### `@cap/desktop` (desktop app)
 
-When running `@cap/desktop` from a terminal on Windows,
-you may need to grant permissions (screen recording, microphone, etc.) depending on your Windows settings.
+To start development:
+
+```bash
+pnpm dev
+```
+
+Or use the PowerShell scripts:
+
+```powershell
+.\scripts\1-install.ps1   # Install dependencies
+.\scripts\2-dev.ps1       # Start dev server
+.\scripts\3-build.ps1     # Build production
+```
+
+When running on Windows, you may need to grant permissions (screen recording, microphone, etc.) depending on your Windows settings.
 
 #### Where are my recordings stored?
 
-You can find your recordings at `%programfiles%/so.cap.desktop.dev/recordings` on Windows.
-
-### `@cap/web` (cap.so website)
-
-When running `pnpm dev` or `pnpm dev:web`, a MySQL database and MinIO S3 server will also be using Docker.
-If you want to _only_ run the `@cap/web` NextJS app, `cd` into `./apps/web` and run `pnpm dev`.
+You can find your recordings at `%APPDATA%/so.cap.desktop.anibullet/recordings` on Windows.

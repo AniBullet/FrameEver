@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { batch, createEffect, createMemo, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { useRecordingOptions } from "~/routes/(window-chrome)/OptionsContext";
-import { generalSettingsStore, recordingSettingsStore } from "~/store";
+import { recordingSettingsStore } from "~/store";
 import { createQueryInvalidate } from "./events";
 import {
 	type CameraInfo,
@@ -149,7 +149,6 @@ export function createOptionsQuery() {
 		captureSystemAudio?: boolean;
 		targetMode?: ExtendedRecordingTargetMode;
 		cameraID?: DeviceOrModelID | null;
-		organizationId?: string | null;
 		/** @deprecated */
 		cameraLabel: string | null;
 	}>({
@@ -157,7 +156,6 @@ export function createOptionsQuery() {
 		micName: null,
 		cameraLabel: null,
 		mode: "studio",
-		organizationId: null,
 	});
 
 	createEventListener(window, "storage", (e) => {
@@ -182,7 +180,6 @@ export function createOptionsQuery() {
 			cameraId: _state.cameraID,
 			mode: _state.mode,
 			systemAudio: _state.captureSystemAudio,
-			organizationId: _state.organizationId,
 		};
 
 		if (initialized) {
@@ -210,30 +207,6 @@ export function createCurrentRecordingQuery() {
 	createQueryInvalidate(currentRecording, "currentRecordingChanged");
 
 	return currentRecording;
-}
-
-export function createLicenseQuery() {
-	const query = createQuery(() => ({
-		queryKey: ["licenseQuery"],
-		queryFn: async () => {
-			const settings = await generalSettingsStore.get();
-
-			if (settings?.commercialLicense)
-				return {
-					type: "commercial" as const,
-					...settings.commercialLicense,
-					instanceId: settings.instanceId,
-				};
-			return { type: "personal" as const };
-		},
-	}));
-
-	const unlistenPromise = generalSettingsStore.listen(() => query.refetch());
-	onCleanup(() => {
-		unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
-	});
-
-	return query;
 }
 
 export function createCameraMutation() {

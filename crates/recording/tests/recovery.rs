@@ -101,8 +101,6 @@ impl TestRecording {
             platform: None,
             project_path: self.project_path.clone(),
             pretty_name: "Test Recording".to_string(),
-            sharing: None,
-            upload: None,
             inner: RecordingMetaInner::Studio(Box::new(StudioRecordingMeta::MultipleSegments {
                 inner: MultipleSegments {
                     segments: vec![MultipleSegment {

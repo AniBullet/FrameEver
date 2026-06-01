@@ -467,14 +467,12 @@
 	"captureArea.confirm": "Confirm",
 
 	"main.loading": "Loading...",
-	"main.signingIn": "Signing In...",
 	"main.aria.chooseDisplay": "Choose display",
 	"main.aria.chooseWindow": "Choose window",
 
 	"editor.video.backToEditor": "Back to Editor",
 	"editor.video.preview.label": "Preview",
 	"editor.video.generatingPreview": "Generating preview...",
-	"editor.video.organization": "Organization",
 	"editor.video.smallerFile": "Smaller file",
 	"editor.video.largerFile": "Larger file",
 	"editor.video.advanced": "Advanced",

@@ -118,12 +118,13 @@ use specta::Type;
 use tauri_specta::Event;
 
 #[derive(Serialize, Type, tauri_specta::Event, Debug, Clone)]
-pub struct UploadProgress {
-    progress: f64,
-    message: String,
+pub struct NewNotification {
+    title: String,
+    body: String,
+    is_error: bool,
 }
 
-UploadProgress { progress: 0.0, message: "Starting upload...".to_string() }
+NewNotification { title: "Done".into(), body: "Export complete".into(), is_error: false }
     .emit(&app)
     .ok();
 ```
@@ -131,7 +132,7 @@ UploadProgress { progress: 0.0, message: "Starting upload...".to_string() }
 Frontend (listen; generated bindings):
 ```ts
 import { events } from "./tauri"; // auto-generated
-await events.uploadProgress.listen((event) => {
+await events.newNotification.listen((event) => {
   // update UI with event.payload
 });
 ```
@@ -149,7 +150,7 @@ await events.uploadProgress.listen((event) => {
 #### Desktop IPC Commands
 ```rust
 // Rust side - emit events
-UploadProgress { progress: 0.5, message: "Uploading...".to_string() }
+NewNotification { title: "Done".into(), body: "Export complete".into(), is_error: false }
   .emit(&app)
   .ok();
 ```
@@ -162,8 +163,8 @@ import { events, commands } from "./tauri";
 await commands.startRecording({ ... });
 
 // Listen to events
-await events.uploadProgress.listen((event) => {
-  setProgress(event.payload.progress);
+await events.newNotification.listen((event) => {
+  showToast(event.payload.title);
 });
 ```
 

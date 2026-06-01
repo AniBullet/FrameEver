@@ -16,7 +16,6 @@ mod general_settings;
 mod hotkeys;
 mod http_client;
 mod import;
-mod logging;
 mod notifications;
 mod panel_manager;
 mod permissions;

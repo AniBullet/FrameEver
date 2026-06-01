@@ -115,7 +115,7 @@ const MAX_FPS_OPTIONS = [
 }[];
 
 const DEFAULT_PROJECT_NAME_TEMPLATE =
-	"{target_name} ({target_kind}) {date} {time}";
+	"{target_name}_{target_kind}_{date}_{time}";
 
 export default function GeneralSettings() {
 	const [store] = createResource(() => generalSettingsStore.get());

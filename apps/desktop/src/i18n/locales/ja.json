@@ -461,14 +461,12 @@
 	"captureArea.confirm": "確認",
 
 	"main.loading": "読み込み中...",
-	"main.signingIn": "サインイン中...",
 	"main.aria.chooseDisplay": "ディスプレイを選択",
 	"main.aria.chooseWindow": "ウィンドウを選択",
 
 	"editor.video.backToEditor": "エディタに戻る",
 	"editor.video.preview.label": "プレビュー",
 	"editor.video.generatingPreview": "プレビューを生成中...",
-	"editor.video.organization": "整理",
 	"editor.video.smallerFile": "小さいファイル",
 	"editor.video.largerFile": "大きいファイル",
 	"editor.video.advanced": "詳細",

@@ -468,14 +468,12 @@
 	"captureArea.confirm": "确认",
 
 	"main.loading": "加载中...",
-	"main.signingIn": "登录中...",
 	"main.aria.chooseDisplay": "选择显示器",
 	"main.aria.chooseWindow": "选择窗口",
 
 	"editor.video.backToEditor": "返回编辑器",
 	"editor.video.preview.label": "预览",
 	"editor.video.generatingPreview": "正在生成预览...",
-	"editor.video.organization": "组织",
 	"editor.video.smallerFile": "更小文件",
 	"editor.video.largerFile": "更大文件",
 	"editor.video.advanced": "高级",

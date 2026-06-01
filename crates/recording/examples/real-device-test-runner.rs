@@ -1442,9 +1442,7 @@ async fn execute_recording(
         platform: Some(Platform::default()),
         project_path: recording_dir.clone(),
         pretty_name,
-        sharing: None,
         inner: RecordingMetaInner::Studio(Box::new(completed.meta)),
-        upload: None,
     };
     meta.save_for_project()
         .map_err(|e| anyhow::anyhow!("Failed to save recording metadata: {:?}", e))?;

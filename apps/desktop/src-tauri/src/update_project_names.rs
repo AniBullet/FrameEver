@@ -202,7 +202,7 @@ async fn migrate_single_project(
     };
 
     // Lock on the base sanitized name to prevent concurrent migrations with same target
-    let base_name = sanitize_filename::sanitize(meta.pretty_name.replace(":", "."));
+    let base_name = sanitize_filename::sanitize(meta.pretty_name.replace(":", "-").replace(" ", "_"));
     {
         let mut in_flight = in_flight_basis.lock().await;
         let mut wait_count = 0;
@@ -255,7 +255,7 @@ async fn migrate_project_filename_async(
     project_path: &Path,
     meta: &RecordingMeta,
 ) -> Result<PathBuf, String> {
-    let sanitized = sanitize_filename::sanitize(meta.pretty_name.replace(":", "."));
+    let sanitized = sanitize_filename::sanitize(meta.pretty_name.replace(":", "-").replace(" ", "_"));
 
     let filename = if sanitized.ends_with(".cap") {
         sanitized
