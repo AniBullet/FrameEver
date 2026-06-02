@@ -11,9 +11,9 @@ import IconLucideEdit from "~icons/lucide/edit";
 import IconLucideExternalLink from "~icons/lucide/external-link";
 import IconLucideFolder from "~icons/lucide/folder";
 import IconLucideImage from "~icons/lucide/image";
+import IconLucideLoader from "~icons/lucide/loader-2";
 import IconLucideMinimize2 from "~icons/lucide/minimize-2";
 import IconLucidePlay from "~icons/lucide/play";
-import IconLucideLoader from "~icons/lucide/loader-2";
 import IconLucideTrash from "~icons/lucide/trash-2";
 import IconLucideVideo from "~icons/lucide/video";
 import IconLucideX from "~icons/lucide/x";
@@ -277,15 +277,17 @@ export default function DetailPanel(props: Props) {
 
 	return (
 		<div class="w-96 bg-gray-2 border-l border-gray-4 flex flex-col">
-			<div class="h-16 border-b border-gray-4 flex items-center justify-between px-4">
-				<h3 class="font-semibold text-gray-12">{t("library.detail.title")}</h3>
+			<div class="h-10 border-b border-gray-4 flex items-center justify-between px-3">
+				<span class="text-xs font-medium text-gray-11">
+					{t("library.detail.title")}
+				</span>
 				<button
 					type="button"
 					onClick={props.onClose}
-					class="p-2 rounded-lg hover:bg-gray-3 transition-colors"
+					class="p-1 rounded-md hover:bg-gray-3 transition-colors"
 					aria-label={t("library.detail.close")}
 				>
-					<IconLucideX class="size-4 text-gray-11" />
+					<IconLucideX class="size-3.5 text-gray-11" />
 				</button>
 			</div>
 
@@ -370,34 +372,25 @@ export default function DetailPanel(props: Props) {
 					</div>
 				</Show>
 
-				<div class="space-y-3">
-					<div>
-						<label class="text-xs font-semibold text-gray-11 uppercase tracking-wider">
-							{t("library.detail.name")}
-						</label>
-						<p class="mt-1 text-sm text-gray-12 break-words">
-							{props.item.name}
-						</p>
-					</div>
-
-					<div>
-						<label class="text-xs font-semibold text-gray-11 uppercase tracking-wider">
+				<div>
+					<p class="text-sm font-medium text-gray-12 break-words mb-2">
+						{props.item.name}
+					</p>
+					<div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+						<span class="text-gray-10 self-center">
 							{t("library.detail.type")}
-						</label>
-						<p class="mt-1 text-sm text-gray-11">
+						</span>
+						<span class="text-gray-12">
 							{props.item.itemType === "video"
 								? t("library.type.video")
 								: t("library.type.screenshot")}
-						</p>
-					</div>
-
-					<div>
-						<label class="text-xs font-semibold text-gray-11 uppercase tracking-wider">
+						</span>
+						<span class="text-gray-10 self-center">
 							{t("library.detail.status")}
-						</label>
-						<div class="mt-1 flex items-center gap-2">
+						</span>
+						<span class="flex items-center gap-1.5 text-gray-12">
 							<Show when={props.item.status === "editing"}>
-								<IconLucideEdit class="size-4 text-orange-500" />
+								<IconLucideEdit class="size-3 text-orange-500 shrink-0" />
 							</Show>
 							<Show
 								when={
@@ -405,141 +398,125 @@ export default function DetailPanel(props: Props) {
 									props.item.status === "exportedNoSource"
 								}
 							>
-								<IconLucideCheckCircle class="size-4 text-green-500" />
+								<IconLucideCheckCircle class="size-3 text-green-500 shrink-0" />
 							</Show>
-							<span class="text-sm text-gray-11">{statusLabel()}</span>
-						</div>
-					</div>
-
-					<Show when={formattedDate()}>
-						<div>
-							<label class="text-xs font-semibold text-gray-11 uppercase tracking-wider">
+							{statusLabel()}
+						</span>
+						<Show when={formattedDate()}>
+							<span class="text-gray-10 self-center">
 								{t("library.detail.createdAt")}
-							</label>
-							<p class="mt-1 text-sm text-gray-11">{formattedDate()}</p>
-						</div>
-					</Show>
-
-					<Show when={!hasBothVersions() && formattedSize()}>
-						<div>
-							<label class="text-xs font-semibold text-gray-11 uppercase tracking-wider">
+							</span>
+							<span class="text-gray-12">{formattedDate()}</span>
+						</Show>
+						<Show when={!hasBothVersions() && formattedSize()}>
+							<span class="text-gray-10 self-center">
 								{t("library.detail.fileSize")}
-							</label>
-							<p class="mt-1 text-sm text-gray-11">
+							</span>
+							<span class="text-gray-12">
 								{activeVersion() === "compressed"
 									? formattedCompressedSize()
 									: formattedSize()}
-							</p>
-						</div>
-					</Show>
+							</span>
+						</Show>
+					</div>
 				</div>
 			</div>
 
-			<div class="border-t border-gray-4 p-4 space-y-3">
+			<div class="border-t border-gray-4 p-3 space-y-1.5">
 				<Show when={canEdit()}>
 					<Button
 						variant="primary"
-						size="md"
+						size="sm"
 						class="w-full"
 						onClick={handleEdit}
 					>
-						<IconLucideEdit class="size-4" />
+						<IconLucideEdit class="size-3.5 shrink-0" />
 						{t("library.detail.edit")}
 					</Button>
 				</Show>
 
-				<div class="flex gap-2">
-					<Show when={canPlay()}>
-						<Button
-							variant="primary"
-							size="md"
-							class="flex-1"
-							onClick={handlePlay}
+				<div class="grid grid-cols-4 gap-1">
+					<button
+						type="button"
+						onClick={canPlay() ? handlePlay : handleOpen}
+						disabled={!canPlay() && !canOpen()}
+						class="flex flex-col items-center gap-1 py-2.5 rounded-lg transition-colors text-gray-11 enabled:hover:text-gray-12 enabled:hover:bg-gray-3 disabled:opacity-25 disabled:cursor-default"
+					>
+						<Show
+							when={canPlay()}
+							fallback={<IconLucideExternalLink class="size-4" />}
 						>
 							<IconLucidePlay class="size-4" />
-							{t("library.detail.play")}
-						</Button>
-					</Show>
-					<Show when={canOpen()}>
-						<Button
-							variant="primary"
-							size="md"
-							class="flex-1"
-							onClick={handleOpen}
-						>
-							<IconLucideExternalLink class="size-4" />
-							{t("library.detail.open")}
-						</Button>
-					</Show>
-					<Show when={activeFilePath()}>
-						<Button
-							variant="gray"
-							size="md"
-							class="flex-1"
-							onClick={handleCopy}
-						>
-							<IconLucideCopy class="size-4" />
-							{t("library.detail.copyFile")}
-						</Button>
-					</Show>
-				</div>
-
-				<div class="flex gap-2">
-					<Button
-						variant="gray"
-						size="md"
-						class="flex-1"
+						</Show>
+						<span class="text-[10px] leading-none">
+							{canPlay() ? t("library.detail.play") : t("library.detail.open")}
+						</span>
+					</button>
+					<button
+						type="button"
+						onClick={handleCopy}
+						disabled={!activeFilePath()}
+						class="flex flex-col items-center gap-1 py-2.5 rounded-lg transition-colors text-gray-11 enabled:hover:text-gray-12 enabled:hover:bg-gray-3 disabled:opacity-25 disabled:cursor-default"
+					>
+						<IconLucideCopy class="size-4" />
+						<span class="text-[10px] leading-none">
+							{t("library.detail.copy")}
+						</span>
+					</button>
+					<button
+						type="button"
+						onClick={handleCompress}
+						disabled={!canCompress()}
+						class="flex flex-col items-center gap-1 py-2.5 rounded-lg transition-colors text-gray-11 enabled:hover:text-gray-12 enabled:hover:bg-gray-3 disabled:opacity-25 disabled:cursor-default"
+					>
+						<IconLucideMinimize2 class="size-4" />
+						<span class="text-[10px] leading-none">
+							{t("library.detail.compress")}
+						</span>
+					</button>
+					<button
+						type="button"
 						onClick={handleOpenFolder}
+						class="flex flex-col items-center gap-1 py-2.5 rounded-lg text-gray-11 hover:text-gray-12 hover:bg-gray-3 transition-colors"
 					>
 						<IconLucideFolder class="size-4" />
-						{t("library.detail.openFolder")}
-					</Button>
-					<Show when={canCompress()}>
-						<Button
-							variant="gray"
-							size="md"
-							class="flex-1"
-							onClick={handleCompress}
-						>
-							<IconLucideMinimize2 class="size-4" />
-							{t("library.detail.compress")}
-						</Button>
-					</Show>
+						<span class="text-[10px] leading-none">
+							{t("library.detail.openFolder")}
+						</span>
+					</button>
 				</div>
 
-				<div class="space-y-1.5 pt-1 border-t border-gray-4">
+				<div class="flex items-center gap-1 pt-1">
 					<Show when={hasBothVersions()}>
-						<div class="flex gap-2">
-							<Show when={hasOriginal()}>
-								<button
-									type="button"
-									onClick={handleDeleteOriginal}
-									class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-gray-11 hover:text-red-10 hover:bg-red-3 transition-colors"
-								>
-									<IconLucideTrash class="size-3.5" />
-									{t("library.detail.deleteOriginal")}
-								</button>
-							</Show>
-							<Show when={hasCompressed()}>
-								<button
-									type="button"
-									onClick={handleDeleteCompressed}
-									disabled={isCompressing()}
-									class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-gray-11 hover:text-red-10 hover:bg-red-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-11"
-								>
-									<IconLucideTrash class="size-3.5" />
-									{t("library.detail.deleteCompressed")}
-								</button>
-							</Show>
-						</div>
+						<button
+							type="button"
+							onClick={handleDeleteOriginal}
+							class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] text-gray-11 hover:text-red-10 hover:bg-red-3 transition-colors"
+						>
+							<IconLucideTrash class="size-3" />
+							{t("library.detail.deleteOriginal")}
+						</button>
+						<span class="text-gray-6">|</span>
+						<button
+							type="button"
+							onClick={handleDeleteCompressed}
+							disabled={isCompressing()}
+							class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] text-gray-11 hover:text-red-10 hover:bg-red-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+						>
+							<IconLucideTrash class="size-3" />
+							{t("library.detail.deleteCompressed")}
+						</button>
+						<span class="text-gray-6">|</span>
 					</Show>
 					<button
 						type="button"
 						onClick={handleDeleteAll}
-						class="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-red-10 border border-red-6 hover:bg-red-3 transition-colors"
+						class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] text-red-10 hover:bg-red-3 transition-colors font-medium"
 					>
-						<IconLucideTrash class="size-3.5" />
-						{hasBothVersions() ? t("library.detail.deleteAll") : t("library.detail.delete")}
+						<IconLucideTrash class="size-3" />
+						{hasBothVersions()
+							? t("library.detail.deleteAll")
+							: t("library.detail.delete")}
 					</button>
 				</div>
 			</div>

@@ -77,7 +77,7 @@ export default function Sidebar(props: Props) {
 	};
 
 	return (
-		<aside class="w-56 bg-gray-2 border-r border-gray-4 flex flex-col p-4 gap-6">
+		<aside class="w-44 bg-gray-2 border-r border-gray-4 flex flex-col p-3 gap-5">
 			<div class="flex flex-col gap-2">
 				<h3 class="text-xs font-semibold text-gray-11 uppercase tracking-wider px-2">
 					{t("library.sidebar.type")}

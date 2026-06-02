@@ -191,28 +191,28 @@ function GridCard(props: {
 					</Show>
 				</Show>
 
-				<div class="absolute top-2 left-2 flex items-center gap-1.5">
+				<div class="absolute top-2 left-2">
 					<div class="flex items-center gap-1.5 px-2 py-1 rounded-full bg-gray-900/80 backdrop-blur-sm">
 						{statusIcon()}
 						<span class="text-[10px] font-medium text-white">
 							{statusLabel()}
 						</span>
 					</div>
-					<Show when={props.item.isCompressing}>
-						<div class="flex items-center gap-1 px-2 py-1 rounded-full bg-orange-900/80 backdrop-blur-sm">
-							<IconLucideLoader class="size-3 text-orange-300 animate-spin" />
-							<span class="text-[10px] font-medium text-orange-200">
-								{t("library.detail.compressing")}
-							</span>
-						</div>
-					</Show>
 				</div>
+				<Show when={props.item.isCompressing}>
+					<div class="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded-full bg-orange-900/80 backdrop-blur-sm">
+						<IconLucideLoader class="size-3 text-orange-300 animate-spin" />
+						<span class="text-[10px] font-medium text-orange-200">
+							{t("library.detail.compressing")}
+						</span>
+					</div>
+				</Show>
 
-				<div class="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+				<div class="absolute bottom-2 right-2 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
 					<Show when={canEdit(props.item)}>
 						<button
 							type="button"
-							class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-9 text-white text-xs font-medium hover:bg-blue-10 transition-colors"
+							class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-9 text-white text-xs font-medium hover:bg-blue-10 transition-colors shadow-md"
 							onClick={(e) => {
 								e.stopPropagation();
 								editItem(props.item);
@@ -225,7 +225,7 @@ function GridCard(props: {
 					<Show when={canPlay(props.item) && props.item.exportedFilePath}>
 						<button
 							type="button"
-							class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900/80 text-white text-xs font-medium hover:bg-gray-900 transition-colors"
+							class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-900/80 text-white text-xs font-medium hover:bg-gray-900 transition-colors shadow-md"
 							onClick={(e) => {
 								e.stopPropagation();
 								if (props.item.exportedFilePath)
@@ -239,17 +239,12 @@ function GridCard(props: {
 				</div>
 			</div>
 
-			<div class="p-3 flex flex-col gap-1 text-left">
+			<div class="px-3 py-2.5 text-left">
 				<p
 					class="text-sm font-medium text-gray-12 truncate"
 					title={props.item.name}
 				>
 					{props.item.name}
-				</p>
-				<p class="text-xs text-gray-10">
-					{props.item.itemType === "video"
-						? t("library.type.video")
-						: t("library.type.screenshot")}
 				</p>
 			</div>
 		</button>
