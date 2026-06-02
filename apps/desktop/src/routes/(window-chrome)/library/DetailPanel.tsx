@@ -277,8 +277,8 @@ export default function DetailPanel(props: Props) {
 
 	return (
 		<div class="w-96 bg-gray-2 border-l border-gray-4 flex flex-col">
-			<div class="h-10 border-b border-gray-4 flex items-center justify-between px-3">
-				<span class="text-xs font-medium text-gray-11">
+			<div class="h-11 border-b border-gray-4 flex items-center justify-between px-4">
+				<span class="text-sm font-semibold text-gray-12">
 					{t("library.detail.title")}
 				</span>
 				<button
@@ -291,20 +291,9 @@ export default function DetailPanel(props: Props) {
 				</button>
 			</div>
 
-			<div class="flex-1 overflow-auto custom-scroll p-4 space-y-4">
-				<div class="aspect-video w-full bg-gray-3 rounded-lg overflow-hidden">
-					<Show
-						when={imageExists() && (previewSrc() || videoPreviewSrc())}
-						fallback={
-							<div class="w-full h-full flex items-center justify-center">
-								{props.item.itemType === "video" ? (
-									<IconLucideVideo class="size-12 text-gray-8" />
-								) : (
-									<IconLucideImage class="size-12 text-gray-8" />
-								)}
-							</div>
-						}
-					>
+			<Show when={imageExists() && (previewSrc() || videoPreviewSrc())}>
+				<div class="px-4 pt-4 pb-2 shrink-0">
+					<div class="aspect-video w-full bg-gray-3 rounded-lg overflow-hidden">
 						<Show
 							when={!videoPreviewSrc()}
 							fallback={
@@ -324,9 +313,11 @@ export default function DetailPanel(props: Props) {
 								onError={() => setImageExists(false)}
 							/>
 						</Show>
-					</Show>
+					</div>
 				</div>
+			</Show>
 
+			<div class="flex-1 overflow-auto custom-scroll px-4 pb-4 space-y-4">
 				<Show when={hasBothVersions() || isCompressing()}>
 					<div class="flex bg-gray-3 rounded-lg p-1 gap-1">
 						<button
@@ -372,51 +363,66 @@ export default function DetailPanel(props: Props) {
 					</div>
 				</Show>
 
-				<div>
-					<p class="text-sm font-medium text-gray-12 break-words mb-2">
+				<div class="space-y-3">
+					<p class="text-base font-semibold text-gray-12 break-words leading-snug">
 						{props.item.name}
 					</p>
-					<div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
-						<span class="text-gray-10 self-center">
-							{t("library.detail.type")}
-						</span>
-						<span class="text-gray-12">
-							{props.item.itemType === "video"
-								? t("library.type.video")
-								: t("library.type.screenshot")}
-						</span>
-						<span class="text-gray-10 self-center">
-							{t("library.detail.status")}
-						</span>
-						<span class="flex items-center gap-1.5 text-gray-12">
-							<Show when={props.item.status === "editing"}>
-								<IconLucideEdit class="size-3 text-orange-500 shrink-0" />
-							</Show>
-							<Show
-								when={
-									props.item.status === "exported" ||
-									props.item.status === "exportedNoSource"
-								}
-							>
-								<IconLucideCheckCircle class="size-3 text-green-500 shrink-0" />
-							</Show>
-							{statusLabel()}
-						</span>
+
+					<div class="rounded-lg bg-gray-3 overflow-hidden divide-y divide-gray-4">
+						<div class="flex items-center justify-between px-3 py-2.5">
+							<span class="text-sm text-gray-10">
+								{t("library.detail.type")}
+							</span>
+							<span class="text-sm font-medium text-gray-12">
+								{props.item.itemType === "video"
+									? t("library.type.video")
+									: t("library.type.screenshot")}
+							</span>
+						</div>
+
+						<div class="flex items-center justify-between px-3 py-2.5">
+							<span class="text-sm text-gray-10">
+								{t("library.detail.status")}
+							</span>
+							<span class="flex items-center gap-1.5 text-sm font-medium">
+								<Show when={props.item.status === "editing"}>
+									<IconLucideEdit class="size-3.5 text-orange-500 shrink-0" />
+									<span class="text-orange-500">{statusLabel()}</span>
+								</Show>
+								<Show
+									when={
+										props.item.status === "exported" ||
+										props.item.status === "exportedNoSource"
+									}
+								>
+									<IconLucideCheckCircle class="size-3.5 text-green-500 shrink-0" />
+									<span class="text-green-500">{statusLabel()}</span>
+								</Show>
+							</span>
+						</div>
+
 						<Show when={formattedDate()}>
-							<span class="text-gray-10 self-center">
-								{t("library.detail.createdAt")}
-							</span>
-							<span class="text-gray-12">{formattedDate()}</span>
+							<div class="flex items-center justify-between px-3 py-2.5">
+								<span class="text-sm text-gray-10">
+									{t("library.detail.createdAt")}
+								</span>
+								<span class="text-sm font-medium text-gray-12">
+									{formattedDate()}
+								</span>
+							</div>
 						</Show>
+
 						<Show when={!hasBothVersions() && formattedSize()}>
-							<span class="text-gray-10 self-center">
-								{t("library.detail.fileSize")}
-							</span>
-							<span class="text-gray-12">
-								{activeVersion() === "compressed"
-									? formattedCompressedSize()
-									: formattedSize()}
-							</span>
+							<div class="flex items-center justify-between px-3 py-2.5">
+								<span class="text-sm text-gray-10">
+									{t("library.detail.fileSize")}
+								</span>
+								<span class="text-sm font-medium text-gray-12">
+									{activeVersion() === "compressed"
+										? formattedCompressedSize()
+										: formattedSize()}
+								</span>
+							</div>
 						</Show>
 					</div>
 				</div>
