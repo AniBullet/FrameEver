@@ -55,8 +55,9 @@ use crate::camera::{CameraPreviewManager, CameraPreviewShape, CameraPreviewState
 use crate::general_settings;
 use crate::permissions;
 use crate::{
-    App, CameraWindowOperationLock, CurrentRecordingChanged, FinalizingRecordings, MutableState,
-    NewStudioRecordingAdded, RecordingStarted, RecordingState, RecordingStopped, create_screenshot,
+    App, CameraWindowOperationLock, CompressionCompleted, CurrentRecordingChanged,
+    FinalizingRecordings, MutableState, NewStudioRecordingAdded, RecordingStarted, RecordingState,
+    RecordingStopped, create_screenshot,
     general_settings::{GeneralSettingsStore, PostDeletionBehaviour, PostStudioRecordingBehaviour},
     presets::PresetsStore,
     thumbnails::*,
@@ -1676,10 +1677,13 @@ async fn handle_recording_finish(
                                     .await
                                     .ok();
 
-                                    let _ = NewStudioRecordingAdded {
-                                        path: recording_dir_clone.clone(),
+                                    let compressed_path =
+                                        crate::compress::compressed_path_for(&final_export_path);
+                                    CompressionCompleted {
+                                        path: compressed_path,
                                     }
-                                    .emit(&app_clone);
+                                    .emit(&app_clone)
+                                    .ok();
                                 }
                             }
                             Err(e) => {

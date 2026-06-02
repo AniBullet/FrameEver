@@ -341,6 +341,7 @@ async discardIncompleteRecording(projectPath: string) : Promise<null> {
 
 export const events = __makeEvents__<{
 audioInputLevelChange: AudioInputLevelChange,
+compressionCompleted: CompressionCompleted,
 currentRecordingChanged: CurrentRecordingChanged,
 devicesUpdated: DevicesUpdated,
 downloadProgress: DownloadProgress,
@@ -366,6 +367,7 @@ targetUnderCursor: TargetUnderCursor,
 videoImportProgress: VideoImportProgress
 }>({
 audioInputLevelChange: "audio-input-level-change",
+compressionCompleted: "compression-completed",
 currentRecordingChanged: "current-recording-changed",
 devicesUpdated: "devices-updated",
 downloadProgress: "download-progress",
@@ -485,7 +487,7 @@ export type KeyboardData = { settings: KeyboardSettings }
 export type KeyboardSettings = { enabled: boolean; font: string; size: number; color: string; backgroundColor: string; backgroundOpacity: number; position: string; fontWeight: number; fadeDuration: number; lingerDuration: number; groupingThresholdMs: number; showModifiers: boolean; showSpecialKeys: boolean }
 export type KeyboardTrackSegment = { id: string; start: number; end: number; displayText: string; keys?: KeyPressDisplay[]; fadeDurationOverride?: number | null; positionOverride?: string | null; colorOverride?: string | null; backgroundColorOverride?: string | null; fontSizeOverride?: number | null }
 export type LanguageChanged = null
-export type LibraryItem = { id: string; name: string; itemType: LibraryItemType; status: LibraryItemStatus; capProjectPath: string | null; exportedFilePath: string | null; compressedFilePath: string | null; thumbnailPath: string | null; createdAt: number; fileSize: number | null; compressedFileSize: number | null; meta: RecordingMetaWithMetadata | null; isEditable: boolean }
+export type LibraryItem = { id: string; name: string; itemType: LibraryItemType; status: LibraryItemStatus; capProjectPath: string | null; exportedFilePath: string | null; compressedFilePath: string | null; thumbnailPath: string | null; createdAt: number; fileSize: number | null; compressedFileSize: number | null; meta: RecordingMetaWithMetadata | null; isEditable: boolean; isCompressing: boolean }
 export type LibraryItemStatus = "editing" | "exported" | "exportedNoSource"
 export type LibraryItemType = "video" | "screenshot"
 export type LogicalBounds = { position: LogicalPosition; size: LogicalSize }
@@ -520,6 +522,7 @@ export type ProjectConfiguration = { aspectRatio: AspectRatio | null; background
 export type ProjectRecordingsMeta = { segments: SegmentRecordings[] }
 export type RecordingAction = "Started"
 export type RecordingCodec = "h264" | "h265"
+export type CompressionCompleted = { path: string }
 export type RecordingDeleted = { path: string }
 export type RecordingEvent = { variant: "Countdown"; value: number } | { variant: "Started" } | { variant: "Stopped" } | { variant: "Paused" } | { variant: "Resumed" } | { variant: "Failed"; error: string } | { variant: "InputLost"; input: RecordingInputKind } | { variant: "InputRestored"; input: RecordingInputKind } | { variant: "Degraded"; reason: string } | { variant: "Recovered" }
 export type RecordingInputKind = "microphone" | "camera"

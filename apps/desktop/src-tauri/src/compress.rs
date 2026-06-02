@@ -1,14 +1,17 @@
-use crate::FramesRendered;
+use crate::{CompressionCompleted, FramesRendered};
 use cap_enc_ffmpeg::{AudioEncoder, aac::AACEncoder, hevc::HevcEncoder, mp4::HevcMP4File};
 use cap_media_info::VideoInfo;
 use std::path::PathBuf;
 use std::time::Duration;
+use tauri::AppHandle;
 use tauri::ipc::Channel;
+use tauri_specta::Event;
 use tracing::{info, warn};
 
 #[tauri::command]
 #[specta::specta]
 pub async fn compress_video(
+    app: AppHandle,
     input_path: String,
     crf: u8,
     progress: Channel<FramesRendered>,
@@ -34,6 +37,12 @@ pub async fn compress_video(
         let _ = std::fs::remove_file(&temp_path);
         format!("Failed to move compressed file: {e}")
     })?;
+
+    CompressionCompleted {
+        path: output_path.clone(),
+    }
+    .emit(&app)
+    .ok();
 
     Ok(output_path.to_string_lossy().into_owned())
 }

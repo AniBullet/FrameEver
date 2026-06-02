@@ -1078,6 +1078,12 @@ pub struct RecordingDeleted {
     path: PathBuf,
 }
 
+#[derive(specta::Type, tauri_specta::Event, Debug, Clone, Serialize)]
+pub struct CompressionCompleted {
+    #[allow(unused)]
+    path: PathBuf,
+}
+
 #[derive(specta::Type, tauri_specta::Event, Serialize)]
 pub struct SetCaptureAreaPending(bool);
 
@@ -2260,6 +2266,7 @@ pub struct LibraryItem {
     pub file_size: Option<f64>,
     pub meta: Option<RecordingMetaWithMetadata>,
     pub is_editable: bool,
+    pub is_compressing: bool,
 }
 
 #[tauri::command]
@@ -2336,6 +2343,7 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                                 file_size,
                                 meta,
                                 is_editable,
+                                is_compressing: false,
                             },
                         );
                     }
@@ -2426,11 +2434,18 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                         }
                     };
 
+                    let compressing_path = path.with_file_name(format!(
+                        "{}_compressing.mp4",
+                        path.file_stem().and_then(|s| s.to_str()).unwrap_or("")
+                    ));
+                    let is_compressing = compressing_path.exists();
+
                     if let Some(existing) = items_map.get_mut(&id) {
                         existing.exported_file_path = Some(path.clone());
                         existing.status = LibraryItemStatus::Exported;
                         existing.compressed_file_path = comp_path;
                         existing.compressed_file_size = comp_size;
+                        existing.is_compressing = existing.is_compressing || is_compressing;
                         if existing.file_size.is_none() {
                             existing.file_size = export_file_size;
                         }
@@ -2455,6 +2470,7 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                                 file_size: export_file_size,
                                 meta: None,
                                 is_editable: false,
+                                is_compressing,
                             },
                         );
                     }
@@ -2517,6 +2533,7 @@ fn list_library_items(app: AppHandle) -> Result<Vec<LibraryItem>, String> {
                                 file_size: screenshot_file_size,
                                 meta: None,
                                 is_editable: false,
+                                is_compressing: false,
                             },
                         );
                     }
@@ -3130,6 +3147,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, _logs_dir: PathBuf) {
             captions::DownloadProgress,
             recording::RecordingEvent,
             RecordingDeleted,
+            CompressionCompleted,
             target_select_overlay::TargetUnderCursor,
             hotkeys::OnEscapePress,
             import::VideoImportProgress,

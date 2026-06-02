@@ -2,6 +2,7 @@ import { createQuery, queryOptions } from "@tanstack/solid-query";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import toast from "solid-toast";
 import { useI18n } from "~/i18n";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import { commands, events, type LibraryItem } from "~/utils/tauri";
@@ -63,6 +64,9 @@ export default function Library() {
 	createTauriEventListener(events.recordingDeleted, () => library.refetch());
 	createTauriEventListener(events.newScreenshotAdded, () => library.refetch());
 	createTauriEventListener(events.newStudioRecordingAdded, () =>
+		library.refetch(),
+	);
+	createTauriEventListener(events.compressionCompleted, () =>
 		library.refetch(),
 	);
 
@@ -174,13 +178,22 @@ export default function Library() {
 
 	const deleteAllPathsForItem = async (item: LibraryItem) => {
 		if (item.capProjectPath) {
-			await commands.deleteLibraryItem(item.capProjectPath).catch(() => {});
+			await commands.deleteLibraryItem(item.capProjectPath).catch((e) => {
+				toast.error(t("library.detail.deleteFailedInUse"));
+				throw e;
+			});
 		}
 		if (item.exportedFilePath) {
-			await commands.deleteLibraryItem(item.exportedFilePath).catch(() => {});
+			await commands.deleteLibraryItem(item.exportedFilePath).catch((e) => {
+				toast.error(t("library.detail.deleteFailedInUse"));
+				throw e;
+			});
 		}
 		if (item.compressedFilePath) {
-			await commands.deleteLibraryItem(item.compressedFilePath).catch(() => {});
+			await commands.deleteLibraryItem(item.compressedFilePath).catch((e) => {
+				toast.error(t("library.detail.deleteFailedInUse"));
+				throw e;
+			});
 		}
 	};
 

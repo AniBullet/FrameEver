@@ -263,6 +263,7 @@ fn create_silence_frame(audio_info: &AudioInfo, sample_count: usize) -> ffmpeg::
 
 struct VideoDriftTracker {
     baseline_offset_secs: Option<f64>,
+    last_emitted_secs: f64,
     capped_frame_count: u64,
     drift_warning_logged: bool,
 }
@@ -271,6 +272,7 @@ impl VideoDriftTracker {
     fn new() -> Self {
         Self {
             baseline_offset_secs: None,
+            last_emitted_secs: 0.0,
             capped_frame_count: 0,
             drift_warning_logged: false,
         }
@@ -285,57 +287,60 @@ impl VideoDriftTracker {
         let wall_clock_secs = wall_clock_elapsed.as_secs_f64();
         let max_allowed_secs = wall_clock_secs + VIDEO_WALL_CLOCK_TOLERANCE_SECS;
 
-        if wall_clock_secs < 2.0 || camera_secs < 2.0 {
+        let result_secs = if wall_clock_secs < 2.0 || camera_secs < 2.0 {
             let result_secs = camera_secs.min(max_allowed_secs);
             if result_secs < camera_secs {
                 self.capped_frame_count += 1;
             }
-            return Duration::from_secs_f64(result_secs);
-        }
-
-        if self.baseline_offset_secs.is_none() {
-            let offset = camera_secs - wall_clock_secs;
-            debug!(
-                wall_clock_secs,
-                camera_secs,
-                baseline_offset_secs = offset,
-                "Capturing video baseline offset after warmup"
-            );
-            self.baseline_offset_secs = Some(offset);
-        }
-
-        let baseline = self.baseline_offset_secs.unwrap_or(0.0);
-        let adjusted_camera_secs = (camera_secs - baseline).max(0.0);
-
-        let drift_ratio = if adjusted_camera_secs > 0.0 {
-            wall_clock_secs / adjusted_camera_secs
+            result_secs
         } else {
-            1.0
-        };
-
-        let corrected_secs = if !(0.95..=1.05).contains(&drift_ratio) {
-            if !self.drift_warning_logged {
-                warn!(
-                    drift_ratio,
+            if self.baseline_offset_secs.is_none() {
+                let offset = camera_secs - wall_clock_secs;
+                debug!(
                     wall_clock_secs,
-                    adjusted_camera_secs,
-                    baseline,
-                    "Extreme video clock drift detected after baseline correction, clamping"
+                    camera_secs,
+                    baseline_offset_secs = offset,
+                    "Capturing video baseline offset after warmup"
                 );
-                self.drift_warning_logged = true;
+                self.baseline_offset_secs = Some(offset);
             }
-            let clamped_ratio = drift_ratio.clamp(0.95, 1.05);
-            adjusted_camera_secs * clamped_ratio
-        } else {
-            adjusted_camera_secs * drift_ratio
+
+            let baseline = self.baseline_offset_secs.unwrap_or(0.0);
+            let adjusted_camera_secs = (camera_secs - baseline).max(0.0);
+
+            let drift_ratio = if adjusted_camera_secs > 0.0 {
+                wall_clock_secs / adjusted_camera_secs
+            } else {
+                1.0
+            };
+
+            let corrected_secs = if !(0.95..=1.05).contains(&drift_ratio) {
+                if !self.drift_warning_logged {
+                    warn!(
+                        drift_ratio,
+                        wall_clock_secs,
+                        adjusted_camera_secs,
+                        baseline,
+                        "Extreme video clock drift detected after baseline correction, clamping"
+                    );
+                    self.drift_warning_logged = true;
+                }
+                let clamped_ratio = drift_ratio.clamp(0.95, 1.05);
+                adjusted_camera_secs * clamped_ratio
+            } else {
+                adjusted_camera_secs * drift_ratio
+            };
+
+            let final_secs = corrected_secs.min(max_allowed_secs);
+            if final_secs < corrected_secs {
+                self.capped_frame_count += 1;
+            }
+            final_secs
         };
 
-        let final_secs = corrected_secs.min(max_allowed_secs);
-        if final_secs < corrected_secs {
-            self.capped_frame_count += 1;
-        }
-
-        Duration::from_secs_f64(final_secs)
+        let monotonic_secs = result_secs.max(self.last_emitted_secs);
+        self.last_emitted_secs = monotonic_secs;
+        Duration::from_secs_f64(monotonic_secs)
     }
 
     fn reset_baseline(&mut self) {
@@ -2219,6 +2224,27 @@ mod tests {
                 tracker.capped_frame_count() > 0,
                 "Should have capped at least one frame"
             );
+        }
+
+        #[test]
+        fn monotonic_across_warmup_boundary() {
+            let mut tracker = VideoDriftTracker::new();
+            let camera_offset = 0.1;
+            let mut prev_result = Duration::ZERO;
+
+            for i in 0..200 {
+                let wall = i as f64 * (1.0 / 60.0);
+                let camera = wall + camera_offset;
+                let result = tracker.calculate_timestamp(dur(camera), dur(wall));
+                assert!(
+                    result >= prev_result,
+                    "Timestamp went backwards at wall={:.4}s: {:.6}s -> {:.6}s",
+                    wall,
+                    prev_result.as_secs_f64(),
+                    result.as_secs_f64()
+                );
+                prev_result = result;
+            }
         }
     }
 

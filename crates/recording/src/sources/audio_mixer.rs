@@ -174,6 +174,7 @@ impl AudioMixerBuilder {
             max_buffer_timeout,
             wall_clock_start: None,
             baseline_offset_secs: None,
+            last_emitted_elapsed_secs: 0.0,
         })
     }
 
@@ -236,6 +237,7 @@ pub struct AudioMixer {
     max_buffer_timeout: Duration,
     wall_clock_start: Option<Timestamp>,
     baseline_offset_secs: Option<f64>,
+    last_emitted_elapsed_secs: f64,
 }
 
 impl AudioMixer {
@@ -279,45 +281,47 @@ impl AudioMixer {
             return start_timestamp;
         }
 
-        if input_elapsed_secs < 2.0 || wall_clock_secs < 2.0 {
-            return start_timestamp + Duration::from_secs_f64(input_elapsed_secs.max(0.0));
-        }
-
-        if self.baseline_offset_secs.is_none() {
-            let offset = input_elapsed_secs - wall_clock_secs;
-            debug!(
-                wall_clock_secs,
-                input_elapsed_secs,
-                baseline_offset_secs = offset,
-                "AudioMixer: Capturing baseline offset after warmup"
-            );
-            self.baseline_offset_secs = Some(offset);
-        }
-
-        let baseline = self.baseline_offset_secs.unwrap_or(0.0);
-        let adjusted_input_elapsed = input_elapsed_secs - baseline;
-
-        let drift_ratio = if adjusted_input_elapsed > 0.0 {
-            wall_clock_secs / adjusted_input_elapsed
+        let elapsed_secs = if input_elapsed_secs < 2.0 || wall_clock_secs < 2.0 {
+            input_elapsed_secs.max(0.0)
         } else {
-            1.0
+            if self.baseline_offset_secs.is_none() {
+                let offset = input_elapsed_secs - wall_clock_secs;
+                debug!(
+                    wall_clock_secs,
+                    input_elapsed_secs,
+                    baseline_offset_secs = offset,
+                    "AudioMixer: Capturing baseline offset after warmup"
+                );
+                self.baseline_offset_secs = Some(offset);
+            }
+
+            let baseline = self.baseline_offset_secs.unwrap_or(0.0);
+            let adjusted_input_elapsed = input_elapsed_secs - baseline;
+
+            let drift_ratio = if adjusted_input_elapsed > 0.0 {
+                wall_clock_secs / adjusted_input_elapsed
+            } else {
+                1.0
+            };
+
+            if !(0.90..=1.10).contains(&drift_ratio) {
+                warn!(
+                    drift_ratio,
+                    wall_clock_secs,
+                    adjusted_input_elapsed,
+                    baseline,
+                    "AudioMixer: Significant clock drift detected"
+                );
+                let clamped_ratio = drift_ratio.clamp(0.95, 1.05);
+                (adjusted_input_elapsed * clamped_ratio).max(0.0)
+            } else {
+                (adjusted_input_elapsed * drift_ratio).max(0.0)
+            }
         };
 
-        if !(0.90..=1.10).contains(&drift_ratio) {
-            warn!(
-                drift_ratio,
-                wall_clock_secs,
-                adjusted_input_elapsed,
-                baseline,
-                "AudioMixer: Significant clock drift detected"
-            );
-            let clamped_ratio = drift_ratio.clamp(0.95, 1.05);
-            let corrected_secs = adjusted_input_elapsed * clamped_ratio;
-            return start_timestamp + Duration::from_secs_f64(corrected_secs.max(0.0));
-        }
-
-        let corrected_secs = adjusted_input_elapsed * drift_ratio;
-        start_timestamp + Duration::from_secs_f64(corrected_secs.max(0.0))
+        let monotonic_secs = elapsed_secs.max(self.last_emitted_elapsed_secs);
+        self.last_emitted_elapsed_secs = monotonic_secs;
+        start_timestamp + Duration::from_secs_f64(monotonic_secs)
     }
 
     fn buffer_sources(&mut self, now: Timestamp) {

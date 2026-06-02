@@ -13,6 +13,7 @@ import IconLucideFolder from "~icons/lucide/folder";
 import IconLucideImage from "~icons/lucide/image";
 import IconLucideMinimize2 from "~icons/lucide/minimize-2";
 import IconLucidePlay from "~icons/lucide/play";
+import IconLucideLoader from "~icons/lucide/loader-2";
 import IconLucideTrash from "~icons/lucide/trash-2";
 import IconLucideVideo from "~icons/lucide/video";
 import IconLucideX from "~icons/lucide/x";
@@ -90,7 +91,8 @@ export default function DetailPanel(props: Props) {
 	const canOpen = () => canOpenItem(props.item) && !!activeFilePath();
 	const canCompress = () =>
 		(props.item.exportedFilePath?.endsWith(".mp4") ?? false) &&
-		!hasCompressed();
+		!hasCompressed() &&
+		!props.item.isCompressing;
 
 	const handleEdit = () => editItem(props.item);
 	const handlePlay = () => {
@@ -149,34 +151,49 @@ export default function DetailPanel(props: Props) {
 			});
 	};
 
-	const canDeleteSingleVersion = () => {
-		if (!hasBothVersions()) return false;
-		if (activeVersion() === "original" && props.item.capProjectPath)
-			return false;
-		return true;
-	};
-
-	const handleDeleteVersion = async () => {
-		const isOriginal = activeVersion() === "original";
-		const message = isOriginal
-			? t("library.detail.confirmDeleteOriginal")
-			: t("library.detail.confirmDeleteCompressed");
+	const handleDeleteOriginal = async () => {
+		const hasProject = !!props.item.capProjectPath;
+		const message = hasProject
+			? t("library.detail.confirmDeleteOriginalWithProject")
+			: t("library.detail.confirmDeleteOriginal");
 
 		if (!(await ask(message))) return;
 
 		try {
-			const pathToDelete = isOriginal
-				? props.item.exportedFilePath
-				: props.item.compressedFilePath;
-
-			if (pathToDelete) {
-				await commands.deleteLibraryItem(pathToDelete).catch(() => {});
+			if (hasProject && props.item.capProjectPath) {
+				await commands.deleteLibraryItem(props.item.capProjectPath);
 			}
-
-			setActiveVersion(isOriginal ? "compressed" : "original");
+			if (props.item.exportedFilePath) {
+				await commands.deleteLibraryItem(props.item.exportedFilePath);
+			}
+			if (hasCompressed()) {
+				setActiveVersion("compressed");
+			}
 			props.onRefetch();
+			if (!hasCompressed()) {
+				props.onClose();
+			}
 		} catch (error) {
-			console.error("Failed to delete:", error);
+			toast.error(t("library.detail.deleteFailedInUse"));
+		}
+	};
+
+	const handleDeleteCompressed = async () => {
+		if (!(await ask(t("library.detail.confirmDeleteCompressed")))) return;
+
+		try {
+			if (props.item.compressedFilePath) {
+				await commands.deleteLibraryItem(props.item.compressedFilePath);
+			}
+			if (hasOriginal()) {
+				setActiveVersion("original");
+			}
+			props.onRefetch();
+			if (!hasOriginal()) {
+				props.onClose();
+			}
+		} catch (error) {
+			toast.error(t("library.detail.deleteFailedInUse"));
 		}
 	};
 
@@ -190,24 +207,18 @@ export default function DetailPanel(props: Props) {
 
 		try {
 			if (props.item.capProjectPath) {
-				await commands
-					.deleteLibraryItem(props.item.capProjectPath)
-					.catch(() => {});
+				await commands.deleteLibraryItem(props.item.capProjectPath);
 			}
 			if (props.item.exportedFilePath) {
-				await commands
-					.deleteLibraryItem(props.item.exportedFilePath)
-					.catch(() => {});
+				await commands.deleteLibraryItem(props.item.exportedFilePath);
 			}
 			if (props.item.compressedFilePath) {
-				await commands
-					.deleteLibraryItem(props.item.compressedFilePath)
-					.catch(() => {});
+				await commands.deleteLibraryItem(props.item.compressedFilePath);
 			}
 			props.onRefetch();
 			props.onClose();
 		} catch (error) {
-			console.error("Failed to delete item:", error);
+			toast.error(t("library.detail.deleteFailedInUse"));
 		}
 	};
 
@@ -262,11 +273,7 @@ export default function DetailPanel(props: Props) {
 		}
 	};
 
-	const deleteVersionLabel = () => {
-		return activeVersion() === "original"
-			? t("library.detail.deleteOriginal")
-			: t("library.detail.deleteCompressed");
-	};
+	const isCompressing = () => !!props.item.isCompressing;
 
 	return (
 		<div class="w-96 bg-gray-2 border-l border-gray-4 flex flex-col">
@@ -318,7 +325,7 @@ export default function DetailPanel(props: Props) {
 					</Show>
 				</div>
 
-				<Show when={hasBothVersions()}>
+				<Show when={hasBothVersions() || isCompressing()}>
 					<div class="flex bg-gray-3 rounded-lg p-1 gap-1">
 						<button
 							type="button"
@@ -334,22 +341,32 @@ export default function DetailPanel(props: Props) {
 								<span class="ml-1.5 text-gray-10">{formattedSize()}</span>
 							</Show>
 						</button>
-						<button
-							type="button"
-							onClick={() => setActiveVersion("compressed")}
-							class={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${
-								activeVersion() === "compressed"
-									? "bg-gray-1 text-gray-12 shadow-sm"
-									: "text-gray-11 hover:text-gray-12"
-							}`}
+						<Show
+							when={!isCompressing() || hasCompressed()}
+							fallback={
+								<div class="flex-1 px-3 py-2 rounded-md text-xs font-medium text-orange-10 flex items-center justify-center gap-1.5">
+									<IconLucideLoader class="size-3 animate-spin" />
+									{t("library.detail.compressing")}
+								</div>
+							}
 						>
-							{t("library.detail.compressed")}
-							<Show when={formattedCompressedSize()}>
-								<span class="ml-1.5 text-gray-10">
-									{formattedCompressedSize()}
-								</span>
-							</Show>
-						</button>
+							<button
+								type="button"
+								onClick={() => setActiveVersion("compressed")}
+								class={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${
+									activeVersion() === "compressed"
+										? "bg-gray-1 text-gray-12 shadow-sm"
+										: "text-gray-11 hover:text-gray-12"
+								}`}
+							>
+								{t("library.detail.compressed")}
+								<Show when={formattedCompressedSize()}>
+									<span class="ml-1.5 text-gray-10">
+										{formattedCompressedSize()}
+									</span>
+								</Show>
+							</button>
+						</Show>
 					</div>
 				</Show>
 
@@ -490,24 +507,39 @@ export default function DetailPanel(props: Props) {
 					</Show>
 				</div>
 
-				<div class="flex gap-2 pt-1 border-t border-gray-4">
-					<Show when={canDeleteSingleVersion()}>
-						<button
-							type="button"
-							onClick={handleDeleteVersion}
-							class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-red-10 hover:bg-red-3 transition-colors"
-						>
-							<IconLucideTrash class="size-3.5" />
-							{deleteVersionLabel()}
-						</button>
+				<div class="space-y-1.5 pt-1 border-t border-gray-4">
+					<Show when={hasBothVersions()}>
+						<div class="flex gap-2">
+							<Show when={hasOriginal()}>
+								<button
+									type="button"
+									onClick={handleDeleteOriginal}
+									class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-gray-11 hover:text-red-10 hover:bg-red-3 transition-colors"
+								>
+									<IconLucideTrash class="size-3.5" />
+									{t("library.detail.deleteOriginal")}
+								</button>
+							</Show>
+							<Show when={hasCompressed()}>
+								<button
+									type="button"
+									onClick={handleDeleteCompressed}
+									disabled={isCompressing()}
+									class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-gray-11 hover:text-red-10 hover:bg-red-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-11"
+								>
+									<IconLucideTrash class="size-3.5" />
+									{t("library.detail.deleteCompressed")}
+								</button>
+							</Show>
+						</div>
 					</Show>
 					<button
 						type="button"
 						onClick={handleDeleteAll}
-						class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-red-10 hover:bg-red-3 transition-colors"
+						class="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-red-10 border border-red-6 hover:bg-red-3 transition-colors"
 					>
 						<IconLucideTrash class="size-3.5" />
-						{t("library.detail.delete")}
+						{hasBothVersions() ? t("library.detail.deleteAll") : t("library.detail.delete")}
 					</button>
 				</div>
 			</div>

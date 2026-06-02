@@ -7,6 +7,7 @@ import IconLucideCheckCircle from "~icons/lucide/check-circle";
 import IconLucideEdit from "~icons/lucide/edit";
 import IconLucideFileVideo from "~icons/lucide/file-video";
 import IconLucideImage from "~icons/lucide/image";
+import IconLucideLoader from "~icons/lucide/loader-2";
 import IconLucidePlay from "~icons/lucide/play";
 import IconLucideVideo from "~icons/lucide/video";
 import {
@@ -190,11 +191,21 @@ function GridCard(props: {
 					</Show>
 				</Show>
 
-				<div class="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded-full bg-gray-900/80 backdrop-blur-sm">
-					{statusIcon()}
-					<span class="text-[10px] font-medium text-white">
-						{statusLabel()}
-					</span>
+				<div class="absolute top-2 left-2 flex items-center gap-1.5">
+					<div class="flex items-center gap-1.5 px-2 py-1 rounded-full bg-gray-900/80 backdrop-blur-sm">
+						{statusIcon()}
+						<span class="text-[10px] font-medium text-white">
+							{statusLabel()}
+						</span>
+					</div>
+					<Show when={props.item.isCompressing}>
+						<div class="flex items-center gap-1 px-2 py-1 rounded-full bg-orange-900/80 backdrop-blur-sm">
+							<IconLucideLoader class="size-3 text-orange-300 animate-spin" />
+							<span class="text-[10px] font-medium text-orange-200">
+								{t("library.detail.compressing")}
+							</span>
+						</div>
+					</Show>
 				</div>
 
 				<div class="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -405,6 +416,12 @@ function ListCard(props: {
 							{t("library.detail.edit")}
 						</button>
 					</Show>
+					<Show when={props.item.isCompressing}>
+						<span class="flex items-center gap-1 text-orange-10 whitespace-nowrap">
+							<IconLucideLoader class="size-3 animate-spin" />
+							{t("library.detail.compressing")}
+						</span>
+					</Show>
 					<span class="whitespace-nowrap">{statusLabel()}</span>
 					<Show when={fileSize()}>
 						<span class="whitespace-nowrap text-gray-10">{fileSize()}</span>
@@ -527,6 +544,12 @@ function CompactCard(props: {
 				{props.item.name}
 			</span>
 
+			<Show when={props.item.isCompressing}>
+				<span class="flex items-center gap-1 text-xs text-orange-10 whitespace-nowrap">
+					<IconLucideLoader class="size-3 animate-spin" />
+					{t("library.detail.compressing")}
+				</span>
+			</Show>
 			<span class="text-xs text-gray-10 whitespace-nowrap">
 				{relativeDate()}
 			</span>

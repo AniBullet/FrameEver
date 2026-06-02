@@ -1,8 +1,5 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
-	"productName": "Cap-aniBullet",
-	"mainBinaryName": "Cap-aniBullet",
-	"identifier": "so.cap.desktop.anibullet",
 	"build": {
 		"beforeBundleCommand": "node scripts/prodBeforeBundle.js"
 	},
