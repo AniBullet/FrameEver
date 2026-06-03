@@ -11,6 +11,9 @@ pub enum NotificationType {
     ScreenshotCopiedToClipboard,
     ScreenshotSaveFailed,
     ScreenshotCopyFailed,
+    CompressionStarted,
+    CompressionCompleted,
+    CompressionFailed,
 }
 
 impl NotificationType {
@@ -44,6 +47,21 @@ impl NotificationType {
             NotificationType::ScreenshotCopyFailed => (
                 "Copy Failed",
                 "Unable to copy screenshot to clipboard. Please try again",
+                true,
+            ),
+            NotificationType::CompressionStarted => (
+                "Compressing",
+                "Compressing video...",
+                false,
+            ),
+            NotificationType::CompressionCompleted => (
+                "Compression Complete",
+                "Video compression finished",
+                false,
+            ),
+            NotificationType::CompressionFailed => (
+                "Compression Failed",
+                "Video compression failed",
                 true,
             ),
         }

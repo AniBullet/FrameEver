@@ -69,6 +69,14 @@ export default function Library() {
 	createTauriEventListener(events.compressionCompleted, () =>
 		library.refetch(),
 	);
+	createTauriEventListener(events.newNotification, (payload) => {
+		if (payload.is_error) {
+			toast.error(payload.body);
+		} else {
+			toast.success(payload.body);
+		}
+		library.refetch();
+	});
 
 	const handleTypeFilterChange = (newType: FilterType) => {
 		setTypeFilter(newType);

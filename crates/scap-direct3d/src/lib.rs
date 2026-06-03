@@ -72,7 +72,7 @@ impl PixelFormat {
 }
 
 const STAGING_POOL_SIZE: usize = 3;
-const MIRROR_POOL_SIZE: usize = 3;
+const MIRROR_POOL_SIZE: usize = 256;
 
 struct PooledStagingTexture {
     texture: ID3D11Texture2D,

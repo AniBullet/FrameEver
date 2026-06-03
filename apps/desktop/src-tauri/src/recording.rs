@@ -56,8 +56,8 @@ use crate::general_settings;
 use crate::permissions;
 use crate::{
     App, CameraWindowOperationLock, CompressionCompleted, CurrentRecordingChanged,
-    FinalizingRecordings, MutableState, NewStudioRecordingAdded, RecordingStarted, RecordingState,
-    RecordingStopped, create_screenshot,
+    FinalizingRecordings, MutableState, NewNotification, NewStudioRecordingAdded,
+    RecordingStarted, RecordingState, RecordingStopped, create_screenshot,
     general_settings::{GeneralSettingsStore, PostDeletionBehaviour, PostStudioRecordingBehaviour},
     presets::PresetsStore,
     thumbnails::*,
@@ -1610,6 +1610,10 @@ async fn handle_recording_finish(
                 .as_ref()
                 .map(|s| s.auto_compress_delete_original)
                 .unwrap_or(false);
+            let open_library = settings_snapshot
+                .as_ref()
+                .map(|s| s.open_library_after_recording)
+                .unwrap_or(false);
             tokio::spawn(async move {
                 for _ in 0..30 {
                     if output_path.exists() {
@@ -1631,28 +1635,60 @@ async fn handle_recording_finish(
                             Ok(_) => {
                                 info!("Instant recording moved to: {:?}", final_export_path);
 
+                                if open_library {
+                                    if let Ok(window) = ShowCapWindow::Library.show(&app_clone).await {
+                                        window.set_focus().ok();
+                                    }
+                                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                }
+
                                 if auto_compress {
+                                    let compressing_name = format!(
+                                        "{}_compressing.mp4",
+                                        final_export_path.file_stem()
+                                            .and_then(|s| s.to_str())
+                                            .unwrap_or("video")
+                                    );
+                                    let temp_marker = final_export_path
+                                        .with_file_name(&compressing_name);
+                                    std::fs::File::create(&temp_marker).ok();
+
+                                    NewNotification {
+                                        title: "Compressing".into(),
+                                        body: "Compressing video...".into(),
+                                        is_error: false,
+                                    }
+                                    .emit(&app_clone)
+                                    .ok();
+
                                     let export_path = final_export_path.clone();
-                                    tokio::task::spawn_blocking(move || {
-                                        let compressed_output =
-                                            crate::compress::compressed_path_for(&export_path);
-                                        let temp_path =
-                                            export_path.with_extension("_compressing.mp4");
-                                        match crate::compress::compress_video_blocking(
-                                            &export_path,
-                                            &temp_path,
-                                            23,
-                                            None,
-                                        ) {
-                                            Ok(_) => {
-                                                if let Err(e) =
-                                                    std::fs::rename(&temp_path, &compressed_output)
-                                                {
-                                                    tracing::error!(
-                                                        "Auto-compress rename failed: {e}"
-                                                    );
-                                                    std::fs::remove_file(&temp_path).ok();
-                                                } else {
+                                    let compress_result =
+                                        tokio::task::spawn_blocking(move || {
+                                            let compressed_output =
+                                                crate::compress::compressed_path_for(&export_path);
+                                            let temp_path = export_path.with_file_name(format!(
+                                                "{}_compressing.mp4",
+                                                export_path.file_stem()
+                                                    .and_then(|s| s.to_str())
+                                                    .unwrap_or("video")
+                                            ));
+                                            match crate::compress::compress_video_blocking(
+                                                &export_path,
+                                                &temp_path,
+                                                23,
+                                                None,
+                                            ) {
+                                                Ok(_) => {
+                                                    if let Err(e) = std::fs::rename(
+                                                        &temp_path,
+                                                        &compressed_output,
+                                                    ) {
+                                                        tracing::error!(
+                                                            "Auto-compress rename failed: {e}"
+                                                        );
+                                                        std::fs::remove_file(&temp_path).ok();
+                                                        return false;
+                                                    }
                                                     tracing::info!(
                                                         "Auto-compressed: {:?}",
                                                         compressed_output
@@ -1666,16 +1702,36 @@ async fn handle_recording_finish(
                                                             );
                                                         }
                                                     }
+                                                    true
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!("Auto-compress failed: {e}");
+                                                    std::fs::remove_file(&temp_path).ok();
+                                                    false
                                                 }
                                             }
-                                            Err(e) => {
-                                                tracing::error!("Auto-compress failed: {e}");
-                                                std::fs::remove_file(&temp_path).ok();
-                                            }
+                                        })
+                                        .await;
+
+                                    let success = compress_result.unwrap_or(false);
+
+                                    if success {
+                                        NewNotification {
+                                            title: "Compression".into(),
+                                            body: "Video compression complete".into(),
+                                            is_error: false,
                                         }
-                                    })
-                                    .await
-                                    .ok();
+                                        .emit(&app_clone)
+                                        .ok();
+                                    } else {
+                                        NewNotification {
+                                            title: "Compression".into(),
+                                            body: "Video compression failed".into(),
+                                            is_error: true,
+                                        }
+                                        .emit(&app_clone)
+                                        .ok();
+                                    }
 
                                     let compressed_path =
                                         crate::compress::compressed_path_for(&final_export_path);

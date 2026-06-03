@@ -193,6 +193,8 @@ pub struct GeneralSettingsStore {
     pub auto_compress_instant: bool,
     #[serde(default)]
     pub auto_compress_delete_original: bool,
+    #[serde(default)]
+    pub open_library_after_recording: bool,
 }
 
 fn default_enable_native_camera_preview() -> bool {
@@ -258,6 +260,7 @@ impl Default for GeneralSettingsStore {
             disable_content_protection: false,
             auto_compress_instant: false,
             auto_compress_delete_original: false,
+            open_library_after_recording: false,
         }
     }
 }

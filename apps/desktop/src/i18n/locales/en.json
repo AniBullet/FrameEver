@@ -85,6 +85,8 @@
 	"general.recording.autoCompress.description": "Automatically compress instant mode recordings with HEVC after saving",
 	"general.recording.autoCompressDeleteOriginal": "Delete original after compression",
 	"general.recording.autoCompressDeleteOriginal.description": "Remove the uncompressed original file after auto-compression succeeds",
+	"general.recording.openLibraryAfterRecording": "Open library after recording",
+	"general.recording.openLibraryAfterRecording.description": "Automatically open the library window when a recording finishes",
 	"general.recording.save.path": "Recording Save Path",
 	"general.recording.save.path.description": "Default location for saving recordings",
 	"general.recording.save.path.choose": "Choose Folder",

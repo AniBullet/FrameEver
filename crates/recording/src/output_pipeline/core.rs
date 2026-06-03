@@ -287,55 +287,50 @@ impl VideoDriftTracker {
         let wall_clock_secs = wall_clock_elapsed.as_secs_f64();
         let max_allowed_secs = wall_clock_secs + VIDEO_WALL_CLOCK_TOLERANCE_SECS;
 
-        let result_secs = if wall_clock_secs < 2.0 || camera_secs < 2.0 {
-            let result_secs = camera_secs.min(max_allowed_secs);
-            if result_secs < camera_secs {
-                self.capped_frame_count += 1;
-            }
-            result_secs
-        } else {
-            if self.baseline_offset_secs.is_none() {
-                let offset = camera_secs - wall_clock_secs;
-                debug!(
-                    wall_clock_secs,
-                    camera_secs,
-                    baseline_offset_secs = offset,
-                    "Capturing video baseline offset after warmup"
-                );
-                self.baseline_offset_secs = Some(offset);
-            }
+        if self.baseline_offset_secs.is_none() && wall_clock_secs > 0.5 && camera_secs > 0.0 {
+            let offset = camera_secs - wall_clock_secs;
+            self.baseline_offset_secs = Some(offset);
+            debug!(
+                wall_clock_secs,
+                camera_secs,
+                baseline_offset_secs = offset,
+                "Captured video baseline offset after stabilization"
+            );
+        }
 
-            let baseline = self.baseline_offset_secs.unwrap_or(0.0);
+        let result_secs = if let Some(baseline) = self.baseline_offset_secs {
             let adjusted_camera_secs = (camera_secs - baseline).max(0.0);
 
-            let drift_ratio = if adjusted_camera_secs > 0.0 {
-                wall_clock_secs / adjusted_camera_secs
+            if wall_clock_secs < 2.0 || adjusted_camera_secs < 2.0 {
+                adjusted_camera_secs.min(max_allowed_secs)
             } else {
-                1.0
-            };
+                let drift_ratio = if adjusted_camera_secs > 0.0 {
+                    wall_clock_secs / adjusted_camera_secs
+                } else {
+                    1.0
+                };
 
-            let corrected_secs = if !(0.95..=1.05).contains(&drift_ratio) {
-                if !self.drift_warning_logged {
-                    warn!(
-                        drift_ratio,
-                        wall_clock_secs,
-                        adjusted_camera_secs,
-                        baseline,
-                        "Extreme video clock drift detected after baseline correction, clamping"
-                    );
-                    self.drift_warning_logged = true;
-                }
-                let clamped_ratio = drift_ratio.clamp(0.95, 1.05);
-                adjusted_camera_secs * clamped_ratio
-            } else {
-                adjusted_camera_secs * drift_ratio
-            };
+                let corrected_secs = if !(0.95..=1.05).contains(&drift_ratio) {
+                    if !self.drift_warning_logged {
+                        warn!(
+                            drift_ratio,
+                            wall_clock_secs,
+                            adjusted_camera_secs,
+                            baseline,
+                            "Extreme video clock drift detected after baseline correction, clamping"
+                        );
+                        self.drift_warning_logged = true;
+                    }
+                    let clamped_ratio = drift_ratio.clamp(0.95, 1.05);
+                    adjusted_camera_secs * clamped_ratio
+                } else {
+                    adjusted_camera_secs * drift_ratio
+                };
 
-            let final_secs = corrected_secs.min(max_allowed_secs);
-            if final_secs < corrected_secs {
-                self.capped_frame_count += 1;
+                corrected_secs.min(max_allowed_secs)
             }
-            final_secs
+        } else {
+            wall_clock_secs.min(max_allowed_secs)
         };
 
         let monotonic_secs = result_secs.max(self.last_emitted_secs);
@@ -1223,6 +1218,8 @@ fn spawn_video_encoder<TMutex: VideoMuxer<VideoFrame = TVideo::Frame>, TVideo: V
         let mut drift_tracker = VideoDriftTracker::new();
         let mut dropped_during_pause: u64 = 0;
 
+        let mut last_mux_duration: Option<Duration> = None;
+
         let res = stop_token
             .run_until_cancelled(async {
                 while let Some(frame) = video_rx.next().await {
@@ -1280,6 +1277,22 @@ fn spawn_video_encoder<TMutex: VideoMuxer<VideoFrame = TVideo::Frame>, TVideo: V
                             "Video drift correction status"
                         );
                     }
+
+                    if let Some(prev) = last_mux_duration {
+                        let gap_ms = duration.saturating_sub(prev).as_millis();
+                        if gap_ms > 200 {
+                            warn!(
+                                frame_count,
+                                gap_ms,
+                                duration_ms = duration.as_millis(),
+                                prev_ms = prev.as_millis(),
+                                raw_duration_ms = raw_duration.as_millis(),
+                                wall_clock_ms = wall_clock_elapsed.as_millis(),
+                                "DIAG: large mux timestamp gap before send_video_frame"
+                            );
+                        }
+                    }
+                    last_mux_duration = Some(duration);
 
                     if let Err(e) = muxer.lock().await.send_video_frame(frame, duration) {
                         return Err(mux_send_error(MuxStreamKind::Video, frame_count, e));

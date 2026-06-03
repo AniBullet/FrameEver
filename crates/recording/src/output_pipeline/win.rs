@@ -337,6 +337,8 @@ impl Muxer for WindowsMuxer {
                         let mut frame_count: u64 = 0;
                         let mut frames_reused: u64 = 0;
                         let mut next_frame_deadline = std::time::Instant::now();
+                        let mut last_emitted_ts: Option<Duration> = None;
+                        let mut last_emit_wall: Option<std::time::Instant> = None;
 
                         let mut get_frame = || -> windows::core::Result<Option<(windows::Win32::Graphics::Direct3D11::ID3D11Texture2D, TimeSpan)>> {
                             let now = std::time::Instant::now();
@@ -360,13 +362,6 @@ impl Muxer for WindowsMuxer {
                                         let new_ts = last_ts.saturating_add(frame_interval);
                                         last_timestamp = Some(new_ts);
                                         frames_reused += 1;
-                                        if frames_reused.is_multiple_of(30) {
-                                            debug!(
-                                                frames_reused = frames_reused,
-                                                frame_count = frame_count,
-                                                "Frame pacing: reusing frames due to slow capture"
-                                            );
-                                        }
                                     }
                                 }
                                 Err(RecvTimeoutError::Disconnected) => {
@@ -383,6 +378,25 @@ impl Muxer for WindowsMuxer {
                             if let (Some(texture), Some(ts)) = (&last_texture, last_timestamp) {
                                 let normalized_ts = normalize_timestamp(ts, &mut first_timestamp);
                                 frame_count += 1;
+
+                                if let Some(prev_ts) = last_emitted_ts {
+                                    let ts_gap_ms = normalized_ts.saturating_sub(prev_ts).as_millis();
+                                    let wall_gap_ms = last_emit_wall.map(|w| now.duration_since(w).as_millis()).unwrap_or(0);
+                                    if ts_gap_ms > 200 {
+                                        warn!(
+                                            frame_count,
+                                            ts_gap_ms,
+                                            wall_gap_ms,
+                                            normalized_ts_ms = normalized_ts.as_millis(),
+                                            prev_ts_ms = prev_ts.as_millis(),
+                                            frames_reused,
+                                            "DIAG: large timestamp gap in encoder get_frame"
+                                        );
+                                    }
+                                }
+                                last_emitted_ts = Some(normalized_ts);
+                                last_emit_wall = Some(now);
+
                                 let frame_time = duration_to_timespan(normalized_ts);
                                 Ok(Some((texture.clone(), frame_time)))
                             } else {
