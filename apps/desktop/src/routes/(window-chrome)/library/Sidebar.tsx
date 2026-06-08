@@ -102,10 +102,10 @@ export default function Sidebar(props: Props) {
 										: "text-gray-11",
 								)}
 							/>
-							<span class="flex-1 text-sm font-medium">{filter.label}</span>
+							<span class="flex-1 text-sm font-medium truncate">{filter.label}</span>
 							<span
 								class={cx(
-									"text-xs px-1.5 py-0.5 rounded",
+									"text-xs px-1.5 py-0.5 rounded shrink-0 tabular-nums",
 									props.typeFilter === filter.id
 										? "bg-white/20 text-white"
 										: "bg-gray-4 text-gray-11",
@@ -153,10 +153,10 @@ export default function Sidebar(props: Props) {
 												: "opacity-60 text-gray-11",
 									)}
 								/>
-								<span class="flex-1 text-sm font-medium">{filter.label}</span>
+								<span class="flex-1 text-sm font-medium truncate">{filter.label}</span>
 								<span
 									class={cx(
-										"text-xs px-1.5 py-0.5 rounded",
+										"text-xs px-1.5 py-0.5 rounded shrink-0 tabular-nums",
 										props.statusFilter === filter.id
 											? "bg-gray-7 text-gray-12"
 											: "bg-gray-4 text-gray-11",
