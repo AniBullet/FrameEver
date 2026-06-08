@@ -77,7 +77,7 @@ export default function Sidebar(props: Props) {
 	};
 
 	return (
-		<aside class="w-44 bg-gray-2 border-r border-gray-4 flex flex-col p-3 gap-5">
+		<aside class="w-48 bg-gray-2 border-r border-gray-4 flex flex-col p-3 gap-5">
 			<div class="flex flex-col gap-2">
 				<h3 class="text-xs font-semibold text-gray-11 uppercase tracking-wider px-2">
 					{t("library.sidebar.type")}
@@ -102,7 +102,7 @@ export default function Sidebar(props: Props) {
 										: "text-gray-11",
 								)}
 							/>
-							<span class="flex-1 text-sm font-medium truncate">{filter.label}</span>
+							<span class="flex-1 text-sm font-medium">{filter.label}</span>
 							<span
 								class={cx(
 									"text-xs px-1.5 py-0.5 rounded shrink-0 tabular-nums",
@@ -153,7 +153,7 @@ export default function Sidebar(props: Props) {
 												: "opacity-60 text-gray-11",
 									)}
 								/>
-								<span class="flex-1 text-sm font-medium truncate">{filter.label}</span>
+								<span class="flex-1 text-sm font-medium">{filter.label}</span>
 								<span
 									class={cx(
 										"text-xs px-1.5 py-0.5 rounded shrink-0 tabular-nums",
