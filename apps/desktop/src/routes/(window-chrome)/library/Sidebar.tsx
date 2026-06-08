@@ -24,6 +24,12 @@ type Props = {
 	};
 };
 
+function formatCount(n: number): string {
+	if (n < 1000) return String(n);
+	const k = n / 1000;
+	return k >= 10 ? `${Math.floor(k)}k` : `${k.toFixed(1).replace(/\.0$/, "")}k`;
+}
+
 export default function Sidebar(props: Props) {
 	const { t } = useI18n();
 
@@ -111,7 +117,7 @@ export default function Sidebar(props: Props) {
 										: "bg-gray-4 text-gray-11",
 								)}
 							>
-								{filter.count()}
+								{formatCount(filter.count())}
 							</span>
 						</button>
 					)}
@@ -162,7 +168,7 @@ export default function Sidebar(props: Props) {
 											: "bg-gray-4 text-gray-11",
 									)}
 								>
-									{filter.count()}
+									{formatCount(filter.count())}
 								</span>
 							</button>
 						);
