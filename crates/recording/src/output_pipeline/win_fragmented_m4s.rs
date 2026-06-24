@@ -22,7 +22,7 @@ use std::{
 };
 use tracing::*;
 
-const DEFAULT_MUXER_BUFFER_SIZE: usize = 240;
+const DEFAULT_MUXER_BUFFER_SIZE: usize = 600;
 
 fn get_muxer_buffer_size() -> usize {
     std::env::var("CAP_MUXER_BUFFER_SIZE")
@@ -407,10 +407,9 @@ impl WindowsFragmentedM4SMuxer {
                                             let owned_frame = reusable_frame.clone();
                                             match encoder_clone.lock() {
                                                 Ok(mut enc) => {
-                                                    if let Err(e) = enc.queue_frame(
-                                                        owned_frame,
-                                                        normalized_ts,
-                                                    ) {
+                                                    if let Err(e) =
+                                                        enc.queue_frame(owned_frame, normalized_ts)
+                                                    {
                                                         warn!(
                                                             "Failed to encode drained frame: {e}"
                                                         );
@@ -582,6 +581,10 @@ impl VideoMuxer for WindowsFragmentedM4SMuxer {
         timestamp: Duration,
     ) -> anyhow::Result<()> {
         let Some(adjusted_timestamp) = self.pause.adjust(timestamp)? else {
+            warn!(
+                timestamp_ms = timestamp.as_millis(),
+                "DIAG-MUXER: pause.adjust returned None (frame dropped by muxer pause state)"
+            );
             return Ok(());
         };
 

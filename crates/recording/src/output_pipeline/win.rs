@@ -18,7 +18,7 @@ use std::{
 };
 use tracing::*;
 
-const DEFAULT_MUXER_BUFFER_SIZE: usize = 240;
+const DEFAULT_MUXER_BUFFER_SIZE: usize = 600;
 
 fn get_muxer_buffer_size() -> usize {
     std::env::var("CAP_MUXER_BUFFER_SIZE")
@@ -126,7 +126,7 @@ impl Muxer for WindowsMuxer {
         output_path: PathBuf,
         video_config: Option<VideoInfo>,
         audio_config: Option<AudioInfo>,
-        _pause_flag: Arc<AtomicBool>,
+        pause_flag: Arc<AtomicBool>,
         tasks: &mut TaskPool,
     ) -> anyhow::Result<Self>
     where
@@ -163,6 +163,7 @@ impl Muxer for WindowsMuxer {
 
         {
             let output = output.clone();
+            let pause_flag = pause_flag.clone();
 
             tasks.spawn_thread("windows-encoder", move || {
                 cap_mediafoundation_utils::thread_init();
@@ -341,35 +342,47 @@ impl Muxer for WindowsMuxer {
                         let mut last_emit_wall: Option<std::time::Instant> = None;
 
                         let mut get_frame = || -> windows::core::Result<Option<(windows::Win32::Graphics::Direct3D11::ID3D11Texture2D, TimeSpan)>> {
-                            let now = std::time::Instant::now();
-                            let recv_timeout = if now >= next_frame_deadline {
-                                Duration::from_millis(1)
-                            } else {
-                                next_frame_deadline.saturating_duration_since(now)
-                            };
+                            let got_new_frame = loop {
+                                let now = std::time::Instant::now();
+                                let recv_timeout = if now >= next_frame_deadline {
+                                    Duration::from_millis(1)
+                                } else {
+                                    next_frame_deadline.saturating_duration_since(now)
+                                };
 
-                            match video_rx.recv_timeout(recv_timeout) {
-                                Ok(Some((frame, timestamp))) => {
-                                    last_texture = Some(frame.texture().clone());
-                                    last_timestamp = Some(timestamp);
-                                    _last_screen_frame = Some(frame);
-                                }
-                                Ok(None) => {
-                                    return Ok(None);
-                                }
-                                Err(RecvTimeoutError::Timeout) => {
-                                    if let Some(last_ts) = last_timestamp {
-                                        let new_ts = last_ts.saturating_add(frame_interval);
-                                        last_timestamp = Some(new_ts);
-                                        frames_reused += 1;
+                                match video_rx.recv_timeout(recv_timeout) {
+                                    Ok(Some((frame, timestamp))) => {
+                                        last_texture = Some(frame.texture().clone());
+                                        last_timestamp = Some(timestamp);
+                                        _last_screen_frame = Some(frame);
+                                        break true;
+                                    }
+                                    Ok(None) => {
+                                        return Ok(None);
+                                    }
+                                    Err(RecvTimeoutError::Timeout) => {
+                                        if pause_flag.load(std::sync::atomic::Ordering::Acquire) {
+                                            std::thread::sleep(Duration::from_millis(50));
+                                            continue;
+                                        }
+                                        if let Some(last_ts) = last_timestamp {
+                                            let new_ts = last_ts.saturating_add(frame_interval);
+                                            last_timestamp = Some(new_ts);
+                                            frames_reused += 1;
+                                        }
+                                        break false;
+                                    }
+                                    Err(RecvTimeoutError::Disconnected) => {
+                                        return Ok(None);
                                     }
                                 }
-                                Err(RecvTimeoutError::Disconnected) => {
-                                    return Ok(None);
-                                }
-                            }
+                            };
 
-                            next_frame_deadline = next_frame_deadline.checked_add(frame_interval).unwrap_or_else(|| std::time::Instant::now().checked_add(frame_interval).unwrap());
+                            if got_new_frame {
+                                next_frame_deadline = std::time::Instant::now().checked_add(frame_interval).unwrap_or(next_frame_deadline);
+                            } else {
+                                next_frame_deadline = next_frame_deadline.checked_add(frame_interval).unwrap_or_else(|| std::time::Instant::now().checked_add(frame_interval).unwrap());
+                            }
                             let now = std::time::Instant::now();
                             if next_frame_deadline < now.checked_sub(frame_interval).unwrap_or(now) {
                                 next_frame_deadline = now;
@@ -516,6 +529,10 @@ impl Muxer for WindowsMuxer {
                                 }
                                 Ok(None) => break,
                                 Err(RecvTimeoutError::Timeout) => {
+                                    if pause_flag.load(std::sync::atomic::Ordering::Acquire) {
+                                        std::thread::sleep(Duration::from_millis(50));
+                                        continue;
+                                    }
                                     if let Some(last_ts) = last_timestamp {
                                         let new_ts = last_ts.saturating_add(frame_interval);
                                         last_timestamp = Some(new_ts);
@@ -621,14 +638,11 @@ impl VideoMuxer for WindowsMuxer {
         frame: Self::VideoFrame,
         timestamp: Duration,
     ) -> anyhow::Result<()> {
-        match self.video_tx.try_send(Some((frame.frame, timestamp))) {
+        match self.video_tx.send(Some((frame.frame, timestamp))) {
             Ok(()) => {
                 self.frame_drops.record_frame();
             }
-            Err(TrySendError::Full(_)) => {
-                self.frame_drops.record_drop();
-            }
-            Err(TrySendError::Disconnected(_)) => {
+            Err(_) => {
                 trace!("Windows MP4 encoder channel disconnected");
             }
         }

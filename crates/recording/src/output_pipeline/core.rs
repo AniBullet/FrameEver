@@ -347,7 +347,7 @@ impl VideoDriftTracker {
         self.capped_frame_count
     }
 }
-const DEFAULT_VIDEO_SOURCE_CHANNEL_CAPACITY: usize = 300;
+const DEFAULT_VIDEO_SOURCE_CHANNEL_CAPACITY: usize = 600;
 
 fn get_video_source_channel_capacity() -> usize {
     std::env::var("CAP_VIDEO_SOURCE_BUFFER_SIZE")
@@ -1230,6 +1230,7 @@ fn spawn_video_encoder<TMutex: VideoMuxer<VideoFrame = TVideo::Frame>, TVideo: V
                         continue;
                     }
 
+                    let just_resumed = dropped_during_pause > 0 && frame_count > 0;
                     frame_count += 1;
 
                     let timestamp = frame.timestamp();
@@ -1248,7 +1249,8 @@ fn spawn_video_encoder<TMutex: VideoMuxer<VideoFrame = TVideo::Frame>, TVideo: V
                         }
                     };
 
-                    if anomaly_tracker.take_resync_flag() {
+                    let did_resync = anomaly_tracker.take_resync_flag();
+                    if did_resync {
                         info!(
                             raw_duration_ms = raw_duration.as_millis(),
                             "Timeline resync detected, re-baselining drift tracker"
@@ -1259,6 +1261,23 @@ fn spawn_video_encoder<TMutex: VideoMuxer<VideoFrame = TVideo::Frame>, TVideo: V
                     let raw_wall_clock = timestamps.instant().elapsed();
                     let wall_clock_elapsed = raw_wall_clock.saturating_sub(total_pause_duration);
                     let duration = drift_tracker.calculate_timestamp(raw_duration, wall_clock_elapsed);
+
+                    if just_resumed {
+                        warn!(
+                            frame_count,
+                            dropped_during_pause,
+                            did_resync,
+                            raw_duration_ms = raw_duration.as_millis(),
+                            raw_wall_clock_ms = raw_wall_clock.as_millis(),
+                            total_pause_ms = total_pause_duration.as_millis(),
+                            wall_clock_elapsed_ms = wall_clock_elapsed.as_millis(),
+                            duration_ms = duration.as_millis(),
+                            baseline_offset = drift_tracker.baseline_offset_secs,
+                            last_emitted = format!("{:.3}", drift_tracker.last_emitted_secs),
+                            "DIAG-RESUME: first frame after pause"
+                        );
+                        dropped_during_pause = 0;
+                    }
 
                     if frame_count.is_multiple_of(300) {
                         let drift_ratio = if raw_duration.as_secs_f64() > 0.0 {
