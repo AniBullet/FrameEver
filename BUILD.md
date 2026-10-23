@@ -57,11 +57,33 @@ pnpm fe package
 
 ## 发布新版本
 
-```powershell
-pnpm fe release 3.0.0
+先在 [CHANGELOG.md](CHANGELOG.md) 最上面写这个版本的一节，这一节会原样成为 GitHub Release 的说明、应用内的更新提示和“更新日志”页的内容：
+
+```markdown
+## [3.1.0] — 2026-11-20
+
+一句话概括这个版本（可选）。
+
+### 新增
+- 用户看得到的新功能，一行一条
+
+### 改进
+- 变得更好用的地方
+
+### 修复
+- 修好的问题，写现象而不是代码
+
+### 移除
+- 去掉的功能
 ```
 
-先检查工作区是否干净、标签是否已存在，再跑全部测试，然后请你确认，确认后才推送 `v3.0.0` 标签。GitHub Actions（`.github/workflows/release.yml`）会用同样的 `pnpm fe setup` 和 `pnpm fe package` 打包、签名，并发布到 GitHub Releases，已安装的用户会收到更新。带 `-` 的版本（如 `3.1.0-beta.1`）发布为预览版。
+没有内容的小节直接省略。写给用户看，不写文件名和代码细节。用 `pnpm fe notes 3.1.0` 可以预览截取出来的说明。然后：
+
+```powershell
+pnpm fe release 3.1.0
+```
+
+先检查工作区是否干净、标签是否已存在、`CHANGELOG.md` 里有没有这个版本，再跑全部测试，显示将要发布的说明，请你确认后才推送 `v3.1.0` 标签。CI 在开始编译前也会检查 `CHANGELOG.md`，缺少这一节会直接失败。GitHub Actions（`.github/workflows/release.yml`）会用同样的 `pnpm fe setup` 和 `pnpm fe package` 打包、签名，并发布到 GitHub Releases，已安装的用户会收到更新。带 `-` 的版本（如 `3.1.0-beta.1`）发布为预览版。
 
 更新签名密钥只需配置一次：`scripts/setup-updater-signing.sh`（用 Git Bash 运行）。
 

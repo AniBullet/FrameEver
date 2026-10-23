@@ -37,6 +37,10 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Read release notes from CHANGELOG.md
+        shell: bash
+        run: node scripts/fe.mjs notes "${{ steps.version.outputs.version }}" > "$RUNNER_TEMP/notes.md"
+
       - name: Check signing configuration
         shell: bash
         env:
@@ -132,6 +136,10 @@ jobs:
             console.log(`Updater signature key ${signed} matches the built-in public key`);
           ' "$installer.sig"
 
+      - name: Put the release notes next to the installer
+        shell: bash
+        run: cp "$RUNNER_TEMP/notes.md" "$BUNDLE_DIR/notes.md"
+
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
@@ -139,6 +147,7 @@ jobs:
           path: |
             ${{ env.BUNDLE_DIR }}/*-setup.exe
             ${{ env.BUNDLE_DIR }}/*-setup.exe.sig
+            ${{ env.BUNDLE_DIR }}/notes.md
           if-no-files-found: error
 
   publish:
@@ -165,8 +174,10 @@ jobs:
             echo "::error::Installer name '$name' contains spaces, which GitHub rewrites in asset URLs"
             exit 1
           fi
-          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" --jq .body > dist/notes.md
+          if [[ ! -s dist/notes.md ]]; then
+            echo "::error::dist/notes.md is missing; the build job reads it from CHANGELOG.md"
+            exit 1
+          fi
           jq -n \
             --arg version "$VERSION" \
             --rawfile notes dist/notes.md \

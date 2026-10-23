@@ -1,8 +1,33 @@
 # Changelog
 
-本文档记录 Cap - aniBullet Edition 各版本的主要变更。
+本文档记录 FrameEver · 帧刻（2.x 及以前名为 Cap - aniBullet Edition）各版本的主要变更。每个版本的这一节会原样作为 GitHub Release 说明和应用内的更新提示。
 
 > 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+---
+
+## [3.0.0] — 2026-10-24
+
+全新的原生界面版本，改名为 FrameEver · 帧刻。首次启动会自动导入 2.x 的设置，原来的录制文件继续显示，位置不变。
+
+### 新增
+- 原生界面：基于上游 Cap 0.6.1 的 GPUI 应用，不再基于网页技术
+- 导出支持 HEVC 和 AV1：同样画质下，文件约为 H.264 的 1/3 到 1/4
+- 即时录制的压缩与版本管理：可自动压缩，原版和压缩版随时切换或删除
+- 简体中文和英文界面，可在 设置 → 通用 里切换
+- 命令行工具 `frameever`（设置 → CLI 安装），可供脚本和 AI 智能体调用
+
+### 改进
+- 新图标和品牌配色（克莱因蓝），任务栏和托盘图标在各种缩放下都清晰
+- 界面字体改为 Inter（英文）和 MiSans（中文），Windows 上文字更锐利
+- 安装界面重新设计，中文使用微软雅黑
+
+### 移除
+- 所有云端功能：上传、分享链接、账号登录、Webhook。录制和编辑的内容只保存在本机
+
+### 说明
+- 应用和数据目录都是新的，不会影响仍在使用的 2.x
+- 安装包比 2.x 大约大 18 MB，主要是内置的中文字体
 
 ---
 
@@ -111,6 +136,7 @@
 
 ---
 
+[3.0.0]: https://github.com/AniBullet/FrameEver/releases/tag/v3.0.0
 [2.2.0]: https://github.com/AniBullet/FrameEver/releases/tag/v2.2.0
 [2.1.0]: https://github.com/AniBullet/FrameEver/releases/tag/v2.1.0
 [2.0.2]: https://github.com/AniBullet/FrameEver/releases/tag/v2.0.2

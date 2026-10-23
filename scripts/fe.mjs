@@ -35,6 +35,7 @@ const COMMANDS = {
 	export: "Export the test recording: fe export h264|hevc|av1 [--project <.cap>]",
 	package: "Build the Windows installer into dist/. --skip-sidecars, --version <x.y.z>",
 	release: "Check, tag and push a release: fe release <x.y.z> [--skip-tests]",
+	notes: "Print the CHANGELOG.md section for a version: fe notes <x.y.z>",
 	doctor: "Check the environment and say how to fix anything missing",
 	logs: "Print the app log tail: fe logs [--lines 200] [--grep <text>] [--real]",
 };
@@ -536,6 +537,34 @@ function packageInstaller({ flags }) {
 	if (copied.length > 1) console.log("  Updater signature copied next to it.");
 }
 
+export function changelogSection(text, version) {
+	const lines = text.replace(/\r\n/g, "\n").split("\n");
+	const heading = (line) => line.startsWith("## ");
+	const start = lines.findIndex(
+		(line) => heading(line) && line.slice(3).trim().replace(/^\[/, "").startsWith(`${version}]`),
+	);
+	if (start === -1) return null;
+	const rest = lines.slice(start + 1);
+	const end = rest.findIndex(heading);
+	const body = (end === -1 ? rest : rest.slice(0, end))
+		.filter((line) => line.trim() !== "---")
+		.join("\n")
+		.trim();
+	return body || null;
+}
+
+function releaseNotes(version) {
+	const notes = changelogSection(readFileSync(path.join(root, "CHANGELOG.md"), "utf8"), version);
+	if (!notes) fail(`CHANGELOG.md has no "## [${version}] — <date>" section. Write it first.`);
+	return notes;
+}
+
+function notes({ positional }) {
+	const version = positional[0];
+	if (!version || !SEMVER.test(version)) fail("Usage: pnpm fe notes <x.y.z>");
+	process.stdout.write(`${releaseNotes(version)}\n`);
+}
+
 async function release({ flags, positional }) {
 	const version = positional[0];
 	if (!version || !SEMVER.test(version)) fail("Usage: pnpm fe release <x.y.z>");
@@ -546,6 +575,8 @@ async function release({ flags, positional }) {
 	if (capture("git", ["tag", "--list", tag])) fail(`Tag ${tag} already exists locally.`);
 	const remote = capture("git", ["ls-remote", "--tags", "origin", `refs/tags/${tag}`]);
 	if (remote) fail(`Tag ${tag} already exists on origin.`);
+	step("Release notes (CHANGELOG.md)");
+	console.log(releaseNotes(version).replace(/^/gm, "  "));
 	const head = capture("git", ["log", "-1", "--format=%h %s"]);
 	const branch = capture("git", ["branch", "--show-current"]);
 	console.log(`  ${branch} @ ${head}`);
@@ -680,6 +711,7 @@ const HANDLERS = {
 	export: exportVideo,
 	package: packageInstaller,
 	release,
+	notes,
 	doctor,
 	logs,
 };

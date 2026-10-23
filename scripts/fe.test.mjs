@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+	changelogSection,
 	firstRecording,
 	MISANS_WEIGHTS,
 	missingMisans,
@@ -83,6 +84,27 @@ test("rewriting a font's weight class changes only that field and keeps it valid
 	let sum = 0;
 	for (let index = 0; index < out.length; index += 4) sum = (sum + out.readUInt32BE(index)) >>> 0;
 	assert.equal(sum, 0xb1b0afba);
+});
+
+test("release notes are the CHANGELOG section for exactly that version", () => {
+	const text = [
+		"# Changelog",
+		"",
+		"## [3.1.0] — 2026-11-01",
+		"",
+		"### 新增",
+		"- 新功能",
+		"",
+		"---",
+		"",
+		"## [3.0.0] — 2026-10-24",
+		"",
+		"- 首个版本",
+	].join("\r\n");
+	assert.equal(changelogSection(text, "3.1.0"), "### 新增\n- 新功能");
+	assert.equal(changelogSection(text, "3.0.0"), "- 首个版本");
+	assert.equal(changelogSection(text, "3.0"), null);
+	assert.equal(changelogSection(text, "2.9.0"), null);
 });
 
 test("release versions are plain semver with an optional pre-release", () => {
