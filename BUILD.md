@@ -97,6 +97,8 @@ pnpm fe release 3.1.0
 
 **`cargo build` 报 “Access is denied”**：应用还开着，先关掉再编译。
 
+**打包报 `Internal compiler error #12345: deflateInit() failed`**：NSIS 的打包程序是 32 位的，LZMA 压缩字典太大时申请不到足够的连续内存。`packaging/windows/installer-hooks.nsh` 里的 `SetCompressorDictSize` 保持 64（MB）：实测 64 和 96 的安装包只差 0.3 MB，128 会时好时坏。
+
 **libclang / bindgen 报错**：`.cargo/config.toml` 缺少 `LIBCLANG_PATH`，运行 `pnpm fe setup`。
 
 更多见 [docs/agents/debugging.md](docs/agents/debugging.md)。遇到文档没覆盖的问题，欢迎[提交 Issue](https://github.com/AniBullet/FrameEver/issues/new)。

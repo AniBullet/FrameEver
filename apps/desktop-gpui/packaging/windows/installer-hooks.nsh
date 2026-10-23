@@ -1,7 +1,4 @@
-; Tauri includes this file right after `SetCompressor /SOLID lzma`, before any
-; data is compressed. A 128 MB window lets LZMA match cap-cli.exe against
-; Cap.exe, which share most of their code; the default 8 MB window cannot.
-SetCompressorDictSize 128
+SetCompressorDictSize 64
 
 SetFont /LANG=2052 "Microsoft YaHei UI" 9
 
