@@ -1,4 +1,10 @@
-use std::{ffi::OsString, mem, os::windows::ffi::OsStringExt, path::PathBuf, str::FromStr};
+use std::{
+    ffi::OsString,
+    mem,
+    os::windows::ffi::OsStringExt,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use tracing::error;
 use windows::{
     Graphics::Capture::GraphicsCaptureItem,
@@ -36,14 +42,13 @@ use windows::{
                 SHGetFileInfoW,
             },
             WindowsAndMessaging::{
-                DI_FLAGS, DestroyIcon, DrawIconEx, EnumChildWindows, EnumWindows, GCLP_HICON,
-                GW_HWNDNEXT, GWL_EXSTYLE, GWL_STYLE, GetClassLongPtrW, GetClassNameW,
-                GetClientRect, GetCursorPos, GetDesktopWindow, GetIconInfo,
-                GetLayeredWindowAttributes, GetWindow, GetWindowLongPtrW, GetWindowLongW,
-                GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
-                HICON, ICONINFO, IsIconic, IsWindowVisible, PrivateExtractIconsW, SendMessageW,
-                WM_GETICON, WS_CHILD, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-                WS_EX_TRANSPARENT, WindowFromPoint,
+                DI_FLAGS, DestroyIcon, DrawIconEx, EnumWindows, GCLP_HICON, GW_HWNDNEXT,
+                GWL_EXSTYLE, GWL_STYLE, GetClassLongPtrW, GetClassNameW, GetClientRect,
+                GetCursorPos, GetIconInfo, GetLayeredWindowAttributes, GetWindow,
+                GetWindowLongPtrW, GetWindowLongW, GetWindowRect, GetWindowTextLengthW,
+                GetWindowTextW, GetWindowThreadProcessId, HICON, ICONINFO, IsIconic,
+                IsWindowVisible, PrivateExtractIconsW, SendMessageW, WM_GETICON, WS_CHILD,
+                WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WindowFromPoint,
             },
         },
     },
@@ -329,11 +334,12 @@ impl WindowImpl {
         };
 
         unsafe {
-            let _ = EnumChildWindows(
-                Some(GetDesktopWindow()),
+            if let Err(error) = EnumWindows(
                 Some(enum_windows_proc),
                 LPARAM(std::ptr::addr_of_mut!(context) as isize),
-            );
+            ) {
+                error!(%error, "Failed to enumerate top-level windows");
+            }
         }
 
         context.list
@@ -1055,6 +1061,30 @@ impl WindowImpl {
         }
     }
 
+    pub fn logical_bounds(&self) -> Option<LogicalBounds> {
+        let physical_bounds = self.physical_bounds()?;
+
+        const BASE_DPI: f64 = 96.0;
+        let dpi = unsafe {
+            match GetDpiForWindow(self.0) {
+                0 => BASE_DPI as u32,
+                dpi => dpi,
+            }
+        } as f64;
+        let scale_factor = dpi / BASE_DPI;
+
+        Some(LogicalBounds::new(
+            LogicalPosition::new(
+                physical_bounds.position().x() / scale_factor,
+                physical_bounds.position().y() / scale_factor,
+            ),
+            LogicalSize::new(
+                physical_bounds.size().width() / scale_factor,
+                physical_bounds.size().height() / scale_factor,
+            ),
+        ))
+    }
+
     pub fn physical_size(&self) -> Option<PhysicalSize> {
         Some(self.physical_bounds()?.size())
     }
@@ -1141,8 +1171,7 @@ impl WindowImpl {
         }
 
         if let Ok(exe_path) = unsafe { pid_to_exe_path(id) }
-            && let Some(exe_name) = exe_path.file_name().and_then(|n| n.to_str())
-            && IGNORED_EXES.contains(&&*exe_name.to_lowercase())
+            && is_ignored_executable(&exe_path)
         {
             return false;
         }
@@ -1172,6 +1201,16 @@ impl WindowImpl {
     }
 }
 
+fn is_ignored_executable(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            IGNORED_EXES
+                .iter()
+                .any(|ignored| name.eq_ignore_ascii_case(ignored))
+        })
+}
+
 fn is_window_valid_for_enumeration(hwnd: HWND, current_process_id: u32) -> bool {
     unsafe {
         if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
@@ -1185,8 +1224,7 @@ fn is_window_valid_for_enumeration(hwnd: HWND, current_process_id: u32) -> bool 
         }
 
         if let Ok(exe_path) = pid_to_exe_path(process_id)
-            && let Some(exe_name) = exe_path.file_name().and_then(|n| n.to_str())
-            && IGNORED_EXES.contains(&&*exe_name.to_lowercase())
+            && is_ignored_executable(&exe_path)
         {
             return false;
         }
@@ -1338,4 +1376,19 @@ unsafe fn pid_to_exe_path(pid: u32) -> Result<PathBuf, windows::core::Error> {
 
     let os_str = &OsString::from_wide(&lpexename[..lpdwsize as usize]);
     Ok(PathBuf::from(os_str))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ignored_executables_match_stems_without_excluding_other_apps() {
+        for name in ["cap.exe", "CAP.EXE", "WebView2.exe", "msedgewebview2.exe"] {
+            assert!(is_ignored_executable(&Path::new(r"C:\Apps").join(name)));
+        }
+        for name in ["camoufox.exe", "firefox.exe", "inkscape.exe", "capture.exe"] {
+            assert!(!is_ignored_executable(&Path::new(r"C:\Apps").join(name)));
+        }
+    }
 }

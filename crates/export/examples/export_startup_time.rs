@@ -13,11 +13,13 @@ async fn main() -> Result<(), String> {
         .ok_or_else(|| "usage: export_startup_time <path-to-project.cap>".to_string())?;
 
     let settings = Mp4ExportSettings {
+        codec: Default::default(),
         fps: 60,
         resolution_base: XY { x: 3840, y: 2160 },
         compression: ExportCompression::Maximum,
         custom_bpp: None,
         force_ffmpeg_decoder: false,
+        optimize_filesize: false,
     };
 
     let temp_out = tempfile::Builder::new()

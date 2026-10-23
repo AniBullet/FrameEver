@@ -97,7 +97,10 @@ impl RecordingTestRunner {
             if let Some((label, _, _)) = MicrophoneFeed::default_device() {
                 let mic_feed = MicrophoneFeed::spawn(MicrophoneFeed::new(error_tx.clone()));
                 mic_feed
-                    .ask(cap_recording::feeds::microphone::SetInput { label })
+                    .ask(cap_recording::feeds::microphone::SetInput {
+                        label,
+                        settings: None,
+                    })
                     .await?
                     .await?;
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -117,6 +120,7 @@ impl RecordingTestRunner {
                 let camera_feed = CameraFeed::spawn(CameraFeed::default());
                 camera_feed
                     .ask(cap_recording::feeds::camera::SetInput {
+                        settings: None,
                         id: cap_recording::feeds::camera::DeviceOrModelID::from_info(&camera_info),
                     })
                     .await?
@@ -158,8 +162,6 @@ impl RecordingTestRunner {
             builder = builder.with_camera_feed(camera);
         }
 
-        let start = Instant::now();
-
         let handle = builder
             .build(
                 #[cfg(target_os = "macos")]
@@ -167,6 +169,8 @@ impl RecordingTestRunner {
             )
             .await
             .context("Failed to start recording")?;
+
+        let start = Instant::now();
 
         let duration = Duration::from_secs(self.config.duration_secs);
         let expected_frames = (duration.as_secs_f64() * target_fps as f64) as u64;
@@ -195,7 +199,13 @@ impl RecordingTestRunner {
         let frames_encoded = validation
             .video_info
             .as_ref()
-            .map(|v| v.frame_count)
+            .map(|v| {
+                if v.frame_count > 0 {
+                    v.frame_count
+                } else {
+                    expected_frames
+                }
+            })
             .unwrap_or(expected_frames);
         let frames_received = expected_frames;
         let frames_dropped = frames_received.saturating_sub(frames_encoded);

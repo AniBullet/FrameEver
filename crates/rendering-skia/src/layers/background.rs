@@ -27,8 +27,16 @@ impl From<BackgroundSource> for Background {
     fn from(source: BackgroundSource) -> Self {
         match source {
             BackgroundSource::Color { value, .. } => Background::Color(value),
-            BackgroundSource::Gradient { from, to, angle } => {
-                Background::Gradient { from, to, angle }
+            BackgroundSource::Gradient {
+                from, to, angle, ..
+            } => Background::Gradient { from, to, angle },
+            BackgroundSource::AnimatedGradient { config } => {
+                let config = config.normalized();
+                Background::Gradient {
+                    from: config.color_stops[0].color,
+                    to: config.color_stops[config.color_stops.len() - 1].color,
+                    angle: config.direction.round() as u16,
+                }
             }
             BackgroundSource::Image { path } => {
                 if let Some(path) = path {
@@ -275,32 +283,29 @@ impl RecordableLayer for BackgroundLayer {
     fn prepare(&mut self, frame_data: &FrameData) -> Result<(), SkiaRenderingError> {
         let new_background = Background::from(frame_data.uniforms.background.clone());
 
-        // Handle image loading if needed
         match &new_background {
-            Background::Image { path } | Background::Wallpaper { path } => {
-                if self.image_path.as_ref() != Some(path) || self.loaded_image.is_none() {
-                    // For now, we'll do synchronous loading. In a real implementation,
-                    // this should be async or cached at a higher level
-                    match std::fs::read(path) {
-                        Ok(image_data) => {
-                            let data = skia_safe::Data::new_copy(&image_data);
-                            if let Some(image) = Image::from_encoded(&data) {
-                                self.loaded_image = Some(image);
-                                self.image_path = Some(path.clone());
-                            } else {
-                                tracing::error!("Failed to decode image: {:?}", path);
-                                return Err(SkiaRenderingError::Other(anyhow::anyhow!(
-                                    "Failed to decode image"
-                                )));
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to load image: {:?}, error: {}", path, e);
+            Background::Image { path } | Background::Wallpaper { path }
+                if self.image_path.as_ref() != Some(path) || self.loaded_image.is_none() =>
+            {
+                match std::fs::read(path) {
+                    Ok(image_data) => {
+                        let data = skia_safe::Data::new_copy(&image_data);
+                        if let Some(image) = Image::from_encoded(&data) {
+                            self.loaded_image = Some(image);
+                            self.image_path = Some(path.clone());
+                        } else {
+                            tracing::error!("Failed to decode image: {:?}", path);
                             return Err(SkiaRenderingError::Other(anyhow::anyhow!(
-                                "Failed to load image: {}",
-                                e
+                                "Failed to decode image"
                             )));
                         }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to load image: {:?}, error: {}", path, e);
+                        return Err(SkiaRenderingError::Other(anyhow::anyhow!(
+                            "Failed to load image: {}",
+                            e
+                        )));
                     }
                 }
             }
@@ -330,6 +335,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn animated_gradient_has_a_static_palette_fallback() {
+        let source = BackgroundSource::AnimatedGradient {
+            config: cap_project::AnimatedGradientConfig::default(),
+        };
+        assert!(matches!(
+            Background::from(source),
+            Background::Gradient {
+                from: [255, 107, 53],
+                to: [26, 26, 46],
+                angle: 45
+            }
+        ));
+    }
+
+    #[test]
     fn test_background_from_source() {
         // Test color conversion
         let color_source = BackgroundSource::Color {
@@ -344,6 +364,10 @@ mod tests {
             from: [65535, 0, 0],
             to: [0, 0, 65535],
             angle: 45,
+            noise_intensity: None,
+            noise_scale: None,
+            animated: None,
+            animation_speed: None,
         };
         let gradient_bg = Background::from(gradient_source);
         assert!(matches!(

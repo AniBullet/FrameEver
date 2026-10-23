@@ -111,8 +111,8 @@
 
 ---
 
-[2.2.0]: https://github.com/aniBullet/Cap-aniBullet/releases/tag/v2.2.0
-[2.1.0]: https://github.com/aniBullet/Cap-aniBullet/releases/tag/v2.1.0
-[2.0.2]: https://github.com/aniBullet/Cap-aniBullet/releases/tag/v2.0.2
-[2.0.1]: https://github.com/aniBullet/Cap-aniBullet/releases/tag/v2.0.1
-[2.0.0]: https://github.com/aniBullet/Cap-aniBullet/releases/tag/v2.0.0
+[2.2.0]: https://github.com/AniBullet/FrameEver/releases/tag/v2.2.0
+[2.1.0]: https://github.com/AniBullet/FrameEver/releases/tag/v2.1.0
+[2.0.2]: https://github.com/AniBullet/FrameEver/releases/tag/v2.0.2
+[2.0.1]: https://github.com/AniBullet/FrameEver/releases/tag/v2.0.1
+[2.0.0]: https://github.com/AniBullet/FrameEver/releases/tag/v2.0.0

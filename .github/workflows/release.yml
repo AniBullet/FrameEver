@@ -1,0 +1,196 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TARGET: x86_64-pc-windows-msvc
+  BUNDLE_DIR: dist
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 240
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read version from tag
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME is not a semantic version like v3.0.0"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check signing configuration
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          FRAMEEVER_UPDATER_PUBKEY: ${{ vars.FRAMEEVER_UPDATER_PUBKEY }}
+        run: |
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            echo "::error::Secret TAURI_SIGNING_PRIVATE_KEY is missing; run scripts/setup-updater-signing.sh"
+            exit 1
+          fi
+          if [[ -z "$FRAMEEVER_UPDATER_PUBKEY" ]]; then
+            echo "::error::Variable FRAMEEVER_UPDATER_PUBKEY is missing; run scripts/setup-updater-signing.sh"
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.5.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test packaging scripts
+        run: node --test scripts/bundle-gpui.test.mjs scripts/prepare-gpui-dependency.test.mjs scripts/fe.test.mjs
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          targets: ${{ env.TARGET }}
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-release
+          workspaces: |
+            . -> target
+            apps/desktop-gpui -> target
+          cache-on-failure: true
+
+      - name: Prepare native dependencies
+        run: pnpm fe setup --ci
+
+      - name: Increase pagefile size
+        uses: al-cheb/configure-pagefile-action@a3b6ebd6b634da88790d9c58d4b37a7f4a7b8708
+        with:
+          minimum-size: 16GB
+          maximum-size: 24GB
+          disk-root: "D:"
+
+      - name: Build the installer
+        env:
+          FRAMEEVER_UPDATER_PUBKEY: ${{ vars.FRAMEEVER_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm fe package --version ${{ steps.version.outputs.version }}
+
+      - name: Check the installer and its updater signature
+        shell: bash
+        env:
+          FRAMEEVER_UPDATER_PUBKEY: ${{ vars.FRAMEEVER_UPDATER_PUBKEY }}
+        run: |
+          shopt -s nullglob
+          installers=("$BUNDLE_DIR"/*-setup.exe)
+          if [[ ${#installers[@]} -ne 1 ]]; then
+            echo "::error::Expected one NSIS installer in $BUNDLE_DIR, found ${#installers[@]}"
+            exit 1
+          fi
+          installer="${installers[0]}"
+          if [[ ! -s "$installer.sig" ]]; then
+            echo "::error::No updater signature next to $installer"
+            exit 1
+          fi
+          node -e '
+            const fs = require("fs");
+            const keyId = (encoded, line) =>
+              Buffer.from(
+                Buffer.from(encoded.trim(), "base64").toString("utf8").split(/\r?\n/)[line],
+                "base64",
+              ).subarray(2, 10).toString("hex");
+            const signed = keyId(fs.readFileSync(process.argv[1], "utf8"), 1);
+            const trusted = keyId(process.env.FRAMEEVER_UPDATER_PUBKEY, 1);
+            if (signed !== trusted) {
+              console.error(`Installer was signed by key ${signed}, but the app trusts ${trusted}`);
+              process.exit(1);
+            }
+            console.log(`Updater signature key ${signed} matches the built-in public key`);
+          ' "$installer.sig"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            ${{ env.BUNDLE_DIR }}/*-setup.exe
+            ${{ env.BUNDLE_DIR }}/*-setup.exe.sig
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download installer
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: dist
+
+      - name: Write update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          installer="$(ls dist/*-setup.exe)"
+          name="$(basename "$installer")"
+          if [[ "$name" == *" "* ]]; then
+            echo "::error::Installer name '$name' contains spaces, which GitHub rewrites in asset URLs"
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" --jq .body > dist/notes.md
+          jq -n \
+            --arg version "$VERSION" \
+            --rawfile notes dist/notes.md \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/$name" \
+            --rawfile signature "$installer.sig" \
+            '{version: $version, notes: $notes, pub_date: $pub_date,
+              platforms: {"windows-x86_64": {url: $url, signature: ($signature | gsub("\\s"; ""))}}}' \
+            > dist/latest.json
+          cat dist/latest.json
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          prerelease=()
+          if [[ "$VERSION" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file dist/notes.md \
+            "${prerelease[@]}" \
+            dist/*-setup.exe dist/*-setup.exe.sig dist/latest.json

@@ -1,10 +1,19 @@
+mod av_alignment;
+mod av_step;
+mod drift;
 mod encoding;
+pub mod ffprobe_ext;
+pub mod kill9;
+mod performance;
 mod playback;
 mod recording;
+pub(crate) mod recording_helpers;
+pub mod scenarios;
 mod sync;
-mod validate;
+pub(crate) mod validate;
 
 pub use recording::RecordingTestRunner;
+pub use scenarios::{ScenarioRunner, classify_test_failure};
 pub use validate::validate_recording;
 
 use anyhow::Result;
@@ -33,8 +42,48 @@ pub async fn run_playback_suite(
     playback::run_suite(hardware, duration).await
 }
 
+pub async fn run_performance_suite(
+    hardware: &DiscoveredHardware,
+    recording_path: &std::path::Path,
+    duration: u64,
+) -> Result<TestResults> {
+    performance::run_suite(hardware, recording_path, duration).await
+}
+
 pub async fn run_sync_suite(hardware: &DiscoveredHardware, duration: u64) -> Result<TestResults> {
     sync::run_suite(hardware, duration).await
+}
+
+pub async fn run_av_alignment_suite(
+    hardware: &DiscoveredHardware,
+    duration: u64,
+) -> Result<TestResults> {
+    av_alignment::run_suite(hardware, duration).await
+}
+
+pub async fn run_drift_suite(hardware: &DiscoveredHardware, duration: u64) -> Result<TestResults> {
+    drift::run_suite(hardware, duration).await
+}
+
+pub async fn run_av_step_suite(
+    hardware: &DiscoveredHardware,
+    duration: u64,
+) -> Result<TestResults> {
+    av_step::run_suite(hardware, duration, av_step::RecordMode::Studio).await
+}
+
+pub async fn run_av_step_instant_suite(
+    hardware: &DiscoveredHardware,
+    duration: u64,
+) -> Result<TestResults> {
+    av_step::run_suite(hardware, duration, av_step::RecordMode::Instant).await
+}
+
+pub async fn run_kill9_crash_suite(
+    hardware: &DiscoveredHardware,
+    duration: u64,
+) -> Result<TestResults> {
+    kill9::run_suite(hardware, duration).await
 }
 
 pub async fn run_benchmark(

@@ -2,9 +2,14 @@ use cap_camera::CapturedFrame;
 use cap_camera_avfoundation::ImageBufExt;
 use cidre::*;
 use ffmpeg::{format::Pixel, software::scaling};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    cell::RefCell,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use crate::CapturedFrameExt;
+
+type CachedScaler = (Pixel, u32, u32, scaling::Context, ffmpeg::frame::Video);
 
 #[derive(thiserror::Error, Debug)]
 pub enum AsFFmpegError {
@@ -55,9 +60,20 @@ static FALLBACK_WARNING_LOGGED: AtomicBool = AtomicBool::new(false);
 
 impl CapturedFrameExt for CapturedFrame {
     fn as_ffmpeg(&self) -> Result<ffmpeg::frame::Video, AsFFmpegError> {
-        let native = self.native();
+        sample_buf_as_ffmpeg(self.native().sample_buf())
+    }
+}
 
-        let mut image_buf = native.image_buf().ok_or(AsFFmpegError::NoImageBuffer)?;
+// Standalone so consumers holding a bare retained CMSampleBuffer (e.g. the
+// native camera preview's CPU fallback) can reuse the same conversion.
+pub fn sample_buf_as_ffmpeg(
+    sample_buf: &cm::SampleBuf,
+) -> Result<ffmpeg::frame::Video, AsFFmpegError> {
+    {
+        let mut image_buf = sample_buf
+            .image_buf()
+            .map(|b| b.retained())
+            .ok_or(AsFFmpegError::NoImageBuffer)?;
 
         let width = image_buf.width();
         let height = image_buf.height();
@@ -82,7 +98,9 @@ impl CapturedFrameExt for CapturedFrame {
             ),
         ];
 
-        let format_desc = native.sample_buf().format_desc().unwrap();
+        let format_desc = sample_buf
+            .format_desc()
+            .ok_or(AsFFmpegError::NoImageBuffer)?;
 
         let bytes_lock = ImageBufExt::base_addr_lock(
             image_buf.as_mut(),
@@ -113,12 +131,17 @@ impl CapturedFrameExt for CapturedFrame {
 
                 ff_frame
             }
-            "420v" | "420f" => {
+            format @ ("420v" | "420f") => {
                 let mut ff_frame = ffmpeg::frame::Video::new(
                     ffmpeg::format::Pixel::NV12,
                     width as u32,
                     height as u32,
                 );
+                ff_frame.set_color_range(if format == "420f" {
+                    ffmpeg::color::Range::JPEG
+                } else {
+                    ffmpeg::color::Range::MPEG
+                });
 
                 let src_stride = plane0_stride;
                 let dest_stride = ff_frame.stride(0);
@@ -368,31 +391,56 @@ impl CapturedFrameExt for CapturedFrame {
                         dest_row.copy_from_slice(src_row);
                     }
 
-                    let mut scaler = scaling::Context::get(
-                        info.pixel,
-                        width as u32,
-                        height as u32,
-                        Pixel::RGBA,
-                        width as u32,
-                        height as u32,
-                        scaling::flag::Flags::FAST_BILINEAR,
-                    )
-                    .map_err(|e| AsFFmpegError::SwscaleFallbackFailed {
-                        format: format.to_string(),
-                        reason: format!("Failed to create scaler: {e}"),
-                    })?;
+                    thread_local! {
+                        static FALLBACK_SCALER: RefCell<Option<CachedScaler>> = const { RefCell::new(None) };
+                    }
 
-                    let mut output_frame =
-                        ffmpeg::frame::Video::new(Pixel::RGBA, width as u32, height as u32);
+                    FALLBACK_SCALER.with(|cell| {
+                        let mut cached = cell.borrow_mut();
 
-                    scaler.run(&src_frame, &mut output_frame).map_err(|e| {
-                        AsFFmpegError::SwscaleFallbackFailed {
-                            format: format.to_string(),
-                            reason: format!("Conversion failed: {e}"),
+                        let w = width as u32;
+                        let h = height as u32;
+
+                        let needs_reinit = cached.as_ref().is_none_or(|(p, cw, ch, _, _)| {
+                            *p != info.pixel || *cw != w || *ch != h
+                        });
+
+                        if needs_reinit {
+                            let scaler = scaling::Context::get(
+                                info.pixel,
+                                w,
+                                h,
+                                Pixel::RGBA,
+                                w,
+                                h,
+                                scaling::flag::Flags::FAST_BILINEAR,
+                            )
+                            .map_err(|e| {
+                                AsFFmpegError::SwscaleFallbackFailed {
+                                    format: format.to_string(),
+                                    reason: format!("Failed to create scaler: {e}"),
+                                }
+                            })?;
+
+                            let out = ffmpeg::frame::Video::new(Pixel::RGBA, w, h);
+                            *cached = Some((info.pixel, w, h, scaler, out));
                         }
-                    })?;
 
-                    output_frame
+                        let (_, _, _, scaler, output) = cached.as_mut().unwrap();
+
+                        scaler.run(&src_frame, output).map_err(|e| {
+                            AsFFmpegError::SwscaleFallbackFailed {
+                                format: format.to_string(),
+                                reason: format!("Conversion failed: {e}"),
+                            }
+                        })?;
+
+                        let mut cloned = ffmpeg::frame::Video::new(Pixel::RGBA, w, h);
+                        let src_data = output.data(0);
+                        let dest_data = cloned.data_mut(0);
+                        dest_data[..src_data.len()].copy_from_slice(src_data);
+                        Ok::<_, AsFFmpegError>(cloned)
+                    })?
                 } else {
                     return Err(AsFFmpegError::UnsupportedSubType(format.to_string()));
                 }

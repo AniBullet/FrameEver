@@ -1,8 +1,8 @@
-# Cap-aniBullet 贡献指南
+# FrameEver 贡献指南
 
 ## 项目简介
 
-Cap-aniBullet 是基于 [Cap](https://github.com/CapSoftware/Cap) 的本地优先屏幕录制应用分支，专注于：
+FrameEver（帧刻）是基于 [Cap](https://github.com/CapSoftware/Cap) 的本地优先屏幕录制应用分支，专注于：
 
 - 无时长 / 数量限制的本地录制
 - 完全离线运行（无云端依赖）
@@ -13,8 +13,8 @@ Cap-aniBullet 是基于 [Cap](https://github.com/CapSoftware/Cap) 的本地优�
 
 ## 如何参与
 
-- [报告 Bug](https://github.com/AniBullet/Cap-aniBullet/issues/new)
-- [发起讨论](https://github.com/AniBullet/Cap-aniBullet/discussions)
+- [报告 Bug](https://github.com/AniBullet/FrameEver/issues/new)
+- [发起讨论](https://github.com/AniBullet/FrameEver/discussions)
 - 提交 Pull Request
 
 ---
@@ -27,7 +27,8 @@ Cap-aniBullet 是基于 [Cap](https://github.com/CapSoftware/Cap) 的本地优�
 |------|------|
 | Node.js | 20+ |
 | pnpm | 10+ |
-| Rust | 1.88+ |
+| Rust | rustup（1.88 与 stable，`pnpm fe setup` 会补装） |
+| Visual Studio 2022 生成工具 | C++ 桌面开发、LLVM、CMake |
 | Windows | x64 |
 
 > **注意**：本项目仅支持 Windows 平台，macOS / Linux 不在维护范围。
@@ -35,9 +36,10 @@ Cap-aniBullet 是基于 [Cap](https://github.com/CapSoftware/Cap) 的本地优�
 ### 快速启动
 
 ```powershell
-.\scripts\1-install.ps1   # 安装原生依赖（FFmpeg、LLVM 等），完成后重启终端
-.\scripts\2-dev.ps1       # 启动开发服务器（SolidStart + Tauri）
-.\scripts\3-build.ps1     # 构建生产版本
+pnpm fe setup     # 准备环境（首次）
+pnpm fe dev       # 用独立的测试数据运行应用（--watch 自动重编译）
+pnpm fe lint      # 提交前检查：格式、Clippy、翻译
+pnpm fe package   # 打包安装程序
 ```
 
 详细步骤请参阅 [BUILD.md](BUILD.md)。
@@ -47,7 +49,7 @@ Cap-aniBullet 是基于 [Cap](https://github.com/CapSoftware/Cap) 的本地优�
 ## 项目结构
 
 ```
-Cap-aniBullet/
+FrameEver/
 ├── apps/desktop/           # Tauri v2 桌面应用
 │   ├── src/                # SolidJS 前端（录制 UI、编辑器、设置）
 │   └── src-tauri/          # Rust 后端（窗口管理、录制控制）

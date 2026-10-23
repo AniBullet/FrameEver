@@ -22,11 +22,13 @@ async fn run_export(project_path: PathBuf) -> Result<(PathBuf, Duration, u32), S
         .map_err(|err| format!("Exporter build error: {err}"))?;
 
     let settings = Mp4ExportSettings {
+        codec: Default::default(),
         fps: 60,
         resolution_base: XY::new(1920, 1080),
         compression: ExportCompression::Maximum,
         custom_bpp: None,
         force_ffmpeg_decoder: false,
+        optimize_filesize: false,
     };
 
     let start = Instant::now();
@@ -136,7 +138,7 @@ pub fn list_recordings() -> Vec<PathBuf> {
         })
         .collect();
 
-    recordings.sort_by(|a, b| b.0.cmp(&a.0));
+    recordings.sort_by_key(|entry| std::cmp::Reverse(entry.0));
 
     recordings.into_iter().map(|(_, path)| path).collect()
 }

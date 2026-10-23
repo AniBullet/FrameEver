@@ -12,6 +12,16 @@ Cap - aniBullet Edition is a Windows desktop screen recording application built 
 - **Key Features**: Unlimited recording, local storage, offline AI captions (Whisper.cpp), professional editing
 - **Business Model**: Completely free and open source
 
+## Migration In Progress (read first)
+
+The project is moving from the Tauri app (`apps/desktop`, frozen) to upstream's native GPUI app (`apps/desktop-gpui`). Sections below that describe Tauri/SolidJS apply only to the frozen app.
+- Start here when resuming: `docs/upstream-sync/HANDOFF.md` (current state, environment, next steps)
+- Build, run, test, package, debug: always through `pnpm fe <command>` (`scripts/fe.mjs`; `pnpm fe` lists them). How to debug and fix problems: `docs/agents/debugging.md`. The commands under "Key Commands" below are for the frozen Tauri app only.
+- Decisions: `docs/adr/` (GPUI replaces Tauri, local-only, upstream crates as baseline, HEVC at export)
+- Merge status, per-fix verdicts and the phased roadmap: `docs/upstream-sync/0.6.1.md`
+- Vocabulary: `GLOSSARY.md`
+- UI languages: English and Simplified Chinese only
+
 ## File Location Patterns & Key Directories
 
 ### Core Application
@@ -412,3 +422,13 @@ Always format code before completing work:
 - **Rust**: Run `cargo fmt` to format all Rust code with rustfmt
 
 These commands should be run regularly during development and always at the end of a coding session to ensure consistent formatting across the codebase.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`AniBullet/FrameEver`). See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context layout: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

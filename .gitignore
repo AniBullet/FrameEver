@@ -4,10 +4,11 @@ logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
 lerna-debug.log*
+.deepsec
 
 node_modules
+apps/cli/skill/cap-demo/node_modules/
 dist
 dist-ssr
 *.local
@@ -16,13 +17,18 @@ dist-ssr
 .env.development
 .env.test
 target
+target-agent
+target-phase8
+outputs
 .cursorrules
 .yarn
+.github/hooks
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 !.vscode/tasks.json
+!.vscode/settings.json
 .idea
 .DS_Store
 *.suo
@@ -31,12 +37,10 @@ target
 *.sln
 *.sw?
 .turbo
-pnpm-lock.yaml
 .zed
 .output
 .vinxi
 native-deps*
-apps/storybook/storybook-static
 .tinyb
 
 **/.tinyb
@@ -44,6 +48,8 @@ apps/storybook/storybook-static
 *.tsbuildinfo
 .cargo/config.toml
 tauri.windows.conf.json
+tauri.macos.conf.json
+tauri.linux.conf.json
 .vercel
 
 # sst
@@ -62,7 +68,9 @@ scripts/update-github-releases.sh
 scripts/releases-backfill-data.txt
 
 # SEO agent state (machine-local, contains sensitive ranking data)
-seo/
+/seo/
+scripts/seo/
+/.growth-agent/
 
 # OpenCode commands (local)
 .opencode/
@@ -123,3 +131,9 @@ Desktop.ini
 ._*
 .Spotlight-V100
 .Trashes
+.ralphy
+tmp/
+
+__pycache__/
+
+/apps/desktop-gpui/assets/fonts/misans/

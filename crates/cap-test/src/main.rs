@@ -11,7 +11,7 @@ mod suites;
 
 use config::TestConfig;
 use discovery::DiscoveredHardware;
-use matrix::MatrixRunner;
+use matrix::{CompatMatrixRunner, MatrixRunner};
 #[allow(unused_imports)]
 use results::{ResultsSummary, TestResults};
 
@@ -55,6 +55,12 @@ enum Commands {
 
         #[arg(long, default_value = "10")]
         duration: u64,
+
+        #[arg(long)]
+        recording_path: Option<PathBuf>,
+
+        #[arg(long)]
+        gate: bool,
     },
 
     Synthetic {
@@ -76,6 +82,20 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
+    CompatMatrix {
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        #[arg(long)]
+        interactive: bool,
+
+        #[arg(long)]
+        gate: bool,
+    },
+
     Validate {
         path: PathBuf,
 
@@ -90,6 +110,29 @@ enum Commands {
 
     Report {
         results: PathBuf,
+    },
+
+    RecordHarness {
+        #[arg(long)]
+        output: PathBuf,
+
+        #[arg(long)]
+        ready_file: Option<PathBuf>,
+
+        #[arg(long)]
+        display: Option<String>,
+
+        #[arg(long, default_value = "30")]
+        fps: u32,
+
+        #[arg(long, default_value = "600")]
+        max_duration: u64,
+
+        #[arg(long, default_value = "true")]
+        include_mic: bool,
+
+        #[arg(long, default_value = "false")]
+        include_system_audio: bool,
     },
 }
 
@@ -120,8 +163,10 @@ async fn main() -> Result<()> {
             name,
             output,
             duration,
+            recording_path,
+            gate,
         } => {
-            cmd_suite(&name, duration, output).await?;
+            cmd_suite(&name, duration, recording_path, output, gate).await?;
         }
 
         Commands::Synthetic { config, output } => {
@@ -136,6 +181,18 @@ async fn main() -> Result<()> {
             cmd_benchmark(duration, warmup, output).await?;
         }
 
+        Commands::CompatMatrix {
+            config,
+            output,
+            interactive,
+            gate,
+        } => {
+            let passed = cmd_compat_matrix(config, output, interactive).await?;
+            if gate && !passed {
+                std::process::exit(1);
+            }
+        }
+
         Commands::Validate { path, json } => {
             cmd_validate(path, json).await?;
         }
@@ -146,6 +203,27 @@ async fn main() -> Result<()> {
 
         Commands::Report { results } => {
             cmd_report(results).await?;
+        }
+
+        Commands::RecordHarness {
+            output,
+            ready_file,
+            display,
+            fps,
+            max_duration,
+            include_mic,
+            include_system_audio,
+        } => {
+            suites::kill9::run_record_harness(suites::kill9::RecordHarnessArgs {
+                output,
+                ready_file,
+                display_id: display,
+                fps,
+                max_duration_secs: max_duration,
+                include_mic,
+                include_system_audio,
+            })
+            .await?;
         }
     }
 
@@ -194,17 +272,32 @@ async fn cmd_matrix(
     Ok(())
 }
 
-async fn cmd_suite(name: &str, duration: u64, output: Option<PathBuf>) -> Result<()> {
+async fn cmd_suite(
+    name: &str,
+    duration: u64,
+    recording_path: Option<PathBuf>,
+    output: Option<PathBuf>,
+    gate: bool,
+) -> Result<()> {
     let hardware = DiscoveredHardware::discover().await?;
 
     let results = match name {
         "recording" => suites::run_recording_suite(&hardware, duration).await?,
         "encoding" => suites::run_encoding_suite(&hardware, duration).await?,
         "playback" => suites::run_playback_suite(&hardware, duration).await?,
+        "performance" => {
+            let recording_path = resolve_recording_path(recording_path)?;
+            suites::run_performance_suite(&hardware, &recording_path, duration).await?
+        }
         "sync" => suites::run_sync_suite(&hardware, duration).await?,
+        "av-alignment" => suites::run_av_alignment_suite(&hardware, duration).await?,
+        "av-step" => suites::run_av_step_suite(&hardware, duration).await?,
+        "av-step-instant" => suites::run_av_step_instant_suite(&hardware, duration).await?,
+        "drift" => suites::run_drift_suite(&hardware, duration).await?,
+        "kill9-crash-test" | "kill9" => suites::run_kill9_crash_suite(&hardware, duration).await?,
         _ => {
             anyhow::bail!(
-                "Unknown suite: {}. Available: recording, encoding, playback, sync",
+                "Unknown suite: {}. Available: recording, encoding, playback, performance, sync, av-alignment, av-step, av-step-instant, drift, kill9-crash-test",
                 name
             );
         }
@@ -216,7 +309,40 @@ async fn cmd_suite(name: &str, duration: u64, output: Option<PathBuf>) -> Result
         results.save_json(&path)?;
     }
 
+    if gate && (results.summary.failed > 0 || results.summary.errors > 0) {
+        anyhow::bail!(
+            "Suite gate failed: {} failed, {} errors",
+            results.summary.failed,
+            results.summary.errors
+        );
+    }
+
     Ok(())
+}
+
+fn resolve_recording_path(explicit: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(path) = explicit {
+        return Ok(path);
+    }
+
+    if let Some(path) = std::env::var_os("CAP_TEST_RECORDING_PATH") {
+        return Ok(PathBuf::from(path));
+    }
+
+    let candidates = [
+        PathBuf::from("performance-fixtures/reference-recording.cap"),
+        PathBuf::from("crates/cap-test/fixtures/reference-recording.cap"),
+    ];
+
+    for candidate in candidates {
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    anyhow::bail!(
+        "Performance suite requires a recording fixture. Pass --recording-path, set CAP_TEST_RECORDING_PATH, or place the fixture at performance-fixtures/reference-recording.cap"
+    )
 }
 
 async fn cmd_synthetic(config_path: Option<PathBuf>, output: Option<PathBuf>) -> Result<()> {
@@ -249,6 +375,31 @@ async fn cmd_benchmark(duration: u64, warmup: u64, output: Option<PathBuf>) -> R
     }
 
     Ok(())
+}
+
+async fn cmd_compat_matrix(
+    config_path: Option<PathBuf>,
+    output: Option<PathBuf>,
+    interactive: bool,
+) -> Result<bool> {
+    let config = if let Some(path) = config_path {
+        TestConfig::load(&path)?
+    } else {
+        TestConfig::compatibility()
+    };
+
+    let hardware = DiscoveredHardware::discover().await?;
+    let runner = CompatMatrixRunner::new(config, hardware, interactive);
+    let report = runner.run().await?;
+
+    report.print_summary();
+
+    if let Some(path) = output {
+        report.save_json(&path)?;
+        println!("Compatibility report saved to: {}", path.display());
+    }
+
+    Ok(report.release_gate_passed)
 }
 
 async fn cmd_validate(path: PathBuf, json_output: bool) -> Result<()> {

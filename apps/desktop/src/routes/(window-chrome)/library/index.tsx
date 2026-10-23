@@ -69,14 +69,6 @@ export default function Library() {
 	createTauriEventListener(events.compressionCompleted, () =>
 		library.refetch(),
 	);
-	createTauriEventListener(events.newNotification, (payload) => {
-		if (payload.is_error) {
-			toast.error(payload.body);
-		} else {
-			toast.success(payload.body);
-		}
-		library.refetch();
-	});
 
 	const handleTypeFilterChange = (newType: FilterType) => {
 		setTypeFilter(newType);
@@ -255,8 +247,6 @@ export default function Library() {
 					onViewModeChange={setViewMode}
 					onRefresh={handleRefresh}
 					onOpenLibraryFolder={handleOpenLibraryFolder}
-					selectedCount={selectedItems().length}
-					onBatchDelete={handleBatchDelete}
 				/>
 
 				<div class="flex-1 flex min-h-0 relative">
@@ -293,6 +283,29 @@ export default function Library() {
 								onRefetch={handleRefresh}
 							/>
 						)}
+					</Show>
+					<Show when={selectedItems().length > 1}>
+						<div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-2 border border-gray-4 shadow-lg">
+							<span class="text-sm text-gray-12">
+								{t("library.batch.selected", {
+									count: String(selectedItems().length),
+								})}
+							</span>
+							<button
+								type="button"
+								class="px-3 py-1 text-sm rounded bg-red-9 text-white hover:bg-red-10"
+								onClick={handleBatchDelete}
+							>
+								{t("library.batch.delete")}
+							</button>
+							<button
+								type="button"
+								class="px-3 py-1 text-sm rounded bg-gray-4 text-gray-12 hover:bg-gray-5"
+								onClick={() => setSelectedIds(new Set())}
+							>
+								{t("library.batch.cancel")}
+							</button>
+						</div>
 					</Show>
 					<Show when={contextMenu()}>
 						{(menu) => (

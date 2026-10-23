@@ -20,21 +20,20 @@ use windows::{
             Dxgi::Common::{DXGI_FORMAT, DXGI_FORMAT_NV12},
         },
         Media::MediaFoundation::{
-            self, CODECAPI_AVEncCommonBufferSize, CODECAPI_AVEncCommonMaxBitRate, ICodecAPI,
-            IMFAttributes, IMFDXGIDeviceManager, IMFMediaEventGenerator, IMFMediaType, IMFSample,
-            IMFTransform, MF_E_INVALIDMEDIATYPE, MF_E_NO_MORE_TYPES, MF_E_TRANSFORM_TYPE_NOT_SET,
-            MF_EVENT_FLAG_NONE, MF_EVENT_TYPE, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE,
-            MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_MAX_KEYFRAME_SPACING,
-            MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
-            MF_TRANSFORM_ASYNC_UNLOCK, MFCreateDXGIDeviceManager, MFCreateDXGISurfaceBuffer,
-            MFCreateMediaType, MFCreateSample, MFMediaType_Video, MFT_ENUM_FLAG,
-            MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_TRANSCODE_ONLY, MFT_MESSAGE_COMMAND_FLUSH,
+            self, IMFAttributes, IMFDXGIDeviceManager, IMFMediaEventGenerator, IMFMediaType,
+            IMFSample, IMFTransform, MF_E_INVALIDMEDIATYPE, MF_E_NO_MORE_TYPES,
+            MF_E_TRANSFORM_TYPE_NOT_SET, MF_EVENT_FLAG_NONE, MF_EVENT_TYPE,
+            MF_MT_ALL_SAMPLES_INDEPENDENT, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
+            MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE,
+            MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_TRANSFORM_ASYNC_UNLOCK,
+            MFCreateDXGIDeviceManager, MFCreateDXGISurfaceBuffer, MFCreateMediaType,
+            MFCreateSample, MFMediaType_Video, MFT_ENUM_FLAG, MFT_ENUM_FLAG_HARDWARE,
+            MFT_ENUM_FLAG_TRANSCODE_ONLY, MFT_MESSAGE_COMMAND_FLUSH,
             MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, MFT_MESSAGE_NOTIFY_END_OF_STREAM,
             MFT_MESSAGE_NOTIFY_END_STREAMING, MFT_MESSAGE_NOTIFY_START_OF_STREAM,
             MFT_MESSAGE_SET_D3D_MANAGER, MFT_OUTPUT_DATA_BUFFER, MFT_SET_TYPE_TEST_ONLY,
             MFVideoFormat_H264, MFVideoFormat_NV12, MFVideoInterlace_Progressive,
         },
-        System::Variant::VARIANT,
     },
     core::{Error, Interface},
 };
@@ -43,6 +42,14 @@ const MAX_CONSECUTIVE_EMPTY_SAMPLES: u8 = 20;
 const MAX_INPUT_WITHOUT_OUTPUT: u32 = 30;
 const MAX_PROCESS_INPUT_FAILURES: u32 = 5;
 const ENCODER_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long `get_frame` may park before we treat the gap as an upstream stall
+/// (recording paused or capture starved) rather than a hung hardware encoder,
+/// and rebase the output-timeout clock. Must stay below
+/// `ENCODER_OPERATION_TIMEOUT` so a pause between this and the timeout is still
+/// absorbed. Live capture always returns a frame within ~one frame interval, so
+/// a block this long only ever means "we had nothing to encode", which is never
+/// the encoder's fault.
+const INPUT_WAIT_HEALTH_RESET: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone)]
 pub struct EncoderHealthStatus {
@@ -95,6 +102,15 @@ impl EncoderHealthMonitor {
 
     fn reset_process_failures(&mut self) {
         self.consecutive_process_failures = 0;
+    }
+
+    /// Rebase the output-timeout clock after `get_frame` parked for a long time
+    /// (recording paused or capture starved). That idle wall-clock time is not
+    /// an encoder stall, so it must not count toward the `Timeout` health check;
+    /// otherwise a pause longer than `ENCODER_OPERATION_TIMEOUT` trips a false
+    /// timeout on the first health check after resume and kills the recording.
+    fn notify_input_stall_recovered(&mut self) {
+        self.last_output_time = Instant::now();
     }
 
     fn check_health(&self) -> EncoderHealthStatus {
@@ -335,9 +351,6 @@ impl H264Encoder {
                 .map_err(NewVideoEncoderError::EncoderTransform)?;
         };
 
-        let peak_bitrate = (bitrate as f64 * 1.5) as u32;
-        let buffer_size = bitrate;
-
         let output_type = (|| unsafe {
             let output_type = MFCreateMediaType()?;
             let attributes: IMFAttributes = output_type.cast()?;
@@ -353,20 +366,11 @@ impl H264Encoder {
             MFSetAttributeRatio(&attributes, &MF_MT_FRAME_RATE, frame_rate, 1)?;
             MFSetAttributeRatio(&attributes, &MF_MT_PIXEL_ASPECT_RATIO, 1, 1)?;
             output_type.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
-            let _ = output_type.SetUINT32(&MF_MT_MAX_KEYFRAME_SPACING, frame_rate * 2);
+            output_type.SetUINT32(&MF_MT_ALL_SAMPLES_INDEPENDENT, 1)?;
             transform.SetOutputType(output_stream_id, &output_type, 0)?;
             Ok(output_type)
         })()
         .map_err(NewVideoEncoderError::OutputType)?;
-
-        if let Ok(codec_api) = transform.cast::<ICodecAPI>() {
-            let set_u32 = |guid: &windows::core::GUID, val: u32| unsafe {
-                let variant = VARIANT::from(val);
-                let _ = codec_api.SetValue(guid, &variant);
-            };
-            set_u32(&CODECAPI_AVEncCommonMaxBitRate, peak_bitrate);
-            set_u32(&CODECAPI_AVEncCommonBufferSize, buffer_size);
-        }
 
         let input_type: Option<IMFMediaType> = (|| unsafe {
             let mut count = 0;
@@ -574,9 +578,19 @@ impl H264Encoder {
                     MediaFoundation::METransformNeedInput => {
                         health_monitor.record_input();
                         should_exit = true;
+                        let get_frame_started = Instant::now();
                         if !should_stop.load(Ordering::SeqCst)
                             && let Some((texture, timestamp)) = get_frame()?
                         {
+                            // `get_frame` blocks for the whole pause (frames are
+                            // dropped upstream while paused), so a long park here
+                            // is idle time, not a hardware stall. Rebase the
+                            // timeout clock so the next `check_health` at the top
+                            // of the loop doesn't false-trip `Timeout` on resume.
+                            if get_frame_started.elapsed() > INPUT_WAIT_HEALTH_RESET {
+                                health_monitor.notify_input_stall_recovered();
+                            }
+
                             let process_result = (|| -> windows::core::Result<()> {
                                 self.video_processor.process_texture(&texture)?;
                                 let input_buffer = MFCreateDXGISurfaceBuffer(
@@ -679,6 +693,5 @@ impl H264Encoder {
 
 fn calculate_bitrate(width: u32, height: u32, fps: u32, multiplier: f32) -> u32 {
     let frame_rate_factor = (fps as f32 - 30.0).max(0.0) / 2.0 + 30.0;
-    let base = (width as f32 * height as f32 * frame_rate_factor * multiplier) as u32;
-    (base as f64 * 1.35) as u32
+    (width as f32 * height as f32 * frame_rate_factor * multiplier) as u32
 }

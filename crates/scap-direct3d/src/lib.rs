@@ -6,11 +6,11 @@ pub use windows_version::WindowsVersion;
 
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::RecvError,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use windows::{
     Foundation::{Metadata::ApiInformation, TypedEventHandler},
@@ -30,7 +30,7 @@ use windows::{
                 D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_FLAG, D3D11_MAP_READ,
                 D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
                 D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device,
-                ID3D11DeviceContext, ID3D11Texture2D,
+                ID3D11DeviceContext, ID3D11Multithread, ID3D11Texture2D,
             },
             Dxgi::{
                 Common::{
@@ -72,67 +72,90 @@ impl PixelFormat {
 }
 
 const STAGING_POOL_SIZE: usize = 3;
-const MIRROR_POOL_SIZE: usize = 256;
+
+struct CallbackActivity {
+    active: Mutex<usize>,
+    idle: Condvar,
+}
+
+impl CallbackActivity {
+    fn new() -> Self {
+        Self {
+            active: Mutex::new(0),
+            idle: Condvar::new(),
+        }
+    }
+
+    fn enter(self: &Arc<Self>) -> CallbackActivityGuard {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *active += 1;
+
+        CallbackActivityGuard {
+            activity: self.clone(),
+        }
+    }
+
+    fn leave(&self) {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if *active > 0 {
+            *active -= 1;
+        }
+
+        if *active == 0 {
+            self.idle.notify_all();
+        }
+    }
+
+    fn wait_idle(&self, timeout: Duration) {
+        let started = Instant::now();
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        while *active > 0 {
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                break;
+            }
+
+            match self.idle.wait_timeout(active, remaining) {
+                Ok((next_guard, wait_result)) => {
+                    active = next_guard;
+                    if wait_result.timed_out() {
+                        break;
+                    }
+                }
+                Err(poisoned) => {
+                    let (next_guard, _) = poisoned.into_inner();
+                    active = next_guard;
+                }
+            }
+        }
+    }
+}
+
+struct CallbackActivityGuard {
+    activity: Arc<CallbackActivity>,
+}
+
+impl Drop for CallbackActivityGuard {
+    fn drop(&mut self) {
+        self.activity.leave();
+    }
+}
 
 struct PooledStagingTexture {
     texture: ID3D11Texture2D,
     width: u32,
     height: u32,
-}
-
-struct MirrorTexturePool {
-    textures: Vec<(ID3D11Texture2D, u32, u32)>,
-    index: usize,
-    d3d_device: ID3D11Device,
-    pixel_format: PixelFormat,
-}
-
-impl MirrorTexturePool {
-    fn new(d3d_device: ID3D11Device, pixel_format: PixelFormat) -> Self {
-        Self {
-            textures: Vec::with_capacity(MIRROR_POOL_SIZE),
-            index: 0,
-            d3d_device,
-            pixel_format,
-        }
-    }
-
-    fn acquire(&mut self, width: u32, height: u32) -> windows::core::Result<ID3D11Texture2D> {
-        let needs_recreate =
-            self.textures.is_empty() || self.textures[0].1 != width || self.textures[0].2 != height;
-
-        if needs_recreate {
-            self.textures.clear();
-            let desc = D3D11_TEXTURE2D_DESC {
-                Width: width,
-                Height: height,
-                MipLevels: 1,
-                ArraySize: 1,
-                Format: self.pixel_format.as_dxgi(),
-                SampleDesc: DXGI_SAMPLE_DESC {
-                    Count: 1,
-                    Quality: 0,
-                },
-                Usage: D3D11_USAGE_DEFAULT,
-                BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
-                CPUAccessFlags: 0,
-                MiscFlags: 0,
-            };
-            for _ in 0..MIRROR_POOL_SIZE {
-                let mut tex = None;
-                unsafe {
-                    self.d3d_device
-                        .CreateTexture2D(&desc, None, Some(&mut tex))?
-                };
-                self.textures.push((tex.unwrap(), width, height));
-            }
-            self.index = 0;
-        }
-
-        let idx = self.index % self.textures.len();
-        self.index += 1;
-        Ok(self.textures[idx].0.clone())
-    }
 }
 
 pub struct StagingTexturePool {
@@ -157,7 +180,10 @@ impl StagingTexturePool {
         width: u32,
         height: u32,
     ) -> windows::core::Result<ID3D11Texture2D> {
-        let mut textures = self.textures.lock().unwrap();
+        let mut textures = self
+            .textures
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let index = self.next_index.fetch_add(1, Ordering::Relaxed) % STAGING_POOL_SIZE;
 
@@ -190,7 +216,7 @@ impl StagingTexturePool {
                 .CreateTexture2D(&texture_desc, None, Some(&mut texture))?;
         };
 
-        let texture = texture.unwrap();
+        let texture = texture.ok_or_else(windows::core::Error::from_win32)?;
 
         if index < textures.len() {
             textures[index] = PooledStagingTexture {
@@ -237,33 +263,66 @@ fn create_d3d_device_with_type(
     }
 }
 
-fn enable_multithread_protection(device: &ID3D11Device) {
-    use windows::Win32::Graphics::Direct3D11::ID3D11Multithread;
-    if let Ok(multithread) = device.cast::<ID3D11Multithread>() {
-        unsafe {
-            let _ = multithread.SetMultithreadProtected(true);
-        }
+fn create_d3d_device_on_pinned_adapter(
+    flags: D3D11_CREATE_DEVICE_FLAG,
+    device: *mut Option<ID3D11Device>,
+) -> Result<String, String> {
+    use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
+
+    let selected = cap_d3d_adapter::select_capture_adapter(None)?;
+
+    unsafe {
+        D3D11CreateDevice(
+            Some(&selected.adapter),
+            D3D_DRIVER_TYPE_UNKNOWN,
+            HMODULE::default(),
+            flags,
+            None,
+            D3D11_SDK_VERSION,
+            Some(device),
+            None,
+            None,
+        )
+        .map_err(|e| {
+            format!(
+                "D3D11CreateDevice failed on '{}': {e:?}",
+                selected.description
+            )
+        })?;
     }
+
+    Ok(selected.description)
 }
 
 fn create_d3d_device_with_warp_fallback() -> windows::core::Result<(ID3D11Device, bool)> {
     let mut device = None;
     let flags = D3D11_CREATE_DEVICE_FLAG::default();
 
+    match create_d3d_device_on_pinned_adapter(flags, &mut device) {
+        Ok(description) => {
+            tracing::info!(
+                adapter = %description,
+                "scap-direct3d: D3D11 device created on pinned hardware adapter"
+            );
+            let device = device.ok_or_else(windows::core::Error::from_win32)?;
+            return Ok((device, false));
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "scap-direct3d: pinned-adapter device creation failed, attempting default-hardware path"
+            );
+        }
+    }
+
     let result = create_d3d_device_with_type(D3D_DRIVER_TYPE_HARDWARE, flags, &mut device);
 
     match result {
-        Ok(()) => {
-            let dev = device.unwrap();
-            enable_multithread_protection(&dev);
-            Ok((dev, false))
-        }
+        Ok(()) => Ok((device.ok_or_else(windows::core::Error::from_win32)?, false)),
         Err(e) if e.code() == DXGI_ERROR_UNSUPPORTED => {
             tracing::info!("Hardware D3D11 device unavailable, attempting WARP fallback");
             create_d3d_device_with_type(D3D_DRIVER_TYPE_WARP, flags, &mut device)?;
-            let dev = device.unwrap();
-            enable_multithread_protection(&dev);
-            Ok((dev, true))
+            Ok((device.ok_or_else(windows::core::Error::from_win32)?, true))
         }
         Err(e) => Err(e),
     }
@@ -330,6 +389,8 @@ pub enum NewCapturerError {
     FramePool(windows::core::Error),
     #[error("CaptureSession: {0}")]
     CaptureSession(windows::core::Error),
+    #[error("CropTexture: {0}")]
+    CropTexture(windows::core::Error),
     #[error("RegisterFrameArrived: {0}")]
     RegisterFrameArrived(windows::core::Error),
     #[error("RegisterClosed: {0}")]
@@ -348,6 +409,7 @@ pub struct Capturer {
     frame_pool: Direct3D11CaptureFramePool,
     frame_arrived_token: i64,
     stop_flag: Arc<AtomicBool>,
+    callback_activity: Arc<CallbackActivity>,
     is_using_warp: bool,
 }
 
@@ -416,6 +478,12 @@ impl Capturer {
             .map_err(NewCapturerError::Context)?
             .unwrap();
 
+        if let Ok(multithread) = d3d_device.cast::<ID3D11Multithread>() {
+            unsafe {
+                let _ = multithread.SetMultithreadProtected(true);
+            }
+        }
+
         let staging_pool = Arc::new(StagingTexturePool::new(
             d3d_device.clone(),
             settings.pixel_format,
@@ -424,6 +492,7 @@ impl Capturer {
         let item = item.clone();
         let settings = settings.clone();
         let stop_flag = Arc::new(AtomicBool::new(false));
+        let callback_activity = Arc::new(CallbackActivity::new());
 
         let direct3d_device = (|| {
             let dxgi_device = d3d_device.cast::<IDXGIDevice>()?;
@@ -450,22 +519,53 @@ impl Capturer {
             .map_err(NewCapturerError::CaptureSession)?;
 
         if let Some(border_required) = settings.is_border_required {
-            session.SetIsBorderRequired(border_required).unwrap();
+            session
+                .SetIsBorderRequired(border_required)
+                .map_err(NewCapturerError::Other)?;
         }
 
         if let Some(cursor_capture_enabled) = settings.is_cursor_capture_enabled {
             session
                 .SetIsCursorCaptureEnabled(cursor_capture_enabled)
-                .unwrap();
+                .map_err(NewCapturerError::Other)?;
         }
 
         if let Some(min_update_interval) = settings.min_update_interval {
             session
                 .SetMinUpdateInterval(min_update_interval.into())
-                .unwrap();
+                .map_err(NewCapturerError::Other)?;
         }
 
-        let crop_data = settings.crop;
+        let crop_data = settings
+            .crop
+            .map(|crop| {
+                let desc = D3D11_TEXTURE2D_DESC {
+                    Width: (crop.right - crop.left),
+                    Height: (crop.bottom - crop.top),
+                    MipLevels: 1,
+                    ArraySize: 1,
+                    Format: settings.pixel_format.as_dxgi(),
+                    SampleDesc: DXGI_SAMPLE_DESC {
+                        Count: 1,
+                        Quality: 0,
+                    },
+                    Usage: D3D11_USAGE_DEFAULT,
+                    BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
+                    CPUAccessFlags: 0,
+                    MiscFlags: 0,
+                };
+
+                let mut texture = None;
+                unsafe { d3d_device.CreateTexture2D(&desc, None, Some(&mut texture)) }
+                    .map_err(NewCapturerError::CropTexture)?;
+
+                let texture = texture.ok_or_else(|| {
+                    NewCapturerError::CropTexture(windows::core::Error::from_win32())
+                })?;
+
+                Ok::<_, NewCapturerError>((texture, crop))
+            })
+            .transpose()?;
 
         let frame_arrived_token = frame_pool
             .FrameArrived(
@@ -474,19 +574,20 @@ impl Capturer {
                     let d3d_device = d3d_device.clone();
                     let stop_flag = stop_flag.clone();
                     let staging_pool = staging_pool.clone();
-
-                    let mut mirror_pool =
-                        MirrorTexturePool::new(d3d_device.clone(), settings.pixel_format);
+                    let callback_activity = callback_activity.clone();
 
                     move |frame_pool, _| {
+                        let _activity_guard = callback_activity.enter();
+
                         if stop_flag.load(Ordering::Relaxed) {
                             return Ok(());
                         }
 
-                        let frame = frame_pool
-                            .as_ref()
-                            .expect("FrameArrived parameter was None")
-                            .TryGetNextFrame()?;
+                        let Some(frame_pool) = frame_pool.as_ref() else {
+                            return Ok(());
+                        };
+
+                        let frame = frame_pool.TryGetNextFrame()?;
 
                         let size = frame.ContentSize()?;
 
@@ -494,14 +595,10 @@ impl Capturer {
                         let dxgi_interface = surface.cast::<IDirect3DDxgiInterfaceAccess>()?;
                         let texture = unsafe { dxgi_interface.GetInterface::<ID3D11Texture2D>() }?;
 
-                        let frame = if let Some(crop) = crop_data {
-                            let crop_w = crop.right - crop.left;
-                            let crop_h = crop.bottom - crop.top;
-                            let target = mirror_pool.acquire(crop_w, crop_h)?;
-
+                        let frame = if let Some((cropped_texture, crop)) = crop_data.clone() {
                             unsafe {
                                 d3d_context.CopySubresourceRegion(
-                                    &target,
+                                    &cropped_texture,
                                     0,
                                     0,
                                     0,
@@ -510,36 +607,25 @@ impl Capturer {
                                     0,
                                     Some(&crop),
                                 );
-                                d3d_context.Flush();
                             }
 
                             Frame {
-                                width: crop_w,
-                                height: crop_h,
+                                width: crop.right - crop.left,
+                                height: crop.bottom - crop.top,
                                 pixel_format: settings.pixel_format,
                                 inner: frame,
-                                texture: target,
+                                texture: cropped_texture,
                                 d3d_context: d3d_context.clone(),
                                 d3d_device: d3d_device.clone(),
                                 staging_pool: staging_pool.clone(),
                             }
                         } else {
-                            let w = size.Width as u32;
-                            let h = size.Height as u32;
-
-                            let mirror = mirror_pool.acquire(w, h)?;
-
-                            unsafe {
-                                d3d_context.CopyResource(&mirror, &texture);
-                                d3d_context.Flush();
-                            }
-
                             Frame {
-                                width: w,
-                                height: h,
+                                width: size.Width as u32,
+                                height: size.Height as u32,
                                 pixel_format: settings.pixel_format,
                                 inner: frame,
-                                texture: mirror,
+                                texture,
                                 d3d_context: d3d_context.clone(),
                                 d3d_device: d3d_device.clone(),
                                 staging_pool: staging_pool.clone(),
@@ -573,6 +659,7 @@ impl Capturer {
             frame_pool,
             frame_arrived_token,
             stop_flag,
+            callback_activity,
             is_using_warp,
         })
     }
@@ -620,6 +707,7 @@ impl Capturer {
             return Ok(());
         }
         let _ = self.frame_pool.RemoveFrameArrived(self.frame_arrived_token);
+        self.callback_activity.wait_idle(Duration::from_secs(2));
         let _ = self.session.Close();
         self.frame_pool.Close()
     }

@@ -24,12 +24,6 @@ type Props = {
 	};
 };
 
-function formatCount(n: number): string {
-	if (n < 1000) return String(n);
-	const k = n / 1000;
-	return k >= 10 ? `${Math.floor(k)}k` : `${k.toFixed(1).replace(/\.0$/, "")}k`;
-}
-
 export default function Sidebar(props: Props) {
 	const { t } = useI18n();
 
@@ -83,7 +77,7 @@ export default function Sidebar(props: Props) {
 	};
 
 	return (
-		<aside class="w-48 bg-gray-2 border-r border-gray-4 flex flex-col p-3 gap-5">
+		<aside class="w-56 bg-gray-2 border-r border-gray-4 flex flex-col p-4 gap-6">
 			<div class="flex flex-col gap-2">
 				<h3 class="text-xs font-semibold text-gray-11 uppercase tracking-wider px-2">
 					{t("library.sidebar.type")}
@@ -111,13 +105,13 @@ export default function Sidebar(props: Props) {
 							<span class="flex-1 text-sm font-medium">{filter.label}</span>
 							<span
 								class={cx(
-									"text-xs px-1.5 py-0.5 rounded shrink-0 tabular-nums",
+									"text-xs px-1.5 py-0.5 rounded",
 									props.typeFilter === filter.id
 										? "bg-white/20 text-white"
 										: "bg-gray-4 text-gray-11",
 								)}
 							>
-								{formatCount(filter.count())}
+								{filter.count()}
 							</span>
 						</button>
 					)}
@@ -162,13 +156,13 @@ export default function Sidebar(props: Props) {
 								<span class="flex-1 text-sm font-medium">{filter.label}</span>
 								<span
 									class={cx(
-										"text-xs px-1.5 py-0.5 rounded shrink-0 tabular-nums",
+										"text-xs px-1.5 py-0.5 rounded",
 										props.statusFilter === filter.id
 											? "bg-gray-7 text-gray-12"
 											: "bg-gray-4 text-gray-11",
 									)}
 								>
-									{formatCount(filter.count())}
+									{filter.count()}
 								</span>
 							</button>
 						);

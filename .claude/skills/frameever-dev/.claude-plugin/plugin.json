@@ -1,0 +1,7 @@
+{
+  "name": "frameever-dev",
+  "version": "0.2.0",
+  "description": "FrameEver dev pane: one-click buttons for pnpm fe (run, check, test, lint, export, package)",
+  "author": { "name": "aniBullet" },
+  "types": "./types/index.d.ts"
+}

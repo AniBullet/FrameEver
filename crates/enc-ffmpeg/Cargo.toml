@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 cap-media-info = { path = "../media-info" }
-cap-utils = { path = "../utils" }
 
 ffmpeg.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -17,6 +16,13 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 cap-frame-converter = { path = "../frame-converter" }
+windows = { workspace = true, features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+tempfile = "3.20.0"
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc = "0.2"
 
 [lints]
 workspace = true

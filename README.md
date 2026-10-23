@@ -1,28 +1,32 @@
 <div align="center">
 
-<img src="app-icon.png" alt="Cap aniBullet Logo" width="120" />
+<img src="apps/desktop-gpui/icons/128x128@2x.png" alt="FrameEver" width="120" />
 
-# Cap - aniBullet Edition
+# FrameEver · 帧刻
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.2.0-brightgreen.svg)](https://github.com/aniBullet/Cap-aniBullet/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows-blue.svg)](https://github.com/aniBullet/Cap-aniBullet/releases)
+[![Version](https://img.shields.io/github/v/release/AniBullet/FrameEver?include_prereleases)](https://github.com/AniBullet/FrameEver/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows-blue.svg)](https://github.com/AniBullet/FrameEver/releases)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Node](https://img.shields.io/badge/node-20%2B-brightgreen.svg)](https://nodejs.org)
 
-**Cap aniBullet — 无时长限制、无账号、无云端、完全免费**
+**一刻，凝成永恒 — 纯本地的录屏与剪辑：无时长限制、无账号、无云端、完全免费**
 
-[📥 下载](https://github.com/aniBullet/Cap-aniBullet/releases) • [快速开始](#-快速开始) • [更新日志](#-更新日志) • [贡献](#-贡献)
+由 aniBullet 制作，基于开源项目 [Cap](https://github.com/CapSoftware/Cap)。原名 Cap - aniBullet Edition。
 
-![Cap aniBullet 主界面](.github/images/screenshot-main.png)
+[📥 下载](https://github.com/AniBullet/FrameEver/releases) • [快速开始](#-快速开始) • [更新日志](#-更新日志) • [贡献](#-贡献)
+
+![FrameEver 主界面](.github/images/screenshot-main.png)
 
 </div>
 
 ---
 
+> 正在从 2.x（Tauri 界面）迁移到新的原生界面（GPUI）。新版首次启动时会自动导入 2.x 的设置，并继续显示 2.x 的录制文件（原文件不移动）。命令行工具改名为 `frameever`。
+
 ## 和原版的区别
 
-| 特性 | Cap 原版 | aniBullet 本地版 |
+| 特性 | Cap 原版 | FrameEver |
 |------|---------|----------------|
 | 录制时长 | 免费版限 5 分钟 | ✅ 无限制 |
 | 视频数量 | 免费版限 25 个 | ✅ 无限制 |
@@ -33,7 +37,7 @@
 | 视频压缩 | 云端处理 | ✅ 本地 HEVC |
 | 键盘 Overlay | — | ✅ 实时按键显示 |
 | 离线使用 | 需联网 | ✅ 完全离线 |
-| 界面语言 | 英语 | ✅ 中 / 英 / 日 / 韩 |
+| 界面语言 | 英语 | ✅ 简体中文 / 英语 |
 
 ---
 
@@ -53,9 +57,9 @@
 ## 🚀 快速开始
 
 ```powershell
-.\scripts\1-install.ps1  # 安装依赖（首次，完成后重启终端）
-.\scripts\2-dev.ps1      # 开发模式
-.\scripts\3-build.ps1    # 构建安装包
+pnpm fe setup     # 准备环境（首次）
+pnpm fe dev       # 用独立的测试数据运行应用
+pnpm fe package   # 打包安装程序到 dist/
 ```
 
 详细步骤见 [BUILD.md](BUILD.md)。
@@ -88,7 +92,7 @@ SolidJS + TypeScript + TailwindCSS • Rust + Tauri 2.0 • SQLite • FFmpeg + 
 
 ## 协议
 
-**AGPL-3.0**，基于 [Cap](https://github.com/CapSoftware/Cap) v0.4.81。
+**AGPL-3.0**，基于 [Cap](https://github.com/CapSoftware/Cap) v0.6.1。FrameEver 是独立的分支，与 Cap 官方无关，不使用 Cap 的名称与标志。
 
 <details>
 <summary>详情</summary>
@@ -109,7 +113,7 @@ SolidJS + TypeScript + TailwindCSS • Rust + Tauri 2.0 • SQLite • FFmpeg + 
 
 <div align="center">
 
-[⭐ Star](https://github.com/aniBullet/Cap-aniBullet) • [📥 下载](https://github.com/aniBullet/Cap-aniBullet/releases) • [🐛 反馈](https://github.com/aniBullet/Cap-aniBullet/issues)
+[⭐ Star](https://github.com/AniBullet/FrameEver) • [📥 下载](https://github.com/AniBullet/FrameEver/releases) • [🐛 反馈](https://github.com/AniBullet/FrameEver/issues)
 
 <details>
 <summary>☕ 支持作者</summary>

@@ -1,4 +1,9 @@
-use super::core::{BlockingThreadFinish, combine_finish_errors, wait_for_blocking_thread_finish};
+use super::core::{
+    BlockingThreadFinish, DiskSpaceMonitor, HealthSender, PipelineHealthEvent, SharedHealthSender,
+    combine_finish_errors, wait_for_blocking_thread_finish,
+};
+use super::frame_pacing::{FramePacer, Paced};
+use super::win::reference_video_frame;
 use crate::{
     AudioFrame, AudioMuxer, Muxer, SharedPauseState, TaskPool, VideoMuxer,
     output_pipeline::{NativeCameraFrame, camera_frame_to_ffmpeg},
@@ -22,7 +27,7 @@ use std::{
 };
 use tracing::*;
 
-const DEFAULT_MUXER_BUFFER_SIZE: usize = 600;
+const DEFAULT_MUXER_BUFFER_SIZE: usize = 240;
 
 fn get_muxer_buffer_size() -> usize {
     std::env::var("CAP_MUXER_BUFFER_SIZE")
@@ -37,16 +42,20 @@ struct FrameDropTracker {
     total_drops: u64,
     total_frames: u64,
     last_check: std::time::Instant,
+    health_tx: SharedHealthSender,
+    source: &'static str,
 }
 
 impl FrameDropTracker {
-    fn new() -> Self {
+    fn new(health_tx: SharedHealthSender, source: &'static str) -> Self {
         Self {
             drops_in_window: 0,
             frames_in_window: 0,
             total_drops: 0,
             total_frames: 0,
             last_check: std::time::Instant::now(),
+            health_tx,
+            source,
         }
     }
 
@@ -77,6 +86,10 @@ impl FrameDropTracker {
                         total_drops = self.total_drops,
                         "Windows M4S muxer frame drop rate exceeds 5% threshold"
                     );
+                    self.health_tx.emit(PipelineHealthEvent::FrameDropRateHigh {
+                        source: self.source.to_string(),
+                        rate_pct: drop_rate,
+                    });
                 } else if self.drops_in_window > 0 {
                     debug!(
                         frames = self.frames_in_window,
@@ -97,7 +110,7 @@ fn finish_encoder_thread(
     handle: JoinHandle<anyhow::Result<()>>,
     label: &str,
 ) -> BlockingThreadFinish {
-    wait_for_blocking_thread_finish(handle, Duration::from_secs(10), label)
+    wait_for_blocking_thread_finish(handle, Duration::from_secs(5), label)
 }
 
 trait FinishableEncoderState {
@@ -187,6 +200,7 @@ struct EncoderState {
 }
 
 pub struct WindowsFragmentedM4SMuxer {
+    timed_fragments: bool,
     base_path: PathBuf,
     video_config: VideoInfo,
     segment_duration: Duration,
@@ -198,26 +212,34 @@ pub struct WindowsFragmentedM4SMuxer {
     frame_drops: FrameDropTracker,
     started: bool,
     disk_space_callback: Option<DiskSpaceCallback>,
+    segment_tx:
+        Option<std::sync::mpsc::Sender<cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>>,
+    health_tx: SharedHealthSender,
 }
 
 pub struct WindowsFragmentedM4SMuxerConfig {
+    pub timed_fragments: bool,
     pub segment_duration: Duration,
     pub preset: H264Preset,
     pub bpp: f32,
     pub output_size: Option<(u32, u32)>,
     pub shared_pause_state: Option<SharedPauseState>,
     pub disk_space_callback: Option<DiskSpaceCallback>,
+    pub segment_tx:
+        Option<std::sync::mpsc::Sender<cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>>,
 }
 
 impl Default for WindowsFragmentedM4SMuxerConfig {
     fn default() -> Self {
         Self {
-            segment_duration: Duration::from_secs(3),
+            timed_fragments: false,
+            segment_duration: Duration::from_secs(2),
             preset: H264Preset::Ultrafast,
             bpp: H264EncoderBuilder::QUALITY_BPP,
             output_size: None,
             shared_pause_state: None,
             disk_space_callback: None,
+            segment_tx: None,
         }
     }
 }
@@ -247,6 +269,7 @@ impl Muxer for WindowsFragmentedM4SMuxer {
             .unwrap_or_else(|| SharedPauseState::new(pause_flag));
 
         let mut muxer = Self {
+            timed_fragments: config.timed_fragments,
             base_path: output_path,
             video_config,
             segment_duration: config.segment_duration,
@@ -255,9 +278,14 @@ impl Muxer for WindowsFragmentedM4SMuxer {
             output_size: config.output_size,
             state: None,
             pause,
-            frame_drops: FrameDropTracker::new(),
+            frame_drops: FrameDropTracker::new(
+                SharedHealthSender::new(),
+                "muxer:windows-fragmented",
+            ),
             started: false,
             disk_space_callback: config.disk_space_callback,
+            segment_tx: config.segment_tx,
+            health_tx: SharedHealthSender::new(),
         };
 
         muxer.start_encoder()?;
@@ -287,6 +315,11 @@ impl Muxer for WindowsFragmentedM4SMuxer {
 
         Ok(Ok(()))
     }
+
+    fn set_health_sender(&mut self, tx: HealthSender) {
+        self.health_tx.set(tx);
+        self.frame_drops.health_tx = self.health_tx.clone();
+    }
 }
 
 impl WindowsFragmentedM4SMuxer {
@@ -306,17 +339,28 @@ impl WindowsFragmentedM4SMuxer {
             preset: self.preset,
             bpp: self.bpp,
             output_size: self.output_size,
+            prefer_videotoolbox_hw_input: false,
         };
 
-        let mut encoder =
-            SegmentedVideoEncoder::init(self.base_path.clone(), self.video_config, encoder_config)?;
+        let mut encoder = SegmentedVideoEncoder::init_with_timed_fragments(
+            self.base_path.clone(),
+            self.video_config,
+            encoder_config,
+            self.timed_fragments,
+        )?;
         if let Some(callback) = &self.disk_space_callback {
             encoder.set_disk_space_callback(callback.clone());
+        }
+        if let Some(tx) = self.segment_tx.take() {
+            encoder.set_segment_callback(tx);
         }
         let encoder = Arc::new(Mutex::new(encoder));
         let encoder_clone = encoder.clone();
 
         let video_config = self.video_config;
+        let health_tx = self.health_tx.clone();
+        let base_path = self.base_path.clone();
+        let pause_flag = self.pause.flag();
         let encoder_handle = std::thread::Builder::new()
             .name("win-m4s-segment-encoder".to_string())
             .spawn(move || {
@@ -326,103 +370,121 @@ impl WindowsFragmentedM4SMuxer {
                     return Err(anyhow!("Failed to send ready signal - receiver dropped"));
                 }
 
-                let frame_interval = Duration::from_secs_f64(1.0 / video_config.fps() as f64);
-                let mut last_timestamp: Option<Duration> = None;
+                let mut pacer = FramePacer::new(video_config.fps());
+                let mut last_ffmpeg_frame: Option<ffmpeg::frame::Video> = None;
                 let mut first_timestamp: Option<Duration> = None;
 
                 let mut slow_convert_count = 0u32;
                 let mut slow_encode_count = 0u32;
                 let mut total_frames = 0u64;
                 let mut duplicated_frames = 0u64;
+                let mut disk_monitor = DiskSpaceMonitor::new();
+                let mut disk_exhausted = false;
                 const SLOW_THRESHOLD_MS: u128 = 5;
-
-                let mut reusable_frame = ffmpeg::frame::Video::new(
-                    video_config.pixel_format,
-                    video_config.width,
-                    video_config.height,
-                );
-                let mut has_valid_frame = false;
 
                 let normalize_timestamp =
                     |ts: Duration, first: &mut Option<Duration>| -> Duration {
                         if let Some(first_ts) = *first {
-                            ts.saturating_sub(first_ts)
+                            ts.checked_sub(first_ts).unwrap_or(Duration::ZERO)
                         } else {
                             *first = Some(ts);
                             Duration::ZERO
                         }
                     };
 
-                let mut next_frame_deadline = std::time::Instant::now();
+                let encode_frame_fn = |ffmpeg_frame: ffmpeg::frame::Video,
+                                       timestamp: Duration,
+                                       slow_encode_count: &mut u32,
+                                       total_frames: &mut u64,
+                                       encoder: &Arc<Mutex<SegmentedVideoEncoder>>|
+                 -> anyhow::Result<()> {
+                    let encode_start = std::time::Instant::now();
+
+                    match encoder.lock() {
+                        Ok(mut enc) => {
+                            if let Err(e) = enc.queue_frame(ffmpeg_frame, timestamp) {
+                                warn!("Failed to encode frame: {e}");
+                            }
+                        }
+                        Err(_) => {
+                            return Err(anyhow!(
+                                "Encoder mutex poisoned - all subsequent frames would be lost"
+                            ));
+                        }
+                    }
+
+                    let encode_elapsed_ms = encode_start.elapsed().as_millis();
+
+                    if encode_elapsed_ms > SLOW_THRESHOLD_MS {
+                        *slow_encode_count += 1;
+                        if *slow_encode_count <= 5 || slow_encode_count.is_multiple_of(100) {
+                            debug!(
+                                elapsed_ms = encode_elapsed_ms,
+                                count = *slow_encode_count,
+                                "encoder.queue_frame exceeded {}ms threshold",
+                                SLOW_THRESHOLD_MS
+                            );
+                        }
+                    }
+
+                    *total_frames += 1;
+                    Ok(())
+                };
 
                 loop {
-                    let now = std::time::Instant::now();
-                    let recv_timeout = if now >= next_frame_deadline {
-                        Duration::from_millis(1)
-                    } else {
-                        next_frame_deadline.saturating_duration_since(now)
-                    };
+                    if matches!(
+                        disk_monitor.poll(&base_path, &health_tx),
+                        super::core::DiskSpacePollResult::Exhausted { .. }
+                            | super::core::DiskSpacePollResult::Stopped
+                    ) {
+                        disk_exhausted = true;
+                    }
+                    if disk_exhausted {
+                        break;
+                    }
 
                     let convert_start = std::time::Instant::now();
 
-                    let (got_new_frame, timestamp) = match video_rx.recv_timeout(recv_timeout) {
-                        Ok(Some((mut frame, ts))) => {
-                            match frame.as_ffmpeg_into(&mut reusable_frame) {
-                                Ok(()) => {
-                                    has_valid_frame = true;
-                                    last_timestamp = Some(ts);
-                                    (true, ts)
-                                }
-                                Err(e) => {
-                                    warn!("Failed to convert D3D11 frame: {e:?}");
-                                    match (has_valid_frame, last_timestamp) {
-                                        (true, Some(last_ts)) => {
-                                            let new_ts = last_ts.saturating_add(frame_interval);
-                                            last_timestamp = Some(new_ts);
-                                            duplicated_frames += 1;
-                                            (false, new_ts)
-                                        }
-                                        _ => {
-                                            next_frame_deadline = std::time::Instant::now()
-                                                .checked_add(frame_interval)
-                                                .unwrap_or(next_frame_deadline);
-                                            continue;
-                                        }
-                                    }
-                                }
+                    let (ffmpeg_frame, timestamp) = match pacer.next(&video_rx, &pause_flag) {
+                        Paced::Frame(frame, ts) => match frame.as_ffmpeg() {
+                            Ok(f) => {
+                                last_ffmpeg_frame = Some(reference_video_frame(&f));
+                                (Some(f), ts)
                             }
+                            Err(e) => {
+                                warn!("Failed to convert D3D11 frame: {e:?}");
+                                duplicated_frames += 1;
+                                (last_ffmpeg_frame.as_ref().map(reference_video_frame), ts)
+                            }
+                        },
+                        Paced::Repeat(ts) => {
+                            let Some(f) = &last_ffmpeg_frame else {
+                                continue;
+                            };
+                            duplicated_frames += 1;
+                            (Some(reference_video_frame(f)), ts)
                         }
-                        Ok(None) | Err(RecvTimeoutError::Disconnected) => {
+                        Paced::End => {
                             let mut drained = 0u64;
                             let drain_start = std::time::Instant::now();
                             let drain_timeout = Duration::from_millis(500);
 
                             loop {
                                 match video_rx.recv_timeout(Duration::from_millis(10)) {
-                                    Ok(Some((mut frame, ts))) => {
-                                        if frame.as_ffmpeg_into(&mut reusable_frame).is_ok() {
+                                    Ok(Some((frame, ts))) => {
+                                        if let Ok(f) = frame.as_ffmpeg() {
                                             let normalized_ts =
                                                 normalize_timestamp(ts, &mut first_timestamp);
-                                            let encode_start = std::time::Instant::now();
-                                            let owned_frame = reusable_frame.clone();
-                                            match encoder_clone.lock() {
-                                                Ok(mut enc) => {
-                                                    if let Err(e) =
-                                                        enc.queue_frame(owned_frame, normalized_ts)
-                                                    {
-                                                        warn!(
-                                                            "Failed to encode drained frame: {e}"
-                                                        );
-                                                        break;
-                                                    }
-                                                }
-                                                Err(_) => break,
+                                            if let Err(e) = encode_frame_fn(
+                                                f,
+                                                normalized_ts,
+                                                &mut slow_encode_count,
+                                                &mut total_frames,
+                                                &encoder_clone,
+                                            ) {
+                                                warn!("Failed to encode drained frame: {e}");
+                                                break;
                                             }
-                                            let elapsed = encode_start.elapsed().as_millis();
-                                            if elapsed > SLOW_THRESHOLD_MS {
-                                                slow_encode_count += 1;
-                                            }
-                                            total_frames += 1;
                                             drained += 1;
                                         }
                                     }
@@ -441,36 +503,15 @@ impl WindowsFragmentedM4SMuxer {
                             }
                             break;
                         }
-                        Err(RecvTimeoutError::Timeout) => match (has_valid_frame, last_timestamp) {
-                            (true, Some(last_ts)) => {
-                                let new_ts = last_ts.saturating_add(frame_interval);
-                                last_timestamp = Some(new_ts);
-                                duplicated_frames += 1;
-                                (false, new_ts)
-                            }
-                            _ => continue,
-                        },
                     };
 
                     let convert_elapsed_ms = convert_start.elapsed().as_millis();
 
-                    if !has_valid_frame {
-                        match video_rx.recv() {
-                            Ok(Some((mut frame, ts))) => {
-                                if frame.as_ffmpeg_into(&mut reusable_frame).is_ok() {
-                                    has_valid_frame = true;
-                                    last_timestamp = Some(ts);
-                                }
-                            }
-                            Ok(None) | Err(_) => break,
-                        }
-                        next_frame_deadline = std::time::Instant::now()
-                            .checked_add(frame_interval)
-                            .unwrap_or(next_frame_deadline);
+                    let Some(ffmpeg_frame) = ffmpeg_frame else {
                         continue;
-                    }
+                    };
 
-                    if got_new_frame && convert_elapsed_ms > SLOW_THRESHOLD_MS {
+                    if convert_elapsed_ms > SLOW_THRESHOLD_MS {
                         slow_convert_count += 1;
                         if slow_convert_count <= 5 || slow_convert_count.is_multiple_of(100) {
                             debug!(
@@ -483,50 +524,15 @@ impl WindowsFragmentedM4SMuxer {
                     }
 
                     let normalized_ts = normalize_timestamp(timestamp, &mut first_timestamp);
-
-                    let encode_start = std::time::Instant::now();
-                    let owned_frame = reusable_frame.clone();
-                    match encoder_clone.lock() {
-                        Ok(mut enc) => {
-                            if let Err(e) = enc.queue_frame(owned_frame, normalized_ts) {
-                                warn!("Failed to encode frame: {e}");
-                            }
-                        }
-                        Err(_) => {
-                            error!(
-                                "Encoder mutex poisoned - encoder thread likely panicked, stopping"
-                            );
-                            return Err(anyhow!(
-                                "Encoder mutex poisoned - all subsequent frames would be lost"
-                            ));
-                        }
-                    }
-
-                    let encode_elapsed_ms = encode_start.elapsed().as_millis();
-                    if encode_elapsed_ms > SLOW_THRESHOLD_MS {
-                        slow_encode_count += 1;
-                        if slow_encode_count <= 5 || slow_encode_count.is_multiple_of(100) {
-                            debug!(
-                                elapsed_ms = encode_elapsed_ms,
-                                count = slow_encode_count,
-                                "encoder.queue_frame exceeded {}ms threshold",
-                                SLOW_THRESHOLD_MS
-                            );
-                        }
-                    }
-
-                    total_frames += 1;
-
-                    next_frame_deadline = next_frame_deadline
-                        .checked_add(frame_interval)
-                        .unwrap_or_else(|| {
-                            std::time::Instant::now()
-                                .checked_add(frame_interval)
-                                .unwrap()
-                        });
-                    let now = std::time::Instant::now();
-                    if next_frame_deadline < now.checked_sub(frame_interval).unwrap_or(now) {
-                        next_frame_deadline = now;
+                    if let Err(e) = encode_frame_fn(
+                        ffmpeg_frame,
+                        normalized_ts,
+                        &mut slow_encode_count,
+                        &mut total_frames,
+                        &encoder_clone,
+                    ) {
+                        error!("Encoder mutex poisoned - encoder thread likely panicked, stopping");
+                        return Err(e);
                     }
                 }
 
@@ -581,10 +587,6 @@ impl VideoMuxer for WindowsFragmentedM4SMuxer {
         timestamp: Duration,
     ) -> anyhow::Result<()> {
         let Some(adjusted_timestamp) = self.pause.adjust(timestamp)? else {
-            warn!(
-                timestamp_ms = timestamp.as_millis(),
-                "DIAG-MUXER: pause.adjust returned None (frame dropped by muxer pause state)"
-            );
             return Ok(());
         };
 
@@ -627,6 +629,7 @@ pub struct WindowsFragmentedM4SCameraMuxer {
     frame_drops: FrameDropTracker,
     started: bool,
     disk_space_callback: Option<DiskSpaceCallback>,
+    health_tx: SharedHealthSender,
 }
 
 pub struct WindowsFragmentedM4SCameraMuxerConfig {
@@ -685,9 +688,13 @@ impl Muxer for WindowsFragmentedM4SCameraMuxer {
             output_size: config.output_size,
             state: None,
             pause,
-            frame_drops: FrameDropTracker::new(),
+            frame_drops: FrameDropTracker::new(
+                SharedHealthSender::new(),
+                "muxer:windows-fragmented-camera",
+            ),
             started: false,
             disk_space_callback: config.disk_space_callback,
+            health_tx: SharedHealthSender::new(),
         };
 
         muxer.start_encoder()?;
@@ -716,6 +723,11 @@ impl Muxer for WindowsFragmentedM4SCameraMuxer {
         }
 
         Ok(Ok(()))
+    }
+
+    fn set_health_sender(&mut self, tx: HealthSender) {
+        self.health_tx.set(tx);
+        self.frame_drops.health_tx = self.health_tx.clone();
     }
 }
 
@@ -778,10 +790,15 @@ impl WindowsFragmentedM4SCameraMuxer {
             preset: self.preset,
             bpp: self.bpp,
             output_size: self.output_size,
+            prefer_videotoolbox_hw_input: false,
         };
 
-        let mut encoder =
-            SegmentedVideoEncoder::init(self.base_path.clone(), self.video_config, encoder_config)?;
+        let mut encoder = SegmentedVideoEncoder::init_with_timed_fragments(
+            self.base_path.clone(),
+            self.video_config,
+            encoder_config,
+            true,
+        )?;
         if let Some(callback) = &self.disk_space_callback {
             encoder.set_disk_space_callback(callback.clone());
         }
@@ -789,6 +806,9 @@ impl WindowsFragmentedM4SCameraMuxer {
         let encoder_clone = encoder.clone();
 
         let video_config = self.video_config;
+        let health_tx = self.health_tx.clone();
+        let base_path = self.base_path.clone();
+        let pause_flag = self.pause.flag();
         let encoder_handle = std::thread::Builder::new()
             .name("win-m4s-camera-segment-encoder".to_string())
             .spawn(move || {
@@ -800,21 +820,22 @@ impl WindowsFragmentedM4SCameraMuxer {
                     ));
                 }
 
-                let frame_interval = Duration::from_secs_f64(1.0 / video_config.fps() as f64);
+                let mut pacer = FramePacer::new(video_config.fps());
                 let mut last_frame: Option<NativeCameraFrame> = None;
-                let mut last_timestamp: Option<Duration> = None;
                 let mut first_timestamp: Option<Duration> = None;
 
                 let mut slow_convert_count = 0u32;
                 let mut slow_encode_count = 0u32;
                 let mut total_frames = 0u64;
                 let mut duplicated_frames = 0u64;
+                let mut disk_monitor = DiskSpaceMonitor::new();
+                let mut disk_exhausted = false;
                 const SLOW_THRESHOLD_MS: u128 = 5;
 
                 let normalize_timestamp =
                     |ts: Duration, first: &mut Option<Duration>| -> Duration {
                         if let Some(first_ts) = *first {
-                            ts.saturating_sub(first_ts)
+                            ts.checked_sub(first_ts).unwrap_or(Duration::ZERO)
                         } else {
                             *first = Some(ts);
                             Duration::ZERO
@@ -888,13 +909,30 @@ impl WindowsFragmentedM4SCameraMuxer {
                     };
 
                 loop {
-                    let (frame_to_encode, timestamp) = match video_rx.recv_timeout(frame_interval) {
-                        Ok(Some((frame, ts))) => {
+                    if matches!(
+                        disk_monitor.poll(&base_path, &health_tx),
+                        super::core::DiskSpacePollResult::Exhausted { .. }
+                            | super::core::DiskSpacePollResult::Stopped
+                    ) {
+                        disk_exhausted = true;
+                    }
+                    if disk_exhausted {
+                        break;
+                    }
+
+                    let (camera_frame, timestamp) = match pacer.next(&video_rx, &pause_flag) {
+                        Paced::Frame(frame, ts) => {
                             last_frame = Some(frame.clone());
-                            last_timestamp = Some(ts);
-                            (Some(frame), ts)
+                            (frame, ts)
                         }
-                        Ok(None) | Err(RecvTimeoutError::Disconnected) => {
+                        Paced::Repeat(ts) => {
+                            let Some(frame) = &last_frame else {
+                                continue;
+                            };
+                            duplicated_frames += 1;
+                            (frame.clone(), ts)
+                        }
+                        Paced::End => {
                             let mut drained = 0u64;
                             let drain_start = std::time::Instant::now();
                             let drain_timeout = Duration::from_millis(500);
@@ -935,28 +973,6 @@ impl WindowsFragmentedM4SCameraMuxer {
                             }
                             break;
                         }
-                        Err(RecvTimeoutError::Timeout) => {
-                            match (&last_frame, last_timestamp) {
-                                (Some(f), Some(last_ts)) => {
-                                    let new_ts = last_ts.saturating_add(frame_interval);
-                                    last_timestamp = Some(new_ts);
-                                    duplicated_frames += 1;
-                                    (Some(f.clone()), new_ts)
-                                }
-                                _ => continue,
-                            }
-                        }
-                    };
-
-                    let Some(camera_frame) = frame_to_encode else {
-                        match video_rx.recv() {
-                            Ok(Some((frame, ts))) => {
-                                last_frame = Some(frame);
-                                last_timestamp = Some(ts);
-                            }
-                            Ok(None) | Err(_) => break,
-                        }
-                        continue;
                     };
 
                     let normalized_ts = normalize_timestamp(timestamp, &mut first_timestamp);
@@ -1047,5 +1063,30 @@ impl VideoMuxer for WindowsFragmentedM4SCameraMuxer {
 impl AudioMuxer for WindowsFragmentedM4SCameraMuxer {
     fn send_audio_frame(&mut self, _frame: AudioFrame, _timestamp: Duration) -> anyhow::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reference_video_frame;
+
+    #[test]
+    fn instant_fragment_frames_reuse_reference_counted_pixels() {
+        let mut original = ffmpeg::frame::Video::new(ffmpeg::format::Pixel::BGRA, 16, 12);
+        original.set_pts(Some(91));
+        original.data_mut(0)[0] = 63;
+        let retained = reference_video_frame(&original);
+        let replay = reference_video_frame(&retained);
+
+        assert_eq!(retained.data(0).as_ptr(), original.data(0).as_ptr());
+        assert_eq!(replay.data(0).as_ptr(), original.data(0).as_ptr());
+        assert_eq!(replay.pts(), Some(91));
+        let buffer = unsafe { (*original.as_ptr()).buf[0] };
+        assert_eq!(unsafe { ffmpeg::ffi::av_buffer_get_ref_count(buffer) }, 3);
+
+        drop(original);
+        drop(retained);
+
+        assert_eq!(replay.data(0)[0], 63);
     }
 }

@@ -69,6 +69,7 @@ fn create_cap_project(project_dir: &Path, duration_secs: u32) -> Result<(), Stri
 
     let recording_meta = serde_json::json!({
         "pretty_name": "Long Video Test",
+        "sharing": null,
         "display": {
             "path": "content/display.mp4",
             "fps": TEST_VIDEO_FPS
@@ -127,11 +128,13 @@ async fn run_export(project_path: PathBuf, fps: u32) -> Result<(PathBuf, Duratio
         .map_err(|err| format!("Exporter build error: {err}"))?;
 
     let settings = Mp4ExportSettings {
+        codec: Default::default(),
         fps,
         resolution_base: XY::new(TEST_VIDEO_WIDTH, TEST_VIDEO_HEIGHT),
         compression: ExportCompression::Potato,
         custom_bpp: None,
         force_ffmpeg_decoder: false,
+        optimize_filesize: false,
     };
 
     let total_frames = exporter_base.total_frames(fps);

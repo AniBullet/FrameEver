@@ -13,6 +13,9 @@ use tracing::{debug, error, trace, warn};
 
 use crate::base::EncoderBase;
 
+const HVC1_TAG: u32 = u32::from_le_bytes(*b"hvc1");
+const QUALITY_MODE_AV1_ENCODER: &str = "libsvtav1";
+
 fn is_420(format: ffmpeg::format::Pixel) -> bool {
     format
         .descriptor()
@@ -26,7 +29,13 @@ pub struct HevcEncoderBuilder {
     preset: HevcPreset,
     output_size: Option<(u32, u32)>,
     external_conversion: bool,
-    crf: Option<u8>,
+    family: CodecFamily,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CodecFamily {
+    Hevc,
+    Av1,
 }
 
 #[derive(Clone, Copy)]
@@ -58,7 +67,7 @@ impl HevcEncoderBuilder {
             preset: HevcPreset::Ultrafast,
             output_size: None,
             external_conversion: false,
-            crf: None,
+            family: CodecFamily::Hevc,
         }
     }
 
@@ -81,14 +90,13 @@ impl HevcEncoderBuilder {
         Ok(self)
     }
 
-    pub fn with_external_conversion(mut self) -> Self {
-        self.external_conversion = true;
+    pub fn with_av1(mut self) -> Self {
+        self.family = CodecFamily::Av1;
         self
     }
 
-    pub fn with_crf(mut self, crf: u8) -> Self {
-        self.crf = Some(crf);
-        self.preset = HevcPreset::Medium;
+    pub fn with_external_conversion(mut self) -> Self {
+        self.external_conversion = true;
         self
     }
 
@@ -114,11 +122,7 @@ impl HevcEncoderBuilder {
             );
         }
 
-        let candidates = if let Some(crf_val) = self.crf {
-            get_codec_and_options_crf(&input_config, crf_val)
-        } else {
-            get_codec_and_options(&input_config, self.preset)
-        };
+        let candidates = get_codec_and_options(&input_config, self.preset, self.family);
         if candidates.is_empty() {
             return Err(HevcEncoderError::CodecNotFound);
         }
@@ -137,7 +141,7 @@ impl HevcEncoderBuilder {
                 output_height,
                 self.bpp,
                 self.external_conversion,
-                self.crf,
+                self.family,
             ) {
                 Ok(encoder) => {
                     debug!("Using HEVC encoder {}", codec_name);
@@ -163,13 +167,15 @@ impl HevcEncoderBuilder {
         output_height: u32,
         bpp: f32,
         external_conversion: bool,
-        crf: Option<u8>,
+        family: CodecFamily,
     ) -> Result<HevcEncoder, HevcEncoderError> {
-        let encoder_supports_input_format = codec
+        let supported: Vec<format::Pixel> = codec
             .video()
             .ok()
             .and_then(|codec_video| codec_video.formats())
-            .is_some_and(|mut formats| formats.any(|f| f == input_config.pixel_format));
+            .map(|formats| formats.collect())
+            .unwrap_or_default();
+        let encoder_supports_input_format = supported.contains(&input_config.pixel_format);
 
         let mut needs_pixel_conversion = false;
 
@@ -177,7 +183,10 @@ impl HevcEncoderBuilder {
             input_config.pixel_format
         } else {
             needs_pixel_conversion = true;
-            let format = ffmpeg::format::Pixel::NV12;
+            let format = [format::Pixel::NV12, format::Pixel::YUV420P]
+                .into_iter()
+                .find(|candidate| supported.contains(candidate))
+                .unwrap_or(format::Pixel::NV12);
             if !external_conversion {
                 debug!(
                     "Converting from {:?} to {:?} for HEVC encoding",
@@ -228,7 +237,15 @@ impl HevcEncoderBuilder {
                 output_height,
                 flags,
             ) {
-                Ok(context) => Some(context),
+                Ok(mut context) => {
+                    super::colour::use_bt709_for_rgb_input(
+                        &mut context,
+                        input_config.pixel_format,
+                        output_format,
+                    )
+                    .map_err(HevcEncoderError::FFmpeg)?;
+                    Some(context)
+                }
                 Err(e) => {
                     if needs_pixel_conversion {
                         error!(
@@ -269,24 +286,16 @@ impl HevcEncoderBuilder {
                 ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT709;
         }
 
-        if let Some(crf_val) = crf {
-            unsafe {
-                (*encoder.as_mut_ptr()).global_quality = crf_val as i32;
-            }
-            encoder.set_bit_rate(0);
-        } else {
-            let bitrate = get_bitrate(
-                output_width,
-                output_height,
-                input_config.frame_rate.0 as f32 / input_config.frame_rate.1.max(1) as f32,
-                bpp,
-            );
+        let bitrate = get_bitrate(
+            output_width,
+            output_height,
+            input_config.frame_rate.0 as f32 / input_config.frame_rate.1.max(1) as f32,
+            bpp,
+        );
 
+        if codec.name() != QUALITY_MODE_AV1_ENCODER {
             encoder.set_bit_rate(bitrate);
-            unsafe {
-                (*encoder.as_mut_ptr()).rc_max_rate = (bitrate as f64 * 1.5) as i64;
-                (*encoder.as_mut_ptr()).rc_buffer_size = bitrate as i32;
-            }
+            encoder.set_max_bit_rate(bitrate);
         }
 
         let encoder = encoder.open_with(encoder_options)?;
@@ -296,6 +305,11 @@ impl HevcEncoderBuilder {
         output_stream.set_time_base((1, HevcEncoder::TIME_BASE));
         output_stream.set_rate(input_config.frame_rate);
         output_stream.set_parameters(&encoder);
+        if family == CodecFamily::Hevc {
+            unsafe {
+                (*(*output_stream.as_mut_ptr()).codecpar).codec_tag = HVC1_TAG;
+            }
+        }
 
         Ok(HevcEncoder {
             base: EncoderBase::new(stream_index),
@@ -390,6 +404,32 @@ impl HevcEncoder {
         Ok(())
     }
 
+    pub fn queue_preconverted_frame(
+        &mut self,
+        mut frame: frame::Video,
+        timestamp: Duration,
+        output: &mut format::context::Output,
+    ) -> Result<(), QueueFrameError> {
+        trace!(
+            "Encoding pre-converted frame: format={:?}, size={}x{}, expected={:?} {}x{}",
+            frame.format(),
+            frame.width(),
+            frame.height(),
+            self.output_format,
+            self.output_width,
+            self.output_height
+        );
+
+        self.base
+            .update_pts(&mut frame, timestamp, &mut self.encoder);
+
+        self.base
+            .send_frame(&frame, output, &mut self.encoder)
+            .map_err(QueueFrameError::Encode)?;
+
+        Ok(())
+    }
+
     pub fn queue_frame_reusable(
         &mut self,
         frame: &mut frame::Video,
@@ -420,34 +460,43 @@ impl HevcEncoder {
         Ok(())
     }
 
-    pub fn queue_preconverted_frame(
-        &mut self,
-        mut frame: frame::Video,
-        timestamp: Duration,
-        output: &mut format::context::Output,
-    ) -> Result<(), QueueFrameError> {
-        trace!(
-            "Encoding pre-converted frame: format={:?}, size={}x{}, expected={:?} {}x{}",
-            frame.format(),
-            frame.width(),
-            frame.height(),
-            self.output_format,
-            self.output_width,
-            self.output_height
-        );
-
-        self.base
-            .update_pts(&mut frame, timestamp, &mut self.encoder);
-
-        self.base
-            .send_frame(&frame, output, &mut self.encoder)
-            .map_err(QueueFrameError::Encode)?;
-
-        Ok(())
-    }
-
     pub fn flush(&mut self, output: &mut format::context::Output) -> Result<(), ffmpeg::Error> {
         self.base.process_eof(output, &mut self.encoder)
+    }
+
+    pub fn set_packet_stats(&mut self, stats: std::sync::Arc<crate::EncodedPacketStats>) {
+        self.base.set_packet_stats(stats);
+    }
+}
+
+impl From<QueueFrameError> for crate::video::h264::QueueFrameError {
+    fn from(error: QueueFrameError) -> Self {
+        match error {
+            QueueFrameError::Converter(error) => Self::Converter(error),
+            QueueFrameError::Encode(error) => Self::Encode(error),
+        }
+    }
+}
+
+fn get_av1_encoder_priority() -> &'static [&'static str] {
+    #[cfg(target_os = "windows")]
+    {
+        use cap_frame_converter::{GpuVendor, detect_primary_gpu};
+
+        static AV1_PRIORITY_NVIDIA: &[&str] = &["av1_nvenc", "av1_qsv", "av1_amf", "libsvtav1"];
+        static AV1_PRIORITY_AMD: &[&str] = &["av1_amf", "av1_nvenc", "av1_qsv", "libsvtav1"];
+        static AV1_PRIORITY_INTEL: &[&str] = &["av1_qsv", "av1_nvenc", "av1_amf", "libsvtav1"];
+
+        match detect_primary_gpu().map(|info| info.vendor) {
+            Some(GpuVendor::Amd) => AV1_PRIORITY_AMD,
+            Some(GpuVendor::Intel) => AV1_PRIORITY_INTEL,
+            _ => AV1_PRIORITY_NVIDIA,
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        &["libsvtav1"]
     }
 }
 
@@ -494,6 +543,7 @@ fn get_encoder_priority() -> &'static [&'static str] {
 fn get_codec_and_options(
     config: &VideoInfo,
     preset: HevcPreset,
+    family: CodecFamily,
 ) -> Vec<(Codec, Dictionary<'static>)> {
     let keyframe_interval_secs = 2;
     let denominator = config.frame_rate.denominator();
@@ -504,7 +554,10 @@ fn get_codec_and_options(
         .max(1.0) as i32;
     let keyframe_interval_str = keyframe_interval.to_string();
 
-    let encoder_priority = get_encoder_priority();
+    let encoder_priority = match family {
+        CodecFamily::Hevc => get_encoder_priority(),
+        CodecFamily::Av1 => get_av1_encoder_priority(),
+    };
 
     let mut encoders = Vec::new();
 
@@ -522,14 +575,11 @@ fn get_codec_and_options(
                 options.set("max_ref_frames", "1");
             }
             "hevc_nvenc" => {
-                options.set("preset", "p6");
-                options.set("tune", "hq");
+                options.set("preset", "p4");
+                options.set("tune", "ll");
                 options.set("rc", "vbr");
                 options.set("spatial-aq", "1");
                 options.set("temporal-aq", "1");
-                options.set("rc-lookahead", "32");
-                options.set("bf", "3");
-                options.set("b_adapt", "1");
                 options.set("tier", "main");
                 options.set("g", &keyframe_interval_str);
             }
@@ -555,82 +605,39 @@ fn get_codec_and_options(
                     match preset {
                         HevcPreset::Slow => "slow",
                         HevcPreset::Medium => "medium",
-                        HevcPreset::Ultrafast => "faster",
+                        HevcPreset::Ultrafast => "ultrafast",
                     },
                 );
+                if let HevcPreset::Ultrafast = preset {
+                    options.set("tune", "zerolatency");
+                }
                 options.set("g", &keyframe_interval_str);
             }
-            _ => {}
-        }
-
-        encoders.push((codec, options));
-    }
-
-    encoders
-}
-
-fn get_codec_and_options_crf(config: &VideoInfo, crf: u8) -> Vec<(Codec, Dictionary<'static>)> {
-    let keyframe_interval_secs = 2;
-    let denominator = config.frame_rate.denominator();
-    let frames_per_sec = config.frame_rate.numerator() as f64
-        / if denominator == 0 { 1 } else { denominator } as f64;
-    let keyframe_interval = (keyframe_interval_secs as f64 * frames_per_sec)
-        .round()
-        .max(1.0) as i32;
-    let keyframe_interval_str = keyframe_interval.to_string();
-    let crf_str = crf.to_string();
-
-    let encoder_priority = get_encoder_priority();
-
-    let mut encoders = Vec::new();
-
-    for encoder_name in encoder_priority {
-        let Some(codec) = encoder::find_by_name(encoder_name) else {
-            continue;
-        };
-
-        let mut options = Dictionary::new();
-
-        match *encoder_name {
-            "hevc_videotoolbox" => {
-                options.set("allow_sw", "1");
-                options.set("q", &crf_str);
-                options.set("g", &keyframe_interval_str);
-            }
-            "hevc_nvenc" => {
-                options.set("preset", "p7");
-                options.set("tune", "hq");
-                options.set("rc", "constqp");
-                options.set("qp", &crf_str);
+            "av1_nvenc" => {
+                options.set("preset", "p5");
+                options.set("rc", "vbr");
+                options.set("cq", "28");
                 options.set("spatial-aq", "1");
-                options.set("temporal-aq", "1");
-                options.set("rc-lookahead", "32");
-                options.set("bf", "3");
-                options.set("b_adapt", "1");
-                options.set("tier", "main");
                 options.set("g", &keyframe_interval_str);
             }
-            "hevc_qsv" => {
-                options.set("preset", "slower");
-                options.set("global_quality", &crf_str);
-                options.set("look_ahead", "1");
-                options.set("g", &keyframe_interval_str);
-            }
-            "hevc_amf" => {
-                options.set("quality", "quality");
-                options.set("rc", "cqp");
-                options.set("qp_i", &crf_str);
-                options.set("qp_p", &crf_str);
-                options.set("g", &keyframe_interval_str);
-            }
-            "hevc_mf" => {
-                options.set("hw_encoding", "true");
-                options.set("quality", "0");
-                options.set("g", &keyframe_interval_str);
-            }
-            "libx265" => {
+            "av1_qsv" => {
                 options.set("preset", "medium");
-                options.set("crf", &crf_str);
+                options.set("g", &keyframe_interval_str);
+            }
+            "av1_amf" => {
+                options.set("quality", "balanced");
+                options.set("g", &keyframe_interval_str);
+            }
+            "libsvtav1" => {
+                options.set(
+                    "preset",
+                    match preset {
+                        HevcPreset::Slow => "6",
+                        HevcPreset::Medium => "8",
+                        HevcPreset::Ultrafast => "12",
+                    },
+                );
+                options.set("crf", "30");
                 options.set("g", &keyframe_interval_str);
             }
             _ => {}

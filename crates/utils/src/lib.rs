@@ -2,13 +2,31 @@ use std::{
     borrow::Cow,
     future::Future,
     num::{NonZero, NonZeroI32},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::LazyLock,
 };
 
 use aho_corasick::{AhoCorasickBuilder, MatchKind};
 use tracing::Instrument;
 
+pub mod brand;
+pub mod diagnostic_writer;
+pub mod disk_space;
+pub mod export_resources;
+#[cfg(any(target_os = "linux", test))]
+pub mod linux_package;
+#[cfg(target_os = "linux")]
+pub mod linux_recording_stop;
+#[cfg(any(target_os = "linux", test))]
+pub mod linux_runtime;
+pub mod local_captions;
+pub mod log_upload;
+#[cfg(target_os = "macos")]
+pub mod macos_qos;
+pub mod operation_diagnostics;
+pub mod process;
+
+/// Wrapper around tokio::spawn that inherits the current tracing subscriber and span.
 pub fn spawn_actor<F>(future: F) -> tokio::task::JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
@@ -18,33 +36,28 @@ where
     tokio::spawn(future.with_current_subscriber().in_current_span())
 }
 
+/// Runs blocking native work on a new thread outside every Tokio runtime context.
+/// Some blocking APIs, such as zbus on Linux, start their own runtime and panic when
+/// called from an async task.
+pub async fn run_on_dedicated_thread<T, F>(name: &str, work: F) -> std::io::Result<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name(name.to_string())
+        .spawn(move || {
+            let _ = sender.send(work());
+        })?;
+    receiver
+        .await
+        .map_err(|_| std::io::Error::other(format!("{name} thread stopped before finishing")))
+}
+
 pub fn ensure_dir(path: &PathBuf) -> Result<PathBuf, std::io::Error> {
     std::fs::create_dir_all(path)?;
     Ok(path.clone())
-}
-
-pub fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
-    if let Err(e) = std::fs::rename(from, to) {
-        if e.raw_os_error() == Some(17) || e.kind() == std::io::ErrorKind::CrossesDevices {
-            std::fs::copy(from, to)?;
-            std::fs::remove_file(from)?;
-            return Ok(());
-        }
-        return Err(e);
-    }
-    Ok(())
-}
-
-pub async fn move_file_async(from: PathBuf, to: PathBuf) -> std::io::Result<()> {
-    if let Err(e) = tokio::fs::rename(&from, &to).await {
-        if e.raw_os_error() == Some(17) || e.kind() == std::io::ErrorKind::CrossesDevices {
-            tokio::fs::copy(&from, &to).await?;
-            tokio::fs::remove_file(&from).await?;
-            return Ok(());
-        }
-        return Err(e);
-    }
-    Ok(())
 }
 
 /// Generates a unique filename by appending incremental numbers if conflicts exist.
@@ -64,10 +77,13 @@ pub async fn move_file_async(from: PathBuf, to: PathBuf) -> std::io::Result<()> 
 /// # Example
 ///
 /// ```rust
+/// use cap_utils::ensure_unique_filename;
+/// let recordings_dir = std::path::Path::new("recordings");
 /// let unique_name = ensure_unique_filename("My Recording.cap", &recordings_dir,);
 /// // If "My Recording.cap" exists, returns "My Recording (1).cap"
 /// // If that exists too, returns "My Recording (2).cap", etc.
 ///
+/// let documents_dir = std::path::Path::new("documents");
 /// let unique_name = ensure_unique_filename("document.pdf", &documents_dir);
 /// // If "document.pdf" exists, returns "document (1).pdf"
 /// ```
@@ -180,7 +196,7 @@ pub fn ensure_unique_filename_with_attempts(
 ///
 /// ## Examples
 ///
-/// ```
+/// ```text
 /// // Basic formats
 /// YYYY-MM-DD HH:mm → %Y-%m-%d %H:%M
 /// // Output: "2025-01-15 14:30"
@@ -430,5 +446,69 @@ mod tests {
         let result = ensure_unique_filename("test.cap", temp_dir.path()).unwrap();
         // Should find the gap at (2)
         assert_eq!(result, "test (2).cap");
+    }
+}
+
+#[cfg(test)]
+mod dedicated_thread_tests {
+    use super::run_on_dedicated_thread;
+
+    async fn assert_work_can_start_its_own_runtime() {
+        let value = run_on_dedicated_thread("runtime-test", || {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+                .block_on(async { 7 })
+        })
+        .await
+        .unwrap();
+        assert_eq!(value, 7);
+    }
+
+    #[tokio::test]
+    async fn work_runs_outside_a_current_thread_runtime() {
+        assert_work_can_start_its_own_runtime().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn work_runs_outside_a_multi_thread_runtime() {
+        assert_work_can_start_its_own_runtime().await;
+    }
+
+    #[tokio::test]
+    async fn work_results_are_returned_unchanged() {
+        let result: Result<(), std::io::Error> = run_on_dedicated_thread("error-test", || {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "denied",
+            ))
+        })
+        .await
+        .unwrap();
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(error.to_string(), "denied");
+    }
+
+    #[tokio::test]
+    async fn panicking_work_becomes_an_error() {
+        let error = run_on_dedicated_thread::<(), _>("panic-test", || panic!("worker failed"))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "panic-test thread stopped before finishing"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn blocking_zbus_runs_from_an_async_task() {
+        // A headless host may have no session bus; only a thread failure is a regression.
+        let result = run_on_dedicated_thread("zbus-test", || {
+            zbus::blocking::Connection::session().map(drop)
+        })
+        .await;
+        assert!(result.is_ok());
     }
 }

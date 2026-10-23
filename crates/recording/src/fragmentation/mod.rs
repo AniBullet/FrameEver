@@ -1,7 +1,6 @@
 mod manifest;
 pub use manifest::*;
 
-use cap_utils::move_file;
 use serde::Serialize;
 use std::{
     io::Write,
@@ -18,7 +17,7 @@ pub fn atomic_write_json<T: Serialize>(path: &Path, data: &T) -> std::io::Result
     file.write_all(json.as_bytes())?;
     file.sync_all()?;
 
-    move_file(&temp_path, path)?;
+    std::fs::rename(&temp_path, path)?;
 
     if let Some(parent) = path.parent()
         && let Ok(dir) = std::fs::File::open(parent)
@@ -30,8 +29,8 @@ pub fn atomic_write_json<T: Serialize>(path: &Path, data: &T) -> std::io::Result
 }
 
 pub fn sync_file(path: &Path) {
-    if let Ok(file) = std::fs::File::open(path) {
-        let _ = file.sync_all();
+    if let Err(error) = cap_enc_ffmpeg::sync_media_file(path) {
+        tracing::warn!(%error, path = %path.display(), "File fsync failed");
     }
 }
 
