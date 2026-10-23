@@ -553,6 +553,21 @@ export function changelogSection(text, version) {
 	return body || null;
 }
 
+export const UNRELEASED = "未发布";
+
+export function stampReleaseDate(text, version, date) {
+	return text.replace(
+		new RegExp(`^## \\[${version.replace(/\./g, "\\.")}\\] — ${UNRELEASED}[ \\t]*(\\r?)$`, "m"),
+		`## [${version}] — ${date}$1`,
+	);
+}
+
+function localDate() {
+	const now = new Date();
+	const pad = (value) => String(value).padStart(2, "0");
+	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 function releaseNotes(version) {
 	const notes = changelogSection(readFileSync(path.join(root, "CHANGELOG.md"), "utf8"), version);
 	if (!notes) fail(`CHANGELOG.md has no "## [${version}] — <date>" section. Write it first.`);
@@ -584,17 +599,27 @@ async function release({ flags, positional }) {
 		test({ flags: { all: true }, positional: [] });
 	}
 	step("Confirm");
+	const date = localDate();
 	console.log(
-		`  This pushes tag ${tag} to origin. The release workflow then builds, signs and publishes FrameEver ${version}.`,
+		`  This dates the CHANGELOG.md entry ${date}, commits it, and pushes ${branch} and tag ${tag} to origin. The release workflow then builds, signs and publishes FrameEver ${version}.`,
 	);
 	const prompt = createInterface({ input: process.stdin, output: process.stdout });
-	const answer = (await prompt.question(`  Push ${tag}? [y/N] `)).trim().toLowerCase();
+	const answer = (await prompt.question(`  Release ${tag}? [y/N] `)).trim().toLowerCase();
 	prompt.close();
 	if (answer !== "y" && answer !== "yes") {
-		console.log("  Nothing pushed.");
+		console.log("  Nothing changed.");
 		return;
 	}
+	const changelog = path.join(root, "CHANGELOG.md");
+	const text = readFileSync(changelog, "utf8");
+	const stamped = stampReleaseDate(text, version, date);
+	if (stamped !== text) {
+		writeFileSync(changelog, stamped);
+		run("git", ["add", "CHANGELOG.md"]);
+		run("git", ["commit", "-m", `chore: 发布 ${version}`]);
+	}
 	run("git", ["tag", "-a", tag, "-m", `FrameEver ${version}`]);
+	run("git", ["push", "origin", `HEAD:refs/heads/${branch}`]);
 	run("git", ["push", "origin", tag]);
 	const url = capture("git", ["remote", "get-url", "origin"]) ?? "";
 	const slug = url.match(/github\.com[:/](.+?)(\.git)?$/)?.[1];

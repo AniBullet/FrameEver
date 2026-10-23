@@ -12,6 +12,7 @@ import {
 	parseArgs,
 	setWeightClass,
 	SEMVER,
+	stampReleaseDate,
 	testProfileEnv,
 	withFfmpeg,
 } from "./fe.mjs";
@@ -84,6 +85,20 @@ test("rewriting a font's weight class changes only that field and keeps it valid
 	let sum = 0;
 	for (let index = 0; index < out.length; index += 4) sum = (sum + out.readUInt32BE(index)) >>> 0;
 	assert.equal(sum, 0xb1b0afba);
+});
+
+test("releasing dates only the unreleased entry for that version", () => {
+	const text = "## [3.1.0] — 未发布\n\n- a\n\n## [3.0.0] — 2026-10-24\n";
+	assert.equal(
+		stampReleaseDate(text, "3.1.0", "2026-11-20"),
+		"## [3.1.0] — 2026-11-20\n\n- a\n\n## [3.0.0] — 2026-10-24\n",
+	);
+	assert.equal(stampReleaseDate(text, "3.0.0", "2026-11-20"), text);
+	assert.equal(stampReleaseDate(text, "3.1", "2026-11-20"), text);
+	assert.equal(
+		stampReleaseDate("## [3.1.0] — 未发布\r\n- a\r\n", "3.1.0", "2026-11-20"),
+		"## [3.1.0] — 2026-11-20\r\n- a\r\n",
+	);
 });
 
 test("release notes are the CHANGELOG section for exactly that version", () => {
