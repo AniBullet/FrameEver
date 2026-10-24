@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
                 continue;
             }
             for ordinary_prepare in [false, true] {
-                constants.device.poll(wgpu::PollType::Wait)?;
+                constants.device.poll(wgpu::PollType::wait_indefinitely())?;
                 let memory_before = constants
                     .device
                     .get_internal_counters()
@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
                     &constants.queue,
                     constants.is_software_adapter,
                 );
-                constants.device.poll(wgpu::PollType::Wait)?;
+                constants.device.poll(wgpu::PollType::wait_indefinitely())?;
                 let constructor_ms = startup_started.elapsed().as_secs_f64() * 1000.0;
                 let memory_after = constants
                     .device
@@ -112,7 +112,7 @@ async fn main() -> Result<()> {
                     constants.options.camera_size.map(|size| size.x),
                     constants.options.camera_size.map(|size| size.y),
                 );
-                constants.device.poll(wgpu::PollType::Wait)?;
+                constants.device.poll(wgpu::PollType::wait_indefinitely())?;
                 let setup_ms = setup_started.elapsed().as_secs_f64() * 1000.0;
                 let startup_ms = startup_started.elapsed().as_secs_f64() * 1000.0;
                 let memory_after_setup = constants
@@ -240,7 +240,7 @@ async fn main() -> Result<()> {
                 );
                 drop(renderer);
                 drop(layers);
-                constants.device.poll(wgpu::PollType::Wait)?;
+                constants.device.poll(wgpu::PollType::wait_indefinitely())?;
             }
         }
     }

@@ -196,8 +196,8 @@ fn fs_bgra(in: VertexOutput) -> @location(0) vec4<f32> {
                 });
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_group_layout)],
+                immediate_size: 0,
             });
             let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("NV12 Convert Pipeline (before)"),
@@ -375,6 +375,7 @@ fn fs_bgra(in: VertexOutput) -> @location(0) vec4<f32> {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.target_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -383,6 +384,7 @@ fn fs_bgra(in: VertexOutput) -> @location(0) vec4<f32> {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
@@ -433,8 +435,8 @@ fn fs_bgra(in: VertexOutput) -> @location(0) vec4<f32> {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(entry_point),
@@ -458,7 +460,7 @@ fn fs_bgra(in: VertexOutput) -> @location(0) vec4<f32> {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -505,9 +507,9 @@ fn fs_bgra(in: VertexOutput) -> @location(0) vec4<f32> {
             .enable_all()
             .build()
             .expect("tokio runtime");
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::METAL,
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let adapter = runtime
             .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

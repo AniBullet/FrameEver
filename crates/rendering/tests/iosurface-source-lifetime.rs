@@ -53,6 +53,7 @@ fn gpu() -> (wgpu::Device, wgpu::Queue) {
         power_preference: wgpu::PowerPreference::LowPower,
         force_fallback_adapter: false,
         compatible_surface: None,
+        apply_limit_buckets: false,
     }))
     .unwrap();
     pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap()
@@ -103,10 +104,10 @@ fn assert_frames(device: &wgpu::Device, output: &wgpu::Buffer, lumas: &[u8]) {
         .map_async(wgpu::MapMode::Read, move |result| {
             sender.send(result).unwrap();
         });
-    device.poll(wgpu::PollType::Wait).unwrap();
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     receiver.recv().unwrap().unwrap();
     {
-        let bytes = output.slice(..).get_mapped_range();
+        let bytes = output.slice(..).get_mapped_range().unwrap();
         for (index, &luma) in lumas.iter().enumerate() {
             let expected = (f32::from(luma) - 16.0) * 255.0 / 219.0;
             for row in 0..SIZE as usize {
@@ -135,11 +136,11 @@ fn wrong_frames(device: &wgpu::Device, output: &wgpu::Buffer, lumas: &[u8]) -> V
         .map_async(wgpu::MapMode::Read, move |result| {
             sender.send(result).unwrap();
         });
-    device.poll(wgpu::PollType::Wait).unwrap();
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     receiver.recv().unwrap().unwrap();
     let mut wrong = Vec::new();
     {
-        let bytes = output.slice(..).get_mapped_range();
+        let bytes = output.slice(..).get_mapped_range().unwrap();
         for (index, &luma) in lumas.iter().enumerate() {
             let expected = (f32::from(luma) - 16.0) * 255.0 / 219.0;
             let start = index * FRAME_BYTES as usize;

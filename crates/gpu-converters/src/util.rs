@@ -7,10 +7,10 @@ pub fn read_buffer_to_vec(
     buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
         tx.send(result).unwrap();
     });
-    device.poll(wgpu::PollType::Wait)?;
+    device.poll(wgpu::PollType::wait_indefinitely())?;
     rx.recv().unwrap().unwrap();
 
-    let data = buffer_slice.get_mapped_range();
+    let data = buffer_slice.get_mapped_range().unwrap();
     Ok(data.to_vec())
 }
 

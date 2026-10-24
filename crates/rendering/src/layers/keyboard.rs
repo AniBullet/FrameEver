@@ -238,8 +238,8 @@ impl KeyboardLayer {
         let background_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Keyboard Background Pipeline Layout"),
-                bind_group_layouts: &[&background_bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&background_bind_group_layout)],
+                immediate_size: 0,
             });
 
         let background_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -267,7 +267,7 @@ impl KeyboardLayer {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -443,13 +443,14 @@ impl KeyboardLayer {
         if self.shaped.as_ref() != Some(&shaped) {
             let metrics = Metrics::new(font_size, font_size * 1.2);
             let mut buffer = Buffer::new(&mut self.font_system, metrics);
-            buffer.set_size(&mut self.font_system, Some(wrap_width), None);
+            buffer.set_size(Some(wrap_width), None);
             buffer.set_text(
-                &mut self.font_system,
                 &shaped.text,
                 &Attrs::new().family(font_family).weight(weight),
                 Shaping::Advanced,
+                None,
             );
+            buffer.shape_until_scroll(&mut self.font_system, false);
             self.text_buffer = buffer;
             self.shaped = Some(shaped);
         }
@@ -983,6 +984,7 @@ mod gpu_tests {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
@@ -991,6 +993,7 @@ mod gpu_tests {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             layer.render(&mut pass);
         }
@@ -1017,8 +1020,8 @@ mod gpu_tests {
         );
         constants.queue.submit([encoder.finish()]);
         readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
-        device.poll(wgpu::PollType::Wait).unwrap();
-        let pixels = readback.slice(..).get_mapped_range().to_vec();
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let pixels = readback.slice(..).get_mapped_range().unwrap().to_vec();
         readback.unmap();
         pixels
     }
@@ -1137,7 +1140,10 @@ mod gpu_tests {
                 }
             }
         }
-        constants.device.poll(wgpu::PollType::Wait).unwrap();
+        constants
+            .device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
         samples.sort_by(f64::total_cmp);
         println!(
             "keyboard layer prepare ({} visible frames): p50 {:.1} us, p95 {:.1} us, mean {:.1} us",

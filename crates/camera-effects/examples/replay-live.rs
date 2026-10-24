@@ -121,10 +121,10 @@ async fn main() -> anyhow::Result<()> {
             .map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
-        device.poll(wgpu::PollType::Wait)?;
+        device.poll(wgpu::PollType::wait_indefinitely())?;
         rx.recv()??;
         {
-            let mapped = readback.slice(..).get_mapped_range();
+            let mapped = readback.slice(..).get_mapped_range().unwrap();
             for row in mapped.chunks_exact(stride as usize) {
                 stdout.write_all(&row[..(width * 4) as usize])?;
             }

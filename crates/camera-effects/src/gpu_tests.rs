@@ -32,9 +32,9 @@ async fn read_output(
         .map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-    device.poll(wgpu::PollType::Wait).unwrap();
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     rx.await.unwrap().unwrap();
-    let mapped = buffer.slice(..).get_mapped_range();
+    let mapped = buffer.slice(..).get_mapped_range().unwrap();
     mapped
         .chunks_exact(stride as usize)
         .flat_map(|row| row[..texture.width() as usize * 4].iter().copied())

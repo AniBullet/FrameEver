@@ -338,6 +338,7 @@ async fn restricted_late_uniforms_fail_before_prepare_or_direct_render_work() {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: session.current_texture_view(),
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
                         r: 0.25,
@@ -351,6 +352,7 @@ async fn restricted_late_uniforms_fail_before_prepare_or_direct_render_work() {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
     }
     let expected = read_session(&constants, &mut session, &clean, encoder).await;

@@ -234,7 +234,7 @@ async fn main() -> Result<()> {
                             output.frame_number
                         }
                     };
-                    constants.device.poll(wgpu::PollType::Wait)?;
+                    constants.device.poll(wgpu::PollType::wait_indefinitely())?;
                     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
                     ensure!(received_number == frame_number, "Unexpected frame ordering");
                     if frame_number >= args.warmup {

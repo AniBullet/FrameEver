@@ -146,8 +146,8 @@ impl AnimatedGradientLayer {
         let pipeline = |layout: &wgpu::BindGroupLayout, entry, format| {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Animated gradient pipeline layout"),
-                bind_group_layouts: &[layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(layout)],
+                immediate_size: 0,
             });
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(entry),
@@ -171,7 +171,7 @@ impl AnimatedGradientLayer {
                 primitive: Default::default(),
                 depth_stencil: None,
                 multisample: Default::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
         };
@@ -314,6 +314,7 @@ impl AnimatedGradientLayer {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.surface_view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                     store: wgpu::StoreOp::Store,
@@ -322,6 +323,7 @@ impl AnimatedGradientLayer {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(&self.surface_pipeline);
         pass.set_bind_group(0, &self.surface_bind_group, &[]);
@@ -473,6 +475,7 @@ mod tests {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: session.current_texture_view(),
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
@@ -481,6 +484,7 @@ mod tests {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             layer.render(&mut pass);
         }

@@ -78,8 +78,8 @@ impl TextBackgroundResources {
         let shader = device.create_shader_module(include_wgsl!("../shaders/text_bg.wgsl"));
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Text Background Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Text Background Pipeline"),
@@ -106,7 +106,7 @@ impl TextBackgroundResources {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -448,13 +448,12 @@ impl TextLayer {
         // line is laid out even when the configured box is a little
         // shorter than the shaped text (e.g. font metric differences
         // between the editor's measurement and cosmic-text).
-        buffer.set_size(&mut self.font_system, Some(wrap_width), None);
-        buffer.set_wrap(&mut self.font_system, glyphon::Wrap::Word);
+        buffer.set_size(Some(wrap_width), None);
+        buffer.set_wrap(glyphon::Wrap::Word);
         match colors {
             Some(colors) => {
                 let spans = rich_spans(content, colors);
                 buffer.set_rich_text(
-                    &mut self.font_system,
                     spans.iter().map(|(range, color)| {
                         (&content[range.clone()], attrs.clone().color(*color))
                     }),
@@ -464,10 +463,7 @@ impl TextLayer {
                 );
             }
             None => {
-                buffer.set_text(&mut self.font_system, content, attrs, Shaping::Advanced);
-                for line in buffer.lines.iter_mut() {
-                    line.set_align(Some(align));
-                }
+                buffer.set_text(content, attrs, Shaping::Advanced, Some(align));
             }
         }
         buffer.shape_until_scroll(&mut self.font_system, false);
@@ -908,6 +904,7 @@ mod gpu_tests {
             power_preference: wgpu::PowerPreference::LowPower,
             force_fallback_adapter: false,
             compatible_surface: None,
+            apply_limit_buckets: false,
         }))
         .ok()?;
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()
@@ -970,6 +967,7 @@ mod gpu_tests {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                         store: wgpu::StoreOp::Store,
@@ -978,6 +976,7 @@ mod gpu_tests {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             layer.render(&mut pass);
         }
@@ -1004,8 +1003,8 @@ mod gpu_tests {
         );
         queue.submit([encoder.finish()]);
         readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
-        device.poll(wgpu::PollType::Wait).unwrap();
-        let pixels = readback.slice(..).get_mapped_range().to_vec();
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let pixels = readback.slice(..).get_mapped_range().unwrap().to_vec();
         readback.unmap();
         pixels
     }

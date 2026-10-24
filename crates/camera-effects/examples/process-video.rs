@@ -90,9 +90,9 @@ async fn main() -> anyhow::Result<()> {
             .map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
-        device.poll(wgpu::PollType::Wait)?;
+        device.poll(wgpu::PollType::wait_indefinitely())?;
         rx.recv()??;
-        let mapped = buffer.slice(..).get_mapped_range();
+        let mapped = buffer.slice(..).get_mapped_range().unwrap();
         let mut rgba = Vec::with_capacity(pixels.len());
         for row in mapped.chunks_exact(stride as usize) {
             rgba.extend_from_slice(&row[..(width * 4) as usize]);

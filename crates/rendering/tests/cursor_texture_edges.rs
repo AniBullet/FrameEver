@@ -105,7 +105,7 @@ fn pipeline(device: &wgpu::Device, source: &str) -> wgpu::RenderPipeline {
         },
         depth_stencil: None,
         multisample: Default::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }
@@ -233,6 +233,7 @@ fn render(
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                     store: wgpu::StoreOp::Store,
@@ -241,6 +242,7 @@ fn render(
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &group, &[]);
@@ -267,12 +269,14 @@ fn render(
                 .send(result)
                 .expect("readback receiver remains alive");
         });
-    device.poll(wgpu::PollType::Wait).expect("poll GPU");
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("poll GPU");
     receiver
         .recv()
         .expect("readback callback")
         .expect("map GPU");
-    let pixels = buffer.slice(..).get_mapped_range().to_vec();
+    let pixels = buffer.slice(..).get_mapped_range().unwrap().to_vec();
     buffer.unmap();
     pixels
 }
@@ -327,7 +331,7 @@ fn minified_cursor_edges_match_uniform_sampling() {
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
         anisotropy_clamp: 4,
         ..Default::default()
     });

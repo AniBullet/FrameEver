@@ -75,8 +75,8 @@ impl BlurPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Blur Pipeline Layout"),
-            bind_group_layouts: &[&blur_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&blur_bind_group_layout)],
+            immediate_size: 0,
         });
 
         let blur_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -101,7 +101,7 @@ impl BlurPipeline {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: Default::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -186,6 +186,7 @@ impl BlurPipeline {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: intermediate,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -194,6 +195,7 @@ impl BlurPipeline {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.blur_pipeline);
             pass.set_bind_group(0, &h_bind_group, &[]);
@@ -225,6 +227,7 @@ impl BlurPipeline {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: output,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -233,6 +236,7 @@ impl BlurPipeline {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.blur_pipeline);
             pass.set_bind_group(0, &v_bind_group, &[]);
@@ -318,8 +322,8 @@ impl CompositePipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Composite Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let create_pipeline = |entry_point, format| {
@@ -345,7 +349,7 @@ impl CompositePipeline {
                 primitive: wgpu::PrimitiveState::default(),
                 depth_stencil: None,
                 multisample: Default::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
         };
@@ -443,6 +447,7 @@ impl CompositePipeline {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: output_view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: wgpu::StoreOp::Store,
@@ -451,6 +456,7 @@ impl CompositePipeline {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &bind_group, &[]);

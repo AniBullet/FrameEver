@@ -94,7 +94,10 @@ async fn wait_for_submission(
         let waited = tokio::time::timeout(
             remaining,
             tokio::task::spawn_blocking(move || {
-                device.poll(wgpu::PollType::WaitForSubmissionIndex(submission))
+                device.poll(wgpu::PollType::Wait {
+                    submission_index: Some(submission),
+                    timeout: Some(remaining),
+                })
             }),
         )
         .await;
@@ -537,8 +540,8 @@ impl RgbaToNv12Converter {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("RGBA to NV12 Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -1166,7 +1169,13 @@ impl PendingNv12Readback {
         }
 
         let buffer_slice = self.buffer.slice(..);
-        let data = buffer_slice.get_mapped_range();
+        let data = match buffer_slice.get_mapped_range() {
+            Ok(data) => data,
+            Err(error) => {
+                self.unmap();
+                return Err(error.into());
+            }
+        };
         let data_len = data.len();
 
         let nv12_data = if let Some(pool) = buffer_pool {
@@ -1341,8 +1350,8 @@ impl RgbaToBgraSurfaceConverter {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("RGBA to BGRA Surface Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("RGBA to BGRA Surface Pipeline"),
@@ -1366,7 +1375,7 @@ impl RgbaToBgraSurfaceConverter {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         let texture_cache = IOSurfaceTextureCache::new()
@@ -1566,6 +1575,7 @@ impl RgbaToBgraSurfaceConverter {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &dest_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
@@ -1574,6 +1584,7 @@ impl RgbaToBgraSurfaceConverter {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
@@ -1714,7 +1725,13 @@ impl PendingReadback {
             return Err(RenderingError::BufferMapWaitingFailed);
         };
         let buffer_slice = self.buffer.slice(..active_bytes as u64);
-        let data = buffer_slice.get_mapped_range();
+        let data = match buffer_slice.get_mapped_range() {
+            Ok(data) => data,
+            Err(error) => {
+                self.unmap();
+                return Err(error.into());
+            }
+        };
         let mut data_vec = Vec::with_capacity(active_bytes + 24);
         data_vec.extend_from_slice(&data);
 
@@ -2372,6 +2389,7 @@ mod surface_output_tests {
             power_preference: wgpu::PowerPreference::LowPower,
             force_fallback_adapter: false,
             compatible_surface: None,
+            apply_limit_buckets: false,
         }))
         .ok()?;
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()

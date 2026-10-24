@@ -442,15 +442,15 @@ impl YuvConverterPipelines {
 
         let nv12_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("NV12 Converter Pipeline Layout"),
-            bind_group_layouts: &[&nv12_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&nv12_bind_group_layout)],
+            immediate_size: 0,
         });
 
         let yuv420p_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("YUV420P Converter Pipeline Layout"),
-                bind_group_layouts: &[&yuv420p_bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&yuv420p_bind_group_layout)],
+                immediate_size: 0,
             });
 
         let nv12 = MatrixPipelines::new(
@@ -1899,6 +1899,7 @@ mod colour_matrix_tests {
             power_preference: wgpu::PowerPreference::LowPower,
             force_fallback_adapter: false,
             compatible_surface: None,
+            apply_limit_buckets: false,
         }))
         .ok()?;
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()
@@ -1997,8 +1998,10 @@ mod colour_matrix_tests {
         );
         queue.submit(std::iter::once(encoder.finish()));
         buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
-        device.poll(wgpu::PollType::Wait).expect("poll");
-        let mapped = buffer.slice(..).get_mapped_range();
+        device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("poll");
+        let mapped = buffer.slice(..).get_mapped_range().unwrap();
         (0..HEIGHT as usize)
             .flat_map(|row| {
                 let start = row * padded as usize;

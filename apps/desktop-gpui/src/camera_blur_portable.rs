@@ -67,6 +67,7 @@ impl PortableCameraBlur {
                     power_preference: wgpu::PowerPreference::LowPower,
                     force_fallback_adapter: cap_rendering::force_software_wgpu_adapter(),
                     compatible_surface: None,
+                    apply_limit_buckets: false,
                 })
                 .await
                 .map_err(|error| anyhow!("camera blur adapter: {error}"))?;
@@ -78,6 +79,7 @@ impl PortableCameraBlur {
                         .using_resolution(adapter.limits()),
                     memory_hints: Default::default(),
                     trace: wgpu::Trace::Off,
+                    experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 })
                 .await
                 .map_err(|error| anyhow!("camera blur device: {error}"))
@@ -198,7 +200,7 @@ impl PortableCameraBlur {
                 let _ = sender.send(result);
             });
         self.device
-            .poll(wgpu::PollType::Wait)
+            .poll(wgpu::PollType::wait_indefinitely())
             .map_err(|error| anyhow!("camera blur GPU polling: {error}"))?;
         receiver
             .recv()
@@ -206,7 +208,10 @@ impl PortableCameraBlur {
             .map_err(|error| anyhow!("camera blur GPU readback: {error}"))?;
 
         let pixels = {
-            let mapped = readback.slice(..).get_mapped_range();
+            let mapped = readback
+                .slice(..)
+                .get_mapped_range()
+                .map_err(|error| anyhow!("camera blur GPU readback mapping: {error}"))?;
             cap_gpui_kernels::frame::unpad_rgba_to_bgra(
                 &mapped,
                 width as usize,

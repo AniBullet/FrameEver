@@ -82,11 +82,12 @@ fn read_pixels(
         .map_async(wgpu::MapMode::Read, move |result| {
             sender.send(result).unwrap();
         });
-    device.poll(wgpu::PollType::Wait).unwrap();
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     receiver.recv().unwrap().unwrap();
     let pixels = buffer
         .slice(..)
         .get_mapped_range()
+        .unwrap()
         .chunks(stride as usize)
         .flat_map(|row| row[..width as usize * 4].iter().copied())
         .collect();

@@ -170,6 +170,7 @@ mod tests {
             power_preference: wgpu::PowerPreference::LowPower,
             force_fallback_adapter: false,
             compatible_surface: None,
+            apply_limit_buckets: false,
         }))
         .ok()?;
 
@@ -248,6 +249,7 @@ mod tests {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                         store: wgpu::StoreOp::Store,
@@ -256,6 +258,7 @@ mod tests {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             layer.render(&mut pass);
         }
@@ -283,8 +286,8 @@ mod tests {
         queue.submit([encoder.finish()]);
 
         readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
-        device.poll(wgpu::PollType::Wait).ok()?;
-        let pixels = readback.slice(..).get_mapped_range().to_vec();
+        device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
+        let pixels = readback.slice(..).get_mapped_range().unwrap().to_vec();
         readback.unmap();
 
         Some((pixels, adapter_info))

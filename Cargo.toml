@@ -39,9 +39,9 @@ nokhwa = { git = "https://github.com/CapSoftware/nokhwa", rev = "b9c8079e82e2", 
     "serialize",
 ] }
 nokhwa-bindings-macos = { git = "https://github.com/CapSoftware/nokhwa", rev = "b9c8079e82e2" }
-wgpu = { version = "25.0.0", features = ["wgpu-core"] }
-wgpu-hal = "25.0.0"
-wgpu-core = "25.0.0"
+wgpu = { version = "30.0.1", features = ["wgpu-core"] }
+wgpu-hal = "30.0.1"
+wgpu-core = "30.0.1"
 flume = "0.12.0"
 thiserror = "2.0"
 tracing = "0.1.41"
@@ -143,9 +143,6 @@ debug = "line-tables-only"
 [patch.crates-io]
 # screencapturekit = { git = "https://github.com/CapSoftware/screencapturekit-rs", rev = "7ff1e103742e56c8f6c2e940b5e52684ed0bed69" } # branch = "cap-main"
 cidre = { git = "https://github.com/CapSoftware/cidre", rev = "bf84b67079a8" }
-# https://github.com/gfx-rs/wgpu/pull/7550
-# wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "cd41a6e32a6239b65d1cecbeccde6a43a100914a" }
-wgpu-hal = { path = "vendor/wgpu-hal" }
 tao = { path = "vendor/tao" }
 
 # https://github.com/CapSoftware/reqwest/commit/9b5ecbd5210a9510fde766015cabb724c1e70d2e

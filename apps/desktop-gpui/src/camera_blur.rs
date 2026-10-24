@@ -189,6 +189,7 @@ fn shared_device(runtime: &tokio::runtime::Runtime) -> Option<(wgpu::Device, wgp
                         power_preference: wgpu::PowerPreference::LowPower,
                         force_fallback_adapter: cap_rendering::force_software_wgpu_adapter(),
                         compatible_surface: None,
+                        apply_limit_buckets: false,
                     })
                     .await
                     .map_err(|error| {

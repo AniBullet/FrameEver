@@ -220,18 +220,19 @@ pub fn force_software_wgpu_adapter() -> bool {
 
 pub fn create_wgpu_instance_sync() -> wgpu::Instance {
     #[cfg(not(target_os = "windows"))]
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
     #[cfg(target_os = "windows")]
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::DX12,
         backend_options: wgpu::BackendOptions {
             dx12: wgpu::Dx12BackendOptions {
                 shader_compiler: bundled_dxc_compiler(),
+                ..Default::default()
             },
             ..Default::default()
         },
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
 
     instance
@@ -251,8 +252,6 @@ fn bundled_dxc_compiler() -> wgpu::Dx12Compiler {
     );
     wgpu::Dx12Compiler::DynamicDxc {
         dxc_path: dxc_path.to_string_lossy().into_owned(),
-        dxil_path: dxil_path.to_string_lossy().into_owned(),
-        max_shader_model: wgpu::DxcShaderModel::V6_7,
     }
 }
 
@@ -290,6 +289,7 @@ pub async fn probe_software_adapter() -> Option<(bool, String)> {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 force_fallback_adapter: false,
                 compatible_surface: None,
+                apply_limit_buckets: false,
             })
             .await
             .ok()
@@ -302,6 +302,7 @@ pub async fn probe_software_adapter() -> Option<(bool, String)> {
                 power_preference: wgpu::PowerPreference::LowPower,
                 force_fallback_adapter: true,
                 compatible_surface: None,
+                apply_limit_buckets: false,
             })
             .await
             .ok()?,
@@ -729,6 +730,8 @@ pub enum RenderingError {
     BufferMapWaitingFailed,
     #[error(transparent)]
     BufferMapFailed(#[from] wgpu::BufferAsyncError),
+    #[error(transparent)]
+    BufferRangeFailed(#[from] wgpu::MapRangeError),
     #[error("Sending frame to channel failed")]
     ChannelSendFrameFailed(#[from] mpsc::error::SendError<(RenderedFrame, u32)>),
     #[error("Sending NV12 frame to channel failed")]
@@ -2502,6 +2505,7 @@ pub async fn create_shared_device() -> Result<SharedWgpuDevice, RenderingError> 
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 force_fallback_adapter: false,
                 compatible_surface: None,
+                apply_limit_buckets: false,
             })
             .await
             .ok()
@@ -2535,6 +2539,7 @@ pub async fn create_shared_device() -> Result<SharedWgpuDevice, RenderingError> 
                 power_preference: wgpu::PowerPreference::LowPower,
                 force_fallback_adapter: true,
                 compatible_surface: None,
+                apply_limit_buckets: false,
             })
             .await
             .map_err(|_| RenderingError::NoAdapter)?;
@@ -6793,6 +6798,7 @@ mod nv12_flush_tests {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: level,
@@ -6806,6 +6812,7 @@ mod nv12_flush_tests {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             }));
             if let Some(frame) = frame_pipeline::finish_encoder_nv12_pooled(
                 &mut session,
@@ -8750,6 +8757,7 @@ impl LayerPasses<'_> {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load,
                             store: wgpu::StoreOp::Store,
@@ -8758,6 +8766,7 @@ impl LayerPasses<'_> {
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 })
                 .forget_lifetime();
             self.open = Some((view.clone(), pass));
@@ -8998,8 +9007,8 @@ pub fn create_shader_render_pipeline(
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout"),
-        bind_group_layouts: &[bind_group_layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(bind_group_layout)],
+        immediate_size: 0,
     });
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -9042,7 +9051,7 @@ pub fn create_shader_render_pipeline(
             mask: !0,
             alpha_to_coverage_enabled: false,
         },
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }

@@ -500,9 +500,9 @@ fn draw_text(pixmap: &mut tiny_skia::PixmapMut<'_>, annotation: &Annotation) {
 
     let mut buffer =
         cosmic_text::Buffer::new(font_system, cosmic_text::Metrics::new(font_size, font_size));
-    buffer.set_size(font_system, None, None);
+    buffer.set_size(None, None);
     let attrs = cosmic_text::Attrs::new().family(cosmic_text::Family::Name(annotations::TEXT_FONT));
-    buffer.set_text(font_system, &text, &attrs, cosmic_text::Shaping::Advanced);
+    buffer.set_text(&text, &attrs, cosmic_text::Shaping::Advanced, None);
     buffer.shape_until_scroll(font_system, false);
 
     // The buffer's own baseline, cancelled out so ours lands exactly at

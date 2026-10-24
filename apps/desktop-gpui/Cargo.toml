@@ -78,9 +78,8 @@ cap-rendering = { path = "../../crates/rendering" }
 # edge direct.
 cap-camera-effects = { path = "../../crates/camera-effects" }
 # The blur worker's device/queue/texture types. Must stay on cap-rendering's
-# wgpu 25 line (the vendored wgpu-hal `[patch.crates-io]` below applies to
-# it); gpui's own wgpu 29 is a separate tree and never touches these types.
-wgpu = "25.0.0"
+# wgpu line; gpui's own wgpu is a separate tree and never touches these types.
+wgpu = "30.0.1"
 cap-editor = { path = "../../crates/editor" }
 # In-process export. Only the `ExporterBase` + settings surface is used; the
 # export *page* can also drive the `cap-exporter` subprocess protocol, so this
@@ -136,7 +135,7 @@ rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 # tree), so these lines make existing build units direct rather than adding
 # dependency trees.
 tiny-skia = "0.12"
-cosmic-text = "0.14"
+cosmic-text = "0.19"
 sha2 = "0.11"
 
 tracing = "0.1"
@@ -244,11 +243,6 @@ cidre = { git = "https://github.com/CapSoftware/cidre", rev = "bf84b67079a8", fe
 [target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
 parakeet-rs = "0.3.4"
 hound = "3.5"
-
-# Mirror of the root workspace patch: cap-recording's converter stack is built
-# and tested against the vendored wgpu-hal, not the crates.io release.
-[patch.crates-io]
-wgpu-hal = { path = "../../vendor/wgpu-hal" }
 
 # Local checkout of the pinned wingleeio/zed rev plus one commit: paint_surface
 # accepts 32BGRA CVPixelBuffers, which the editor preview's zero-copy path

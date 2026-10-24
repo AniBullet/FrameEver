@@ -89,7 +89,7 @@ async fn setup_device(
         inputs.push(input);
     }
     queue.submit([]);
-    device.poll(wgpu::PollType::Wait)?;
+    device.poll(wgpu::PollType::wait_indefinitely())?;
     Ok((device, queue, inputs))
 }
 
@@ -147,7 +147,7 @@ async fn main() -> anyhow::Result<()> {
                 processor.set_frame_time(frame as f32 / 30.0);
             }
             let _ = processor.process(device, queue, input, mode);
-            device.poll(wgpu::PollType::Wait)?;
+            device.poll(wgpu::PollType::wait_indefinitely())?;
             processor
                 .output_status()
                 .context("missing output status")?
@@ -168,7 +168,7 @@ async fn main() -> anyhow::Result<()> {
         }
         drop(processor);
         queue.submit([]);
-        device.poll(wgpu::PollType::Wait)?;
+        device.poll(wgpu::PollType::wait_indefinitely())?;
         let released = resources(&instance);
         println!(
             "released cycle={cycle} elapsed={:.2} frames={frame} resources={released:?} heap_mib={:?}",

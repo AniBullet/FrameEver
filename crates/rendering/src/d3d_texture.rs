@@ -208,16 +208,17 @@ mod windows_impl {
 
         let handle_raw_value = shared_handle.0 as isize;
 
-        let result: Result<wgpu::Texture, D3DTextureError> = unsafe {
-            device.as_hal::<dx12, _, _>(|hal_device| {
-                let hal_device = hal_device.ok_or(D3DTextureError::NoD3D12Device)?;
+        unsafe {
+            {
+                let hal_device = device
+                    .as_hal::<dx12>()
+                    .ok_or(D3DTextureError::NoD3D12Device)?;
 
                 let d3d12_device = hal_device.raw_device();
 
-                use windows_0_58::Win32::Foundation::HANDLE as HAL_HANDLE;
-                use windows_0_58::Win32::Graphics::Direct3D12::ID3D12Resource;
+                use windows::Win32::Graphics::Direct3D12::ID3D12Resource;
 
-                let hal_handle = HAL_HANDLE(handle_raw_value as *mut std::ffi::c_void);
+                let hal_handle = HANDLE(handle_raw_value as *mut std::ffi::c_void);
 
                 let mut d3d12_resource: Option<ID3D12Resource> = None;
                 d3d12_device
@@ -271,13 +272,12 @@ mod windows_impl {
                         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
                         view_formats: &[],
                     },
+                    wgpu::TextureUses::UNINITIALIZED,
                 );
 
                 Ok(wgpu_texture)
-            })
-        };
-
-        result
+            }
+        }
     }
 
     pub struct D3D11WgpuInterop {

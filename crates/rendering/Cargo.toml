@@ -30,7 +30,7 @@ thiserror.workspace = true
 wgpu.workspace = true
 bezier_easing = "0.1.1"
 reactive_graph = "0.1.5"
-glyphon = "0.9.0"
+glyphon = "0.12.0"
 tracing.workspace = true
 resvg = "0.45"
 tiny-skia = "0.11"
@@ -62,10 +62,6 @@ windows = { workspace = true, features = [
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_System_Threading",
-] }
-windows_0_58 = { package = "windows", version = "0.58", features = [
-    "Win32_Foundation",
-    "Win32_Graphics_Direct3D12",
 ] }
 
 [dev-dependencies]

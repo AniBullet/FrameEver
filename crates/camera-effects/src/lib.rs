@@ -445,8 +445,8 @@ impl DownsamplePipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Downsample Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -471,7 +471,7 @@ impl DownsamplePipeline {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: Default::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1049,6 +1049,7 @@ impl BlurProcessor {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &segmentation_input.view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: wgpu::StoreOp::Store,
@@ -1057,6 +1058,7 @@ impl BlurProcessor {
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 pass.set_pipeline(&self.downsample_pipeline.pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
@@ -1111,7 +1113,7 @@ impl BlurProcessor {
 
             if wait_for_result {
                 completed = self
-                    .take_completed_readback(device, wgpu::PollType::Wait)
+                    .take_completed_readback(device, wgpu::PollType::wait_indefinitely())
                     .or(completed);
             }
         }
@@ -1144,7 +1146,17 @@ impl BlurProcessor {
                 let input = self.segmentation_input.as_ref()?;
                 let (input_width, input_height) = input.dimensions;
                 let slice = input.readback_buffer.slice(..);
-                let data = slice.get_mapped_range();
+                let data = match slice.get_mapped_range() {
+                    Ok(data) => data,
+                    Err(error) => {
+                        input.readback_buffer.unmap();
+                        self.readback_state = ReadbackState::Idle;
+                        self.mask_status.fail(BlurFailure::Readback(format!(
+                            "GPU mask readback mapping failed: {error}"
+                        )));
+                        return None;
+                    }
+                };
                 let expected_row = (input_width * 4) as usize;
                 let bytes_per_row = input.bytes_per_row as usize;
                 self.readback_pixels.clear();

@@ -30,7 +30,7 @@ impl MaskLayer {
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
                 ..Default::default()
             }),
             pipeline: MaskPipeline::new(device),
@@ -125,6 +125,7 @@ impl MaskLayer {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: config.target_texture_view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: config.load,
                     store: wgpu::StoreOp::Store,
@@ -133,6 +134,7 @@ impl MaskLayer {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 
         pass.set_pipeline(config.render_pipeline);
@@ -272,8 +274,8 @@ impl MaskPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Mask Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let create_render_pipeline = |label, blend| {
@@ -313,7 +315,7 @@ impl MaskPipeline {
                 },
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
         };
@@ -538,6 +540,7 @@ mod tests {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: target,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load,
                             store: wgpu::StoreOp::Store,
@@ -573,9 +576,9 @@ mod tests {
             result.expect("map mask test pixels")
         });
         device
-            .poll(wgpu::PollType::Wait)
+            .poll(wgpu::PollType::wait_indefinitely())
             .expect("poll mask test device");
-        let result = readback.slice(..).get_mapped_range().to_vec();
+        let result = readback.slice(..).get_mapped_range().unwrap().to_vec();
         readback.unmap();
         assert!(result != pixels, "test mask must change pixels");
         result

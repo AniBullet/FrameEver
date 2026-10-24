@@ -111,8 +111,8 @@ impl Statics {
             layout: Some(
                 &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Cursor Pipeline Layout"),
-                    bind_group_layouts: &[&bind_group_layout],
-                    push_constant_ranges: &[],
+                    bind_group_layouts: &[Some(&bind_group_layout)],
+                    immediate_size: 0,
                 }),
             ),
             vertex: wgpu::VertexState {
@@ -159,7 +159,7 @@ impl Statics {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -174,7 +174,7 @@ impl Statics {
             texture_sampler: device.create_sampler(&wgpu::SamplerDescriptor {
                 mag_filter: FilterMode::Linear,
                 min_filter: FilterMode::Linear,
-                mipmap_filter: FilterMode::Linear,
+                mipmap_filter: wgpu::MipmapFilterMode::Linear,
                 anisotropy_clamp: 4,
                 ..Default::default()
             }),

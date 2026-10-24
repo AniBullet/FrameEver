@@ -63,7 +63,7 @@ async fn main() -> anyhow::Result<()> {
         processor.set_frame_time(frame as f32 / 30.0);
         let start = Instant::now();
         let _ = processor.process(&device, &queue, &input, mode);
-        device.poll(wgpu::PollType::Wait)?;
+        device.poll(wgpu::PollType::wait_indefinitely())?;
         timings.push(start.elapsed().as_secs_f64() * 1000.0);
     }
     println!("first_frame_ms: {:.2}", timings[0]);
@@ -105,9 +105,9 @@ async fn main() -> anyhow::Result<()> {
         .map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-    device.poll(wgpu::PollType::Wait)?;
+    device.poll(wgpu::PollType::wait_indefinitely())?;
     rx.recv()??;
-    let mapped = buffer.slice(..).get_mapped_range();
+    let mapped = buffer.slice(..).get_mapped_range().unwrap();
     let mut rgba = Vec::with_capacity(pixels.len());
     for row in mapped.chunks_exact(stride as usize) {
         rgba.extend_from_slice(&row[..(width * 4) as usize]);

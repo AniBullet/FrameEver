@@ -101,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
             processor.set_segmentation_source(buffer.retained());
         }
         let _ = processor.process(&device, &queue, &input, BlurMode::Remove);
-        device.poll(wgpu::PollType::Wait)?;
+        device.poll(wgpu::PollType::wait_indefinitely())?;
         timings.push(frame_start.elapsed().as_secs_f64() * 1000.0);
         if let Some(status) = processor.output_status()
             && let BlurMaskStatus::Ready(receipt) = status.mask

@@ -339,7 +339,7 @@ impl ImageLayer {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         Self {
@@ -350,7 +350,7 @@ impl ImageLayer {
                 address_mode_v: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::MipmapFilterMode::Linear,
                 ..Default::default()
             }),
             draws: Vec::new(),
@@ -763,6 +763,7 @@ mod tests {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
@@ -771,6 +772,7 @@ mod tests {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             layer.render(&mut pass);
         }
@@ -794,10 +796,10 @@ mod tests {
                 sender.send(result).expect("Image readback receiver");
             });
         device
-            .poll(wgpu::PollType::Wait)
+            .poll(wgpu::PollType::wait_indefinitely())
             .expect("Poll image GPU test");
         receiver.recv().unwrap().unwrap();
-        let pixels = buffer.slice(..).get_mapped_range().to_vec();
+        let pixels = buffer.slice(..).get_mapped_range().unwrap().to_vec();
         buffer.unmap();
         pixels
     }
@@ -836,6 +838,7 @@ mod tests {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
@@ -844,6 +847,7 @@ mod tests {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             for track in tracks {
                 layer.render_track(&mut pass, *track);
@@ -871,10 +875,10 @@ mod tests {
                     .expect("Image track-order readback receiver");
             });
         device
-            .poll(wgpu::PollType::Wait)
+            .poll(wgpu::PollType::wait_indefinitely())
             .expect("Poll image track-order GPU test");
         receiver.recv().unwrap().unwrap();
-        let pixels = buffer.slice(..).get_mapped_range().to_vec();
+        let pixels = buffer.slice(..).get_mapped_range().unwrap().to_vec();
         buffer.unmap();
         pixels
     }
