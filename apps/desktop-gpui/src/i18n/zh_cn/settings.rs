@@ -148,6 +148,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("View previous versions", "查看历史版本"),
     ("Based on Cap (AGPL-3.0)", "基于 Cap（AGPL-3.0）"),
     ("Chinese font: MiSans by Xiaomi", "中文字体：小米 MiSans"),
+    ("Icons: Lucide (ISC)", "图标：Lucide（ISC）"),
+    ("Icons: Phosphor (MIT)", "图标：Phosphor（MIT）"),
     ("Import", "导入"),
     ("No recordings found", "没有找到录制文件"),
     (

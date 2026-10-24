@@ -37,7 +37,8 @@
 			"../desktop/src-tauri/assets/backgrounds/dark/*": "assets/backgrounds/dark/",
 			"../desktop/src-tauri/assets/backgrounds/orange/*": "assets/backgrounds/orange/",
 			"../desktop/src-tauri/assets/backgrounds/purple/*": "assets/backgrounds/purple/",
-			"../desktop/src/assets/music/*.mp3": "assets/music/"
+			"../desktop/src/assets/music/*.mp3": "assets/music/",
+			"assets/icons/LICENSE-*.txt": "licenses/icons/"
 		},
 		"fileAssociations": [
 			{

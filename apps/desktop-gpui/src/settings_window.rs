@@ -1727,21 +1727,37 @@ impl SettingsWindow {
                     }))
                     .child(update_label),
             )
-            .child(
-                div()
-                    .id("settings-based-on-cap")
-                    .cursor_pointer()
-                    .child(t!("Based on Cap (AGPL-3.0)"))
-                    .hover(|style| style.text_color(theme.settings_text()))
-                    .on_click(|_, _, cx| cx.open_url("https://github.com/CapSoftware/Cap")),
-            )
-            .child(
-                div()
-                    .id("settings-font-credit")
-                    .cursor_pointer()
-                    .child(t!("Chinese font: MiSans by Xiaomi"))
-                    .hover(|style| style.text_color(theme.settings_text()))
-                    .on_click(|_, _, cx| cx.open_url("https://hyperos.mi.com/font/")),
+            .children(
+                [
+                    (
+                        "settings-based-on-cap",
+                        t!("Based on Cap (AGPL-3.0)"),
+                        "https://github.com/CapSoftware/Cap",
+                    ),
+                    (
+                        "settings-font-credit",
+                        t!("Chinese font: MiSans by Xiaomi"),
+                        "https://hyperos.mi.com/font/",
+                    ),
+                    (
+                        "settings-lucide-credit",
+                        t!("Icons: Lucide (ISC)"),
+                        "https://lucide.dev/license",
+                    ),
+                    (
+                        "settings-phosphor-credit",
+                        t!("Icons: Phosphor (MIT)"),
+                        "https://phosphoricons.com",
+                    ),
+                ]
+                .map(|(id, label, url)| {
+                    div()
+                        .id(id)
+                        .cursor_pointer()
+                        .child(label)
+                        .hover(|style| style.text_color(theme.settings_text()))
+                        .on_click(move |_, _, cx| cx.open_url(url))
+                }),
             )
     }
 
