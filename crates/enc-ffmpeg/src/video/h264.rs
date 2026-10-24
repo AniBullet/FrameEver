@@ -1161,7 +1161,7 @@ fn get_encoder_priority_with_override(
     override_priority.unwrap_or_else(|| get_default_encoder_priority(config))
 }
 
-fn force_software_encoder() -> bool {
+pub(crate) fn force_software_encoder() -> bool {
     std::env::var("CAP_EXPORT_FORCE_SOFTWARE_ENCODER").is_ok_and(|value| {
         matches!(
             value.to_ascii_lowercase().as_str(),

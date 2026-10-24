@@ -122,7 +122,12 @@ impl HevcEncoderBuilder {
             );
         }
 
-        let candidates = get_codec_and_options(&input_config, self.preset, self.family);
+        let candidates = get_codec_and_options(
+            &input_config,
+            self.preset,
+            self.family,
+            crate::video::h264::force_software_encoder(),
+        );
         if candidates.is_empty() {
             return Err(HevcEncoderError::CodecNotFound);
         }
@@ -544,6 +549,7 @@ fn get_codec_and_options(
     config: &VideoInfo,
     preset: HevcPreset,
     family: CodecFamily,
+    force_software: bool,
 ) -> Vec<(Codec, Dictionary<'static>)> {
     let keyframe_interval_secs = 2;
     let denominator = config.frame_rate.denominator();
@@ -554,9 +560,11 @@ fn get_codec_and_options(
         .max(1.0) as i32;
     let keyframe_interval_str = keyframe_interval.to_string();
 
-    let encoder_priority = match family {
-        CodecFamily::Hevc => get_encoder_priority(),
-        CodecFamily::Av1 => get_av1_encoder_priority(),
+    let encoder_priority: &[&str] = match (family, force_software) {
+        (CodecFamily::Hevc, true) => &["libx265"],
+        (CodecFamily::Av1, true) => &["libsvtav1"],
+        (CodecFamily::Hevc, false) => get_encoder_priority(),
+        (CodecFamily::Av1, false) => get_av1_encoder_priority(),
     };
 
     let mut encoders = Vec::new();
@@ -655,4 +663,28 @@ fn get_bitrate(width: u32, height: u32, frame_rate: f32, bpp: f32) -> usize {
     let pixels_per_second = area * frame_rate_multiplier;
 
     (pixels_per_second * bpp as f64) as usize
+}
+
+#[cfg(test)]
+mod encoder_selection_tests {
+    use super::*;
+
+    fn candidate_names(family: CodecFamily, force_software: bool) -> Vec<String> {
+        ffmpeg::init().ok();
+        let config = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Nv12, 1920, 1080, 60);
+        get_codec_and_options(&config, HevcPreset::Medium, family, force_software)
+            .into_iter()
+            .map(|(codec, _)| codec.name().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn forced_software_hevc_uses_only_libx265() {
+        assert_eq!(candidate_names(CodecFamily::Hevc, true), ["libx265"]);
+    }
+
+    #[test]
+    fn forced_software_av1_uses_only_svt_av1() {
+        assert_eq!(candidate_names(CodecFamily::Av1, true), ["libsvtav1"]);
+    }
 }
