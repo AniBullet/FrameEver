@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -104,6 +104,17 @@ test("marking a PE image large-address-aware sets only that flag", () => {
 	patched.writeUInt16LE(0x012f, 0x80 + 22);
 	assert.deepEqual(setLargeAddressAware(patched), patched);
 	assert.throws(() => isLargeAddressAware(Buffer.alloc(0x100)));
+});
+
+test("the NSIS toolset constants follow the pinned Tauri CLI", () => {
+	const manifest = JSON.parse(
+		readFileSync(new URL("../apps/desktop/package.json", import.meta.url), "utf8"),
+	);
+	assert.equal(
+		manifest.devDependencies?.["@tauri-apps/cli"] ?? manifest.dependencies?.["@tauri-apps/cli"],
+		NSIS.tauriCli,
+		"Tauri CLI changed: copy NSIS_URL, NSIS_SHA1, NSIS_TAURI_UTILS_* and NSIS_REQUIRED_FILES from tauri-bundler's nsis/mod.rs into NSIS in scripts/fe.mjs",
+	);
 });
 
 test("the NSIS toolset counts as installed only when every file Tauri checks exists", () => {

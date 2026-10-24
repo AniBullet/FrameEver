@@ -29,6 +29,7 @@ export const misansDir = path.join(gpuiDir, "assets", "fonts", "misans");
 const isWindows = process.platform === "win32";
 
 export const NSIS = {
+	tauriCli: "2.11.2",
 	url: "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip",
 	sha1: "ef7ff767e5cbd9edd22add3a32c9b8f4500bb10d",
 	folder: "nsis-3.11",
