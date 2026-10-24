@@ -1743,6 +1743,22 @@ impl SettingsWindow {
                     .hover(|style| style.text_color(theme.settings_text()))
                     .on_click(|_, _, cx| cx.open_url("https://hyperos.mi.com/font/")),
             )
+            .child(
+                div()
+                    .id("settings-lucide-credit")
+                    .cursor_pointer()
+                    .child(t!("Icons: Lucide (ISC)"))
+                    .hover(|style| style.text_color(theme.settings_text()))
+                    .on_click(|_, _, cx| cx.open_url("https://lucide.dev/license")),
+            )
+            .child(
+                div()
+                    .id("settings-phosphor-credit")
+                    .cursor_pointer()
+                    .child(t!("Icons: Phosphor (MIT)"))
+                    .hover(|style| style.text_color(theme.settings_text()))
+                    .on_click(|_, _, cx| cx.open_url("https://phosphoricons.com")),
+            )
     }
 
     fn render_content(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {

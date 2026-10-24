@@ -77,8 +77,8 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     // The config sidebar's field glyphs. Four are Cap's own
     // (`packages/ui-solid/icons/{padding,corners,shadow,bg-blur}.svg`); the
     // rest of the background section's are Lucide, drawn here from the same
-    // 24x24 originals `~icons/lucide/*` resolves to -- laptop (MacBook notch),
-    // wind (motion blur), image-off (the "None" source tile). `shuffle` is the
+    // 24x24 originals `~icons/lucide/*` resolves to -- laptop (MacBook notch).
+    // `shuffle` is the
     // gradient editor's own inline randomise glyph (`GradientEditor.tsx:237-253`),
     // which is Lucide `shuffle` with its paths spelled out in the TSX.
     "padding.svg",
@@ -112,9 +112,9 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "next.svg",
     // The timeline's track glyphs. `trackIcons` (`TL/index.tsx:70-80`) and
     // `getSceneIcon` (`TL/SceneTrack.tsx:80-96`) are Lucide, and the app has
-    // no Cap equivalent for most of them, so these nine are the Lucide 24x24
+    // no Cap equivalent for most of them, so these are the Lucide 24x24
     // originals: type, box-select (an alias of square-dashed since Lucide
-    // 0.5xx), music, video, rotate-3d, clock, monitor, columns-2, panel-right.
+    // 0.5xx), music, video, rotate-3d, monitor, columns-2, panel-right.
     "box-select.svg",
     "columns-2.svg",
     "monitor-outline.svg",
@@ -152,9 +152,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "window.svg",
     "x.svg",
     // E5b's field glyphs: the rest of the sidebar's Lucide set, drawn from the
-    // same 24x24 originals `~icons/lucide/*` resolves to. `ease-curve` stands
-    // in for `~icons/hugeicons/ease-curve-control-points`, which is the one
-    // non-Lucide glyph in the sidebar (Smooth Movement's header).
+    // same 24x24 originals `~icons/lucide/*` resolves to.
     "align-center.svg",
     "align-left.svg",
     "align-right.svg",
@@ -400,6 +398,64 @@ mod tests {
         assert!(
             unused.is_empty(),
             "icons embedded but never drawn: {unused:?}"
+        );
+    }
+
+    #[test]
+    fn every_icon_file_is_in_the_table_or_included_by_source() {
+        let assets_source = include_str!("assets.rs");
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons");
+
+        let mut orphans: Vec<String> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".svg"))
+            .filter(|name| {
+                Assets.load(&format!("icons/{name}")).unwrap().is_none()
+                    && !assets_source.contains(&format!("\"../assets/icons/{name}\""))
+            })
+            .collect();
+        orphans.sort();
+
+        assert!(
+            orphans.is_empty(),
+            "icon files neither embedded nor included: {orphans:?}"
+        );
+    }
+
+    #[test]
+    fn icon_licence_notices_ship_beside_the_icons_and_in_the_installer() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let notices: &[(&str, &[&str])] = &[
+            (
+                "LICENSE-lucide.txt",
+                &[
+                    "ISC License",
+                    "Copyright (c) 2026 Lucide Icons and Contributors",
+                    "The MIT License (MIT) (for the icons listed above)",
+                    "Copyright (c) 2013-present Cole Bemis",
+                ],
+            ),
+            (
+                "LICENSE-phosphor.txt",
+                &["MIT License", "Copyright (c) 2023 Phosphor Icons"],
+            ),
+        ];
+        for (file, required) in notices {
+            let text = std::fs::read_to_string(manifest.join("assets/icons").join(file))
+                .unwrap_or_else(|error| panic!("{file}: {error}"));
+            for line in *required {
+                assert!(text.contains(line), "{file} lacks {line:?}");
+            }
+        }
+
+        let config: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(manifest.join("tauri.conf.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            config["bundle"]["resources"]["assets/icons/LICENSE-*.txt"],
+            "licenses/icons/"
         );
     }
 
