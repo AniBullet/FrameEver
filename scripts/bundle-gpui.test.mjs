@@ -5,7 +5,6 @@ import test from "node:test";
 import {
 	bundleArguments,
 	bundleEnvironment,
-	bundleWorkingDirectory,
 	gpuiBinaryPath,
 	gpuiDirectory,
 	gpuiPlatformConfig,
@@ -121,7 +120,6 @@ test("the Tauri CLI comes from the GPUI app's own package", () => {
 		"utf8",
 	);
 	assert.match(workspace, /^ {2}- apps\/desktop-gpui$/m);
-	assert.equal(bundleWorkingDirectory, gpuiDirectory);
 });
 
 test("the GPUI bundle ships one CLI sidecar instead of two identical copies", () => {

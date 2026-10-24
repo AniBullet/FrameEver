@@ -144,10 +144,12 @@ while a recording, export, upload, import or transcription is running.
 
 Releases no longer build the Tauri app. 0.6.0 was its last version, and the
 website's [all versions](https://cap.so/download/versions) page keeps it
-downloadable. In a debug build started from `target/`, Settings → Experimental
-still has the **Cap GPUI** switch that hands the session back to the Tauri
-app running under `bun run dev:desktop`, through the dev supervisor
-(`store::request_classic_reopen` and `cap-classic.pending`).
+downloadable. Its source was deleted from this repository after commit
+`e94ffd0e5`; comments and docs that cite a file as Tauri `src-tauri/...`,
+Tauri `src/...` or Tauri `ui-solid/...` mean that file in that commit. The
+**Cap GPUI** switch in a debug build's Settings → Experimental
+(`store::request_classic_reopen` and `cap-classic.pending`) has no Tauri app
+left to hand the session back to.
 
 ## What is implemented
 

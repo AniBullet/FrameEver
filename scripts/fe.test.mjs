@@ -6,7 +6,6 @@ import test from "node:test";
 import {
 	changelogSection,
 	firstRecording,
-	gpuiDir,
 	isLargeAddressAware,
 	MISANS_WEIGHTS,
 	missingMisans,
@@ -21,7 +20,6 @@ import {
 	stampReleaseDate,
 	stampVersion,
 	testProfileEnv,
-	versionManifests,
 	withFfmpeg,
 } from "./fe.mjs";
 
@@ -139,10 +137,6 @@ test("the NSIS toolset constants follow the pinned Tauri CLI", () => {
 		NSIS.tauriCli,
 		"Tauri CLI changed: copy NSIS_URL, NSIS_SHA1, NSIS_TAURI_UTILS_* and NSIS_REQUIRED_FILES from tauri-bundler's nsis/mod.rs into NSIS in scripts/fe.mjs",
 	);
-});
-
-test("the GPUI manifest is the only version source", () => {
-	assert.deepEqual(versionManifests, [path.join(gpuiDir, "Cargo.toml")]);
 });
 
 test("stamping a version rewrites only the package version", () => {

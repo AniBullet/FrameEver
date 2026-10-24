@@ -22,11 +22,9 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
+import { gpuiDirectory } from "./bundle-gpui.mjs";
 
-const tauriCliDirectory = fileURLToPath(
-	new URL("../apps/desktop-gpui/", import.meta.url),
-);
 
 const upstreamGtkBackendAssignment =
 	"export GDK_BACKEND=x11 # Crash with Wayland backend on Wayland - We tested it without it and ended up with this: https://github.com/tauri-apps/tauri/issues/8541";
@@ -429,7 +427,7 @@ export async function signUpdaterArtifact(
 	{ env = process.env, run = runCommand } = {},
 ) {
 	await run("bun", ["run", "tauri", "signer", "sign", filename], {
-		cwd: tauriCliDirectory,
+		cwd: gpuiDirectory,
 		env: {
 			...env,
 			TAURI_PRIVATE_KEY: env.TAURI_SIGNING_PRIVATE_KEY,

@@ -132,8 +132,7 @@ await events.newNotification.listen((event) => {
 ### Code Organization Principles
 1. **Follow Local Patterns**: Study neighboring files and shared packages first
 2. **Strict Typing**: Use existing types from Rust and TypeScript
-3. **Component Consistency**: Use `@cap/ui-solid` for SolidJS components
-4. **No Manual Edits**: Never touch auto-generated bindings (`tauri.ts`, `queries.ts`)
+3. **No Manual Edits**: Never touch auto-generated bindings (`tauri.ts`, `queries.ts`)
 
 ### Key Implementation Patterns
 
@@ -256,7 +255,6 @@ function VideoList() {
 - Styling: Tailwind CSS only; stay consistent with existing design tokens
 - Loading: Use `Show` with fallback for loading states
 - Performance: SolidJS is fine-grained reactive; avoid unnecessary `createMemo`
-- Use `@cap/ui-solid` components for consistency
 
 ## Desktop (SolidJS + Tauri) Patterns
 

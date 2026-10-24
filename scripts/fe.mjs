@@ -584,7 +584,7 @@ export function missingNativeDeps(base = root) {
 		.map(([dir]) => dir);
 }
 
-export const versionManifests = [path.join(gpuiDir, "Cargo.toml")];
+const versionManifests = [path.join(gpuiDir, "Cargo.toml")];
 
 export function stampVersion(version, manifests = versionManifests) {
 	for (const manifest of manifests) {
