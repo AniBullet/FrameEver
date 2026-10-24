@@ -313,8 +313,8 @@ Decoder Pipeline:
 3. Implemented fix: Skip NV12 conversion, send RGBA directly to WebGPU
 
 **Changes Made**:
-- `apps/desktop/src-tauri/src/frame_ws.rs`: Replaced NV12 conversion with direct RGBA packing in `create_watch_frame_ws()`
-- `apps/desktop/src/utils/socket.ts`: Added WebGPU RGBA rendering path using `renderFrameWebGPU()`
+- Tauri `src-tauri/src/frame_ws.rs`: Replaced NV12 conversion with direct RGBA packing in `create_watch_frame_ws()`
+- Tauri `src/utils/socket.ts`: Added WebGPU RGBA rendering path using `renderFrameWebGPU()`
 
 **Root Cause Analysis**:
 The pipeline was:
@@ -417,7 +417,7 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 **Changes Made**:
 - `crates/video-decode/src/avassetreader.rs`: Single file open in KeyframeIndex::build (was opening the file twice - once for metadata, once for packet scan). Also caches pixel_format/width/height from the initial probe so pool decoders skip redundant FFmpeg opens.
 - `crates/rendering/src/decoder/frame_converter.rs`: BGRA→RGBA conversion now processes 8 pixels (32 bytes) per loop iteration with direct indexed writes instead of per-pixel push(). Added fast path for RGBA when stride==width*4 (single memcpy instead of per-row copies).
-- `apps/desktop/src-tauri/src/frame_ws.rs`: Consolidated WebSocket frame packing into single pack_ws_frame() function, removed redundant pack_*_ref helper functions.
+- Tauri `src-tauri/src/frame_ws.rs`: Consolidated WebSocket frame packing into single pack_ws_frame() function, removed redundant pack_*_ref helper functions.
 
 **Results**:
 - 4K decoder init: 66.8ms → 28.6ms (**-57%**)
@@ -561,7 +561,7 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 - `cargo fmt --all`
 - `cargo check -p cap-rendering`
 - `cargo check -p cap-editor --examples`
-- `bun run biome check --write apps/desktop/src/utils/socket.ts`
+- `bun run biome check --write <tauri-app>/src/utils/socket.ts`
 - `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full`
 - `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half`
 - `cargo run -p cap-recording --example playback-test-runner -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 full`
@@ -585,11 +585,11 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 8. Re-ran playback sync validation on the same fixture.
 
 **Changes Made**:
-- `apps/desktop/src-tauri/src/frame_ws.rs`: Added pack/send/created-to-sent counters to desktop WebSocket frame stats.
-- `apps/desktop/src-tauri/src/lib.rs`, `apps/desktop/src-tauri/examples/desktop-display-transport-benchmark.rs`: Exposed the existing frame WebSocket module to examples and added a benchmark that pushes real editor renderer output through the desktop WebSocket sender.
-- `apps/desktop/scripts/desktop-display-transport-benchmark.js`, `apps/desktop/package.json`: Added the browser-side benchmark harness that captures display notifications, sampled WebGPU upload timing, receive-to-display timing, transport mode, and fallback counters without starting a dev server.
-- `apps/desktop/src/utils/webgpu-renderer.ts`: Returns render timing with resize, texture setup, upload, draw, and total durations.
-- `apps/desktop/src/utils/socket.ts`: Records receive-to-display, WebGPU upload, render, SharedArrayBuffer write, fallback stats, and stable stats-window counters for benchmark aggregation.
+- Tauri `src-tauri/src/frame_ws.rs`: Added pack/send/created-to-sent counters to desktop WebSocket frame stats.
+- Tauri `src-tauri/src/lib.rs`, Tauri `src-tauri/examples/desktop-display-transport-benchmark.rs`: Exposed the existing frame WebSocket module to examples and added a benchmark that pushes real editor renderer output through the desktop WebSocket sender.
+- Tauri `scripts/desktop-display-transport-benchmark.js`, Tauri `package.json`: Added the browser-side benchmark harness that captures display notifications, sampled WebGPU upload timing, receive-to-display timing, transport mode, and fallback counters without starting a dev server.
+- Tauri `src/utils/webgpu-renderer.ts`: Returns render timing with resize, texture setup, upload, draw, and total durations.
+- Tauri `src/utils/socket.ts`: Records receive-to-display, WebGPU upload, render, SharedArrayBuffer write, fallback stats, and stable stats-window counters for benchmark aggregation.
 - `crates/editor/examples/editor-playback-benchmark.rs`: Reports steady render timing separately from first-frame prewarm and prints renderer stage breakdowns.
 - `crates/editor/src/editor.rs`, `crates/editor/src/telemetry.rs`, `crates/rendering/src/frame_pipeline.rs`, `crates/rendering/src/lib.rs`: Added live renderer-stage telemetry for prepare, display/cursor/camera preparation, render command encoding, finish/readback submit, and immediate flush.
 - `crates/rendering/src/layers/cursor.rs`: Preloads recording cursor assets through the same SVG-first/PNG-fallback path before playback frames need a newly-seen cursor texture.
@@ -612,15 +612,15 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 - `cargo fmt --all`
 - `cargo check -p cap-editor --examples`
 - `cargo check -p cap-desktop --examples`
-- `bun run biome check --write apps/desktop/scripts/desktop-display-transport-benchmark.js apps/desktop/package.json apps/desktop/src/utils/socket.ts apps/desktop/src/utils/webgpu-renderer.ts crates/editor/PLAYBACK-FINDINGS.md`
+- `bun run biome check --write <tauri-app>/scripts/desktop-display-transport-benchmark.js <tauri-app>/package.json <tauri-app>/src/utils/socket.ts <tauri-app>/src/utils/webgpu-renderer.ts crates/editor/PLAYBACK-FINDINGS.md`
 - `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full`
 - `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half`
 - `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution full`
 - `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution half`
-- `bun run --cwd apps/desktop test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full --startup-delay-ms 5000`
-- `bun run --cwd apps/desktop test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half --startup-delay-ms 5000`
-- `bun run --cwd apps/desktop test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution full --startup-delay-ms 5000`
-- `bun run --cwd apps/desktop test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution half --startup-delay-ms 5000`
+- `bun run --cwd <tauri-app> test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full --startup-delay-ms 5000`
+- `bun run --cwd <tauri-app> test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half --startup-delay-ms 5000`
+- `bun run --cwd <tauri-app> test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution full --startup-delay-ms 5000`
+- `bun run --cwd <tauri-app> test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution half --startup-delay-ms 5000`
 - `cargo run -p cap-recording --example playback-test-runner -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 full`
 
 **Stopping point**: The measured sustained-run bottleneck was first-use cursor asset loading during playback. Moving that work to renderer-layer initialization removes the repeated frame 696 drop without changing playback timing, frame choice, preview resolution semantics, visual asset selection, audio/video sync, decoder selection, GPU adapter selection, or fallback behavior. The full desktop path now sustains 60fps on the reference fixture with no renderer drops, skips, WebSocket send failures, or browser display notification loss in the 900-frame full/default-half runs. The next visible full-preview cost is WebGPU texture upload/display work around 2.1ms average plus Rust WebSocket send around 1.3ms average, both still under frame budget.

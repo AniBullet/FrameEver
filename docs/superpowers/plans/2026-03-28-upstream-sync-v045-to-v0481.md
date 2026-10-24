@@ -30,7 +30,7 @@ git fetch upstream --tags
 
 ```powershell
 git log --oneline --all | Select-String "v0.4.5"
-git log --oneline upstream/main --since="2026-01-08" --until="2026-03-28" -- crates/ apps/desktop/src-tauri/ apps/desktop/src/routes/editor/
+git log --oneline upstream/main --since="2026-01-08" --until="2026-03-28" -- crates/ <tauri-app>/src-tauri/ <tauri-app>/src/routes/editor/
 ```
 
 - [ ] **Step 3: 创建同步工作分支**
@@ -42,7 +42,7 @@ git checkout -b sync/upstream-v0481
 - [ ] **Step 4: 生成差异报告**
 
 ```powershell
-git diff HEAD...upstream/main --stat -- crates/ apps/desktop/src-tauri/src/ apps/desktop/src/routes/editor/ > docs/superpowers/plans/diff-stat.txt
+git diff HEAD...upstream/main --stat -- crates/ <tauri-app>/src-tauri/src/ <tauri-app>/src/routes/editor/ > docs/superpowers/plans/diff-stat.txt
 ```
 
 ---
@@ -192,13 +192,13 @@ git commit -m "fix: crop and padding rendering respect active crop region"
 
 **Source:** [PR #1661](https://github.com/CapSoftware/Cap/pull/1661)
 **Files:**
-- Modify: `apps/desktop/src-tauri/src/` (main.rs, lib.rs 等生命周期处理)
+- Modify: Tauri `src-tauri/src/` (main.rs, lib.rs 等生命周期处理)
 - Modify: `crates/rendering/src/` (GPU 资源清理)
 
 - [ ] **Step 1: 对比 shutdown/cleanup 相关变更**
 
 ```powershell
-git diff cap-v0.4.5..upstream/main -- apps/desktop/src-tauri/src/lib.rs apps/desktop/src-tauri/src/main.rs
+git diff cap-v0.4.5..upstream/main -- <tauri-app>/src-tauri/src/lib.rs <tauri-app>/src-tauri/src/main.rs
 ```
 
 - [ ] **Step 2: 移植 graceful shutdown 逻辑**
@@ -327,12 +327,12 @@ git commit -m "perf: GPU-accelerated color conversion reducing 62% data transfer
 - Modify: `crates/export/src/mp4.rs`
 - Modify: `crates/export/src/lib.rs`
 - Modify: `crates/rendering/src/` (渲染-解码流水线)
-- Modify: `apps/desktop/src-tauri/src/export.rs`
+- Modify: Tauri `src-tauri/src/export.rs`
 
 - [ ] **Step 1: 对比导出模块完整差异**
 
 ```powershell
-git diff cap-v0.4.5..upstream/main -- crates/export/ apps/desktop/src-tauri/src/export.rs
+git diff cap-v0.4.5..upstream/main -- crates/export/ <tauri-app>/src-tauri/src/export.rs
 ```
 
 - [ ] **Step 2: 移植关键优化**
@@ -365,7 +365,7 @@ git commit -m "perf: export pipeline restructure with cursor precomputation and 
 **Files:**
 - Modify: `crates/rendering/src/frame_pipeline.rs`
 - Modify: `crates/rendering/src/decoder/mod.rs`
-- Modify: `apps/desktop/src/routes/editor/Player.tsx`
+- Modify: Tauri `src/routes/editor/Player.tsx`
 
 - [ ] **Step 1: 对比帧管线差异**
 
@@ -384,7 +384,7 @@ git diff cap-v0.4.5..upstream/main -- crates/rendering/src/frame_pipeline.rs
 - [ ] **Step 3: 对比前端播放器变更**
 
 ```powershell
-git diff cap-v0.4.5..upstream/main -- apps/desktop/src/routes/editor/Player.tsx
+git diff cap-v0.4.5..upstream/main -- <tauri-app>/src/routes/editor/Player.tsx
 ```
 
 - [ ] **Step 4: 编译 + 播放测试**
@@ -464,10 +464,10 @@ git commit --allow-empty -m "chore: phase 2 complete - Windows performance optim
 **Source:** [PR #1615](https://github.com/CapSoftware/Cap/pull/1615) — 这是一个大型 PR，包含两个核心功能
 **Files (估计):**
 - Create/Modify: `crates/recording/src/` (键盘捕获模块)
-- Create/Modify: `apps/desktop/src/routes/editor/Timeline/` (新轨道类型: keyboard, captions)
-- Modify: `apps/desktop/src/routes/editor/context.ts` (TimelineTrackType 扩展)
+- Create/Modify: Tauri `src/routes/editor/Timeline/` (新轨道类型: keyboard, captions)
+- Modify: Tauri `src/routes/editor/context.ts` (TimelineTrackType 扩展)
 - Create/Modify: `crates/rendering/src/layers/` (键盘叠加渲染层)
-- Modify: `apps/desktop/src-tauri/src/` (Tauri 命令接口)
+- Modify: Tauri `src-tauri/src/` (Tauri 命令接口)
 - Modify: `crates/rendering/src/` (字幕渲染适配)
 
 - [ ] **Step 1: 深入分析 PR #1615 完整变更**
@@ -476,7 +476,7 @@ git commit --allow-empty -m "chore: phase 2 complete - Windows performance optim
 # 在浏览器中查看: https://github.com/CapSoftware/Cap/pull/1615/files
 # 或者
 git log upstream/main --oneline --all -- "*keyboard*" "*caption*track*"
-git diff cap-v0.4.5..upstream/main -- apps/desktop/src/routes/editor/Timeline/ apps/desktop/src/routes/editor/context*
+git diff cap-v0.4.5..upstream/main -- <tauri-app>/src/routes/editor/Timeline/ <tauri-app>/src/routes/editor/context*
 ```
 
 - [ ] **Step 2: 键盘捕获 — Rust 层**
@@ -494,13 +494,13 @@ git diff cap-v0.4.5..upstream/main -- apps/desktop/src/routes/editor/Timeline/ a
 
 - [ ] **Step 4: TimelineTrackType 扩展**
 
-在 `apps/desktop/src/routes/editor/context.ts` 中添加:
+在 Tauri `src/routes/editor/context.ts` 中添加:
 - `keyboard` 轨道类型
 - `captions` 轨道类型
 
 - [ ] **Step 5: 时间线 UI 组件**
 
-在 `apps/desktop/src/routes/editor/Timeline/` 中添加:
+在 Tauri `src/routes/editor/Timeline/` 中添加:
 - `KeyboardTrack.tsx` 键盘轨道组件
 - `CaptionsTrack.tsx` 字幕轨道组件
 - 更新 `index.tsx` 注册新轨道
@@ -531,7 +531,7 @@ pnpm dev
 
 - [ ] **Step 9: i18n 更新**
 
-更新 `apps/desktop/src/i18n/locales/` 所有语言文件，添加键盘和字幕轨道相关翻译。
+更新 Tauri `src/i18n/locales/` 所有语言文件，添加键盘和字幕轨道相关翻译。
 
 - [ ] **Step 10: Commit**
 
@@ -546,7 +546,7 @@ git commit -m "feat: keyboard press overlay and caption timeline tracks (upstrea
 **Source:** v0.4.7 prewarmed GPU pipeline
 **Files:**
 - Modify: `crates/rendering/src/lib.rs` 或 `frame_pipeline.rs`
-- Modify: `apps/desktop/src-tauri/src/lib.rs` (启动时触发预热)
+- Modify: Tauri `src-tauri/src/lib.rs` (启动时触发预热)
 
 - [ ] **Step 1: 对比上游预热实现**
 
@@ -598,7 +598,7 @@ git commit --allow-empty -m "chore: phase 3 complete - new features (keyboard ov
 
 **Source:** [PR #1669](https://github.com/CapSoftware/Cap/pull/1669)
 **Files:**
-- Modify: `apps/desktop/src/routes/editor/` (多处)
+- Modify: Tauri `src/routes/editor/` (多处)
 - Modify: `crates/rendering/src/` (渐变噪点效果)
 
 - [ ] **Step 1: 评估 PR #1669 中适用的变更**
@@ -726,8 +726,8 @@ git commit -m "chore: code formatting and final validation after upstream sync"
 | `crates/recording/` (除 recovery.rs) | 🔴 高 | 7 个文件双方修改：capture_pipeline, instant_recording, win.rs, win_fragmented_m4s, screen_capture/windows, studio_recording, lib.rs |
 | `crates/enc-ffmpeg/` | 🟡 中 | fork 改了 HEVC 支持相关文件 |
 | `crates/enc-mediafoundation/` | 🟡 中 | fork 改了 HEVC 相关文件 |
-| `apps/desktop/src-tauri/src/` | 🔴 高 | 双方都大量修改（lib.rs +534行上游, fork 也重构了） |
-| `apps/desktop/src/` | 🔴 高 | fork 大量本地化改动 + 上游新功能 |
+| Tauri `src-tauri/src/` | 🔴 高 | 双方都大量修改（lib.rs +534行上游, fork 也重构了） |
+| Tauri `src/` | 🔴 高 | fork 大量本地化改动 + 上游新功能 |
 | `crates/cap-test/` | 🟢 低 | 可直接取上游 |
 
 ### 关键发现

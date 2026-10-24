@@ -1,9 +1,9 @@
 //! The settings window: sidebar, General page, Tauri-compatible store.
 //!
-//! Transcribed from `apps/desktop/src/routes/(window-chrome)/settings.tsx`
+//! Transcribed from Tauri `src/routes/(window-chrome)/settings.tsx`
 //! (the shell), `settings/general.tsx` (the page), `settings/Setting.tsx` (the
 //! section/card/row primitives) and the `[data-macos-native-material="settings"]`
-//! block of `apps/desktop/src/styles/theme.css`, which is what actually sizes
+//! block of Tauri `src/styles/theme.css`, which is what actually sizes
 //! this window's chrome -- most of the Tailwind on the elements is overridden
 //! there, so the CSS wins wherever the two disagree and the quoted rule next to
 //! each metric says which one it is.

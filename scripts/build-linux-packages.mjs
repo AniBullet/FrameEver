@@ -32,15 +32,15 @@ if (!process.env.TAURI_SIGNING_PRIVATE_KEY) {
 
 const metadata = JSON.parse(
 	runCommand("cargo", ["metadata", "--no-deps", "--format-version", "1"], {
-		cwd: path.join(repoRoot, "apps", "desktop", "src-tauri"),
+		cwd: gpuiDirectory,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "inherit"],
 	}).stdout,
 );
 const version = metadata.packages.find(
-	(pkg) => pkg.name === "cap-desktop",
+	(pkg) => pkg.name === "cap-desktop-gpui",
 )?.version;
-if (!version) throw new Error("Desktop version is missing from Cargo metadata");
+if (!version) throw new Error("GPUI app version is missing from Cargo metadata");
 
 runCommand(
 	"node",

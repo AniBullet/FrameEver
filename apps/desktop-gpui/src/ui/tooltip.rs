@@ -1,4 +1,4 @@
-//! `Tooltip` -- `apps/desktop/src/components/Tooltip.tsx`, a Kobalte `Tooltip`
+//! `Tooltip` -- Tauri `src/components/Tooltip.tsx`, a Kobalte `Tooltip`
 //! with an OS-aware kbd-chip renderer built in.
 //!
 //! gpui already owns the hover/dismiss half of the contract: `.tooltip(..)` on

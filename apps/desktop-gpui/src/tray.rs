@@ -1,4 +1,4 @@
-//! The macOS status-bar item -- `apps/desktop/src-tauri/src/tray.rs`.
+//! The macOS status-bar item -- Tauri `src-tauri/src/tray.rs`.
 //!
 //! The pinned gpui exposes no status-item API at all (nothing in
 //! `crates/gpui/src` mentions `NSStatusBar`, `NSStatusItem` or a tray of any

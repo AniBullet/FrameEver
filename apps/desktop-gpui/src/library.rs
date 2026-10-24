@@ -2,7 +2,7 @@
 //!
 //! The Tauri main window's Recents is not backed by an index or a database. It
 //! is two `std::fs::read_dir` walks (`list_recordings` and `list_screenshots`,
-//! `apps/desktop/src-tauri/src/lib.rs:3974-4092`), each bundle's
+//! Tauri `src-tauri/src/lib.rs:3974-4092`), each bundle's
 //! `recording-meta.json` parsed through `RecordingMeta::load_for_project`,
 //! sorted descending by `sort_time_millis` -- which is not stored data either
 //! but the bundle directory's own `created()` (falling back to `modified()`),
@@ -1148,7 +1148,7 @@ pub fn thumbnail_rgba(path: &Path) -> Option<image::RgbaImage> {
 // Generating the thumbnail a recording made here would otherwise never have
 // ---------------------------------------------------------------------------
 
-/// `create_screenshot` (`apps/desktop/src-tauri/src/lib.rs:2582-2655`), ported.
+/// `create_screenshot` (Tauri `src-tauri/src/lib.rs:2582-2655`), ported.
 ///
 /// The Tauri app writes `<bundle>/screenshots/display.jpg` from
 /// `handle_recording_finish`; `cap-recording` itself never does, so a recording

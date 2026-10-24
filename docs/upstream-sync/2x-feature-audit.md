@@ -1,6 +1,6 @@
 # 2.x feature audit (2026-10-24)
 
-What Cap-aniBullet 2.x added on top of upstream, checked against the GPUI app. Source: the 73 fork-only commits on the old `main` (`2b543a008^1 --not 0da8f6d4d`) and the diff of `apps/desktop` from the fork point `78dd5c9f3`. Features that came from upstream syncs (keyboard overlay, captions track, gradient editor) are not listed; upstream's GPUI app has its own versions.
+What Cap-aniBullet 2.x added on top of upstream, checked against the GPUI app. Source: the 73 fork-only commits on the old `main` (`2b543a008^1 --not 0da8f6d4d`) and the diff of the Tauri app from the fork point `78dd5c9f3`. Features that came from upstream syncs (keyboard overlay, captions track, gradient editor) are not listed; upstream's GPUI app has its own versions.
 
 The rule: a 2.x feature does not have to be copied as it was, but it must exist in a form that fits the GPUI app, and a 2.x user's data and settings must carry over.
 

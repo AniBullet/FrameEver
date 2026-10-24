@@ -40,7 +40,7 @@ use cap_rendering::{FrameLayout, ProjectUniforms, RenderedFrame};
 /// The Tauri editor's own preview numbers, so the smoke renders at exactly the
 /// size the editor window will: `EDITOR_PREVIEW_FPS` / `EDITOR_OUTPUT_SIZE` at
 /// the default 65 % preview scale, width aligned to 4 and height to 2
-/// (`apps/desktop/src-tauri/src/lib.rs:146-157`).
+/// (Tauri `src-tauri/src/lib.rs:146-157`).
 const PREVIEW_FPS: u32 = 60;
 const OUTPUT_SIZE: XY<u32> = XY { x: 1920, y: 1080 };
 const PREVIEW_SCALE: f32 = 0.65;

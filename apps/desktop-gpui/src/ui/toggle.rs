@@ -1,4 +1,4 @@
-//! `Toggle` -- `apps/desktop/src/components/Toggle.tsx`, a Kobalte `Switch`.
+//! `Toggle` -- Tauri `src/components/Toggle.tsx`, a Kobalte `Switch`.
 //!
 //! The `.cap-toggle` / `.cap-toggle-thumb` class names exist in the Solid app
 //! *solely* so the macOS material layer can re-skin the track, which is why

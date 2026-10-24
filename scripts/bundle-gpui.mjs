@@ -3,14 +3,12 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildMacosPackages } from "./build-macos-packages.mjs";
 
 const repoRoot = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
 	"..",
 );
 export const gpuiDirectory = path.join(repoRoot, "apps", "desktop-gpui");
-const desktopDirectory = path.join(repoRoot, "apps", "desktop");
 export const gpuiToolchain = process.env.CAP_GPUI_RUST_TOOLCHAIN || "1.95.0";
 
 const platformConfigNames = {
@@ -162,21 +160,8 @@ export async function bundleGpui(target, args, { env = process.env } = {}) {
 			});
 	}
 
-	if (platform === "darwin") {
-		const result = await buildMacosPackages(target, bundleArgs, {
-			bundleOnly: true,
-			env: bundleEnvironment(env),
-		});
-		if (result.signal || result.code !== 0) {
-			throw new Error(
-				`macOS GPUI bundling failed with ${result.signal ?? result.code}`,
-			);
-		}
-		return;
-	}
-
 	run("pnpm", ["run", ...bundleArguments(target, bundleArgs)], {
-		cwd: desktopDirectory,
+		cwd: gpuiDirectory,
 		shell: process.platform === "win32",
 		env: bundleEnvironment({ ...env, RUST_TARGET_TRIPLE: target }),
 	});

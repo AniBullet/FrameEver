@@ -18,6 +18,7 @@ import {
 	setWeightClass,
 	SEMVER,
 	stampReleaseDate,
+	stampVersion,
 	testProfileEnv,
 	withFfmpeg,
 } from "./fe.mjs";
@@ -129,13 +130,24 @@ test("cargo update output splits into applied changes and held-back versions", (
 
 test("the NSIS toolset constants follow the pinned Tauri CLI", () => {
 	const manifest = JSON.parse(
-		readFileSync(new URL("../apps/desktop/package.json", import.meta.url), "utf8"),
+		readFileSync(new URL("../apps/desktop-gpui/package.json", import.meta.url), "utf8"),
 	);
 	assert.equal(
 		manifest.devDependencies?.["@tauri-apps/cli"] ?? manifest.dependencies?.["@tauri-apps/cli"],
 		NSIS.tauriCli,
 		"Tauri CLI changed: copy NSIS_URL, NSIS_SHA1, NSIS_TAURI_UTILS_* and NSIS_REQUIRED_FILES from tauri-bundler's nsis/mod.rs into NSIS in scripts/fe.mjs",
 	);
+});
+
+test("stamping a version rewrites only the package version", () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "fe-version-"));
+	const manifest = path.join(dir, "Cargo.toml");
+	const cargo = (version) =>
+		["[package]", 'name = "app"', `version = "${version}"`, "", "[dependencies]", 'serde = { version = "1" }', ""].join("\n");
+	writeFileSync(manifest, cargo("1.0.0-dev"));
+	stampVersion("1.2.3", [manifest]);
+	assert.equal(readFileSync(manifest, "utf8"), cargo("1.2.3"));
+	rmSync(dir, { recursive: true, force: true });
 });
 
 test("the NSIS toolset counts as installed only when every file Tauri checks exists", () => {

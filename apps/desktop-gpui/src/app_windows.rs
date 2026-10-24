@@ -5478,7 +5478,7 @@ fn log_timeline_model(model: &editor_timeline::TimelineModel) {
 }
 
 /// The clip track's waveforms (`get_mic_waveforms` / `get_system_audio_waveforms`,
-/// `apps/desktop/src-tauri/src/lib.rs:4392-4434`).
+/// Tauri `src-tauri/src/lib.rs:4392-4434`).
 ///
 /// Deliberately fire-and-forget, exactly as the frontend's own
 /// `commands.getMicWaveforms().then(setMicWaveforms)` is

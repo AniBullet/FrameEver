@@ -584,11 +584,9 @@ export function missingNativeDeps(base = root) {
 		.map(([dir]) => dir);
 }
 
-export function stampVersion(version) {
-	const manifests = [
-		path.join(root, "apps", "desktop", "src-tauri", "Cargo.toml"),
-		path.join(gpuiDir, "Cargo.toml"),
-	];
+const versionManifests = [path.join(gpuiDir, "Cargo.toml")];
+
+export function stampVersion(version, manifests = versionManifests) {
 	for (const manifest of manifests) {
 		const text = readFileSync(manifest, "utf8");
 		const next = text.replace(/^version = ".*"$/m, `version = "${version}"`);

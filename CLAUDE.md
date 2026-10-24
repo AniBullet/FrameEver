@@ -14,9 +14,9 @@ Cap - aniBullet Edition is a Windows desktop screen recording application built 
 
 ## Migration In Progress (read first)
 
-The project is moving from the Tauri app (`apps/desktop`, frozen) to upstream's native GPUI app (`apps/desktop-gpui`). Sections below that describe Tauri/SolidJS apply only to the frozen app.
+The product is upstream's native GPUI app (`apps/desktop-gpui`). The Tauri app and its SolidJS packages have been deleted (ADR-0001); sections below that still describe Tauri/SolidJS are out of date until the docs are rewritten.
 - Start here when resuming: `docs/upstream-sync/HANDOFF.md` (current state, environment, next steps)
-- Build, run, test, package, debug: always through `pnpm fe <command>` (`scripts/fe.mjs`; `pnpm fe` lists them). How to debug and fix problems: `docs/agents/debugging.md`. The commands under "Key Commands" below are for the frozen Tauri app only.
+- Build, run, test, package, debug: always through `pnpm fe <command>` (`scripts/fe.mjs`; `pnpm fe` lists them). How to debug and fix problems: `docs/agents/debugging.md`. Ignore any other build command in this file.
 - Decisions: `docs/adr/` (GPUI replaces Tauri, local-only, upstream crates as baseline, HEVC at export)
 - Merge status, per-fix verdicts and the phased roadmap: `docs/upstream-sync/0.6.1.md`
 - Vocabulary: `GLOSSARY.md`
@@ -25,14 +25,10 @@ The project is moving from the Tauri app (`apps/desktop`, frozen) to upstream's 
 ## File Location Patterns & Key Directories
 
 ### Core Application
-- `apps/desktop/` — Tauri v2 desktop app (recording, editing)
-  - `src/` — SolidJS frontend code
-  - `src-tauri/` — Rust backend code
-  - `src-tauri/src/` — Core Rust modules
-
-### Shared Packages
-- `packages/ui-solid/` — SolidJS components for desktop
-- `packages/utils/` — Shared utilities, types, constants
+- `apps/desktop-gpui/` — GPUI desktop app (recording, editing)
+  - `src/` — Rust app code
+  - `assets/` — fonts, icons, sounds, editor music and backgrounds
+- `apps/cli/` — command-line interface
 
 ### Rust Crates
 - `crates/media*/` — Video/audio processing pipeline
@@ -44,47 +40,32 @@ The project is moving from the Tauri app (`apps/desktop`, frozen) to upstream's 
 ### Important File Patterns
 - `**/tauri.ts` — Auto-generated IPC bindings (DO NOT EDIT)
 - `**/queries.ts` — Auto-generated query bindings (DO NOT EDIT)
-- `apps/desktop/src-tauri/gen/` — Generated files (DO NOT EDIT)
 - `*.config.*` — Configuration files (Tailwind, Vite, etc.)
 
 ## Key Commands
 
 ### Development
 ```bash
-pnpm dev                 # Start desktop dev server
-pnpm dev:desktop         # Start desktop dev server (alias)
-pnpm build               # Build all packages via Turbo
-pnpm lint                # Lint with Biome
-pnpm format              # Format with Biome
-pnpm typecheck           # TypeScript check
-pnpm tauri:build         # Build desktop app (release)
+pnpm fe dev              # Build and run the GPUI app
+pnpm fe check            # Compile-check the app and the CLI
+pnpm fe test --all       # Run the tests
+pnpm fe lint             # Format check, clippy and translations
+pnpm fe package          # Build the Windows installer
 ```
 
-### Desktop-Specific Commands
-```bash
-cd apps/desktop && pnpm dev              # Start SolidStart + Tauri dev
-cd apps/desktop && pnpm build:tauri      # Build development version (DO NOT use for testing/release)
-cd apps/desktop && pnpm build:tauri --config src-tauri/tauri.prod.conf.json  # Build production version (ALWAYS use this for packaging/testing)
-```
-
-### IMPORTANT: Always use production config for packaging
-When asked to "build", "package", or "打包" the app for testing, ALWAYS use the production config:
-```bash
-cd apps/desktop && pnpm build:tauri --config src-tauri/tauri.prod.conf.json
-```
-Never use the bare `pnpm build:tauri` without `--config src-tauri/tauri.prod.conf.json` unless explicitly asked for a development build.
+### IMPORTANT: Packaging
+When asked to "build", "package", or "打包" the app, run `pnpm fe package`.
 
 ## Development Environment Guidelines
 
 ### Server Management
 - aniBullet is a pure desktop application with no server dependencies
-- Run `pnpm dev` or `pnpm dev:desktop` to start the development server
+- Run `pnpm fe dev` to build and run the app
 - **Database**: SQLite (local file-based, no server required)
 - **Storage**: Local filesystem (videos saved to user's local drive)
 
 ### Auto-generated Bindings (Desktop)
 - **NEVER EDIT**: `tauri.ts`, `queries.ts` (auto-generated on app load)
-- **NEVER EDIT**: Files under `apps/desktop/src-tauri/gen/`
 - **Icons**: Auto-imported in desktop app; do not import manually
 - **Regeneration**: These files update automatically when Rust types change
 
@@ -99,9 +80,8 @@ Never use the bare `pnpm build:tauri` without `--config src-tauri/tauri.prod.con
 ## Architecture Overview
 
 ### Monorepo Structure
-- `apps/desktop` — Tauri v2 desktop app (primary application)
-- `packages/ui-solid` — SolidJS UI components
-- `packages/utils` — Shared utilities and types
+- `apps/desktop-gpui` — GPUI desktop app (primary application)
+- `apps/cli` — command-line interface
 - `crates/*` — Rust crates for media, rendering, recording, camera, etc.
 
 ### Technology Stack
@@ -152,8 +132,7 @@ await events.newNotification.listen((event) => {
 ### Code Organization Principles
 1. **Follow Local Patterns**: Study neighboring files and shared packages first
 2. **Strict Typing**: Use existing types from Rust and TypeScript
-3. **Component Consistency**: Use `@cap/ui-solid` for SolidJS components
-4. **No Manual Edits**: Never touch auto-generated bindings (`tauri.ts`, `queries.ts`)
+3. **No Manual Edits**: Never touch auto-generated bindings (`tauri.ts`, `queries.ts`)
 
 ### Key Implementation Patterns
 
@@ -230,7 +209,6 @@ aniBullet is a pure desktop application with minimal configuration needs:
 
 ### Build Failures
 - **"Cannot find module"**: Check workspace dependencies in package.json
-- **TypeScript errors**: Run `pnpm typecheck` to see project-wide issues
 - **Turbo cache issues**: Clear with `rm -rf .turbo`
 - **Node version mismatch**: Ensure Node 20 is active
 - **Rust compile errors**: Check Cargo.toml dependencies, ensure Rust 1.88+
@@ -277,7 +255,6 @@ function VideoList() {
 - Styling: Tailwind CSS only; stay consistent with existing design tokens
 - Loading: Use `Show` with fallback for loading states
 - Performance: SolidJS is fine-grained reactive; avoid unnecessary `createMemo`
-- Use `@cap/ui-solid` components for consistency
 
 ## Desktop (SolidJS + Tauri) Patterns
 

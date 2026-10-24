@@ -1,8 +1,6 @@
 packages:
-  - apps/desktop
+  - apps/desktop-gpui
   - apps/cli
-  - packages/ui-solid
-  - crates/tauri-plugin-*
 ignoredBuiltDependencies:
   - '@parcel/watcher'
   - '@swc/core'

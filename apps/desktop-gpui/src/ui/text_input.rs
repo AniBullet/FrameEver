@@ -49,7 +49,7 @@
 //!   `on_key_down`, and the ancestor has to ask whether a field has focus.
 //!   That is exactly what the Tauri app does: `useEditorShortcuts`' scope gate
 //!   is `document.activeElement` being an `input`/`textarea`/contenteditable
-//!   (`apps/desktop/src/routes/editor/Player.tsx:236-245`), and the timeline's
+//!   (Tauri `src/routes/editor/Player.tsx:236-245`), and the timeline's
 //!   own listener repeats it (`Timeline/index.tsx:960-966`).
 //!   [`text_input_has_focus`] is that gate, transcribed.
 //!

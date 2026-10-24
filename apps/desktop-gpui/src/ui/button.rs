@@ -1,4 +1,4 @@
-//! `Button` (`packages/ui-solid/src/Button.tsx`) and the icon-only button the
+//! `Button` (Tauri `ui-solid/src/Button.tsx`) and the icon-only button the
 //! Solid app copy-pastes into three route files instead of sharing
 //! (`TooltipIconButton`, digest section 2.3).
 

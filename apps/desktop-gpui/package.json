@@ -1,0 +1,11 @@
+{
+	"name": "@cap/desktop-gpui",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"tauri": "tauri"
+	},
+	"devDependencies": {
+		"@tauri-apps/cli": "2.11.2"
+	}
+}

@@ -238,7 +238,7 @@ cidre = { git = "https://github.com/CapSoftware/cidre", rev = "bf84b67079a8", fe
     "vn",
 ], default-features = false }
 
-# The Tauri app's own target gate (`apps/desktop/src-tauri/Cargo.toml:151-152`):
+# The Tauri app's own target gate (Tauri `src-tauri/Cargo.toml:151-152`):
 # parakeet-rs has no Intel-macOS ONNX Runtime build, so those Macs get the
 # Whisper caption models only.
 [target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]

@@ -1,5 +1,5 @@
 //! `Collapsible` -- Kobalte's, with the height animation the Solid app defines
-//! in `packages/ui-solid/src/main.css`:
+//! in Tauri `ui-solid/src/main.css`:
 //!
 //! ```css
 //! @keyframes collapsible-down { from { height: 0 } to { height: var(--kb-collapsible-content-height) } }

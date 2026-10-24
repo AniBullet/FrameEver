@@ -20,8 +20,8 @@
 		"shortDescription": "Local-first screen recorder and editor",
 		"longDescription": "FrameEver is a local-first screen recorder and editor. Recordings, edits and captions stay on your computer.",
 		"externalBin": [
-			"../desktop/src-tauri/binaries/frameever-muxer",
-			"../desktop/src-tauri/binaries/frameever-cli"
+			"binaries/frameever-muxer",
+			"binaries/frameever-cli"
 		],
 		"icon": [
 			"icons/32x32.png",
@@ -31,13 +31,13 @@
 			"icons/icon.ico"
 		],
 		"resources": {
-			"../desktop/src-tauri/assets/backgrounds/macOS/*": "assets/backgrounds/macOS/",
-			"../desktop/src-tauri/assets/backgrounds/blue/*": "assets/backgrounds/blue/",
-			"../desktop/src-tauri/assets/backgrounds/cities/*": "assets/backgrounds/cities/",
-			"../desktop/src-tauri/assets/backgrounds/dark/*": "assets/backgrounds/dark/",
-			"../desktop/src-tauri/assets/backgrounds/orange/*": "assets/backgrounds/orange/",
-			"../desktop/src-tauri/assets/backgrounds/purple/*": "assets/backgrounds/purple/",
-			"../desktop/src/assets/music/*.mp3": "assets/music/",
+			"assets/backgrounds/macOS/*": "assets/backgrounds/macOS/",
+			"assets/backgrounds/blue/*": "assets/backgrounds/blue/",
+			"assets/backgrounds/cities/*": "assets/backgrounds/cities/",
+			"assets/backgrounds/dark/*": "assets/backgrounds/dark/",
+			"assets/backgrounds/orange/*": "assets/backgrounds/orange/",
+			"assets/backgrounds/purple/*": "assets/backgrounds/purple/",
+			"assets/music/*.mp3": "assets/music/",
 			"assets/icons/LICENSE-*.txt": "licenses/icons/"
 		},
 		"fileAssociations": [
@@ -50,10 +50,10 @@
 		],
 		"macOS": {
 			"minimumSystemVersion": "12.3",
-			"entitlements": "../desktop/src-tauri/Entitlements.plist",
+			"entitlements": "packaging/macos/Entitlements.plist",
 			"frameworks": ["../../target/native-deps/Spacedrive.framework"],
 			"dmg": {
-				"background": "../desktop/src-tauri/assets/dmg-background.png",
+				"background": "packaging/macos/dmg-background.png",
 				"appPosition": {
 					"x": 180,
 					"y": 140

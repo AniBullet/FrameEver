@@ -12,7 +12,7 @@
 //! `app_windows::open_teleprompter` opens it the way everything else opens.
 //!
 //! The playback maths is a straight port of
-//! `apps/desktop/src/routes/teleprompter-utils.ts`, with that file's own unit
+//! Tauri `src/routes/teleprompter-utils.ts`, with that file's own unit
 //! tests translated at the bottom.
 
 use std::{

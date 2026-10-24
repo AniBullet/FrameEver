@@ -17,7 +17,8 @@ const readJson = (relative) =>
 	JSON.parse(readFileSync(new URL(relative, import.meta.url), "utf8"));
 
 const gpuiConfig = readJson("../apps/desktop-gpui/tauri.conf.json");
-const tauriConfig = readJson("../apps/desktop/src-tauri/tauri.conf.json");
+const gpuiPackage = readJson("../apps/desktop-gpui/package.json");
+const repoRoot = path.dirname(path.dirname(gpuiDirectory));
 
 test("targets map to their packaging platform and main binary", () => {
 	assert.equal(targetPlatform("aarch64-apple-darwin"), "darwin");
@@ -59,7 +60,6 @@ test("the GPUI app ships as FrameEver, apart from official Cap", () => {
 	assert.deepEqual(gpuiConfig.plugins["deep-link"].desktop.schemes, [
 		constant("URL_SCHEME"),
 	]);
-	assert.notEqual(gpuiConfig.identifier, tauriConfig.identifier);
 	assert.notEqual(gpuiConfig.identifier, "so.cap.desktop");
 });
 
@@ -89,6 +89,37 @@ test("every committed file the GPUI bundle references exists", () => {
 			binary,
 		);
 	}
+});
+
+test("the bundle reads only the GPUI app and the shared build output", () => {
+	const sources = [
+		...gpuiConfig.bundle.icon,
+		...gpuiConfig.bundle.externalBin,
+		...Object.keys(gpuiConfig.bundle.resources),
+		gpuiConfig.bundle.macOS.entitlements,
+		gpuiConfig.bundle.macOS.dmg.background,
+		...Object.values(gpuiConfig.bundle.windows.nsis).filter(
+			(value) => typeof value === "string" && /[/.]/.test(value),
+		),
+	];
+	const allowed = [gpuiDirectory, path.join(repoRoot, "target")];
+	for (const source of sources) {
+		const resolved = path.resolve(gpuiDirectory, source);
+		assert.ok(
+			allowed.some((root) => resolved.startsWith(root + path.sep)),
+			source,
+		);
+	}
+});
+
+test("the Tauri CLI comes from the GPUI app's own package", () => {
+	assert.equal(gpuiPackage.scripts.tauri, "tauri");
+	assert.ok(gpuiPackage.devDependencies["@tauri-apps/cli"]);
+	const workspace = readFileSync(
+		path.join(repoRoot, "pnpm-workspace.yaml"),
+		"utf8",
+	);
+	assert.match(workspace, /^ {2}- apps\/desktop-gpui$/m);
 });
 
 test("the GPUI bundle ships one CLI sidecar instead of two identical copies", () => {

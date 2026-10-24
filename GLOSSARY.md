@@ -67,5 +67,5 @@ The previous release line of this product, built on the Tauri app, whose users u
 _Avoid_: Old version, aniBullet edition
 
 **Tauri app**:
-The legacy webview desktop app in `apps/desktop`, frozen and due for retirement.
+The legacy webview desktop app, deleted from the repository; FrameEver ships only the GPUI app.
 _Avoid_: Old app, desktop app

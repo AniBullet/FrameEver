@@ -36,7 +36,7 @@ const FONTS: &[(&str, &[u8])] = assets!("fonts":
     "SourceSerif4-Light.ttf",
 );
 
-/// Mostly Cap's own icon set, lifted from `packages/ui-solid/icons`. gpui
+/// Mostly Cap's own icon set, lifted from Tauri `ui-solid/icons`. gpui
 /// rasterises an SVG and keeps only its alpha, tinting the result with the
 /// element's text colour, so these must be single-colour glyphs -- a full-colour
 /// illustration would come out as a filled silhouette.
@@ -75,7 +75,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "gauge.svg",
     "gear.svg",
     // The config sidebar's field glyphs. Four are Cap's own
-    // (`packages/ui-solid/icons/{padding,corners,shadow,bg-blur}.svg`); the
+    // (Tauri `ui-solid/icons/{padding,corners,shadow,bg-blur}.svg`); the
     // rest of the background section's are Lucide, drawn here from the same
     // 24x24 originals `~icons/lucide/*` resolves to -- laptop (MacBook notch).
     // `shuffle` is the gradient editor's own inline randomise glyph
@@ -175,7 +175,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "zoom-in.svg",
     "zoom-out.svg",
     // The settings Recordings page. `link` is Cap's own
-    // (`packages/ui-solid/icons/link.svg`, which is Lucide's glyph); `import`
+    // (Tauri `ui-solid/icons/link.svg`, which is Lucide's glyph); `import`
     // and `edit` are the Lucide 24x24 originals `~icons/lucide/*` resolves to;
     // `record-fill` and `warning-bold` are Phosphor's 256x256 originals, which
     // is what `IconPhRecordFill` / `IconPhWarningBold` are in `recordings.tsx`.
@@ -189,7 +189,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     // `CaptionControlsMacOS.tsx` inlines, shown while the group is hovered.
     "traffic-close.svg",
     // The remaining settings pages (`settings_pages.rs`). `circle-check` is
-    // Cap's own (`packages/ui-solid/icons/circle-check.svg`, hotkeys.tsx's
+    // Cap's own (Tauri `ui-solid/icons/circle-check.svg`, hotkeys.tsx's
     // IconCapCircleCheck); the rest are the Lucide 24x24 originals the pages'
     // `~icons/lucide/*` imports resolve to, except `google-drive`, which is
     // integrations/index.tsx's inline multi-colour logo flattened to one fill
@@ -225,15 +225,15 @@ const IMAGES: &[(&str, &[u8])] = assets!("images":
 const ONBOARDING: &[(&str, &[u8])] = &[
     (
         "onboarding/music.mp3",
-        include_bytes!("../../desktop/src/assets/tears-and-fireflies-adi-goldstein.mp3"),
+        include_bytes!("../assets/onboarding/tears-and-fireflies-adi-goldstein.mp3"),
     ),
     (
         "onboarding/cursor-macos.svg",
-        include_bytes!("../../../packages/ui-solid/icons/cursor-macos.svg"),
+        include_bytes!("../assets/onboarding/cursor-macos.svg"),
     ),
     (
         "onboarding/cursor-windows.svg",
-        include_bytes!("../../../packages/ui-solid/icons/cursor-windows.svg"),
+        include_bytes!("../assets/onboarding/cursor-windows.svg"),
     ),
     (
         "onboarding/volume-2.svg",
