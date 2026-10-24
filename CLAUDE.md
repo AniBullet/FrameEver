@@ -406,6 +406,10 @@ These commands should be run regularly during development and always at the end 
 
 Issues live in GitHub Issues (`AniBullet/FrameEver`). See `docs/agents/issue-tracker.md`.
 
+### Triage labels
+
+Default vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
 ### Domain docs
 
 Single-context layout: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
