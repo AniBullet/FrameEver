@@ -10,6 +10,6 @@
 		"[^@]+@cap\\.so"
 	],
 	"publicNames": ["aniBullet"],
-	"files": ["^vendor/"],
+	"files": ["^vendor/", "^scripts/privacy\\.test\\.mjs$"],
 	"text": []
 }
