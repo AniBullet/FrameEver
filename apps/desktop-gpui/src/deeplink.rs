@@ -1,5 +1,5 @@
 //! `frameever://` deep-link actions -- the gpui port of
-//! `apps/desktop/src-tauri/src/deeplink_actions.rs`.
+//! Tauri `src-tauri/src/deeplink_actions.rs`.
 //!
 //! The URL grammar is byte-identical to the Tauri app's: an action deep link
 //! is `<scheme>://action?value=<url-encoded JSON>`, where the JSON is the

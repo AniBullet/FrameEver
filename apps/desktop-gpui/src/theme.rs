@@ -2,7 +2,7 @@
 //!
 //! The Tauri UI gets these from Radix Colors via Tailwind v4 `@theme` aliases,
 //! with a handful of dark-mode entries overridden in
-//! `apps/desktop/src/styles/theme.css` (`:root.dark`, which outranks Radix's own
+//! Tauri `src/styles/theme.css` (`:root.dark`, which outranks Radix's own
 //! `.dark`). The overridden ones are marked below -- they are *not* stock Radix,
 //! so regenerating this from a Radix crate would silently change the palette.
 
@@ -107,7 +107,7 @@ pub fn bind_window<T: 'static>(window: &mut Window, cx: &mut Context<T>) {
 /// appearance and one visual system.
 ///
 /// The web app expresses this as `--macos-settings-*` custom properties
-/// (`apps/desktop/src/styles/theme.css`) selected by two data attributes on
+/// (Tauri `src/styles/theme.css`) selected by two data attributes on
 /// `<html>`: `data-macos-native-material` ("panel" for the main window,
 /// "settings" for the settings window) and `data-macos-visual-system`
 /// ("liquid-glass" or "vibrancy").
@@ -434,7 +434,7 @@ pub struct Theme {
 }
 
 /// Editor surfaces, transcribed from the `--ed-*` custom properties in
-/// `apps/desktop/src/styles/theme.css`. A layered, low-contrast system
+/// Tauri `src/styles/theme.css`. A layered, low-contrast system
 /// (window < card < control) with one accent; change both files together.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EditorPalette {

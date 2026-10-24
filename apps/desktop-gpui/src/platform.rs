@@ -1,7 +1,7 @@
 //! Native window treatment gpui does not expose.
 //!
 //! The Tauri app gives its windows their panel behavior in
-//! `apps/desktop/src-tauri/src/windows.rs`: converted to NSPanel via
+//! Tauri `src-tauri/src/windows.rs`: converted to NSPanel via
 //! `tauri_nspanel`, raised to a specific window level, joined to all Spaces.
 //! gpui exposes none of that, but its `Window` implements
 //! `raw_window_handle::HasWindowHandle`, and on macOS the AppKit handle's
@@ -479,7 +479,7 @@ impl DockActivationTiming {
 /// Which native material sits behind a window's content.
 ///
 /// `applyMacOSWindowMaterial` in
-/// `apps/desktop/src/utils/macos-window-material.ts` picks between exactly
+/// Tauri `src/utils/macos-window-material.ts` picks between exactly
 /// these two: `visualSystem = majorVersion >= 26 ? "liquid-glass" :
 /// "vibrancy"`. The main window is material `"panel"`, radius 16 on both.
 /// `tauri::Window::set_theme`: `None` follows the OS, Light/Dark force
@@ -781,7 +781,7 @@ mod mac {
     }
 
     /// `NS_GLASS_EFFECT_VIEW_STYLE_REGULAR` in
-    /// `apps/desktop/src-tauri/src/platform/macos/mod.rs`. The main window
+    /// Tauri `src-tauri/src/platform/macos/mod.rs`. The main window
     /// takes the `SystemManaged` path, which is `setStyle:` and nothing else:
     /// the always-active pin (`setState:` / `setActive:` probing) is for the
     /// *other* Cap windows and is deliberately not reproduced here.

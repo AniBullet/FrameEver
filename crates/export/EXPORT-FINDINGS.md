@@ -155,8 +155,8 @@ total_size = bytes_per_frame * total_frames
 | `crates/enc-ffmpeg/src/video/h264.rs` | H.264 encoder with BPP-based bitrate |
 | `crates/enc-ffmpeg/src/mux/mp4.rs` | MP4 muxer |
 | `crates/enc-gif/src/lib.rs` | GIF encoder wrapper |
-| `apps/desktop/src-tauri/src/export.rs` | Size/time estimation, Tauri export command |
-| `apps/desktop/src/routes/editor/ExportPage.tsx` | Export UI, preset options, size display |
+| Tauri `src-tauri/src/export.rs` | Size/time estimation, Tauri export command |
+| Tauri `src/routes/editor/ExportPage.tsx` | Export UI, preset options, size display |
 | `crates/export/examples/export-benchmark-runner.rs` | Export benchmark runner |
 
 ---
@@ -177,8 +177,8 @@ total_size = bytes_per_frame * total_frames
 7. Re-ran benchmark to verify - avg size error dropped from ~100% to 3.0%
 
 **Changes Made**:
-- `apps/desktop/src-tauri/src/export.rs`: Rewrote size estimation (FPS tapering + encoder efficiency), rewrote time estimation (observed render FPS)
-- `apps/desktop/src/routes/editor/ExportPage.tsx`: Removed 0.5x/0.7x UI size multiplier hacks
+- Tauri `src-tauri/src/export.rs`: Rewrote size estimation (FPS tapering + encoder efficiency), rewrote time estimation (observed render FPS)
+- Tauri `src/routes/editor/ExportPage.tsx`: Removed 0.5x/0.7x UI size multiplier hacks
 - `crates/export/examples/export-benchmark-runner.rs`: Updated estimation functions to match backend
 
 **Benchmark Results**:

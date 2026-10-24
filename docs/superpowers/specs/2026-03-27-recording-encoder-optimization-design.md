@@ -70,11 +70,11 @@ Quality mapping:
 - `crates/recording/src/output_pipeline/win.rs` - Encoder selection
 - `crates/recording/src/capture_pipeline.rs` - Pipeline config
 - `crates/recording/src/instant_recording.rs` - Instant mode
-- `apps/desktop/src-tauri/src/general_settings.rs` - Settings types
-- `apps/desktop/src-tauri/src/recording.rs` - Recording start
+- Tauri `src-tauri/src/general_settings.rs` - Settings types
+- Tauri `src-tauri/src/recording.rs` - Recording start
 
 ### Frontend
-- `apps/desktop/src/routes/(window-chrome)/new-main/index.tsx` - Settings UI
+- Tauri `src/routes/(window-chrome)/new-main/index.tsx` - Settings UI
 
 ## Expected Results
 

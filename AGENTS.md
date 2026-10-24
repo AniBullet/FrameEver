@@ -2,17 +2,17 @@
 
 ## Project Structure & Modules
 - Turborepo monorepo (Windows desktop-focused):
-  - `apps/desktop` (Tauri v2 + SolidStart) - primary application
-  - `packages/*` shared libs (e.g., `ui-solid`, `utils`)
+  - `apps/desktop-gpui` (GPUI, Rust) - primary application
+  - `apps/cli` command-line interface
   - `crates/*` Rust media/recording/rendering/camera crates
   - `scripts/*` for development tooling
 
 ## Build, Test, Develop
 - Install: `pnpm install`
-- Dev: `pnpm dev` or `pnpm dev:desktop`
-- Build: `pnpm build` (Turbo)
-- Desktop release: `pnpm tauri:build`
-- Quality: `pnpm lint`, `pnpm format`, `pnpm typecheck`
+- Dev: `pnpm fe dev`
+- Check and test: `pnpm fe check`, `pnpm fe test --all`
+- Desktop release: `pnpm fe package`
+- Quality: `pnpm fe lint`, `pnpm format`
 - Rust: `cargo build -p <crate>`, `cargo test -p <crate>`, `cargo fmt`
 
 ## Coding Style & Naming
@@ -52,8 +52,7 @@ All Rust code must respect these workspace-level lints defined in `Cargo.toml`:
 - PRs: clear description, linked issues, screenshots/GIFs for UI, env/migration notes. Keep scope tight and update docs when behavior changes.
 
 ## Agent‑Specific Practices
-- Do not start extra servers; use `pnpm dev` or `pnpm dev:desktop`.
-- Never edit auto‑generated files: `**/tauri.ts`, `**/queries.ts`, `apps/desktop/src-tauri/gen/**`.
+- Do not start extra servers; use `pnpm fe dev`.
 - Prefer existing scripts and Turbo filters over ad‑hoc commands; clear `.turbo` only when necessary.
 - No database setup needed - SQLite is file-based and auto-initialized.
 - Windows note: desktop permissions (screen/mic) may be required depending on Windows settings.

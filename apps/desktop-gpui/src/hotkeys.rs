@@ -1,4 +1,4 @@
-//! Global hotkeys -- `apps/desktop/src-tauri/src/hotkeys.rs`, natively.
+//! Global hotkeys -- Tauri `src-tauri/src/hotkeys.rs`, natively.
 //!
 //! The Tauri app registers the store's bindings through
 //! `tauri_plugin_global_shortcut`, which wraps the `global-hotkey` crate;

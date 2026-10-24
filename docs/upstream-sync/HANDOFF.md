@@ -5,7 +5,7 @@ Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `
 ## Where things stand
 
 - `main` now holds FrameEver. On 2026-10-24 the work on `merge/upstream-0.6.1` landed on `main` as one commit whose parents are the previous `main` (Cap-aniBullet 2.2.5) and upstream Cap 0.6.1, so our intermediate commits are gone. Since ADR-0007 (2026-10-24) we no longer merge upstream: it is a read-only reference, and fixes worth having are ported by hand. The 2.2.2–2.2.5 recording fixes on the old `main` were re-judged first (`0.6.1.md`). The local branch `merge/upstream-0.6.1` keeps the full history and is not pushed.
-- Upstream CapSoftware/Cap 0.6.1 is merged. The product is the GPUI app `apps/desktop-gpui` (ADR-0001); `apps/desktop` (Tauri) is frozen and only kept for assets the GPUI app reads by relative path.
+- Upstream CapSoftware/Cap 0.6.1 is merged. The product is the GPUI app `apps/desktop-gpui` (ADR-0001); the Tauri app was deleted (AniBullet/FrameEver#2) and its assets moved into the GPUI app.
 - Hard line (ADR-0002): user content never leaves the machine. Allowed network: update checks and downloads from our GitHub Releases, Whisper/Parakeet model downloads, and links the user opens in their browser. AI-agent surfaces return metadata only.
 - Done:
   - Cloud strip of the GPUI app and CLI; local rewrites of the updater (own feed), `frameever update`, changelog, export logs, report-issue link, local MCP and agents config.
@@ -26,7 +26,7 @@ Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `
 
 - Everything goes through `pnpm fe <command>` (`scripts/fe.mjs`): `setup`, `doctor`, `dev [--watch] [--lang zh-CN]`, `logs`, `check`, `test [--all]`, `lint`, `fmt`, `export <codec>`, `package`, `release <version>`, `privacy` (also runs as the pre-push hook that `setup` installs). CI (`release.yml`) runs the same `setup` and `package`. Human guide: `BUILD.md`; agent guide for debugging and fixing: `docs/agents/debugging.md`.
 - The owner's machine has a Claude Desktop pane, "FrameEver 开发" (`.claude/skills/frameever-dev`, `/fe-dev`; local only, `.claude/` is gitignored), whose buttons call `pnpm fe`.
-- Both workspaces build with Rust stable (`rust-toolchain.toml`; the root was on 1.88 only for the frozen Tauri app and moved to stable on 2026-10-24 so dependencies can follow their latest releases). Version numbers: both Cargo manifests say `1.0.0-dev` (the first FrameEver release is 1.0.0, ADR-0007); CI stamps the tag's version.
+- Both workspaces build with Rust stable (`rust-toolchain.toml`; the root was on 1.88 only for the frozen Tauri app and moved to stable on 2026-10-24 so dependencies can follow their latest releases). Version numbers: the GPUI manifest is the version source and says `1.0.0-dev` (the first FrameEver release is 1.0.0, ADR-0007); CI stamps the tag's version.
 - Never screenshot the owner's screen; ask them to look instead.
 - Upstream `CapSoftware/Cap` is read-only: we merge from it and read it, and never push, open PRs or file issues there. The GitHub fork link was removed (2026-10-24), so PRs default to our repo. In this clone the `upstream` remote has a broken push URL and fetches no tags, and `gh repo set-default` is `AniBullet/FrameEver`; repeat that setup in any new clone (`docs/agents/issue-tracker.md`).
 

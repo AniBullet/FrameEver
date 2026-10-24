@@ -8,7 +8,7 @@
 //! windows ⌘W changes.
 //!
 //! The menu itself is [`build_menus`], a byte-for-byte transcription of
-//! `build_macos_app_menu` (`apps/desktop/src-tauri/src/lib.rs:479-566`). gpui
+//! `build_macos_app_menu` (Tauri `src-tauri/src/lib.rs:479-566`). gpui
 //! builds the real `NSMenu` from it and takes each item's key equivalent from
 //! the *keymap*, so an action with no `KeyBinding` renders without a shortcut
 //! and an action with no live handler renders disabled
@@ -230,7 +230,7 @@ fn with_key_native(cx: &mut App, action: fn(&platform::NativeWindow)) {
 /// The main window is the exception, and it is the whole reason this function
 /// exists: `CapWindowId::Main`'s `CloseRequested` arm calls
 /// `api.prevent_close()` and hides the window instead
-/// (`apps/desktop/src-tauri/src/lib.rs:5644-5697`).
+/// (Tauri `src-tauri/src/lib.rs:5644-5697`).
 pub fn close_key_window(cx: &mut App) {
     if let Some(handle) = cx.active_window() {
         close_window_by_handle(handle, cx);

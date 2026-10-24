@@ -106,7 +106,7 @@ pub const TRAFFIC_LIGHTS: Option<Point<Pixels>> = Some(point(px(20.), px(20.)));
 // ---------------------------------------------------------------------------
 
 /// `FPS = 60` (`routes/editor/context.ts:148`), mirrored in Rust as
-/// `EDITOR_PREVIEW_FPS` (`apps/desktop/src-tauri/src/lib.rs:146`). FPS is not
+/// `EDITOR_PREVIEW_FPS` (Tauri `src-tauri/src/lib.rs:146`). FPS is not
 /// a constant inside `cap-editor` -- it is a parameter on `start_playback` and
 /// on the `preview_tx` tuple, so the app owns it.
 pub const EDITOR_PREVIEW_FPS: u32 = 60;
@@ -6547,7 +6547,7 @@ impl EditorWindow {
             return Ok(());
         }
 
-        // `set_pretty_name` (`apps/desktop/src-tauri/src/lib.rs:3175-3179`):
+        // `set_pretty_name` (Tauri `src-tauri/src/lib.rs:3175-3179`):
         // load the meta, replace one field, save it back. It is
         // `recording-meta.json`, not `project-config.json`, so it goes nowhere
         // near the debounced project write or the undo history -- the Tauri

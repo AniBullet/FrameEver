@@ -3,8 +3,8 @@
 Cap's desktop app, rewritten in [gpui](https://www.gpui.rs/). No Tauri, no
 webview — the whole UI is drawn by gpui and every pixel is Rust.
 
-This is the app that ships as **Cap**, from 0.6.1 on. The Tauri app in
-`apps/desktop` last shipped in 0.6.0 and is kept only for the dev harness; see
+This is the app that ships as **Cap**, from 0.6.1 on. The Tauri app last
+shipped in 0.6.0 and has been deleted from this repository; see
 [Shipping and updates](#shipping-and-updates).
 
 The main recording window uses a fixed 330×432 layout with device controls
@@ -43,9 +43,7 @@ behind a plain-slice function and call that from the app.
 ./dev.sh
 ```
 
-`bun run dev:desktop` (from the repo root) starts this loop automatically next
-to the Tauri app, output prefixed `[gpui]`; set `CAP_GPUI_DEV=0` to opt out
-(`scripts/dev-desktop.mjs`).
+On Windows use `pnpm fe dev --watch` instead.
 
 Native Rust cannot hot-reload, so this is the Solid-dev-server feel rebuilt
 from its observable parts. The script watches the app's sources, the `cap-*`
@@ -223,12 +221,12 @@ Everything below is real, not mocked.
 
 ### Layout fidelity
 
-Metrics are transcribed from `apps/desktop`, not eyeballed, and the Tailwind
+Metrics are transcribed from the Tauri app, not eyeballed, and the Tailwind
 class each one came from is quoted in a comment next to it — `pl-3` and
 `gap-2.5` are much easier to check against the original than `12.` and `10.`.
 
 The colour tokens are the resolved Radix values **with the dark-mode overrides
-from `apps/desktop/src/styles/theme.css` applied**. Six of the dark grays and
+from Tauri `src/styles/theme.css` applied**. Six of the dark grays and
 `gray-11` are not stock Radix, so regenerating the palette from a Radix crate
 would quietly change the app's colours.
 
@@ -313,7 +311,7 @@ hand-rolling its own buttons, toggles, selects, sliders, menus and cards — the
 settings window had a `toggle()`, the teleprompter had a `tool_button()` and a
 `render_range()`, the main window had a search field, the editor had a tab rail
 — and the editor's own build-out would have added a seventh copy of each. The
-Tauri app does not work that way either: `packages/ui-solid/src/Button.tsx`,
+Tauri app does not work that way either: Tauri `ui-solid/src/Button.tsx`,
 `components/Toggle.tsx` and `routes/editor/ui.tsx` are imported by the editor,
 the settings pages, the teleprompter, the main window and the screenshot editor
 alike.
@@ -617,7 +615,7 @@ installs the same override on gpui's window classes.
 
 ## Parity roadmap
 
-Sizes are the Tauri app's, from `apps/desktop/src-tauri/src/windows.rs`.
+Sizes are the Tauri app's, from Tauri `src-tauri/src/windows.rs`.
 
 | Window | Size | Status |
 |---|---|---|
@@ -666,7 +664,7 @@ in its order — and nothing else, because the completion affordance is now
 Recents rather than a Finder reveal:
 
 - **`screenshots/display.jpg`.** `create_screenshot`
-  (`apps/desktop/src-tauri/src/lib.rs:2582-2655`) is ported into `library.rs`:
+  (Tauri `src-tauri/src/lib.rs:2582-2655`) is ported into `library.rs`:
   decode packets until the first video frame comes out, scale to RGB24 at the
   source's own size, save as JPEG. `cap-recording` does not write this file, so
   without it a project recorded here would show the icon fallback forever — in
@@ -678,7 +676,7 @@ Recents rather than a Finder reveal:
   segments, which is the same first frame with one fewer file.
 - **The camera blur bridge.** `project_config_from_recording` copies the live
   preview's blur toggle into the new project
-  (`apps/desktop/src-tauri/src/recording.rs:3889-3891`,
+  (Tauri `src-tauri/src/recording.rs:3889-3891`,
   `config.camera.background_blur = BackgroundBlurConfig { mode: ... }`); blur is
   never baked into the recorded camera track by either app, so this field is the
   only thing that makes a project *open* blurred. `cap-recording` writes
@@ -725,7 +723,7 @@ display track.
 The expanded window's carousel reads the same library the shipping app does,
 by doing the same work rather than by asking it. `library.rs` is
 `list_recordings` and `list_screenshots` transcribed
-(`apps/desktop/src-tauri/src/lib.rs:3974-4092`) plus the `recentMedia` query's
+(Tauri `src-tauri/src/lib.rs:3974-4092`) plus the `recentMedia` query's
 merge (`new-main/index.tsx:2217-2263`):
 
 - **Directories.** `known_recordings_dirs` — the active recordings folder,
@@ -1046,7 +1044,7 @@ Settings-specific deviations:
 | **Settings does not park the other windows** | `ShowCapWindow::Settings::show` also calls `hide_recording_windows` and `release_camera_preview_if_idle`, and its close calls `restore_camera_window`. Neither half is reproduced — the gear hides the main window and nothing else. |
 | **Several settings persist without a consumer** | `hideDockIcon`, `enableNotifications`, the countdown, the post-recording behaviours and the update channel write the same store keys as Tauri; the machinery that would obey them is not built yet. Theme is applied. |
 | **No confirm on the recordings folder move** | `pickRecordingsFolder` offers to migrate existing recordings afterwards; here the path is written and nothing is moved. |
-| **Version is this crate's** | The sidebar footer shows the crate version from `CARGO_PKG_VERSION` (kept in lockstep with the Tauri app by `scripts/sync-desktop-versions.mjs`), not `getVersion()`. "Check for updates" runs the native updater and shows its download progress in place. |
+| **Version is this crate's** | The sidebar footer shows the crate version from `CARGO_PKG_VERSION`, not `getVersion()`. "Check for updates" runs the native updater and shows its download progress in place. |
 
 ## Mode select
 
@@ -1148,7 +1146,7 @@ could have**:
   crate itself is still absent. It is a feature-unifier with no code.
 - **`cap-editor` is genuinely tauri-free.** The websocket, the `WSFrame`
   repacking and the `CommandArg` extraction all live in
-  `apps/desktop/src-tauri/src/editor_window.rs`, not in the crate. `axum` and
+  Tauri `src-tauri/src/editor_window.rs`, not in the crate. `axum` and
   `specta` are declared in `crates/editor/Cargo.toml` and referenced nowhere in
   `crates/editor/src/` — dead deps worth dropping upstream one day.
 
@@ -1429,7 +1427,7 @@ Editor-specific deviations:
 | | |
 |---|---|
 | **Most header buttons are inert; undo and redo are not** | Undo and Redo are live (see [Timeline editing](#timeline-editing)). Delete recording, Open recording bundle, Presets, Organization, Clips, Captions and Export still render at their real metrics in the `disabled:opacity-50` state; each needs a unit that does not exist — project deletion, the preset store, auth, the clips/transcript layout modes, export. |
-| **The name commits on blur, and Escape commits too** | `NameEditor` is real (see [Text input](#text-input)). Its commit is transcribed exactly from `Header.tsx:276-330`: Return *and* Escape both call `blur()`, and it is `onBlur` that writes — so **Escape commits rather than reverts here**, unlike every other field in the app, because that is what the shipping editor does. The 5–100 character guard is the source's, and a rejected name snaps back. The value is `recording-meta.json`'s `pretty_name`, written through `RecordingMeta::save_for_project` — `set_pretty_name`, `apps/desktop/src-tauri/src/lib.rs:3175-3179` — so it is **not** in the project undo history, which is `createStoreHistory` over the *project* store alone (`ED/context.ts:1920-1930`) in both apps. The measuring `<span>` is not needed: the field paints its own glyphs and sizes to them (`fit_content`), capped by the wrapper's `max-w-[200px]`. |
+| **The name commits on blur, and Escape commits too** | `NameEditor` is real (see [Text input](#text-input)). Its commit is transcribed exactly from `Header.tsx:276-330`: Return *and* Escape both call `blur()`, and it is `onBlur` that writes — so **Escape commits rather than reverts here**, unlike every other field in the app, because that is what the shipping editor does. The 5–100 character guard is the source's, and a rejected name snaps back. The value is `recording-meta.json`'s `pretty_name`, written through `RecordingMeta::save_for_project` — `set_pretty_name`, Tauri `src-tauri/src/lib.rs:3175-3179` — so it is **not** in the project undo history, which is `createStoreHistory` over the *project* store alone (`ED/context.ts:1920-1930`) in both apps. The measuring `<span>` is not needed: the field paints its own glyphs and sizes to them (`fit_content`), capped by the wrapper's `max-w-[200px]`. |
 | **The player toolbar is inert; the transport, the zoom controls and the scissors are not** | Prev / play-pause / next are live, and so are the zoom-out / zoom-in glyphs, the zoom slider and the split toggle (the scissors, which takes its `data-pressed:bg-red-300` state). Aspect ratio, Crop, Frame and Preview quality are still drawn at their real sizes and do nothing. |
 | **Playing state is set optimistically** | `handlePlayPauseClick` flips `editorState.playing` *after* awaiting the command; here the button and the icon change immediately and the driver applies the change a moment later. Same end state, no visible round trip. |
 | **Prev also seeks the engine** | The Tauri prev/next buttons only set `playbackTime`, leaving `state.playhead_position` stale until the next play's `seekTo`; here both go through the same seek path, which additionally emits the state change. Invisible either way — every play seeks first — and it keeps one code path for "the playhead moved". |
@@ -1554,7 +1552,7 @@ speed chip at a `timescale != 1`, and the text track's fullscreen glyph tier
 (the fullscreen fixture's segments were all wider than the glyph threshold).
 
 Colours are the nine `--track-*` custom properties, which have **one definition
-each** rather than per-appearance values (`apps/desktop/src/styles/theme.css:24-34`),
+each** rather than per-appearance values (Tauri `src/styles/theme.css:24-34`),
 so they are literal in both themes; `--track-audio` is `var(--jade-9)`, which
 Radix keeps at `#29a383` in light and dark alike. The fill rule is
 `background: var(--seg-color); border: 1px solid color-mix(in srgb,
@@ -1604,7 +1602,7 @@ drops to the baseline.
 
 **`border-green-7` (a selected caption) and `border-sky-7` (a selected keyboard
 segment) are dead classes in the shipping app.** `theme.css` imports Radix
-red/gray/blue/indigo/yellow/jade only, and `packages/ui-solid/src/main.css` maps
+red/gray/blue/indigo/yellow/jade only, and Tauri `ui-solid/src/main.css` maps
 `--color-emerald-*` onto jade and `--color-blue-*` onto blue but declares no
 `--color-green-*` or `--color-sky-*`, so Tailwind v4 generates no rule for
 either. **Selecting a caption or keyboard segment changes nothing on screen

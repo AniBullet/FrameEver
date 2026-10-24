@@ -177,7 +177,7 @@ pub const MINIMAP_MAX_WIDTH: f32 = 78.;
 /// The single source of truth for track colour is eleven CSS custom properties
 /// with one definition each -- not per-appearance values -- so they are literal
 /// in both themes exactly as they are there
-/// (`apps/desktop/src/styles/theme.css`).
+/// (Tauri `src/styles/theme.css`).
 pub mod track_color {
     pub const CLIP: u32 = 0x3b82f6;
     pub const ZOOM: u32 = 0x64748b;

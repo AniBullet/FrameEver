@@ -50,12 +50,9 @@ pnpm fe package   # 打包安装程序
 
 ```
 FrameEver/
-├── apps/desktop/           # Tauri v2 桌面应用
-│   ├── src/                # SolidJS 前端（录制 UI、编辑器、设置）
-│   └── src-tauri/          # Rust 后端（窗口管理、录制控制）
-├── packages/
-│   ├── ui-solid/           # SolidJS 共享组件库
-│   └── utils/              # 共享工具 / 类型 / 常量
+├── apps/
+│   ├── desktop-gpui/       # GPUI 桌面应用（录制、编辑器、设置）
+│   └── cli/                # 命令行工具
 ├── crates/
 │   ├── recording/          # 核心录制管线
 │   ├── rendering/          # 视频渲染 & 特效
@@ -68,11 +65,11 @@ FrameEver/
 ### 常用命令
 
 ```bash
-pnpm dev              # 启动开发服务器
-pnpm build            # 构建所有包（Turbo）
-pnpm lint             # Biome 代码检查
-pnpm format           # Biome 格式化
-pnpm typecheck        # TypeScript 类型检查
+pnpm fe dev          # 编译并运行应用
+pnpm fe check        # 编译检查应用和 CLI
+pnpm fe test --all   # 运行测试
+pnpm fe lint         # 格式检查、clippy 和翻译检查
+pnpm format          # Biome 格式化
 cargo fmt             # Rust 格式化
 cargo test -p <crate> # 运行指定 crate 测试
 ```
@@ -145,7 +142,6 @@ chore: v2.2.0 - 清理上游残留云端/认证代码
 
 - ❌ 引入云端依赖或需要联网的功能
 - ❌ 添加用户账号 / 认证 / 付费相关代码
-- ❌ 编辑自动生成文件（`**/tauri.ts`、`**/queries.ts`、`apps/desktop/src-tauri/gen/**`）
 - ❌ 在代码中添加注释（`//`、`/* */`、`///` 等）
 - ❌ 使用 `dbg!()` 宏
 

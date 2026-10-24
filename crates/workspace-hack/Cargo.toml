@@ -61,7 +61,6 @@ simd-adler32 = { version = "0.3" }
 smol_str = { version = "0.2" }
 specta = { version = "2.0.0-rc.20", features = ["chrono", "derive", "function", "serde_json", "uuid"] }
 stable_deref_trait = { version = "1" }
-tauri-utils = { version = "2", default-features = false, features = ["build", "compression", "resources"] }
 thiserror = { version = "2" }
 time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
 toml_datetime = { version = "0.7", features = ["serde"] }
@@ -99,7 +98,6 @@ serde_core = { version = "1", features = ["alloc", "rc"] }
 simd-adler32 = { version = "0.3" }
 specta-macros = { version = "2.0.0-rc.17", features = ["DO_NOT_USE_function"] }
 stable_deref_trait = { version = "1" }
-tauri-utils = { version = "2", default-features = false, features = ["build", "compression", "resources"] }
 thiserror = { version = "2" }
 toml_datetime = { version = "0.7", features = ["serde"] }
 toml_parser = { version = "1" }

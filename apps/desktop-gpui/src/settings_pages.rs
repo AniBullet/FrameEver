@@ -4,7 +4,7 @@
 //! stays readable. Every renderer here is an `impl SettingsWindow` extension.
 //!
 //! Transcribed from the routes under
-//! `apps/desktop/src/routes/(window-chrome)/settings/`, with every store key
+//! Tauri `src/routes/(window-chrome)/settings/`, with every store key
 //! and HTTP endpoint spelled exactly the way the Tauri app spells it so the
 //! two apps keep reading each other's state. Web calls run on the gpui_tokio
 //! runtime (reqwest needs tokio); persistence goes through [`crate::store`].

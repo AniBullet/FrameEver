@@ -1,5 +1,5 @@
 //! `CircularProgress` -- one component for the three the Solid app draws:
-//! `packages/ui-solid/src/ProgressCircle.tsx` (the "correct" one nothing uses),
+//! Tauri `ui-solid/src/ProgressCircle.tsx` (the "correct" one nothing uses),
 //! `ExportPage.tsx`'s local `ProgressRing` (which adds an indeterminate mode)
 //! and `ImportProgress.tsx`'s third inline SVG.
 //!

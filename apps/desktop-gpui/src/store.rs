@@ -8,7 +8,7 @@
 //!   open; writes are whole-file rewrites on a background thread -- the state
 //!   is a handful of scalars, atomicity beyond rename is not worth plumbing.
 //! - `store` -- the tauri-plugin-store file the shipping app loads
-//!   (`Store.load("store")` in `apps/desktop/src/store.ts`), holding
+//!   (`Store.load("store")` in Tauri `src/store.ts`), holding
 //!   `general_settings`, `recording_start_safety`, `auth`, `presets` and the
 //!   rest. Both apps read and write it, so every write here is a
 //!   read-modify-write on the raw JSON that touches exactly one key: see
@@ -673,7 +673,7 @@ fn enum_at<T: SettingsEnum>(map: &Map<String, Value>, key: &str) -> T {
 
 /// A string-valued setting with a fixed option list -- the shape every
 /// `#[serde(rename_all = "camelCase")]` enum in
-/// `apps/desktop/src-tauri/src/general_settings.rs` serializes to.
+/// Tauri `src-tauri/src/general_settings.rs` serializes to.
 pub trait SettingsEnum: Sized + Default + Copy + PartialEq + 'static {
     const ALL: &'static [Self];
     fn from_json(value: &str) -> Option<Self>;
@@ -1023,7 +1023,7 @@ pub struct GeneralSettings {
 /// The section names, so the write calls read as the store keys they are.
 pub const GENERAL_SETTINGS: &str = "general_settings";
 pub const RECORDING_START_SAFETY: &str = "recording_start_safety";
-/// `audioEnhancementStore` (`apps/desktop/src/store.ts`): whether new Studio
+/// `audioEnhancementStore` (Tauri `src/store.ts`): whether new Studio
 /// recordings start with Studio Sound on. Defaults on; the editor's Audio tab
 /// and the Recording settings card both write it.
 pub const AUDIO_ENHANCEMENT: &str = "audio_enhancement";
@@ -1373,7 +1373,7 @@ impl GeneralSettings {
 
 /// `teleprompterStore`'s key in the shared store file:
 /// `declareStore<TeleprompterStore>("teleprompter")` in
-/// `apps/desktop/src/store.ts`. A top-level section of its own, like
+/// Tauri `src/store.ts`. A top-level section of its own, like
 /// `general_settings`, not a key inside one.
 pub const TELEPROMPTER: &str = "teleprompter";
 
@@ -1459,7 +1459,7 @@ impl Default for TeleprompterState {
 // -- The hotkeys section ------------------------------------------------------
 
 /// `hotkeysStore`'s key: `declareStore<HotkeysStore>("hotkeys")` in
-/// `apps/desktop/src/store.ts`. The section is `{ "hotkeys": { action: Hotkey } }`.
+/// Tauri `src/store.ts`. The section is `{ "hotkeys": { action: Hotkey } }`.
 pub const HOTKEYS: &str = "hotkeys";
 
 /// `Hotkey` (`src-tauri/src/hotkeys.rs:22-29`). `code` is a W3C
@@ -1498,7 +1498,7 @@ pub fn hotkey_from_value(value: &Value) -> Option<Hotkey> {
 
 // -- Transcription hints --------------------------------------------------------
 
-/// `DEFAULT_TRANSCRIPTION_HINTS` (`apps/desktop/src/utils/general-settings.ts`).
+/// `DEFAULT_TRANSCRIPTION_HINTS` (Tauri `src/utils/general-settings.ts`).
 pub const DEFAULT_TRANSCRIPTION_HINTS: &[&str] =
     &["FrameEver", "TypeScript", "My Brand Name", "mywebsite.com"];
 

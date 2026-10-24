@@ -1,7 +1,7 @@
 //! The shared component library.
 //!
 //! Every window in this app was hand-rolling its own buttons, toggles, selects,
-//! sliders and cards. The Tauri app does not: `packages/ui-solid/src/Button.tsx`,
+//! sliders and cards. The Tauri app does not: Tauri `ui-solid/src/Button.tsx`,
 //! `components/Toggle.tsx` and `routes/editor/ui.tsx` are imported by the
 //! editor, the settings pages, the teleprompter, the main window and the
 //! screenshot editor alike. This module is that set, transcribed once.

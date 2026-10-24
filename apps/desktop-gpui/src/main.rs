@@ -95,7 +95,7 @@ const MAIN_WINDOW_HEIGHT: f32 = 435.;
 
 /// The corner radius the native material is clipped to. `radius = 16` for
 /// material `"panel"` on both visual systems in
-/// `apps/desktop/src/utils/macos-window-material.ts`, and the same 16 the
+/// Tauri `src/utils/macos-window-material.ts`, and the same 16 the
 /// shell paints with (`rounded-[16px]`).
 #[cfg(target_os = "macos")]
 const MAIN_WINDOW_MATERIAL_RADIUS: f64 = 16.;

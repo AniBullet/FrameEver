@@ -27,12 +27,12 @@ impl AppSound {
     fn bytes(self) -> &'static [u8] {
         match self {
             Self::StartRecording => {
-                include_bytes!("../../desktop/src-tauri/sounds/start-recording.ogg")
+                include_bytes!("../assets/sounds/start-recording.ogg")
             }
             Self::StopRecording => {
-                include_bytes!("../../desktop/src-tauri/sounds/stop-recording.ogg")
+                include_bytes!("../assets/sounds/stop-recording.ogg")
             }
-            Self::Notification => include_bytes!("../../desktop/src-tauri/sounds/action.ogg"),
+            Self::Notification => include_bytes!("../assets/sounds/action.ogg"),
         }
     }
 

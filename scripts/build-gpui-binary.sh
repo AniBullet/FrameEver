@@ -6,7 +6,7 @@ requested_target="${2:-${RUST_TARGET_TRIPLE:-}}"
 toolchain="${CAP_GPUI_RUST_TOOLCHAIN:-1.95.0}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gpui_dir="$repo_root/apps/desktop-gpui"
-binaries_dir="$repo_root/apps/desktop/src-tauri/binaries"
+binaries_dir="$gpui_dir/binaries"
 
 case "$profile" in
 	debug)
@@ -35,16 +35,10 @@ else
 fi
 
 extension=""
-if [[ "$target" == *-apple-darwin ]]; then
-	MACOSX_DEPLOYMENT_TARGET="$(node "$repo_root/scripts/build-macos-packages.mjs" --deployment-target)"
-	export MACOSX_DEPLOYMENT_TARGET
-fi
-
 if [[ "$target" == *windows* ]]; then
 	extension=".exe"
 fi
 
-node "$repo_root/scripts/sync-desktop-versions.mjs"
 "$repo_root/scripts/prepare-gpui-dependency.sh"
 
 (

@@ -1,7 +1,7 @@
 //! Live thumbnails for the display and window pickers.
 //!
 //! A port of the Tauri app's `thumbnails` module
-//! (`apps/desktop/src-tauri/src/thumbnails/{mod,mac}.rs`) plus the refresh
+//! (Tauri `src-tauri/src/thumbnails/{mod,mac}.rs`) plus the refresh
 //! policy the frontend wraps around it (`utils/queries.ts:29-77` and
 //! `routes/(window-chrome)/new-main/index.tsx`).
 //!

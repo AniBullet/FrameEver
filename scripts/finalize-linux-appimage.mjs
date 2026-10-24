@@ -24,8 +24,8 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const desktopDirectory = fileURLToPath(
-	new URL("../apps/desktop/", import.meta.url),
+const tauriCliDirectory = fileURLToPath(
+	new URL("../apps/desktop-gpui/", import.meta.url),
 );
 
 const upstreamGtkBackendAssignment =
@@ -429,7 +429,7 @@ export async function signUpdaterArtifact(
 	{ env = process.env, run = runCommand } = {},
 ) {
 	await run("bun", ["run", "tauri", "signer", "sign", filename], {
-		cwd: desktopDirectory,
+		cwd: tauriCliDirectory,
 		env: {
 			...env,
 			TAURI_PRIVATE_KEY: env.TAURI_SIGNING_PRIVATE_KEY,

@@ -1,6 +1,6 @@
 //! Recording, through the same engine the Tauri app drives.
 //!
-//! The construction here mirrors `apps/desktop/src-tauri/src/recording.rs`
+//! The construction here mirrors Tauri `src-tauri/src/recording.rs`
 //! (`start_recording`): spawn the feed actors, lock the selected devices,
 //! acquire ScreenCaptureKit shareable content, then hand everything to the
 //! studio/instant actor builder from `cap-recording`. Everything in this module
@@ -1390,7 +1390,7 @@ pub fn recover_instant_recording(project_path: &std::path::Path) -> anyhow::Resu
 
 /// The first segment's display track, which is what
 /// `handle_recording_finish` hands `create_screenshot`
-/// (`apps/desktop/src-tauri/src/recording.rs:3415-3429`).
+/// (Tauri `src-tauri/src/recording.rs:3415-3429`).
 ///
 /// Read back off disk rather than from the handle's `CompletedRecording`,
 /// because the remux is what decides where that track lives: until
@@ -1617,7 +1617,7 @@ fn apply_initial_animated_gradient(
 
 /// Copy the camera preview's blur toggle into the finished project's
 /// configuration -- the bridge at
-/// `apps/desktop/src-tauri/src/recording.rs:3889-3891`:
+/// Tauri `src-tauri/src/recording.rs:3889-3891`:
 ///
 /// ```text
 /// config.camera.background_blur = cap_project::BackgroundBlurConfig {

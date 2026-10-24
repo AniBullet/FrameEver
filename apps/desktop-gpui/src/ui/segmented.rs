@@ -3,7 +3,7 @@
 //!
 //! | idiom | where | shape |
 //! |---|---|---|
-//! | sliding pill | `packages/ui-solid/src/SwitchTab.tsx` | bordered strip, `KTabs.Indicator` slides a `bg-gray-1` pill |
+//! | sliding pill | Tauri `ui-solid/src/SwitchTab.tsx` | bordered strip, `KTabs.Indicator` slides a `bg-gray-1` pill |
 //! | tab rail | `ConfigSidebar.tsx`, `FrameButton.tsx` | icon triggers, `size-9` indicator box |
 //! | flat pills | `ExportPage.tsx` | loose `gap-1.5` buttons, selected `bg-gray-3 border-gray-5` |
 //! | icon grid | `ConfigSidebar.tsx` text-align | `grid-cols-3` cells in a bordered box, selected `bg-gray-5` |

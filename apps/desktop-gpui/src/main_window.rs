@@ -1,7 +1,7 @@
 //! The main recording window.
 //!
 //! Every metric here is transcribed from the Tauri implementation
-//! (`apps/desktop/src/routes/(window-chrome)/new-main/index.tsx` and its
+//! (Tauri `src/routes/(window-chrome)/new-main/index.tsx` and its
 //! siblings) so the two windows are pixel-comparable. Tailwind classes are
 //! quoted next to the values they turn into, because `pl-3` and `gap-2.5` are
 //! considerably easier to check against the original than `12.` and `10.`.
