@@ -53,7 +53,22 @@ fn caption_token_attaches_to_previous(text: &str) -> bool {
         .is_some_and(caption_char_attaches_to_previous)
 }
 
-fn caption_text_from_words<'a>(words: impl IntoIterator<Item = &'a CaptionWord>) -> String {
+pub fn is_cjk(value: char) -> bool {
+    matches!(
+        value,
+        '\u{3040}'..='\u{30ff}'
+            | '\u{3400}'..='\u{4dbf}'
+            | '\u{4e00}'..='\u{9fff}'
+            | '\u{ac00}'..='\u{d7af}'
+            | '\u{f900}'..='\u{faff}'
+    )
+}
+
+fn is_cjk_punctuation(value: char) -> bool {
+    matches!(value, '\u{3000}'..='\u{303f}' | '\u{ff01}'..='\u{ff0f}' | '\u{ff1a}'..='\u{ff20}')
+}
+
+pub fn caption_text_from_words<'a>(words: impl IntoIterator<Item = &'a CaptionWord>) -> String {
     let mut text = String::new();
 
     for word in words {
@@ -62,7 +77,12 @@ fn caption_text_from_words<'a>(words: impl IntoIterator<Item = &'a CaptionWord>)
             continue;
         }
 
-        if !text.is_empty() && !caption_token_attaches_to_previous(word_text) {
+        let joins_without_space = text.ends_with(is_cjk_punctuation)
+            || (text.ends_with(is_cjk) && word_text.starts_with(is_cjk));
+        if !text.is_empty()
+            && !joins_without_space
+            && !caption_token_attaches_to_previous(word_text)
+        {
             text.push(' ');
         }
         text.push_str(word_text);
@@ -438,6 +458,33 @@ mod tests {
             captions: Some(CaptionsData { source_timed, segments:vec![CaptionSegment { id:"spoken".into(),start,end,text:"hello".into(),words:vec![CaptionWord { text:"hello".into(),start,end }] }], ..Default::default() }),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn chinese_caption_text_has_no_spaces_between_words() {
+        let words: Vec<CaptionWord> = [
+            "大家",
+            "好，",
+            "欢迎",
+            "使用",
+            "FrameEver",
+            "和",
+            "Whisper",
+            "model。",
+            "谢谢",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(index, text)| CaptionWord {
+            text: text.to_string(),
+            start: index as f32,
+            end: index as f32 + 0.5,
+        })
+        .collect();
+        assert_eq!(
+            caption_text_from_words(&words),
+            "大家好，欢迎使用 FrameEver 和 Whisper model。谢谢"
+        );
     }
 
     #[test]
