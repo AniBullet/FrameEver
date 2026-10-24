@@ -14,7 +14,10 @@ use tracing::{debug, error, trace, warn};
 use crate::base::EncoderBase;
 
 const HVC1_TAG: u32 = u32::from_le_bytes(*b"hvc1");
-const QUALITY_MODE_AV1_ENCODER: &str = "libsvtav1";
+const SOFTWARE_HEVC_REFERENCE_BPP: f32 = 0.18;
+const SOFTWARE_HEVC_REFERENCE_CRF: f32 = 16.0;
+const SOFTWARE_HEVC_CRF_STEP_PER_HALVING: f32 = 4.0;
+const SVT_AV1_CRF: u8 = 30;
 
 fn is_420(format: ffmpeg::format::Pixel) -> bool {
     format
@@ -165,7 +168,7 @@ impl HevcEncoderBuilder {
     #[allow(clippy::too_many_arguments)]
     fn build_with_codec(
         codec: Codec,
-        encoder_options: Dictionary<'static>,
+        mut encoder_options: Dictionary<'static>,
         input_config: &VideoInfo,
         output: &mut format::context::Output,
         output_width: u32,
@@ -291,16 +294,18 @@ impl HevcEncoderBuilder {
                 ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT709;
         }
 
-        let bitrate = get_bitrate(
+        match rate_control(
+            codec.name(),
             output_width,
             output_height,
             input_config.frame_rate.0 as f32 / input_config.frame_rate.1.max(1) as f32,
             bpp,
-        );
-
-        if codec.name() != QUALITY_MODE_AV1_ENCODER {
-            encoder.set_bit_rate(bitrate);
-            encoder.set_max_bit_rate(bitrate);
+        ) {
+            RateControl::Bitrate(bitrate) => {
+                encoder.set_bit_rate(bitrate);
+                encoder.set_max_bit_rate(bitrate);
+            }
+            RateControl::Crf(crf) => encoder_options.set("crf", &crf.to_string()),
         }
 
         let encoder = encoder.open_with(encoder_options)?;
@@ -645,7 +650,6 @@ fn get_codec_and_options(
                         HevcPreset::Ultrafast => "12",
                     },
                 );
-                options.set("crf", "30");
                 options.set("g", &keyframe_interval_str);
             }
             _ => {}
@@ -655,6 +659,33 @@ fn get_codec_and_options(
     }
 
     encoders
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RateControl {
+    Bitrate(usize),
+    Crf(u8),
+}
+
+fn rate_control(
+    codec_name: &str,
+    width: u32,
+    height: u32,
+    frame_rate: f32,
+    bpp: f32,
+) -> RateControl {
+    match codec_name {
+        "libx265" => RateControl::Crf(software_hevc_crf(bpp)),
+        "libsvtav1" => RateControl::Crf(SVT_AV1_CRF),
+        _ => RateControl::Bitrate(get_bitrate(width, height, frame_rate, bpp)),
+    }
+}
+
+fn software_hevc_crf(bpp: f32) -> u8 {
+    let halvings = (SOFTWARE_HEVC_REFERENCE_BPP / bpp.max(f32::EPSILON)).log2();
+    (SOFTWARE_HEVC_REFERENCE_CRF + SOFTWARE_HEVC_CRF_STEP_PER_HALVING * halvings)
+        .round()
+        .clamp(0.0, 51.0) as u8
 }
 
 fn get_bitrate(width: u32, height: u32, frame_rate: f32, bpp: f32) -> usize {
@@ -686,5 +717,36 @@ mod encoder_selection_tests {
     #[test]
     fn forced_software_av1_uses_only_svt_av1() {
         assert_eq!(candidate_names(CodecFamily::Av1, true), ["libsvtav1"]);
+    }
+
+    fn software_hevc_rate_control(bpp: f32) -> RateControl {
+        rate_control("libx265", 1920, 1080, 60.0, bpp)
+    }
+
+    #[test]
+    fn software_hevc_uses_crf_instead_of_a_bitrate_target() {
+        assert!(matches!(
+            software_hevc_rate_control(0.18),
+            RateControl::Crf(_)
+        ));
+    }
+
+    #[test]
+    fn software_hevc_crf_rises_as_requested_quality_falls() {
+        let RateControl::Crf(maximum) = software_hevc_rate_control(0.18) else {
+            panic!("expected CRF");
+        };
+        let RateControl::Crf(compression) = software_hevc_rate_control(0.06) else {
+            panic!("expected CRF");
+        };
+        assert!(compression > maximum);
+    }
+
+    #[test]
+    fn hardware_hevc_keeps_the_bitrate_target() {
+        assert!(matches!(
+            rate_control("hevc_nvenc", 1920, 1080, 60.0, 0.18),
+            RateControl::Bitrate(_)
+        ));
     }
 }
