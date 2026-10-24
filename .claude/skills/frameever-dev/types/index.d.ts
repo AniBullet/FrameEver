@@ -7,11 +7,14 @@ export type JobState = {
   lines: string[]
 }
 
+export type AppLanguage = 'zh-CN' | 'en'
+
 declare module 'claude-code' {
   interface PluginState {
     'frameever-dev': {
       jobs: Record<string, JobState>
       selected: string | null
+      language: AppLanguage
     }
   }
 }
