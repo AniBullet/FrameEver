@@ -1,58 +1,88 @@
-# Handoff: FrameEver migration (state at 2026-10-24)
+# Handoff: FrameEver (state at 2026-10-25)
 
-Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `docs/upstream-sync/0.6.1.md` (full log, per-fix verdicts, removed-feature audit, roadmap, upstream watch list), `docs/adr/0001`–`0007` and `docs/i18n.md`.
+Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `docs/upstream-sync/0.6.1.md` (full log, per-fix verdicts, removed-feature audit, roadmap, upstream watch list), `docs/adr/0001`–`0007` and `docs/i18n.md`. Work continues in Claude Code (Claude Desktop) and, when its quota runs out, in Cursor; both read this file.
 
 ## Where things stand
 
-- `main` now holds FrameEver. On 2026-10-24 the work on `merge/upstream-0.6.1` landed on `main` as one commit whose parents are the previous `main` (Cap-aniBullet 2.2.5) and upstream Cap 0.6.1, so our intermediate commits are gone. Since ADR-0007 (2026-10-24) we no longer merge upstream: it is a read-only reference, and fixes worth having are ported by hand. The 2.2.2–2.2.5 recording fixes on the old `main` were re-judged first (`0.6.1.md`). The local branch `merge/upstream-0.6.1` keeps the full history and is not pushed.
-- Upstream CapSoftware/Cap 0.6.1 is merged. The product is the GPUI app `apps/desktop-gpui` (ADR-0001); the Tauri app was deleted (AniBullet/FrameEver#2) and its assets moved into the GPUI app.
+- `main` holds FrameEver. On 2026-10-24 the merge with upstream Cap 0.6.1 landed on `main` as one commit (parents: Cap-aniBullet 2.2.5 and upstream 0.6.1); the local branch `merge/upstream-0.6.1` keeps the full history and is not pushed. Since ADR-0007 upstream is a read-only reference: we never merge it again and port fixes by hand.
+- The product is the GPUI app `apps/desktop-gpui` (ADR-0001) plus the CLI `apps/cli`. The Tauri app and `packages/ui-solid` were deleted on 2026-10-25 (AniBullet/FrameEver#2); their assets now live in the GPUI app, and packaging reads the GPUI manifest for the version.
 - Hard line (ADR-0002): user content never leaves the machine. Allowed network: update checks and downloads from our GitHub Releases, Whisper/Parakeet model downloads, and links the user opens in their browser. AI-agent surfaces return metadata only.
-- Done:
+- Done before this batch:
   - Cloud strip of the GPUI app and CLI; local rewrites of the updater (own feed), `frameever update`, changelog, export logs, report-issue link, local MCP and agents config.
   - Release pipeline (`.github/workflows/release.yml`) and updater signing key (public key id `7A6F5207B3A2600B`; secrets and variable are on GitHub; the owner holds the backup).
-  - Branding as FrameEver · 帧刻 (ADR-0005, constants in `crates/utils/src/brand.rs`), with a one-time import of Cap-aniBullet 2.x settings. Verified by running the debug build against a fake 2.x store.
+  - Branding as FrameEver · 帧刻 (ADR-0005, constants in `crates/utils/src/brand.rs`). The app still imports Cap-aniBullet 2.x settings once on first launch; ADR-0006 moves that into FrameEver Converter (ticket AniBullet/FrameEver#9 removes it from the app).
   - Welcome page redesigned to match the dark, hand-drawn onboarding steps.
   - English and Simplified Chinese UI (`docs/i18n.md`): ~1,700 strings, a language option in Settings → General, and tests that keep the tables complete.
-  - HEVC and AV1 export (editor export panel and `frameever export --codec`). Measured on one 1080p60 clip: H.264 9.2 MB, HEVC 3.5 MB, AV1 2.4 MB, all SSIM ≈ 0.997 against H.264. Software encoders (`CAP_EXPORT_FORCE_SOFTWARE_ENCODER=1`): libx265 6.2 MB / 0.9988, SVT-AV1 0.6 MB / 0.9965.
-  - Compression and version management for Instant recordings (Settings → Recordings): compress to an HEVC copy, switch between original and compressed, delete either, plus "compress instant recordings automatically" and "then keep only the compressed version" (same store keys as 2.x). Clear error dialogs when a file is in use.
-  - Brand: core colour Klein blue `#1F3FD8` (owner pick, 2026-10-24). Icon is a Klein blue plate with cream and sky-blue timeline clips and an iOS-style record button (white ring, navy gap, red dot). All brand assets come from `packaging/brand/render_brand.py`; 16/20/24 px are drawn pixel by pixel; taskbar, title bar and tray load exact frames from `icon.ico`. Installer sidebar is light with left-aligned type at 2×. Palette, method and pitfalls: `docs/brand/app-icon.md`. Owner confirmed taskbar and tray are crisp.
-  - UI fonts: Inter for English, MiSans for Chinese, chosen by language (`theme::ui_font()`, details in `docs/i18n.md`). MiSans is fetched by `pnpm fe setup` and never committed (its license forbids redistributing the files); the settings sidebar credits it. Installer adds about 18 MB.
-  - Text sharpness on Windows: settings and welcome windows are opaque there, so text uses ClearType like the main window. The Chinese installer uses Microsoft YaHei UI instead of NSIS's default 新宋体.
-  - Proper nouns stay English in the Chinese UI (CLI etc.); the CLI page explains it in one line. The CLI PATH hint now names the real command, `frameever`.
-  - Automations: upload, webhook and "organization is" items in old rules show a "removed" notice; their cloud fields are gone; rule data is kept.
-- All GPUI tests pass (1059); `scripts/fe.test.mjs` passes (8); root crates touched (enc-ffmpeg, export, cli) pass their tests and clippy.
-
-## Environment
-
-- Everything goes through `pnpm fe <command>` (`scripts/fe.mjs`): `setup`, `doctor`, `dev [--watch] [--lang zh-CN]`, `logs`, `check`, `test [--all]`, `lint`, `fmt`, `export <codec>`, `package`, `release <version>`, `privacy` (also runs as the pre-push hook that `setup` installs). CI (`release.yml`) runs the same `setup` and `package`. Human guide: `BUILD.md`; agent guide for debugging and fixing: `docs/agents/debugging.md`.
-- The owner's machine has a Claude Desktop pane, "FrameEver 开发" (`.claude/skills/frameever-dev`, `/fe-dev`; local only, `.claude/` is gitignored), whose buttons call `pnpm fe`.
-- Both workspaces build with Rust stable (`rust-toolchain.toml`; the root was on 1.88 only for the frozen Tauri app and moved to stable on 2026-10-24 so dependencies can follow their latest releases). Version numbers: the GPUI manifest is the version source and says `1.0.0-dev` (the first FrameEver release is 1.0.0, ADR-0007); CI stamps the tag's version.
-- Never screenshot the owner's screen; ask them to look instead.
-- Upstream `CapSoftware/Cap` is read-only: we merge from it and read it, and never push, open PRs or file issues there. The GitHub fork link was removed (2026-10-24), so PRs default to our repo. In this clone the `upstream` remote has a broken push URL and fetches no tags, and `gh repo set-default` is `AniBullet/FrameEver`; repeat that setup in any new clone (`docs/agents/issue-tracker.md`).
+  - HEVC and AV1 export (editor export panel and `frameever export --codec`).
+  - Compression and version management for Instant recordings (Settings → Recordings), including automatic compression.
+  - Brand: core colour Klein blue `#1F3FD8`; icon and installer art from `packaging/brand/render_brand.py` (`docs/brand/app-icon.md`).
+  - UI fonts: Inter for English, MiSans for Chinese (`theme::ui_font()`, `docs/i18n.md`). MiSans is fetched by `pnpm fe setup` and never committed.
+  - Dependency upgrades to current stable majors (2026-10-24); what is held back and why is under Phase 4 in `0.6.1.md`.
+  - `pnpm fe privacy` and the pre-push hook (see Environment).
+  - First release number set to 1.0.0 (ADR-0007); `CHANGELOG.md` has an unreleased `[1.0.0]` section.
+- Done in the 2026-10-25 batch (all squash-merged into `main`):
+  - AniBullet/FrameEver#33 (closes #32): Lucide (ISC/MIT) and Phosphor (MIT) icon licence notices beside the icons, in the installer and in Settings credits; 15 unused SVGs deleted; a test fails on any unreferenced icon. The installer was not rebuilt to look at the notice.
+  - AniBullet/FrameEver#34 (closes #20): `CAP_EXPORT_FORCE_SOFTWARE_ENCODER=1` forces libx265 and SVT-AV1 for HEVC/AV1 export and compression; measurements in `0.6.1.md`.
+  - AniBullet/FrameEver#36 (closes #35): software HEVC uses CRF derived from bits per pixel instead of the NVENC bitrate; the test clip went from 6.2 MB to 0.75 MB at SSIM 0.9963.
+  - AniBullet/FrameEver#37 (closes #18): Windows notifications when automatic compression succeeds or fails (log and folder buttons on failure). Not yet clicked through with a real Instant recording.
+  - AniBullet/FrameEver#38 (closes #21): Chinese captions route to Whisper (Parakeet has no CJK vocabulary), split UTF-8 tokens are rebuilt, no spaces between CJK characters, full-width punctuation, a Simplified Chinese prompt. The long-trim crash did not reproduce.
+  - AniBullet/FrameEver#39 (closes #2): Tauri app deleted. Sounds, music and backgrounds were not checked by hand in a running dev build.
+- Tests: each PR's session reported its own branch green (GPUI tests 1070 on the last one, plus `test --all` and `lint`); the suite has not been re-run on `main` after all six merges, so run `pnpm fe test --all` first.
 
 ## What is left
 
-The open issues on `AniBullet/FrameEver` are the one list (`gh issue list`); native blocking links give the order. On 2026-10-24 the owner went through the old backlog item by item (grilling) and chose an independent, legacy-free product:
+The open issues on `AniBullet/FrameEver` are the one list (`gh issue list`); native blocking links give the order (`gh api repos/AniBullet/FrameEver/issues/<n>/dependencies/blocked_by`).
 
-- ADR-0006: one visible storage folder (`Videos\FrameEver` with `Recordings`, `Screenshots`, `Exports`), projects named `.ever` with a format version, export paths recorded per project, no database; the app holds no code for Cap-aniBullet 2.x or `.cap` data. Older data comes in through FrameEver Converter, a separate download.
-- ADR-0007: upstream is a reference, not a merge baseline (supersedes ADR-0003). Internal names are renamed to `frameever-*` / `FRAMEEVER_*`, and macOS/Linux code is removed, before the first release.
-- Order before 1.0.0: delete the Tauri app → remove macOS/Linux crates and code paths → rename crates and environment variables → docs rewrite; storage work from the spec AniBullet/FrameEver#1 (its sub-issues) → FrameEver Converter → first release (owner). The UI redesign also ships in 1.0.0, so its implementation tickets will block the first release once its map clears. Small independent tickets (compression notification, Excluded Windows note, software-encoder export check, Chinese captions, MiSans) can be taken any time.
-- Not ticketed on purpose: dependency upgrades (done on 2026-10-24; what is held back and why is under Phase 4 in `0.6.1.md`); the in-app automations runner and upstream fixes to port later (upstream watch list in `0.6.1.md`); recording start latency (part of the benchmark ticket).
+- Decisions of 2026-10-24: ADR-0006 (one visible storage folder `Videos\FrameEver` with `Recordings`, `Screenshots`, `Exports`; `.ever` projects with a format version; export records; no database; old data only through the separate FrameEver Converter) and ADR-0007 (upstream is a reference; internal names become `frameever-*` / `FRAMEEVER_*`; macOS/Linux code removed; version starts at 1.0.0).
+- Next in the cleanup chain: AniBullet/FrameEver#3 "Remove macOS- and Linux-only crates" is unblocked now; then #4 and #5 (can run one after the other), #6 rename crates, #7 rename environment variables, #8 docs rewrite. The storage spec AniBullet/FrameEver#1 (sub-issues #9–#12) follows #7; then FrameEver Converter (#13, #14); then the first release (#15, owner).
+- Small independent tickets still open: #19 (remote-desktop note in Excluded Windows; neutral editor frame placeholder) and #22 (MiSans variable font, Chinese-only loading). Owner tasks: #16 (phase 2 checks on real hardware), #17 (benchmark, after the release).
+- Not ticketed on purpose: the in-app automations runner and upstream fixes to port later (upstream watch list in `0.6.1.md`); recording start latency (part of the benchmark ticket).
 
 ### UI redesign and library (wayfinder map AniBullet/FrameEver#23)
 
-The UI redesign and the library window are one effort, charted on 2026-10-24 as the wayfinder map AniBullet/FrameEver#23 ("Map: FrameEver 1.0 UI/UX redesign and library"); continue it with `/mattpocock-skills:wayfinder 23`. Its four research tickets are resolved (reports on the `research/*` branches); the next decisions are the main-window/library structure prototype, the visual-direction prototype and the installer route. When the map clears it goes through `/to-spec` and `/to-tickets`, and the implementation tickets block the first release. Starting brief the owner approved:
+The UI redesign and the library window are one effort, the wayfinder map AniBullet/FrameEver#23 ("Map: FrameEver 1.0 UI/UX redesign and library"). In Claude Code continue it with `/mattpocock-skills:wayfinder 23` (one human-in-the-loop ticket per session). Its four research tickets are resolved; their reports are on the remote branches `research/ui-references`, `research/gpui-animation`, `research/installer-design` and `research/icon-family` (`docs/research/*.md`), and each gist is in the map's "Decisions so far". Open decisions, all needing the owner: #29 main-window/library structure (clickable grayscale wireframes), #28 visual direction (three directions from the research: Graphite Studio, Paper and Ink, Klein Field; note `#1F3FD8` is only ~2.4:1 as text on dark, so dark mode needs a lighter accent tint for text), #31 installer route (own NSIS template vs a GPUI front end), then #30 library behaviour. The redesign ships in 1.0.0, so once the map clears it goes through `/to-spec` and `/to-tickets` and those tickets block #15. Prototypes are HTML files the owner opens; never screenshot the owner's screen.
 
-1. The library is a first-class surface, reachable in one obvious step from the main window, after a recording finishes, and from the tray. 2.x hid it behind an unlabelled 16 px grid icon in the main window header (`new-main/index.tsx` in the old Tauri app), so users did not find it.
-2. The library is designed together with the main window, settings, editor, recording controls (including the recording settings popover upstream left as a TODO) and tray menus, on one token system (colour, type, radius, spacing, motion) in `theme.rs`, replacing the glass and blur material.
-3. Direction: pure flat, no gradients or glass, clean, current and premium; core colour Klein blue `#1F3FD8`; smooth animated transitions; a few hand-drawn touches from the welcome page (empty states, a drawn tick when an export or recording finishes, a local symbol instead of the Instant mode upload-cloud doodle). Settle it with HTML prototypes first.
-4. Every 2.x library capability returns in a better form: filters by type and status with counts, search, several views, multi-select, batch delete and compress, a detail panel (original/compressed switch, three-way delete, copy file, open folder), context menu, refresh on focus and on new recording, open the library after recording; plus "exported" status from the export record. Evidence: `2x-feature-audit.md`.
-5. The data layer is settled by ADR-0006 and is not reopened in the map. The UI/UX half of the open-source benchmark feeds this effort.
+## How to work
+
+- One ticket at a time, in this checkout, committing to `main` (or a short-lived branch), the way `/mattpocock-skills:implement` works: read the ticket, work test-first (`tdd`), run `pnpm fe check` while iterating and `pnpm fe test` (or `--all`) and `pnpm fe lint` at the end, review the diff against the ticket and CLAUDE.md, commit, push, close the issue with a comment naming the commit. Do not give single tickets their own worktree: each worktree compiles the GPUI app from scratch (10–20 minutes) and parallel builds starve each other. Worktrees plus an integration branch are only for `/mattpocock-skills:implement-spec` over a whole spec.
+- In Claude Code: the Matt Pocock skills are installed (`grill-with-docs`, `to-spec`, `to-tickets`, `implement`, `implement-spec`, `wayfinder` are typed by the owner; `tdd`, `code-review`, `research`, `prototype`, `domain-modeling` can be used by the agent). Claude's memory for this project holds the owner's standing preferences.
+- In Cursor: there are no skills or session tools. Follow the same steps by hand: pick the next unblocked issue, read `CLAUDE.md`, `AGENTS.md`, `GLOSSARY.md` and the ADRs it touches, write a failing test first, use `pnpm fe` for everything, and use `gh` for issues and PRs (`docs/agents/issue-tracker.md`). Keep the rules below; Cursor does not know them otherwise.
+- Rules that apply everywhere: no code comments of any kind; UI strings in English and Simplified Chinese only (every new string needs a zh-CN entry); proper nouns stay English in the Chinese UI; upstream `CapSoftware/Cap` is read-only (never push, open PRs, comment or file issues there; `gh` targets `AniBullet/FrameEver`); never screenshot the owner's screen; never bypass the pre-push privacy hook; commit messages in Chinese, ending with the co-author line the tool requires.
+
+## Environment
+
+- Everything goes through `pnpm fe <command>` (`scripts/fe.mjs`): `setup`, `doctor`, `dev [--watch] [--lang zh-CN]`, `logs`, `check`, `test [--all]`, `lint`, `fmt`, `export <codec>`, `package`, `release <version>`, `privacy`. CI (`release.yml`) runs the same `setup` and `package`. Human guide: `BUILD.md`; agent guide for debugging and fixing: `docs/agents/debugging.md`.
+- Privacy: `pnpm fe setup` sets `core.hooksPath` to `.githooks`, so every `git push` first runs `pnpm fe privacy` over the commits being pushed (emails, local user and host names, keys, tokens, sensitive files). The allowlist is `scripts/privacy-allow.json`. `pnpm fe doctor` reports whether the hook is installed.
+- The Claude Desktop pane "FrameEver 开发" (`.claude/skills/frameever-dev`, tracked in the repo) has buttons that call `pnpm fe`.
+- Both workspaces build with Rust stable (`rust-toolchain.toml`). The GPUI manifest is the version source (`1.0.0-dev`); CI stamps the tag's version.
+- Windows long paths are enabled (`LongPathsEnabled = 1`), but MSVC's linker, NSIS and some build scripts still fail past 260 characters. Packaging from a deep folder such as `.claude\worktrees\<name>` can fail; package from the main checkout.
+- Leftover untracked build output from the deleted Tauri app may remain in `apps/desktop/` and `packages/ui-solid/` (`node_modules`, `gen`, `binaries`, `dist`); it is safe to delete. `.claude/worktrees/zed-cap` is the patched gpui checkout used by worktrees and can go once no worktree needs it.
+- In this clone the `upstream` remote has a broken push URL and fetches no tags, and `gh repo set-default` is `AniBullet/FrameEver`; repeat that setup in any new clone (`docs/agents/issue-tracker.md`).
+
+## Renaming the local folder to `D:\_Scripts\GitHub\FrameEver`
+
+The owner wants the checkout renamed after the product. Claude Code keys session history and its memory by folder path (`%USERPROFILE%\.claude\projects\D---Scripts-GitHub-Cap-aniBullet`), so the rename must carry that folder along or history and memory stop showing up. Do it when no session is running and no worktree is in use:
+
+1. Close Claude Desktop (and Cursor, if it has the folder open).
+2. In PowerShell, copy the project's history and memory under the new name, then rename the checkout:
+
+   ```powershell
+   Copy-Item -Recurse "$env:USERPROFILE\.claude\projects\D---Scripts-GitHub-Cap-aniBullet" "$env:USERPROFILE\.claude\projects\D---Scripts-GitHub-FrameEver"
+   ```
+
+   ```powershell
+   Rename-Item "D:\_Scripts\GitHub\Cap-aniBullet" "FrameEver"
+   ```
+
+3. Open `D:\_Scripts\GitHub\FrameEver` in Claude Desktop (and Cursor). In the first session run `git worktree repair`, `git worktree prune` and `pnpm fe doctor`, and check that Claude's memory loads (it should know the owner's preferences without being told).
+4. The first build in the new folder is a full rebuild (`target` holds absolute paths). `../zed-cap` resolves the same way, since the parent folder does not change.
+5. Keep the old `.claude\projects\D---Scripts-GitHub-Cap-aniBullet` folder as a backup until the new one is confirmed, then delete it. Old sessions in Claude Desktop may show their folder as missing; their transcripts stay in the copied folder.
 
 ## Owner preferences (also in Claude memory)
 
-- Rewrite upstream features to be local rather than delete them; delete only what has no local value.
-- Repo docs mention only this project. No code comments (CLAUDE.md). UI languages: English and Simplified Chinese only.
-- When naming, propose one best option and check collisions first.
+- FrameEver is an independent product: no legacy weight from Cap-aniBullet 2.x or Cap; old data only through the converter.
+- Repo docs mention only this project. No code comments. UI languages: English and Simplified Chinese only.
+- When naming, propose one best option and check collisions first. The product name is written FrameEver (no space); in Chinese text put a space between Chinese and Latin words.
 - Never take screenshots of the owner's screen.
-- Prefers flat design. Proper nouns are not translated in the Chinese UI.
+- Pure flat design, no gradients or glass. Proper nouns are not translated in the Chinese UI.
+- Merging ticket PRs is delegated to the agent after review; pushes are privacy-checked first.
