@@ -930,7 +930,7 @@ impl Drop for OwnedSystemAudioFeed {
         {
             let feed = self.actor.clone();
             scope.spawn_cleanup(async move {
-                feed.wait_for_stop().await;
+                feed.wait_for_shutdown().await;
                 Ok(())
             });
         }
@@ -1367,7 +1367,7 @@ impl AudioSource for SystemAudioSource {
         drop(self.monitor_route.take());
         self.inner.stop().await?;
         self.feed.actor.kill();
-        self.feed.actor.wait_for_stop().await;
+        self.feed.actor.wait_for_shutdown().await;
         self.feed.stopped = true;
         Ok(())
     }
@@ -2642,7 +2642,7 @@ mod system_audio_tests {
     }
     use crate::feeds::microphone::MicrophoneFeed;
     use cap_timestamp::{Timestamp, Timestamps};
-    use kameo::Actor as _;
+    use kameo::actor::Spawn as _;
     use std::{
         sync::atomic::{AtomicBool, AtomicUsize, Ordering},
         time::{Duration, Instant},
@@ -2884,7 +2884,7 @@ mod system_audio_tests {
         };
         drop(owned);
 
-        tokio::time::timeout(Duration::from_secs(1), feed.wait_for_stop())
+        tokio::time::timeout(Duration::from_secs(1), feed.wait_for_shutdown())
             .await
             .unwrap();
         assert!(!feed.is_alive());

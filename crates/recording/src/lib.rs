@@ -180,3 +180,10 @@ impl RecordingHealth {
         )
     }
 }
+
+pub(crate) fn actor_error<M>(error: kameo::error::SendError<M, anyhow::Error>) -> anyhow::Error {
+    match error {
+        kameo::error::SendError::HandlerError(error) => error,
+        other => anyhow::anyhow!("{other}"),
+    }
+}

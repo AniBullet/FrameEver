@@ -42,7 +42,7 @@ nokhwa-bindings-macos = { git = "https://github.com/CapSoftware/nokhwa", rev = "
 wgpu = { version = "25.0.0", features = ["wgpu-core"] }
 wgpu-hal = "25.0.0"
 wgpu-core = "25.0.0"
-flume = "0.11.0"
+flume = "0.12.0"
 thiserror = "2.0"
 tracing = "0.1.41"
 futures = "0.3.31"

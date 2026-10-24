@@ -34,7 +34,7 @@ mod tests {
     };
     use cap_media_info::{AudioInfo, VideoInfo};
     use cap_timestamp::{Timestamp, Timestamps};
-    use kameo::{Actor as _, prelude::ActorRef};
+    use kameo::actor::{ActorRef, Spawn as _};
     use std::{
         ffi::OsString,
         fs,
@@ -225,12 +225,12 @@ mod tests {
         })
         .await
         .unwrap()
-        .map_err(anyhow::Error::from)
+        .map_err(crate::actor_error)
     }
 
     async fn finish(fixture: Fixture) {
         fixture.actor.kill();
-        tokio::time::timeout(Duration::from_secs(2), fixture.actor.wait_for_stop())
+        tokio::time::timeout(Duration::from_secs(2), fixture.actor.wait_for_shutdown())
             .await
             .unwrap();
     }

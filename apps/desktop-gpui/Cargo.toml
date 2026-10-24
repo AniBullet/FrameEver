@@ -115,8 +115,8 @@ tokio = { version = "1", features = ["rt", "time"] }
 # platform mapping (Carbon RegisterEventHotKey on macOS).
 global-hotkey = "0.9.0"
 # cap-recording's actor system; version must match its `kameo = "0.17.2"`.
-kameo = "0.17.2"
-flume = "0.11.0"
+kameo = "0.22.2"
+flume = "0.12.0"
 # Round caps and joins for the onboarding doodles; already in the tree via gpui.
 lyon_tessellation = "1.0"
 anyhow = "1"

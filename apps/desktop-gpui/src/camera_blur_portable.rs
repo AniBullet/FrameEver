@@ -365,7 +365,7 @@ mod tests {
         use cap_recording::feeds::camera::{
             AddSender, CameraFeed, DeviceOrModelID, RemoveInput, SetInput,
         };
-        use kameo::Actor as _;
+        use kameo::actor::Spawn as _;
 
         let camera = cap_camera::list_cameras().next().expect("connected webcam");
         let camera_name = camera.display_name().to_string();

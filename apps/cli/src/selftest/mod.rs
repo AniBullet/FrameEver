@@ -828,7 +828,7 @@ async fn start_recording(
     use cap_recording::{
         MicrophoneFeed, feeds::microphone, screen_capture::ScreenCaptureTarget, studio_recording,
     };
-    use kameo::Actor as _;
+    use kameo::actor::Spawn as _;
 
     let display = scap_targets::Display::primary();
     let target = ScreenCaptureTarget::Display { id: display.id() };

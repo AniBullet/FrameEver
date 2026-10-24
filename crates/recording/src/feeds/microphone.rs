@@ -2024,7 +2024,7 @@ impl Message<SetInput> for MicrophoneFeed {
         Result<BoxFuture<'static, Result<SupportedStreamConfig, SetInputError>>, SetInputError>;
 
     async fn handle(&mut self, msg: SetInput, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
-        self.set_input(msg, ctx.actor_ref())
+        self.set_input(msg, ctx.actor_ref().clone())
     }
 }
 
@@ -2536,7 +2536,7 @@ impl Message<ReconnectRecordingSubscription> for MicrophoneFeed {
                 label: msg.label,
                 settings: Some(msg.settings),
             },
-            ctx.actor_ref(),
+            ctx.actor_ref().clone(),
         )
     }
 }
@@ -2700,7 +2700,7 @@ impl Message<Lock> for MicrophoneFeed {
 
         let (drop_tx, drop_rx) = oneshot::channel();
 
-        let actor_ref = ctx.actor_ref();
+        let actor_ref = ctx.actor_ref().clone();
         tokio::spawn(async move {
             let _ = drop_rx.await;
             let _ = actor_ref.tell(Unlock { generation }).await;
@@ -2720,7 +2720,7 @@ impl Message<Lock> for MicrophoneFeed {
             #[cfg(target_os = "linux")]
             source_health,
             audio_info,
-            actor: ctx.actor_ref(),
+            actor: ctx.actor_ref().clone(),
             config,
             buffer_size_frames,
             drop_tx: Some(drop_tx),
@@ -3384,7 +3384,7 @@ mod tests {
             assert_eq!(feed.ask(CheckInput(label.into())).await.unwrap(), expected);
             assert!(matches!(done_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
             feed.kill();
-            feed.wait_for_stop().await;
+            feed.wait_for_shutdown().await;
         }
     }
 
@@ -3458,7 +3458,7 @@ mod tests {
             ))
         ));
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -3525,7 +3525,7 @@ mod tests {
         assert_eq!(previous.device_name(), "previous");
         drop(previous);
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -3571,7 +3571,7 @@ mod tests {
         assert!(native_tx.is_canceled());
         assert_eq!(actor.ask(GetDroppedMessageCount).await.unwrap(), 0);
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[cfg(target_os = "macos")]
@@ -3805,7 +3805,7 @@ mod tests {
             cpal::SampleRate(48_000)
         );
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[cfg(target_os = "linux")]
@@ -3895,7 +3895,7 @@ mod tests {
             Err(mpsc::TryRecvError::Disconnected)
         ));
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[cfg(target_os = "linux")]
@@ -4046,7 +4046,7 @@ mod tests {
         let result = feed.ask(GetDroppedMessageCount).await;
         drop(lock);
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
         assert!(
             result.is_ok(),
             "late connection notification stopped the feed: {result:?}"
@@ -4060,7 +4060,7 @@ mod tests {
         let result = feed.ask(GetDroppedMessageCount).await;
         drop(lock);
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
         assert!(
             result.is_ok(),
             "late failure notification stopped the feed: {result:?}"
@@ -4830,7 +4830,7 @@ mod recording_subscription_tests {
         assert_eq!(snapshot, (3, 7, None, 1, 0, 8));
         assert!(matches!(native.try_recv(), Err(mpsc::TryRecvError::Empty)));
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -4855,7 +4855,7 @@ mod recording_subscription_tests {
         assert!(!subscription.accepts_frame(7));
         assert!(!subscription.accepts_frame(8));
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -4898,7 +4898,7 @@ mod recording_subscription_tests {
             Err(mpsc::TryRecvError::Empty)
         ));
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -4934,7 +4934,7 @@ mod recording_subscription_tests {
         assert!(retired.error().is_none());
         assert_eq!(actor.ask(Snapshot).await.unwrap().4, 1);
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -4960,7 +4960,7 @@ mod recording_subscription_tests {
         assert!(resumed.error().is_none());
         assert_eq!(actor.ask(Snapshot).await.unwrap(), (3, 8, None, 2, 1, 8));
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -4981,7 +4981,7 @@ mod recording_subscription_tests {
             assert_eq!(actor.ask(Snapshot).await.unwrap().4, 0);
             assert!(!resumed.accepts_frame(7));
             actor.kill();
-            actor.wait_for_stop().await;
+            actor.wait_for_shutdown().await;
         }
     }
 
@@ -5005,7 +5005,7 @@ mod recording_subscription_tests {
             assert_eq!(actor.ask(Snapshot).await.unwrap().4, 0);
             assert!(!resumed.accepts_frame(7));
             actor.kill();
-            actor.wait_for_stop().await;
+            actor.wait_for_shutdown().await;
         }
     }
 
@@ -5069,7 +5069,7 @@ mod recording_subscription_tests {
             assert!(matches!(native.try_recv(), Err(mpsc::TryRecvError::Empty)));
             drop(lock);
             actor.kill();
-            actor.wait_for_stop().await;
+            actor.wait_for_shutdown().await;
         }
     }
 

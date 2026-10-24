@@ -30,7 +30,7 @@ use futures_util::{
     future::{BoxFuture, Shared},
 };
 use gpui::{App, AppContext as _, Context, Entity, Global};
-use kameo::{Actor as _, actor::ActorRef};
+use kameo::actor::{ActorRef, Spawn as _};
 
 pub use cap_recording::feeds::camera::DeviceOrModelID;
 

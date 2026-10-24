@@ -1066,7 +1066,7 @@ dependencies = [
  "flume",
  "futures",
  "include_dir",
- "kameo",
+ "kameo 0.22.2",
  "libc",
  "relative-path 2.0.3",
  "rmcp",
@@ -1328,7 +1328,7 @@ dependencies = [
  "futures-intrusive",
  "global-hotkey 0.7.0",
  "image 0.25.10",
- "kameo",
+ "kameo 0.17.2",
  "keyed_priority_queue",
  "lazy_static",
  "log",
@@ -1699,7 +1699,7 @@ dependencies = [
  "image 0.25.10",
  "indexmap 2.14.2",
  "inquire",
- "kameo",
+ "kameo 0.22.2",
  "libc",
  "libproc",
  "objc",
@@ -1851,7 +1851,7 @@ dependencies = [
  "ffmpeg-next",
  "flume",
  "indicatif",
- "kameo",
+ "kameo 0.22.2",
  "libc",
  "parking_lot 0.13.0",
  "scap-targets",
@@ -3569,6 +3569,9 @@ name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+dependencies = [
+ "getrandom 0.4.3",
+]
 
 [[package]]
 name = "fax"
@@ -3669,13 +3672,13 @@ checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 
 [[package]]
 name = "flume"
-version = "0.11.1"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da0e4dd2a88388a1f4ccc7c9ce104604dab68d9f408dc34cd45823d5a9069095"
+checksum = "5e139bc46ca777eb5efaf62df0ab8cc5fd400866427e56c68b22e414e53bd3be"
 dependencies = [
+ "fastrand",
  "futures-core",
  "futures-sink",
- "nanorand",
  "spin",
 ]
 
@@ -5336,8 +5339,23 @@ dependencies = [
  "downcast-rs 2.0.2",
  "dyn-clone",
  "futures",
- "kameo_macros",
+ "kameo_macros 0.17.0",
  "once_cell",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kameo"
+version = "0.22.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cbab7323ed30490812f43ef6416a9e21bb150e9633e451ed124ca276b1ca82a"
+dependencies = [
+ "downcast-rs 2.0.2",
+ "dyn-clone",
+ "futures",
+ "kameo_macros 0.21.1",
  "serde",
  "tokio",
  "tracing",
@@ -5354,6 +5372,18 @@ dependencies = [
  "quote",
  "syn 2.0.119",
  "uuid",
+]
+
+[[package]]
+name = "kameo_macros"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7566055976eb86ee8e8fbafa0fbdad985c5d7c3f4eed04fc11bb495f71e3856"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -6031,15 +6061,6 @@ dependencies = [
  "strum 0.26.3",
  "thiserror 2.0.21",
  "unicode-ident",
-]
-
-[[package]]
-name = "nanorand"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3"
-dependencies = [
- "getrandom 0.2.17",
 ]
 
 [[package]]

@@ -38,7 +38,7 @@ use cap_project::{
 };
 use cap_timestamp::{Timestamp, Timestamps};
 use futures::{FutureExt, StreamExt, future::OptionFuture, stream::FuturesUnordered};
-use kameo::{Actor as _, prelude::*};
+use kameo::prelude::*;
 use relative_path::RelativePathBuf;
 use serde::Serialize;
 use std::{
@@ -2073,7 +2073,11 @@ impl ActorHandle {
         if self.terminal_started() {
             bail!("Studio terminal cleanup already owns this attempt");
         }
-        Ok(self.actor_ref.ask(Pause).await?)
+        Ok(self
+            .actor_ref
+            .ask(Pause)
+            .await
+            .map_err(crate::actor_error)?)
     }
 
     pub async fn resume(&self) -> anyhow::Result<()> {
@@ -2087,7 +2091,11 @@ impl ActorHandle {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            Ok(self.actor_ref.ask(Resume).await?)
+            Ok(self
+                .actor_ref
+                .ask(Resume)
+                .await
+                .map_err(crate::actor_error)?)
         }
     }
 
@@ -2102,7 +2110,11 @@ impl ActorHandle {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            Ok(self.actor_ref.ask(Cancel).await?)
+            Ok(self
+                .actor_ref
+                .ask(Cancel)
+                .await
+                .map_err(crate::actor_error)?)
         }
     }
 
@@ -2110,14 +2122,22 @@ impl ActorHandle {
         &self,
         mic_feed: Option<Arc<MicrophoneFeedLock>>,
     ) -> anyhow::Result<()> {
-        Ok(self.actor_ref.ask(SetMicFeed { mic_feed }).await?)
+        Ok(self
+            .actor_ref
+            .ask(SetMicFeed { mic_feed })
+            .await
+            .map_err(crate::actor_error)?)
     }
 
     pub async fn set_camera_feed(
         &self,
         camera_feed: Option<Arc<CameraFeedLock>>,
     ) -> anyhow::Result<()> {
-        Ok(self.actor_ref.ask(SetCameraFeed { camera_feed }).await?)
+        Ok(self
+            .actor_ref
+            .ask(SetCameraFeed { camera_feed })
+            .await
+            .map_err(crate::actor_error)?)
     }
 
     pub async fn is_paused(&self) -> anyhow::Result<bool> {
@@ -4765,7 +4785,7 @@ mod tests {
             release.send(()).unwrap();
             notifying.await.unwrap().unwrap();
             actor.kill();
-            actor.wait_for_stop().await;
+            actor.wait_for_shutdown().await;
         }
 
         #[tokio::test]
@@ -6165,7 +6185,7 @@ mod tests {
         joined.await.unwrap();
         drop(frames);
         actor_ref.kill();
-        actor_ref.wait_for_stop().await;
+        actor_ref.wait_for_shutdown().await;
     }
 
     #[cfg(windows)]
@@ -6317,7 +6337,7 @@ mod tests {
             assert!(actor.ask(Cancel).await.is_err());
             drop(screen_tx);
             actor.kill();
-            actor.wait_for_stop().await;
+            actor.wait_for_shutdown().await;
         }
     }
 
@@ -6356,7 +6376,7 @@ mod tests {
             assert!(temp.path().join("content/partial.m4s").exists());
             drop(screen_tx);
             actor_ref.kill();
-            actor_ref.wait_for_stop().await;
+            actor_ref.wait_for_shutdown().await;
         }
     }
 
@@ -6531,7 +6551,7 @@ mod windows_cancel_tests {
             );
         }
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -6539,7 +6559,7 @@ mod windows_cancel_tests {
         let actor = Actor::spawn(cancelled_actor(None));
         actor.ask(Cancel).await.unwrap();
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 }
 

@@ -7,7 +7,7 @@ use cap_recording::{
     memory_profiling::{CpuTracker, get_process_stats},
     screen_capture::ScreenCaptureTarget,
 };
-use kameo::Actor;
+use kameo::actor::Spawn as _;
 use scap_targets::Display;
 use std::{
     sync::Arc,

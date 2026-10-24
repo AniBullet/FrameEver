@@ -4,7 +4,7 @@ use cap_recording::{
 };
 use ffmpeg::format::Pixel;
 use image::{ColorType, codecs::jpeg};
-use kameo::Actor;
+use kameo::actor::Spawn as _;
 use std::fmt::Display;
 
 #[tokio::main]

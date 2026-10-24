@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use cap_recording::feeds::{camera, microphone::MicrophoneFeed};
-use kameo::Actor;
+use kameo::actor::Spawn as _;
 
 use crate::devices::{DeviceSnapshot, InputSnapshot, TargetSnapshot};
 

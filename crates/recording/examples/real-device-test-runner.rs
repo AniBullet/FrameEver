@@ -8,7 +8,7 @@ use cap_recording::{
 };
 use chrono::{Local, Utc};
 use clap::{Parser, Subcommand};
-use kameo::Actor as _;
+use kameo::actor::Spawn as _;
 use scap_targets::Display;
 use std::{
     fs,

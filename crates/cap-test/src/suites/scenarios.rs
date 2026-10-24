@@ -147,7 +147,7 @@ impl ScenarioRunner {
             CameraFeed, MicrophoneFeed, screen_capture::ScreenCaptureTarget, studio_recording,
         };
         use cpal::StreamError;
-        use kameo::Actor as _;
+        use kameo::actor::Spawn as _;
         use scap_targets::Display;
 
         let temp_dir = TempDir::new()?;

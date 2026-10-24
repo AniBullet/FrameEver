@@ -6,7 +6,7 @@ use cap_recording::{
     },
     screen_capture::ScreenCaptureTarget,
 };
-use kameo::Actor;
+use kameo::actor::Spawn as _;
 use scap_targets::Display;
 use std::{
     sync::Arc,

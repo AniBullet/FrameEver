@@ -4,7 +4,7 @@ use cap_recording::{
     memory_profiling::{CpuTracker, get_process_stats},
 };
 use ffmpeg::{format::Pixel, software::scaling};
-use kameo::Actor;
+use kameo::actor::Spawn as _;
 use std::time::{Duration, Instant};
 
 struct PreviewMetrics {

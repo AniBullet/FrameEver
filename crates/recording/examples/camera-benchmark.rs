@@ -5,7 +5,7 @@ use cap_recording::{
     feeds::camera::{self, DeviceOrModelID},
 };
 use ffmpeg::format::Pixel;
-use kameo::Actor;
+use kameo::actor::Spawn as _;
 use std::{
     fmt::Display,
     time::{Duration, Instant},

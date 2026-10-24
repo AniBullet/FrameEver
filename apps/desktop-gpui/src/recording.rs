@@ -22,7 +22,10 @@ use cap_recording::{
     studio_recording,
 };
 use futures_util::FutureExt as _;
-use kameo::{Actor, actor::ActorRef};
+use kameo::{
+    Actor,
+    actor::{ActorRef, Spawn as _},
+};
 
 pub use cap_recording::feeds::camera::DeviceOrModelID;
 

@@ -1194,7 +1194,6 @@ fn windows_instance_pid(path: &Path) -> Option<u32> {
 
 #[cfg(windows)]
 fn activate_windows_instance(pid: u32) {
-    use windows_sys::core::BOOL;
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, TRUE},
         UI::WindowsAndMessaging::{
@@ -1202,6 +1201,7 @@ fn activate_windows_instance(pid: u32) {
             SetForegroundWindow, ShowWindow,
         },
     };
+    use windows_sys::core::BOOL;
 
     struct Activation {
         pid: u32,

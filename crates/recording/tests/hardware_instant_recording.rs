@@ -8,7 +8,7 @@ use cap_recording::{
     SendableShareableContent, feeds::microphone::MicrophoneFeed, instant_recording,
     sources::screen_capture::ScreenCaptureTarget,
 };
-use kameo::Actor as _;
+use kameo::actor::Spawn as _;
 use std::{sync::Arc, time::Duration};
 use tempfile::TempDir;
 

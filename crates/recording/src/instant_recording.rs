@@ -28,7 +28,7 @@ use cap_timestamp::Timestamps;
 use cap_utils::ensure_dir;
 #[cfg(target_os = "linux")]
 use futures::FutureExt as _;
-use kameo::{Actor as _, prelude::*};
+use kameo::prelude::*;
 use std::{
     path::PathBuf,
     sync::Arc,
@@ -312,7 +312,7 @@ impl ActorHandle {
     }
 
     pub async fn stop(&self) -> anyhow::Result<CompletedRecording> {
-        Ok(self.actor_ref.ask(Stop).await?)
+        Ok(self.actor_ref.ask(Stop).await.map_err(crate::actor_error)?)
     }
 
     pub fn done_fut(&self) -> output_pipeline::DoneFut {
@@ -332,7 +332,11 @@ impl ActorHandle {
     }
 
     pub async fn cancel(&self) -> anyhow::Result<()> {
-        Ok(self.actor_ref.ask(Cancel).await?)
+        Ok(self
+            .actor_ref
+            .ask(Cancel)
+            .await
+            .map_err(crate::actor_error)?)
     }
 
     pub fn is_paused(&self) -> impl Future<Output = anyhow::Result<bool>> + Send + 'static + use<> {
@@ -2891,7 +2895,7 @@ mod non_linux_stop_tests {
             );
         }
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     async fn audio_failure_waits_for_video_and_remains_visible(cancel: bool) {
@@ -3027,7 +3031,7 @@ mod non_linux_stop_tests {
                 .contains("audio finalization failed")
         );
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -3045,6 +3049,6 @@ mod non_linux_stop_tests {
         let actor = Actor::spawn(stopped_actor(None));
         actor.ask(Cancel).await.unwrap();
         actor.kill();
-        actor.wait_for_stop().await;
+        actor.wait_for_shutdown().await;
     }
 }

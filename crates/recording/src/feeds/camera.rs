@@ -1375,7 +1375,7 @@ impl Message<SetInput> for CameraFeed {
 
         match &mut self.state {
             State::Open(state) => {
-                let actor_ref = ctx.actor_ref();
+                let actor_ref = ctx.actor_ref().clone();
                 let new_frame_recipient = actor_ref.clone().recipient();
                 let native_frame_recipient = actor_ref.clone().recipient();
                 let id = msg.id.clone();
@@ -1386,7 +1386,7 @@ impl Message<SetInput> for CameraFeed {
                     id: id.clone(),
                     generation,
                     settings: msg.settings,
-                    actor_ref,
+                    actor_ref: actor_ref.clone(),
                     new_frame_recipient,
                     native_frame_recipient,
                     ffmpeg_sender_count: self.ffmpeg_sender_count.clone(),
@@ -1404,7 +1404,7 @@ impl Message<SetInput> for CameraFeed {
                 Ok(camera_ready_future(ready))
             }
             State::Locked { .. } => {
-                let actor_ref = ctx.actor_ref();
+                let actor_ref = ctx.actor_ref().clone();
                 let new_frame_recipient = actor_ref.clone().recipient();
                 let native_frame_recipient = actor_ref.clone().recipient();
 
@@ -1414,7 +1414,7 @@ impl Message<SetInput> for CameraFeed {
                     id: msg.id.clone(),
                     generation,
                     settings: msg.settings,
-                    actor_ref,
+                    actor_ref: actor_ref.clone(),
                     new_frame_recipient,
                     native_frame_recipient,
                     ffmpeg_sender_count: self.ffmpeg_sender_count.clone(),
@@ -1831,7 +1831,7 @@ impl Message<Lock> for CameraFeed {
 
         let (drop_tx, drop_rx) = oneshot::channel();
 
-        let actor_ref = ctx.actor_ref();
+        let actor_ref = ctx.actor_ref().clone();
         tokio::spawn(async move {
             let _ = drop_rx.await;
             let _ = actor_ref.tell(Unlock { generation }).await;
@@ -1841,7 +1841,7 @@ impl Message<Lock> for CameraFeed {
             camera_info,
             video_info,
             native_ingress: self.native_ingress.clone(),
-            actor: ctx.actor_ref(),
+            actor: ctx.actor_ref().clone(),
             drop_tx: Some(drop_tx),
             _token: token,
         })
@@ -2162,7 +2162,7 @@ mod tests {
             assert_eq!(reusable, expected);
             assert!(matches!(stopped.try_recv(), Err(mpsc::TryRecvError::Empty)));
             feed.kill();
-            feed.wait_for_stop().await;
+            feed.wait_for_shutdown().await;
         }
     }
 
@@ -2196,7 +2196,7 @@ mod tests {
             });
             assert!(!feed.ask(CheckInput { id, settings: None }).await.unwrap());
             feed.kill();
-            feed.wait_for_stop().await;
+            feed.wait_for_shutdown().await;
         }
     }
 
@@ -2373,7 +2373,7 @@ mod tests {
         assert!(feed.ask(AttachedCamera).await.unwrap().is_none());
         assert_eq!(slots.available_permits(), 0);
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -2390,7 +2390,7 @@ mod tests {
             .await
             .unwrap();
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
         assert!(matches!(
             tokio::time::timeout(Duration::from_secs(1), ready)
                 .await
@@ -2422,7 +2422,7 @@ mod tests {
         feed.ask(RemoveInput).await.unwrap();
         assert!(done_rx.try_recv().is_ok());
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
     }
 
     async fn locked_test_camera() -> (
@@ -2490,7 +2490,7 @@ mod tests {
         }
         feed.ask(RemoveInput).await.unwrap();
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
         assert!(matches!(
             selection.await,
             Err(SetInputError::SetupCancelled)
@@ -2535,7 +2535,7 @@ mod tests {
         drop(lock);
         feed.ask(RemoveInput).await.unwrap();
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
         drop(first_selection);
         drop(second_selection);
         assert!(connected);
@@ -2579,7 +2579,7 @@ mod tests {
         let (sender, _receiver) = flume::bounded(1);
         feed.ask(AddSender(sender)).await.unwrap();
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
     }
 
     #[tokio::test]
@@ -2611,7 +2611,7 @@ mod tests {
         assert!(matches!(done_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
         drop(token);
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2629,7 +2629,7 @@ mod tests {
         let result = tokio::time::timeout(Duration::from_millis(250), feed.ask(RemoveInput)).await;
         drop(done_rx);
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
         assert!(matches!(result, Ok(Ok(()))));
     }
 
@@ -2697,7 +2697,7 @@ mod tests {
             }
             drop(token);
             feed.kill();
-            feed.wait_for_stop().await;
+            feed.wait_for_shutdown().await;
         }
     }
 
@@ -2709,7 +2709,7 @@ mod tests {
         let result = feed.ask(AddSender(sender)).await;
         drop(lock);
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
         assert!(
             result.is_ok(),
             "late connection notification stopped the feed: {result:?}"
@@ -2729,7 +2729,7 @@ mod tests {
         let result = feed.ask(AddSender(sender)).await;
         drop(lock);
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
         assert!(
             result.is_ok(),
             "late failure notification stopped the feed: {result:?}"
@@ -2742,7 +2742,7 @@ mod tests {
         let result = ready.try_recv();
         drop(lock);
         feed.kill();
-        feed.wait_for_stop().await;
+        feed.wait_for_shutdown().await;
         assert!(
             result.is_ok(),
             "camera readiness was not delivered: {result:?}"

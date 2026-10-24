@@ -60,7 +60,7 @@ pub async fn record_studio_at_path(
         CameraFeed, MicrophoneFeed, feeds::camera, screen_capture::ScreenCaptureTarget,
         studio_recording,
     };
-    use kameo::Actor as _;
+    use kameo::actor::Spawn as _;
     use scap_targets::Display;
 
     let display = if let Some(ref id) = opts.display_id {
@@ -229,7 +229,7 @@ pub async fn record_instant_camera_for_duration(
         CameraFeed, MicrophoneFeed, feeds::camera, instant_recording,
         screen_capture::ScreenCaptureTarget,
     };
-    use kameo::Actor as _;
+    use kameo::actor::Spawn as _;
 
     let temp_dir = TempDir::new()?;
     let project_path = temp_dir.path().to_path_buf();

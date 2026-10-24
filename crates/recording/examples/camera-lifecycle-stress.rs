@@ -2,7 +2,7 @@ use cap_recording::{
     CameraFeed,
     feeds::camera::{self, DeviceOrModelID},
 };
-use kameo::Actor;
+use kameo::actor::Spawn as _;
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
