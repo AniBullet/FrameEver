@@ -1588,7 +1588,7 @@ mod tests {
             &recordings,
             "studio-multi",
             &format!(
-                r#"{{"pretty_name":"Studio multi","sharing":{{"id":"abc","link":"https://cap.so/s/abc"}},"segments":[{segment},{segment},{segment}]}}"#
+                r#"{{"pretty_name":"Studio multi","sharing":{{"id":"abc","link":"https://example.com/s/abc"}},"segments":[{segment},{segment},{segment}]}}"#
             ),
         );
         std::thread::sleep(std::time::Duration::from_millis(6));

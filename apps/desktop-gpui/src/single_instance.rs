@@ -1512,7 +1512,7 @@ mod tests {
         assert!(is_forwardable_deep_link("frameever://auth?token=test"));
         assert!(is_forwardable_deep_link("frameever://action?value=test"));
         assert!(!is_forwardable_deep_link("cap-desktop://action?value=test"));
-        assert!(!is_forwardable_deep_link("https://cap.so"));
+        assert!(!is_forwardable_deep_link("https://example.com"));
         assert!(!is_forwardable_deep_link("frameever-evil://auth"));
         assert!(!is_forwardable_deep_link(&format!(
             "frameever://action?value={}",

@@ -335,6 +335,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Restore", "恢复"),
     ("Excluded windows", "排除的窗口"),
     ("Hide windows from recordings.", "在录制中隐藏这些窗口。"),
+    (
+        "Remote desktop windows can't be excluded.",
+        "远程桌面窗口无法排除。",
+    ),
     ("Update channel", "更新通道"),
     (
         "Which release channel updates come from.",

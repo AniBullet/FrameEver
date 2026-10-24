@@ -667,19 +667,6 @@ fn permissions_snapshot() -> Value {
     })
 }
 
-/// `redact_url_credentials` in `src-tauri/src/diagnostics.rs`.
-fn redact_url_credentials(url: &str) -> String {
-    let Some((scheme, rest)) = url.split_once("://") else {
-        return url.to_string();
-    };
-    let authority_end = rest.find('/').unwrap_or(rest.len());
-    let (authority, path) = rest.split_at(authority_end);
-    match authority.rsplit_once('@') {
-        Some((_, host)) => format!("{scheme}://***@{host}{path}"),
-        None => url.to_string(),
-    }
-}
-
 /// The same fields `settings_snapshot` picks in the Tauri app, read off the
 /// store the two apps share. Paths are redacted to `~/..`, and the instance id
 /// is read rather than minted -- opening a diagnostic must not write to the
@@ -709,7 +696,6 @@ fn settings_snapshot() -> Value {
             .map(|path| redact_home_paths(path))
             .collect::<Vec<_>>(),
         "updateChannel": settings.update_channel.as_json(),
-        "serverUrl": redact_url_credentials(&settings.server_url),
         "instanceId": instance_id,
         "enableTelemetry": settings.enable_telemetry,
         "editorPreviewQuality": settings.editor_preview_quality.as_json(),
@@ -1227,17 +1213,5 @@ mod tests {
         assert_eq!(stage_label(CANCEL_STAGE, Some("studio")), "Cancelling...");
         // An unknown stage still says something rather than nothing.
         assert_eq!(stage_label("uploading", None), "uploading...");
-    }
-
-    #[test]
-    fn urls_keep_their_host_and_lose_their_credentials() {
-        assert_eq!(
-            redact_url_credentials("https://cap.so"),
-            "https://cap.so".to_string()
-        );
-        assert_eq!(
-            redact_url_credentials("https://user:pass@cap.so/api"),
-            "https://***@cap.so/api".to_string()
-        );
     }
 }

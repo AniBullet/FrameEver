@@ -953,10 +953,6 @@ pub fn excluded_windows_to_json(windows: &[WindowExclusion]) -> Value {
     Value::Array(windows.iter().map(WindowExclusion::to_json).collect())
 }
 
-/// `https://cap.so` -- `default_server_url()` in `general_settings.rs`, which
-/// is also what `clientEnv.VITE_SERVER_URL` resolves to in a release build.
-pub const DEFAULT_SERVER_URL: &str = "https://cap.so";
-
 /// `DEFAULT_FILENAME_TEMPLATE` in `src-tauri/src/recording.rs`, spelled the
 /// same way `general.tsx` spells it.
 pub const DEFAULT_PROJECT_NAME_TEMPLATE: &str = "{target_name} ({target_kind}) {date} {time}";
@@ -1002,7 +998,6 @@ pub struct GeneralSettings {
     pub default_project_name_template: Option<String>,
     pub excluded_windows: Vec<WindowExclusion>,
     pub update_channel: UpdateChannel,
-    pub server_url: String,
     pub enable_telemetry: bool,
     pub editor_preview_quality: EditorPreviewQuality,
     /// The Experimental page's two toggles. Both default false the way the
@@ -1354,7 +1349,6 @@ impl GeneralSettings {
                 })
                 .unwrap_or_else(default_excluded_windows),
             update_channel: enum_at(general, "updateChannel"),
-            server_url: string_at(general, "serverUrl", DEFAULT_SERVER_URL),
             enable_telemetry: bool_at(general, "enableTelemetry", true),
             editor_preview_quality: enum_at(general, "editorPreviewQuality"),
             enable_native_camera_preview: bool_at(general, "enableNativeCameraPreview", false),
@@ -2444,7 +2438,6 @@ mod tests {
     "custom_cursor_capture2": false,
     "defaultZoomAmount": 2.5,
     "maxFps": 120,
-    "serverUrl": "https://cap.example.com",
     "excludedWindows": [{ "bundleIdentifier": null, "ownerName": null, "windowTitle": "FrameEver" }]
   }
 }"#,
@@ -2463,7 +2456,6 @@ mod tests {
         assert!(!settings.custom_cursor_capture);
         assert_eq!(settings.default_zoom_amount, Some(2.5));
         assert_eq!(settings.max_fps, 120);
-        assert_eq!(settings.server_url, "https://cap.example.com");
         assert_eq!(settings.excluded_windows.len(), 1);
         assert_eq!(settings.excluded_windows[0].primary_label(), "FrameEver");
         // Absent keys take the page's defaults, not the struct's zero values.

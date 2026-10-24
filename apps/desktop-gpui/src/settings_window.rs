@@ -3843,7 +3843,17 @@ impl SettingsWindow {
             t!("Excluded windows"),
             Some(t!("Hide windows from recordings.")),
             Some(right),
-            vec![card.child(chips).into_any_element()],
+            vec![
+                card.child(chips)
+                    .child(
+                        div()
+                            .mt(px(12.))
+                            .text_size(px(12.))
+                            .text_color(theme.settings_muted())
+                            .child(t!("Remote desktop windows can't be excluded.")),
+                    )
+                    .into_any_element(),
+            ],
         )
     }
 
