@@ -126,7 +126,7 @@ impl HevcEncoderBuilder {
             &input_config,
             self.preset,
             self.family,
-            crate::video::h264::force_software_encoder(),
+            super::force_software_encoder(),
         );
         if candidates.is_empty() {
             return Err(HevcEncoderError::CodecNotFound);
