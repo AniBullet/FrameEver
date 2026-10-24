@@ -11,7 +11,8 @@ pub enum NoticeAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompressionNotice {
     pub title: String,
-    pub lines: Vec<String>,
+    pub recording: String,
+    pub detail: String,
     pub actions: Vec<NoticeAction>,
     pub project_path: PathBuf,
 }
@@ -26,7 +27,8 @@ pub fn compress_and_report(
         tracing::warn!(path = %project_path.display(), "automatic compression failed: {error}");
         notify(CompressionNotice {
             title: t!("Couldn't compress the recording").to_string(),
-            lines: vec![recording_name(project_path), error],
+            recording: recording_name(project_path),
+            detail: error,
             actions: vec![NoticeAction::OpenLogs, NoticeAction::RevealRecording],
             project_path: project_path.to_path_buf(),
         });
@@ -54,7 +56,8 @@ pub fn compress_and_report(
     };
     notify(CompressionNotice {
         title: t!("Compression finished").to_string(),
-        lines: vec![recording_name(project_path), summary],
+        recording: recording_name(project_path),
+        detail: summary,
         actions: Vec::new(),
         project_path: project_path.to_path_buf(),
     });
@@ -74,8 +77,6 @@ fn recording_name(project_path: &Path) -> String {
 }
 
 impl NoticeAction {
-    const ALL: [NoticeAction; 2] = [NoticeAction::OpenLogs, NoticeAction::RevealRecording];
-
     fn label(&self) -> &'static str {
         match self {
             NoticeAction::OpenLogs => t!("Open Logs Folder"),
@@ -91,9 +92,11 @@ impl NoticeAction {
     }
 
     fn from_argument(argument: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|action| action.argument() == argument)
+        match argument {
+            "open-logs" => Some(NoticeAction::OpenLogs),
+            "reveal-recording" => Some(NoticeAction::RevealRecording),
+            _ => None,
+        }
     }
 
     fn perform(&self, project_path: &Path) {
@@ -113,13 +116,12 @@ pub fn show(notice: CompressionNotice) {
     } else {
         crate::brand::APP_ID
     };
-    let mut toast = Toast::new(app_id).title(&notice.title);
-    let mut lines = notice.lines.iter();
-    if let Some(line) = lines.next() {
-        toast = toast.text1(line);
-    }
-    if let Some(line) = lines.next() {
-        toast = toast.text2(line);
+    let mut toast = Toast::new(app_id)
+        .title(&notice.title)
+        .text1(&notice.recording)
+        .text2(&notice.detail);
+    if !notice.actions.is_empty() {
+        toast = toast.duration(tauri_winrt_notification::Duration::Long);
     }
     for action in &notice.actions {
         toast = toast.add_button(action.label(), action.argument());
@@ -168,11 +170,9 @@ mod tests {
             panic!("expected one notice, got {notices:?}");
         };
         assert_eq!(notice.title, "Couldn't compress the recording");
-        assert!(
-            notice
-                .lines
-                .contains(&"This recording already has a compressed version".to_string()),
-            "{notice:?}"
+        assert_eq!(
+            notice.detail,
+            "This recording already has a compressed version"
         );
         assert_eq!(
             notice.actions,
@@ -202,12 +202,7 @@ mod tests {
             panic!("expected one notice, got {notices:?}");
         };
         assert_eq!(notice.title, "Compression finished");
-        assert!(
-            notice
-                .lines
-                .contains(&"Compressed copy ready · 50% smaller".to_string()),
-            "{notice:?}"
-        );
+        assert_eq!(notice.detail, "Compressed copy ready · 50% smaller");
         assert!(notice.actions.is_empty());
     }
 
@@ -218,12 +213,7 @@ mod tests {
         let [notice] = notices.as_slice() else {
             panic!("expected one notice, got {notices:?}");
         };
-        assert!(
-            notice
-                .lines
-                .contains(&"Compressed · 50% smaller".to_string()),
-            "{notice:?}"
-        );
+        assert_eq!(notice.detail, "Compressed · 50% smaller");
         assert_eq!(
             std::fs::metadata(bundle.path().join("content/output.mp4"))
                 .unwrap()
@@ -231,5 +221,13 @@ mod tests {
             100
         );
         assert!(!bundle.path().join("content/output_compressed.mp4").exists());
+    }
+
+    #[test]
+    fn each_button_argument_leads_back_to_its_action() {
+        for action in [NoticeAction::OpenLogs, NoticeAction::RevealRecording] {
+            assert_eq!(NoticeAction::from_argument(action.argument()), Some(action));
+        }
+        assert_eq!(NoticeAction::from_argument(""), None);
     }
 }
