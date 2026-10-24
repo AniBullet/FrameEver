@@ -170,10 +170,10 @@ fn studio_checks(meta: &RecordingMeta, studio: &StudioRecordingMeta) -> Vec<File
 fn studio_problems(studio: &StudioRecordingMeta) -> Vec<String> {
     let mut problems = Vec::new();
 
-    if let StudioRecordingMeta::MultipleSegments { inner } = studio {
-        if inner.segments.is_empty() {
-            problems.push("studio recording has no segments".to_string());
-        }
+    if let StudioRecordingMeta::MultipleSegments { inner } = studio
+        && inner.segments.is_empty()
+    {
+        problems.push("studio recording has no segments".to_string());
     }
 
     match studio.status() {

@@ -396,16 +396,16 @@ async fn measure_playback(
         let video_events = video_events.clone();
         move |output, _layout| {
             let now = Instant::now();
-            if let EditorFrameOutput::Rgba(frame) = output {
-                if let Some(luma) = mean_center_luma_rgba(
+            if let EditorFrameOutput::Rgba(frame) = output
+                && let Some(luma) = mean_center_luma_rgba(
                     &frame.data,
                     frame.width,
                     frame.height,
                     frame.padded_bytes_per_row,
-                ) && let Ok(mut events) = video_events.lock()
-                {
-                    events.push((now.duration_since(epoch).as_secs_f64(), luma));
-                }
+                )
+                && let Ok(mut events) = video_events.lock()
+            {
+                events.push((now.duration_since(epoch).as_secs_f64(), luma));
             }
         }
     });
@@ -836,7 +836,9 @@ mod fixture {
             .signed_duration_since_secs(timestamps);
         let display_duration = finished_video
             .video_timestamp_span
-            .map(|(first, last)| (last - first).as_secs_f64() + 1.0 / f64::from(FIXTURE_FPS))
+            .map(|(first, last)| {
+                last.saturating_sub(first).as_secs_f64() + 1.0 / f64::from(FIXTURE_FPS)
+            })
             .ok_or("fixture video reported no timestamp span")?;
 
         let to_project_gap_summary =
