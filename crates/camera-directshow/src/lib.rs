@@ -28,7 +28,7 @@ use windows::{
     },
     core::Interface,
 };
-use windows_core::{ComObject, ComObjectInner, GUID, PWSTR, implement};
+use windows_core::{ComObject, ComObjectInner, GUID, IUnknownImpl, PWSTR, implement};
 
 pub fn initialize_directshow() -> windows_core::Result<()> {
     unsafe { CoInitialize(None) }.ok()
@@ -655,8 +655,7 @@ impl SinkFilter {
 
     pub fn get_pin(&self, i: u32) -> Option<IPin> {
         if i == 0 {
-            // SAFETY: SinkInputPin always implements IPin
-            Some(unsafe { self.input_pin.get().cast() }.unwrap())
+            Some(self.input_pin.to_interface())
         } else {
             None
         }
@@ -763,7 +762,7 @@ impl<'a> IEnumPins_Impl for PinEnumerator_Impl<'a> {
     fn Next(
         &self,
         cpins: u32,
-        pppins: windows_core::OutRef<'_, IPin>,
+        pppins: *mut Option<IPin>,
         pcfetched: *mut u32,
     ) -> windows_core::HRESULT {
         let mut pins_fetched = 0;
@@ -774,7 +773,7 @@ impl<'a> IEnumPins_Impl for PinEnumerator_Impl<'a> {
             let pin = filter.get_pin(index);
             self.index.replace_with(|v| *v + 1);
             pins_fetched += 1;
-            pppins.write(pin).unwrap();
+            unsafe { pppins.write(pin) };
         }
 
         if !pcfetched.is_null() {
@@ -803,7 +802,7 @@ impl<'a> IEnumPins_Impl for PinEnumerator_Impl<'a> {
     }
 
     fn Clone(&self) -> windows_core::Result<IEnumPins> {
-        unsafe { self.cast() }
+        Ok(self.to_interface())
     }
 }
 
@@ -870,7 +869,7 @@ impl IPin_Impl for SinkInputPin_Impl {
         }
 
         self.connected_pin.replace(Some(preceivepin.clone()));
-        unsafe { preceivepin.ReceiveConnection(&self.cast::<IPin>()?, pmt) }
+        unsafe { preceivepin.ReceiveConnection(&self.to_interface::<IPin>(), pmt) }
     }
 
     fn ReceiveConnection(
@@ -1146,7 +1145,7 @@ impl<'a> IEnumMediaTypes_Impl for TypeEnumerator_Impl<'a> {
     }
 
     fn Clone(&self) -> windows_core::Result<IEnumMediaTypes> {
-        unsafe { self.cast() }
+        Ok(self.to_interface())
     }
 
     fn Skip(&self, _cmediatypes: u32) -> windows_core::Result<()> {

@@ -1180,7 +1180,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1197,8 +1197,8 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "v4l",
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1217,8 +1217,8 @@ version = "0.1.0"
 dependencies = [
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1249,8 +1249,8 @@ dependencies = [
  "ffmpeg-next",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1262,8 +1262,8 @@ dependencies = [
  "parking_lot 0.13.0",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1276,8 +1276,8 @@ dependencies = [
  "cap-mediafoundation-utils",
  "inquire",
  "thiserror 2.0.21",
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1309,7 +1309,7 @@ dependencies = [
  "sha2 0.11.1",
  "specta",
  "strum 0.28.0",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1318,7 +1318,7 @@ name = "cap-d3d-adapter"
 version = "0.1.0"
 dependencies = [
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1429,7 +1429,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1459,7 +1459,7 @@ dependencies = [
  "sysinfo 0.39.6",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1485,9 +1485,9 @@ dependencies = [
  "scap-direct3d",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
- "windows-core 0.60.1",
- "windows-numerics 0.2.0",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "windows-numerics 0.3.1",
  "workspace-hack",
 ]
 
@@ -1551,7 +1551,7 @@ dependencies = [
  "thiserror 2.0.21",
  "thread_local",
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1599,8 +1599,8 @@ dependencies = [
  "flume",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
- "windows-numerics 0.2.0",
+ "windows 0.62.2",
+ "windows-numerics 0.3.1",
  "workspace-hack",
 ]
 
@@ -1608,8 +1608,8 @@ dependencies = [
 name = "cap-mediafoundation-utils"
 version = "0.1.0"
 dependencies = [
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1714,7 +1714,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
  "x11rb",
 ]
@@ -1762,7 +1762,7 @@ dependencies = [
  "wgpu-core 25.0.2",
  "wgpu-hal 25.0.2",
  "windows 0.58.0",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1780,7 +1780,7 @@ version = "0.1.0"
 dependencies = [
  "cidre",
  "cpal 0.15.3",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1799,8 +1799,8 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
- "windows 0.58.0",
- "windows-sys 0.52.0",
+ "windows 0.62.2",
+ "windows-sys 0.61.2",
  "workspace-hack",
  "zbus",
 ]
@@ -1850,7 +1850,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -8963,7 +8963,7 @@ dependencies = [
  "cap-d3d-adapter",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -8976,7 +8976,7 @@ dependencies = [
  "ffmpeg-next",
  "scap-direct3d",
  "scap-screencapturekit",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -9011,7 +9011,7 @@ dependencies = [
  "uuid",
  "wayland-client",
  "wayland-protocols",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
  "x11rb",
 ]

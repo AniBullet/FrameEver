@@ -1131,7 +1131,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "uuid",
- "windows 0.60.0",
+ "windows 0.62.2",
  "winit",
  "workspace-hack",
 ]
@@ -1159,7 +1159,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1192,8 +1192,8 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "v4l",
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1216,8 +1216,8 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "tracing-subscriber",
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1250,8 +1250,8 @@ dependencies = [
  "inquire",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1264,8 +1264,8 @@ dependencies = [
  "parking_lot 0.13.0",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1278,8 +1278,8 @@ dependencies = [
  "cap-mediafoundation-utils",
  "inquire",
  "thiserror 2.0.21",
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1324,7 +1324,7 @@ dependencies = [
  "sha2 0.11.1",
  "specta",
  "strum 0.28.0",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1333,7 +1333,7 @@ name = "cap-d3d-adapter"
 version = "0.1.0"
 dependencies = [
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1435,8 +1435,8 @@ dependencies = [
  "uuid",
  "wgpu",
  "whisper-rs",
- "windows 0.60.0",
- "windows-sys 0.59.0",
+ "windows 0.62.2",
+ "windows-sys 0.61.2",
  "winreg 0.55.0",
  "workspace-hack",
 ]
@@ -1468,7 +1468,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1500,7 +1500,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1528,9 +1528,9 @@ dependencies = [
  "scap-targets",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
- "windows-core 0.60.1",
- "windows-numerics 0.2.0",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "windows-numerics 0.3.1",
  "workspace-hack",
 ]
 
@@ -1599,7 +1599,7 @@ dependencies = [
  "thiserror 2.0.21",
  "thread_local",
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1645,8 +1645,8 @@ dependencies = [
  "flume",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
- "windows-numerics 0.2.0",
+ "windows 0.62.2",
+ "windows-numerics 0.3.1",
  "workspace-hack",
 ]
 
@@ -1654,8 +1654,8 @@ dependencies = [
 name = "cap-mediafoundation-utils"
 version = "0.1.0"
 dependencies = [
- "windows 0.60.0",
- "windows-core 0.60.1",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "workspace-hack",
 ]
 
@@ -1778,7 +1778,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
  "x11rb",
 ]
@@ -1852,7 +1852,7 @@ dependencies = [
  "wgpu-core",
  "wgpu-hal",
  "windows 0.58.0",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1914,7 +1914,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1924,7 +1924,7 @@ version = "0.1.0"
 dependencies = [
  "cidre",
  "cpal 0.15.3 (git+https://github.com/CapSoftware/cpal?rev=6013cb5f8bd3)",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -1945,8 +1945,8 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "uuid",
- "windows 0.58.0",
- "windows-sys 0.52.0",
+ "windows 0.62.2",
+ "windows-sys 0.61.2",
  "workspace-hack",
  "zbus",
 ]
@@ -1982,7 +1982,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing-subscriber",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -2008,7 +2008,7 @@ dependencies = [
  "scap-screencapturekit",
  "serde_json",
  "softbuffer",
- "windows 0.60.0",
+ "windows 0.62.2",
  "winit",
  "workspace-hack",
 ]
@@ -2030,7 +2030,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -8883,8 +8883,8 @@ dependencies = [
  "scap-targets",
  "thiserror 2.0.21",
  "tracing",
- "windows 0.60.0",
- "windows-numerics 0.2.0",
+ "windows 0.62.2",
+ "windows-numerics 0.3.1",
  "workspace-hack",
 ]
 
@@ -8901,7 +8901,7 @@ dependencies = [
  "scap-screencapturekit",
  "scap-targets",
  "tokio",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
 ]
 
@@ -8940,7 +8940,7 @@ dependencies = [
  "uuid",
  "wayland-client",
  "wayland-protocols",
- "windows 0.60.0",
+ "windows 0.62.2",
  "workspace-hack",
  "x11rb",
 ]
@@ -12449,19 +12449,6 @@ dependencies = [
 
 [[package]]
 name = "windows"
-version = "0.60.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddf874e74c7a99773e62b1c671427abf01a425e77c3d3fb9fb1e4883ea934529"
-dependencies = [
- "windows-collections 0.1.1",
- "windows-core 0.60.1",
- "windows-future 0.1.1",
- "windows-link 0.1.3",
- "windows-numerics 0.1.1",
-]
-
-[[package]]
-name = "windows"
 version = "0.61.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
@@ -12483,15 +12470,6 @@ dependencies = [
  "windows-core 0.62.2",
  "windows-future 0.3.2",
  "windows-numerics 0.3.1",
-]
-
-[[package]]
-name = "windows-collections"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5467f79cc1ba3f52ebb2ed41dbb459b8e7db636cc3429458d9a852e15bc24dec"
-dependencies = [
- "windows-core 0.60.1",
 ]
 
 [[package]]
@@ -12550,19 +12528,6 @@ dependencies = [
 
 [[package]]
 name = "windows-core"
-version = "0.60.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca21a92a9cae9bf4ccae5cf8368dce0837100ddf6e6d57936749e85f152f6247"
-dependencies = [
- "windows-implement 0.59.0",
- "windows-interface 0.59.3",
- "windows-link 0.1.3",
- "windows-result 0.3.4",
- "windows-strings 0.3.1",
-]
-
-[[package]]
-name = "windows-core"
 version = "0.61.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3"
@@ -12585,16 +12550,6 @@ dependencies = [
  "windows-link 0.2.1",
  "windows-result 0.4.1",
  "windows-strings 0.5.1",
-]
-
-[[package]]
-name = "windows-future"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a787db4595e7eb80239b74ce8babfb1363d8e343ab072f2ffe901400c03349f0"
-dependencies = [
- "windows-core 0.60.1",
- "windows-link 0.1.3",
 ]
 
 [[package]]
@@ -12685,16 +12640,6 @@ name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
-
-[[package]]
-name = "windows-numerics"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "005dea54e2f6499f2cee279b8f703b3cf3b5734a2d8d21867c8f44003182eeed"
-dependencies = [
- "windows-core 0.60.1",
- "windows-link 0.1.3",
-]
 
 [[package]]
 name = "windows-numerics"
@@ -13340,10 +13285,10 @@ dependencies = [
  "wayland-backend",
  "windows 0.54.0",
  "windows 0.58.0",
- "windows 0.60.0",
  "windows 0.61.3",
- "windows-core 0.60.1",
+ "windows 0.62.2",
  "windows-core 0.61.2",
+ "windows-core 0.62.2",
  "windows-result 0.3.4",
  "windows-sys 0.52.0",
  "windows-sys 0.59.0",

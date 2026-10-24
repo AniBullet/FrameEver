@@ -6,7 +6,7 @@ pub use windows_version::WindowsVersion;
 
 use std::{
     sync::{
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, PoisonError,
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::RecvError,
     },
@@ -216,7 +216,7 @@ impl StagingTexturePool {
                 .CreateTexture2D(&texture_desc, None, Some(&mut texture))?;
         };
 
-        let texture = texture.ok_or_else(windows::core::Error::from_win32)?;
+        let texture = texture.ok_or_else(windows::core::Error::from_thread)?;
 
         if index < textures.len() {
             textures[index] = PooledStagingTexture {
@@ -304,7 +304,7 @@ fn create_d3d_device_with_warp_fallback() -> windows::core::Result<(ID3D11Device
                 adapter = %description,
                 "scap-direct3d: D3D11 device created on pinned hardware adapter"
             );
-            let device = device.ok_or_else(windows::core::Error::from_win32)?;
+            let device = device.ok_or_else(windows::core::Error::from_thread)?;
             return Ok((device, false));
         }
         Err(e) => {
@@ -318,11 +318,11 @@ fn create_d3d_device_with_warp_fallback() -> windows::core::Result<(ID3D11Device
     let result = create_d3d_device_with_type(D3D_DRIVER_TYPE_HARDWARE, flags, &mut device);
 
     match result {
-        Ok(()) => Ok((device.ok_or_else(windows::core::Error::from_win32)?, false)),
+        Ok(()) => Ok((device.ok_or_else(windows::core::Error::from_thread)?, false)),
         Err(e) if e.code() == DXGI_ERROR_UNSUPPORTED => {
             tracing::info!("Hardware D3D11 device unavailable, attempting WARP fallback");
             create_d3d_device_with_type(D3D_DRIVER_TYPE_WARP, flags, &mut device)?;
-            Ok((device.ok_or_else(windows::core::Error::from_win32)?, true))
+            Ok((device.ok_or_else(windows::core::Error::from_thread)?, true))
         }
         Err(e) => Err(e),
     }
@@ -417,8 +417,8 @@ impl Capturer {
     pub fn new(
         item: GraphicsCaptureItem,
         settings: Settings,
-        mut callback: impl FnMut(Frame) -> windows::core::Result<()> + Send + 'static,
-        mut closed_callback: impl FnMut() -> windows::core::Result<()> + Send + 'static,
+        callback: impl FnMut(Frame) -> windows::core::Result<()> + Send + 'static,
+        closed_callback: impl FnMut() -> windows::core::Result<()> + Send + 'static,
         d3d_device: Option<ID3D11Device>,
     ) -> Result<Capturer, NewCapturerError> {
         if let Some(version) = WindowsVersion::detect() {
@@ -493,6 +493,8 @@ impl Capturer {
         let settings = settings.clone();
         let stop_flag = Arc::new(AtomicBool::new(false));
         let callback_activity = Arc::new(CallbackActivity::new());
+        let callback = Mutex::new(callback);
+        let closed_callback = Mutex::new(closed_callback);
 
         let direct3d_device = (|| {
             let dxgi_device = d3d_device.cast::<IDXGIDevice>()?;
@@ -560,7 +562,7 @@ impl Capturer {
                     .map_err(NewCapturerError::CropTexture)?;
 
                 let texture = texture.ok_or_else(|| {
-                    NewCapturerError::CropTexture(windows::core::Error::from_win32())
+                    NewCapturerError::CropTexture(windows::core::Error::from_thread())
                 })?;
 
                 Ok::<_, NewCapturerError>((texture, crop))
@@ -632,7 +634,7 @@ impl Capturer {
                             }
                         };
 
-                        (callback)(frame)
+                        (callback.lock().unwrap_or_else(PoisonError::into_inner))(frame)
                     }
                 }),
             )
@@ -640,7 +642,9 @@ impl Capturer {
 
         item.Closed(
             &TypedEventHandler::<GraphicsCaptureItem, IInspectable>::new(move |_, _| {
-                closed_callback()
+                (closed_callback
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner))()
             }),
         )
         .map_err(NewCapturerError::RegisterClosed)?;

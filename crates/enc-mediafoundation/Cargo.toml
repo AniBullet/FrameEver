@@ -45,7 +45,7 @@ windows = { workspace = true, features = [
 	"Security_Authorization_AppCapabilityAccess",
 ] }
 windows-core.workspace = true
-windows-numerics = "0.2.0"
+windows-numerics = "0.3"
 scap-direct3d = { path = "../scap-direct3d" }
 cap-d3d-adapter = { path = "../d3d-adapter" }
 
