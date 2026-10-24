@@ -394,10 +394,10 @@ mod tests {
 
     #[test]
     fn templates_fill_named_values_and_keep_unknown_ones() {
-        let version = "3.0.0";
+        let version = "1.0.0";
         assert_eq!(
             fill("Version {version} of {app}", &[("version", &version)]),
-            "Version 3.0.0 of {app}"
+            "Version 1.0.0 of {app}"
         );
         assert_eq!(fill("no braces", &[]), "no braces");
         assert_eq!(fill("open { only", &[]), "open { only");

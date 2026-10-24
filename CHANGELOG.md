@@ -6,7 +6,7 @@
 
 ---
 
-## [3.0.0] — 未发布
+## [1.0.0] — 未发布
 
 全新的原生界面版本，改名为 FrameEver · 帧刻。首次启动会自动导入 2.x 的设置，原来的录制文件继续显示，位置不变。
 
@@ -136,7 +136,7 @@
 
 ---
 
-[3.0.0]: https://github.com/AniBullet/FrameEver/releases/tag/v3.0.0
+[1.0.0]: https://github.com/AniBullet/FrameEver/releases/tag/v1.0.0
 [2.2.0]: https://github.com/AniBullet/FrameEver/releases/tag/v2.2.0
 [2.1.0]: https://github.com/AniBullet/FrameEver/releases/tag/v2.1.0
 [2.0.2]: https://github.com/AniBullet/FrameEver/releases/tag/v2.0.2

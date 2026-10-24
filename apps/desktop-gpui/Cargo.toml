@@ -9,7 +9,7 @@ members = [".", "kernels"]
 
 [package]
 name = "cap-desktop-gpui"
-version = "3.0.0-dev"
+version = "1.0.0-dev"
 description = "Beautiful screen recordings, owned by you."
 edition = "2024"
 license = "AGPL-3.0"

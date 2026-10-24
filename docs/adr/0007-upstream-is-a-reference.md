@@ -15,4 +15,5 @@ Supersedes ADR-0003. Its rule that old fixes are re-judged rather than replayed 
 ## Consequences
 
 - Upstream bug fixes reach us only when someone ports them; `docs/upstream-sync/` keeps a watch list of upstream changes worth porting.
+- Version numbers start over: the first FrameEver release is 1.0.0, not a continuation of Cap-aniBullet 2.x (whose updater was off, so no 2.x install is offered it).
 - Rules that existed only to keep merges cheap (keeping `cap-*` names, upstream's project format, accepting upstream tools' output) no longer bind.
