@@ -40,7 +40,7 @@ cap-media-info = { path = "../media-info" }
 
 tokio = { workspace = true, features = ["macros", "process", "fs"] }
 cpal.workspace = true
-axum = { version = "0.7.5", features = ["ws"] }
+axum = { version = "0.8.9", features = ["ws"] }
 ffmpeg.workspace = true
 specta.workspace = true
 serde = { workspace = true }
@@ -51,8 +51,8 @@ futures = { workspace = true }
 tracing.workspace = true
 flume.workspace = true
 tokio-util = "0.7.15"
-ringbuf = "0.4.8"
-lru = "0.12"
+ringbuf = "0.5.3"
+lru = "0.19"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
