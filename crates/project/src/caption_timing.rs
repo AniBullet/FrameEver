@@ -64,7 +64,7 @@ pub fn is_cjk(value: char) -> bool {
     )
 }
 
-fn is_cjk_punctuation(value: char) -> bool {
+pub fn is_cjk_punctuation(value: char) -> bool {
     matches!(value, '\u{3000}'..='\u{303f}' | '\u{ff01}'..='\u{ff0f}' | '\u{ff1a}'..='\u{ff20}')
 }
 

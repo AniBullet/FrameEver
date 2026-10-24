@@ -38,7 +38,7 @@ use cap_editor::{TranscriptionAudioSource, TranscriptionAudioTake, append_transc
 use cap_project::{
     CaptionSegment, CaptionSettings, CaptionTrackSegment, CaptionWord, CaptionsData,
     ProjectConfiguration, RecordingMeta, StudioRecordingMeta, TimelineConfiguration,
-    TimelineSegment, caption_text_from_words, is_cjk,
+    TimelineSegment, caption_text_from_words, is_cjk, is_cjk_punctuation,
 };
 use cap_rendering::Video;
 
@@ -92,7 +92,7 @@ const PARAKEET_LANGUAGES: [&str; 25] = [
     "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "uk",
 ];
 
-const WHISPER_MODELS_BY_SIZE: [&str; 2] = ["medium", "small"];
+const WHISPER_MODELS_LARGEST_FIRST: [&str; 2] = ["medium", "small"];
 
 const PARAKEET_UNSUPPORTED_LANGUAGE: &str = "Parakeet cannot transcribe language";
 
@@ -115,7 +115,7 @@ fn caption_engine(
     if !is_parakeet_model(model) || PARAKEET_LANGUAGES.contains(&language) {
         return Ok(engine(model, language));
     }
-    let whisper = WHISPER_MODELS_BY_SIZE
+    let whisper = WHISPER_MODELS_LARGEST_FIRST
         .into_iter()
         .find(|whisper| downloaded(whisper));
     if language == "auto" {
@@ -1479,6 +1479,8 @@ fn full_width_punctuation(value: char) -> char {
     }
 }
 
+const MIN_WHISPER_WORD_SECONDS: f32 = 0.1;
+
 fn whisper_words<'a>(tokens: impl IntoIterator<Item = (&'a [u8], f32, f32)>) -> Vec<CaptionWord> {
     let mut words: Vec<CaptionWord> = Vec::new();
     let mut pending = Vec::new();
@@ -1518,7 +1520,7 @@ fn whisper_words<'a>(tokens: impl IntoIterator<Item = (&'a [u8], f32, f32)>) -> 
                 end,
             }),
         }
-        joins_previous = !has_cjk;
+        joins_previous = !piece.ends_with(|c| is_cjk(c) || is_cjk_punctuation(c));
     }
 
     let next_starts: Vec<Option<f32>> = words
@@ -1537,8 +1539,6 @@ fn whisper_words<'a>(tokens: impl IntoIterator<Item = (&'a [u8], f32, f32)>) -> 
 
     words
 }
-
-const MIN_WHISPER_WORD_SECONDS: f32 = 0.1;
 
 fn read_whisper_audio(audio_path: &Path) -> Result<Vec<f32>, String> {
     let mut audio_data = Vec::new();
@@ -1909,7 +1909,7 @@ pub fn transcribe_blocking(
             ));
         }
         if is_parakeet_model(model) {
-            for whisper in WHISPER_MODELS_BY_SIZE {
+            for whisper in WHISPER_MODELS_LARGEST_FIRST {
                 invalidate_whisper_cache_for_path(&model_path(whisper));
             }
             tracing::info!("Using Parakeet TDT engine");
@@ -2728,6 +2728,19 @@ mod tests {
         assert_eq!(
             timed_words(&whisper_words(tokens)),
             vec![("Hello,", 0.0, 0.5), ("FrameEver", 0.6, 1.0)]
+        );
+    }
+
+    #[test]
+    fn whisper_words_start_a_latin_word_after_full_width_punctuation() {
+        let tokens: Vec<(&[u8], f32, f32)> = vec![
+            ("好".as_bytes(), 0.0, 0.2),
+            ("，".as_bytes(), 0.2, 0.3),
+            ("OK".as_bytes(), 0.3, 0.5),
+        ];
+        assert_eq!(
+            timed_words(&whisper_words(tokens)),
+            vec![("好", 0.0, 0.2), ("，", 0.2, 0.3), ("OK", 0.3, 0.5)]
         );
     }
 
