@@ -24,7 +24,7 @@ Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `
 
 ## Environment
 
-- Everything goes through `pnpm fe <command>` (`scripts/fe.mjs`): `setup`, `doctor`, `dev [--watch] [--lang zh-CN]`, `logs`, `check`, `test [--all]`, `lint`, `fmt`, `export <codec>`, `package`, `release <version>`. CI (`release.yml`) runs the same `setup` and `package`. Human guide: `BUILD.md`; agent guide for debugging and fixing: `docs/agents/debugging.md`.
+- Everything goes through `pnpm fe <command>` (`scripts/fe.mjs`): `setup`, `doctor`, `dev [--watch] [--lang zh-CN]`, `logs`, `check`, `test [--all]`, `lint`, `fmt`, `export <codec>`, `package`, `release <version>`, `privacy` (also runs as the pre-push hook that `setup` installs). CI (`release.yml`) runs the same `setup` and `package`. Human guide: `BUILD.md`; agent guide for debugging and fixing: `docs/agents/debugging.md`.
 - The owner's machine has a Claude Desktop pane, "FrameEver 开发" (`.claude/skills/frameever-dev`, `/fe-dev`; local only, `.claude/` is gitignored), whose buttons call `pnpm fe`.
 - Both workspaces build with Rust stable (`rust-toolchain.toml`; the root was on 1.88 only for the frozen Tauri app and moved to stable on 2026-10-24 so dependencies can follow their latest releases). Version numbers: both Cargo manifests say `3.0.0-dev`; CI stamps the tag's version.
 - Never screenshot the owner's screen; ask them to look instead.

@@ -1,1 +1,2 @@
 /apps/desktop-gpui/patches/*.patch text eol=lf
+/.githooks/* text eol=lf

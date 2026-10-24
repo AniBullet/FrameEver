@@ -71,7 +71,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test packaging scripts
-        run: node --test scripts/bundle-gpui.test.mjs scripts/prepare-gpui-dependency.test.mjs scripts/fe.test.mjs
+        run: node --test scripts/bundle-gpui.test.mjs scripts/prepare-gpui-dependency.test.mjs scripts/fe.test.mjs scripts/privacy.test.mjs
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

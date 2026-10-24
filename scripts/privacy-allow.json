@@ -1,0 +1,15 @@
+{
+	"emails": [
+		"[0-9]+\\+[A-Za-z0-9-]+@users\\.noreply\\.github\\.com",
+		"[A-Za-z0-9-]+@users\\.noreply\\.github\\.com",
+		"noreply@anthropic\\.com",
+		"noreply@github\\.com",
+		"git@github\\.com",
+		"[^@]+@example\\.(com|org|net)",
+		"[^@]+@[^@]+\\.(invalid|test|local|localhost|example)",
+		"[^@]+@cap\\.so"
+	],
+	"publicNames": ["aniBullet"],
+	"files": ["^vendor/"],
+	"text": []
+}

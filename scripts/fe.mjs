@@ -15,6 +15,7 @@ import {
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { describe as describeFinding, privacyCheck } from "./privacy.mjs";
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const gpuiDir = path.join(root, "apps", "desktop-gpui");
@@ -69,6 +70,7 @@ const COMMANDS = {
 	deps: "Show Rust dependency updates within version ranges and newer versions needing a manual bump. --apply updates both Cargo.lock files",
 	doctor: "Check the environment and say how to fix anything missing",
 	logs: "Print the app log tail: fe logs [--lines 200] [--grep <text>] [--real]",
+	privacy: "Scan what you are about to push for private data (emails, local paths, keys). --staged, --all (every tracked file)",
 };
 
 export function parseArgs(argv) {
@@ -205,6 +207,11 @@ function setup({ flags }) {
 	if (isWindows) {
 		step("NSIS installer compiler (Tauri's toolset, made large-address-aware)");
 		prepareNsis();
+	}
+
+	if (!flags.ci) {
+		step("Git hooks (privacy check before every push)");
+		run("git", ["config", "core.hooksPath", HOOKS_DIR]);
 	}
 
 	console.log("\n\u001b[32m✓ Ready. Next: pnpm fe dev\u001b[0m");
@@ -511,6 +518,7 @@ function test({ flags, positional }) {
 			"--test",
 			"scripts/bundle-gpui.test.mjs",
 			"scripts/fe.test.mjs",
+			"scripts/privacy.test.mjs",
 		]);
 	}
 	console.log("\n\u001b[32m✓ Tests passed\u001b[0m");
@@ -845,6 +853,12 @@ function doctor() {
 		"pnpm fe setup",
 	);
 	add(
+		"Privacy check before push",
+		capture("git", ["config", "core.hooksPath"]) === HOOKS_DIR,
+		"",
+		"pnpm fe setup",
+	);
+	add(
 		"Test recording (for fe export)",
 		Boolean(firstRecording(path.join(testdataDir, "recordings"))),
 		"",
@@ -858,6 +872,30 @@ function doctor() {
 	}
 	const broken = checks.filter((check) => !check.ok && check.name !== "Test recording (for fe export)");
 	if (broken.length > 0) process.exit(1);
+}
+
+export const HOOKS_DIR = ".githooks";
+
+function readStdin() {
+	try {
+		return readFileSync(0, "utf8");
+	} catch {
+		return "";
+	}
+}
+
+function privacy({ flags }) {
+	const mode = flags.hook ? "hook" : flags.staged ? "staged" : flags.all ? "tree" : "outgoing";
+	const { scope, findings } = privacyCheck({ mode, stdin: mode === "hook" ? readStdin() : "" });
+	step(`Privacy check: ${scope}`);
+	if (findings.length === 0) {
+		console.log("\u001b[32m✓ No private data found\u001b[0m");
+		return;
+	}
+	for (const finding of findings) console.log(`  ${describeFinding(finding)}`);
+	fail(
+		`${findings.length} possible leak(s). Remove them (rewrite the commit if it is already committed), or, if a match is public on purpose, add it to scripts/privacy-allow.json.`,
+	);
 }
 
 function help() {
@@ -881,6 +919,7 @@ const HANDLERS = {
 	deps,
 	doctor,
 	logs,
+	privacy,
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

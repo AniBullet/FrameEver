@@ -100,6 +100,18 @@ pnpm fe deps --apply  # 应用范围内的升级（两个工作区都会更新�
 
 `pnpm fe deps` 列出的“held back”是范围外的新版本，需要逐个看更新说明再手动改 `Cargo.toml`，不要一次全升。故意锁定的依赖（预发布版 `ort`、`specta`，gpui 的提交号，Cap 团队 fork 的 cpal / rust-ffmpeg / nokhwa，`vendor/` 下的补丁）和原因记在 `docs/upstream-sync/0.6.1.md` 路线图的 Phase 4。预发布版（版本号带 `-rc`）在 `Cargo.toml` 里用 `=` 精确锁定，因为两个 rc 之间常有不兼容改动。
 
+## 推送前的隐私检查
+
+`pnpm fe setup` 会把 Git 钩子目录设为 `.githooks`，之后每次 `git push` 都会先扫描这次要推送的提交，发现疑似隐私就中止推送。也可以手动运行：
+
+```powershell
+pnpm fe privacy           # 扫描还没推送的提交：作者邮箱、提交说明、新增的每一行、文件名
+pnpm fe privacy --staged  # 只扫描已暂存的改动
+pnpm fe privacy --all     # 扫描仓库里所有已跟踪的文件
+```
+
+它会查：非 noreply 的邮箱、本机用户名和计算机名（会出现在 `C:\Users\…` 这类路径里）、私钥和签名密钥、GitHub / AWS / OpenAI / Anthropic 等 token、写在代码里的密码、手机号和身份证号，以及 `.env`、`*.pem`、`*.log`、`settings.local.json` 这类文件。命中的内容在输出里只显示开头几个字符。真的是公开内容时（比如第三方作者的邮箱），把它加进 `scripts/privacy-allow.json`；已经提交的隐私要改写提交后再推送。
+
 ## 常见问题
 
 **`bash` 报 WSL 错误**：PowerShell 里的 `bash` 是 WSL 的。`pnpm fe` 会自动找到 Git Bash；需要手动运行 `.sh` 脚本时，用 `& "C:\Program Files\Git\bin\bash.exe" <脚本>`。
