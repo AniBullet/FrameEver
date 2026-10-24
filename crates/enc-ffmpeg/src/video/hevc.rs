@@ -168,7 +168,7 @@ impl HevcEncoderBuilder {
     #[allow(clippy::too_many_arguments)]
     fn build_with_codec(
         codec: Codec,
-        encoder_options: Dictionary<'static>,
+        mut encoder_options: Dictionary<'static>,
         input_config: &VideoInfo,
         output: &mut format::context::Output,
         output_width: u32,
@@ -294,7 +294,6 @@ impl HevcEncoderBuilder {
                 ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT709;
         }
 
-        let mut encoder_options = encoder_options;
         match rate_control(
             codec.name(),
             output_width,
@@ -662,7 +661,7 @@ fn get_codec_and_options(
     encoders
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 enum RateControl {
     Bitrate(usize),
     Crf(u8),
