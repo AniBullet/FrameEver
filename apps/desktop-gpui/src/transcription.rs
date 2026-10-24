@@ -38,7 +38,7 @@ use cap_editor::{TranscriptionAudioSource, TranscriptionAudioTake, append_transc
 use cap_project::{
     CaptionSegment, CaptionSettings, CaptionTrackSegment, CaptionWord, CaptionsData,
     ProjectConfiguration, RecordingMeta, StudioRecordingMeta, TimelineConfiguration,
-    TimelineSegment,
+    TimelineSegment, caption_text_from_words, is_cjk, is_cjk_punctuation,
 };
 use cap_rendering::Video;
 
@@ -51,7 +51,9 @@ use ffmpeg::{
 use futures_util::StreamExt;
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 use parakeet_rs::{ParakeetTDT, TimestampMode, Transcriber};
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+};
 
 use crate::{editor_timeline::clip_timeline_offsets, store};
 
@@ -83,6 +85,51 @@ pub fn supports_parakeet() -> bool {
 /// `PARAKEET_DIR_MODELS` (`captions.ts:26`).
 pub fn is_parakeet_model(model: &str) -> bool {
     matches!(model, "best" | "best-max")
+}
+
+const PARAKEET_LANGUAGES: [&str; 25] = [
+    "bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hr", "hu", "it", "lt", "lv", "mt",
+    "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "uk",
+];
+
+const WHISPER_MODELS_LARGEST_FIRST: [&str; 2] = ["medium", "small"];
+
+const PARAKEET_UNSUPPORTED_LANGUAGE: &str = "Parakeet cannot transcribe language";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CaptionEngine {
+    model: String,
+    language: String,
+}
+
+fn caption_engine(
+    model: &str,
+    language: &str,
+    downloaded: impl Fn(&str) -> bool,
+    detect_language: impl FnOnce(&str) -> Option<String>,
+) -> Result<CaptionEngine, String> {
+    let engine = |model: &str, language: &str| CaptionEngine {
+        model: model.to_string(),
+        language: language.to_string(),
+    };
+    if !is_parakeet_model(model) || PARAKEET_LANGUAGES.contains(&language) {
+        return Ok(engine(model, language));
+    }
+    let whisper = WHISPER_MODELS_LARGEST_FIRST
+        .into_iter()
+        .find(|whisper| downloaded(whisper));
+    if language == "auto" {
+        return Ok(whisper
+            .and_then(|whisper| {
+                detect_language(whisper)
+                    .filter(|detected| !PARAKEET_LANGUAGES.contains(&detected.as_str()))
+                    .map(|detected| engine(whisper, &detected))
+            })
+            .unwrap_or_else(|| engine(model, language)));
+    }
+    whisper
+        .map(|whisper| engine(whisper, language))
+        .ok_or_else(|| format!("{PARAKEET_UNSUPPORTED_LANGUAGE} {language}"))
 }
 
 /// Tauri's `appLocalDataDir()` for the `so.cap.desktop` identifier: on macOS
@@ -160,6 +207,12 @@ struct Hub {
 }
 
 impl Hub {
+    fn downloading(&self, model: &str) -> bool {
+        self.download.as_ref().is_some_and(|download| {
+            download.model == model && download.state == DownloadState::Downloading
+        })
+    }
+
     fn work_in_flight(&self) -> bool {
         self.download
             .as_ref()
@@ -1355,7 +1408,7 @@ fn write_wav_16k_mono(mixed_samples: &[f32], output_path: &Path) -> Result<(), S
 // ---------------------------------------------------------------------------
 
 /// `build_initial_prompt` (`captions.rs:1181-1200`).
-fn build_initial_prompt(transcription_hints: &[String]) -> Option<String> {
+fn build_initial_prompt(language: &str, transcription_hints: &[String]) -> Option<String> {
     let mut normalized = Vec::new();
 
     for hint in transcription_hints {
@@ -1366,7 +1419,13 @@ fn build_initial_prompt(transcription_hints: &[String]) -> Option<String> {
         normalized.push(value);
     }
 
-    if normalized.is_empty() {
+    if language == "zh" {
+        let mut prompt = "以下是普通话的句子，使用简体中文和标点符号。".to_string();
+        if !normalized.is_empty() {
+            prompt.push_str(&format!("专有名词：{}。", normalized.join("、")));
+        }
+        Some(prompt)
+    } else if normalized.is_empty() {
         None
     } else {
         Some(format!(
@@ -1408,6 +1467,133 @@ fn is_special_token(token_text: &str) -> bool {
         || trimmed.contains("<|")
 }
 
+fn full_width_punctuation(value: char) -> char {
+    match value {
+        ',' => '，',
+        '.' => '。',
+        '!' => '！',
+        '?' => '？',
+        ';' => '；',
+        ':' => '：',
+        other => other,
+    }
+}
+
+const MIN_WHISPER_WORD_SECONDS: f32 = 0.1;
+
+fn whisper_words<'a>(tokens: impl IntoIterator<Item = (&'a [u8], f32, f32)>) -> Vec<CaptionWord> {
+    let mut words: Vec<CaptionWord> = Vec::new();
+    let mut pending = Vec::new();
+    let mut pending_start = 0.0;
+    let mut joins_previous = false;
+
+    for (bytes, start, end) in tokens {
+        if pending.is_empty() {
+            pending_start = start;
+        }
+        pending.extend_from_slice(bytes);
+        let text = match std::str::from_utf8(&pending) {
+            Ok(text) => text.to_string(),
+            Err(error) if error.error_len().is_none() => continue,
+            Err(_) => String::from_utf8_lossy(&pending).into_owned(),
+        };
+        pending.clear();
+
+        let piece = text.trim();
+        if piece.is_empty() {
+            joins_previous = false;
+            continue;
+        }
+        if is_special_token(piece) {
+            continue;
+        }
+
+        let has_cjk = piece.chars().any(is_cjk);
+        match words.last_mut() {
+            Some(word) if joins_previous && !has_cjk && !text.starts_with(char::is_whitespace) => {
+                word.text.push_str(piece);
+                word.end = end;
+            }
+            _ => words.push(CaptionWord {
+                text: piece.to_string(),
+                start: pending_start,
+                end,
+            }),
+        }
+        joins_previous = !piece.ends_with(|c| is_cjk(c) || is_cjk_punctuation(c));
+    }
+
+    let next_starts: Vec<Option<f32>> = words
+        .iter()
+        .skip(1)
+        .map(|word| Some(word.start))
+        .chain([None])
+        .collect();
+    for (word, next_start) in words.iter_mut().zip(next_starts) {
+        if word.end <= word.start {
+            word.end = next_start
+                .filter(|next_start| *next_start > word.start)
+                .unwrap_or(word.start + MIN_WHISPER_WORD_SECONDS);
+        }
+    }
+
+    words
+}
+
+fn read_whisper_audio(audio_path: &Path) -> Result<Vec<f32>, String> {
+    let mut audio_data = Vec::new();
+    File::open(audio_path)
+        .map_err(|e| format!("Failed to open audio file: {e} at path: {audio_path:?}"))?
+        .read_to_end(&mut audio_data)
+        .map_err(|e| format!("Failed to read audio file: {e}"))?;
+
+    let mut audio_data_f32: Vec<f32> = audio_data
+        .chunks_exact(2)
+        .map(|pair| f32::from(i16::from_le_bytes([pair[0], pair[1]])) / 32768.0)
+        .collect();
+
+    let gain = normalize_audio_for_transcription(&mut audio_data_f32);
+    if (gain - 1.0).abs() > 0.01 {
+        tracing::info!("Applied Whisper input gain: {gain:.2}x");
+    }
+    Ok(audio_data_f32)
+}
+
+const LANGUAGE_DETECTION_SPEECH_LEVEL: f32 = 0.05;
+const LANGUAGE_DETECTION_SECONDS: usize = 30;
+
+fn detect_whisper_language(state: &mut WhisperState, samples: &[f32]) -> Option<String> {
+    let speech_start = samples
+        .iter()
+        .position(|sample| sample.abs() > LANGUAGE_DETECTION_SPEECH_LEVEL)?;
+    let window_end = samples
+        .len()
+        .min(speech_start + LANGUAGE_DETECTION_SECONDS * WHISPER_SAMPLE_RATE as usize);
+    let threads = std::thread::available_parallelism().map_or(1, usize::from);
+    let detected = state
+        .pcm_to_mel(&samples[speech_start..window_end], threads)
+        .and_then(|()| state.lang_detect(0, threads))
+        .map_err(|error| tracing::warn!("Whisper language detection failed: {error}"))
+        .ok()
+        .and_then(|(id, _)| whisper_rs::get_lang_str(id))?;
+    tracing::info!("Whisper detected spoken language: {detected}");
+    Some(detected.to_string())
+}
+
+fn detect_spoken_language(audio_path: &Path, whisper_model: &str) -> Option<String> {
+    let context = get_whisper_context(model_path(whisper_model).to_string_lossy().as_ref())
+        .map_err(|error| tracing::warn!("Failed to load Whisper for language detection: {error}"))
+        .ok()?;
+    let samples = read_whisper_audio(audio_path)
+        .map_err(|error| tracing::warn!("{error}"))
+        .ok()?;
+    let mut state = context
+        .create_state()
+        .map_err(|error| tracing::warn!("Failed to create Whisper state: {error}"))
+        .ok()?;
+    detect_whisper_language(&mut state, &samples)
+}
+
 /// `process_with_whisper` (`captions.rs:917-1179`).
 fn process_with_whisper(
     audio_path: &Path,
@@ -1425,27 +1611,24 @@ fn process_with_whisper(
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_token_timestamps(true);
-    params.set_language(Some(if language == "auto" { "auto" } else { language }));
     params.set_max_len(i32::MAX);
 
-    if let Some(initial_prompt) = build_initial_prompt(transcription_hints) {
-        params.set_initial_prompt(&initial_prompt);
-    }
+    let audio_data_f32 = read_whisper_audio(audio_path)?;
 
-    let mut audio_data = Vec::new();
-    File::open(audio_path)
-        .map_err(|e| format!("Failed to open audio file: {e} at path: {audio_path:?}"))?
-        .read_to_end(&mut audio_data)
-        .map_err(|e| format!("Failed to read audio file: {e}"))?;
+    let mut state = context
+        .create_state()
+        .map_err(|e| format!("Failed to create Whisper state: {e}"))?;
 
-    let mut audio_data_f32: Vec<f32> = audio_data
-        .chunks_exact(2)
-        .map(|pair| f32::from(i16::from_le_bytes([pair[0], pair[1]])) / 32768.0)
-        .collect();
+    let language = if language == "auto" {
+        detect_whisper_language(&mut state, &audio_data_f32).unwrap_or_else(|| "auto".to_string())
+    } else {
+        language.to_string()
+    };
+    params.set_language(Some(&language));
 
-    let gain = normalize_audio_for_transcription(&mut audio_data_f32);
-    if (gain - 1.0).abs() > 0.01 {
-        tracing::info!("Applied Whisper input gain: {gain:.2}x");
+    let initial_prompt = build_initial_prompt(&language, transcription_hints);
+    if let Some(initial_prompt) = &initial_prompt {
+        params.set_initial_prompt(initial_prompt);
     }
 
     tracing::info!(
@@ -1454,10 +1637,6 @@ fn process_with_whisper(
         audio_data_f32.len() as f32 / WHISPER_SAMPLE_RATE as f32,
         WHISPER_SAMPLE_RATE
     );
-
-    let mut state = context
-        .create_state()
-        .map_err(|e| format!("Failed to create Whisper state: {e}"))?;
 
     state
         .full(params, &audio_data_f32[..])
@@ -1477,60 +1656,14 @@ fn process_with_whisper(
         let start_time = (start_i64 as f32) / 100.0;
         let end_time = (end_i64 as f32) / 100.0;
 
-        let mut words = Vec::new();
-        let num_tokens = segment.n_tokens();
-
-        let mut current_word = String::new();
-        let mut word_start: Option<f32> = None;
-        let mut word_end: f32 = start_time;
-
-        for t in 0..num_tokens {
-            let Some(token) = segment.get_token(t) else {
-                continue;
-            };
-            let token_text = token.to_str().map(str::to_owned).unwrap_or_default();
-
-            if is_special_token(&token_text) {
-                continue;
-            }
-
-            let data = token.token_data();
-
-            let token_start = (data.t0 as f32) / 100.0;
-            let token_end = (data.t1 as f32) / 100.0;
-
-            if token_text.starts_with(' ') || token_text.starts_with('\n') {
-                if !current_word.is_empty()
-                    && let Some(ws) = word_start
-                {
-                    words.push(CaptionWord {
-                        text: current_word.trim().to_string(),
-                        start: ws,
-                        end: word_end,
-                    });
-                }
-                current_word = token_text.trim().to_string();
-                word_start = Some(token_start);
-            } else {
-                if word_start.is_none() {
-                    word_start = Some(token_start);
-                }
-                current_word.push_str(&token_text);
-            }
-            word_end = token_end;
-        }
-
-        if !current_word.trim().is_empty()
-            && let Some(ws) = word_start
-        {
-            words.push(CaptionWord {
-                text: current_word.trim().to_string(),
-                start: ws,
-                end: word_end,
+        let tokens = (0..segment.n_tokens())
+            .filter_map(|t| segment.get_token(t))
+            .filter_map(|token| {
+                let data = token.token_data();
+                let bytes = token.to_bytes().ok()?;
+                Some((bytes, data.t0 as f32 / 100.0, data.t1 as f32 / 100.0))
             });
-        }
-
-        let words = normalize_caption_words(words);
+        let words = normalize_caption_words(whisper_words(tokens));
         if words.is_empty() {
             continue;
         }
@@ -1747,23 +1880,38 @@ pub fn transcribe_blocking(
     model: &str,
     language: &str,
 ) -> Result<Vec<CaptionSegment>, String> {
-    let model_file = model_path(model);
     if !project_path.exists() {
         return Err(format!(
             "Video file not found at path: {}",
             project_path.display()
         ));
     }
-    if !model_files_present(model) {
-        return Err(format!(
-            "Model file not found at path: {}",
-            model_file.display()
-        ));
-    }
+    let usable = |model: &str| model_files_present(model) && !hub().downloading(model);
 
     transcribe_project_with(project_path, |audio_path| {
         let _guard = lock_transcription_worker_slot();
+        let engine = caption_engine(model, language, usable, |whisper| {
+            detect_spoken_language(audio_path, whisper)
+        })?;
+        if engine.model != model || engine.language != language {
+            tracing::info!(
+                "Captions for {language} with {model} run on {} with {}",
+                engine.model,
+                engine.language
+            );
+        }
+        let (model, language) = (engine.model.as_str(), engine.language.as_str());
+        let model_file = model_path(model);
+        if !model_files_present(model) {
+            return Err(format!(
+                "Model file not found at path: {}",
+                model_file.display()
+            ));
+        }
         if is_parakeet_model(model) {
+            for whisper in WHISPER_MODELS_LARGEST_FIRST {
+                invalidate_whisper_cache_for_path(&model_path(whisper));
+            }
             tracing::info!("Using Parakeet TDT engine");
             let result = process_with_parakeet(audio_path, model_file.to_string_lossy().as_ref());
             schedule_parakeet_release();
@@ -1917,7 +2065,13 @@ fn normalize_caption_words(words: Vec<CaptionWord>) -> Vec<CaptionWord> {
         if caption_token_attaches_to_previous(text)
             && let Some(previous) = normalized.last_mut()
         {
-            previous.text.push_str(text);
+            if previous.text.ends_with(is_cjk) {
+                previous
+                    .text
+                    .extend(text.chars().map(full_width_punctuation));
+            } else {
+                previous.text.push_str(text);
+            }
             previous.end = word.end;
         } else {
             normalized.push(CaptionWord {
@@ -1933,25 +2087,6 @@ fn normalize_caption_words(words: Vec<CaptionWord>) -> Vec<CaptionWord> {
     }
 
     normalized
-}
-
-/// `caption_text_from_words` (`captions.rs:833-849`).
-fn caption_text_from_words<'a>(words: impl IntoIterator<Item = &'a CaptionWord>) -> String {
-    let mut text = String::new();
-
-    for word in words {
-        let word_text = word.text.trim();
-        if word_text.is_empty() {
-            continue;
-        }
-
-        if !text.is_empty() && !caption_token_attaches_to_previous(word_text) {
-            text.push(' ');
-        }
-        text.push_str(word_text);
-    }
-
-    text
 }
 
 /// `caption_word_chunks` (`captions.rs:851-883`).
@@ -2260,6 +2395,9 @@ pub fn caption_generation_error_message(message: &str) -> String {
     if message.contains("Failed to load Whisper model") {
         return t!("Failed to load the caption model. Try downloading it again").to_string();
     }
+    if message.contains(PARAKEET_UNSUPPORTED_LANGUAGE) {
+        return t!("The Recommended and High Accuracy models only transcribe English and 24 other European languages. Download the Small or Medium model to caption this language").to_string();
+    }
     if message.contains("Parakeet transcription is not available on Intel macOS") {
         return t!("Parakeet models are not available on Intel Macs. Use a Whisper model instead")
             .to_string();
@@ -2273,6 +2411,85 @@ mod verify_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn engine(model: &str, language: &str) -> CaptionEngine {
+        CaptionEngine {
+            model: model.to_string(),
+            language: language.to_string(),
+        }
+    }
+
+    #[test]
+    fn chinese_moves_from_parakeet_to_a_downloaded_whisper_model() {
+        let no_detection =
+            |_: &str| -> Option<String> { panic!("no detection for a set language") };
+        assert_eq!(
+            caption_engine("best", "zh", |_| true, no_detection),
+            Ok(engine("medium", "zh"))
+        );
+        assert_eq!(
+            caption_engine("best-max", "zh", |model| model == "small", no_detection),
+            Ok(engine("small", "zh"))
+        );
+        let error = caption_engine("best", "zh", |_| false, no_detection).unwrap_err();
+        assert_eq!(
+            caption_generation_error_message(&error),
+            "The Recommended and High Accuracy models only transcribe English and 24 other European languages. Download the Small or Medium model to caption this language"
+        );
+    }
+
+    #[test]
+    fn auto_detected_chinese_moves_from_parakeet_to_whisper() {
+        assert_eq!(
+            caption_engine(
+                "best",
+                "auto",
+                |model| model == "small",
+                |whisper| {
+                    assert_eq!(whisper, "small");
+                    Some("zh".to_string())
+                }
+            ),
+            Ok(engine("small", "zh"))
+        );
+        assert_eq!(
+            caption_engine("best", "auto", |_| true, |_| Some("de".to_string())),
+            Ok(engine("best", "auto"))
+        );
+        assert_eq!(
+            caption_engine("best", "auto", |_| true, |_| None),
+            Ok(engine("best", "auto"))
+        );
+        assert_eq!(
+            caption_engine(
+                "best",
+                "auto",
+                |_| false,
+                |_| -> Option<String> { panic!("no Whisper model to detect with") }
+            ),
+            Ok(engine("best", "auto"))
+        );
+    }
+
+    #[test]
+    fn european_languages_and_whisper_selections_keep_their_model() {
+        let no_detection =
+            |_: &str| -> Option<String> { panic!("no detection for a set language") };
+        for language in ["en", "de", "ru", "uk", "pl"] {
+            assert_eq!(
+                caption_engine("best-max", language, |_| true, no_detection),
+                Ok(engine("best-max", language))
+            );
+        }
+        assert_eq!(
+            caption_engine("small", "zh", |_| false, no_detection),
+            Ok(engine("small", "zh"))
+        );
+        assert_eq!(
+            caption_engine("medium", "auto", |_| true, no_detection),
+            Ok(engine("medium", "auto"))
+        );
+    }
 
     #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
     #[test]
@@ -2331,6 +2548,33 @@ mod tests {
                 }
             }
             Err(error) => panic!("parakeet_seconds={seconds:.2} error={error}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "needs CAP_CAPTIONS_PROJECT, CAP_CAPTIONS_MODEL and CAP_CAPTIONS_LANGUAGE"]
+    fn caption_a_real_project() {
+        let project_path =
+            PathBuf::from(std::env::var("CAP_CAPTIONS_PROJECT").expect("CAP_CAPTIONS_PROJECT"));
+        let model = std::env::var("CAP_CAPTIONS_MODEL").expect("CAP_CAPTIONS_MODEL");
+        let language = std::env::var("CAP_CAPTIONS_LANGUAGE").expect("CAP_CAPTIONS_LANGUAGE");
+        let started = std::time::Instant::now();
+        let segments = transcribe_blocking(&project_path, &model, &language)
+            .unwrap_or_else(|error| panic!("{}", caption_generation_error_message(&error)));
+        let mut project = ProjectConfiguration::load(&project_path).expect("project-config.json");
+        let source_end = segments
+            .last()
+            .map_or(0.0, |segment| f64::from(segment.end));
+        apply_caption_result(&mut project, segments, &[source_end], source_end);
+        let track = &project.timeline.as_ref().unwrap().caption_segments;
+        println!(
+            "seconds={:.2} source_captions={} timeline_captions={}",
+            started.elapsed().as_secs_f64(),
+            project.captions.as_ref().unwrap().segments.len(),
+            track.len()
+        );
+        for caption in track.iter().take(12) {
+            println!("{:.2}-{:.2} {}", caption.start, caption.end, caption.text);
         }
     }
 
@@ -2415,6 +2659,128 @@ mod tests {
     }
 
     // -- captions.rs's own unit tests, carried over --------------------------
+
+    fn timed_words(words: &[CaptionWord]) -> Vec<(&str, f32, f32)> {
+        words
+            .iter()
+            .map(|word| (word.text.as_str(), word.start, word.end))
+            .collect()
+    }
+
+    #[test]
+    fn whisper_words_rebuild_characters_split_across_tokens() {
+        let jia = "家".as_bytes();
+        let zhong = "众".as_bytes();
+        let tokens: Vec<(&[u8], f32, f32)> = vec![
+            ("[_BEG_]".as_bytes(), 0.0, 0.0),
+            (" 大".as_bytes(), 0.0, 0.3),
+            (&jia[..2], 0.3, 0.4),
+            (&jia[2..], 0.4, 0.5),
+            ("好".as_bytes(), 0.5, 0.7),
+            ("，".as_bytes(), 0.7, 0.75),
+            ("观".as_bytes(), 0.75, 0.9),
+            (&zhong[..1], 0.9, 1.0),
+            (&zhong[1..], 1.0, 1.2),
+            ("。".as_bytes(), 1.2, 1.3),
+        ];
+        assert_eq!(
+            timed_words(&normalize_caption_words(whisper_words(tokens))),
+            vec![
+                ("大", 0.0, 0.3),
+                ("家", 0.3, 0.5),
+                ("好，", 0.5, 0.75),
+                ("观", 0.75, 0.9),
+                ("众。", 0.9, 1.3),
+            ]
+        );
+    }
+
+    #[test]
+    fn whisper_words_without_duration_last_until_the_next_word() {
+        let tokens: Vec<(&[u8], f32, f32)> = vec![
+            ("我".as_bytes(), 3.0, 3.2),
+            ("来".as_bytes(), 3.2, 3.2),
+            ("演".as_bytes(), 3.25, 3.25),
+            ("示".as_bytes(), 3.4, 3.6),
+            ("吧".as_bytes(), 3.7, 3.7),
+        ];
+        assert_eq!(
+            timed_words(&whisper_words(tokens)),
+            vec![
+                ("我", 3.0, 3.2),
+                ("来", 3.2, 3.25),
+                ("演", 3.25, 3.4),
+                ("示", 3.4, 3.6),
+                ("吧", 3.7, 3.8),
+            ]
+        );
+    }
+
+    #[test]
+    fn whisper_words_join_latin_tokens_until_a_space() {
+        let tokens: Vec<(&[u8], f32, f32)> = vec![
+            (" Hello".as_bytes(), 0.0, 0.4),
+            (",".as_bytes(), 0.4, 0.5),
+            (" Frame".as_bytes(), 0.6, 0.8),
+            ("Ever".as_bytes(), 0.8, 1.0),
+            ("<|endoftext|>".as_bytes(), 1.0, 1.0),
+        ];
+        assert_eq!(
+            timed_words(&whisper_words(tokens)),
+            vec![("Hello,", 0.0, 0.5), ("FrameEver", 0.6, 1.0)]
+        );
+    }
+
+    #[test]
+    fn whisper_words_start_a_latin_word_after_full_width_punctuation() {
+        let tokens: Vec<(&[u8], f32, f32)> = vec![
+            ("好".as_bytes(), 0.0, 0.2),
+            ("，".as_bytes(), 0.2, 0.3),
+            ("OK".as_bytes(), 0.3, 0.5),
+        ];
+        assert_eq!(
+            timed_words(&whisper_words(tokens)),
+            vec![("好", 0.0, 0.2), ("，", 0.2, 0.3), ("OK", 0.3, 0.5)]
+        );
+    }
+
+    #[test]
+    fn chinese_whisper_prompt_asks_for_simplified_chinese() {
+        let hints = [
+            "帧刻".to_string(),
+            "FrameEver".to_string(),
+            " 帧刻 ".to_string(),
+        ];
+        assert_eq!(
+            build_initial_prompt("zh", &hints).as_deref(),
+            Some("以下是普通话的句子，使用简体中文和标点符号。专有名词：帧刻、FrameEver。")
+        );
+        assert_eq!(
+            build_initial_prompt("zh", &[]).as_deref(),
+            Some("以下是普通话的句子，使用简体中文和标点符号。")
+        );
+        assert_eq!(
+            build_initial_prompt("en", &hints).as_deref(),
+            Some(
+                "Preferred spellings, names, and capitalization for this transcript: 帧刻; FrameEver"
+            )
+        );
+        assert_eq!(build_initial_prompt("auto", &[]), None);
+    }
+
+    #[test]
+    fn ascii_punctuation_after_chinese_becomes_full_width() {
+        let words = ["好", ",", "吗", "?", "OK", ","]
+            .iter()
+            .enumerate()
+            .map(|(index, text)| word(text, index))
+            .collect();
+        let texts: Vec<String> = normalize_caption_words(words)
+            .into_iter()
+            .map(|word| word.text)
+            .collect();
+        assert_eq!(texts, ["好，", "吗？", "OK,"]);
+    }
 
     #[test]
     fn normalize_caption_words_attaches_punctuation() {
@@ -2554,6 +2920,34 @@ mod tests {
         assert_eq!(track[1].text, "world");
         assert!((track[1].start - 1.1).abs() < 1e-6);
         assert!((track[1].end - 1.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn derive_keeps_chinese_captions_free_of_spaces_across_cuts() {
+        let timeline = timeline(serde_json::json!({
+            "segments": [
+                { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 1.0 },
+                { "recordingSegment": 0, "timescale": 1.0, "start": 2.0, "end": 3.0 }
+            ],
+            "zoomSegments": []
+        }));
+        let source = vec![caption(
+            "caption",
+            0.2,
+            2.6,
+            &[
+                ("大", 0.2, 0.4),
+                ("家", 0.4, 0.6),
+                ("好，", 0.6, 0.8),
+                ("欢", 2.1, 2.3),
+                ("迎", 2.3, 2.6),
+            ],
+        )];
+
+        let track = derive_caption_track_segments(&source, &timeline, &[4.0]);
+
+        let texts: Vec<&str> = track.iter().map(|segment| segment.text.as_str()).collect();
+        assert_eq!(texts, ["大家好，", "欢迎"]);
     }
 
     #[test]

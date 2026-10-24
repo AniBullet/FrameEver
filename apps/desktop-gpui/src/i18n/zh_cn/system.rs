@@ -550,4 +550,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Parakeet models are not available on Intel Macs. Use a Whisper model instead",
         "Parakeet 模型不支持 Intel Mac。请改用 Whisper 模型",
     ),
+    (
+        "The Recommended and High Accuracy models only transcribe English and 24 other European languages. Download the Small or Medium model to caption this language",
+        "“推荐”和“高准确度”模型只能转写英语和另外 24 种欧洲语言。要为这种语言生成字幕，请下载“小”或“中等”模型",
+    ),
 ];

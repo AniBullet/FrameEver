@@ -18,15 +18,17 @@
 //! test):
 //! - Empty tokens are dropped; a token starting with attaching punctuation
 //!   (`,.!?;:%)]}'’` and their CJK forms) joins the previous word and extends
-//!   its end. Word ends are clamped to `start + 2.5 s`.
+//!   its end; after a CJK character, `,.!?;:` in it turn full-width. Word ends
+//!   are clamped to `start + 2.5 s`.
 //! - Words are grouped six to a caption; a caption whose last word is weak
 //!   (one letter, or a short function word such as "of", "to", "is") takes
 //!   more words, up to eight; when one or two words would be left over and
 //!   the first of them is weak, they join the last caption. Pauses do not
 //!   split captions.
 //! - A caption spans its first word's start to its last word's end; its text
-//!   joins the words with spaces, except before attaching punctuation; ids
-//!   are `segment-<n>`.
+//!   joins the words with spaces, except before attaching punctuation, after
+//!   full-width punctuation and between two CJK characters; ids are
+//!   `segment-<n>`.
 
 use cap_verify::{
     audio_code::{self, AudioSource, MARKER_SECS},
@@ -64,6 +66,10 @@ fn attaches(text: &str) -> bool {
         .is_some_and(|c| ATTACHING.contains(c))
 }
 
+fn ideograph(c: char) -> bool {
+    ('\u{4e00}'..='\u{9fff}').contains(&c) || ('\u{3040}'..='\u{30ff}').contains(&c)
+}
+
 fn weak(text: &str) -> bool {
     let letters: String = text
         .chars()
@@ -82,7 +88,19 @@ fn reference_words(tokens: &[CaptionWord]) -> Vec<CaptionWord> {
         }
         match words.last_mut() {
             Some(previous) if attaches(text) => {
-                previous.text.push_str(text);
+                if previous.text.chars().last().is_some_and(ideograph) {
+                    previous.text.extend(text.chars().map(|c| match c {
+                        ',' => '，',
+                        '.' => '。',
+                        '?' => '？',
+                        '!' => '！',
+                        ';' => '；',
+                        ':' => '：',
+                        other => other,
+                    }));
+                } else {
+                    previous.text.push_str(text);
+                }
                 previous.end = token.end;
             }
             _ => words.push(CaptionWord {
@@ -101,7 +119,13 @@ fn reference_words(tokens: &[CaptionWord]) -> Vec<CaptionWord> {
 fn reference_text(words: &[CaptionWord]) -> String {
     let mut text = String::new();
     for word in words {
-        if !text.is_empty() && !attaches(&word.text) {
+        let after_full_width = text
+            .chars()
+            .last()
+            .is_some_and(|c| "、。，！？；：".contains(c));
+        let between_ideographs = text.chars().last().is_some_and(ideograph)
+            && word.text.trim().chars().next().is_some_and(ideograph);
+        if !text.is_empty() && !attaches(&word.text) && !after_full_width && !between_ideographs {
             text.push(' ');
         }
         text.push_str(word.text.trim());
