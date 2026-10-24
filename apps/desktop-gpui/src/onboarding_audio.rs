@@ -72,8 +72,9 @@ fn play(mut muted: bool, receiver: Receiver<Command>) -> anyhow::Result<()> {
     let bytes = crate::assets::Assets
         .load("onboarding/music.mp3")?
         .ok_or_else(|| anyhow::anyhow!("missing onboarding music"))?;
-    let (_stream, handle) = rodio::OutputStream::try_default()?;
-    let sink = rodio::Sink::try_new(&handle)?;
+    let mut device = rodio::DeviceSinkBuilder::open_default_sink()?;
+    device.log_on_drop(false);
+    let sink = rodio::Player::connect_new(device.mixer());
     sink.pause();
     sink.append(rodio::Decoder::new(Cursor::new(bytes))?);
     while let Ok(command) = receiver.try_recv() {

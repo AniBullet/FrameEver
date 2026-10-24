@@ -714,11 +714,10 @@ pub fn dispatch_for_harness(key: &str, cx: &mut App) {
 
 // The Tauri handler carries a ⌘, special case (`shortcut.mods ==
 // Modifiers::META && shortcut.key == Code::Comma` opens Settings,
-// `hotkeys.rs:191-196` over there) that is dead code at this pin:
-// `HotKey::new` rewrites META into SUPER on every registration path, so no
-// shortcut the handler ever sees carries META. Not reproduced -- the audit
-// keeps the *observed* behaviour, which is that a Comma binding runs its
-// action and nothing else.
+// `hotkeys.rs:191-196` over there) that is dead code there: its
+// global-hotkey 0.7 rewrites META into SUPER on every registration path.
+// Not reproduced -- the audit keeps the *observed* behaviour, which is that
+// a Comma binding runs its action and nothing else.
 fn dispatch_id(id: u32, cx: &mut App) {
     let actions = actions_for(&cx.global::<Hotkeys>().bindings, id);
     for action in actions {
@@ -1194,13 +1193,13 @@ mod tests {
         );
     }
 
-    /// Why the Tauri handler's ⌘, special case is not reproduced (see
-    /// [`dispatch_id`]): registration rewrites META into SUPER, so its
-    /// `mods == Modifiers::META` guard can never hold.
     #[test]
-    fn registration_never_leaves_meta_in_the_modifiers() {
-        let settings = HotKey::new(Some(Modifiers::META), Code::Comma);
-        assert!(!settings.mods.contains(Modifiers::META));
-        assert!(settings.mods.contains(Modifiers::SUPER));
+    #[allow(deprecated)]
+    fn registration_keeps_meta_and_folds_super_into_it() {
+        let meta = HotKey::new(Some(Modifiers::META), Code::Comma);
+        let legacy = HotKey::new(Some(Modifiers::SUPER), Code::Comma);
+        assert!(meta.mods.contains(Modifiers::META));
+        assert!(!meta.mods.contains(Modifiers::SUPER));
+        assert_eq!(meta.id(), legacy.id());
     }
 }

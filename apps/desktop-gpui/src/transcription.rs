@@ -355,7 +355,11 @@ pub fn finish_generation(project_path: &Path, error: Option<String>) {
 /// `MODEL_DOWNLOAD_REQUEST_TIMEOUT` (`captions.rs:2247`).
 const MODEL_DOWNLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
-static HTTP: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
+static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    crate::http::client_builder()
+        .build()
+        .expect("the HTTP client builds with the bundled TLS settings")
+});
 
 /// `download_whisper_model_to_path` (`captions.rs:2105-2196`), restricted to
 /// the two Whisper entries the catalogue offers.
@@ -1459,42 +1463,38 @@ fn process_with_whisper(
         .full(params, &audio_data_f32[..])
         .map_err(|e| format!("Failed to run Whisper transcription: {e}"))?;
 
-    let num_segments = state
-        .full_n_segments()
-        .map_err(|e| format!("Failed to get number of segments: {e}"))?;
+    let num_segments = state.full_n_segments();
 
     let mut segments = Vec::new();
 
     for i in 0..num_segments {
-        let start_i64 = state
-            .full_get_segment_t0(i)
-            .map_err(|e| format!("Failed to get segment start time: {e}"))?;
-        let end_i64 = state
-            .full_get_segment_t1(i)
-            .map_err(|e| format!("Failed to get segment end time: {e}"))?;
+        let segment = state
+            .get_segment(i)
+            .ok_or_else(|| format!("Whisper segment {i} is out of range"))?;
+        let start_i64 = segment.start_timestamp();
+        let end_i64 = segment.end_timestamp();
 
         let start_time = (start_i64 as f32) / 100.0;
         let end_time = (end_i64 as f32) / 100.0;
 
         let mut words = Vec::new();
-        let num_tokens = state
-            .full_n_tokens(i)
-            .map_err(|e| format!("Failed to get token count: {e}"))?;
+        let num_tokens = segment.n_tokens();
 
         let mut current_word = String::new();
         let mut word_start: Option<f32> = None;
         let mut word_end: f32 = start_time;
 
         for t in 0..num_tokens {
-            let token_text = state.full_get_token_text(i, t).unwrap_or_default();
+            let Some(token) = segment.get_token(t) else {
+                continue;
+            };
+            let token_text = token.to_str().map(str::to_owned).unwrap_or_default();
 
             if is_special_token(&token_text) {
                 continue;
             }
 
-            let Some(data) = state.full_get_token_data(i, t).ok() else {
-                continue;
-            };
+            let data = token.token_data();
 
             let token_start = (data.t0 as f32) / 100.0;
             let token_end = (data.t1 as f32) / 100.0;

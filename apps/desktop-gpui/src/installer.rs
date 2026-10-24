@@ -190,7 +190,7 @@ fn parse_release(
 }
 
 fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+    crate::http::client_builder()
         .user_agent(crate::brand::USER_AGENT)
         .connect_timeout(CONNECT_TIMEOUT)
         .build()

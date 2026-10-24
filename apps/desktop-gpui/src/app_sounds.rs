@@ -1,9 +1,9 @@
 use std::io::Cursor;
 
 use anyhow::Context as _;
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, DeviceSinkBuilder, Player};
 
-#[path = "../../desktop/src-tauri/src/recording_start_sound.rs"]
+#[path = "recording_start_sound.rs"]
 mod recording_start_sound;
 
 pub use recording_start_sound::StartCue;
@@ -50,11 +50,12 @@ impl AppSound {
     }
 
     fn play_to_end(self) -> anyhow::Result<()> {
-        let (_stream, handle) = OutputStream::try_default().context("opening audio output")?;
+        let mut device = DeviceSinkBuilder::open_default_sink().context("opening audio output")?;
+        device.log_on_drop(false);
         let source = Decoder::new(Cursor::new(self.bytes())).context("decoding app sound")?;
-        let sink = Sink::try_new(&handle).context("creating app sound sink")?;
-        sink.append(source);
-        sink.sleep_until_end();
+        let player = Player::connect_new(device.mixer());
+        player.append(source);
+        player.sleep_until_end();
         tracing::debug!(?self, "App sound played");
         Ok(())
     }
@@ -81,12 +82,12 @@ mod tests {
     fn tauri_sound_assets_decode_to_audible_pcm() {
         for sound in SOUNDS {
             let source = Decoder::new(Cursor::new(sound.bytes())).unwrap();
-            let channels = source.channels();
-            let rate = source.sample_rate();
+            let channels = source.channels().get();
+            let rate = source.sample_rate().get();
             assert!(channels > 0);
             assert!(rate > 0);
-            let samples: Vec<_> = source.collect();
-            assert!(samples.iter().any(|sample| *sample != 0), "{sound:?}");
+            let samples: Vec<f32> = source.collect();
+            assert!(samples.iter().any(|sample| *sample != 0.0), "{sound:?}");
             let duration = samples.len() as f64 / f64::from(channels) / f64::from(rate);
             assert!((0.05..10.0).contains(&duration), "{sound:?}: {duration}");
         }
