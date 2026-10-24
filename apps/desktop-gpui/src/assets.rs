@@ -78,9 +78,9 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     // (`packages/ui-solid/icons/{padding,corners,shadow,bg-blur}.svg`); the
     // rest of the background section's are Lucide, drawn here from the same
     // 24x24 originals `~icons/lucide/*` resolves to -- laptop (MacBook notch).
-    // `shuffle` is the
-    // gradient editor's own inline randomise glyph (`GradientEditor.tsx:237-253`),
-    // which is Lucide `shuffle` with its paths spelled out in the TSX.
+    // `shuffle` is the gradient editor's own inline randomise glyph
+    // (`GradientEditor.tsx:237-253`), which is Lucide `shuffle` with its paths
+    // spelled out in the TSX.
     "padding.svg",
     "corners.svg",
     "shadow.svg",
