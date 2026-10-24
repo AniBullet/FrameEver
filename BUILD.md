@@ -24,7 +24,7 @@ pnpm fe            # 列出全部命令
 pnpm fe setup
 ```
 
-它会依次：检查工具链；安装 JS 依赖；下载 FFmpeg、ONNX Runtime、DXC 到 `target/`；生成 `.cargo/config.toml`；把打过补丁的 gpui 准备到仓库同级的 `../zed-cap`；从小米官网下载中文界面字体 MiSans（约 230 MB 的官方压缩包，只取 4 个字重放进 `apps/desktop-gpui/assets/fonts/misans/`）。MiSans 的许可不允许单独再分发字体文件，所以它不进仓库，只嵌入安装包。重复运行是安全的，已下载的内容会直接复用。
+它会依次：检查工具链；安装 JS 依赖；下载 FFmpeg、ONNX Runtime、DXC 到 `target/`；生成 `.cargo/config.toml`；把打过补丁的 gpui 准备到仓库同级的 `../zed-cap`；从小米官网下载中文界面字体 MiSans（约 230 MB 的官方压缩包，只取 4 个字重放进 `apps/desktop-gpui/assets/fonts/misans/`）。MiSans 的许可不允许单独再分发字体文件，所以它不进仓库，只嵌入安装包；准备 Tauri 打包用的 NSIS（下载地址和 SHA1 与 Tauri 2.11.2 完全一致，放在 `%LOCALAPPDATA%\tauri\NSIS`），并给它的编译器 `Bin\makensis.exe` 打开大地址支持（见下方常见问题）。重复运行是安全的，已下载的内容会直接复用。
 
 之后随时可以用 `pnpm fe doctor` 检查环境，缺什么会直接说怎么修。
 
@@ -97,7 +97,7 @@ pnpm fe release 3.1.0
 
 **`cargo build` 报 “Access is denied”**：应用还开着，先关掉再编译。
 
-**打包报 `Internal compiler error #12345: deflateInit() failed`**：NSIS 的打包程序是 32 位的，LZMA 压缩字典太大时申请不到足够的连续内存。`packaging/windows/installer-hooks.nsh` 里的 `SetCompressorDictSize` 保持 64（MB）：实测 64 和 96 的安装包只差 0.3 MB，128 会时好时坏。
+**打包报 `Internal compiler error #12345: deflateInit() failed`**：NSIS 的编译器 `makensis` 是 32 位程序，默认只能用 2 GB 地址空间。安装脚本和上游一样用 128 MB 的 LZMA 字典，压缩器要一次申请约 1.3 GB 连续内存，内存碎片多时就会失败，所以时好时坏。`pnpm fe setup` 和 `pnpm fe package` 会给 `%LOCALAPPDATA%\tauri\NSIS\Bin\makensis.exe` 打开 PE 文件头里的大地址标志（效果同 `editbin /LARGEADDRESSAWARE`），在 64 位 Windows 上可用 4 GB。Tauri 只检查这个文件是否存在、不校验哈希，所以标志会一直保留；如果 Tauri 因为工具不完整重新解压了 NSIS，再运行一次 `pnpm fe package` 就会重新打上。
 
 **libclang / bindgen 报错**：`.cargo/config.toml` 缺少 `LIBCLANG_PATH`，运行 `pnpm fe setup`。
 

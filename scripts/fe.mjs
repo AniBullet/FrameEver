@@ -1,10 +1,13 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	copyFileSync,
 	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
+	rmSync,
 	statSync,
 	watch,
 	writeFileSync,
@@ -24,6 +27,32 @@ export const MISANS_WEIGHTS = ["Regular", "Medium", "Semibold", "Bold"];
 const MISANS_WEIGHT_CLASS = { Regular: 400, Medium: 500, Semibold: 600, Bold: 700 };
 export const misansDir = path.join(gpuiDir, "assets", "fonts", "misans");
 const isWindows = process.platform === "win32";
+
+export const NSIS = {
+	url: "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip",
+	sha1: "ef7ff767e5cbd9edd22add3a32c9b8f4500bb10d",
+	folder: "nsis-3.11",
+	utilsUrl:
+		"https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll",
+	utilsSha1: "75197fee3c6a814fe035788d1c34ead39349b860",
+	utils: "Plugins/x86-unicode/additional/nsis_tauri_utils.dll",
+	compiler: "Bin/makensis.exe",
+	required: [
+		"makensis.exe",
+		"Bin/makensis.exe",
+		"Stubs/lzma-x86-unicode",
+		"Stubs/lzma_solid-x86-unicode",
+		"Plugins/x86-unicode/additional/nsis_tauri_utils.dll",
+		"Include/MUI2.nsh",
+		"Include/FileFunc.nsh",
+		"Include/x64.nsh",
+		"Include/nsDialogs.nsh",
+		"Include/WinMessages.nsh",
+		"Include/Win/COM.nsh",
+		"Include/Win/Propkey.nsh",
+		"Include/Win/RestartManager.nsh",
+	],
+};
 
 const COMMANDS = {
 	setup: "Prepare a fresh machine: JS deps, FFmpeg/ONNX/DXC, patched gpui, MiSans font",
@@ -171,7 +200,89 @@ function setup({ flags }) {
 	step("MiSans (Chinese UI font, fetched from Xiaomi; its license forbids committing it)");
 	fetchMisans();
 
+	if (isWindows) {
+		step("NSIS installer compiler (Tauri's toolset, made large-address-aware)");
+		prepareNsis();
+	}
+
 	console.log("\n\u001b[32m✓ Ready. Next: pnpm fe dev\u001b[0m");
+}
+
+export function nsisToolsetDir(env = process.env) {
+	const local = env.LOCALAPPDATA ?? path.join(env.USERPROFILE ?? "", "AppData", "Local");
+	return path.join(local, "tauri", "NSIS");
+}
+
+export function missingNsisFiles(dir = nsisToolsetDir()) {
+	return NSIS.required.filter((file) => !existsSync(path.join(dir, file)));
+}
+
+const PE_LARGE_ADDRESS_AWARE = 0x0020;
+
+function peCharacteristicsOffset(image) {
+	const header = image.readUInt32LE(0x3c);
+	if (image.toString("latin1", header, header + 4) !== "PE\0\0") {
+		throw new Error("not a PE image");
+	}
+	return header + 22;
+}
+
+export function isLargeAddressAware(image) {
+	return (image.readUInt16LE(peCharacteristicsOffset(image)) & PE_LARGE_ADDRESS_AWARE) !== 0;
+}
+
+export function setLargeAddressAware(image) {
+	const patched = Buffer.from(image);
+	const offset = peCharacteristicsOffset(patched);
+	patched.writeUInt16LE(patched.readUInt16LE(offset) | PE_LARGE_ADDRESS_AWARE, offset);
+	return patched;
+}
+
+function sha1(data) {
+	return createHash("sha1").update(data).digest("hex");
+}
+
+function downloadVerified(url, expectedSha1, file) {
+	mkdirSync(path.dirname(file), { recursive: true });
+	if (!existsSync(file) || sha1(readFileSync(file)) !== expectedSha1) {
+		run("curl", ["-fSL", "-o", file, url]);
+	}
+	const actual = sha1(readFileSync(file));
+	if (actual !== expectedSha1) {
+		rmSync(file, { force: true });
+		fail(`${url} has SHA1 ${actual}, expected ${expectedSha1}`);
+	}
+	return file;
+}
+
+export function prepareNsis() {
+	const dir = nsisToolsetDir();
+	if (missingNsisFiles(dir).length > 0) {
+		const cache = path.join(root, "target", "native-deps");
+		const archive = downloadVerified(NSIS.url, NSIS.sha1, path.join(cache, `${NSIS.folder}.zip`));
+		const parent = path.dirname(dir);
+		mkdirSync(parent, { recursive: true });
+		rmSync(dir, { recursive: true, force: true });
+		rmSync(path.join(parent, NSIS.folder), { recursive: true, force: true });
+		run(systemTar(), ["-xf", archive, "-C", parent]);
+		renameSync(path.join(parent, NSIS.folder), dir);
+		const utils = downloadVerified(NSIS.utilsUrl, NSIS.utilsSha1, path.join(cache, "nsis_tauri_utils.dll"));
+		mkdirSync(path.dirname(path.join(dir, NSIS.utils)), { recursive: true });
+		copyFileSync(utils, path.join(dir, NSIS.utils));
+	}
+	const still = missingNsisFiles(dir);
+	if (still.length > 0) fail(`NSIS toolset at ${dir} is missing ${still.join(", ")}`);
+	const compiler = path.join(dir, NSIS.compiler);
+	const image = readFileSync(compiler);
+	if (!isLargeAddressAware(image)) {
+		writeFileSync(compiler, setLargeAddressAware(image));
+	}
+	if (!isLargeAddressAware(readFileSync(compiler))) fail(`Could not mark ${compiler} large-address-aware`);
+	console.log(`  ${compiler}: large-address-aware`);
+}
+
+function systemTar() {
+	return isWindows ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
 }
 
 export function missingMisans(dir = misansDir) {
@@ -224,10 +335,7 @@ function fetchMisans() {
 	const staging = path.join(root, "target", "native-deps", "misans-extract");
 	mkdirSync(staging, { recursive: true });
 	const members = MISANS_WEIGHTS.map((weight) => `MiSans/ttf/MiSans-${weight}.ttf`);
-	const tar = isWindows
-		? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
-		: "tar";
-	run(tar, ["-xf", cache, "-C", staging, ...members]);
+	run(systemTar(), ["-xf", cache, "-C", staging, ...members]);
 	mkdirSync(misansDir, { recursive: true });
 	for (const weight of MISANS_WEIGHTS) {
 		const source = path.join(staging, "MiSans", "ttf", `MiSans-${weight}.ttf`);
@@ -489,6 +597,8 @@ function packageInstaller({ flags }) {
 	if (missing.length > 0) {
 		fail(`Native dependencies are missing (${missing.join(", ")}). Run: pnpm fe setup`);
 	}
+	step("NSIS installer compiler");
+	prepareNsis();
 	if (typeof flags.version === "string") {
 		if (!SEMVER.test(flags.version)) fail(`Not a version: ${flags.version}`);
 		step(`Version ${flags.version}`);

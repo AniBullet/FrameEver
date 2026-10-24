@@ -6,10 +6,14 @@ import test from "node:test";
 import {
 	changelogSection,
 	firstRecording,
+	isLargeAddressAware,
 	MISANS_WEIGHTS,
 	missingMisans,
 	missingNativeDeps,
+	missingNsisFiles,
+	NSIS,
 	parseArgs,
+	setLargeAddressAware,
 	setWeightClass,
 	SEMVER,
 	stampReleaseDate,
@@ -85,6 +89,34 @@ test("rewriting a font's weight class changes only that field and keeps it valid
 	let sum = 0;
 	for (let index = 0; index < out.length; index += 4) sum = (sum + out.readUInt32BE(index)) >>> 0;
 	assert.equal(sum, 0xb1b0afba);
+});
+
+test("marking a PE image large-address-aware sets only that flag", () => {
+	const image = Buffer.alloc(0x100);
+	image.writeUInt32LE(0x80, 0x3c);
+	image.write("PE\0\0", 0x80, "latin1");
+	image.writeUInt16LE(0x010f, 0x80 + 22);
+	assert.equal(isLargeAddressAware(image), false);
+	const patched = setLargeAddressAware(image);
+	assert.equal(isLargeAddressAware(patched), true);
+	assert.equal(patched.readUInt16LE(0x80 + 22), 0x012f);
+	assert.equal(isLargeAddressAware(image), false);
+	patched.writeUInt16LE(0x012f, 0x80 + 22);
+	assert.deepEqual(setLargeAddressAware(patched), patched);
+	assert.throws(() => isLargeAddressAware(Buffer.alloc(0x100)));
+});
+
+test("the NSIS toolset counts as installed only when every file Tauri checks exists", () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "fe-nsis-"));
+	assert.equal(missingNsisFiles(dir).length, NSIS.required.length);
+	for (const file of NSIS.required) {
+		mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+		writeFileSync(path.join(dir, file), "");
+	}
+	assert.deepEqual(missingNsisFiles(dir), []);
+	assert.ok(NSIS.required.includes(NSIS.compiler));
+	assert.ok(NSIS.required.includes(NSIS.utils));
+	rmSync(dir, { recursive: true });
 });
 
 test("releasing dates only the unreleased entry for that version", () => {
