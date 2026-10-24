@@ -7,7 +7,7 @@ license = "MIT"
 [dependencies]
 tracing.workspace = true
 thiserror.workspace = true
-parking_lot = "0.12"
+parking_lot = "0.13"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(windows)'.dependencies]
@@ -22,7 +22,7 @@ windows = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
-inquire = "0.7.5"
+inquire = "0.9.4"
 
 [lints]
 workspace = true

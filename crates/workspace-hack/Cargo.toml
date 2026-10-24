@@ -122,7 +122,7 @@ ort = { version = "=2.0.0-rc.12", features = ["load-dynamic"] }
 ort-sys = { version = "2.0.0-rc.12", default-features = false, features = ["api-24", "copy-dylibs", "disable-linking", "download-binaries", "std", "tls-native"] }
 rustix-d585fab2519d2d1 = { package = "rustix", version = "0.38", features = ["event", "mm", "pipe", "process", "shm", "system", "thread"] }
 rustix-dff4ba8e3ae991db = { package = "rustix", version = "1", features = ["event", "net", "pipe", "process", "shm", "system", "time"] }
-toml_edit = { version = "0.23" }
+toml_edit = { version = "0.25" }
 ttf-parser = { version = "0.25", default-features = false, features = ["apple-layout", "glyph-names", "gvar-alloc", "no-std-float", "opentype-layout", "variable-fonts"] }
 wayland-backend = { version = "0.3", default-features = false, features = ["client_system", "dlopen"] }
 x11rb = { version = "0.13", default-features = false, features = ["composite", "dl-libxcb", "randr", "resource_manager", "shm", "xinput", "xkb"] }
@@ -134,7 +134,7 @@ libc = { version = "0.2", default-features = false, features = ["extra_traits"] 
 linux-raw-sys-9fbad63c4bcf4a8f = { package = "linux-raw-sys", version = "0.4", default-features = false, features = ["elf", "errno", "general", "ioctl", "no_std", "prctl", "system"] }
 prettyplease = { version = "0.2", default-features = false, features = ["verbatim"] }
 rustix-d585fab2519d2d1 = { package = "rustix", version = "0.38", features = ["event", "mm", "pipe", "process", "shm", "system", "thread"] }
-toml_edit = { version = "0.23" }
+toml_edit = { version = "0.25" }
 
 [target.x86_64-apple-darwin.dependencies]
 dispatch2 = { version = "0.3" }

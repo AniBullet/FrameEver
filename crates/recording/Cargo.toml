@@ -49,20 +49,20 @@ device_query = "4.0.1"
 image = { version = "0.25.2", default-features = false, features = ["rayon", "bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
 either = "1.13.0"
 tracing-subscriber = { version = "0.3.19" }
-relative-path = "1.9.3"
+relative-path = "2.0.3"
 tokio-util = "0.7.15"
 blake3 = "1.8.2"
-sha2 = "0.10.9"
+sha2 = "0.11.1"
 hex = "0.4.3"
 ringbuf = "0.4.8"
 cpal.workspace = true
 indexmap = "2.10.0"
 kameo = "0.17.2"
-inquire = "0.7.5"
+inquire = "0.9.4"
 replace_with = "0.1.8"
 retry = "2.1.0"
-sysinfo = "0.35"
-parking_lot = "0.12"
+sysinfo = "0.39"
+parking_lot = "0.13"
 dhat = { version = "0.3", optional = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 

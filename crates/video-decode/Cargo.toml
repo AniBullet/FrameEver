@@ -21,9 +21,10 @@ tracing = "0.1.41"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+hex = "0.4"
 cap-media-info = { path = "../media-info" }
 serde_json.workspace = true
-sha2 = "0.10"
+sha2 = "0.11"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cidre = { workspace = true }

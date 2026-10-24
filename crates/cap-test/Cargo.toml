@@ -39,8 +39,8 @@ colored = "3"
 indicatif = "0.17"
 uuid = { version = "1", features = ["v4"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-sysinfo = "0.35"
-parking_lot = "0.12"
+sysinfo = "0.39"
+parking_lot = "0.13"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 tempfile = "3"
 

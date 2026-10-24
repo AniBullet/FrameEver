@@ -14,7 +14,7 @@ pnpm fe            # 列出全部命令
 |---|---|
 | Windows 10/11 x64 | 只支持 Windows |
 | Node.js 20+ 与 pnpm 10 | `npm install -g pnpm@10.5.2` |
-| Rust（rustup） | 根工作区用 1.88，GPUI 应用用 stable；`pnpm fe setup` 会补装 |
+| Rust（rustup） | stable；`pnpm fe setup` 会补装 |
 | Visual Studio 2022 生成工具 | 含“使用 C++ 的桌面开发”、LLVM（clang）组件和 CMake |
 | Git for Windows | 提供脚本要用的 Git Bash |
 
@@ -96,7 +96,7 @@ pnpm fe deps          # 看能升什么：范围内的升级，以及需要手�
 pnpm fe deps --apply  # 应用范围内的升级（两个工作区都会更新）
 ```
 
-根工作区固定用 Rust 1.88，`--apply` 会自动只挑 1.88 能编译的版本。建议每次发版前做一次，然后跑 `pnpm fe test --all`，用 `pnpm fe dev` 启动应用，再用 `pnpm fe export hevc` 导出一次，都正常再提交两个 `Cargo.lock`。
+建议每次发版前做一次，然后跑 `pnpm fe test --all`，用 `pnpm fe dev` 启动应用，再用 `pnpm fe export hevc` 导出一次，都正常再提交两个 `Cargo.lock`。
 
 `pnpm fe deps` 列出的“held back”是范围外的新版本，需要逐个看更新说明再手动改 `Cargo.toml`，不要一次全升。故意锁定的依赖（预发布版 `ort`、`specta`，gpui 的提交号，Cap 团队 fork 的 cpal / rust-ffmpeg / nokhwa，`vendor/` 下的补丁）和原因记在 `docs/upstream-sync/BACKLOG.md` 的 Phase 4。预发布版（版本号带 `-rc`）在 `Cargo.toml` 里用 `=` 精确锁定，因为两个 rc 之间常有不兼容改动。
 

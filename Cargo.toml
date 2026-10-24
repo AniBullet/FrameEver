@@ -43,7 +43,7 @@ wgpu = { version = "25.0.0", features = ["wgpu-core"] }
 wgpu-hal = "25.0.0"
 wgpu-core = "25.0.0"
 flume = "0.11.0"
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = "0.1.41"
 futures = "0.3.31"
 aho-corasick = "1.1.4"
@@ -70,7 +70,7 @@ windows-core = "0.60"
 windows-sys = "0.59.0"
 windows-capture = "1.5.0"
 percent-encoding = "2.3.1"
-sysinfo = "0.32"
+sysinfo = "0.39"
 
 # TODO: Reenable these: https://github.com/CapSoftware/Cap/issues/859
 [workspace.lints.rust]

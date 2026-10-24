@@ -26,7 +26,7 @@ Read this first, then `docs/upstream-sync/BACKLOG.md` (what is left), `docs/upst
 
 - Everything goes through `pnpm fe <command>` (`scripts/fe.mjs`): `setup`, `doctor`, `dev [--watch] [--lang zh-CN]`, `logs`, `check`, `test [--all]`, `lint`, `fmt`, `export <codec>`, `package`, `release <version>`. CI (`release.yml`) runs the same `setup` and `package`. Human guide: `BUILD.md`; agent guide for debugging and fixing: `docs/agents/debugging.md`.
 - The owner's machine has a Claude Desktop pane, "FrameEver 开发" (`.claude/skills/frameever-dev`, `/fe-dev`; local only, `.claude/` is gitignored), whose buttons call `pnpm fe`.
-- Root workspace: Rust 1.88 (`rust-toolchain.toml`). GPUI app: Rust stable. Version numbers: both Cargo manifests say `3.0.0-dev`; CI stamps the tag's version.
+- Both workspaces build with Rust stable (`rust-toolchain.toml`; the root was on 1.88 only for the frozen Tauri app and moved to stable on 2026-10-24 so dependencies can follow their latest releases). Version numbers: both Cargo manifests say `3.0.0-dev`; CI stamps the tag's version.
 - Never screenshot the owner's screen; ask them to look instead.
 - Upstream `CapSoftware/Cap` is read-only: we merge from it and read it, and never push, open PRs or file issues there. The GitHub fork link was removed (2026-10-24), so PRs default to our repo. In this clone the `upstream` remote has a broken push URL and fetches no tags, and `gh repo set-default` is `AniBullet/FrameEver`; repeat that setup in any new clone (`docs/agents/issue-tracker.md`).
 

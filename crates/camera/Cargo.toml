@@ -25,7 +25,7 @@ cap-camera-windows = { path = "../camera-windows" }
 v4l = "0.14.0"
 
 [dev-dependencies]
-inquire = "0.7.5"
+inquire = "0.9.4"
 
 [lints]
 workspace = true

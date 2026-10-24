@@ -696,17 +696,13 @@ export function parseCargoUpdate(output) {
 
 function deps({ flags }) {
 	const workspaces = [
-		{
-			name: "Root workspace (Rust 1.88: CLI, sidecars, shared crates)",
-			cwd: root,
-			env: { ...process.env, CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: "fallback" },
-		},
-		{ name: "GPUI app (Rust stable)", cwd: gpuiDir, env: process.env },
+		{ name: "Root workspace (CLI, sidecars, shared crates)", cwd: root },
+		{ name: "GPUI app", cwd: gpuiDir },
 	];
 	for (const workspace of workspaces) {
 		step(workspace.name);
 		const args = flags.apply ? ["update", "--verbose"] : ["update", "--dry-run", "--verbose"];
-		const result = spawnSync("cargo", args, { cwd: workspace.cwd, env: workspace.env, encoding: "utf8" });
+		const result = spawnSync("cargo", args, { cwd: workspace.cwd, encoding: "utf8" });
 		if (result.status !== 0) fail(`cargo ${args.join(" ")} failed:\n${result.stderr}`);
 		const { changes, behind } = parseCargoUpdate(`${result.stdout}\n${result.stderr}`);
 		console.log(`  ${changes.length} change(s) within version ranges${flags.apply ? ", applied" : ""}`);
@@ -812,8 +808,7 @@ function doctor() {
 	add("pnpm", Boolean(pnpmVersion), pnpmVersion, "npm install -g pnpm@10.5.2");
 	add("node_modules", existsSync(path.join(root, "node_modules")), "", "pnpm fe setup --install");
 	const toolchains = capture("rustup", ["toolchain", "list"]) ?? "";
-	add("Rust 1.88 (root workspace)", toolchains.includes("1.88"), "", "rustup toolchain install 1.88.0");
-	add("Rust stable (GPUI app)", toolchains.includes("stable"), "", "rustup toolchain install stable");
+	add("Rust stable", toolchains.includes("stable"), "", "rustup toolchain install stable");
 	add(
 		"Git Bash",
 		(() => {

@@ -79,7 +79,7 @@ fn main() -> Result<(), String> {
             "firstTimestamp": first_timestamp,
             "lastTimestamp": last_timestamp,
             "frames": frame_count,
-            "sha256": format!("{:x}", digest.finalize()),
+            "sha256": hex::encode(digest.finalize()),
         }));
     }
     println!(

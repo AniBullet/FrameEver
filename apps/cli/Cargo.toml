@@ -13,7 +13,7 @@ cap-export = { path = "../../crates/export" }
 cap-media-info = { path = "../../crates/media-info" }
 cap-timestamp = { path = "../../crates/timestamp" }
 cap-utils = { path = "../../crates/utils" }
-relative-path = "1.9.3"
+relative-path = "2.0.3"
 cap-automation = { path = "../../crates/automation" }
 cap-camera = { path = "../../crates/camera" }
 cap-cli-install = { path = "../../crates/cli-install" }
@@ -26,10 +26,10 @@ ffmpeg = { workspace = true }
 kameo = "0.17.2"
 flume = { workspace = true }
 futures = { workspace = true }
-dirs = "6.0.0"
+dirs = "7.0.0"
 include_dir = "0.7"
 rmcp = { version = "2.2.0", features = ["transport-io"] }
-toml_edit = "0.23.7"
+toml_edit = "0.25.17"
 chrono = "0.4.31"
 tracing.workspace = true
 tracing-subscriber = "0.3.19"

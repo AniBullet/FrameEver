@@ -234,7 +234,7 @@ impl CursorShapeMacOS {
 
         // Older recordings saved these Tahoe images without shape metadata.
         // Match decoded pixels so PNG encoding differences do not prevent SVG recovery.
-        match format!("{:x}", Sha256::digest(rgba)).as_str() {
+        match hex::encode(Sha256::digest(rgba)).as_str() {
             "396c2b7efc0851133f7803d78a155bf667cc3b74a848470ed16d3f3a34092c04" => {
                 Some(Self::TahoePointingHand)
             }

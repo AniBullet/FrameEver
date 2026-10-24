@@ -12,7 +12,7 @@ workspace = true
 
 [dev-dependencies]
 clap = { version = "4.5.40", features = ["derive"] }
-inquire = "0.7.5"
+inquire = "0.9.4"
 
 [dependencies]
 tracing.workspace = true

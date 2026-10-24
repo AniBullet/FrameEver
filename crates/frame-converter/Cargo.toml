@@ -15,7 +15,7 @@ tracing.workspace = true
 flume.workspace = true
 crossbeam-channel = "0.5"
 thread_local = "1.1"
-parking_lot = "0.12"
+parking_lot = "0.13"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

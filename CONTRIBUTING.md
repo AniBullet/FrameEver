@@ -27,7 +27,7 @@ FrameEver（帧刻）是基于 [Cap](https://github.com/CapSoftware/Cap) 的本�
 |------|------|
 | Node.js | 20+ |
 | pnpm | 10+ |
-| Rust | rustup（1.88 与 stable，`pnpm fe setup` 会补装） |
+| Rust | rustup（stable，`pnpm fe setup` 会补装） |
 | Visual Studio 2022 生成工具 | C++ 桌面开发、LLVM、CMake |
 | Windows | x64 |
 
