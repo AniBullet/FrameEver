@@ -6,6 +6,7 @@
 mod app_sounds;
 mod app_windows;
 mod assets;
+mod auto_compress;
 mod brand;
 #[cfg(target_os = "macos")]
 mod camera_bench;

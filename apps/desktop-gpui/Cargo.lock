@@ -1382,6 +1382,7 @@ dependencies = [
  "sha2 0.11.1",
  "smallvec",
  "tauri-winres",
+ "tauri-winrt-notification",
  "tempfile",
  "tiny-skia 0.12.0",
  "tokio",

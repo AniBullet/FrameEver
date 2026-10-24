@@ -2864,10 +2864,6 @@ impl SettingsWindow {
                             self.settings.enable_notifications,
                             cx,
                             |this, cx| {
-                                // The Tauri handler asks for the notification
-                                // permission before enabling; nothing here
-                                // posts notifications yet, so there is nothing
-                                // to ask for.
                                 this.settings.enable_notifications =
                                     !this.settings.enable_notifications;
                                 let value = this.settings.enable_notifications;

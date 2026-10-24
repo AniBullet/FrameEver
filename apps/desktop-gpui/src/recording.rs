@@ -1235,15 +1235,18 @@ fn compress_after_instant_recording(project_path: PathBuf) {
         return;
     }
     let keep_only_compressed = settings.auto_compress_delete_original;
+    let notifications = settings.enable_notifications;
     tokio::task::spawn_blocking(move || {
-        if let Err(error) = crate::library::compress_video(&project_path, |_, _| true) {
-            tracing::warn!(path = %project_path.display(), "automatic compression failed: {error}");
-            return;
-        }
-        tracing::info!(path = %project_path.display(), "compressed the instant recording");
-        if keep_only_compressed && let Err(error) = crate::library::delete_original(&project_path) {
-            tracing::warn!(path = %project_path.display(), "could not remove the original after compressing: {error}");
-        }
+        crate::auto_compress::compress_and_report(
+            &project_path,
+            keep_only_compressed,
+            |path| crate::library::compress_video(path, |_, _| true),
+            |notice| {
+                if notifications {
+                    crate::auto_compress::show(notice);
+                }
+            },
+        );
     });
 }
 
