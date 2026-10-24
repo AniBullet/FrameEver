@@ -1,6 +1,6 @@
 # Handoff: FrameEver migration (state at 2026-10-24)
 
-Read this first, then `docs/upstream-sync/0.6.1.md` (full log, per-fix verdicts, removed-feature audit, roadmap), `docs/adr/0001`–`0005` and `docs/i18n.md`.
+Read this first, then `docs/upstream-sync/BACKLOG.md` (what is left), `docs/upstream-sync/0.6.1.md` (full log, per-fix verdicts, removed-feature audit, roadmap), `docs/adr/0001`–`0005` and `docs/i18n.md`.
 
 ## Where things stand
 
@@ -28,22 +28,13 @@ Read this first, then `docs/upstream-sync/0.6.1.md` (full log, per-fix verdicts,
 - The owner's machine has a Claude Desktop pane, "FrameEver 开发" (`.claude/skills/frameever-dev`, `/fe-dev`; local only, `.claude/` is gitignored), whose buttons call `pnpm fe`.
 - Root workspace: Rust 1.88 (`rust-toolchain.toml`). GPUI app: Rust stable. Version numbers: both Cargo manifests say `3.0.0-dev`; CI stamps the tag's version.
 - Never screenshot the owner's screen; ask them to look instead.
+- Upstream `CapSoftware/Cap` is read-only: we merge from it and read it, and never push, open PRs or file issues there. The GitHub fork link was removed (2026-10-24), so PRs default to our repo. In this clone the `upstream` remote has a broken push URL and fetches no tags, and `gh repo set-default` is `AniBullet/FrameEver`; repeat that setup in any new clone (`docs/agents/issue-tracker.md`).
 
-## Next steps, in order
+## What is left
 
-0. The "cap" rename of user-visible names is done (rule in ADR-0005). The GitHub repo was renamed to `AniBullet/FrameEver` on 2026-10-23 (GitHub redirects the old URL, so 2.x installs still reach the feed); `RELEASES_REPO` and the docs follow it. Release secrets and variables moved with the repo.
-1. Owner review in the running app (`pnpm fe dev --lang zh-CN`): started 2026-10-23. Owner feedback so far was the logo on dark themes, font quality and installer/taskbar quality, all addressed. Still to look at: the welcome page, the export codec option and the Recordings compress buttons.
-2. First release: bump nothing by hand; push tag `v3.0.0` (`pnpm release 3.0.0`). Expect to fix CI on the first run. After installing, check that `frameever://` links open the app and that the installer shows the new artwork.
-3. The app UI accent is still the upstream blue (Radix `blue`); switch it to the Klein blue palette in `src/theme.rs` once the owner wants the UI to follow the brand.
-4. Automations run only in the CLI; the GPUI app edits rules but has no runner (its "Check compatibility" says so). Decide with the owner whether to add a runner to the app (the CLI host in `apps/cli/src/automation.rs` is the model). Upload-era items in old rules are already marked as removed (see `0.6.1.md`).
-5. Phase 4: dependency upgrades (inspect deliberate pins first). Phase 5: benchmark against top open-source recorders on quality, efficiency and UI/UX.
-6. Design work still open: carry the welcome page's hand-drawn style into the main UI in a few places (empty states, a heading underline on settings pages, mode doodles in the main window's hover cards, a drawn tick when an export or recording finishes); the Instant mode doodle is still an upload cloud and needs a local symbol.
+Everything still open is in `docs/upstream-sync/BACKLOG.md`, the one list (P0 before the first release, missing 2.x features, UI redesign, leftovers, things to verify). Work from it and delete items as they land. The 2.x comparison behind several items is `docs/upstream-sync/2x-feature-audit.md`.
 
-## Open items to verify
-
-- AV1 and HEVC with software encoders (SVT-AV1, libx265) and with AMD/Intel hardware are untested; only NVIDIA NVENC was exercised. SVT-AV1 settings were checked with the FFmpeg CLI only.
-- Recording start latency: first test recording admitted its first frame ~1.9 s after the start cue (encoder startup ~2.6 s). Owner said "follow upstream for now"; re-check before treating it as a bug.
-- MiSans variable font (`MiSansVF.ttf`) would save about 7 MB in the installer, but GPUI's weight matching for an in-memory variable font on Windows is unverified. Both fonts are loaded at startup (~33 MB RAM); loading MiSans only for the Chinese UI is a possible later optimisation.
+Already settled and not in the backlog: the "cap" rename of user-visible names (rule in ADR-0005); the GitHub repo rename to `AniBullet/FrameEver` on 2026-10-23 (GitHub redirects the old URL, so 2.x installs still reach the feed; release secrets and variables moved with the repo).
 
 ## Owner preferences (also in Claude memory)
 

@@ -12,7 +12,15 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
 
-Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
+The repo is always `AniBullet/FrameEver`. The clone also has an `upstream` remote (`CapSoftware/Cap`), which is read-only: never create issues, PRs or comments there. A fresh clone needs this once:
+
+```bash
+gh repo set-default AniBullet/FrameEver
+git remote set-url --push upstream DISABLED-upstream-is-read-only
+git config remote.upstream.tagOpt --no-tags
+```
+
+Without the default, `gh` may resolve to upstream; upstream tags fetched by accident and pushed to `origin` could start a release (`release.yml` runs on `v*` tags).
 
 ## Pull requests as a triage surface
 
