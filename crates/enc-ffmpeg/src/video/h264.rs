@@ -12,6 +12,7 @@ use ffmpeg::{
 use tracing::{debug, error, info, trace, warn};
 
 use crate::base::EncoderBase;
+use crate::video::force_software_encoder;
 use crate::video::h264_packet::H264PacketEncoder;
 #[cfg(target_os = "macos")]
 use crate::video::videotoolbox_hw::VideoToolboxHwFrames;
@@ -1159,15 +1160,6 @@ fn get_encoder_priority_with_override(
     }
 
     override_priority.unwrap_or_else(|| get_default_encoder_priority(config))
-}
-
-fn force_software_encoder() -> bool {
-    std::env::var("CAP_EXPORT_FORCE_SOFTWARE_ENCODER").is_ok_and(|value| {
-        matches!(
-            value.to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
 }
 
 fn export_encoder_priority_override(

@@ -5,3 +5,12 @@ pub mod hevc;
 pub mod prores;
 #[cfg(target_os = "macos")]
 pub mod videotoolbox_hw;
+
+pub(crate) fn force_software_encoder() -> bool {
+    std::env::var("CAP_EXPORT_FORCE_SOFTWARE_ENCODER").is_ok_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
