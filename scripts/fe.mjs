@@ -66,6 +66,7 @@ const COMMANDS = {
 	package: "Build the Windows installer into dist/. --skip-sidecars, --version <x.y.z>",
 	release: "Check, tag and push a release: fe release <x.y.z> [--skip-tests]",
 	notes: "Print the CHANGELOG.md section for a version: fe notes <x.y.z>",
+	deps: "Show Rust dependency updates within version ranges and newer versions needing a manual bump. --apply updates both Cargo.lock files",
 	doctor: "Check the environment and say how to fix anything missing",
 	logs: "Print the app log tail: fe logs [--lines 200] [--grep <text>] [--real]",
 };
@@ -685,6 +686,40 @@ function releaseNotes(version) {
 	return notes;
 }
 
+export function parseCargoUpdate(output) {
+	const lines = output.split(/\r?\n/).map((line) => line.trim());
+	return {
+		changes: lines.filter((line) => /^(Updating|Adding|Removing|Downgrading) \S+ v/.test(line)),
+		behind: lines.filter((line) => /^Unchanged \S+ v\S+ \(available: v/.test(line)),
+	};
+}
+
+function deps({ flags }) {
+	const workspaces = [
+		{
+			name: "Root workspace (Rust 1.88: CLI, sidecars, shared crates)",
+			cwd: root,
+			env: { ...process.env, CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: "fallback" },
+		},
+		{ name: "GPUI app (Rust stable)", cwd: gpuiDir, env: process.env },
+	];
+	for (const workspace of workspaces) {
+		step(workspace.name);
+		const args = flags.apply ? ["update", "--verbose"] : ["update", "--dry-run", "--verbose"];
+		const result = spawnSync("cargo", args, { cwd: workspace.cwd, env: workspace.env, encoding: "utf8" });
+		if (result.status !== 0) fail(`cargo ${args.join(" ")} failed:\n${result.stderr}`);
+		const { changes, behind } = parseCargoUpdate(`${result.stdout}\n${result.stderr}`);
+		console.log(`  ${changes.length} change(s) within version ranges${flags.apply ? ", applied" : ""}`);
+		console.log(`  ${behind.length} held back (newer major, pre-release pin or MSRV); bump these by hand:`);
+		for (const line of behind) console.log(`    ${line}`);
+	}
+	if (flags.apply) {
+		console.log("\n  Next: pnpm fe test --all, pnpm fe dev, pnpm fe export hevc, then commit both Cargo.lock files.");
+	} else {
+		console.log("\n  Apply the in-range changes with: pnpm fe deps --apply");
+	}
+}
+
 function notes({ positional }) {
 	const version = positional[0];
 	if (!version || !SEMVER.test(version)) fail("Usage: pnpm fe notes <x.y.z>");
@@ -848,6 +883,7 @@ const HANDLERS = {
 	package: packageInstaller,
 	release,
 	notes,
+	deps,
 	doctor,
 	logs,
 };

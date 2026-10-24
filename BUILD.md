@@ -87,6 +87,19 @@ pnpm fe release 3.1.0
 
 更新签名密钥只需配置一次：`scripts/setup-updater-signing.sh`（用 Git Bash 运行）。
 
+## 更新依赖
+
+依赖不是完全锁死的。两个 `Cargo.lock` 记录每个依赖实际用的版本，保证本地和 CI 编出来一模一样；`Cargo.toml` 里写的是版本范围，范围内可以随时升级。
+
+```powershell
+pnpm fe deps          # 看能升什么：范围内的升级，以及需要手动升的新版本
+pnpm fe deps --apply  # 应用范围内的升级（两个工作区都会更新）
+```
+
+根工作区固定用 Rust 1.88，`--apply` 会自动只挑 1.88 能编译的版本。建议每次发版前做一次，然后跑 `pnpm fe test --all`，用 `pnpm fe dev` 启动应用，再用 `pnpm fe export hevc` 导出一次，都正常再提交两个 `Cargo.lock`。
+
+`pnpm fe deps` 列出的“held back”是范围外的新版本，需要逐个看更新说明再手动改 `Cargo.toml`，不要一次全升。故意锁定的依赖（预发布版 `ort`、`specta`，gpui 的提交号，Cap 团队 fork 的 cpal / rust-ffmpeg / nokhwa，`vendor/` 下的补丁）和原因记在 `docs/upstream-sync/BACKLOG.md` 的 Phase 4。预发布版（版本号带 `-rc`）在 `Cargo.toml` 里用 `=` 精确锁定，因为两个 rc 之间常有不兼容改动。
+
 ## 常见问题
 
 **`bash` 报 WSL 错误**：PowerShell 里的 `bash` 是 WSL 的。`pnpm fe` 会自动找到 Git Bash；需要手动运行 `.sh` 脚本时，用 `& "C:\Program Files\Git\bin\bash.exe" <脚本>`。

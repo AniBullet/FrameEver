@@ -13,6 +13,7 @@ import {
 	missingNsisFiles,
 	NSIS,
 	parseArgs,
+	parseCargoUpdate,
 	setLargeAddressAware,
 	setWeightClass,
 	SEMVER,
@@ -104,6 +105,26 @@ test("marking a PE image large-address-aware sets only that flag", () => {
 	patched.writeUInt16LE(0x012f, 0x80 + 22);
 	assert.deepEqual(setLargeAddressAware(patched), patched);
 	assert.throws(() => isLargeAddressAware(Buffer.alloc(0x100)));
+});
+
+test("cargo update output splits into applied changes and held-back versions", () => {
+	const output = [
+		"    Updating crates.io index",
+		"     Locking 3 packages to latest compatible versions",
+		"    Updating serde v1.0.200 -> v1.0.210",
+		"      Adding windows-core v0.62.2",
+		"    Removing wasi v0.14.7+wasi-0.2.4",
+		" Downgrading ort v2.0.0-rc.13 -> v2.0.0-rc.12 (available: v2.0.0-rc.13)",
+		"   Unchanged wgpu v25.0.2 (available: v27.0.1)",
+		"   Unchanged ort v2.0.0-rc.12 (available: v2.0.0-rc.15)",
+		"note: pass `--verbose` to see 2 unchanged dependencies behind latest",
+	].join("\r\n");
+	const { changes, behind } = parseCargoUpdate(output);
+	assert.equal(changes.length, 4);
+	assert.deepEqual(behind, [
+		"Unchanged wgpu v25.0.2 (available: v27.0.1)",
+		"Unchanged ort v2.0.0-rc.12 (available: v2.0.0-rc.15)",
+	]);
 });
 
 test("the NSIS toolset constants follow the pinned Tauri CLI", () => {
