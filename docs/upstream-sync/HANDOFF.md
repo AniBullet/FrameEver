@@ -1,10 +1,10 @@
 # Handoff: FrameEver migration (state at 2026-10-24)
 
-Read this first, then `docs/upstream-sync/BACKLOG.md` (what is left), `docs/upstream-sync/0.6.1.md` (full log, per-fix verdicts, removed-feature audit, roadmap), `docs/adr/0001`–`0005` and `docs/i18n.md`.
+Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `docs/upstream-sync/0.6.1.md` (full log, per-fix verdicts, removed-feature audit, roadmap, upstream watch list), `docs/adr/0001`–`0007` and `docs/i18n.md`.
 
 ## Where things stand
 
-- `main` now holds FrameEver. On 2026-10-24 the work on `merge/upstream-0.6.1` landed on `main` as one commit whose parents are the previous `main` (Cap-aniBullet 2.2.5) and upstream Cap 0.6.1, so our intermediate commits are gone but future upstream merges still find the common ancestor. The 2.2.2–2.2.5 recording fixes on the old `main` were re-judged first (`0.6.1.md`). The local branch `merge/upstream-0.6.1` keeps the full history and is not pushed.
+- `main` now holds FrameEver. On 2026-10-24 the work on `merge/upstream-0.6.1` landed on `main` as one commit whose parents are the previous `main` (Cap-aniBullet 2.2.5) and upstream Cap 0.6.1, so our intermediate commits are gone. Since ADR-0007 (2026-10-24) we no longer merge upstream: it is a read-only reference, and fixes worth having are ported by hand. The 2.2.2–2.2.5 recording fixes on the old `main` were re-judged first (`0.6.1.md`). The local branch `merge/upstream-0.6.1` keeps the full history and is not pushed.
 - Upstream CapSoftware/Cap 0.6.1 is merged. The product is the GPUI app `apps/desktop-gpui` (ADR-0001); `apps/desktop` (Tauri) is frozen and only kept for assets the GPUI app reads by relative path.
 - Hard line (ADR-0002): user content never leaves the machine. Allowed network: update checks and downloads from our GitHub Releases, Whisper/Parakeet model downloads, and links the user opens in their browser. AI-agent surfaces return metadata only.
 - Done:
@@ -32,9 +32,22 @@ Read this first, then `docs/upstream-sync/BACKLOG.md` (what is left), `docs/upst
 
 ## What is left
 
-Everything still open is in `docs/upstream-sync/BACKLOG.md`, the one list (P0 before the first release, missing 2.x features, UI redesign, leftovers, things to verify). Work from it and delete items as they land. The 2.x comparison behind several items is `docs/upstream-sync/2x-feature-audit.md`.
+The open issues on `AniBullet/FrameEver` are the one list (`gh issue list`); native blocking links give the order. On 2026-10-24 the owner went through the old backlog item by item (grilling) and chose an independent, legacy-free product:
 
-Already settled and not in the backlog: the "cap" rename of user-visible names (rule in ADR-0005); the GitHub repo rename to `AniBullet/FrameEver` on 2026-10-23 (GitHub redirects the old URL, so 2.x installs still reach the feed; release secrets and variables moved with the repo).
+- ADR-0006: one visible storage folder (`Videos\FrameEver` with `Recordings`, `Screenshots`, `Exports`), projects named `.ever` with a format version, export paths recorded per project, no database; the app holds no code for Cap-aniBullet 2.x or `.cap` data. Older data comes in through FrameEver Converter, a separate download.
+- ADR-0007: upstream is a reference, not a merge baseline (supersedes ADR-0003). Internal names are renamed to `frameever-*` / `FRAMEEVER_*`, and macOS/Linux code is removed, before the first release.
+- Order before 3.0.0: delete the Tauri app → remove macOS/Linux crates and code paths → rename crates and environment variables → docs rewrite; storage work from the spec AniBullet/FrameEver#1 (its sub-issues) → FrameEver Converter → first release (owner). Small independent tickets (compression notification, Excluded Windows note, software-encoder export check, Chinese captions, MiSans) can be taken any time.
+- Not ticketed on purpose: dependency upgrades beyond version ranges (another session is doing them; remaining groups are listed under Phase 4 in `0.6.1.md`); the in-app automations runner and upstream fixes to port later (upstream watch list in `0.6.1.md`); recording start latency (part of the benchmark ticket).
+
+### UI redesign and library (next: `/wayfinder`)
+
+The UI redesign and the library window are one effort, too big and foggy for tickets yet. The owner will chart it with `/wayfinder` in a fresh session; when the map clears it goes through `/to-spec` and `/to-tickets`. Starting brief the owner approved:
+
+1. The library is a first-class surface, reachable in one obvious step from the main window, after a recording finishes, and from the tray. 2.x hid it behind an unlabelled 16 px grid icon in the main window header (`new-main/index.tsx` in the old Tauri app), so users did not find it.
+2. The library is designed together with the main window, settings, editor, recording controls (including the recording settings popover upstream left as a TODO) and tray menus, on one token system (colour, type, radius, spacing, motion) in `theme.rs`, replacing the glass and blur material.
+3. Direction: pure flat, no gradients or glass, clean, current and premium; core colour Klein blue `#1F3FD8`; smooth animated transitions; a few hand-drawn touches from the welcome page (empty states, a drawn tick when an export or recording finishes, a local symbol instead of the Instant mode upload-cloud doodle). Settle it with HTML prototypes first.
+4. Every 2.x library capability returns in a better form: filters by type and status with counts, search, several views, multi-select, batch delete and compress, a detail panel (original/compressed switch, three-way delete, copy file, open folder), context menu, refresh on focus and on new recording, open the library after recording; plus "exported" status from the export record. Evidence: `2x-feature-audit.md`.
+5. The data layer is settled by ADR-0006 and is not reopened in the map. The UI/UX half of the open-source benchmark feeds this effort.
 
 ## Owner preferences (also in Claude memory)
 

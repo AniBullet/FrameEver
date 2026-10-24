@@ -38,15 +38,33 @@ _Avoid_: Compressed version, compact file
 The in-app list of the user's projects and screenshots.
 _Avoid_: Gallery, recordings list
 
+## Storage
+
+**Storage folder**:
+The one user-visible folder that holds everything FrameEver keeps: projects, screenshots and exports.
+_Avoid_: Save path, base folder, recordings folder
+
+**Exports folder**:
+The part of the storage folder where exports land by default; the files there are the user's own to move and share.
+_Avoid_: Output folder
+
+**Converter**:
+FrameEver Converter, the separate program that brings older data (Cap-aniBullet 2.x or official Cap settings, projects, loose videos, screenshots and rules) into the storage folder as FrameEver projects; the only FrameEver code that understands older layouts.
+_Avoid_: 2.x import, migration, legacy scan
+
 ## Codebase lineage
 
 **Upstream**:
-The original CapSoftware/Cap repository this fork merges from.
+The original CapSoftware/Cap repository FrameEver comes from; a read-only reference, no longer merged (see ADR-0007).
 _Avoid_: Origin, original repo
 
 **GPUI app**:
 The native desktop app in `apps/desktop-gpui`, aniBullet's main app (see ADR-0001).
 _Avoid_: New app, native app
+
+**Cap-aniBullet 2.x**:
+The previous release line of this product, built on the Tauri app, whose users upgrade to FrameEver.
+_Avoid_: Old version, aniBullet edition
 
 **Tauri app**:
 The legacy webview desktop app in `apps/desktop`, frozen and due for retirement.

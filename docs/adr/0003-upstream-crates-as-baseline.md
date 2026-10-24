@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0007
 ---
 
 # Upstream crates are the baseline; our old fixes are re-judged, not replayed
