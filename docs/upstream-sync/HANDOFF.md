@@ -4,7 +4,7 @@ Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `
 
 ## Where things stand
 
-- `main` holds FrameEver. On 2026-10-24 the merge with upstream Cap 0.6.1 landed on `main` as one commit (parents: Cap-aniBullet 2.2.5 and upstream 0.6.1); the local branch `merge/upstream-0.6.1` keeps the full history and is not pushed. Since ADR-0007 upstream is a read-only reference: we never merge it again and port fixes by hand.
+- `main` holds FrameEver. On 2026-10-24 the merge with upstream Cap 0.6.1 landed on `main` as one commit (parents: Cap-aniBullet 2.2.5 and upstream 0.6.1). The intermediate branch `merge/upstream-0.6.1` was deleted on 2026-10-25; its final tree equals that merge commit, so nothing was lost. Since ADR-0007 upstream is a read-only reference: we never merge it again and port fixes by hand.
 - The product is the GPUI app `apps/desktop-gpui` (ADR-0001) plus the CLI `apps/cli`. The Tauri app and `packages/ui-solid` were deleted on 2026-10-25 (AniBullet/FrameEver#2); their assets now live in the GPUI app, and packaging reads the GPUI manifest for the version.
 - Hard line (ADR-0002): user content never leaves the machine. Allowed network: update checks and downloads from our GitHub Releases, Whisper/Parakeet model downloads, and links the user opens in their browser. AI-agent surfaces return metadata only.
 - Done before this batch:
@@ -34,7 +34,7 @@ Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `
 The open issues on `AniBullet/FrameEver` are the one list (`gh issue list`); native blocking links give the order (`gh api repos/AniBullet/FrameEver/issues/<n>/dependencies/blocked_by`).
 
 - Decisions of 2026-10-24: ADR-0006 (one visible storage folder `Videos\FrameEver` with `Recordings`, `Screenshots`, `Exports`; `.ever` projects with a format version; export records; no database; old data only through the separate FrameEver Converter) and ADR-0007 (upstream is a reference; internal names become `frameever-*` / `FRAMEEVER_*`; macOS/Linux code removed; version starts at 1.0.0).
-- Next in the cleanup chain: AniBullet/FrameEver#3 "Remove macOS- and Linux-only crates" is unblocked now; then #4 and #5 (can run one after the other), #6 rename crates, #7 rename environment variables, #8 docs rewrite. The storage spec AniBullet/FrameEver#1 (sub-issues #9–#12) follows #7; then FrameEver Converter (#13, #14); then the first release (#15, owner).
+- Next in the cleanup chain: #3 (macOS-only crates) is done; #4 and #5 (can run one after the other), #6 rename crates, #7 rename environment variables, #8 docs rewrite. The storage spec AniBullet/FrameEver#1 (sub-issues #9–#12) follows #7; then FrameEver Converter (#13, #14); then the first release (#15, owner).
 - Small independent tickets still open: #19 (remote-desktop note in Excluded Windows; neutral editor frame placeholder) and #22 (MiSans variable font, Chinese-only loading). Owner tasks: #16 (phase 2 checks on real hardware), #17 (benchmark, after the release).
 - Not ticketed on purpose: the in-app automations runner and upstream fixes to port later (upstream watch list in `0.6.1.md`); recording start latency (part of the benchmark ticket).
 

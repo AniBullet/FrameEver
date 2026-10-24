@@ -1122,7 +1122,6 @@ dependencies = [
 name = "cap-camera"
 version = "0.1.0"
 dependencies = [
- "cap-camera-avfoundation",
  "cap-camera-windows",
  "cidre",
  "objc2-av-foundation",
@@ -1133,15 +1132,6 @@ dependencies = [
  "v4l",
  "windows 0.62.2",
  "windows-core 0.62.2",
- "workspace-hack",
-]
-
-[[package]]
-name = "cap-camera-avfoundation"
-version = "0.1.0"
-dependencies = [
- "cidre",
- "tracing",
  "workspace-hack",
 ]
 
@@ -1177,7 +1167,6 @@ name = "cap-camera-ffmpeg"
 version = "0.1.0"
 dependencies = [
  "cap-camera",
- "cap-camera-avfoundation",
  "cap-camera-windows",
  "cidre",
  "ffmpeg-next",
@@ -1365,20 +1354,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows 0.62.2",
- "workspace-hack",
-]
-
-[[package]]
-name = "cap-enc-avfoundation"
-version = "0.1.0"
-dependencies = [
- "cap-media-info",
- "cidre",
- "ffmpeg-next",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tracing",
  "workspace-hack",
 ]
 
@@ -1589,7 +1564,6 @@ dependencies = [
  "cap-cursor-capture",
  "cap-cursor-info",
  "cap-d3d-adapter",
- "cap-enc-avfoundation",
  "cap-enc-ffmpeg",
  "cap-enc-mediafoundation",
  "cap-fail",
@@ -1635,7 +1609,6 @@ dependencies = [
  "scap-cpal",
  "scap-direct3d",
  "scap-ffmpeg",
- "scap-screencapturekit",
  "scap-targets",
  "screencapturekit 0.3.6",
  "serde",
@@ -1744,7 +1717,6 @@ name = "cap-verify"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cap-enc-avfoundation",
  "cap-media-info",
  "cap-project",
  "cap-recording",
@@ -8268,21 +8240,7 @@ dependencies = [
  "cpal 0.15.3",
  "ffmpeg-next",
  "scap-direct3d",
- "scap-screencapturekit",
  "windows 0.62.2",
- "workspace-hack",
-]
-
-[[package]]
-name = "scap-screencapturekit"
-version = "0.1.0"
-dependencies = [
- "cidre",
- "futures",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "tracing",
  "workspace-hack",
 ]
 

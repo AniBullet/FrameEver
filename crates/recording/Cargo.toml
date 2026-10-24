@@ -78,8 +78,6 @@ core-foundation = "0.10.0"
 coreaudio-rs = { version = "0.11.3", features = ["audio_unit"] }
 foreign-types-shared = "0.3"
 
-scap-screencapturekit = { path = "../scap-screencapturekit" }
-cap-enc-avfoundation = { path = "../enc-avfoundation" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = [

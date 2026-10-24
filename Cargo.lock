@@ -799,7 +799,6 @@ dependencies = [
  "libc",
  "relative-path",
  "rmcp",
- "scap-screencapturekit",
  "scap-targets",
  "serde",
  "serde_json",
@@ -862,7 +861,6 @@ dependencies = [
 name = "cap-camera"
 version = "0.1.0"
 dependencies = [
- "cap-camera-avfoundation",
  "cap-camera-windows",
  "cidre",
  "inquire",
@@ -874,17 +872,6 @@ dependencies = [
  "v4l",
  "windows 0.62.2",
  "windows-core 0.62.2",
- "workspace-hack",
-]
-
-[[package]]
-name = "cap-camera-avfoundation"
-version = "0.1.0"
-dependencies = [
- "cidre",
- "clap",
- "inquire",
- "tracing",
  "workspace-hack",
 ]
 
@@ -923,7 +910,6 @@ name = "cap-camera-ffmpeg"
 version = "0.1.0"
 dependencies = [
  "cap-camera",
- "cap-camera-avfoundation",
  "cap-camera-windows",
  "cidre",
  "ffmpeg-next",
@@ -1045,20 +1031,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows 0.62.2",
- "workspace-hack",
-]
-
-[[package]]
-name = "cap-enc-avfoundation"
-version = "0.1.0"
-dependencies = [
- "cap-media-info",
- "cidre",
- "ffmpeg-next",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tracing",
  "workspace-hack",
 ]
 
@@ -1290,7 +1262,6 @@ dependencies = [
  "cap-cursor-capture",
  "cap-cursor-info",
  "cap-d3d-adapter",
- "cap-enc-avfoundation",
  "cap-enc-ffmpeg",
  "cap-enc-mediafoundation",
  "cap-fail",
@@ -1339,7 +1310,6 @@ dependencies = [
  "scap-cpal",
  "scap-direct3d",
  "scap-ffmpeg",
- "scap-screencapturekit",
  "scap-targets",
  "screencapturekit",
  "serde",
@@ -1535,7 +1505,6 @@ dependencies = [
  "cap-camera-ffmpeg",
  "cap-camera-windows",
  "cap-editor",
- "cap-enc-avfoundation",
  "cap-export",
  "cap-media-info",
  "cap-mediafoundation-utils",
@@ -1580,7 +1549,6 @@ dependencies = [
  "cpal",
  "futures",
  "objc2-foundation 0.3.2",
- "scap-screencapturekit",
  "serde_json",
  "softbuffer",
  "windows 0.62.2",
@@ -6663,27 +6631,9 @@ dependencies = [
  "futures",
  "scap-cpal",
  "scap-direct3d",
- "scap-screencapturekit",
  "scap-targets",
  "tokio",
  "windows 0.62.2",
- "workspace-hack",
-]
-
-[[package]]
-name = "scap-screencapturekit"
-version = "0.1.0"
-dependencies = [
- "cidre",
- "clap",
- "futures",
- "inquire",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "scap-targets",
- "tokio",
- "tracing",
  "workspace-hack",
 ]
 

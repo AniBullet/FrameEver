@@ -26,7 +26,6 @@ cap-verify-expect = { path = "../verify-expect" }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cap-enc-avfoundation = { path = "../enc-avfoundation" }
 cidre = { workspace = true }
 
 [dev-dependencies]
