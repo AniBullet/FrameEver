@@ -59,24 +59,9 @@ The UI redesign and the library window are one effort, the wayfinder map AniBull
 - Leftover untracked build output from the deleted Tauri app may remain in `apps/desktop/` and `packages/ui-solid/` (`node_modules`, `gen`, `binaries`, `dist`); it is safe to delete. `.claude/worktrees/zed-cap` is the patched gpui checkout used by worktrees and can go once no worktree needs it.
 - In this clone the `upstream` remote has a broken push URL and fetches no tags, and `gh repo set-default` is `AniBullet/FrameEver`; repeat that setup in any new clone (`docs/agents/issue-tracker.md`).
 
-## Renaming the local folder to `D:\_Scripts\GitHub\FrameEver`
+## Local folder
 
-The owner wants the checkout renamed after the product. Claude Code keys session history and its memory by folder path (`%USERPROFILE%\.claude\projects\D---Scripts-GitHub-Cap-aniBullet`), so the rename must carry that folder along or history and memory stop showing up. Do it when no session is running and no worktree is in use:
-
-1. Close Claude Desktop (and Cursor, if it has the folder open).
-2. In PowerShell, copy the project's history and memory under the new name, then rename the checkout:
-
-   ```powershell
-   Copy-Item -Recurse "$env:USERPROFILE\.claude\projects\D---Scripts-GitHub-Cap-aniBullet" "$env:USERPROFILE\.claude\projects\D---Scripts-GitHub-FrameEver"
-   ```
-
-   ```powershell
-   Rename-Item "D:\_Scripts\GitHub\Cap-aniBullet" "FrameEver"
-   ```
-
-3. Open `D:\_Scripts\GitHub\FrameEver` in Claude Desktop (and Cursor). In the first session run `git worktree repair`, `git worktree prune` and `pnpm fe doctor`, and check that Claude's memory loads (it should know the owner's preferences without being told).
-4. The first build in the new folder is a full rebuild (`target` holds absolute paths). `../zed-cap` resolves the same way, since the parent folder does not change.
-5. Keep the old `.claude\projects\D---Scripts-GitHub-Cap-aniBullet` folder as a backup until the new one is confirmed, then delete it. Old sessions in Claude Desktop may show their folder as missing; their transcripts stay in the copied folder.
+On 2026-10-25 the checkout was renamed to `D:\_Scripts\GitHub\frameever` (lower case). Claude Code's history and memory were copied to `%USERPROFILE%\.claude\projects\D---Scripts-GitHub-frameever*`; worktrees, `pnpm fe doctor` and memory were checked in the new folder. The first build there is a full rebuild because `target` holds absolute paths.
 
 ## Owner preferences (also in Claude memory)
 
