@@ -21,6 +21,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "改用压缩版并删除原版，以节省空间。",
     ),
     ("Couldn't compress the recording", "无法压缩这个录制文件"),
+    ("Compression finished", "压缩完成"),
     ("Couldn't change the video version", "无法切换视频版本"),
     ("Compressing…", "正在压缩…"),
     (

@@ -183,6 +183,7 @@ libc = "0.2"
 clipboard-rs = "0.3.5"
 raw-window-handle = "0.6"
 tray-icon = { version = "0.26.1", default-features = false }
+tauri-winrt-notification = "0.8.1"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Globalization",
