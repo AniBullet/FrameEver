@@ -1659,24 +1659,7 @@ async fn read_shareable_content() -> anyhow::Result<frameever_recording::Sendabl
 /// (used by the automated end-to-end check so test recordings stay out of the
 /// user's library).
 pub fn recordings_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("FRAMEEVER_GPUI_RECORDINGS_DIR")
-        && !dir.trim().is_empty()
-    {
-        return PathBuf::from(dir);
-    }
-
-    let custom = crate::store::GeneralSettings::load()
-        .recordings_path
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute());
-
-    if let Some(path) = custom
-        && std::fs::create_dir_all(&path).is_ok()
-    {
-        return path;
-    }
-
-    crate::store::app_data_dir().join("recordings")
+    crate::library::storage().recordings_dir()
 }
 
 /// Deletes the clip the editor-append flow just copied from, using the same

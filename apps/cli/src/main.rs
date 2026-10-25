@@ -346,7 +346,7 @@ enum RecordingsCommands {
 
 #[derive(Args)]
 struct RecordingsListArgs {
-    /// Directory to scan (defaults to the desktop recordings library)
+    /// Directory to scan (defaults to every recordings folder the desktop app scans)
     #[arg(long)]
     dir: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]

@@ -255,7 +255,6 @@ fn main() {
     let _log_guard = init_logging();
 
     single_instance::acquire();
-    store::import_legacy_data();
     i18n::init(store::GeneralSettings::load().language.as_deref());
     if cfg!(debug_assertions) {
         store::mark_handoff_session();

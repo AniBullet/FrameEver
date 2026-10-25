@@ -426,12 +426,13 @@ fn set_mode(mode: Mode, cx: &mut App) {
 fn open_previous_item(path: PathBuf, cx: &mut App) {
     use frameever_project::{RecordingMeta, RecordingMetaInner};
 
-    let screenshots_dir = library::screenshots_dir();
-    let is_screenshot = path.extension().and_then(|ext| ext.to_str()) == Some("cap")
-        && path
-            .parent()
-            .map(|parent| parent == screenshots_dir)
-            .unwrap_or(false);
+    let is_screenshot = frameever_utils::storage::is_project(&path)
+        && path.parent().is_some_and(|parent| {
+            library::storage()
+                .known_dirs(frameever_utils::storage::ProjectKind::Screenshot)
+                .iter()
+                .any(|dir| dir == parent)
+        });
 
     if is_screenshot {
         app_windows::open_screenshot_editor(path, cx);

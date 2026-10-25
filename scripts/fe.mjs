@@ -65,7 +65,7 @@ const COMMANDS = {
 	setup: "Prepare a fresh machine: JS deps, FFmpeg/ONNX/DXC, patched gpui, HarmonyOS Sans font",
 	dev: "Build and run the app (test data by default). --watch, --lang zh-CN|en, --real",
 	check: "Compile-check the GPUI app and the CLI, tests included",
-	test: "Run GPUI tests (optional filter). --all adds encoder, export, CLI and script tests",
+	test: "Run GPUI tests (optional filter). --all adds encoder, export, utils, CLI and script tests",
 	lint: "Format check, clippy and translation tests",
 	fmt: "Format the GPUI app and the root crates FrameEver changed",
 	export: "Export the test recording: fe export h264|hevc|av1 [--project <.cap>]",
@@ -510,10 +510,12 @@ function test({ flags, positional }) {
 		env: withFfmpeg(),
 	});
 	if (flags.all) {
-		step("Encoder, export and CLI tests");
+		step("Encoder, export, utils and CLI tests");
 		run("cargo", ["test", "-p", "frameever-enc-ffmpeg", "--lib"], { env: withFfmpeg() });
+		run("cargo", ["test", "-p", "frameever-utils", "--lib"]);
 		run("cargo", ["test", "-p", "frameever-export", "--lib"], { env: withFfmpeg() });
 		run("cargo", ["test", "-p", "frameever", "--bin", "frameever"], { env: withFfmpeg() });
+		run("cargo", ["test", "-p", "frameever", "--test", "cli", "recordings_list"], { env: withFfmpeg() });
 		step("Packaging script tests");
 		run(process.execPath, [
 			"--test",

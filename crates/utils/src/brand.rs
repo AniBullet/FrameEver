@@ -7,10 +7,12 @@ macro_rules! app_name {
 
 pub const APP_NAME: &str = app_name!();
 pub const APP_ID: &str = "io.github.anibullet.frameever";
-pub const LEGACY_APP_ID: &str = "so.cap.desktop.anibullet";
 pub const URL_SCHEME: &str = "frameever";
 pub const CLI_COMMAND: &str = "frameever";
 pub const RELEASES_REPO: &str = "AniBullet/FrameEver";
+pub const PROJECT_EXTENSION: &str = "cap";
+pub const RECORDINGS_DIR_NAME: &str = "recordings";
+pub const SCREENSHOTS_DIR_NAME: &str = "screenshots";
 
 pub fn is_app_url(raw: &str) -> bool {
     raw.strip_prefix(URL_SCHEME)
@@ -33,6 +35,5 @@ mod tests {
         assert!(!is_app_url("cap-desktop://action"));
         assert!(!is_app_url("cap://action"));
         assert_ne!(APP_ID, "so.cap.desktop");
-        assert_ne!(APP_ID, LEGACY_APP_ID);
     }
 }

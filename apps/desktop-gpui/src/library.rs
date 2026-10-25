@@ -17,7 +17,6 @@
 //! state.
 
 use std::{
-    collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
     time::UNIX_EPOCH,
@@ -28,6 +27,7 @@ use frameever_project::{
     StudioRecordingStatus,
 };
 use frameever_recording::{recovery::RecoveryManager, upload_resume::UploadLock};
+use frameever_utils::storage::{ProjectKind, Storage, StorageSettings, is_project};
 use gpui::RenderImage;
 
 use crate::i18n::t;
@@ -91,57 +91,22 @@ fn media_sort_time_millis(path: &Path) -> f64 {
         * 1000.0
 }
 
-/// `recordings_locations::known_recordings_dirs`: the active recordings
-/// directory first, then the default location, then any previously used custom
-/// folders -- so switching the storage folder never hides existing recordings.
-/// Deduplicated by canonical path; directories that do not exist are skipped.
-///
-/// `FRAMEEVER_GPUI_RECORDINGS_DIR` collapses the whole list to that one directory.
-/// The override exists so a verification run stays out of the user's library,
-/// and a scan that still walked the real one would defeat it.
+pub fn storage() -> Storage {
+    Storage::new(
+        crate::store::app_data_dir(),
+        StorageSettings::from_general_settings(&serde_json::Value::Object(
+            crate::store::store_section(crate::store::GENERAL_SETTINGS),
+        )),
+    )
+    .with_recordings_override(frameever_utils::storage::recordings_override())
+}
+
 pub fn known_recordings_dirs() -> Vec<PathBuf> {
-    if let Ok(dir) = std::env::var("FRAMEEVER_GPUI_RECORDINGS_DIR")
-        && !dir.trim().is_empty()
-    {
-        return dedupe_existing_dirs(vec![PathBuf::from(dir)]);
-    }
-
-    let mut dirs = vec![
-        crate::recording::recordings_dir(),
-        crate::store::app_data_dir().join("recordings"),
-    ];
-    dirs.extend(
-        crate::store::GeneralSettings::load()
-            .previous_recordings_paths
-            .iter()
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute()),
-    );
-    dedupe_existing_dirs(dirs)
+    storage().known_dirs(ProjectKind::Recording)
 }
 
-fn dedupe_existing_dirs(dirs: Vec<PathBuf>) -> Vec<PathBuf> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for dir in dirs {
-        if !dir.is_dir() {
-            continue;
-        }
-        // Canonicalize so one folder reached by two spellings is scanned once;
-        // otherwise every recording in it would be listed twice.
-        let key = dir.canonicalize().unwrap_or_else(|_| dir.clone());
-        if seen.insert(key) {
-            out.push(dir);
-        }
-    }
-    out
-}
-
-/// `screenshots_path(app)` (`lib.rs:6721-6726`): `<app data>/screenshots`.
-/// Unlike recordings this one is not configurable -- the custom storage folder
-/// setting only moves recordings.
 pub fn screenshots_dir() -> PathBuf {
-    crate::store::app_data_dir().join("screenshots")
+    storage().screenshots_dir()
 }
 
 /// `list_recordings`, narrowed to what a Recents card draws.
@@ -342,11 +307,10 @@ fn recording_item(path: PathBuf, meta: RecordingMeta, sort_time_millis: f64) -> 
 
 /// `list_recordings` (`lib.rs:3971-3999`), against explicit directories.
 ///
-/// Every subdirectory of every known recordings folder whose
-/// `recording-meta.json` parses; a directory whose meta is missing or corrupt
-/// is skipped without a word, because `get_recording_meta` returns `Err` and
-/// the `if let Ok` drops it. There is no `.cap` extension filter -- that is the
-/// screenshots scan's rule, not this one. Sorted newest first by
+/// Every project (`frameever_utils::storage::is_project`) in every known
+/// recordings folder whose `recording-meta.json` parses; a project whose meta
+/// is missing or corrupt is skipped without a word, so the CLI's
+/// `recordings list` and this scan agree. Sorted newest first by
 /// `sort_time_millis`, which is the directory's own creation time recomputed on
 /// every call.
 ///
@@ -364,7 +328,7 @@ fn recording_items_in(dirs: &[PathBuf]) -> impl Iterator<Item = RecordingItem> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_dir() {
+            if !is_project(&path) {
                 continue;
             }
             let sort_time_millis = media_sort_time_millis(&path);
@@ -684,7 +648,7 @@ pub fn list_screenshots_in(dir: &Path) -> Vec<ScreenshotItem> {
     let mut out = Vec::new();
     for entry in entries.flatten() {
         let bundle = entry.path();
-        if !bundle.is_dir() || bundle.extension().and_then(|ext| ext.to_str()) != Some("cap") {
+        if !is_project(&bundle) {
             continue;
         }
         let Ok(meta) = RecordingMeta::load_for_project(&bundle) else {
@@ -712,7 +676,13 @@ pub fn list_screenshots_in(dir: &Path) -> Vec<ScreenshotItem> {
 }
 
 pub fn list_screenshots() -> Vec<ScreenshotItem> {
-    list_screenshots_in(&screenshots_dir())
+    let mut items: Vec<_> = storage()
+        .known_dirs(ProjectKind::Screenshot)
+        .iter()
+        .flat_map(|dir| list_screenshots_in(dir))
+        .collect();
+    items.sort_by(|a, b| b.sort_time_millis.total_cmp(&a.sort_time_millis));
+    items
 }
 
 /// Delete the `.cap` bundle that owns `path` (the PNG or the directory).
@@ -732,10 +702,10 @@ pub fn delete_screenshot(path: &Path) -> Result<(), String> {
         return Err(t!("Invalid path").to_string());
     }
 
-    let screenshots = screenshots_dir();
-    if !bundle.starts_with(&screenshots) {
+    let known_dirs = storage().known_dirs(ProjectKind::Screenshot);
+    let Some(screenshots) = known_dirs.iter().find(|dir| bundle.starts_with(dir)) else {
         return Err(t!("Path is not inside the screenshots directory").to_string());
-    }
+    };
 
     if bundle.exists() {
         let canonical = bundle
@@ -757,16 +727,20 @@ pub fn delete_screenshot(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn scan_screenshots(dir: &Path, out: &mut Vec<RecentItem>) {
-    out.extend(list_screenshots_in(dir).into_iter().map(|item| RecentItem {
-        kind: MediaKind::Screenshot,
-        bundle: item.bundle,
-        pretty_name: item.pretty_name,
-        clip_count: 1,
-        sort_time_millis: item.sort_time_millis,
-        thumbnail_version: item.thumbnail.as_deref().and_then(source_mtime_nanos),
-        thumbnail: item.thumbnail,
-    }));
+fn scan_screenshots(dirs: &[PathBuf], out: &mut Vec<RecentItem>) {
+    out.extend(
+        dirs.iter()
+            .flat_map(|dir| list_screenshots_in(dir))
+            .map(|item| RecentItem {
+                kind: MediaKind::Screenshot,
+                bundle: item.bundle,
+                pretty_name: item.pretty_name,
+                clip_count: 1,
+                sort_time_millis: item.sort_time_millis,
+                thumbnail_version: item.thumbnail.as_deref().and_then(source_mtime_nanos),
+                thumbnail: item.thumbnail,
+            }),
+    );
 }
 
 fn newest_first(items: &mut [RecentItem]) {
@@ -780,12 +754,12 @@ fn newest_first(items: &mut [RecentItem]) {
 /// merged list is sorted and capped again. Capping twice is not redundant --
 /// it is what stops ten screenshots from crowding out a recording that is
 /// newer than nine of them.
-pub fn recent_media_in(recording_dirs: &[PathBuf], screenshots_dir: &Path) -> Vec<RecentItem> {
+pub fn recent_media_in(recording_dirs: &[PathBuf], screenshot_dirs: &[PathBuf]) -> Vec<RecentItem> {
     let mut recordings = Vec::new();
     scan_recordings(recording_dirs, &mut recordings);
 
     let mut screenshots = Vec::new();
-    scan_screenshots(screenshots_dir, &mut screenshots);
+    scan_screenshots(screenshot_dirs, &mut screenshots);
     newest_first(&mut screenshots);
     screenshots.truncate(RECENT_MEDIA_LIMIT);
 
@@ -798,7 +772,11 @@ pub fn recent_media_in(recording_dirs: &[PathBuf], screenshots_dir: &Path) -> Ve
 
 /// The `recentMedia` query against the real library.
 pub fn recent_media() -> Vec<RecentItem> {
-    recent_media_in(&known_recordings_dirs(), &screenshots_dir())
+    let storage = storage();
+    recent_media_in(
+        &storage.known_dirs(ProjectKind::Recording),
+        &storage.known_dirs(ProjectKind::Screenshot),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1337,7 +1315,10 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(6));
         }
 
-        let items = recent_media_in(std::slice::from_ref(&recordings), &screenshots);
+        let items = recent_media_in(
+            std::slice::from_ref(&recordings),
+            std::slice::from_ref(&screenshots),
+        );
         assert_eq!(items.len(), RECENT_MEDIA_LIMIT, "capped at the limit");
         assert_eq!(items[0].pretty_name, "rec-11", "newest first");
         assert_eq!(
@@ -1368,7 +1349,10 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(6));
         write_studio_bundle(&recordings, "new-recording", 3);
 
-        let items = recent_media_in(std::slice::from_ref(&recordings), &screenshots);
+        let items = recent_media_in(
+            std::slice::from_ref(&recordings),
+            std::slice::from_ref(&screenshots),
+        );
         let names: Vec<&str> = items.iter().map(|item| item.pretty_name.as_str()).collect();
         assert_eq!(
             names,
@@ -1414,7 +1398,7 @@ mod tests {
 
         let items = recent_media_in(
             std::slice::from_ref(&recordings),
-            &root.join("missing-screenshots"),
+            &[root.join("missing-screenshots")],
         );
         assert_eq!(items.len(), 1, "only the bundle with a meta is listed");
         assert_eq!(items[0].thumbnail.as_deref(), Some(thumbnail.as_path()));
@@ -1437,7 +1421,7 @@ mod tests {
         assert_eq!(after.thumbnail.as_ref(), Some(&preview));
         assert!(after.thumbnail_version.is_some());
         assert_ne!(before, after);
-        let recent = recent_media_in(std::slice::from_ref(&root), &root.join("missing"));
+        let recent = recent_media_in(std::slice::from_ref(&root), &[root.join("missing")]);
         assert_eq!(recent[0].thumbnail.as_ref(), Some(&preview));
         assert_eq!(recent[0].thumbnail_version, after.thumbnail_version);
         std::fs::remove_dir_all(root).unwrap();
@@ -1452,6 +1436,47 @@ mod tests {
         std::fs::create_dir_all(&bundle).unwrap();
         std::fs::write(bundle.join("recording-meta.json"), meta).unwrap();
         bundle
+    }
+
+    #[test]
+    fn the_library_lists_projects_from_the_custom_default_and_previous_folders() {
+        let root = temp_dir("storage-folders");
+        let app_data = root.join("app");
+        let custom = root.join("custom");
+        let previous = root.join("previous");
+        for dir in [
+            app_data.join("recordings"),
+            custom.clone(),
+            previous.clone(),
+        ] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        write_studio_bundle(&app_data.join("recordings"), "Default", 1);
+        write_studio_bundle(&custom, "Custom", 1);
+        write_studio_bundle(&previous, "Previous", 1);
+        let not_a_project = previous.join("Not a project");
+        std::fs::create_dir_all(&not_a_project).unwrap();
+        std::fs::copy(
+            previous.join("Previous.cap/recording-meta.json"),
+            not_a_project.join("recording-meta.json"),
+        )
+        .unwrap();
+        let storage = Storage::new(
+            app_data,
+            StorageSettings {
+                recordings_path: Some(custom),
+                previous_recordings_paths: vec![previous],
+            },
+        );
+
+        let mut names: Vec<_> = list_recordings_in(&storage.known_dirs(ProjectKind::Recording))
+            .into_iter()
+            .map(|item| item.pretty_name)
+            .collect();
+        names.sort();
+        assert_eq!(names, ["Custom", "Default", "Previous"]);
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -499,6 +499,47 @@ fn recordings_list_empty_dir_is_empty_json() {
 }
 
 #[test]
+fn recordings_list_includes_the_custom_and_previous_folders_the_app_scans() {
+    let root = tempfile::tempdir().unwrap();
+    let app_data = root.path().join("app");
+    let custom = root.path().join("custom");
+    let previous = root.path().join("previous");
+    write_named_meta(&app_data.join("recordings/Default.cap"), "Default");
+    write_named_meta(&custom.join("Custom.cap"), "Custom");
+    write_named_meta(&previous.join("Previous.cap"), "Previous");
+    write_named_meta(&previous.join("Not a project"), "Not a project");
+    std::fs::write(
+        app_data.join("store"),
+        serde_json::to_vec(&serde_json::json!({
+            "general_settings": {
+                "recordingsPath": custom,
+                "previousRecordingsPaths": [previous]
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let output = cap()
+        .args(["recordings", "list", "--format", "json"])
+        .env("FRAMEEVER_GPUI_APP_DATA_DIR", &app_data)
+        .env_remove("FRAMEEVER_GPUI_TAURI_STORE")
+        .env_remove("FRAMEEVER_GPUI_RECORDINGS_DIR")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let mut names: Vec<String> = parse_json(&output)
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["name"].as_str().unwrap().to_string())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["Custom", "Default", "Previous"]);
+}
+
+#[test]
 fn project_config_set_then_get_roundtrips() {
     let dir = tempfile::tempdir().unwrap();
     let project = dir.path().join("recording.cap");
@@ -1262,6 +1303,19 @@ fn write_single_segment_meta(project: &Path) {
     std::fs::create_dir_all(project).unwrap();
     let meta = serde_json::json!({
         "pretty_name": "Test Project",
+        "display": { "path": "content/display.mp4", "fps": 30 }
+    });
+    std::fs::write(
+        project.join("recording-meta.json"),
+        serde_json::to_vec_pretty(&meta).unwrap(),
+    )
+    .unwrap();
+}
+
+fn write_named_meta(project: &Path, name: &str) {
+    std::fs::create_dir_all(project).unwrap();
+    let meta = serde_json::json!({
+        "pretty_name": name,
         "display": { "path": "content/display.mp4", "fps": 30 }
     });
     std::fs::write(

@@ -1,18 +1,10 @@
-use std::{
-    path::{Path, PathBuf},
-    time::SystemTime,
-};
+use std::{path::PathBuf, time::SystemTime};
 
 use frameever_project::{RecordingMeta, RecordingMetaInner};
+use frameever_utils::storage::{ProjectKind, Storage, projects_in};
 use serde::Serialize;
 
 use crate::{OutputFormat, write_json};
-
-fn default_library_dir() -> Result<PathBuf, String> {
-    dirs::data_dir()
-        .ok_or_else(|| "Could not determine the OS application-data directory".to_string())
-        .map(|dir| dir.join(frameever_utils::brand::APP_ID).join("recordings"))
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,18 +25,10 @@ fn recording_type(meta: &RecordingMeta) -> &'static str {
     }
 }
 
-fn collect_rows(dir: &Path) -> Result<Vec<RecordingRow>, String> {
-    if !dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut entries: Vec<(PathBuf, SystemTime, RecordingMeta)> = std::fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read recordings directory: {e}"))?
-        .filter_map(|entry| {
-            let path = entry.ok()?.path();
-            if !path.is_dir() || !path.file_name()?.to_str()?.ends_with(".cap") {
-                return None;
-            }
+fn collect_rows(projects: Vec<PathBuf>) -> Vec<RecordingRow> {
+    let mut entries: Vec<(PathBuf, SystemTime, RecordingMeta)> = projects
+        .into_iter()
+        .filter_map(|path| {
             let meta = RecordingMeta::load_for_project(&path).ok()?;
             let created = path
                 .metadata()
@@ -56,7 +40,7 @@ fn collect_rows(dir: &Path) -> Result<Vec<RecordingRow>, String> {
 
     entries.sort_by(|a, b| b.1.cmp(&a.1));
 
-    Ok(entries
+    entries
         .into_iter()
         .map(|(path, _, meta)| {
             let output_path = meta.output_path();
@@ -69,22 +53,39 @@ fn collect_rows(dir: &Path) -> Result<Vec<RecordingRow>, String> {
                 path,
             }
         })
-        .collect())
+        .collect()
 }
 
 pub fn list(dir: Option<PathBuf>, format: OutputFormat) -> Result<(), String> {
-    let dir = match dir {
-        Some(dir) => dir,
-        None => default_library_dir()?,
+    let (dirs, projects) = match dir {
+        Some(dir) => {
+            let projects = projects_in(&dir);
+            (vec![dir], projects)
+        }
+        None => {
+            let storage = Storage::from_environment();
+            (
+                storage.known_dirs(ProjectKind::Recording),
+                storage.projects(ProjectKind::Recording),
+            )
+        }
     };
 
-    let rows = collect_rows(&dir)?;
+    let rows = collect_rows(projects);
 
     match format {
         OutputFormat::Json => write_json(&rows),
         OutputFormat::Text => {
             if rows.is_empty() {
-                println!("No recordings found in {}", dir.display());
+                let searched = dirs
+                    .iter()
+                    .map(|dir| dir.display().to_string())
+                    .collect::<Vec<_>>();
+                if searched.is_empty() {
+                    println!("No recordings found");
+                } else {
+                    println!("No recordings found in {}", searched.join(", "));
+                }
                 return Ok(());
             }
             for row in &rows {

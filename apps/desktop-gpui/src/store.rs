@@ -148,126 +148,7 @@ pub struct ExportPrefs {
 }
 
 pub fn app_data_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("FRAMEEVER_GPUI_APP_DATA_DIR")
-        && !dir.trim().is_empty()
-    {
-        return PathBuf::from(dir);
-    }
-    app_data_root().join(crate::brand::APP_ID)
-}
-
-fn legacy_app_data_dir() -> PathBuf {
-    app_data_root().join(crate::brand::LEGACY_APP_ID)
-}
-
-fn app_data_root() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
-            .join("Library/Application Support")
-    }
-    #[cfg(target_os = "windows")]
-    {
-        std::env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
-    }
-}
-
-pub fn import_legacy_data() {
-    if std::env::var_os("FRAMEEVER_GPUI_APP_DATA_DIR").is_some() {
-        return;
-    }
-    match import_legacy_data_into(&legacy_app_data_dir(), &app_data_dir()) {
-        Ok(true) => tracing::info!("imported settings from Cap-aniBullet"),
-        Ok(false) => {}
-        Err(error) => tracing::warn!(%error, "could not import settings from Cap-aniBullet"),
-    }
-}
-
-const STORE_FILE: &str = "store";
-const LEGACY_IMPORT_MARKER: &str = ".legacy-import-done";
-
-fn import_legacy_data_into(legacy: &Path, current: &Path) -> std::io::Result<bool> {
-    let marker = current.join(LEGACY_IMPORT_MARKER);
-    if marker.exists() || current.join(STORE_FILE).exists() {
-        return Ok(false);
-    }
-    let legacy_store = legacy.join(STORE_FILE);
-    if !legacy_store.is_file() {
-        return Ok(false);
-    }
-    std::fs::create_dir_all(current)?;
-
-    let mut store: Value = serde_json::from_slice(&std::fs::read(&legacy_store)?)
-        .unwrap_or_else(|_| Value::Object(Map::new()));
-    let legacy_recordings = legacy.join("recordings");
-    if legacy_recordings.is_dir()
-        && let Some(root) = store.as_object_mut()
-    {
-        let general = root
-            .entry("general_settings")
-            .or_insert_with(|| Value::Object(Map::new()));
-        if let Some(general) = general.as_object_mut() {
-            if let Some(rules) = general
-                .get_mut("excludedWindows")
-                .and_then(Value::as_array_mut)
-            {
-                for rule in rules {
-                    if let Some(title) = rule.get_mut("windowTitle")
-                        && let Some(renamed) = title.as_str().and_then(rename_legacy_window_title)
-                    {
-                        *title = Value::String(renamed);
-                    }
-                }
-            }
-            let path = Value::String(legacy_recordings.to_string_lossy().into_owned());
-            let previous = general
-                .entry("previousRecordingsPaths")
-                .or_insert_with(|| Value::Array(Vec::new()));
-            if let Some(previous) = previous.as_array_mut()
-                && !previous.contains(&path)
-            {
-                previous.push(path);
-            }
-        }
-    }
-    let staged = current.join("store.import-tmp");
-    std::fs::write(
-        &staged,
-        serde_json::to_vec_pretty(&store).map_err(std::io::Error::other)?,
-    )?;
-    std::fs::rename(&staged, current.join(STORE_FILE))?;
-
-    let legacy_screenshots = legacy.join("screenshots");
-    if legacy_screenshots.is_dir() {
-        copy_dir_missing(&legacy_screenshots, &current.join("screenshots"))?;
-    }
-    std::fs::write(marker, b"")?;
-    Ok(true)
-}
-
-fn rename_legacy_window_title(title: &str) -> Option<String> {
-    if title == "Cap" {
-        return Some(crate::brand::APP_NAME.to_string());
-    }
-    title
-        .strip_prefix("Cap ")
-        .map(|rest| format!("{} {rest}", crate::brand::APP_NAME))
-}
-
-fn copy_dir_missing(source: &Path, destination: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(destination)?;
-    for entry in std::fs::read_dir(source)? {
-        let entry = entry?;
-        let target = destination.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir_missing(&entry.path(), &target)?;
-        } else if !target.exists() {
-            std::fs::copy(entry.path(), &target)?;
-        }
-    }
-    Ok(())
+    frameever_utils::storage::app_data_dir()
 }
 
 pub(crate) fn bundled_resource_dirs() -> Vec<PathBuf> {
@@ -445,12 +326,7 @@ pub fn tauri_store_path() -> PathBuf {
         return path;
     }
 
-    match std::env::var("FRAMEEVER_GPUI_TAURI_STORE") {
-        Ok(path) if !path.is_empty() => PathBuf::from(path),
-        // `Store.load("store")`: no extension, and the sibling `store.json`
-        // is a different (stale) file.
-        _ => app_data_dir().join(STORE_FILE),
-    }
+    frameever_utils::storage::settings_file()
 }
 
 static STORE_UPDATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -1909,54 +1785,6 @@ mod tests {
             .map(|rule| rule.primary_label().to_string())
             .collect::<Vec<_>>();
         assert_eq!(titles, ["FrameEver", "FrameEver Recording Controls"]);
-    }
-
-    #[test]
-    fn cap_anibullet_settings_are_imported_once_and_its_recordings_stay_in_place() {
-        let root = std::env::temp_dir().join(format!("cap-gpui-legacy-{}", super::new_uuid_v4()));
-        let legacy = root.join("legacy");
-        let current = root.join("current");
-        std::fs::create_dir_all(legacy.join("recordings/old.cap")).unwrap();
-        std::fs::create_dir_all(legacy.join("screenshots/shot.cap")).unwrap();
-        std::fs::write(legacy.join("screenshots/shot.cap/original.png"), b"png").unwrap();
-        std::fs::write(
-            legacy.join("store"),
-            r#"{"general_settings":{"hideDockIcon":true,"previousRecordingsPaths":["D:\\Old"],"excludedWindows":[{"windowTitle":"Cap"},{"windowTitle":"Cap Camera"},{"windowTitle":"Notes"}]}}"#,
-        )
-        .unwrap();
-
-        assert!(super::import_legacy_data_into(&legacy, &current).unwrap());
-        let store: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(current.join("store")).unwrap()).unwrap();
-        assert_eq!(store["general_settings"]["hideDockIcon"], true);
-        assert_eq!(
-            store["general_settings"]["excludedWindows"],
-            serde_json::json!([
-                {"windowTitle": "FrameEver"},
-                {"windowTitle": "FrameEver Camera"},
-                {"windowTitle": "Notes"}
-            ])
-        );
-        assert_eq!(
-            store["general_settings"]["previousRecordingsPaths"],
-            serde_json::json!(["D:\\Old", legacy.join("recordings").to_string_lossy()])
-        );
-        assert_eq!(
-            std::fs::read(current.join("screenshots/shot.cap/original.png")).unwrap(),
-            b"png"
-        );
-        assert!(legacy.join("recordings/old.cap").is_dir());
-        assert!(legacy.join("store").is_file());
-
-        std::fs::write(legacy.join("store"), r#"{"general_settings":{}}"#).unwrap();
-        std::fs::remove_file(current.join("store")).unwrap();
-        assert!(!super::import_legacy_data_into(&legacy, &current).unwrap());
-        assert!(!current.join("store").exists());
-
-        let fresh = root.join("fresh");
-        assert!(!super::import_legacy_data_into(&root.join("missing"), &fresh).unwrap());
-        assert!(!fresh.exists());
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     use super::*;
