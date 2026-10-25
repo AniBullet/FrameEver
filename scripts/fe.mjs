@@ -515,7 +515,7 @@ function test({ flags, positional }) {
 		run("cargo", ["test", "-p", "frameever-utils", "--lib"]);
 		run("cargo", ["test", "-p", "frameever-export", "--lib"], { env: withFfmpeg() });
 		run("cargo", ["test", "-p", "frameever", "--bin", "frameever"], { env: withFfmpeg() });
-		run("cargo", ["test", "-p", "frameever", "--test", "cli", "recordings_list"], { env: withFfmpeg() });
+		run("cargo", ["test", "-p", "frameever", "--test", "cli"], { env: withFfmpeg() });
 		step("Packaging script tests");
 		run(process.execPath, [
 			"--test",

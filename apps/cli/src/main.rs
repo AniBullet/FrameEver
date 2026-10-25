@@ -39,7 +39,6 @@ const WELCOME_LINES: &[&[(&str, &str)]] = &[
         (ANSI_BLUE, "    ███"),
         (ANSI_SOFT_BLUE, "████████"),
         (ANSI_BLUE, "███"),
-        (ANSI_BOLD, "     ____"),
     ],
     &[
         (ANSI_BLUE, "  ███"),
@@ -47,7 +46,6 @@ const WELCOME_LINES: &[&[(&str, &str)]] = &[
         (ANSI_WHITE, "████████"),
         (ANSI_SOFT_BLUE, "██"),
         (ANSI_BLUE, "███"),
-        (ANSI_BOLD, "    / ___|__ _ _ __"),
     ],
     &[
         (ANSI_BLUE, "  ██"),
@@ -55,7 +53,6 @@ const WELCOME_LINES: &[&[(&str, &str)]] = &[
         (ANSI_WHITE, "██████████"),
         (ANSI_SOFT_BLUE, "██"),
         (ANSI_BLUE, "██"),
-        (ANSI_BOLD, "   | |   / _` | '_ \\"),
     ],
     &[
         (ANSI_BLUE, "  ██"),
@@ -63,7 +60,7 @@ const WELCOME_LINES: &[&[(&str, &str)]] = &[
         (ANSI_WHITE, "████████████"),
         (ANSI_SOFT_BLUE, "█"),
         (ANSI_BLUE, "██"),
-        (ANSI_BOLD, "   | |__| (_| | |_) |"),
+        (ANSI_BOLD, "   FrameEver"),
     ],
     &[
         (ANSI_BLUE, "  ██"),
@@ -71,7 +68,6 @@ const WELCOME_LINES: &[&[(&str, &str)]] = &[
         (ANSI_WHITE, "██████████"),
         (ANSI_SOFT_BLUE, "██"),
         (ANSI_BLUE, "██"),
-        (ANSI_BOLD, "    \\____\\__,_| .__/"),
     ],
     &[
         (ANSI_BLUE, "  ███"),
@@ -79,7 +75,6 @@ const WELCOME_LINES: &[&[(&str, &str)]] = &[
         (ANSI_WHITE, "████████"),
         (ANSI_SOFT_BLUE, "██"),
         (ANSI_BLUE, "███"),
-        (ANSI_BOLD, "              |_|"),
     ],
     &[
         (ANSI_BLUE, "    ███"),
@@ -90,7 +85,7 @@ const WELCOME_LINES: &[&[(&str, &str)]] = &[
     &[],
     &[(
         ANSI_BOLD,
-        "  Record, edit, and share screen recordings from the command line.",
+        "  Record and edit screen recordings from the command line.",
     )],
     &[],
     &[(ANSI_BLUE, "  frameever record start --screen <id> --detach")],
@@ -182,13 +177,13 @@ enum Commands {
     Update(FormatArgs),
     /// Run the local Model Context Protocol server for AI agents
     Mcp(mcp::McpArgs),
-    /// Install Cap integrations for one explicitly selected agent
+    /// Install FrameEver integrations for one explicitly selected agent
     Agents(agents::AgentsArgs),
     /// List available capture targets and devices
     Targets(TargetsArgs),
     /// Report CLI environment and capture-readiness diagnostics
     Doctor(FormatArgs),
-    /// Run end-to-end diagnostics that verify Cap works on this machine
+    /// Run end-to-end diagnostics that verify FrameEver works on this machine
     Selftest(selftest::SelftestArgs),
     /// Print CLI version and execution context
     Version(FormatArgs),
