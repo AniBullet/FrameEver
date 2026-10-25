@@ -1,7 +1,7 @@
 use super::*;
 
-use cap_camera_avfoundation::*;
 use cidre::*;
+use frameever_camera_avfoundation::*;
 use objc2_av_foundation::*;
 
 pub(super) fn list_cameras_impl() -> impl Iterator<Item = CameraInfo> {
@@ -9,7 +9,7 @@ pub(super) fn list_cameras_impl() -> impl Iterator<Item = CameraInfo> {
     // unique_id/localized_name accessors autorelease NSStrings that would
     // otherwise accumulate for the process lifetime.
     objc::ar_pool(|| {
-        let devices = cap_camera_avfoundation::list_video_devices();
+        let devices = frameever_camera_avfoundation::list_video_devices();
         devices
             .iter()
             .map(|d| CameraInfo {
@@ -280,7 +280,7 @@ pub(super) fn start_capturing_impl(
 }
 
 pub struct AVFoundationRecordingHandle {
-    _delegate: arc::R<cap_camera_avfoundation::CallbackOutputDelegate>,
+    _delegate: arc::R<frameever_camera_avfoundation::CallbackOutputDelegate>,
     session: arc::R<cidre::av::capture::Session>,
     output: arc::R<av::CaptureVideoDataOutput>,
     input: arc::R<av::CaptureDeviceInput>,

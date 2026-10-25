@@ -1,4 +1,4 @@
-use cap_enc_ffmpeg::segmented_stream::{SegmentCompletedEvent, SegmentMediaType};
+use frameever_enc_ffmpeg::segmented_stream::{SegmentCompletedEvent, SegmentMediaType};
 use serde::Deserialize;
 use std::{
     collections::HashSet,
@@ -296,7 +296,7 @@ fn collect_track(
                 path.display()
             ));
         }
-        if !cap_enc_ffmpeg::fragmented_mp4::tail_is_complete(&path)
+        if !frameever_enc_ffmpeg::fragmented_mp4::tail_is_complete(&path)
             .map_err(|error| error.to_string())?
         {
             return Err(format!("{}: fragment is incomplete", path.display()));
@@ -335,7 +335,7 @@ fn collect_track(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_enc_ffmpeg::{
+    use frameever_enc_ffmpeg::{
         dash_audio::{DashAudioSegmentEncoder, DashAudioSegmentEncoderConfig},
         segmented_stream::{SegmentedVideoEncoder, SegmentedVideoEncoderConfig},
     };
@@ -455,8 +455,8 @@ mod tests {
             let project = tempfile::tempdir().unwrap();
             let display = project.path().join("content/display");
             let audio = project.path().join("content/audio");
-            let video_info = cap_media_info::VideoInfo {
-                pixel_format: cap_media_info::Pixel::NV12,
+            let video_info = frameever_media_info::VideoInfo {
+                pixel_format: frameever_media_info::Pixel::NV12,
                 width: 32,
                 height: 32,
                 time_base: ffmpeg::Rational(1, 1_000_000),
@@ -479,7 +479,7 @@ mod tests {
             }
             video.finish().unwrap();
             drop(video);
-            let audio_info = cap_media_info::AudioInfo {
+            let audio_info = frameever_media_info::AudioInfo {
                 sample_format: ffmpeg::format::Sample::F32(ffmpeg::format::sample::Type::Planar),
                 sample_rate: 48_000,
                 channels: 1,

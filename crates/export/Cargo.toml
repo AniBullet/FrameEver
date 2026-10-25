@@ -1,18 +1,18 @@
 [package]
-name = "cap-export"
+name = "frameever-export"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cap-utils = { path = "../utils" }
-cap-project = { path = "../project" }
-cap-rendering = { path = "../rendering" }
-cap-editor = { path = "../editor" }
-cap-media = { path = "../media" }
-cap-flags = { path = "../flags" }
-cap-enc-ffmpeg = { path = "../enc-ffmpeg" }
-cap-enc-gif = { path = "../enc-gif" }
-cap-media-info = { path = "../media-info" }
+frameever-utils = { path = "../utils" }
+frameever-project = { path = "../project" }
+frameever-rendering = { path = "../rendering" }
+frameever-editor = { path = "../editor" }
+frameever-media = { path = "../media" }
+frameever-flags = { path = "../flags" }
+frameever-enc-ffmpeg = { path = "../enc-ffmpeg" }
+frameever-enc-gif = { path = "../enc-gif" }
+frameever-media-info = { path = "../media-info" }
 
 tokio.workspace = true
 tempfile = "3.12.0"

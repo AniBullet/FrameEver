@@ -1,6 +1,6 @@
 #![cfg(target_os = "macos")]
 
-use cap_rendering::{
+use frameever_rendering::{
     DecodedFrame, PixelFormat,
     decoder::{DecoderType, spawn_decoder},
 };

@@ -40,7 +40,7 @@ def main():
         if package["source"] is None:
             clean += ["-p", package["id"]]
     subprocess.run(clean, cwd=worktree, check=True)
-    command = ["cargo", *PROFILE, "test", "--locked", "-p", "cap-verify", "--profile", "perf-verify", "--no-run", "--message-format", "json"]
+    command = ["cargo", *PROFILE, "test", "--locked", "-p", "frameever-verify", "--profile", "perf-verify", "--no-run", "--message-format", "json"]
     for target in TARGETS:
         command += ["--test", target]
     result = subprocess.run(command, cwd=worktree, stdout=subprocess.PIPE, text=True)

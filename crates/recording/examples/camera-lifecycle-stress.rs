@@ -1,4 +1,4 @@
-use cap_recording::{
+use frameever_recording::{
     CameraFeed,
     feeds::camera::{self, DeviceOrModelID},
 };
@@ -170,7 +170,7 @@ async fn run_lifecycle_stress(
 
     let mut tracker = Tracker::new();
 
-    let Some(camera_info) = cap_camera::list_cameras().next() else {
+    let Some(camera_info) = frameever_camera::list_cameras().next() else {
         println!("  No camera found, aborting.");
         return Ok(());
     };
@@ -181,7 +181,7 @@ async fn run_lifecycle_stress(
     tracker.snap("Baseline (before any camera)");
 
     let feed = CameraFeed::spawn(CameraFeed::default());
-    let (frame_tx, frame_rx) = flume::bounded::<cap_recording::FFmpegVideoFrame>(4);
+    let (frame_tx, frame_rx) = flume::bounded::<frameever_recording::FFmpegVideoFrame>(4);
 
     tracker.snap("After CameraFeed actor spawned");
 
@@ -261,7 +261,7 @@ async fn run_rapid_toggle(toggles: usize) -> Result<(), Box<dyn std::error::Erro
 
     let mut tracker = Tracker::new();
 
-    let Some(camera_info) = cap_camera::list_cameras().next() else {
+    let Some(camera_info) = frameever_camera::list_cameras().next() else {
         println!("  No camera found, aborting.");
         return Ok(());
     };
@@ -269,7 +269,7 @@ async fn run_rapid_toggle(toggles: usize) -> Result<(), Box<dyn std::error::Erro
 
     let camera_id = DeviceOrModelID::from_info(&camera_info);
     let feed = CameraFeed::spawn(CameraFeed::default());
-    let (frame_tx, _frame_rx) = flume::bounded::<cap_recording::FFmpegVideoFrame>(4);
+    let (frame_tx, _frame_rx) = flume::bounded::<frameever_recording::FFmpegVideoFrame>(4);
 
     tracker.snap("Baseline");
 
@@ -315,7 +315,7 @@ async fn run_setinput_after_unlock(cycles: usize) -> Result<(), Box<dyn std::err
 
     let mut tracker = Tracker::new();
 
-    let Some(camera_info) = cap_camera::list_cameras().next() else {
+    let Some(camera_info) = frameever_camera::list_cameras().next() else {
         println!("  No camera found, aborting.");
         return Ok(());
     };
@@ -329,7 +329,7 @@ async fn run_setinput_after_unlock(cycles: usize) -> Result<(), Box<dyn std::err
         println!("\n  --- Cycle {cycle}/{cycles} ---");
 
         let feed = CameraFeed::spawn(CameraFeed::default());
-        let (frame_tx, frame_rx) = flume::bounded::<cap_recording::FFmpegVideoFrame>(4);
+        let (frame_tx, frame_rx) = flume::bounded::<frameever_recording::FFmpegVideoFrame>(4);
 
         feed.ask(camera::AddSender(frame_tx.clone()))
             .await
@@ -424,7 +424,7 @@ async fn run_setinput_after_unlock(cycles: usize) -> Result<(), Box<dyn std::err
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    unsafe { std::env::set_var("RUST_LOG", "info,cap_recording=debug") };
+    unsafe { std::env::set_var("RUST_LOG", "info,frameever_recording=debug") };
     tracing_subscriber::fmt::init();
 
     let args: Vec<String> = std::env::args().collect();

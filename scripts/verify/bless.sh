@@ -42,5 +42,5 @@ case "${1:-}" in
     ;;
 esac
 
-cargo run -q -p cap-verify-expect -- bless "${reports[@]}"
+cargo run -q -p frameever-verify-expect -- bless "${reports[@]}"
 git --no-pager diff --stat -- '*expectations*.toml'

@@ -19,7 +19,7 @@
 //! * paint — sampling the converted surface into a BGRA target, simulating
 //!   gpui's `draw_surfaces` fragment work.
 //!
-//! Run: `cargo run -p cap-rendering --example preview-surface-benchmark --release`
+//! Run: `cargo run -p frameever-rendering --example preview-surface-benchmark --release`
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
@@ -39,11 +39,11 @@ mod macos {
     };
     use std::time::Instant;
 
-    use cap_rendering::RgbaToBgraSurfaceConverter;
-    use cap_rendering::iosurface_texture::{
+    use cidre::{arc, cf, cv, mtl};
+    use frameever_rendering::RgbaToBgraSurfaceConverter;
+    use frameever_rendering::iosurface_texture::{
         IOSurfaceTextureCache, import_metal_texture_to_wgpu_with_usage,
     };
-    use cidre::{arc, cf, cv, mtl};
 
     const SIZES: [(u32, u32); 3] = [(1248, 702), (1920, 1080), (3840, 2160)];
     const WARMUP: usize = 30;

@@ -1,5 +1,5 @@
-use cap_media_info::AudioInfo;
 use ffmpeg::{format, frame};
+use frameever_media_info::AudioInfo;
 use std::{path::PathBuf, time::Duration};
 
 use crate::audio::aac::{AACEncoder, AACEncoderError};

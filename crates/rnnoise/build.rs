@@ -42,7 +42,7 @@ fn main() {
         }
     }
     // GNU ld needs the core archive before the SIMD archives it references.
-    core.compile("cap_rnnoise");
+    core.compile("frameever_rnnoise");
     if is_x86 {
         for (name, flag) in [("sse4_1", "-msse4.1"), ("avx2", "-mavx2")] {
             let mut vector = build();

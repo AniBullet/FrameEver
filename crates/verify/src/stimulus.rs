@@ -1,4 +1,4 @@
-//! Real-capture stimulus: a helper process (`cap-verify-stimulus`) that shows
+//! Real-capture stimulus: a helper process (`frameever-verify-stimulus`) that shows
 //! a window rendering the screen marker of a monotonically increasing frame
 //! index at a fixed rate and plays system-audio markers through the default
 //! output, logging the host time of every presented frame and every marker.

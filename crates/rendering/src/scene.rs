@@ -1,4 +1,4 @@
-use cap_project::{SceneMode, SceneSegment};
+use frameever_project::{SceneMode, SceneSegment};
 
 pub const MIN_GAP_FOR_TRANSITION: f64 = 0.5;
 

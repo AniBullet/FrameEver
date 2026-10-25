@@ -25,7 +25,7 @@
 //!   `ProjectConfiguration` and a drag is coalesced by *pausing* the recorder
 //!   for its duration.
 
-use cap_project::{
+use frameever_project::{
     AudioTrackSegment, Camera3DProperties, Camera3DSegment, CaptionTrackSegment,
     ClipSpeedAudioMode, CursorClickEvent, GlideDirection, KeyboardTrackSegment, MaskKind,
     MaskSegment, OverlayTrack, ProjectConfiguration, SceneMode, SceneSegment, TextSegment,
@@ -589,8 +589,8 @@ pub fn fit_camera3d_motion(segment: &mut Camera3DSegment) {
 }
 impl_track_segment!(MaskSegment, lane: track);
 impl_track_segment!(TextSegment, lane: track);
-impl_track_segment!(cap_project::StyleSegment, lane: track);
-impl_track_segment!(cap_project::ImageSegment, lane: track);
+impl_track_segment!(frameever_project::StyleSegment, lane: track);
+impl_track_segment!(frameever_project::ImageSegment, lane: track);
 
 impl TrackSegmentOps for CaptionTrackSegment {
     fn start(&self) -> f64 {
@@ -1359,7 +1359,7 @@ struct Camera3DRipple {
 }
 
 fn ripple_camera3d_keyframes(
-    keyframes: &mut Vec<cap_project::Camera3DKeyframe>,
+    keyframes: &mut Vec<frameever_project::Camera3DKeyframe>,
     ripple: Camera3DRipple,
 ) {
     if keyframes.is_empty() {
@@ -1372,9 +1372,9 @@ fn ripple_camera3d_keyframes(
     let boundary = |time: f64, left: bool| {
         let previous = old.iter().rev().find(|keyframe| keyframe.time <= time);
         let next = old.iter().find(|keyframe| keyframe.time >= time);
-        cap_project::Camera3DKeyframe {
+        frameever_project::Camera3DKeyframe {
             time,
-            value: cap_rendering::camera3d::sample_track(0.0, &old, time),
+            value: frameever_rendering::camera3d::sample_track(0.0, &old, time),
             out_easing: if left {
                 None
             } else {
@@ -1541,7 +1541,7 @@ pub fn insert_zoom_segment(
             start,
             end,
             amount,
-            mode: cap_project::ZoomMode::Auto,
+            mode: frameever_project::ZoomMode::Auto,
             glide_direction: Default::default(),
             glide_speed: 0.5,
             instant_animation: false,
@@ -1725,8 +1725,8 @@ pub fn default_camera3d_segment(start: f64, end: f64) -> Camera3DSegment {
         end,
         enabled: true,
         properties: Camera3DProperties::default(),
-        blur: cap_project::Camera3DBlur {
-            mode: cap_project::Camera3DBlurMode::None,
+        blur: frameever_project::Camera3DBlur {
+            mode: frameever_project::Camera3DBlurMode::None,
             strength: 0.,
             falloff: 0.,
             focus_x: 0.37,
@@ -2385,7 +2385,7 @@ fn timeline_shift_after_clip_duration_change(
     (full_shift * (time - old_stable_start)) / affected_duration
 }
 
-fn scale_keyframe_times(tracks: &mut cap_project::Camera3DTracks, scale: f64) {
+fn scale_keyframe_times(tracks: &mut frameever_project::Camera3DTracks, scale: f64) {
     for track in tracks.all_tracks_mut() {
         for keyframe in track.iter_mut() {
             keyframe.time *= scale;
@@ -2427,11 +2427,11 @@ fn split_keyframes_at<K>(
 }
 
 fn lerp_vector_keyframe(
-    prev: &cap_project::MaskVectorKeyframe,
-    next: &cap_project::MaskVectorKeyframe,
+    prev: &frameever_project::MaskVectorKeyframe,
+    next: &frameever_project::MaskVectorKeyframe,
     t: f64,
-) -> cap_project::MaskVectorKeyframe {
-    cap_project::MaskVectorKeyframe {
+) -> frameever_project::MaskVectorKeyframe {
+    frameever_project::MaskVectorKeyframe {
         time: prev.time + (next.time - prev.time) * t,
         x: prev.x + (next.x - prev.x) * t,
         y: prev.y + (next.y - prev.y) * t,
@@ -2519,7 +2519,7 @@ pub fn set_clip_segment_timescale(
             &mut keyframes.intensity,
             &relative_bends,
             |key| key.time,
-            |prev, next, t| cap_project::MaskScalarKeyframe {
+            |prev, next, t| frameever_project::MaskScalarKeyframe {
                 time: prev.time + (next.time - prev.time) * t,
                 value: prev.value + (next.value - prev.value) * t,
             },
@@ -3145,9 +3145,9 @@ mod tests {
         let mut fast = two_clip_config();
         let timeline = fast.timeline.as_mut().unwrap();
         timeline.segments[1].timescale = 2.0;
-        timeline.transitions = vec![cap_project::ClipTransition {
+        timeline.transitions = vec![frameever_project::ClipTransition {
             segment_index: 1,
-            kind: cap_project::ClipTransitionType::CrossFade,
+            kind: frameever_project::ClipTransitionType::CrossFade,
             duration: 0.6,
         }];
         let timeline = fast.timeline.as_ref().unwrap();
@@ -3659,16 +3659,17 @@ mod tests {
             .flat_map(|second| {
                 std::iter::repeat_n(
                     (second + 1) as f32 / 16.,
-                    cap_audio::AudioData::SAMPLE_RATE as usize * 2,
+                    frameever_audio::AudioData::SAMPLE_RATE as usize * 2,
                 )
             })
             .collect();
-        let music = cap_editor::MusicTracks::from([(
+        let music = frameever_editor::MusicTracks::from([(
             "music.wav".into(),
-            Arc::new(cap_audio::AudioData::from_samples(source, 2)),
+            Arc::new(frameever_audio::AudioData::from_samples(source, 2)),
         )]);
         let sample_at = |project: &ProjectConfiguration, time| {
-            let mut renderer = cap_editor::AudioRenderer::new(Vec::new()).with_music(music.clone());
+            let mut renderer =
+                frameever_editor::AudioRenderer::new(Vec::new()).with_music(music.clone());
             renderer.set_playhead(time, project);
             renderer.render_frame_raw(1, project).unwrap().1
         };
@@ -3934,12 +3935,12 @@ mod tests {
         let timeline = project.timeline.as_mut().unwrap();
         let mut mask = default_mask_segment(5.5, 9.0, 0);
         mask.keyframes.position = vec![
-            cap_project::MaskVectorKeyframe {
+            frameever_project::MaskVectorKeyframe {
                 time: 0.25,
                 x: 0.2,
                 y: 0.3,
             },
-            cap_project::MaskVectorKeyframe {
+            frameever_project::MaskVectorKeyframe {
                 time: 2.5,
                 x: 0.7,
                 y: 0.8,
@@ -3950,7 +3951,7 @@ mod tests {
         removed_camera
             .tracks
             .tilt_x
-            .push(cap_project::Camera3DKeyframe {
+            .push(frameever_project::Camera3DKeyframe {
                 time: 0.5,
                 value: 1.0,
                 out_easing: None,
@@ -3960,7 +3961,7 @@ mod tests {
         retained_camera
             .tracks
             .tilt_x
-            .push(cap_project::Camera3DKeyframe {
+            .push(frameever_project::Camera3DKeyframe {
                 time: 2.0,
                 value: 2.0,
                 out_easing: None,
@@ -4052,7 +4053,7 @@ mod tests {
         let mut camera = default_camera3d_segment(0.0, 10.0);
         camera.tracks.tilt_x = [2.0, 5.0, 8.0]
             .into_iter()
-            .map(|time| cap_project::Camera3DKeyframe {
+            .map(|time| frameever_project::Camera3DKeyframe {
                 time,
                 value: time,
                 out_easing: Some([0.0, 0.0]),
@@ -4079,11 +4080,11 @@ mod tests {
         assert_eq!(track[2].in_easing, None);
         assert_eq!(track[2].out_easing, Some([0.0, 0.0]));
         assert_eq!(
-            cap_rendering::camera3d::sample_track(0.0, track, 2.5),
-            cap_rendering::camera3d::sample_track(0.0, &old_track, 2.5)
+            frameever_rendering::camera3d::sample_track(0.0, track, 2.5),
+            frameever_rendering::camera3d::sample_track(0.0, &old_track, 2.5)
         );
-        let after_join = cap_rendering::camera3d::sample_track(0.0, track, 3.001);
-        let before_cut = cap_rendering::camera3d::sample_track(0.0, &old_track, 6.001);
+        let after_join = frameever_rendering::camera3d::sample_track(0.0, track, 3.001);
+        let before_cut = frameever_rendering::camera3d::sample_track(0.0, &old_track, 6.001);
         assert!((after_join - before_cut).abs() < 1e-9);
     }
 
@@ -4144,7 +4145,7 @@ mod tests {
         assert_eq!(timeline.zoom_segments[1].amount, 1.5);
         assert!(matches!(
             timeline.zoom_segments[1].mode,
-            cap_project::ZoomMode::Auto
+            frameever_project::ZoomMode::Auto
         ));
         // Before everything.
         assert_eq!(insert_zoom_segment(timeline, 0.5, 1.5, 2.0), 0);
@@ -4288,7 +4289,7 @@ mod tests {
                 if let Some(time) = boundary_key {
                     expected.keyframes.position.insert(
                         1,
-                        cap_project::MaskVectorKeyframe {
+                        frameever_project::MaskVectorKeyframe {
                             time,
                             x: 0.2 + (0.5 - 0.2) * 0.5,
                             y: 0.3 + (0.6 - 0.3) * 0.5,
@@ -4385,9 +4386,9 @@ mod tests {
         assert!(set_clip_hide_cursor(timeline, 1, true));
         assert!(set_clip_volume(timeline, 1, 0.5));
         assert!(set_clip_name(timeline, 0, "Intro"));
-        timeline.transitions = vec![cap_project::ClipTransition {
+        timeline.transitions = vec![frameever_project::ClipTransition {
             segment_index: 2,
-            kind: cap_project::ClipTransitionType::CrossFade,
+            kind: frameever_project::ClipTransitionType::CrossFade,
             duration: 0.5,
         }];
 
@@ -4414,16 +4415,16 @@ mod tests {
         let mut config = two_clip_config();
         let timeline = config.timeline.as_mut().unwrap();
         assert!(split_clip_segment(timeline, 4.0, Some(0)));
-        timeline.transitions = vec![cap_project::ClipTransition {
+        timeline.transitions = vec![frameever_project::ClipTransition {
             segment_index: 1,
-            kind: cap_project::ClipTransitionType::CrossFade,
+            kind: frameever_project::ClipTransitionType::CrossFade,
             duration: 1.0,
         }];
-        timeline.zoom_segments = vec![cap_project::ZoomSegment {
+        timeline.zoom_segments = vec![frameever_project::ZoomSegment {
             start: 12.0,
             end: 14.0,
             amount: 1.5,
-            mode: cap_project::ZoomMode::Auto,
+            mode: frameever_project::ZoomMode::Auto,
             glide_direction: Default::default(),
             glide_speed: 1.0,
             instant_animation: false,
@@ -4516,7 +4517,7 @@ mod tests {
 
 pub fn insert_style_segment(
     timeline: &mut TimelineConfiguration,
-    segment: cap_project::StyleSegment,
+    segment: frameever_project::StyleSegment,
 ) -> usize {
     let start = segment.start;
     let track = segment.track;
@@ -4531,7 +4532,7 @@ pub fn insert_style_segment(
 
 pub fn insert_image_segment(
     timeline: &mut TimelineConfiguration,
-    segment: cap_project::ImageSegment,
+    segment: frameever_project::ImageSegment,
 ) -> usize {
     let start = segment.start;
     let track = segment.track;
@@ -4627,12 +4628,14 @@ mod style_image_tests {
     fn lane_reorder_moves_segments_without_changing_config_indices() {
         let mut project = project();
         let timeline = project.timeline.as_mut().unwrap();
-        timeline.style_segments.push(cap_project::StyleSegment {
-            start: 0.,
-            end: 10.,
-            track: 2,
-            ..Default::default()
-        });
+        timeline
+            .style_segments
+            .push(frameever_project::StyleSegment {
+                start: 0.,
+                end: 10.,
+                track: 2,
+                ..Default::default()
+            });
         let names = timeline
             .style_segments
             .iter()
@@ -4688,16 +4691,16 @@ mod style_image_tests {
     #[test]
     fn overlay_reorder_and_lane_delete_update_only_saved_order() {
         let mut project = project();
-        let text = cap_project::OverlayTrack {
-            kind: cap_project::OverlayTrackKind::Text,
+        let text = frameever_project::OverlayTrack {
+            kind: frameever_project::OverlayTrackKind::Text,
             track: 0,
         };
-        let image = cap_project::OverlayTrack {
-            kind: cap_project::OverlayTrackKind::Image,
+        let image = frameever_project::OverlayTrack {
+            kind: frameever_project::OverlayTrackKind::Image,
             track: 2,
         };
-        let mask = cap_project::OverlayTrack {
-            kind: cap_project::OverlayTrackKind::Mask,
+        let mask = frameever_project::OverlayTrack {
+            kind: frameever_project::OverlayTrackKind::Mask,
             track: 0,
         };
         let available = [text, image, mask];
@@ -4718,8 +4721,8 @@ mod style_image_tests {
         assert_eq!(
             project.overlay_order,
             [
-                cap_project::OverlayTrack {
-                    kind: cap_project::OverlayTrackKind::Image,
+                frameever_project::OverlayTrack {
+                    kind: frameever_project::OverlayTrackKind::Image,
                     track: 1,
                 },
                 text,

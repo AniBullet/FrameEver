@@ -9,10 +9,10 @@
 
 use std::path::{Path, PathBuf};
 
-use cap_project::{
+use frameever_project::{
     InstantRecordingMeta, Platform, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
 };
-use cap_recording::{
+use frameever_recording::{
     RecordingDefaults, instant_recording, recovery::RecoveryManager,
     screen_capture::ScreenCaptureTarget,
 };
@@ -48,7 +48,7 @@ pub async fn start_recording(
                  Grant FrameEver screen recording access in System Settings and retry."
             )
         })
-        .map(cap_recording::SendableShareableContent::from)?;
+        .map(frameever_recording::SendableShareableContent::from)?;
 
     builder
         .build(

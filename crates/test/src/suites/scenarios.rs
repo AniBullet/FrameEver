@@ -143,10 +143,10 @@ impl ScenarioRunner {
         pre_action: Option<&str>,
         mid_action: Option<(&str, u64)>,
     ) -> Result<ValidationResult> {
-        use cap_recording::{
+        use cpal::StreamError;
+        use frameever_recording::{
             CameraFeed, MicrophoneFeed, screen_capture::ScreenCaptureTarget, studio_recording,
         };
-        use cpal::StreamError;
         use kameo::actor::Spawn as _;
         use scap_targets::Display;
 
@@ -162,13 +162,13 @@ impl ScenarioRunner {
         let shareable_content = cidre::sc::ShareableContent::current()
             .await
             .context("Failed to get shareable content")
-            .map(cap_recording::SendableShareableContent::from)?;
+            .map(frameever_recording::SendableShareableContent::from)?;
 
         let mic_lock = if with_mic {
             if let Some((label, _, _)) = MicrophoneFeed::default_device() {
                 let mic_feed = MicrophoneFeed::spawn(MicrophoneFeed::new(error_tx.clone()));
                 mic_feed
-                    .ask(cap_recording::feeds::microphone::SetInput {
+                    .ask(frameever_recording::feeds::microphone::SetInput {
                         label,
                         settings: None,
                     })
@@ -176,7 +176,9 @@ impl ScenarioRunner {
                     .await?;
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 Some(Arc::new(
-                    mic_feed.ask(cap_recording::feeds::microphone::Lock).await?,
+                    mic_feed
+                        .ask(frameever_recording::feeds::microphone::Lock)
+                        .await?,
                 ))
             } else {
                 warn!("Scenario [{}]: no microphone available", description);
@@ -187,18 +189,22 @@ impl ScenarioRunner {
         };
 
         let camera_lock = if with_camera {
-            if let Some(camera_info) = cap_camera::list_cameras().next() {
+            if let Some(camera_info) = frameever_camera::list_cameras().next() {
                 let camera_feed = CameraFeed::spawn(CameraFeed::default());
                 camera_feed
-                    .ask(cap_recording::feeds::camera::SetInput {
+                    .ask(frameever_recording::feeds::camera::SetInput {
                         settings: None,
-                        id: cap_recording::feeds::camera::DeviceOrModelID::from_info(&camera_info),
+                        id: frameever_recording::feeds::camera::DeviceOrModelID::from_info(
+                            &camera_info,
+                        ),
                     })
                     .await?
                     .await?;
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 Some(Arc::new(
-                    camera_feed.ask(cap_recording::feeds::camera::Lock).await?,
+                    camera_feed
+                        .ask(frameever_recording::feeds::camera::Lock)
+                        .await?,
                 ))
             } else {
                 warn!("Scenario [{}]: no camera available", description);

@@ -314,7 +314,7 @@ fn assert_transparent_exterior(pixels: &[u8], case: Case) {
 
 #[test]
 fn minified_cursor_edges_match_uniform_sampling() {
-    let instance = cap_rendering::create_wgpu_instance_sync();
+    let instance = frameever_rendering::create_wgpu_instance_sync();
     let Ok(adapter) =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
     else {

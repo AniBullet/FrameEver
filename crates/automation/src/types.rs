@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
 
-use cap_project::XY;
+use frameever_project::XY;
 
 #[derive(Serialize, Deserialize, Type, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]

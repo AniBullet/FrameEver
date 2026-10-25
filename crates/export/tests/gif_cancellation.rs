@@ -1,5 +1,5 @@
-use cap_export::{ExporterBase, gif::GifExportSettings};
-use cap_project::{ProjectConfiguration, XY};
+use frameever_export::{ExporterBase, gif::GifExportSettings};
+use frameever_project::{ProjectConfiguration, XY};
 use image::AnimationDecoder;
 use std::{fs, path::Path, process::Command};
 

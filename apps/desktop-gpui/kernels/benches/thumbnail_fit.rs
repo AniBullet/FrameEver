@@ -1,4 +1,4 @@
-use cap_gpui_kernels::thumbnail::fit_centered;
+use frameever_gpui_kernels::thumbnail::fit_centered;
 use image::RgbaImage;
 use std::{hint::black_box, time::Instant};
 

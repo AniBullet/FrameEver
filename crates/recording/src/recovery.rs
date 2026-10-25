@@ -4,16 +4,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_enc_ffmpeg::RelocatableSource;
-use cap_enc_ffmpeg::fragmented_mp4::{read_fragment_prefix, tail_is_complete};
-use cap_enc_ffmpeg::remux::{
+use frameever_enc_ffmpeg::RelocatableSource;
+use frameever_enc_ffmpeg::fragmented_mp4::{read_fragment_prefix, tail_is_complete};
+use frameever_enc_ffmpeg::remux::{
     concatenate_audio_to_ogg, concatenate_m4s_segments_with_init,
     concatenate_m4s_segments_with_init_validated, concatenate_video_fragments,
     concatenate_video_fragments_on_timeline, get_media_duration, get_video_base_fps,
     merge_video_audio, probe_media_valid, probe_video_can_decode, probe_video_seek_points,
     remux_file,
 };
-use cap_project::{
+use frameever_project::{
     AudioMeta, Cursors, MultipleSegment, MultipleSegments, ProjectConfiguration, RecordingMeta,
     RecordingMetaInner, StudioRecordingMeta, StudioRecordingStatus, TimelineConfiguration,
     TimelineSegment, VideoMeta,
@@ -46,7 +46,7 @@ pub use preparing_projection::{
 
 macro_rules! finalization_info {
     ($($arg:tt)*) => {
-        tracing::info!(target: "cap_recording::recording_finalization", $($arg)*)
+        tracing::info!(target: "frameever_recording::recording_finalization", $($arg)*)
     };
 }
 
@@ -128,11 +128,11 @@ pub enum RecoveryError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Failed to concatenate video fragments: {0}")]
-    VideoConcat(cap_enc_ffmpeg::remux::RemuxError),
+    VideoConcat(frameever_enc_ffmpeg::remux::RemuxError),
     #[error("Failed to concatenate audio fragments: {0}")]
-    AudioConcat(cap_enc_ffmpeg::remux::RemuxError),
+    AudioConcat(frameever_enc_ffmpeg::remux::RemuxError),
     #[error("Failed to merge media streams: {0}")]
-    MediaMerge(cap_enc_ffmpeg::remux::RemuxError),
+    MediaMerge(frameever_enc_ffmpeg::remux::RemuxError),
     #[error("Failed to serialize meta: {0}")]
     Serialize(#[from] serde_json::Error),
     #[error("No recoverable segments found")]
@@ -2063,15 +2063,14 @@ impl RecoveryManager {
             let meta = RecordingMeta::load_for_project(project)
                 .map_err(|error| RecoveryError::Validation(error.to_string()))?;
             match meta.inner {
-                RecordingMetaInner::Instant(cap_project::InstantRecordingMeta::Failed {
+                RecordingMetaInner::Instant(frameever_project::InstantRecordingMeta::Failed {
                     error,
                 }) => {
                     return Err(RecoveryError::RequiredTrackFailure(error));
                 }
-                RecordingMetaInner::Instant(cap_project::InstantRecordingMeta::Complete {
-                    sample_rate,
-                    ..
-                }) => {
+                RecordingMetaInner::Instant(
+                    frameever_project::InstantRecordingMeta::Complete { sample_rate, .. },
+                ) => {
                     expected_audio |= sample_rate.is_some();
                 }
                 RecordingMetaInner::Instant(_) => {}
@@ -2357,8 +2356,9 @@ impl RecoveryManager {
         }
 
         let concat_result = if group_outputs.len() == 1 {
-            std::fs::rename(&group_outputs[0], output)
-                .map_err(|e| RecoveryError::VideoConcat(cap_enc_ffmpeg::remux::RemuxError::Io(e)))
+            std::fs::rename(&group_outputs[0], output).map_err(|e| {
+                RecoveryError::VideoConcat(frameever_enc_ffmpeg::remux::RemuxError::Io(e))
+            })
         } else {
             concatenate_video_fragments_on_timeline(&group_outputs, output)
                 .map_err(RecoveryError::VideoConcat)
@@ -2580,11 +2580,11 @@ impl RecoveryManager {
 
                 let cursor_path = segment_dir.join("cursor.json");
                 let keyboard_path = {
-                    let binary = segment_dir.join(cap_project::KEYBOARD_EVENTS_FILE_NAME);
+                    let binary = segment_dir.join(frameever_project::KEYBOARD_EVENTS_FILE_NAME);
                     if binary.exists() {
                         binary
                     } else {
-                        segment_dir.join(cap_project::LEGACY_KEYBOARD_EVENTS_FILE_NAME)
+                        segment_dir.join(frameever_project::LEGACY_KEYBOARD_EVENTS_FILE_NAME)
                     }
                 };
 
@@ -2825,9 +2825,9 @@ impl RecoveryManager {
 
                 cursors.insert(
                     id_str.to_string(),
-                    cap_project::CursorMeta {
+                    frameever_project::CursorMeta {
                         image_path: relative_path,
-                        hotspot: cap_project::XY::new(0.0, 0.0),
+                        hotspot: frameever_project::XY::new(0.0, 0.0),
                         shape: None,
                     },
                 );
@@ -4201,7 +4201,9 @@ fn replace_file(src: &Path, dst: &Path) -> Result<(), RecoveryError> {
 #[cfg(test)]
 mod instant_cleanup_tests {
     use super::*;
-    use cap_enc_ffmpeg::segmented_stream::{SegmentedVideoEncoder, SegmentedVideoEncoderConfig};
+    use frameever_enc_ffmpeg::segmented_stream::{
+        SegmentedVideoEncoder, SegmentedVideoEncoderConfig,
+    };
     use std::{cell::Cell, fs, io};
 
     fn playable_instant_project() -> tempfile::TempDir {
@@ -4210,8 +4212,8 @@ mod instant_cleanup_tests {
         let display = directory.path().join("content/display");
         let mut encoder = SegmentedVideoEncoder::init(
             display,
-            cap_media_info::VideoInfo {
-                pixel_format: cap_media_info::Pixel::NV12,
+            frameever_media_info::VideoInfo {
+                pixel_format: frameever_media_info::Pixel::NV12,
                 width: 320,
                 height: 240,
                 time_base: ffmpeg::Rational(1, 1_000_000),
@@ -4402,7 +4404,9 @@ mod instant_cleanup_tests {
 #[cfg(test)]
 mod clean_studio_snapshot_tests {
     use super::*;
-    use cap_enc_ffmpeg::segmented_stream::{SegmentedVideoEncoder, SegmentedVideoEncoderConfig};
+    use frameever_enc_ffmpeg::segmented_stream::{
+        SegmentedVideoEncoder, SegmentedVideoEncoderConfig,
+    };
     use std::{cell::Cell, cell::RefCell, fs, io};
 
     fn wait_for_recovery_lock(project: &Path) -> RecoveryLock {
@@ -4436,8 +4440,8 @@ mod clean_studio_snapshot_tests {
         let project = directory.path();
         let mut encoder = SegmentedVideoEncoder::init(
             project.join(DISPLAY),
-            cap_media_info::VideoInfo {
-                pixel_format: cap_media_info::Pixel::NV12,
+            frameever_media_info::VideoInfo {
+                pixel_format: frameever_media_info::Pixel::NV12,
                 width: 320,
                 height: 240,
                 time_base: ffmpeg::Rational(1, 1_000_000),
@@ -4499,13 +4503,13 @@ mod clean_studio_snapshot_tests {
     }
 
     fn add_fragmented_audio(project: &Path, name: &str, blocks: i64) -> PathBuf {
-        use cap_enc_ffmpeg::fragmented_audio::FragmentedAudioFile;
         use ffmpeg::{ChannelLayout, format::Sample, format::sample::Type};
+        use frameever_enc_ffmpeg::fragmented_audio::FragmentedAudioFile;
 
         let path = project.join(format!("content/segments/segment-0/{name}.m4a"));
         let mut encoder = FragmentedAudioFile::init(
             path.clone(),
-            cap_media_info::AudioInfo::new_raw(Sample::F32(Type::Packed), 48_000, 1),
+            frameever_media_info::AudioInfo::new_raw(Sample::F32(Type::Packed), 48_000, 1),
         )
         .unwrap();
         for block in 0..blocks {
@@ -5124,7 +5128,7 @@ mod clean_studio_snapshot_tests {
             panic!()
         };
         let display = meta.path(&inner.segments[0].display.path);
-        assert!(cap_enc_ffmpeg::remux::get_video_fps(&display).is_some());
+        assert!(frameever_enc_ffmpeg::remux::get_video_fps(&display).is_some());
     }
 
     #[test]
@@ -5147,7 +5151,10 @@ mod clean_studio_snapshot_tests {
             panic!()
         };
         let display = meta.path(&inner.segments[0].display.path);
-        assert_ne!(cap_enc_ffmpeg::remux::get_video_fps(&display), Some(120));
+        assert_ne!(
+            frameever_enc_ffmpeg::remux::get_video_fps(&display),
+            Some(120)
+        );
         assert_eq!(inner.segments[0].display.fps, 120);
     }
 
@@ -5175,7 +5182,7 @@ mod clean_studio_snapshot_tests {
             panic!()
         };
         let display = meta.path(&inner.segments[0].display.path);
-        let average = cap_enc_ffmpeg::remux::get_video_fps(&display).unwrap();
+        let average = frameever_enc_ffmpeg::remux::get_video_fps(&display).unwrap();
         assert!(average < 30, "fixture averages {average} fps");
         assert_eq!(inner.segments[0].display.fps, 60);
     }
@@ -5186,7 +5193,7 @@ mod clean_studio_snapshot_tests {
         let project = directory.path();
         let microphone = add_fragmented_audio(project, "audio-input", 90);
         let system_audio = add_fragmented_audio(project, "system_audio", 90);
-        let original_audio = cap_audio::AudioData::from_file(&microphone).unwrap();
+        let original_audio = frameever_audio::AudioData::from_file(&microphone).unwrap();
         let mut meta = RecordingMeta::load_for_project(project).unwrap();
         let RecordingMetaInner::Studio(studio) = &mut meta.inner else {
             panic!()
@@ -5226,7 +5233,7 @@ mod clean_studio_snapshot_tests {
             Some(0.25)
         );
         for path in [&microphone, &system_audio] {
-            let audio = cap_audio::AudioData::from_file(path).unwrap();
+            let audio = frameever_audio::AudioData::from_file(path).unwrap();
             assert_eq!(audio.channels(), original_audio.channels());
             assert_eq!(audio.samples(), original_audio.samples());
         }
@@ -5247,14 +5254,14 @@ mod clean_studio_snapshot_tests {
 
     #[test]
     fn studio_finalization_preserves_a_live_managed_audio_decoder() {
-        use cap_audio::{AudioStream, ChunkRead};
+        use frameever_audio::{AudioStream, ChunkRead};
         use std::sync::{Arc, atomic::AtomicBool};
 
         let directory = playable_studio_project(StudioRecordingStatus::NeedsRemux);
         let project = directory.path();
         let microphone = add_fragmented_audio(project, "audio-input", 2880);
         assert!(microphone.metadata().unwrap().len() > 4 * 64 * 1024);
-        let original_audio = cap_audio::AudioData::from_file(&microphone).unwrap();
+        let original_audio = frameever_audio::AudioData::from_file(&microphone).unwrap();
         let mut meta = RecordingMeta::load_for_project(project).unwrap();
         let RecordingMetaInner::Studio(studio) = &mut meta.inner else {
             panic!()
@@ -5309,7 +5316,7 @@ mod clean_studio_snapshot_tests {
             .iter()
             .map(|sample| sample.to_bits());
         assert!(decoded.iter().map(|sample| sample.to_bits()).eq(expected));
-        let finalized = cap_audio::AudioData::from_file(&microphone).unwrap();
+        let finalized = frameever_audio::AudioData::from_file(&microphone).unwrap();
         assert!(
             finalized
                 .samples()

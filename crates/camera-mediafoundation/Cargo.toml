@@ -1,5 +1,5 @@
 [package]
-name = "cap-camera-mediafoundation"
+name = "frameever-camera-mediafoundation"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
@@ -11,7 +11,7 @@ parking_lot = "0.13"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(windows)'.dependencies]
-cap-mediafoundation-utils = { path = "../mediafoundation-utils" }
+frameever-mediafoundation-utils = { path = "../mediafoundation-utils" }
 windows-core = { workspace = true }
 windows = { workspace = true, features = [
     "Win32_Media_MediaFoundation",

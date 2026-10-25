@@ -11,7 +11,7 @@
 //! Metal-compatible IOSurface-backed BGRA buffer from a fixed ring, ready for
 //! `paint_surface` with zero further CPU touches.
 //!
-//! Run: cargo run -p cap-desktop-gpui --example camera-preview-convert-benchmark --release
+//! Run: cargo run -p frameever-desktop-gpui --example camera-preview-convert-benchmark --release
 
 #[cfg(not(target_os = "macos"))]
 fn main() {

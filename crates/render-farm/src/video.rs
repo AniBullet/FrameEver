@@ -1,16 +1,16 @@
 use crate::project::LoadedProject;
 use anyhow::{Context, Result, anyhow, bail};
-use cap_project::XY;
-use cap_rendering::{
-    FrameWindows, GpuOutputFormat, Nv12RenderStartupBreakdownMs, Nv12RenderedFrame, RenderSegment,
-    RenderVideoConstants, SharedWgpuDevice,
-};
 use ffmpeg::{
     Dictionary, Rational,
     codec::{self, flag::Flags},
     color,
     format::Pixel,
     frame,
+};
+use frameever_project::XY;
+use frameever_rendering::{
+    FrameWindows, GpuOutputFormat, Nv12RenderStartupBreakdownMs, Nv12RenderedFrame, RenderSegment,
+    RenderVideoConstants, SharedWgpuDevice,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -64,7 +64,7 @@ async fn shared_device() -> Result<SharedWgpuDevice> {
             is_software_adapter,
         });
     }
-    let shared = cap_rendering::create_shared_device()
+    let shared = frameever_rendering::create_shared_device()
         .await
         .map_err(|error| anyhow!("device: {error}"))?;
     if let Ok(mut device) = DEVICE.lock() {
@@ -91,7 +91,7 @@ fn prebuild_spare_layers_in_background() {
         return;
     };
     std::thread::spawn(move || {
-        cap_rendering::prebuild_spare_layers(&device, &queue, is_software_adapter);
+        frameever_rendering::prebuild_spare_layers(&device, &queue, is_software_adapter);
     });
 }
 
@@ -101,7 +101,11 @@ pub async fn warm() -> Result<serde_json::Value> {
     let started = Instant::now();
     let shared = shared_device().await?;
     let device_ms = started.elapsed().as_millis() as u64;
-    cap_rendering::prebuild_spare_layers(&shared.device, &shared.queue, shared.is_software_adapter);
+    frameever_rendering::prebuild_spare_layers(
+        &shared.device,
+        &shared.queue,
+        shared.is_software_adapter,
+    );
     Ok(serde_json::json!({
         "device_ms": device_ms,
         "total_ms": started.elapsed().as_millis() as u64,
@@ -163,7 +167,7 @@ fn gpu_mem() -> [u64; 3] {
     [0, 0, 0]
 }
 
-/// Same bitrate model as `cap_enc_ffmpeg::h264::get_bitrate`, so a chunked
+/// Same bitrate model as `frameever_enc_ffmpeg::h264::get_bitrate`, so a chunked
 /// export spends exactly the bits a desktop export would.
 fn bitrate(width: u32, height: u32, fps: f32, bpp: f32) -> usize {
     let frame_rate_multiplier = ((fps as f64 - 30.0).max(0.0) * 0.6) + 30.0;
@@ -203,7 +207,7 @@ pub async fn render(request: VideoRequest) -> Result<VideoResult> {
     timings.constants_ms = phase.elapsed().as_millis() as u64;
 
     let phase = Instant::now();
-    let segments = cap_editor::create_segments_without_audio(
+    let segments = frameever_editor::create_segments_without_audio(
         &project.recording_meta,
         &project.studio_meta,
         false,
@@ -265,7 +269,7 @@ pub async fn render(request: VideoRequest) -> Result<VideoResult> {
     });
 
     // Chunks of the same job on this slot share compiled layer pipelines.
-    cap_rendering::set_layers_reuse_key(
+    frameever_rendering::set_layers_reuse_key(
         (std::env::var("RF_REUSE_LAYERS").map_or(true, |value| value != "0"))
             .then(|| format!("{}@{width}x{height}", request.project.display())),
     );
@@ -273,7 +277,7 @@ pub async fn render(request: VideoRequest) -> Result<VideoResult> {
     let render_started = Instant::now();
     let windows =
         FrameWindows::new(std::iter::once(request.frames[0]..request.frames[1]).collect());
-    let render = cap_rendering::render_video_to_channel_nv12(
+    let render = frameever_rendering::render_video_to_channel_nv12(
         &constants,
         &project.config,
         frame_tx,
@@ -310,9 +314,9 @@ pub async fn render(request: VideoRequest) -> Result<VideoResult> {
         drop(encode_tx);
         (received, forward_blocked_us)
     };
-    cap_rendering::loop_stats::take();
+    frameever_rendering::loop_stats::take();
     let (render_result, (received, forward_blocked_us)) = tokio::join!(render, forward);
-    let [decode, render_us, next_decode, join, send, _] = cap_rendering::loop_stats::take();
+    let [decode, render_us, next_decode, join, send, _] = frameever_rendering::loop_stats::take();
     timings.render_ms = render_started.elapsed().as_millis() as u64;
     // `forward` has dropped the encoder's sender, so this returns once the
     // encoder drains. Joining before looking at the render result keeps a

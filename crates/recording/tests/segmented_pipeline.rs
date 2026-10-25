@@ -1,4 +1,4 @@
-use cap_enc_ffmpeg::{
+use frameever_enc_ffmpeg::{
     dash_audio::{DashAudioSegmentEncoder, DashAudioSegmentEncoderConfig},
     remux::{
         concatenate_m4s_segments_with_init, get_media_duration, merge_video_audio,
@@ -8,7 +8,7 @@ use cap_enc_ffmpeg::{
         SegmentCompletedEvent, SegmentMediaType, SegmentedVideoEncoder, SegmentedVideoEncoderConfig,
     },
 };
-use cap_media_info::{AudioInfo, VideoInfo};
+use frameever_media_info::{AudioInfo, VideoInfo};
 use std::{collections::HashMap, collections::HashSet, path::PathBuf, sync::mpsc, time::Duration};
 use tempfile::TempDir;
 
@@ -34,7 +34,7 @@ mod common {
 
 fn test_video_info() -> VideoInfo {
     VideoInfo {
-        pixel_format: cap_media_info::Pixel::NV12,
+        pixel_format: frameever_media_info::Pixel::NV12,
         width: 320,
         height: 240,
         time_base: ffmpeg::Rational(1, 1_000_000),
@@ -301,7 +301,7 @@ fn segments_are_playable_after_concatenation() {
     );
 
     let output_path = temp.path().join("output.mp4");
-    cap_enc_ffmpeg::remux::concatenate_m4s_segments_with_init(
+    frameever_enc_ffmpeg::remux::concatenate_m4s_segments_with_init(
         &init_path,
         &segment_paths,
         &output_path,
@@ -314,7 +314,7 @@ fn segments_are_playable_after_concatenation() {
         "output should have substantial data"
     );
 
-    assert!(cap_enc_ffmpeg::remux::probe_video_can_decode(&output_path).unwrap_or(false));
+    assert!(frameever_enc_ffmpeg::remux::probe_video_can_decode(&output_path).unwrap_or(false));
 }
 
 #[test]

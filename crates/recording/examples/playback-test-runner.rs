@@ -1,9 +1,9 @@
 use anyhow::bail;
-use cap_audio::{AudioData, SyncAnalyzer};
-use cap_project::{RecordingMeta, RecordingMetaInner, StudioRecordingMeta};
-use cap_rendering::decoder::spawn_decoder;
 use chrono::{Local, Utc};
 use clap::{Parser, Subcommand};
+use frameever_audio::{AudioData, SyncAnalyzer};
+use frameever_project::{RecordingMeta, RecordingMetaInner, StudioRecordingMeta};
+use frameever_rendering::decoder::spawn_decoder;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -1316,7 +1316,7 @@ async fn main() -> anyhow::Result<()> {
 
     if cli.benchmark_output {
         let command = format!(
-            "cargo run -p cap-recording --example playback-test-runner -- {} --fps {}{}",
+            "cargo run -p frameever-recording --example playback-test-runner -- {} --fps {}{}",
             match cli.command {
                 Some(Commands::Decoder) => "decoder",
                 Some(Commands::Playback) => "playback",

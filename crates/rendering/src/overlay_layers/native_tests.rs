@@ -50,7 +50,7 @@ async fn constants_with_camera(path: &Path, camera_size: Option<XY<u32>>) -> Ren
 
 fn project() -> ProjectConfiguration {
     ProjectConfiguration {
-        background: cap_project::BackgroundConfiguration {
+        background: frameever_project::BackgroundConfiguration {
             shadow: 0.0,
             advanced_shadow: None,
             ..Default::default()
@@ -166,13 +166,15 @@ fn with_overlay(kind: &str, path: &str) -> ProjectConfiguration {
     let mut project = project();
     let timeline = project.timeline.as_mut().unwrap();
     match kind {
-        "image" => timeline.image_segments.push(cap_project::ImageSegment {
-            start: 0.0,
-            end: 3.0,
-            path: path.into(),
-            size: cap_project::XY::new(0.6, 0.6),
-            ..Default::default()
-        }),
+        "image" => timeline
+            .image_segments
+            .push(frameever_project::ImageSegment {
+                start: 0.0,
+                end: 3.0,
+                path: path.into(),
+                size: frameever_project::XY::new(0.6, 0.6),
+                ..Default::default()
+            }),
         "text" => timeline.text_segments.push(
             serde_json::from_value(serde_json::json!({
                 "start": 0.0, "end": 3.0, "content": "Visible text",
@@ -181,8 +183,8 @@ fn with_overlay(kind: &str, path: &str) -> ProjectConfiguration {
             .unwrap(),
         ),
         "captions" => {
-            project.captions = Some(cap_project::CaptionsData {
-                settings: cap_project::CaptionSettings {
+            project.captions = Some(frameever_project::CaptionsData {
+                settings: frameever_project::CaptionSettings {
                     enabled: true,
                     ..Default::default()
                 },
@@ -196,8 +198,8 @@ fn with_overlay(kind: &str, path: &str) -> ProjectConfiguration {
             );
         }
         "keyboard" => {
-            project.keyboard = Some(cap_project::KeyboardData {
-                settings: cap_project::KeyboardSettings {
+            project.keyboard = Some(frameever_project::KeyboardData {
+                settings: frameever_project::KeyboardSettings {
                     enabled: true,
                     ..Default::default()
                 },
@@ -431,7 +433,7 @@ async fn cached_background_blur_matches_a_fresh_blur_and_follows_edits() {
             .unwrap();
         }
         let mut project = project();
-        project.background.source = cap_project::BackgroundSource::Image {
+        project.background.source = frameever_project::BackgroundSource::Image {
             path: Some(path.to_string_lossy().into_owned()),
         };
         project.background.blur = blur;
@@ -689,11 +691,11 @@ fn color_grade(project: &mut ProjectConfiguration) {
 
 fn device_frame(project: &mut ProjectConfiguration) {
     project.background.padding = 12.0;
-    project.background.frame = Some(cap_project::FrameConfiguration {
-        style: cap_project::FrameStyle::MacOS,
+    project.background.frame = Some(frameever_project::FrameConfiguration {
+        style: frameever_project::FrameStyle::MacOS,
         ..Default::default()
     });
-    project.background.notch = Some(cap_project::NotchConfiguration {
+    project.background.notch = Some(frameever_project::NotchConfiguration {
         enabled: true,
         ..Default::default()
     });

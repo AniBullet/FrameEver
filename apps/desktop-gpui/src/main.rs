@@ -153,30 +153,30 @@ fn resolve_auto_screenshot_editor(target: &str) -> Option<std::path::PathBuf> {
 fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::{Layer as _, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
-    // The binary is `cap-gpui`, so the crate these spans are recorded under is
-    // `cap_gpui` -- not `cap_desktop_gpui`, which is the package name and
+    // The binary is `frameever-gpui`, so the crate these spans are recorded under is
+    // `frameever_gpui` -- not `frameever_desktop_gpui`, which is the package name and
     // matches nothing.
     let filter = || {
         tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "warn,cap_gpui=info,wgpu_core=error,wgpu_hal=error".into())
+            .unwrap_or_else(|_| "warn,frameever_gpui=info,wgpu_core=error,wgpu_hal=error".into())
     };
 
     let file = create_log_appender(&diagnostics::logs_dir(), diagnostics::LOG_FILE_PREFIX).map(
         |appender| {
             let (writer, guard) = tracing_appender::non_blocking(
-                cap_utils::diagnostic_writer::DiagnosticWriter::new(
+                frameever_utils::diagnostic_writer::DiagnosticWriter::new(
                     appender,
                     &diagnostics::logs_dir(),
                     diagnostics::LOG_FILE_PREFIX,
                 ),
             );
             let queue_errors = writer.error_counter();
-            cap_utils::operation_diagnostics::install_queue_loss_counter(move || {
+            frameever_utils::operation_diagnostics::install_queue_loss_counter(move || {
                 queue_errors.dropped_lines()
             });
             let diagnostic_writer = writer.clone();
-            cap_utils::operation_diagnostics::install_sink(
-                cap_utils::operation_diagnostics::AppInfo {
+            frameever_utils::operation_diagnostics::install_sink(
+                frameever_utils::operation_diagnostics::AppInfo {
                     flavor: "gpui",
                     version: env!("CARGO_PKG_VERSION"),
                     source_revision: option_env!("CAP_BUILD_REVISION"),
@@ -281,7 +281,11 @@ fn main() {
 
     app.run(move |cx: &mut App| {
         gpui_tokio::init_from_handle(cx, runtime_handle);
-        gpui_tokio::Tokio::spawn(cx, cap_utils::operation_diagnostics::run_checkpoints()).detach();
+        gpui_tokio::Tokio::spawn(
+            cx,
+            frameever_utils::operation_diagnostics::run_checkpoints(),
+        )
+        .detach();
         // The dock icon: an unbundled dev binary shows the generic terminal
         // document without it. The bytes are the shipping app's icon.png.
         platform::set_dock_icon(include_bytes!("../assets/dock-icon.png"));

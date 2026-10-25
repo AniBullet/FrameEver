@@ -1,11 +1,11 @@
 use super::*;
-use cap_enc_ffmpeg::{
+use frameever_enc_ffmpeg::{
     RelocatableSource,
     h264::DEFAULT_KEYFRAME_INTERVAL_SECS,
     segmented_stream::{SegmentedVideoEncoder, SegmentedVideoEncoderConfig},
 };
-use cap_project::{ClipConfiguration, ClipOffsets, CursorMeta, TimelineConfiguration};
-use cap_rendering::{
+use frameever_project::{ClipConfiguration, ClipOffsets, CursorMeta, TimelineConfiguration};
+use frameever_rendering::{
     ManagedVideoTrackInput, RecordingSegmentDecoders, RenderedFrame, SegmentVideoPaths,
 };
 use std::{
@@ -62,8 +62,8 @@ fn encode_track(
     let directory = root.join(track);
     let mut encoder = SegmentedVideoEncoder::init(
         directory.clone(),
-        cap_media_info::VideoInfo {
-            pixel_format: cap_media_info::Pixel::NV12,
+        frameever_media_info::VideoInfo {
+            pixel_format: frameever_media_info::Pixel::NV12,
             width,
             height,
             time_base: ffmpeg::Rational(1, 1_000_000),
@@ -107,7 +107,7 @@ fn encode_track(
 }
 
 fn finalize_track(root: &Path, paths: &[PathBuf], output: &Path) {
-    cap_enc_ffmpeg::remux::concatenate_m4s_segments_with_init(
+    frameever_enc_ffmpeg::remux::concatenate_m4s_segments_with_init(
         &root.join(&paths[0]),
         &paths[1..]
             .iter()
@@ -116,7 +116,7 @@ fn finalize_track(root: &Path, paths: &[PathBuf], output: &Path) {
         output,
     )
     .unwrap();
-    assert!(cap_enc_ffmpeg::remux::probe_video_can_decode(output).unwrap());
+    assert!(frameever_enc_ffmpeg::remux::probe_video_can_decode(output).unwrap());
 }
 
 fn fixture(svg: bool) -> Fixture {
@@ -158,15 +158,16 @@ fn fixture(svg: bool) -> Fixture {
     metadata.project_path = original.clone();
     let mut reference_metadata = metadata.clone();
     reference_metadata.project_path = reference;
-    let cap_project::RecordingMetaInner::Studio(studio) = &mut reference_metadata.inner else {
+    let frameever_project::RecordingMetaInner::Studio(studio) = &mut reference_metadata.inner
+    else {
         panic!("Studio metadata expected");
     };
-    let cap_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
+    let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
         panic!("Indexed metadata expected");
     };
     inner.segments[0].display.path = "display.mp4".into();
     inner.segments[0].camera.as_mut().unwrap().path = "camera.mp4".into();
-    inner.status = Some(cap_project::StudioRecordingStatus::Complete);
+    inner.status = Some(frameever_project::StudioRecordingStatus::Complete);
     let mut project = ProjectConfiguration {
         timeline: Some(
             serde_json::from_value::<TimelineConfiguration>(serde_json::json!({
@@ -206,7 +207,7 @@ fn fixture(svg: bool) -> Fixture {
             (3500.0, 0.8, 0.8),
         ]
         .into_iter()
-        .map(|(time_ms, x, y)| cap_project::CursorMoveEvent {
+        .map(|(time_ms, x, y)| frameever_project::CursorMoveEvent {
             active_modifiers: Vec::new(),
             cursor_id: "arrow".into(),
             time_ms,
@@ -323,11 +324,11 @@ async fn ordinary_composed_frames(
         for decoder in &decoders {
             assert_eq!(
                 decoder.screen_decoder_status().decoder_type,
-                cap_rendering::decoder::DecoderType::AVAssetReader,
+                frameever_rendering::decoder::DecoderType::AVAssetReader,
             );
             assert_eq!(
                 decoder.camera_decoder_status().unwrap().decoder_type,
-                cap_rendering::decoder::DecoderType::AVAssetReader,
+                frameever_rendering::decoder::DecoderType::AVAssetReader,
             );
         }
     }
@@ -441,10 +442,11 @@ async fn composed_parity(fixture: Fixture, frames: &[u32]) {
 async fn native_preparing_playback_seeks_match_ordinary_and_handoff_joins_sources() {
     let mut fixture = fixture(false);
     for metadata in [&mut fixture.metadata, &mut fixture.reference_metadata] {
-        let cap_project::RecordingMetaInner::Studio(studio) = &mut metadata.inner else {
+        let frameever_project::RecordingMetaInner::Studio(studio) = &mut metadata.inner else {
             panic!("Studio metadata expected");
         };
-        let cap_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
+        let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut()
+        else {
             panic!("Indexed metadata expected");
         };
         inner.segments[0].mic = None;
@@ -594,24 +596,25 @@ async fn native_preparing_image_does_not_enable_playback_with_unavailable_declar
 
 #[tokio::test]
 async fn native_preparing_playback_audio_matches_completed_pcm_and_releases_its_source() {
-    use cap_audio::AudioSampleSource;
+    use frameever_audio::AudioSampleSource;
     use std::io::Write;
     use std::sync::atomic::AtomicUsize;
 
     let mut fixture = fixture(false);
     let expected_metadata = fixture.metadata.clone();
-    let cap_project::RecordingMetaInner::Studio(studio) = &mut fixture.metadata.inner else {
+    let frameever_project::RecordingMetaInner::Studio(studio) = &mut fixture.metadata.inner else {
         panic!("Studio metadata expected");
     };
-    let cap_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
+    let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
         panic!("Indexed metadata expected");
     };
-    inner.segments[0].mic.as_mut().unwrap().gap_summary = Some(cap_project::AudioGapSummary {
-        total_overlap_trimmed_ms: 0,
-        startup_overlap_trimmed_ms: 0,
-        overlap_dropped_frames: 0,
-        startup_overlap_drops: 0,
-    });
+    inner.segments[0].mic.as_mut().unwrap().gap_summary =
+        Some(frameever_project::AudioGapSummary {
+            total_overlap_trimmed_ms: 0,
+            startup_overlap_trimmed_ms: 0,
+            overlap_dropped_frames: 0,
+            startup_overlap_drops: 0,
+        });
     let path = fixture.metadata.project_path.join("mic.aac");
     let sample_count = 4 * 48_000_u32;
     let mut file = std::fs::File::create(&path).unwrap();
@@ -633,7 +636,7 @@ async fn native_preparing_playback_audio_matches_completed_pcm_and_releases_its_
         file.write_all(&value).unwrap();
     }
     drop(file);
-    let expected = cap_audio::AudioData::from_file(&path).unwrap();
+    let expected = frameever_audio::AudioData::from_file(&path).unwrap();
     let nonzero = Arc::new(AtomicUsize::new(0));
     let tapped = nonzero.clone();
     let output = Arc::new(crate::AudioOutput::new_headless(Box::new(
@@ -648,8 +651,11 @@ async fn native_preparing_playback_audio_matches_completed_pcm_and_releases_its_
         fixture.input(),
         vec![crate::PreparingAudioSegmentInput {
             mic: Some(
-                cap_audio::ManagedAudioInput::new(fixture.source.clone(), PathBuf::from("mic.aac"))
-                    .unwrap(),
+                frameever_audio::ManagedAudioInput::new(
+                    fixture.source.clone(),
+                    PathBuf::from("mic.aac"),
+                )
+                .unwrap(),
             ),
             system_audio: None,
             timing_repair: Default::default(),
@@ -731,8 +737,11 @@ async fn native_preparing_audio_decode_failure_never_admits_playback() {
         fixture.input(),
         vec![crate::PreparingAudioSegmentInput {
             mic: Some(
-                cap_audio::ManagedAudioInput::new(fixture.source.clone(), PathBuf::from("mic.aac"))
-                    .unwrap(),
+                frameever_audio::ManagedAudioInput::new(
+                    fixture.source.clone(),
+                    PathBuf::from("mic.aac"),
+                )
+                .unwrap(),
             ),
             system_audio: None,
             timing_repair: Default::default(),
@@ -878,8 +887,8 @@ async fn native_preparing_svg_cursor_zoom_camera_and_relocation_match_finalized_
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_recorded_keyboard_without_overlay_matches_finalized_render() {
     let mut fixture = fixture(false);
-    let keyboard = cap_project::KeyboardEvents {
-        presses: vec![cap_project::KeyPressEvent {
+    let keyboard = frameever_project::KeyboardEvents {
+        presses: vec![frameever_project::KeyPressEvent {
             key: "A".into(),
             key_code: "KeyA".into(),
             time_ms: 0.0,
@@ -889,10 +898,11 @@ async fn native_recorded_keyboard_without_overlay_matches_finalized_render() {
     for metadata in [&mut fixture.metadata, &mut fixture.reference_metadata] {
         let path = metadata.project_path.join("keyboard.bin");
         keyboard.write_to_file(&path).unwrap();
-        let cap_project::RecordingMetaInner::Studio(studio) = &mut metadata.inner else {
+        let frameever_project::RecordingMetaInner::Studio(studio) = &mut metadata.inner else {
             panic!("Studio metadata expected");
         };
-        let cap_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
+        let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut()
+        else {
             panic!("Indexed metadata expected");
         };
         inner.segments[0].keyboard = Some("keyboard.bin".into());
@@ -900,7 +910,10 @@ async fn native_recorded_keyboard_without_overlay_matches_finalized_render() {
         assert_eq!(segment.keyboard_events(metadata).presses, keyboard.presses);
     }
     let before = serde_json::to_value(&fixture.project).unwrap();
-    cap_project::synchronize_legacy_keyboard(&fixture.reference_metadata, &mut fixture.project);
+    frameever_project::synchronize_legacy_keyboard(
+        &fixture.reference_metadata,
+        &mut fixture.project,
+    );
     assert_eq!(serde_json::to_value(&fixture.project).unwrap(), before);
     assert!(fixture.project.keyboard.is_none());
     assert!(
@@ -919,10 +932,11 @@ async fn native_recorded_keyboard_without_overlay_matches_finalized_render() {
 async fn native_three_clip_eviction_reopen_and_boundaries_match_finalized_render() {
     let mut fixture = fixture(false);
     for metadata in [&mut fixture.metadata, &mut fixture.reference_metadata] {
-        let cap_project::RecordingMetaInner::Studio(studio) = &mut metadata.inner else {
+        let frameever_project::RecordingMetaInner::Studio(studio) = &mut metadata.inner else {
             panic!("Studio metadata expected");
         };
-        let cap_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
+        let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut()
+        else {
             panic!("Indexed metadata expected");
         };
         inner.segments.resize(3, inner.segments[0].clone());
@@ -1014,7 +1028,7 @@ async fn native_preparing_matches_default_avasset_editor_decoder() {
 }
 
 #[cfg(target_os = "macos")]
-fn surface_rgba(frame: cap_rendering::SurfaceFrame) -> RenderedFrame {
+fn surface_rgba(frame: frameever_rendering::SurfaceFrame) -> RenderedFrame {
     use std::ffi::c_void;
 
     unsafe extern "C" {
@@ -1107,10 +1121,10 @@ fn handoff_fixture() -> Fixture {
         root.join("cursor.png"),
     )
     .unwrap();
-    let cap_project::RecordingMetaInner::Studio(studio) = &mut fixture.metadata.inner else {
+    let frameever_project::RecordingMetaInner::Studio(studio) = &mut fixture.metadata.inner else {
         panic!("Expected Studio metadata");
     };
-    let cap_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
+    let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
         panic!("Expected indexed metadata");
     };
     inner.segments[0].display.path = "display.mp4".into();
@@ -1119,7 +1133,7 @@ fn handoff_fixture() -> Fixture {
     fixture.metadata.save_for_project().unwrap();
     let segment = fixture.project.timeline.as_ref().unwrap().segments[0].clone();
     fixture.project.timeline.as_mut().unwrap().segments = (0..3)
-        .map(|index| cap_project::TimelineSegment {
+        .map(|index| frameever_project::TimelineSegment {
             recording_clip: index,
             end: 5.5,
             ..segment.clone()
@@ -1181,7 +1195,7 @@ async fn native_handoff_reuses_pcm_preserves_audio_across_candidate_disposal_and
         (0..3)
             .map(|_| crate::PreparingAudioSegmentInput {
                 mic: Some(
-                    cap_audio::ManagedAudioInput::new(
+                    frameever_audio::ManagedAudioInput::new(
                         fixture.source.clone(),
                         PathBuf::from("mic.aac"),
                     )
@@ -1477,7 +1491,7 @@ async fn failed_handoff_installation_retires_native_candidate(cancelled: bool) {
         (0..3)
             .map(|_| crate::PreparingAudioSegmentInput {
                 mic: Some(
-                    cap_audio::ManagedAudioInput::new(
+                    frameever_audio::ManagedAudioInput::new(
                         fixture.source.clone(),
                         PathBuf::from("mic.aac"),
                     )
@@ -1566,10 +1580,12 @@ async fn native_rejected_audio_handoff_installation_joins_and_releases_the_candi
 async fn native_studio_sound_releases_preparing_audio_and_preserves_transport() {
     for initially_enabled in [false, true] {
         let mut fixture = handoff_fixture();
-        let cap_project::RecordingMetaInner::Studio(studio) = &mut fixture.metadata.inner else {
+        let frameever_project::RecordingMetaInner::Studio(studio) = &mut fixture.metadata.inner
+        else {
             panic!("Expected Studio metadata");
         };
-        let cap_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
+        let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut()
+        else {
             panic!("Expected indexed metadata");
         };
         for segment in &mut inner.segments {
@@ -1583,7 +1599,7 @@ async fn native_studio_sound_releases_preparing_audio_and_preserves_transport() 
             (0..3)
                 .map(|_| crate::PreparingAudioSegmentInput {
                     mic: Some(
-                        cap_audio::ManagedAudioInput::new(
+                        frameever_audio::ManagedAudioInput::new(
                             fixture.source.clone(),
                             PathBuf::from("mic.aac"),
                         )

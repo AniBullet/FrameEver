@@ -1,7 +1,7 @@
 use crate::output_pipeline::{FFmpegVideoFrame, SetupCtx, VideoSource};
-use cap_media_info::{Pixel, VideoInfo};
-use cap_timestamp::{Timestamp, Timestamps};
 use ffmpeg::util::rational::Rational as FFRational;
+use frameever_media_info::{Pixel, VideoInfo};
+use frameever_timestamp::{Timestamp, Timestamps};
 use futures::{FutureExt, channel::mpsc};
 use std::{
     sync::{

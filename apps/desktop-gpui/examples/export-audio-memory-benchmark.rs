@@ -4,11 +4,11 @@ use std::{
     time::Instant,
 };
 
-use cap_export::{
+use frameever_export::{
     ExporterBase,
     mp4::{ExportCompression, Mp4ExportSettings},
 };
-use cap_project::{ProjectConfiguration, XY};
+use frameever_project::{ProjectConfiguration, XY};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

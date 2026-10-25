@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_utils::disk_space::{DiskSpaceStatus, RecordingStorageMonitor};
+use frameever_utils::disk_space::{DiskSpaceStatus, RecordingStorageMonitor};
 use gpui::{App, AppContext as _, Context, Entity, Global, Task};
 
 use crate::app_sounds::AppSound;
@@ -248,7 +248,7 @@ pub struct RecordingSession {
     recording_generation: u64,
     countdown_remaining: Option<u32>,
     countdown_cue_abort: Option<futures_util::future::AbortHandle>,
-    start_gate: Option<cap_recording::RecordingStartGate>,
+    start_gate: Option<frameever_recording::RecordingStartGate>,
     start_cue: Option<crate::app_sounds::StartCue>,
     /// A capture pipeline that finished warming up while the countdown or the
     /// start cue was still running; activated the moment the cue ends.
@@ -449,7 +449,7 @@ impl RecordingSession {
         let countdown = crate::store::GeneralSettings::load()
             .recording_countdown
             .unwrap_or(0);
-        let start_gate = cap_recording::RecordingStartGate::new();
+        let start_gate = frameever_recording::RecordingStartGate::new();
         let config = StartConfig {
             start_gate: Some(start_gate.clone()),
             ..config
@@ -673,7 +673,11 @@ impl RecordingSession {
         }));
     }
 
-    fn monitor_recording_failure(&mut self, done: cap_recording::DoneFut, cx: &mut Context<Self>) {
+    fn monitor_recording_failure(
+        &mut self,
+        done: frameever_recording::DoneFut,
+        cx: &mut Context<Self>,
+    ) {
         let generation = self.recording_generation;
         let task = gpui_tokio::Tokio::spawn(cx, done);
         self.failure_monitor = Some(cx.spawn(async move |this, cx| {

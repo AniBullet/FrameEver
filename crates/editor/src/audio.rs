@@ -1,17 +1,17 @@
 use crate::export_audio::{EXPORT_AUDIO_BLOCK_SAMPLES, ExportAudioError, ExportAudioSources};
-use cap_audio::{
+use ffmpeg::{
+    ChannelLayout, filter, format as avformat, frame::Audio as FFAudio, software::resampling,
+};
+use frameever_audio::{
     AudioData, AudioRendererTrack, DecodedAudio, FromSampleBytes, StereoMode, VoiceAudio,
     VoiceEnhancer, VoiceSource, cast_bytes_to_f32_slice, cast_f32_slice_to_bytes,
     high_quality_resampler_options,
 };
-use cap_media::MediaError;
-use cap_media_info::AudioInfo;
-use cap_project::{
+use frameever_media::MediaError;
+use frameever_media_info::AudioInfo;
+use frameever_project::{
     AudioConfiguration, ClipOffsets, ClipSpeedAudioMode, ClipTransitionType, ProjectConfiguration,
     TimelineConfiguration, TimelineFrameMapping, TimelineSource, VoiceIsolation,
-};
-use ffmpeg::{
-    ChannelLayout, filter, format as avformat, frame::Audio as FFAudio, software::resampling,
 };
 use ringbuf::{
     HeapRb,
@@ -131,7 +131,7 @@ struct TimelineCursor<'a> {
     segment_end_samples: usize,
     segment_time: f64,
     segment_index: usize,
-    segment: &'a cap_project::TimelineSegment,
+    segment: &'a frameever_project::TimelineSegment,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -834,7 +834,7 @@ impl AudioRenderer {
     }
 }
 
-fn apply_clip_volume(samples: &mut [f32], segment: &cap_project::TimelineSegment) {
+fn apply_clip_volume(samples: &mut [f32], segment: &frameever_project::TimelineSegment) {
     let volume = segment.volume() as f32;
     if volume != 1.0 {
         for sample in samples {
@@ -911,7 +911,13 @@ fn render_audio_data_chunk(
         .collect::<Vec<_>>();
 
     if !project.audio.improve || project.audio.mute {
-        return cap_audio::render_audio(&track_datas, cursor.samples, samples, out_offset, out);
+        return frameever_audio::render_audio(
+            &track_datas,
+            cursor.samples,
+            samples,
+            out_offset,
+            out,
+        );
     }
     let clip_key = cursor.clip_index as usize;
     for offset in (0..samples).step_by(EXPORT_AUDIO_BLOCK_SAMPLES) {
@@ -967,7 +973,7 @@ fn render_audio_data_chunk(
                 offset: track.offset,
             })
             .collect::<Vec<_>>();
-        cap_audio::render_audio(&mixed, cursor, count, out_offset + offset * 2, out);
+        frameever_audio::render_audio(&mixed, cursor, count, out_offset + offset * 2, out);
     }
     samples
 }
@@ -1018,11 +1024,11 @@ impl VoiceEnhancementCache {
 const SPEED_AUDIO_INPUT_BLOCK_SAMPLES: usize = 4_096;
 const SPEED_AUDIO_PREROLL_SAMPLES: usize = 2_400;
 
-fn project_stereo_mode_key(mode: &cap_project::StereoMode) -> u8 {
+fn project_stereo_mode_key(mode: &frameever_project::StereoMode) -> u8 {
     match mode {
-        cap_project::StereoMode::Stereo => 0,
-        cap_project::StereoMode::MonoL => 1,
-        cap_project::StereoMode::MonoR => 2,
+        frameever_project::StereoMode::Stereo => 0,
+        frameever_project::StereoMode::MonoL => 1,
+        frameever_project::StereoMode::MonoR => 2,
     }
 }
 
@@ -1290,7 +1296,7 @@ fn music_gain(volume_db: f32) -> f32 {
 ///
 /// Each segment is placed in output time (`start`/`end`), reads its source from
 /// `trim_start`, and applies linear fade-in/out ramps. Sources may be mono or
-/// stereo; mono is centre-panned at -3dB to match `cap_audio::render_audio`.
+/// stereo; mono is centre-panned at -3dB to match `frameever_audio::render_audio`.
 fn mix_music(
     music: &MusicTracks,
     timeline: &TimelineConfiguration,
@@ -2501,7 +2507,7 @@ fn spawn_progressive_render(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_project::{
+    use frameever_project::{
         ClipConfiguration, ClipTransition, ProjectConfiguration, TimelineConfiguration,
         TimelineSegment,
     };
@@ -3636,8 +3642,8 @@ mod tests {
         end: f64,
         fade_in: f64,
         fade_out: f64,
-    ) -> cap_project::AudioTrackSegment {
-        cap_project::AudioTrackSegment {
+    ) -> frameever_project::AudioTrackSegment {
+        frameever_project::AudioTrackSegment {
             start,
             end,
             track: 0,
@@ -3652,7 +3658,9 @@ mod tests {
         }
     }
 
-    fn music_project(audio_segments: Vec<cap_project::AudioTrackSegment>) -> ProjectConfiguration {
+    fn music_project(
+        audio_segments: Vec<frameever_project::AudioTrackSegment>,
+    ) -> ProjectConfiguration {
         ProjectConfiguration {
             timeline: Some(TimelineConfiguration {
                 segments: vec![segment(0, 0.0, 3.0, 1.0)],

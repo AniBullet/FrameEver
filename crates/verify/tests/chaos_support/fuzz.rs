@@ -7,7 +7,7 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
-use cap_verify::fixture::Rng;
+use frameever_verify::fixture::Rng;
 use serde_json::{Value, json};
 
 use super::{

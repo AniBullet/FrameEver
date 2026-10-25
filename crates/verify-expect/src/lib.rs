@@ -1,5 +1,5 @@
 //! Strict expected failures and case records shared by every engine
-//! verification suite (the `cap-verify` oracle tests, the decoder model
+//! verification suite (the `frameever-verify` oracle tests, the decoder model
 //! fuzzer, the upload fault suite).
 //!
 //! Each suite keeps one TOML file of `[[xfail]]` entries:
@@ -33,7 +33,7 @@
 //! `require_bound = true` rejects unseeded entries without a bound.
 //!
 //! Every suite writes one JSON line per case ([`Record`]) to
-//! `CAP_VERIFY_REPORT_DIR` when it is set. The `cap-verify-expect` binary
+//! `CAP_VERIFY_REPORT_DIR` when it is set. The `frameever-verify-expect` binary
 //! rewrites the expectations files from those records (`bless`), and
 //! `scripts/verify/summary.py` turns them into the CI job summary.
 
@@ -1029,7 +1029,7 @@ pub enum Outcome {
     Xpass,
     Unsupported,
     /// A wall-clock class failed while the machine starved the process
-    /// (cap-verify's sentinel); the test is retried once. Never blessed.
+    /// (frameever-verify's sentinel); the test is retried once. Never blessed.
     Inconclusive,
 }
 

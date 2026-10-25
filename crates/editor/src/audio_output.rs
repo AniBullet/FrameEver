@@ -21,15 +21,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_audio::{AudioData, FromSampleBytes};
-#[cfg(not(target_os = "windows"))]
-use cap_audio::{LatencyCorrectionConfig, LatencyCorrector, default_output_latency_hint};
-use cap_media_info::AudioInfo;
-use cap_project::ProjectConfiguration;
 use cpal::{
     SampleFormat,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
+use frameever_audio::{AudioData, FromSampleBytes};
+#[cfg(not(target_os = "windows"))]
+use frameever_audio::{LatencyCorrectionConfig, LatencyCorrector, default_output_latency_hint};
+use frameever_media_info::AudioInfo;
+use frameever_project::ProjectConfiguration;
 use tokio::sync::watch;
 use tracing::{error, info};
 
@@ -1488,7 +1488,7 @@ fn ensure_stream(state: &mut Option<StreamState>) -> bool {
             *state = Some(StreamState {
                 device_name,
                 failed,
-                supports_idle_pause: cap_audio::default_output_supports_idle_pause(),
+                supports_idle_pause: frameever_audio::default_output_supports_idle_pause(),
                 paused: false,
                 handle,
             });

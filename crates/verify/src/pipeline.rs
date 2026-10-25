@@ -12,14 +12,14 @@
 use std::{path::Path, time::Duration};
 
 use anyhow::{Context, anyhow};
-use cap_media_info::{AudioInfo, RawVideoFormat, Sample, Type, VideoInfo};
-use cap_project::{AudioMeta, MultipleSegment, VideoMeta};
-use cap_recording::{
+use frameever_media_info::{AudioInfo, RawVideoFormat, Sample, Type, VideoInfo};
+use frameever_project::{AudioMeta, MultipleSegment, VideoMeta};
+use frameever_recording::{
     AudioFrame, ChannelAudioSource, ChannelAudioSourceConfig, ChannelVideoSource,
     ChannelVideoSourceConfig, OutputPipeline,
     ffmpeg::{FFmpegVideoFrame, Mp4Muxer, OggMuxer},
 };
-use cap_timestamp::{Timestamp, Timestamps};
+use frameever_timestamp::{Timestamp, Timestamps};
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 
@@ -111,8 +111,8 @@ impl RecordedSpec {
 /// muxers, encoders, timestamps, audio conversion).
 const RECORDING_SOURCE_CRATES: &[&str] = &[
     "recording",
-    "cap-muxer",
-    "cap-muxer-protocol",
+    "frameever-muxer",
+    "frameever-muxer-protocol",
     "enc-ffmpeg",
     "enc-avfoundation",
     "enc-mediafoundation",
@@ -414,7 +414,7 @@ async fn record_segment(
         let pipeline = OutputPipeline::builder(dir.join(rel("system_audio.ogg").as_str()))
             .with_audio_source::<ChannelAudioSource>(ChannelAudioSourceConfig::new(stereo_info, rx))
             .with_timestamps(timestamps)
-            .with_audio_anchor(cap_recording::AudioAnchor::PipelineEpoch)
+            .with_audio_anchor(frameever_recording::AudioAnchor::PipelineEpoch)
             .build::<OggMuxer>(())
             .await
             .map_err(|e| anyhow!("system audio pipeline: {e}"))?;
@@ -489,7 +489,7 @@ async fn record_segment(
             device_id: None,
             gap_summary: finished
                 .audio_gap_summary
-                .map(|s| cap_project::AudioGapSummary {
+                .map(|s| frameever_project::AudioGapSummary {
                     total_overlap_trimmed_ms: s.total_overlap_trimmed_ms,
                     startup_overlap_trimmed_ms: s.startup_overlap_trimmed_ms,
                     overlap_dropped_frames: s.overlap_dropped_frames,
@@ -597,7 +597,7 @@ pub struct Emitted {
 
 pub async fn record_instant(spec: &InstantSpec, dir: &Path) -> anyhow::Result<()> {
     high_resolution_timer();
-    use cap_recording::{DashSegmentedAudioMuxer, DashSegmentedAudioMuxerConfig};
+    use frameever_recording::{DashSegmentedAudioMuxer, DashSegmentedAudioMuxerConfig};
     crate::media::init();
     if dir.exists() {
         std::fs::remove_dir_all(dir)?;
@@ -608,7 +608,7 @@ pub async fn record_instant(spec: &InstantSpec, dir: &Path) -> anyhow::Result<()
     let base = timestamps.instant();
     let gate = spec
         .arm_at
-        .map(|_| cap_recording::RecordingStartGate::new());
+        .map(|_| frameever_recording::RecordingStartGate::new());
     let mut emitted = Emitted {
         fps: spec.screen.fps,
         ..Default::default()
@@ -651,8 +651,8 @@ pub async fn record_instant(spec: &InstantSpec, dir: &Path) -> anyhow::Result<()
         video_builder = video_builder.with_start_gate(Some(gate.clone()));
     }
     let video_pipeline = video_builder
-        .build::<cap_recording::ffmpeg::SegmentedVideoMuxer>(
-            cap_recording::ffmpeg::SegmentedVideoMuxerConfig {
+        .build::<frameever_recording::ffmpeg::SegmentedVideoMuxer>(
+            frameever_recording::ffmpeg::SegmentedVideoMuxerConfig {
                 segment_duration: Duration::from_secs(2),
                 ..Default::default()
             },
@@ -672,7 +672,7 @@ pub async fn record_instant(spec: &InstantSpec, dir: &Path) -> anyhow::Result<()
     // Mirrors the product's Instant audio pipeline: anchored at the recording
     // epoch behind a start gate.
     if gate.is_some() {
-        builder = builder.with_audio_anchor(cap_recording::AudioAnchor::PipelineEpoch);
+        builder = builder.with_audio_anchor(frameever_recording::AudioAnchor::PipelineEpoch);
     }
     let has_audio = spec.mic_delay.is_some() || spec.system_audio;
     if spec.system_audio {
@@ -798,7 +798,7 @@ pub async fn record_instant(spec: &InstantSpec, dir: &Path) -> anyhow::Result<()
         std::fs::create_dir_all(&audio_dir)?;
     }
     tokio::task::spawn_blocking(move || {
-        cap_recording::recovery::RecoveryManager::finalize_instant_output(
+        frameever_recording::recovery::RecoveryManager::finalize_instant_output(
             &display_dir,
             &audio_dir,
             &output,
@@ -806,13 +806,13 @@ pub async fn record_instant(spec: &InstantSpec, dir: &Path) -> anyhow::Result<()
     })
     .await?
     .map_err(|e| anyhow!("finalize instant output: {e}"))?;
-    let meta = cap_project::RecordingMeta {
-        platform: Some(cap_project::Platform::default()),
+    let meta = frameever_project::RecordingMeta {
+        platform: Some(frameever_project::Platform::default()),
         project_path: dir.to_path_buf(),
         pretty_name: spec.name.clone(),
         sharing: None,
-        inner: cap_project::RecordingMetaInner::Instant(
-            cap_project::InstantRecordingMeta::Complete {
+        inner: frameever_project::RecordingMetaInner::Instant(
+            frameever_project::InstantRecordingMeta::Complete {
                 fps: spec.screen.fps,
                 sample_rate: has_audio.then_some(AUDIO_RATE),
             },
@@ -861,7 +861,7 @@ pub async fn record_epoch_audio(
     let pipeline = OutputPipeline::builder(path.clone())
         .with_audio_source::<ChannelAudioSource>(ChannelAudioSourceConfig::new(stereo_info, rx))
         .with_timestamps(timestamps)
-        .with_audio_anchor(cap_recording::AudioAnchor::PipelineEpoch)
+        .with_audio_anchor(frameever_recording::AudioAnchor::PipelineEpoch)
         .build::<OggMuxer>(())
         .await
         .map_err(|e| anyhow!("epoch audio pipeline: {e}"))?;

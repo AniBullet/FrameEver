@@ -1,10 +1,4 @@
 use anyhow::Result;
-use cap_project::{
-    AspectRatio, Camera, CameraShape, CameraXPosition, CameraYPosition, ClipOffsets,
-    ClipTransitionType, CornerStyle, Crop, CursorEvents, CursorType, FrameConfiguration,
-    FrameStyle, OverlayTrackKind, ProjectConfiguration, RecordingMeta, SceneMode,
-    StudioRecordingMeta, TimelineFrameMapping, TimelineSource, XY,
-};
 use composite_frame::{ColorGradeUniformParams, CompositeVideoFrameUniforms};
 use core::f64;
 use cursor_interpolation::{
@@ -17,6 +11,12 @@ use frame_pipeline::finish_encoder_bgra_surface;
 use frame_pipeline::{
     NV12BufferPool, RenderSession, finish_encoder_nv12_pooled, finish_encoder_timed,
     flush_pending_readback,
+};
+use frameever_project::{
+    AspectRatio, Camera, CameraShape, CameraXPosition, CameraYPosition, ClipOffsets,
+    ClipTransitionType, CornerStyle, Crop, CursorEvents, CursorType, FrameConfiguration,
+    FrameStyle, OverlayTrackKind, ProjectConfiguration, RecordingMeta, SceneMode,
+    StudioRecordingMeta, TimelineFrameMapping, TimelineSource, XY,
 };
 use futures::future::OptionFuture;
 use layers::{
@@ -768,7 +768,7 @@ pub enum RenderingError {
 
 pub struct RenderSegment {
     pub cursor: Arc<CursorEvents>,
-    pub keyboard: Arc<cap_project::KeyboardEvents>,
+    pub keyboard: Arc<frameever_project::KeyboardEvents>,
     pub decoders: RecordingSegmentDecoders,
     pub render_display: bool,
 }
@@ -2319,7 +2319,7 @@ async fn recover_initial_frames_with_backtrack(
     segment_time: f64,
     needs_camera: bool,
     needs_display: bool,
-    offsets: cap_project::ClipOffsets,
+    offsets: frameever_project::ClipOffsets,
     current_frame_number: u32,
     fps: u32,
 ) -> Result<Option<DecodedSegmentFrames>, RenderingError> {
@@ -2371,7 +2371,7 @@ async fn decode_segment_frames_with_retry(
     segment_time: f64,
     needs_camera: bool,
     needs_display: bool,
-    offsets: cap_project::ClipOffsets,
+    offsets: frameever_project::ClipOffsets,
     current_frame_number: u32,
     is_initial_frame: bool,
     fps: u32,
@@ -3318,7 +3318,7 @@ struct NotchPlacement {
 /// through the same RawDisplaySpace -> zoomed frame space chain the cursor
 /// uses. Crop, padding, aspect fit and zoom all follow from that for free.
 fn notch_bounds(
-    notch: cap_project::DisplayNotch,
+    notch: frameever_project::DisplayNotch,
     options: &RenderOptions,
     project: &ProjectConfiguration,
     layout: DisplayLayout,
@@ -3805,9 +3805,9 @@ impl ProjectUniforms {
         (start, end)
     }
 
-    fn camera_background_effect_mode(&self) -> Option<cap_camera_effects::BlurMode> {
+    fn camera_background_effect_mode(&self) -> Option<frameever_camera_effects::BlurMode> {
         blur_mode_from_config(&self.project.camera.background_blur).filter(|mode| {
-            *mode != cap_camera_effects::BlurMode::Remove
+            *mode != frameever_camera_effects::BlurMode::Remove
                 || (self.camera.is_some() && self.scene.regular_camera_transition_opacity() > 0.01)
         })
     }
@@ -5212,7 +5212,7 @@ mod tests {
 
     #[test]
     fn camera_blur_output_rejects_missing_pending_and_failed_masks() {
-        use cap_camera_effects::{BlurFailure, BlurMaskStatus, BlurMode, BlurOutputStatus};
+        use frameever_camera_effects::{BlurFailure, BlurMaskStatus, BlurMode, BlurOutputStatus};
 
         assert!(!camera_blur_output_is_available(
             None,
@@ -5240,7 +5240,9 @@ mod tests {
 
     #[test]
     fn camera_blur_output_requires_matching_mode_and_mask_geometry() {
-        use cap_camera_effects::{BlurMaskReceipt, BlurMaskStatus, BlurMode, BlurOutputStatus};
+        use frameever_camera_effects::{
+            BlurMaskReceipt, BlurMaskStatus, BlurMode, BlurOutputStatus,
+        };
 
         let now = Instant::now();
         let status = BlurOutputStatus {
@@ -5278,8 +5280,8 @@ mod tests {
         ));
     }
 
-    fn ripple_click(time_ms: f64, down: bool) -> cap_project::CursorClickEvent {
-        cap_project::CursorClickEvent {
+    fn ripple_click(time_ms: f64, down: bool) -> frameever_project::CursorClickEvent {
+        frameever_project::CursorClickEvent {
             active_modifiers: Vec::new(),
             cursor_num: 0,
             cursor_id: "cursor".to_owned(),
@@ -5657,7 +5659,7 @@ mod tests {
         let options = render_options(1920, 1080);
         let mut project = ProjectConfiguration::default();
         project.background.padding = 10.0;
-        project.background.frame = Some(cap_project::FrameConfiguration {
+        project.background.frame = Some(frameever_project::FrameConfiguration {
             style: FrameStyle::Browser,
             ..Default::default()
         });
@@ -5697,7 +5699,7 @@ mod tests {
         let options = render_options(1920, 1080);
         let mut project = ProjectConfiguration::default();
         project.background.padding = 20.0;
-        project.background.frame = Some(cap_project::FrameConfiguration {
+        project.background.frame = Some(frameever_project::FrameConfiguration {
             style: FrameStyle::MacOS,
             ..Default::default()
         });
@@ -5806,13 +5808,13 @@ mod tests {
                 ] {
                     for y in [CameraYPosition::Top, CameraYPosition::Bottom] {
                         let mut camera = Camera {
-                            position: cap_project::CameraPosition {
+                            position: frameever_project::CameraPosition {
                                 x: x.clone(),
                                 y: y.clone(),
                             },
                             ..Default::default()
                         };
-                        camera.background_blur.mode = cap_project::BackgroundBlurMode::Remove;
+                        camera.background_blur.mode = frameever_project::BackgroundBlurMode::Remove;
                         let padding = if cfg!(target_os = "macos") { 0.0 } else { 50.0 };
                         let expected_x = match x {
                             CameraXPosition::Left => padding,
@@ -5839,7 +5841,7 @@ mod tests {
             manual_position: Some(XY::new(0.5, 0.5)),
             ..Camera::default()
         };
-        camera.background_blur.mode = cap_project::BackgroundBlurMode::Remove;
+        camera.background_blur.mode = frameever_project::BackgroundBlurMode::Remove;
         assert_eq!(
             compute_camera_position(&camera, [1920.0, 1080.0], [400.0, 400.0], 50.0),
             [760.0, 340.0]
@@ -6013,7 +6015,7 @@ pub struct FrameRenderStageTimings {
 #[cfg(test)]
 mod style_image_tests {
     use super::*;
-    use cap_project::{BackgroundSource, ImageSegment, StyleOverrides, StyleSegment};
+    use frameever_project::{BackgroundSource, ImageSegment, StyleOverrides, StyleSegment};
 
     #[tokio::test]
     async fn camera_only_ignores_cutout_and_preserves_background_blur() {
@@ -6042,7 +6044,7 @@ mod style_image_tests {
             value: [0, 255, 0],
             alpha: 255,
         };
-        project.camera.background_blur.mode = cap_project::BackgroundBlurMode::Remove;
+        project.camera.background_blur.mode = frameever_project::BackgroundBlurMode::Remove;
         project.timeline = Some(
             serde_json::from_value(serde_json::json!({
                 "segments": [], "zoomSegments": [],
@@ -6130,7 +6132,7 @@ mod style_image_tests {
             );
             assert_eq!(
                 uniforms.camera_background_effect_mode(),
-                cfg!(target_os = "macos").then_some(cap_camera_effects::BlurMode::Remove)
+                cfg!(target_os = "macos").then_some(frameever_camera_effects::BlurMode::Remove)
             );
             if let Some(camera_only) = uniforms.camera_only {
                 assert_eq!(camera_only.preserve_source_alpha, 0.0);
@@ -6167,12 +6169,12 @@ mod style_image_tests {
         assert!(padded_camera.shadow > 0.0);
         for (setting, mode) in [
             (
-                cap_project::BackgroundBlurMode::Light,
-                cap_camera_effects::BlurMode::Light,
+                frameever_project::BackgroundBlurMode::Light,
+                frameever_camera_effects::BlurMode::Light,
             ),
             (
-                cap_project::BackgroundBlurMode::Heavy,
-                cap_camera_effects::BlurMode::Heavy,
+                frameever_project::BackgroundBlurMode::Heavy,
+                frameever_camera_effects::BlurMode::Heavy,
             ),
         ] {
             project.camera.background_blur.mode = setting;
@@ -6250,7 +6252,7 @@ mod style_image_tests {
             size: XY::new(80, 90),
         });
         background.padding = 10.0;
-        let mut timeline: cap_project::TimelineConfiguration =
+        let mut timeline: frameever_project::TimelineConfiguration =
             serde_json::from_value(serde_json::json!({ "segments": [], "zoomSegments": [] }))
                 .expect("timeline");
         timeline.style_segments.push(StyleSegment {
@@ -6263,14 +6265,16 @@ mod style_image_tests {
             },
             ..Default::default()
         });
-        timeline.scene_segments.push(cap_project::SceneSegment {
-            start: 0.7,
-            end: 1.4,
-            mode: SceneMode::CameraOnly,
-            split_layout: None,
-            transition_in: 0.0,
-            transition_out: 0.0,
-        });
+        timeline
+            .scene_segments
+            .push(frameever_project::SceneSegment {
+                start: 0.7,
+                end: 1.4,
+                mode: SceneMode::CameraOnly,
+                split_layout: None,
+                transition_in: 0.0,
+                transition_out: 0.0,
+            });
         timeline.image_segments.push(ImageSegment {
             start: 0.7,
             end: 1.4,
@@ -7830,7 +7834,7 @@ pub struct RendererLayers {
     mask: MaskLayer,
     overlays: Option<OverlayLayers>,
     camera3d: Camera3DLayer,
-    camera_blur_processor: Option<cap_camera_effects::BlurProcessor>,
+    camera_blur_processor: Option<frameever_camera_effects::BlurProcessor>,
     camera_blur_init_failed: bool,
     camera_blur_unavailable: bool,
     realtime_camera_effects: bool,
@@ -7987,7 +7991,10 @@ impl RendererLayers {
 
     fn ensure_camera_blur_processor(&mut self, device: &wgpu::Device) {
         if self.camera_blur_processor.is_none() && !self.camera_blur_init_failed {
-            match cap_camera_effects::BlurProcessor::new(device, wgpu::TextureFormat::Rgba8Unorm) {
+            match frameever_camera_effects::BlurProcessor::new(
+                device,
+                wgpu::TextureFormat::Rgba8Unorm,
+            ) {
                 Ok(mut processor) => {
                     configure_camera_blur_processor(&mut processor, self.realtime_camera_effects);
                     self.camera_blur_processor = Some(processor);
@@ -8004,7 +8011,7 @@ impl RendererLayers {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        mode: cap_camera_effects::BlurMode,
+        mode: frameever_camera_effects::BlurMode,
     ) {
         if self.camera.source_texture_for_blur().is_none()
             && self.camera_only.source_texture_for_blur().is_none()
@@ -8039,9 +8046,9 @@ impl RendererLayers {
         self.camera_blur_unavailable =
             !camera_blur_output_is_available(processor.output_status().as_ref(), mode, dimensions);
 
-        let processor: &cap_camera_effects::BlurProcessor = processor;
+        let processor: &frameever_camera_effects::BlurProcessor = processor;
         self.camera.attach_shared_blur(device, processor, mode);
-        if mode != cap_camera_effects::BlurMode::Remove {
+        if mode != frameever_camera_effects::BlurMode::Remove {
             self.camera_only.attach_shared_blur(device, processor, mode);
         }
     }
@@ -8051,7 +8058,7 @@ impl RendererLayers {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
-        mode: cap_camera_effects::BlurMode,
+        mode: frameever_camera_effects::BlurMode,
     ) {
         if self.camera.source_texture_for_blur().is_none()
             && self.camera_only.source_texture_for_blur().is_none()
@@ -8094,9 +8101,9 @@ impl RendererLayers {
         self.camera_blur_unavailable =
             !camera_blur_output_is_available(processor.output_status().as_ref(), mode, dimensions);
 
-        let processor: &cap_camera_effects::BlurProcessor = processor;
+        let processor: &frameever_camera_effects::BlurProcessor = processor;
         self.camera.attach_shared_blur(device, processor, mode);
-        if mode != cap_camera_effects::BlurMode::Remove {
+        if mode != frameever_camera_effects::BlurMode::Remove {
             self.camera_only.attach_shared_blur(device, processor, mode);
         }
     }
@@ -8918,7 +8925,7 @@ async fn produce_transition_texture(
 }
 
 fn configure_camera_blur_processor(
-    processor: &mut cap_camera_effects::BlurProcessor,
+    processor: &mut frameever_camera_effects::BlurProcessor,
     realtime: bool,
 ) {
     processor.set_frame_synchronous(!realtime);
@@ -8928,7 +8935,7 @@ fn configure_camera_blur_processor(
 }
 
 fn reset_camera_blur_for_dimensions(
-    processor: &mut cap_camera_effects::BlurProcessor,
+    processor: &mut frameever_camera_effects::BlurProcessor,
     dimensions: (u32, u32),
 ) {
     if processor
@@ -8940,8 +8947,8 @@ fn reset_camera_blur_for_dimensions(
 }
 
 fn camera_blur_output_is_available(
-    status: Option<&cap_camera_effects::BlurOutputStatus>,
-    mode: cap_camera_effects::BlurMode,
+    status: Option<&frameever_camera_effects::BlurOutputStatus>,
+    mode: frameever_camera_effects::BlurMode,
     dimensions: (u32, u32),
 ) -> bool {
     status.is_some_and(|status| {
@@ -8949,21 +8956,25 @@ fn camera_blur_output_is_available(
             && status.output_dimensions == dimensions
             && matches!(
                 status.mask,
-                cap_camera_effects::BlurMaskStatus::Ready(mask)
+                frameever_camera_effects::BlurMaskStatus::Ready(mask)
                     if mask.input_dimensions == dimensions
             )
     })
 }
 
 fn blur_mode_from_config(
-    config: &cap_project::BackgroundBlurConfig,
-) -> Option<cap_camera_effects::BlurMode> {
+    config: &frameever_project::BackgroundBlurConfig,
+) -> Option<frameever_camera_effects::BlurMode> {
     match config.mode {
-        cap_project::BackgroundBlurMode::Off => None,
-        cap_project::BackgroundBlurMode::Light => Some(cap_camera_effects::BlurMode::Light),
-        cap_project::BackgroundBlurMode::Heavy => Some(cap_camera_effects::BlurMode::Heavy),
-        cap_project::BackgroundBlurMode::Remove => {
-            cfg!(target_os = "macos").then_some(cap_camera_effects::BlurMode::Remove)
+        frameever_project::BackgroundBlurMode::Off => None,
+        frameever_project::BackgroundBlurMode::Light => {
+            Some(frameever_camera_effects::BlurMode::Light)
+        }
+        frameever_project::BackgroundBlurMode::Heavy => {
+            Some(frameever_camera_effects::BlurMode::Heavy)
+        }
+        frameever_project::BackgroundBlurMode::Remove => {
+            cfg!(target_os = "macos").then_some(frameever_camera_effects::BlurMode::Remove)
         }
     }
 }
@@ -9047,7 +9058,7 @@ pub fn create_shader_render_pipeline(
 #[cfg(test)]
 mod notch_bounds_tests {
     use super::*;
-    use cap_project::{Crop, DisplayNotch, XY as ProjectXY};
+    use frameever_project::{Crop, DisplayNotch, XY as ProjectXY};
 
     /// 14" MacBook Pro panel and the notch measured on it.
     const SCREEN: XY<u32> = XY { x: 3024, y: 1964 };
@@ -9230,7 +9241,7 @@ mod notch_bounds_tests {
 #[cfg(test)]
 mod project_uniforms_tests {
     use super::*;
-    use cap_project::{BackgroundSource, CursorMoveEvent};
+    use frameever_project::{BackgroundSource, CursorMoveEvent};
 
     async fn cursor_test_constants() -> RenderVideoConstants {
         let recording_meta: RecordingMeta = serde_json::from_value(serde_json::json!({
@@ -9270,7 +9281,7 @@ mod project_uniforms_tests {
                 cursor_move(1500.0, 0.4, 0.3),
                 cursor_move(1800.0, 0.6, 0.5),
             ],
-            clicks: vec![cap_project::CursorClickEvent {
+            clicks: vec![frameever_project::CursorClickEvent {
                 active_modifiers: Vec::new(),
                 cursor_num: 0,
                 cursor_id: "primary".to_string(),
@@ -9492,7 +9503,7 @@ mod project_uniforms_tests {
                 (3120.0, false),
             ]
             .into_iter()
-            .map(|(time_ms, down)| cap_project::CursorClickEvent {
+            .map(|(time_ms, down)| frameever_project::CursorClickEvent {
                 active_modifiers: Vec::new(),
                 cursor_num: 0,
                 cursor_id: "primary".to_string(),
@@ -9623,7 +9634,7 @@ mod project_uniforms_tests {
                         [1000.0, 1080.0, 3000.0, 3080.0]
                             .into_iter()
                             .enumerate()
-                            .map(move |(index, offset)| cap_project::CursorClickEvent {
+                            .map(move |(index, offset)| frameever_project::CursorClickEvent {
                                 active_modifiers: Vec::new(),
                                 cursor_num: 0,
                                 cursor_id: "primary".to_string(),
@@ -9997,14 +10008,15 @@ mod project_uniforms_tests {
             ("floating", SceneMode::Floating, 150),
         ] {
             let mut split = project.clone();
-            split.timeline.as_mut().unwrap().scene_segments = vec![cap_project::SceneSegment {
-                start: 2.0,
-                end: 4.0,
-                mode,
-                split_layout: None,
-                transition_in: 0.5,
-                transition_out: 0.5,
-            }];
+            split.timeline.as_mut().unwrap().scene_segments =
+                vec![frameever_project::SceneSegment {
+                    start: 2.0,
+                    end: 4.0,
+                    mode,
+                    split_layout: None,
+                    transition_in: 0.5,
+                    transition_out: 0.5,
+                }];
             cases.push((name, split, short, frame_number));
         }
 

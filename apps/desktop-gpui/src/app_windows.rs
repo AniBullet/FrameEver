@@ -13,7 +13,7 @@ use std::{
     sync::Arc,
 };
 
-use cap_recording::sources::screen_capture::ScreenCaptureTarget;
+use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::{
     App, AppContext as _, Bounds, Entity, Global, Pixels, Size, WindowBounds, WindowHandle,
     WindowKind, WindowOptions, point, px, size,
@@ -3355,7 +3355,7 @@ fn revert_camera_park(cx: &mut App) {
 /// Hand a camera frame to the preview window. Returns false when no window is
 /// open (the pump drops the frame and keeps draining).
 pub fn deliver_camera_frame(
-    #[cfg(target_os = "macos")] frame: cap_recording::NativeCameraFrame,
+    #[cfg(target_os = "macos")] frame: frameever_recording::NativeCameraFrame,
     #[cfg(not(target_os = "macos"))] frame: crate::camera_window::CameraPreviewFrame,
     cx: &mut App,
 ) -> bool {
@@ -3567,7 +3567,7 @@ fn open_editor_window(
 }
 
 struct CachedWgpuDevice {
-    shared: cap_rendering::SharedWgpuDevice,
+    shared: frameever_rendering::SharedWgpuDevice,
     lost: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -3575,9 +3575,9 @@ static SHARED_WGPU_DEVICE: std::sync::LazyLock<tokio::sync::Mutex<Option<CachedW
     std::sync::LazyLock::new(|| tokio::sync::Mutex::new(None));
 
 fn clone_shared_wgpu_device(
-    shared: &cap_rendering::SharedWgpuDevice,
-) -> cap_rendering::SharedWgpuDevice {
-    cap_rendering::SharedWgpuDevice {
+    shared: &frameever_rendering::SharedWgpuDevice,
+) -> frameever_rendering::SharedWgpuDevice {
+    frameever_rendering::SharedWgpuDevice {
         instance: shared.instance.clone(),
         adapter: shared.adapter.clone(),
         device: shared.device.clone(),
@@ -3586,7 +3586,7 @@ fn clone_shared_wgpu_device(
     }
 }
 
-pub(crate) async fn shared_wgpu_device() -> Option<cap_rendering::SharedWgpuDevice> {
+pub(crate) async fn shared_wgpu_device() -> Option<frameever_rendering::SharedWgpuDevice> {
     let mut guard = SHARED_WGPU_DEVICE.lock().await;
     if let Some(cached) = guard.as_ref() {
         if !cached.lost.load(std::sync::atomic::Ordering::Acquire) {
@@ -3596,7 +3596,7 @@ pub(crate) async fn shared_wgpu_device() -> Option<cap_rendering::SharedWgpuDevi
         *guard = None;
     }
     let started = std::time::Instant::now();
-    match cap_rendering::create_shared_device().await {
+    match frameever_rendering::create_shared_device().await {
         Ok(shared) => {
             let lost = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let lost_flag = lost.clone();
@@ -3629,11 +3629,13 @@ pub(crate) fn prewarm_shared_wgpu_device(cx: &App) {
     .detach();
 }
 
-fn editor_audio_output() -> Arc<cap_editor::AudioOutput> {
+fn editor_audio_output() -> Arc<frameever_editor::AudioOutput> {
     if std::env::var("CAP_GPUI_MUTE_AUDIO").is_ok_and(|value| value == "1") {
-        Arc::new(cap_editor::AudioOutput::new_headless(Box::new(|_, _| {})))
+        Arc::new(frameever_editor::AudioOutput::new_headless(Box::new(
+            |_, _| {},
+        )))
     } else {
-        Arc::new(cap_editor::AudioOutput::new())
+        Arc::new(frameever_editor::AudioOutput::new())
     }
 }
 
@@ -3641,7 +3643,7 @@ fn start_preparing_editor(
     path: PathBuf,
     handle: WindowHandle<EditorWindow>,
     finalization: StudioFinalization,
-    audio_output: Arc<cap_editor::AudioOutput>,
+    audio_output: Arc<frameever_editor::AudioOutput>,
     cx: &mut App,
 ) -> crate::editor_preparing::PreparingJoin {
     let resolution = editor_window::preview_resolution(
@@ -3698,7 +3700,7 @@ fn start_preparing_editor(
     cx.spawn(async move |cx| {
         while let Ok(preparing) = frames.recv_async().await {
             let frame = match preparing.output {
-                cap_editor::EditorFrameOutput::Rgba(frame) => {
+                frameever_editor::EditorFrameOutput::Rgba(frame) => {
                     let image = cx
                         .background_executor()
                         .spawn(async move { editor_window::frame_image(&frame) })
@@ -3707,10 +3709,10 @@ fn start_preparing_editor(
                     editor_window::EditorPreviewFrame::Image(image)
                 }
                 #[cfg(target_os = "macos")]
-                cap_editor::EditorFrameOutput::Surface(surface) => {
+                frameever_editor::EditorFrameOutput::Surface(surface) => {
                     editor_window::surface_preview_frame(surface)
                 }
-                cap_editor::EditorFrameOutput::Nv12(_) => continue,
+                frameever_editor::EditorFrameOutput::Nv12(_) => continue,
             };
             let current_window = cx.update(|cx| {
                 cx.global::<AppWindows>()
@@ -3765,7 +3767,7 @@ fn load_editor_project(
 pub(crate) fn retry_preparing_editor(
     path: PathBuf,
     handle: WindowHandle<EditorWindow>,
-    previous: Arc<cap_editor::EditorInstance>,
+    previous: Arc<frameever_editor::EditorInstance>,
     cx: &mut App,
 ) {
     load_editor_project_candidate(path, handle, None, Some(previous), cx);
@@ -3775,7 +3777,7 @@ fn load_editor_project_candidate(
     path: PathBuf,
     handle: WindowHandle<EditorWindow>,
     finalization: Option<StudioFinalization>,
-    previous: Option<Arc<cap_editor::EditorInstance>>,
+    previous: Option<Arc<frameever_editor::EditorInstance>>,
     cx: &mut App,
 ) {
     let preparing_output = finalization.as_ref().map(|_| editor_audio_output());
@@ -3923,23 +3925,23 @@ fn load_editor_project_candidate(
                 let state_cb = editor_window::make_state_callback(playhead);
                 let frame_cb = editor_window::make_frame_callback(frame_tx, frame_stats);
                 #[cfg(target_os = "macos")]
-                let frame_format = cap_editor::EditorFrameFormat::BgraSurface;
+                let frame_format = frameever_editor::EditorFrameFormat::BgraSurface;
                 #[cfg(not(target_os = "macos"))]
-                let frame_format = cap_editor::EditorFrameFormat::Rgba;
+                let frame_format = frameever_editor::EditorFrameFormat::Rgba;
                 if let Some(previous) = previous {
                     return previous
                         .recreate_preparing_candidate(state_cb, frame_cb, frame_format)
                         .await;
                 }
                 let shared_device = shared_wgpu_device().await;
-                let instance = cap_editor::EditorInstance::new_with_startup_inputs(
+                let instance = frameever_editor::EditorInstance::new_with_startup_inputs(
                     instance_path,
                     state_cb,
                     frame_cb,
                     shared_device,
                     frame_format,
                     preparing_output.unwrap_or_else(editor_audio_output),
-                    cap_editor::EditorStartupInputs {
+                    frameever_editor::EditorStartupInputs {
                         recordings: Some(recordings),
                         completed_audio,
                     },
@@ -4018,7 +4020,7 @@ fn load_editor_project_candidate(
             async move |cx| {
                 while let Ok((output, layout)) = frame_rx.recv_async().await {
                     let (frame, number) = match output {
-                        cap_editor::EditorFrameOutput::Rgba(rgba) => {
+                        frameever_editor::EditorFrameOutput::Rgba(rgba) => {
                             let stats = stats.clone();
                             let number = rgba.frame_number;
                             let image = cx
@@ -4035,7 +4037,7 @@ fn load_editor_project_candidate(
                             };
                             (editor_window::EditorPreviewFrame::Image(image), number)
                         }
-                        cap_editor::EditorFrameOutput::Nv12(frame) => {
+                        frameever_editor::EditorFrameOutput::Nv12(frame) => {
                             tracing::warn!(
                                 number = frame.frame_number,
                                 "buffer-backed NV12 preview is unsupported"
@@ -4043,7 +4045,7 @@ fn load_editor_project_candidate(
                             continue;
                         }
                         #[cfg(target_os = "macos")]
-                        cap_editor::EditorFrameOutput::Surface(surface) => {
+                        frameever_editor::EditorFrameOutput::Surface(surface) => {
                             let number = surface.frame_number;
                             (editor_window::surface_preview_frame(surface), number)
                         }
@@ -4227,7 +4229,7 @@ fn log_timeline_model(model: &editor_timeline::TimelineModel) {
 /// extraction itself is a per-sample loop over a whole track, which goes to the
 /// background executor rather than the UI thread.
 fn load_editor_waveforms(
-    instance: Arc<cap_editor::EditorInstance>,
+    instance: Arc<frameever_editor::EditorInstance>,
     handle: WindowHandle<EditorWindow>,
     cx: &mut gpui::AsyncApp,
 ) {
@@ -4769,7 +4771,7 @@ pub(crate) fn request_editor_deletion(
         }
         let prepared = cx.update(|cx| {
             editor_deletion_allowed(&key, handle, cx)?;
-            let ownership = cap_recording::upload_resume::UploadLock::acquire(&key)
+            let ownership = frameever_recording::upload_resume::UploadLock::acquire(&key)
                 .map_err(|error| t!("This recording is still in use. Finish or cancel what is using it and try again: {error}", error = error))?;
             let windows = cx.global_mut::<AppWindows>();
             windows.deleting_editors.insert(key.clone());
@@ -5144,7 +5146,7 @@ fn window_logical_bounds_on_display(
 /// (48px up from its bottom edge), bottom-center of the recorded display
 /// otherwise (120px up).
 fn controls_origin(config: &StartConfig) -> (f64, f64) {
-    use cap_recording::sources::screen_capture::ScreenCaptureTarget;
+    use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 
     let width = CONTROLS_WIDTH as f64;
     let height = CONTROLS_HEIGHT as f64;

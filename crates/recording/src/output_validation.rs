@@ -1,6 +1,6 @@
 use std::{path::Path, time::Duration};
 
-use cap_enc_ffmpeg::remux::{get_media_duration, probe_media_valid, probe_video_can_decode};
+use frameever_enc_ffmpeg::remux::{get_media_duration, probe_media_valid, probe_video_can_decode};
 use tracing::{debug, info, warn};
 
 use crate::RecordingHealth;

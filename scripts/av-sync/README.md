@@ -18,7 +18,7 @@ pairs them, and reports:
 ## 1. Build the analyzer
 
 ```bash
-cargo build -p cap-audio --bin av-sync-check
+cargo build -p frameever-audio --bin av-sync-check
 # binary at target/debug/av-sync-check
 ```
 

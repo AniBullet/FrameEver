@@ -14,7 +14,7 @@ use tracing::info;
 
 use crate::{DecodedFrame, PixelFormat};
 #[cfg(target_os = "windows")]
-use cap_video_decode::FrameTextures;
+use frameever_video_decode::FrameTextures;
 
 use crate::cpu_yuv::YuvMatrix;
 
@@ -304,14 +304,16 @@ impl DecoderInput {
         &self,
         hardware: Option<ffmpeg::sys::AVHWDeviceType>,
         managed: Option<&Arc<ManagedVideoControl>>,
-    ) -> Result<cap_video_decode::FFmpegDecoder, String> {
+    ) -> Result<frameever_video_decode::FFmpegDecoder, String> {
         match self {
-            Self::Ordinary(path) => cap_video_decode::FFmpegDecoder::new(path.clone(), hardware),
+            Self::Ordinary(path) => {
+                frameever_video_decode::FFmpegDecoder::new(path.clone(), hardware)
+            }
             Self::Managed(input) => {
                 let control = managed
                     .cloned()
                     .ok_or("Managed video input requires a cancellation owner")?;
-                cap_video_decode::FFmpegDecoder::new_relocatable_interruptible(
+                frameever_video_decode::FFmpegDecoder::new_relocatable_interruptible(
                     &input.source,
                     input.paths.iter().map(PathBuf::as_path),
                     hardware,

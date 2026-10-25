@@ -1,4 +1,4 @@
-use cap_project::ClipTransitionType;
+use frameever_project::ClipTransitionType;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]

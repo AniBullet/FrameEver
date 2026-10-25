@@ -1,5 +1,5 @@
 [package]
-name = "cap-audio"
+name = "frameever-audio"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,8 +7,8 @@ edition = "2024"
 test-support = []
 
 [dependencies]
-cap-rnnoise = { path = "../rnnoise" }
-cap-enc-ffmpeg = { path = "../enc-ffmpeg" }
+frameever-rnnoise = { path = "../rnnoise" }
+frameever-enc-ffmpeg = { path = "../enc-ffmpeg" }
 ffmpeg = { workspace = true }
 cpal = { workspace = true }
 tokio.workspace = true

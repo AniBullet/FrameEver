@@ -1,8 +1,8 @@
-use cap_frame_converter::{
+use ffmpeg::format::Pixel;
+use frameever_frame_converter::{
     AsyncConverterPool, ConversionConfig, ConverterPoolConfig, DropStrategy, FrameConverter,
     SwscaleConverter,
 };
-use ffmpeg::format::Pixel;
 use std::time::{Duration, Instant};
 
 fn create_test_frame(format: Pixel, width: u32, height: u32) -> ffmpeg::frame::Video {

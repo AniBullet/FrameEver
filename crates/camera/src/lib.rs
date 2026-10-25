@@ -42,7 +42,7 @@ pub fn list_cameras() -> impl Iterator<Item = CameraInfo> {
 }
 
 #[cfg(windows)]
-pub type NativeFormat = cap_camera_windows::VideoFormatInner;
+pub type NativeFormat = frameever_camera_windows::VideoFormatInner;
 
 #[derive(Debug, Clone)]
 pub struct FormatInfo {
@@ -107,7 +107,7 @@ impl Debug for Format {
                 }
                 #[cfg(windows)]
                 {
-                    use cap_camera_windows::VideoFormatInner;
+                    use frameever_camera_windows::VideoFormatInner;
 
                     match &self.native {
                         VideoFormatInner::DirectShow(_) => &"DirectShow",
@@ -178,12 +178,12 @@ impl Display for ModelID {
 pub enum StartCapturingError {
     #[cfg(windows)]
     #[error("GetDevicesFailed/{0}")]
-    GetDevicesFailed(#[from] cap_camera_windows::GetDevicesError),
+    GetDevicesFailed(#[from] frameever_camera_windows::GetDevicesError),
     #[error("Device not found")]
     DeviceNotFound,
     #[cfg(windows)]
     #[error("{0}")]
-    Inner(#[from] cap_camera_windows::StartCapturingError),
+    Inner(#[from] frameever_camera_windows::StartCapturingError),
     #[cfg(target_os = "macos")]
     #[error("{0}")]
     Native(#[from] AVFoundationError),

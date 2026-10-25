@@ -1,12 +1,12 @@
 use std::{thread, time::Duration};
 
-use cap_media_info::{AudioInfo, FFRational};
 use ffmpeg::{
     codec::{context, encoder},
     format::{self, Sample, sample::Type},
     frame,
     threading::Config,
 };
+use frameever_media_info::{AudioInfo, FFRational};
 
 use crate::{
     AudioEncoder, PacketSink,

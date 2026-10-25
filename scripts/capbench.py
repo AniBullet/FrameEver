@@ -4,7 +4,7 @@
 Fixture: clone CapSoftware/cap-performance-fixtures into ./performance-fixtures (as CI does).
 Build the measured binaries into target/perf (release codegen; see `profile.perf` below):
 
-    cargo build --profile perf -p cap --bin cap -p cap-test --bin cap-test -p cap-editor \\
+    cargo build --profile perf -p frameever --bin frameever -p frameever-test --bin frameever-test -p frameever-editor \\
         --example playback-pipeline-benchmark --example decode-benchmark --example editor-startup-benchmark
 
 `profile.perf` is not checked in; add it to .cargo/config.toml (or use --bin-dir target/release):
@@ -301,7 +301,7 @@ def export_problem(probe, expected_frames, resolution):
 def export_bench(fps, resolution, quality, extra=()):
     def argv(ctx, out_dir):
         return [
-            str(ctx.bin("cap")), "export", str(ctx.fixture), "-o", str(out_dir / "export.mp4"),
+            str(ctx.bin("frameever")), "export", str(ctx.fixture), "-o", str(out_dir / "export.mp4"),
             "--fps", str(fps), "--resolution", resolution, "--quality", quality, "--json", *extra,
         ]
 
@@ -417,7 +417,7 @@ def validated_video(stdout, returncode):
     try:
         report = json.loads(stdout)
     except json.JSONDecodeError:
-        raise InvalidRun(f"cap-test validate exited {returncode} without a JSON report")
+        raise InvalidRun(f"frameever-test validate exited {returncode} without a JSON report")
     if returncode != 0 or not report.get("valid"):
         raise InvalidRun("invalid recording: " + "; ".join(report.get("errors") or ["no errors reported"]))
     return report.get("video_info") or {}
@@ -426,7 +426,7 @@ def validated_video(stdout, returncode):
 def record_bench(mode, fps, seconds):
     def argv(ctx, out_dir):
         return [
-            str(ctx.bin("cap")), "record", "--screen", ctx.screen, "--mode", mode,
+            str(ctx.bin("frameever")), "record", "--screen", ctx.screen, "--mode", mode,
             "--fps", str(fps), "--duration", str(seconds), "--path", str(out_dir / "rec.cap"),
         ]
 
@@ -435,13 +435,13 @@ def record_bench(mode, fps, seconds):
         "captured_ratio": "higher", "overhead_s": "lower",
     }
     if mode == "instant":
-        # cap-test validate reports no frame count or duration for instant recordings.
+        # frameever-test validate reports no frame count or duration for instant recordings.
         del better["delivered_fps"], better["captured_ratio"]
 
     def post(ctx, out_dir, metrics):
         project = out_dir / "rec.cap"
         validation = subprocess.run(
-            [str(ctx.bin("cap-test")), "validate", str(project), "--json"],
+            [str(ctx.bin("frameever-test")), "validate", str(project), "--json"],
             capture_output=True, text=True,
         )
         video = validated_video(validation.stdout, validation.returncode)
@@ -461,7 +461,7 @@ def record_bench(mode, fps, seconds):
         "argv": argv,
         "parse": lambda lines: {},
         "post": post,
-        "requires": lambda ctx: ctx.bin("cap-test"),
+        "requires": lambda ctx: ctx.bin("frameever-test"),
         "timeout": seconds + 120,
         "env": {},
         "needs_screen": True,

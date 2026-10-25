@@ -7,7 +7,7 @@ set -uo pipefail
 cd "$(dirname "$0")" || exit 1
 
 STATE_FILE="$PWD/target/dev-restore.json"
-BIN="$PWD/target/debug/cap-gpui"
+BIN="$PWD/target/debug/frameever-gpui"
 BUILD=cargo
 
 WATCH_PATHS=(src kernels/src kernels/Cargo.toml assets Cargo.toml)
@@ -40,7 +40,7 @@ gpui_owns_session() {
 instance_live() {
 	local pid
 	pid=$(cat "$SHARED_DIR/cap-gpui.pid" 2>/dev/null) || return 1
-	[ -n "$pid" ] && ps -p "$pid" -o comm= 2>/dev/null | grep -q cap-gpui
+	[ -n "$pid" ] && ps -p "$pid" -o comm= 2>/dev/null | grep -q frameever-gpui
 }
 
 stop_app() {
@@ -59,7 +59,7 @@ stop_app() {
 }
 
 start_app() {
-	CAP_GPUI_DEV_RESTORE="$STATE_FILE" RUST_LOG="${RUST_LOG:-cap_gpui=info}" "$BIN" &
+	CAP_GPUI_DEV_RESTORE="$STATE_FILE" RUST_LOG="${RUST_LOG:-frameever_gpui=info}" "$BIN" &
 	APP_PID=$!
 	echo "[dev] app running (pid $APP_PID)"
 }

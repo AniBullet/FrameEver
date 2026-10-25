@@ -9,11 +9,11 @@ use crate::output_pipeline::{MacOSFragmentedM4SMuxer, MacOSFragmentedM4SMuxerCon
 #[cfg(windows)]
 use crate::output_pipeline::{WindowsFragmentedM4SMuxer, WindowsFragmentedM4SMuxerConfig};
 use anyhow::anyhow;
-use cap_enc_ffmpeg::h264::H264EncoderBuilder;
+use frameever_enc_ffmpeg::h264::H264EncoderBuilder;
 #[cfg(windows)]
-use cap_enc_ffmpeg::h264::H264Preset;
-use cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent;
-use cap_timestamp::Timestamps;
+use frameever_enc_ffmpeg::h264::H264Preset;
+use frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent;
+use frameever_timestamp::Timestamps;
 use std::path::PathBuf;
 
 #[cfg(windows)]
@@ -122,9 +122,9 @@ impl MakeCapturePipeline for screen_capture::CMSampleBufferCapture {
             };
 
             let preset = if ultra {
-                cap_enc_ffmpeg::h264::H264Preset::Medium
+                frameever_enc_ffmpeg::h264::H264Preset::Medium
             } else {
-                cap_enc_ffmpeg::h264::H264Preset::Ultrafast
+                frameever_enc_ffmpeg::h264::H264Preset::Ultrafast
             };
 
             tracing::debug!(bpp, ?preset, "Fragmented studio pipeline encoder config");
@@ -141,7 +141,7 @@ impl MakeCapturePipeline for screen_capture::CMSampleBufferCapture {
                     Err(err) => {
                         tracing::warn!(
                             error = %err,
-                            "out_of_process_muxer requested but cap-muxer binary is unavailable; \
+                            "out_of_process_muxer requested but frameever-muxer binary is unavailable; \
                              falling back to in-process muxer to preserve the recording"
                         );
                         false
@@ -273,7 +273,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
                     Err(err) => {
                         tracing::warn!(
                             error = %err,
-                            "out_of_process_muxer requested but cap-muxer binary is unavailable; \
+                            "out_of_process_muxer requested but frameever-muxer binary is unavailable; \
                              falling back to in-process muxer to preserve the recording"
                         );
                         false
@@ -473,12 +473,14 @@ pub fn target_to_display_and_crop(
 /// a screen region, and the window moves, so there is no stable position.
 /// Area captures also return `None` when they contain only part of the notch,
 /// because `DisplayNotch` cannot encode a cropped source shape.
-pub fn resolve_display_notch(target: &ScreenCaptureTarget) -> Option<cap_project::DisplayNotch> {
+pub fn resolve_display_notch(
+    target: &ScreenCaptureTarget,
+) -> Option<frameever_project::DisplayNotch> {
     let display = target.display()?;
     let notch = display.notch()?;
 
     match target {
-        ScreenCaptureTarget::Display { .. } => Some(cap_project::DisplayNotch {
+        ScreenCaptureTarget::Display { .. } => Some(frameever_project::DisplayNotch {
             x: notch.x,
             width: notch.width,
             height: notch.height,
@@ -495,7 +497,7 @@ fn resolve_area_display_notch(
     notch: scap_targets::NotchGeometry,
     display_size: scap_targets::bounds::LogicalSize,
     bounds: scap_targets::bounds::LogicalBounds,
-) -> Option<cap_project::DisplayNotch> {
+) -> Option<frameever_project::DisplayNotch> {
     let area_left = bounds.position().x();
     let area_top = bounds.position().y();
     let area_width = bounds.size().width();
@@ -514,7 +516,7 @@ fn resolve_area_display_notch(
         return None;
     }
 
-    Some(cap_project::DisplayNotch {
+    Some(frameever_project::DisplayNotch {
         x: (notch_left - area_left) / area_width,
         width: notch_width / area_width,
         height: notch_height / area_height,
@@ -545,7 +547,7 @@ mod display_notch_tests {
 
         assert_eq!(
             resolve_area_display_notch(NOTCH, display_size(), bounds),
-            Some(cap_project::DisplayNotch {
+            Some(frameever_project::DisplayNotch {
                 x: 0.25,
                 width: 0.5,
                 height: 0.4,
@@ -596,7 +598,7 @@ pub fn create_d3d_device()
         flags
     };
 
-    if let Ok(selected) = cap_d3d_adapter::select_capture_adapter(None) {
+    if let Ok(selected) = frameever_d3d_adapter::select_capture_adapter(None) {
         if let Err(error) = create_d3d_device_on_adapter(&selected.adapter, flags, &mut device) {
             tracing::warn!(
                 adapter = %selected.description,

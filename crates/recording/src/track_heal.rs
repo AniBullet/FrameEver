@@ -20,11 +20,13 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use cap_enc_ffmpeg::remux::{
+use frameever_enc_ffmpeg::remux::{
     get_media_duration, get_video_capture_fps, get_video_fps, probe_video_pts_ladder,
     rescale_video_timestamps,
 };
-use cap_project::{ProjectConfiguration, RecordingMeta, RecordingMetaInner, StudioRecordingMeta};
+use frameever_project::{
+    ProjectConfiguration, RecordingMeta, RecordingMetaInner, StudioRecordingMeta,
+};
 use tracing::{info, warn};
 
 /// Runs every track repair for a studio recording, display first so the
@@ -727,7 +729,7 @@ fn evaluate_stretch(camera_secs: f64, references: &[(&str, f64)]) -> Option<Stre
 mod tests {
     use super::*;
 
-    use cap_project::{Cursors, MultipleSegment, MultipleSegments, VideoMeta};
+    use frameever_project::{Cursors, MultipleSegment, MultipleSegments, VideoMeta};
     use std::time::Duration;
 
     /// A Studio project whose display track holds `timestamps`, with `fps`
@@ -736,15 +738,15 @@ mod tests {
         timestamps: &[Duration],
         fps: impl FnOnce(&Path) -> u32,
     ) -> tempfile::TempDir {
-        use cap_enc_ffmpeg::{h264::H264Encoder, mp4::MP4File};
+        use frameever_enc_ffmpeg::{h264::H264Encoder, mp4::MP4File};
 
         ffmpeg::init().unwrap();
         let directory = tempfile::tempdir().unwrap();
         let project = directory.path();
         let display = project.join("content/segments/segment-0/display.mp4");
         std::fs::create_dir_all(display.parent().unwrap()).unwrap();
-        let info = cap_media_info::VideoInfo {
-            pixel_format: cap_media_info::Pixel::NV12,
+        let info = frameever_media_info::VideoInfo {
+            pixel_format: frameever_media_info::Pixel::NV12,
             width: 320,
             height: 240,
             time_base: ffmpeg::Rational(1, 1_000_000),
@@ -926,7 +928,7 @@ mod tests {
     }
 
     /// Manual harness for healing a real .cap bundle:
-    /// `CAP_HEAL_PROJECT_PATH=/path/to/recording.cap cargo test -p cap-recording \
+    /// `CAP_HEAL_PROJECT_PATH=/path/to/recording.cap cargo test -p frameever-recording \
     ///   --lib track_heal::tests::heal_project_from_env -- --ignored --nocapture`
     #[test]
     #[ignore]
@@ -1201,7 +1203,7 @@ mod tests {
 
     #[test]
     fn config_rescale_scales_timeline_and_overlays_exactly() {
-        use cap_project::{
+        use frameever_project::{
             ProjectConfiguration, TimelineConfiguration, TimelineSegment, ZoomMode, ZoomSegment,
         };
 
@@ -1258,7 +1260,7 @@ mod tests {
 
     #[test]
     fn config_rescale_scales_camera3d_segments_exactly() {
-        use cap_project::{
+        use frameever_project::{
             Camera3DKeyframe, Camera3DSegment, Camera3DTracks, ProjectConfiguration,
             TimelineConfiguration, TimelineSegment,
         };
@@ -1336,7 +1338,7 @@ mod tests {
 
     #[test]
     fn config_rescale_leaves_overlays_alone_with_unhealed_clips() {
-        use cap_project::{
+        use frameever_project::{
             ProjectConfiguration, TimelineConfiguration, TimelineSegment, ZoomMode, ZoomSegment,
         };
 

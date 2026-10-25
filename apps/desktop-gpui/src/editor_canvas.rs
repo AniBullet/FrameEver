@@ -8,7 +8,7 @@
 //! card in output-frame space (`configuration.rs:352-355`). `None` keeps the
 //! display centred; a value is a fraction of the output frame, so `0.5, 0.5`
 //! is dead centre and `0.25, 0.5` is a quarter of the way in from the left.
-//! `cap-rendering` turns it back into a pixel offset as
+//! `frameever-rendering` turns it back into a pixel offset as
 //! `(position.clamp(0,1) - 0.5) * output_size` and adds it to the layout's
 //! own offset (`rendering/src/lib.rs:2952-2969`), which is why the display can
 //! overhang an edge but can never leave the frame.
@@ -44,8 +44,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::{editor_timeline::TrackKind, editor_window::EditorWindow, i18n::t};
-use cap_project::{CameraXPosition, CameraYPosition, OverlayTrackKind, SceneMode, XY};
-use cap_rendering::FrameLayout;
+use frameever_project::{CameraXPosition, CameraYPosition, OverlayTrackKind, SceneMode, XY};
+use frameever_rendering::FrameLayout;
 use gpui::{
     AnyElement, Bounds, Context, CursorStyle, FontWeight, Hsla, InteractiveElement, IntoElement,
     MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, SharedString,
@@ -361,7 +361,7 @@ fn overlay_nudge_center(rect: NormRect, direction: (f64, f64), shift: bool) -> X
     }
 }
 
-fn overlay_rect_from_center_size(segment: &cap_project::MaskSegment) -> Option<NormRect> {
+fn overlay_rect_from_center_size(segment: &frameever_project::MaskSegment) -> Option<NormRect> {
     Some(NormRect {
         x: segment.center.x - segment.size.x / 2.,
         y: segment.center.y - segment.size.y / 2.,
@@ -1117,7 +1117,7 @@ impl EditorWindow {
     fn write_canvas_style(
         &mut self,
         group: crate::editor_sidebar::StyleGroup,
-        change: impl FnOnce(&mut cap_project::ProjectConfiguration) -> bool,
+        change: impl FnOnce(&mut frameever_project::ProjectConfiguration) -> bool,
         cx: &mut Context<Self>,
     ) {
         use crate::editor_sidebar::StyleGroup;

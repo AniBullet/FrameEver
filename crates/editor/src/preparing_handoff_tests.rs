@@ -21,7 +21,7 @@ fn snapshot(position: f64, playing: bool) -> PreparingPlaybackSnapshot {
 fn completed() -> CompletedAudioHandoff {
     let meta = crate::completed_audio::tests::metadata();
     let count = match meta.studio_meta().unwrap() {
-        cap_project::StudioRecordingMeta::MultipleSegments { inner } => inner.segments.len(),
+        frameever_project::StudioRecordingMeta::MultipleSegments { inner } => inner.segments.len(),
         _ => panic!("Expected test segments"),
     };
     CompletedAudioHandoff::from_completed_tracks(&meta, &meta, vec![Default::default(); count])

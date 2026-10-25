@@ -14,7 +14,7 @@ pub(crate) fn presentation_frame(snapshot: &PreparingPlaybackSnapshot, fps: u32)
         })
 }
 
-pub(crate) type CompletedTrackIdentity = Vec<[Option<Weak<cap_audio::DecodedAudio>>; 2]>;
+pub(crate) type CompletedTrackIdentity = Vec<[Option<Weak<frameever_audio::DecodedAudio>>; 2]>;
 
 pub(crate) fn completed_track_identity(
     tracks: &[crate::completed_audio::CompletedAudioSegment],

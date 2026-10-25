@@ -6,7 +6,7 @@ use crate::{
     },
 };
 use anyhow::{Context, anyhow};
-use cap_enc_ffmpeg::{
+use frameever_enc_ffmpeg::{
     aac::AACEncoder,
     dash_audio::{DashAudioSegmentEncoder, DashAudioSegmentEncoderConfig},
     fragmented_audio::{FinishError as FragmentedAudioFinishError, FragmentedAudioFile},
@@ -16,8 +16,8 @@ use cap_enc_ffmpeg::{
     segmented_audio::SegmentedAudioEncoder,
     segmented_stream::{SegmentCompletedEvent, SegmentedVideoEncoder, SegmentedVideoEncoderConfig},
 };
-use cap_media_info::{AudioInfo, VideoInfo};
-use cap_timestamp::Timestamp;
+use frameever_media_info::{AudioInfo, VideoInfo};
+use frameever_timestamp::Timestamp;
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex, atomic::AtomicBool, mpsc::sync_channel},
@@ -59,8 +59,8 @@ impl Muxer for Mp4Muxer {
     async fn setup(
         _: Self::Config,
         output_path: std::path::PathBuf,
-        video_config: Option<cap_media_info::VideoInfo>,
-        audio_config: Option<cap_media_info::AudioInfo>,
+        video_config: Option<frameever_media_info::VideoInfo>,
+        audio_config: Option<frameever_media_info::AudioInfo>,
         _: Arc<AtomicBool>,
         _: &mut TaskPool,
     ) -> anyhow::Result<Self>
@@ -904,7 +904,7 @@ mod tests {
         FFmpegVideoFrame, FrameDropTracker, VideoFrame, send_segmented_frame,
         send_segmented_frame_with_timeout,
     };
-    use cap_timestamp::Timestamp;
+    use frameever_timestamp::Timestamp;
     use std::time::Instant;
 
     #[test]

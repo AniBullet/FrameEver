@@ -27,7 +27,7 @@
 //!   before its start and out over `transition_out` before its end; fades
 //!   are not checked.
 
-use cap_project::{ProjectConfiguration, RecordingMeta, SceneMode, StudioRecordingMeta};
+use frameever_project::{ProjectConfiguration, RecordingMeta, SceneMode, StudioRecordingMeta};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -209,8 +209,10 @@ impl ReferenceModel {
             if transition.duration.is_finite() && transition.duration > 0.0 && max >= MIN_TRANSITION
             {
                 segments[k].transition_in = transition.duration.clamp(MIN_TRANSITION, max);
-                segments[k].crossfade =
-                    matches!(transition.kind, cap_project::ClipTransitionType::CrossFade);
+                segments[k].crossfade = matches!(
+                    transition.kind,
+                    frameever_project::ClipTransitionType::CrossFade
+                );
             }
         }
         let mut output_starts = Vec::with_capacity(segments.len());

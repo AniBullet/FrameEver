@@ -378,7 +378,7 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
             let display = scap_targets::Display::get_containing_cursor()
                 .unwrap_or_else(scap_targets::Display::primary);
             crate::screenshot::take_screenshot(
-                cap_recording::sources::screen_capture::ScreenCaptureTarget::Display {
+                frameever_recording::sources::screen_capture::ScreenCaptureTarget::Display {
                     id: display.id(),
                 },
                 cx,
@@ -424,7 +424,7 @@ fn set_mode(mode: Mode, cx: &mut App) {
 
 /// `handle_previous_item_click`.
 fn open_previous_item(path: PathBuf, cx: &mut App) {
-    use cap_project::{RecordingMeta, RecordingMetaInner};
+    use frameever_project::{RecordingMeta, RecordingMetaInner};
 
     let screenshots_dir = library::screenshots_dir();
     let is_screenshot = path.extension().and_then(|ext| ext.to_str()) == Some("cap")

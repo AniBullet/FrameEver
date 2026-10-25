@@ -1,4 +1,4 @@
-use cap_project::{CursorMeta, XY};
+use frameever_project::{CursorMeta, XY};
 use std::{
     collections::HashMap,
     sync::{Arc, OnceLock},

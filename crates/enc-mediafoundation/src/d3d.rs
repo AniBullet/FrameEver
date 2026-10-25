@@ -42,7 +42,7 @@ fn create_d3d_device_on_pinned_adapter(
     flags: D3D11_CREATE_DEVICE_FLAG,
     device: *mut Option<ID3D11Device>,
 ) -> std::result::Result<String, String> {
-    let selected = cap_d3d_adapter::select_capture_adapter(None)?;
+    let selected = frameever_d3d_adapter::select_capture_adapter(None)?;
 
     unsafe {
         D3D11CreateDevice(

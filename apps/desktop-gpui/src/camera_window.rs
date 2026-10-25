@@ -12,7 +12,7 @@
 //! primitive) -- no CPU pixel copies and no sprite-atlas uploads on the frame
 //! path. With background blur on, the converted surface takes a detour
 //! through the [`crate::camera_blur`] worker -- the same
-//! `cap_camera_effects::BlurProcessor` the recording's project config points
+//! `frameever_camera_effects::BlurProcessor` the recording's project config points
 //! the editor at -- and the blurred surface is painted instead.
 //!
 //! Invalidation mirrors the editor window: each frame notifies only the
@@ -421,7 +421,7 @@ mod frame {
         /// target size or the mirror toggle changes.
         pub fn convert(
             this: &mut Option<Self>,
-            frame: &cap_recording::NativeCameraFrame,
+            frame: &frameever_recording::NativeCameraFrame,
             max_dims: Option<(usize, usize)>,
             mirrored: bool,
         ) -> Option<Converted> {
@@ -611,7 +611,7 @@ fn overlay_metrics(size: f32) -> OverlayMetrics {
 
 /// `camera_preview_error_message` (`lib.rs:755-774`) plus the fixed title
 /// from `emit_camera_preview_error` (`lib.rs:776-784`). The error strings
-/// come from the same `cap-recording` camera errors the Tauri app matches on.
+/// come from the same `frameever-recording` camera errors the Tauri app matches on.
 /// The camera is waiting on the macOS prompt: asked through the pickers, or
 /// a start in flight while macOS has not decided yet.
 fn awaiting_camera_access(cx: &gpui::App) -> bool {
@@ -873,7 +873,7 @@ fn snapshot_bgra(
                 pixels
             }
         } else {
-            cap_gpui_kernels::frame::downsample_nearest(
+            frameever_gpui_kernels::frame::downsample_nearest(
                 data,
                 width,
                 height,
@@ -1318,7 +1318,7 @@ impl Render for CameraPreviewView {
 
 #[cfg(not(target_os = "macos"))]
 pub struct CameraPreviewFrame {
-    pub timestamp: cap_timestamp::Timestamp,
+    pub timestamp: frameever_timestamp::Timestamp,
     pub image: Arc<gpui::RenderImage>,
     pub dims: (usize, usize),
 }
@@ -1401,7 +1401,7 @@ impl CameraWindow {
     pub(crate) fn studio_snapshot(
         &self,
         window: &Window,
-        target: &cap_recording::screen_capture::ScreenCaptureTarget,
+        target: &frameever_recording::screen_capture::ScreenCaptureTarget,
     ) -> crate::recording::StudioCameraSnapshot {
         let placement = (|| {
             if self.inline {
@@ -1424,7 +1424,7 @@ impl CameraWindow {
                 let toolbar = f64::from(CAMERA_TOOLBAR_HEIGHT * window.scale_factor());
                 [x, y + toolbar, width, height - toolbar]
             };
-            cap_recording::camera_placement::recording_camera_placement(target, bounds)
+            frameever_recording::camera_placement::recording_camera_placement(target, bounds)
         })();
         crate::recording::StudioCameraSnapshot {
             blur: self.state.background_blur,
@@ -1613,7 +1613,7 @@ impl CameraWindow {
     /// explicit ask (unit-2 finding).
     pub fn frame_arrived(
         &mut self,
-        #[cfg(target_os = "macos")] frame: cap_recording::NativeCameraFrame,
+        #[cfg(target_os = "macos")] frame: frameever_recording::NativeCameraFrame,
         #[cfg(not(target_os = "macos"))] frame: CameraPreviewFrame,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1749,15 +1749,15 @@ impl CameraWindow {
     }
 
     #[cfg(target_os = "macos")]
-    fn active_blur_mode(&self) -> Option<cap_camera_effects::BlurMode> {
+    fn active_blur_mode(&self) -> Option<frameever_camera_effects::BlurMode> {
         if self.effect_failures.blur || camera_blur::is_low_spec_preview() {
             return None;
         }
         match self.state.background_blur {
             BlurMode::Off => None,
-            BlurMode::Light => Some(cap_camera_effects::BlurMode::Light),
-            BlurMode::Heavy => Some(cap_camera_effects::BlurMode::Heavy),
-            BlurMode::Remove => Some(cap_camera_effects::BlurMode::Remove),
+            BlurMode::Light => Some(frameever_camera_effects::BlurMode::Light),
+            BlurMode::Heavy => Some(frameever_camera_effects::BlurMode::Heavy),
+            BlurMode::Remove => Some(frameever_camera_effects::BlurMode::Remove),
         }
     }
 

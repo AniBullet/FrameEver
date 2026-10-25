@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use cap_project::XY;
+use frameever_project::XY;
 use wgpu::{include_wgsl, util::DeviceExt};
 
 use super::cursor::{CursorPlacement, cursor_height_px};

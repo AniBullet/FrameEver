@@ -25,7 +25,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cap_project::{Crop, XY};
+use frameever_project::{Crop, XY};
 use gpui::{
     AnyElement, AppContext as _, Bounds, Context, CursorStyle, Entity, FontWeight, Hsla,
     InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
@@ -1123,7 +1123,7 @@ impl ScreenshotEditorWindow {
 /// can be up to 768 logical (1536 physical) pixels wide and the load path
 /// already refused anything past `MAX_DIMENSION`.
 fn decode_crop_image(path: Option<&Path>) -> Option<Arc<RenderImage>> {
-    let decoded = cap_gpui_kernels::codec::open_image(path?).ok()?;
+    let decoded = frameever_gpui_kernels::codec::open_image(path?).ok()?;
     Some(crate::library::rgba_to_render_image(decoded.into_rgba8()))
 }
 

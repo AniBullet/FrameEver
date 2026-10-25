@@ -354,7 +354,7 @@ fn shared_d3d_device() -> anyhow::Result<&'static ID3D11Device> {
     static DEVICE: OnceLock<Option<ID3D11Device>> = OnceLock::new();
 
     let device = DEVICE.get_or_init(|| {
-        let selected = match cap_d3d_adapter::select_capture_adapter(None) {
+        let selected = match frameever_d3d_adapter::select_capture_adapter(None) {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!(error = %e, "screenshot: no physical hardware adapter, fast path disabled");

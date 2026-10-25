@@ -10,8 +10,8 @@ use std::{
 };
 
 use anyhow::anyhow;
-use cap_media_info::{AudioInfo, Pixel, Sample, Type, VideoInfo};
-use cap_recording::{
+use frameever_media_info::{AudioInfo, Pixel, Sample, Type, VideoInfo};
+use frameever_recording::{
     AudioFrame, ChannelAudioSource, ChannelAudioSourceConfig, ChannelVideoSource,
     ChannelVideoSourceConfig, OutputPipeline,
     ffmpeg::{
@@ -20,7 +20,7 @@ use cap_recording::{
         SegmentedVideoMuxerConfig,
     },
 };
-use cap_timestamp::{Timestamp, Timestamps};
+use frameever_timestamp::{Timestamp, Timestamps};
 
 use super::{
     harness::{Ctx, Probe, Verdict},
@@ -396,11 +396,11 @@ async fn run_ffmpeg_video(
 #[cfg(target_os = "macos")]
 mod mac {
     use super::*;
-    use cap_recording::{
+    use cidre::{arc, cf, cm, cv};
+    use frameever_recording::{
         MacOSFragmentedM4SMuxer, MacOSFragmentedM4SMuxerConfig, OutOfProcessFragmentedM4SMuxer,
         OutOfProcessFragmentedM4SMuxerConfig, screen_capture,
     };
-    use cidre::{arc, cf, cm, cv};
 
     pub fn cv_format(format: Pixel) -> cv::PixelFormat {
         match format {
@@ -471,8 +471,8 @@ mod mac {
             }
             _ => {
                 builder
-                    .build::<cap_recording::AVFoundationMp4Muxer>(
-                        cap_recording::AVFoundationMp4MuxerConfig {
+                    .build::<frameever_recording::AVFoundationMp4Muxer>(
+                        frameever_recording::AVFoundationMp4MuxerConfig {
                             output_height: None,
                             instant_mode: false,
                             ultra_quality: false,
@@ -612,15 +612,17 @@ fn video_probes(out: &mut Vec<Probe>) {
                     let Ok(sample) = mac::sample(format, w, h, 30, 0) else {
                         return Ok(Verdict::Ok("no pixel buffer of this shape".into()));
                     };
-                    Ok(match cap_camera_ffmpeg::sample_buf_as_ffmpeg(&sample) {
-                        Ok(frame) => Verdict::Ok(format!(
-                            "{}x{} {:?}",
-                            frame.width(),
-                            frame.height(),
-                            frame.format()
-                        )),
-                        Err(e) => Verdict::rejected(e),
-                    })
+                    Ok(
+                        match frameever_camera_ffmpeg::sample_buf_as_ffmpeg(&sample) {
+                            Ok(frame) => Verdict::Ok(format!(
+                                "{}x{} {:?}",
+                                frame.width(),
+                                frame.height(),
+                                frame.format()
+                            )),
+                            Err(e) => Verdict::rejected(e),
+                        },
+                    )
                 }));
             }
         }
@@ -1093,7 +1095,7 @@ fn mic_bytes(c: &MicCallback, index: usize) -> Vec<u8> {
 }
 
 async fn run_mic(ctx: &Ctx, script: &MicScript, fragmented: bool) -> anyhow::Result<Verdict> {
-    use cap_recording::feeds::microphone::synthetic::SyntheticMicrophone;
+    use frameever_recording::feeds::microphone::synthetic::SyntheticMicrophone;
     let mic = SyntheticMicrophone::spawn("Cap Chaos Microphone", script.rate, script.channels);
     let lock = match mic.lock().await {
         Ok(lock) => Arc::new(lock),
@@ -1106,7 +1108,7 @@ async fn run_mic(ctx: &Ctx, script: &MicScript, fragmented: bool) -> anyhow::Res
         ctx.path("audio-input.ogg")
     };
     let builder = OutputPipeline::builder(output.clone())
-        .with_audio_source::<cap_recording::sources::Microphone>(lock.clone())
+        .with_audio_source::<frameever_recording::sources::Microphone>(lock.clone())
         .with_timestamps(timestamps);
     let built = if fragmented {
         builder

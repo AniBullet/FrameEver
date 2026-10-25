@@ -40,7 +40,7 @@ mod playback_follow;
 
 pub use playback_follow::PlaybackFollow;
 
-use cap_project::{
+use frameever_project::{
     CaptionTrackSegment, MaskKind, OverlayTrack, OverlayTrackKind, ProjectConfiguration, SceneMode,
     TextLayout, TimelineConfiguration, ZoomMode,
 };
@@ -535,7 +535,7 @@ fn visible_box(start: f64, end: f64, transform: Transform, secs_per_pixel: f64) 
 // ---------------------------------------------------------------------------
 
 pub fn waveform_peaks(blocks: &[&[f32]], channels: u16) -> Vec<f32> {
-    cap_gpui_kernels::waveform::peaks(blocks, channels)
+    frameever_gpui_kernels::waveform::peaks(blocks, channels)
 }
 
 /// `WAVEFORM_MIN_DB` / `WAVEFORM_SAMPLE_STEP` / `WAVEFORM_MUTE_DB`
@@ -5097,7 +5097,7 @@ pub(crate) fn render_preparing_timeline(
     model: &TimelineModel,
     view: TimelineView,
     viewport_width: f32,
-    progress: Option<&cap_editor::PreparingEditorProgress>,
+    progress: Option<&frameever_editor::PreparingEditorProgress>,
 ) -> AnyElement {
     let known_duration = progress.and_then(|progress| progress.total_duration);
     let playable_until = progress.map_or(0.0, |progress| progress.playable_until);

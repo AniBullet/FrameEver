@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use cap_project::XY;
+use frameever_project::XY;
 use glyphon::{
     Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Weight,
@@ -618,12 +618,12 @@ impl KeyboardLayer {
 }
 
 struct ActiveKeyboardSegment<'a> {
-    segment: &'a cap_project::KeyboardTrackSegment,
+    segment: &'a frameever_project::KeyboardTrackSegment,
 }
 
 fn find_active_keyboard_segment<'a>(
     time: f64,
-    segments: &'a [cap_project::KeyboardTrackSegment],
+    segments: &'a [frameever_project::KeyboardTrackSegment],
     default_fade_duration: f32,
 ) -> Option<ActiveKeyboardSegment<'a>> {
     segments
@@ -644,7 +644,10 @@ fn find_active_keyboard_segment<'a>(
         .map(|segment| ActiveKeyboardSegment { segment })
 }
 
-fn build_visible_text(segment: &cap_project::KeyboardTrackSegment, current_time: f64) -> String {
+fn build_visible_text(
+    segment: &frameever_project::KeyboardTrackSegment,
+    current_time: f64,
+) -> String {
     if segment.keys.is_empty() {
         return segment.display_text.clone();
     }
@@ -734,7 +737,7 @@ mod tests {
 
     #[test]
     fn new_typing_is_not_hidden_by_the_previous_words_linger() {
-        let segment = |id: &str, start: f64, end: f64| -> cap_project::KeyboardTrackSegment {
+        let segment = |id: &str, start: f64, end: f64| -> frameever_project::KeyboardTrackSegment {
             serde_json::from_value(
                 serde_json::json!({"id":id,"start":start,"end":end,"displayText":id}),
             )
@@ -754,12 +757,12 @@ mod tests {
 
     #[test]
     fn shortcut_segments_show_the_full_combo() {
-        let segment = cap_project::KeyboardTrackSegment {
+        let segment = frameever_project::KeyboardTrackSegment {
             id: "kb-1".to_string(),
             start: 1.0,
             end: 1.8,
             display_text: "⌘T".to_string(),
-            keys: vec![cap_project::KeyPressDisplay {
+            keys: vec![frameever_project::KeyPressDisplay {
                 key: "t".to_string(),
                 time_offset: 0.0,
             }],
@@ -839,7 +842,7 @@ mod tests {
 
 #[cfg(test)]
 mod gpu_tests {
-    use cap_project::{
+    use frameever_project::{
         CursorEvents, KeyPressDisplay, KeyboardData, KeyboardSettings, KeyboardTrackSegment,
         ProjectConfiguration, RecordingMeta, RecordingMetaInner, StudioRecordingMeta,
         TimelineConfiguration, XY,

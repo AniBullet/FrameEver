@@ -4,8 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_editor::{EditorFrameOutput, EditorInstance, FrameLayout};
-use cap_project::XY;
+use frameever_editor::{EditorFrameOutput, EditorInstance, FrameLayout};
+use frameever_project::XY;
 
 const FPS: u32 = 60;
 const MOUSE_HZ: f64 = 120.0;

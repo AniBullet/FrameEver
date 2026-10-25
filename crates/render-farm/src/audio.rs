@@ -1,8 +1,8 @@
 use crate::{project::LoadedProject, video::base64_encode};
 use anyhow::{Context, Result, anyhow, bail};
-use cap_editor::AudioRenderer;
-use cap_project::StudioRecordingMeta;
 use ffmpeg::{ChannelLayout, format::Sample, format::sample::Type, frame};
+use frameever_editor::AudioRenderer;
+use frameever_project::StudioRecordingMeta;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
@@ -71,7 +71,7 @@ pub async fn render(request: AudioRequest) -> Result<AudioResult> {
     let render_end_secs = (end + 2 * PACKET_SAMPLES) as f64 / SAMPLE_RATE as f64;
     let windows = source_windows(&project, input_start_secs, render_end_secs);
     let segments = load_audio_segments(&project, &windows).await?;
-    let music = cap_editor::load_music_tracks_uncached(&project.config, &project.path);
+    let music = frameever_editor::load_music_tracks_uncached(&project.config, &project.path);
     timings.decode_ms = phase.elapsed().as_millis() as u64;
 
     let phase = Instant::now();
@@ -269,7 +269,7 @@ fn source_windows(project: &LoadedProject, from: f64, to: f64) -> Vec<Option<(f6
 async fn load_audio_segments(
     project: &LoadedProject,
     windows: &[Option<(f64, f64)>],
-) -> Result<Vec<cap_editor::AudioSegment>> {
+) -> Result<Vec<frameever_editor::AudioSegment>> {
     let legacy_log = std::fs::read_to_string(
         project
             .recording_meta
@@ -278,7 +278,7 @@ async fn load_audio_segments(
     )
     .ok();
     let repairs =
-        cap_editor::segment_audio_timing_repairs(&project.studio_meta, legacy_log.as_deref());
+        frameever_editor::segment_audio_timing_repairs(&project.studio_meta, legacy_log.as_deref());
     let tracks: Vec<(Option<PathBuf>, Option<PathBuf>)> = match &project.studio_meta {
         StudioRecordingMeta::SingleSegment { segment } => vec![(
             segment
@@ -316,7 +316,7 @@ async fn load_audio_segments(
             .map(|audio| audio.duration);
         let mic = load_track(mic, "mic", window, mic_duration).await?;
         let system = load_track(system, "system audio", window, system_duration).await?;
-        segments.push(cap_editor::audio_segment_from_decoded(
+        segments.push(frameever_editor::audio_segment_from_decoded(
             mic,
             system,
             repairs.get(index).copied().unwrap_or_default(),
@@ -335,7 +335,7 @@ async fn load_track(
     label: &str,
     window: Option<(f64, f64)>,
     duration: Option<f64>,
-) -> Result<Option<std::sync::Arc<cap_audio::DecodedAudio>>> {
+) -> Result<Option<std::sync::Arc<frameever_audio::DecodedAudio>>> {
     let Some(path) = path else {
         return Ok(None);
     };
@@ -345,9 +345,12 @@ async fn load_track(
     let label = label.to_string();
     tokio::task::spawn_blocking(move || {
         let rate = SAMPLE_RATE as f64;
-        let profile =
-            cap_audio::AudioData::from_file_range(&path, 0, cap_audio::VOICE_PROFILE_SAMPLES)
-                .map_err(|error| anyhow!("{label} profile: {error}"))?;
+        let profile = frameever_audio::AudioData::from_file_range(
+            &path,
+            0,
+            frameever_audio::VOICE_PROFILE_SAMPLES,
+        )
+        .map_err(|error| anyhow!("{label} profile: {error}"))?;
         let start = (from * rate) as usize;
         let duration_samples = duration.map(|seconds| (seconds * rate).round() as usize);
         // Near the end of the recording, decode through EOF so the track keeps
@@ -358,7 +361,7 @@ async fn load_track(
         } else {
             (to * rate) as usize
         };
-        let section = cap_audio::AudioData::from_file_range(&path, start, end)
+        let section = frameever_audio::AudioData::from_file_range(&path, start, end)
             .map_err(|error| anyhow!("{label} window: {error}"))?;
         let channels = section.channels().max(profile.channels()) as usize;
         let section_start = section.source_start_sample();
@@ -370,7 +373,7 @@ async fn load_track(
         }
         .max(profile.sample_count());
         let mut samples = vec![0.0f32; total * channels];
-        let copy = |samples: &mut [f32], data: &cap_audio::AudioData| {
+        let copy = |samples: &mut [f32], data: &frameever_audio::AudioData| {
             let offset = data.source_start_sample() * channels;
             let source = data.samples();
             if data.channels() as usize == channels {
@@ -379,11 +382,13 @@ async fn load_track(
         };
         copy(&mut samples, &profile);
         copy(&mut samples, &section);
-        let data =
-            std::sync::Arc::new(cap_audio::AudioData::from_samples(samples, channels as u16));
-        Ok(Some(std::sync::Arc::new(cap_audio::DecodedAudio::from(
-            data,
-        ))))
+        let data = std::sync::Arc::new(frameever_audio::AudioData::from_samples(
+            samples,
+            channels as u16,
+        ));
+        Ok(Some(std::sync::Arc::new(
+            frameever_audio::DecodedAudio::from(data),
+        )))
     })
     .await?
 }

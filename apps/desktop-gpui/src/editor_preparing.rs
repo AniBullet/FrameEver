@@ -9,21 +9,21 @@ use std::{
     time::Instant,
 };
 
-use cap_editor::{
+use frameever_editor::{
     EditorFrameFormat, EditorFrameOutput, PreparingFrameRequest, PreparingPlaybackExit,
     PreparingPlaybackOptions, PreparingPlaybackSession, PreparingPlaybackStopHandle,
     PreparingPreviewInput, PreparingPreviewOptions, PreparingPreviewSegment,
 };
-use cap_project::{CursorEvents, XY};
+use frameever_project::{CursorEvents, XY};
 
 mod audio;
 pub(crate) mod presentation;
 
-use cap_recording::recovery::{
+use frameever_recording::recovery::{
     PreparingSidecarKind, PreparingStudioIdentity, PreparingStudioSources, PreparingStudioState,
     PreparingVideoTrack,
 };
-use cap_rendering::{
+use frameever_rendering::{
     FrameLayout, FrozenRecordedCursorAssets, ManagedSegmentVideoInput, ManagedVideoTrackInput,
 };
 use futures_util::{
@@ -53,11 +53,12 @@ struct ConsumerControl {
     accepts_frames: AtomicBool,
     started: Instant,
     updates: watch::Sender<Option<PreparingUpdate>>,
-    commands: tokio::sync::mpsc::Sender<(PreparingCommand, cap_editor::PreparingPlaybackIntent)>,
+    commands:
+        tokio::sync::mpsc::Sender<(PreparingCommand, frameever_editor::PreparingPlaybackIntent)>,
     completed: Mutex<Option<PreparingPlaybackExit>>,
     discarded: AtomicBool,
     admitted_identity: Mutex<Option<PreparingStudioIdentity>>,
-    handoff: watch::Sender<Option<cap_editor::PreparingPlaybackHandoff>>,
+    handoff: watch::Sender<Option<frameever_editor::PreparingPlaybackHandoff>>,
 }
 
 impl ConsumerControl {
@@ -105,8 +106,8 @@ pub(crate) struct PreparingUpdate {
     pub(crate) identity: PreparingStudioIdentity,
     pub(crate) sequence: u64,
     pub(crate) seed: Arc<PreparingTimelineSeed>,
-    pub(crate) progress: cap_editor::PreparingEditorProgress,
-    pub(crate) playback: cap_editor::PreparingPlaybackState,
+    pub(crate) progress: frameever_editor::PreparingEditorProgress,
+    pub(crate) playback: frameever_editor::PreparingPlaybackState,
 }
 
 #[derive(Clone, Copy)]
@@ -152,7 +153,7 @@ impl PreparingConsumer {
 
     pub(crate) fn accepts_status(&self, update: &PreparingUpdate) -> bool {
         self.control.accepts_status(&update.epoch, &update.identity)
-            || (update.progress.phase == cap_editor::PreparingEditorPhase::Unavailable
+            || (update.progress.phase == frameever_editor::PreparingEditorPhase::Unavailable
                 && !self.control.discarded.load(Ordering::Acquire)
                 && self.control.epoch.same(&update.epoch)
                 && self
@@ -198,7 +199,7 @@ impl PreparingJoined {
         self.epoch.same(&consumer.control.epoch)
     }
 
-    pub(crate) fn take_audio(&self) -> Option<cap_editor::CompletedAudioHandoff> {
+    pub(crate) fn take_audio(&self) -> Option<frameever_editor::CompletedAudioHandoff> {
         self.exit
             .as_ref()
             .and_then(PreparingPlaybackExit::take_completed_audio)
@@ -234,7 +235,9 @@ impl PreparingJoin {
         }
     }
 
-    pub(crate) async fn continuing_handoff(&self) -> Option<cap_editor::PreparingPlaybackHandoff> {
+    pub(crate) async fn continuing_handoff(
+        &self,
+    ) -> Option<frameever_editor::PreparingPlaybackHandoff> {
         let control = self.control.upgrade()?;
         let mut handoff = control.handoff.subscribe();
         loop {
@@ -311,9 +314,9 @@ struct PreparingRunner {
     frames: flume::Sender<PreparingFrame>,
     stop: Option<PreparingPlaybackStopHandle>,
     resolution: XY<u32>,
-    audio_output: Arc<cap_editor::AudioOutput>,
+    audio_output: Arc<frameever_editor::AudioOutput>,
     commands: Option<
-        tokio::sync::mpsc::Receiver<(PreparingCommand, cap_editor::PreparingPlaybackIntent)>,
+        tokio::sync::mpsc::Receiver<(PreparingCommand, frameever_editor::PreparingPlaybackIntent)>,
     >,
     command_task: Option<tokio::task::JoinHandle<()>>,
     frame_discard: flume::Receiver<PreparingFrame>,
@@ -322,7 +325,7 @@ struct PreparingRunner {
 pub(crate) fn spawn(
     finalization: StudioFinalization,
     resolution: XY<u32>,
-    audio_output: Arc<cap_editor::AudioOutput>,
+    audio_output: Arc<frameever_editor::AudioOutput>,
     runtime: &tokio::runtime::Handle,
 ) -> (
     PreparingConsumer,
@@ -394,7 +397,7 @@ impl PreparingRunner {
             None
         };
         if let Some(exit) = &exit {
-            if exit.snapshot.progress.phase == cap_editor::PreparingEditorPhase::Unavailable {
+            if exit.snapshot.progress.phase == frameever_editor::PreparingEditorPhase::Unavailable {
                 let latest = self.control.updates.borrow().clone();
                 if let Some(mut update) = latest {
                     update.sequence = progress_sequence(exit.snapshot.sequence)?;
@@ -491,10 +494,10 @@ impl PreparingRunner {
                 .recording_meta
                 .studio_meta()
                 .is_some_and(|studio| match studio {
-                    cap_project::StudioRecordingMeta::SingleSegment { segment } => {
+                    frameever_project::StudioRecordingMeta::SingleSegment { segment } => {
                         segment.camera.is_some()
                     }
-                    cap_project::StudioRecordingMeta::MultipleSegments { inner, .. } => inner
+                    frameever_project::StudioRecordingMeta::MultipleSegments { inner, .. } => inner
                         .segments
                         .iter()
                         .any(|segment| segment.camera.is_some()),
@@ -512,11 +515,11 @@ impl PreparingRunner {
             identity: observer.identity().clone(),
             sequence: 1,
             seed: seed.clone(),
-            progress: cap_editor::PreparingEditorProgress {
+            progress: frameever_editor::PreparingEditorProgress {
                 total_duration,
                 ..Default::default()
             },
-            playback: cap_editor::PreparingPlaybackState::default(),
+            playback: frameever_editor::PreparingPlaybackState::default(),
         }));
         let control = self.control.clone();
         let identity = observer.identity().clone();
@@ -672,7 +675,7 @@ fn adapt(
     )?;
     if project.clips.is_empty() {
         project.clips =
-            cap_editor::initial_clip_configuration(&recording_meta.project_path, studio);
+            frameever_editor::initial_clip_configuration(&recording_meta.project_path, studio);
     }
     let descriptors = live.segments().ok_or_else(ended)?;
     let pointer_ids = studio.pointer_cursor_ids();
@@ -711,7 +714,7 @@ fn adapt(
                 is_live: || !*control.cancelled.borrow() && sources.live().is_some(),
                 remaining: cursor_budget,
             };
-            let cursor = cap_gpui_kernels::codec::read_cursor_events(&mut reader)?;
+            let cursor = frameever_gpui_kernels::codec::read_cursor_events(&mut reader)?;
             cursor_budget = reader.remaining;
             cursor
         } else {
@@ -719,7 +722,7 @@ fn adapt(
         };
         cursor.stabilize_short_lived_cursor_shapes(
             (!pointer_ids.is_empty()).then_some(&pointer_ids),
-            cap_project::cursor::SHORT_CURSOR_SHAPE_DEBOUNCE_MS,
+            frameever_project::cursor::SHORT_CURSOR_SHAPE_DEBOUNCE_MS,
         );
         segments.push(PreparingPreviewSegment {
             video: ManagedSegmentVideoInput::new(
@@ -855,7 +858,7 @@ mod tests {
                 is_live: || true,
                 remaining,
             };
-            let result = cap_gpui_kernels::codec::read_cursor_events(&mut reader);
+            let result = frameever_gpui_kernels::codec::read_cursor_events(&mut reader);
             assert_eq!(result.is_ok(), remaining == bytes.len() as u64);
         }
     }
@@ -881,7 +884,9 @@ mod tests {
         let (consumer, joined, _frames) = spawn(
             finalization,
             XY::new(320, 240),
-            Arc::new(cap_editor::AudioOutput::new_headless(Box::new(|_, _| {}))),
+            Arc::new(frameever_editor::AudioOutput::new_headless(Box::new(
+                |_, _| {},
+            ))),
             &tokio::runtime::Handle::current(),
         );
         let retained = joined.clone();
@@ -959,7 +964,9 @@ mod tests {
         let (consumer, joined, _frames) = spawn(
             finalization,
             XY::new(320, 240),
-            Arc::new(cap_editor::AudioOutput::new_headless(Box::new(|_, _| {}))),
+            Arc::new(frameever_editor::AudioOutput::new_headless(Box::new(
+                |_, _| {},
+            ))),
             &tokio::runtime::Handle::current(),
         );
         assert!(!consumer.command(PreparingCommand {

@@ -146,7 +146,7 @@ class CapbenchTests(unittest.TestCase):
 
     def test_startup_check_finds_missing_helpers(self):
         args = SimpleNamespace(fixture=".", bin_dir=str(Path(__file__).parent), screen=None, animate=False, affinity=None)
-        with self.assertRaisesRegex(FileNotFoundError, "cap-test"):
+        with self.assertRaisesRegex(FileNotFoundError, "frameever-test"):
             capbench.BENCHES["record-studio-60"]["requires"](capbench.Context(args))
 
     def test_startup_metrics(self):

@@ -5,14 +5,14 @@ mod benchmark {
         time::{Duration, Instant},
     };
 
-    use cap_enc_ffmpeg::fragmented_audio::FragmentedAudioFile;
-    use cap_media_info::AudioInfo;
     use ffmpeg::{
         ChannelLayout,
         codec::context,
         format::{self, Sample, sample::Type},
         frame, media, software,
     };
+    use frameever_enc_ffmpeg::fragmented_audio::FragmentedAudioFile;
+    use frameever_media_info::AudioInfo;
 
     const RATE: u32 = 48_000;
     const FRAME_SAMPLES: usize = 960;

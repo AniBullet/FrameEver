@@ -1,4 +1,4 @@
-# cap-desktop-gpui
+# frameever-desktop-gpui
 
 Cap's desktop app, rewritten in [gpui](https://www.gpui.rs/). No Tauri, no
 webview — the whole UI is drawn by gpui and every pixel is Rust.
@@ -17,8 +17,8 @@ cd apps/desktop-gpui
 cargo run
 ```
 
-`RUST_LOG=cap_gpui=debug cargo run` for logs — note the filter is `cap_gpui`
-(the binary), not `cap_desktop_gpui` (the package).
+`RUST_LOG=frameever_gpui=debug cargo run` for logs — note the filter is `frameever_gpui`
+(the binary), not `frameever_desktop_gpui` (the package).
 
 The first build takes about 11 minutes and 6.4 GB of `target/`: gpui pulls its
 own revisions of the wgpu and font stacks. After that, an edit rebuilds only
@@ -27,9 +27,9 @@ the app crate, at `opt-level = 0` and incrementally, in about 22s with plain
 1.6 GB of `target/debug/incremental`. Dependencies build at `opt-level = 2`.
 The app crate and its dependencies carry line-table debug info, so breakpoints
 and backtraces keep their lines; for locals in a debugger, build with
-`--config 'profile.dev.package.cap-desktop-gpui.debug=true'`.
+`--config 'profile.dev.package.frameever-desktop-gpui.debug=true'`.
 
-Loops over pixels or samples live in `kernels/` (`cap-gpui-kernels`,
+Loops over pixels or samples live in `kernels/` (`frameever-gpui-kernels`,
 `opt-level = 3`): unoptimised, the editor's frame conversion alone costs 42.7ms
 a frame against 1.0ms, a 23fps preview instead of a 60fps one. That includes
 generic dependency calls over large data — `imageops::resize`, image encoders,
@@ -80,7 +80,7 @@ nearest toolchain file wins, so the Tauri app is unaffected.
 ### How Cap is packaged
 
 `tauri.conf.json` in this directory is a **packaging** config only — nothing
-here links the Tauri runtime. `scripts/bundle-gpui.mjs` builds `cap-gpui`
+here links the Tauri runtime. `scripts/bundle-gpui.mjs` builds `frameever-gpui`
 (`scripts/build-gpui-binary.sh release <target>`), stages it as the main
 binary `Cap`/`Cap.exe`, and runs `tauri bundle` against this crate
 (`TAURI_APP_PATH`). Reusing the bundler keeps every artifact byte-compatible
@@ -96,7 +96,7 @@ with what installed copies of the Tauri app already update through:
 The update to 0.6.1 is therefore installed by the Tauri updater of whatever
 build the user has; it simply lands this app in place.
 
-The bundle carries `cap-muxer` and `cap-cli` only: `cap-exporter` was a
+The bundle carries `frameever-muxer` and `cap-cli` only: `cap-exporter` was a
 byte-identical copy of `cap-cli`, and the self-test now runs `cap-cli`
 directly. Release sidecars are built without debug info and stripped.
 
@@ -152,9 +152,9 @@ Everything below is real, not mocked.
 - **Compact and expanded layouts.** 330×395 and 600×660. Expanding adds section
   headings, turns the capture tiles horizontal with descriptions, widens the
   control rhythm from 8px to 10px, and reveals Recents.
-- **Device enumeration.** Cameras via `cap-camera`, microphones via the Cap
+- **Device enumeration.** Cameras via `frameever-camera`, microphones via the Cap
   `cpal` fork, displays and windows via `scap-targets` — the same crates the
-  recorder uses, so the identities are the ones `cap-recording` expects. Camera
+  recorder uses, so the identities are the ones `frameever-recording` expects. Camera
   rows show the device's best advertised format, microphone rows the config the
   device would actually open with.
 - **Pickers.** Camera, microphone, display and window, each a full-body panel
@@ -191,7 +191,7 @@ Everything below is real, not mocked.
 - **Recents, with real thumbnails.** The expanded window's carousel is the
   real filesystem library: `list_recordings` + `list_screenshots` transcribed
   into `library.rs` (every known recordings folder, `recording-meta.json`
-  parsed by `cap-project`'s own loader, sorted by the bundle's ctime, both
+  parsed by `frameever-project`'s own loader, sorted by the bundle's ctime, both
   lists capped at 9 and merged). The thumbnails are the pre-baked files inside
   each `.cap` — `screenshots/display.jpg` for a recording, the bundle's PNG for
   a screenshot — decoded on the background executor. See below.
@@ -574,7 +574,7 @@ Things that are deliberately different, and why.
 | **No carousel mask, snap or hover lift** | `RecentCarousel`'s edge fade is a scroll-position-driven `mask-image` and the cards are `snap-x snap-proximity`; the card's `hover:-translate-y-0.5` and the thumbnail's `group-hover:scale-[1.025]` are transforms. This gpui rev has neither a mask hook (same gap as the teleprompter vignette) nor a transform. The scroller, the gap, the `pr-8` gutter, the border/shadow hover and the trailing skeletons are all real — the skeletons just do not pulse (`animate-pulse` has no keyframe hook either). |
 | **Thumbnails are downsampled to the card** | `create_screenshot(.., None)` writes `display.jpg` at the display's *native* resolution — 3024×1964 here. The browser scales that per `<img>`; a gpui sprite atlas would hold nine of them whole, so each is resized to 392×224 (the card at 2×) during the same background decode. `ObjectFit::Cover` then crops as `object-cover` does. |
 | **Blur bridges on studio only** | `project_config_from_recording` is the studio arm of `handle_recording_finish`; the instant arm never writes a project config, so neither does this. |
-| **Window filter is duplicated** | The level-0 listability rule is copied from `cap_recording::sources::screen_capture` rather than imported — that crate drags in ffmpeg and the whole encode stack, which this app has no other reason to build. |
+| **Window filter is duplicated** | The level-0 listability rule is copied from `frameever_recording::sources::screen_capture` rather than imported — that crate drags in ffmpeg and the whole encode stack, which this app has no other reason to build. |
 
 ### gpui traps worth knowing
 
@@ -622,7 +622,7 @@ Sizes are the Tauri app's, from Tauri `src-tauri/src/windows.rs`.
 | Recordings overlay | per display | Not started |
 | Mode select | 580×340 | **Done** — the real fixed-size window, opaque `bg-gray-1` with the native traffic lights at their default position, three cards with the selected one's blue border / tint / check badge, main window hidden while it is up and restored on close |
 | Settings | 782×775 (min 780×560) | **Done — General, Recordings** — window shell on the `"settings"` material (radius 26), native traffic lights at (22, 15) — the Tauri `(22, 22)` is a `position_window_controls` inset, not a top-left, resizable with the real min size, sidebar with all twelve pages, the General page in full against the shared Tauri store, and the Recordings page at 1:1: the library scan with real thumbnails, the three tab pills, the search field, mode / clip-count / in-progress / failed badges, the per-row action buttons, `PAGE_SIZE` pagination, both empty states, the 2s poll while a recording is still being written, click-through into the gpui editor, and delete behind a native confirm. The other ten pages are placeholder bodies |
-| Settings → Feedback → Diagnostic Report | — | **Done, with deviations** — the A/V sync self-test driven as a `cap selftest av-sync --progress-json` subprocess (it needs the process main thread gpui owns), a mode segmented control and a Test microphone toggle, live per-stage progress and Cancel, a PASS/WARN/FAIL/INCONCLUSIVE verdict chip with the run's summary, the full `cap_recording::diagnostics` environment report written to `<app data>/diagnostics/` and pruned to five, and Send to Cap / Show File. Upload Logs under Debug Information is live too, now that the app writes a rolling `cap-gpui.log`. Deviations: fixed 20s duration, no `--mic-name`, no in-flight-recording guard, inline status instead of a toast — see below |
+| Settings → Feedback → Diagnostic Report | — | **Done, with deviations** — the A/V sync self-test driven as a `cap selftest av-sync --progress-json` subprocess (it needs the process main thread gpui owns), a mode segmented control and a Test microphone toggle, live per-stage progress and Cancel, a PASS/WARN/FAIL/INCONCLUSIVE verdict chip with the run's summary, the full `frameever_recording::diagnostics` environment report written to `<app data>/diagnostics/` and pruned to five, and Send to Cap / Show File. Upload Logs under Debug Information is live too, now that the app writes a rolling `cap-gpui.log`. Deviations: fixed 20s duration, no `--mic-name`, no in-flight-recording guard, inline status instead of a toast — see below |
 | Upgrade | 950×850 | Not started |
 | Onboarding | dynamic, 860–1080 wide | Not started |
 | Teleprompter | 560×320 | **Done, with deviations** — resizable to the 420×220 floor, level 101 on all Spaces, the `"teleprompter"` material at radius 22, traffic lights at (14, 11) — the Tauri `(14, 14)` is a `position_window_controls` inset, not a top-left, auto-scroll from the ported `teleprompter-utils` maths, the full footer and settings popover, native window opacity, the `teleprompter` store section, capture exclusion + content protection. The script editor is a real multi-line field and Mirror is inert — see below |
@@ -633,7 +633,7 @@ Sizes are the Tauri app's, from Tauri `src-tauri/src/windows.rs`.
 
 ## Recording
 
-The app records for real, through the same `cap-recording` actors the Tauri
+The app records for real, through the same `frameever-recording` actors the Tauri
 app drives — studio and instant, screen + microphone, written into the same
 recordings library (`recordingsPath` from the Tauri settings store, falling
 back to `<app data>/recordings`; `CAP_GPUI_RECORDINGS_DIR` overrides both for
@@ -660,7 +660,7 @@ Recents rather than a Finder reveal:
 - **`screenshots/display.jpg`.** `create_screenshot`
   (Tauri `src-tauri/src/lib.rs:2582-2655`) is ported into `library.rs`:
   decode packets until the first video frame comes out, scale to RGB24 at the
-  source's own size, save as JPEG. `cap-recording` does not write this file, so
+  source's own size, save as JPEG. `frameever-recording` does not write this file, so
   without it a project recorded here would show the icon fallback forever — in
   the shipping app too. The source path is read back off disk after the remux,
   because the remux is what decides where the display track lives (before it,
@@ -673,7 +673,7 @@ Recents rather than a Finder reveal:
   (Tauri `src-tauri/src/recording.rs:3889-3891`,
   `config.camera.background_blur = BackgroundBlurConfig { mode: ... }`); blur is
   never baked into the recorded camera track by either app, so this field is the
-  only thing that makes a project *open* blurred. `cap-recording` writes
+  only thing that makes a project *open* blurred. `frameever-recording` writes
   `project-config.json` itself and its builder takes no config, so the value is
   merged in afterwards: a read-modify-write on the raw JSON that replaces
   exactly `camera.backgroundBlur.mode` (`"off"`/`"light"`/`"heavy"`, the
@@ -727,7 +727,7 @@ merge (`new-main/index.tsx:2217-2263`):
   switched away from stay visible, which is the whole point of that list.
   Screenshots come from `<app data>/screenshots`, which the custom-folder
   setting never moves.
-- **Metadata.** `cap-project`'s own `RecordingMeta::load_for_project`, so the
+- **Metadata.** `frameever-project`'s own `RecordingMeta::load_for_project`, so the
   studio/instant split and the clip count come off the same enum the Tauri
   command reads them off. A directory whose `recording-meta.json` is missing
   or unparseable is skipped, exactly as `get_recording_meta`'s `Ok(..)` guard
@@ -791,10 +791,10 @@ ever mirrors the recorded camera track).
 Background blur runs live on preview frames through `src/camera_blur.rs`: a
 dedicated `camera-blur` thread owns its own wgpu device (requested the way the
 Tauri preview requests one — LowPower, downlevel limits) and runs the exact
-`cap_camera_effects::BlurProcessor` the recording's project config points the
+`frameever_camera_effects::BlurProcessor` the recording's project config points the
 editor at, with the Tauri preview's 640×360 input cap and 150ms inference
 interval. The converter downscales to the cap inside the same hardware
-transfer, the worker imports the surface zero-copy through `cap-rendering`'s
+transfer, the worker imports the surface zero-copy through `frameever-rendering`'s
 `iosurface_texture` seam, and the blurred output comes back as a BGRA
 IOSurface CVPixelBuffer (via `RgbaToBgraSurfaceConverter`) that the window
 paints on the normal surface path. Blur off never touches any of this — the
@@ -959,7 +959,7 @@ editor.
 The Feedback page's third section (`diagnostics.rs` plus `render_diagnostic`
 in `settings_pages.rs`), built on the same foundation the Tauri app's
 diagnostic uses: the `cap selftest av-sync` NDJSON protocol and
-`cap_recording::diagnostics::collect_report`.
+`frameever_recording::diagnostics::collect_report`.
 
 **The sync test cannot run in-process here.** `cap selftest av-sync` builds
 its own winit `EventLoop` for the flashing test pattern and needs the process
@@ -1119,10 +1119,10 @@ Teleprompter-specific deviations:
 
 The editor's crates are linked but no editor window exists yet. This is the
 dependency reconciliation the editor units were blocked on, and the answer to
-"do gpui's graphics stack and cap-rendering's fight?" is **no, and they never
+"do gpui's graphics stack and frameever-rendering's fight?" is **no, and they never
 could have**:
 
-- **wgpu.** `cap-rendering` wants wgpu 25 and gpui's tree carries wgpu 29, but
+- **wgpu.** `frameever-rendering` wants wgpu 25 and gpui's tree carries wgpu 29, but
   the 29 is reached only through `gpui_wgpu` ← `gpui_linux` / `gpui_web`. On
   macOS gpui renders through `gpui_macos`, which is Metal-direct and links no
   wgpu at all, so exactly one wgpu compiles here — 25.0.2, on the vendored
@@ -1136,9 +1136,9 @@ could have**:
   landed. The pin in `Cargo.toml` is a floor, not an exact version.
 - **`workspace-hack`.** Every cap crate depends on it and it declares
   `tauri-utils`, so `tauri-utils` is in this lockfile. It was already, via
-  `cap-recording`; the editor crates add no new path to it, and the `tauri`
+  `frameever-recording`; the editor crates add no new path to it, and the `tauri`
   crate itself is still absent. It is a feature-unifier with no code.
-- **`cap-editor` is genuinely tauri-free.** The websocket, the `WSFrame`
+- **`frameever-editor` is genuinely tauri-free.** The websocket, the `WSFrame`
   repacking and the `CommandArg` extraction all live in
   Tauri `src-tauri/src/editor_window.rs`, not in the crate. `axum` and
   `specta` are declared in `crates/editor/Cargo.toml` and referenced nowhere in
@@ -1179,7 +1179,7 @@ The render size is not chosen by the test: it asserts
 editor's real preview defaults (60 fps, 1920×1080 at 65 % → a 1248×702
 resolution base, width aligned to 4 and height to 2). A display recording lands
 at 1080×702. `shared_device` is `None` — gpui on macOS exposes no wgpu device to
-share, so cap-rendering owns its own, which is the same two-GPU-context shape
+share, so frameever-rendering owns its own, which is the same two-GPU-context shape
 the Tauri app already has.
 
 ## The editor window
@@ -1391,7 +1391,7 @@ becomes convert-bound at 33 fps and the bounded channel drops **45 %** of the
 renderer's frames (`playback fps=33.0 frames=523 dropped=423 …
 convert_avg=30149us`). Nothing about the architecture changes — it is a
 3MB-per-frame per-pixel loop compiled without optimisation. The loop now lives
-in `kernels/` (`cap_gpui_kernels::frame::unpad_rgba_to_bgra`), built at
+in `kernels/` (`frameever_gpui_kernels::frame::unpad_rgba_to_bgra`), built at
 `opt-level = 3`, so a dev build shows the editor at its real speed while the
 app crate itself stays unoptimised (see [Running it](#running-it)).
 
@@ -2073,7 +2073,7 @@ Three behaviours in here are worth naming because they are easy to get wrong:
 
 53 JPEGs, 25 MB. They are **not** embedded, and could not usefully be:
 selecting one writes an *absolute filesystem path* into
-`background.source.path`, which `cap-rendering` then opens
+`background.source.path`, which `frameever-rendering` then opens
 (`layers/background.rs`) — so the file has to exist on disk for the picture to
 render at all, in this app and in the shipping one. Embedding them would add
 25 MB to the binary *and* still need them written back out somewhere.
@@ -2137,7 +2137,7 @@ opacity over the same box, cached by grain-scale step so a drag does not
 regenerate 42k pixels a frame. Precisely what differs: Perlin-style gradient
 noise becomes value noise — a different grain *character* at the same frequency
 — and `overlay` becomes source-over, so the grain lightens and darkens less
-selectively. **The rendered frame is unaffected either way**: `cap-rendering`
+selectively. **The rendered frame is unaffected either way**: `frameever-rendering`
 applies `noise_intensity` / `noise_scale` itself
 (`layers/background.rs:251-299`), so the player shows the real thing and only
 the sidebar's 112px preview is an approximation.
@@ -2149,7 +2149,7 @@ the sidebar's 112px preview is an approximation.
 | **The hex field commits, and skips a no-op** | Real entry now (`color-utils.tsx:27-96` transcribed): typing commits live the moment the text holds a complete 6- or 8-digit colour, Return and blur commit whatever is in the box, and anything that does not parse snaps back to the value in force. Each commit goes through `set_color`, so it takes a **project history entry** and the debounced `project-config.json` write like any other sidebar edit. One deliberate difference: `props.onChange(props.value)` on an invalid blur re-fires with the value already in force, and a history step for a no-op would cost the user an extra Cmd-Z, so a commit that changes nothing is skipped. The `createWritableMemo` half — re-deriving the text whenever the colour moves under the field, but never while it has focus — runs from `render` (`sync_hex_inputs`), because the focus test needs a `&Window` and the sidebar's render chain is threaded with `&self` alone. |
 | **The colour panel coalesces harder than the source does** | `RgbInput.onChange` takes no history pause at all (`color-utils.tsx:57-63`), so in the Tauri app every wheel movement is its own undo entry. Here a panel session is one entry, which is the [slider's](#the-config-sidebar) contract applied to the same kind of gesture. The bracket closes on the panel closing, on another swatch opening it, and on **any unrelated edit** — the panel is a system window that stays up while the user does other things, and a padding drag made with it open must not be swallowed into the colour's entry. |
 | **No brand-colour dropdown** | `BrandColorsDropdown` renders only when the signed-in organisation has brand colours configured (`BrandColorsDropdown.tsx:16`). There is no auth here (the same gap as the plan badge), so it never renders — which is also exactly what a user without them sees. |
-| **The preset tiles' grain is value noise** | The only part of a colour-grade tile that is not the spec's own arithmetic — see [Colour correction](#colour-correction-and-why-its-previews-are-not-a-decoded-frame). The rendered frame is unaffected: `cap-rendering` applies `grain` itself. |
+| **The preset tiles' grain is value noise** | The only part of a colour-grade tile that is not the spec's own arithmetic — see [Colour correction](#colour-correction-and-why-its-previews-are-not-a-decoded-frame). The rendered frame is unaffected: `frameever-rendering` applies `grain` itself. |
 | **Dashed borders are painted, or solid** | The two dashed *dividers* are painted 4-on-4-off by a canvas. The two dashed *cards* (the empty desktop and image drop targets) take a solid hairline of the same colour: gpui has no dashed border style, and four painted edges per card is not worth the elements. |
 | **The wallpaper grid's overflow has no fade** | The theme sub-tab row scrolls exactly as the source's does, but its edge fade is a `mask-image` (`:2351-2363`) — the same missing hook as the timeline's edge fade, which is painted there because it sits on an opaque background and this one does not. |
 | **The wallpaper "show more" collapsible is dead in both apps** | `filteredWallpapers().slice(0, 21)` is followed by a `<Collapsible>` holding the *whole* list — with **no trigger** (`:2438-2461`). No theme has more than 18 wallpapers, so the slice never truncates and the collapsible can never be opened. The grid here simply draws the theme's wallpapers. |
@@ -2161,7 +2161,7 @@ the sidebar's 112px preview is an approximation.
 | **The zoom panel's manual pad has no footage under it** | The source draws the manual focal point over a decoded frame seeked to the segment's own source time (`:5764-5867`, `zoomPreviewSource`), and the multi-zoom panel draws one such frame per selected segment (`:6046-6068`). There is no `<video>` element here and the editor's decoder feeds the player alone, so both draw `ui::PositionPad` — the same gesture, the same maths, the same key path, on the plain pad the scene panel uses. The remove-from-selection affordance the preview grid carries is reproduced as a plain row. |
 | **`Camera3DPosePreview` is a flat plate** | Every 3D template card, and the Start/End pose cards, preview their pose as a CSS-3D plane under a `perspective` (`:4689-4724`). No transform in this rev, so the card shows the flat plate it would fold, and the hover state that swaps the preview to the shot's *end* pose is not drawn either. The names, the shot-count pills, the selected ring and everything the cards **write** are real. |
 | **The audio library panel is not wired** | A segment's "Tap to change track" row opens `AudioLibraryPanel` through `editorState.timeline.audioPicker` (`AudioLibrary.tsx`), which is a library-and-upload surface of its own. The row renders with its swatch and name; the Change button is drawn in its disabled state. The segment's name, volume and fades are all live. |
-| **The font picker is a menu, not a combobox** | `FontPicker` (`FontPicker.tsx`) is the one select in the sidebar the source builds as a **combobox**: it lists all 306 installed families here, so it filters as you type. `ui::Menu` scrolls and takes the arrow keys but has no filter field, so the list is scrolled rather than typed at. The options are the same — the three generics then every installed family, from `cap_rendering::system_font_families`, the same function the Tauri command wraps. Enumeration builds a `fontdb`, far too slow for a render pass, so it happens once on a background thread and the picker shows the three generics until it lands — which is what the source's `createResource` does on its first frame too. |
+| **The font picker is a menu, not a combobox** | `FontPicker` (`FontPicker.tsx`) is the one select in the sidebar the source builds as a **combobox**: it lists all 306 installed families here, so it filters as you type. `ui::Menu` scrolls and takes the arrow keys but has no filter field, so the list is scrolled rather than typed at. The options are the same — the three generics then every installed family, from `frameever_rendering::system_font_families`, the same function the Tauri command wraps. Enumeration builds a `fontdb`, far too slow for a render pass, so it happens once on a background thread and the picker shows the three generics until it lands — which is what the source's `createResource` does on its first frame too. |
 | **Two "Selected Segment Override" blocks are dead in the source** | `KeyboardTab.tsx:444-520` and `CaptionsTab.tsx:1480-1560` render a start/end/text editor inside the *tab* when a segment of that kind is selected. But a selection of that kind is exactly the condition that gives the tab body `hidden` and draws the segment panel over it (`:1077-1093`), so neither block can ever be seen. Omitted; their working equivalents are the caption and keyboard segment panels. |
 
 ### Verified end to end

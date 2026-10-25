@@ -189,12 +189,12 @@ pub(crate) fn fill_frame_from_sample_buf(
 }
 
 pub(crate) fn ffmpeg_pixel_format_for_cap(
-    cap_pixel: cap_media_info::Pixel,
+    cap_pixel: frameever_media_info::Pixel,
 ) -> ffmpeg::format::Pixel {
     match cap_pixel {
-        cap_media_info::Pixel::NV12 => ffmpeg::format::Pixel::NV12,
-        cap_media_info::Pixel::BGRA => ffmpeg::format::Pixel::BGRA,
-        cap_media_info::Pixel::UYVY422 => ffmpeg::format::Pixel::UYVY422,
+        frameever_media_info::Pixel::NV12 => ffmpeg::format::Pixel::NV12,
+        frameever_media_info::Pixel::BGRA => ffmpeg::format::Pixel::BGRA,
+        frameever_media_info::Pixel::UYVY422 => ffmpeg::format::Pixel::UYVY422,
         _ => ffmpeg::format::Pixel::NV12,
     }
 }

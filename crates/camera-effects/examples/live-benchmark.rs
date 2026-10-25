@@ -4,8 +4,8 @@
 #[cfg(target_os = "macos")]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    use cap_camera_effects::{BlurMaskStatus, BlurMode, BlurProcessor};
     use cidre::{cf, cv};
+    use frameever_camera_effects::{BlurMaskStatus, BlurMode, BlurProcessor};
     use std::time::{Duration, Instant};
 
     unsafe extern "C" {

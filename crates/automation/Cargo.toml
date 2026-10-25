@@ -1,10 +1,10 @@
 [package]
-name = "cap-automation"
+name = "frameever-automation"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cap-project = { path = "../project" }
+frameever-project = { path = "../project" }
 
 serde = { workspace = true }
 serde_json.workspace = true

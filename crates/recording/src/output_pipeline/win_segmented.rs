@@ -1,7 +1,7 @@
 use super::core::{BlockingThreadFinish, combine_finish_errors, wait_for_blocking_thread_finish};
 use crate::{AudioFrame, AudioMuxer, Muxer, TaskPool, VideoMuxer, fragmentation, screen_capture};
 use anyhow::{Context, anyhow};
-use cap_media_info::{AudioInfo, VideoInfo};
+use frameever_media_info::{AudioInfo, VideoInfo};
 use serde::Serialize;
 use std::{
     path::PathBuf,
@@ -402,7 +402,7 @@ impl WindowsSegmentedMuxer {
         let encoder_handle = std::thread::Builder::new()
             .name(format!("segment-encoder-{}", self.current_index))
             .spawn(move || {
-                cap_mediafoundation_utils::thread_init();
+                frameever_mediafoundation_utils::thread_init();
 
                 let encoder = (|| {
                     let fallback = |reason: Option<String>| {
@@ -434,7 +434,7 @@ impl WindowsSegmentedMuxer {
                             }
                         };
 
-                        cap_enc_ffmpeg::h264::H264Encoder::builder(video_config)
+                        frameever_enc_ffmpeg::h264::H264Encoder::builder(video_config)
                             .with_output_size(fallback_width, fallback_height)
                             .and_then(|builder| builder.build(&mut output_guard))
                             .map(either::Right)
@@ -445,7 +445,7 @@ impl WindowsSegmentedMuxer {
                         return fallback(None);
                     }
 
-                    match cap_enc_mediafoundation::H264Encoder::new_with_scaled_output(
+                    match frameever_enc_mediafoundation::H264Encoder::new_with_scaled_output(
                         &d3d_device,
                         pixel_format,
                         input_size,
@@ -490,9 +490,9 @@ impl WindowsSegmentedMuxer {
                                     }
                                 };
 
-                                cap_mediafoundation_ffmpeg::H264StreamMuxer::new(
+                                frameever_mediafoundation_ffmpeg::H264StreamMuxer::new(
                                     &mut output_guard,
-                                    cap_mediafoundation_ffmpeg::MuxerConfig {
+                                    frameever_mediafoundation_ffmpeg::MuxerConfig {
                                         width,
                                         height,
                                         fps: frame_rate,

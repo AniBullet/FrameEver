@@ -30,7 +30,7 @@ fn main() {
                 png
             };
             let after_encode =
-                || cap_gpui_kernels::png::encode(&data, width, height, color).unwrap();
+                || frameever_gpui_kernels::png::encode(&data, width, height, color).unwrap();
             let after = after_encode();
             let roundtrip = image::load_from_memory(&after).unwrap();
             let pixels = match color {

@@ -13,7 +13,7 @@
 //! height so the chrome keeps its proportions at any recording size.
 
 use crate::composite_frame::CompositeVideoFrameUniforms;
-use cap_project::{FrameStyle, FrameTheme, XY};
+use frameever_project::{FrameStyle, FrameTheme, XY};
 use std::sync::{Arc, OnceLock};
 
 /// Everything the frame layer needs to draw the chrome for one frame:
@@ -659,7 +659,7 @@ mod tests {
     }
 
     /// Visual iteration helper: dumps every style/theme chrome to PNGs.
-    /// `CAP_CHROME_DUMP_DIR=/tmp/x cargo test -p cap-rendering dump_chrome -- --ignored`
+    /// `CAP_CHROME_DUMP_DIR=/tmp/x cargo test -p frameever-rendering dump_chrome -- --ignored`
     #[test]
     #[ignore]
     fn dump_chrome_pngs() {

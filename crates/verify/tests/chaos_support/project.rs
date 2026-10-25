@@ -12,8 +12,8 @@ use std::{
 };
 
 use anyhow::Context;
-use cap_project::{RecordingMeta, XY};
-use cap_verify::{
+use frameever_project::{RecordingMeta, XY};
+use frameever_verify::{
     audio_code::AudioSource,
     fixture::{self, AudioTrackSpec, FixtureSpec, SegmentSpec, Timing, VideoTrackSpec},
 };
@@ -932,7 +932,7 @@ pub fn mutations() -> Vec<(&'static str, Mutation, bool, bool)> {
 /// The app's editor preflight (`editor_window::preflight`): heal, load the
 /// meta, open every track, load the configuration and walk its timeline.
 pub fn open(dir: &Path) -> anyhow::Result<Verdict> {
-    let _ = cap_recording::track_heal::heal_stretched_tracks(dir);
+    let _ = frameever_recording::track_heal::heal_stretched_tracks(dir);
     let meta = match RecordingMeta::load_for_project(dir) {
         Ok(meta) => meta,
         Err(e) => return Ok(Verdict::rejected(format!("meta: {e}"))),
@@ -940,10 +940,11 @@ pub fn open(dir: &Path) -> anyhow::Result<Verdict> {
     let Some(studio) = meta.studio_meta() else {
         return Ok(Verdict::rejected("not a studio recording"));
     };
-    let recordings = match cap_rendering::ProjectRecordingsMeta::new(&dir.to_path_buf(), studio) {
-        Ok(r) => r,
-        Err(e) => return Ok(Verdict::rejected(format!("recordings: {e}"))),
-    };
+    let recordings =
+        match frameever_rendering::ProjectRecordingsMeta::new(&dir.to_path_buf(), studio) {
+            Ok(r) => r,
+            Err(e) => return Ok(Verdict::rejected(format!("recordings: {e}"))),
+        };
     let config = meta.project_config();
     let duration = config
         .timeline
@@ -970,8 +971,8 @@ pub fn open(dir: &Path) -> anyhow::Result<Verdict> {
 pub async fn editor(dir: &Path, expect_frames: bool) -> anyhow::Result<Verdict> {
     let rendered = Arc::new(AtomicUsize::new(0));
     let counter = rendered.clone();
-    let (audio, _sink) = cap_editor::AudioOutput::new_offline();
-    let instance = match cap_editor::EditorInstance::new_with_audio_output(
+    let (audio, _sink) = frameever_editor::AudioOutput::new_offline();
+    let instance = match frameever_editor::EditorInstance::new_with_audio_output(
         dir.to_path_buf(),
         |_| {},
         Box::new(move |_, _| {
@@ -1021,7 +1022,7 @@ pub async fn export(
     fps: u32,
     resolution: (u32, u32),
 ) -> anyhow::Result<Verdict> {
-    let base = match cap_export::ExporterBase::builder(dir.to_path_buf())
+    let base = match frameever_export::ExporterBase::builder(dir.to_path_buf())
         .with_output_path(out.to_path_buf())
         .build()
         .await
@@ -1032,11 +1033,11 @@ pub async fn export(
     let resolution_base = XY::new(resolution.0, resolution.1);
     let result = match format {
         Format::Mp4 { bpp } => {
-            cap_export::mp4::Mp4ExportSettings {
+            frameever_export::mp4::Mp4ExportSettings {
                 codec: Default::default(),
                 fps,
                 resolution_base,
-                compression: cap_export::mp4::ExportCompression::Potato,
+                compression: frameever_export::mp4::ExportCompression::Potato,
                 custom_bpp: bpp,
                 force_ffmpeg_decoder: false,
                 optimize_filesize: false,
@@ -1045,7 +1046,7 @@ pub async fn export(
             .await
         }
         Format::Gif => {
-            cap_export::gif::GifExportSettings {
+            frameever_export::gif::GifExportSettings {
                 fps,
                 resolution_base,
                 quality: None,
@@ -1054,7 +1055,7 @@ pub async fn export(
             .await
         }
         Format::Mov { cursor_only } => {
-            cap_export::mov::MovExportSettings {
+            frameever_export::mov::MovExportSettings {
                 fps,
                 resolution_base,
                 cursor_only,
@@ -1305,14 +1306,14 @@ fn export_probes(out: &mut Vec<Probe>) {
     }
 }
 
-type Poison = fn(&mut cap_project::ProjectConfiguration, f64);
+type Poison = fn(&mut frameever_project::ProjectConfiguration, f64);
 
 /// Non-finite values the editor's own arithmetic can hand the renderer and
 /// exporter in memory (JSON cannot carry NaN).
 fn poisons() -> Vec<(&'static str, Poison)> {
     fn timeline(
-        c: &mut cap_project::ProjectConfiguration,
-    ) -> &mut cap_project::TimelineConfiguration {
+        c: &mut frameever_project::ProjectConfiguration,
+    ) -> &mut frameever_project::TimelineConfiguration {
         c.timeline.as_mut().expect("rich config has a timeline")
     }
     vec![
@@ -1352,7 +1353,7 @@ fn poisoned_config(
     dir: &Path,
     poison: Poison,
     value: f64,
-) -> anyhow::Result<cap_project::ProjectConfiguration> {
+) -> anyhow::Result<frameever_project::ProjectConfiguration> {
     let meta = RecordingMeta::load_for_project(dir).map_err(|e| anyhow::anyhow!("meta: {e}"))?;
     let mut config = meta.project_config();
     poison(&mut config, value);
@@ -1362,9 +1363,9 @@ fn poisoned_config(
 async fn export_config(
     dir: &Path,
     out: &Path,
-    config: cap_project::ProjectConfiguration,
+    config: frameever_project::ProjectConfiguration,
 ) -> anyhow::Result<Verdict> {
-    let base = match cap_export::ExporterBase::builder(dir.to_path_buf())
+    let base = match frameever_export::ExporterBase::builder(dir.to_path_buf())
         .with_config(config)
         .with_output_path(out.to_path_buf())
         .build()
@@ -1373,11 +1374,11 @@ async fn export_config(
         Ok(base) => base,
         Err(e) => return Ok(Verdict::rejected(format!("exporter: {e}"))),
     };
-    match (cap_export::mp4::Mp4ExportSettings {
+    match (frameever_export::mp4::Mp4ExportSettings {
         codec: Default::default(),
         fps: 10,
         resolution_base: XY::new(160, 90),
-        compression: cap_export::mp4::ExportCompression::Potato,
+        compression: frameever_export::mp4::ExportCompression::Potato,
         custom_bpp: None,
         force_ffmpeg_decoder: false,
         optimize_filesize: false,
@@ -1394,10 +1395,10 @@ async fn export_config(
 /// editor UI does on every edit, then preview frames and playback.
 async fn editor_config(
     dir: &Path,
-    config: cap_project::ProjectConfiguration,
+    config: frameever_project::ProjectConfiguration,
 ) -> anyhow::Result<Verdict> {
-    let (audio, _sink) = cap_editor::AudioOutput::new_offline();
-    let instance = match cap_editor::EditorInstance::new_with_audio_output(
+    let (audio, _sink) = frameever_editor::AudioOutput::new_offline();
+    let instance = match frameever_editor::EditorInstance::new_with_audio_output(
         dir.to_path_buf(),
         |_| {},
         Box::new(|_, _| {}),

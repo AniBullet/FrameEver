@@ -1,4 +1,4 @@
-use cap_project::{
+use frameever_project::{
     AnimatedGradientCatalog, AnimatedGradientConfig, AnimatedGradientControl,
     AnimatedGradientLibrary, AnimatedGradientPreset, AnimatedGradientStop,
     animated_gradient_catalog,

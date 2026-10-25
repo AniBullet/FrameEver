@@ -1,15 +1,15 @@
 [package]
-name = "cap-muxer"
+name = "frameever-muxer"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "cap-muxer"
+name = "frameever-muxer"
 path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
-cap-muxer-protocol = { path = "../cap-muxer-protocol" }
+frameever-muxer-protocol = { path = "../muxer-protocol" }
 ffmpeg = { workspace = true }
 libc = "0.2"
 thiserror = { workspace = true }

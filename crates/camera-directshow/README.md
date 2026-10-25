@@ -1,4 +1,4 @@
-# cap-camera-directshow
+# frameever-camera-directshow
 
 Ergonomic Rust wrapper around Windows DirectShow API for legacy camera capture,
 providing safe abstractions over COM interfaces while maintaining compatibility

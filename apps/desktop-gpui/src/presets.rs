@@ -9,7 +9,7 @@
 //! *applied*, so a preset written by a newer Tauri build with fields this
 //! build has never heard of survives every rename/reorder untouched.
 
-use cap_project::ProjectConfiguration;
+use frameever_project::ProjectConfiguration;
 use serde_json::{Map, Value, json};
 
 use crate::store::{set_store_setting, store_section};
@@ -132,7 +132,7 @@ pub fn default_project_config() -> ProjectConfiguration {
     if config.background.rounding <= f64::EPSILON {
         config.background.rounding = 7.5;
     }
-    config.screen_movement_spring = cap_project::ScreenMovementSpring::default();
+    config.screen_movement_spring = frameever_project::ScreenMovementSpring::default();
     config
 }
 
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn applying_keeps_the_current_timeline_clips_and_layer_order() {
         let current = ProjectConfiguration {
-            timeline: Some(cap_project::TimelineConfiguration {
+            timeline: Some(frameever_project::TimelineConfiguration {
                 segments: Vec::new(),
                 transitions: Vec::new(),
                 zoom_segments: Vec::new(),
@@ -248,8 +248,8 @@ mod tests {
                 style_segments: Vec::new(),
                 image_segments: Vec::new(),
             }),
-            overlay_order: vec![cap_project::OverlayTrack {
-                kind: cap_project::OverlayTrackKind::Image,
+            overlay_order: vec![frameever_project::OverlayTrack {
+                kind: frameever_project::OverlayTrackKind::Image,
                 track: 2,
             }],
             ..Default::default()

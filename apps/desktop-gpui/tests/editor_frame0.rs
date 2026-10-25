@@ -1,7 +1,7 @@
 //! E0 — editor dependency reconciliation, proved by rendering a real frame.
 //!
 //! This is the dependency spike for the editor units: it links the same stack
-//! the editor window will (`cap-editor` → `cap-rendering` → wgpu 25 + ffmpeg)
+//! the editor window will (`frameever-editor` → `frameever-rendering` → wgpu 25 + ffmpeg)
 //! and drives it end to end, headlessly, with no gpui window and no Tauri.
 //!
 //! What it exercises is the *production* seam, not a shortcut:
@@ -33,9 +33,9 @@ use std::{
     time::Duration,
 };
 
-use cap_editor::{AudioOutput, EditorFrameOutput, EditorInstance};
-use cap_project::{RecordingMeta, RecordingMetaInner, XY};
-use cap_rendering::{FrameLayout, ProjectUniforms, RenderedFrame};
+use frameever_editor::{AudioOutput, EditorFrameOutput, EditorInstance};
+use frameever_project::{RecordingMeta, RecordingMetaInner, XY};
+use frameever_rendering::{FrameLayout, ProjectUniforms, RenderedFrame};
 
 /// The Tauri editor's own preview numbers, so the smoke renders at exactly the
 /// size the editor window will: `EDITOR_PREVIEW_FPS` / `EDITOR_OUTPUT_SIZE` at
@@ -180,7 +180,7 @@ fn renders_frame_zero_of_a_real_studio_project() {
                     let _ = frame_tx.send((frame, layout));
                 }
             }),
-            // `None` = let cap-rendering create its own wgpu device. gpui on
+            // `None` = let frameever-rendering create its own wgpu device. gpui on
             // macOS is Metal-direct and exposes no wgpu device to share, so
             // two GPU contexts in-process is the expected shape (the Tauri app
             // has the same two).
@@ -299,9 +299,9 @@ fn renders_frame_zero_of_a_real_studio_project() {
 #[cfg(target_os = "macos")]
 #[test]
 fn the_bgra_surface_frame_matches_the_rgba_render() {
-    use cap_editor::EditorFrameFormat;
-    use cap_rendering::SurfaceFrame;
     use cidre::cv::pixel_buffer::LockFlags;
+    use frameever_editor::EditorFrameFormat;
+    use frameever_rendering::SurfaceFrame;
 
     let _serial = E0_SERIAL
         .lock()

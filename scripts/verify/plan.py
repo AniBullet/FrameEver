@@ -57,7 +57,7 @@ ENGINE_CRATES = [
     "crates/gpu-converters/**",
     "crates/cursor-capture/**",
     "crates/timestamp/**",
-    "crates/cap-muxer/**",
+    "crates/muxer/**",
 ]
 
 
@@ -385,7 +385,7 @@ def cmd_changes(args):
 # Real capture (crates/verify/tests/recording.rs): the recorder and the
 # stimulus, their whole dependency closure, and the harness itself.
 RECORDING = {
-    "roots": ["cap-recording", "cap-verify-stimulus"],
+    "roots": ["frameever-recording", "frameever-verify-stimulus"],
     "own": [
         "crates/verify/tests/recording.rs",
         "crates/verify/src/**",
@@ -407,7 +407,7 @@ def recording_affected(config, files, metadata):
     dirs, deps = workspace_graph(metadata)
     reach = set().union(*(closure(r, deps) for r in RECORDING["roots"]))
     for path in files:
-        # Other suites' test files share the cap-verify package but not the
+        # Other suites' test files share the frameever-verify package but not the
         # recording test binary.
         if path.startswith("crates/verify/tests/"):
             continue
@@ -465,7 +465,7 @@ def cmd_test(_args):
         (["apps/web/app/page.tsx", "README.md"], []),
         (["crates/verify/tests/seek.rs"], ["seek"]),
         (["crates/verify/tests/seek.rs", "crates/verify/tests/export.rs"], ["export", "seek"]),
-        (["crates/verify/src/oracle.rs"], [s["name"] for s in config["suites"] if "cap-verify" in s["roots"]]),
+        (["crates/verify/src/oracle.rs"], [s["name"] for s in config["suites"] if "frameever-verify" in s["roots"]]),
         (["crates/verify/src/audio_model.rs"], ["audio"]),
         (["crates/rendering/src/decoder/ffmpeg.rs"], [s["name"] for s in config["suites"]]),
         (["crates/video-decode/src/ffmpeg.rs"], [s["name"] for s in config["suites"]]),

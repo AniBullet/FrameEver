@@ -7,8 +7,8 @@ use crate::{
     },
     segment_timing::{SegmentVideoTiming, segment_frame_times, segment_video_timing},
 };
-use cap_enc_ffmpeg::RelocatableSource;
-use cap_project::{ClipOffsets, StudioRecordingMeta, XY};
+use frameever_enc_ffmpeg::RelocatableSource;
+use frameever_project::{ClipOffsets, StudioRecordingMeta, XY};
 use std::path::{Component, PathBuf};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]

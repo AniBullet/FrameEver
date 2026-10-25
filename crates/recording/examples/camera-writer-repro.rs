@@ -5,11 +5,11 @@ fn main() {
 
 #[cfg(target_os = "macos")]
 fn main() -> anyhow::Result<()> {
-    use cap_camera::{CameraInfo, CapturedFrame, Format};
-    use cap_camera_ffmpeg::CapturedFrameExt;
-    use cap_enc_avfoundation::{MP4Encoder, QueueFrameError};
-    use cap_media_info::VideoInfo;
     use cidre::{arc, cm};
+    use frameever_camera::{CameraInfo, CapturedFrame, Format};
+    use frameever_camera_ffmpeg::CapturedFrameExt;
+    use frameever_enc_avfoundation::{MP4Encoder, QueueFrameError};
+    use frameever_media_info::VideoInfo;
     use std::{
         cmp::Ordering,
         env,
@@ -135,7 +135,7 @@ fn main() -> anyhow::Result<()> {
         format_limit: usize,
         preferred_camera: Option<&str>,
     ) -> anyhow::Result<Vec<ProbeTarget>> {
-        let cameras = cap_camera::list_cameras().collect::<Vec<_>>();
+        let cameras = frameever_camera::list_cameras().collect::<Vec<_>>();
         let selected_cameras = if all_cameras {
             cameras
         } else {

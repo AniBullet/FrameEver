@@ -17,7 +17,7 @@ fn main() -> anyhow::Result<()> {
     );
     let rgba = std::fs::read(&args[1])?;
     anyhow::ensure!(rgba.len() == 256 * 256 * 4, "expected a 256x256 RGBA frame");
-    cap_camera_effects::initialize_onnx_runtime()?;
+    frameever_camera_effects::initialize_onnx_runtime()?;
     let mut provider = ep::CoreML::default();
     if args[2] == "program" || args[2] == "neural" {
         provider = provider.with_model_format(ep::coreml::ModelFormat::MLProgram);

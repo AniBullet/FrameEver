@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use cap_enc_ffmpeg::remux::get_media_duration;
-use cap_project::{ProjectConfiguration, TimelineConfiguration};
+use frameever_enc_ffmpeg::remux::get_media_duration;
+use frameever_project::{ProjectConfiguration, TimelineConfiguration};
 use gpui::{
     AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px, svg,
@@ -297,7 +297,7 @@ mod tests {
         AUDIO_LIBRARY, AudioImportRequest, AudioPicker, bundled_track_path,
         bundled_track_path_from, copy_library_track, probe_audio_duration, replace_audio_asset,
     };
-    use cap_project::ProjectConfiguration;
+    use frameever_project::ProjectConfiguration;
 
     fn audio_project() -> ProjectConfiguration {
         serde_json::from_value(serde_json::json!({

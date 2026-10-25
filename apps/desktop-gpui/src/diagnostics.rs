@@ -10,7 +10,7 @@
 //! `--progress-json` NDJSON stream, and hands the final report back as raw
 //! JSON.
 //!
-//! Around it sits the environment snapshot from `cap_recording::diagnostics`.
+//! Around it sits the environment snapshot from `frameever_recording::diagnostics`.
 //! [`collect_report`] probes displays and disk mounts and can block for the
 //! better part of a minute (display enumeration alone is ~37s without screen
 //! recording permission), so every entry point here is written to be called
@@ -71,7 +71,7 @@ const INSTALLED_APP: &str = "/Applications/FrameEver.app";
 /// both apps' logs -- and every other platform uses
 /// `<local data>/so.cap.desktop/logs`, matching `main.rs` over there.
 pub fn export_logs(destination: &Path) -> Result<(), String> {
-    let bundle = cap_utils::log_upload::collect(&logs_dir(), LOG_FILE_PREFIX);
+    let bundle = frameever_utils::log_upload::collect(&logs_dir(), LOG_FILE_PREFIX);
     if !bundle.directory_available {
         return Err(t!(
             "No logs were found in {path}",
@@ -160,8 +160,12 @@ fn selftest_bin_name() -> &'static str {
     }
 }
 
-fn cap_bin_name() -> &'static str {
-    if cfg!(windows) { "cap.exe" } else { "cap" }
+fn cli_bin_name() -> &'static str {
+    if cfg!(windows) {
+        "frameever.exe"
+    } else {
+        "frameever"
+    }
 }
 
 /// The triple Tauri suffixes the un-bundled sidecar with, spelled the way
@@ -216,7 +220,7 @@ fn selftest_binary_candidates(
                 std::env::consts::EXE_SUFFIX
             )));
         }
-        candidates.push(dir.join(cap_bin_name()));
+        candidates.push(dir.join(cli_bin_name()));
     };
 
     if let Some(dir) = exe_dir {
@@ -238,14 +242,14 @@ fn selftest_binary_candidates(
     // Debug builds only, matching how `src-tauri/src/export.rs` gates its own
     // target/ probes: this walks the working directory, so in a shipped build
     // it would let anyone who can pick the process's cwd -- a shared temp
-    // directory, a downloaded folder -- place a `target/debug/cap` for us to
+    // directory, a downloaded folder -- place a `target/debug/frameever` for us to
     // execute. A release build has its sidecar next to it or in the bundle.
     if cfg!(debug_assertions)
         && let Some(cwd) = cwd
     {
         for ancestor in cwd.ancestors() {
             for profile in ["debug", "release"] {
-                candidates.push(ancestor.join("target").join(profile).join(cap_bin_name()));
+                candidates.push(ancestor.join("target").join(profile).join(cli_bin_name()));
             }
         }
     }
@@ -672,7 +676,7 @@ fn permissions_snapshot() -> Value {
 /// is read rather than minted -- opening a diagnostic must not write to the
 /// shared store.
 fn settings_snapshot() -> Value {
-    use cap_recording::diagnostics::redact_home_paths;
+    use frameever_recording::diagnostics::redact_home_paths;
     use store::SettingsEnum as _;
 
     let settings = store::GeneralSettings::load();
@@ -711,8 +715,8 @@ pub fn collect_report(sync_test: Option<Value>, sync_test_error: Option<String>)
     let recordings_dir = crate::recording::recordings_dir();
     let app_version = env!("CARGO_PKG_VERSION");
 
-    let report = cap_recording::diagnostics::collect_report(
-        cap_recording::diagnostics::DiagnosticReportArgs {
+    let report = frameever_recording::diagnostics::collect_report(
+        frameever_recording::diagnostics::DiagnosticReportArgs {
             flavor: "gpui",
             app_version,
             settings: Some(settings_snapshot()),
@@ -1049,10 +1053,10 @@ mod tests {
         }
 
         // Only the dev checkout has one.
-        std::fs::write(target.join(cap_bin_name()), b"dev").unwrap();
+        std::fs::write(target.join(cli_bin_name()), b"dev").unwrap();
         assert_eq!(
             resolve_selftest_binary_in(None, Some(&exe_dir), Some(&bundle), Some(&root)),
-            cfg!(debug_assertions).then(|| target.join(cap_bin_name()))
+            cfg!(debug_assertions).then(|| target.join(cli_bin_name()))
         );
 
         // The installed app beats the dev checkout.
@@ -1064,10 +1068,10 @@ mod tests {
 
         // A binary next to this build beats both, and the sidecar name beats
         // the bare `cap` in the same folder.
-        std::fs::write(exe_dir.join(cap_bin_name()), b"adjacent").unwrap();
+        std::fs::write(exe_dir.join(cli_bin_name()), b"adjacent").unwrap();
         assert_eq!(
             resolve_selftest_binary_in(None, Some(&exe_dir), Some(&bundle), Some(&root)),
-            Some(exe_dir.join(cap_bin_name()))
+            Some(exe_dir.join(cli_bin_name()))
         );
         std::fs::write(exe_dir.join(selftest_bin_name()), b"sidecar").unwrap();
         assert_eq!(

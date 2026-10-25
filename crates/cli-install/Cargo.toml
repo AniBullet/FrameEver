@@ -1,5 +1,5 @@
 [package]
-name = "cap-cli-install"
+name = "frameever-cli-install"
 version = "0.1.0"
 edition = "2024"
 

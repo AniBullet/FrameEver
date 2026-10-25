@@ -7,7 +7,7 @@ use std::{
 };
 
 use bytemuck::{Pod, Zeroable};
-use cap_project::ImageSegment;
+use frameever_project::ImageSegment;
 use image::{ImageDecoder, RgbaImage};
 use wgpu::util::DeviceExt;
 
@@ -664,7 +664,7 @@ impl ImageLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_project::XY;
+    use frameever_project::XY;
 
     fn segment(path: &str) -> ImageSegment {
         ImageSegment {

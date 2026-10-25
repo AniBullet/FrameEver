@@ -1,4 +1,4 @@
-# cap-media-info
+# frameever-media-info
 
 A Rust crate providing information structures for audio and video processing, designed to bridge FFmpeg and CPAL libraries for media capture and encoding applications.
 

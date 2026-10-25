@@ -1,4 +1,4 @@
-use cap_audio::{
+use frameever_audio::{
     CalibrationStore, DeviceSyncCalibration, SyncAnalyzer, calculate_frame_motion_score,
 };
 use std::path::{Path, PathBuf};
@@ -111,8 +111,8 @@ pub fn analyze_recording_for_sync(
     mic_device_id: Option<&str>,
     calibration_dir: &Path,
 ) -> Option<f64> {
-    use cap_audio::AudioData;
-    use cap_rendering::Video;
+    use frameever_audio::AudioData;
+    use frameever_rendering::Video;
 
     let audio = match AudioData::from_file(audio_path) {
         Ok(a) => a,

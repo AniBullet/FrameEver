@@ -15,7 +15,7 @@ use std::{
 use serde_json::Value;
 
 fn cap() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_cap"))
+    Command::new(env!("CARGO_BIN_EXE_frameever"))
 }
 
 fn run(args: &[&str]) -> Output {
@@ -91,7 +91,7 @@ fn no_args_json_is_parseable() {
     let output = run(&["--json"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let json = parse_json(&output);
-    assert_eq!(json["name"], "cap");
+    assert_eq!(json["name"], "frameever");
     assert!(json["commands"].is_array());
 }
 
@@ -139,7 +139,7 @@ fn version_json_is_parseable() {
     let output = run(&["version", "--format", "json"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let json = parse_json(&output);
-    assert_eq!(json["name"], "cap");
+    assert_eq!(json["name"], "frameever");
     assert!(json["version"].is_string());
     assert!(json["platform"]["os"].is_string());
     assert!(json["distribution"].is_string());
@@ -150,7 +150,7 @@ fn doctor_json_is_parseable() {
     let output = run(&["doctor", "--format", "json"]);
     // doctor may report failing checks; it should still emit valid JSON and exit 0.
     let json = parse_json(&output);
-    assert_eq!(json["version"]["name"], "cap");
+    assert_eq!(json["version"]["name"], "frameever");
     assert!(json["checks"].is_array());
     assert!(json["ok"].is_boolean());
     assert!(json["permissions"].is_object());
@@ -604,7 +604,7 @@ fn global_json_flag_works_before_subcommand() {
     let output = run(&["--json", "version"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let json = parse_json(&output);
-    assert_eq!(json["name"], "cap");
+    assert_eq!(json["name"], "frameever");
 }
 
 #[test]
@@ -612,7 +612,7 @@ fn guide_json_is_parseable_and_self_describing() {
     let output = run(&["guide", "--json"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let json = parse_json(&output);
-    assert_eq!(json["binary"], "cap");
+    assert_eq!(json["binary"], "frameever");
     assert_eq!(json["schemaVersion"], 3);
     assert!(json["commands"].is_array());
     assert!(json["env"].is_array());
@@ -866,7 +866,7 @@ fn mcp_stdout_is_protocol_only_and_exposes_expected_tools() {
             "params": {
                 "protocolVersion": "2025-03-26",
                 "capabilities": {},
-                "clientInfo": { "name": "cap-test", "version": "1" }
+                "clientInfo": { "name": "frameever-test", "version": "1" }
             }
         })
     )
@@ -1025,7 +1025,7 @@ fn mcp_cancellation_stops_wait_polling() {
             "params": {
                 "protocolVersion": "2025-03-26",
                 "capabilities": {},
-                "clientInfo": { "name": "cap-test", "version": "1" }
+                "clientInfo": { "name": "frameever-test", "version": "1" }
             }
         }),
         serde_json::json!({

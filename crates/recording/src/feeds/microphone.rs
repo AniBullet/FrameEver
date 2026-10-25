@@ -1,13 +1,13 @@
 use crate::output_pipeline::{HealthSender, PipelineHealthEvent, emit_health};
-use cap_audio::estimate_input_latency;
-use cap_media_info::{AudioInfo, ffmpeg_sample_format_for};
-use cap_timestamp::Timestamp;
 use cpal::{
     BufferSize, Device, InputCallbackInfo, SampleFormat, StreamError, SupportedStreamConfig,
     SupportedStreamConfigRange,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use flume::TrySendError;
+use frameever_audio::estimate_input_latency;
+use frameever_media_info::{AudioInfo, ffmpeg_sample_format_for};
+use frameever_timestamp::Timestamp;
 use futures::{FutureExt, channel::oneshot, future::BoxFuture};
 use indexmap::IndexMap;
 use kameo::prelude::*;
@@ -1063,7 +1063,7 @@ impl MicrophoneFeed {
                 let mut pending_samples = VecDeque::new();
                 #[cfg(windows)]
                 let mut capture_clock = crate::sources::capture_clock::CaptureClock::new(
-                    cap_timestamp::Timestamps::now(),
+                    frameever_timestamp::Timestamps::now(),
                 );
 
                 let latency_info = estimate_input_latency(
@@ -3844,7 +3844,7 @@ mod recording_subscription_tests {
         async fn setup(
             _: (),
             _: std::path::PathBuf,
-            _: Option<cap_media_info::VideoInfo>,
+            _: Option<frameever_media_info::VideoInfo>,
             _: Option<AudioInfo>,
             _: Arc<AtomicBool>,
             _: &mut TaskPool,

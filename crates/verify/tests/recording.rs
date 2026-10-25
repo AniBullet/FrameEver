@@ -24,12 +24,12 @@ use std::{
     time::Duration,
 };
 
-use cap_media_info::{RawVideoFormat, VideoInfo};
-use cap_project::{
+use frameever_media_info::{RawVideoFormat, VideoInfo};
+use frameever_project::{
     InstantRecordingMeta, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
     StudioRecordingMeta, XY,
 };
-use cap_recording::{
+use frameever_recording::{
     NativeCameraFrame, RecordingDefaults, StudioQuality,
     feeds::{
         Admission, camera::synthetic::SyntheticCamera, microphone::synthetic::SyntheticMicrophone,
@@ -40,8 +40,8 @@ use cap_recording::{
     studio_recording,
 };
 #[cfg(target_os = "macos")]
-use cap_verify::fixture_avf;
-use cap_verify::{
+use frameever_verify::fixture_avf;
+use frameever_verify::{
     audio_code::{self, AudioSource, MarkerPlacement},
     media,
     report::{self, Case, Tier},
@@ -59,9 +59,9 @@ use platform::{Shareable, host_timestamp};
 /// check, the host clock the sources are stamped with and thread priority.
 #[cfg(target_os = "macos")]
 mod platform {
-    use cap_timestamp::{MachAbsoluteTimestamp, Timestamp};
+    use frameever_timestamp::{MachAbsoluteTimestamp, Timestamp};
 
-    pub type Shareable = cap_recording::SendableShareableContent;
+    pub type Shareable = frameever_recording::SendableShareableContent;
 
     /// ScreenCaptureKit's shareable content, which also checks the Screen
     /// Recording permission.
@@ -100,7 +100,7 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
-    use cap_timestamp::{PerformanceCounterTimestamp, Timestamp};
+    use frameever_timestamp::{PerformanceCounterTimestamp, Timestamp};
 
     pub type Shareable = ();
 
@@ -116,7 +116,7 @@ mod platform {
 
     /// Host ticks to nanoseconds: ticks * numer / denom.
     pub fn timebase() -> [u64; 2] {
-        [1_000_000_000, cap_verify::sched::qpc_frequency()]
+        [1_000_000_000, frameever_verify::sched::qpc_frequency()]
     }
 
     pub fn raise_thread_qos() {
@@ -514,7 +514,7 @@ fn init() {
 fn real_capture() {
     init();
     let Some(capture) = capture_mode() else {
-        eprintln!("[cap-verify] recording: CAP_VERIFY_CAPTURE=off, skipping");
+        eprintln!("[frameever-verify] recording: CAP_VERIFY_CAPTURE=off, skipping");
         return;
     };
     let rt = runtime();
@@ -525,7 +525,7 @@ fn real_capture() {
             if env_flag("CAP_VERIFY_REQUIRE_CAPTURE") {
                 panic!("{message}");
             }
-            eprintln!("[cap-verify] recording: {message}, skipping");
+            eprintln!("[frameever-verify] recording: {message}, skipping");
             return;
         }
     };
@@ -576,7 +576,7 @@ fn real_capture() {
             recorded.map(|_| ())
         });
         eprintln!(
-            "[cap-verify] warm-up recording {} in {:.1}s",
+            "[frameever-verify] warm-up recording {} in {:.1}s",
             if result.is_ok() { "done" } else { "failed" },
             started.elapsed().as_secs_f64()
         );
@@ -716,7 +716,7 @@ fn wait_for(thread: u32, due: u64) -> (u64, i32) {
 /// Synthetic sources stand in for capture devices, which the system feeds
 /// from its own real-time threads and which never wait for the recorder:
 /// each runs on a dedicated thread under a time constraint of its own
-/// period (`cap_verify::sched`, shared with the stimulus) and hands over
+/// period (`frameever_verify::sched`, shared with the stimulus) and hands over
 /// with `try_send`, exactly like the device callbacks. A feed that cannot
 /// keep up therefore shows as rejected hand-offs (a product failure), and a
 /// late hand-off can only come from the source thread itself.
@@ -1103,7 +1103,7 @@ fn persist_sources(
     let written =
         std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, value.to_string()));
     if let Err(e) = written {
-        eprintln!("[cap-verify] could not write {}: {e}", path.display());
+        eprintln!("[frameever-verify] could not write {}: {e}", path.display());
     }
     path
 }
@@ -1123,7 +1123,7 @@ fn camera_frame(slot: u32, capture: u64) -> Option<NativeCameraFrame> {
 /// feed hands native frames to the encoder.
 #[cfg(windows)]
 fn camera_frame(slot: u32, capture: u64) -> Option<NativeCameraFrame> {
-    use cap_mediafoundation_utils::IMFMediaBufferExt;
+    use frameever_mediafoundation_utils::IMFMediaBufferExt;
     use windows::Win32::Media::MediaFoundation::MFCreateMemoryBuffer;
 
     let (w, h) = CAMERA_SIZE;
@@ -1136,7 +1136,7 @@ fn camera_frame(slot: u32, capture: u64) -> Option<NativeCameraFrame> {
     let buffer = Arc::new(std::sync::Mutex::new(buffer));
     Some(NativeCameraFrame {
         buffer,
-        pixel_format: cap_camera_windows::PixelFormat::NV12,
+        pixel_format: frameever_camera_windows::PixelFormat::NV12,
         width: w as u32,
         height: h as u32,
         is_bottom_up: false,
@@ -1254,17 +1254,17 @@ fn stimulus_binary() -> PathBuf {
     std::env::var_os("CAP_VERIFY_STIMULUS_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            // Built by `cargo build -p cap-verify-stimulus` into the same
+            // Built by `cargo build -p frameever-verify-stimulus` into the same
             // target directory as this test (target/<profile>/deps/..).
             let exe = std::env::current_exe().expect("test executable path");
             let path = exe
                 .parent()
                 .and_then(|deps| deps.parent())
                 .expect("target profile directory")
-                .join(format!("cap-verify-stimulus{}", std::env::consts::EXE_SUFFIX));
+                .join(format!("frameever-verify-stimulus{}", std::env::consts::EXE_SUFFIX));
             assert!(
                 path.exists(),
-                "{} not found: build it first with `cargo build -p cap-verify-stimulus` (same profile), or set CAP_VERIFY_STIMULUS_BIN",
+                "{} not found: build it first with `cargo build -p frameever-verify-stimulus` (same profile), or set CAP_VERIFY_STIMULUS_BIN",
                 path.display()
             );
             path
@@ -2175,7 +2175,9 @@ async fn record(
     if spec.system_audio && !system_audio {
         case.note("no audio output device: recorded without system audio");
     }
-    let gate = spec.gated.then(cap_recording::RecordingStartGate::new);
+    let gate = spec
+        .gated
+        .then(frameever_recording::RecordingStartGate::new);
     let (handle, max_fps) = match spec.mode {
         Mode::Studio { fragmented, .. } => {
             let (builder, max_fps) = studio_builder(
@@ -2218,7 +2220,7 @@ async fn record(
             };
             (
                 Handle::Instant(build_instant(builder, &shareable).await?),
-                cap_recording::DEFAULT_INSTANT_MODE_FPS,
+                frameever_recording::DEFAULT_INSTANT_MODE_FPS,
             )
         }
         Mode::StudioCrashed => {
@@ -2443,7 +2445,7 @@ async fn finalize_instant(
         other => other.clone(),
     };
     RecordingMeta {
-        platform: Some(cap_project::Platform::default()),
+        platform: Some(frameever_project::Platform::default()),
         project_path: project.clone(),
         pretty_name: "Cap Verify".to_string(),
         sharing: None,
@@ -2499,7 +2501,7 @@ fn layout(project: &Path, case: &mut Case) -> anyhow::Result<Layout> {
             };
             if !matches!(
                 studio.status(),
-                cap_project::StudioRecordingStatus::Complete
+                frameever_project::StudioRecordingStatus::Complete
             ) {
                 case.problem(
                     "finalize",
@@ -3774,7 +3776,7 @@ fn contract_first_frame_follows_the_decoder_request_rule_for_long_recordings() {
             let expected = contract_first_frame(label, fps_f, fps_f, offset);
             let asks = |frame: f64| {
                 let time = (frame / fps_f + offset) as f32;
-                f64::from(cap_rendering::decoder::request_frame(time, fps))
+                f64::from(frameever_rendering::decoder::request_frame(time, fps))
             };
             assert!(
                 asks(expected) >= label,
@@ -3934,17 +3936,17 @@ async fn check_export(rec: &Recorded, case: &mut Case) -> anyhow::Result<()> {
     let interval = 1.0 / f64::from(fps);
     let out = rec.project.join("verify-export.mp4");
     let config = ProjectConfiguration::load(&rec.project).unwrap_or_default();
-    let base = cap_export::ExporterBase::builder(rec.project.clone())
+    let base = frameever_export::ExporterBase::builder(rec.project.clone())
         .with_config(config)
         .with_output_path(out.clone())
         .build()
         .await
         .map_err(|e| anyhow::anyhow!("exporter build: {e}"))?;
-    let exported = cap_export::mp4::Mp4ExportSettings {
+    let exported = frameever_export::mp4::Mp4ExportSettings {
         codec: Default::default(),
         fps,
         resolution_base: XY::new(width, height),
-        compression: cap_export::mp4::ExportCompression::Social,
+        compression: frameever_export::mp4::ExportCompression::Social,
         custom_bpp: None,
         force_ffmpeg_decoder: false,
         optimize_filesize: false,

@@ -75,8 +75,8 @@ impl Drop for OggFile {
 mod tests {
     use super::*;
     use crate::audio::opus::OpusEncoder;
-    use cap_media_info::AudioInfo;
     use ffmpeg::ChannelLayout;
+    use frameever_media_info::AudioInfo;
 
     fn write_recording(path: std::path::PathBuf, input_rate: u32, total_samples: usize) {
         let info = AudioInfo::new_raw(

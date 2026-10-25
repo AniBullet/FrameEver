@@ -7,7 +7,7 @@ use std::{
     sync::LazyLock,
 };
 
-use cap_cursor_info::CursorFamily;
+use frameever_cursor_info::CursorFamily;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 

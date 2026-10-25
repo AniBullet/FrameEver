@@ -1,8 +1,8 @@
-use cap_audio::{AudioData, cast_f32_slice_to_bytes};
 use ffmpeg::{
     codec as avcodec,
     format::{self as avformat},
 };
+use frameever_audio::{AudioData, cast_f32_slice_to_bytes};
 use std::path::Path;
 
 pub fn opus_encode_audio(path: impl AsRef<Path>, samples: &AudioData) {

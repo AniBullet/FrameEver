@@ -391,7 +391,7 @@ impl CompatMatrixRunner {
                         .clone()
                         .unwrap_or_else(|| "Unknown failure".to_string()),
                     reproduction_steps: vec![format!(
-                        "Run: cap-test compat-matrix --interactive (scenario: {})",
+                        "Run: frameever-test compat-matrix --interactive (scenario: {})",
                         scenario.scenario_name
                     )],
                 });

@@ -1,6 +1,6 @@
 use crate::output_pipeline::core::{HealthSender, PipelineHealthEvent, emit_health};
 use anyhow::{Context, Result, anyhow};
-use cap_muxer_protocol::{
+use frameever_muxer_protocol::{
     Frame, InitAudio, InitVideo, PACKET_FLAG_KEYFRAME, Packet, STREAM_INDEX_AUDIO,
     STREAM_INDEX_VIDEO, StartParams, write_frame, write_packet as write_packet_frame,
 };
@@ -41,7 +41,7 @@ pub fn resolve_muxer_binary() -> Result<PathBuf> {
             return Ok(override_path.clone());
         }
         return Err(anyhow!(
-            "registered cap-muxer override points to missing path: {}",
+            "registered frameever-muxer override points to missing path: {}",
             override_path.display()
         ));
     }
@@ -90,11 +90,11 @@ pub fn resolve_muxer_binary() -> Result<PathBuf> {
     ))
 }
 
-fn bin_names() -> [&'static str; 2] {
+fn bin_names() -> [&'static str; 1] {
     if cfg!(windows) {
-        ["frameever-muxer.exe", "cap-muxer.exe"]
+        ["frameever-muxer.exe"]
     } else {
-        ["frameever-muxer", "cap-muxer"]
+        ["frameever-muxer"]
     }
 }
 
@@ -241,7 +241,7 @@ impl MuxerSubprocess {
         info!(
             bin_path = %subprocess.bin_path.display(),
             output_dir = %config.output_directory.display(),
-            "cap-muxer subprocess spawned"
+            "frameever-muxer subprocess spawned"
         );
 
         Ok(subprocess)
@@ -452,7 +452,7 @@ impl MuxerSubprocess {
         {
             return;
         }
-        error!(reason, "cap-muxer subprocess crashed");
+        error!(reason, "frameever-muxer subprocess crashed");
         if let Some(tx) = &self.health_tx {
             emit_health(
                 tx,
@@ -471,7 +471,7 @@ impl MuxerSubprocess {
         {
             return;
         }
-        error!(reason, "cap-muxer subprocess exited with disk full");
+        error!(reason, "frameever-muxer subprocess exited with disk full");
         if let Some(tx) = &self.health_tx {
             emit_health(
                 tx,
@@ -514,14 +514,14 @@ impl MuxerSubprocess {
                 Err(error) => {
                     let stderr_tail = self.snapshot_stderr();
                     return Err(MuxerSubprocessFinishError::Unconfirmed(anyhow!(
-                        "cap-muxer wait failed: {error}; stderr tail: {:?}",
+                        "frameever-muxer wait failed: {error}; stderr tail: {:?}",
                         stderr_tail.iter().rev().take(3).collect::<Vec<_>>()
                     )));
                 }
             },
             None => {
                 return Err(MuxerSubprocessFinishError::Unconfirmed(anyhow!(
-                    "cap-muxer child missing during finish"
+                    "frameever-muxer child missing during finish"
                 )));
             }
         };
@@ -557,7 +557,7 @@ impl MuxerSubprocess {
         info!(
             packets,
             uptime_secs = self.started_at.elapsed().as_secs_f64(),
-            "cap-muxer subprocess finished cleanly"
+            "frameever-muxer subprocess finished cleanly"
         );
 
         Ok(MuxerSubprocessReport {
@@ -575,12 +575,12 @@ impl Drop for MuxerSubprocess {
             match child.try_wait() {
                 Ok(Some(_)) => {}
                 Ok(None) => {
-                    warn!("cap-muxer subprocess being dropped while still running; killing");
+                    warn!("frameever-muxer subprocess being dropped while still running; killing");
                     let _ = child.kill();
                     let _ = child.wait();
                 }
                 Err(error) => {
-                    warn!(%error, "cap-muxer subprocess status is unknown during drop; killing");
+                    warn!(%error, "frameever-muxer subprocess status is unknown during drop; killing");
                     let _ = child.kill();
                     let _ = child.wait();
                 }
@@ -779,7 +779,7 @@ impl RespawningMuxerSubprocess {
         info!(
             attempt = self.respawn_attempts,
             output_dir = %respawned_config.output_directory.display(),
-            "respawning cap-muxer subprocess into isolated directory"
+            "respawning frameever-muxer subprocess into isolated directory"
         );
 
         let new = MuxerSubprocess::spawn(

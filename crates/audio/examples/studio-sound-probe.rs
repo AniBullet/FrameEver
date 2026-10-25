@@ -1,4 +1,4 @@
-use cap_audio::{
+use frameever_audio::{
     AudioData, AudioSampleSource, AudioStream, ChunkRead, VOICE_PROFILE_SAMPLES, VoiceEnhancer,
     VoiceProfile, cast_f32_slice_to_bytes,
 };

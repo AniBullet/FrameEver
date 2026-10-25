@@ -5,8 +5,8 @@ fn main() {
 
 #[cfg(windows)]
 mod win {
-    use cap_mediafoundation_ffmpeg::{H264StreamMuxer, MuxerConfig};
     use ffmpeg::format;
+    use frameever_mediafoundation_ffmpeg::{H264StreamMuxer, MuxerConfig};
     use std::path::PathBuf;
 
     struct MP4FileExample {

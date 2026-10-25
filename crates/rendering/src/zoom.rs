@@ -1,4 +1,4 @@
-use cap_project::XY;
+use frameever_project::XY;
 
 /// Bounds of the (possibly zoomed) display rect, expressed as a scale of the
 /// unzoomed display: `(0,0)-(1,1)` means no zoom, while a zoomed-in view

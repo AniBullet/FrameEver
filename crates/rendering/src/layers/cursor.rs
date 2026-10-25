@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bytemuck::{Pod, Zeroable};
-use cap_project::*;
+use frameever_project::*;
 use image::{GenericImageView, imageops::FilterType};
 use tracing::error;
 use wgpu::{BindGroup, FilterMode, include_wgsl, util::DeviceExt};
@@ -36,10 +36,10 @@ static SVG_CURSOR_RASTERIZED_HEIGHT: u32 = 200;
 const CIRCLE_CURSOR_SIZE: u32 = 256;
 
 fn cursor_asset_shape(
-    recorded: Option<cap_cursor_info::CursorShape>,
+    recorded: Option<frameever_cursor_info::CursorShape>,
     use_svg: bool,
     cursor_type: &CursorType,
-) -> Option<cap_cursor_info::CursorShape> {
+) -> Option<frameever_cursor_info::CursorShape> {
     let shape = recorded?;
     match cursor_type.family() {
         Some(family) => Some(shape.in_family(family)),
@@ -48,9 +48,13 @@ fn cursor_asset_shape(
     }
 }
 
-fn recorded_image_shape(image: &image::RgbaImage) -> Option<cap_cursor_info::CursorShape> {
-    cap_cursor_info::CursorShapeMacOS::from_rgba(image.width(), image.height(), image.as_raw())
-        .map(Into::into)
+fn recorded_image_shape(image: &image::RgbaImage) -> Option<frameever_cursor_info::CursorShape> {
+    frameever_cursor_info::CursorShapeMacOS::from_rgba(
+        image.width(),
+        image.height(),
+        image.as_raw(),
+    )
+    .map(Into::into)
 }
 
 pub struct CursorLayer {
@@ -1162,7 +1166,7 @@ mod tests {
 
     #[test]
     fn appearance_selection_keeps_pointer_and_text_transitions() {
-        use cap_cursor_info::{CursorShape, CursorShapeMacOS, CursorShapeWindows};
+        use frameever_cursor_info::{CursorShape, CursorShapeMacOS, CursorShapeWindows};
         for (recorded, macos, windows) in [
             (
                 CursorShapeMacOS::TahoeArrow,
@@ -1202,7 +1206,7 @@ mod tests {
 
     #[test]
     fn unclassified_recorded_hands_recover_scalable_assets() {
-        use cap_cursor_info::{CursorShape, CursorShapeMacOS};
+        use frameever_cursor_info::{CursorShape, CursorShapeMacOS};
         let fixtures: &[(&[u8], CursorShapeMacOS)] = &[
             (
                 include_bytes!("../../../cursor-info/assets/mac/recorded/pointing-hand.png"),
@@ -1287,7 +1291,7 @@ mod tests {
 
     #[test]
     fn macos_arrow_mips_preserve_minified_structure_and_coverage() {
-        let arrow = cap_cursor_info::CursorShapeMacOS::Arrow
+        let arrow = frameever_cursor_info::CursorShapeMacOS::Arrow
             .resolve()
             .expect("macOS arrow asset should resolve");
         let rasterized = rasterize_svg_cursor(arrow.raw).expect("macOS arrow SVG should rasterize");

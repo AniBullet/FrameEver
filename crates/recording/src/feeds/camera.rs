@@ -1,8 +1,8 @@
-use cap_camera::CameraInfo;
-use cap_camera_ffmpeg::*;
-use cap_fail::fail_err;
-use cap_media_info::VideoInfo;
-use cap_timestamp::Timestamp;
+use frameever_camera::CameraInfo;
+use frameever_camera_ffmpeg::*;
+use frameever_fail::fail_err;
+use frameever_media_info::VideoInfo;
+use frameever_timestamp::Timestamp;
 use futures::{
     FutureExt,
     future::{BoxFuture, Shared},
@@ -211,7 +211,7 @@ struct ConnectingState {
 struct AttachedState {
     #[allow(dead_code)]
     id: DeviceOrModelID,
-    camera_info: cap_camera::CameraInfo,
+    camera_info: frameever_camera::CameraInfo,
     video_info: VideoInfo,
     settings: Option<CameraDeviceSettings>,
     last_frame_at: Option<std::time::Instant>,
@@ -309,7 +309,7 @@ impl CameraFeed {
 #[derive(Reply)]
 pub struct CameraFeedLock {
     actor: ActorRef<CameraFeed>,
-    camera_info: cap_camera::CameraInfo,
+    camera_info: frameever_camera::CameraInfo,
     video_info: VideoInfo,
     native_ingress: Arc<NativeCameraIngress>,
     drop_tx: Option<oneshot::Sender<()>>,
@@ -321,7 +321,7 @@ impl CameraFeedLock {
         &self.native_ingress
     }
 
-    pub fn camera_info(&self) -> &cap_camera::CameraInfo {
+    pub fn camera_info(&self) -> &frameever_camera::CameraInfo {
         &self.camera_info
     }
 
@@ -349,11 +349,11 @@ impl Drop for CameraFeedLock {
 #[derive(serde::Serialize, serde::Deserialize, specta::Type, Clone, Debug, PartialEq)]
 pub enum DeviceOrModelID {
     DeviceID(String),
-    ModelID(cap_camera::ModelID),
+    ModelID(frameever_camera::ModelID),
 }
 
 impl DeviceOrModelID {
-    pub fn from_info(info: &cap_camera::CameraInfo) -> Self {
+    pub fn from_info(info: &frameever_camera::CameraInfo) -> Self {
         info.model_id()
             .map(|v| Self::ModelID(v.clone()))
             .unwrap_or_else(|| Self::DeviceID(info.device_id().to_string()))
@@ -412,7 +412,7 @@ struct InputConnected {
     generation: u64,
     id: DeviceOrModelID,
     done_tx: SyncSender<()>,
-    camera_info: cap_camera::CameraInfo,
+    camera_info: frameever_camera::CameraInfo,
     video_info: VideoInfo,
     settings: Option<CameraDeviceSettings>,
 }
@@ -434,7 +434,7 @@ struct LockedCameraInputReconnected {
     generation: u64,
     lock_generation: u64,
     id: DeviceOrModelID,
-    camera_info: cap_camera::CameraInfo,
+    camera_info: frameever_camera::CameraInfo,
     video_info: VideoInfo,
     settings: Option<CameraDeviceSettings>,
     done_tx: SyncSender<()>,
@@ -756,16 +756,16 @@ pub enum SetInputError {
     Initialisation,
 }
 
-fn find_camera(selected_camera: &DeviceOrModelID) -> Option<cap_camera::CameraInfo> {
-    cap_camera::list_cameras().find(|c| match selected_camera {
+fn find_camera(selected_camera: &DeviceOrModelID) -> Option<frameever_camera::CameraInfo> {
+    frameever_camera::list_cameras().find(|c| match selected_camera {
         DeviceOrModelID::DeviceID(device_id) => c.device_id() == device_id,
         DeviceOrModelID::ModelID(model_id) => c.model_id() == Some(model_id),
     })
 }
 
 struct SetupCameraResult {
-    handle: cap_camera::CaptureHandle,
-    camera_info: cap_camera::CameraInfo,
+    handle: frameever_camera::CaptureHandle,
+    camera_info: frameever_camera::CameraInfo,
     video_info: VideoInfo,
 }
 
@@ -777,9 +777,9 @@ const PREFERRED_CAMERA_FRAME_RATE: f32 = 29.0;
 const MIN_CAMERA_FRAME_RATE: f32 = 24.0;
 
 fn select_preferred_camera_format(
-    formats: &[cap_camera::Format],
+    formats: &[frameever_camera::Format],
     settings: CameraDeviceSettings,
-) -> Option<cap_camera::Format> {
+) -> Option<frameever_camera::Format> {
     let mut matches = formats
         .iter()
         .filter(|format| {
@@ -821,9 +821,9 @@ fn select_preferred_camera_format(
 }
 
 fn select_camera_format(
-    camera: &cap_camera::CameraInfo,
+    camera: &frameever_camera::CameraInfo,
     settings: Option<CameraDeviceSettings>,
-) -> Result<cap_camera::Format, SetInputError> {
+) -> Result<frameever_camera::Format, SetInputError> {
     let formats = camera.formats().ok_or(SetInputError::InvalidFormat)?;
     if formats.is_empty() {
         return Err(SetInputError::InvalidFormat);
@@ -963,7 +963,7 @@ async fn setup_camera(
     let first_attempt = start_camera_capture_attempt(
         &camera,
         format.clone(),
-        cap_camera::CaptureMode::Native,
+        frameever_camera::CaptureMode::Native,
         recipient.clone(),
         native_recipient.clone(),
         ffmpeg_sender_count.clone(),
@@ -991,7 +991,7 @@ async fn setup_camera(
             start_camera_capture_attempt(
                 &camera,
                 format,
-                cap_camera::CaptureMode::Compatibility,
+                frameever_camera::CaptureMode::Compatibility,
                 recipient,
                 native_recipient,
                 ffmpeg_sender_count,
@@ -1022,9 +1022,9 @@ fn hand_native_frame_to_feed(
 
 #[cfg(target_os = "macos")]
 async fn start_camera_capture_attempt(
-    camera: &cap_camera::CameraInfo,
-    format: cap_camera::Format,
-    mode: cap_camera::CaptureMode,
+    camera: &frameever_camera::CameraInfo,
+    format: frameever_camera::Format,
+    mode: frameever_camera::CaptureMode,
     recipient: Recipient<NewFrame>,
     native_recipient: Recipient<NewNativeFrame>,
     ffmpeg_sender_count: Arc<std::sync::atomic::AtomicUsize>,
@@ -1040,9 +1040,12 @@ async fn start_camera_capture_attempt(
             let callback_num =
                 CAMERA_CALLBACK_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-            let timestamp = Timestamp::MachAbsoluteTime(cap_timestamp::MachAbsoluteTimestamp::new(
-                cidre::cm::Clock::convert_host_time_to_sys_units(frame.native().sample_buf().pts()),
-            ));
+            let timestamp =
+                Timestamp::MachAbsoluteTime(frameever_timestamp::MachAbsoluteTimestamp::new(
+                    cidre::cm::Clock::convert_host_time_to_sys_units(
+                        frame.native().sample_buf().pts(),
+                    ),
+                ));
 
             if native_ingress
                 .senders
@@ -1136,7 +1139,7 @@ async fn setup_camera(
                 CAMERA_CALLBACK_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
             let timestamp = Timestamp::PerformanceCounter(
-                cap_timestamp::PerformanceCounterTimestamp::new(frame.native().perf_counter),
+                frameever_timestamp::PerformanceCounterTimestamp::new(frame.native().perf_counter),
             );
 
             if native_ingress
@@ -1145,7 +1148,7 @@ async fn setup_camera(
                 > 0
                 && let Ok(bytes) = frame.native().bytes()
             {
-                use cap_mediafoundation_utils::IMFMediaBufferExt;
+                use frameever_mediafoundation_utils::IMFMediaBufferExt;
                 use windows::Win32::Media::MediaFoundation::MFCreateMemoryBuffer;
 
                 let data_len = bytes.len();
@@ -2672,7 +2675,7 @@ mod tests {
 mod ingress_tests {
     use super::*;
     use crate::sources::native_camera::native_ingress_capacity;
-    use cap_media_info::RawVideoFormat;
+    use frameever_media_info::RawVideoFormat;
     use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
     type Output = (flume::Receiver<u32>, Arc<AtomicU64>);
@@ -2862,9 +2865,9 @@ mod ingress_tests {
                     .unwrap();
             NativeCameraFrame {
                 sample_buf,
-                timestamp: Timestamp::MachAbsoluteTime(cap_timestamp::MachAbsoluteTimestamp::new(
-                    index as u64,
-                )),
+                timestamp: Timestamp::MachAbsoluteTime(
+                    frameever_timestamp::MachAbsoluteTimestamp::new(index as u64),
+                ),
             }
         }
 

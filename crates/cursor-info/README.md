@@ -17,7 +17,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cap-cursor-info = "0.0.0"
+frameever-cursor-info = "0.0.0"
 ```
 
 ### Platform-specific dependencies
@@ -32,7 +32,7 @@ The crate automatically includes platform-specific dependencies:
 ### Basic Usage
 
 ```rust
-use cap_cursor_info::{CursorShape, CursorShapeMacOS, CursorShapeWindows};
+use frameever_cursor_info::{CursorShape, CursorShapeMacOS, CursorShapeWindows};
 
 // Create a cursor shape
 let cursor = CursorShape::MacOS(CursorShapeMacOS::Arrow);
@@ -53,7 +53,7 @@ println!("Cursor: {}", cursor); // Output: "MacOS|Arrow"
 
 ```rust
 #[cfg(target_os = "macos")]
-use cap_cursor_info::CursorShapeMacOS;
+use frameever_cursor_info::CursorShapeMacOS;
 
 // Detect cursor from hash (macOS uses image hashing)
 let hash = "de2d1f4a81e520b65fd1317b845b00a1c51a4d1f71cca3cd4ccdab52b98d1ac9";
@@ -66,7 +66,7 @@ if let Some(cursor) = CursorShapeMacOS::from_hash(hash) {
 
 ```rust
 #[cfg(target_os = "windows")]
-use cap_cursor_info::CursorShape;
+use frameever_cursor_info::CursorShape;
 use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
 
 // Convert from Windows HCURSOR
@@ -81,7 +81,7 @@ if let Ok(cursor) = CursorShape::try_from(&hcursor) {
 The crate supports serde serialization:
 
 ```rust
-use cap_cursor_info::CursorShape;
+use frameever_cursor_info::CursorShape;
 use serde_json;
 
 let cursor = CursorShape::MacOS(CursorShapeMacOS::Arrow);

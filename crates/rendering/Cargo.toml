@@ -1,5 +1,5 @@
 [package]
-name = "cap-rendering"
+name = "frameever-rendering"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,14 +7,14 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-cap-enc-ffmpeg = { path = "../enc-ffmpeg" }
+frameever-enc-ffmpeg = { path = "../enc-ffmpeg" }
 anyhow.workspace = true
 bytemuck = { version = "1.7", features = ["derive"] }
-cap-camera-effects = { path = "../camera-effects" }
-cap-flags = { path = "../flags" }
-cap-project = { path = "../project" }
-cap-video-decode = { path = "../video-decode" }
-cap-cursor-info = { path = "../cursor-info" }
+frameever-camera-effects = { path = "../camera-effects" }
+frameever-flags = { path = "../flags" }
+frameever-project = { path = "../project" }
+frameever-video-decode = { path = "../video-decode" }
+frameever-cursor-info = { path = "../cursor-info" }
 ffmpeg-hw-device = { path = "../ffmpeg-hw-device" }
 tokio.workspace = true
 ffmpeg.workspace = true
@@ -60,9 +60,9 @@ windows = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
-cap-media-info = { path = "../media-info" }
-cap-video-decode = { path = "../video-decode", features = ["scripted"] }
-cap-verify-expect = { path = "../verify-expect" }
+frameever-media-info = { path = "../media-info" }
+frameever-video-decode = { path = "../video-decode", features = ["scripted"] }
+frameever-verify-expect = { path = "../verify-expect" }
 tempfile = "3"
 pollster = "0.4.0"
 pretty_assertions = "1.4.1"

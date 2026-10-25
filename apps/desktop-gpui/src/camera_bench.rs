@@ -101,10 +101,10 @@ pub fn run(cx: &mut App) {
 
 fn native_frame(
     sample_buf: &cidre::arc::R<cidre::cm::SampleBuf>,
-) -> cap_recording::NativeCameraFrame {
-    cap_recording::NativeCameraFrame {
+) -> frameever_recording::NativeCameraFrame {
+    frameever_recording::NativeCameraFrame {
         sample_buf: sample_buf.clone(),
-        timestamp: cap_timestamp::Timestamp::Instant(Instant::now()),
+        timestamp: frameever_timestamp::Timestamp::Instant(Instant::now()),
     }
 }
 

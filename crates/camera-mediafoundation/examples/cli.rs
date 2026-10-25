@@ -10,7 +10,7 @@ mod windows {
 
     use std::{fmt::Display, time::Duration};
 
-    use cap_camera_mediafoundation::DeviceSourcesIterator;
+    use frameever_camera_mediafoundation::DeviceSourcesIterator;
     use tracing::warn;
     use windows::Win32::{Media::MediaFoundation::*, System::Com::CoInitialize};
     use windows_core::GUID;

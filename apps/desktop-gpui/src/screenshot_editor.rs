@@ -25,11 +25,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use cap_project::{
+use frameever_project::{
     BackgroundSource, BorderConfiguration, CornerStyle, ProjectConfiguration, RecordingMeta,
     RecordingMetaInner, ShadowConfiguration, StudioRecordingMeta,
 };
-use cap_rendering::{
+use frameever_rendering::{
     DecodedFrame, DecodedSegmentFrames, FrameRenderer, ProjectUniforms, RenderOptions,
     RenderVideoConstants, RenderedFrame, RendererLayers, ZoomTransformTimeline,
 };
@@ -205,7 +205,7 @@ pub async fn run_still_renderer(
     setup_tx: flume::Sender<Result<(), String>>,
 ) {
     let options = RenderOptions {
-        screen_size: cap_project::XY::new(source.width, source.height),
+        screen_size: frameever_project::XY::new(source.width, source.height),
         camera_size: None,
         preserve_screen_alpha: true,
     };
@@ -216,7 +216,7 @@ pub async fn run_still_renderer(
             options,
             source.studio_meta,
             source.meta,
-            Arc::new(cap_rendering::BackgroundTextureCache::default()),
+            Arc::new(frameever_rendering::BackgroundTextureCache::default()),
         )),
         None => {
             RenderVideoConstants::new_with_options(options, source.meta, source.studio_meta).await
@@ -302,10 +302,10 @@ async fn render_still(
     layers: &mut RendererLayers,
     source: &DecodedFrame,
     config: &ProjectConfiguration,
-    resolution_base: Option<cap_project::XY<u32>>,
+    resolution_base: Option<frameever_project::XY<u32>>,
 ) -> Result<RenderedFrame, String> {
     let segment_frames = DecodedSegmentFrames {
-        screen_size: cap_project::XY::new(source.width(), source.height()),
+        screen_size: frameever_project::XY::new(source.width(), source.height()),
         screen_frame: Some(source.clone()),
         camera_frame: None,
         segment_time: 0.0,
@@ -315,9 +315,9 @@ async fn render_still(
 
     let resolution_base = resolution_base.unwrap_or_else(|| {
         let (base_w, base_h) = ProjectUniforms::get_base_size(&constants.options, config);
-        cap_project::XY::new(base_w, base_h)
+        frameever_project::XY::new(base_w, base_h)
     });
-    let cursor_events = cap_project::CursorEvents::default();
+    let cursor_events = frameever_project::CursorEvents::default();
     let mut zoom_timeline = ZoomTransformTimeline::from_project(
         config,
         &cursor_events,
@@ -361,7 +361,7 @@ async fn render_export_rgba(
     let display_size = ProjectUniforms::display_size(
         &constants.options,
         config,
-        cap_project::XY::new(base_width, base_height),
+        frameever_project::XY::new(base_width, base_height),
     )
     .coord;
     let crop = ProjectUniforms::get_crop(&constants.options, config);
@@ -373,7 +373,7 @@ async fn render_export_rgba(
         1.0,
     );
 
-    let resolution_base = cap_project::XY::new(
+    let resolution_base = frameever_project::XY::new(
         (((base_width as f64 * export_scale).ceil() as u32) + 3) & !3,
         (((base_height as f64 * export_scale).ceil() as u32) + 1) & !1,
     );
@@ -406,9 +406,13 @@ async fn render_export_rgba(
             height = frame.height
         ));
     }
-    let rgba =
-        cap_gpui_kernels::frame::unpad_rows(&frame.data, row_bytes, padded, frame.height as usize)
-            .ok_or_else(|| t!("Invalid export buffer rows").to_string())?;
+    let rgba = frameever_gpui_kernels::frame::unpad_rows(
+        &frame.data,
+        row_bytes,
+        padded,
+        frame.height as usize,
+    )
+    .ok_or_else(|| t!("Invalid export buffer rows").to_string())?;
 
     // What the preview renders this config at: `get_base_size`, then the
     // uniforms' own alignment -- `get_output_size` at scale 1. That is what
@@ -417,7 +421,7 @@ async fn render_export_rgba(
     let preview = ProjectUniforms::get_output_size(
         &constants.options,
         config,
-        cap_project::XY::new(base_width, base_height),
+        frameever_project::XY::new(base_width, base_height),
     );
 
     Ok(crate::screenshot_export::RawFrame {
@@ -1568,7 +1572,7 @@ impl ScreenshotEditorWindow {
 
     // -- Hex fields -------------------------------------------------------------
 
-    fn hex_color(&self, target: HexTarget) -> Option<cap_project::Color> {
+    fn hex_color(&self, target: HexTarget) -> Option<frameever_project::Color> {
         match (target, &self.project.background.source) {
             (HexTarget::BackgroundColor, BackgroundSource::Color { value, .. }) => Some(*value),
             (HexTarget::GradientFrom, BackgroundSource::Gradient { from, .. }) => Some(*from),
@@ -1587,7 +1591,7 @@ impl ScreenshotEditorWindow {
     fn set_hex_color(
         &mut self,
         target: HexTarget,
-        color: cap_project::Color,
+        color: frameever_project::Color,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -2097,16 +2101,22 @@ impl ScreenshotEditorWindow {
 
     // -- Aspect ratio -------------------------------------------------------
 
-    const ASPECT_OPTIONS: [(Option<cap_project::AspectRatio>, &'static str); 6] = [
+    const ASPECT_OPTIONS: [(Option<frameever_project::AspectRatio>, &'static str); 6] = [
         (None, n!("Auto")),
-        (Some(cap_project::AspectRatio::Wide), n!("Wide ⋅16:9")),
+        (Some(frameever_project::AspectRatio::Wide), n!("Wide ⋅16:9")),
         (
-            Some(cap_project::AspectRatio::Vertical),
+            Some(frameever_project::AspectRatio::Vertical),
             n!("Vertical ⋅9:16"),
         ),
-        (Some(cap_project::AspectRatio::Square), n!("Square ⋅1:1")),
-        (Some(cap_project::AspectRatio::Classic), n!("Classic ⋅4:3")),
-        (Some(cap_project::AspectRatio::Tall), n!("Tall ⋅3:4")),
+        (
+            Some(frameever_project::AspectRatio::Square),
+            n!("Square ⋅1:1"),
+        ),
+        (
+            Some(frameever_project::AspectRatio::Classic),
+            n!("Classic ⋅4:3"),
+        ),
+        (Some(frameever_project::AspectRatio::Tall), n!("Tall ⋅3:4")),
     ];
 
     /// `KSelect.Value` (`AspectRatioSelect.tsx:78-88`) -- the trigger shows the
@@ -2114,11 +2124,11 @@ impl ScreenshotEditorWindow {
     fn aspect_label(&self) -> &'static str {
         match &self.project.aspect_ratio {
             None => t!("Auto"),
-            Some(cap_project::AspectRatio::Wide) => "16:9",
-            Some(cap_project::AspectRatio::Vertical) => "9:16",
-            Some(cap_project::AspectRatio::Square) => "1:1",
-            Some(cap_project::AspectRatio::Classic) => "4:3",
-            Some(cap_project::AspectRatio::Tall) => "3:4",
+            Some(frameever_project::AspectRatio::Wide) => "16:9",
+            Some(frameever_project::AspectRatio::Vertical) => "9:16",
+            Some(frameever_project::AspectRatio::Square) => "1:1",
+            Some(frameever_project::AspectRatio::Classic) => "4:3",
+            Some(frameever_project::AspectRatio::Tall) => "3:4",
         }
     }
 
@@ -2882,7 +2892,11 @@ impl ScreenshotEditorWindow {
     /// beside a hex field. The swatch opens `<input type="color">` over there;
     /// there is no native colour panel wired to this window yet, so it is inert
     /// here (README deviation).
-    fn render_rgb_input(&self, target: HexTarget, value: cap_project::Color) -> impl IntoElement {
+    fn render_rgb_input(
+        &self,
+        target: HexTarget,
+        value: frameever_project::Color,
+    ) -> impl IntoElement {
         let theme = self.theme;
         div()
             .flex()
@@ -4452,14 +4466,14 @@ fn render_input_key(project: &mut ProjectConfiguration) -> Option<Vec<u8>> {
 /// copied once and the swap runs over a clone, so the padded GPU buffer is
 /// walked a single time.
 fn frame_buffers(frame: &RenderedFrame) -> Option<(Arc<Vec<u8>>, Arc<RenderImage>)> {
-    let rgba = cap_gpui_kernels::frame::unpad_rows(
+    let rgba = frameever_gpui_kernels::frame::unpad_rows(
         &frame.data,
         frame.width as usize * 4,
         frame.padded_bytes_per_row as usize,
         frame.height as usize,
     )?;
     let mut bgra = rgba.clone();
-    cap_gpui_kernels::frame::swap_red_blue(&mut bgra);
+    frameever_gpui_kernels::frame::swap_red_blue(&mut bgra);
     let buffer = image::RgbaImage::from_raw(frame.width, frame.height, bgra)?;
     Some((
         Arc::new(rgba),
@@ -4568,7 +4582,10 @@ pub fn load_screenshot_project(
 
 /// `AspectRatio` derives no `PartialEq`; same discriminant comparison the
 /// video editor's `aspect_ratio_eq` uses.
-fn aspect_eq(a: &Option<cap_project::AspectRatio>, b: &Option<cap_project::AspectRatio>) -> bool {
+fn aspect_eq(
+    a: &Option<frameever_project::AspectRatio>,
+    b: &Option<frameever_project::AspectRatio>,
+) -> bool {
     match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => std::mem::discriminant(a) == std::mem::discriminant(b),
@@ -4705,10 +4722,10 @@ mod tests {
         config
     }
 
-    fn arrow(id: &str, stroke_width: f64) -> cap_project::Annotation {
-        cap_project::Annotation {
+    fn arrow(id: &str, stroke_width: f64) -> frameever_project::Annotation {
+        frameever_project::Annotation {
             id: id.into(),
-            annotation_type: cap_project::AnnotationType::Arrow,
+            annotation_type: frameever_project::AnnotationType::Arrow,
             x: 120.,
             y: 80.,
             width: 300.,
@@ -4825,8 +4842,8 @@ mod tests {
             ]);
         }
         let studio_meta = StudioRecordingMeta::SingleSegment {
-            segment: cap_project::SingleSegment {
-                display: cap_project::VideoMeta {
+            segment: frameever_project::SingleSegment {
+                display: frameever_project::VideoMeta {
                     path: "original.png".into(),
                     fps: 0,
                     start_time: Some(0.0),
@@ -4838,7 +4855,7 @@ mod tests {
             },
         };
         let meta = RecordingMeta {
-            platform: Some(cap_project::Platform::default()),
+            platform: Some(frameever_project::Platform::default()),
             project_path: std::env::temp_dir().join("screenshot-annotation-bench.cap"),
             pretty_name: "bench".into(),
             sharing: None,
@@ -4952,7 +4969,7 @@ mod tests {
         values[values.len() / 2]
     }
 
-    /// `cargo test --bin cap-gpui benchmark_annotation_slider_drag -- --ignored --nocapture`
+    /// `cargo test --bin frameever-gpui benchmark_annotation_slider_drag -- --ignored --nocapture`
     #[test]
     #[ignore = "GPU benchmark"]
     fn benchmark_annotation_slider_drag() {

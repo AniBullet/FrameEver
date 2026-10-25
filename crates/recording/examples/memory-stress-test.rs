@@ -1,4 +1,4 @@
-use cap_recording::{
+use frameever_recording::{
     CameraFeed, MicrophoneFeed,
     feeds::{
         camera::{self, DeviceOrModelID},
@@ -24,7 +24,7 @@ async fn test_camera_cycles(config: &CycleTestConfig) -> CycleTestResult {
 
     let mut cycle_memories = Vec::new();
 
-    let Some(camera_info) = cap_camera::list_cameras().next() else {
+    let Some(camera_info) = frameever_camera::list_cameras().next() else {
         println!("No camera found, skipping");
         return CycleTestResult::from_memories(vec![]);
     };
@@ -38,7 +38,7 @@ async fn test_camera_cycles(config: &CycleTestConfig) -> CycleTestResult {
             .unwrap_or(0.0);
 
         let feed = CameraFeed::spawn(CameraFeed::default());
-        let (frame_tx, frame_rx) = flume::bounded::<cap_recording::FFmpegVideoFrame>(4);
+        let (frame_tx, frame_rx) = flume::bounded::<frameever_recording::FFmpegVideoFrame>(4);
 
         feed.ask(camera::AddSender(frame_tx))
             .await
@@ -175,7 +175,7 @@ async fn test_recording_cycles(
 
         let dir = tempfile::tempdir().expect("Failed to create tempdir");
 
-        let mut builder = cap_recording::studio_recording::Actor::builder(
+        let mut builder = frameever_recording::studio_recording::Actor::builder(
             dir.path().into(),
             ScreenCaptureTarget::Display {
                 id: Display::primary().id(),
@@ -186,7 +186,7 @@ async fn test_recording_cycles(
         let mut camera_feed_ref = None;
         let mut mic_feed_ref = None;
 
-        if include_camera && let Some(camera_info) = cap_camera::list_cameras().next() {
+        if include_camera && let Some(camera_info) = frameever_camera::list_cameras().next() {
             let feed = CameraFeed::spawn(CameraFeed::default());
             feed.ask(camera::SetInput {
                 settings: None,
@@ -228,7 +228,7 @@ async fn test_recording_cycles(
         let handle = builder
             .build(
                 #[cfg(target_os = "macos")]
-                Some(cap_recording::SendableShareableContent::from(
+                Some(frameever_recording::SendableShareableContent::from(
                     cidre::sc::ShareableContent::current()
                         .await
                         .expect("Failed to get shareable content"),
@@ -280,7 +280,7 @@ async fn test_sustained_recording(duration_secs: u64, include_camera: bool, incl
 
     let dir = tempfile::tempdir().expect("Failed to create tempdir");
 
-    let mut builder = cap_recording::studio_recording::Actor::builder(
+    let mut builder = frameever_recording::studio_recording::Actor::builder(
         dir.path().into(),
         ScreenCaptureTarget::Display {
             id: Display::primary().id(),
@@ -288,7 +288,7 @@ async fn test_sustained_recording(duration_secs: u64, include_camera: bool, incl
     )
     .with_system_audio(true);
 
-    if include_camera && let Some(camera_info) = cap_camera::list_cameras().next() {
+    if include_camera && let Some(camera_info) = frameever_camera::list_cameras().next() {
         println!("Camera: {}", camera_info.display_name());
         let feed = CameraFeed::spawn(CameraFeed::default());
         feed.ask(camera::SetInput {
@@ -333,7 +333,7 @@ async fn test_sustained_recording(duration_secs: u64, include_camera: bool, incl
     let handle = builder
         .build(
             #[cfg(target_os = "macos")]
-            Some(cap_recording::SendableShareableContent::from(
+            Some(frameever_recording::SendableShareableContent::from(
                 cidre::sc::ShareableContent::current()
                     .await
                     .expect("Failed to get shareable content"),
@@ -379,7 +379,7 @@ async fn test_sustained_recording(duration_secs: u64, include_camera: bool, incl
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    unsafe { std::env::set_var("RUST_LOG", "info,cap_recording=debug") };
+    unsafe { std::env::set_var("RUST_LOG", "info,frameever_recording=debug") };
     tracing_subscriber::fmt::init();
 
     let args: Vec<String> = std::env::args().collect();

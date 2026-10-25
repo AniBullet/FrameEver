@@ -1,4 +1,4 @@
-//! cap-verify oracles for caption generation, with a fake transcriber in
+//! frameever-verify oracles for caption generation, with a fake transcriber in
 //! place of Whisper/Parakeet (no model download):
 //!
 //! - `fake_transcriber_*`: the real project audio extraction
@@ -30,7 +30,7 @@
 //!   full-width punctuation and between two CJK characters; ids are
 //!   `segment-<n>`.
 
-use cap_verify::{
+use frameever_verify::{
     audio_code::{self, AudioSource, MARKER_SECS},
     catalog,
     fixture::{self, AudioTrackSpec, FixtureSpec, Rng, SegmentSpec, Timing, VideoTrackSpec},
@@ -46,7 +46,7 @@ const MARKER_RATE: u32 = 16_000;
 
 fn finish(case: Case) {
     for note in &case.notes {
-        eprintln!("[cap-verify]   {}: {note}", case.id);
+        eprintln!("[frameever-verify]   {}: {note}", case.id);
     }
     if let Err(message) = report::settle(case) {
         panic!("{message}");
@@ -543,7 +543,11 @@ fn instant_project_is_refused() {
     .expect("write meta");
     let mut case = Case::new(id);
     match RecordingMeta::load_for_project(&project) {
-        Ok(meta) if matches!(meta.inner, cap_project::RecordingMetaInner::Instant(_)) => {}
+        Ok(meta)
+            if matches!(
+                meta.inner,
+                frameever_project::RecordingMetaInner::Instant(_)
+            ) => {}
         other => case.problem(
             "error",
             format!("the Instant project did not load as one: {:?}", other.err()),

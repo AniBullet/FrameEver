@@ -173,7 +173,7 @@ fn sync_directories(path: &Path) -> Result<(), RecoveryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_enc_ffmpeg::RelocatableSource;
+    use frameever_enc_ffmpeg::RelocatableSource;
     use std::{
         io::Read,
         sync::Arc,

@@ -7,11 +7,11 @@ use crate::{
     sources::screen_capture,
 };
 use anyhow::anyhow;
-use cap_enc_avfoundation::QueueFrameError;
-use cap_media_info::{AudioInfo, VideoInfo};
-use cap_timestamp::Timestamp;
-use cap_utils::macos_qos::{MacOsQosClass, set_current_thread_qos};
 use cidre::arc;
+use frameever_enc_avfoundation::QueueFrameError;
+use frameever_media_info::{AudioInfo, VideoInfo};
+use frameever_timestamp::Timestamp;
+use frameever_utils::macos_qos::{MacOsQosClass, set_current_thread_qos};
 use std::{
     path::PathBuf,
     sync::{
@@ -42,7 +42,7 @@ fn boost_encoder_thread_qos() {
 // without headroom: a writer that dies on a failed async write mid-recording
 // loses its moov, so the clean refusal up front is strictly better.
 fn check_disk_space_to_start(output_path: &std::path::Path) -> anyhow::Result<()> {
-    match cap_utils::disk_space::free_bytes_for_path(output_path) {
+    match frameever_utils::disk_space::free_bytes_for_path(output_path) {
         Ok(available) => {
             info!(
                 available_mb = available / (1024 * 1024),
@@ -298,7 +298,7 @@ enum AudioFrameMessage {
 struct Mp4EncoderState {
     video_tx: SyncSender<Option<VideoFrameMessage>>,
     audio_tx: Option<SyncSender<Option<AudioFrameMessage>>>,
-    encoder: Arc<Mutex<cap_enc_avfoundation::MP4Encoder>>,
+    encoder: Arc<Mutex<frameever_enc_avfoundation::MP4Encoder>>,
     encoder_handle: Option<JoinHandle<anyhow::Result<()>>>,
     audio_handle: Option<JoinHandle<anyhow::Result<()>>>,
     video_frame_count: Arc<AtomicU64>,
@@ -353,28 +353,28 @@ impl Muxer for AVFoundationMp4Muxer {
         let (ready_tx, ready_rx) = sync_channel::<anyhow::Result<()>>(1);
 
         let encoder = if config.instant_mode {
-            cap_enc_avfoundation::MP4Encoder::init_instant_mode(
+            frameever_enc_avfoundation::MP4Encoder::init_instant_mode(
                 output_path.clone(),
                 video_config,
                 audio_config,
                 config.output_height,
             )
         } else if config.ultra_quality {
-            cap_enc_avfoundation::MP4Encoder::init_ultra(
+            frameever_enc_avfoundation::MP4Encoder::init_ultra(
                 output_path.clone(),
                 video_config,
                 audio_config,
                 config.output_height,
             )
         } else if config.compatibility_quality {
-            cap_enc_avfoundation::MP4Encoder::init_compatibility(
+            frameever_enc_avfoundation::MP4Encoder::init_compatibility(
                 output_path.clone(),
                 video_config,
                 audio_config,
                 config.output_height,
             )
         } else {
-            cap_enc_avfoundation::MP4Encoder::init(
+            frameever_enc_avfoundation::MP4Encoder::init(
                 output_path.clone(),
                 video_config,
                 audio_config,
@@ -949,7 +949,7 @@ enum CameraFrameMessage {
 struct CameraEncoderState {
     video_tx: SyncSender<Option<CameraFrameMessage>>,
     audio_tx: Option<SyncSender<Option<AudioFrameMessage>>>,
-    encoder: Arc<Mutex<cap_enc_avfoundation::MP4Encoder>>,
+    encoder: Arc<Mutex<frameever_enc_avfoundation::MP4Encoder>>,
     encoder_handle: Option<JoinHandle<anyhow::Result<()>>>,
     audio_handle: Option<JoinHandle<anyhow::Result<()>>>,
     audio_channel_depth: Option<Arc<AtomicUsize>>,
@@ -1001,21 +1001,21 @@ impl Muxer for AVFoundationCameraMuxer {
         let (ready_tx, ready_rx) = sync_channel::<anyhow::Result<()>>(1);
 
         let encoder = if is_instant {
-            cap_enc_avfoundation::MP4Encoder::init_instant_mode(
+            frameever_enc_avfoundation::MP4Encoder::init_instant_mode(
                 output_path.clone(),
                 video_config,
                 audio_config,
                 config.output_height,
             )
         } else if config.compatibility_quality {
-            cap_enc_avfoundation::MP4Encoder::init_compatibility(
+            frameever_enc_avfoundation::MP4Encoder::init_compatibility(
                 output_path.clone(),
                 video_config,
                 audio_config,
                 config.output_height,
             )
         } else {
-            cap_enc_avfoundation::MP4Encoder::init(
+            frameever_enc_avfoundation::MP4Encoder::init(
                 output_path.clone(),
                 video_config,
                 audio_config,

@@ -6,7 +6,7 @@
 //! quoted next to the values they turn into, because `pl-3` and `gap-2.5` are
 //! considerably easier to check against the original than `12.` and `10.`.
 
-use cap_recording::sources::screen_capture::ScreenCaptureTarget;
+use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::{
     AppContext as _, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
     Render, SharedString, StatefulInteractiveElement, Styled, Window, div, img,
@@ -100,7 +100,7 @@ fn effective_recording_mode(preferred: Mode, editor_recording: bool) -> Mode {
 }
 
 impl Mode {
-    /// `cap_recording::RecordingMode`'s serialized spelling -- the value the
+    /// `frameever_recording::RecordingMode`'s serialized spelling -- the value the
     /// store's `recording_settings.mode` holds, shared with the Tauri app.
     pub fn slug(self) -> &'static str {
         match self {
@@ -525,8 +525,8 @@ enum DeviceFormatTarget {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum DeviceFormat {
-    Camera(cap_recording::feeds::camera::CameraDeviceSettings),
-    Microphone(cap_recording::feeds::microphone::MicrophoneDeviceSettings),
+    Camera(frameever_recording::feeds::camera::CameraDeviceSettings),
+    Microphone(frameever_recording::feeds::microphone::MicrophoneDeviceSettings),
 }
 
 impl DeviceFormat {
@@ -1096,7 +1096,7 @@ impl MainWindow {
                     && this.microphone.is_none()
                 {
                     let selected =
-                        cap_recording::feeds::microphone::MicrophoneFeed::default_device()
+                        frameever_recording::feeds::microphone::MicrophoneFeed::default_device()
                             .and_then(|(name, _, _)| {
                                 this.devices
                                     .microphones
@@ -1868,7 +1868,7 @@ impl MainWindow {
                 let default_mic = cx
                     .background_executor()
                     .spawn(async {
-                        cap_recording::feeds::microphone::MicrophoneFeed::default_device()
+                        frameever_recording::feeds::microphone::MicrophoneFeed::default_device()
                             .map(|(name, _, _)| name)
                     })
                     .await;
@@ -2353,8 +2353,8 @@ impl MainWindow {
                     return;
                 }
             };
-            let can_start = storage.status() != cap_utils::disk_space::DiskSpaceStatus::Exhausted;
-            if storage.status() == cap_utils::disk_space::DiskSpaceStatus::Ok || acknowledged && can_start {
+            let can_start = storage.status() != frameever_utils::disk_space::DiskSpaceStatus::Exhausted;
+            if storage.status() == frameever_utils::disk_space::DiskSpaceStatus::Ok || acknowledged && can_start {
                 this.update(cx, |this, cx| {
                     if !this.recording_start_is_current(&permit, cx) {
                         this.finish_recording_start(&permit);
@@ -6343,7 +6343,8 @@ mod remembered_device_tests {
     fn camera(device: &str, model: Option<&str>) -> CameraOption {
         CameraOption {
             device_id: device.to_string(),
-            model_id: model.map(|model| cap_camera::ModelID::try_from(model.to_string()).unwrap()),
+            model_id: model
+                .map(|model| frameever_camera::ModelID::try_from(model.to_string()).unwrap()),
             label: format!("Camera {device}"),
             best_format: None,
             formats: Vec::new(),
@@ -6356,7 +6357,7 @@ mod remembered_device_tests {
             camera("other", Some("other:model")),
             camera("new-id", Some("same:model")),
         ];
-        let model = cap_camera::ModelID::try_from("same:model".to_string()).unwrap();
+        let model = frameever_camera::ModelID::try_from("same:model".to_string()).unwrap();
         let restored = remembered_camera(&recording::DeviceOrModelID::ModelID(model), &candidates);
         assert_eq!(restored, candidates[1]);
         assert_eq!(
@@ -6434,7 +6435,7 @@ mod device_format_tests {
         Some(PendingDeviceFormat {
             target: DeviceFormatTarget::Microphone("Desk".into()),
             format: DeviceFormat::Microphone(
-                cap_recording::feeds::microphone::MicrophoneDeviceSettings {
+                frameever_recording::feeds::microphone::MicrophoneDeviceSettings {
                     sample_rate: Some(48_000),
                     channels: Some(1),
                 },

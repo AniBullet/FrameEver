@@ -1,10 +1,10 @@
 use std::{collections::VecDeque, panic::AssertUnwindSafe, sync::Arc};
 
-use cap_project::{
+use frameever_project::{
     BackgroundSource, CursorEvents, FrameStyle, ProjectConfiguration, RecordingMeta, XY,
 };
-use cap_rendering::decoder::ManagedVideoError;
-use cap_rendering::{
+use frameever_rendering::decoder::ManagedVideoError;
+use frameever_rendering::{
     FrameLayout, FrameRenderer, FrozenRecordedCursorAssets, ManagedRecordingSegmentDecoders,
     ManagedSegmentDecoderStatus, ManagedSegmentStopHandles, ManagedSegmentVideoError,
     ManagedSegmentVideoExit, ManagedSegmentVideoInput, ProjectUniforms, RenderOptions,
@@ -69,7 +69,7 @@ pub struct PreparingPreviewInput {
 pub struct PreparingPreviewOptions {
     pub use_hardware_decoding: bool,
     pub frame_format: EditorFrameFormat,
-    pub shared_device: Option<cap_rendering::SharedWgpuDevice>,
+    pub shared_device: Option<frameever_rendering::SharedWgpuDevice>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -331,7 +331,7 @@ pub(crate) fn validate_input(input: &PreparingPreviewInput) -> Result<f64, Prepa
     let Some(meta) = input.recording_meta.studio_meta() else {
         return Err(invalid("Studio metadata is required"));
     };
-    let cap_project::StudioRecordingMeta::MultipleSegments { inner } = meta else {
+    let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = meta else {
         return Err(invalid("Indexed stopped segments are required"));
     };
     let count = input.segments.len();
@@ -550,7 +550,7 @@ async fn run_preview(
             render_options,
             metadata,
             recording_meta,
-            Arc::new(cap_rendering::BackgroundTextureCache::default()),
+            Arc::new(frameever_rendering::BackgroundTextureCache::default()),
         ),
         None => RenderVideoConstants::new_with_options(render_options, recording_meta, metadata)
             .await

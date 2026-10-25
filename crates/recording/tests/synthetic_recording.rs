@@ -1,4 +1,4 @@
-use cap_recording::test_sources::{
+use frameever_recording::test_sources::{
     AudioGenerator, AudioTestConfig, OutputFormat, RecordingValidator, SyncDetector, SyncMarker,
     SyncMarkerType, SyncTestConfig, TestConfig, TestPattern, VideoTestConfig,
 };
@@ -115,7 +115,7 @@ fn test_sync_detector_beep_detection() {
 
 #[test]
 fn test_sync_analysis() {
-    use cap_recording::test_sources::{DetectedSyncEvent, SyncAnalysisResult};
+    use frameever_recording::test_sources::{DetectedSyncEvent, SyncAnalysisResult};
 
     let events = vec![
         DetectedSyncEvent {
@@ -192,7 +192,7 @@ fn test_validator_expected_frame_count() {
 
 #[test]
 fn test_validation_result_summary() {
-    use cap_recording::test_sources::ValidationResult;
+    use frameever_recording::test_sources::ValidationResult;
 
     let result = ValidationResult {
         frame_count_ok: true,
@@ -220,7 +220,7 @@ fn test_validation_result_summary() {
 
 #[test]
 fn test_test_config_presets() {
-    let common = cap_recording::test_sources::common_test_configs();
+    let common = frameever_recording::test_sources::common_test_configs();
     assert!(!common.is_empty());
 
     for config in &common {
@@ -345,7 +345,7 @@ fn test_sync_marker_types() {
 
 #[test]
 fn test_time_conversions() {
-    use cap_recording::test_sources::{
+    use frameever_recording::test_sources::{
         frame_number_to_time_ms, sample_number_to_time_ms, time_ms_to_frame_number,
         time_ms_to_sample_number,
     };
@@ -379,7 +379,7 @@ fn test_sync_config_helpers() {
 
 #[test]
 fn test_file_size_estimation() {
-    use cap_recording::test_sources::calculate_expected_file_size;
+    use frameever_recording::test_sources::calculate_expected_file_size;
 
     let config = TestConfig {
         video: Some(VideoTestConfig::fhd_1080p()),
@@ -421,7 +421,7 @@ fn test_audio_only_config() {
 
 #[test]
 fn test_comprehensive_config_matrix() {
-    let configs = cap_recording::test_sources::comprehensive_test_configs();
+    let configs = frameever_recording::test_sources::comprehensive_test_configs();
 
     assert!(configs.len() > 20, "Should have many comprehensive configs");
 
@@ -480,7 +480,7 @@ fn test_sync_detector_with_threshold() {
 
 #[test]
 fn test_empty_sync_analysis() {
-    use cap_recording::test_sources::SyncAnalysisResult;
+    use frameever_recording::test_sources::SyncAnalysisResult;
 
     let result = SyncAnalysisResult::new(vec![], 50.0);
     assert!(!result.sync_ok || result.events.is_empty());
@@ -488,7 +488,7 @@ fn test_empty_sync_analysis() {
 
 #[test]
 fn test_validation_result_with_errors() {
-    use cap_recording::test_sources::ValidationResult;
+    use frameever_recording::test_sources::ValidationResult;
 
     let result = ValidationResult {
         frame_count_ok: true,

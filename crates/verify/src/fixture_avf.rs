@@ -1,13 +1,13 @@
 //! macOS: writes a track through the product's AVFoundation encoder
-//! (`cap-enc-avfoundation`, AVAssetWriter + VideoToolbox), the encoder Studio
+//! (`frameever-enc-avfoundation`, AVAssetWriter + VideoToolbox), the encoder Studio
 //! recordings use on macOS, fed NV12 IOSurface buffers with exact times.
 
 use std::{path::Path, time::Duration};
 
 use anyhow::{anyhow, bail};
-use cap_enc_avfoundation::{MP4Encoder, QueueFrameError};
-use cap_media_info::{RawVideoFormat, VideoInfo};
 use cidre::{arc, cf, cm, cv};
+use frameever_enc_avfoundation::{MP4Encoder, QueueFrameError};
+use frameever_media_info::{RawVideoFormat, VideoInfo};
 
 use crate::video_code::{self, FrameMarker};
 

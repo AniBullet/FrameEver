@@ -19,7 +19,7 @@ When using MediaFoundation for hardware-accelerated H264 encoding, the encoded o
 ### Basic Example
 
 ```rust
-use cap_mediafoundation_ffmpeg::{H264SampleMuxer, MuxerConfig};
+use frameever_mediafoundation_ffmpeg::{H264SampleMuxer, MuxerConfig};
 use std::path::PathBuf;
 
 // Configure the muxer

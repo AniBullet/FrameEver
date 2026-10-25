@@ -1,7 +1,7 @@
 use super::mixer::{PreparingAudioMixer, PreparingAudioRead, PreparingAudioSources};
 use crate::audio::{AudioResampler, preparing_audio_output_policy};
-use cap_audio::{AudioData, FromSampleBytes};
-use cap_media_info::AudioInfo;
+use frameever_audio::{AudioData, FromSampleBytes};
+use frameever_media_info::AudioInfo;
 use futures::{FutureExt, future::Shared};
 use ringbuf::{
     HeapCons, HeapProd, HeapRb,
@@ -263,7 +263,7 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> PreparingAudioBuffer<T> {
         let total_seconds = sources.total_duration();
         if output_info.sample_rate == 0
             || !(1..=8).contains(&output_info.channels)
-            || cap_media_info::ffmpeg_sample_format_for(T::FORMAT)
+            || frameever_media_info::ffmpeg_sample_format_for(T::FORMAT)
                 != Some(output_info.sample_format)
         {
             return Err("Preparing audio output format is invalid".into());
@@ -491,8 +491,8 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> OutputProducer<T> {
                         .ok_or("Preparing audio mixer frame index overflow")?;
                     let info =
                         AudioInfo::new_raw(AudioData::SAMPLE_FORMAT, AudioData::SAMPLE_RATE, 2);
-                    let frame =
-                        info.wrap_frame(unsafe { cap_audio::cast_f32_slice_to_bytes(&samples) });
+                    let frame = info
+                        .wrap_frame(unsafe { frameever_audio::cast_f32_slice_to_bytes(&samples) });
                     let bytes = self.resampler.queue_and_process_frame(&frame);
                     if bytes.len() > self.scratch_bytes {
                         return Err("Preparing audio resampler exceeded its scratch bound".into());

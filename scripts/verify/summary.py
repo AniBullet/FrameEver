@@ -66,7 +66,7 @@ def crash_excerpt(msg, limit):
     lines = msg.splitlines()
     for i, line in enumerate(lines):
         if "timed out" in line:
-            return [line for line in lines if "[cap-verify]" in line or "timed out" in line][-limit:]
+            return [line for line in lines if "[frameever-verify]" in line or "timed out" in line][-limit:]
         if "panicked at" in line or "error:" in line.lower():
             excerpt = []
             for follow in lines[i:i + 12]:

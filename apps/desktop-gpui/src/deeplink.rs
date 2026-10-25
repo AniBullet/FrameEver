@@ -41,8 +41,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use cap_recording::feeds::camera::DeviceOrModelID;
-use cap_recording::sources::screen_capture::ScreenCaptureTarget;
+use frameever_recording::feeds::camera::DeviceOrModelID;
+use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::App;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -95,7 +95,7 @@ pub enum CameraPreviewShape {
 }
 
 /// `CameraPreviewState` (`src-tauri/src/camera.rs:170-177`). `background_blur`
-/// keeps its `#[serde(default)]` and its `cap_project` type, so the accepted
+/// keeps its `#[serde(default)]` and its `frameever_project` type, so the accepted
 /// JSON is the Tauri app's exactly.
 #[cfg(debug_assertions)]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -104,12 +104,12 @@ pub struct CameraPreviewState {
     pub shape: CameraPreviewShape,
     pub mirrored: bool,
     #[serde(default)]
-    pub background_blur: cap_project::BackgroundBlurMode,
+    pub background_blur: frameever_project::BackgroundBlurMode,
 }
 
 /// `DeepLinkAction` (`deeplink_actions.rs:38-67`), variant for variant,
 /// including which ones exist only under `debug_assertions`. `mode` uses
-/// `cap_recording::RecordingMode` -- the exact type the Tauri enum embeds --
+/// `frameever_recording::RecordingMode` -- the exact type the Tauri enum embeds --
 /// so `"studio"`/`"instant"`/`"screenshot"` all *parse*; the screenshot case
 /// is then refused at execution with the Tauri app's own error (its
 /// `start_recording` returns "Use take_screenshot for screenshots",
@@ -122,7 +122,7 @@ pub enum DeepLinkAction {
         camera: Option<DeviceOrModelID>,
         mic_label: Option<String>,
         capture_system_audio: bool,
-        mode: cap_recording::RecordingMode,
+        mode: frameever_recording::RecordingMode,
     },
     StopRecording,
     #[cfg(debug_assertions)]
@@ -314,22 +314,26 @@ impl DeepLinkAction {
                 // The name -> target resolution, verbatim from
                 // `deeplink_actions.rs:200-231`.
                 let capture_target: ScreenCaptureTarget = match capture_mode {
-                    CaptureMode::Screen(name) => cap_recording::screen_capture::list_displays()
-                        .into_iter()
-                        .find(|(s, _)| s.name == name)
-                        .map(|(s, _)| ScreenCaptureTarget::Display { id: s.id })
-                        .ok_or(format!("No screen with name \"{}\"", name))?,
-                    CaptureMode::Window(name) => cap_recording::screen_capture::list_windows()
-                        .into_iter()
-                        .find(|(w, _)| w.name == name)
-                        .map(|(w, _)| ScreenCaptureTarget::Window { id: w.id })
-                        .ok_or(format!("No window with name \"{}\"", name))?,
+                    CaptureMode::Screen(name) => {
+                        frameever_recording::screen_capture::list_displays()
+                            .into_iter()
+                            .find(|(s, _)| s.name == name)
+                            .map(|(s, _)| ScreenCaptureTarget::Display { id: s.id })
+                            .ok_or(format!("No screen with name \"{}\"", name))?
+                    }
+                    CaptureMode::Window(name) => {
+                        frameever_recording::screen_capture::list_windows()
+                            .into_iter()
+                            .find(|(w, _)| w.name == name)
+                            .map(|(w, _)| ScreenCaptureTarget::Window { id: w.id })
+                            .ok_or(format!("No window with name \"{}\"", name))?
+                    }
                     #[cfg(debug_assertions)]
                     CaptureMode::Area(area) => {
                         if area.width <= 0.0 || area.height <= 0.0 {
                             return Err("Area width and height must be positive".to_string());
                         }
-                        let screen = cap_recording::screen_capture::list_displays()
+                        let screen = frameever_recording::screen_capture::list_displays()
                             .into_iter()
                             .find(|(display, _)| display.name == area.screen)
                             .map(|(display, _)| display.id)
@@ -347,11 +351,13 @@ impl DeepLinkAction {
                 };
 
                 let mode = match mode {
-                    cap_recording::RecordingMode::Studio => recording::RecordingMode::Studio,
-                    cap_recording::RecordingMode::Instant => recording::RecordingMode::Instant,
+                    frameever_recording::RecordingMode::Studio => recording::RecordingMode::Studio,
+                    frameever_recording::RecordingMode::Instant => {
+                        recording::RecordingMode::Instant
+                    }
                     // The Tauri parser admits it and its `start_recording`
                     // refuses it (`recording.rs:1699-1704`); same split here.
-                    cap_recording::RecordingMode::Screenshot => {
+                    frameever_recording::RecordingMode::Screenshot => {
                         return Err("Use take_screenshot for screenshots".to_string());
                     }
                 };
@@ -482,10 +488,10 @@ impl DeepLinkAction {
                     CameraPreviewShape::Full => crate::store::CameraShape::Full,
                 };
                 let background_blur = match state.background_blur {
-                    cap_project::BackgroundBlurMode::Off => crate::store::BlurMode::Off,
-                    cap_project::BackgroundBlurMode::Light => crate::store::BlurMode::Light,
-                    cap_project::BackgroundBlurMode::Heavy => crate::store::BlurMode::Heavy,
-                    cap_project::BackgroundBlurMode::Remove => crate::store::BlurMode::Remove,
+                    frameever_project::BackgroundBlurMode::Off => crate::store::BlurMode::Off,
+                    frameever_project::BackgroundBlurMode::Light => crate::store::BlurMode::Light,
+                    frameever_project::BackgroundBlurMode::Heavy => crate::store::BlurMode::Heavy,
+                    frameever_project::BackgroundBlurMode::Remove => crate::store::BlurMode::Remove,
                 };
                 crate::store::update(|persisted| {
                     persisted.camera_window = Some(crate::store::CameraWindowState {
@@ -508,7 +514,7 @@ impl DeepLinkAction {
             // OS-supplied path -- anything that is not a readable `.cap`
             // bundle fails here and opens nothing.
             DeepLinkAction::OpenEditor { project_path } => {
-                use cap_project::{RecordingMeta, RecordingMetaInner, StudioRecordingStatus};
+                use frameever_project::{RecordingMeta, RecordingMetaInner, StudioRecordingStatus};
 
                 let meta =
                     RecordingMeta::load_for_project(&project_path).map_err(|v| v.to_string())?;
@@ -557,7 +563,7 @@ impl DeepLinkAction {
 }
 
 fn camera_selection(id: DeviceOrModelID) -> SelectedCamera {
-    let info = cap_camera::list_cameras().find(|info| match &id {
+    let info = frameever_camera::list_cameras().find(|info| match &id {
         DeviceOrModelID::DeviceID(device) => info.device_id() == device,
         DeviceOrModelID::ModelID(model) => info.model_id() == Some(model),
     });
@@ -687,7 +693,7 @@ mod tests {
                     size: 400.0,
                     shape: CameraPreviewShape::Full,
                     mirrored: true,
-                    background_blur: cap_project::BackgroundBlurMode::Heavy,
+                    background_blur: frameever_project::BackgroundBlurMode::Heavy,
                 }
             })
         );
@@ -745,7 +751,7 @@ mod tests {
                 camera: Some(DeviceOrModelID::DeviceID("camera-1".to_string())),
                 mic_label: Some("microphone-1".to_string()),
                 capture_system_audio: false,
-                mode: cap_recording::RecordingMode::Instant,
+                mode: frameever_recording::RecordingMode::Instant,
             })
         );
     }
@@ -772,7 +778,7 @@ mod tests {
                 camera: Some(DeviceOrModelID::DeviceID("camera-1".to_string())),
                 mic_label: Some("microphone-1".to_string()),
                 capture_system_audio: false,
-                mode: cap_recording::RecordingMode::Studio,
+                mode: frameever_recording::RecordingMode::Studio,
             })
         );
     }
@@ -802,7 +808,7 @@ mod tests {
         assert_eq!(camera, None);
         assert_eq!(mic_label.as_deref(), Some("Shure MV7+"));
         assert!(capture_system_audio);
-        assert_eq!(mode, cap_recording::RecordingMode::Studio);
+        assert_eq!(mode, frameever_recording::RecordingMode::Studio);
     }
 
     #[test]
@@ -881,7 +887,7 @@ mod tests {
         );
     }
 
-    /// Screenshot mode parses -- the type is `cap_recording::RecordingMode`,
+    /// Screenshot mode parses -- the type is `frameever_recording::RecordingMode`,
     /// same as the Tauri enum -- and is refused later, at execution.
     #[test]
     fn parses_screenshot_mode() {
@@ -900,7 +906,7 @@ mod tests {
         let Ok(DeepLinkAction::StartRecording { mode, .. }) = DeepLinkAction::try_from(&url) else {
             panic!("expected start recording action");
         };
-        assert_eq!(mode, cap_recording::RecordingMode::Screenshot);
+        assert_eq!(mode, frameever_recording::RecordingMode::Screenshot);
     }
 
     /// Malformed shapes are all `Err`, never a panic: this parser eats

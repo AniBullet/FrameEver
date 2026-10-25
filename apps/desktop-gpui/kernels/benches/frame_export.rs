@@ -1,4 +1,4 @@
-use cap_gpui_kernels::{codec as candidate_codec, screenshot as candidate};
+use frameever_gpui_kernels::{codec as candidate_codec, screenshot as candidate};
 use std::{hint::black_box, time::Instant};
 
 fn opaque_rgba(pixels: usize) -> Vec<u8> {

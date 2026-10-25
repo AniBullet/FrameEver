@@ -291,7 +291,7 @@ fn normalize_input_pts(pts: i64, last_pts: Option<i64>) -> i64 {
 mod tests {
     use super::*;
     use crate::video::h264::{H264EncoderBuilder, H264Preset};
-    use cap_media_info::{Pixel, VideoInfo};
+    use frameever_media_info::{Pixel, VideoInfo};
 
     #[test]
     fn normalize_input_pts_passes_monotonic_input_through() {

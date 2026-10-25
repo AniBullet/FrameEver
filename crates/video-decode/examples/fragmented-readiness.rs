@@ -1,4 +1,4 @@
-use cap_video_decode::FFmpegDecoder;
+use frameever_video_decode::FFmpegDecoder;
 use sha2::{Digest, Sha256};
 use std::{path::PathBuf, time::Instant};
 

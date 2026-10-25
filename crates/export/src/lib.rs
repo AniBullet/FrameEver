@@ -6,12 +6,12 @@ pub mod mp4;
 pub mod preview;
 pub mod settings;
 
-use cap_editor::{ExportAudioPreparation, ExportAudioRenderer, SegmentMedia};
-use cap_project::{
+use frameever_editor::{ExportAudioPreparation, ExportAudioRenderer, SegmentMedia};
+use frameever_project::{
     BackgroundSource, ProjectConfiguration, RecordingMeta, StudioRecordingMeta,
     TimelineConfiguration, TimelineSegment,
 };
-use cap_rendering::{ProjectRecordingsMeta, RenderVideoConstants};
+use frameever_rendering::{ProjectRecordingsMeta, RenderVideoConstants};
 use std::{
     path::PathBuf,
     sync::{
@@ -29,10 +29,10 @@ pub enum ExportError {
     IO(#[from] std::io::Error),
 
     #[error("Rendering: {0}")]
-    Rendering(#[from] cap_rendering::RenderingError),
+    Rendering(#[from] frameever_rendering::RenderingError),
 
     #[error("Media/{0}")]
-    Media(#[from] cap_media::MediaError),
+    Media(#[from] frameever_media::MediaError),
 
     #[error("Join: {0}")]
     Join(#[from] tokio::task::JoinError),
@@ -55,7 +55,7 @@ pub enum ExporterBuildError {
     #[error("Failed to load recordings meta: {0}")]
     RecordingsMeta(String),
     #[error("Failed to setup renderer: {0}")]
-    RendererSetup(#[source] cap_rendering::RenderingError),
+    RendererSetup(#[source] frameever_rendering::RenderingError),
     #[error("Failed to load media: {0}")]
     MediaLoad(String),
     #[error("IO error at path '{0}': {1}")]
@@ -141,7 +141,7 @@ impl ExporterBuilder {
             studio_meta,
         );
 
-        cap_project::clamp_timeline_to_sources(
+        frameever_project::clamp_timeline_to_sources(
             &mut project_config,
             &recordings
                 .segments
@@ -149,8 +149,8 @@ impl ExporterBuilder {
                 .map(|segment| segment.display.duration)
                 .collect::<Vec<_>>(),
         );
-        cap_project::synchronize_legacy_keyboard(&recording_meta, &mut project_config);
-        cap_project::synchronize_captions(
+        frameever_project::synchronize_legacy_keyboard(&recording_meta, &mut project_config);
+        frameever_project::synchronize_captions(
             &mut project_config,
             &recordings
                 .segments
@@ -159,8 +159,12 @@ impl ExporterBuilder {
                 .collect::<Vec<_>>(),
         );
 
-        let duration =
-            cap_rendering::get_duration(&recordings, &recording_meta, studio_meta, &project_config);
+        let duration = frameever_rendering::get_duration(
+            &recordings,
+            &recording_meta,
+            studio_meta,
+            &project_config,
+        );
         if duration.is_nan() || duration <= 0.0 {
             return Err(Error::NothingToExport);
         }
@@ -197,7 +201,7 @@ impl ExporterBuilder {
             let preparation = tokio::task::spawn_blocking(move || {
                 ExportAudioPreparation::open(&recording, &studio, cancellation, abort)
             });
-            let segments = cap_editor::create_segments_without_audio(
+            let segments = frameever_editor::create_segments_without_audio(
                 &recording_meta,
                 studio_meta,
                 self.force_ffmpeg_decoder,
@@ -207,7 +211,7 @@ impl ExporterBuilder {
                 finish_audio_preparation(segments, preparation, &control.stop).await?;
             (segments, Some(audio))
         } else if !include_audio {
-            let segments = cap_editor::create_segments_without_audio(
+            let segments = frameever_editor::create_segments_without_audio(
                 &recording_meta,
                 studio_meta,
                 self.force_ffmpeg_decoder,
@@ -216,7 +220,7 @@ impl ExporterBuilder {
             .map_err(Error::MediaLoad)?;
             (segments, None)
         } else {
-            let segments = cap_editor::create_segments(
+            let segments = frameever_editor::create_segments(
                 &recording_meta,
                 studio_meta,
                 self.force_ffmpeg_decoder,
@@ -262,7 +266,7 @@ impl ExporterBuilder {
 async fn finish_audio_preparation(
     segments: Result<Vec<SegmentMedia>, String>,
     preparation: tokio::task::JoinHandle<
-        Result<ExportAudioPreparation, cap_editor::ExportAudioError>,
+        Result<ExportAudioPreparation, frameever_editor::ExportAudioError>,
     >,
     abort: &AtomicBool,
 ) -> Result<(Vec<SegmentMedia>, ExportAudioRenderer), ExporterBuildError> {
@@ -350,7 +354,7 @@ fn reads_recordings_forward(project_config: &ProjectConfiguration) -> bool {
 }
 
 pub fn make_cursor_only_project(mut project_config: ProjectConfiguration) -> ProjectConfiguration {
-    fn clear_background_pixels(background: &mut cap_project::BackgroundConfiguration) {
+    fn clear_background_pixels(background: &mut frameever_project::BackgroundConfiguration) {
         background.source = BackgroundSource::Color {
             value: [0, 0, 0],
             alpha: 0,
@@ -378,7 +382,7 @@ pub fn make_cursor_only_project(mut project_config: ProjectConfiguration) -> Pro
         // the cursor with the display, so both need invisible placeholders.
         timeline
             .text_segments
-            .retain(|text| text.layout != cap_project::TextLayout::Overlay);
+            .retain(|text| text.layout != frameever_project::TextLayout::Overlay);
         for text in &mut timeline.text_segments {
             text.content.clear();
         }
@@ -455,13 +459,13 @@ pub struct ExporterBase {
     streaming_audio: Option<ExportAudioRenderer>,
     streaming_output: Option<mp4::TemporaryExportOutput>,
     audio_cancellation: Option<ExportAudioCancellation>,
-    sample_windows: Option<cap_rendering::FrameWindows>,
+    sample_windows: Option<frameever_rendering::FrameWindows>,
     sample_timing: Option<Arc<estimates::SampleTiming>>,
 }
 
 impl ExporterBase {
     pub fn total_frames(&self, fps: u32) -> u32 {
-        let duration = cap_rendering::get_duration(
+        let duration = frameever_rendering::get_duration(
             &self.recordings,
             &self.recording_meta,
             &self.studio_meta,
@@ -484,7 +488,7 @@ impl ExporterBase {
 #[cfg(test)]
 mod cursor_only_tests {
     use super::*;
-    use cap_project::TextLayout;
+    use frameever_project::TextLayout;
 
     #[test]
     fn cursor_only_preserves_style_geometry_without_image_or_background_pixels() {
@@ -508,7 +512,7 @@ mod cursor_only_tests {
         assert_eq!(styled.background.padding, 15.0);
         assert_eq!(
             styled.background.crop.as_ref().expect("crop").size,
-            cap_project::XY::new(800, 600)
+            frameever_project::XY::new(800, 600)
         );
         assert!(matches!(
             styled.background.source,
@@ -560,7 +564,7 @@ mod cursor_only_tests {
             );
             assert!(matches!(
                 timeline.scene_segments[0].mode,
-                cap_project::SceneMode::SplitScreen
+                frameever_project::SceneMode::SplitScreen
             ));
         }
     }
@@ -588,7 +592,7 @@ mod cancellation_tests {
             }
             assert!(abort.load(Ordering::Relaxed));
             worker_completed.store(true, Ordering::Release);
-            Err(cap_editor::ExportAudioError::Sink(
+            Err(frameever_editor::ExportAudioError::Sink(
                 "audio preparation error".into(),
             ))
         });
@@ -612,7 +616,7 @@ mod cancellation_tests {
         for panic in [false, true] {
             let preparation = tokio::task::spawn_blocking(move || {
                 assert!(!panic, "preparation panic");
-                Err(cap_editor::ExportAudioError::Sink(
+                Err(frameever_editor::ExportAudioError::Sink(
                     "preparation error".into(),
                 ))
             });
@@ -646,7 +650,7 @@ mod cancellation_tests {
                     std::thread::yield_now();
                 }
                 finished.send(abort.load(Ordering::Relaxed)).unwrap();
-                Err(cap_editor::ExportAudioError::Cancelled)
+                Err(frameever_editor::ExportAudioError::Cancelled)
             });
             finish_audio_preparation(Ok(Vec::new()), preparation, &control.stop)
                 .await
@@ -776,14 +780,14 @@ fn fill_clip_offsets(
     studio_meta: &StudioRecordingMeta,
 ) {
     if config.clips.is_empty() {
-        config.clips = cap_editor::initial_clip_configuration(project_path, studio_meta);
+        config.clips = frameever_editor::initial_clip_configuration(project_path, studio_meta);
     }
 }
 
 #[cfg(test)]
 mod clip_offset_tests {
     use super::*;
-    use cap_project::{
+    use frameever_project::{
         AudioMeta, ClipConfiguration, ClipOffsets, Cursors, MultipleSegment, MultipleSegments,
         VideoMeta,
     };

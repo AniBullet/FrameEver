@@ -1,4 +1,4 @@
-use cap_project::{FrameConfiguration, FrameStyle, FrameTheme, ProjectConfiguration};
+use frameever_project::{FrameConfiguration, FrameStyle, FrameTheme, ProjectConfiguration};
 use gpui::{
     AppContext as _, Context, Entity, FontWeight, InteractiveElement, IntoElement, MouseButton,
     ParentElement, StatefulInteractiveElement as _, Styled, Window, div, point,
@@ -185,7 +185,7 @@ fn button_content(style: FrameStyle) -> (&'static str, &'static str) {
 }
 
 impl EditorWindow {
-    fn frame_background(&self) -> &cap_project::BackgroundConfiguration {
+    fn frame_background(&self) -> &frameever_project::BackgroundConfiguration {
         let index = if self.frame_controls.open {
             self.frame_controls
                 .style_target

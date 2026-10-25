@@ -4,14 +4,14 @@
 
 mod common;
 
-use cap_project::ProjectConfiguration;
-use cap_verify::{
+use common::{Decoder, Player};
+use frameever_project::ProjectConfiguration;
+use frameever_verify::{
     catalog,
     fixture::{FixtureSpec, Rng},
     media,
     report::{self, Tier},
 };
-use common::{Decoder, Player};
 
 const RES: (u32, u32) = (480, 270);
 

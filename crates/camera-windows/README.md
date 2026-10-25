@@ -1,4 +1,4 @@
-# cap-camera-windows
+# frameever-camera-windows
 
 Unified Windows camera capture API that provides a seamless interface across both
 Media Foundation and DirectShow backends.

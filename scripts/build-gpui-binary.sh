@@ -54,7 +54,7 @@ fi
 	fi
 )
 
-source_binary="$artifact_dir/cap-gpui$extension"
+source_binary="$artifact_dir/frameever-gpui$extension"
 staged_binary="$binaries_dir/cap-gpui-$target$extension"
 if [[ ! -f "$source_binary" ]]; then
 	echo "error: built GPUI binary not found at $source_binary" >&2

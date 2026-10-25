@@ -59,7 +59,7 @@ pub struct AudioMeta {
 
 /// Overlap-trim accounting captured by the recorder's audio gap tracker, persisted so the
 /// editor can compensate for stale-startup audio drift from typed data instead of scraping
-/// the recording log. See `cap-editor`'s `audio_timing_repair_offset`.
+/// the recording log. See `frameever-editor`'s `audio_timing_repair_offset`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct AudioGapSummary {
     /// Total audio trimmed from overlapping frames over the whole recording, in milliseconds.
@@ -603,7 +603,7 @@ pub struct CursorMeta {
     pub image_path: RelativePathBuf,
     pub hotspot: XY<f64>,
     #[serde(default)]
-    pub shape: Option<cap_cursor_info::CursorShape>,
+    pub shape: Option<frameever_cursor_info::CursorShape>,
 }
 
 impl MultipleSegments {
@@ -616,11 +616,11 @@ impl MultipleSegments {
             Cursors::Correct(map) => map
                 .iter()
                 .filter_map(|(id, cursor)| match cursor.shape.as_ref() {
-                    Some(cap_cursor_info::CursorShape::MacOS(
-                        cap_cursor_info::CursorShapeMacOS::Arrow,
+                    Some(frameever_cursor_info::CursorShape::MacOS(
+                        frameever_cursor_info::CursorShapeMacOS::Arrow,
                     ))
-                    | Some(cap_cursor_info::CursorShape::Windows(
-                        cap_cursor_info::CursorShapeWindows::Arrow,
+                    | Some(frameever_cursor_info::CursorShape::Windows(
+                        frameever_cursor_info::CursorShapeWindows::Arrow,
                     )) => Some(id.clone()),
                     _ => None,
                 })

@@ -1,12 +1,12 @@
-use cap_project::{
+use frameever_project::{
     ClipOffsets, ClipTransitionType, ProjectConfiguration, TimelineFrameMapping, XY,
 };
-use cap_rendering::{
+use frameever_rendering::{
     DecodedFrame, DecodedSegmentFrames, PrecomputedCursorTimeline, ProjectUniforms,
     RecordingSegmentDecoders, RenderVideoConstants, ZoomTransformTimeline,
     spring_mass_damper::SpringMassDamperSimulationConfig,
 };
-use cap_utils::operation_diagnostics::{Field, Operation};
+use frameever_utils::operation_diagnostics::{Field, Operation};
 use futures::stream::{FuturesUnordered, StreamExt};
 use lru::LruCache;
 use std::{
@@ -50,7 +50,8 @@ const MAX_FRAME_CACHE_BYTES: usize = 64 * 1024 * 1024;
 const RAMP_UP_FRAME_COUNT: u32 = 15;
 
 fn clip_audio_changed(previous: &ProjectConfiguration, next: &ProjectConfiguration) -> bool {
-    let settings = |project: &ProjectConfiguration, segment: &cap_project::TimelineSegment| {
+    let settings = |project: &ProjectConfiguration,
+                    segment: &frameever_project::TimelineSegment| {
         let offsets = project
             .clips
             .iter()
@@ -2128,7 +2129,7 @@ mod tests {
         }))
         .unwrap();
         let mut next = project.clone();
-        next.clips.push(cap_project::ClipConfiguration {
+        next.clips.push(frameever_project::ClipConfiguration {
             index: 0,
             offsets_auto_calculated: true,
             offsets: ClipOffsets {
@@ -2136,7 +2137,7 @@ mod tests {
                 ..Default::default()
             },
         });
-        next.clips.push(cap_project::ClipConfiguration {
+        next.clips.push(frameever_project::ClipConfiguration {
             index: 1,
             offsets: ClipOffsets {
                 mic: 0.1,
@@ -2166,7 +2167,7 @@ mod tests {
         assert!(clip_audio_changed(&project, &next));
         next.timeline.as_mut().unwrap().segments[0].volume = None;
         next.timeline.as_mut().unwrap().segments[0].speed_audio_mode =
-            Some(cap_project::ClipSpeedAudioMode::Mute);
+            Some(frameever_project::ClipSpeedAudioMode::Mute);
         assert!(clip_audio_changed(&project, &next));
         next.timeline.as_mut().unwrap().segments.clear();
         assert!(clip_audio_changed(&project, &next));

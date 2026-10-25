@@ -12,11 +12,11 @@ use crate::{
     AudioFrame, AudioMuxer, Muxer, SharedPauseState, TaskPool, VideoMuxer, screen_capture,
 };
 use anyhow::{Context, anyhow};
-use cap_enc_ffmpeg::fragment_manifest::FragmentManifestTracker;
-use cap_enc_ffmpeg::h264::{H264EncoderBuilder, H264Preset};
-use cap_enc_ffmpeg::h264_packet::EncodePacketError;
-use cap_enc_ffmpeg::segmented_stream::{DiskSpaceCallback, SegmentCompletedEvent};
-use cap_media_info::{AudioInfo, VideoInfo};
+use frameever_enc_ffmpeg::fragment_manifest::FragmentManifestTracker;
+use frameever_enc_ffmpeg::h264::{H264EncoderBuilder, H264Preset};
+use frameever_enc_ffmpeg::h264_packet::EncodePacketError;
+use frameever_enc_ffmpeg::segmented_stream::{DiskSpaceCallback, SegmentCompletedEvent};
+use frameever_media_info::{AudioInfo, VideoInfo};
 use std::{
     path::PathBuf,
     sync::{
@@ -252,7 +252,7 @@ impl WindowsOOPFragmentedM4SMuxer {
         );
 
         let bin_path = resolve_muxer_binary()
-            .with_context(|| "cap-muxer binary not found for Windows OOP muxer")?;
+            .with_context(|| "frameever-muxer binary not found for Windows OOP muxer")?;
 
         let (video_tx, video_rx) = sync_channel::<ScreenFrameItem>(buffer_size);
         let (ready_tx, ready_rx) = sync_channel::<anyhow::Result<()>>(1);
@@ -272,7 +272,7 @@ impl WindowsOOPFragmentedM4SMuxer {
         let encoder_handle = std::thread::Builder::new()
             .name("win-oop-m4s-segment-encoder".to_string())
             .spawn(move || {
-                cap_mediafoundation_utils::thread_init();
+                frameever_mediafoundation_utils::thread_init();
 
                 let mut builder = H264EncoderBuilder::new(video_config)
                     .with_preset(preset)
@@ -350,7 +350,7 @@ impl WindowsOOPFragmentedM4SMuxer {
                 ) {
                     Ok(s) => s,
                     Err(e) => {
-                        let err = anyhow!("Failed to spawn cap-muxer subprocess: {e:#}");
+                        let err = anyhow!("Failed to spawn frameever-muxer subprocess: {e:#}");
                         let _ = ready_tx.send(Err(anyhow!("{err:#}")));
                         return Err(err);
                     }
@@ -386,7 +386,7 @@ impl WindowsOOPFragmentedM4SMuxer {
                     };
 
                 let encode_one =
-                    |encoder: &mut cap_enc_ffmpeg::h264_packet::H264PacketEncoder,
+                    |encoder: &mut frameever_enc_ffmpeg::h264_packet::H264PacketEncoder,
                      subprocess: &mut RespawningMuxerSubprocess,
                      tracker: &mut FragmentManifestTracker,
                      ffmpeg_frame: ffmpeg::frame::Video,
@@ -627,7 +627,7 @@ fn wire_codec_for(codec: &str) -> String {
 
 fn dispatch_packet(
     subprocess: &mut RespawningMuxerSubprocess,
-    pkt: cap_enc_ffmpeg::h264_packet::EncodedPacket,
+    pkt: frameever_enc_ffmpeg::h264_packet::EncodedPacket,
 ) -> Result<(), EncodePacketError> {
     match subprocess.write_video_packet(
         pkt.pts,

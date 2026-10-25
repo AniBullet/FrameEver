@@ -1,7 +1,8 @@
-use cap_project::{
+use clap::{Args, ValueEnum};
+use frameever_project::{
     InstantRecordingMeta, Platform, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
 };
-use cap_recording::{
+use frameever_recording::{
     CameraFeed, DoneFut, MicrophoneFeed, PipelineStoppedByUser,
     feeds::{camera, microphone},
     instant_recording,
@@ -9,7 +10,6 @@ use cap_recording::{
     studio_recording::{self, ActorHandle as StudioActorHandle},
     upload_resume::UploadLock,
 };
-use clap::{Args, ValueEnum};
 use futures::FutureExt;
 use kameo::actor::Spawn as _;
 use scap_targets::{DisplayId, WindowId};
@@ -242,10 +242,10 @@ async fn run_foreground(params: RecordParams, format: OutputFormat) -> Result<()
     emit_stopped(format, &completed)
 }
 
-fn automation_mode(mode: RecordMode) -> cap_automation::AutomationRecordingMode {
+fn automation_mode(mode: RecordMode) -> frameever_automation::AutomationRecordingMode {
     match mode {
-        RecordMode::Studio => cap_automation::AutomationRecordingMode::Studio,
-        RecordMode::Instant => cap_automation::AutomationRecordingMode::Instant,
+        RecordMode::Studio => frameever_automation::AutomationRecordingMode::Studio,
+        RecordMode::Instant => frameever_automation::AutomationRecordingMode::Instant,
     }
 }
 
@@ -763,10 +763,10 @@ async fn start_recording(
     }
 
     if let Some(device_id) = params.camera.as_deref().filter(|_| camera_recorded) {
-        let info = cap_camera::list_cameras()
+        let info = frameever_camera::list_cameras()
             .find(|c| c.device_id() == device_id)
             .ok_or_else(|| {
-                let available: Vec<String> = cap_camera::list_cameras()
+                let available: Vec<String> = frameever_camera::list_cameras()
                     .map(|c| c.device_id().to_string())
                     .collect();
                 format!(
@@ -826,11 +826,8 @@ async fn start_recording(
 
     match params.mode {
         RecordMode::Studio => {
-            let builder = cap_recording::RecordingDefaults::default().apply_to_studio_builder(
-                studio_builder,
-                camera_active,
-                params.fps,
-            );
+            let builder = frameever_recording::RecordingDefaults::default()
+                .apply_to_studio_builder(studio_builder, camera_active, params.fps);
 
             builder
                 .build(
@@ -848,7 +845,7 @@ async fn start_recording(
                 .ok_or_else(|| "Instant recording project ownership is unavailable".to_string())?;
             let mut builder = instant_builder;
             builder = builder.with_max_output_size(
-                cap_recording::RecordingDefaults::default().instant_mode_max_resolution,
+                frameever_recording::RecordingDefaults::default().instant_mode_max_resolution,
             );
             if let Some(fps) = params.fps {
                 builder = builder.with_max_fps(fps);
@@ -856,7 +853,7 @@ async fn start_recording(
             // As in the desktop app: the screen and audio tracks both start at
             // the gate's arm time, so a microphone that is ready late does not
             // move all audio early. The CLI has no start cue to wait for.
-            let start_gate = cap_recording::RecordingStartGate::new();
+            let start_gate = frameever_recording::RecordingStartGate::new();
             builder = builder.with_start_gate(start_gate.clone());
 
             let actor = builder
@@ -880,7 +877,7 @@ async fn start_recording(
 #[cfg(target_os = "macos")]
 async fn acquire_shareable_content_for_target(
     target: &ScreenCaptureTarget,
-) -> Result<cap_recording::SendableShareableContent, String> {
+) -> Result<frameever_recording::SendableShareableContent, String> {
     let mut available_display_ids = Vec::new();
 
     for attempt in 0..3 {
@@ -906,30 +903,30 @@ async fn acquire_shareable_content_for_target(
 }
 
 #[cfg(target_os = "macos")]
-async fn read_shareable_content() -> Result<cap_recording::SendableShareableContent, String> {
+async fn read_shareable_content() -> Result<frameever_recording::SendableShareableContent, String> {
     let content = cidre::sc::ShareableContent::current()
         .await
         .map_err(|e| format!("Failed to read shareable content: {e}"))?;
     if !content.displays().is_empty() {
-        return Ok(cap_recording::SendableShareableContent::from(content));
+        return Ok(frameever_recording::SendableShareableContent::from(content));
     }
 
     let process_content = cidre::sc::ShareableContent::current_process()
         .await
         .map_err(|e| format!("Failed to read current-process shareable content: {e}"))?;
     if !process_content.displays().is_empty() {
-        return Ok(cap_recording::SendableShareableContent::from(
+        return Ok(frameever_recording::SendableShareableContent::from(
             process_content,
         ));
     }
 
-    Ok(cap_recording::SendableShareableContent::from(content))
+    Ok(frameever_recording::SendableShareableContent::from(content))
 }
 
 #[cfg(target_os = "macos")]
 fn shareable_content_missing_target_display(
     target: &ScreenCaptureTarget,
-    shareable_content: &cap_recording::SendableShareableContent,
+    shareable_content: &frameever_recording::SendableShareableContent,
 ) -> bool {
     match target.display() {
         Some(display) => display
@@ -942,7 +939,7 @@ fn shareable_content_missing_target_display(
 
 #[cfg(target_os = "macos")]
 fn shareable_content_display_ids(
-    shareable_content: &cap_recording::SendableShareableContent,
+    shareable_content: &frameever_recording::SendableShareableContent,
 ) -> Vec<String> {
     shareable_content
         .retained()
@@ -1012,7 +1009,7 @@ async fn finalize_completed(
         CompletedRecording::Studio(recording) => {
             let project_path = recording.project_path.clone();
             tokio::task::spawn_blocking(move || {
-                cap_recording::recovery::RecoveryManager::remux_if_needed(&project_path)
+                frameever_recording::recovery::RecoveryManager::remux_if_needed(&project_path)
             })
             .await
             .map_err(|e| format!("recording finalize task failed: {e}"))?
@@ -1045,14 +1042,14 @@ async fn finalize_instant_output(
     let display_dir = project_path.join("content/display");
     tokio::task::spawn_blocking(move || match completion {
         Some(completion) => {
-            cap_recording::recovery::RecoveryManager::finalize_completed_instant_output(
+            frameever_recording::recovery::RecoveryManager::finalize_completed_instant_output(
                 &display_dir,
                 &audio_dir,
                 &output_path,
                 completion,
             )
         }
-        None => cap_recording::recovery::RecoveryManager::finalize_instant_output(
+        None => frameever_recording::recovery::RecoveryManager::finalize_instant_output(
             &display_dir,
             &audio_dir,
             &output_path,
@@ -1179,12 +1176,12 @@ fn resolve_path(params: &RecordParams, recording_id: &str) -> Result<PathBuf, St
 
 fn resolve_target(params: &RecordParams) -> Result<ScreenCaptureTarget, String> {
     match (&params.target.screen, &params.target.window) {
-        (Some(id), _) => cap_recording::screen_capture::list_displays()
+        (Some(id), _) => frameever_recording::screen_capture::list_displays()
             .into_iter()
             .find(|s| &s.0.id == id)
             .map(|(s, _)| ScreenCaptureTarget::Display { id: s.id })
             .ok_or_else(|| {
-                let available: Vec<String> = cap_recording::screen_capture::list_displays()
+                let available: Vec<String> = frameever_recording::screen_capture::list_displays()
                     .into_iter()
                     .map(|(s, _)| s.id.to_string())
                     .collect();
@@ -1193,7 +1190,7 @@ fn resolve_target(params: &RecordParams) -> Result<ScreenCaptureTarget, String> 
                      (see `frameever targets screens`)"
                 )
             }),
-        (_, Some(id)) => cap_recording::screen_capture::list_windows()
+        (_, Some(id)) => frameever_recording::screen_capture::list_windows()
             .into_iter()
             .find(|s| &s.0.id == id)
             .map(|(s, _)| ScreenCaptureTarget::Window { id: s.id })
@@ -1498,7 +1495,7 @@ mod tests {
         assert!(RecordingMeta::load_for_project(&project).is_ok());
         assert!(matches!(
             UploadLock::acquire(&project),
-            Err(cap_recording::upload_resume::UploadLockError::Busy)
+            Err(frameever_recording::upload_resume::UploadLockError::Busy)
         ));
 
         drop(ownership);

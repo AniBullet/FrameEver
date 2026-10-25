@@ -1,4 +1,4 @@
-use cap_cursor_capture::RawCursorPosition;
+use frameever_cursor_capture::RawCursorPosition;
 use scap_targets::Display;
 
 fn main() {

@@ -18,7 +18,7 @@ class PerformanceBuildCacheTests(unittest.TestCase):
             (root / "tests").mkdir()
             (root / "target" / "Frameworks").mkdir(parents=True)
             (root / "Cargo.toml").write_text(
-                '[package]\nname = "cap-verify"\nversion = "0.1.0"\nedition = "2021"\n'
+                '[package]\nname = "frameever-verify"\nversion = "0.1.0"\nedition = "2021"\n'
             )
             source = root / "src" / "lib.rs"
             source.write_text("pub fn value() -> u32 { 1 }\n")
@@ -26,7 +26,7 @@ class PerformanceBuildCacheTests(unittest.TestCase):
                 (root / "tests" / f"{target}.rs").write_text(
                     '#[test]\nfn current_library() {\n'
                     'let expected: u32 = std::env::var("EXPECTED").unwrap().parse().unwrap();\n'
-                    'assert_eq!(cap_verify::value(), expected);\n}\n'
+                    'assert_eq!(frameever_verify::value(), expected);\n}\n'
                 )
             env = dict(os.environ, CARGO_TARGET_DIR=str(root / "target"))
             self.run_command(root, env, "git", "init", "--quiet")

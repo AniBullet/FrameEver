@@ -1,5 +1,5 @@
 use anyhow::ensure;
-use cap_camera_effects::{BlurMode, BlurProcessor};
+use frameever_camera_effects::{BlurMode, BlurProcessor};
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 

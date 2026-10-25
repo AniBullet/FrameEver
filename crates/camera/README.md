@@ -1,4 +1,4 @@
-# cap-camera
+# frameever-camera
 
 Cross-platform camera capture API that provides a unified interface across
 macOS (AVFoundation) and Windows (Media Foundation/DirectShow) backends.

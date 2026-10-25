@@ -41,7 +41,7 @@ use std::{
     time::Instant,
 };
 
-use cap_project::{
+use frameever_project::{
     AnimatedGradientParameter, BackgroundSource, BorderConfiguration, Color, CornerStyle,
     DisplayNotch, NotchConfiguration, ProjectConfiguration, ShadowConfiguration,
 };
@@ -476,7 +476,7 @@ pub fn wallpapers_for_theme(theme: &str) -> Vec<&'static str> {
 /// Where the bundled wallpapers live.
 ///
 /// **They are not embedded, and cannot be**: selecting one writes an *absolute
-/// filesystem path* into `background.source.path`, which `cap-rendering` then
+/// filesystem path* into `background.source.path`, which `frameever-rendering` then
 /// opens (`layers/background.rs`) -- so the file has to exist on disk for the
 /// picture to render at all, in this app and in the shipping one. Embedding the
 /// 25 MB of JPEGs would add 25 MB to the binary *and* still need them written
@@ -560,11 +560,11 @@ pub fn noise_opacity(intensity: f32) -> f32 {
 /// Perlin-style gradient noise becomes value noise (a different grain
 /// *character* at the same frequency), and `overlay` becomes source-over (the
 /// grain lightens and darkens less selectively). The **rendered** frame's grain
-/// is not affected either way -- `cap-rendering` applies `noise_intensity` /
+/// is not affected either way -- `frameever-rendering` applies `noise_intensity` /
 /// `noise_scale` itself (`layers/background.rs:251-299`), so the player shows
 /// the real thing.
 fn noise_texture(width: u32, height: u32, base_frequency: f32) -> Arc<RenderImage> {
-    let rgba = cap_gpui_kernels::texture::noise_texture_bgra(width, height, base_frequency);
+    let rgba = frameever_gpui_kernels::texture::noise_texture_bgra(width, height, base_frequency);
     Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(
         rgba
     )]))
@@ -750,8 +750,9 @@ pub struct SidebarState {
     /// The style picker's rasterised cursor art, keyed by shape and the device
     /// pixel box it was drawn for. A `BTreeMap` because `CursorShape` is `Ord`
     /// but not `Hash`.
-    cursor_previews:
-        std::cell::RefCell<BTreeMap<(cap_cursor_info::CursorShape, u32, u32), Arc<RenderImage>>>,
+    cursor_previews: std::cell::RefCell<
+        BTreeMap<(frameever_cursor_info::CursorShape, u32, u32), Arc<RenderImage>>,
+    >,
     /// The device scale those were rasterised at, sampled once a frame from
     /// `render` -- the only place in the sidebar's chain with a `&Window`.
     cursor_scale: f32,
@@ -1109,7 +1110,7 @@ impl EditorWindow {
         self.instance
             .as_ref()
             .and_then(|instance| instance.render_constants.meta.display_notch())
-            .unwrap_or(cap_project::DEFAULT_MACBOOK_NOTCH)
+            .unwrap_or(frameever_project::DEFAULT_MACBOOK_NOTCH)
     }
 
     fn notch_value(&self, slider: BgSlider) -> f64 {
@@ -1950,7 +1951,7 @@ fn write_desktop_background_snapshot(source: &Path, output: &Path) -> Result<(),
         return Ok(());
     }
 
-    let decoded = cap_gpui_kernels::codec::open_image(source)
+    let decoded = frameever_gpui_kernels::codec::open_image(source)
         .map_err(|err| format!("failed to decode desktop background: {err}"))?;
     let decoded = if decoded.width() > DESKTOP_BACKGROUND_MAX_DIMENSION
         || decoded.height() > DESKTOP_BACKGROUND_MAX_DIMENSION
@@ -1963,8 +1964,12 @@ fn write_desktop_background_snapshot(source: &Path, output: &Path) -> Result<(),
     } else {
         decoded
     };
-    cap_gpui_kernels::codec::save_rgb_image(&decoded.to_rgb8(), output, image::ImageFormat::Jpeg)
-        .map_err(|err| format!("failed to save desktop background: {err}"))
+    frameever_gpui_kernels::codec::save_rgb_image(
+        &decoded.to_rgb8(),
+        output,
+        image::ImageFormat::Jpeg,
+    )
+    .map_err(|err| format!("failed to save desktop background: {err}"))
 }
 
 /// `import_current_desktop_background` (`recording.rs:181-224`).
@@ -4062,7 +4067,7 @@ mod tests {
     #[test]
     fn animated_gradient_has_a_distinct_source_tab() {
         let source = BackgroundSource::AnimatedGradient {
-            config: cap_project::AnimatedGradientConfig::default(),
+            config: frameever_project::AnimatedGradientConfig::default(),
         };
         assert_eq!(source_tab_for(&source), SourceTab::AnimatedGradient);
         assert_eq!(SourceTab::AnimatedGradient.label(), "Animated");
@@ -4376,7 +4381,7 @@ pub(crate) fn apply_style_control_change(
 }
 
 impl EditorWindow {
-    pub(crate) fn style_background(&self) -> &cap_project::BackgroundConfiguration {
+    pub(crate) fn style_background(&self) -> &frameever_project::BackgroundConfiguration {
         self.sidebar
             .style_target
             .filter(|(_, group)| *group == StyleGroup::Background)

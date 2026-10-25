@@ -1,4 +1,4 @@
-use cap_enc_ffmpeg::{
+use frameever_enc_ffmpeg::{
     dash_audio::{DashAudioSegmentEncoder, DashAudioSegmentEncoderConfig},
     remux::{
         concatenate_m4s_segments_with_init, get_media_duration, merge_video_audio,
@@ -8,8 +8,8 @@ use cap_enc_ffmpeg::{
         SegmentCompletedEvent, SegmentMediaType, SegmentedVideoEncoder, SegmentedVideoEncoderConfig,
     },
 };
-use cap_media_info::{AudioInfo, VideoInfo};
-use cap_recording::{
+use frameever_media_info::{AudioInfo, VideoInfo};
+use frameever_recording::{
     RecordingHealth, SharedPauseState, output_validation::validate_instant_recording,
 };
 use std::{
@@ -46,7 +46,7 @@ mod common {
 
 fn video_info(width: u32, height: u32, fps: i32) -> VideoInfo {
     VideoInfo {
-        pixel_format: cap_media_info::Pixel::NV12,
+        pixel_format: frameever_media_info::Pixel::NV12,
         width,
         height,
         time_base: ffmpeg::Rational(1, 1_000_000),

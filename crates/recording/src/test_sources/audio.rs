@@ -1,6 +1,6 @@
 use crate::output_pipeline::{AudioFrame, AudioSource, SetupCtx};
-use cap_media_info::{AudioInfo, Sample, Type};
-use cap_timestamp::{Timestamp, Timestamps};
+use frameever_media_info::{AudioInfo, Sample, Type};
+use frameever_timestamp::{Timestamp, Timestamps};
 use futures::channel::mpsc;
 use std::{
     f32::consts::PI,

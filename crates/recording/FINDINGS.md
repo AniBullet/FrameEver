@@ -12,7 +12,7 @@
 2. Read `BENCHMARKS.md` for latest raw test data
 3. Run a quick benchmark to verify current state:
    ```bash
-   cargo run -p cap-recording --example real-device-test-runner -- baseline --mp4-only --keep-outputs
+   cargo run -p frameever-recording --example real-device-test-runner -- baseline --mp4-only --keep-outputs
    ```
 4. Continue work from "Next Steps" section below
 
@@ -80,19 +80,19 @@
 
 ```bash
 # Quick isolated test (RECOMMENDED for development)
-cargo run -p cap-recording --example real-device-test-runner -- baseline --mp4-only --keep-outputs
+cargo run -p frameever-recording --example real-device-test-runner -- baseline --mp4-only --keep-outputs
 
 # Quick fragmented test
-cargo run -p cap-recording --example real-device-test-runner -- baseline --fragmented-only --keep-outputs
+cargo run -p frameever-recording --example real-device-test-runner -- baseline --fragmented-only --keep-outputs
 
 # Test pause/resume
-cargo run -p cap-recording --example real-device-test-runner -- single-pause --mp4-only --keep-outputs
+cargo run -p frameever-recording --example real-device-test-runner -- single-pause --mp4-only --keep-outputs
 
 # Full suite (takes ~1 min, may have thermal issues)
-cargo run -p cap-recording --example real-device-test-runner -- full --keep-outputs --benchmark-output
+cargo run -p frameever-recording --example real-device-test-runner -- full --keep-outputs --benchmark-output
 
 # Full suite without camera (faster)
-cargo run -p cap-recording --example real-device-test-runner -- full --no-camera --keep-outputs
+cargo run -p frameever-recording --example real-device-test-runner -- full --no-camera --keep-outputs
 ```
 
 **Note**: Running isolated tests gives more reliable results. The full suite can cause thermal throttling.
@@ -489,7 +489,7 @@ System Audio ────┘                       ├─► MP4 (macos.rs) ─�
 **Goal**: Eliminate the per-frame CPU plane copy (`fill_frame_from_sample_buf`) on the fragmented M4S display path — the default studio-without-camera path and every instant-mode display recording.
 
 **What was done**:
-1. Added `cap_enc_ffmpeg::video::videotoolbox_hw::VideoToolboxHwFrames` — an `AVHWFramesContext` (format VIDEOTOOLBOX, sw_format NV12) that wraps externally-owned CVPixelBuffers as `AV_PIX_FMT_VIDEOTOOLBOX` frames (CFRetain for the frame's lifetime, released by the backing `AVBufferRef`).
+1. Added `frameever_enc_ffmpeg::video::videotoolbox_hw::VideoToolboxHwFrames` — an `AVHWFramesContext` (format VIDEOTOOLBOX, sw_format NV12) that wraps externally-owned CVPixelBuffers as `AV_PIX_FMT_VIDEOTOOLBOX` frames (CFRetain for the frame's lifetime, released by the backing `AVBufferRef`).
 2. Added `H264EncoderBuilder::build_videotoolbox_hw_input` — opens `h264_videotoolbox` with the hardware frames context so the encoder reads the IOSurface directly. Refuses (for caller fallback) on non-NV12 input, scaling, CRF, or frame rates beyond the VT capability estimate.
 3. `SegmentedVideoEncoderConfig.prefer_videotoolbox_hw_input`: `SegmentedVideoEncoder::init` tries the hw encoder first and falls back to the software-frame path on any error.
 4. `MacOSFragmentedM4SMuxer` (display) enables it; in hw mode the encode thread queues the SCK sample buffer's CVPixelBuffer via `queue_hw_pixel_buffer` — no IOSurface lock, no memcpy, no `FramePool` allocation.
@@ -507,9 +507,9 @@ The saving exceeds the removed memcpy alone because VideoToolbox's own software-
 **Verification**:
 - `vt-hwframe-real-capture-check`: real ScreenCaptureKit 1920x1080 area capture through the real instant pipeline engaged the hw path ("Selected hardware H264 encoder with zero-copy VideoToolbox input"), 235 frames in 8s at 30fps, segments assemble and decode.
 - 5120x1440 ultrawide display (real hardware test): hw init correctly refuses (VT cannot encode >4096-wide H.264 at all — that display already used libx264 before this change), full fallback chain intact.
-- `cinder test -p cap-recording` (358 tests incl. real hardware instant + studio recordings) and `-p cap-enc-ffmpeg` (52) all pass.
+- `cinder test -p frameever-recording` (358 tests incl. real hardware instant + studio recordings) and `-p frameever-enc-ffmpeg` (52) all pass.
 - `leaks --atExit` over ~2000 wrap/encode cycles: 0 leaks.
-- `cinder check --all-targets` on cap-enc-ffmpeg + cap-recording, `cap-desktop`, and the desktop-gpui workspace all compile.
+- `cinder check --all-targets` on frameever-enc-ffmpeg + frameever-recording, `cap-desktop`, and the desktop-gpui workspace all compile.
 
 **Notes**:
 - The camera fragmented muxer (unreachable in production: a live camera forces the AVFoundation muxer) and the OOP muxer keep the software path; both are candidates for the same treatment if they ever ship.

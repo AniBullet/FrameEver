@@ -87,7 +87,7 @@ impl Drop for MOVFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_media_info::{RawVideoFormat, VideoInfo};
+    use frameever_media_info::{RawVideoFormat, VideoInfo};
 
     const WIDTH: u32 = 64;
     const HEIGHT: u32 = 48;

@@ -17,7 +17,7 @@ use crate::editor_panels::{
     max_auto_camera3d_shots, new_camera3d_shot, place_camera3d_shot,
 };
 use crate::i18n::{n, tr};
-use cap_project::Camera3DSegment;
+use frameever_project::Camera3DSegment;
 
 /// What `Auto scene` builds when nobody has said how many shots they want.
 pub(crate) const CAMERA3D_AUTO_SHOTS: usize = 3;

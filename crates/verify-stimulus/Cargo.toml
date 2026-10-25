@@ -1,5 +1,5 @@
 [package]
-name = "cap-verify-stimulus"
+name = "frameever-verify-stimulus"
 version = "0.1.0"
 edition = "2024"
 publish = false
@@ -9,11 +9,11 @@ description = "Helper process of the real-capture recording oracle (crates/verif
 workspace = true
 
 [[bin]]
-name = "cap-verify-stimulus"
+name = "frameever-verify-stimulus"
 path = "src/main.rs"
 
 [dependencies]
-cap-verify = { path = "../verify" }
+frameever-verify = { path = "../verify" }
 anyhow = { workspace = true }
 serde_json = "1"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

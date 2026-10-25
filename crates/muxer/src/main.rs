@@ -1,9 +1,9 @@
 use anyhow::{Context, Result, anyhow};
-use cap_muxer_protocol::{
+use ffmpeg::{codec, format};
+use frameever_muxer_protocol::{
     Frame, InitAudio, InitVideo, PACKET_FLAG_KEYFRAME, Packet, ProtocolError, STREAM_INDEX_AUDIO,
     STREAM_INDEX_VIDEO, StartParams, read_frame,
 };
-use ffmpeg::{codec, format};
 use std::collections::VecDeque;
 use std::ffi::CString;
 use std::io::{self, BufReader, Write};
@@ -25,27 +25,27 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::from(EXIT_OK),
         Err(MuxerError::Protocol(err)) => {
-            report(format_args!("cap-muxer protocol error: {err}"));
+            report(format_args!("frameever-muxer protocol error: {err}"));
             ExitCode::from(EXIT_PROTOCOL_ERROR)
         }
         Err(MuxerError::DiskFull(err)) => {
-            report(format_args!("cap-muxer disk full: {err:#}"));
+            report(format_args!("frameever-muxer disk full: {err:#}"));
             ExitCode::from(EXIT_DISK_FULL)
         }
         Err(MuxerError::FFmpeg(err)) => {
-            report(format_args!("cap-muxer ffmpeg error: {err:#}"));
+            report(format_args!("frameever-muxer ffmpeg error: {err:#}"));
             ExitCode::from(EXIT_FFMPEG_ERROR)
         }
         Err(MuxerError::Init(err)) => {
-            report(format_args!("cap-muxer init error: {err:#}"));
+            report(format_args!("frameever-muxer init error: {err:#}"));
             ExitCode::from(EXIT_INIT_ERROR)
         }
         Err(MuxerError::Abort(reason)) => {
-            report(format_args!("cap-muxer parent abort: {reason}"));
+            report(format_args!("frameever-muxer parent abort: {reason}"));
             ExitCode::from(EXIT_ABORT)
         }
         Err(MuxerError::BadState(reason)) => {
-            report(format_args!("cap-muxer bad state: {reason}"));
+            report(format_args!("frameever-muxer bad state: {reason}"));
             ExitCode::from(EXIT_BAD_STATE)
         }
     }
@@ -245,7 +245,7 @@ fn run() -> Result<(), MuxerError> {
     let queue = Arc::new(FrameQueue::new(capacity_bytes));
     tracing::info!(
         capacity_mb = capacity_bytes / 1024 / 1024,
-        "cap-muxer async frame queue initialized"
+        "frameever-muxer async frame queue initialized"
     );
 
     let reader_handle = {
@@ -294,7 +294,9 @@ fn run() -> Result<(), MuxerError> {
                 }
             },
             PopResult::Drained => {
-                tracing::warn!("cap-muxer stdin closed without Finish; attempting graceful finish");
+                tracing::warn!(
+                    "frameever-muxer stdin closed without Finish; attempting graceful finish"
+                );
                 break;
             }
             PopResult::Error(e) => {
@@ -310,7 +312,7 @@ fn run() -> Result<(), MuxerError> {
     result?;
     finish_result?;
 
-    writeln!(io::stderr(), "cap-muxer finished cleanly").ok();
+    writeln!(io::stderr(), "frameever-muxer finished cleanly").ok();
     Ok(())
 }
 
@@ -371,7 +373,7 @@ impl State {
                 .unwrap_or(0.0);
             writeln!(
                 io::stderr(),
-                "cap-muxer trailer written; video_packets={} audio_packets={} duration_secs={:.2}",
+                "frameever-muxer trailer written; video_packets={} audio_packets={} duration_secs={:.2}",
                 out.packets_written_video,
                 out.packets_written_audio,
                 elapsed
@@ -593,7 +595,7 @@ fn write_packet(state: &mut State, packet: Packet) -> Result<(), MuxerError> {
                 {
                     tracing::warn!(
                         dropped = out.video_packets_dropped_pre_keyframe,
-                        "cap-muxer discarding non-keyframe video packets before first keyframe"
+                        "frameever-muxer discarding non-keyframe video packets before first keyframe"
                     );
                 }
                 return Ok(());
@@ -602,7 +604,7 @@ fn write_packet(state: &mut State, packet: Packet) -> Result<(), MuxerError> {
             if out.video_packets_dropped_pre_keyframe > 0 {
                 tracing::info!(
                     dropped = out.video_packets_dropped_pre_keyframe,
-                    "cap-muxer first video keyframe received"
+                    "frameever-muxer first video keyframe received"
                 );
             }
         }
@@ -616,7 +618,7 @@ fn write_packet(state: &mut State, packet: Packet) -> Result<(), MuxerError> {
         {
             tracing::debug!(
                 dropped = out.audio_packets_dropped_pre_video,
-                "cap-muxer holding audio until first video keyframe"
+                "frameever-muxer holding audio until first video keyframe"
             );
         }
         return Ok(());

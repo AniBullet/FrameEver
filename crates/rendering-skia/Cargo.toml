@@ -1,5 +1,5 @@
 [package]
-name = "cap-rendering-skia"
+name = "frameever-rendering-skia"
 version = "0.1.0"
 edition = "2024"
 
@@ -17,7 +17,7 @@ skia-safe = "0.86.1"
 tracing-subscriber = "0.3"
 
 # Project dependencies
-cap-project = { path = "../project" }
+frameever-project = { path = "../project" }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
-use cap_media_info::AudioInfo;
 use ffmpeg::software::resampling;
+use frameever_media_info::AudioInfo;
 
 /// Consumes audio frames, resmaples them, buffers the results,
 /// and allows retrieving new frames of any size.
@@ -333,9 +333,13 @@ mod test {
 
     fn create_resampler(out_rate: u32) -> BufferedResampler {
         BufferedResampler::new(
-            AudioInfo::new_raw(format::Sample::U8(cap_media_info::Type::Packed), IN_RATE, 1),
             AudioInfo::new_raw(
-                format::Sample::U8(cap_media_info::Type::Packed),
+                format::Sample::U8(frameever_media_info::Type::Packed),
+                IN_RATE,
+                1,
+            ),
+            AudioInfo::new_raw(
+                format::Sample::U8(frameever_media_info::Type::Packed),
                 out_rate,
                 1,
             ),
@@ -345,7 +349,7 @@ mod test {
 
     fn make_input_frame(samples: usize, pts: i64) -> ffmpeg::frame::Audio {
         let mut frame = ffmpeg::frame::Audio::new(
-            cap_media_info::Sample::U8(cap_media_info::Type::Packed),
+            frameever_media_info::Sample::U8(frameever_media_info::Type::Packed),
             samples,
             ChannelLayout::MONO,
         );
@@ -429,15 +433,23 @@ mod test {
             // Real-world 44.1k -> 48k with device-sized buffers: pts rounding
             // must neither panic nor lose samples over a sustained stream.
             let mut bufferer = BufferedResampler::new(
-                AudioInfo::new_raw(format::Sample::U8(cap_media_info::Type::Packed), 44_100, 1),
-                AudioInfo::new_raw(format::Sample::U8(cap_media_info::Type::Packed), 48_000, 1),
+                AudioInfo::new_raw(
+                    format::Sample::U8(frameever_media_info::Type::Packed),
+                    44_100,
+                    1,
+                ),
+                AudioInfo::new_raw(
+                    format::Sample::U8(frameever_media_info::Type::Packed),
+                    48_000,
+                    1,
+                ),
             )
             .unwrap();
 
             let mut total = 0usize;
             for k in 0..64i64 {
                 let mut frame = ffmpeg::frame::Audio::new(
-                    cap_media_info::Sample::U8(cap_media_info::Type::Packed),
+                    frameever_media_info::Sample::U8(frameever_media_info::Type::Packed),
                     1024,
                     ChannelLayout::MONO,
                 );
@@ -480,20 +492,20 @@ mod test {
 
         #[test]
         fn a_new_input_format_rebuilds_the_resampler_and_keeps_the_output() {
-            let packed_u8 = format::Sample::U8(cap_media_info::Type::Packed);
+            let packed_u8 = format::Sample::U8(frameever_media_info::Type::Packed);
             let mut bufferer = create_resampler(IN_RATE);
             let output = bufferer.output();
 
             bufferer.add_frame(make_input_frame(100, 0));
             bufferer.add_frame(frame(
-                format::Sample::I16(cap_media_info::Type::Packed),
+                format::Sample::I16(frameever_media_info::Type::Packed),
                 2,
                 200,
                 200,
                 100,
             ));
             bufferer.add_frame(frame(
-                format::Sample::F32(cap_media_info::Type::Planar),
+                format::Sample::F32(frameever_media_info::Type::Planar),
                 3,
                 IN_RATE,
                 100,
@@ -511,7 +523,7 @@ mod test {
 
         #[test]
         fn a_rate_change_keeps_the_timeline_continuous() {
-            let packed_u8 = format::Sample::U8(cap_media_info::Type::Packed);
+            let packed_u8 = format::Sample::U8(frameever_media_info::Type::Packed);
             let mut bufferer = BufferedResampler::new(
                 AudioInfo::new_raw(packed_u8, 48_000, 1),
                 AudioInfo::new_raw(packed_u8, 48_000, 1),
@@ -541,7 +553,7 @@ mod test {
 
             bufferer.add_frame(make_input_frame(100, 0));
             bufferer.add_frame(frame(
-                format::Sample::U8(cap_media_info::Type::Packed),
+                format::Sample::U8(frameever_media_info::Type::Packed),
                 1,
                 0,
                 100,

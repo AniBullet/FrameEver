@@ -1,4 +1,4 @@
-use cap_project::{
+use frameever_project::{
     MaskKind, MaskScalarKeyframe, MaskSegment, MaskVectorKeyframe, XY, mask_effect_contract,
 };
 

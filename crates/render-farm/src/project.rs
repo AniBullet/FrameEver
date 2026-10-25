@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
-use cap_project::{ProjectConfiguration, RecordingMeta, StudioRecordingMeta, XY};
-use cap_rendering::{ProjectRecordingsMeta, ProjectUniforms, RenderOptions};
+use frameever_project::{ProjectConfiguration, RecordingMeta, StudioRecordingMeta, XY};
+use frameever_rendering::{ProjectRecordingsMeta, ProjectUniforms, RenderOptions};
 use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
@@ -32,9 +32,9 @@ impl LoadedProject {
             ProjectRecordingsMeta::new(&recording_meta.project_path, &studio_meta)
                 .map_err(|error| anyhow!("recordings: {error}"))?,
         );
-        cap_export::synthesize_default_timeline(&mut config, &recordings);
-        cap_project::synchronize_legacy_keyboard(&recording_meta, &mut config);
-        cap_project::synchronize_captions(
+        frameever_export::synthesize_default_timeline(&mut config, &recordings);
+        frameever_project::synchronize_legacy_keyboard(&recording_meta, &mut config);
+        frameever_project::synchronize_captions(
             &mut config,
             &recordings
                 .segments
@@ -52,7 +52,7 @@ impl LoadedProject {
     }
 
     pub fn duration(&self) -> f64 {
-        cap_rendering::get_duration(
+        frameever_rendering::get_duration(
             &self.recordings,
             &self.recording_meta,
             &self.studio_meta,
@@ -97,12 +97,12 @@ impl LoadedProject {
 }
 
 fn source_spans(config: &ProjectConfiguration, fps: u32, frames: [u32; 2]) -> Vec<ClipSpan> {
-    use cap_project::TimelineFrameMapping;
+    use frameever_project::TimelineFrameMapping;
     let mut spans: Vec<ClipSpan> = Vec::new();
     let Some(timeline) = &config.timeline else {
         return spans;
     };
-    let mut include = |source: cap_project::TimelineSource<'_>| {
+    let mut include = |source: frameever_project::TimelineSource<'_>| {
         let clip = source.segment.recording_clip;
         match spans.iter_mut().find(|span| span.clip == clip) {
             Some(span) => {
@@ -134,8 +134,11 @@ fn source_spans(config: &ProjectConfiguration, fps: u32, frames: [u32; 2]) -> Ve
     spans
 }
 
-fn mapping_key(timeline: &cap_project::TimelineConfiguration, time: f64) -> Option<(u8, usize)> {
-    use cap_project::TimelineFrameMapping;
+fn mapping_key(
+    timeline: &frameever_project::TimelineConfiguration,
+    time: f64,
+) -> Option<(u8, usize)> {
+    use frameever_project::TimelineFrameMapping;
     Some(match timeline.get_frame_mapping(time)? {
         TimelineFrameMapping::Single { source, .. } => (0, source.segment_index),
         TimelineFrameMapping::Hold { source, .. } => (1, source.segment_index),
@@ -187,7 +190,9 @@ pub struct ClipSpan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_project::{ClipTransition, ClipTransitionType, TimelineConfiguration, TimelineSegment};
+    use frameever_project::{
+        ClipTransition, ClipTransitionType, TimelineConfiguration, TimelineSegment,
+    };
 
     fn config(second_clip: u32) -> ProjectConfiguration {
         ProjectConfiguration {

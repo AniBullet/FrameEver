@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use cap_recording::{screen_capture::ScreenCaptureTarget, screenshot::capture_screenshot};
 use clap::Args;
+use frameever_recording::{screen_capture::ScreenCaptureTarget, screenshot::capture_screenshot};
 use scap_targets::{DisplayId, WindowId};
 use serde::Serialize;
 
@@ -84,12 +84,12 @@ impl Screenshot {
 }
 
 fn resolve_screen(id: &DisplayId) -> Result<ScreenCaptureTarget, String> {
-    cap_recording::screen_capture::list_displays()
+    frameever_recording::screen_capture::list_displays()
         .into_iter()
         .find(|s| &s.0.id == id)
         .map(|(s, _)| ScreenCaptureTarget::Display { id: s.id })
         .ok_or_else(|| {
-            let available: Vec<String> = cap_recording::screen_capture::list_displays()
+            let available: Vec<String> = frameever_recording::screen_capture::list_displays()
                 .into_iter()
                 .map(|(s, _)| s.id.to_string())
                 .collect();
@@ -98,7 +98,7 @@ fn resolve_screen(id: &DisplayId) -> Result<ScreenCaptureTarget, String> {
 }
 
 fn resolve_window(id: &WindowId) -> Result<ScreenCaptureTarget, String> {
-    cap_recording::screen_capture::list_windows()
+    frameever_recording::screen_capture::list_windows()
         .into_iter()
         .find(|s| &s.0.id == id)
         .map(|(s, _)| ScreenCaptureTarget::Window { id: s.id })

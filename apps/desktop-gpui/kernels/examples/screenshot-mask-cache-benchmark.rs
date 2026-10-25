@@ -1,4 +1,6 @@
-use cap_gpui_kernels::mask_cache::{MaskEntry, MaskFrame, MaskRequest, mask_region, update_masks};
+use frameever_gpui_kernels::mask_cache::{
+    MaskEntry, MaskFrame, MaskRequest, mask_region, update_masks,
+};
 use std::{hint::black_box, sync::Arc, time::Instant};
 
 const SIZE: (u32, u32) = (3840, 2160);

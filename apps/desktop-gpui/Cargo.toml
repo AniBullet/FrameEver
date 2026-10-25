@@ -8,7 +8,7 @@ resolver = "2"
 members = [".", "kernels"]
 
 [package]
-name = "cap-desktop-gpui"
+name = "frameever-desktop-gpui"
 version = "1.0.0-dev"
 description = "Beautiful screen recordings, owned by you."
 edition = "2024"
@@ -16,7 +16,7 @@ license = "AGPL-3.0"
 publish = false
 
 [[bin]]
-name = "cap-gpui"
+name = "frameever-gpui"
 path = "src/main.rs"
 
 [[example]]
@@ -24,9 +24,9 @@ name = "studio-finalization-benchmark"
 path = "../../crates/recording/examples/studio-finalization-benchmark.rs"
 
 [dependencies]
-cap-audio = { path = "../../crates/audio" }
-cap-cli-install = { path = "../../crates/cli-install" }
-cap-gpui-kernels = { path = "kernels" }
+frameever-audio = { path = "../../crates/audio" }
+frameever-cli-install = { path = "../../crates/cli-install" }
+frameever-gpui-kernels = { path = "kernels" }
 # gpui — the wingleeio/zed fork Comet ships. The pinned rev carries f596cde
 # ("destination alpha on transparent windows: Porter-Duff OVER, not additive"),
 # which our transparent rounded main-window shell depends on.
@@ -38,54 +38,54 @@ gpui_platform = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a1
 gpui_tokio = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d" }
 
 # Device enumeration reuses the same crates the Tauri app records with, so the
-# device identities here are byte-identical to the ones cap-recording expects.
-cap-camera = { path = "../../crates/camera" }
+# device identities here are byte-identical to the ones frameever-recording expects.
+frameever-camera = { path = "../../crates/camera" }
 scap-targets = { path = "../../crates/scap-targets" }
 # Same fork/rev as the root workspace: MicrophoneFeed enumerates through this.
 cpal = { git = "https://github.com/CapSoftware/cpal", rev = "6013cb5f8bd3" }
 
 # The actual recording engine -- the same studio/instant actors the Tauri app
 # drives. Drags in the ffmpeg encode stack; that is the point.
-cap-recording = { path = "../../crates/recording" }
-cap-media-info = { path = "../../crates/media-info" }
-cap-enc-ffmpeg = { path = "../../crates/enc-ffmpeg" }
-# Already in the tree through cap-recording; direct so the camera draw bench
+frameever-recording = { path = "../../crates/recording" }
+frameever-media-info = { path = "../../crates/media-info" }
+frameever-enc-ffmpeg = { path = "../../crates/enc-ffmpeg" }
+# Already in the tree through frameever-recording; direct so the camera draw bench
 # can construct `NativeCameraFrame.timestamp` for its synthetic frames.
-cap-timestamp = { path = "../../crates/timestamp" }
-cap-utils = { path = "../../crates/utils" }
-cap-project = { path = "../../crates/project" }
+frameever-timestamp = { path = "../../crates/timestamp" }
+frameever-utils = { path = "../../crates/utils" }
+frameever-project = { path = "../../crates/project" }
 # The cursor style picker draws the same SVG assets the renderer composites.
 # gpui's `svg()` keeps only a glyph's alpha, so the two-tone cursor art has to
-# be rasterised instead: `resvg` at the pin cap-rendering already builds, into
+# be rasterised instead: `resvg` at the pin frameever-rendering already builds, into
 # a `RenderImage` (`src/editor_sidebar/cursor.rs`).
-cap-cursor-info = { path = "../../crates/cursor-info" }
+frameever-cursor-info = { path = "../../crates/cursor-info" }
 resvg = "0.48"
 rodio = { version = "0.22", default-features = false, features = ["playback", "mp3", "vorbis"] }
-# The editor stack. `cap-rendering` is not a new subtree -- cap-recording
+# The editor stack. `frameever-rendering` is not a new subtree -- frameever-recording
 # already depends on it, so wgpu 25 and its vendored wgpu-hal have been built
 # by this workspace since the recording unit; naming it here only makes the
 # dependency direct so the editor can talk to `RenderedFrame`/`FrameLayout`.
-# `cap-editor` is the seam the Tauri editor window uses too: `EditorInstance`
+# `frameever-editor` is the seam the Tauri editor window uses too: `EditorInstance`
 # owns the decoders, the renderer actor, the preview/scrub renderer and
 # playback, and hands frames back through a plain `FnMut` callback. It carries
 # no tauri types -- the websocket lives in the Tauri binary, not in the crate.
-cap-rendering = { path = "../../crates/rendering" }
+frameever-rendering = { path = "../../crates/rendering" }
 # The camera bubble's live background blur (`src/camera_blur.rs`): the same
 # `BlurProcessor` the Tauri preview and the editor's camera layer run.
-# Already in this lockfile through cap-rendering, so naming it only makes the
+# Already in this lockfile through frameever-rendering, so naming it only makes the
 # edge direct.
-cap-camera-effects = { path = "../../crates/camera-effects" }
-# The blur worker's device/queue/texture types. Must stay on cap-rendering's
+frameever-camera-effects = { path = "../../crates/camera-effects" }
+# The blur worker's device/queue/texture types. Must stay on frameever-rendering's
 # wgpu line; gpui's own wgpu is a separate tree and never touches these types.
 wgpu = "30.0.1"
-cap-editor = { path = "../../crates/editor" }
+frameever-editor = { path = "../../crates/editor" }
 # In-process export. Only the `ExporterBase` + settings surface is used; the
 # export *page* can also drive the `cap-exporter` subprocess protocol, so this
 # is the cheaper of the two options rather than the only one.
-cap-export = { path = "../../crates/export" }
+frameever-export = { path = "../../crates/export" }
 # The first-frame JPEG a finished recording's Recents card is drawn from
 # (`create_screenshot` in the Tauri binary). Same package/git/rev the root
-# workspace pins, and cap-recording already builds it, so this is an import,
+# workspace pins, and frameever-recording already builds it, so this is an import,
 # not an extra dependency tree.
 ffmpeg = { package = "ffmpeg-next", git = "https://github.com/CapSoftware/rust-ffmpeg", rev = "49db1fede112" }
 # Camera preview frames and Recents thumbnails both become gpui `RenderImage`s,
@@ -111,7 +111,7 @@ tokio = { version = "1", features = ["rt", "time"] }
 # store bindings are W3C `KeyboardEvent.code` strings and this owns the
 # platform mapping (Carbon RegisterEventHotKey on macOS).
 global-hotkey = "0.9.0"
-# cap-recording's actor system; version must match its `kameo = "0.17.2"`.
+# frameever-recording's actor system; version must match its `kameo = "0.17.2"`.
 kameo = "0.22.2"
 flume = "0.12.0"
 # Round caps and joins for the onboarding doodles; already in the tree via gpui.
@@ -171,7 +171,7 @@ tauri-winres = "0.3.7"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "test-util", "net", "io-util", "macros"] }
 # Caption oracles (`src/transcription/verify_tests.rs`): fixture projects and
 # audio markers for the fake transcriber.
-cap-verify = { path = "../../crates/verify" }
+frameever-verify = { path = "../../crates/verify" }
 tempfile = "3"
 
 [target.'cfg(unix)'.dependencies]
@@ -237,7 +237,7 @@ hound = "3.5"
 
 # Local checkout of the pinned wingleeio/zed rev plus one commit: paint_surface
 # accepts 32BGRA CVPixelBuffers, which the editor preview's zero-copy path
-# hands it (see cap-rendering's RgbaToBgraSurfaceConverter).
+# hands it (see frameever-rendering's RgbaToBgraSurfaceConverter).
 [patch."https://github.com/wingleeio/zed"]
 gpui = { path = "../../../zed-cap/crates/gpui" }
 gpui_platform = { path = "../../../zed-cap/crates/gpui_platform" }
@@ -259,15 +259,15 @@ opt-level = 2
 debug = "line-tables-only"
 
 # The app crate stays at opt-level 0; its per-frame pixel and sample loops live
-# in `cap-gpui-kernels` instead. `frame_image` alone measures 42.7ms per frame
+# in `frameever-gpui-kernels` instead. `frame_image` alone measures 42.7ms per frame
 # unoptimized against 1.0ms here, and optimizing the whole app crate instead
 # turns a one-line edit into a 6-minute rebuild.
-[profile.dev.package.cap-gpui-kernels]
+[profile.dev.package.frameever-gpui-kernels]
 opt-level = 3
 
 # Incremental halves a one-line rebuild for about 2 GB of cache, and line tables
 # cut its codegen and link time; breakpoints and backtraces keep their lines.
-[profile.dev.package.cap-desktop-gpui]
+[profile.dev.package.frameever-desktop-gpui]
 incremental = true
 debug = "line-tables-only"
 

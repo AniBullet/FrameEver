@@ -18,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_verify::report::{self, Case, Tier};
+use frameever_verify::report::{self, Case, Tier};
 
 pub const CHILD_ENV: &str = "CAP_VERIFY_CHAOS_CHILD";
 const LOG_ENV: &str = "CAP_VERIFY_CHAOS_LOG";
@@ -374,8 +374,8 @@ pub fn run_seeds(probe: &Probe, first: u64, end: u64, keep: Option<&str>) -> Vec
             if let Some(keep) = keep {
                 command.env(KEEP_ENV, keep);
             }
-            if let Ok(muxer) = cap_recording::oop_muxer::resolve_muxer_binary() {
-                command.env(cap_recording::oop_muxer::ENV_BIN_PATH, muxer);
+            if let Ok(muxer) = frameever_recording::oop_muxer::resolve_muxer_binary() {
+                command.env(frameever_recording::oop_muxer::ENV_BIN_PATH, muxer);
             }
             Ok(command.spawn()?)
         })();
@@ -653,13 +653,13 @@ pub fn run_group(all: fn() -> Vec<Probe>, prefix: &str) {
         return;
     }
     crate::common::init();
-    if std::env::var_os(cap_recording::oop_muxer::ENV_BIN_PATH).is_none()
+    if std::env::var_os(frameever_recording::oop_muxer::ENV_BIN_PATH).is_none()
         && let Some(bin) = std::env::current_exe()
             .ok()
-            .and_then(|exe| Some(exe.parent()?.parent()?.join("cap-muxer")))
+            .and_then(|exe| Some(exe.parent()?.parent()?.join("frameever-muxer")))
             .filter(|p| p.exists())
     {
-        let _ = cap_recording::oop_muxer::set_muxer_binary_override(bin);
+        let _ = frameever_recording::oop_muxer::set_muxer_binary_override(bin);
     }
     let tier = report::tier();
     let probes: Vec<Probe> = all()

@@ -81,62 +81,61 @@ mod tests {
 
     #[test]
     fn every_declared_overlay_source_requires_the_bundle() {
-        let mutations: [fn(&mut ProjectConfiguration); 9] =
-            [
-                |project| project.captions = Some(Default::default()),
-                |project| project.keyboard = Some(Default::default()),
-                |project| project.hidden_text_segments.push(0),
-                |project| {
-                    project.overlay_order.push(cap_project::OverlayTrack {
-                        kind: cap_project::OverlayTrackKind::Mask,
-                        track: 0,
-                    });
-                },
-                |project| {
-                    project.annotations.push(
-                        serde_json::from_value(serde_json::json!({
-                            "id": "text", "type": "text", "x": 0.0, "y": 0.0,
-                            "width": 1.0, "height": 1.0, "strokeColor": "#000000",
-                            "strokeWidth": 1.0, "fillColor": "#ffffff", "opacity": 0.0,
-                            "rotation": 0.0, "text": "hidden annotation"
-                        }))
-                        .unwrap(),
-                    );
-                },
-                |project| {
-                    project.timeline.as_mut().unwrap().text_segments.push(
-                        serde_json::from_value(serde_json::json!({
-                            "start": 0.0, "end": 1.0, "enabled": false
-                        }))
-                        .unwrap(),
-                    );
-                },
-                |project| {
-                    project.timeline.as_mut().unwrap().image_segments.push(
-                        cap_project::ImageSegment {
-                            enabled: false,
-                            path: "unopened-overlay.png".into(),
-                            ..Default::default()
-                        },
-                    );
-                },
-                |project| {
-                    project.timeline.as_mut().unwrap().caption_segments.push(
-                        serde_json::from_value(serde_json::json!({
-                            "id": "caption", "start": 0.0, "end": 1.0, "text": "caption"
-                        }))
-                        .unwrap(),
-                    );
-                },
-                |project| {
-                    project.timeline.as_mut().unwrap().keyboard_segments.push(
-                        serde_json::from_value(serde_json::json!({
-                            "id": "keys", "start": 0.0, "end": 1.0, "displayText": "A"
-                        }))
-                        .unwrap(),
-                    );
-                },
-            ];
+        let mutations: [fn(&mut ProjectConfiguration); 9] = [
+            |project| project.captions = Some(Default::default()),
+            |project| project.keyboard = Some(Default::default()),
+            |project| project.hidden_text_segments.push(0),
+            |project| {
+                project.overlay_order.push(frameever_project::OverlayTrack {
+                    kind: frameever_project::OverlayTrackKind::Mask,
+                    track: 0,
+                });
+            },
+            |project| {
+                project.annotations.push(
+                    serde_json::from_value(serde_json::json!({
+                        "id": "text", "type": "text", "x": 0.0, "y": 0.0,
+                        "width": 1.0, "height": 1.0, "strokeColor": "#000000",
+                        "strokeWidth": 1.0, "fillColor": "#ffffff", "opacity": 0.0,
+                        "rotation": 0.0, "text": "hidden annotation"
+                    }))
+                    .unwrap(),
+                );
+            },
+            |project| {
+                project.timeline.as_mut().unwrap().text_segments.push(
+                    serde_json::from_value(serde_json::json!({
+                        "start": 0.0, "end": 1.0, "enabled": false
+                    }))
+                    .unwrap(),
+                );
+            },
+            |project| {
+                project.timeline.as_mut().unwrap().image_segments.push(
+                    frameever_project::ImageSegment {
+                        enabled: false,
+                        path: "unopened-overlay.png".into(),
+                        ..Default::default()
+                    },
+                );
+            },
+            |project| {
+                project.timeline.as_mut().unwrap().caption_segments.push(
+                    serde_json::from_value(serde_json::json!({
+                        "id": "caption", "start": 0.0, "end": 1.0, "text": "caption"
+                    }))
+                    .unwrap(),
+                );
+            },
+            |project| {
+                project.timeline.as_mut().unwrap().keyboard_segments.push(
+                    serde_json::from_value(serde_json::json!({
+                        "id": "keys", "start": 0.0, "end": 1.0, "displayText": "A"
+                    }))
+                    .unwrap(),
+                );
+            },
+        ];
         for (index, mutate) in mutations.iter().enumerate() {
             let mut project = project();
             mutate(&mut project);

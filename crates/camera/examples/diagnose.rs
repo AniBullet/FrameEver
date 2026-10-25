@@ -3,10 +3,10 @@
 //! test against each device and reports whether frames actually arrive.
 //!
 //! Usage:
-//!   cargo run -p cap-camera --example diagnose            # list + capture test all cameras
-//!   cargo run -p cap-camera --example diagnose -- "FaceTime"  # only cameras whose name matches
-//!   cargo run -p cap-camera --example diagnose -- --list  # list only, no capture
-//!   cargo run -p cap-camera --example diagnose -- --compat  # capture in compatibility mode
+//!   cargo run -p frameever-camera --example diagnose            # list + capture test all cameras
+//!   cargo run -p frameever-camera --example diagnose -- "FaceTime"  # only cameras whose name matches
+//!   cargo run -p frameever-camera --example diagnose -- --list  # list only, no capture
+//!   cargo run -p frameever-camera --example diagnose -- --compat  # capture in compatibility mode
 
 use std::{
     sync::{
@@ -16,7 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_camera::{CameraInfo, CaptureMode, Format};
+use frameever_camera::{CameraInfo, CaptureMode, Format};
 
 const CAPTURE_TEST_DURATION: Duration = Duration::from_secs(3);
 
@@ -32,7 +32,7 @@ fn main() {
 
     print_authorization_status();
 
-    let cameras: Vec<CameraInfo> = cap_camera::list_cameras().collect();
+    let cameras: Vec<CameraInfo> = frameever_camera::list_cameras().collect();
     if cameras.is_empty() {
         println!("No cameras found");
         return;
@@ -196,7 +196,7 @@ fn capture_test(camera: &CameraInfo, mode: CaptureMode) {
     }
 }
 
-fn describe_frame(frame: &cap_camera::CapturedFrame) -> String {
+fn describe_frame(frame: &frameever_camera::CapturedFrame) -> String {
     #[cfg(target_os = "macos")]
     {
         let sample_buf = frame.native().sample_buf();

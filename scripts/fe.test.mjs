@@ -188,7 +188,7 @@ test("release versions are plain semver with an optional pre-release", () => {
 test("watch mode runs a copy so a rebuild can replace the binary", async () => {
 	const { runCopyPath } = await import("./fe.mjs");
 	assert.equal(
-		runCopyPath(path.join("debug", "cap-gpui.exe")),
-		path.join("debug", "cap-gpui.fe-run.exe"),
+		runCopyPath(path.join("debug", "frameever-gpui.exe")),
+		path.join("debug", "frameever-gpui.fe-run.exe"),
 	);
 });

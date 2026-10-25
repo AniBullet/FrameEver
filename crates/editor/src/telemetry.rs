@@ -65,7 +65,7 @@ pub enum PlaybackTelemetryEvent {
         drain_duration: Duration,
         flush_duration: Duration,
         render_duration: Duration,
-        render_stage_timings: Box<cap_rendering::FrameRenderStageTimings>,
+        render_stage_timings: Box<frameever_rendering::FrameRenderStageTimings>,
         callback_duration: Duration,
         drained_count: u32,
         output_format: PlaybackRenderOutputFormat,

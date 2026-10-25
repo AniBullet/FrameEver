@@ -1,19 +1,19 @@
 [package]
-name = "cap-render-farm"
+name = "frameever-render-farm"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
 [[bin]]
-name = "cap-render-farm"
+name = "frameever-render-farm"
 path = "src/main.rs"
 
 [dependencies]
-cap-audio = { path = "../audio" }
-cap-project = { path = "../project" }
-cap-rendering = { path = "../rendering" }
-cap-editor = { path = "../editor" }
-cap-export = { path = "../export" }
+frameever-audio = { path = "../audio" }
+frameever-project = { path = "../project" }
+frameever-rendering = { path = "../rendering" }
+frameever-editor = { path = "../editor" }
+frameever-export = { path = "../export" }
 
 anyhow.workspace = true
 base64 = "0.23.1"

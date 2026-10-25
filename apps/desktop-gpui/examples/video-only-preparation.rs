@@ -8,10 +8,10 @@ use std::{
     time::Instant,
 };
 
-use cap_export::{
+use frameever_export::{
     ExporterBase, gif::GifExportSettings, make_cursor_only_project, mov::MovExportSettings,
 };
-use cap_project::{ProjectConfiguration, XY};
+use frameever_project::{ProjectConfiguration, XY};
 
 #[derive(Clone, Copy, Debug)]
 enum Mode {

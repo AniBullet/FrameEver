@@ -10,8 +10,10 @@ struct UpdateReport {
 }
 
 pub fn run(format: OutputFormat) -> Result<(), String> {
-    crate::automation::open_path_or_url(&cap_utils::brand::action_url("%22check_for_updates%22"))
-        .map_err(|error| format!("Could not reach the desktop app to check for updates: {error}"))?;
+    crate::automation::open_path_or_url(&frameever_utils::brand::action_url(
+        "%22check_for_updates%22",
+    ))
+    .map_err(|error| format!("Could not reach the desktop app to check for updates: {error}"))?;
     match format {
         OutputFormat::Json => write_json(&UpdateReport {
             started: true,

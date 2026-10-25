@@ -1,7 +1,7 @@
-use cap_project::{
+use frameever_project::{
     AspectRatio, BackgroundSource, CursorEvents, ProjectConfiguration, RecordingMeta, XY,
 };
-use cap_rendering::{
+use frameever_rendering::{
     DecodedSegmentFrames, FrameRenderer, ProjectUniforms, RenderOptions, RenderVideoConstants,
     RendererLayers, ZoomTransformTimeline,
 };

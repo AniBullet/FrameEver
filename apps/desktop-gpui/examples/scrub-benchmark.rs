@@ -11,8 +11,8 @@
 
 use std::{path::PathBuf, sync::Arc, time::Duration, time::Instant};
 
-use cap_editor::{AudioOutput, EditorFrameFormat, EditorFrameOutput, EditorInstance};
-use cap_project::XY;
+use frameever_editor::{AudioOutput, EditorFrameFormat, EditorFrameOutput, EditorInstance};
+use frameever_project::XY;
 
 const PREVIEW_FPS: u32 = 60;
 const PREVIEW_RESOLUTION: XY<u32> = XY { x: 1248, y: 702 };

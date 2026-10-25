@@ -1,4 +1,4 @@
-//! `cap-verify-stimulus <spec json> <log path>`: see `cap_verify::stimulus`.
+//! `frameever-verify-stimulus <spec json> <log path>`: see `frameever_verify::stimulus`.
 
 fn main() {
     if let Err(e) = app::run() {
@@ -20,13 +20,13 @@ mod app {
         time::{Duration, Instant},
     };
 
-    use cap_verify::{
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    use frameever_verify::{
         audio_code::{self, AudioSource, MarkerPlacement},
         sched,
         stimulus::{StimulusEvent, StimulusSpec, host_add_secs, host_now, host_secs},
         video_code::{self, FrameMarker, PixelOrder, StreamKind},
     };
-    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     #[cfg(target_os = "macos")]
     use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
     use winit::{
@@ -146,7 +146,7 @@ mod app {
         Ok(())
     }
 
-    use cap_verify::stimulus::{SENTINEL_FILE, SENTINEL_PERIOD_SECS};
+    use frameever_verify::stimulus::{SENTINEL_FILE, SENTINEL_PERIOD_SECS};
 
     /// A real-time thread that only wakes every `SENTINEL_PERIOD_SECS` and
     /// records each wake (host ticks), for the whole life of the stimulus.
@@ -351,7 +351,7 @@ mod app {
     /// The pictures a user records come from foreground apps; the stimulus
     /// asks for the same treatment (user-interactive QoS) and a time
     /// constraint matching its frame period, so it keeps its schedule
-    /// (`cap_verify::sched`, shared with the synthetic camera and
+    /// (`frameever_verify::sched`, shared with the synthetic camera and
     /// microphone). Returns the kernel status of each request (0 = applied).
     fn raise_priority(fps: f64) -> (i32, i32) {
         let realtime = sched::request_realtime(1.0 / fps, 0.010);
@@ -927,7 +927,8 @@ mod app {
                     let callback_host = {
                         use cpal::host::wasapi::StreamInstantExt;
                         let units = i128::from(info.timestamp().callback.as_performance_counter());
-                        (units * i128::from(cap_verify::sched::qpc_frequency()) / 10_000_000) as u64
+                        (units * i128::from(frameever_verify::sched::qpc_frequency()) / 10_000_000)
+                            as u64
                     };
                     state.fill(data, callback_host);
                 },

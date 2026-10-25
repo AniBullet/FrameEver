@@ -1,4 +1,4 @@
-use cap_project::{Camera, CameraPosition, CameraXPosition, CameraYPosition};
+use frameever_project::{Camera, CameraPosition, CameraXPosition, CameraYPosition};
 
 use crate::screen_capture::ScreenCaptureTarget;
 
@@ -134,11 +134,11 @@ fn capture_bounds(target: &ScreenCaptureTarget) -> Option<[f64; 4]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_project::BackgroundBlurMode;
+    use frameever_project::BackgroundBlurMode;
 
     fn position(bounds: [f64; 4], reference: [f64; 4], cutout: bool) -> serde_json::Value {
         let mut camera = Camera {
-            manual_position: Some(cap_project::XY::new(0.8, 0.2)),
+            manual_position: Some(frameever_project::XY::new(0.8, 0.2)),
             ..Default::default()
         };
         if cutout {

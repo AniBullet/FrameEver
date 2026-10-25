@@ -5,7 +5,7 @@ use crate::{
     },
 };
 use anyhow::anyhow;
-use cap_media_info::{Pixel, VideoInfo};
+use frameever_media_info::{Pixel, VideoInfo};
 use futures::{FutureExt, channel::mpsc, future::BoxFuture};
 use std::sync::{
     Arc,
@@ -444,13 +444,13 @@ mod forwarding_tests {
         .unwrap();
     }
 
-    fn info(format: cap_media_info::RawVideoFormat, w: u32, h: u32, fps: u32) -> VideoInfo {
+    fn info(format: frameever_media_info::RawVideoFormat, w: u32, h: u32, fps: u32) -> VideoInfo {
         VideoInfo::from_raw(format, w, h, fps)
     }
 
     #[test]
     fn ingress_capacity_is_sized_by_time_and_bounded_by_bytes() {
-        use cap_media_info::RawVideoFormat::{Bgra, Nv12, Uyvy};
+        use frameever_media_info::RawVideoFormat::{Bgra, Nv12, Uyvy};
         let cases = [
             (info(Nv12, 1280, 720, 30), 64),
             (info(Nv12, 1920, 1080, 30), 64),

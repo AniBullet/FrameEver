@@ -18,7 +18,7 @@ resolver = "2"
 # https://doc.rust-lang.org/rustc/platform-support.html
 # Every target desktop-release.yml ships. Leaving a target out here leaves its
 # platform-specific deps (windows-sys, libc, ...) un-unified, so the sidecar
-# `cargo build -p cap` and Tauri's `cargo build -p cap-desktop` resolve
+# `cargo build -p frameever` and Tauri's `cargo build -p cap-desktop` resolve
 # different feature sets and recompile ~500 shared crates in the same job.
 platforms = [
     "x86_64-unknown-linux-gnu",
@@ -31,11 +31,11 @@ platforms = [
 # exact-versions = true
 
 # --- cap release-build tuning ---
-# cap-muxer is ~55 crates; letting it depend on the hack would drag the whole
-# unified tree into every `cargo build -p cap-muxer`. Any drift it causes is
+# frameever-muxer is ~55 crates; letting it depend on the hack would drag the whole
+# unified tree into every `cargo build -p frameever-muxer`. Any drift it causes is
 # bounded by its own tiny graph.
 [traversal-excludes]
-workspace-members = ["cap-muxer", "cap-muxer-protocol", "cap-verify-expect"]
+workspace-members = ["frameever-muxer", "frameever-muxer-protocol", "frameever-verify-expect"]
 
 # hakari unifies dev-dependencies as well, so left alone it pins tauri with its
 # `test` feature and tokio `test-util` into every release binary and pulls the

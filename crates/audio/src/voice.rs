@@ -1,5 +1,5 @@
 use crate::{AudioSampleSource, VoiceProfile, voice_level::VoiceFilter};
-use cap_rnnoise::{DELAY_SAMPLES, DenoiseState, FRAME_SIZE};
+use frameever_rnnoise::{DELAY_SAMPLES, DenoiseState, FRAME_SIZE};
 use std::{collections::VecDeque, ops::Range};
 
 const FRAME: usize = FRAME_SIZE;

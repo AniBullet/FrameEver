@@ -57,7 +57,7 @@ mod baseline {
     }
 }
 
-use cap_gpui_kernels::screenshot as candidate;
+use frameever_gpui_kernels::screenshot as candidate;
 
 fn main() {
     println!("benchmark,workload,pixels,sample,before_ns,after_ns");

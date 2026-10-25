@@ -4,7 +4,7 @@
 //! and the channel order. Exercises the runtime-compiled Metal shader, so a
 //! shader regression fails here rather than at app launch.
 //!
-//! Run: cargo run -p cap-desktop-gpui --example surface-clip-check --release
+//! Run: cargo run -p frameever-desktop-gpui --example surface-clip-check --release
 
 #[cfg(not(target_os = "macos"))]
 fn main() {

@@ -1,5 +1,5 @@
 [package]
-name = "cap-camera-windows"
+name = "frameever-camera-windows"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
@@ -10,9 +10,9 @@ inquire = "0.9.4"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(windows)'.dependencies]
-cap-mediafoundation-utils = { path = "../mediafoundation-utils" }
-cap-camera-mediafoundation = { path = "../camera-mediafoundation" }
-cap-camera-directshow = { path = "../camera-directshow" }
+frameever-mediafoundation-utils = { path = "../mediafoundation-utils" }
+frameever-camera-mediafoundation = { path = "../camera-mediafoundation" }
+frameever-camera-directshow = { path = "../camera-directshow" }
 
 windows = { workspace = true }
 windows-core = { workspace = true }

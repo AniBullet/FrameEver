@@ -23,11 +23,11 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use cap_project::{
+use frameever_project::{
     InstantRecordingMeta, RecordingMeta, RecordingMetaInner, StudioRecordingMeta,
     StudioRecordingStatus,
 };
-use cap_recording::{recovery::RecoveryManager, upload_resume::UploadLock};
+use frameever_recording::{recovery::RecoveryManager, upload_resume::UploadLock};
 use gpui::RenderImage;
 
 use crate::i18n::t;
@@ -1019,7 +1019,7 @@ impl CacheSlot {
             return;
         }
         let Ok(encoded) =
-            cap_gpui_kernels::codec::encode_jpeg_rgba_as_rgb(rgba, THUMBNAIL_JPEG_QUALITY)
+            frameever_gpui_kernels::codec::encode_jpeg_rgba_as_rgb(rgba, THUMBNAIL_JPEG_QUALITY)
         else {
             return;
         };
@@ -1070,7 +1070,7 @@ impl CacheSlot {
 /// gpui's atlas takes BGRA; `image`'s RgbaImage is just the container (the
 /// same swap gpui's own asset loader does after decoding).
 pub fn rgba_to_render_image(mut rgba: image::RgbaImage) -> Arc<RenderImage> {
-    cap_gpui_kernels::frame::swap_red_blue(&mut rgba);
+    frameever_gpui_kernels::frame::swap_red_blue(&mut rgba);
     Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(
         rgba
     )]))
@@ -1142,7 +1142,7 @@ pub fn thumbnail_rgba(path: &Path) -> Option<image::RgbaImage> {
 /// `create_screenshot` (Tauri `src-tauri/src/lib.rs:2582-2655`), ported.
 ///
 /// The Tauri app writes `<bundle>/screenshots/display.jpg` from
-/// `handle_recording_finish`; `cap-recording` itself never does, so a recording
+/// `handle_recording_finish`; `frameever-recording` itself never does, so a recording
 /// made by *this* app would show the icon fallback in both apps' Recents
 /// forever. The function has no Tauri dependency beyond living in that binary
 /// -- it is `ffmpeg-next` (already built here, for the recorder) plus the
@@ -1203,7 +1203,7 @@ pub fn create_screenshot(
         let height = rgb_frame.height() as usize;
         let src_stride = rgb_frame.stride(0);
         let dst_stride = width * 3;
-        let buffer = cap_gpui_kernels::frame::copy_rows(
+        let buffer = frameever_gpui_kernels::frame::copy_rows(
             rgb_frame.data(0),
             dst_stride,
             src_stride,
@@ -1218,7 +1218,7 @@ pub fn create_screenshot(
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let staged = output.with_extension(format!("jpg.tmp-{}", crate::store::new_uuid_v4()));
-        cap_gpui_kernels::codec::save_rgb_image(&image, &staged, image::ImageFormat::Jpeg)
+        frameever_gpui_kernels::codec::save_rgb_image(&image, &staged, image::ImageFormat::Jpeg)
             .map_err(|e| {
                 let _ = std::fs::remove_file(&staged);
                 e.to_string()

@@ -269,7 +269,7 @@ fn create_d3d_device_on_pinned_adapter(
 ) -> Result<String, String> {
     use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
 
-    let selected = cap_d3d_adapter::select_capture_adapter(None)?;
+    let selected = frameever_d3d_adapter::select_capture_adapter(None)?;
 
     unsafe {
         D3D11CreateDevice(

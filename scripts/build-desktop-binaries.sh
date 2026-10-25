@@ -39,5 +39,5 @@ build_sidecar() {
     done
 }
 
-build_sidecar "cap-muxer" "cap-muxer" "frameever-muxer"
-build_sidecar "cap" "cap" "frameever-cli"
+build_sidecar "frameever-muxer" "frameever-muxer" "frameever-muxer"
+build_sidecar "frameever" "frameever" "frameever-cli"

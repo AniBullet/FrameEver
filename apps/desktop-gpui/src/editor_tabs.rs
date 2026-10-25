@@ -20,8 +20,8 @@ use std::{
 };
 
 #[cfg(test)]
-use cap_project::CaptionsData;
-use cap_project::{
+use frameever_project::CaptionsData;
+use frameever_project::{
     BackgroundBlurConfig, BackgroundBlurMode, CameraShape, CameraXPosition, CameraYPosition,
     CaptionSegment, CaptionSettings, CornerStyle, CursorAnimationStyle, CursorRippleConfig,
     KeyboardData, KeyboardSettings, ProjectConfiguration, RecordingMeta, ShadowConfiguration,
@@ -1472,7 +1472,7 @@ impl EditorWindow {
 
             grid = grid.child(dot.on_click(cx.listener(move |this, _, window, cx| {
                 this.edit_project("camera-position", window, cx, move |project| {
-                    project.camera.position = cap_project::CameraPosition {
+                    project.camera.position = frameever_project::CameraPosition {
                         x: match item_x {
                             0 => CameraXPosition::Left,
                             2 => CameraXPosition::Right,
@@ -1630,17 +1630,17 @@ impl EditorWindow {
         let theme = self.theme;
         let isolation_options = [
             (
-                cap_project::VoiceIsolation::Light,
+                frameever_project::VoiceIsolation::Light,
                 tc!("strength", "Light"),
                 t!("Keep more of your original voice and room sound."),
             ),
             (
-                cap_project::VoiceIsolation::Balanced,
+                frameever_project::VoiceIsolation::Balanced,
                 t!("Balanced"),
                 t!("Clearer isolation with natural voice detail."),
             ),
             (
-                cap_project::VoiceIsolation::Strong,
+                frameever_project::VoiceIsolation::Strong,
                 t!("Strong"),
                 t!("More isolation for noisy spaces. May change voice texture."),
             ),
@@ -2050,7 +2050,7 @@ impl EditorWindow {
                 .spawn(async move {
                     let meta = RecordingMeta::load_for_project(&path)
                         .map_err(|error| t!("Failed to load recording data: {error}", error = error))?;
-                    cap_project::generate_project_keyboard_segments(&meta, &timeline, &settings)
+                    frameever_project::generate_project_keyboard_segments(&meta, &timeline, &settings)
                 })
                 .await;
 
@@ -3403,7 +3403,7 @@ pub enum OffsetKind {
 }
 
 impl OffsetKind {
-    pub fn read(self, offsets: &cap_project::ClipOffsets) -> f32 {
+    pub fn read(self, offsets: &frameever_project::ClipOffsets) -> f32 {
         match self {
             Self::SystemAudio => offsets.system_audio,
             Self::Mic => offsets.mic,
@@ -3411,7 +3411,7 @@ impl OffsetKind {
         }
     }
 
-    pub fn write(self, offsets: &mut cap_project::ClipOffsets, value: f32) {
+    pub fn write(self, offsets: &mut frameever_project::ClipOffsets, value: f32) {
         match self {
             Self::SystemAudio => offsets.system_audio = value,
             Self::Mic => offsets.mic = value,

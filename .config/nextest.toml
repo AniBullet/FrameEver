@@ -8,7 +8,7 @@ slow-timeout = { period = "60s" }
 
 # The decoder model fuzzers run 3 to 4 worker threads each.
 [[profile.default.overrides]]
-filter = 'binary_id(cap-rendering) and test(/^decoder::model::/)'
+filter = 'binary_id(frameever-rendering) and test(/^decoder::model::/)'
 threads-required = 3
 
 [profile.ci]
@@ -28,7 +28,7 @@ store-success-output = false
 store-failure-output = true
 
 [[profile.ci.overrides]]
-filter = 'binary_id(cap-rendering) and test(/^decoder::model::/)'
+filter = 'binary_id(frameever-rendering) and test(/^decoder::model::/)'
 threads-required = 3
 
 
@@ -37,5 +37,5 @@ threads-required = 3
 # up to about 900 s for both decoders on one shard. Twice that, so a real
 # hang still fails.
 [[profile.ci.overrides]]
-filter = 'binary_id(cap-verify::seek) and test(/^storm_/)'
+filter = 'binary_id(frameever-verify::seek) and test(/^storm_/)'
 slow-timeout = { period = "60s", terminate-after = 30 }

@@ -25,7 +25,7 @@ use std::{
     },
 };
 
-use cap_project::{
+use frameever_project::{
     AudioMeta, ClipConfiguration, ClipTransition, CursorEvents, CursorMeta, Cursors,
     MultipleSegment, MultipleSegments, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
     StudioRecordingMeta, StudioRecordingStatus, TimelineConfiguration, TimelineSegment, VideoMeta,
@@ -189,7 +189,7 @@ pub(crate) fn ripple_track<T: TrackSegmentOps>(track: &mut [T], boundary: f64, s
 }
 
 pub(crate) fn ripple_keyboard_track(
-    track: &mut [cap_project::KeyboardTrackSegment],
+    track: &mut [frameever_project::KeyboardTrackSegment],
     boundary: f64,
     shift: f64,
 ) {
@@ -1856,7 +1856,7 @@ struct PreparedMp4Import {
     duration: f64,
     cancelled: Arc<AtomicBool>,
     directory: PendingImportDirectory,
-    _upload_lock: cap_recording::upload_resume::UploadLock,
+    _upload_lock: frameever_recording::upload_resume::UploadLock,
     _in_flight: crate::import::InFlightImport,
 }
 
@@ -1886,8 +1886,8 @@ impl PreparedMp4Import {
             return Err("Import cancelled".to_string());
         }
         let target = target.canonicalize().map_err(|error| error.to_string())?;
-        let upload_lock =
-            cap_recording::upload_resume::UploadLock::acquire(&target).map_err(|error| {
+        let upload_lock = frameever_recording::upload_resume::UploadLock::acquire(&target)
+            .map_err(|error| {
                 t!(
                     "Cannot import while this recording is in use: {error}",
                     error = error
@@ -2306,7 +2306,7 @@ fn decode_thumbnail_frame_with_budget(
             "Unexpected BGRA stride: src_stride={src_stride}, expected >= {dst_stride}"
         ));
     }
-    let buffer = cap_gpui_kernels::frame::copy_rows(
+    let buffer = frameever_gpui_kernels::frame::copy_rows(
         bgra_frame.data(0),
         dst_stride,
         src_stride,
@@ -2334,7 +2334,7 @@ fn thumbnail_frame_reaches_target(frame: &ffmpeg::frame::Video, target_timestamp
 // (Tauri `src-tauri/src/import.rs`), the `.cap` branch. The MP4 branch
 // (`append_mp4_to_editor_project`) is the transcode pipeline `crate::import`
 // owns and is not duplicated here. Relative paths travel as `String`s: the
-// `relative-path` crate is `cap-project`'s dependency, not this workspace's,
+// `relative-path` crate is `frameever-project`'s dependency, not this workspace's,
 // so the type can be assigned (`.into()`) but not named.
 // ---------------------------------------------------------------------------
 
@@ -2833,7 +2833,7 @@ fn copy_keyboard_path(
     if let Some(source_relative_path) = &source_segment.keyboard {
         let file_name = relative_file_name(
             source_relative_path.as_str(),
-            cap_project::KEYBOARD_EVENTS_FILE_NAME,
+            frameever_project::KEYBOARD_EVENTS_FILE_NAME,
         );
         let Some(source_path) = source_asset_path(
             &source_meta.project_path,
@@ -2857,8 +2857,8 @@ fn copy_keyboard_path(
     };
 
     for file_name in [
-        cap_project::KEYBOARD_EVENTS_FILE_NAME,
-        cap_project::LEGACY_KEYBOARD_EVENTS_FILE_NAME,
+        frameever_project::KEYBOARD_EVENTS_FILE_NAME,
+        frameever_project::LEGACY_KEYBOARD_EVENTS_FILE_NAME,
     ] {
         let source_relative_path = display_dir.join(file_name);
         let Some(source_path) = source_asset_path(
@@ -3050,7 +3050,7 @@ fn copy_cursor_events_path(
 }
 
 /// `single_segment_to_multiple` (`import.rs:841-851`).
-fn single_segment_to_multiple(segment: &cap_project::SingleSegment) -> MultipleSegment {
+fn single_segment_to_multiple(segment: &frameever_project::SingleSegment) -> MultipleSegment {
     MultipleSegment {
         display: segment.display.clone(),
         camera: segment.camera.clone(),
@@ -3541,7 +3541,7 @@ mod tests {
             };
             RecordingMeta {
                 project_path: project.clone(),
-                platform: Some(cap_project::Platform::default()),
+                platform: Some(frameever_project::Platform::default()),
                 pretty_name: "Existing project".to_string(),
                 sharing: None,
                 inner: RecordingMetaInner::Studio(Box::new(
@@ -3638,8 +3638,10 @@ mod tests {
             assert!(imported.camera.is_none() && imported.mic.is_none());
             assert_eq!(imported.system_audio.is_some(), source == MP4_WITH_AUDIO);
             assert!(
-                cap_enc_ffmpeg::remux::probe_video_can_decode(&meta.path(&imported.display.path))
-                    .unwrap()
+                frameever_enc_ffmpeg::remux::probe_video_can_decode(
+                    &meta.path(&imported.display.path)
+                )
+                .unwrap()
             );
             if let Some(audio) = &imported.system_audio {
                 let input = ffmpeg::format::input(&meta.path(&audio.path)).unwrap();
@@ -3875,7 +3877,7 @@ mod tests {
     fn transition(segment_index: u32, duration: f64) -> ClipTransition {
         ClipTransition {
             segment_index,
-            kind: cap_project::ClipTransitionType::CrossFade,
+            kind: frameever_project::ClipTransitionType::CrossFade,
             duration,
         }
     }
@@ -4000,23 +4002,23 @@ mod tests {
             segment(2, 0.0, 10.0),
         ]);
         config.transitions = vec![transition(1, 1.0)];
-        config.zoom_segments = vec![cap_project::ZoomSegment {
+        config.zoom_segments = vec![frameever_project::ZoomSegment {
             start: 15.0,
             end: 18.0,
             amount: 1.5,
-            mode: cap_project::ZoomMode::Auto,
+            mode: frameever_project::ZoomMode::Auto,
             glide_direction: Default::default(),
             glide_speed: 0.5,
             instant_animation: false,
             edge_snap_ratio: 0.25,
         }];
 
-        config.style_segments.push(cap_project::StyleSegment {
+        config.style_segments.push(frameever_project::StyleSegment {
             start: 15.,
             end: 18.,
             ..Default::default()
         });
-        config.image_segments.push(cap_project::ImageSegment {
+        config.image_segments.push(frameever_project::ImageSegment {
             start: 15.,
             end: 18.,
             path: "content/images/retained.png".into(),

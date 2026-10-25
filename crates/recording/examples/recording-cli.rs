@@ -1,4 +1,4 @@
-use cap_recording::{screen_capture::ScreenCaptureTarget, *};
+use frameever_recording::{screen_capture::ScreenCaptureTarget, *};
 use scap_targets::Display;
 use std::time::Duration;
 use tracing::*;
@@ -24,7 +24,7 @@ pub async fn main() {
 
     info!("Recording to directory '{}'", dir.path().display());
 
-    // let camera_info = cap_camera::list_cameras().next().unwrap();
+    // let camera_info = frameever_camera::list_cameras().next().unwrap();
 
     // let camera_feed = CameraFeed::spawn(CameraFeed::default());
 
@@ -64,7 +64,7 @@ pub async fn main() {
     // .with_mic_feed(Arc::new(mic_feed.ask(microphone::Lock).await.unwrap()))
     .build(
         #[cfg(target_os = "macos")]
-        Some(cap_recording::SendableShareableContent::from(
+        Some(frameever_recording::SendableShareableContent::from(
             cidre::sc::ShareableContent::current().await.unwrap(),
         )),
     )

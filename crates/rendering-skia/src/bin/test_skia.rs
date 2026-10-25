@@ -1,4 +1,4 @@
-use cap_rendering_skia::{SkiaRenderContext, SkiaRenderingError};
+use frameever_rendering_skia::{SkiaRenderContext, SkiaRenderingError};
 use std::fs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

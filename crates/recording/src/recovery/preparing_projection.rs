@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use cap_project::{
+use frameever_project::{
     AudioMeta, CursorMeta, Cursors, MultipleSegment, ProjectConfiguration, StudioRecordingMeta,
     StudioRecordingStatus, VideoMeta,
 };
@@ -696,8 +696,8 @@ fn keyboard(
     metadata: &MultipleSegment,
     directory: &Path,
 ) -> Result<Option<PathBuf>, String> {
-    let binary = directory.join(cap_project::KEYBOARD_EVENTS_FILE_NAME);
-    let legacy = directory.join(cap_project::LEGACY_KEYBOARD_EVENTS_FILE_NAME);
+    let binary = directory.join(frameever_project::KEYBOARD_EVENTS_FILE_NAME);
+    let legacy = directory.join(frameever_project::LEGACY_KEYBOARD_EVENTS_FILE_NAME);
     let preferred = if inventory.files.contains_key(&binary) {
         &binary
     } else {
@@ -809,7 +809,7 @@ impl PreparingProjection {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_project::{MultipleSegments, RecordingMeta, RecordingMetaInner};
+    use frameever_project::{MultipleSegments, RecordingMeta, RecordingMetaInner};
     use relative_path::RelativePathBuf;
 
     struct Fixture {
@@ -959,7 +959,7 @@ mod tests {
                 Some(vec![segment.join("system_audio.ogg")]);
             std::fs::write(segment.join("cursor.json"), b"{\"moves\":[],\"clicks\":[]}").unwrap();
             std::fs::write(
-                segment.join(cap_project::KEYBOARD_EVENTS_FILE_NAME),
+                segment.join(frameever_project::KEYBOARD_EVENTS_FILE_NAME),
                 b"raw keyboard bytes",
             )
             .unwrap();
@@ -978,7 +978,7 @@ mod tests {
                 path: RelativePathBuf::from(format!("{base}/audio-input.m4a")),
                 start_time: Some(-0.125),
                 device_id: Some("microphone-device".into()),
-                gap_summary: Some(cap_project::AudioGapSummary {
+                gap_summary: Some(frameever_project::AudioGapSummary {
                     total_overlap_trimmed_ms: 21,
                     startup_overlap_trimmed_ms: 7,
                     overlap_dropped_frames: 2,
@@ -993,7 +993,7 @@ mod tests {
             });
             metadata.segments[0].cursor =
                 Some(RelativePathBuf::from(format!("{base}/cursor.json")));
-            metadata.segments[0].display_notch = Some(cap_project::DisplayNotch {
+            metadata.segments[0].display_notch = Some(frameever_project::DisplayNotch {
                 x: 0.45,
                 width: 0.1,
                 height: 0.03,
@@ -1002,7 +1002,7 @@ mod tests {
                 "0".into(),
                 CursorMeta {
                     image_path: RelativePathBuf::from("content/cursors/cursor_0.png"),
-                    hotspot: cap_project::XY { x: 0.25, y: 0.125 },
+                    hotspot: frameever_project::XY { x: 0.25, y: 0.125 },
                     shape: None,
                 },
             )]));
@@ -1087,7 +1087,7 @@ mod tests {
             first.keyboard_path(),
             Some(
                 Path::new("segment-0")
-                    .join(cap_project::KEYBOARD_EVENTS_FILE_NAME)
+                    .join(frameever_project::KEYBOARD_EVENTS_FILE_NAME)
                     .as_path()
             )
         );
@@ -1357,7 +1357,7 @@ mod tests {
                     .directory
                     .path()
                     .join("content/segments/segment-0")
-                    .join(cap_project::LEGACY_KEYBOARD_EVENTS_FILE_NAME)
+                    .join(frameever_project::LEGACY_KEYBOARD_EVENTS_FILE_NAME)
             };
             std::fs::write(&extra, b"original extra input").unwrap();
             let before = fixture.snapshot();

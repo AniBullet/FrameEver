@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use cap_project::{AudioTrackSegment, ProjectConfiguration};
+use frameever_project::{AudioTrackSegment, ProjectConfiguration};
 
 use crate::{
     audio_code::{self, AudioSource},

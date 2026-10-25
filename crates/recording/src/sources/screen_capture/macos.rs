@@ -7,8 +7,8 @@ use crate::{
     },
 };
 use anyhow::{Context, anyhow};
-use cap_timestamp::Timestamp;
 use cidre::*;
+use frameever_timestamp::Timestamp;
 use futures::{FutureExt as _, channel::mpsc, future::BoxFuture};
 use std::{
     ptr,
@@ -266,7 +266,7 @@ impl ScreenCaptureConfig<CMSampleBufferCapture> {
                 crop_bounds.size().height(),
             ));
         }
-        cap_fail::fail_err!(
+        frameever_fail::fail_err!(
             "macos::ScreenCaptureActor::new",
             ns::Error::with_domain(ns::ErrorDomain::os_status(), 69420, None)
         );
@@ -314,7 +314,7 @@ impl ScreenCaptureConfig<CMSampleBufferCapture> {
                     let mach_timestamp =
                         cm::Clock::convert_host_time_to_sys_units(sample_buffer.pts());
                     let timestamp = Timestamp::MachAbsoluteTime(
-                        cap_timestamp::MachAbsoluteTimestamp::new(mach_timestamp),
+                        frameever_timestamp::MachAbsoluteTimestamp::new(mach_timestamp),
                     );
 
                     match &frame {
@@ -391,7 +391,7 @@ impl ScreenCaptureConfig<CMSampleBufferCapture> {
                                     sample_buffer.retained()
                                 };
 
-                            cap_fail::fail_ret!("screen_capture video frame skip");
+                            frameever_fail::fail_ret!("screen_capture video frame skip");
 
                             video_frame_count.fetch_add(1, atomic::Ordering::Relaxed);
 
@@ -414,7 +414,7 @@ impl ScreenCaptureConfig<CMSampleBufferCapture> {
                         scap_screencapturekit::Frame::Audio(_) => {
                             use ffmpeg::ChannelLayout;
 
-                            cap_fail::fail_ret!("screen_capture audio frame skip");
+                            frameever_fail::fail_ret!("screen_capture audio frame skip");
 
                             let Some(audio_tx) = &mut audio_tx else {
                                 return;
@@ -1009,7 +1009,7 @@ async fn rebuild_capturer(params: &CapturerRebuildParams) -> anyhow::Result<Capt
                 let mach_timestamp =
                     cm::Clock::convert_host_time_to_sys_units(sample_buffer.pts());
                 let timestamp = Timestamp::MachAbsoluteTime(
-                    cap_timestamp::MachAbsoluteTimestamp::new(mach_timestamp),
+                    frameever_timestamp::MachAbsoluteTimestamp::new(mach_timestamp),
                 );
 
                 match &frame {
@@ -1084,7 +1084,7 @@ async fn rebuild_capturer(params: &CapturerRebuildParams) -> anyhow::Result<Capt
                                     sample_buffer.retained()
                             };
 
-                        cap_fail::fail_ret!("screen_capture video frame skip");
+                        frameever_fail::fail_ret!("screen_capture video frame skip");
 
                         video_frame_count.fetch_add(1, atomic::Ordering::Relaxed);
 
@@ -1107,7 +1107,7 @@ async fn rebuild_capturer(params: &CapturerRebuildParams) -> anyhow::Result<Capt
                     scap_screencapturekit::Frame::Audio(_) => {
                         use ffmpeg::ChannelLayout;
 
-                        cap_fail::fail_ret!("screen_capture audio frame skip");
+                        frameever_fail::fail_ret!("screen_capture audio frame skip");
 
                         let Some(audio_tx) = &mut audio_tx else {
                             return;

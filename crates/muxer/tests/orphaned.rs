@@ -1,5 +1,5 @@
-//! The recorder can die while cap-muxer runs. Its stdin then reaches EOF and
-//! the pipe the recorder read cap-muxer's stderr through is closed; cap-muxer
+//! The recorder can die while frameever-muxer runs. Its stdin then reaches EOF and
+//! the pipe the recorder read frameever-muxer's stderr through is closed; frameever-muxer
 //! must still finish the fragment it has open.
 
 use std::{
@@ -7,11 +7,11 @@ use std::{
     process::{Command, Stdio},
 };
 
-use cap_muxer_protocol::{
+use ffmpeg::{codec, format, frame};
+use frameever_muxer_protocol::{
     Frame, InitVideo, PACKET_FLAG_KEYFRAME, Packet, STREAM_INDEX_VIDEO, StartParams, write_frame,
     write_packet,
 };
-use ffmpeg::{codec, format, frame};
 
 const WIDTH: u32 = 320;
 const HEIGHT: u32 = 240;
@@ -73,7 +73,7 @@ fn an_orphaned_muxer_finishes_its_open_fragment() {
     let (extradata, packets) = encode(75, 30);
     let directory = tempfile::tempdir().unwrap();
     let output = directory.path().join("display");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_cap-muxer"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_frameever-muxer"))
         .env("CAP_MUXER_LOG", "warn")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -124,7 +124,11 @@ fn an_orphaned_muxer_finishes_its_open_fragment() {
     drop(child.stderr.take());
     drop(stdin);
     let status = child.wait().unwrap();
-    assert_eq!(status.code(), Some(0), "cap-muxer must finish, not panic");
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "frameever-muxer must finish, not panic"
+    );
 
     let mut segments: Vec<_> = std::fs::read_dir(&output)
         .unwrap()

@@ -1,4 +1,4 @@
-use cap_gpui_kernels::screenshot as candidate;
+use frameever_gpui_kernels::screenshot as candidate;
 use std::{hint::black_box, time::Instant};
 
 type Blit = fn(&mut [u8], (u32, u32), &[u8], (u32, u32), (i64, i64));

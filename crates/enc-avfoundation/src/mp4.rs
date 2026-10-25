@@ -1,6 +1,6 @@
-use cap_media_info::{AudioInfo, VideoInfo, ensure_even};
 use cidre::{cm::SampleTimingInfo, objc::Obj, *};
 use ffmpeg::{frame, software::resampling};
+use frameever_media_info::{AudioInfo, VideoInfo, ensure_even};
 use std::{path::PathBuf, time::Duration};
 use tracing::*;
 
@@ -1112,7 +1112,7 @@ fn keyframe_interval_for_fps(fps: f32) -> i32 {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
-    use cap_media_info::RawVideoFormat;
+    use frameever_media_info::RawVideoFormat;
 
     fn valid_video_config() -> VideoInfo {
         VideoInfo::from_raw(RawVideoFormat::Bgra, 1920, 1080, 30)
@@ -1494,8 +1494,8 @@ mod tests {
         Ok(appended)
     }
 
-    fn wireless_audio_config() -> cap_media_info::AudioInfo {
-        cap_media_info::AudioInfo {
+    fn wireless_audio_config() -> frameever_media_info::AudioInfo {
+        frameever_media_info::AudioInfo {
             sample_rate: 48000,
             channels: 1,
             sample_format: ffmpeg::format::Sample::F32(ffmpeg::format::sample::Type::Packed),
@@ -1505,8 +1505,8 @@ mod tests {
         }
     }
 
-    fn wired_audio_config(buffer_size: u32) -> cap_media_info::AudioInfo {
-        cap_media_info::AudioInfo {
+    fn wired_audio_config(buffer_size: u32) -> frameever_media_info::AudioInfo {
+        frameever_media_info::AudioInfo {
             sample_rate: 48000,
             channels: 1,
             sample_format: ffmpeg::format::Sample::F32(ffmpeg::format::sample::Type::Packed),
@@ -1545,7 +1545,7 @@ mod tests {
         fn new(
             output: PathBuf,
             video_config: VideoInfo,
-            audio_config: Option<cap_media_info::AudioInfo>,
+            audio_config: Option<frameever_media_info::AudioInfo>,
             output_height: Option<u32>,
         ) -> Self {
             let encoder =
@@ -2302,8 +2302,8 @@ mod tests {
         use cidre::{av, cf};
 
         let video_config = valid_video_config();
-        let output_height = cap_media_info::ensure_even(video_config.height);
-        let output_width = cap_media_info::ensure_even(video_config.width);
+        let output_height = frameever_media_info::ensure_even(video_config.height);
+        let output_width = frameever_media_info::ensure_even(video_config.width);
         let fps = 30.0f32;
 
         let _ = std::fs::remove_file(output);
@@ -2613,8 +2613,8 @@ mod tests {
 
         let _ = std::fs::remove_file(output);
 
-        let output_width = cap_media_info::ensure_even(width);
-        let output_height = cap_media_info::ensure_even(height);
+        let output_width = frameever_media_info::ensure_even(width);
+        let output_height = frameever_media_info::ensure_even(height);
 
         let mut asset_writer = av::AssetWriter::with_url_and_file_type(
             cf::Url::with_path(output, false).unwrap().as_ns(),

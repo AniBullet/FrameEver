@@ -6,7 +6,7 @@
 //! displays wider than 4096 the full-display path falls back to software,
 //! which is why this uses an area capture.
 //!
-//! Run: RUST_LOG=info cargo run -p cap-recording --example vt-hwframe-real-capture-check --release
+//! Run: RUST_LOG=info cargo run -p frameever-recording --example vt-hwframe-real-capture-check --release
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
@@ -16,8 +16,8 @@ fn main() {
 #[cfg(target_os = "macos")]
 #[tokio::main]
 async fn main() {
-    use cap_enc_ffmpeg::remux::{concatenate_m4s_segments_with_init, probe_video_can_decode};
-    use cap_recording::{
+    use frameever_enc_ffmpeg::remux::{concatenate_m4s_segments_with_init, probe_video_can_decode};
+    use frameever_recording::{
         SendableShareableContent, instant_recording, sources::screen_capture::ScreenCaptureTarget,
     };
     use scap_targets::bounds::{LogicalBounds, LogicalPosition, LogicalSize};

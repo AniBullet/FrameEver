@@ -122,7 +122,7 @@ impl MFDecoder {
         ready_tx: oneshot::Sender<Result<DecoderInitResult, String>>,
     ) -> Result<(), String> {
         std::thread::spawn(move || {
-            let mut decoder = match cap_video_decode::MediaFoundationDecoder::new(&path) {
+            let mut decoder = match frameever_video_decode::MediaFoundationDecoder::new(&path) {
                 Err(e) => {
                     let _ = ready_tx.send(Err(e));
                     return;
@@ -181,28 +181,29 @@ impl MFDecoder {
                 30
             };
             let mut requests = FrameRequests::new(readahead_frames);
-            let answer = |sender: oneshot::Sender<DecodedFrame>,
-                          frame: Option<cap_video_decode::NV12Data>| {
-                let _ = sender.send(frame.map_or_else(
-                    || {
-                        DecodedFrame::new(
-                            vec![0u8; (video_width * video_height * 4) as usize],
-                            video_width,
-                            video_height,
-                        )
-                    },
-                    |data| {
-                        DecodedFrame::new_nv12_with_arc(
-                            data.data,
-                            video_width,
-                            video_height,
-                            data.y_stride,
-                            data.uv_stride,
-                        )
-                        .with_matrix(matrix)
-                    },
-                ));
-            };
+            let answer =
+                |sender: oneshot::Sender<DecodedFrame>,
+                 frame: Option<frameever_video_decode::NV12Data>| {
+                    let _ = sender.send(frame.map_or_else(
+                        || {
+                            DecodedFrame::new(
+                                vec![0u8; (video_width * video_height * 4) as usize],
+                                video_width,
+                                video_height,
+                            )
+                        },
+                        |data| {
+                            DecodedFrame::new_nv12_with_arc(
+                                data.data,
+                                video_width,
+                                video_height,
+                                data.y_stride,
+                                data.uv_stride,
+                            )
+                            .with_matrix(matrix)
+                        },
+                    ));
+                };
 
             loop {
                 loop {

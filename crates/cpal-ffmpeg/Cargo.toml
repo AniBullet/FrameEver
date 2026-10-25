@@ -1,5 +1,5 @@
 [package]
-name = "cap-cpal-ffmpeg"
+name = "frameever-cpal-ffmpeg"
 version = "0.1.0"
 edition = "2024"
 

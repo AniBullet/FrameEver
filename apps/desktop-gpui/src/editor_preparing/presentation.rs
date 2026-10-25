@@ -1,5 +1,5 @@
-use cap_editor::{PreparingEditorPhase, PreparingEditorProgress, PreparingPlaybackState};
-use cap_project::ProjectConfiguration;
+use frameever_editor::{PreparingEditorPhase, PreparingEditorProgress, PreparingPlaybackState};
+use frameever_project::ProjectConfiguration;
 
 #[derive(Clone)]
 pub(crate) struct PreparingTimelineSeed {

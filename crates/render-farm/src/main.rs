@@ -128,7 +128,7 @@ fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "warn,cap_render_farm=info".into()),
+                .unwrap_or_else(|_| "warn,frameever_render_farm=info".into()),
         )
         .init();
     ffmpeg::init()?;

@@ -1,4 +1,4 @@
-use cap_gpui_kernels::codec::inspect_overlay_image;
+use frameever_gpui_kernels::codec::inspect_overlay_image;
 use image::{ImageDecoder as _, ImageEncoder as _, metadata::Orientation};
 use std::{hint::black_box, time::Instant};
 

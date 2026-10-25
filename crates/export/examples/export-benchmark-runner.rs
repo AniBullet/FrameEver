@@ -1,11 +1,11 @@
-use cap_export::{
+use chrono::{Local, Utc};
+use clap::{Parser, Subcommand};
+use frameever_export::{
     ExporterBase,
     gif::GifExportSettings,
     mp4::{ExportCompression, Mp4ExportSettings},
 };
-use cap_project::XY;
-use chrono::{Local, Utc};
-use clap::{Parser, Subcommand};
+use frameever_project::XY;
 use std::{
     fs,
     io::Write,
@@ -1080,7 +1080,7 @@ async fn main() {
             .unwrap_or_default();
 
         let command = format!(
-            "cargo run -p cap-export --example export-benchmark-runner -- {command_name} --duration {duration_secs}{recording_flag} --benchmark-output"
+            "cargo run -p frameever-export --example export-benchmark-runner -- {command_name} --duration {duration_secs}{recording_flag} --benchmark-output"
         );
 
         let benchmark_md =

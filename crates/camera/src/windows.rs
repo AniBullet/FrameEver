@@ -1,7 +1,7 @@
 use crate::*;
 
 pub(super) fn list_cameras_impl() -> impl Iterator<Item = CameraInfo> {
-    let devices = cap_camera_windows::get_devices().unwrap_or_default();
+    let devices = frameever_camera_windows::get_devices().unwrap_or_default();
 
     devices.into_iter().map(|d| CameraInfo {
         device_id: d.id().to_string_lossy().to_string(),
@@ -12,8 +12,11 @@ pub(super) fn list_cameras_impl() -> impl Iterator<Item = CameraInfo> {
 
 fn find_device(
     info: &CameraInfo,
-) -> Result<Option<cap_camera_windows::VideoDeviceInfo>, cap_camera_windows::GetDevicesError> {
-    let devices = cap_camera_windows::get_devices()?;
+) -> Result<
+    Option<frameever_camera_windows::VideoDeviceInfo>,
+    frameever_camera_windows::GetDevicesError,
+> {
+    let devices = frameever_camera_windows::get_devices()?;
     Ok(devices.into_iter().find(
         |d| match (ModelID::from_windows(d).as_ref(), info.model_id()) {
             (Some(a), Some(b)) => a == b,
@@ -48,7 +51,7 @@ impl CameraInfo {
 }
 
 impl ModelID {
-    fn from_windows(device: &cap_camera_windows::VideoDeviceInfo) -> Option<Self> {
+    fn from_windows(device: &frameever_camera_windows::VideoDeviceInfo) -> Option<Self> {
         let model_id = device.model_id()?;
 
         let vid = &model_id[0..4];
@@ -62,7 +65,7 @@ impl ModelID {
 }
 
 #[derive(Debug)]
-pub struct NativeCapturedFrame(cap_camera_windows::Frame);
+pub struct NativeCapturedFrame(frameever_camera_windows::Frame);
 
 pub type NativeCaptureHandle = WindowsCaptureHandle;
 
@@ -86,7 +89,7 @@ pub(super) fn start_capturing_impl(
 }
 
 pub struct WindowsCaptureHandle {
-    inner: cap_camera_windows::CaptureHandle,
+    inner: frameever_camera_windows::CaptureHandle,
 }
 
 impl WindowsCaptureHandle {
@@ -96,7 +99,7 @@ impl WindowsCaptureHandle {
 }
 
 impl Deref for NativeCapturedFrame {
-    type Target = cap_camera_windows::Frame;
+    type Target = frameever_camera_windows::Frame;
 
     fn deref(&self) -> &Self::Target {
         &self.0

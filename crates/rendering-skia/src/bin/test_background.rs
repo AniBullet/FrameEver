@@ -1,6 +1,6 @@
-use cap_project::BackgroundSource;
-use cap_rendering_skia::layers::{FrameData, SkiaProjectUniforms};
-use cap_rendering_skia::{BackgroundLayer, LayerStack, SkiaRenderContext};
+use frameever_project::BackgroundSource;
+use frameever_rendering_skia::layers::{FrameData, SkiaProjectUniforms};
+use frameever_rendering_skia::{BackgroundLayer, LayerStack, SkiaRenderContext};
 use skia_safe::EncodedImageFormat;
 use std::fs;
 

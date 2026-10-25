@@ -38,7 +38,7 @@
 use std::path::Path;
 
 use anyhow::{Context, bail};
-use cap_project::{
+use frameever_project::{
     ClipSpeedAudioMode, ClipTransitionType, ProjectConfiguration, RecordingMeta,
     StudioRecordingMeta,
 };
@@ -317,7 +317,7 @@ impl AudioModel {
             .timeline
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("project has no timeline"))?;
-        let repair = |audio: Option<&cap_project::AudioMeta>| {
+        let repair = |audio: Option<&frameever_project::AudioMeta>| {
             audio
                 .and_then(|a| a.gap_summary.as_ref())
                 .filter(|s| {

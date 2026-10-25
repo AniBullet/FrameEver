@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use cap_recording::sources::screen_capture::ScreenCaptureTarget;
+use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::App;
 
 pub fn arm_from_env(cx: &mut App) {
@@ -67,7 +67,8 @@ pub fn arm_from_env(cx: &mut App) {
             return;
         };
         let result = gpui_tokio::Tokio::spawn(cx, async move {
-            cap_recording::screenshot::capture_screenshot(ScreenCaptureTarget::Window { id }).await
+            frameever_recording::screenshot::capture_screenshot(ScreenCaptureTarget::Window { id })
+                .await
         })
         .await;
         match result {

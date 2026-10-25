@@ -953,7 +953,7 @@ unsafe fn create_d3d11_device() -> Result<(ID3D11Device, ID3D11DeviceContext), S
 
     let mut last_error = String::new();
 
-    if let Ok(selected) = cap_d3d_adapter::select_capture_adapter(None) {
+    if let Ok(selected) = frameever_d3d_adapter::select_capture_adapter(None) {
         let mut device: Option<ID3D11Device> = None;
         let mut context: Option<ID3D11DeviceContext> = None;
 

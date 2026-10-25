@@ -12,7 +12,7 @@
 2. Read `EXPORT-BENCHMARKS.md` for latest raw benchmark data
 3. Run a quick export benchmark to verify current state:
    ```bash
-   cargo run -p cap-export --example export-benchmark-runner -- quick
+   cargo run -p frameever-export --example export-benchmark-runner -- quick
    ```
 4. Continue work from "Next Steps" section below
 
@@ -305,7 +305,7 @@ total_size = bytes_per_frame * total_frames
 - Full-export A/B on `/tmp/cap-performance-fixtures/reference-recording.cap` (release `cap` CLI, 1080p60 Social and 4K60 Social): decoded video is bit-identical (ffmpeg PSNR = inf) between the old and new paths — the same equivalence two runs of the OLD path have with each other (VT export bitstreams are run-to-run nondeterministic; decoded pixels are not). Audio streams byte-identical; file sizes byte-equal; dimensions/duration/frame counts identical.
 - CRF (`--optimize-filesize`) export completes on the software encoder via surface materialization and decodes clean.
 - First-frame screenshot (`screenshots/display.jpg`) still written, now materialized from the surface.
-- cap-export (6), cap-rendering (172, incl. the new exactness test), cap-editor (31) tests pass; `cap-desktop` and the desktop-gpui workspace compile.
+- frameever-export (6), frameever-rendering (172, incl. the new exactness test), frameever-editor (31) tests pass; `cap-desktop` and the desktop-gpui workspace compile.
 
 **Results** (release `cap` CLI, 30.8s reference recording, M4 Max, /usr/bin/time -l):
 
@@ -334,7 +334,7 @@ Wall time is neutral on this machine because the 4K export is GPU-render-bound, 
 
 **Verification**:
 - 1080p exports from a build of main and from this change decode to identical frames (`ffmpeg -f framemd5`): 5,616/5,616 for the blur recording, 2,712/2,712 for the captions recording, and 5,616/5,616 each for blurred image, wallpaper, gradient and colour backgrounds and for style segments that swap the background and change the blur mid-export.
-- New native test `cached_background_blur_matches_a_fresh_blur_and_follows_edits`; it fails if the cache ignores its key. cap-rendering, cap-editor, cap-export and cap-camera-effects tests pass.
+- New native test `cached_background_blur_matches_a_fresh_blur_and_follows_edits`; it fails if the cache ignores its key. frameever-rendering, frameever-editor, frameever-export and frameever-camera-effects tests pass.
 
 **Benchmark Results** (M4 Max, release, means of 3 interleaved runs; command buffers from Metal System Trace):
 

@@ -2,7 +2,7 @@
 //!
 //! Every case ends in [`settle`]: its failure classes are judged against
 //! `crates/verify/expectations.toml` with the shared strict rules of
-//! `cap-verify-expect` (a listed class passes as XFAIL, a listed class that
+//! `frameever-verify-expect` (a listed class passes as XFAIL, a listed class that
 //! no longer occurs fails with "remove this xfail", any other failure fails
 //! with the exact mismatches and a one-line local repro command), and the
 //! result is written as a JSON record to `CAP_VERIFY_REPORT_DIR`.
@@ -82,14 +82,14 @@ pub struct Case {
     class_problems: BTreeMap<String, String>,
     pub notes: Vec<String>,
     /// Classes this case could not measure because an earlier check failed
-    /// -> why (see `cap_verify_expect::Unobserved`).
+    /// -> why (see `frameever_verify_expect::Unobserved`).
     pub unobserved: BTreeMap<String, String>,
     /// Set when this runner cannot run the case at all (for example no
     /// D3D11 video device for Media Foundation on a GPU-less Windows VM).
     pub unsupported: Option<String>,
     /// Measured size of each failing class: class -> metric -> range. An
     /// expected failure excuses a class only inside its entry's bound.
-    measures: BTreeMap<String, cap_verify_expect::Metrics>,
+    measures: BTreeMap<String, frameever_verify_expect::Metrics>,
     /// Additive metrics (counts): (class, metric) -> total.
     counts: BTreeMap<(String, String), f64>,
 }
@@ -104,7 +104,7 @@ pub struct CaseCheckpoint {
     classes: BTreeSet<String>,
     class_problems: BTreeMap<String, String>,
     unobserved: BTreeMap<String, String>,
-    measures: BTreeMap<String, cap_verify_expect::Metrics>,
+    measures: BTreeMap<String, frameever_verify_expect::Metrics>,
     counts: BTreeMap<(String, String), f64>,
 }
 
@@ -145,7 +145,7 @@ impl Case {
 
     pub fn new(id: impl Into<String>) -> Self {
         let id = id.into();
-        eprintln!("[cap-verify] case {id} ({})", platform());
+        eprintln!("[frameever-verify] case {id} ({})", platform());
         Self {
             id,
             started: Instant::now(),
@@ -171,7 +171,7 @@ impl Case {
             .or_default()
             .entry(metric.to_string())
             .and_modify(|r| r.include(value))
-            .or_insert(cap_verify_expect::Range::at(value));
+            .or_insert(frameever_verify_expect::Range::at(value));
     }
 
     /// Adds to a counted metric of a class (totals across checks).
@@ -302,7 +302,7 @@ impl Case {
     }
 }
 
-pub use cap_verify_expect::{Xfail, glob_match};
+pub use frameever_verify_expect::{Xfail, glob_match};
 
 /// Expectations file, relative to the repository root.
 const EXPECTATIONS: &str = "crates/verify/expectations.toml";
@@ -312,7 +312,7 @@ pub fn expectations_path() -> PathBuf {
 }
 
 pub fn load_expectations() -> Vec<Xfail> {
-    cap_verify_expect::load(&expectations_path())
+    frameever_verify_expect::load(&expectations_path())
 }
 
 /// Entries that apply to `id` on this platform.
@@ -327,7 +327,7 @@ pub fn xfails_for(id: &str) -> Vec<Xfail> {
 fn repro_command(id: &str) -> String {
     let test = id.split('/').next().unwrap_or("export");
     format!(
-        "CAP_VERIFY_CASE='{id}' CAP_VERIFY_TIER={} cargo test -p cap-verify --test {test} -- --nocapture",
+        "CAP_VERIFY_CASE='{id}' CAP_VERIFY_TIER={} cargo test -p frameever-verify --test {test} -- --nocapture",
         match tier() {
             Tier::Fast => "fast",
             Tier::Full => "full",
@@ -336,9 +336,9 @@ fn repro_command(id: &str) -> String {
 }
 
 /// Whether a case runs: `CAP_VERIFY_CASE`, `CAP_VERIFY_SKIP` and
-/// `CAP_VERIFY_SHARD` (see `cap_verify_expect::case_selected`).
+/// `CAP_VERIFY_SHARD` (see `frameever_verify_expect::case_selected`).
 pub fn selected(id: &str) -> bool {
-    cap_verify_expect::case_selected(id)
+    frameever_verify_expect::case_selected(id)
 }
 
 fn write_result(
@@ -346,12 +346,12 @@ fn write_result(
     classes: &BTreeMap<String, String>,
     unobserved: &BTreeMap<String, String>,
     machine: &crate::sentinel::Window,
-    measures: &BTreeMap<String, cap_verify_expect::Metrics>,
+    measures: &BTreeMap<String, frameever_verify_expect::Metrics>,
     excused: &BTreeMap<String, String>,
 ) {
-    use cap_verify_expect::{Outcome, Record};
+    use frameever_verify_expect::{Outcome, Record};
     let record = Record {
-        suite: "cap-verify".into(),
+        suite: "frameever-verify".into(),
         expectations: EXPECTATIONS.into(),
         case: result.id.clone(),
         platform: result.platform.clone(),
@@ -386,7 +386,7 @@ fn write_result(
         "notes": result.notes,
         "machine": machine,
     });
-    cap_verify_expect::write_records(&[(record, extra)]);
+    frameever_verify_expect::write_records(&[(record, extra)]);
 }
 
 /// Settles a case against the expectations file. Returns an error message
@@ -438,17 +438,17 @@ pub fn settle(mut case: Case) -> Result<CaseResult, String> {
         case.measures
             .entry(class)
             .or_default()
-            .insert(metric, cap_verify_expect::Range::at(total));
+            .insert(metric, frameever_verify_expect::Range::at(total));
     }
     case.measures
         .retain(|class, _| case.classes.contains(class));
-    let ran = cap_verify_expect::Ran::from([(case.id.clone(), None)]);
-    let observed: cap_verify_expect::Observed = case
+    let ran = frameever_verify_expect::Ran::from([(case.id.clone(), None)]);
+    let observed: frameever_verify_expect::Observed = case
         .classes
         .iter()
         .map(|class| ((case.id.clone(), class.clone()), Default::default()))
         .collect();
-    let unobserved: cap_verify_expect::Unobserved = case
+    let unobserved: frameever_verify_expect::Unobserved = case
         .unobserved
         .keys()
         .map(|class| (case.id.clone(), class.clone()))
@@ -458,7 +458,7 @@ pub fn settle(mut case: Case) -> Result<CaseResult, String> {
     // through a `starved` expectation with its own bound).
     let machine = crate::sentinel::window(case.machine);
     case.notes.push(machine.describe());
-    let evidence = cap_verify_expect::Evidence {
+    let evidence = frameever_verify_expect::Evidence {
         unobserved,
         measures: case
             .measures
@@ -471,7 +471,8 @@ pub fn settle(mut case: Case) -> Result<CaseResult, String> {
             BTreeSet::new()
         },
     };
-    let verdict = cap_verify_expect::judge_with(&xfails, platform, &ran, &observed, &evidence);
+    let verdict =
+        frameever_verify_expect::judge_with(&xfails, platform, &ran, &observed, &evidence);
     for u in verdict.unexpected.iter().filter(|u| !u.why.is_empty()) {
         case.notes.push(format!(
             "{} is listed in {EXPECTATIONS} but not excused: {}",
@@ -578,7 +579,7 @@ pub fn settle(mut case: Case) -> Result<CaseResult, String> {
         &excused,
     );
     eprintln!(
-        "[cap-verify] {outcome} {} in {:.1}s\n  {summary}",
+        "[frameever-verify] {outcome} {} in {:.1}s\n  {summary}",
         result.id, result.seconds
     );
     match outcome {
@@ -647,7 +648,7 @@ mod tests {
     }
     #[test]
     fn instant_system_audio_expectation_requires_the_microphone_timeline() {
-        let entries = cap_verify_expect::parse(include_str!("../expectations.toml")).unwrap();
+        let entries = frameever_verify_expect::parse(include_str!("../expectations.toml")).unwrap();
         let entries: Vec<_> = entries
             .iter()
             .filter(|entry| {
@@ -658,17 +659,23 @@ mod tests {
         assert!(!entries[0].flaky);
         let metrics = |offset: f64, mic: f64| {
             BTreeMap::from([
-                ("count".into(), cap_verify_expect::Range::at(1.0)),
-                ("offset-ms".into(), cap_verify_expect::Range::at(offset)),
-                ("mic-offset-ms".into(), cap_verify_expect::Range::at(mic)),
+                ("count".into(), frameever_verify_expect::Range::at(1.0)),
+                (
+                    "offset-ms".into(),
+                    frameever_verify_expect::Range::at(offset),
+                ),
+                (
+                    "mic-offset-ms".into(),
+                    frameever_verify_expect::Range::at(mic),
+                ),
                 (
                     "system-minus-mic-ms".into(),
-                    cap_verify_expect::Range::at(((offset - mic) * 10.0_f64).round() / 10.0),
+                    frameever_verify_expect::Range::at(((offset - mic) * 10.0_f64).round() / 10.0),
                 ),
             ])
         };
-        let accepts = |metrics: &BTreeMap<String, cap_verify_expect::Range>| {
-            cap_verify_expect::within(&entries[0].bound, Some(metrics)).is_ok()
+        let accepts = |metrics: &BTreeMap<String, frameever_verify_expect::Range>| {
+            frameever_verify_expect::within(&entries[0].bound, Some(metrics)).is_ok()
         };
         for (offset, mic) in [(14.0, 14.0), (13.3, 13.3), (15.4, 15.0)] {
             assert!(accepts(&metrics(offset, mic)));

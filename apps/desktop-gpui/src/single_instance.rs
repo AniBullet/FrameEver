@@ -94,9 +94,12 @@ fn is_cap_gpui(pid: i32) -> bool {
 
 fn is_cap_gpui_image(path: &Path) -> bool {
     #[cfg(windows)]
-    const IMAGE_NAMES: [&str; 2] = [concat!(crate::brand::app_name!(), ".exe"), "cap-gpui.exe"];
+    const IMAGE_NAMES: [&str; 2] = [
+        concat!(crate::brand::app_name!(), ".exe"),
+        "frameever-gpui.exe",
+    ];
     #[cfg(not(windows))]
-    const IMAGE_NAMES: [&str; 2] = [crate::brand::app_name!(), "cap-gpui"];
+    const IMAGE_NAMES: [&str; 2] = [crate::brand::app_name!(), "frameever-gpui"];
 
     let Some(name) = path.file_name().and_then(std::ffi::OsStr::to_str) else {
         return false;
@@ -841,9 +844,9 @@ mod tests {
     #[test]
     fn gpui_process_image_must_match_exactly() {
         #[cfg(windows)]
-        let names = ["cap-gpui.exe", "FrameEver.exe"];
+        let names = ["frameever-gpui.exe", "FrameEver.exe"];
         #[cfg(not(windows))]
-        let names = ["cap-gpui", "FrameEver"];
+        let names = ["frameever-gpui", "FrameEver"];
 
         for name in names {
             assert!(is_cap_gpui_image(Path::new(name)));
@@ -1054,7 +1057,7 @@ mod macos_tests {
         }
 
         fn incumbent(&mut self) -> u32 {
-            let binary = self.directory.join("cap-gpui");
+            let binary = self.directory.join("frameever-gpui");
             let source = self.directory.join("incumbent.c");
             let ready = self.directory.join("incumbent.ready");
             std::fs::write(

@@ -3,7 +3,7 @@ use wgpu::util::DeviceExt;
 
 use crate::ProjectUniforms;
 use crate::camera3d::{CAMERA3D_BLUR_BASE_HEIGHT, camera3d_inverse_homography};
-use cap_project::Camera3DBlurMode;
+use frameever_project::Camera3DBlurMode;
 
 /// Which blur kernel runs this frame.
 #[derive(Clone, Copy, PartialEq, Eq)]

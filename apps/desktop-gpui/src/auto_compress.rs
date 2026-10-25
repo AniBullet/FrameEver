@@ -64,7 +64,7 @@ pub fn compress_and_report(
 }
 
 fn recording_name(project_path: &Path) -> String {
-    cap_project::RecordingMeta::load_for_project(project_path)
+    frameever_project::RecordingMeta::load_for_project(project_path)
         .map(|meta| meta.pretty_name)
         .ok()
         .filter(|name| !name.trim().is_empty())

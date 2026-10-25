@@ -1,10 +1,10 @@
 [package]
-name = "cap-enc-avfoundation"
+name = "frameever-enc-avfoundation"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cap-media-info = { path = "../media-info" }
+frameever-media-info = { path = "../media-info" }
 
 ffmpeg.workspace = true
 thiserror.workspace = true

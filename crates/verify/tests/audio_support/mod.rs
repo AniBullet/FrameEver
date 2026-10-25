@@ -8,9 +8,9 @@ use std::{
     time::Duration,
 };
 
-use cap_editor::{AudioOutput, AudioSegment, MusicTracks, OfflineAudioSink, PlaySpec};
-use cap_project::{ProjectConfiguration, RecordingMeta, StudioRecordingMeta, XY};
-use cap_verify::{
+use frameever_editor::{AudioOutput, AudioSegment, MusicTracks, OfflineAudioSink, PlaySpec};
+use frameever_project::{ProjectConfiguration, RecordingMeta, StudioRecordingMeta, XY};
+use frameever_verify::{
     audio_fixture,
     audio_model::{self, AudioModel, AudioReport, AudioTruth},
     fixture::{self, FixtureSpec, SourceTruth},
@@ -22,9 +22,9 @@ use tokio::sync::watch;
 
 use crate::common::{self, OutputFrame, Project};
 
-pub const RATE: u32 = cap_editor::HEADLESS_SAMPLE_RATE;
-pub const CHANNELS: usize = cap_editor::HEADLESS_CHANNELS as usize;
-pub const BLOCK: usize = cap_editor::HEADLESS_BLOCK_FRAMES;
+pub const RATE: u32 = frameever_editor::HEADLESS_SAMPLE_RATE;
+pub const CHANNELS: usize = frameever_editor::HEADLESS_CHANNELS as usize;
+pub const BLOCK: usize = frameever_editor::HEADLESS_BLOCK_FRAMES;
 /// A pull waits at most this long for its samples to render.
 const RENDER_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -117,7 +117,7 @@ pub fn check_music_contribution(
     let mut model = audio_model(project, config);
     model
         .expected
-        .retain(|marker| marker.source == cap_verify::audio_code::AudioSource::Media);
+        .retain(|marker| marker.source == frameever_verify::audio_code::AudioSource::Media);
     check_pcm(case, "music contribution", &model, &music);
 }
 
@@ -145,12 +145,12 @@ impl OfflinePlayer {
     ) -> Self {
         let meta = project.meta.studio_meta().expect("studio").clone();
         let segments = rt.block_on(async {
-            let media = cap_editor::create_segments(&project.meta, &meta, false)
+            let media = frameever_editor::create_segments(&project.meta, &meta, false)
                 .await
                 .expect("segments");
-            cap_editor::get_audio_segments(&media).await
+            frameever_editor::get_audio_segments(&media).await
         });
-        let music = cap_editor::load_music_tracks_uncached(&config, &project.path);
+        let music = frameever_editor::load_music_tracks_uncached(&config, &project.path);
         let (output, sink) = AudioOutput::new_offline();
         let duration = config.timeline.as_ref().map_or(0.0, |t| t.duration());
         Self {
@@ -267,15 +267,15 @@ pub async fn export(
     dir: &Path,
 ) -> Result<PathBuf, String> {
     let out = dir.join(format!("out.{}", path.extension()));
-    let builder = cap_export::ExporterBase::builder(project.path.clone())
+    let builder = frameever_export::ExporterBase::builder(project.path.clone())
         .with_config(config)
         .with_output_path(out);
     let resolution_base = XY::new(resolution.0, resolution.1);
-    let mp4 = cap_export::mp4::Mp4ExportSettings {
+    let mp4 = frameever_export::mp4::Mp4ExportSettings {
         codec: Default::default(),
         fps,
         resolution_base,
-        compression: cap_export::mp4::ExportCompression::Social,
+        compression: frameever_export::mp4::ExportCompression::Social,
         custom_bpp: None,
         force_ffmpeg_decoder: false,
         optimize_filesize: false,
@@ -301,7 +301,7 @@ pub async fn export(
                 .build()
                 .await
                 .map_err(|e| format!("exporter build: {e}"))?;
-            cap_export::mov::MovExportSettings {
+            frameever_export::mov::MovExportSettings {
                 fps,
                 resolution_base,
                 cursor_only: false,
@@ -314,7 +314,7 @@ pub async fn export(
                 .build()
                 .await
                 .map_err(|e| format!("exporter build: {e}"))?;
-            cap_export::gif::GifExportSettings {
+            frameever_export::gif::GifExportSettings {
                 fps,
                 resolution_base,
                 quality: None,

@@ -175,7 +175,7 @@ fn studio_export_rule() -> AutomationRule {
             profile: ExportProfile {
                 format: ExportFormat::Mp4,
                 fps: 60,
-                resolution_base: cap_project::XY { x: 1920, y: 1080 },
+                resolution_base: frameever_project::XY { x: 1920, y: 1080 },
                 compression: Some(AutomationExportCompression::Web),
                 preset_name: None,
             },
@@ -516,7 +516,7 @@ fn serialize_all_condition_and_action_shapes_roundtrip() {
                 profile: ExportProfile {
                     format: ExportFormat::Mp4,
                     fps: 60,
-                    resolution_base: cap_project::XY { x: 1920, y: 1080 },
+                    resolution_base: frameever_project::XY { x: 1920, y: 1080 },
                     compression: Some(AutomationExportCompression::Web),
                     preset_name: Some("My Preset".to_string()),
                 },

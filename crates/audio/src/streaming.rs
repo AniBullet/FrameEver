@@ -86,7 +86,7 @@ pub struct AudioStream {
 
 enum StreamInput {
     File(format::context::Input),
-    Relocatable(cap_enc_ffmpeg::SegmentedInput),
+    Relocatable(frameever_enc_ffmpeg::SegmentedInput),
 }
 
 impl StreamInput {
@@ -162,7 +162,7 @@ impl AudioStream {
     }
 
     pub fn open_relocatable<'a>(
-        source: &cap_enc_ffmpeg::RelocatableSource,
+        source: &frameever_enc_ffmpeg::RelocatableSource,
         paths: impl IntoIterator<Item = &'a Path>,
         user: Arc<AtomicBool>,
     ) -> Result<Self, AudioStreamError> {
@@ -170,7 +170,7 @@ impl AudioStream {
     }
 
     pub fn open_relocatable_with_abort<'a>(
-        source: &cap_enc_ffmpeg::RelocatableSource,
+        source: &frameever_enc_ffmpeg::RelocatableSource,
         paths: impl IntoIterator<Item = &'a Path>,
         user: Arc<AtomicBool>,
         abort: Arc<AtomicBool>,
@@ -186,13 +186,13 @@ impl AudioStream {
     }
 
     fn open_relocatable_controlled<'a>(
-        source: &cap_enc_ffmpeg::RelocatableSource,
+        source: &frameever_enc_ffmpeg::RelocatableSource,
         paths: impl IntoIterator<Item = &'a Path>,
         cancellation: StreamCancellation,
     ) -> Result<Self, AudioStreamError> {
         Self::open_from(cancellation, |cancellation| {
             let cancellation = cancellation.clone();
-            cap_enc_ffmpeg::SegmentedInput::open_relocatable_interruptible(
+            frameever_enc_ffmpeg::SegmentedInput::open_relocatable_interruptible(
                 source,
                 paths,
                 Arc::new(move || cancellation.is_cancelled()),
@@ -767,7 +767,7 @@ mod tests {
                     path
                 })
                 .collect();
-            let source = cap_enc_ffmpeg::RelocatableSource::new(original.clone()).unwrap();
+            let source = frameever_enc_ffmpeg::RelocatableSource::new(original.clone()).unwrap();
             let mut stream = AudioStream::open_relocatable(
                 &source,
                 paths.iter().map(std::path::PathBuf::as_path),
@@ -846,7 +846,7 @@ mod tests {
         let retained = directory.path().join("retained");
         std::fs::create_dir(&original).unwrap();
         std::fs::copy(file.path(), original.join("audio.wav")).unwrap();
-        let source = cap_enc_ffmpeg::RelocatableSource::new(original.clone()).unwrap();
+        let source = frameever_enc_ffmpeg::RelocatableSource::new(original.clone()).unwrap();
         let user = Arc::new(AtomicBool::new(false));
         let abort = Arc::new(AtomicBool::new(false));
         for use_abort in [false, true] {
@@ -909,7 +909,7 @@ mod tests {
         let retained = directory.path().join("retained");
         std::fs::create_dir(&original).unwrap();
         std::fs::copy(file.path(), original.join("audio.wav")).unwrap();
-        let source = cap_enc_ffmpeg::RelocatableSource::new(original).unwrap();
+        let source = frameever_enc_ffmpeg::RelocatableSource::new(original).unwrap();
         let mut stream = AudioStream::open_relocatable(
             &source,
             [Path::new("audio.wav")],

@@ -1,6 +1,6 @@
 use std::{path::PathBuf, time::Instant};
 
-use cap_rendering::{Video, decoder::spawn_decoder};
+use frameever_rendering::{Video, decoder::spawn_decoder};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let audio_ms = if let Some(audio_path) = audio_path {
         let started = Instant::now();
-        cap_editor::AudioLoader::spawn(audio_path, "readiness-benchmark".into())
+        frameever_editor::AudioLoader::spawn(audio_path, "readiness-benchmark".into())
             .get()
             .await
             .map_err(anyhow::Error::msg)?

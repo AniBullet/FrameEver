@@ -18,7 +18,7 @@
 
 use std::str::FromStr as _;
 
-use cap_recording::sources::screen_capture::ScreenCaptureTarget;
+use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
     hotkey::{Code, HotKey, Modifiers},
@@ -381,7 +381,7 @@ fn dispatch(action: HotkeyAction, cx: &mut App) {
 }
 
 fn microphone_available(name: &str) -> bool {
-    use cap_recording::feeds::microphone::MicrophoneFeed;
+    use frameever_recording::feeds::microphone::MicrophoneFeed;
 
     if cfg!(target_os = "macos") {
         MicrophoneFeed::list_names()

@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use cap_project::{AnimatedGradientConfig, BackgroundSource};
+use frameever_project::{AnimatedGradientConfig, BackgroundSource};
 use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -798,7 +798,7 @@ impl GradientOrColorPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_project::BackgroundSource;
+    use frameever_project::BackgroundSource;
 
     #[test]
     fn test_transparent_color_conversion() {

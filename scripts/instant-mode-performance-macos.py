@@ -139,7 +139,7 @@ def parse_args():
 	parser.add_argument(
 		"--cap-binary",
 		type=Path,
-		default=REPO_ROOT / "target" / "debug" / "cap",
+		default=REPO_ROOT / "target" / "debug" / "frameever",
 	)
 	parser.add_argument(
 		"--recordings-dir",

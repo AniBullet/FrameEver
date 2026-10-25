@@ -1,7 +1,7 @@
 #![cfg(windows)]
 
-use cap_camera_directshow::{AM_MEDIA_TYPEVideoExt, AMMediaType};
-use cap_mediafoundation_utils::*;
+use frameever_camera_directshow::{AM_MEDIA_TYPEVideoExt, AMMediaType};
+use frameever_mediafoundation_utils::*;
 use std::{
     ffi::{OsStr, OsString},
     fmt::{Debug, Display},
@@ -168,8 +168,8 @@ pub struct VideoDeviceInfo {
 }
 
 pub enum CaptureHandle {
-    MediaFoundation(cap_camera_mediafoundation::CaptureHandle),
-    DirectShow(cap_camera_directshow::CaptureHandle),
+    MediaFoundation(frameever_camera_mediafoundation::CaptureHandle),
+    DirectShow(frameever_camera_directshow::CaptureHandle),
 }
 
 impl CaptureHandle {
@@ -184,9 +184,9 @@ impl CaptureHandle {
 #[derive(thiserror::Error, Debug)]
 pub enum StartCapturingError {
     #[error("{0}")]
-    MediaFoundation(#[from] cap_camera_mediafoundation::StartCapturingError),
+    MediaFoundation(#[from] frameever_camera_mediafoundation::StartCapturingError),
     #[error("{0}")]
-    DirectShow(#[from] cap_camera_directshow::StartCapturingError),
+    DirectShow(#[from] frameever_camera_directshow::StartCapturingError),
     #[error("Format/{0}")]
     Format(#[from] VideoFormatError),
     #[error("format doesn't match any backend available for this device")]
@@ -537,7 +537,7 @@ fn directshow_frame_is_bottom_up(pixel_format: PixelFormat, bi_height: i32) -> b
     bi_height > 0 && pixel_format.is_traditionally_bottom_up()
 }
 
-fn ds_formats(device: &cap_camera_directshow::VideoInputDevice) -> Vec<VideoFormat> {
+fn ds_formats(device: &frameever_camera_directshow::VideoInputDevice) -> Vec<VideoFormat> {
     device
         .media_types()
         .into_iter()
@@ -549,16 +549,16 @@ fn ds_formats(device: &cap_camera_directshow::VideoInputDevice) -> Vec<VideoForm
 #[derive(Clone)]
 enum VideoDeviceInfoInner {
     MediaFoundation {
-        device: cap_camera_mediafoundation::Device,
+        device: frameever_camera_mediafoundation::Device,
         // Some devices register with Media Foundation but only actually work
         // through DirectShow (capture cards, some virtual cameras). The DS
         // twin is kept so formats/capture can fall back to it when the MF
         // device fails to activate or reports no formats — probing MF during
         // enumeration would open every device on every poll
         // (CapSoftware/Cap#2132).
-        dshow_fallback: Option<cap_camera_directshow::VideoInputDevice>,
+        dshow_fallback: Option<frameever_camera_directshow::VideoInputDevice>,
     },
-    DirectShow(cap_camera_directshow::VideoInputDevice),
+    DirectShow(frameever_camera_directshow::VideoInputDevice),
 }
 
 impl Debug for VideoDeviceInfoInner {
@@ -579,10 +579,10 @@ pub enum GetDevicesError {
 }
 
 pub fn get_devices() -> Result<Vec<VideoDeviceInfo>, GetDevicesError> {
-    let _ = cap_camera_directshow::initialize_directshow();
-    let _ = cap_camera_mediafoundation::initialize_mediafoundation();
+    let _ = frameever_camera_directshow::initialize_directshow();
+    let _ = frameever_camera_mediafoundation::initialize_mediafoundation();
 
-    let mf_devices = cap_camera_mediafoundation::DeviceSourcesIterator::new()
+    let mf_devices = frameever_camera_mediafoundation::DeviceSourcesIterator::new()
         .map_err(GetDevicesError::MFDeviceEnumerationFailed)?
         .map(|device| {
             let name = device.name()?;
@@ -610,7 +610,7 @@ pub fn get_devices() -> Result<Vec<VideoDeviceInfo>, GetDevicesError> {
         })
         .collect::<Vec<_>>();
 
-    let dshow_devices = cap_camera_directshow::VideoInputDeviceIterator::new()
+    let dshow_devices = frameever_camera_directshow::VideoInputDeviceIterator::new()
         .map_err(GetDevicesError::DSDeviceEnumerationFailed)?
         .map(|device| {
             let id = device.id()?;

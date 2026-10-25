@@ -5,16 +5,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_editor::{
+use frameever_editor::{
     EditorFrameOutput, FrameLayout, Playback, PlaybackFrameSource, PlaybackRenderOutputFormat,
     PlaybackSkipReason, PlaybackTelemetry, PlaybackTelemetryEvent, Renderer,
     finish_renderer_layers_creation, start_renderer_layers_creation,
 };
-use cap_project::{
+use frameever_project::{
     ProjectConfiguration, RecordingMeta, RecordingMetaInner, StudioRecordingMeta,
     TimelineConfiguration, TimelineSegment, XY,
 };
-use cap_rendering::{FrameRenderStageTimings, ProjectRecordingsMeta, RenderVideoConstants, Video};
+use frameever_rendering::{
+    FrameRenderStageTimings, ProjectRecordingsMeta, RenderVideoConstants, Video,
+};
 use tokio::sync::{mpsc, watch};
 
 fn percentile(data: &[f64], p: f64) -> f64 {
@@ -549,7 +551,7 @@ async fn main() {
     let layers_rx = start_renderer_layers_creation(&render_constants, &project);
 
     let segment_medias =
-        match cap_editor::create_segments(&recording_meta, meta.as_ref(), false).await {
+        match frameever_editor::create_segments(&recording_meta, meta.as_ref(), false).await {
             Ok(segments) => Arc::new(segments),
             Err(e) => {
                 eprintln!("Failed to create segments: {e}");
@@ -564,8 +566,8 @@ async fn main() {
         let bytes = match output {
             EditorFrameOutput::Nv12(frame) => {
                 let metadata_bytes = match frame.format {
-                    cap_rendering::GpuOutputFormat::Nv12 => 28,
-                    cap_rendering::GpuOutputFormat::Rgba => 24,
+                    frameever_rendering::GpuOutputFormat::Nv12 => 28,
+                    frameever_rendering::GpuOutputFormat::Rgba => 24,
                 };
                 let data = frame.data.into_vec();
                 data.len() + metadata_bytes
@@ -618,9 +620,9 @@ async fn main() {
 
     // One persistent output stream shared across presses, like the real app.
     let audio_output = Arc::new(if args.iter().any(|arg| arg == "--headless") {
-        cap_editor::AudioOutput::new_headless(Box::new(|_, _| {}))
+        frameever_editor::AudioOutput::new_headless(Box::new(|_, _| {}))
     } else {
-        cap_editor::AudioOutput::new()
+        frameever_editor::AudioOutput::new()
     });
     audio_output.prewarm();
 
@@ -640,7 +642,7 @@ async fn main() {
             start_frame_number: press_start_frame,
             project: project_rx.clone(),
             segment_medias: segment_medias.clone(),
-            music: cap_editor::MusicTracks::new(),
+            music: frameever_editor::MusicTracks::new(),
             audio_output: audio_output.clone(),
             telemetry: Some(telemetry.clone()),
         };

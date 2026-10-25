@@ -1,5 +1,5 @@
-use cap_cursor_info::{CursorFamily, CursorShape};
-use cap_project::CursorType;
+use frameever_cursor_info::{CursorFamily, CursorShape};
+use frameever_project::CursorType;
 
 use super::*;
 use crate::editor_tabs::CursorSlider;

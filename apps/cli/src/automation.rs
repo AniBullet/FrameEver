@@ -1,20 +1,20 @@
 //! Runs Cap automation rules from the CLI, sharing the exact rule model and engine the desktop app
-//! uses (`cap_automation`). Rules are authored in FrameEver and persisted to its tauri-plugin-store
+//! uses (`frameever_automation`). Rules are authored in FrameEver and persisted to its tauri-plugin-store
 //! file; the CLI reads that file directly (same approach as `credentials.rs`) so a rule like
 //! "on screenshot, save to ~/Shots" is honored whether the capture came from the app or `cap`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use cap_automation::{
+use frameever_automation::{
     AutomationExportCompression, AutomationHost, AutomationRecordingMode, AutomationsStore,
     Capability, ClipboardSource, ExportDestination, ExportFormat, ExportProfile, Trigger,
     TriggerContext, sanitize_filename_component,
 };
-use cap_recording::screen_capture::ScreenCaptureTarget;
+use frameever_recording::screen_capture::ScreenCaptureTarget;
 use serde_json::Value;
 
-const DESKTOP_BUNDLE_IDS: [&str; 1] = [cap_utils::brand::APP_ID];
+const DESKTOP_BUNDLE_IDS: [&str; 1] = [frameever_utils::brand::APP_ID];
 
 const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
@@ -27,7 +27,7 @@ fn load_desktop_store_value() -> Option<Value> {
 }
 
 pub fn load_store() -> Option<AutomationsStore> {
-    cap_automation::load_store_from_json(&load_desktop_store_value()?)
+    frameever_automation::load_store_from_json(&load_desktop_store_value()?)
 }
 
 /// `(total_rules, enabled_rules)` configured in FrameEver, for `frameever doctor`.
@@ -37,11 +37,15 @@ pub fn rule_counts() -> (usize, usize) {
     (store.rules.len(), enabled)
 }
 
-fn capture_target_kind(target: &ScreenCaptureTarget) -> Option<cap_automation::CaptureTargetKind> {
+fn capture_target_kind(
+    target: &ScreenCaptureTarget,
+) -> Option<frameever_automation::CaptureTargetKind> {
     match target {
-        ScreenCaptureTarget::Window { .. } => Some(cap_automation::CaptureTargetKind::Window),
-        ScreenCaptureTarget::Display { .. } => Some(cap_automation::CaptureTargetKind::Display),
-        ScreenCaptureTarget::Area { .. } => Some(cap_automation::CaptureTargetKind::Area),
+        ScreenCaptureTarget::Window { .. } => Some(frameever_automation::CaptureTargetKind::Window),
+        ScreenCaptureTarget::Display { .. } => {
+            Some(frameever_automation::CaptureTargetKind::Display)
+        }
+        ScreenCaptureTarget::Area { .. } => Some(frameever_automation::CaptureTargetKind::Area),
         ScreenCaptureTarget::CameraOnly => None,
     }
 }
@@ -125,7 +129,7 @@ impl AutomationHost for CliAutomationHost {
             }
         };
 
-        let mut builder = cap_export::ExporterBase::builder(project_path.clone());
+        let mut builder = frameever_export::ExporterBase::builder(project_path.clone());
         if let Some(ref out) = output_path {
             builder = builder.with_output_path(out.clone());
         }
@@ -133,7 +137,7 @@ impl AutomationHost for CliAutomationHost {
 
         let result = match profile.format {
             ExportFormat::Mp4 => {
-                cap_export::mp4::Mp4ExportSettings {
+                frameever_export::mp4::Mp4ExportSettings {
                     codec: Default::default(),
                     fps: profile.fps,
                     resolution_base: profile.resolution_base,
@@ -146,7 +150,7 @@ impl AutomationHost for CliAutomationHost {
                 .await
             }
             ExportFormat::Gif => {
-                cap_export::gif::GifExportSettings {
+                frameever_export::gif::GifExportSettings {
                     fps: profile.fps,
                     resolution_base: profile.resolution_base,
                     quality: None,
@@ -155,7 +159,7 @@ impl AutomationHost for CliAutomationHost {
                 .await
             }
             ExportFormat::Mov => {
-                cap_export::mov::MovExportSettings {
+                frameever_export::mov::MovExportSettings {
                     fps: profile.fps,
                     resolution_base: profile.resolution_base,
                     cursor_only: false,
@@ -216,7 +220,7 @@ impl AutomationHost for CliAutomationHost {
         use_shell: bool,
     ) -> Result<(), String> {
         let mut cmd = if use_shell {
-            let shell_line = cap_automation::shell_command_line(program, args);
+            let shell_line = frameever_automation::shell_command_line(program, args);
             #[cfg(target_os = "windows")]
             let mut c = tokio::process::Command::new("cmd");
             #[cfg(target_os = "windows")]
@@ -305,12 +309,12 @@ impl AutomationHost for CliAutomationHost {
             .ok_or_else(|| format!("Preset '{name}' not found"))?;
 
         let config_value = preset.get("config").ok_or("Preset has no config")?;
-        let mut config: cap_project::ProjectConfiguration =
+        let mut config: frameever_project::ProjectConfiguration =
             serde_json::from_value(config_value.clone())
                 .map_err(|e| format!("Failed to parse preset config: {e}"))?;
 
         if config.timeline.is_none() {
-            config.timeline = cap_project::ProjectConfiguration::load(project_path)
+            config.timeline = frameever_project::ProjectConfiguration::load(project_path)
                 .ok()
                 .and_then(|c| c.timeline);
         }
@@ -332,12 +336,20 @@ impl AutomationHost for CliAutomationHost {
 
 fn map_compression(
     compression: Option<AutomationExportCompression>,
-) -> cap_export::mp4::ExportCompression {
+) -> frameever_export::mp4::ExportCompression {
     match compression {
-        Some(AutomationExportCompression::Maximum) => cap_export::mp4::ExportCompression::Maximum,
-        Some(AutomationExportCompression::Social) => cap_export::mp4::ExportCompression::Social,
-        Some(AutomationExportCompression::Web) | None => cap_export::mp4::ExportCompression::Web,
-        Some(AutomationExportCompression::Potato) => cap_export::mp4::ExportCompression::Potato,
+        Some(AutomationExportCompression::Maximum) => {
+            frameever_export::mp4::ExportCompression::Maximum
+        }
+        Some(AutomationExportCompression::Social) => {
+            frameever_export::mp4::ExportCompression::Social
+        }
+        Some(AutomationExportCompression::Web) | None => {
+            frameever_export::mp4::ExportCompression::Web
+        }
+        Some(AutomationExportCompression::Potato) => {
+            frameever_export::mp4::ExportCompression::Potato
+        }
     }
 }
 
@@ -405,7 +417,7 @@ async fn run_trigger(trigger: Trigger, ctx: TriggerContext) {
     }
 
     let host = CliAutomationHost;
-    let results = cap_automation::run(&host, &store, &trigger, &ctx).await;
+    let results = frameever_automation::run(&host, &store, &trigger, &ctx).await;
     for result in &results {
         for action in &result.action_results {
             if let Some(error) = &action.error {
@@ -448,7 +460,7 @@ pub async fn run_recording_finished(project_path: &Path, mode: AutomationRecordi
         .with_project_path(project_path.to_path_buf())
         .with_recording_mode(mode);
 
-    if let Ok(meta) = cap_project::RecordingMeta::load_for_project(project_path)
+    if let Ok(meta) = frameever_project::RecordingMeta::load_for_project(project_path)
         && let Some(sharing) = meta.sharing
     {
         ctx = ctx.with_share_link(sharing.link).with_share_id(sharing.id);
@@ -496,7 +508,7 @@ pub fn list(format: crate::OutputFormat) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_automation::{Action, AutomationRule, MatchMode};
+    use frameever_automation::{Action, AutomationRule, MatchMode};
 
     #[tokio::test]
     async fn cli_upload_cleanup_retains_media_without_a_verified_receipt() {
@@ -531,7 +543,8 @@ mod tests {
                 .with_project_path(project_path)
                 .with_share_link("https://cap.test/s/owned".to_string())
                 .with_share_id("owned".to_string());
-            let results = cap_automation::run(&CliAutomationHost, &store, &trigger, &ctx).await;
+            let results =
+                frameever_automation::run(&CliAutomationHost, &store, &trigger, &ctx).await;
             let deletion = results[0].action_results.last().unwrap();
             assert!(!deletion.success);
             assert!(

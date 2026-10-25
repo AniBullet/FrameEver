@@ -12,8 +12,8 @@ pub fn md5(bytes: &[u8]) -> [u8; 16] {
 
 pub fn read_cursor_events(
     reader: &mut dyn std::io::Read,
-) -> Result<cap_project::CursorEvents, String> {
-    cap_project::CursorEvents::load_from_reader(std::io::BufReader::new(reader))
+) -> Result<frameever_project::CursorEvents, String> {
+    frameever_project::CursorEvents::load_from_reader(std::io::BufReader::new(reader))
 }
 
 pub fn rgba_to_rgb(rgba: &[u8]) -> Vec<u8> {

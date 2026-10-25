@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use cap_project::XY;
+use frameever_project::XY;
 use wgpu::{include_wgsl, util::DeviceExt};
 
 pub struct CompositeVideoFramePipeline {
@@ -161,7 +161,7 @@ impl ColorGradeUniformParams {
     /// output frame for the screen (one continuous field across card and
     /// backdrop), card-local for the camera.
     pub fn from_config(
-        config: &cap_project::ColorCorrection,
+        config: &frameever_project::ColorCorrection,
         frame_number: u32,
         full_frame_vignette: bool,
     ) -> Self {

@@ -10,7 +10,7 @@ pub async fn main() {
 mod mac {
     use std::path::PathBuf;
 
-    use cap_video_decode::AVAssetReaderDecoder;
+    use frameever_video_decode::AVAssetReaderDecoder;
 
     pub(super) async fn run() {
         let handle = tokio::runtime::Handle::current();

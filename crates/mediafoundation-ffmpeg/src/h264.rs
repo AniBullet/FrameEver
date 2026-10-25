@@ -1,5 +1,5 @@
-use cap_mediafoundation_utils::*;
 use ffmpeg::{Rational, ffi::av_rescale_q, packet};
+use frameever_mediafoundation_utils::*;
 use std::ffi::CString;
 use tracing::*;
 use windows::Win32::Media::MediaFoundation::{IMFSample, MFSampleExtension_CleanPoint};
@@ -112,7 +112,7 @@ impl H264StreamMuxer {
         // rejects the duplicate pts/dts — the same unit-mismatch class as the
         // AVFoundation -16364 failures. A tie carries no time: advance one
         // tick in the writer-visible unit and let real timestamps take over,
-        // like normalize_input_pts in cap-enc-ffmpeg. pts==dts here (MF
+        // like normalize_input_pts in frameever-enc-ffmpeg. pts==dts here (MF
         // encoders are configured without B-frames).
         if let Some(pts) = packet.pts() {
             let pts = match self.last_written_pts {

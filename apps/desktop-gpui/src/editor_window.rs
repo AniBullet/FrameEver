@@ -47,17 +47,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_cursor_info::CursorFamily;
-use cap_editor::{EditorFrameOutput, EditorInstance, EditorState};
-use cap_project::{
-    ClipSpeedAudioMode, Cursors, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
-    StudioRecordingMeta, TimelineConfiguration, XY,
-};
-use cap_rendering::{FrameLayout, ProjectRecordingsMeta, RenderedFrame};
 #[cfg(target_os = "macos")]
 use core_foundation::base::TCFType;
 #[cfg(target_os = "macos")]
 use core_video::pixel_buffer::{CVPixelBuffer, CVPixelBufferRef};
+use frameever_cursor_info::CursorFamily;
+use frameever_editor::{EditorFrameOutput, EditorInstance, EditorState};
+use frameever_project::{
+    ClipSpeedAudioMode, Cursors, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
+    StudioRecordingMeta, TimelineConfiguration, XY,
+};
+use frameever_rendering::{FrameLayout, ProjectRecordingsMeta, RenderedFrame};
 use gpui::{
     Animation, AnimationExt as _, AppContext as _, Bounds, Context, Entity, FocusHandle,
     FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
@@ -107,7 +107,7 @@ pub const TRAFFIC_LIGHTS: Option<Point<Pixels>> = Some(point(px(20.), px(20.)));
 
 /// `FPS = 60` (`routes/editor/context.ts:148`), mirrored in Rust as
 /// `EDITOR_PREVIEW_FPS` (Tauri `src-tauri/src/lib.rs:146`). FPS is not
-/// a constant inside `cap-editor` -- it is a parameter on `start_playback` and
+/// a constant inside `frameever-editor` -- it is a parameter on `start_playback` and
 /// on the `preview_tx` tuple, so the app owns it.
 pub const EDITOR_PREVIEW_FPS: u32 = 60;
 
@@ -366,7 +366,7 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
     // Repairs tracks older recorders stamped at the wrong rate, and display
     // fps that finalization replaced with the average rate, before anything
     // reads them. Non-fatal: the editor opens the files as they are.
-    match cap_recording::track_heal::heal_stretched_tracks(path) {
+    match frameever_recording::track_heal::heal_stretched_tracks(path) {
         Ok(true) => tracing::info!(?path, "Healed recording tracks"),
         Ok(false) => {}
         Err(error) => tracing::warn!(?path, "Track heal check failed: {error:#}"),
@@ -436,12 +436,12 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
     // for the second or two before the instance exists -- the timeline the
     // instance hands over then replaces it wholesale.
     if config.timeline.is_none() {
-        config.timeline = Some(cap_project::TimelineConfiguration {
+        config.timeline = Some(frameever_project::TimelineConfiguration {
             segments: recordings
                 .segments
                 .iter()
                 .enumerate()
-                .map(|(index, segment)| cap_project::TimelineSegment {
+                .map(|(index, segment)| frameever_project::TimelineSegment {
                     recording_clip: index as u32,
                     timescale: 1.0,
                     start: 0.0,
@@ -502,7 +502,7 @@ const NO_AUTO_ZOOM_CLICKS_MESSAGE: &str =
 
 fn load_recording_clicks(
     project_path: &std::path::Path,
-) -> Vec<Vec<cap_project::CursorClickEvent>> {
+) -> Vec<Vec<frameever_project::CursorClickEvent>> {
     let Ok(meta) = RecordingMeta::load_for_project(project_path) else {
         return Vec::new();
     };
@@ -511,7 +511,7 @@ fn load_recording_clicks(
     };
     let load = |cursor: Option<PathBuf>| {
         cursor
-            .and_then(|cursor| cap_project::CursorEvents::load_clicks_from_file(&cursor).ok())
+            .and_then(|cursor| frameever_project::CursorEvents::load_clicks_from_file(&cursor).ok())
             .unwrap_or_default()
     };
     match &**studio {
@@ -574,7 +574,7 @@ fn recorded_cursor_family(studio: &StudioRecordingMeta) -> Option<CursorFamily> 
 ///   (`frame_pipeline.rs:809-827`) and gpui's atlas expects BGRA, the same
 ///   swap `library::decode_thumbnail` does after decoding a thumbnail.
 pub fn frame_image(frame: &RenderedFrame) -> Option<Arc<RenderImage>> {
-    let tight = cap_gpui_kernels::frame::unpad_rgba_to_bgra(
+    let tight = frameever_gpui_kernels::frame::unpad_rgba_to_bgra(
         &frame.data,
         frame.width as usize,
         frame.padded_bytes_per_row as usize,
@@ -2456,7 +2456,7 @@ impl EditorWindow {
         if !force && self.caption_sync_signature == signature {
             return;
         }
-        cap_project::synchronize_captions(&mut self.project, &self.clip_display_durations);
+        frameever_project::synchronize_captions(&mut self.project, &self.clip_display_durations);
         self.caption_sync_signature = self.caption_projection_signature();
     }
 
@@ -2577,7 +2577,7 @@ impl EditorWindow {
         let previous_animated_gradient = self.animated_gradient_config().cloned();
         let animated_background_changed = self.animated_gradient_config()
             != match &config.background.source {
-                cap_project::BackgroundSource::AnimatedGradient { config } => Some(config),
+                frameever_project::BackgroundSource::AnimatedGradient { config } => Some(config),
                 _ => None,
             }
             || crate::editor_sidebar::is_none_background(&self.project)
@@ -2799,7 +2799,7 @@ impl EditorWindow {
     pub(crate) fn preparing_frame_arrived(
         &mut self,
         epoch: &crate::editor_preparing::PreparingEpoch,
-        identity: &cap_recording::recovery::PreparingStudioIdentity,
+        identity: &frameever_recording::recovery::PreparingStudioIdentity,
         sequence: u64,
         frame: EditorFrame,
         window: &mut Window,
@@ -5249,7 +5249,7 @@ fn split_caption_segment(
     let Some(track) = timeline.caption_segments.get(index) else {
         return false;
     };
-    let source_id = cap_project::source_caption_id(&track.id);
+    let source_id = frameever_project::source_caption_id(&track.id);
     let Some((source_index, source)) = project
         .captions
         .as_ref()
@@ -5311,8 +5311,8 @@ fn split_caption_segment(
                 }
             }
         }
-        head.text = cap_project::caption_text_from_words(&head.words);
-        tail.text = cap_project::caption_text_from_words(&tail.words);
+        head.text = frameever_project::caption_text_from_words(&head.words);
+        tail.text = frameever_project::caption_text_from_words(&tail.words);
     }
     let Some(captions) = project.captions.as_mut() else {
         return false;
@@ -5330,7 +5330,7 @@ fn delete_caption_segments(project: &mut ProjectConfiguration, indices: &[usize]
     let source_ids = indices
         .iter()
         .filter_map(|index| timeline.caption_segments.get(*index))
-        .map(|segment| cap_project::source_caption_id(&segment.id).to_string())
+        .map(|segment| frameever_project::source_caption_id(&segment.id).to_string())
         .collect::<Vec<_>>();
     let Some(timeline) = project.timeline.as_mut() else {
         return false;
@@ -6795,30 +6795,36 @@ impl EditorWindow {
             }))
     }
 
-    fn aspect_ratio_label(aspect: Option<&cap_project::AspectRatio>) -> &'static str {
+    fn aspect_ratio_label(aspect: Option<&frameever_project::AspectRatio>) -> &'static str {
         match aspect {
             None => t!("Auto"),
-            Some(cap_project::AspectRatio::Wide) => t!("Wide"),
-            Some(cap_project::AspectRatio::Vertical) => t!("Vertical"),
-            Some(cap_project::AspectRatio::Square) => t!("Square"),
-            Some(cap_project::AspectRatio::Classic) => t!("Classic"),
-            Some(cap_project::AspectRatio::Tall) => t!("Tall"),
+            Some(frameever_project::AspectRatio::Wide) => t!("Wide"),
+            Some(frameever_project::AspectRatio::Vertical) => t!("Vertical"),
+            Some(frameever_project::AspectRatio::Square) => t!("Square"),
+            Some(frameever_project::AspectRatio::Classic) => t!("Classic"),
+            Some(frameever_project::AspectRatio::Tall) => t!("Tall"),
         }
     }
 
     fn toolbar_menu_items(&self, kind: ToolbarMenu) -> Vec<ui::MenuItem> {
         match kind {
             ToolbarMenu::AspectRatio => {
-                const OPTIONS: &[(Option<cap_project::AspectRatio>, &str)] = &[
+                const OPTIONS: &[(Option<frameever_project::AspectRatio>, &str)] = &[
                     (None, n!("Auto")),
-                    (Some(cap_project::AspectRatio::Wide), n!("Wide ⋅16:9")),
+                    (Some(frameever_project::AspectRatio::Wide), n!("Wide ⋅16:9")),
                     (
-                        Some(cap_project::AspectRatio::Vertical),
+                        Some(frameever_project::AspectRatio::Vertical),
                         n!("Vertical ⋅9:16"),
                     ),
-                    (Some(cap_project::AspectRatio::Square), n!("Square ⋅1:1")),
-                    (Some(cap_project::AspectRatio::Classic), n!("Classic ⋅4:3")),
-                    (Some(cap_project::AspectRatio::Tall), n!("Tall ⋅3:4")),
+                    (
+                        Some(frameever_project::AspectRatio::Square),
+                        n!("Square ⋅1:1"),
+                    ),
+                    (
+                        Some(frameever_project::AspectRatio::Classic),
+                        n!("Classic ⋅4:3"),
+                    ),
+                    (Some(frameever_project::AspectRatio::Tall), n!("Tall ⋅3:4")),
                 ];
                 OPTIONS
                     .iter()
@@ -6884,13 +6890,13 @@ impl EditorWindow {
         self.toolbar_menu = None;
         match kind {
             ToolbarMenu::AspectRatio => {
-                const OPTIONS: [Option<cap_project::AspectRatio>; 6] = [
+                const OPTIONS: [Option<frameever_project::AspectRatio>; 6] = [
                     None,
-                    Some(cap_project::AspectRatio::Wide),
-                    Some(cap_project::AspectRatio::Vertical),
-                    Some(cap_project::AspectRatio::Square),
-                    Some(cap_project::AspectRatio::Classic),
-                    Some(cap_project::AspectRatio::Tall),
+                    Some(frameever_project::AspectRatio::Wide),
+                    Some(frameever_project::AspectRatio::Vertical),
+                    Some(frameever_project::AspectRatio::Square),
+                    Some(frameever_project::AspectRatio::Classic),
+                    Some(frameever_project::AspectRatio::Tall),
                 ];
                 let Some(next) = OPTIONS.get(index).cloned() else {
                     return;
@@ -7233,7 +7239,7 @@ impl EditorWindow {
                 self.edit_project("caption-enabled", window, cx, move |project| {
                     let captions = project
                         .captions
-                        .get_or_insert_with(cap_project::CaptionsData::default);
+                        .get_or_insert_with(frameever_project::CaptionsData::default);
                     if captions.settings.enabled == next {
                         return false;
                     }
@@ -7246,7 +7252,7 @@ impl EditorWindow {
                 self.edit_project("keyboard-enabled", window, cx, move |project| {
                     let keyboard = project
                         .keyboard
-                        .get_or_insert_with(cap_project::KeyboardData::default);
+                        .get_or_insert_with(frameever_project::KeyboardData::default);
                     if keyboard.settings.enabled == next {
                         return false;
                     }
@@ -7380,7 +7386,7 @@ impl EditorWindow {
         }
         if placement.is_none() {
             placement = edits::place_segment_at_time(
-                &[] as &[cap_project::TextSegment],
+                &[] as &[frameever_project::TextSegment],
                 time,
                 length,
                 total,
@@ -7488,7 +7494,7 @@ impl EditorWindow {
             |timeline| {
                 index = edits::insert_style_segment(
                     timeline,
-                    cap_project::StyleSegment {
+                    frameever_project::StyleSegment {
                         start,
                         end,
                         track: lane,
@@ -7680,9 +7686,9 @@ impl EditorWindow {
         let ratio = f64::from(imported.width) / f64::from(imported.height) * f64::from(output[1])
             / f64::from(output[0]);
         let size = if ratio >= 1.0 {
-            cap_project::XY::new(0.3, 0.3 / ratio)
+            frameever_project::XY::new(0.3, 0.3 / ratio)
         } else {
-            cap_project::XY::new(0.3 * ratio, 0.3)
+            frameever_project::XY::new(0.3 * ratio, 0.3)
         };
         self.tracks.image = self.tracks.image.max(lane + 1);
         let mut index = 0;
@@ -7690,7 +7696,7 @@ impl EditorWindow {
             |timeline| {
                 index = edits::insert_image_segment(
                     timeline,
-                    cap_project::ImageSegment {
+                    frameever_project::ImageSegment {
                         start,
                         end,
                         track: lane,
@@ -11767,8 +11773,8 @@ fn import_audio_file(
 }
 
 fn aspect_ratio_eq(
-    left: &Option<cap_project::AspectRatio>,
-    right: &Option<cap_project::AspectRatio>,
+    left: &Option<frameever_project::AspectRatio>,
+    right: &Option<frameever_project::AspectRatio>,
 ) -> bool {
     match (left, right) {
         (None, None) => true,
@@ -11843,7 +11849,7 @@ pub fn request_frame(instance: &EditorInstance, frame_number: u32, resolution: X
 pub fn make_frame_callback(
     tx: flume::Sender<(EditorFrameOutput, FrameLayout)>,
     stats: Arc<PumpStats>,
-) -> cap_editor::EditorFrameCallback {
+) -> frameever_editor::EditorFrameCallback {
     Box::new(move |output, layout| {
         stats.rendered.fetch_add(1, Ordering::Relaxed);
         #[cfg(target_os = "windows")]
@@ -11860,7 +11866,9 @@ pub fn make_frame_callback(
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn surface_preview_frame(frame: cap_rendering::SurfaceFrame) -> EditorPreviewFrame {
+pub(crate) fn surface_preview_frame(
+    frame: frameever_rendering::SurfaceFrame,
+) -> EditorPreviewFrame {
     let raw = frame.pixel_buffer.as_ref() as *const cidre::cv::PixelBuf as CVPixelBufferRef;
     let pixel_buffer = unsafe { CVPixelBuffer::wrap_under_get_rule(raw) };
     EditorPreviewFrame::Surface(pixel_buffer)
@@ -11878,9 +11886,9 @@ pub fn frame_image_timed(frame: &RenderedFrame, stats: &PumpStats) -> Option<Arc
     image
 }
 
-/// `hexToRgb` hands back RGBA bytes; `cap_project::Color` is `[u16; 3]` and
+/// `hexToRgb` hands back RGBA bytes; `frameever_project::Color` is `[u16; 3]` and
 /// the alpha lives on the background source, not on the swatch.
-fn hex_to_color(rgba: [u8; 4]) -> cap_project::Color {
+fn hex_to_color(rgba: [u8; 4]) -> frameever_project::Color {
     [rgba[0] as u16, rgba[1] as u16, rgba[2] as u16]
 }
 
@@ -11893,16 +11901,16 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("cap-auto-zoom-clicks-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let click = cap_project::CursorClickEvent {
+        let click = frameever_project::CursorClickEvent {
             active_modifiers: vec!["Shift".into()],
             cursor_num: 1,
             cursor_id: "pointer".into(),
             time_ms: 4000.0,
             down: true,
         };
-        let events = cap_project::CursorEvents {
+        let events = frameever_project::CursorEvents {
             clicks: vec![click.clone()],
-            moves: vec![cap_project::CursorMoveEvent {
+            moves: vec![frameever_project::CursorMoveEvent {
                 active_modifiers: Vec::new(),
                 cursor_id: "arrow".into(),
                 time_ms: 4000.0,
@@ -11959,16 +11967,16 @@ mod tests {
         };
         let full_events = || match &**studio {
             StudioRecordingMeta::SingleSegment { segment } => {
-                let mut events = segment
-                    .cursor
-                    .as_ref()
-                    .map_or_else(cap_project::CursorEvents::default, |cursor| {
-                        cap_project::CursorEvents::load_from_file(&meta.path(cursor)).unwrap()
-                    });
+                let mut events = segment.cursor.as_ref().map_or_else(
+                    frameever_project::CursorEvents::default,
+                    |cursor| {
+                        frameever_project::CursorEvents::load_from_file(&meta.path(cursor)).unwrap()
+                    },
+                );
                 let pointer_ids = studio.pointer_cursor_ids();
                 events.stabilize_short_lived_cursor_shapes(
                     (!pointer_ids.is_empty()).then_some(&pointer_ids),
-                    cap_project::cursor::SHORT_CURSOR_SHAPE_DEBOUNCE_MS,
+                    frameever_project::cursor::SHORT_CURSOR_SHAPE_DEBOUNCE_MS,
                 );
                 vec![events.clicks]
             }
@@ -11978,7 +11986,7 @@ mod tests {
                 .map(|segment| segment.cursor_events(&meta).clicks)
                 .collect(),
         };
-        let times = |clips: Vec<Vec<cap_project::CursorClickEvent>>| {
+        let times = |clips: Vec<Vec<frameever_project::CursorClickEvent>>| {
             clips
                 .into_iter()
                 .map(|clicks| {
@@ -12120,18 +12128,18 @@ mod tests {
     #[test]
     fn caption_split_and_delete_update_the_source_master() {
         let words = vec![
-            cap_project::CaptionWord {
+            frameever_project::CaptionWord {
                 text: "hello".into(),
                 start: 1.0,
                 end: 2.0,
             },
-            cap_project::CaptionWord {
+            frameever_project::CaptionWord {
                 text: "world".into(),
                 start: 3.0,
                 end: 4.0,
             },
         ];
-        let track = cap_project::CaptionTrackSegment {
+        let track = frameever_project::CaptionTrackSegment {
             id: "spoken".into(),
             start: 1.0,
             end: 4.0,
@@ -12146,7 +12154,7 @@ mod tests {
         };
         let mut project = ProjectConfiguration {
             timeline: Some(TimelineConfiguration {
-                segments: vec![cap_project::TimelineSegment {
+                segments: vec![frameever_project::TimelineSegment {
                     recording_clip: 0,
                     start: 0.0,
                     end: 10.0,
@@ -12168,8 +12176,8 @@ mod tests {
                 style_segments: Vec::new(),
                 image_segments: Vec::new(),
             }),
-            captions: Some(cap_project::CaptionsData {
-                segments: vec![cap_project::CaptionSegment {
+            captions: Some(frameever_project::CaptionsData {
+                segments: vec![frameever_project::CaptionSegment {
                     id: "spoken".into(),
                     start: 1.0,
                     end: 4.0,
@@ -12183,7 +12191,7 @@ mod tests {
         };
 
         assert!(split_caption_segment(&mut project, 0, 1.5, &[10.0]));
-        cap_project::synchronize_captions(&mut project, &[10.0]);
+        frameever_project::synchronize_captions(&mut project, &[10.0]);
         let captions = project.captions.as_ref().unwrap();
         assert_eq!(captions.segments.len(), 2);
         assert_eq!(captions.segments[0].text, "hello");
@@ -12191,7 +12199,7 @@ mod tests {
         assert_eq!(project.timeline.as_ref().unwrap().caption_segments.len(), 2);
 
         assert!(delete_caption_segments(&mut project, &[1]));
-        cap_project::synchronize_captions(&mut project, &[10.0]);
+        frameever_project::synchronize_captions(&mut project, &[10.0]);
         assert_eq!(project.captions.as_ref().unwrap().segments.len(), 1);
         assert_eq!(project.timeline.as_ref().unwrap().caption_segments.len(), 1);
     }
@@ -12201,7 +12209,7 @@ mod tests {
         let mut project = ProjectConfiguration {
             timeline: Some(TimelineConfiguration {
                 segments: vec![
-                    cap_project::TimelineSegment {
+                    frameever_project::TimelineSegment {
                         recording_clip: 0,
                         start: 0.5,
                         end: 4.5,
@@ -12211,7 +12219,7 @@ mod tests {
                         hide_cursor: None,
                         volume: None,
                     },
-                    cap_project::TimelineSegment {
+                    frameever_project::TimelineSegment {
                         recording_clip: 0,
                         start: 0.5,
                         end: 4.5,
@@ -12234,19 +12242,19 @@ mod tests {
                 style_segments: Vec::new(),
                 image_segments: Vec::new(),
             }),
-            captions: Some(cap_project::CaptionsData {
-                segments: vec![cap_project::CaptionSegment {
+            captions: Some(frameever_project::CaptionsData {
+                segments: vec![frameever_project::CaptionSegment {
                     id: "spoken".into(),
                     start: 1.0,
                     end: 4.0,
                     text: "hello world".into(),
                     words: vec![
-                        cap_project::CaptionWord {
+                        frameever_project::CaptionWord {
                             text: "hello".into(),
                             start: 1.0,
                             end: 2.0,
                         },
-                        cap_project::CaptionWord {
+                        frameever_project::CaptionWord {
                             text: "world".into(),
                             start: 3.0,
                             end: 4.0,
@@ -12258,7 +12266,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        cap_project::synchronize_captions(&mut project, &[10.0]);
+        frameever_project::synchronize_captions(&mut project, &[10.0]);
         assert_eq!(
             project.timeline.as_ref().unwrap().caption_segments[0].id,
             "spoken::edl0"
@@ -12268,7 +12276,7 @@ mod tests {
         let tail_source_id = project.captions.as_ref().unwrap().segments[1].id.clone();
         assert_ne!(tail_source_id, "spoken");
         assert_eq!(
-            cap_project::source_caption_id(&tail_source_id),
+            frameever_project::source_caption_id(&tail_source_id),
             tail_source_id
         );
         assert_eq!(
@@ -12276,7 +12284,7 @@ mod tests {
             tail_source_id
         );
 
-        cap_project::synchronize_captions(&mut project, &[10.0]);
+        frameever_project::synchronize_captions(&mut project, &[10.0]);
         assert_eq!(project.timeline.as_ref().unwrap().caption_segments.len(), 4);
         let tail_index = project
             .timeline
@@ -12284,10 +12292,10 @@ mod tests {
             .unwrap()
             .caption_segments
             .iter()
-            .position(|segment| cap_project::source_caption_id(&segment.id) == tail_source_id)
+            .position(|segment| frameever_project::source_caption_id(&segment.id) == tail_source_id)
             .unwrap();
         assert!(delete_caption_segments(&mut project, &[tail_index]));
-        cap_project::synchronize_captions(&mut project, &[10.0]);
+        frameever_project::synchronize_captions(&mut project, &[10.0]);
 
         assert_eq!(project.captions.as_ref().unwrap().segments.len(), 1);
         assert_eq!(project.captions.as_ref().unwrap().segments[0].id, "spoken");
@@ -12296,7 +12304,7 @@ mod tests {
         assert!(
             remaining
                 .iter()
-                .all(|segment| cap_project::source_caption_id(&segment.id) == "spoken")
+                .all(|segment| frameever_project::source_caption_id(&segment.id) == "spoken")
         );
     }
 
@@ -12526,7 +12534,7 @@ mod tests {
         let source = root.join("source.mp4");
         std::fs::write(&source, b"original recording").unwrap();
         let config = ProjectConfiguration {
-            aspect_ratio: Some(cap_project::AspectRatio::Square),
+            aspect_ratio: Some(frameever_project::AspectRatio::Square),
             ..Default::default()
         };
         let mut pending = PendingProjectSave {
@@ -12544,7 +12552,7 @@ mod tests {
                 .unwrap();
         assert!(matches!(
             saved.aspect_ratio,
-            Some(cap_project::AspectRatio::Square)
+            Some(frameever_project::AspectRatio::Square)
         ));
         std::fs::remove_dir_all(root).unwrap();
     }

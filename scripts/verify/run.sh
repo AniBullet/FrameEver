@@ -106,9 +106,9 @@ fi
 
 # The crash and chaos suites spawn the out-of-process muxer; build it with
 # the same profile so it sits beside the test binaries
-# (target/<profile>/cap-muxer).
+# (target/<profile>/frameever-muxer).
 if [[ ( " ${suite_names//,/ } " == *" crash "* || " ${suite_names//,/ } " == *" chaos "* ) && "$mode" != archive ]]; then
-  cargo build --profile "$profile" -p cap-muxer ${CAP_VERIFY_LOCKED:+--locked}
+  cargo build --profile "$profile" -p frameever-muxer ${CAP_VERIFY_LOCKED:+--locked}
 fi
 
 have_nextest=0
@@ -172,7 +172,7 @@ if [[ $have_nextest == 1 ]]; then
     run+=(--cargo-profile "$profile" "${cargo_args[@]}")
   fi
   if [[ $prepare_fixtures == 1 ]]; then
-    "${run[@]}" --run-ignored ignored-only -E 'binary_id(cap-verify::export) and test(=prepare_recorded_fixtures)'
+    "${run[@]}" --run-ignored ignored-only -E 'binary_id(frameever-verify::export) and test(=prepare_recorded_fixtures)'
     exit
   fi
   shard=()

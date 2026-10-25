@@ -1,4 +1,4 @@
-use cap_enc_gif::GifEncoderWrapper;
+use frameever_enc_gif::GifEncoderWrapper;
 use std::{error::Error, hint::black_box, io, path::PathBuf, time::Instant};
 
 fn main() -> Result<(), Box<dyn Error>> {

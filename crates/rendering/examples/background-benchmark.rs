@@ -1,13 +1,13 @@
 use anyhow::{Context, Result, ensure};
-use cap_project::{
+use clap::Parser;
+use frameever_project::{
     AspectRatio, BackgroundSource, CursorEvents, ProjectConfiguration, RecordingMeta,
     RecordingMetaInner, SingleSegment, StudioRecordingMeta, VideoMeta, XY,
 };
-use cap_rendering::{
+use frameever_rendering::{
     DecodedSegmentFrames, FrameRenderer, ProjectUniforms, RenderOptions, RenderVideoConstants,
     RendererLayers, ZoomTransformTimeline, decoder::DecodedFrame,
 };
-use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Instant};
 

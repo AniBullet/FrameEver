@@ -15,16 +15,17 @@ struct ActivePhase {
 
 impl Phase {
     pub(crate) fn start(name: &'static str) -> Self {
-        let active = tracing::enabled!(target: "cap_rendering::readiness", tracing::Level::DEBUG)
-            .then(|| {
-                let active = ActivePhase {
-                    name,
-                    id: NEXT_PHASE_ID.fetch_add(1, Ordering::Relaxed),
-                    started: Instant::now(),
-                };
-                active.emit("start");
-                active
-            });
+        let active =
+            tracing::enabled!(target: "frameever_rendering::readiness", tracing::Level::DEBUG)
+                .then(|| {
+                    let active = ActivePhase {
+                        name,
+                        id: NEXT_PHASE_ID.fetch_add(1, Ordering::Relaxed),
+                        started: Instant::now(),
+                    };
+                    active.emit("start");
+                    active
+                });
         Self { active }
     }
 
@@ -44,7 +45,7 @@ impl Phase {
 impl ActivePhase {
     fn emit(&self, event: &'static str) {
         tracing::debug!(
-            target: "cap_rendering::readiness",
+            target: "frameever_rendering::readiness",
             phase = self.name,
             phase_id = self.id,
             event,

@@ -7,7 +7,7 @@ failed, and the failure is one that wall-clock timing can cause:
 
 - every case it failed is `inconclusive` (a wall-clock class such as
   real-time playback `dropped`, under a sentinel wake gap of 100 ms or more
-  during that case, judged in cap_verify::report::settle), or
+  during that case, judged in frameever_verify::report::settle), or
 - nextest killed it at its timeout and its sentinel log shows the process
   stalled for at least STALLED_MS in total (wake gaps of 100 ms or more) in
   the TIMEOUT_WINDOW_SECS before it was killed, or
@@ -134,7 +134,7 @@ def self_test():
                 body = '<failure type="test timeout">killed</failure>'
             else:
                 body = f"<failure>{DEVICE_LOST_PANIC}</failure>"
-            tests.append(f'<testcase classname="cap-verify::export" name="{name}">{body}</testcase>')
+            tests.append(f'<testcase classname="frameever-verify::export" name="{name}">{body}</testcase>')
         write("junit.xml", "<testsuites><testsuite>" + "".join(tests) + "</testsuite></testsuites>")
         import contextlib
         import io

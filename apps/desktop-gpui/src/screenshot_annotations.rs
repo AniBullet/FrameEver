@@ -28,11 +28,11 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use cap_gpui_kernels::mask_cache::{
+use frameever_gpui_kernels::mask_cache::{
     MaskEntry, MaskFrame, MaskRequest, finish_mask_build, retain_masks, retired_mask_values,
     should_cancel_mask_build, update_masks,
 };
-use cap_project::{Annotation, AnnotationType, AspectRatio, Crop, MaskType};
+use frameever_project::{Annotation, AnnotationType, AspectRatio, Crop, MaskType};
 use gpui::{
     AnyElement, App, AppContext as _, Bounds, Context, Corners, CursorStyle, Entity, FontWeight,
     Hsla, InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
@@ -3984,7 +3984,7 @@ fn mask_request(mask: &Annotation, frame: MaskFrame) -> Option<MaskRequest> {
     }
     Some(MaskRequest {
         id: mask.id.clone(),
-        region: cap_gpui_kernels::mask_cache::mask_region(
+        region: frameever_gpui_kernels::mask_cache::mask_region(
             [mask.x, mask.y, mask.width, mask.height],
             frame.content.map(f64::from_bits),
             frame.size,
@@ -4021,7 +4021,7 @@ pub(crate) fn masked_region_image(
 
     let region = mask_region(mask, rect, (frame_width, frame_height))?;
     let level = mask.mask_level.unwrap_or(MASK_FALLBACK_LEVEL).max(1.);
-    let processed = cap_gpui_kernels::screenshot::mask_filter(
+    let processed = frameever_gpui_kernels::screenshot::mask_filter(
         rgba,
         frame_width,
         frame_height,
@@ -4036,7 +4036,7 @@ pub(crate) fn masked_region_image(
 /// One mask's region in whole frame pixels: its own rect, clipped to the
 /// screenshot's content rect and then to the frame.
 fn mask_region(mask: &Annotation, rect: Rect, frame: (u32, u32)) -> Option<(u32, u32, u32, u32)> {
-    cap_gpui_kernels::mask_cache::mask_region(
+    frameever_gpui_kernels::mask_cache::mask_region(
         [mask.x, mask.y, mask.width, mask.height],
         [rect.x, rect.y, rect.width, rect.height],
         frame,

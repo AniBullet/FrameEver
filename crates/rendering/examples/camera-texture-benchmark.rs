@@ -1,10 +1,10 @@
 use anyhow::{Context, Result, ensure};
-use cap_project::{BackgroundSource, CursorEvents, ProjectConfiguration, RecordingMeta, XY};
-use cap_rendering::{
+use clap::Parser;
+use frameever_project::{BackgroundSource, CursorEvents, ProjectConfiguration, RecordingMeta, XY};
+use frameever_rendering::{
     DecodedFrame, DecodedSegmentFrames, FrameRenderer, ProjectUniforms, RenderOptions,
     RenderVideoConstants, RendererLayers, ZoomTransformTimeline,
 };
-use clap::Parser;
 use std::{path::PathBuf, time::Instant};
 
 #[derive(Parser)]

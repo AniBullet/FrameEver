@@ -17,15 +17,15 @@ use std::{
     time::Duration,
 };
 
-use cap_media_info::{AudioInfo, Sample, Type, VideoInfo};
-use cap_recording::{
+use frameever_media_info::{AudioInfo, Sample, Type, VideoInfo};
+use frameever_recording::{
     AudioFrame, ChannelAudioSource, ChannelAudioSourceConfig, ChannelVideoSource,
     ChannelVideoSourceConfig, OutputPipeline,
     ffmpeg::{
         FFmpegVideoFrame, Mp4Muxer, OggMuxer, SegmentedVideoMuxer, SegmentedVideoMuxerConfig,
     },
 };
-use cap_timestamp::{Timestamp, Timestamps};
+use frameever_timestamp::{Timestamp, Timestamps};
 use serde::{Deserialize, Serialize};
 
 const CONTENT_SECS: f64 = 4.0;
@@ -257,7 +257,7 @@ async fn run_video_case(case: VideoCase) -> Result<String, String> {
     let fragmented = case.fragmented;
 
     let info = VideoInfo::from_raw(
-        cap_media_info::RawVideoFormat::Bgra,
+        frameever_media_info::RawVideoFormat::Bgra,
         case.width,
         case.height,
         case.fps,
@@ -581,7 +581,7 @@ async fn run_video_pause_case() -> Result<String, String> {
     let temp = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
     let out_path = temp.path().join("display.mp4");
 
-    let info = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 160, 120, FPS);
+    let info = VideoInfo::from_raw(frameever_media_info::RawVideoFormat::Bgra, 160, 120, FPS);
     let (tx, rx) = flume::bounded::<FFmpegVideoFrame>(32);
     let timestamps = Timestamps::now();
 
@@ -979,7 +979,7 @@ fn check_spans(
 }
 
 async fn run_system_audio_case(case: SystemAudioCase) -> Result<String, String> {
-    use cap_recording::AudioAnchor;
+    use frameever_recording::AudioAnchor;
 
     let SystemAudioCase { bursts, total_secs } = case;
     let temp = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
@@ -1053,7 +1053,7 @@ async fn run_system_audio_case(case: SystemAudioCase) -> Result<String, String> 
 /// track's own start_time — the presence of system audio must not move the
 /// mic, and vice versa.
 async fn run_mic_with_system_audio_case() -> Result<String, String> {
-    use cap_recording::AudioAnchor;
+    use frameever_recording::AudioAnchor;
 
     const MIC_START_SECS: f64 = 0.15;
     const TOTAL_SECS: f64 = 4.5;
@@ -1310,11 +1310,11 @@ fn unmatched_sent_indices(sent: &[f64], pts: &[f64], period: f64) -> String {
 //
 //   CAP_SYNC_MATRIX_FROM_REPORT=~/Downloads/report.json \
 //   CAP_SYNC_MATRIX_REPORT=/tmp/replay.json \
-//     cargo test -p cap-recording --test sync_matrix -- --nocapture
+//     cargo test -p frameever-recording --test sync_matrix -- --nocapture
 //
 // Every display hint is crossed with every audio-input hint, capped at
 // MAX_REPORT_CASES pairs. The report is read through the local structs below
-// rather than `cap_recording::diagnostics::DiagnosticReport` on purpose: a
+// rather than `frameever_recording::diagnostics::DiagnosticReport` on purpose: a
 // Windows report must be replayable on macOS, and the per-OS `SystemDiagnostics`
 // in the envelope would not deserialize there.
 //
@@ -1685,7 +1685,7 @@ async fn warm_up_video_encoder() {
     let Ok(temp) = tempfile::tempdir() else {
         return;
     };
-    let info = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 160, 120, 30);
+    let info = VideoInfo::from_raw(frameever_media_info::RawVideoFormat::Bgra, 160, 120, 30);
     let (tx, rx) = flume::bounded::<FFmpegVideoFrame>(8);
     let timestamps = Timestamps::now();
     let base = timestamps.instant();
@@ -1753,7 +1753,7 @@ async fn run_video_case_with_cold_retry(case: VideoCase) -> Result<String, Strin
 #[tokio::test(flavor = "multi_thread")]
 async fn segmented_video_muxer_forwards_completed_video_segments() {
     let temp = tempfile::tempdir().expect("temporary recording directory");
-    let info = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 160, 120, 30);
+    let info = VideoInfo::from_raw(frameever_media_info::RawVideoFormat::Bgra, 160, 120, 30);
     let (frame_tx, frame_rx) = flume::bounded::<FFmpegVideoFrame>(8);
     let (segment_tx, segment_rx) = std::sync::mpsc::channel();
     let timestamps = Timestamps::now();
@@ -1796,7 +1796,7 @@ async fn segmented_video_muxer_forwards_completed_video_segments() {
         "segmented video pipeline did not forward a completed media segment"
     );
     assert!(events.iter().all(|event| {
-        event.media_type == cap_enc_ffmpeg::segmented_stream::SegmentMediaType::Video
+        event.media_type == frameever_enc_ffmpeg::segmented_stream::SegmentMediaType::Video
             && event.file_size > 0
             && event.path.is_file()
     }));

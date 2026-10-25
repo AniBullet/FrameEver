@@ -19,7 +19,7 @@
 //! the flat frame (zoom at the exact fill distance, all angles zero) into the
 //! pose, so a segment always enters and leaves gracefully.
 
-use cap_project::{Camera3DBlurMode, Camera3DKeyframe, Camera3DProperties, Camera3DSegment};
+use frameever_project::{Camera3DBlurMode, Camera3DKeyframe, Camera3DProperties, Camera3DSegment};
 
 /// Default split handles: cubic ease-in-out.
 const DEFAULT_OUT_EASING: [f64; 2] = [0.65, 0.0];
@@ -302,7 +302,7 @@ pub fn plane_half_extents(aspect: f64) -> (f64, f64) {
 /// flat zoom's framing.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Camera3DScreenZoom {
-    pub content_uv: cap_project::XY<f64>,
+    pub content_uv: frameever_project::XY<f64>,
     pub amount: f64,
 }
 
@@ -444,7 +444,7 @@ fn invert3(m: &[[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_project::{Camera3DBlur, Camera3DTracks};
+    use frameever_project::{Camera3DBlur, Camera3DTracks};
 
     const ASPECT: f64 = 16.0 / 9.0;
     const HY: f64 = 9.0 / 16.0;
@@ -704,7 +704,7 @@ mod tests {
             ..Default::default()
         };
         let zoom = Camera3DScreenZoom {
-            content_uv: cap_project::XY::new(0.5, 0.5),
+            content_uv: frameever_project::XY::new(0.5, 0.5),
             amount: 2.0,
         };
         let h = camera3d_inverse_homography(&props, ASPECT, Some(&zoom)).unwrap();
@@ -714,7 +714,7 @@ mod tests {
 
         // An off-center target slides toward frame center as q / amount.
         let zoom = Camera3DScreenZoom {
-            content_uv: cap_project::XY::new(0.75, 0.5),
+            content_uv: frameever_project::XY::new(0.75, 0.5),
             amount: 2.0,
         };
         let h = camera3d_inverse_homography(&props, ASPECT, Some(&zoom)).unwrap();
@@ -725,7 +725,7 @@ mod tests {
 
         // Amount 1 (or None) leaves the homography untouched.
         let identity_zoom = Camera3DScreenZoom {
-            content_uv: cap_project::XY::new(0.2, 0.9),
+            content_uv: frameever_project::XY::new(0.2, 0.9),
             amount: 1.0,
         };
         let with_zoom = camera3d_inverse_homography(&props, ASPECT, Some(&identity_zoom)).unwrap();

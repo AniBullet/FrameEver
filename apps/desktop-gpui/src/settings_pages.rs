@@ -20,7 +20,7 @@ use std::{
     time::Duration,
 };
 
-use cap_cli_install as cli_install;
+use frameever_cli_install as cli_install;
 use gpui::{
     AppContext as _, Context, Entity, FontWeight, Hsla, InteractiveElement, IntoElement,
     MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div,
@@ -527,7 +527,7 @@ impl SettingsWindow {
                 if let Some((_, _, x, y)) = RESOLUTION_PRESETS.get(index).copied() {
                     self.automation_mutate(rule, false, window, cx, move |rule| {
                         if let Some(Action::Export { profile, .. }) = rule.actions.get_mut(action) {
-                            profile.resolution_base = cap_project::XY { x, y };
+                            profile.resolution_base = frameever_project::XY { x, y };
                         }
                     });
                 }
@@ -3727,7 +3727,7 @@ fn default_action(kind: ActionType) -> Action {
             profile: ExportProfile {
                 format: ExportFormat::Mp4,
                 fps: 30,
-                resolution_base: cap_project::XY { x: 1920, y: 1080 },
+                resolution_base: frameever_project::XY { x: 1920, y: 1080 },
                 compression: Some(AutomationExportCompression::Web),
                 preset_name: None,
             },
@@ -5938,8 +5938,9 @@ mod tests {
 
     #[test]
     fn only_debug_cargo_builds_can_switch_back_to_the_dev_harness() {
-        let cargo_build =
-            std::path::Path::new("/Users/x/FrameEver/apps/desktop-gpui/target/debug/cap-gpui");
+        let cargo_build = std::path::Path::new(
+            "/Users/x/FrameEver/apps/desktop-gpui/target/debug/frameever-gpui",
+        );
         let installed_app =
             std::path::Path::new("/Applications/FrameEver.app/Contents/MacOS/FrameEver");
 

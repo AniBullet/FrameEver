@@ -111,7 +111,7 @@ impl ImageBufProcessor {
 
     fn extract_raw(&self, image_buf: &mut R<cv::ImageBuf>) -> (Vec<u8>, PixelFormat, u32, u32) {
         let pixel_format =
-            cap_video_decode::avassetreader::pixel_format_to_pixel(image_buf.pixel_format());
+            frameever_video_decode::avassetreader::pixel_format_to_pixel(image_buf.pixel_format());
 
         unsafe {
             image_buf
@@ -239,7 +239,7 @@ impl CachedFrame {
         let height = image_buf.height() as u32;
 
         let pixel_format =
-            cap_video_decode::avassetreader::pixel_format_to_pixel(image_buf.pixel_format());
+            frameever_video_decode::avassetreader::pixel_format_to_pixel(image_buf.pixel_format());
 
         match pixel_format {
             format::Pixel::NV12
@@ -374,13 +374,13 @@ impl DecoderHealth {
 }
 
 struct DecoderInstance {
-    inner: cap_video_decode::AVAssetReaderDecoder,
+    inner: frameever_video_decode::AVAssetReaderDecoder,
     is_done: bool,
     frames_iter_valid: bool,
     health: DecoderHealth,
     path: PathBuf,
     tokio_handle: TokioHandle,
-    keyframe_index: Option<Arc<cap_video_decode::avassetreader::KeyframeIndex>>,
+    keyframe_index: Option<Arc<frameever_video_decode::avassetreader::KeyframeIndex>>,
     /// Previous frame number this instance vended, for pts-hole discovery.
     /// Lives on the instance because the reader vends in pts order between
     /// resets, but request batches may be served by different pool decoders.
@@ -395,11 +395,11 @@ impl DecoderInstance {
         path: PathBuf,
         tokio_handle: TokioHandle,
         start_time: f32,
-        keyframe_index: Option<Arc<cap_video_decode::avassetreader::KeyframeIndex>>,
+        keyframe_index: Option<Arc<frameever_video_decode::avassetreader::KeyframeIndex>>,
         permit: OwnedSemaphorePermit,
     ) -> Result<Self, String> {
         Ok(Self {
-            inner: cap_video_decode::AVAssetReaderDecoder::new_with_keyframe_index(
+            inner: frameever_video_decode::AVAssetReaderDecoder::new_with_keyframe_index(
                 path.clone(),
                 tokio_handle.clone(),
                 start_time,
@@ -447,7 +447,7 @@ impl DecoderInstance {
             "Recreating decoder instance due to poor health"
         );
 
-        self.inner = cap_video_decode::AVAssetReaderDecoder::new_with_keyframe_index(
+        self.inner = frameever_video_decode::AVAssetReaderDecoder::new_with_keyframe_index(
             self.path.clone(),
             self.tokio_handle.clone(),
             start_time,
@@ -486,7 +486,7 @@ impl AVAssetReaderDecoder {
     fn new(
         path: PathBuf,
         tokio_handle: TokioHandle,
-        keyframe_index: Option<Arc<cap_video_decode::avassetreader::KeyframeIndex>>,
+        keyframe_index: Option<Arc<frameever_video_decode::avassetreader::KeyframeIndex>>,
         requested_time: f32,
     ) -> Result<Self, String> {
         let fps = keyframe_index
@@ -664,7 +664,7 @@ impl AVAssetReaderDecoder {
     ) {
         let dimensions = (|| {
             #[cfg(test)]
-            if let Some((width, height)) = cap_video_decode::scripted::dimensions(&path) {
+            if let Some((width, height)) = frameever_video_decode::scripted::dimensions(&path) {
                 return Ok((width, height, YuvMatrix::default()));
             }
             if let Some(dimensions) = crate::project_recordings::header_video_metadata(&path) {
@@ -695,7 +695,8 @@ impl AVAssetReaderDecoder {
             }
         };
         let mut this = None::<Self>;
-        let mut keyframe_index: Option<Arc<cap_video_decode::avassetreader::KeyframeIndex>> = None;
+        let mut keyframe_index: Option<Arc<frameever_video_decode::avassetreader::KeyframeIndex>> =
+            None;
 
         let init_result = DecoderInitResult {
             width,
@@ -927,9 +928,10 @@ impl AVAssetReaderDecoder {
 
             if this.is_none() {
                 if keyframe_index.is_none() {
-                    keyframe_index = cap_video_decode::avassetreader::KeyframeIndex::build(&path)
-                        .ok()
-                        .map(Arc::new);
+                    keyframe_index =
+                        frameever_video_decode::avassetreader::KeyframeIndex::build(&path)
+                            .ok()
+                            .map(Arc::new);
                 }
                 match Self::new(
                     path.clone(),

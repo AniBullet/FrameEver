@@ -736,7 +736,7 @@ settings_enum! {
     default = Balanced
 }
 
-impl From<StudioQuality> for cap_recording::StudioQuality {
+impl From<StudioQuality> for frameever_recording::StudioQuality {
     fn from(quality: StudioQuality) -> Self {
         match quality {
             StudioQuality::Compatibility => Self::Compatibility,
@@ -1035,7 +1035,7 @@ pub fn set_studio_sound_by_default(enabled: bool) -> bool {
     )
 }
 
-pub fn studio_sound_isolation() -> cap_project::VoiceIsolation {
+pub fn studio_sound_isolation() -> frameever_project::VoiceIsolation {
     store_section(AUDIO_ENHANCEMENT)
         .get("isolation")
         .cloned()
@@ -1043,7 +1043,7 @@ pub fn studio_sound_isolation() -> cap_project::VoiceIsolation {
         .unwrap_or_default()
 }
 
-pub fn set_studio_sound_isolation(isolation: cap_project::VoiceIsolation) -> bool {
+pub fn set_studio_sound_isolation(isolation: frameever_project::VoiceIsolation) -> bool {
     set_store_setting(
         AUDIO_ENHANCEMENT,
         "isolation",
@@ -1051,7 +1051,10 @@ pub fn set_studio_sound_isolation(isolation: cap_project::VoiceIsolation) -> boo
     )
 }
 
-pub fn set_studio_sound_defaults(enabled: bool, isolation: cap_project::VoiceIsolation) -> bool {
+pub fn set_studio_sound_defaults(
+    enabled: bool,
+    isolation: frameever_project::VoiceIsolation,
+) -> bool {
     let mut section = store_section(AUDIO_ENHANCEMENT);
     section.insert(STUDIO_SOUND_BY_DEFAULT_KEY.into(), Value::Bool(enabled));
     section.insert("isolation".into(), serde_json::to_value(isolation).unwrap());
@@ -1063,15 +1066,15 @@ pub const RECORDING_SETTINGS: &str = "recording_settings";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct RecordingDeviceSettings {
-    pub camera: Option<cap_recording::feeds::camera::CameraDeviceSettings>,
-    pub microphone: Option<cap_recording::feeds::microphone::MicrophoneDeviceSettings>,
+    pub camera: Option<frameever_recording::feeds::camera::CameraDeviceSettings>,
+    pub microphone: Option<frameever_recording::feeds::microphone::MicrophoneDeviceSettings>,
 }
 
 impl RecordingDeviceSettings {
     pub fn for_camera(
         device_id: &str,
-        model_id: Option<&cap_camera::ModelID>,
-    ) -> Option<cap_recording::feeds::camera::CameraDeviceSettings> {
+        model_id: Option<&frameever_camera::ModelID>,
+    ) -> Option<frameever_recording::feeds::camera::CameraDeviceSettings> {
         let settings = store_section(RECORDING_SETTINGS);
         let formats = settings.get("cameraDeviceSettings")?;
         std::iter::once(format!("device:{device_id}"))
@@ -1086,7 +1089,7 @@ impl RecordingDeviceSettings {
 
     pub fn for_microphone(
         name: &str,
-    ) -> Option<cap_recording::feeds::microphone::MicrophoneDeviceSettings> {
+    ) -> Option<frameever_recording::feeds::microphone::MicrophoneDeviceSettings> {
         store_section(RECORDING_SETTINGS)
             .get("microphoneDeviceSettings")?
             .get(name)
@@ -1097,8 +1100,8 @@ impl RecordingDeviceSettings {
 
 pub fn set_camera_device_settings(
     device_id: &str,
-    model_id: Option<&cap_camera::ModelID>,
-    settings: cap_recording::feeds::camera::CameraDeviceSettings,
+    model_id: Option<&frameever_camera::ModelID>,
+    settings: frameever_recording::feeds::camera::CameraDeviceSettings,
 ) -> bool {
     let keys = std::iter::once(format!("device:{device_id}"))
         .chain(model_id.map(|model| format!("model:{model}")));
@@ -1107,7 +1110,7 @@ pub fn set_camera_device_settings(
 
 pub fn set_microphone_device_settings(
     name: &str,
-    settings: cap_recording::feeds::microphone::MicrophoneDeviceSettings,
+    settings: frameever_recording::feeds::microphone::MicrophoneDeviceSettings,
 ) -> bool {
     set_device_format_settings("microphoneDeviceSettings", [name.to_string()], settings)
 }
@@ -1152,7 +1155,7 @@ fn set_device_format_settings(
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RecordingInputSettings {
-    pub camera_id: Option<cap_recording::feeds::camera::DeviceOrModelID>,
+    pub camera_id: Option<frameever_recording::feeds::camera::DeviceOrModelID>,
     pub microphone_name: Option<String>,
 }
 
@@ -1170,8 +1173,10 @@ impl RecordingInputSettings {
     }
 }
 
-fn recording_camera_id(value: &Value) -> Option<cap_recording::feeds::camera::DeviceOrModelID> {
-    use cap_recording::feeds::camera::DeviceOrModelID;
+fn recording_camera_id(
+    value: &Value,
+) -> Option<frameever_recording::feeds::camera::DeviceOrModelID> {
+    use frameever_recording::feeds::camera::DeviceOrModelID;
 
     let object = value.as_object()?;
     if object.len() != 1 {
@@ -1181,12 +1186,14 @@ fn recording_camera_id(value: &Value) -> Option<cap_recording::feeds::camera::De
         return (!id.is_empty()).then(|| DeviceOrModelID::DeviceID(id.to_string()));
     }
     let model = object.get("ModelID")?.as_str()?.to_string();
-    cap_camera::ModelID::try_from(model)
+    frameever_camera::ModelID::try_from(model)
         .ok()
         .map(DeviceOrModelID::ModelID)
 }
 
-pub fn set_recording_camera_id(id: Option<&cap_recording::feeds::camera::DeviceOrModelID>) -> bool {
+pub fn set_recording_camera_id(
+    id: Option<&frameever_recording::feeds::camera::DeviceOrModelID>,
+) -> bool {
     let Ok(value) = serde_json::to_value(id) else {
         return false;
     };
@@ -1214,7 +1221,7 @@ pub fn set_recording_microphone_name(name: Option<&str>) -> bool {
     )
 }
 
-/// `RecordingSettingsStore.mode`, i.e. `cap_recording::RecordingMode` under
+/// `RecordingSettingsStore.mode`, i.e. `frameever_recording::RecordingMode` under
 /// `#[serde(rename_all = "camelCase")]` -- one lowercase word per variant
 /// (`studio`, `instant`, `screenshot`). `None` when the key is absent, which
 /// `get_current_mode` turns into `RecordingMode::default()` (Instant).
@@ -1746,7 +1753,7 @@ pub struct ExportProfile {
     #[serde(default = "default_fps")]
     pub fps: u32,
     #[serde(default = "default_resolution")]
-    pub resolution_base: cap_project::XY<u32>,
+    pub resolution_base: frameever_project::XY<u32>,
     #[serde(default)]
     pub compression: Option<AutomationExportCompression>,
     #[serde(default)]
@@ -1757,8 +1764,8 @@ fn default_fps() -> u32 {
     30
 }
 
-fn default_resolution() -> cap_project::XY<u32> {
-    cap_project::XY { x: 1920, y: 1080 }
+fn default_resolution() -> frameever_project::XY<u32> {
+    frameever_project::XY { x: 1920, y: 1080 }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -2018,7 +2025,7 @@ mod tests {
 
         for preset_count in [0, 10, 50] {
             let config =
-                crate::presets::preset_config(&cap_project::ProjectConfiguration::default());
+                crate::presets::preset_config(&frameever_project::ProjectConfiguration::default());
             let presets: Vec<_> = (0..preset_count)
                 .map(|index| serde_json::json!({"name": format!("Preset {index}"), "config": config}))
                 .collect();
@@ -2088,7 +2095,7 @@ mod tests {
 
     #[test]
     fn device_format_preferences_use_tauri_keys_and_preserve_other_fields() {
-        use cap_recording::feeds::{
+        use frameever_recording::feeds::{
             camera::CameraDeviceSettings, microphone::MicrophoneDeviceSettings,
         };
         let store = TempStore::new(
@@ -2098,7 +2105,7 @@ mod tests {
             ),
         );
         let before = store.read();
-        let model = cap_camera::ModelID::try_from("vendor:product".to_string()).unwrap();
+        let model = frameever_camera::ModelID::try_from("vendor:product".to_string()).unwrap();
         let snapshot = RecordingDeviceSettings {
             camera: RecordingDeviceSettings::for_camera("camera-1", Some(&model)),
             microphone: RecordingDeviceSettings::for_microphone("Desk"),
@@ -2181,7 +2188,7 @@ mod tests {
 
     #[test]
     fn recording_inputs_round_trip_without_replacing_unknown_settings() {
-        use cap_recording::feeds::camera::DeviceOrModelID;
+        use frameever_recording::feeds::camera::DeviceOrModelID;
 
         let store = TempStore::new(
             "recording-inputs-round-trip",
@@ -2190,7 +2197,7 @@ mod tests {
             ),
         );
         let original = store.read();
-        let model = cap_camera::ModelID::try_from("vendor:product".to_string()).unwrap();
+        let model = frameever_camera::ModelID::try_from("vendor:product".to_string()).unwrap();
         assert_eq!(
             RecordingInputSettings::load(),
             RecordingInputSettings {
@@ -2261,9 +2268,11 @@ mod tests {
         );
         assert_eq!(
             first.camera_id,
-            Some(cap_recording::feeds::camera::DeviceOrModelID::DeviceID(
-                "unplugged-camera".into()
-            ))
+            Some(
+                frameever_recording::feeds::camera::DeviceOrModelID::DeviceID(
+                    "unplugged-camera".into()
+                )
+            )
         );
         assert_eq!(RecordingInputSettings::load(), first);
         assert_eq!(std::fs::read(&store.path).unwrap(), before);
@@ -2314,7 +2323,7 @@ mod tests {
                         4..=7 => set_store_value(&format!("section-{index}"), Value::from(index)),
                         8..=11 => set_microphone_device_settings(
                             &format!("microphone-{index}"),
-                            cap_recording::feeds::microphone::MicrophoneDeviceSettings {
+                            frameever_recording::feeds::microphone::MicrophoneDeviceSettings {
                                 sample_rate: Some(48000),
                                 channels: Some(2),
                             },
@@ -2574,7 +2583,7 @@ mod tests {
     #[test]
     fn bundled_resource_paths_follow_the_installed_executable() {
         let executable =
-            std::path::Path::new("/Applications/FrameEver.app/Contents/MacOS/cap-gpui");
+            std::path::Path::new("/Applications/FrameEver.app/Contents/MacOS/frameever-gpui");
         let override_dir = std::path::Path::new("/tmp/cap-resources");
 
         assert_eq!(
@@ -2587,7 +2596,7 @@ mod tests {
             ]
         );
 
-        let executable = std::path::Path::new("/opt/cap/cap-gpui");
+        let executable = std::path::Path::new("/opt/cap/frameever-gpui");
         assert_eq!(
             super::bundled_resource_dirs_for(Some(executable), None),
             vec![
@@ -2596,7 +2605,7 @@ mod tests {
             ]
         );
 
-        let executable = std::path::Path::new("/usr/bin/cap-gpui");
+        let executable = std::path::Path::new("/usr/bin/frameever-gpui");
         assert_eq!(
             super::bundled_resource_dirs_for(Some(executable), None),
             vec![

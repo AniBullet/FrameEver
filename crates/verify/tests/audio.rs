@@ -6,8 +6,8 @@ mod audio_support;
 mod common;
 
 use audio_support::{ExportPath, OfflinePlayer};
-use cap_project::{ClipSpeedAudioMode, ProjectConfiguration};
-use cap_verify::{
+use frameever_project::{ClipSpeedAudioMode, ProjectConfiguration};
+use frameever_verify::{
     audio_fixture,
     audio_model::{self, AudioModel},
     fixture::FixtureSpec,
@@ -105,7 +105,7 @@ fn long_crossfade(config: &mut ProjectConfiguration) {
 fn long_fade_black(config: &mut ProjectConfiguration) {
     long_crossfade(config);
     config.timeline.as_mut().expect("timeline").transitions[0].kind =
-        cap_project::ClipTransitionType::FadeThroughBlack;
+        frameever_project::ClipTransitionType::FadeThroughBlack;
 }
 
 fn variants() -> Vec<Variant> {
@@ -362,22 +362,23 @@ fn studio_sound_music_is_additive() {
     cuts(&mut config);
     audio_fixture::add_music(&mut config, 1.0, 7.0, 0.5, -6.0);
     let media = rt
-        .block_on(cap_editor::create_segments(
+        .block_on(frameever_editor::create_segments(
             &project.meta,
             project.meta.studio_meta().expect("studio"),
             false,
         ))
         .expect("segments");
-    let segments = rt.block_on(cap_editor::get_audio_segments(&media));
-    let music = cap_editor::load_music_tracks_uncached(&config, &project.path);
-    let source = cap_audio::AudioData::from_file(project.path.join(audio_fixture::MUSIC_FILE))
-        .expect("music source");
+    let segments = rt.block_on(frameever_editor::get_audio_segments(&media));
+    let music = frameever_editor::load_music_tracks_uncached(&config, &project.path);
+    let source =
+        frameever_audio::AudioData::from_file(project.path.join(audio_fixture::MUSIC_FILE))
+            .expect("music source");
     assert_eq!(source.channels(), 2);
     let frames =
         (config.timeline.as_ref().expect("timeline").duration() * 48_000.0).round() as usize;
     let render = |config: &ProjectConfiguration, block: usize| {
         let mut renderer =
-            cap_editor::AudioRenderer::new(segments.clone()).with_music(music.clone());
+            frameever_editor::AudioRenderer::new(segments.clone()).with_music(music.clone());
         let mut pcm = Vec::new();
         while pcm.len() / 2 < frames {
             let count = block.min(frames - pcm.len() / 2);
@@ -451,7 +452,7 @@ fn resampled_decode_tail() {
             })
             .collect();
         write_wav_mono(&path, rate, &tone);
-        match cap_audio::AudioData::from_file(&path) {
+        match frameever_audio::AudioData::from_file(&path) {
             Err(e) => case.problem("error", format!("decode: {e}")),
             Ok(data) => {
                 let channels = usize::from(data.channels());
@@ -877,7 +878,7 @@ fn oracle_self_check() {
 /// checks the channel average, so it cannot see swapped or summed channels.
 #[test]
 fn stereo_channels() {
-    use cap_verify::{
+    use frameever_verify::{
         audio_code::{self, AudioSource},
         fixture,
         media::{self, AudioCodec},
@@ -972,7 +973,7 @@ fn stereo_channels() {
 /// overlapped system marker sometimes failed to decode.
 #[test]
 fn timing_repair() {
-    use cap_verify::fixture;
+    use frameever_verify::fixture;
     const TRIMMED_MS: u32 = 500;
     common::init();
     let mut spec = audio_fixture::mix(report::tier());

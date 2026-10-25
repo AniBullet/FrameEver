@@ -3,7 +3,7 @@ use std::{
     time::SystemTime,
 };
 
-use cap_project::{RecordingMeta, RecordingMetaInner};
+use frameever_project::{RecordingMeta, RecordingMetaInner};
 use serde::Serialize;
 
 use crate::{OutputFormat, write_json};
@@ -11,7 +11,7 @@ use crate::{OutputFormat, write_json};
 fn default_library_dir() -> Result<PathBuf, String> {
     dirs::data_dir()
         .ok_or_else(|| "Could not determine the OS application-data directory".to_string())
-        .map(|dir| dir.join(cap_utils::brand::APP_ID).join("recordings"))
+        .map(|dir| dir.join(frameever_utils::brand::APP_ID).join("recordings"))
 }
 
 #[derive(Serialize)]

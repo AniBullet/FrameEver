@@ -1,5 +1,5 @@
 use super::fragment_metadata::read_fragment_metadata;
-use cap_media_info::VideoInfo;
+use frameever_media_info::VideoInfo;
 use serde::Serialize;
 use std::{
     io::Write,
@@ -456,11 +456,11 @@ impl FragmentManifestTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_media_info::VideoInfo;
+    use frameever_media_info::VideoInfo;
 
     fn test_video_info() -> VideoInfo {
         VideoInfo {
-            pixel_format: cap_media_info::Pixel::NV12,
+            pixel_format: frameever_media_info::Pixel::NV12,
             width: 320,
             height: 240,
             time_base: ffmpeg::Rational(1, 1_000_000),

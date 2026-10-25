@@ -2,10 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use cap_project::{
+use frameever_project::{
     ClipTransition, ClipTransitionType, ProjectConfiguration, RecordingMeta, TimelineSegment, XY,
 };
-use cap_verify::{
+use frameever_verify::{
     fixture::{self, FixtureSpec, SourceTruth},
     media,
     model::ReferenceModel,
@@ -23,7 +23,7 @@ pub fn runtime() -> tokio::runtime::Runtime {
         .expect("runtime")
 }
 
-/// `CAP_VERIFY_LOG=<filter>` (EnvFilter syntax, e.g. `wgpu_hal=warn,cap_rendering=info`)
+/// `CAP_VERIFY_LOG=<filter>` (EnvFilter syntax, e.g. `wgpu_hal=warn,frameever_rendering=info`)
 /// prints product and wgpu logs to stderr, for triage on remote runners.
 pub fn init() {
     media::init();
@@ -66,10 +66,10 @@ pub fn load(name: &str, path: PathBuf) -> Project {
 
 /// A fixture recorded through the real recording pipeline (real time on
 /// first use, cached afterwards).
-pub fn recorded(spec: &cap_verify::pipeline::RecordedSpec) -> Project {
+pub fn recorded(spec: &frameever_verify::pipeline::RecordedSpec) -> Project {
     init();
     let path = fixture::ensure_fixture_keyed(spec.cache_key(), |dir| {
-        runtime().block_on(cap_verify::pipeline::record_studio(spec, dir))
+        runtime().block_on(frameever_verify::pipeline::record_studio(spec, dir))
     })
     .unwrap_or_else(|e| panic!("recorded fixture {}: {e:?}", spec.name));
     load(&format!("rec-{}", spec.name), path)
@@ -175,7 +175,11 @@ impl Decoder {
 
 /// Records which decoder each stream actually used and flags any stream
 /// that is not on the requested decoder.
-pub fn check_decoders(case: &mut Case, decoder: Decoder, segments: &[cap_editor::SegmentMedia]) {
+pub fn check_decoders(
+    case: &mut Case,
+    decoder: Decoder,
+    segments: &[frameever_editor::SegmentMedia],
+) {
     let mut used = Vec::new();
     for (i, segment) in segments.iter().enumerate() {
         let streams =
@@ -216,7 +220,7 @@ pub fn decoder_unsupported(project: &Project, decoder: Decoder) -> Option<String
         .get_or_init(|| {
             let meta = project.meta.studio_meta()?;
             let segments = runtime()
-                .block_on(cap_editor::create_segments(&project.meta, meta, false))
+                .block_on(frameever_editor::create_segments(&project.meta, meta, false))
                 .ok()?;
             let reason = segments
                 .first()?
@@ -254,7 +258,7 @@ pub async fn probe_decoders(case: &mut Case, project: &Project, decoder: Decoder
     let Some(meta) = project.meta.studio_meta() else {
         return;
     };
-    match cap_editor::create_segments(&project.meta, meta, decoder == Decoder::Ffmpeg).await {
+    match frameever_editor::create_segments(&project.meta, meta, decoder == Decoder::Ffmpeg).await {
         Ok(segments) => check_decoders(case, decoder, &segments),
         Err(e) => case.problem("error", format!("decoder probe failed: {e}")),
     }
@@ -275,7 +279,7 @@ pub async fn export(
     out: &Path,
 ) -> Result<PathBuf, String> {
     let force = run.decoder == Decoder::Ffmpeg;
-    let base = cap_export::ExporterBase::builder(project.path.clone())
+    let base = frameever_export::ExporterBase::builder(project.path.clone())
         .with_config(config)
         .with_force_ffmpeg_decoder(force)
         .with_output_path(out.to_path_buf())
@@ -285,11 +289,11 @@ pub async fn export(
     let resolution_base = XY::new(run.resolution.0, run.resolution.1);
     match run.format {
         Format::Mp4 => {
-            cap_export::mp4::Mp4ExportSettings {
+            frameever_export::mp4::Mp4ExportSettings {
                 codec: Default::default(),
                 fps: run.fps,
                 resolution_base,
-                compression: cap_export::mp4::ExportCompression::Social,
+                compression: frameever_export::mp4::ExportCompression::Social,
                 custom_bpp: run.custom_bpp,
                 force_ffmpeg_decoder: force,
                 optimize_filesize: false,
@@ -298,7 +302,7 @@ pub async fn export(
             .await
         }
         Format::Mov => {
-            cap_export::mov::MovExportSettings {
+            frameever_export::mov::MovExportSettings {
                 fps: run.fps,
                 resolution_base,
                 cursor_only: false,
@@ -307,7 +311,7 @@ pub async fn export(
             .await
         }
         Format::Gif => {
-            cap_export::gif::GifExportSettings {
+            frameever_export::gif::GifExportSettings {
                 fps: run.fps,
                 resolution_base,
                 quality: None,
@@ -475,7 +479,7 @@ fn picture_hash(frame: &ffmpeg::frame::Video) -> u64 {
 /// for frame `i` (when given) to verify transition blends.
 pub fn read_output(
     path: &Path,
-    expect: Option<&dyn Fn(usize) -> cap_verify::model::FrameExpectation>,
+    expect: Option<&dyn Fn(usize) -> frameever_verify::model::FrameExpectation>,
 ) -> Vec<OutputFrame> {
     let mut frames = Vec::new();
     media::decode_video(path, |picture| {
@@ -516,7 +520,7 @@ pub fn read_output(
 
 pub fn read_expecting(
     img: &impl video_code::PixelSource,
-    expectation: &cap_verify::model::FrameExpectation,
+    expectation: &frameever_verify::model::FrameExpectation,
 ) -> FrameReadout {
     let readout = FrameReadout {
         screen: oracle::read_expecting(img, StreamKind::Screen, &expectation.screen),
@@ -719,7 +723,7 @@ pub fn check_presentation(
         );
     }
 
-    use cap_project::{CameraXPosition, CameraYPosition};
+    use frameever_project::{CameraXPosition, CameraYPosition};
     let mut misplaced = Vec::new();
     for (i, frame) in frames.iter().enumerate() {
         let Some(r) = frame.camera_region else {
@@ -777,12 +781,12 @@ pub fn scratch_dir(name: &str) -> tempfile::TempDir {
 /// `RendererLayers`. Seeks use `get_frames_initial` like the preview
 /// renderer; frames that follow a seek use `get_frames` like playback.
 pub struct Player {
-    constants: std::sync::Arc<cap_rendering::RenderVideoConstants>,
-    segments: Vec<cap_editor::SegmentMedia>,
-    renderer: Option<cap_rendering::FrameRenderer<'static>>,
-    layers: cap_rendering::RendererLayers,
-    zooms: Vec<cap_rendering::ZoomTransformTimeline>,
-    outgoing_zooms: std::collections::HashMap<u32, cap_rendering::ZoomTransformTimeline>,
+    constants: std::sync::Arc<frameever_rendering::RenderVideoConstants>,
+    segments: Vec<frameever_editor::SegmentMedia>,
+    renderer: Option<frameever_rendering::FrameRenderer<'static>>,
+    layers: frameever_rendering::RendererLayers,
+    zooms: Vec<frameever_rendering::ZoomTransformTimeline>,
+    outgoing_zooms: std::collections::HashMap<u32, frameever_rendering::ZoomTransformTimeline>,
     config: ProjectConfiguration,
     duration: f64,
     resolution: XY<u32>,
@@ -796,9 +800,9 @@ impl Player {
         resolution: (u32, u32),
     ) -> Result<Self, String> {
         let meta = project.meta.studio_meta().ok_or("not studio")?.clone();
-        let recordings = cap_rendering::ProjectRecordingsMeta::new(&project.path, &meta)?;
+        let recordings = frameever_rendering::ProjectRecordingsMeta::new(&project.path, &meta)?;
         let constants = std::sync::Arc::new(
-            cap_rendering::RenderVideoConstants::new(
+            frameever_rendering::RenderVideoConstants::new(
                 &recordings.segments,
                 project.meta.clone(),
                 meta.clone(),
@@ -807,8 +811,9 @@ impl Player {
             .map_err(|e| format!("render constants: {e}"))?,
         );
         let segments =
-            cap_editor::create_segments(&project.meta, &meta, decoder == Decoder::Ffmpeg).await?;
-        let mut layers = cap_rendering::RendererLayers::new_with_options(
+            frameever_editor::create_segments(&project.meta, &meta, decoder == Decoder::Ffmpeg)
+                .await?;
+        let mut layers = frameever_rendering::RendererLayers::new_with_options(
             &constants.device,
             &constants.queue,
             constants.is_software_adapter,
@@ -826,7 +831,7 @@ impl Player {
         let zooms = segments
             .iter()
             .map(|s| {
-                cap_rendering::ZoomTransformTimeline::from_project(
+                frameever_rendering::ZoomTransformTimeline::from_project(
                     &config,
                     &s.cursor,
                     duration,
@@ -836,10 +841,10 @@ impl Player {
             .collect();
         // The renderer borrows the constants; both live as long as the
         // player, and the Arc keeps the constants' address stable.
-        let constants_ref: &'static cap_rendering::RenderVideoConstants =
+        let constants_ref: &'static frameever_rendering::RenderVideoConstants =
             unsafe { &*std::sync::Arc::as_ptr(&constants) };
         Ok(Self {
-            renderer: Some(cap_rendering::FrameRenderer::new(constants_ref)),
+            renderer: Some(frameever_rendering::FrameRenderer::new(constants_ref)),
             constants,
             segments,
             layers,
@@ -879,7 +884,7 @@ impl Player {
         frame: u32,
         fps: u32,
         seek: bool,
-        expectation: Option<&cap_verify::model::FrameExpectation>,
+        expectation: Option<&frameever_verify::model::FrameExpectation>,
     ) -> Result<FrameReadout, String> {
         let t = f64::from(frame) / f64::from(fps);
         let mapping = self
@@ -889,11 +894,11 @@ impl Player {
             .and_then(|timeline| timeline.get_frame_mapping(t))
             .ok_or_else(|| format!("no timeline segment at {t:.3}s"))?;
         let (incoming, outgoing) = match mapping {
-            cap_project::TimelineFrameMapping::Single { source, .. }
-            | cap_project::TimelineFrameMapping::Hold { source, .. } => {
+            frameever_project::TimelineFrameMapping::Single { source, .. }
+            | frameever_project::TimelineFrameMapping::Hold { source, .. } => {
                 ((source.segment.recording_clip, source.source_time), None)
             }
-            cap_project::TimelineFrameMapping::Transition {
+            frameever_project::TimelineFrameMapping::Transition {
                 outgoing,
                 incoming,
                 kind,
@@ -914,7 +919,7 @@ impl Player {
             let outgoing_frames = self.fetch(clip, time, seek).await?;
             let screen_size = self.constants.options.screen_size;
             let outgoing_zoom = self.outgoing_zooms.entry(clip).or_insert_with(|| {
-                cap_rendering::ZoomTransformTimeline::from_project_for_outgoing_clip(
+                frameever_rendering::ZoomTransformTimeline::from_project_for_outgoing_clip(
                     &self.config,
                     &self.segments[clip as usize].cursor,
                     self.duration,
@@ -923,7 +928,7 @@ impl Player {
                 )
             });
             outgoing_zoom.ensure_precomputed_until((frame as f32 + 1.0) / fps as f32);
-            let outgoing_uniforms = cap_rendering::ProjectUniforms::new(
+            let outgoing_uniforms = frameever_rendering::ProjectUniforms::new(
                 &self.constants,
                 &self.config,
                 frame,
@@ -936,7 +941,7 @@ impl Player {
             );
             let zoom = &mut self.zooms[incoming.0 as usize];
             zoom.ensure_precomputed_until((frame as f32 + 1.0) / fps as f32);
-            let incoming_uniforms = cap_rendering::ProjectUniforms::new(
+            let incoming_uniforms = frameever_rendering::ProjectUniforms::new(
                 &self.constants,
                 &self.config,
                 frame,
@@ -951,13 +956,13 @@ impl Player {
                 .as_mut()
                 .expect("renderer")
                 .render_transition_immediate(
-                    cap_rendering::TransitionRenderInput {
+                    frameever_rendering::TransitionRenderInput {
                         segment_frames: outgoing_frames,
                         uniforms: outgoing_uniforms,
                         cursor: &self.segments[clip as usize].cursor,
                         render_display: true,
                     },
-                    cap_rendering::TransitionRenderInput {
+                    frameever_rendering::TransitionRenderInput {
                         segment_frames: incoming_frames,
                         uniforms: incoming_uniforms,
                         cursor: &self.segments[incoming.0 as usize].cursor,
@@ -973,7 +978,7 @@ impl Player {
             let media = &self.segments[incoming.0 as usize];
             let zoom = &mut self.zooms[incoming.0 as usize];
             zoom.ensure_precomputed_until((frame as f32 + 1.0) / fps as f32);
-            let uniforms = cap_rendering::ProjectUniforms::new(
+            let uniforms = frameever_rendering::ProjectUniforms::new(
                 &self.constants,
                 &self.config,
                 frame,
@@ -1019,7 +1024,7 @@ impl Player {
         clip: u32,
         time: f64,
         seek: bool,
-    ) -> Result<cap_rendering::DecodedSegmentFrames, String> {
+    ) -> Result<frameever_rendering::DecodedSegmentFrames, String> {
         let media = &self.segments[clip as usize];
         let offsets = self
             .config
@@ -1099,7 +1104,7 @@ impl RealtimeTelemetry {
     }
 }
 
-/// Runs the editor's real-time playback loop (`cap_editor::Playback`: warm-up,
+/// Runs the editor's real-time playback loop (`frameever_editor::Playback`: warm-up,
 /// prefetch, frame cache, wall clock) from `start_frame` and returns every
 /// frame it delivered, read with `expect(frame number)` (so transition frames
 /// are read as blends), plus the loop's telemetry. The `seconds` window starts
@@ -1117,14 +1122,14 @@ pub async fn realtime_playback(
     fps: u32,
     start_frame: u32,
     seconds: f64,
-    expect: &dyn Fn(u32) -> cap_verify::model::FrameExpectation,
+    expect: &dyn Fn(u32) -> frameever_verify::model::FrameExpectation,
 ) -> Result<(Vec<(u32, FrameReadout)>, RealtimeTelemetry), String> {
     use std::sync::{Arc, Mutex};
     const READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
     let meta = project.meta.studio_meta().ok_or("not studio")?.clone();
-    let recordings = cap_rendering::ProjectRecordingsMeta::new(&project.path, &meta)?;
+    let recordings = frameever_rendering::ProjectRecordingsMeta::new(&project.path, &meta)?;
     let constants = Arc::new(
-        cap_rendering::RenderVideoConstants::new(
+        frameever_rendering::RenderVideoConstants::new(
             &recordings.segments,
             project.meta.clone(),
             meta.clone(),
@@ -1133,35 +1138,39 @@ pub async fn realtime_playback(
         .map_err(|e| format!("render constants: {e}"))?,
     );
     let segments = Arc::new(
-        cap_editor::create_segments_without_audio(&project.meta, &meta, decoder == Decoder::Ffmpeg)
-            .await?,
+        frameever_editor::create_segments_without_audio(
+            &project.meta,
+            &meta,
+            decoder == Decoder::Ffmpeg,
+        )
+        .await?,
     );
     // The case is labelled by decoder: it must be the decoder that runs.
     check_decoders(case, decoder, &segments);
-    let layers_rx = cap_editor::start_renderer_layers_creation(&constants, &config);
-    let layers_rx = cap_editor::finish_renderer_layers_creation(layers_rx).await;
-    let delivered: Arc<Mutex<Vec<cap_rendering::RenderedFrame>>> = Default::default();
+    let layers_rx = frameever_editor::start_renderer_layers_creation(&constants, &config);
+    let layers_rx = frameever_editor::finish_renderer_layers_creation(layers_rx).await;
+    let delivered: Arc<Mutex<Vec<frameever_rendering::RenderedFrame>>> = Default::default();
     let sink = delivered.clone();
-    let frame_cb: cap_editor::EditorFrameCallback = Box::new(move |output, _| {
-        if let cap_editor::EditorFrameOutput::Rgba(frame) = output {
+    let frame_cb: frameever_editor::EditorFrameCallback = Box::new(move |output, _| {
+        if let frameever_editor::EditorFrameOutput::Rgba(frame) = output {
             sink.lock().unwrap().push(frame);
         }
     });
-    let renderer = Arc::new(cap_editor::Renderer::spawn(
+    let renderer = Arc::new(frameever_editor::Renderer::spawn(
         constants.clone(),
         frame_cb,
         layers_rx,
     )?);
     let (_project_tx, project_rx) = tokio::sync::watch::channel(config);
-    let (audio_output, _audio_sink) = cap_editor::AudioOutput::new_offline();
-    let (telemetry, mut telemetry_rx) = cap_editor::PlaybackTelemetry::channel();
-    let playback = cap_editor::Playback {
+    let (audio_output, _audio_sink) = frameever_editor::AudioOutput::new_offline();
+    let (telemetry, mut telemetry_rx) = frameever_editor::PlaybackTelemetry::channel();
+    let playback = frameever_editor::Playback {
         renderer,
         render_constants: constants,
         start_frame_number: start_frame,
         project: project_rx,
         segment_medias: segments,
-        music: cap_editor::MusicTracks::new(),
+        music: frameever_editor::MusicTracks::new(),
         audio_output: Arc::new(audio_output),
         telemetry: Some(telemetry),
     };
@@ -1171,8 +1180,9 @@ pub async fn realtime_playback(
         .await
         .map_err(|e| format!("playback start: {e:?}"))?;
     let mut report = RealtimeTelemetry::default();
-    let absorb = |event: cap_editor::PlaybackTelemetryEvent, report: &mut RealtimeTelemetry| {
-        use cap_editor::PlaybackTelemetryEvent as E;
+    let absorb = |event: frameever_editor::PlaybackTelemetryEvent,
+                  report: &mut RealtimeTelemetry| {
+        use frameever_editor::PlaybackTelemetryEvent as E;
         match event {
             E::WarmupComplete {
                 buffered_frames,

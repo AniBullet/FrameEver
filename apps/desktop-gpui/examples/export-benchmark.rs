@@ -6,11 +6,11 @@ use std::{
     time::Instant,
 };
 
-use cap_export::{
+use frameever_export::{
     ExporterBase,
     mp4::{ExportCompression, Mp4ExportSettings},
 };
-use cap_project::XY;
+use frameever_project::XY;
 
 #[cfg(unix)]
 fn cpu_secs() -> f64 {

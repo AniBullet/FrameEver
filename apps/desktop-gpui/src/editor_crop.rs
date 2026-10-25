@@ -48,7 +48,7 @@ use crate::{
     i18n::t,
     ui,
 };
-use cap_project::{Crop, XY};
+use frameever_project::{Crop, XY};
 use gpui::{
     AnyElement, Context, CursorStyle, FontWeight, Hsla, InteractiveElement, IntoElement,
     MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, RenderImage,
@@ -2251,11 +2251,11 @@ pub(crate) fn crop_local(area: Option<gpui::Bounds<Pixels>>, position: Point<Pix
 /// The decode half of [`EditorWindow::load_crop_frame`], transcribed from
 /// `get_display_frame_for_cropping` minus the JPEG round trip.
 async fn decode_display_frame(
-    instance: &cap_editor::EditorInstance,
-    project: &cap_project::ProjectConfiguration,
+    instance: &frameever_editor::EditorInstance,
+    project: &frameever_project::ProjectConfiguration,
     time_secs: f64,
 ) -> Option<Arc<RenderImage>> {
-    use cap_rendering::{PixelFormat, cpu_yuv};
+    use frameever_rendering::{PixelFormat, cpu_yuv};
 
     let (segment_time, segment) = project.get_segment_time(time_secs)?;
     let medias = instance
@@ -2315,7 +2315,7 @@ async fn decode_display_frame(
     };
     // gpui's `RenderImage` is BGRA behind an `RgbaImage`, which is the same
     // swap `editor_window::frame_image` does for the player's frames.
-    cap_gpui_kernels::frame::swap_red_blue(&mut rgba);
+    frameever_gpui_kernels::frame::swap_red_blue(&mut rgba);
     let buffer = image::RgbaImage::from_raw(width, height, rgba)?;
     Some(Arc::new(RenderImage::new(smallvec::smallvec![
         image::Frame::new(buffer)
@@ -3999,13 +3999,13 @@ mod tests {
 struct StyleCropTarget {
     index: usize,
     fingerprint: String,
-    background: cap_project::BackgroundConfiguration,
+    background: frameever_project::BackgroundConfiguration,
     opting_in: bool,
     time: f64,
 }
 
 impl StyleCropTarget {
-    fn apply(&self, project: &mut cap_project::ProjectConfiguration, crop: Crop) -> bool {
+    fn apply(&self, project: &mut frameever_project::ProjectConfiguration, crop: Crop) -> bool {
         if !self.matches(project) {
             return false;
         }
@@ -4022,7 +4022,7 @@ impl StyleCropTarget {
         true
     }
 
-    fn matches(&self, project: &cap_project::ProjectConfiguration) -> bool {
+    fn matches(&self, project: &frameever_project::ProjectConfiguration) -> bool {
         project
             .timeline
             .as_ref()
@@ -4038,7 +4038,7 @@ mod style_image_tests {
 
     #[test]
     fn style_image_crop_preview_and_save_preserve_base_and_guard_reordering() {
-        let mut project: cap_project::ProjectConfiguration = serde_json::from_value(serde_json::json!({"timeline":{"zoomSegments":[],"segments":[],"styleSegments":[{"start":1,"end":5,"name":"A"},{"start":6,"end":9,"name":"B"}]}})).unwrap();
+        let mut project: frameever_project::ProjectConfiguration = serde_json::from_value(serde_json::json!({"timeline":{"zoomSegments":[],"segments":[],"styleSegments":[{"start":1,"end":5,"name":"A"},{"start":6,"end":9,"name":"B"}]}})).unwrap();
         let before = serde_json::to_value(&project).unwrap();
         let target = StyleCropTarget {
             index: 0,

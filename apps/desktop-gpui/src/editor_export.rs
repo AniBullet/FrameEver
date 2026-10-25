@@ -5,17 +5,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use cap_export::estimates::{ExportEstimates, estimate_export};
-use cap_export::gif::GifExportSettings;
-use cap_export::mov::MovExportSettings;
-use cap_export::mp4::{ExportCodec, ExportCompression, Mp4ExportSettings};
-use cap_export::preview::{
+use frameever_export::estimates::{ExportEstimates, estimate_export};
+use frameever_export::gif::GifExportSettings;
+use frameever_export::mov::MovExportSettings;
+use frameever_export::mp4::{ExportCodec, ExportCompression, Mp4ExportSettings};
+use frameever_export::preview::{
     ExportPreviewSettings, render_preview_with_config, render_preview_with_editor,
 };
-use cap_export::settings::ExportSettings;
-use cap_export::{ExporterBase, make_cursor_only_project};
-use cap_project::{BackgroundSource, XY};
-use cap_utils::export_resources::{
+use frameever_export::settings::ExportSettings;
+use frameever_export::{ExporterBase, make_cursor_only_project};
+use frameever_project::{BackgroundSource, XY};
+use frameever_utils::export_resources::{
     DiskBudget, ExportResources, estimated_working_bytes, is_resource_stop,
 };
 use gpui::{
@@ -375,7 +375,7 @@ impl ExportUi {
     }
 }
 
-fn has_transparent_background(project: &cap_project::ProjectConfiguration) -> bool {
+fn has_transparent_background(project: &frameever_project::ProjectConfiguration) -> bool {
     matches!(
         project.background.source,
         BackgroundSource::Color { alpha, .. } if alpha < 255
@@ -422,7 +422,7 @@ fn format_estimate_range(range: [f64; 2], time: bool) -> String {
 }
 
 fn decode_jpeg_bytes(bytes: &[u8]) -> Option<Arc<RenderImage>> {
-    let rgba = cap_gpui_kernels::codec::decode_jpeg_to_bgra(bytes)?;
+    let rgba = frameever_gpui_kernels::codec::decode_jpeg_to_bgra(bytes)?;
     Some(Arc::new(RenderImage::new(smallvec::smallvec![
         image::Frame::new(rgba)
     ])))
@@ -2196,7 +2196,7 @@ fn matches_compression(current: ExportCompression, expected: ExportCompression) 
 #[allow(clippy::too_many_arguments)]
 async fn run_export(
     project_path: PathBuf,
-    project: cap_project::ProjectConfiguration,
+    project: frameever_project::ProjectConfiguration,
     format: ExportFormatKind,
     cursor_only: bool,
     fps: u32,
@@ -2225,7 +2225,7 @@ async fn run_export(
     }
 
     enum PreparedBase {
-        Mp4(cap_export::Mp4ExporterBase),
+        Mp4(frameever_export::Mp4ExporterBase),
         Other(ExporterBase),
     }
     let (base, total) = if !cursor_only && format != ExportFormatKind::Gif {

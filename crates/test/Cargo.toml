@@ -1,5 +1,5 @@
 [package]
-name = "cap-test"
+name = "frameever-test"
 version = "0.1.0"
 edition = "2024"
 description = "Unified testing harness for Cap"
@@ -8,18 +8,18 @@ description = "Unified testing harness for Cap"
 workspace = true
 
 [[bin]]
-name = "cap-test"
+name = "frameever-test"
 path = "src/main.rs"
 
 [dependencies]
-cap-recording = { path = "../recording", features = ["test-utils"] }
-cap-media-info = { path = "../media-info" }
-cap-project = { path = "../project" }
-cap-editor = { path = "../editor" }
-cap-export = { path = "../export" }
-cap-rendering = { path = "../rendering" }
+frameever-recording = { path = "../recording", features = ["test-utils"] }
+frameever-media-info = { path = "../media-info" }
+frameever-project = { path = "../project" }
+frameever-editor = { path = "../editor" }
+frameever-export = { path = "../export" }
+frameever-rendering = { path = "../rendering" }
 scap-targets = { path = "../scap-targets" }
-cap-camera = { path = "../camera" }
+frameever-camera = { path = "../camera" }
 
 tokio = { workspace = true }
 serde = { workspace = true }

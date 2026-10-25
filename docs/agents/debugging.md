@@ -35,13 +35,13 @@ Everything goes through one entry point, `pnpm fe <command>` (`scripts/fe.mjs`).
 | Translations | `apps/desktop-gpui/src/i18n/zh_cn/*.rs`, rules in `docs/i18n.md` |
 | Brand constants | `crates/utils/src/brand.rs` |
 
-Environment variables the app reads: `CAP_GPUI_APP_DATA_DIR`, `CAP_GPUI_RECORDINGS_DIR`, `CAP_GPUI_LOG_DIR` (set by `fe dev`), `CAP_GPUI_DEV_RESTORE` (window state across `--watch` relaunches), `RUST_LOG` (for example `RUST_LOG=cap_gpui=debug,cap_recording=debug pnpm fe dev`).
+Environment variables the app reads: `CAP_GPUI_APP_DATA_DIR`, `CAP_GPUI_RECORDINGS_DIR`, `CAP_GPUI_LOG_DIR` (set by `fe dev`), `CAP_GPUI_DEV_RESTORE` (window state across `--watch` relaunches), `RUST_LOG` (for example `RUST_LOG=frameever_gpui=debug,frameever_recording=debug pnpm fe dev`).
 
 ## Debugging by area
 
 **The app won't start or crashes at launch.** Run `pnpm fe doctor`, then `pnpm fe dev` and read the console, then `pnpm fe logs`. Exit code `0xc0000135` / `STATUS_DLL_NOT_FOUND` means FFmpeg DLLs weren't on the path: start the app through `pnpm fe dev`, not by double-clicking the debug exe.
 
-**Recording, export, or file handling.** Reproduce without the UI through the CLI: `cargo run -p cap -- doctor --json`, `cargo run -p cap -- targets --json`, `cargo run -p cap -- record start --screen <id> --json --detach` then `record stop`, and `pnpm fe export <codec>` (set `CAP_EXPORT_FORCE_SOFTWARE_ENCODER=1` to skip the GPU encoders and use libx264, libx265 or SVT-AV1; it also applies to HEVC compression). Inspect results with `ffprobe` from `target/ffmpeg/bin` (codec, frame count, duration) and compare quality with `ffmpeg -i a.mp4 -i b.mp4 -lavfi "[0:v][1:v]ssim" -f null -`. Unit tests for encoders live in `crates/enc-ffmpeg/src/mux/mp4.rs`, `crates/enc-ffmpeg/src/video/hevc.rs` (encoder selection) and `crates/export/src/compress.rs`; add one that fails before your fix.
+**Recording, export, or file handling.** Reproduce without the UI through the CLI: `cargo run -p frameever -- doctor --json`, `cargo run -p frameever -- targets --json`, `cargo run -p frameever -- record start --screen <id> --json --detach` then `record stop`, and `pnpm fe export <codec>` (set `CAP_EXPORT_FORCE_SOFTWARE_ENCODER=1` to skip the GPU encoders and use libx264, libx265 or SVT-AV1; it also applies to HEVC compression). Inspect results with `ffprobe` from `target/ffmpeg/bin` (codec, frame count, duration) and compare quality with `ffmpeg -i a.mp4 -i b.mp4 -lavfi "[0:v][1:v]ssim" -f null -`. Unit tests for encoders live in `crates/enc-ffmpeg/src/mux/mp4.rs`, `crates/enc-ffmpeg/src/video/hevc.rs` (encoder selection) and `crates/export/src/compress.rs`; add one that fails before your fix.
 
 **UI layout or text.** Read the render code (`src/*_window.rs`, `src/settings_pages.rs`, `src/editor_*.rs`) and the theme (`src/theme.rs`). Change it, run `pnpm fe check`, then ask the owner to look with `pnpm fe dev` (or `--lang zh-CN` for Chinese layout).
 
@@ -57,7 +57,7 @@ Environment variables the app reads: `CAP_GPUI_APP_DATA_DIR`, `CAP_GPUI_RECORDIN
 |---|---|
 | `bash: ... WSL ... execvpe(/bin/bash) failed` | PowerShell's `bash` is WSL's. Scripts need Git Bash; `pnpm fe` finds it for you |
 | `std::hint::cold_path` / gpui compile errors | Wrong Rust for the GPUI app; it needs stable (`apps/desktop-gpui/rust-toolchain.toml`), the root workspace 1.88 |
-| `cargo build` fails with "Access is denied" on `cap-gpui.exe` | The app is still running; stop it (pane "停止", or close it) and rebuild |
+| `cargo build` fails with "Access is denied" on `frameever-gpui.exe` | The app is still running; stop it (pane "停止", or close it) and rebuild |
 | `libclang` / `bindgen` errors | `.cargo/config.toml` lost `LIBCLANG_PATH`; run `pnpm fe setup` |
 | clippy `deref which would be done by auto-deref` on `tr(*x)` | Write `tr(x)` |
 | `makensis` `Internal compiler error #12345: deflateInit() failed` | NSIS (32-bit) couldn't get ~1.4 GB for the 128 MB LZMA window that lets the app and CLI share data. Close memory-heavy programs and rerun `pnpm fe package --skip-sidecars` (no recompile of the helpers). Don't shrink the window: the installer grows |

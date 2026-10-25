@@ -1,22 +1,22 @@
 [package]
-name = "cap"
+name = "frameever"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 clap = { version = "4.5.23", features = ["derive"] }
 clap_complete = "4.5.38"
-cap-project = { path = "../../crates/project" }
-cap-recording = { path = "../../crates/recording" }
-cap-editor = { path = "../../crates/editor" }
-cap-export = { path = "../../crates/export" }
-cap-media-info = { path = "../../crates/media-info" }
-cap-timestamp = { path = "../../crates/timestamp" }
-cap-utils = { path = "../../crates/utils" }
+frameever-project = { path = "../../crates/project" }
+frameever-recording = { path = "../../crates/recording" }
+frameever-editor = { path = "../../crates/editor" }
+frameever-export = { path = "../../crates/export" }
+frameever-media-info = { path = "../../crates/media-info" }
+frameever-timestamp = { path = "../../crates/timestamp" }
+frameever-utils = { path = "../../crates/utils" }
 relative-path = "2.0.3"
-cap-automation = { path = "../../crates/automation" }
-cap-camera = { path = "../../crates/camera" }
-cap-cli-install = { path = "../../crates/cli-install" }
+frameever-automation = { path = "../../crates/automation" }
+frameever-camera = { path = "../../crates/camera" }
+frameever-cli-install = { path = "../../crates/cli-install" }
 scap-targets = { path = "../../crates/scap-targets" }
 serde = { workspace = true }
 serde_json = "1.0.133"

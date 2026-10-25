@@ -16,11 +16,11 @@
    ls /tmp/cap-real-device-tests/
 
    # If none exist, create them first:
-   cargo run -p cap-recording --example real-device-test-runner -- baseline --keep-outputs
+   cargo run -p frameever-recording --example real-device-test-runner -- baseline --keep-outputs
    ```
 4. Run a quick playback benchmark to verify current state:
    ```bash
-   cargo run -p cap-recording --example playback-test-runner -- full
+   cargo run -p frameever-recording --example playback-test-runner -- full
    ```
 5. Continue work from "Next Steps" section below
 
@@ -83,7 +83,7 @@
 - [x] **Profile decoder init time** - Hardware acceleration confirmed (AVAssetReader) (2026-01-28)
 - [x] **Identify latency hotspots** - No issues found, p95=3.1ms (2026-01-28)
 - [x] **Optimize random-access scrubbing** - Reduced AVAssetReader scrub decode p95 on cap-performance-fixtures from 231.5ms to 47.6ms (2026-05-07)
-- [x] **Add live editor playback harness** - Added `cap-editor --example editor-playback-benchmark` telemetry for warmup, frame source, skips, renderer queue wait, render time, callback packing, and output format (2026-05-20)
+- [x] **Add live editor playback harness** - Added `frameever-editor --example editor-playback-benchmark` telemetry for warmup, frame source, skips, renderer queue wait, render time, callback packing, and output format (2026-05-20)
 - [x] **Optimize live editor playback render output** - Switched live editor renderer output from NV12 to RGBA after telemetry showed NV12 renderer p95 over frame budget at 1080p (2026-05-20)
 - [x] **Reduce live editor first-render drops** - Moved renderer setup earlier and prerendered the first playback frame before starting the playback clock, reducing 1080p renderer drops from 8 to 0 on the reference live run (2026-05-20)
 - [x] **Measure desktop RGBA display bandwidth** - Time-normalized desktop frame transport stats and measured RGBA payload at 406.6 MB/s full preview, 172.8 MB/s default half preview, with callback/display packing below budget (2026-05-20)
@@ -98,26 +98,26 @@
 
 ```bash
 # Full playback validation (RECOMMENDED)
-cargo run -p cap-recording --example playback-test-runner -- full
+cargo run -p frameever-recording --example playback-test-runner -- full
 
 # Test specific categories
-cargo run -p cap-recording --example playback-test-runner -- decoder
-cargo run -p cap-recording --example playback-test-runner -- playback
-cargo run -p cap-recording --example playback-test-runner -- audio-sync
-cargo run -p cap-recording --example playback-test-runner -- camera-sync
+cargo run -p frameever-recording --example playback-test-runner -- decoder
+cargo run -p frameever-recording --example playback-test-runner -- playback
+cargo run -p frameever-recording --example playback-test-runner -- audio-sync
+cargo run -p frameever-recording --example playback-test-runner -- camera-sync
 
 # List available recordings
-cargo run -p cap-recording --example playback-test-runner -- list
+cargo run -p frameever-recording --example playback-test-runner -- list
 
 # Test a specific recording
-cargo run -p cap-recording --example playback-test-runner -- --recording-path /path/to/recording full
+cargo run -p frameever-recording --example playback-test-runner -- --recording-path /path/to/recording full
 
 # Save benchmark results to PLAYBACK-BENCHMARKS.md
-cargo run -p cap-recording --example playback-test-runner -- full --benchmark-output
+cargo run -p frameever-recording --example playback-test-runner -- full --benchmark-output
 
 # Combined workflow: record then playback
-cargo run -p cap-recording --example real-device-test-runner -- baseline --keep-outputs && \
-cargo run -p cap-recording --example playback-test-runner -- full
+cargo run -p frameever-recording --example real-device-test-runner -- baseline --keep-outputs && \
+cargo run -p frameever-recording --example playback-test-runner -- full
 ```
 
 **Note**: Playback tests require recordings to exist. Run the recording test runner with `--keep-outputs` first.
@@ -442,7 +442,7 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 1. Cloned `https://github.com/CapSoftware/cap-performance-fixtures` to `/tmp/cap-performance-fixtures`
 2. Used `/tmp/cap-performance-fixtures/reference-recording.cap`, a two-segment Studio recording with 3024x1964 display video, 1920x1080 camera video, mic audio, system audio, cursor data, and zoom configuration
 3. Ran playback validation at 60fps
-4. Ran `cap-editor` decode/render/scrub pipeline benchmarks at 60fps for 300 frames
+4. Ran `frameever-editor` decode/render/scrub pipeline benchmarks at 60fps for 300 frames
 5. Tuned the macOS AVAssetReader multi-position decoder pool so scrub requests use a stricter decoder reuse window than linear playback
 
 **Changes Made**:
@@ -469,9 +469,9 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 
 **Validation**:
 - `cargo fmt --all`
-- `cargo run -p cap-recording --example playback-test-runner -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 full`
-- `cargo run -p cap-editor --example playback-pipeline-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300`
-- `cargo clippy -p cap-rendering --all-targets -- -D warnings`
+- `cargo run -p frameever-recording --example playback-test-runner -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 full`
+- `cargo run -p frameever-editor --example playback-pipeline-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300`
+- `cargo clippy -p frameever-rendering --all-targets -- -D warnings`
 
 **Stopping point**: Scrubbing is substantially faster and playback validation still passes. Remaining architectural opportunities are renderer readback/transport overhead and longer-duration testing on lower-powered MacBook Air hardware.
 
@@ -515,10 +515,10 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 
 **Validation**:
 - `cargo fmt --all`
-- `cargo check -p cap-editor --examples`
-- `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full`
-- `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half`
-- `cargo run -p cap-recording --example playback-test-runner -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 full`
+- `cargo check -p frameever-editor --examples`
+- `cargo run -p frameever-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full`
+- `cargo run -p frameever-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half`
+- `cargo run -p frameever-recording --example playback-test-runner -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 full`
 
 **Stopping point**: The top measured live playback bottleneck is fixed. Remaining opportunity is first-render setup latency, visible as a max render spike and a small number of initial renderer drops even though steady-state p95 is under budget.
 
@@ -559,12 +559,12 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 
 **Validation**:
 - `cargo fmt --all`
-- `cargo check -p cap-rendering`
-- `cargo check -p cap-editor --examples`
+- `cargo check -p frameever-rendering`
+- `cargo check -p frameever-editor --examples`
 - `bun run biome check --write <tauri-app>/src/utils/socket.ts`
-- `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full`
-- `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half`
-- `cargo run -p cap-recording --example playback-test-runner -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 full`
+- `cargo run -p frameever-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full`
+- `cargo run -p frameever-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half`
+- `cargo run -p frameever-recording --example playback-test-runner -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 full`
 
 **Stopping point**: The measured live editor path now renders every submitted frame on the reference fixture with no renderer drops or playback skips. The remaining first-frame cost is GPU startup work, but it is isolated to setup before timed playback begins.
 
@@ -610,18 +610,18 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 
 **Validation**:
 - `cargo fmt --all`
-- `cargo check -p cap-editor --examples`
+- `cargo check -p frameever-editor --examples`
 - `cargo check -p cap-desktop --examples`
 - `bun run biome check --write <tauri-app>/scripts/desktop-display-transport-benchmark.js <tauri-app>/package.json <tauri-app>/src/utils/socket.ts <tauri-app>/src/utils/webgpu-renderer.ts crates/editor/PLAYBACK-FINDINGS.md`
-- `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full`
-- `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half`
-- `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution full`
-- `cargo run -p cap-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution half`
+- `cargo run -p frameever-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full`
+- `cargo run -p frameever-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half`
+- `cargo run -p frameever-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution full`
+- `cargo run -p frameever-editor --example editor-playback-benchmark -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution half`
 - `bun run --cwd <tauri-app> test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution full --startup-delay-ms 5000`
 - `bun run --cwd <tauri-app> test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 300 --resolution half --startup-delay-ms 5000`
 - `bun run --cwd <tauri-app> test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution full --startup-delay-ms 5000`
 - `bun run --cwd <tauri-app> test:display-transport -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 --frames 900 --resolution half --startup-delay-ms 5000`
-- `cargo run -p cap-recording --example playback-test-runner -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 full`
+- `cargo run -p frameever-recording --example playback-test-runner -- --recording-path /tmp/cap-performance-fixtures/reference-recording.cap --fps 60 full`
 
 **Stopping point**: The measured sustained-run bottleneck was first-use cursor asset loading during playback. Moving that work to renderer-layer initialization removes the repeated frame 696 drop without changing playback timing, frame choice, preview resolution semantics, visual asset selection, audio/video sync, decoder selection, GPU adapter selection, or fallback behavior. The full desktop path now sustains 60fps on the reference fixture with no renderer drops, skips, WebSocket send failures, or browser display notification loss in the 900-frame full/default-half runs. The next visible full-preview cost is WebGPU texture upload/display work around 2.1ms average plus Rust WebSocket send around 1.3ms average, both still under frame budget.
 
@@ -649,7 +649,7 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 - Debug (dev app): press2 (scrub) 997→50ms, press3 →55ms (≈20x). Press1 975ms remains video warmup (fresh-process decoder/GPU warmup; the real app prewarms this at editor open).
 - Full playback validation still passes: all 6 segments decode OK, mic sync 28-86ms, system audio 19-27ms, camera drift 0.0ms.
 - Sustained 300-frame run: 300/300 rendered, 0 skips, 0 renderer drops, 29.8/30fps.
-- All 17 cap-editor tests pass (debug + release), including `prerendered_playback_and_export_apply_negative_timing_offset_consistently` which asserts playback `fill()` output (through the new atomic read path) matches export rendering sample-for-sample.
+- All 17 frameever-editor tests pass (debug + release), including `prerendered_playback_and_export_apply_negative_timing_offset_consistently` which asserts playback `fill()` output (through the new atomic read path) matches export rendering sample-for-sample.
 
 **Intentional behavior notes**:
 - Seeking into a not-yet-rendered region (only possible within ~100ms of press in release, ~1s in debug) plays brief silence instead of blocking; video is unaffected and audio realigns via the existing playhead sync.
@@ -682,7 +682,7 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 - Debug (dev app): 923 / 59 / 48ms — press-1 remainder is fresh-process video warmup that the real app prewarms at editor open.
 - Sustained 300-frame run: 300/300 rendered, 0 renderer drops, 29.9/30fps, render p95 9.4ms.
 - Sync validation unchanged: mic 28-86ms, system 19-27ms, camera drift 0.0ms.
-- All 17 cap-editor tests pass (debug + release); clippy clean; cap-desktop/cap-export/cap CLI compile.
+- All 17 frameever-editor tests pass (debug + release); clippy clean; cap-desktop/frameever-export/cap CLI compile.
 
 **Behavior notes**:
 - While the editor is open (and the recording has audio), the app holds an open output stream playing silence — this is how DAWs/editors keep latency down; it keeps Bluetooth links awake between presses.
@@ -725,10 +725,10 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 
 **Validation**:
 - `cargo fmt --all`
-- `cargo test -p cap-rendering decoder::multi_position::tests::test_reposition_preserves_accessed_decoder_when_unused_decoder_is_available`
-- `cargo test -p cap-rendering` (118 passed, 1 ignored)
-- `cargo check -p cap-rendering -p cap-editor`
-- `cargo check -p cap-export`
+- `cargo test -p frameever-rendering decoder::multi_position::tests::test_reposition_preserves_accessed_decoder_when_unused_decoder_is_available`
+- `cargo test -p frameever-rendering` (118 passed, 1 ignored)
+- `cargo check -p frameever-rendering -p frameever-editor`
+- `cargo check -p frameever-export`
 
 **Stopping point**: The reproduced transition and seek workload is smooth at 60fps with zero measured playback skips. The final implementation retains only the measured scheduling changes and their decoder-pool regression test.
 
@@ -756,7 +756,7 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 - The final comparison disabled telemetry and the Chrome fixture, enforced 1248×702 and Electron WebGPU, aligned both CPU samples to 1.5–16.5 seconds after play, and interleaved the four trial pairs.
 - A GPUI trial that lost active-window presentation and fell to 30 FPS was rejected and replaced; the harness now fails any GPUI run below 59 FPS or with a dropped frame.
 - Visual verification confirmed the complete editor remained functional and displayed the expected half-resolution preview.
-- Validation passed: `cargo fmt --all`, scoped checks for `cap-rendering`, `cap-editor`, and `cap-desktop-gpui`, 31 `cap-editor` unit tests, and 171 `cap-rendering` unit tests.
+- Validation passed: `cargo fmt --all`, scoped checks for `frameever-rendering`, `frameever-editor`, and `frameever-desktop-gpui`, 31 `frameever-editor` unit tests, and 171 `frameever-rendering` unit tests.
 
 **Stopping point**: The original CPU gap is closed with substantial margin under four repeatable trials. The remaining NV12-to-RGBA composition and RGBA-to-NV12 presentation passes are GPU work and are no longer a material CPU bottleneck; removing them would require a larger renderer architecture change without evidence that it is currently justified.
 
@@ -786,7 +786,7 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 
 **What was done**:
 1. Debug builds of `apps/desktop-gpui` (Rust 1.96.1) from main (83237e994) and from the branch, driven by the `CAP_GPUI_AUTO_*` hooks against a copy of the blur recording with audio muted: an in-editor export, 4 s of playback, and playback with 60 seeks across the timeline. `/usr/bin/time -l` recorded CPU time (user + sys) and instructions retired for the app process. Three runs per scenario.
-2. The sets ran in the order branch, main, branch within about 25 minutes, each starting a few minutes after its own debug build finished; the main set also followed the `cap-gpui` test suite. No other heavy work of ours ran during any set. The second branch set was added because the first painted fewer frames than main while seeking.
+2. The sets ran in the order branch, main, branch within about 25 minutes, each starting a few minutes after its own debug build finished; the main set also followed the `frameever-gpui` test suite. No other heavy work of ours ran during any set. The second branch set was added because the first painted fewer frames than main while seeking.
 
 **Results** (per run):
 
@@ -816,7 +816,7 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 **Goal**: Run the repository's performance gate against main, explain the slower median render time it showed, and fix the wait behind it.
 
 **What was done**:
-1. Release `cap-test` builds (Rust 1.88.0) ran the command in `.github/workflows/performance-regressions.yml` (`suite performance --duration 8`) on `CapSoftware/cap-performance-fixtures` at 75c8ed2. The suite times 240 frames of decode plus `FrameRenderer::render_immediate` at 1920x1080 and a 120-frame 1080p export. Each comparison is seven interleaved rounds with the order rotated; suite CPU and instructions come from `/usr/bin/time -l`.
+1. Release `frameever-test` builds (Rust 1.88.0) ran the command in `.github/workflows/performance-regressions.yml` (`suite performance --duration 8`) on `CapSoftware/cap-performance-fixtures` at 75c8ed2. The suite times 240 frames of decode plus `FrameRenderer::render_immediate` at 1920x1080 and a 120-frame 1080p export. Each comparison is seven interleaved rounds with the order rotated; suite CPU and instructions come from `/usr/bin/time -l`.
 2. The fixture's first load rewrites its `project-config.json`, which among other defaults sets `screenMotionBlur` from 0 to the cursor's 0.5. `ProjectConfiguration::load` returns the rewritten config, so every run renders with it, as a fresh CI checkout does.
 3. As built, the branch's median render time was slower than main's. To test the explanation below, both builds were rebuilt with `PendingReadback::wait` changed to the NV12 readback spin rule.
 4. That spin rule was then applied to `PendingReadback::wait` and the macOS preview's `PendingSurface::wait` and measured, and replaced by a wait on the frame's own submission: `device.poll(WaitForSubmissionIndex)` on a blocking thread under the existing GPU wait timeout, the shape #2541 uses for Windows readbacks.

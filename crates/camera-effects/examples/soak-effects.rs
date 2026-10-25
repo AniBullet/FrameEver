@@ -1,5 +1,5 @@
 use anyhow::{Context, ensure};
-use cap_camera_effects::{BlurMode, BlurProcessor};
+use frameever_camera_effects::{BlurMode, BlurProcessor};
 use std::time::{Duration, Instant};
 
 fn heap_mib() -> Option<[f64; 2]> {

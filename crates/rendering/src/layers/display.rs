@@ -1,4 +1,4 @@
-use cap_project::XY;
+use frameever_project::XY;
 
 use std::sync::Arc;
 

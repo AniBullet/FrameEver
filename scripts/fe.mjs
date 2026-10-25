@@ -342,7 +342,7 @@ function cargoBuildDebug() {
 }
 
 function appBinary() {
-	return path.join(gpuiDir, "target", "debug", isWindows ? "cap-gpui.exe" : "cap-gpui");
+	return path.join(gpuiDir, "target", "debug", isWindows ? "frameever-gpui.exe" : "frameever-gpui");
 }
 
 export const devPidFile = path.join(testdataDir, "fe-dev.pid");
@@ -368,7 +368,7 @@ function copyForRun() {
 
 function launchApp(env) {
 	const child = spawn(copyForRun(), [], { cwd: gpuiDir, env, stdio: "inherit" });
-	child.on("error", (error) => console.error(`cap-gpui: ${error.message}`));
+	child.on("error", (error) => console.error(`frameever-gpui: ${error.message}`));
 	if (child.pid) {
 		mkdirSync(testdataDir, { recursive: true });
 		writeFileSync(devPidFile, String(child.pid));
@@ -468,21 +468,21 @@ function check() {
 	step("GPUI app");
 	run("cargo", ["check", "--tests"], { cwd: gpuiDir });
 	step("CLI");
-	run("cargo", ["check", "-p", "cap", "--tests"]);
+	run("cargo", ["check", "-p", "frameever", "--tests"]);
 	console.log("\n\u001b[32m✓ Everything compiles\u001b[0m");
 }
 
 function test({ flags, positional }) {
 	step("GPUI tests");
-	run("cargo", ["test", "--bin", "cap-gpui", ...positional], {
+	run("cargo", ["test", "--bin", "frameever-gpui", ...positional], {
 		cwd: gpuiDir,
 		env: withFfmpeg(),
 	});
 	if (flags.all) {
 		step("Encoder, export and CLI tests");
-		run("cargo", ["test", "-p", "cap-enc-ffmpeg", "--lib"], { env: withFfmpeg() });
-		run("cargo", ["test", "-p", "cap-export", "--lib"], { env: withFfmpeg() });
-		run("cargo", ["test", "-p", "cap", "--bin", "cap"], { env: withFfmpeg() });
+		run("cargo", ["test", "-p", "frameever-enc-ffmpeg", "--lib"], { env: withFfmpeg() });
+		run("cargo", ["test", "-p", "frameever-export", "--lib"], { env: withFfmpeg() });
+		run("cargo", ["test", "-p", "frameever", "--bin", "frameever"], { env: withFfmpeg() });
 		step("Packaging script tests");
 		run(process.execPath, [
 			"--test",
@@ -494,7 +494,13 @@ function test({ flags, positional }) {
 	console.log("\n\u001b[32m✓ Tests passed\u001b[0m");
 }
 
-const ROOT_CRATES = ["cap", "cap-export", "cap-enc-ffmpeg", "cap-utils", "cap-cli-install"];
+const ROOT_CRATES = [
+	"frameever",
+	"frameever-export",
+	"frameever-enc-ffmpeg",
+	"frameever-utils",
+	"frameever-cli-install",
+];
 
 function fmt() {
 	run("cargo", ["fmt"], { cwd: gpuiDir });
@@ -508,7 +514,7 @@ function lint() {
 	run("cargo", ["clippy", "--tests"], { cwd: gpuiDir });
 	run("cargo", ["clippy", ...ROOT_CRATES.flatMap((crate) => ["-p", crate]), "--tests"]);
 	step("Translations");
-	run("cargo", ["test", "--bin", "cap-gpui", "i18n::"], { cwd: gpuiDir, env: withFfmpeg() });
+	run("cargo", ["test", "--bin", "frameever-gpui", "i18n::"], { cwd: gpuiDir, env: withFfmpeg() });
 	console.log("\n\u001b[32m✓ Lint passed\u001b[0m");
 }
 
@@ -533,7 +539,7 @@ function exportVideo({ flags, positional }) {
 	const output = path.join(outDir, `${path.basename(project, ".cap")}-${codec}.mp4`);
 	run(
 		"cargo",
-		["run", "-q", "-p", "cap", "--", "export", project, "-o", output, "--codec", codec],
+		["run", "-q", "-p", "frameever", "--", "export", project, "-o", output, "--codec", codec],
 		{ env: withFfmpeg() },
 	);
 	const size = (statSync(output).size / 1024 / 1024).toFixed(1);

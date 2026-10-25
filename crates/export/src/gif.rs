@@ -1,5 +1,5 @@
-use cap_project::XY;
-use cap_rendering::{ProjectUniforms, RenderSegment, RenderedFrame};
+use frameever_project::XY;
+use frameever_rendering::{ProjectUniforms, RenderSegment, RenderedFrame};
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -39,7 +39,7 @@ impl GifExportSettings {
         base: ExporterBase,
         on_progress: impl FnMut(u32) -> bool + Send + 'static,
     ) -> Result<PathBuf, String> {
-        use cap_utils::operation_diagnostics::{Field, observe};
+        use frameever_utils::operation_diagnostics::{Field, observe};
         observe(
             "export_gif",
             &[
@@ -48,7 +48,7 @@ impl GifExportSettings {
                 Field::number("requested_height", self.resolution_base.y as u64),
                 Field::identifier(
                     "resource",
-                    cap_utils::operation_diagnostics::resource_id(&base.project_path),
+                    frameever_utils::operation_diagnostics::resource_id(&base.project_path),
                 ),
                 Field::number(
                     "source_width",
@@ -103,14 +103,14 @@ impl GifExportSettings {
         // Create GIF encoder with quality settings
         let quality = self
             .quality
-            .map(|q| cap_enc_gif::GifQuality {
+            .map(|q| frameever_enc_gif::GifQuality {
                 quality: q.quality.unwrap_or(90),
                 fast: q.fast.unwrap_or(false),
             })
             .unwrap_or_default();
 
         let temporary_output = prepare_new_output(&gif_output_path)?;
-        let mut gif_encoder = cap_enc_gif::GifEncoderWrapper::new_with_quality(
+        let mut gif_encoder = frameever_enc_gif::GifEncoderWrapper::new_with_quality(
             temporary_output
                 .as_ref()
                 .map_or(gif_output_path.as_path(), AsRef::as_ref),
@@ -161,7 +161,7 @@ impl GifExportSettings {
                 .and_then(|v| v.map_err(|v| v.to_string()))
         });
 
-        let render_video_task = cap_rendering::render_video_to_channel(
+        let render_video_task = frameever_rendering::render_video_to_channel(
             &base.render_constants,
             &base.project_config,
             tx_image_data,

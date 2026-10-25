@@ -102,7 +102,7 @@ fn audible_spec_with_duration(duration_secs: usize) -> PlaySpec {
     )
     .unwrap();
     file.flush().unwrap();
-    let audio = Arc::new(cap_audio::DecodedAudio::from(Arc::new(
+    let audio = Arc::new(frameever_audio::DecodedAudio::from(Arc::new(
         AudioData::from_file(file.path()).unwrap(),
     )));
     let (_, playhead_rx) = watch::channel(0.0);
@@ -392,18 +392,18 @@ struct RetainedSourceState {
 struct PreparingOwnershipFixture {
     state: Option<RetainedSourceState>,
     output: PreparingAudioOutputHandle,
-    producer: cap_audio::ProgressiveAudioTestProducer,
+    producer: frameever_audio::ProgressiveAudioTestProducer,
     project: std::sync::Weak<ProjectConfiguration>,
     owner: std::sync::Weak<()>,
 }
 
 fn preparing_test_sources(
-    loader: cap_audio::ProgressiveAudio,
+    loader: frameever_audio::ProgressiveAudio,
     duration: f64,
 ) -> PreparingAudioSources {
     let project = Arc::new(ProjectConfiguration {
-        timeline: Some(cap_project::TimelineConfiguration {
-            segments: vec![cap_project::TimelineSegment {
+        timeline: Some(frameever_project::TimelineConfiguration {
+            segments: vec![frameever_project::TimelineSegment {
                 recording_clip: 0,
                 start: 0.0,
                 end: duration,
@@ -422,9 +422,9 @@ fn preparing_test_sources(
             camera3d_segments: Vec::new(),
             transitions: Vec::new(),
         }),
-        clips: vec![cap_project::ClipConfiguration::default()],
-        audio: cap_project::AudioConfiguration {
-            mic_stereo_mode: cap_project::StereoMode::Stereo,
+        clips: vec![frameever_project::ClipConfiguration::default()],
+        audio: frameever_project::AudioConfiguration {
+            mic_stereo_mode: frameever_project::StereoMode::Stereo,
             ..Default::default()
         },
         ..Default::default()
@@ -438,7 +438,7 @@ fn preparing_test_sources(
 }
 
 fn pending_preparing_owner(generation: u64) -> PreparingOwnershipFixture {
-    let (loader, producer) = cap_audio::ProgressiveAudioTestProducer::new();
+    let (loader, producer) = frameever_audio::ProgressiveAudioTestProducer::new();
     let sources = preparing_test_sources(loader, 1.0);
     let project_weak = Arc::downgrade(&sources.project);
     let request = Arc::new(PreparingAudioRequest::new(PLAY_REQUEST_TIMEOUT));
@@ -564,12 +564,12 @@ async fn healthy_stream_stale_stop_preserves_ordinary_replacement_after_preparin
 }
 
 fn publish_audio_frames(
-    producer: &cap_audio::ProgressiveAudioTestProducer,
+    producer: &frameever_audio::ProgressiveAudioTestProducer,
     samples: &[f32],
     frames: std::ops::Range<usize>,
 ) {
     producer
-        .append(cap_audio::AudioChunk {
+        .append(frameever_audio::AudioChunk {
             source_start_sample: frames.start as u64,
             channels: 2,
             samples: samples[frames.start * 2..frames.end * 2].to_vec(),
@@ -616,7 +616,7 @@ async fn progressive_output_acknowledges_real_pcm_and_grows_the_same_gated_sourc
         control_tx,
         next_generation: AtomicU64::new(0),
     };
-    let (loader, producer) = cap_audio::ProgressiveAudioTestProducer::new();
+    let (loader, producer) = frameever_audio::ProgressiveAudioTestProducer::new();
     let sources = preparing_test_sources(loader.clone(), 70_000.0 / 48_000.0);
     let project = Arc::downgrade(&sources.project);
     let samples = (0..140_000)
@@ -683,7 +683,7 @@ async fn progressive_output_without_a_prefix_never_acknowledges_and_cancels_clea
         control_tx,
         next_generation: AtomicU64::new(0),
     };
-    let (loader, producer) = cap_audio::ProgressiveAudioTestProducer::new();
+    let (loader, producer) = frameever_audio::ProgressiveAudioTestProducer::new();
     let sources = preparing_test_sources(loader, 1.0);
     let project = Arc::downgrade(&sources.project);
     publish_audio_frames(&producer, &vec![0.25; 65_536], 0..32_768);
@@ -781,10 +781,10 @@ fn studio_sound_refresh_changes_live_pcm_and_cannot_restart_stopped_audio() {
     enhanced.project.audio.improve = true;
     let mut strong = audible_spec_with_duration(10);
     strong.project.audio.improve = true;
-    strong.project.audio.isolation = cap_project::VoiceIsolation::Strong;
+    strong.project.audio.isolation = frameever_project::VoiceIsolation::Strong;
     let mut light = audible_spec_with_duration(10);
     light.project.audio.improve = true;
-    light.project.audio.isolation = cap_project::VoiceIsolation::Light;
+    light.project.audio.isolation = frameever_project::VoiceIsolation::Light;
     let late_refresh = audible_spec();
     let (tx, rx) = std_mpsc::channel();
     let output = AudioOutput::new_headless(Box::new(move |samples, _| {

@@ -5,8 +5,8 @@ use std::{
     ptr,
 };
 
-use cap_project::{AudioMeta, StudioRecordingMeta, VideoMeta};
 use ffmpeg::Rescale;
+use frameever_project::{AudioMeta, StudioRecordingMeta, VideoMeta};
 use serde::Serialize;
 use specta::Type;
 
@@ -102,7 +102,7 @@ impl Video {
     pub fn new(path: impl AsRef<Path>, start_time: f64) -> Result<Self, String> {
         let path = path.as_ref();
         if path.is_dir() {
-            let input = cap_video_decode::ffmpeg::open_fragmented_input(path)?;
+            let input = frameever_video_decode::ffmpeg::open_fragmented_input(path)?;
             Self::from_input(input.input(), start_time)
         } else {
             if let Some(video) =
@@ -426,7 +426,7 @@ impl SegmentRecordings {
 #[cfg(test)]
 mod ordinary_media_access_tests {
     use super::{Audio, ProjectRecordingsMeta, Video, header_video_metadata, open_headers};
-    use cap_project::StudioRecordingMeta;
+    use frameever_project::StudioRecordingMeta;
     use std::path::{Path, PathBuf};
 
     fn write_video_packets(

@@ -9,8 +9,8 @@ use super::harness::Probe;
 mod mac {
     use std::{sync::Arc, time::Duration};
 
-    use cap_media_info::{Pixel, RawVideoFormat, VideoInfo};
-    use cap_recording::{
+    use frameever_media_info::{Pixel, RawVideoFormat, VideoInfo};
+    use frameever_recording::{
         NativeCameraFrame,
         feeds::{camera::synthetic::SyntheticCamera, microphone::synthetic::SyntheticMicrophone},
         instant_recording,
@@ -18,7 +18,7 @@ mod mac {
         screen_capture::ScreenCaptureTarget,
         studio_recording,
     };
-    use cap_timestamp::{MachAbsoluteTimestamp, Timestamp};
+    use frameever_timestamp::{MachAbsoluteTimestamp, Timestamp};
 
     use super::super::{
         harness::{Ctx, Probe, Verdict},
@@ -390,7 +390,7 @@ mod mac {
                 if let Err(e) = remux {
                     return Ok(Verdict::rejected(format!("finalize: {e}")));
                 }
-                match cap_project::RecordingMeta::load_for_project(&project) {
+                match frameever_project::RecordingMeta::load_for_project(&project) {
                     Err(e) => {
                         Verdict::Wrong(format!("stopped cleanly but the meta is unreadable: {e}"))
                     }
@@ -398,23 +398,21 @@ mod mac {
                         None => Verdict::Wrong("stopped cleanly but the meta is not studio".into()),
                         Some(studio) => {
                             let display = match studio {
-                                cap_project::StudioRecordingMeta::SingleSegment { segment } => {
-                                    segment.display.path.to_path(&project)
-                                }
-                                cap_project::StudioRecordingMeta::MultipleSegments { inner } => {
-                                    match inner.segments.first() {
-                                        Some(s) => s.display.path.to_path(&project),
-                                        None => {
-                                            return Ok(if seq.expect_media {
-                                                Verdict::Wrong(
-                                                    "stopped cleanly with no segment".into(),
-                                                )
-                                            } else {
-                                                Verdict::Ok("no segment".into())
-                                            });
-                                        }
+                                frameever_project::StudioRecordingMeta::SingleSegment {
+                                    segment,
+                                } => segment.display.path.to_path(&project),
+                                frameever_project::StudioRecordingMeta::MultipleSegments {
+                                    inner,
+                                } => match inner.segments.first() {
+                                    Some(s) => s.display.path.to_path(&project),
+                                    None => {
+                                        return Ok(if seq.expect_media {
+                                            Verdict::Wrong("stopped cleanly with no segment".into())
+                                        } else {
+                                            Verdict::Ok("no segment".into())
+                                        });
                                     }
-                                }
+                                },
                             };
                             media_check::judge_output(&display, seq.expect_media)
                         }

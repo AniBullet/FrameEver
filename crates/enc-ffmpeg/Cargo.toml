@@ -1,10 +1,10 @@
 [package]
-name = "cap-enc-ffmpeg"
+name = "frameever-enc-ffmpeg"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cap-media-info = { path = "../media-info" }
+frameever-media-info = { path = "../media-info" }
 
 ffmpeg.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -15,7 +15,7 @@ tracing.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-cap-frame-converter = { path = "../frame-converter" }
+frameever-frame-converter = { path = "../frame-converter" }
 windows = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]

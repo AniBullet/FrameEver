@@ -83,7 +83,7 @@ class ProcessMetricsTests(unittest.TestCase):
 			'    bundleID="com.apple.WebKit.GPU"', '    pid = 11',
 			'3) "Other App" ASN:0x3:', '    pid = 99',
 		])
-		processes = '10 1 cap-desktop\n11 10 WebKit\n12 10 cap-muxer\n13 12 helper\n99 1 Other App\n'
+		processes = '10 1 cap-desktop\n11 10 WebKit\n12 10 frameever-muxer\n13 12 helper\n99 1 Other App\n'
 		with patch.object(PERF, "run", side_effect=[
 			subprocess.CompletedProcess([], 0, stdout=apps),
 			subprocess.CompletedProcess([], 0, stdout=processes),

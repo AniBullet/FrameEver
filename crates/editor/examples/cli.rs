@@ -1,5 +1,5 @@
-use cap_editor::EditorInstance;
-use cap_project::XY;
+use frameever_editor::EditorInstance;
+use frameever_project::XY;
 use std::path::PathBuf;
 
 #[tokio::main]

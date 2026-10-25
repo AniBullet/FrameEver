@@ -34,13 +34,15 @@ use std::{
     time::Duration,
 };
 
-use cap_editor::{TranscriptionAudioSource, TranscriptionAudioTake, append_transcription_audio};
-use cap_project::{
+use frameever_editor::{
+    TranscriptionAudioSource, TranscriptionAudioTake, append_transcription_audio,
+};
+use frameever_project::{
     CaptionSegment, CaptionSettings, CaptionTrackSegment, CaptionWord, CaptionsData,
     ProjectConfiguration, RecordingMeta, StudioRecordingMeta, TimelineConfiguration,
     TimelineSegment, caption_text_from_words, is_cjk, is_cjk_punctuation,
 };
-use cap_rendering::Video;
+use frameever_rendering::Video;
 
 use crate::i18n::t;
 use ffmpeg::{
@@ -858,7 +860,7 @@ fn invalidate_whisper_cache_for_path(model_path: &Path) {
 /// `get_whisper_context_blocking` (`captions.rs:691-707`), keyed by model path
 /// so switching small -> medium reloads instead of reusing the stale context.
 fn get_whisper_context(model_path: &str) -> Result<Arc<WhisperContext>, String> {
-    cap_utils::local_captions::ensure_whisper_cpu_support()?;
+    frameever_utils::local_captions::ensure_whisper_cpu_support()?;
     let mut guard = WHISPER_CONTEXT
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
@@ -982,7 +984,7 @@ fn schedule_parakeet_release() {}
 // Audio extraction
 // ---------------------------------------------------------------------------
 
-/// `cap_audio::AudioData::SAMPLE_RATE` -- the rate every source is decoded to
+/// `frameever_audio::AudioData::SAMPLE_RATE` -- the rate every source is decoded to
 /// before mixing, matching the Tauri pipeline's intermediate format.
 const DECODE_SAMPLE_RATE: u32 = 48_000;
 /// `WHISPER_SAMPLE_RATE` (`captions.rs:66`).
@@ -1242,7 +1244,7 @@ fn extract_project_audio(project_path: &Path, output_path: &Path) -> Result<(), 
                 .duration;
                 let offsets = segment.calculate_audio_offsets();
                 let mut sources = Vec::new();
-                let mut push_source = |audio: &cap_project::AudioMeta, offset_secs: f64| {
+                let mut push_source = |audio: &frameever_project::AudioMeta, offset_secs: f64| {
                     let path = meta.path(&audio.path);
                     if !path.exists() {
                         return;
@@ -1754,7 +1756,8 @@ fn process_with_parakeet(
         model
     } else {
         tracing::info!("Loading Parakeet TDT model from: {model_dir}");
-        cap_camera_effects::initialize_onnx_runtime().map_err(|error| format!("{error:#}"))?;
+        frameever_camera_effects::initialize_onnx_runtime()
+            .map_err(|error| format!("{error:#}"))?;
         let model = ParakeetTDT::from_pretrained(model_dir, None).map_err(|e| format!("{e}"))?;
         let loaded_model = Arc::new(Mutex::new(model));
 
@@ -2128,7 +2131,7 @@ fn caption_word_chunks(words: &[CaptionWord]) -> Vec<&[CaptionWord]> {
 // ---------------------------------------------------------------------------
 
 pub fn source_caption_id(track_id: &str) -> &str {
-    cap_project::source_caption_id(track_id)
+    frameever_project::source_caption_id(track_id)
 }
 
 struct SourceToEditedMapping {
@@ -2178,7 +2181,7 @@ pub fn derive_caption_track_segments(
     timeline: &TimelineConfiguration,
     recording_durations: &[f64],
 ) -> Vec<CaptionTrackSegment> {
-    cap_project::derive_caption_track_segments(source_segments, timeline, recording_durations)
+    frameever_project::derive_caption_track_segments(source_segments, timeline, recording_durations)
 }
 
 /// `heldTimeBefore` (`timeline-holds.ts:45-50`): how much hold-extended

@@ -56,7 +56,7 @@ pub async fn record_studio_at_path(
     mut opts: StudioRecordingOptions,
     project_path: PathBuf,
 ) -> Result<PathBuf> {
-    use cap_recording::{
+    use frameever_recording::{
         CameraFeed, MicrophoneFeed, feeds::camera, screen_capture::ScreenCaptureTarget,
         studio_recording,
     };
@@ -77,7 +77,7 @@ pub async fn record_studio_at_path(
     let shareable_content = cidre::sc::ShareableContent::current()
         .await
         .context("Failed to get shareable content - check screen recording permissions")
-        .map(cap_recording::SendableShareableContent::from)?;
+        .map(frameever_recording::SendableShareableContent::from)?;
 
     let (error_tx, _error_rx) = flume::bounded::<StreamError>(16);
 
@@ -85,7 +85,7 @@ pub async fn record_studio_at_path(
         if let Some((label, _, _)) = MicrophoneFeed::default_device() {
             let mic_feed = MicrophoneFeed::spawn(MicrophoneFeed::new(error_tx.clone()));
             mic_feed
-                .ask(cap_recording::feeds::microphone::SetInput {
+                .ask(frameever_recording::feeds::microphone::SetInput {
                     label,
                     settings: None,
                 })
@@ -93,7 +93,9 @@ pub async fn record_studio_at_path(
                 .await?;
             tokio::time::sleep(Duration::from_millis(100)).await;
             Some(Arc::new(
-                mic_feed.ask(cap_recording::feeds::microphone::Lock).await?,
+                mic_feed
+                    .ask(frameever_recording::feeds::microphone::Lock)
+                    .await?,
             ))
         } else {
             warn!("No microphone device found");
@@ -106,7 +108,7 @@ pub async fn record_studio_at_path(
     opts.include_mic = mic_lock.is_some();
 
     let camera_lock = if opts.include_camera {
-        if let Some(camera_info) = cap_camera::list_cameras().next() {
+        if let Some(camera_info) = frameever_camera::list_cameras().next() {
             info!("Using camera '{}'", camera_info.display_name());
             let camera_feed = CameraFeed::spawn(CameraFeed::default());
             camera_feed
@@ -169,7 +171,7 @@ pub async fn record_studio_at_path(
 }
 
 pub fn materialize_display_outputs(project_path: &Path) -> Result<Vec<PathBuf>> {
-    use cap_recording::recovery::RecoveryManager;
+    use frameever_recording::recovery::RecoveryManager;
 
     if let Some(incomplete) = RecoveryManager::inspect_recording(project_path) {
         match RecoveryManager::recover(&incomplete) {
@@ -225,7 +227,7 @@ pub async fn record_instant_camera_for_duration(
     duration: Duration,
     include_mic: bool,
 ) -> Result<InstantArtifacts> {
-    use cap_recording::{
+    use frameever_recording::{
         CameraFeed, MicrophoneFeed, feeds::camera, instant_recording,
         screen_capture::ScreenCaptureTarget,
     };
@@ -234,7 +236,7 @@ pub async fn record_instant_camera_for_duration(
     let temp_dir = TempDir::new()?;
     let project_path = temp_dir.path().to_path_buf();
 
-    let camera_info = cap_camera::list_cameras()
+    let camera_info = frameever_camera::list_cameras()
         .next()
         .context("instant-mode camera test requires a camera, but none was found")?;
     info!(
@@ -258,7 +260,7 @@ pub async fn record_instant_camera_for_duration(
         if let Some((label, _, _)) = MicrophoneFeed::default_device() {
             let mic_feed = MicrophoneFeed::spawn(MicrophoneFeed::new(error_tx.clone()));
             mic_feed
-                .ask(cap_recording::feeds::microphone::SetInput {
+                .ask(frameever_recording::feeds::microphone::SetInput {
                     label,
                     settings: None,
                 })
@@ -266,7 +268,9 @@ pub async fn record_instant_camera_for_duration(
                 .await?;
             tokio::time::sleep(Duration::from_millis(100)).await;
             Some(Arc::new(
-                mic_feed.ask(cap_recording::feeds::microphone::Lock).await?,
+                mic_feed
+                    .ask(frameever_recording::feeds::microphone::Lock)
+                    .await?,
             ))
         } else {
             warn!("No microphone device found");

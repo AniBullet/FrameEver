@@ -79,7 +79,7 @@ pub struct AllTargets {
 pub fn screens() -> Vec<ScreenTarget> {
     let primary_id = scap_targets::Display::primary().id();
 
-    cap_recording::screen_capture::list_displays()
+    frameever_recording::screen_capture::list_displays()
         .into_iter()
         .enumerate()
         .map(|(index, (screen, handle))| ScreenTarget {
@@ -102,7 +102,7 @@ pub fn screens() -> Vec<ScreenTarget> {
 }
 
 pub fn windows() -> Vec<WindowTarget> {
-    cap_recording::screen_capture::list_windows()
+    frameever_recording::screen_capture::list_windows()
         .into_iter()
         .enumerate()
         .map(|(index, (window, _))| {
@@ -127,7 +127,7 @@ pub fn windows() -> Vec<WindowTarget> {
 }
 
 pub fn cameras() -> Vec<CameraTarget> {
-    cap_camera::list_cameras()
+    frameever_camera::list_cameras()
         .enumerate()
         .map(|(index, camera)| CameraTarget {
             index,
@@ -139,7 +139,7 @@ pub fn cameras() -> Vec<CameraTarget> {
 }
 
 pub fn mics() -> Vec<MicTarget> {
-    cap_recording::MicrophoneFeed::list_names()
+    frameever_recording::MicrophoneFeed::list_names()
         .into_iter()
         .enumerate()
         .map(|(index, name)| MicTarget { index, name })

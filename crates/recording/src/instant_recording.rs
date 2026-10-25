@@ -13,10 +13,10 @@ use crate::{
     sources::screen_capture::{ScreenCaptureConfig, ScreenCaptureTarget},
 };
 use anyhow::Context as _;
-use cap_media_info::VideoInfo;
-use cap_project::InstantRecordingMeta;
-use cap_timestamp::Timestamps;
-use cap_utils::ensure_dir;
+use frameever_media_info::VideoInfo;
+use frameever_project::InstantRecordingMeta;
+use frameever_timestamp::Timestamps;
+use frameever_utils::ensure_dir;
 use kameo::prelude::*;
 use std::{
     path::PathBuf,
@@ -33,8 +33,9 @@ struct Pipeline {
     audio: Option<OutputPipeline>,
     video_info: VideoInfo,
     segments_dir: PathBuf,
-    segment_rx:
-        Option<std::sync::mpsc::Receiver<cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>>,
+    segment_rx: Option<
+        std::sync::mpsc::Receiver<frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>,
+    >,
 }
 
 enum ActorState {
@@ -59,7 +60,9 @@ pub struct ActorHandle {
     segment_rx: Option<
         std::sync::Mutex<
             Option<
-                std::sync::mpsc::Receiver<cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>,
+                std::sync::mpsc::Receiver<
+                    frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent,
+                >,
             >,
         >,
     >,
@@ -101,8 +104,9 @@ impl ActorHandle {
 
     pub fn take_segment_rx(
         &self,
-    ) -> Option<std::sync::mpsc::Receiver<cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>>
-    {
+    ) -> Option<
+        std::sync::mpsc::Receiver<frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>,
+    > {
         self.segment_rx
             .as_ref()
             .and_then(|m| m.lock().ok().and_then(|mut guard| guard.take()))
@@ -120,7 +124,7 @@ impl Drop for ActorHandle {
 
 #[derive(kameo::Actor)]
 pub struct Actor {
-    diagnostic: Option<cap_utils::operation_diagnostics::Operation>,
+    diagnostic: Option<frameever_utils::operation_diagnostics::Operation>,
     recording_dir: PathBuf,
     output_dir: PathBuf,
     capture_target: ScreenCaptureTarget,
@@ -187,7 +191,7 @@ impl Message<Stop> for Actor {
         let result = self.complete_recording().await;
         if let Some(mut diagnostic) = self.diagnostic.take() {
             if let Ok(recording) = &result {
-                diagnostic.field(cap_utils::operation_diagnostics::Field::label(
+                diagnostic.field(frameever_utils::operation_diagnostics::Field::label(
                     "output_health",
                     match recording.health {
                         crate::RecordingHealth::Healthy => "healthy",
@@ -430,8 +434,9 @@ async fn create_pipeline(
     let segments_dir = content_dir.join("display");
 
     let segment_channel = {
-        let (tx, rx) =
-            std::sync::mpsc::channel::<cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>();
+        let (tx, rx) = std::sync::mpsc::channel::<
+            frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent,
+        >();
         Some((tx, rx))
     };
 
@@ -638,13 +643,13 @@ async fn build_instant_recording_actor(
     max_output_size: Option<u32>,
     max_fps: u32,
 ) -> anyhow::Result<ActorHandle> {
-    use cap_utils::operation_diagnostics::{Field, Operation};
+    use frameever_utils::operation_diagnostics::{Field, Operation};
     let mut diagnostic = Operation::start(
         "instant_recording",
         &[
             Field::identifier(
                 "resource",
-                cap_utils::operation_diagnostics::resource_id(&recording_dir),
+                frameever_utils::operation_diagnostics::resource_id(&recording_dir),
             ),
             Field::number("requested_fps", max_fps as u64),
             Field::flag("system_audio", inputs.capture_system_audio),
@@ -688,7 +693,7 @@ async fn build_instant_recording_actor(
     let content_dir = ensure_dir(&recording_dir.join("content"))?;
 
     #[cfg(windows)]
-    cap_mediafoundation_utils::thread_init();
+    frameever_mediafoundation_utils::thread_init();
 
     let (mut pipeline, video_info) = match inputs.capture_target {
         ScreenCaptureTarget::CameraOnly => {
@@ -1104,7 +1109,7 @@ mod non_linux_stop_tests {
         AudioFrame, AudioMuxer, ChannelAudioSource, ChannelAudioSourceConfig, ChannelVideoSource,
         ChannelVideoSourceConfig, Muxer, TaskPool, VideoFrame, VideoMuxer,
     };
-    use cap_timestamp::Timestamp;
+    use frameever_timestamp::Timestamp;
     use std::{
         sync::atomic::{AtomicBool, Ordering},
         time::Duration,
@@ -1135,7 +1140,7 @@ mod non_linux_stop_tests {
             config: Self::Config,
             _: PathBuf,
             _: Option<VideoInfo>,
-            _: Option<cap_media_info::AudioInfo>,
+            _: Option<frameever_media_info::AudioInfo>,
             _: Arc<AtomicBool>,
             _: &mut TaskPool,
         ) -> anyhow::Result<Self> {
@@ -1211,7 +1216,7 @@ mod non_linux_stop_tests {
     async fn audio_failure_waits_for_video_and_remains_visible(cancel: bool) {
         let directory = tempfile::tempdir().unwrap();
         let timestamps = Timestamps::now();
-        let video_info = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 4, 4, 30);
+        let video_info = VideoInfo::from_raw(frameever_media_info::RawVideoFormat::Bgra, 4, 4, 30);
         let video_entered = Arc::new(tokio::sync::Notify::new());
         let video_finished = Arc::new(AtomicBool::new(false));
         let audio_finished = Arc::new(AtomicBool::new(false));
@@ -1236,8 +1241,8 @@ mod non_linux_stop_tests {
             .unwrap();
         let video_cancel = video.cancel_token();
 
-        let audio_info = cap_media_info::AudioInfo::new_raw(
-            cap_media_info::Sample::F32(cap_media_info::Type::Packed),
+        let audio_info = frameever_media_info::AudioInfo::new_raw(
+            frameever_media_info::Sample::F32(frameever_media_info::Type::Packed),
             48_000,
             2,
         );

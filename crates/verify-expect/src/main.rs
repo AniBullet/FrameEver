@@ -1,5 +1,5 @@
-//! `cap-verify-expect check <file>...` validates expectations files.
-//! `cap-verify-expect bless <report dir or .jsonl>...` rewrites every
+//! `frameever-verify-expect check <file>...` validates expectations files.
+//! `frameever-verify-expect bless <report dir or .jsonl>...` rewrites every
 //! expectations file named in the records so those runs pass exactly. Records
 //! from several platforms (for example the CI report artifacts of all three
 //! OSes) can be blessed in one call; each platform only changes its own
@@ -11,7 +11,7 @@ use std::{
     process::ExitCode,
 };
 
-use cap_verify_expect::{
+use frameever_verify_expect::{
     Evidence, Observed, Outcome, Ran, Record, bless_with, header, load, parse, render,
 };
 
@@ -110,9 +110,9 @@ fn add_record(runs: &mut Runs, source: SourceRecord) {
 }
 
 fn proposals(
-    entries: &[cap_verify_expect::Xfail],
+    entries: &[frameever_verify_expect::Xfail],
     runs: &HostRuns,
-) -> Vec<cap_verify_expect::Xfail> {
+) -> Vec<frameever_verify_expect::Xfail> {
     let mut entries = entries.to_vec();
     for ((platform, host), run) in runs {
         entries = bless_with(
@@ -214,7 +214,7 @@ fn main() -> ExitCode {
         Some((command, rest)) if command == "check" && !rest.is_empty() => check_command(rest),
         _ => {
             eprintln!(
-                "usage: cap-verify-expect bless <report dir | .jsonl>...\n       cap-verify-expect check <expectations.toml>..."
+                "usage: frameever-verify-expect bless <report dir | .jsonl>...\n       frameever-verify-expect check <expectations.toml>..."
             );
             ExitCode::from(2)
         }
@@ -224,7 +224,7 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_verify_expect::{Metrics, Range};
+    use frameever_verify_expect::{Metrics, Range};
 
     fn source_record(source_host: Option<&str>, failure: Option<f64>) -> SourceRecord {
         let mut value = serde_json::json!({

@@ -11,9 +11,9 @@
 //! opens segment-1), then verifies every segment's display.mp4 is a plain
 //! finalized MP4 with the expected content duration.
 
-use cap_enc_ffmpeg::remux::{get_media_duration, probe_media_valid, probe_video_can_decode};
-use cap_recording::sources::screen_capture::ScreenCaptureTarget;
-use cap_recording::{SendableShareableContent, studio_recording};
+use frameever_enc_ffmpeg::remux::{get_media_duration, probe_media_valid, probe_video_can_decode};
+use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
+use frameever_recording::{SendableShareableContent, studio_recording};
 use std::{path::PathBuf, time::Duration};
 use tempfile::TempDir;
 
@@ -108,7 +108,8 @@ async fn studio_failed_second_resume_can_save_or_retry_with_real_screen() {
         .expect("Stop must complete after failed resume");
         assert!(report.accepted_intent && report.stop_acknowledged);
         let completed = report.result.unwrap();
-        let cap_project::StudioRecordingMeta::MultipleSegments { inner } = completed.meta else {
+        let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = completed.meta
+        else {
             panic!("expected multiple segments");
         };
         assert_eq!(inner.segments.len(), if retry { 3 } else { 2 });

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::Path, sync::Arc};
 
-use cap_audio::AudioData;
-use cap_project::ProjectConfiguration;
+use frameever_audio::AudioData;
+use frameever_project::ProjectConfiguration;
 use tracing::warn;
 
 use crate::{
@@ -105,7 +105,7 @@ pub fn load_music_tracks_uncached(
 async fn loaded_track(
     loader: &crate::AudioLoader,
     label: &str,
-) -> Option<Arc<cap_audio::DecodedAudio>> {
+) -> Option<Arc<frameever_audio::DecodedAudio>> {
     match loader.get().await {
         Ok(audio) => audio,
         Err(error) => {
@@ -133,8 +133,8 @@ pub async fn get_audio_segments(segments: &[SegmentMedia]) -> Vec<AudioSegment> 
 }
 
 pub fn audio_segment_from_decoded(
-    audio: Option<Arc<cap_audio::DecodedAudio>>,
-    system_audio: Option<Arc<cap_audio::DecodedAudio>>,
+    audio: Option<Arc<frameever_audio::DecodedAudio>>,
+    system_audio: Option<Arc<frameever_audio::DecodedAudio>>,
     repair: crate::editor_instance::SegmentAudioTimingRepair,
 ) -> AudioSegment {
     AudioSegment {
@@ -144,9 +144,11 @@ pub fn audio_segment_from_decoded(
                     a,
                     |c| c.mic_volume_db,
                     |c| match c.mic_stereo_mode {
-                        cap_project::StereoMode::Stereo => cap_audio::StereoMode::Stereo,
-                        cap_project::StereoMode::MonoL => cap_audio::StereoMode::MonoL,
-                        cap_project::StereoMode::MonoR => cap_audio::StereoMode::MonoR,
+                        frameever_project::StereoMode::Stereo => {
+                            frameever_audio::StereoMode::Stereo
+                        }
+                        frameever_project::StereoMode::MonoL => frameever_audio::StereoMode::MonoL,
+                        frameever_project::StereoMode::MonoR => frameever_audio::StereoMode::MonoR,
                     },
                     |o| o.mic,
                 )
@@ -157,7 +159,7 @@ pub fn audio_segment_from_decoded(
                 AudioSegmentTrack::from_decoded(
                     a,
                     |c| c.system_volume_db,
-                    |_| cap_audio::StereoMode::Stereo,
+                    |_| frameever_audio::StereoMode::Stereo,
                     |o| o.system_audio,
                 )
                 .with_timing_offset_secs(repair.system_audio_offset_secs)
@@ -172,7 +174,7 @@ pub fn audio_segment_from_decoded(
 #[cfg(test)]
 mod completed_audio_tests {
     use super::*;
-    use cap_project::{AudioConfiguration, ClipOffsets};
+    use frameever_project::{AudioConfiguration, ClipOffsets};
 
     #[test]
     fn shared_audio_segment_preserves_arc_gain_stereo_and_timing() {
@@ -189,7 +191,7 @@ mod completed_audio_tests {
         let config = AudioConfiguration {
             mic_volume_db: -3.5,
             system_volume_db: -8.0,
-            mic_stereo_mode: cap_project::StereoMode::MonoR,
+            mic_stereo_mode: frameever_project::StereoMode::MonoR,
             ..Default::default()
         };
         let offsets = ClipOffsets {
@@ -201,11 +203,11 @@ mod completed_audio_tests {
         assert_eq!(segment.tracks[1].gain(&config), -8.0);
         assert!(matches!(
             segment.tracks[0].stereo_mode(&config),
-            cap_audio::StereoMode::MonoR
+            frameever_audio::StereoMode::MonoR
         ));
         assert!(matches!(
             segment.tracks[1].stereo_mode(&config),
-            cap_audio::StereoMode::Stereo
+            frameever_audio::StereoMode::Stereo
         ));
         assert_eq!(segment.tracks[0].offset(&offsets), 0.25);
         assert_eq!(segment.tracks[1].offset(&offsets), -0.375);

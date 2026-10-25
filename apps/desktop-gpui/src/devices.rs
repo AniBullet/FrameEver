@@ -1,9 +1,9 @@
 //! Real device enumeration for the capture-target and device pickers.
 //!
 //! Everything here goes through the same crates the recorder uses
-//! (`cap-camera`, `scap-targets`, and the Cap `cpal` fork) so the identities the
+//! (`frameever-camera`, `scap-targets`, and the Cap `cpal` fork) so the identities the
 //! UI hands back — camera `device_id`, microphone name, `DisplayId`, `WindowId`
-//! — are byte-identical to what `cap-recording` expects to be given. Nothing is
+//! — are byte-identical to what `frameever-recording` expects to be given. Nothing is
 //! re-derived or prettified into a new identity space.
 
 use cpal::traits::{DeviceTrait, HostTrait};
@@ -11,11 +11,11 @@ use scap_targets::{Display, DisplayId, Window, WindowId};
 
 use crate::i18n::t;
 
-/// A camera, identified the way `cap-recording` identifies one.
+/// A camera, identified the way `frameever-recording` identifies one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CameraOption {
     pub device_id: String,
-    pub model_id: Option<cap_camera::ModelID>,
+    pub model_id: Option<frameever_camera::ModelID>,
     pub label: String,
     /// Highest-resolution format the device advertises, shown as the row's
     /// subtitle. `None` when the device reports no formats.
@@ -31,8 +31,8 @@ pub struct CameraFormat {
 }
 
 impl CameraFormat {
-    pub fn settings(self) -> cap_recording::feeds::camera::CameraDeviceSettings {
-        cap_recording::feeds::camera::CameraDeviceSettings {
+    pub fn settings(self) -> frameever_recording::feeds::camera::CameraDeviceSettings {
+        frameever_recording::feeds::camera::CameraDeviceSettings {
             width: Some(self.width),
             height: Some(self.height),
             frame_rate: Some(self.frame_rate),
@@ -323,7 +323,7 @@ mod input_enumeration_tests {
         changed_id.device_id = "camera-b".into();
         let mut changed_model = queried.clone();
         changed_model.model_id =
-            Some(cap_camera::ModelID::try_from("046d:08e5".to_string()).unwrap());
+            Some(frameever_camera::ModelID::try_from("046d:08e5".to_string()).unwrap());
         let mut changed_label = queried.clone();
         changed_label.label = "Replacement camera".into();
         for replacement in [changed_id, changed_model, changed_label] {
@@ -458,7 +458,7 @@ fn list_cameras() -> Vec<CameraOption> {
 }
 
 fn list_cameras_with_previous(previous: &[CameraOption]) -> Vec<CameraOption> {
-    cap_camera::list_cameras()
+    frameever_camera::list_cameras()
         .map(|camera| {
             CameraOption {
                 device_id: camera.device_id().to_string(),
@@ -524,7 +524,7 @@ impl CameraOption {
 }
 
 pub fn camera_formats(device_id: &str) -> Result<Vec<CameraFormat>, String> {
-    let camera = cap_camera::list_cameras()
+    let camera = frameever_camera::list_cameras()
         .find(|camera| camera.device_id() == device_id)
         .ok_or_else(|| {
             t!("Camera is no longer available. Reconnect it and try again.").to_string()
@@ -558,7 +558,7 @@ pub fn camera_formats(device_id: &str) -> Result<Vec<CameraFormat>, String> {
 }
 
 fn list_microphone_names() -> Vec<MicrophoneOption> {
-    cap_recording::feeds::microphone::MicrophoneFeed::list_names()
+    frameever_recording::feeds::microphone::MicrophoneFeed::list_names()
         .into_iter()
         .map(|name| MicrophoneOption {
             name,
@@ -616,8 +616,8 @@ fn list_microphones() -> Vec<MicrophoneOption> {
 
 pub fn microphone_formats(
     name: &str,
-) -> Result<Vec<cap_recording::feeds::microphone::MicrophoneDeviceSettings>, String> {
-    let devices = cap_recording::feeds::microphone::MicrophoneFeed::list();
+) -> Result<Vec<frameever_recording::feeds::microphone::MicrophoneDeviceSettings>, String> {
+    let devices = frameever_recording::feeds::microphone::MicrophoneFeed::list();
     let (device, _) = devices
         .get(name)
         .ok_or_else(|| t!("Microphone '{name}' is no longer available", name = name))?;
@@ -626,7 +626,7 @@ pub fn microphone_formats(
         .map_err(|error| t!("Could not read microphone formats: {error}", error = error))?;
     let mut formats = std::collections::BTreeSet::new();
     for config in configs {
-        if cap_media_info::ffmpeg_sample_format_for(config.sample_format()).is_none() {
+        if frameever_media_info::ffmpeg_sample_format_for(config.sample_format()).is_none() {
             continue;
         }
         for sample_rate in [
@@ -644,12 +644,12 @@ pub fn microphone_formats(
     Ok(formats
         .into_iter()
         .rev()
-        .map(
-            |(sample_rate, channels)| cap_recording::feeds::microphone::MicrophoneDeviceSettings {
+        .map(|(sample_rate, channels)| {
+            frameever_recording::feeds::microphone::MicrophoneDeviceSettings {
                 sample_rate: Some(sample_rate),
                 channels: Some(channels),
-            },
-        )
+            }
+        })
         .collect())
 }
 
@@ -718,7 +718,7 @@ pub fn list_display_targets() -> Vec<(DisplayOption, Display)> {
         .collect()
 }
 
-/// Mirrors the picker path of `cap_recording::sources::screen_capture::list_windows`
+/// Mirrors the picker path of `frameever_recording::sources::screen_capture::list_windows`
 /// (i.e. `include_accessory_panels: false`), which collapses to: a non-empty
 /// title, not owned by the Window Server, and at window level 0.
 ///
@@ -726,7 +726,7 @@ pub fn list_display_targets() -> Vec<(DisplayOption, Display)> {
 /// dominated by menu-bar extras and status items — Control Centre alone
 /// contributes a dozen `Item-0` windows at level 25 — so without it the picker
 /// is unusable. This is deliberately duplicated rather than imported:
-/// `cap-recording` drags in ffmpeg and the whole encode stack, which this app
+/// `frameever-recording` drags in ffmpeg and the whole encode stack, which this app
 /// has no other reason to build.
 pub fn list_windows() -> Vec<WindowOption> {
     list_window_targets()

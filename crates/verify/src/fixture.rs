@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use cap_project::{
+use frameever_project::{
     AudioMeta, BackgroundSource, ClipConfiguration, MultipleSegment, MultipleSegments, Platform,
     ProjectConfiguration, RecordingMeta, RecordingMetaInner, StudioRecordingMeta,
     StudioRecordingStatus, TimelineConfiguration, TimelineSegment, VideoMeta,

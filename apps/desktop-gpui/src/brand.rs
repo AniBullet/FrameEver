@@ -1,5 +1,5 @@
-pub(crate) use cap_utils::app_name;
-pub use cap_utils::brand::{
+pub(crate) use frameever_utils::app_name;
+pub use frameever_utils::brand::{
     APP_ID, APP_NAME, CLI_COMMAND, LEGACY_APP_ID, RELEASES_REPO, URL_SCHEME, is_app_url,
 };
 

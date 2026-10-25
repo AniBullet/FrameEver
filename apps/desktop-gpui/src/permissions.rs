@@ -586,7 +586,7 @@ mod tests {
     #[test]
     fn bundled_relaunch_passes_the_bundle_as_a_literal_argument() {
         let bundle = std::path::Path::new("/Applications/FrameEver ' \" $ app.app");
-        let command = relaunch_command(&bundle.join("Contents/MacOS/cap-gpui"), 123);
+        let command = relaunch_command(&bundle.join("Contents/MacOS/frameever-gpui"), 123);
         let args = command.get_args().collect::<Vec<_>>();
         assert_eq!(command.get_program(), "/bin/sh");
         assert_eq!(args[3], "123");

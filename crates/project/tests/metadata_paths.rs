@@ -1,4 +1,4 @@
-use cap_project::{RecordingMeta, StudioRecordingMeta};
+use frameever_project::{RecordingMeta, StudioRecordingMeta};
 use relative_path::RelativePathBuf;
 use serde_json::json;
 

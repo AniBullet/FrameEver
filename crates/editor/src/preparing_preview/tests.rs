@@ -1,6 +1,6 @@
 use super::*;
-use cap_enc_ffmpeg::RelocatableSource;
-use cap_rendering::{ManagedVideoTrackInput, decoder::ManagedVideoExit};
+use frameever_enc_ffmpeg::RelocatableSource;
+use frameever_rendering::{ManagedVideoTrackInput, decoder::ManagedVideoExit};
 use std::{
     path::Path,
     sync::atomic::{AtomicBool, Ordering},
@@ -42,7 +42,7 @@ fn input(path: &Path) -> (PreparingPreviewInput, Arc<AtomicBool>) {
             "segments": [{"recordingSegment": 0, "start": 0.0, "end": 7200.0, "timescale": 1.0}],
             "zoomSegments": []
         })).unwrap()),
-        clips: vec![cap_project::ClipConfiguration::default()],
+        clips: vec![frameever_project::ClipConfiguration::default()],
         ..Default::default()
     };
     (
@@ -65,12 +65,14 @@ fn unsupported_presentation_and_unresolved_offsets_decline_before_open() {
                 path: Some("unreadable.png".into()),
             }
         },
-        |project| project.camera.background_blur.mode = cap_project::BackgroundBlurMode::Heavy,
+        |project| {
+            project.camera.background_blur.mode = frameever_project::BackgroundBlurMode::Heavy
+        },
         |project| project.clips.clear(),
         |project| project.clips.push(project.clips[0].clone()),
         |project| project.clips[0].offsets.camera = f32::NAN,
         |project| project.timeline.as_mut().unwrap().segments[0].timescale = 0.5,
-        |project| project.keyboard = Some(cap_project::KeyboardData::default()),
+        |project| project.keyboard = Some(frameever_project::KeyboardData::default()),
         |project| {
             project.timeline.as_mut().unwrap().keyboard_segments.push(
                 serde_json::from_value(serde_json::json!({
@@ -99,11 +101,13 @@ fn input_metadata_must_match_bound_decoder_timing() {
     let directory = tempfile::tempdir().unwrap();
     for changed in ["fps", "start_time", "missing_start"] {
         let (mut input, _) = input(directory.path());
-        let cap_project::RecordingMetaInner::Studio(metadata) = &mut input.recording_meta.inner
+        let frameever_project::RecordingMetaInner::Studio(metadata) =
+            &mut input.recording_meta.inner
         else {
             unreachable!()
         };
-        let cap_project::StudioRecordingMeta::MultipleSegments { inner } = metadata.as_mut() else {
+        let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = metadata.as_mut()
+        else {
             unreachable!()
         };
         match changed {
@@ -154,7 +158,7 @@ fn rendered_frame_identity_and_latest_sequence_are_both_required() {
         camera: None,
         output_size: [160, 120],
     };
-    let mut frame = cap_rendering::RenderedFrame {
+    let mut frame = frameever_rendering::RenderedFrame {
         data: Arc::new(Vec::new()),
         width: 160,
         height: 120,

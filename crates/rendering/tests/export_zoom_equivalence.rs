@@ -1,5 +1,7 @@
-use cap_project::{CursorClickEvent, CursorEvents, CursorMoveEvent, ProjectConfiguration, XY};
-use cap_rendering::ZoomTransformTimeline;
+use frameever_project::{
+    CursorClickEvent, CursorEvents, CursorMoveEvent, ProjectConfiguration, XY,
+};
+use frameever_rendering::ZoomTransformTimeline;
 
 fn project() -> ProjectConfiguration {
     ProjectConfiguration {

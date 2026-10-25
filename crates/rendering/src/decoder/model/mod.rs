@@ -2,7 +2,7 @@
 //!
 //! The real decoders (AVAssetReader pool on macOS, FFmpeg everywhere) are
 //! spawned through `spawn_decoder` on scripted media
-//! (`cap_video_decode::scripted`): sample lists with exact presentation times
+//! (`frameever_video_decode::scripted`): sample lists with exact presentation times
 //! and sync flags. Seeded request sequences (export and playback order, double
 //! requests at 60 fps over 30 fps grids, timelines with cuts, speed changes
 //! and backward jumps, transitions, random seeks, keyframe seeks, scrubs,
@@ -48,7 +48,7 @@
 //!   `<prefix>.<decoder>.txt`; `CAP_DECODER_MODEL_SEEDS_OUT=<prefix>` writes
 //!   every seed's outcome to `<prefix>.<decoder>.tsv`.
 //! - `CAP_VERIFY_REPORT_DIR=<dir>`: write one JSON record per case for the
-//!   CI summary and for `cap-verify-expect bless` (see
+//!   CI summary and for `frameever-verify-expect bless` (see
 //!   `crates/verify-expect`), which rewrites `expectations.toml` to match.
 //!
 //! Wall-clock inputs of the decoders (the AVAssetReader idle timeout of
@@ -68,7 +68,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_video_decode::scripted::{self, Script};
+use frameever_video_decode::scripted::{self, Script};
 
 use generate::{PatternKind, Rng, SourceKind};
 
@@ -654,12 +654,12 @@ const EXPECTATIONS: &str = "crates/rendering/src/decoder/model/expectations.toml
 fn write_records(
     decoder: Decoder,
     results: &[FamilyResult],
-    ran: &cap_verify_expect::Ran,
-    verdict: &cap_verify_expect::Verdict,
+    ran: &frameever_verify_expect::Ran,
+    verdict: &frameever_verify_expect::Verdict,
     platform: &str,
 ) {
-    use cap_verify_expect::{Outcome, Record};
-    if cap_verify_expect::report_dir().is_none() {
+    use frameever_verify_expect::{Outcome, Record};
+    if frameever_verify_expect::report_dir().is_none() {
         return;
     }
     let records: Vec<(Record, serde_json::Value)> = results
@@ -680,12 +680,12 @@ fn write_records(
                     )
                 });
             }
-            let new: Vec<&cap_verify_expect::Unexpected> = verdict
+            let new: Vec<&frameever_verify_expect::Unexpected> = verdict
                 .unexpected
                 .iter()
                 .filter(|found| found.case == result.name)
                 .collect();
-            let fixed: Vec<&cap_verify_expect::Fixed> = verdict
+            let fixed: Vec<&frameever_verify_expect::Fixed> = verdict
                 .fixed
                 .iter()
                 .filter(|fixed| fixed.case == result.name)
@@ -705,7 +705,7 @@ fn write_records(
                     format!(
                         "{} on seeds {}: {}",
                         found.class,
-                        cap_verify_expect::format_seeds(&found.seeds),
+                        frameever_verify_expect::format_seeds(&found.seeds),
                         problems.get(&found.class).map_or("", String::as_str)
                     )
                 })
@@ -740,11 +740,11 @@ fn write_records(
             };
             let repro = match replay_seed {
                 Some(seed) => format!(
-                    "CAP_DECODER_MODEL_CASE={} CAP_DECODER_MODEL_SEED_INDEX={seed} cargo test -p cap-rendering --lib decoder::model::{test} -- --nocapture",
+                    "CAP_DECODER_MODEL_CASE={} CAP_DECODER_MODEL_SEED_INDEX={seed} cargo test -p frameever-rendering --lib decoder::model::{test} -- --nocapture",
                     result.name
                 ),
                 None => format!(
-                    "CAP_DECODER_MODEL_FILTER={} cargo test -p cap-rendering --lib decoder::model::{test} -- --nocapture",
+                    "CAP_DECODER_MODEL_FILTER={} cargo test -p frameever-rendering --lib decoder::model::{test} -- --nocapture",
                     result.name
                 ),
             };
@@ -769,11 +769,11 @@ fn write_records(
             (record, serde_json::Value::Null)
         })
         .collect();
-    cap_verify_expect::write_records(&records);
+    frameever_verify_expect::write_records(&records);
 }
 
 fn run_suite(decoder: Decoder) {
-    let xfails = cap_verify_expect::parse(include_str!("expectations.toml"))
+    let xfails = frameever_verify_expect::parse(include_str!("expectations.toml"))
         .unwrap_or_else(|e| panic!("{EXPECTATIONS}: {e}"));
     let filter = std::env::var("CAP_DECODER_MODEL_FILTER").ok();
     let scale: f64 = std::env::var("CAP_DECODER_MODEL_SCALE")
@@ -814,7 +814,7 @@ fn run_suite(decoder: Decoder) {
                 .as_ref()
                 .is_none_or(|filter| case_name(decoder, family).contains(filter.as_str()))
         })
-        .filter(|family| cap_verify_expect::case_selected(&case_name(decoder, family)))
+        .filter(|family| frameever_verify_expect::case_selected(&case_name(decoder, family)))
         .collect();
     let jobs: Vec<(usize, u64)> = families
         .iter()
@@ -920,14 +920,14 @@ fn run_suite(decoder: Decoder) {
         let _ = std::fs::write(format!("{path}.{}.tsv", decoder.name()), lines);
     }
 
-    let ran: cap_verify_expect::Ran = results
+    let ran: frameever_verify_expect::Ran = results
         .iter()
         .map(|result| {
             let seeds = result.outcomes.iter().map(|(seed, _)| *seed).collect();
             (result.name.clone(), Some(seeds))
         })
         .collect();
-    let mut observed = cap_verify_expect::Observed::new();
+    let mut observed = frameever_verify_expect::Observed::new();
     for result in &results {
         for (case, failure) in &result.failures {
             observed
@@ -936,8 +936,8 @@ fn run_suite(decoder: Decoder) {
                 .insert(case.seed_index);
         }
     }
-    let platform = cap_verify_expect::platform();
-    let verdict = cap_verify_expect::judge(&xfails, platform, &ran, &observed);
+    let platform = frameever_verify_expect::platform();
+    let verdict = frameever_verify_expect::judge(&xfails, platform, &ran, &observed);
     let unexpected: BTreeSet<(String, String, u64)> = verdict
         .unexpected
         .iter()
@@ -1071,7 +1071,7 @@ fn run_suite(decoder: Decoder) {
             "\nUNEXPECTED FAILURE {} {} on seed indices {}",
             found.case,
             found.class,
-            cap_verify_expect::format_seeds(&found.seeds)
+            frameever_verify_expect::format_seeds(&found.seeds)
         );
     }
     for fixed in &verdict.fixed {

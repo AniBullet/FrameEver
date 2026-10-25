@@ -31,7 +31,7 @@ test("targets map to their packaging platform and main binary", () => {
 		gpuiBinaryPath("x86_64-pc-windows-msvc"),
 		path.join(
 			gpuiDirectory,
-			"target/x86_64-pc-windows-msvc/release/cap-gpui.exe",
+			"target/x86_64-pc-windows-msvc/release/frameever-gpui.exe",
 		),
 	);
 });

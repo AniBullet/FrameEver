@@ -4,12 +4,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_editor::{
+use frameever_editor::{
     EditorFrameOutput, EditorInstance, FrameLayout, Renderer, create_segments,
     finish_renderer_layers_creation, start_renderer_layers_creation,
 };
-use cap_project::{ProjectConfiguration, RecordingMeta, RecordingMetaInner};
-use cap_rendering::{ProjectRecordingsMeta, RenderVideoConstants};
+use frameever_project::{ProjectConfiguration, RecordingMeta, RecordingMetaInner};
+use frameever_rendering::{ProjectRecordingsMeta, RenderVideoConstants};
 
 fn arg_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
     args.iter()
@@ -167,7 +167,7 @@ async fn main() {
     let profile_stages = has_flag(&args, "--profile-stages");
     let profile_stages_only = has_flag(&args, "--profile-stages-only");
     let prewarm_fonts = has_flag(&args, "--prewarm-fonts");
-    let resolution_base = cap_project::XY::new(1248, 702);
+    let resolution_base = frameever_project::XY::new(1248, 702);
 
     println!("{}", "=".repeat(64));
     println!("  CAP EDITOR STARTUP BENCHMARK");
@@ -179,7 +179,7 @@ async fn main() {
     println!("Profile stages only: {profile_stages_only}");
     if prewarm_fonts {
         let started = Instant::now();
-        tokio::task::spawn_blocking(cap_rendering::prewarm_fonts)
+        tokio::task::spawn_blocking(frameever_rendering::prewarm_fonts)
             .await
             .expect("Font preparation failed");
         println!(

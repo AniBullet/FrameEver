@@ -37,8 +37,8 @@
 
 use std::sync::Arc;
 
-pub use cap_gpui_kernels::texture::{Filter, Overlay};
-use cap_project::{ColorCorrection, ProjectConfiguration};
+pub use frameever_gpui_kernels::texture::{Filter, Overlay};
+use frameever_project::{ColorCorrection, ProjectConfiguration};
 use gpui::{
     AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
     RenderImage, SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, div, img,
@@ -417,7 +417,7 @@ pub const PREVIEW_HEIGHT: u32 = 122;
 
 /// One preset tile, rasterised.
 pub fn preset_preview(preset: &ColorPreset, width: u32, height: u32) -> Arc<RenderImage> {
-    let rgba = cap_gpui_kernels::texture::preset_preview_bgra(
+    let rgba = frameever_gpui_kernels::texture::preset_preview_bgra(
         preset.filter,
         preset.overlay,
         preset.values.vignette,
@@ -678,7 +678,7 @@ impl EditorWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_gpui_kernels::texture::{
+    use frameever_gpui_kernels::texture::{
         SCENE_ANGLE, SCENE_STOPS, apply_filter, apply_filters, composite_overlay, gradient_color,
         gradient_position, overlay_blend, vignette_alpha,
     };

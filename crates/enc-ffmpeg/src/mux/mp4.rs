@@ -1,5 +1,5 @@
-use cap_media_info::RawVideoFormat;
 use ffmpeg::{format, frame};
+use frameever_media_info::RawVideoFormat;
 use std::{path::PathBuf, time::Duration};
 use tracing::*;
 
@@ -326,11 +326,11 @@ unsafe impl Send for HevcEncoder {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_media_info::VideoInfo;
+    use frameever_media_info::VideoInfo;
 
     fn video_info() -> VideoInfo {
         VideoInfo {
-            pixel_format: cap_media_info::Pixel::NV12,
+            pixel_format: frameever_media_info::Pixel::NV12,
             width: 320,
             height: 240,
             time_base: ffmpeg::Rational(1, 1_000_000),

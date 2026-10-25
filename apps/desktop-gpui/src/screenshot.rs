@@ -3,7 +3,7 @@
 //! actors.
 //!
 //! The Tauri command hides the picker overlays, waits 150ms for the fade,
-//! captures through `cap_recording::screenshot::capture_screenshot`, and
+//! captures through `frameever_recording::screenshot::capture_screenshot`, and
 //! writes the same bundle shape image import writes: `<app data>/screenshots/
 //! {name}.cap/` holding `original.png`, a Studio `SingleSegment` meta whose
 //! display track is the PNG at `fps: 0`, and a project config whose
@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context as _, anyhow};
-use cap_recording::sources::screen_capture::ScreenCaptureTarget;
+use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::App;
 
 use crate::app_windows;
@@ -61,7 +61,7 @@ pub fn take_screenshot(target: ScreenCaptureTarget, cx: &mut App) {
 /// the Tauri command returns (`NewScreenshotAdded.path` is the PNG, not the
 /// bundle).
 async fn capture_and_write(target: ScreenCaptureTarget) -> anyhow::Result<PathBuf> {
-    let image = cap_recording::screenshot::capture_screenshot(target.clone())
+    let image = frameever_recording::screenshot::capture_screenshot(target.clone())
         .await
         .context("capturing the screenshot")?;
 
@@ -84,21 +84,21 @@ async fn capture_and_write(target: ScreenCaptureTarget) -> anyhow::Result<PathBu
         now.format("%I.%M %p"),
     );
     let filename = crate::recording::project_bundle_filename(&pretty_name);
-    let filename = cap_utils::ensure_unique_filename(&filename, &base)
+    let filename = frameever_utils::ensure_unique_filename(&filename, &base)
         .map_err(|e| anyhow!("unique filename: {e}"))?;
     let bundle = base.join(filename);
     std::fs::create_dir_all(&bundle)
         .with_context(|| format!("creating screenshot bundle {}", bundle.display()))?;
 
-    let meta = cap_project::RecordingMeta {
-        platform: Some(cap_project::Platform::default()),
+    let meta = frameever_project::RecordingMeta {
+        platform: Some(frameever_project::Platform::default()),
         project_path: bundle.clone(),
         pretty_name,
         sharing: None,
-        inner: cap_project::RecordingMetaInner::Studio(Box::new(
-            cap_project::StudioRecordingMeta::SingleSegment {
-                segment: cap_project::SingleSegment {
-                    display: cap_project::VideoMeta {
+        inner: frameever_project::RecordingMetaInner::Studio(Box::new(
+            frameever_project::StudioRecordingMeta::SingleSegment {
+                segment: frameever_project::SingleSegment {
+                    display: frameever_project::VideoMeta {
                         path: "original.png".into(),
                         fps: 0,
                         start_time: Some(0.0),
@@ -115,8 +115,8 @@ async fn capture_and_write(target: ScreenCaptureTarget) -> anyhow::Result<PathBu
     meta.save_for_project()
         .map_err(|e| anyhow!("saving screenshot meta: {e}"))?;
 
-    let mut config = cap_project::ProjectConfiguration::default();
-    config.background.source = cap_project::BackgroundSource::Color {
+    let mut config = frameever_project::ProjectConfiguration::default();
+    config.background.source = frameever_project::BackgroundSource::Color {
         value: [255, 255, 255],
         alpha: 0,
     };
@@ -150,7 +150,7 @@ async fn write_png(path: PathBuf, image: image::DynamicImage) -> anyhow::Result<
 
         let file =
             std::fs::File::create(&path).with_context(|| format!("creating {}", path.display()))?;
-        cap_gpui_kernels::codec::write_png_file(
+        frameever_gpui_kernels::codec::write_png_file(
             file,
             &data,
             width,

@@ -59,8 +59,9 @@ pub fn compress(bundle: &Path, progress: impl FnMut(u64, u64) -> bool) -> Result
     }
     let staging = bundle.join(COMPRESSING);
     let target = bundle.join(COMPRESSED);
-    let result = cap_export::compress::compress_to_hevc(&bundle.join(OUTPUT), &staging, progress)
-        .and_then(|()| std::fs::rename(&staging, &target).map_err(|error| error.to_string()));
+    let result =
+        frameever_export::compress::compress_to_hevc(&bundle.join(OUTPUT), &staging, progress)
+            .and_then(|()| std::fs::rename(&staging, &target).map_err(|error| error.to_string()));
     if result.is_err() {
         let _ = std::fs::remove_file(&staging);
     }

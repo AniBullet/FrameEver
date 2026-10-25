@@ -1,6 +1,6 @@
 use super::{DecodedAudio, LoadState, PendingBlocks, ProgressiveAudio};
 use crate::AudioStream;
-use cap_enc_ffmpeg::RelocatableSource;
+use frameever_enc_ffmpeg::RelocatableSource;
 use std::{
     fmt,
     path::{Component, PathBuf},

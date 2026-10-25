@@ -1,5 +1,5 @@
 # Strict expected failures for the decoder model tests
-# (cap-rendering decoder::model: `cargo test -p cap-rendering --lib decoder::model`).
+# (frameever-rendering decoder::model: `cargo test -p frameever-rendering --lib decoder::model`).
 #
 # Format: the shared engine verification format (crates/verify-expect):
 #   [[xfail]]

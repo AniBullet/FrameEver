@@ -1,7 +1,7 @@
-use cap_camera::CapturedFrame;
-use cap_camera_avfoundation::ImageBufExt;
 use cidre::*;
 use ffmpeg::{format::Pixel, software::scaling};
+use frameever_camera::CapturedFrame;
+use frameever_camera_avfoundation::ImageBufExt;
 use std::{
     cell::RefCell,
     sync::atomic::{AtomicBool, Ordering},

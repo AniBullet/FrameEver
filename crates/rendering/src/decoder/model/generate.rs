@@ -1,4 +1,4 @@
-use cap_video_decode::scripted::{Script, ScriptFrame};
+use frameever_video_decode::scripted::{Script, ScriptFrame};
 
 use super::{Mode, Request};
 

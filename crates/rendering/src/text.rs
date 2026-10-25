@@ -1,10 +1,10 @@
-use cap_project::{TextAlign, TextAnimation, TextBackgroundStyle, TextSegment, XY};
+use frameever_project::{TextAlign, TextAnimation, TextBackgroundStyle, TextSegment, XY};
 
 /// Text font sizes are authored against a 1080p-tall reference frame and
 /// scaled to the output height, so a project renders identically at every
 /// export resolution. `size` only positions and wraps the text — it never
 /// affects glyph size (that coupling is baked away by the config migration
-/// in cap_project).
+/// in frameever_project).
 const REFERENCE_HEIGHT: f32 = 1080.0;
 pub const MIN_FONT_SIZE: f32 = 8.0;
 pub const MAX_FONT_SIZE: f32 = 480.0;
@@ -425,7 +425,7 @@ pub fn prepare_texts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_project::{TextAnimation, TextLayout};
+    use frameever_project::{TextAnimation, TextLayout};
 
     fn segment(animation_in: TextAnimation, animation_out: TextAnimation) -> TextSegment {
         TextSegment {

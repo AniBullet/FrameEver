@@ -29,19 +29,19 @@ This document tracks performance benchmarks for Cap's export system over time. E
 
 ```bash
 # Quick benchmark (3 core presets)
-cargo run -p cap-export --example export-benchmark-runner -- quick
+cargo run -p frameever-export --example export-benchmark-runner -- quick
 
 # Full benchmark (all presets, writes to this file)
-cargo run -p cap-export --example export-benchmark-runner -- full --benchmark-output
+cargo run -p frameever-export --example export-benchmark-runner -- full --benchmark-output
 
 # MP4 only
-cargo run -p cap-export --example export-benchmark-runner -- mp4-only --benchmark-output
+cargo run -p frameever-export --example export-benchmark-runner -- mp4-only --benchmark-output
 
 # GIF only
-cargo run -p cap-export --example export-benchmark-runner -- gif-only --benchmark-output
+cargo run -p frameever-export --example export-benchmark-runner -- gif-only --benchmark-output
 
 # Custom duration (default: 30s)
-cargo run -p cap-export --example export-benchmark-runner -- full --duration 60 --benchmark-output
+cargo run -p frameever-export --example export-benchmark-runner -- full --duration 60 --benchmark-output
 ```
 
 ---
@@ -60,7 +60,7 @@ cargo run -p cap-export --example export-benchmark-runner -- full --duration 60 
 
 **Notes:** Post-optimization: trimmed macOS encoder priority, increased NV12 render channel 2->8, optimized GIF add_frame
 
-**Command:** `cargo run -p cap-export --example export-benchmark-runner -- mp4-only --duration 30 --benchmark-output`
+**Command:** `cargo run -p frameever-export --example export-benchmark-runner -- mp4-only --duration 30 --benchmark-output`
 
 <details>
 <summary>System Information</summary>

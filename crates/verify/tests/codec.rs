@@ -2,7 +2,7 @@
 //! scaling, compositing and blur, and the audio markers must be located to
 //! well under a millisecond after lossy encoding and resampling.
 
-use cap_verify::{
+use frameever_verify::{
     audio_code::{self, AudioSource},
     media::{self, AudioCodec, VideoCodec, VideoWriter, VideoWriterConfig},
     oracle::{self, StreamExpectation},

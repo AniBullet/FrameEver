@@ -44,11 +44,12 @@ mod edits;
 
 use std::path::Path;
 
-use cap_project::{
+use edits::{Op, OpMix, TimeModel};
+use frameever_project::{
     CaptionSegment, CaptionSettings, CaptionTrackSegment, CaptionWord, CaptionsData,
     ProjectConfiguration, RecordingMeta, StudioRecordingMeta,
 };
-use cap_verify::{
+use frameever_verify::{
     audio_code::{self, AudioSource, MARKER_SECS},
     catalog,
     fixture::{AudioTrackSpec, FixtureSpec, Rng, SegmentSpec, Timing, VideoTrackSpec},
@@ -56,7 +57,6 @@ use cap_verify::{
     report::{self, Case, Tier},
     video_code::PixelSource,
 };
-use edits::{Op, OpMix, TimeModel};
 
 const MAX_WORD_SECS: f64 = 2.5;
 /// Projected times are stored as f32.
@@ -67,7 +67,7 @@ const WORD_TOLERANCE_SECS: f64 = 0.001;
 /// the JSON report).
 fn settle(case: Case) -> Option<String> {
     for note in &case.notes {
-        eprintln!("[cap-verify]   {}: {note}", case.id);
+        eprintln!("[frameever-verify]   {}: {note}", case.id);
     }
     report::settle(case).err()
 }
@@ -442,7 +442,7 @@ fn random_overrides(rng: &mut Rng, config: &mut ProjectConfiguration, per_source
     let timeline = config.timeline.as_mut().expect("timeline");
     let mut styled: Vec<(String, CaptionTrackSegment)> = Vec::new();
     for piece in &mut timeline.caption_segments {
-        let source = cap_project::source_caption_id(&piece.id).to_string();
+        let source = frameever_project::source_caption_id(&piece.id).to_string();
         if per_source && let Some((_, style)) = styled.iter().find(|(id, _)| *id == source) {
             piece.fade_duration_override = style.fade_duration_override;
             piece.position_override = style.position_override.clone();
@@ -469,16 +469,16 @@ fn projection_problems(
 ) -> Vec<String> {
     let mut config = base.clone();
     set_captions(&mut config, captions.to_vec(), true);
-    cap_project::synchronize_captions(&mut config, durations);
+    frameever_project::synchronize_captions(&mut config, durations);
     random_overrides(&mut Rng::new(override_seed), &mut config, false);
     for op in ops {
         edits::apply(&mut config, op);
     }
     let model = model_project(captions, &config, durations);
-    cap_project::synchronize_captions(&mut config, durations);
+    frameever_project::synchronize_captions(&mut config, durations);
     let mut problems = compare_track(&edits::timeline(&config).caption_segments, &model);
     let again = edits::timeline(&config).caption_segments.clone();
-    cap_project::synchronize_captions(&mut config, durations);
+    frameever_project::synchronize_captions(&mut config, durations);
     let after = &edits::timeline(&config).caption_segments;
     if serde_json::to_value(&again).ok() != serde_json::to_value(after).ok() {
         problems.push("re-synchronizing an unchanged project changed the caption track".into());
@@ -634,7 +634,7 @@ fn projection_hold_boundaries() {
         },
     ];
     set_captions(&mut config, captions.clone(), true);
-    cap_project::synchronize_captions(&mut config, &durations);
+    frameever_project::synchronize_captions(&mut config, &durations);
     let model = model_project(&captions, &config, &durations);
     let product = &edits::timeline(&config).caption_segments;
     let mut problems = compare_track(product, &model);
@@ -683,7 +683,7 @@ fn migration_problems(
 ) -> Vec<String> {
     let mut config = edits::replay(base, ops);
     set_captions(&mut config, captions.to_vec(), true);
-    cap_project::synchronize_captions(&mut config, durations);
+    frameever_project::synchronize_captions(&mut config, durations);
     let mut shown = edits::timeline(&config).caption_segments.clone();
     // Captions ending exactly at the timeline end are covered by
     // `legacy_migration_caption_at_timeline_end`.
@@ -698,7 +698,7 @@ fn migration_problems(
         .clear();
     set_captions(&mut config, legacy.clone(), false);
     let expected = model_migrate(&legacy, &config, durations);
-    cap_project::synchronize_captions(&mut config, durations);
+    frameever_project::synchronize_captions(&mut config, durations);
     let captions_data = config.captions.as_ref().expect("captions");
     let mut problems = Vec::new();
     if !captions_data.source_timed {
@@ -802,7 +802,7 @@ fn legacy_migration_caption_at_timeline_end() {
     }];
     let expected = model_migrate(&legacy, &config, &durations);
     set_captions(&mut config, legacy, false);
-    cap_project::synchronize_captions(&mut config, &durations);
+    frameever_project::synchronize_captions(&mut config, &durations);
     let mut case = Case::new(id);
     let migrated = &config.captions.as_ref().expect("captions").segments;
     if migrated.len() == expected.len() && expected.len() == 1 {
@@ -899,7 +899,7 @@ fn styled_settings(rng: &mut Rng) -> CaptionSettings {
         linger_duration: 0.7,
         word_transition_duration: 0.1,
         active_word_highlight: true,
-        manual_position: Some(cap_project::XY::new(0.25, 0.75)),
+        manual_position: Some(frameever_project::XY::new(0.25, 0.75)),
         preset: "custom".into(),
         animation: "pop".into(),
         highlight_style: "pill".into(),
@@ -935,7 +935,7 @@ fn round_trip_on_disk() {
             settings: styled_settings(&mut rng),
             source_timed: true,
         });
-        cap_project::synchronize_captions(&mut config, &durations);
+        frameever_project::synchronize_captions(&mut config, &durations);
         random_overrides(&mut rng, &mut config, true);
         let project = dir.path().join(format!("seed-{seed}"));
         std::fs::create_dir_all(&project).expect("project dir");
@@ -963,7 +963,7 @@ fn round_trip_on_disk() {
             );
         }
         let mut resynced = loaded.clone();
-        cap_project::synchronize_captions(&mut resynced, &durations);
+        frameever_project::synchronize_captions(&mut resynced, &durations);
         if json(&resynced) != json(&loaded) {
             case.problem(
                 "caption-roundtrip",
@@ -1073,7 +1073,7 @@ const RATE: u32 = 48_000;
 /// of each take on the concatenated source timeline. Checked against the
 /// spec (whole frames) to within one frame.
 fn display_durations(case: &mut Case, project: &common::Project, spec: &FixtureSpec) -> Vec<f64> {
-    let durations: Vec<f64> = cap_rendering::ProjectRecordingsMeta::new(
+    let durations: Vec<f64> = frameever_rendering::ProjectRecordingsMeta::new(
         &project.path,
         project.meta.studio_meta().expect("studio"),
     )
@@ -1112,12 +1112,12 @@ fn transcription_audio(project: &common::Project) -> Vec<f32> {
     let Some(StudioRecordingMeta::MultipleSegments { inner }) = project.meta.studio_meta() else {
         panic!("multi-segment fixture");
     };
-    let recordings = cap_rendering::ProjectRecordingsMeta::new(
+    let recordings = frameever_rendering::ProjectRecordingsMeta::new(
         &project.path,
         project.meta.studio_meta().expect("studio"),
     )
     .expect("recordings meta");
-    let takes: Vec<cap_editor::TranscriptionAudioTake> = inner
+    let takes: Vec<frameever_editor::TranscriptionAudioTake> = inner
         .segments
         .iter()
         .zip(&recordings.segments)
@@ -1132,19 +1132,19 @@ fn transcription_audio(project: &common::Project) -> Vec<f32> {
                 let decoded =
                     media::decode_audio(&project.path.join(audio.path.as_str()), Some(RATE))
                         .expect("decode source audio");
-                sources.push(cap_editor::TranscriptionAudioSource {
+                sources.push(frameever_editor::TranscriptionAudioSource {
                     samples: interleaved(&decoded),
                     channels: decoded.channels.len(),
                     offset_secs: f64::from(offset),
                 });
             }
-            cap_editor::TranscriptionAudioTake {
+            frameever_editor::TranscriptionAudioTake {
                 display_duration_secs: recording.display.duration,
                 sources,
             }
         })
         .collect();
-    cap_editor::assemble_transcription_audio(&takes, RATE).expect("assemble")
+    frameever_editor::assemble_transcription_audio(&takes, RATE).expect("assemble")
 }
 
 fn word_text(source: AudioSource, index: u32) -> String {
@@ -1302,7 +1302,7 @@ fn transcription_audio_words() {
         .segments
         .reverse();
     set_captions(&mut config, captions.clone(), true);
-    cap_project::synchronize_captions(&mut config, &durations);
+    frameever_project::synchronize_captions(&mut config, &durations);
     let track_problems = compare_track(
         &edits::timeline(&config).caption_segments,
         &model_project(&captions, &config, &durations),
@@ -1490,7 +1490,7 @@ fn templates(
     });
     // Projected here so the templates do not depend on the export's own
     // projection (which `render_*` checks).
-    cap_project::synchronize_captions(&mut config, durations);
+    frameever_project::synchronize_captions(&mut config, durations);
     let duration = edits::timeline(&config).duration();
     if texts.len() as f64 * slot > duration {
         return Err(format!(
@@ -1549,7 +1549,7 @@ fn render_case(
         settings: render_settings(),
         source_timed: true,
     });
-    cap_project::synchronize_captions(&mut config, &durations);
+    frameever_project::synchronize_captions(&mut config, &durations);
     if edit.stale_track {
         (edit.apply)(&mut config);
     }
@@ -1788,10 +1788,10 @@ fn open_in_editor(
         .map_err(|e| format!("write sidecar: {e}"))?;
     }
     rt.block_on(async {
-        let editor = cap_editor::EditorInstance::new(
+        let editor = frameever_editor::EditorInstance::new(
             copy.clone(),
             |_| {},
-            Box::new(|_: cap_editor::EditorFrameOutput, _: cap_editor::FrameLayout| {}),
+            Box::new(|_: frameever_editor::EditorFrameOutput, _: frameever_editor::FrameLayout| {}),
             None,
         )
         .await?;
@@ -1837,7 +1837,7 @@ fn editor_open() {
         let (expected_captions, sidecar) = match variant {
             "source-timed-stale-track" => {
                 set_captions(&mut config, captions.clone(), true);
-                cap_project::synchronize_captions(&mut config, &durations);
+                frameever_project::synchronize_captions(&mut config, &durations);
                 edit(&mut config);
                 (captions.clone(), None)
             }
@@ -1845,7 +1845,7 @@ fn editor_open() {
                 edit(&mut config);
                 let mut shown = config.clone();
                 set_captions(&mut shown, captions.clone(), true);
-                cap_project::synchronize_captions(&mut shown, &durations);
+                frameever_project::synchronize_captions(&mut shown, &durations);
                 let legacy = track_as_captions(&edits::timeline(&shown).caption_segments);
                 let migrated = model_migrate(&legacy, &config, &durations);
                 if variant == "legacy-output-timed" {

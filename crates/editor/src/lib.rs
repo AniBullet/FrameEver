@@ -21,11 +21,6 @@ pub use audio_output::{
     AudioOutput, HEADLESS_BLOCK_FRAMES, HEADLESS_CHANNELS, HEADLESS_SAMPLE_RATE, HeadlessAudioTap,
     PlaySpec,
 };
-pub use cap_audio::{
-    TranscriptionAudioSource, TranscriptionAudioTake, append_transcription_audio,
-    assemble_transcription_audio, waveform_peaks,
-};
-pub use cap_rendering::FrameLayout;
 pub use completed_audio::CompletedAudioHandoff;
 pub use editor::{
     EditorFrameCallback, EditorFrameFormat, EditorFrameOutput, Renderer, RendererHandle,
@@ -39,6 +34,11 @@ pub use editor_instance::{
 pub use export_audio::{
     ExportAudioError, ExportAudioPreparation, ExportAudioRenderer, ExportAudioValidation,
 };
+pub use frameever_audio::{
+    TranscriptionAudioSource, TranscriptionAudioTake, append_transcription_audio,
+    assemble_transcription_audio, waveform_peaks,
+};
+pub use frameever_rendering::FrameLayout;
 pub use playback::{Playback, PlaybackEvent, PlaybackHandle, PlaybackStartError};
 pub use preparing_editor::{PreparingEditorPhase, PreparingEditorProgress, PreparingPlaybackState};
 pub use preparing_handoff::{

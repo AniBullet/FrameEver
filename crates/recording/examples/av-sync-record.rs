@@ -5,7 +5,7 @@
 //!
 //! Usage: av-sync-record [--duration <secs>] [--out <dir>]
 
-use cap_recording::{screen_capture::ScreenCaptureTarget, *};
+use frameever_recording::{screen_capture::ScreenCaptureTarget, *};
 use scap_targets::Display;
 use std::time::Duration;
 use tracing::*;
@@ -13,7 +13,7 @@ use tracing::*;
 #[tokio::main]
 pub async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter("warn,cap_recording=info")
+        .with_env_filter("warn,frameever_recording=info")
         .init();
 
     let mut duration_secs = 45u64;
@@ -49,7 +49,7 @@ pub async fn main() {
     .with_system_audio(true)
     .build(
         #[cfg(target_os = "macos")]
-        Some(cap_recording::SendableShareableContent::from(
+        Some(frameever_recording::SendableShareableContent::from(
             cidre::sc::ShareableContent::current().await.unwrap(),
         )),
     )

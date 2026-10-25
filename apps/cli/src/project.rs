@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use cap_project::{
+use frameever_project::{
     InstantRecordingMeta, RecordingMeta, RecordingMetaInner, StudioRecordingMeta,
     StudioRecordingStatus,
 };
@@ -17,11 +17,11 @@ pub struct ProjectInspection {
     pub name: String,
     pub recording_type: &'static str,
     pub meta: RecordingMeta,
-    pub config: cap_project::ProjectConfiguration,
+    pub config: frameever_project::ProjectConfiguration,
 }
 
 pub fn config_get(project_path: PathBuf) -> Result<(), String> {
-    let config = match cap_project::ProjectConfiguration::load(&project_path) {
+    let config = match frameever_project::ProjectConfiguration::load(&project_path) {
         Ok(config) => config,
         // Instant and un-edited studio recordings have no project-config.json; return the
         // effective default the editor/exporter would use rather than erroring.
@@ -37,7 +37,7 @@ pub fn config_set(
     settings_json: &str,
     format: OutputFormat,
 ) -> Result<(), String> {
-    let config: cap_project::ProjectConfiguration = serde_json::from_str(settings_json)
+    let config: frameever_project::ProjectConfiguration = serde_json::from_str(settings_json)
         .map_err(|e| format!("Invalid project config JSON: {e}"))?;
     // write() validates internally before its atomic temp-file-then-rename.
     config

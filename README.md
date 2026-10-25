@@ -87,7 +87,7 @@ pnpm fe package   # 打包安装程序到 dist/
 
 ## 协议与致谢
 
-FrameEver 基于 [Cap](https://github.com/CapSoftware/Cap) 改造，遵循 **AGPL-3.0** 协议：保留原始版权声明、公开全部源代码。部分模块（`cap-camera*`、`scap-*`）为 MIT 协议，见各模块的 LICENSE。FrameEver 是独立项目，与 Cap 官方无关，不使用 Cap 的名称和标志。
+FrameEver 基于 [Cap](https://github.com/CapSoftware/Cap) 改造，遵循 **AGPL-3.0** 协议：保留原始版权声明、公开全部源代码。部分模块（`frameever-camera*`、`scap-*`）为 MIT 协议，见各模块的 LICENSE。FrameEver 是独立项目，与 Cap 官方无关，不使用 Cap 的名称和标志。
 
 感谢 Cap 团队和所有贡献者。界面字体使用 [Inter](https://rsms.me/inter/)（SIL OFL 1.1）和华为 [HarmonyOS Sans](https://developer.huawei.com/consumer/cn/design/resource/)。
 

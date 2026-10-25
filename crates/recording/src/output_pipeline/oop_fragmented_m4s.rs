@@ -13,11 +13,11 @@ use crate::{
     AudioFrame, AudioMuxer, Muxer, SharedPauseState, TaskPool, VideoMuxer, screen_capture,
 };
 use anyhow::{Context, anyhow};
-use cap_enc_ffmpeg::fragment_manifest::FragmentManifestTracker;
-use cap_enc_ffmpeg::h264::{H264EncoderBuilder, H264Preset};
-use cap_enc_ffmpeg::h264_packet::EncodePacketError;
-use cap_enc_ffmpeg::segmented_stream::{DiskSpaceCallback, SegmentCompletedEvent};
-use cap_media_info::{AudioInfo, VideoInfo};
+use frameever_enc_ffmpeg::fragment_manifest::FragmentManifestTracker;
+use frameever_enc_ffmpeg::h264::{H264EncoderBuilder, H264Preset};
+use frameever_enc_ffmpeg::h264_packet::EncodePacketError;
+use frameever_enc_ffmpeg::segmented_stream::{DiskSpaceCallback, SegmentCompletedEvent};
+use frameever_media_info::{AudioInfo, VideoInfo};
 use std::{
     path::PathBuf,
     sync::{Arc, atomic::AtomicBool},
@@ -258,8 +258,8 @@ impl OutOfProcessFragmentedM4SMuxer {
             "OOP M4S muxer encoder channel buffer size"
         );
 
-        let bin_path =
-            resolve_muxer_binary().with_context(|| "cap-muxer binary not found for OOP muxer")?;
+        let bin_path = resolve_muxer_binary()
+            .with_context(|| "frameever-muxer binary not found for OOP muxer")?;
 
         let (video_tx, video_rx) = std::sync::mpsc::sync_channel::<VideoFrameItem>(buffer_size);
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<anyhow::Result<()>>(1);
@@ -356,7 +356,7 @@ impl OutOfProcessFragmentedM4SMuxer {
                 ) {
                     Ok(s) => s,
                     Err(e) => {
-                        let err = anyhow!("Failed to spawn cap-muxer subprocess: {e:#}");
+                        let err = anyhow!("Failed to spawn frameever-muxer subprocess: {e:#}");
                         let _ = ready_tx.send(Err(anyhow!("{err:#}")));
                         return Err(err);
                     }
@@ -606,7 +606,7 @@ fn wire_codec_for(codec: &str) -> String {
 
 fn dispatch_packet(
     subprocess: &mut RespawningMuxerSubprocess,
-    pkt: cap_enc_ffmpeg::h264_packet::EncodedPacket,
+    pkt: frameever_enc_ffmpeg::h264_packet::EncodedPacket,
 ) -> Result<(), EncodePacketError> {
     match subprocess.write_video_packet(
         pkt.pts,

@@ -1,5 +1,5 @@
 [package]
-name = "cap-frame-converter"
+name = "frameever-frame-converter"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,7 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-cap-media-info = { path = "../media-info" }
+frameever-media-info = { path = "../media-info" }
 
 ffmpeg.workspace = true
 thiserror.workspace = true

@@ -1,5 +1,5 @@
 [package]
-name = "cap-verify-expect"
+name = "frameever-verify-expect"
 version = "0.1.0"
 edition = "2024"
 publish = false

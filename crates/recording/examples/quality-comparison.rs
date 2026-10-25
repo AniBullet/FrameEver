@@ -1,4 +1,4 @@
-use cap_recording::{
+use frameever_recording::{
     StudioQuality,
     memory_profiling::{CpuTracker, get_process_stats},
     screen_capture::ScreenCaptureTarget,
@@ -79,7 +79,7 @@ async fn run_recording(
 
     let dir = tempfile::tempdir()?;
 
-    let builder = cap_recording::studio_recording::Actor::builder(
+    let builder = frameever_recording::studio_recording::Actor::builder(
         dir.path().into(),
         ScreenCaptureTarget::Display {
             id: Display::primary().id(),
@@ -95,7 +95,7 @@ async fn run_recording(
     let handle = builder
         .build(
             #[cfg(target_os = "macos")]
-            Some(cap_recording::SendableShareableContent::from(
+            Some(frameever_recording::SendableShareableContent::from(
                 cidre::sc::ShareableContent::current()
                     .await
                     .expect("Failed to get shareable content"),

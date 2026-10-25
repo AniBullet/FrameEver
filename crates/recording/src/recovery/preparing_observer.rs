@@ -2,8 +2,8 @@ use super::preparing_projection::{
     PreparingAudioInput, PreparingProjection, PreparingStudioSegment, PreparingVideoInput,
 };
 use crate::studio_recording::{CleanStoppedStudioClaim, CompletedRecording};
-use cap_enc_ffmpeg::RelocatableSource;
-use cap_project::{AudioMeta, ProjectConfiguration, RecordingMeta, VideoMeta};
+use frameever_enc_ffmpeg::RelocatableSource;
+use frameever_project::{AudioMeta, ProjectConfiguration, RecordingMeta, VideoMeta};
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -434,7 +434,7 @@ impl PreparingSidecarLease<'_> {
 mod tests {
     use super::*;
     use crate::studio_recording::CleanStoppedStudio;
-    use cap_project::{
+    use frameever_project::{
         MultipleSegment, MultipleSegments, Platform, RecordingMetaInner, StudioRecordingMeta,
         StudioRecordingStatus,
     };
@@ -474,7 +474,7 @@ mod tests {
             inner: RecordingMetaInner::Studio(Box::new(StudioRecordingMeta::MultipleSegments {
                 inner: MultipleSegments {
                     segments: vec![segment()],
-                    cursors: cap_project::Cursors::Correct(Default::default()),
+                    cursors: frameever_project::Cursors::Correct(Default::default()),
                     status: Some(StudioRecordingStatus::NeedsRemux),
                 },
             })),

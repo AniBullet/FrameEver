@@ -4,25 +4,25 @@
 		{
 			"name": "verify-self",
 			"about": "marker codecs, reference timeline model, oracle and report self-tests",
-			"cargo": ["-p", "cap-verify", "--lib", "--test", "codec"],
-			"binaries": ["cap-verify", "cap-verify::codec"],
+			"cargo": ["-p", "frameever-verify", "--lib", "--test", "codec"],
+			"binaries": ["frameever-verify", "frameever-verify::codec"],
 			"platforms": {
 				"fast": ["linux"],
 				"full": ["linux", "macos"]
 			},
-			"roots": ["cap-verify"],
+			"roots": ["frameever-verify"],
 			"own": ["crates/verify/tests/codec.rs"]
 		},
 		{
 			"name": "export",
 			"about": "every exported frame against the reference model (MP4, GIF, both decoders on macOS)",
-			"cargo": ["-p", "cap-verify", "--test", "export"],
-			"binaries": ["cap-verify::export"],
+			"cargo": ["-p", "frameever-verify", "--test", "export"],
+			"binaries": ["frameever-verify::export"],
 			"platforms": {
 				"fast": ["linux", "macos", "windows"],
 				"full": ["linux", "macos", "windows"]
 			},
-			"roots": ["cap-verify"],
+			"roots": ["frameever-verify"],
 			"own": ["crates/verify/tests/export.rs"],
 			"skip": {
 				"fast": {
@@ -55,13 +55,13 @@
 		{
 			"name": "playback",
 			"about": "offline-driven editor playback frames against the reference model",
-			"cargo": ["-p", "cap-verify", "--test", "playback"],
-			"binaries": ["cap-verify::playback"],
+			"cargo": ["-p", "frameever-verify", "--test", "playback"],
+			"binaries": ["frameever-verify::playback"],
 			"platforms": {
 				"fast": ["linux", "macos"],
 				"full": ["linux", "macos", "windows"]
 			},
-			"roots": ["cap-verify"],
+			"roots": ["frameever-verify"],
 			"own": ["crates/verify/tests/playback.rs"],
 			"skip": {
 				"fast": {
@@ -87,13 +87,13 @@
 		{
 			"name": "seek",
 			"about": "random, keyframe and scrub seeks against the reference model",
-			"cargo": ["-p", "cap-verify", "--test", "seek"],
-			"binaries": ["cap-verify::seek"],
+			"cargo": ["-p", "frameever-verify", "--test", "seek"],
+			"binaries": ["frameever-verify::seek"],
 			"platforms": {
 				"fast": ["linux", "macos"],
 				"full": ["linux", "macos", "windows"]
 			},
-			"roots": ["cap-verify"],
+			"roots": ["frameever-verify"],
 			"own": ["crates/verify/tests/seek.rs"],
 			"skip": {
 				"fast": {
@@ -118,15 +118,15 @@
 		},
 		{
 			"name": "crash",
-			"about": "crash safety of fragmented Studio recording: in-process vs out-of-process muxer equality, recorder and muxer kills, recovery against what is physically on disk (needs the cap-muxer binary, built by run.sh)",
-			"cargo": ["-p", "cap-verify", "--test", "crash"],
-			"binaries": ["cap-verify::crash"],
+			"about": "crash safety of fragmented Studio recording: in-process vs out-of-process muxer equality, recorder and muxer kills, recovery against what is physically on disk (needs the frameever-muxer binary, built by run.sh)",
+			"cargo": ["-p", "frameever-verify", "--test", "crash"],
+			"binaries": ["frameever-verify::crash"],
 			"test": "crash_safety",
 			"platforms": {
 				"fast": ["linux", "macos", "windows"],
 				"full": ["linux", "macos", "windows"]
 			},
-			"roots": ["cap-verify", "cap-muxer"],
+			"roots": ["frameever-verify", "frameever-muxer"],
 			"own": ["crates/verify/tests/crash.rs"],
 			"cases": {
 				"prefix": "crash/",
@@ -144,14 +144,14 @@
 		},
 		{
 			"name": "chaos",
-			"about": "chaos and resilience: hostile device data, files, projects and settings through the recording, editor, playback, export and recovery engines, each probe in a child process so panics, aborts, signals, Objective-C exceptions and hangs are classified (needs the cap-muxer binary, built by run.sh)",
-			"cargo": ["-p", "cap-verify", "--test", "chaos"],
-			"binaries": ["cap-verify::chaos"],
+			"about": "chaos and resilience: hostile device data, files, projects and settings through the recording, editor, playback, export and recovery engines, each probe in a child process so panics, aborts, signals, Objective-C exceptions and hangs are classified (needs the frameever-muxer binary, built by run.sh)",
+			"cargo": ["-p", "frameever-verify", "--test", "chaos"],
+			"binaries": ["frameever-verify::chaos"],
 			"platforms": {
 				"fast": ["macos"],
 				"full": ["macos"]
 			},
-			"roots": ["cap-verify", "cap-muxer"],
+			"roots": ["frameever-verify", "frameever-muxer"],
 			"own": [
 				"crates/verify/tests/chaos.rs",
 				"crates/verify/tests/chaos_support/**"
@@ -169,13 +169,13 @@
 		{
 			"name": "audio",
 			"about": "export and offline playback audio against sample-accurate markers (mic, system audio, cuts, speeds, mute, volume, A/V offset)",
-			"cargo": ["-p", "cap-verify", "--test", "audio"],
-			"binaries": ["cap-verify::audio"],
+			"cargo": ["-p", "frameever-verify", "--test", "audio"],
+			"binaries": ["frameever-verify::audio"],
 			"platforms": {
 				"fast": ["linux", "macos", "windows"],
 				"full": ["linux", "macos", "windows"]
 			},
-			"roots": ["cap-verify"],
+			"roots": ["frameever-verify"],
 			"own": [
 				"crates/verify/tests/audio.rs",
 				"crates/verify/tests/audio_support/**",
@@ -205,13 +205,13 @@
 		{
 			"name": "editing",
 			"about": "random edit sequences (split, delete, speed, trim, reorder, transitions) exported and checked frame by frame against the reference model",
-			"cargo": ["-p", "cap-verify", "--test", "editing"],
-			"binaries": ["cap-verify::editing"],
+			"cargo": ["-p", "frameever-verify", "--test", "editing"],
+			"binaries": ["frameever-verify::editing"],
 			"platforms": {
 				"fast": ["linux"],
 				"full": ["linux"]
 			},
-			"roots": ["cap-verify"],
+			"roots": ["frameever-verify"],
 			"own": ["crates/verify/tests/editing.rs", "crates/verify/tests/edits/**"],
 			"cases": {
 				"prefix": "editing/",
@@ -226,13 +226,13 @@
 		{
 			"name": "captions",
 			"about": "fake-transcriber captions: caption segments and rendered captions on the right frames",
-			"cargo": ["-p", "cap-verify", "--test", "captions"],
-			"binaries": ["cap-verify::captions"],
+			"cargo": ["-p", "frameever-verify", "--test", "captions"],
+			"binaries": ["frameever-verify::captions"],
 			"platforms": {
 				"fast": ["linux"],
 				"full": ["linux"]
 			},
-			"roots": ["cap-verify"],
+			"roots": ["frameever-verify"],
 			"own": ["crates/verify/tests/captions.rs"],
 			"cases": {
 				"prefix": "captions/",
@@ -247,14 +247,14 @@
 		{
 			"name": "decoder-model-ffmpeg",
 			"about": "model-based fuzzing of the FFmpeg decoder's request decisions on scripted media",
-			"cargo": ["-p", "cap-rendering", "--lib"],
-			"binaries": ["cap-rendering"],
+			"cargo": ["-p", "frameever-rendering", "--lib"],
+			"binaries": ["frameever-rendering"],
 			"test": "decoder::model::ffmpeg_answers_match_the_reference_model",
 			"platforms": {
 				"fast": ["linux"],
 				"full": ["linux"]
 			},
-			"roots": ["cap-rendering"],
+			"roots": ["frameever-rendering"],
 			"own": [],
 			"cases": {
 				"prefix": "decoder-model/ffmpeg/",
@@ -269,14 +269,14 @@
 		{
 			"name": "decoder-model-avf",
 			"about": "model-based fuzzing of the AVAssetReader decoder's request decisions on scripted media",
-			"cargo": ["-p", "cap-rendering", "--lib"],
-			"binaries": ["cap-rendering"],
+			"cargo": ["-p", "frameever-rendering", "--lib"],
+			"binaries": ["frameever-rendering"],
 			"test": "decoder::model::avassetreader_answers_match_the_reference_model",
 			"platforms": {
 				"fast": ["macos"],
 				"full": ["macos"]
 			},
-			"roots": ["cap-rendering"],
+			"roots": ["frameever-rendering"],
 			"own": [],
 			"cases": {
 				"prefix": "decoder-model/avf/",
@@ -291,13 +291,13 @@
 		{
 			"name": "native-rendering",
 			"about": "native macOS rendering regressions (IOSurface source lifetime in the YUV converter)",
-			"cargo": ["-p", "cap-rendering", "--test", "iosurface-source-lifetime"],
-			"binaries": ["cap-rendering::iosurface-source-lifetime"],
+			"cargo": ["-p", "frameever-rendering", "--test", "iosurface-source-lifetime"],
+			"binaries": ["frameever-rendering::iosurface-source-lifetime"],
 			"platforms": {
 				"fast": ["macos"],
 				"full": ["macos"]
 			},
-			"roots": ["cap-rendering"],
+			"roots": ["frameever-rendering"],
 			"own": [
 				"crates/rendering/tests/iosurface-source-lifetime.rs",
 				"crates/rendering/tests/expectations.toml"

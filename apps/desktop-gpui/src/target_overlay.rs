@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use cap_recording::sources::screen_capture::ScreenCaptureTarget;
+use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::{
     Animation, AnimationExt as _, App, AppContext as _, Context, Entity, FontWeight, Global, Hsla,
     ImageFormat, InteractiveElement as _, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent,

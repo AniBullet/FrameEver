@@ -1,5 +1,5 @@
 [package]
-name = "cap-project"
+name = "frameever-project"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,7 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-cap-cursor-info = { path = "../cursor-info" }
+frameever-cursor-info = { path = "../cursor-info" }
 
 specta.workspace = true
 serde = { workspace = true }

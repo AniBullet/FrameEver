@@ -1,14 +1,14 @@
-use cap_enc_ffmpeg::{
+use ffmpeg::{Rational, codec as avcodec, format as avformat, media, rescale};
+use frameever_enc_ffmpeg::{
     remux::{concatenate_m4s_segments_with_init, probe_video_can_decode, probe_video_seek_points},
     segmented_stream::{SegmentedVideoEncoder, SegmentedVideoEncoderConfig},
 };
-use cap_media_info::VideoInfo;
-use cap_project::{
+use frameever_media_info::VideoInfo;
+use frameever_project::{
     Cursors, MultipleSegment, MultipleSegments, RecordingMeta, RecordingMetaInner,
     StudioRecordingMeta, StudioRecordingStatus, VideoMeta,
 };
-use cap_recording::recovery::{RecoveryError, RecoveryManager};
-use ffmpeg::{Rational, codec as avcodec, format as avformat, media, rescale};
+use frameever_recording::recovery::{RecoveryError, RecoveryManager};
 use relative_path::RelativePathBuf;
 use std::{
     fs::{self, OpenOptions},
@@ -1222,9 +1222,9 @@ fn make_synthetic_video_frame(width: u32, height: u32) -> ffmpeg::frame::Video {
     frame
 }
 
-fn synthetic_video_info() -> cap_media_info::VideoInfo {
-    cap_media_info::VideoInfo {
-        pixel_format: cap_media_info::Pixel::NV12,
+fn synthetic_video_info() -> frameever_media_info::VideoInfo {
+    frameever_media_info::VideoInfo {
+        pixel_format: frameever_media_info::Pixel::NV12,
         width: 320,
         height: 240,
         time_base: ffmpeg::Rational(1, 1_000_000),
@@ -1260,7 +1260,9 @@ fn assert_valid_synthetic_fragments(display_dir: &Path) -> Vec<PathBuf> {
     concatenate_m4s_segments_with_init(&display_dir.join("init.mp4"), &fragments, &output).unwrap();
     assert!(probe_video_can_decode(&output).unwrap());
     probe_video_seek_points(&output, 8).unwrap();
-    assert!(cap_enc_ffmpeg::remux::get_media_duration(&output).unwrap() >= Duration::from_secs(4));
+    assert!(
+        frameever_enc_ffmpeg::remux::get_media_duration(&output).unwrap() >= Duration::from_secs(4)
+    );
     fragments
 }
 
@@ -1313,7 +1315,7 @@ fn recover_after_simulated_crash_produces_playable_mp4_with_preserved_duration()
         "recovered display.mp4 must be decodable"
     );
 
-    let duration = cap_enc_ffmpeg::remux::get_media_duration(&display_mp4)
+    let duration = frameever_enc_ffmpeg::remux::get_media_duration(&display_mp4)
         .expect("recovered display.mp4 must expose a duration");
     assert!(
         duration >= Duration::from_secs(4),
@@ -1424,7 +1426,7 @@ fn finalize_to_progressive_mp4_includes_respawn_fragments() {
     RecoveryManager::finalize_to_progressive_mp4(&display_dir, &output)
         .expect("finalize_to_progressive_mp4 should succeed with respawn fragments");
 
-    let duration = cap_enc_ffmpeg::remux::get_media_duration(&output).expect("read duration");
+    let duration = frameever_enc_ffmpeg::remux::get_media_duration(&output).expect("read duration");
 
     let single_dir_output = recording.path().join("single_dir_baseline.mp4");
     let baseline_dir = recording.path().join("baseline_dir");
@@ -1432,8 +1434,8 @@ fn finalize_to_progressive_mp4_includes_respawn_fragments() {
     write_synthetic_fragments(&baseline_dir, 300, Duration::from_secs(2));
     RecoveryManager::finalize_to_progressive_mp4(&baseline_dir, &single_dir_output)
         .expect("baseline finalize should succeed");
-    let baseline_duration =
-        cap_enc_ffmpeg::remux::get_media_duration(&single_dir_output).expect("baseline duration");
+    let baseline_duration = frameever_enc_ffmpeg::remux::get_media_duration(&single_dir_output)
+        .expect("baseline duration");
 
     assert!(
         duration.as_secs_f64() > baseline_duration.as_secs_f64() * 1.5,
@@ -1509,7 +1511,7 @@ fn finalize_needs_remux_includes_validated_respawn_groups() {
     copy_dir_recursive(&display, &control_display).unwrap();
     let legacy_output = control.path().join("legacy.mp4");
     RecoveryManager::finalize_to_progressive_mp4(&control_display, &legacy_output).unwrap();
-    let legacy_duration = cap_enc_ffmpeg::remux::get_media_duration(&legacy_output).unwrap();
+    let legacy_duration = frameever_enc_ffmpeg::remux::get_media_duration(&legacy_output).unwrap();
     recording
         .write_recording_meta(StudioRecordingStatus::NeedsRemux)
         .unwrap();
@@ -1531,7 +1533,7 @@ fn finalize_needs_remux_includes_validated_respawn_groups() {
         .join("content/segments/segment-0/display.mp4");
     assert!(probe_video_can_decode(&output).unwrap());
     probe_video_seek_points(&output, 8).unwrap();
-    let duration = cap_enc_ffmpeg::remux::get_media_duration(&output).unwrap();
+    let duration = frameever_enc_ffmpeg::remux::get_media_duration(&output).unwrap();
     assert!(
         (11.5..=12.5).contains(&duration.as_secs_f64()),
         "validated duration {duration:?}, legacy duration {legacy_duration:?}"
@@ -1740,13 +1742,13 @@ fn set_recovery_optional_tracks(project: &Path) {
         start_time: Some(0.0),
         device_id: None,
     });
-    segment.mic = Some(cap_project::AudioMeta {
+    segment.mic = Some(frameever_project::AudioMeta {
         path: RelativePathBuf::from("content/segments/segment-0/audio-input.ogg"),
         start_time: Some(0.0),
         device_id: None,
         gap_summary: None,
     });
-    segment.system_audio = Some(cap_project::AudioMeta {
+    segment.system_audio = Some(frameever_project::AudioMeta {
         path: RelativePathBuf::from("content/segments/segment-0/system_audio.ogg"),
         start_time: Some(0.0),
         device_id: None,
@@ -1941,7 +1943,7 @@ fn recovery_and_finalize_retain_every_known_track_on_success() {
         ] {
             assert!(path.to_path(recording.path()).is_file());
         }
-        cap_project::ProjectConfiguration::load(recording.path())
+        frameever_project::ProjectConfiguration::load(recording.path())
             .unwrap()
             .validate()
             .unwrap();
@@ -2056,7 +2058,7 @@ fn recovery_rejects_video_only_container_used_as_required_audio() {
         .path()
         .join("content/segments/segment-0/audio-input.m4a");
     std::fs::copy(video, &audio).unwrap();
-    assert!(cap_enc_ffmpeg::remux::probe_media_valid(&audio));
+    assert!(frameever_enc_ffmpeg::remux::probe_media_valid(&audio));
     let incomplete = RecoveryManager::inspect_recording(recording.path()).unwrap();
     let before = recovery_input_bytes(recording.path());
     assert!(RecoveryManager::recover(&incomplete).is_err());
@@ -2106,15 +2108,15 @@ fn recovery_rejects_later_corrupt_video_even_when_first_frame_decodes() {
 }
 
 fn write_recovery_dash_audio(directory: &Path) {
-    let info = cap_media_info::AudioInfo::new_raw(
+    let info = frameever_media_info::AudioInfo::new_raw(
         ffmpeg::format::Sample::F32(ffmpeg::format::sample::Type::Planar),
         48000,
         1,
     );
-    let mut encoder = cap_enc_ffmpeg::dash_audio::DashAudioSegmentEncoder::init(
+    let mut encoder = frameever_enc_ffmpeg::dash_audio::DashAudioSegmentEncoder::init(
         directory.to_path_buf(),
         info,
-        cap_enc_ffmpeg::dash_audio::DashAudioSegmentEncoderConfig {
+        frameever_enc_ffmpeg::dash_audio::DashAudioSegmentEncoderConfig {
             segment_duration: Duration::from_secs(1),
         },
     )
@@ -2189,10 +2191,10 @@ fn instant_recovery_empty_or_invalid_expected_audio_cannot_replace_existing_outp
 fn instant_recovery_refuses_known_failed_and_known_missing_audio_without_mutation() {
     test_utils::init_tracing();
     for inner in [
-        cap_project::InstantRecordingMeta::Failed {
+        frameever_project::InstantRecordingMeta::Failed {
             error: "required microphone failed".into(),
         },
-        cap_project::InstantRecordingMeta::Complete {
+        frameever_project::InstantRecordingMeta::Complete {
             fps: 30,
             sample_rate: Some(48000),
         },
@@ -2332,7 +2334,7 @@ fn recovery_aligns_tracks_with_the_start_times_persisted_while_recording() {
         display_dir
             .parent()
             .unwrap()
-            .join(cap_recording::recovery::SEGMENT_START_TIMES_FILE),
+            .join(frameever_recording::recovery::SEGMENT_START_TIMES_FILE),
         br#"{"display":0.412,"camera":0.38,"mic":0.25,"system_audio":0.31}"#,
     )
     .unwrap();

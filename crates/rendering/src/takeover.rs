@@ -1,4 +1,4 @@
-use cap_project::{TextLayout, TextSegment};
+use frameever_project::{TextLayout, TextSegment};
 
 /// At full takeover a Fullscreen text leaves the display card at this scale
 /// (about its center) as it fades, so the hand-off reads as a push-back
@@ -151,7 +151,7 @@ fn contain_aspect(base: [f32; 4], container: [f32; 4]) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_project::{TextAlign, TextAnimation, XY};
+    use frameever_project::{TextAlign, TextAnimation, XY};
 
     fn segment(layout: TextLayout, start: f64, end: f64) -> TextSegment {
         TextSegment {

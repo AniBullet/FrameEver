@@ -1,13 +1,13 @@
 use anyhow::{Context, bail};
-use cap_project::{Platform, RecordingMeta, RecordingMetaInner, StudioRecordingMeta};
-use cap_recording::{
+use chrono::{Local, Utc};
+use clap::{Parser, Subcommand};
+use frameever_project::{Platform, RecordingMeta, RecordingMetaInner, StudioRecordingMeta};
+use frameever_recording::{
     CameraFeed, MicrophoneFeed,
     feeds::{camera, microphone},
     screen_capture::ScreenCaptureTarget,
     studio_recording,
 };
-use chrono::{Local, Utc};
-use clap::{Parser, Subcommand};
 use kameo::actor::Spawn as _;
 use scap_targets::Display;
 use std::{
@@ -92,7 +92,7 @@ enum Commands {
 struct AvailableDevices {
     primary_display: Display,
     default_microphone: Option<String>,
-    cameras: Vec<cap_camera::CameraInfo>,
+    cameras: Vec<frameever_camera::CameraInfo>,
 }
 
 impl AvailableDevices {
@@ -101,7 +101,7 @@ impl AvailableDevices {
 
         let default_microphone = MicrophoneFeed::default_device().map(|(label, _, _)| label);
 
-        let cameras: Vec<_> = cap_camera::list_cameras().collect();
+        let cameras: Vec<_> = frameever_camera::list_cameras().collect();
 
         Ok(Self {
             primary_display,
@@ -1401,7 +1401,7 @@ async fn execute_recording(
     };
 
     #[cfg(target_os = "macos")]
-    let shareable_content = cap_recording::SendableShareableContent::from(
+    let shareable_content = frameever_recording::SendableShareableContent::from(
         cidre::sc::ShareableContent::current().await?,
     );
 
@@ -1574,7 +1574,7 @@ async fn check_permissions() -> anyhow::Result<()> {
         println!("  Microphone: NO DEVICE FOUND");
     }
 
-    if cap_camera::list_cameras().next().is_some() {
+    if frameever_camera::list_cameras().next().is_some() {
         println!("  Camera: AVAILABLE (permission will be requested on first use)");
     } else {
         println!("  Camera: NO DEVICE FOUND");
@@ -1596,7 +1596,7 @@ async fn check_permissions() -> anyhow::Result<()> {
         println!("  Microphone: NO DEVICE FOUND");
     }
 
-    if cap_camera::list_cameras().next().is_some() {
+    if frameever_camera::list_cameras().next().is_some() {
         println!("  Camera: AVAILABLE");
     } else {
         println!("  Camera: NO DEVICE FOUND");
@@ -2280,7 +2280,7 @@ async fn main() -> anyhow::Result<()> {
 
     if cli.benchmark_output {
         let command = format!(
-            "cargo run -p cap-recording --example real-device-test-runner -- {} {}{}{}{}--fps {} --duration {}",
+            "cargo run -p frameever-recording --example real-device-test-runner -- {} {}{}{}{}--fps {} --duration {}",
             match cli.command {
                 Some(Commands::Baseline) => "baseline",
                 Some(Commands::SinglePause) => "single-pause",

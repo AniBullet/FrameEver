@@ -1,5 +1,5 @@
 [package]
-name = "cap-d3d-adapter"
+name = "frameever-d3d-adapter"
 version = "0.1.0"
 edition = "2024"
 

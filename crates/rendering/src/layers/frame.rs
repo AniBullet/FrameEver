@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cap_project::{FrameStyle, FrameTheme};
+use frameever_project::{FrameStyle, FrameTheme};
 
 use crate::{
     ProjectUniforms, RenderVideoConstants,

@@ -20,8 +20,8 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use cap_gpui_kernels::{codec, screenshot as pixels};
-use cap_project::{Annotation, AnnotationType, ProjectConfiguration};
+use frameever_gpui_kernels::{codec, screenshot as pixels};
+use frameever_project::{Annotation, AnnotationType, ProjectConfiguration};
 
 use crate::i18n::t;
 use crate::screenshot_annotations::{self as annotations, Rect};
@@ -488,7 +488,7 @@ fn draw_text(pixmap: &mut tiny_skia::PixmapMut<'_>, annotation: &Annotation) {
 
     let stack = TEXT_STACK.get_or_init(|| {
         Mutex::new((
-            cap_rendering::new_font_system(),
+            frameever_rendering::new_font_system(),
             cosmic_text::SwashCache::new(),
         ))
     });
@@ -537,7 +537,7 @@ mod tests {
         has_no_visible_background(&config.background.source)
             && pixels::has_translucent_pixel(&out.rgba)
     }
-    use cap_project::BackgroundSource;
+    use frameever_project::BackgroundSource;
 
     fn annotation(kind: AnnotationType, x: f64, y: f64, w: f64, h: f64) -> Annotation {
         Annotation {

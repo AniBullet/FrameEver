@@ -6,8 +6,8 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use anyhow::{Context, anyhow};
-use cap_media_info::{AudioInfo, RawVideoFormat, Sample, Type, VideoInfo};
-use cap_recording::{
+use frameever_media_info::{AudioInfo, RawVideoFormat, Sample, Type, VideoInfo};
+use frameever_recording::{
     AudioFrame, ChannelAudioSource, ChannelAudioSourceConfig, ChannelVideoSource,
     ChannelVideoSourceConfig, OutputPipeline,
     ffmpeg::{
@@ -17,7 +17,7 @@ use cap_recording::{
     },
     recovery::RecoveryManager,
 };
-use cap_timestamp::{Timestamp, Timestamps};
+use frameever_timestamp::{Timestamp, Timestamps};
 use serde_json::json;
 
 use super::{
@@ -142,11 +142,15 @@ async fn record(dir: &Path) -> anyhow::Result<()> {
 }
 
 fn fixture() -> anyhow::Result<std::path::PathBuf> {
-    let key = cap_verify::fixture::cache_key(
+    let key = frameever_verify::fixture::cache_key(
         "chaos-fragments",
-        &(SECONDS, FPS, cap_verify::pipeline::product_source_hash()),
+        &(
+            SECONDS,
+            FPS,
+            frameever_verify::pipeline::product_source_hash(),
+        ),
     );
-    cap_verify::fixture::ensure_fixture_keyed(key, |dir| {
+    frameever_verify::fixture::ensure_fixture_keyed(key, |dir| {
         crate::common::runtime().block_on(record(dir))
     })
 }
@@ -390,7 +394,7 @@ fn recover(dir: &Path) -> anyhow::Result<Verdict> {
     match RecoveryManager::recover(&incomplete) {
         Err(e) => Ok(Verdict::rejected(format!("recover: {e}"))),
         Ok(_) => {
-            let meta = match cap_project::RecordingMeta::load_for_project(dir) {
+            let meta = match frameever_project::RecordingMeta::load_for_project(dir) {
                 Ok(meta) => meta,
                 Err(e) => {
                     return Ok(Verdict::Wrong(format!(
@@ -399,10 +403,10 @@ fn recover(dir: &Path) -> anyhow::Result<Verdict> {
                 }
             };
             let display = match meta.studio_meta() {
-                Some(cap_project::StudioRecordingMeta::MultipleSegments { inner }) => {
+                Some(frameever_project::StudioRecordingMeta::MultipleSegments { inner }) => {
                     inner.segments.first().map(|s| s.display.path.to_path(dir))
                 }
-                Some(cap_project::StudioRecordingMeta::SingleSegment { segment }) => {
+                Some(frameever_project::StudioRecordingMeta::SingleSegment { segment }) => {
                     Some(segment.display.path.to_path(dir))
                 }
                 None => None,
@@ -505,7 +509,7 @@ pub fn fuzz_probes() -> Vec<Probe> {
         }
         files.sort();
         anyhow::ensure!(!files.is_empty(), "no fragments under {}", dir.display());
-        let mut rng = cap_verify::fixture::Rng::new(ctx.seed ^ salt);
+        let mut rng = frameever_verify::fixture::Rng::new(ctx.seed ^ salt);
         let mutations = super::fuzz::byte_mutations(ctx.seed, salt);
         for (i, m) in mutations.iter().enumerate() {
             let file = &files[rng.range(0, files.len() as u64 - 1) as usize];

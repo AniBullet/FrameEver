@@ -71,7 +71,7 @@ pub fn ensure_dir(path: &PathBuf) -> Result<PathBuf, std::io::Error> {
 /// # Example
 ///
 /// ```rust
-/// use cap_utils::ensure_unique_filename;
+/// use frameever_utils::ensure_unique_filename;
 /// let recordings_dir = std::path::Path::new("recordings");
 /// let unique_name = ensure_unique_filename("My Recording.cap", &recordings_dir,);
 /// // If "My Recording.cap" exists, returns "My Recording (1).cap"

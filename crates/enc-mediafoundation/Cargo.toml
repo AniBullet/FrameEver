@@ -1,10 +1,10 @@
 [package]
-name = "cap-enc-mediafoundation"
+name = "frameever-enc-mediafoundation"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cap-media-info = { path = "../media-info" }
+frameever-media-info = { path = "../media-info" }
 futures.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -47,7 +47,7 @@ windows = { workspace = true, features = [
 windows-core.workspace = true
 windows-numerics = "0.3"
 scap-direct3d = { path = "../scap-direct3d" }
-cap-d3d-adapter = { path = "../d3d-adapter" }
+frameever-d3d-adapter = { path = "../d3d-adapter" }
 
 [dev-dependencies]
 scap-targets = { path = "../scap-targets" }

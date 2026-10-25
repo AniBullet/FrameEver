@@ -96,15 +96,15 @@ debug = 1
 [profile.dev.package."*"]
 debug = 0
 
-[profile.dev.package.cap-camera-effects]
+[profile.dev.package.frameever-camera-effects]
 opt-level = 2
 
-[profile.dev.package.cap-audio]
+[profile.dev.package.frameever-audio]
 opt-level = 2
 
 # The verification suite decodes markers from every output pixel it reads;
 # unoptimised it spends minutes in its own loops.
-[profile.dev.package.cap-verify]
+[profile.dev.package.frameever-verify]
 opt-level = 3
 
 # Engine verification suite in CI (.github/workflows/engine-verify.yml).
@@ -119,7 +119,7 @@ incremental = false
 [profile.ci-verify.package."*"]
 opt-level = 1
 
-[profile.ci-verify.package.cap-verify]
+[profile.ci-verify.package.frameever-verify]
 opt-level = 3
 
 # Optimize for smaller binary size

@@ -21,7 +21,7 @@ use crate::i18n::t;
 use std::sync::atomic::{AtomicBool, AtomicU8};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use cap_recording::feeds::{
+use frameever_recording::feeds::{
     camera::{self, CameraFeed},
     microphone::{self, MicrophoneFeed, MicrophoneSamples},
 };
@@ -32,7 +32,7 @@ use futures_util::{
 use gpui::{App, AppContext as _, Context, Entity, Global};
 use kameo::actor::{ActorRef, Spawn as _};
 
-pub use cap_recording::feeds::camera::DeviceOrModelID;
+pub use frameever_recording::feeds::camera::DeviceOrModelID;
 
 pub type InputReady =
     Shared<BoxFuture<'static, Result<crate::store::RecordingDeviceSettings, String>>>;
@@ -64,9 +64,9 @@ fn owned_input_readiness(
 use crate::app_windows;
 
 #[cfg(target_os = "macos")]
-type PreviewCameraFrame = cap_recording::NativeCameraFrame;
+type PreviewCameraFrame = frameever_recording::NativeCameraFrame;
 #[cfg(not(target_os = "macos"))]
-type PreviewCameraFrame = cap_recording::FFmpegVideoFrame;
+type PreviewCameraFrame = frameever_recording::FFmpegVideoFrame;
 
 async fn attach_camera_preview_sender(
     actor: &ActorRef<CameraFeed>,
@@ -120,8 +120,8 @@ async fn camera_input_operation<T>(
 }
 
 fn camera_preview_frame_is_fresh(
-    timestamp: cap_timestamp::Timestamp,
-    ready_at: Option<cap_timestamp::Timestamps>,
+    timestamp: frameever_timestamp::Timestamp,
+    ready_at: Option<frameever_timestamp::Timestamps>,
 ) -> bool {
     ready_at.is_some_and(|ready_at| timestamp.checked_duration_since(ready_at).is_some())
 }
@@ -164,7 +164,7 @@ enum CameraWorkerCommand {
 
 #[cfg(not(target_os = "macos"))]
 struct CameraPreviewWorkerConfig {
-    frames: flume::Receiver<cap_recording::FFmpegVideoFrame>,
+    frames: flume::Receiver<frameever_recording::FFmpegVideoFrame>,
     previews: flume::Sender<crate::camera_window::CameraPreviewFrame>,
     commands: flume::Receiver<CameraWorkerCommand>,
     mirrored: Arc<AtomicBool>,
@@ -188,7 +188,7 @@ fn run_camera_preview_worker(config: CameraPreviewWorkerConfig) {
     let mut blur_failed = false;
     loop {
         enum Event {
-            Frame(Result<cap_recording::FFmpegVideoFrame, flume::RecvError>),
+            Frame(Result<frameever_recording::FFmpegVideoFrame, flume::RecvError>),
             Command(Result<CameraWorkerCommand, flume::RecvError>),
         }
         let input = &frame_rx;
@@ -221,8 +221,8 @@ fn run_camera_preview_worker(config: CameraPreviewWorkerConfig) {
             previous_blur = requested_blur;
         }
         let blur_mode = match requested_blur {
-            1 => Some(cap_camera_effects::BlurMode::Light),
-            2 => Some(cap_camera_effects::BlurMode::Heavy),
+            1 => Some(frameever_camera_effects::BlurMode::Light),
+            2 => Some(frameever_camera_effects::BlurMode::Heavy),
             _ => None,
         }
         .filter(|_| !blur_failed && crate::camera_blur_portable::blur_allowed());
@@ -284,7 +284,7 @@ pub struct Feeds {
     microphone_settings: Option<microphone::MicrophoneDeviceSettings>,
     applied_settings: crate::store::RecordingDeviceSettings,
     camera_input_pending: bool,
-    camera_preview_not_before: Option<cap_timestamp::Timestamps>,
+    camera_preview_not_before: Option<frameever_timestamp::Timestamps>,
     mic_input_pending: bool,
     mic_input_released: bool,
     microphone_error: Option<String>,
@@ -325,7 +325,7 @@ pub struct SelectedCamera {
     pub id: DeviceOrModelID,
     pub label: String,
     pub device_id: String,
-    pub model_id: Option<cap_camera::ModelID>,
+    pub model_id: Option<frameever_camera::ModelID>,
 }
 
 struct FeedsGlobal(Entity<Feeds>);
@@ -504,7 +504,7 @@ impl Feeds {
         .then_some(self.camera_epoch)
     }
 
-    pub(crate) fn accepts_camera_preview(&self, timestamp: cap_timestamp::Timestamp) -> bool {
+    pub(crate) fn accepts_camera_preview(&self, timestamp: frameever_timestamp::Timestamp) -> bool {
         self.camera_preview_epoch().is_some()
             && camera_preview_frame_is_fresh(timestamp, self.camera_preview_not_before)
     }
@@ -638,7 +638,8 @@ impl Feeds {
                 match result {
                     Ok(settings) => {
                         this.applied_settings.camera = settings.camera;
-                        this.camera_preview_not_before = Some(cap_timestamp::Timestamps::now());
+                        this.camera_preview_not_before =
+                            Some(frameever_timestamp::Timestamps::now());
                     }
                     Err(error) => {
                         tracing::error!("camera input failed: {error}");
@@ -852,7 +853,7 @@ impl Feeds {
         // frame straight to the camera window.
         #[cfg(target_os = "macos")]
         let pump = {
-            let (frame_tx, frame_rx) = flume::bounded::<cap_recording::NativeCameraFrame>(4);
+            let (frame_tx, frame_rx) = flume::bounded::<frameever_recording::NativeCameraFrame>(4);
             self.camera_preview_sender = Some(frame_tx);
 
             cx.spawn(async move |_this, cx| {
@@ -864,7 +865,7 @@ impl Feeds {
 
         #[cfg(not(target_os = "macos"))]
         let pump = {
-            let (frame_tx, frame_rx) = flume::bounded::<cap_recording::FFmpegVideoFrame>(4);
+            let (frame_tx, frame_rx) = flume::bounded::<frameever_recording::FFmpegVideoFrame>(4);
             self.camera_preview_sender = Some(frame_tx);
             let (preview_tx, preview_rx) = flume::bounded(2);
             let (reset_tx, reset_rx) = flume::bounded(4);
@@ -1024,7 +1025,7 @@ pub(crate) fn camera_preview_image(
 
     let width = width as usize;
     let height = height as usize;
-    let pixels = cap_gpui_kernels::frame::copy_rows(
+    let pixels = frameever_gpui_kernels::frame::copy_rows(
         source.data(0),
         width.checked_mul(4)?,
         source.stride(0),
@@ -1282,21 +1283,21 @@ mod tests {
 
     #[test]
     fn preview_rejects_frames_queued_before_input_readiness() {
-        let ready = cap_timestamp::Timestamps::now();
+        let ready = frameever_timestamp::Timestamps::now();
         let queued = ready
             .instant()
             .checked_sub(Duration::from_millis(1))
             .unwrap();
         assert!(!camera_preview_frame_is_fresh(
-            cap_timestamp::Timestamp::Instant(queued),
+            frameever_timestamp::Timestamp::Instant(queued),
             Some(ready)
         ));
         assert!(!camera_preview_frame_is_fresh(
-            cap_timestamp::Timestamp::Instant(ready.instant()),
+            frameever_timestamp::Timestamp::Instant(ready.instant()),
             None
         ));
         assert!(camera_preview_frame_is_fresh(
-            cap_timestamp::Timestamp::Instant(ready.instant()),
+            frameever_timestamp::Timestamp::Instant(ready.instant()),
             Some(ready)
         ));
     }
@@ -1304,15 +1305,17 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn preview_checks_native_camera_capture_clock() {
-        let ready = cap_timestamp::Timestamps::now();
+        let ready = frameever_timestamp::Timestamps::now();
         assert!(!camera_preview_frame_is_fresh(
-            cap_timestamp::Timestamp::MachAbsoluteTime(cap_timestamp::MachAbsoluteTimestamp::new(
-                0
-            )),
+            frameever_timestamp::Timestamp::MachAbsoluteTime(
+                frameever_timestamp::MachAbsoluteTimestamp::new(0)
+            ),
             Some(ready)
         ));
         assert!(camera_preview_frame_is_fresh(
-            cap_timestamp::Timestamp::MachAbsoluteTime(cap_timestamp::MachAbsoluteTimestamp::now()),
+            frameever_timestamp::Timestamp::MachAbsoluteTime(
+                frameever_timestamp::MachAbsoluteTimestamp::now()
+            ),
             Some(ready)
         ));
     }

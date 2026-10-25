@@ -7,8 +7,8 @@ use std::{
     time::Duration,
 };
 
-use cap_media_info::{AudioInfo, AudioInfoError};
 use ffmpeg::{ChannelLayout, codec as avcodec, format as avformat, packet::Mut as PacketMut};
+use frameever_media_info::{AudioInfo, AudioInfoError};
 
 use crate::audio::opus::{OpusEncoder, OpusEncoderError};
 
@@ -1458,8 +1458,8 @@ mod tests {
         ffmpeg::init().unwrap();
         let mut encoder = SegmentedVideoEncoder::init(
             directory.to_path_buf(),
-            cap_media_info::VideoInfo {
-                pixel_format: cap_media_info::Pixel::NV12,
+            frameever_media_info::VideoInfo {
+                pixel_format: frameever_media_info::Pixel::NV12,
                 width: 320,
                 height: 240,
                 time_base: ffmpeg::Rational(1, 1_000_000),
@@ -1808,8 +1808,8 @@ mod tests {
 
     fn encode_test_audio(directory: &Path) -> std::path::PathBuf {
         use crate::fragmented_audio::FragmentedAudioFile;
-        use cap_media_info::AudioInfo;
         use ffmpeg::{ChannelLayout, format::Sample, format::sample::Type};
+        use frameever_media_info::AudioInfo;
 
         let path = directory.join("fragment.m4a");
         let info = AudioInfo::new_raw(Sample::F32(Type::Packed), 48_000, 1);
@@ -1988,12 +1988,12 @@ mod tests {
     fn encode_test_mp4(dir: &std::path::Path, timestamps: &[Duration]) -> std::path::PathBuf {
         use crate::h264::H264Encoder;
         use crate::mp4::MP4File;
-        use cap_media_info::VideoInfo;
+        use frameever_media_info::VideoInfo;
 
         ffmpeg::init().ok();
 
         let video_info = VideoInfo {
-            pixel_format: cap_media_info::Pixel::NV12,
+            pixel_format: frameever_media_info::Pixel::NV12,
             width: 320,
             height: 240,
             time_base: ffmpeg::Rational(1, 1_000_000),

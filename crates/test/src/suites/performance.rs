@@ -1,14 +1,14 @@
 use anyhow::{Context, Result, bail};
-use cap_export::{
+use chrono::Utc;
+use frameever_export::{
     ExporterBase,
     mp4::{ExportCompression, Mp4ExportSettings},
 };
-use cap_project::{ProjectConfiguration, RecordingMeta, RecordingMetaInner, XY};
-use cap_rendering::{
+use frameever_project::{ProjectConfiguration, RecordingMeta, RecordingMetaInner, XY};
+use frameever_rendering::{
     FrameRenderer, ProjectRecordingsMeta, ProjectUniforms, RenderVideoConstants, RendererLayers,
     ZoomTransformTimeline,
 };
-use chrono::Utc;
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -92,7 +92,7 @@ async fn probe_windows_ci_software_adapter(recording_path: &Path) -> Option<Vec<
         return None;
     }
 
-    let (is_software, adapter_name) = cap_rendering::probe_software_adapter().await?;
+    let (is_software, adapter_name) = frameever_rendering::probe_software_adapter().await?;
 
     if !is_software {
         return None;
@@ -150,7 +150,7 @@ fn skipped_result(
 struct FixtureContext {
     project: ProjectConfiguration,
     render_constants: Arc<RenderVideoConstants>,
-    segments: Vec<cap_editor::SegmentMedia>,
+    segments: Vec<frameever_editor::SegmentMedia>,
 }
 
 #[derive(Default)]
@@ -634,7 +634,7 @@ async fn load_fixture(recording_path: &Path) -> Result<FixtureContext> {
         .await
         .map_err(anyhow::Error::msg)?,
     );
-    let segments = cap_editor::create_segments(&recording_meta, &studio_meta, false)
+    let segments = frameever_editor::create_segments(&recording_meta, &studio_meta, false)
         .await
         .map_err(anyhow::Error::msg)?;
 

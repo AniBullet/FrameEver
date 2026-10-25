@@ -1,7 +1,7 @@
 use std::{fmt::Display, path::PathBuf};
 
-use cap_export::{ExporterBase, gif::GifExportSettings, mp4::Mp4ExportSettings};
 use clap::{Parser, ValueEnum};
+use frameever_export::{ExporterBase, gif::GifExportSettings, mp4::Mp4ExportSettings};
 
 #[derive(Parser, Debug)]
 struct Cli {

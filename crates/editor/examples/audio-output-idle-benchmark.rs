@@ -3,11 +3,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_audio::{AudioData, DecodedAudio};
-use cap_editor::{
+use frameever_audio::{AudioData, DecodedAudio};
+use frameever_editor::{
     AudioOutput, MusicTracks, PlaySpec, SegmentAudioTimingRepair, audio_segment_from_decoded,
 };
-use cap_project::ProjectConfiguration;
+use frameever_project::ProjectConfiguration;
 use tokio::sync::watch;
 
 const CLIP_SECS: f64 = 4.0;

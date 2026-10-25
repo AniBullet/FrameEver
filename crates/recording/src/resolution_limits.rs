@@ -1,4 +1,4 @@
-pub use cap_media_info::ensure_even;
+pub use frameever_media_info::ensure_even;
 
 pub const H264_MAX_DIMENSION: u32 = 4096;
 

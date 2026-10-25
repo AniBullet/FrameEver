@@ -1,4 +1,4 @@
-use cap_timestamp::{Timestamp, Timestamps};
+use frameever_timestamp::{Timestamp, Timestamps};
 use std::time::{Duration, Instant};
 
 const MAX_CAPTURE_CLOCK_SKEW: Duration = Duration::from_secs(5);

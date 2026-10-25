@@ -1,4 +1,4 @@
-use cap_rendering::decoder::{AsyncVideoDecoderHandle, spawn_decoder};
+use frameever_rendering::decoder::{AsyncVideoDecoderHandle, spawn_decoder};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;

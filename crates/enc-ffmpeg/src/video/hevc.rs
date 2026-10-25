@@ -1,6 +1,5 @@
 use std::{thread, time::Duration};
 
-use cap_media_info::{Pixel, VideoInfo, ensure_even};
 use ffmpeg::{
     Dictionary,
     codec::{codec::Codec, context, encoder},
@@ -9,6 +8,7 @@ use ffmpeg::{
     frame,
     threading::Config,
 };
+use frameever_media_info::{Pixel, VideoInfo, ensure_even};
 use tracing::{debug, error, trace, warn};
 
 use crate::base::EncoderBase;
@@ -491,7 +491,7 @@ impl From<QueueFrameError> for crate::video::h264::QueueFrameError {
 fn get_av1_encoder_priority() -> &'static [&'static str] {
     #[cfg(target_os = "windows")]
     {
-        use cap_frame_converter::{GpuVendor, detect_primary_gpu};
+        use frameever_frame_converter::{GpuVendor, detect_primary_gpu};
 
         static AV1_PRIORITY_NVIDIA: &[&str] = &["av1_nvenc", "av1_qsv", "av1_amf", "libsvtav1"];
         static AV1_PRIORITY_AMD: &[&str] = &["av1_amf", "av1_nvenc", "av1_qsv", "libsvtav1"];
@@ -525,7 +525,7 @@ fn get_encoder_priority() -> &'static [&'static str] {
 
     #[cfg(target_os = "windows")]
     {
-        use cap_frame_converter::{GpuVendor, detect_primary_gpu};
+        use frameever_frame_converter::{GpuVendor, detect_primary_gpu};
 
         static ENCODER_PRIORITY_NVIDIA: &[&str] =
             &["hevc_nvenc", "hevc_mf", "hevc_qsv", "hevc_amf", "libx265"];
@@ -697,7 +697,8 @@ mod encoder_selection_tests {
 
     fn candidate_names(family: CodecFamily, force_software: bool) -> Vec<String> {
         ffmpeg::init().ok();
-        let config = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Nv12, 1920, 1080, 60);
+        let config =
+            VideoInfo::from_raw(frameever_media_info::RawVideoFormat::Nv12, 1920, 1080, 60);
         get_codec_and_options(&config, HevcPreset::Medium, family, force_software)
             .into_iter()
             .map(|(codec, _)| codec.name().to_string())

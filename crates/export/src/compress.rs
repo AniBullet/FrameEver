@@ -1,12 +1,12 @@
 use std::{path::Path, time::Duration};
 
-use cap_enc_ffmpeg::{
+use frameever_enc_ffmpeg::{
     AudioEncoder,
     aac::AACEncoder,
     hevc::{HevcEncoder, HevcPreset},
     mp4::MP4File,
 };
-use cap_media_info::{AudioInfo, VideoInfo};
+use frameever_media_info::{AudioInfo, VideoInfo};
 
 pub const COMPRESSION_BPP: f32 = 0.06;
 
@@ -158,11 +158,11 @@ pub const CANCELLED: &str = "Compression cancelled";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cap_enc_ffmpeg::h264::H264Encoder;
+    use frameever_enc_ffmpeg::h264::H264Encoder;
 
     fn write_h264(path: &Path, frames: u64) {
         let info = VideoInfo {
-            pixel_format: cap_media_info::Pixel::NV12,
+            pixel_format: frameever_media_info::Pixel::NV12,
             width: 320,
             height: 240,
             time_base: ffmpeg::Rational(1, 1_000_000),

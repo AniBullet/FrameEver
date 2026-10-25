@@ -1,10 +1,10 @@
-# cap-camera-ffmpeg
+# frameever-camera-ffmpeg
 
-Cross-platform FFmpeg integration for the cap-camera library that provides seamless conversion between native camera frames and FFmpeg video frames. Enables direct use of camera capture data in FFmpeg-based video processing pipelines without additional memory copies or format conversions.
+Cross-platform FFmpeg integration for the frameever-camera library that provides seamless conversion between native camera frames and FFmpeg video frames. Enables direct use of camera capture data in FFmpeg-based video processing pipelines without additional memory copies or format conversions.
 
 ## Purpose
 
-Bridges the gap between cap-camera's unified camera capture API and FFmpeg's video processing ecosystem. Provides zero-copy conversion from platform-specific camera frames (AVFoundation on macOS, Media Foundation/DirectShow on Windows) to FFmpeg video frames while preserving pixel format fidelity and performance.
+Bridges the gap between frameever-camera's unified camera capture API and FFmpeg's video processing ecosystem. Provides zero-copy conversion from platform-specific camera frames (AVFoundation on macOS, Media Foundation/DirectShow on Windows) to FFmpeg video frames while preserving pixel format fidelity and performance.
 
 ## Key Features
 
@@ -34,6 +34,6 @@ Bridges the gap between cap-camera's unified camera capture API and FFmpeg's vid
 
 ## Architecture
 
-Extends cap-camera's `CapturedFrame` with FFmpeg conversion capabilities through the `CapturedFrameExt` trait. Platform-specific modules handle the native frame format detection and memory layout conversion, while maintaining a unified interface for FFmpeg integration across macOS and Windows camera backends.
+Extends frameever-camera's `CapturedFrame` with FFmpeg conversion capabilities through the `CapturedFrameExt` trait. Platform-specific modules handle the native frame format detection and memory layout conversion, while maintaining a unified interface for FFmpeg integration across macOS and Windows camera backends.
 
 The conversion process preserves the original frame's memory layout and copies data efficiently into FFmpeg's expected format, ensuring compatibility with the broader FFmpeg ecosystem for video processing, encoding, and analysis tasks.

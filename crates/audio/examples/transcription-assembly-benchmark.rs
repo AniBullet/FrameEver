@@ -1,4 +1,6 @@
-use cap_audio::{TranscriptionAudioSource, TranscriptionAudioTake, append_transcription_audio};
+use frameever_audio::{
+    TranscriptionAudioSource, TranscriptionAudioTake, append_transcription_audio,
+};
 use std::{error::Error, hint::black_box, io, time::Instant};
 
 fn main() -> Result<(), Box<dyn Error>> {

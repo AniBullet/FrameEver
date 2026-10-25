@@ -439,7 +439,7 @@ pub fn fitted_capture_size(source: Option<(f64, f64)>) -> (usize, usize) {
 
 /// `normalize_thumbnail_dimensions` (`thumbnails/mod.rs:44-87`), verbatim.
 pub fn normalize_thumbnail_dimensions(image: &RgbaImage) -> RgbaImage {
-    cap_gpui_kernels::thumbnail::fit_centered(image, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
+    frameever_gpui_kernels::thumbnail::fit_centered(image, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
 }
 
 /// Run a capture sweep somewhere it is allowed to be non-`Send`.
@@ -883,8 +883,8 @@ mod platform {
 
 #[cfg(not(target_os = "macos"))]
 mod platform {
-    use cap_recording::screenshot::capture_screenshot;
-    use cap_recording::sources::screen_capture::ScreenCaptureTarget;
+    use frameever_recording::screenshot::capture_screenshot;
+    use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
     use image::RgbaImage;
 
     use super::normalize_thumbnail_dimensions;
@@ -942,11 +942,11 @@ use platform::{capture_display_thumbnail, capture_window_thumbnail, shareable_co
 // buffers on any host.
 
 #[cfg(test)]
-use cap_gpui_kernels::frame::ycbcr_to_rgb;
+use frameever_gpui_kernels::frame::ycbcr_to_rgb;
 #[cfg(any(target_os = "macos", test))]
-pub use cap_gpui_kernels::frame::{ChannelOrder, Nv12Range};
+pub use frameever_gpui_kernels::frame::{ChannelOrder, Nv12Range};
 #[cfg(any(target_os = "macos", test))]
-use cap_gpui_kernels::frame::{convert_32bit_rows, convert_nv12_planes};
+use frameever_gpui_kernels::frame::{convert_32bit_rows, convert_nv12_planes};
 
 /// `convert_32bit_pixel_buffer` (`thumbnails/mac.rs:111-160`).
 ///

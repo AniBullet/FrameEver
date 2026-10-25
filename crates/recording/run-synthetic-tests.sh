@@ -1,2 +1,2 @@
 #!/bin/bash
-cargo run --package cap-recording --example synthetic-test-runner --features test-utils -- "$@"
+cargo run --package frameever-recording --example synthetic-test-runner --features test-utils -- "$@"

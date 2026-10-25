@@ -10,11 +10,11 @@ use crate::{
     screen_capture,
 };
 use anyhow::{Context, anyhow};
-use cap_enc_ffmpeg::h264::{H264EncoderBuilder, H264Preset};
-use cap_enc_ffmpeg::segmented_stream::{
+use frameever_enc_ffmpeg::h264::{H264EncoderBuilder, H264Preset};
+use frameever_enc_ffmpeg::segmented_stream::{
     DiskSpaceCallback, SegmentedVideoEncoder, SegmentedVideoEncoderConfig,
 };
-use cap_media_info::{AudioInfo, Pixel, VideoInfo};
+use frameever_media_info::{AudioInfo, Pixel, VideoInfo};
 use std::{
     path::PathBuf,
     sync::{
@@ -212,8 +212,9 @@ pub struct WindowsFragmentedM4SMuxer {
     frame_drops: FrameDropTracker,
     started: bool,
     disk_space_callback: Option<DiskSpaceCallback>,
-    segment_tx:
-        Option<std::sync::mpsc::Sender<cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>>,
+    segment_tx: Option<
+        std::sync::mpsc::Sender<frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>,
+    >,
     health_tx: SharedHealthSender,
 }
 
@@ -225,8 +226,9 @@ pub struct WindowsFragmentedM4SMuxerConfig {
     pub output_size: Option<(u32, u32)>,
     pub shared_pause_state: Option<SharedPauseState>,
     pub disk_space_callback: Option<DiskSpaceCallback>,
-    pub segment_tx:
-        Option<std::sync::mpsc::Sender<cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>>,
+    pub segment_tx: Option<
+        std::sync::mpsc::Sender<frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>,
+    >,
 }
 
 impl Default for WindowsFragmentedM4SMuxerConfig {
@@ -364,7 +366,7 @@ impl WindowsFragmentedM4SMuxer {
         let encoder_handle = std::thread::Builder::new()
             .name("win-m4s-segment-encoder".to_string())
             .spawn(move || {
-                cap_mediafoundation_utils::thread_init();
+                frameever_mediafoundation_utils::thread_init();
 
                 if ready_tx.send(Ok(())).is_err() {
                     return Err(anyhow!("Failed to send ready signal - receiver dropped"));
@@ -736,7 +738,7 @@ impl WindowsFragmentedM4SCameraMuxer {
         let mut updated = false;
 
         let desired_pixel_format = match frame.pixel_format {
-            cap_camera_windows::PixelFormat::UYVY422 => Pixel::YUYV422,
+            frameever_camera_windows::PixelFormat::UYVY422 => Pixel::YUYV422,
             _ => self.video_config.pixel_format,
         };
 
@@ -812,7 +814,7 @@ impl WindowsFragmentedM4SCameraMuxer {
         let encoder_handle = std::thread::Builder::new()
             .name("win-m4s-camera-segment-encoder".to_string())
             .spawn(move || {
-                cap_mediafoundation_utils::thread_init();
+                frameever_mediafoundation_utils::thread_init();
 
                 if ready_tx.send(Ok(())).is_err() {
                     return Err(anyhow!(

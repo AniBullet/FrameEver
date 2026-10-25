@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cap_timestamp::{Timestamp, Timestamps};
+use frameever_timestamp::{Timestamp, Timestamps};
 use tracing::warn;
 
 /// Longest a primed pipeline will hold frames back without an explicit arm.

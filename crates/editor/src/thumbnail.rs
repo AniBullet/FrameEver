@@ -1,6 +1,6 @@
 use crate::{EditorInstance, editor::RendererTransitionInput};
-use cap_project::{ProjectConfiguration, XY};
-use cap_rendering::{ProjectUniforms, RenderedFrame, ZoomTransformTimeline};
+use frameever_project::{ProjectConfiguration, XY};
+use frameever_rendering::{ProjectUniforms, RenderedFrame, ZoomTransformTimeline};
 use std::{io::Write, path::Path};
 
 const THUMBNAIL_SIZE: XY<u32> = XY { x: 640, y: 640 };
@@ -268,7 +268,7 @@ mod tests {
             crate::EditorFrameFormat::BgraSurface,
         ] {
             let mut project = ProjectConfiguration::default();
-            project.background.source = cap_project::BackgroundSource::Color {
+            project.background.source = frameever_project::BackgroundSource::Color {
                 value: [20, 200, 40],
                 alpha: 255,
             };

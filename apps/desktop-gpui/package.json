@@ -1,5 +1,5 @@
 {
-	"name": "@cap/desktop-gpui",
+	"name": "@frameever/desktop-gpui",
 	"private": true,
 	"type": "module",
 	"scripts": {

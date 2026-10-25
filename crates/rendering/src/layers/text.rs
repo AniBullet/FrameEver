@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
-use cap_project::{TextAlign, TextBackgroundStyle};
+use frameever_project::{TextAlign, TextBackgroundStyle};
 use glyphon::cosmic_text::{Align, AttrsOwned};
 use glyphon::{
     Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, Style,

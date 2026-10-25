@@ -1,4 +1,4 @@
-use cap_recording::{
+use frameever_recording::{
     CameraFeed, MicrophoneFeed,
     feeds::{
         camera::{self, DeviceOrModelID},
@@ -155,7 +155,7 @@ async fn profile_instant_recording(
 
     let dir = tempfile::tempdir().expect("Failed to create tempdir");
 
-    let mut builder = cap_recording::instant_recording::Actor::builder(
+    let mut builder = frameever_recording::instant_recording::Actor::builder(
         dir.path().into(),
         ScreenCaptureTarget::Display {
             id: Display::primary().id(),
@@ -170,7 +170,7 @@ async fn profile_instant_recording(
     let mut camera_feed_ref = None;
     let mut mic_feed_ref = None;
 
-    if include_camera && let Some(camera_info) = cap_camera::list_cameras().next() {
+    if include_camera && let Some(camera_info) = frameever_camera::list_cameras().next() {
         println!("Camera: {}", camera_info.display_name());
         let feed = CameraFeed::spawn(CameraFeed::default());
         feed.ask(camera::SetInput {
@@ -218,7 +218,7 @@ async fn profile_instant_recording(
     let handle = builder
         .build(
             #[cfg(target_os = "macos")]
-            Some(cap_recording::SendableShareableContent::from(
+            Some(frameever_recording::SendableShareableContent::from(
                 cidre::sc::ShareableContent::current()
                     .await
                     .expect("Failed to get shareable content"),
@@ -336,7 +336,7 @@ async fn profile_sustained_instant(duration_secs: u64, include_mic: bool) {
 
     let dir = tempfile::tempdir().expect("Failed to create tempdir");
 
-    let mut builder = cap_recording::instant_recording::Actor::builder(
+    let mut builder = frameever_recording::instant_recording::Actor::builder(
         dir.path().into(),
         ScreenCaptureTarget::Display {
             id: Display::primary().id(),
@@ -373,7 +373,7 @@ async fn profile_sustained_instant(duration_secs: u64, include_mic: bool) {
     let handle = builder
         .build(
             #[cfg(target_os = "macos")]
-            Some(cap_recording::SendableShareableContent::from(
+            Some(frameever_recording::SendableShareableContent::from(
                 cidre::sc::ShareableContent::current()
                     .await
                     .expect("Failed to get shareable content"),

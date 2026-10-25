@@ -3,7 +3,7 @@
 //! becomes a screenshot bundle, and progress is reported through a global the
 //! main window's library panel draws.
 //!
-//! The Tauri version encodes through `cap-enc-ffmpeg`
+//! The Tauri version encodes through `frameever-enc-ffmpeg`
 //! (`H264EncoderBuilder` / `OpusEncoder`), which is not a dependency of this
 //! standalone workspace -- the narrow slices of it the import path actually
 //! exercises are transcribed here onto the same `ffmpeg-next` this app already
@@ -17,12 +17,12 @@ use std::{
     time::Duration,
 };
 
-use cap_project::{
+use ffmpeg::{ChannelLayout, codec as avcodec, format as avformat};
+use frameever_project::{
     AudioMeta, Cursors, MultipleSegment, MultipleSegments, Platform, ProjectConfiguration,
     RecordingMeta, RecordingMetaInner, SingleSegment, StudioRecordingMeta, StudioRecordingStatus,
     VideoMeta,
 };
-use ffmpeg::{ChannelLayout, codec as avcodec, format as avformat};
 use gpui::{App, Global};
 
 use crate::i18n::{n, t, tr};
@@ -666,7 +666,8 @@ fn run_image_import(source_path: &Path, tx: &flume::Sender<ImportProgress>) {
         return;
     }
 
-    let project_path = match cap_utils::ensure_unique_filename(&bundle_name, &screenshots_dir) {
+    let project_path = match frameever_utils::ensure_unique_filename(&bundle_name, &screenshots_dir)
+    {
         Ok(name) => screenshots_dir.join(name),
         Err(error) => {
             early.send(ImportStage::Failed, 0.0, &error);
@@ -844,7 +845,7 @@ fn media_duration(path: &Path) -> Option<Duration> {
 // The transcode -- `transcode_video` (`import.rs:1082-1357`)
 // ---------------------------------------------------------------------------
 
-/// `cap_media_info::ensure_even` (`crates/media-info/src/lib.rs:406-409`).
+/// `frameever_media_info::ensure_even` (`crates/media-info/src/lib.rs:406-409`).
 fn ensure_even(value: u32) -> u32 {
     let adjusted = value - (value % 2);
     if adjusted == 0 { 2 } else { adjusted }
@@ -1841,7 +1842,7 @@ fn decode_image_rgba(source_path: &Path) -> Result<(u32, u32, Vec<u8>), String> 
 }
 
 fn decode_image_with_image_crate(source_path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
-    let image = cap_gpui_kernels::codec::decode_image_file(source_path)?;
+    let image = frameever_gpui_kernels::codec::decode_image_file(source_path)?;
 
     let (width, height) = (image.width(), image.height());
     check_image_dimensions(width, height)?;
@@ -1915,7 +1916,7 @@ fn decode_image_with_ffmpeg(source_path: &Path) -> Result<(u32, u32, Vec<u8>), S
     let height_usize = height as usize;
     let src_stride = rgba_frame.stride(0);
     let row_bytes = width_usize * 4;
-    let buffer = cap_gpui_kernels::frame::copy_rows(
+    let buffer = frameever_gpui_kernels::frame::copy_rows(
         rgba_frame.data(0),
         row_bytes,
         src_stride,
@@ -1931,7 +1932,7 @@ fn decode_image_with_ffmpeg(source_path: &Path) -> Result<(u32, u32, Vec<u8>), S
 fn write_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<(), String> {
     let file = std::fs::File::create(path)
         .map_err(|e| format!("Failed to create imported image file: {e}"))?;
-    cap_gpui_kernels::codec::write_png_file(
+    frameever_gpui_kernels::codec::write_png_file(
         file,
         rgba,
         width,
@@ -2240,7 +2241,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// `CAP_IMPORT_BENCH_SOURCES=a.mp4,b.mp4 cargo test --bin cap-gpui benchmark_video_import -- --ignored --nocapture`
+    /// `CAP_IMPORT_BENCH_SOURCES=a.mp4,b.mp4 cargo test --bin frameever-gpui benchmark_video_import -- --ignored --nocapture`
     #[test]
     #[ignore = "benchmark: transcodes the videos named by CAP_IMPORT_BENCH_SOURCES"]
     fn benchmark_video_import() {
@@ -2326,7 +2327,8 @@ pub(crate) fn import_editor_image(
     if encoded.len() as u64 > MAX_BYTES {
         return Err(t!("Image files must be 64 MiB or smaller").into());
     }
-    let (extension, width, height) = cap_gpui_kernels::codec::inspect_overlay_image(&encoded)?;
+    let (extension, width, height) =
+        frameever_gpui_kernels::codec::inspect_overlay_image(&encoded)?;
     let mut bytes = [0u8; 16];
     for chunk in bytes.chunks_exact_mut(8) {
         chunk.copy_from_slice(
