@@ -172,7 +172,7 @@ fn build() -> Guide {
                 ),
                 ..cmd(
                     "export",
-                    "Render a .cap project to a video file.",
+                    "Render a .ever project to a video file.",
                     OutputMode::Ndjson,
                     &["Progress", "Completed", "Error"],
                 )
@@ -203,7 +203,7 @@ fn build() -> Guide {
             ),
             cmd(
                 "recordings list",
-                "List .cap recordings in the desktop library (or --dir).",
+                "List .ever recordings in the desktop library (or --dir).",
                 OutputMode::SingleJson,
                 &[],
             ),

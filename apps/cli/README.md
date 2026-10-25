@@ -43,19 +43,19 @@ FrameEver Converter rewrites rules from Cap-aniBullet 2.x.
 frameever doctor --json                               # permissions and capture readiness
 frameever targets --json                              # screens, windows, cameras, microphones
 frameever record start --screen <id> --json --detach  # -> {"type":"started","recordingId","pid","path"}
-frameever record stop --id <recordingId> --json       # finalize the .cap recording
-frameever project validate <path.cap> --json          # confirm it is complete
-frameever export <path.cap> --output out.mp4 --json   # H.264 by default; --codec hevc|av1
+frameever record stop --id <recordingId> --json       # finalize the .ever recording
+frameever project validate <path.ever> --json          # confirm it is complete
+frameever export <path.ever> --output out.mp4 --json   # H.264 by default; --codec hevc|av1
 ```
 
 ## Commands
 
 - `record start` / `stop` / `status`: record in the foreground or with `--detach`, and manage sessions.
-- `export`: render a `.cap` project to a video file.
+- `export`: render a `.ever` project to a video file.
 - `screenshot`: capture a still of a screen or window.
 - `targets`: list screens, windows, cameras and microphones.
-- `project inspect` / `validate` / `config get|set`: inspect and edit `.cap` projects.
-- `recordings list`: list `.cap` recordings in the FrameEver library.
+- `project inspect` / `validate` / `config get|set`: inspect and edit `.ever` projects.
+- `recordings list`: list `.ever` recordings in the FrameEver library.
 - `update`: ask FrameEver to check GitHub Releases for a signed update and install it.
 - `doctor` / `version` / `guide`: diagnostics, version, and the agent capability manifest.
 - `automations list`: list the rules from Settings → Automations that the CLI runs.

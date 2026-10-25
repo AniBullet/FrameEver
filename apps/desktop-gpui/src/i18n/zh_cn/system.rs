@@ -1,4 +1,9 @@
 pub static ENTRIES: &[(&str, &str)] = &[
+    ("Project from an older app", "旧版应用的项目"),
+    (
+        "This is a Cap or Cap-aniBullet project. FrameEver opens only .ever projects. Bring it in with FrameEver Converter, available on the FrameEver Releases page.",
+        "这是 Cap 或 Cap-aniBullet 的项目。帧刻只能打开 .ever 项目。请用 FrameEver Converter 导入，可在 FrameEver Releases 页面下载。",
+    ),
     (
         "This recording already has a compressed version",
         "这个录制文件已经有压缩版了",

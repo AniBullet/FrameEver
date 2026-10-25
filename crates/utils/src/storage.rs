@@ -98,6 +98,68 @@ pub fn is_project(path: &Path) -> bool {
             .is_some_and(|extension| extension == crate::brand::PROJECT_EXTENSION)
 }
 
+pub const FORMAT_VERSION: u64 = 1;
+const PROJECT_FILE_NAME: &str = "frameever.json";
+const FORMAT_VERSION_KEY: &str = "formatVersion";
+const LEGACY_PROJECT_EXTENSION: &str = "cap";
+
+pub fn project_dir_name(name: &str) -> String {
+    format!("{name}.{}", crate::brand::PROJECT_EXTENSION)
+}
+
+pub fn create_project(parent: &Path, name: &str) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(parent)?;
+    let dir_name = crate::ensure_unique_filename(&project_dir_name(name), parent)
+        .map_err(std::io::Error::other)?;
+    let project = parent.join(dir_name);
+    std::fs::create_dir(&project)?;
+    stamp_format_version(&project)?;
+    Ok(project)
+}
+
+pub fn discard_if_unused(project: &Path) -> std::io::Result<()> {
+    let Ok(entries) = std::fs::read_dir(project) else {
+        return Ok(());
+    };
+    let only_project_file = entries
+        .flatten()
+        .all(|entry| entry.file_name() == PROJECT_FILE_NAME);
+    if only_project_file {
+        std::fs::remove_dir_all(project)?;
+    }
+    Ok(())
+}
+
+fn read_project_file(project: &Path) -> serde_json::Map<String, serde_json::Value> {
+    std::fs::read(project.join(PROJECT_FILE_NAME))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+pub fn stamp_format_version(project: &Path) -> std::io::Result<()> {
+    let mut document = read_project_file(project);
+    document.insert(FORMAT_VERSION_KEY.into(), FORMAT_VERSION.into());
+    let bytes = serde_json::to_vec_pretty(&document).map_err(std::io::Error::other)?;
+    std::fs::write(project.join(PROJECT_FILE_NAME), bytes)
+}
+
+pub fn format_version(project: &Path) -> Option<u64> {
+    read_project_file(project)
+        .get(FORMAT_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+}
+
+pub fn needs_converter(path: &Path) -> bool {
+    let is_older_project = |path: &Path| {
+        path.is_dir()
+            && path
+                .extension()
+                .is_some_and(|extension| extension == LEGACY_PROJECT_EXTENSION)
+    };
+    is_older_project(path) || path.parent().is_some_and(is_older_project)
+}
+
 pub fn projects_in(dir: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(dir)
         .into_iter()
@@ -290,27 +352,87 @@ mod tests {
     }
 
     #[test]
-    fn only_project_folders_count_as_projects() {
+    fn a_new_project_is_an_ever_folder_stamped_with_the_format_version() {
         let tree = Tree::new();
-        let project = tree.dir("Demo.cap");
+        let recordings = tree.path("Recordings");
+
+        let first = create_project(&recordings, "Display 2026-10-25").unwrap();
+        let second = create_project(&recordings, "Display 2026-10-25").unwrap();
+
+        assert_eq!(first, tree.path("Recordings/Display 2026-10-25.ever"));
+        assert_eq!(second, tree.path("Recordings/Display 2026-10-25 (1).ever"));
+        for project in [&first, &second] {
+            assert!(is_project(project));
+            assert_eq!(format_version(project), Some(1));
+        }
+    }
+
+    #[test]
+    fn an_unused_new_project_is_discarded_but_one_with_content_is_kept() {
+        let tree = Tree::new();
+        let unused = create_project(&tree.path("Recordings"), "Unused").unwrap();
+        let recorded = create_project(&tree.path("Recordings"), "Recorded").unwrap();
+        std::fs::write(recorded.join("recording-meta.json"), b"{}").unwrap();
+
+        discard_if_unused(&unused).unwrap();
+        discard_if_unused(&recorded).unwrap();
+        discard_if_unused(&tree.path("Recordings/Missing.ever")).unwrap();
+
+        assert!(!unused.exists());
+        assert!(recorded.join("recording-meta.json").is_file());
+    }
+
+    #[test]
+    fn stamping_keeps_other_fields_of_the_frameever_file() {
+        let tree = Tree::new();
+        let project = tree.dir("Demo.ever");
+        std::fs::write(
+            project.join("frameever.json"),
+            br#"{"formatVersion":0,"exports":[{"path":"D:\\out.mp4"}]}"#,
+        )
+        .unwrap();
+
+        stamp_format_version(&project).unwrap();
+
+        let document: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(project.join("frameever.json")).unwrap())
+                .unwrap();
+        assert_eq!(document["formatVersion"], 1);
+        assert_eq!(document["exports"][0]["path"], "D:\\out.mp4");
+        assert_eq!(format_version(&tree.dir("Unstamped.ever")), None);
+    }
+
+    #[test]
+    fn only_ever_folders_count_as_projects_and_cap_folders_need_the_converter() {
+        let tree = Tree::new();
+        let project = tree.dir("Demo.ever");
+        let older = tree.dir("Demo.cap");
         let folder = tree.dir("Holiday");
+        std::fs::write(tree.path("loose.ever"), b"").unwrap();
         std::fs::write(tree.path("loose.cap"), b"").unwrap();
 
         assert!(is_project(&project));
+        assert!(!is_project(&older));
         assert!(!is_project(&folder));
-        assert!(!is_project(&tree.path("loose.cap")));
-        assert!(!is_project(&tree.path("missing.cap")));
+        assert!(!is_project(&tree.path("loose.ever")));
+        assert!(!is_project(&tree.path("missing.ever")));
+
+        assert!(needs_converter(&older));
+        assert!(needs_converter(&older.join("recording-meta.json")));
+        assert!(!needs_converter(&project));
+        assert!(!needs_converter(&folder));
+        assert!(!needs_converter(&tree.path("loose.cap")));
     }
 
     #[test]
     fn projects_are_listed_from_every_known_folder_of_their_kind() {
         let tree = Tree::new();
         let app_data = tree.dir("app");
-        let default_project = tree.dir("app/recordings/Default.cap");
-        let custom_project = tree.dir("custom/Custom.cap");
-        let previous_project = tree.dir("previous/Previous.cap");
+        let default_project = tree.dir("app/recordings/Default.ever");
+        let custom_project = tree.dir("custom/Custom.ever");
+        let previous_project = tree.dir("previous/Previous.ever");
         tree.dir("previous/Not a project");
-        let screenshot = tree.dir("app/screenshots/Shot.cap");
+        let screenshot = tree.dir("app/screenshots/Shot.ever");
         let storage = Storage::new(
             app_data,
             StorageSettings {

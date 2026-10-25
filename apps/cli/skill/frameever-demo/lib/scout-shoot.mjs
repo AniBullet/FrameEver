@@ -75,7 +75,7 @@ function resolveChromium() {
 }
 const EXE = resolveChromium();
 
-const PROJECT = join(outDir, `${slug}.cap`);
+const PROJECT = join(outDir, `${slug}.ever`);
 const TIMELINE = join(outDir, `${slug}.timeline.json`);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -1,7 +1,7 @@
 //! The editor can write `project-config.json` back into the project, so point
 //! it at a copy rather than a recording in the library.
 //!
-//! Run: cargo run --release --example live-edit-benchmark -- <project.cap> [TICKS]
+//! Run: cargo run --release --example live-edit-benchmark -- <project.ever> [TICKS]
 
 use std::{path::PathBuf, sync::Arc, time::Duration, time::Instant};
 
@@ -172,7 +172,7 @@ fn main() -> anyhow::Result<()> {
     let project_path = arguments
         .next()
         .map(PathBuf::from)
-        .ok_or_else(|| anyhow::anyhow!("Pass a studio .cap project path"))?;
+        .ok_or_else(|| anyhow::anyhow!("Pass a studio .ever project path"))?;
     let ticks = arguments
         .next()
         .and_then(|value| value.parse().ok())

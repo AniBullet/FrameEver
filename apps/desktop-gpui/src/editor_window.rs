@@ -9387,7 +9387,7 @@ impl EditorWindow {
                             .text_size(px(13.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(Hsla::from(theme.editor.text_3))
-                            .child(".cap"),
+                            .child(format!(".{}", frameever_utils::brand::PROJECT_EXTENSION)),
                     ),
             )
             .child(

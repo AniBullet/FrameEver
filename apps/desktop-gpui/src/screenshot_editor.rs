@@ -90,15 +90,19 @@ struct LoadedScreenshot {
 const CHECKER_TILE: u32 = 240;
 const CHECKER_CELL: u32 = 10;
 
-/// The `.cap` bundle a screenshot path belongs to: the directory itself, or
+/// The `.ever` bundle a screenshot path belongs to: the directory itself, or
 /// the parent of `original.png` -- `create_standalone_instance`'s cap_dir
 /// resolution (`screenshot_editor.rs:205-215` over there).
 pub fn resolve_bundle(path: &Path) -> Option<PathBuf> {
-    if path.extension().and_then(|ext| ext.to_str()) == Some("cap") {
+    let is_bundle = |path: &Path| {
+        path.extension()
+            .is_some_and(|ext| ext == frameever_utils::brand::PROJECT_EXTENSION)
+    };
+    if is_bundle(path) {
         return Some(path.to_path_buf());
     }
     let parent = path.parent()?;
-    (parent.extension().and_then(|ext| ext.to_str()) == Some("cap")).then(|| parent.to_path_buf())
+    is_bundle(parent).then(|| parent.to_path_buf())
 }
 
 // ---------------------------------------------------------------------------

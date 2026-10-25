@@ -71,7 +71,7 @@ slug = args.slug
 music = args.music
 CAP = resolve_cap()
 
-proj = os.path.join(outDir, f"{slug}.cap")
+proj = os.path.join(outDir, f"{slug}.ever")
 
 with open(os.path.join(outDir, f"{slug}.timeline.json")) as f:
     tl = json.load(f)

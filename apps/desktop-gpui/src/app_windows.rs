@@ -26,7 +26,7 @@ use crate::{
     controls_window::ControlsWindow,
     editor_timeline,
     editor_window::{self, EditorWindow},
-    i18n::t,
+    i18n::{n, t, tr},
     main_window::{MainWindow, Mode, TargetType},
     mode_select_window::{self, ModeSelectWindow},
     onboarding_window::{self, OnboardingWindow},
@@ -3421,6 +3421,9 @@ fn editor_key(path: &Path) -> PathBuf {
 /// Must be reached through `cx.defer` from anything inside an entity update:
 /// opening a window paints it synchronously and would double-lease the caller.
 pub fn open_editor(project_path: PathBuf, cx: &mut App) {
+    if refuse_older_project(&project_path, cx) {
+        return;
+    }
     let key = editor_key(&project_path);
     let session = RecordingSession::global(cx);
     let preparing = session
@@ -3444,6 +3447,25 @@ pub fn open_editor(project_path: PathBuf, cx: &mut App) {
             }
         });
     }
+}
+
+const CONVERTER_TITLE: &str = n!("Project from an older app");
+const CONVERTER_MESSAGE: &str = n!(
+    "This is a Cap or Cap-aniBullet project. FrameEver opens only .ever projects. Bring it in with FrameEver Converter, available on the FrameEver Releases page."
+);
+
+fn converter_message(path: &Path) -> Option<(&'static str, &'static str)> {
+    frameever_utils::storage::needs_converter(path).then_some((CONVERTER_TITLE, CONVERTER_MESSAGE))
+}
+
+pub fn refuse_older_project(path: &Path, cx: &mut App) -> bool {
+    let Some((title, message)) = converter_message(path) else {
+        return false;
+    };
+    tracing::info!(path = %path.display(), "older project needs FrameEver Converter; not opening");
+    cx.spawn(async move |_| platform::alert_dialog(tr(title), tr(message)))
+        .detach();
+    true
 }
 
 fn open_editor_window(
@@ -5328,6 +5350,9 @@ pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
 /// Must be reached through `cx.defer` from anything inside an entity update:
 /// opening a window paints it synchronously and would double-lease the caller.
 pub fn open_screenshot_editor(path: PathBuf, cx: &mut App) {
+    if refuse_older_project(&path, cx) {
+        return;
+    }
     let Some(bundle) = screenshot_editor::resolve_bundle(&path) else {
         tracing::error!(path = %path.display(), "not a screenshot bundle; not opening the editor");
         return;
@@ -5533,6 +5558,35 @@ fn close_controls(session: &Entity<RecordingSession>, cx: &mut App) {
 mod tests {
     use super::*;
     use crate::store::{DEFAULT_EXCLUDED_WINDOW_TITLES, WindowExclusion, default_excluded_windows};
+
+    #[test]
+    fn opening_a_cap_folder_points_to_the_converter_in_both_languages() {
+        use crate::i18n::{Language, translate};
+
+        let root = tempfile::tempdir().unwrap();
+        let older = root.path().join("Old.cap");
+        let project = root.path().join("New.ever");
+        std::fs::create_dir_all(&older).unwrap();
+        std::fs::create_dir_all(&project).unwrap();
+
+        assert_eq!(converter_message(&project), None);
+        let (title, message) = converter_message(&older).unwrap();
+        assert_eq!(
+            converter_message(&older.join("original.png")),
+            Some((title, message))
+        );
+
+        let english = translate(message, Language::English);
+        let chinese = translate(message, Language::SimplifiedChinese);
+        assert!(english.contains("FrameEver Converter"), "{english}");
+        assert!(chinese.contains("FrameEver Converter"), "{chinese}");
+        assert!(chinese.contains(".ever"), "{chinese}");
+        assert_ne!(english, chinese);
+        assert_ne!(
+            translate(title, Language::English),
+            translate(title, Language::SimplifiedChinese)
+        );
+    }
 
     #[test]
     fn small_display_keeps_editor_and_minimum_size_inside_the_work_area() {

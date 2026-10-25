@@ -114,7 +114,7 @@ fn parse_auto_record(spec: &str) -> Option<(main_window::Mode, u64)> {
     Some((mode, secs.parse().ok()?))
 }
 
-/// `FRAMEEVER_GPUI_AUTO_EDITOR`: a `.cap` path, or `1` for the newest studio
+/// `FRAMEEVER_GPUI_AUTO_EDITOR`: a `.ever` path, or `1` for the newest studio
 /// recording the library scan finds. The library is the same one Recents
 /// reads, so `=1` opens exactly the card that would be first in the carousel
 /// (skipping instant recordings and screenshots, which the editor rejects).
@@ -129,7 +129,7 @@ fn resolve_auto_editor(target: &str) -> Option<std::path::PathBuf> {
         .map(|item| item.bundle)
 }
 
-/// `FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR`: a screenshot `.cap` path, or `1` for
+/// `FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR`: a screenshot `.ever` path, or `1` for
 /// the newest screenshot in the library -- [`resolve_auto_editor`]'s shape
 /// for the screenshot editor.
 fn resolve_auto_screenshot_editor(target: &str) -> Option<std::path::PathBuf> {
@@ -632,7 +632,7 @@ fn main() {
             }
         }
 
-        // `FRAMEEVER_GPUI_AUTO_EDITOR=<path-to-.cap>`: open the editor on that
+        // `FRAMEEVER_GPUI_AUTO_EDITOR=<path-to-.ever>`: open the editor on that
         // bundle the way a Recents card does. `=1` picks the newest studio
         // recording in the library. Same reason as the other `FRAMEEVER_GPUI_AUTO_*`
         // hooks -- unprivileged synthetic clicks are dropped, so the
@@ -643,7 +643,10 @@ fn main() {
             match resolve_auto_editor(&target) {
                 Some(path) => app_windows::open_editor(path, cx),
                 None => {
-                    tracing::error!(target, "FRAMEEVER_GPUI_AUTO_EDITOR: no studio .cap to open")
+                    tracing::error!(
+                        target,
+                        "FRAMEEVER_GPUI_AUTO_EDITOR: no studio .ever to open"
+                    )
                 }
             }
         }
@@ -665,7 +668,7 @@ fn main() {
             .detach();
         }
 
-        // `FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR=<path-to-.cap>` (or `1` for the
+        // `FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR=<path-to-.ever>` (or `1` for the
         // newest screenshot): open the screenshot editor the way a Recents
         // card does.
         if let Ok(target) = std::env::var("FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR")
@@ -675,7 +678,7 @@ fn main() {
                 Some(path) => app_windows::open_screenshot_editor(path, cx),
                 None => tracing::error!(
                     target,
-                    "FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR: no screenshot .cap to open"
+                    "FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR: no screenshot .ever to open"
                 ),
             }
         }

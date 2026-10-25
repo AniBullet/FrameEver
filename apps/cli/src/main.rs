@@ -113,9 +113,9 @@ TYPICAL AGENT WORKFLOW
   frameever doctor --json                          # verify permissions & capture readiness
   frameever targets --json                         # discover screens/windows/cameras/mics
   frameever record start --screen <id> --json --detach  # start in background -> {recordingId, pid, path}
-  frameever record stop --id <recordingId> --json  # finalize the .cap recording
-  frameever project validate <path.cap> --json     # confirm the recording is complete
-  frameever export <path.cap> --output out.mp4 --json";
+  frameever record stop --id <recordingId> --json  # finalize the .ever recording
+  frameever project validate <path.ever> --json     # confirm the recording is complete
+  frameever export <path.ever> --output out.mp4 --json";
 
 #[derive(Parser)]
 #[command(
@@ -161,11 +161,11 @@ impl CliLogLevel {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Export a '.cap' project to a video file
+    /// Export a '.ever' project to a video file
     Export(Export),
     /// Render an export preview frame
     ExportPreview(ExportPreview),
-    /// Inspect or validate a '.cap' project
+    /// Inspect or validate a '.ever' project
     Project(ProjectArgs),
     /// Start a recording or list available capture targets and devices
     Record(RecordArgs),
@@ -335,7 +335,7 @@ struct RecordingsArgs {
 
 #[derive(Subcommand)]
 enum RecordingsCommands {
-    /// List '.cap' recordings discovered on disk
+    /// List '.ever' recordings discovered on disk
     List(RecordingsListArgs),
 }
 

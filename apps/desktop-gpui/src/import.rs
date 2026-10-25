@@ -23,6 +23,7 @@ use frameever_project::{
     RecordingMeta, RecordingMetaInner, SingleSegment, StudioRecordingMeta, StudioRecordingStatus,
     VideoMeta,
 };
+use frameever_utils::storage::{project_dir_name, stamp_format_version};
 use gpui::{App, Global};
 
 use crate::i18n::{n, t, tr};
@@ -93,10 +94,11 @@ fn sanitize_filename(name: &str) -> String {
 
 /// The `(1)`-suffix uniquing loop from `start_video_import` (`import.rs:1370-1376`).
 fn unique_project_path(recordings_dir: &Path, sanitized_name: &str) -> PathBuf {
-    let mut project_path = recordings_dir.join(format!("{sanitized_name}.cap"));
+    let mut project_path = recordings_dir.join(project_dir_name(sanitized_name));
     let mut counter = 1;
     while project_path.exists() {
-        project_path = recordings_dir.join(format!("{sanitized_name} ({counter}).cap"));
+        project_path =
+            recordings_dir.join(project_dir_name(&format!("{sanitized_name} ({counter})")));
         counter += 1;
     }
     project_path
@@ -506,7 +508,9 @@ fn run_video_import(source_path: &Path, tx: &flume::Sender<ImportProgress>) {
         .join("content")
         .join("segments")
         .join("segment-0");
-    if let Err(error) = std::fs::create_dir_all(&segment_dir) {
+    if let Err(error) =
+        std::fs::create_dir_all(&segment_dir).and_then(|()| stamp_format_version(&project_path))
+    {
         sink.send(
             ImportStage::Failed,
             0.0,
@@ -640,7 +644,7 @@ fn run_image_import(source_path: &Path, tx: &flume::Sender<ImportProgress>) {
     let project_name = generate_project_name(source_path, "Imported Image");
     // `import.rs:1947-1948`: `:` becomes `.` the way recording bundles spell
     // timestamps, then the reserved characters go.
-    let bundle_name = format!("{}.cap", sanitize_filename(&project_name.replace(':', ".")));
+    let bundle_name = project_dir_name(&sanitize_filename(&project_name.replace(':', ".")));
 
     let placeholder_path = screenshots_dir.join(&bundle_name);
     let early = ProgressSink {
@@ -691,7 +695,9 @@ fn run_image_import(source_path: &Path, tx: &flume::Sender<ImportProgress>) {
         }
     };
 
-    if let Err(error) = std::fs::create_dir_all(&project_path) {
+    if let Err(error) =
+        std::fs::create_dir_all(&project_path).and_then(|()| stamp_format_version(&project_path))
+    {
         sink.send(
             ImportStage::Failed,
             0.0,
@@ -2072,15 +2078,15 @@ mod tests {
         let dir = temp_dir("unique");
 
         let first = unique_project_path(&dir, "Video 2026-01-01 at 10.00.00");
-        assert!(first.ends_with("Video 2026-01-01 at 10.00.00.cap"));
+        assert!(first.ends_with("Video 2026-01-01 at 10.00.00.ever"));
         std::fs::create_dir_all(&first).unwrap();
 
         let second = unique_project_path(&dir, "Video 2026-01-01 at 10.00.00");
-        assert!(second.ends_with("Video 2026-01-01 at 10.00.00 (1).cap"));
+        assert!(second.ends_with("Video 2026-01-01 at 10.00.00 (1).ever"));
         std::fs::create_dir_all(&second).unwrap();
 
         let third = unique_project_path(&dir, "Video 2026-01-01 at 10.00.00");
-        assert!(third.ends_with("Video 2026-01-01 at 10.00.00 (2).cap"));
+        assert!(third.ends_with("Video 2026-01-01 at 10.00.00 (2).ever"));
 
         std::fs::remove_dir_all(&dir).ok();
     }

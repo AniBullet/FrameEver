@@ -60,7 +60,7 @@ pub async fn start_recording(
 }
 
 /// Mirrors `record.rs`'s instant finalize: mux the fragments into
-/// `content/output.mp4`, then persist the meta so the `.cap` is a real
+/// `content/output.mp4`, then persist the meta so the `.ever` is a real
 /// recording rather than a directory of fragments.
 pub async fn finalize(
     recording: &mut instant_recording::CompletedRecording,

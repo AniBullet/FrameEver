@@ -499,7 +499,7 @@ mod tests {
     #[test]
     fn run_command_env_has_only_frameever_names() {
         let ctx = TriggerContext::new()
-            .with_project_path(PathBuf::from("p.cap"))
+            .with_project_path(PathBuf::from("p.ever"))
             .with_image_path(PathBuf::from("i.png"))
             .with_output_path(PathBuf::from("o.mp4"))
             .with_share_link("https://example.test/s/1".to_string());
@@ -519,7 +519,7 @@ mod tests {
     async fn cli_upload_cleanup_retains_media_without_a_verified_receipt() {
         for trigger in [Trigger::UploadCompleted, Trigger::InstantRecordingFinished] {
             let temp = tempfile::tempdir().unwrap();
-            let project_path = temp.path().join("owned.cap");
+            let project_path = temp.path().join("owned.ever");
             std::fs::create_dir(&project_path).unwrap();
             let media = project_path.join("retained-media.mp4");
             std::fs::write(&media, b"owned recording must survive").unwrap();

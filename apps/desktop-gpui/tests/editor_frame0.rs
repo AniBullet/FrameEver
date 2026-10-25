@@ -24,7 +24,7 @@
 //! synthesising, so pointing it at a user's library would mutate it.
 //!
 //! Run: `cargo test --test editor_frame0 -- --nocapture`
-//! Skips (rather than fails) when no studio `.cap` is available, so a checkout
+//! Skips (rather than fails) when no studio `.ever` is available, so a checkout
 //! without a recordings library still gets a green `cargo test`.
 
 use std::{
@@ -56,7 +56,7 @@ fn preview_resolution_base() -> XY<u32> {
 /// test, so they take turns.
 static E0_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// A studio `.cap` to render. `FRAMEEVER_GPUI_E0_PROJECT` wins; otherwise the newest
+/// A studio `.ever` to render. `FRAMEEVER_GPUI_E0_PROJECT` wins; otherwise the newest
 /// bundle on the Desktop that has a baked `screenshots/display.jpg` (i.e. one
 /// the shipping app finished normally) and parses as a studio recording.
 fn locate_project() -> Option<PathBuf> {
@@ -71,7 +71,7 @@ fn locate_project() -> Option<PathBuf> {
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| {
-            path.extension().is_some_and(|ext| ext == "cap")
+            path.extension().is_some_and(|ext| ext == "ever")
                 && path.join("screenshots/display.jpg").is_file()
                 && is_studio(path)
         })
@@ -132,7 +132,7 @@ fn renders_frame_zero_of_a_real_studio_project() {
 
     let Some(source) = locate_project() else {
         eprintln!(
-            "skipping: no studio .cap with screenshots/display.jpg found \
+            "skipping: no studio .ever with screenshots/display.jpg found \
              (set FRAMEEVER_GPUI_E0_PROJECT to point at one)"
         );
         return;
@@ -146,9 +146,9 @@ fn renders_frame_zero_of_a_real_studio_project() {
 
     // Work on a copy: instance construction persists a synthesised timeline and
     // clip offsets into the bundle.
-    let work_dir = out_dir.join("e0-project.cap");
+    let work_dir = out_dir.join("e0-project.ever");
     let _ = std::fs::remove_dir_all(&work_dir);
-    copy_dir(&source, &work_dir).expect("copy .cap bundle");
+    copy_dir(&source, &work_dir).expect("copy .ever bundle");
 
     eprintln!("e0: source project {}", source.display());
     eprintln!("e0: working copy   {}", work_dir.display());
@@ -314,7 +314,7 @@ fn the_bgra_surface_frame_matches_the_rgba_render() {
 
     let Some(source) = locate_project() else {
         eprintln!(
-            "skipping: no studio .cap with screenshots/display.jpg found \
+            "skipping: no studio .ever with screenshots/display.jpg found \
              (set FRAMEEVER_GPUI_E0_PROJECT to point at one)"
         );
         return;
@@ -324,9 +324,9 @@ fn the_bgra_surface_frame_matches_the_rgba_render() {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")));
     std::fs::create_dir_all(&out_dir).expect("create output dir");
-    let work_dir = out_dir.join("e0-bgra-project.cap");
+    let work_dir = out_dir.join("e0-bgra-project.ever");
     let _ = std::fs::remove_dir_all(&work_dir);
-    copy_dir(&source, &work_dir).expect("copy .cap bundle");
+    copy_dir(&source, &work_dir).expect("copy .ever bundle");
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

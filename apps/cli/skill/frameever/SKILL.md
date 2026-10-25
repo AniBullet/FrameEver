@@ -2,7 +2,7 @@
 name: frameever
 description: >-
   Use the local `frameever` CLI when the user wants to record the screen, a window, an area or a camera, take a
-  screenshot, inspect or validate a `.cap` recording project, export it to a video file, or run the
+  screenshot, inspect or validate a `.ever` recording project, export it to a video file, or run the
   recording automations configured in the desktop app. Everything runs on this computer; nothing is
   uploaded.
 ---
@@ -33,8 +33,8 @@ duration, use the detached lifecycle:
 ```sh
 frameever record start --screen <id> --detach --json
 frameever record stop --id <recordingId> --json
-frameever project validate <path.cap> --json
-frameever export <path.cap> --output out.mp4 --json
+frameever project validate <path.ever> --json
+frameever export <path.ever> --output out.mp4 --json
 ```
 
 A stopped recording is complete only when `recordingMetaExists` is `true`. Recordings and exports stay on

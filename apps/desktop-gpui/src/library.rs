@@ -57,7 +57,7 @@ pub enum MediaKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecentItem {
     pub kind: MediaKind,
-    /// The `.cap` bundle. `openRecentMedia` routes on this; here it is what
+    /// The `.ever` bundle. `openRecentMedia` routes on this; here it is what
     /// the card reveals in Finder (see the README's deviation).
     pub bundle: PathBuf,
     /// `target.pretty_name` -- the card's title.
@@ -205,7 +205,7 @@ impl RecordingStatus {
 /// carrying only the fields `recordings.tsx` reads.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordingItem {
-    /// The `.cap` bundle -- the `path` half of the tuple, and what every row
+    /// The `.ever` bundle -- the `path` half of the tuple, and what every row
     /// action takes.
     pub path: PathBuf,
     pub mode: RecordingMode,
@@ -628,17 +628,17 @@ pub fn copy_file_to_path(src: &Path, dest: &Path) -> Result<(), String> {
 /// One `(png_path, ScreenshotMetaWithMetadata)` pair out of `list_screenshots`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScreenshotItem {
-    /// The PNG inside the `.cap` bundle -- the listed path the Tauri command
+    /// The PNG inside the `.ever` bundle -- the listed path the Tauri command
     /// returns, and what copy / save / the screenshot editor take.
     pub path: PathBuf,
-    /// The `.cap` directory itself -- what delete and reveal operate on.
+    /// The `.ever` directory itself -- what delete and reveal operate on.
     pub bundle: PathBuf,
     pub pretty_name: String,
     pub sort_time_millis: f64,
     pub thumbnail: Option<PathBuf>,
 }
 
-/// `list_screenshots` (`lib.rs:4055-4091`): `*.cap` directories only, and the
+/// `list_screenshots` (`lib.rs:4055-4091`): `*.ever` directories only, and the
 /// sort key is the PNG's timestamp rather than the directory's.
 pub fn list_screenshots_in(dir: &Path) -> Vec<ScreenshotItem> {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -685,7 +685,7 @@ pub fn list_screenshots() -> Vec<ScreenshotItem> {
     items
 }
 
-/// Delete the `.cap` bundle that owns `path` (the PNG or the directory).
+/// Delete the `.ever` bundle that owns `path` (the PNG or the directory).
 pub fn delete_screenshot(path: &Path) -> Result<(), String> {
     let bundle = if path.is_dir() {
         path.to_path_buf()
@@ -1240,12 +1240,12 @@ mod tests {
         assert_eq!(job_rx.len(), 3);
     }
 
-    /// A `.cap` bundle with a `recording-meta.json` the real parser accepts.
+    /// A `.ever` bundle with a `recording-meta.json` the real parser accepts.
     /// `filetime` is not a dependency here, so the sort key -- the directory's
     /// own creation time -- is separated by creating the fixtures in order
     /// with a gap between them.
     fn write_studio_bundle(dir: &Path, name: &str, segments: usize) -> PathBuf {
-        let bundle = dir.join(format!("{name}.cap"));
+        let bundle = dir.join(format!("{name}.ever"));
         std::fs::create_dir_all(&bundle).unwrap();
         let segments: Vec<String> = (0..segments)
             .map(|i| {
@@ -1266,7 +1266,7 @@ mod tests {
     }
 
     fn write_screenshot_bundle(dir: &Path, name: &str) -> PathBuf {
-        let bundle = dir.join(format!("{name}.cap"));
+        let bundle = dir.join(format!("{name}.ever"));
         std::fs::create_dir_all(&bundle).unwrap();
         std::fs::write(
             bundle.join("recording-meta.json"),
@@ -1432,14 +1432,14 @@ mod tests {
     /// A bundle with a hand-written meta, so a test can spell out exactly the
     /// JSON `RecordingMeta` has to survive.
     fn write_bundle(dir: &Path, name: &str, meta: &str) -> PathBuf {
-        let bundle = dir.join(format!("{name}.cap"));
+        let bundle = dir.join(format!("{name}.ever"));
         std::fs::create_dir_all(&bundle).unwrap();
         std::fs::write(bundle.join("recording-meta.json"), meta).unwrap();
         bundle
     }
 
     #[test]
-    fn the_library_lists_projects_from_the_custom_default_and_previous_folders() {
+    fn the_library_lists_ever_projects_from_every_known_folder_and_ignores_cap_folders() {
         let root = temp_dir("storage-folders");
         let app_data = root.join("app");
         let custom = root.join("custom");
@@ -1454,13 +1454,19 @@ mod tests {
         write_studio_bundle(&app_data.join("recordings"), "Default", 1);
         write_studio_bundle(&custom, "Custom", 1);
         write_studio_bundle(&previous, "Previous", 1);
-        let not_a_project = previous.join("Not a project");
-        std::fs::create_dir_all(&not_a_project).unwrap();
-        std::fs::copy(
-            previous.join("Previous.cap/recording-meta.json"),
-            not_a_project.join("recording-meta.json"),
-        )
-        .unwrap();
+        for folder in ["Not a project", "Older.cap"] {
+            let not_a_project = previous.join(folder);
+            std::fs::create_dir_all(&not_a_project).unwrap();
+            std::fs::copy(
+                previous.join("Previous.ever/recording-meta.json"),
+                not_a_project.join("recording-meta.json"),
+            )
+            .unwrap();
+        }
+        let screenshots = app_data.join("screenshots");
+        write_screenshot_bundle(&screenshots, "Shot");
+        let older_shot = write_screenshot_bundle(&screenshots, "Older shot");
+        std::fs::rename(&older_shot, screenshots.join("Older shot.cap")).unwrap();
         let storage = Storage::new(
             app_data,
             StorageSettings {
@@ -1475,6 +1481,11 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["Custom", "Default", "Previous"]);
+        let shots: Vec<_> = list_screenshots_in(&screenshots)
+            .into_iter()
+            .map(|item| item.pretty_name)
+            .collect();
+        assert_eq!(shots, ["Shot"]);
 
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -2009,7 +2020,7 @@ mod tests {
         let source = PathBuf::from(source);
         let root = temp_dir("recovery-real");
         let recordings = root.join("recordings");
-        let copy = recordings.join("interrupted.cap");
+        let copy = recordings.join("interrupted.ever");
         std::fs::create_dir_all(&copy).unwrap();
 
         let mut pending = vec![(source, copy.clone())];
@@ -2105,7 +2116,7 @@ mod tests {
         let victim = elsewhere.join("precious");
         std::fs::create_dir_all(&victim).unwrap();
         std::fs::write(victim.join("recording.mp4"), b"irreplaceable").unwrap();
-        let escape = recordings.join("escape.cap");
+        let escape = recordings.join("escape.ever");
         #[cfg(unix)]
         let symlink = std::os::unix::fs::symlink(&victim, &escape);
         #[cfg(windows)]

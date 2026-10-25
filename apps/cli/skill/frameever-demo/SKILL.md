@@ -75,7 +75,7 @@ this skill; the orchestrator just chains them.
 node <skilldir>/lib/scout-shoot.mjs <url> <outDir> <slug> [--story click|scroll]
 ```
 
-- Writes the recording to `<outDir>/<slug>.cap` and the beat log to
+- Writes the recording to `<outDir>/<slug>.ever` and the beat log to
   `<outDir>/<slug>.timeline.json`.
 - Prints a final JSON line: `{"slug","story","scout":{title,hero,accent,pageBg,ctaText}}`.
   Read it to see what it decided (story, chosen CTA, brand colors).
@@ -93,7 +93,7 @@ at a booking/login page.
 Extract a few beat frames and **look at them**:
 
 ```
-ffmpeg -y -ss <t> -i <outDir>/<slug>.cap/content/segments/segment-0/display.mp4 -frames:v 1 /tmp/raw-<t>.png
+ffmpeg -y -ss <t> -i <outDir>/<slug>.ever/content/segments/segment-0/display.mp4 -frames:v 1 /tmp/raw-<t>.png
 ```
 
 Check: the right window/content is captured (no leftover footage from a prior

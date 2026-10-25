@@ -80,7 +80,7 @@ const PLAYBACK_EXTRA_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Args)]
 pub struct PlaybackArgs {
-    /// Existing flash+beep .cap project to measure (defaults to generating a
+    /// Existing flash+beep .ever project to measure (defaults to generating a
     /// synthetic fixture through the real recording pipeline)
     #[arg(long)]
     project: Option<PathBuf>,
@@ -151,7 +151,7 @@ pub async fn run_playback(args: PlaybackArgs, json: bool) -> Result<(), String> 
         Some(path) => (path.clone(), false),
         None => {
             let path = std::env::temp_dir().join(format!(
-                "cap-selftest-playback-{}.cap",
+                "frameever-selftest-playback-{}.ever",
                 uuid::Uuid::new_v4()
             ));
             // The floor guarantees enough events for measure_sync's minimum
@@ -556,7 +556,7 @@ fn mean_center_luma_rgba(
     (count > 0).then(|| sum as f64 / count as f64)
 }
 
-/// Generates a real `.cap` studio project containing a flash+beep pattern by
+/// Generates a real `.ever` studio project containing a flash+beep pattern by
 /// driving the production recording pipeline with synthetic sources — the
 /// same real-time channel-source path the sync matrix uses. Only the media
 /// origin is synthetic; encoding, muxing and metadata are the real product

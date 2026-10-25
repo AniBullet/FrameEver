@@ -57,7 +57,7 @@ impl From<QualityArg> for frameever_export::mp4::ExportCompression {
 }
 
 #[derive(Args)]
-#[command(long_about = "Render a '.cap' project to a video file.
+#[command(long_about = "Render a '.ever' project to a video file.
 
 NOTE: here --format selects the CONTAINER (mp4/gif/mov), NOT the output mode. For machine-readable
 output pass --json (the global flag), which streams NDJSON progress + completion events to stdout.
@@ -65,7 +65,7 @@ The NDJSON uses PascalCase type tags and snake_case fields ({\"type\":\"Progress
 \"total_frames\":N} then {\"type\":\"Completed\",\"path\":\"...\"}); on failure a final
 {\"type\":\"Error\",\"error\":\"...\"} is emitted.")]
 pub struct Export {
-    /// Path to a '.cap' project directory (as produced by `frameever record`)
+    /// Path to a '.ever' project directory (as produced by `frameever record`)
     project_path: PathBuf,
     /// Output file (positional alternative to --output)
     output_path: Option<PathBuf>,

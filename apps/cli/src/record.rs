@@ -53,7 +53,7 @@ pub struct RecordParams {
     system_audio: bool,
     #[arg(
         long,
-        help = "New '.cap' project path (defaults to <recordingId>.cap in the working directory). The path must not already exist, including an empty directory."
+        help = "New '.ever' project path (defaults to <recordingId>.ever in the working directory). The path must not already exist, including an empty directory."
     )]
     path: Option<PathBuf>,
     /// Maximum fps to record at (clamped to 1-120; camera recordings follow the desktop camera cap)
@@ -159,7 +159,7 @@ pub struct RecordStopArgs {
     /// recordingId returned by `frameever record start --detach`
     #[arg(long)]
     id: Option<String>,
-    /// The '.cap' project path of the recording to stop (alternative to --id)
+    /// The '.ever' project path of the recording to stop (alternative to --id)
     #[arg(long)]
     path: Option<PathBuf>,
     /// Seconds to wait for the recording to finalize before giving up
@@ -951,10 +951,10 @@ fn shareable_content_display_ids(
 
 /// Wait for the stop trigger, then finalize the recording. A panic between start and stop would
 /// otherwise drop the actor without writing recording-meta.json (`ActorHandle` has no `Drop`),
-/// leaving an unrecoverable .cap; catch it and best-effort finalize so the recording is recoverable.
+/// leaving an unrecoverable .ever; catch it and best-effort finalize so the recording is recoverable.
 ///
 /// Studio recordings are fragmented while recording, so a graceful stop finalizes those fragments
-/// before the `.cap` is returned.
+/// before the `.ever` is returned.
 async fn finalize(
     actor: ActorHandle,
     duration: Option<f64>,
@@ -1081,6 +1081,8 @@ fn prepare_recording_project(
             format!("Failed to reserve recording project directory: {error}")
         }
     })?;
+    frameever_utils::storage::stamp_format_version(path)
+        .map_err(|error| format!("Failed to stamp the project format version: {error}"))?;
     if mode == RecordMode::Studio {
         return Ok(None);
     }
@@ -1170,7 +1172,7 @@ fn resolve_path(params: &RecordParams, recording_id: &str) -> Result<PathBuf, St
         Some(path) => Ok(path.clone()),
         None => current_dir()
             .map_err(|e| format!("Could not determine current directory: {e}"))
-            .map(|dir| dir.join(format!("{recording_id}.cap"))),
+            .map(|dir| dir.join(frameever_utils::storage::project_dir_name(recording_id))),
     }
 }
 
@@ -1323,7 +1325,7 @@ mod tests {
             let project = root
                 .path()
                 .join("nested")
-                .join(format!("{required_audio}.cap"));
+                .join(format!("{required_audio}.ever"));
             let _ownership =
                 prepare_recording_project(&project, RecordMode::Instant, required_audio).unwrap();
 
@@ -1348,7 +1350,7 @@ mod tests {
     fn recording_project_reservation_preserves_existing_recording_bytes_in_both_modes() {
         let root = tempfile::tempdir().unwrap();
         for mode in [RecordMode::Studio, RecordMode::Instant] {
-            let project = root.path().join(format!("{mode}.cap"));
+            let project = root.path().join(format!("{mode}.ever"));
             let _ownership =
                 prepare_recording_project(&project, RecordMode::Instant, false).unwrap();
             let mut meta = RecordingMeta::load_for_project(&project).unwrap();
@@ -1377,20 +1379,36 @@ mod tests {
     #[test]
     fn studio_project_is_reserved_before_engine_initialization() {
         let root = tempfile::tempdir().unwrap();
-        let project = root.path().join("nested/recording.cap");
+        let project = root.path().join("nested/recording.ever");
         assert!(
             prepare_recording_project(&project, RecordMode::Studio, true)
                 .unwrap()
                 .is_none()
         );
-        assert!(project.is_dir());
-        assert_eq!(std::fs::read_dir(project).unwrap().count(), 0);
+        assert!(frameever_utils::storage::is_project(&project));
+        assert_eq!(
+            frameever_utils::storage::format_version(&project),
+            Some(frameever_utils::storage::FORMAT_VERSION)
+        );
+        assert!(!project.join("content").exists());
+    }
+
+    #[test]
+    fn default_record_path_is_an_ever_project_named_after_the_recording_id() {
+        #[derive(clap::Parser)]
+        struct Record {
+            #[command(flatten)]
+            params: RecordParams,
+        }
+        let record = <Record as clap::Parser>::try_parse_from(["record"]).unwrap();
+        let path = resolve_path(&record.params, "abc123").unwrap();
+        assert_eq!(path.file_name().unwrap(), "abc123.ever");
     }
 
     #[test]
     fn recording_project_reservation_rejects_existing_empty_directory_and_file() {
         let root = tempfile::tempdir().unwrap();
-        let directory = root.path().join("empty.cap");
+        let directory = root.path().join("empty.ever");
         std::fs::create_dir(&directory).unwrap();
         for mode in [RecordMode::Studio, RecordMode::Instant] {
             assert!(prepare_recording_project(&directory, mode, false).is_err());
@@ -1398,7 +1416,7 @@ mod tests {
         }
         assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
 
-        let file = root.path().join("file.cap");
+        let file = root.path().join("file.ever");
         std::fs::write(&file, b"preserve this file").unwrap();
         for mode in [RecordMode::Studio, RecordMode::Instant] {
             assert!(prepare_recording_project(&file, mode, false).is_err());
@@ -1416,7 +1434,7 @@ mod tests {
                 std::fs::create_dir(&target).unwrap();
                 std::fs::write(target.join("original"), b"original media").unwrap();
             }
-            let project = root.path().join(format!("link-{dangling}.cap"));
+            let project = root.path().join(format!("link-{dangling}.ever"));
             std::os::unix::fs::symlink(&target, &project).unwrap();
 
             for mode in [RecordMode::Studio, RecordMode::Instant] {
@@ -1438,7 +1456,7 @@ mod tests {
     #[test]
     fn concurrent_instant_project_reservations_have_one_owner() {
         let root = tempfile::tempdir().unwrap();
-        let project = root.path().join("recording.cap");
+        let project = root.path().join("recording.ever");
         let barrier = Arc::new(std::sync::Barrier::new(8));
         let handles: Vec<_> = (0..8)
             .map(|_| {
@@ -1468,7 +1486,7 @@ mod tests {
     #[test]
     fn incomplete_instant_project_never_validates_as_stopped_with_existing_output() {
         let root = tempfile::tempdir().unwrap();
-        let project = root.path().join("recording.cap");
+        let project = root.path().join("recording.ever");
         let _ownership = prepare_recording_project(&project, RecordMode::Instant, false).unwrap();
         std::fs::write(project.join("content/output.mp4"), b"unvalidated media").unwrap();
         let mut meta = RecordingMeta::load_for_project(&project).unwrap();
@@ -1488,7 +1506,7 @@ mod tests {
     #[test]
     fn live_instant_project_excludes_repair_until_ownership_is_released() {
         let root = tempfile::tempdir().unwrap();
-        let project = root.path().join("recording.cap");
+        let project = root.path().join("recording.ever");
         let ownership = prepare_recording_project(&project, RecordMode::Instant, false)
             .unwrap()
             .unwrap();
@@ -1584,7 +1602,7 @@ mod tests {
             Session {
                 recording_id: "abc".to_string(),
                 pid: 123,
-                path: PathBuf::from("recording.cap"),
+                path: PathBuf::from("recording.ever"),
                 status: SessionStatus::Recording,
                 started_at: Some(1),
                 recording_meta_exists: None,

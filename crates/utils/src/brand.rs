@@ -10,7 +10,7 @@ pub const APP_ID: &str = "io.github.anibullet.frameever";
 pub const URL_SCHEME: &str = "frameever";
 pub const CLI_COMMAND: &str = "frameever";
 pub const RELEASES_REPO: &str = "AniBullet/FrameEver";
-pub const PROJECT_EXTENSION: &str = "cap";
+pub const PROJECT_EXTENSION: &str = "ever";
 pub const RECORDINGS_DIR_NAME: &str = "recordings";
 pub const SCREENSHOTS_DIR_NAME: &str = "screenshots";
 

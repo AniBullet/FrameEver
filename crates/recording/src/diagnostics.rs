@@ -386,13 +386,13 @@ fn replace_ignore_ascii_case(value: &str, needle: &str) -> String {
     out
 }
 
-/// One `.cap` directory reduced to the timing facts that explain a sync
+/// One `.ever` directory reduced to the timing facts that explain a sync
 /// complaint: which devices produced each track, at what rate, and how far
 /// apart the tracks started.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RecentRecordingDigest {
-    /// Deliberately NOT the directory name. A `.cap` folder is named from the
+    /// Deliberately NOT the directory name. A `.ever` folder is named from the
     /// capture target's title (`recording.rs` -> `ScreenCaptureTarget::title`),
     /// so for a window recording that name IS the window title -- document
     /// names, client names, chat subjects. `created` identifies the entry well
@@ -561,7 +561,7 @@ fn digest_recording(index: usize, path: &Path) -> RecentRecordingDigest {
     digest
 }
 
-/// The newest `limit` `.cap` directories under `recordings_dir`, newest first.
+/// The newest `limit` `.ever` directories under `recordings_dir`, newest first.
 pub fn collect_recent_recordings(
     recordings_dir: &Path,
     limit: usize,
@@ -574,7 +574,7 @@ pub fn collect_recent_recordings(
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let path = entry.path();
-            if !path.is_dir() || path.extension().is_none_or(|ext| ext != "cap") {
+            if !frameever_utils::storage::is_project(&path) {
                 return None;
             }
             let modified = entry
@@ -1312,7 +1312,7 @@ mod tests {
 
         write_recording(
             dir,
-            "studio.cap",
+            "studio.ever",
             r#"{
                 "pretty_name": "Studio",
                 "segments": [
@@ -1343,17 +1343,22 @@ mod tests {
         );
         write_recording(
             dir,
-            "instant.cap",
+            "instant.ever",
             r#"{ "pretty_name": "Instant", "fps": 30, "sample_rate": 48000 }"#,
         );
-        write_recording(dir, "broken.cap", "{ not json");
+        write_recording(dir, "broken.ever", "{ not json");
+        write_recording(
+            dir,
+            "older.cap",
+            r#"{ "pretty_name": "Older", "fps": 30, "sample_rate": 48000 }"#,
+        );
         std::fs::create_dir_all(dir.join("not-a-recording")).unwrap();
 
         let digests = collect_recent_recordings(dir, 5);
-        assert_eq!(digests.len(), 3, "only .cap directories are digested");
+        assert_eq!(digests.len(), 3, "only .ever directories are digested");
 
         // Entries are identified by mode now: the digest deliberately carries
-        // no name, because a .cap directory is named from the capture
+        // no name, because a .ever directory is named from the capture
         // target's title.
         let studio = digests
             .iter()
@@ -1399,7 +1404,7 @@ mod tests {
         for i in 0..4 {
             write_recording(
                 temp.path(),
-                &format!("r{i}.cap"),
+                &format!("r{i}.ever"),
                 r#"{ "pretty_name": "R", "fps": 30, "sample_rate": 48000 }"#,
             );
         }
@@ -1563,7 +1568,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         write_recording(
             temp.path(),
-            "one.cap",
+            "one.ever",
             r#"{ "pretty_name": "One", "fps": 30, "sample_rate": 48000 }"#,
         );
 

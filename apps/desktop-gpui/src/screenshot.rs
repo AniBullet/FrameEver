@@ -57,7 +57,7 @@ pub fn take_screenshot(target: ScreenCaptureTarget, cx: &mut App) {
     .detach();
 }
 
-/// Capture, then write the `.cap` bundle. Returns the PNG path, which is what
+/// Capture, then write the `.ever` bundle. Returns the PNG path, which is what
 /// the Tauri command returns (`NewScreenshotAdded.path` is the PNG, not the
 /// bundle).
 async fn capture_and_write(target: ScreenCaptureTarget) -> anyhow::Result<PathBuf> {
@@ -83,12 +83,7 @@ async fn capture_and_write(target: ScreenCaptureTarget) -> anyhow::Result<PathBu
         now.format("%Y-%m-%d"),
         now.format("%I.%M %p"),
     );
-    let filename = crate::recording::project_bundle_filename(&pretty_name);
-    let filename = frameever_utils::ensure_unique_filename(&filename, &base)
-        .map_err(|e| anyhow!("unique filename: {e}"))?;
-    let bundle = base.join(filename);
-    std::fs::create_dir_all(&bundle)
-        .with_context(|| format!("creating screenshot bundle {}", bundle.display()))?;
+    let bundle = crate::recording::create_named_project(&base, &pretty_name)?;
 
     let meta = frameever_project::RecordingMeta {
         platform: Some(frameever_project::Platform::default()),

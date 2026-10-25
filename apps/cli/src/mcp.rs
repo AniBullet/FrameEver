@@ -274,7 +274,7 @@ impl LocalMcpServer {
 
     #[tool(
         name = "project_validate",
-        description = "Check that a .cap recording project is complete",
+        description = "Check that a .ever recording project is complete",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -297,7 +297,7 @@ impl LocalMcpServer {
 
     #[tool(
         name = "export",
-        description = "Export a .cap project to a local video file and return the output path",
+        description = "Export a .ever project to a local video file and return the output path",
         annotations(
             read_only_hint = false,
             destructive_hint = false,

@@ -1589,6 +1589,9 @@ impl EditorWindow {
         if !self.project_ready() || self.clips.importing {
             return;
         }
+        if crate::app_windows::refuse_older_project(&source, cx) {
+            return;
+        }
         if self.playing {
             self.stop_playback(cx);
         }
@@ -2071,13 +2074,16 @@ impl PreparedMp4Import {
 async fn pick_existing_recording_path(_cx: &mut gpui::AsyncWindowContext) -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        crate::platform::open_image_panel(&["cap"])
+        crate::platform::open_image_panel(&[frameever_utils::brand::PROJECT_EXTENSION])
     }
     #[cfg(not(target_os = "macos"))]
     {
         rfd::FileDialog::new()
             .set_directory(crate::recording::recordings_dir())
-            .add_filter(t!("FrameEver Recording"), &["cap"])
+            .add_filter(
+                t!("FrameEver Recording"),
+                &[frameever_utils::brand::PROJECT_EXTENSION],
+            )
             .pick_file()
     }
 }

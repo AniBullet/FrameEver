@@ -68,7 +68,7 @@ const COMMANDS = {
 	test: "Run GPUI tests (optional filter). --all adds encoder, export, utils, CLI and script tests",
 	lint: "Format check, clippy and translation tests",
 	fmt: "Format the GPUI app and the root crates FrameEver changed",
-	export: "Export the test recording: fe export h264|hevc|av1 [--project <.cap>]",
+	export: "Export the test recording: fe export h264|hevc|av1 [--project <.ever>]",
 	package: "Build the Windows installer into dist/. --skip-sidecars, --version <x.y.z>",
 	release: "Check, tag and push a release: fe release <x.y.z> [--skip-tests]",
 	notes: "Print the CHANGELOG.md section for a version: fe notes <x.y.z>",
@@ -555,7 +555,7 @@ function lint() {
 export function firstRecording(dir) {
 	if (!existsSync(dir)) return null;
 	const bundles = readdirSync(dir, { withFileTypes: true })
-		.filter((entry) => entry.isDirectory() && entry.name.endsWith(".cap"))
+		.filter((entry) => entry.isDirectory() && entry.name.endsWith(".ever"))
 		.map((entry) => path.join(dir, entry.name))
 		.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
 	return bundles[0] ?? null;
@@ -570,7 +570,7 @@ function exportVideo({ flags, positional }) {
 	}
 	const outDir = path.join(testdataDir, "exports");
 	mkdirSync(outDir, { recursive: true });
-	const output = path.join(outDir, `${path.basename(project, ".cap")}-${codec}.mp4`);
+	const output = path.join(outDir, `${path.basename(project, ".ever")}-${codec}.mp4`);
 	run(
 		"cargo",
 		["run", "-q", "-p", "frameever", "--", "export", project, "-o", output, "--codec", codec],

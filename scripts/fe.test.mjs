@@ -23,9 +23,9 @@ import {
 } from "./fe.mjs";
 
 test("flags take a value, an inline value, or stand alone", () => {
-	assert.deepEqual(parseArgs(["hevc", "--project", "a.cap", "--watch", "--lang=zh-CN"]), {
+	assert.deepEqual(parseArgs(["hevc", "--project", "a.ever", "--watch", "--lang=zh-CN"]), {
 		positional: ["hevc"],
-		flags: { project: "a.cap", watch: true, lang: "zh-CN" },
+		flags: { project: "a.ever", watch: true, lang: "zh-CN" },
 	});
 	assert.deepEqual(parseArgs(["--all", "--skip-tests"]).flags, {
 		all: true,
@@ -42,14 +42,14 @@ test("FFmpeg goes first on the path, keeping the host's own path key", () => {
 	assert.match(profile.FRAMEEVER_GPUI_RECORDINGS_DIR, /testdata[\\/]recordings$/);
 });
 
-test("the newest .cap bundle is the test recording", () => {
+test("the newest .ever bundle is the test recording", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "fe-"));
 	assert.equal(firstRecording(path.join(dir, "missing")), null);
-	mkdirSync(path.join(dir, "old.cap"));
-	mkdirSync(path.join(dir, "new.cap"));
+	mkdirSync(path.join(dir, "old.ever"));
+	mkdirSync(path.join(dir, "new.ever"));
 	mkdirSync(path.join(dir, "notes"));
-	utimesSync(path.join(dir, "old.cap"), new Date(1000), new Date(1000));
-	assert.equal(firstRecording(dir), path.join(dir, "new.cap"));
+	utimesSync(path.join(dir, "old.ever"), new Date(1000), new Date(1000));
+	assert.equal(firstRecording(dir), path.join(dir, "new.ever"));
 	rmSync(dir, { recursive: true });
 });
 

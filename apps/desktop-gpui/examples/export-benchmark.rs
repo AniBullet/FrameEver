@@ -1,4 +1,4 @@
-//! Run: cargo run --release --example export-benchmark -- <project.cap> [WIDTH] [HEIGHT] [FPS] [RUNS]
+//! Run: cargo run --release --example export-benchmark -- <project.ever> [WIDTH] [HEIGHT] [FPS] [RUNS]
 
 use std::{
     path::PathBuf,
@@ -109,7 +109,7 @@ fn main() -> anyhow::Result<()> {
     let project_path = arguments
         .next()
         .map(PathBuf::from)
-        .ok_or_else(|| anyhow::anyhow!("Pass a studio .cap project path"))?;
+        .ok_or_else(|| anyhow::anyhow!("Pass a studio .ever project path"))?;
     let mut number = |default: u32| {
         arguments
             .next()

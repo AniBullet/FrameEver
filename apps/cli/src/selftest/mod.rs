@@ -295,7 +295,7 @@ enum LegFailure {
     Failed(String),
 }
 
-/// Removes a temp `.cap` directory when a leg leaves without handing it over.
+/// Removes a temp `.ever` directory when a leg leaves without handing it over.
 ///
 /// Only the pattern-failure path used to clean up after itself, so a failed
 /// `stop()`, remux or instant finalize left a full screen recording behind in
@@ -613,7 +613,7 @@ async fn run_studio_leg(
 ) -> Result<StudioLeg, LegFailure> {
     // Every early return below leaves the directory to the guard.
     let mut temp = TempProject::new(
-        std::env::temp_dir().join(format!("cap-selftest-{}.cap", uuid::Uuid::new_v4())),
+        std::env::temp_dir().join(format!("frameever-selftest-{}.ever", uuid::Uuid::new_v4())),
     );
     let project_path = temp.path().to_path_buf();
 
@@ -722,9 +722,10 @@ async fn run_instant_leg(
 ) -> Result<InstantLeg, LegFailure> {
     // `instant::finalize` is the fragment mux and the most failure-prone step
     // in this leg; the guard is what keeps its directory from leaking.
-    let mut temp = TempProject::new(
-        std::env::temp_dir().join(format!("cap-selftest-instant-{}.cap", uuid::Uuid::new_v4())),
-    );
+    let mut temp = TempProject::new(std::env::temp_dir().join(format!(
+        "frameever-selftest-instant-{}.ever",
+        uuid::Uuid::new_v4()
+    )));
     let project_path = temp.path().to_path_buf();
 
     reporter.stage("collecting", Some("instant"));
@@ -1379,7 +1380,7 @@ mod tests {
         );
     }
 
-    /// The guard removes the temp `.cap` unless the leg hands it over, which is
+    /// The guard removes the temp `.ever` unless the leg hands it over, which is
     /// what keeps a failed `stop()`/remux/finalize from leaking a recording.
     #[test]
     fn the_temp_project_guard_cleans_up_unless_kept() {

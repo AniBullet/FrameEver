@@ -1306,7 +1306,13 @@ pub async fn start(config: StartConfig) -> anyhow::Result<ActiveRecording> {
     }
     let project_dir = create_project_dir(&config.target, config.mode)?;
 
-    start_attempt(config, project_dir).await
+    let started = start_attempt(config, project_dir.clone()).await;
+    if started.is_err()
+        && let Err(error) = frameever_utils::storage::discard_if_unused(&project_dir)
+    {
+        tracing::warn!(dir = %project_dir.display(), "could not remove unused project: {error}");
+    }
+    started
 }
 
 async fn start_attempt(
@@ -1714,18 +1720,13 @@ fn create_project_dir(
         recording_mode,
         now,
     );
-    let filename = project_bundle_filename(&name);
-    let filename = frameever_utils::ensure_unique_filename(&filename, &base)
-        .map_err(|e| anyhow!("unique filename: {e}"))?;
-
-    Ok(base.join(filename))
+    create_named_project(&base, &name)
 }
 
-/// Preserve GPUI's colon and slash replacement, then strip invalid characters
-/// as the Tauri recording and screenshot paths do.
-pub(crate) fn project_bundle_filename(name: &str) -> String {
-    let name = name.replace([':', '/'], ".");
-    format!("{}.cap", sanitize_filename::sanitize(&name))
+pub(crate) fn create_named_project(base: &std::path::Path, name: &str) -> anyhow::Result<PathBuf> {
+    let name = sanitize_filename::sanitize(name.replace([':', '/'], "."));
+    frameever_utils::storage::create_project(base, &name)
+        .with_context(|| format!("creating project in {}", base.display()))
 }
 
 fn format_recording_project_name(
@@ -1837,18 +1838,22 @@ mod tests {
 
     #[test]
     fn window_title_with_windows_reserved_characters_creates_a_project_directory() {
-        let filename = project_bundle_filename(
+        let base = temp_project("window-title");
+        let project = create_named_project(
+            &base,
             "NATO fighter jets | News World | Metro News : / * ? < > (Window)",
-        );
-        assert!(filename.ends_with(".cap"));
-        assert!(!filename.chars().any(|c| "\\/:*?\"<>|".contains(c)));
+        )
+        .unwrap();
+        let filename = project.file_name().unwrap().to_string_lossy().into_owned();
 
-        #[cfg(windows)]
-        {
-            let base = temp_project("window-title");
-            std::fs::create_dir(base.join(filename)).unwrap();
-            std::fs::remove_dir_all(base).unwrap();
-        }
+        assert!(filename.ends_with(".ever"));
+        assert!(!filename.chars().any(|c| "\\/:*?\"<>|".contains(c)));
+        assert!(frameever_utils::storage::is_project(&project));
+        assert_eq!(
+            frameever_utils::storage::format_version(&project),
+            Some(frameever_utils::storage::FORMAT_VERSION)
+        );
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     fn temp_project(tag: &str) -> PathBuf {

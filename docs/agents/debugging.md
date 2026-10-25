@@ -30,7 +30,7 @@ Test cadence: while iterating run `pnpm fe test <filter>` (an app-only edit rebu
 | What | Where |
 |---|---|
 | Test profile settings | `apps/desktop-gpui/target/testdata/appdata/store` (JSON) |
-| Test recordings | `apps/desktop-gpui/target/testdata/recordings/*.cap` |
+| Test recordings | `apps/desktop-gpui/target/testdata/recordings/*.ever` |
 | App log (test profile) | `apps/desktop-gpui/target/testdata/logs/frameever.log.<date>` |
 | App log (installed app) | `%LOCALAPPDATA%\io.github.anibullet.frameever\logs\` |
 | Installer output | `dist/` |

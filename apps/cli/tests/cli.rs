@@ -219,7 +219,7 @@ fn project_inspect_missing_fails() {
     let output = run(&[
         "project",
         "inspect",
-        "/this/path/does/not/exist.cap",
+        "/this/path/does/not/exist.ever",
         "--format",
         "json",
     ]);
@@ -246,7 +246,7 @@ fn project_validate_missing_meta_reports_invalid() {
 #[test]
 fn project_validate_complete_project_is_valid() {
     let dir = tempfile::tempdir().unwrap();
-    let project = dir.path().join("recording.cap");
+    let project = dir.path().join("recording.ever");
     let content = project.join("content");
     std::fs::create_dir_all(&content).unwrap();
     std::fs::write(content.join("display.mp4"), b"fake").unwrap();
@@ -268,7 +268,7 @@ fn project_validate_complete_project_is_valid() {
 #[test]
 fn project_validate_detects_missing_media() {
     let dir = tempfile::tempdir().unwrap();
-    let project = dir.path().join("recording.cap");
+    let project = dir.path().join("recording.ever");
     std::fs::create_dir_all(&project).unwrap();
     write_single_segment_meta(&project);
 
@@ -289,7 +289,7 @@ fn project_validate_detects_missing_media() {
 #[test]
 fn project_validate_rejects_in_progress_zero_segment_studio_project() {
     let dir = tempfile::tempdir().unwrap();
-    let project = dir.path().join("recording.cap");
+    let project = dir.path().join("recording.ever");
     std::fs::create_dir_all(&project).unwrap();
     let meta = serde_json::json!({
         "platform": "Linux",
@@ -327,7 +327,7 @@ fn project_validate_rejects_in_progress_zero_segment_studio_project() {
 #[test]
 fn project_inspect_complete_project_succeeds() {
     let dir = tempfile::tempdir().unwrap();
-    let project = dir.path().join("recording.cap");
+    let project = dir.path().join("recording.ever");
     let content = project.join("content");
     std::fs::create_dir_all(&content).unwrap();
     std::fs::write(content.join("display.mp4"), b"fake").unwrap();
@@ -396,7 +396,7 @@ fn record_validation_failures_emit_json_error_events() {
 fn export_rejects_settings_json_with_flags() {
     let output = run(&[
         "export",
-        "/tmp/whatever.cap",
+        "/tmp/whatever.ever",
         "--settings-json",
         "{\"format\":\"Mp4\"}",
         "--fps",
@@ -414,7 +414,7 @@ fn export_rejects_settings_json_with_flags() {
 fn export_rejects_quality_with_gif() {
     let output = run(&[
         "export",
-        "/tmp/whatever.cap",
+        "/tmp/whatever.ever",
         "--format",
         "gif",
         "--quality",
@@ -432,7 +432,7 @@ fn export_rejects_quality_with_gif() {
 fn export_rejects_bad_resolution() {
     let output = run(&[
         "export",
-        "/tmp/whatever.cap",
+        "/tmp/whatever.ever",
         "--resolution",
         "not-a-resolution",
     ]);
@@ -448,7 +448,7 @@ fn export_rejects_bad_resolution() {
 fn export_rejects_duplicate_output() {
     let output = run(&[
         "export",
-        "/tmp/whatever.cap",
+        "/tmp/whatever.ever",
         "/tmp/out1.mp4",
         "--output",
         "/tmp/out2.mp4",
@@ -494,9 +494,10 @@ fn recordings_list_includes_the_custom_and_previous_folders_the_app_scans() {
     let app_data = root.path().join("app");
     let custom = root.path().join("custom");
     let previous = root.path().join("previous");
-    write_named_meta(&app_data.join("recordings/Default.cap"), "Default");
-    write_named_meta(&custom.join("Custom.cap"), "Custom");
-    write_named_meta(&previous.join("Previous.cap"), "Previous");
+    write_named_meta(&app_data.join("recordings/Default.ever"), "Default");
+    write_named_meta(&custom.join("Custom.ever"), "Custom");
+    write_named_meta(&previous.join("Previous.ever"), "Previous");
+    write_named_meta(&previous.join("Older.cap"), "Older");
     write_named_meta(&previous.join("Not a project"), "Not a project");
     std::fs::write(
         app_data.join("store"),
@@ -532,7 +533,7 @@ fn recordings_list_includes_the_custom_and_previous_folders_the_app_scans() {
 #[test]
 fn project_config_set_then_get_roundtrips() {
     let dir = tempfile::tempdir().unwrap();
-    let project = dir.path().join("recording.cap");
+    let project = dir.path().join("recording.ever");
     write_single_segment_meta(&project);
 
     let set = run(&[
@@ -564,7 +565,7 @@ fn project_config_get_without_file_returns_default() {
     // Instant / un-edited projects have no project-config.json; `config get` should still succeed
     // with the effective default config rather than erroring.
     let dir = tempfile::tempdir().unwrap();
-    let project = dir.path().join("recording.cap");
+    let project = dir.path().join("recording.ever");
     write_single_segment_meta(&project);
 
     let output = run(&[
@@ -582,7 +583,11 @@ fn project_config_get_without_file_returns_default() {
 
 #[test]
 fn export_missing_project_emits_json_error_event() {
-    let output = run(&["export", "/this/path/does/not/exist.cap", "--progress-json"]);
+    let output = run(&[
+        "export",
+        "/this/path/does/not/exist.ever",
+        "--progress-json",
+    ]);
     assert!(!output.status.success());
     // The NDJSON stream must end with a machine-readable terminal error rather than just stopping.
     // The `error` field is uniform across every JSON-emitting command (the `type` tag stays Error).
@@ -595,7 +600,7 @@ fn export_missing_project_emits_json_error_event() {
 fn export_global_json_implies_progress_stream() {
     // `--json` (global) must behave like --progress-json/--completion-json so the agent's universal
     // reflex works on export too; failure still ends with a terminal Error event.
-    let output = run(&["export", "/this/path/does/not/exist.cap", "--json"]);
+    let output = run(&["export", "/this/path/does/not/exist.ever", "--json"]);
     assert!(!output.status.success());
     let json = parse_json(&output);
     assert_eq!(json["type"], "Error");
@@ -606,7 +611,7 @@ fn export_global_json_implies_progress_stream() {
 fn export_preview_missing_project_emits_json_error() {
     let output = run(&[
         "export-preview",
-        "/this/path/does/not/exist.cap",
+        "/this/path/does/not/exist.ever",
         "--frame-time",
         "0",
         "--settings-json",
