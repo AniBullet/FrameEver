@@ -670,8 +670,8 @@ pub async fn record_instant(spec: &InstantSpec, dir: &Path) -> anyhow::Result<()
         builder = builder.with_start_gate(Some(gate.clone()));
     }
     // Mirrors the product's Instant audio pipeline: anchored at the recording
-    // epoch behind a start gate, and on Linux.
-    if gate.is_some() || cfg!(target_os = "linux") {
+    // epoch behind a start gate.
+    if gate.is_some() {
         builder = builder.with_audio_anchor(cap_recording::AudioAnchor::PipelineEpoch);
     }
     let has_audio = spec.mic_delay.is_some() || spec.system_audio;

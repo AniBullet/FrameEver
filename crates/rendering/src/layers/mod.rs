@@ -57,12 +57,6 @@ pub fn new_font_system() -> glyphon::FontSystem {
             db.set_serif_family("Times New Roman");
             db.set_monospace_family("Consolas");
         }
-        #[cfg(all(unix, not(target_os = "macos")))]
-        {
-            db.set_sans_serif_family("DejaVu Sans");
-            db.set_serif_family("DejaVu Serif");
-            db.set_monospace_family("DejaVu Sans Mono");
-        }
         let template = (font_system.locale().to_string(), db);
         init_phase.finish("returned");
         template

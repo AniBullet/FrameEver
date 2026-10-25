@@ -320,7 +320,6 @@ fn signal_name(signal: i32) -> String {
         4 => "SIGILL".into(),
         5 => "SIGTRAP".into(),
         6 => "SIGABRT".into(),
-        7 if cfg!(target_os = "linux") => "SIGBUS".into(),
         8 => "SIGFPE".into(),
         9 => "SIGKILL".into(),
         10 if cfg!(target_os = "macos") => "SIGBUS".into(),

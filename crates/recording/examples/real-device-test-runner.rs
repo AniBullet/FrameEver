@@ -1752,10 +1752,6 @@ fn get_os_version() -> String {
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|| "unknown".to_string())
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        "unknown".to_string()
-    }
 }
 
 fn get_cpu_info() -> String {
@@ -1779,10 +1775,6 @@ fn get_cpu_info() -> String {
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .and_then(|s| s.lines().nth(1).map(|l| l.trim().to_string()))
             .unwrap_or_else(|| "unknown".to_string())
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        "unknown".to_string()
     }
 }
 

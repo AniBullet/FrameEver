@@ -98,34 +98,6 @@ const STANDARD_SAMPLE_RATES: [u32; 13] = [
     192_000,
 ];
 
-#[cfg(target_os = "linux")]
-fn audio_follows_confirmed_route(
-    callback_received: Instant,
-    capture_delay: Option<Duration>,
-    route_required: bool,
-    routed_at: Option<cap_timestamp::Timestamps>,
-) -> bool {
-    !route_required
-        || capture_delay
-            .and_then(|delay| callback_received.checked_sub(delay))
-            .zip(routed_at)
-            .is_some_and(|(captured_at, routed_at)| captured_at >= routed_at.instant())
-}
-
-#[cfg(target_os = "linux")]
-fn cancellable_system_stream_ready(
-    ready: StreamReadyFuture,
-    cancel: tokio_util::sync::CancellationToken,
-) -> StreamReadyFuture {
-    async move {
-        tokio::select! {
-            biased;
-            _ = cancel.cancelled() => Err(SetInputError::BuildStream("System audio reconnect cancelled".into())),
-            result = ready => result,
-        }
-    }.boxed()
-}
-
 fn microphone_stream_error_handler(
     error_sender: flume::Sender<StreamError>,
     mut on_first_error: impl FnMut() + Send + 'static,
@@ -481,189 +453,19 @@ fn enqueue_microphone_samples(
     }
 }
 
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(windows)]
 struct StreamHealth {
     id: u32,
     failed: AtomicBool,
 }
 
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(windows)]
 impl StreamHealth {
     fn new(id: u32) -> Self {
         Self {
             id,
             failed: AtomicBool::new(false),
         }
-    }
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Clone)]
-pub(crate) struct RecordingSourceHealth(Arc<std::sync::Mutex<RecordingSourceHealthState>>);
-
-#[cfg(target_os = "linux")]
-struct RecordingSourceHealthState {
-    generation: u64,
-    current: Arc<StreamHealth>,
-    pending: Option<Arc<StreamHealth>>,
-    recovery_origin: Option<u32>,
-    terminal: Option<String>,
-}
-
-#[cfg(target_os = "linux")]
-impl RecordingSourceHealth {
-    fn new(generation: u64, current: Arc<StreamHealth>) -> Self {
-        Self(Arc::new(std::sync::Mutex::new(
-            RecordingSourceHealthState {
-                generation,
-                current,
-                pending: None,
-                recovery_origin: None,
-                terminal: None,
-            },
-        )))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn test_healthy(id: u32) -> Self {
-        Self::new(1, Arc::new(StreamHealth::new(id)))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn test_backend_failure(&self) {
-        self.0
-            .lock()
-            .unwrap()
-            .current
-            .failed
-            .store(true, Ordering::Release);
-    }
-
-    fn observe_ready(
-        &self,
-        generation: u64,
-        id: u32,
-        ready: StreamReadyFuture,
-    ) -> StreamReadyFuture {
-        let health = self.clone();
-        ready
-            .map(move |result| {
-                if let Err(error) = &result {
-                    health.fail_reconnect(
-                        generation,
-                        id,
-                        format!("Requested audio stream rebuild failed: {error}"),
-                    );
-                }
-                result
-            })
-            .boxed()
-    }
-
-    fn begin_reconnect(&self, generation: u64, pending: Arc<StreamHealth>) {
-        let mut state = self.0.lock().unwrap();
-        if state.generation == generation && state.terminal.is_none() {
-            state.pending = Some(pending);
-        }
-    }
-
-    fn expects_reconnect(&self, generation: u64, id: u32) -> bool {
-        let state = self.0.lock().unwrap();
-        state.generation == generation
-            && state.terminal.is_none()
-            && state
-                .pending
-                .as_ref()
-                .is_some_and(|pending| pending.id == id)
-    }
-
-    fn commit_reconnect(&self, generation: u64, id: u32) {
-        let mut state = self.0.lock().unwrap();
-        if state.generation != generation || state.terminal.is_some() {
-            return;
-        }
-        let Some(pending) = state
-            .pending
-            .as_ref()
-            .filter(|pending| pending.id == id)
-            .cloned()
-        else {
-            return;
-        };
-        if pending.failed.load(Ordering::Acquire) {
-            state.terminal = Some("Replacement audio stream failed before acceptance".into());
-            return;
-        }
-        if state.current.failed.load(Ordering::Acquire) || state.recovery_origin.is_some() {
-            state.recovery_origin = Some(state.current.id);
-        }
-        state.current = pending;
-        state.pending = None;
-    }
-
-    #[cfg(test)]
-    fn fail_current(&self, generation: u64, id: u32, error: String) {
-        let mut state = self.0.lock().unwrap();
-        if state.generation == generation && state.current.id == id {
-            state.terminal.get_or_insert(error);
-        }
-    }
-
-    fn fail_reconnect(&self, generation: u64, id: u32, error: String) {
-        let mut state = self.0.lock().unwrap();
-        if state.generation == generation
-            && state
-                .pending
-                .as_ref()
-                .is_some_and(|pending| pending.id == id)
-        {
-            state.terminal.get_or_insert(error);
-        }
-    }
-
-    pub(crate) fn fail(&self, error: String) {
-        self.0.lock().unwrap().terminal.get_or_insert(error);
-    }
-
-    pub(crate) fn terminal_error(&self) -> Option<String> {
-        self.0.lock().unwrap().terminal.clone()
-    }
-
-    pub(crate) fn frame_is_current(&self, id: u32) -> bool {
-        let mut state = self.0.lock().unwrap();
-        if state.current.id != id || state.terminal.is_some() {
-            return false;
-        }
-        if state.current.failed.load(Ordering::Acquire) {
-            state.terminal =
-                Some("Requested audio backend failed while continuing to deliver samples".into());
-            return false;
-        }
-        true
-    }
-
-    pub(crate) fn accepted_frame(&self, id: u32) {
-        let mut state = self.0.lock().unwrap();
-        if state.current.id == id
-            && state.terminal.is_none()
-            && !state.current.failed.load(Ordering::Acquire)
-            && state.recovery_origin.is_some_and(|origin| origin != id)
-        {
-            state.recovery_origin = None;
-        }
-    }
-
-    pub(crate) fn stop_error(&self) -> Option<String> {
-        let state = self.0.lock().unwrap();
-        state.terminal.clone().or_else(|| {
-            (state.current.failed.load(Ordering::Acquire)
-                || state
-                    .pending
-                    .as_ref()
-                    .is_some_and(|pending| pending.failed.load(Ordering::Acquire))
-                || state.recovery_origin.is_some())
-            .then(|| "Requested audio stream has an unresolved backend failure at Stop".into())
-        })
     }
 }
 
@@ -856,18 +658,8 @@ pub struct MicrophoneFeed {
     selection_generation: u64,
     #[cfg(windows)]
     recording_reconnect: Option<WindowsReconnect>,
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(windows)]
     stream_health: std::collections::HashMap<u32, Arc<StreamHealth>>,
-    #[cfg(target_os = "linux")]
-    recording_health: Option<RecordingSourceHealth>,
-    #[cfg(target_os = "linux")]
-    pulse_input_role: crate::sources::screen_capture::PulseInputRole,
-    #[cfg(target_os = "linux")]
-    system_stream_cancel: tokio_util::sync::CancellationToken,
-    #[cfg(target_os = "linux")]
-    system_failed_input: Option<u32>,
-    #[cfg(target_os = "linux")]
-    system_reconnect: Option<SystemReconnect>,
     input_id_counter: u32,
     lock_generation: u64,
     state: State,
@@ -877,20 +669,8 @@ pub struct MicrophoneFeed {
     dropped_message_count: Arc<AtomicU64>,
 }
 
-#[cfg(target_os = "linux")]
-struct SystemReconnect {
-    previous_id: u32,
-    id: u32,
-    generation: u64,
-    label: String,
-    ready: futures::future::Shared<StreamReadyFuture>,
-}
-
 impl Drop for MicrophoneFeed {
-    fn drop(&mut self) {
-        #[cfg(target_os = "linux")]
-        self.system_stream_cancel.cancel();
-    }
+    fn drop(&mut self) {}
 }
 
 struct MicrophoneFeedSender {
@@ -1110,18 +890,8 @@ impl MicrophoneFeed {
     pub fn new(error_sender: flume::Sender<StreamError>) -> Self {
         Self {
             setup_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_SETUPS)),
-            #[cfg(target_os = "linux")]
-            pulse_input_role: crate::sources::screen_capture::PulseInputRole::Microphone,
-            #[cfg(target_os = "linux")]
-            system_stream_cancel: tokio_util::sync::CancellationToken::new(),
-            #[cfg(target_os = "linux")]
-            system_failed_input: None,
-            #[cfg(target_os = "linux")]
-            system_reconnect: None,
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(windows)]
             stream_health: std::collections::HashMap::new(),
-            #[cfg(target_os = "linux")]
-            recording_health: None,
             #[cfg(windows)]
             recording_reconnect: None,
             #[cfg(windows)]
@@ -1137,13 +907,6 @@ impl MicrophoneFeed {
             error_sender,
             dropped_message_count: Arc::new(AtomicU64::new(0)),
         }
-    }
-
-    #[cfg(target_os = "linux")]
-    pub(crate) fn new_system_audio(error_sender: flume::Sender<StreamError>) -> Self {
-        let mut feed = Self::new(error_sender);
-        feed.pulse_input_role = crate::sources::screen_capture::PulseInputRole::SystemAudio;
-        feed
     }
 
     pub fn default_device() -> Option<(String, Device, SupportedStreamConfig)> {
@@ -1215,12 +978,8 @@ impl MicrophoneFeed {
 
     fn spawn_input_stream(params: StreamSpawnParams) -> (StreamReadyFuture, SyncSender<()>) {
         let StreamSpawnParams {
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(windows)]
             health,
-            #[cfg(target_os = "linux")]
-            pulse_input_role,
-            #[cfg(target_os = "linux")]
-            system_stream_cancel,
             id,
             label,
             settings,
@@ -1325,25 +1084,6 @@ impl MicrophoneFeed {
                     );
                 }
 
-                #[cfg(target_os = "linux")]
-                let input_route = match crate::sources::screen_capture::PulseInputRoute::prepare(
-                    &label,
-                    pulse_input_role,
-                ) {
-                    Ok(route) => route,
-                    Err(error) => {
-                        let _ = ready_tx.send(Err(SetInputError::BuildStream(format!(
-                            "Could not prepare the Linux audio input route: {error}"
-                        ))));
-                        return;
-                    }
-                };
-                #[cfg(target_os = "linux")]
-                let input_callback_observed = Arc::new(AtomicBool::new(false));
-                #[cfg(target_os = "linux")]
-                let route_required = input_route.is_some();
-                #[cfg(target_os = "linux")]
-                let routed_at = Arc::new(std::sync::OnceLock::<cap_timestamp::Timestamps>::new());
 
                 if setup_cancel.is_cancelled() || ready_tx.is_canceled() {
                     return;
@@ -1356,20 +1096,8 @@ impl MicrophoneFeed {
                     sample_format,
                     {
                         let actor_ref = actor_ref.clone();
-                        #[cfg(target_os = "linux")]
-                        let input_callback_observed = input_callback_observed.clone();
-                        #[cfg(target_os = "linux")]
-                        let routed_at = routed_at.clone();
-                        #[cfg(target_os = "linux")]
-                        let system_stream_cancel = system_stream_cancel.clone();
                         let mut callback_count = 0u64;
                         move |data, info| {
-                            #[cfg(target_os = "linux")]
-                            if system_stream_cancel.is_cancelled() {
-                                return;
-                            }
-                            #[cfg(target_os = "linux")]
-                            let callback_received = Instant::now();
                             let frame_count = callback_frame_count(
                                 data.bytes().len(),
                                 data.sample_format(),
@@ -1380,8 +1108,6 @@ impl MicrophoneFeed {
                                 sample_rate_estimator.sample_rate_for(input_timestamp, frame_count);
 
                             if callback_count == 0 {
-                                #[cfg(target_os = "linux")]
-                                input_callback_observed.store(true, Ordering::Release);
                                 info!(
                                     "🎤 First audio callback - data size: {} bytes, frames: {}, format: {:?}, rate: {}",
                                     data.bytes().len(),
@@ -1393,17 +1119,6 @@ impl MicrophoneFeed {
                             callback_count += 1;
 
                             let timestamp = Timestamp::from_cpal(input_timestamp.capture);
-                            #[cfg(target_os = "linux")]
-                            // Linux Timestamp::from_cpal uses receipt time, so the route gate
-                            // separately accounts for ALSA buffers without changing A/V compensation.
-                            if !audio_follows_confirmed_route(
-                                callback_received,
-                                input_timestamp.callback.duration_since(&input_timestamp.capture),
-                                route_required,
-                                routed_at.get().copied(),
-                            ) {
-                                return;
-                            }
                             #[cfg(windows)]
                             let timestamp = capture_clock.timestamp(
                                 timestamp,
@@ -1459,19 +1174,9 @@ impl MicrophoneFeed {
                         }
                     },
                     microphone_stream_error_handler(error_sender, {
-                        #[cfg(target_os = "linux")]
-                        let actor = actor_ref.clone();
-                        #[cfg(target_os = "linux")]
-                        let cancel = system_stream_cancel.clone();
                         move || {
-                            #[cfg(any(target_os = "linux", windows))]
+                            #[cfg(windows)]
                             health.failed.store(true, Ordering::Release);
-                            #[cfg(target_os = "linux")]
-                            if pulse_input_role == crate::sources::screen_capture::PulseInputRole::SystemAudio
-                                && !cancel.is_cancelled()
-                            {
-                                let _ = actor.tell(SystemInputFailed { id }).try_send();
-                            }
                         }
                     }),
                     None,
@@ -1491,22 +1196,7 @@ impl MicrophoneFeed {
                     return;
                 }
 
-                #[cfg(target_os = "linux")]
-                if let Some(route) = input_route
-                    && let Err(error) = route.apply(&input_callback_observed, &system_stream_cancel)
-                {
-                    let _ = ready_tx.send(Err(SetInputError::BuildStream(format!(
-                        "Could not confirm the Linux audio input route: {error}"
-                    ))));
-                    return;
-                }
 
-                #[cfg(target_os = "linux")]
-                let _ = routed_at.set(cap_timestamp::Timestamps::now());
-                #[cfg(target_os = "linux")]
-                if system_stream_cancel.is_cancelled() {
-                    return;
-                }
 
                 if ready_tx.send(Ok((config, buffer_size_frames))).is_err() {
                     return;
@@ -1671,26 +1361,13 @@ fn stream_config_with_latency(
     device_name: Option<&str>,
 ) -> (cpal::StreamConfig, Option<u32>) {
     let mut stream_config: cpal::StreamConfig = config.clone().into();
-    let buffer_size_frames = if uses_default_microphone_buffer(device_name) {
-        None
-    } else {
-        desired_buffer_size_frames(config, device_name)
-    };
+    let buffer_size_frames = desired_buffer_size_frames(config, device_name);
 
     if let Some(frames) = buffer_size_frames {
         stream_config.buffer_size = BufferSize::Fixed(frames);
     }
 
     (stream_config, buffer_size_frames)
-}
-
-fn uses_default_microphone_buffer(device_name: Option<&str>) -> bool {
-    cfg!(target_os = "linux")
-        && device_name.is_some_and(|name| {
-            ["default", "pulse", "pipewire"]
-                .iter()
-                .any(|backend| name.eq_ignore_ascii_case(backend))
-        })
 }
 
 fn desired_buffer_size_frames(
@@ -1745,8 +1422,6 @@ fn latency_ms_to_frames(sample_rate: u32, milliseconds: u32) -> u32 {
 pub struct MicrophoneFeedLock {
     #[cfg(windows)]
     generation: u64,
-    #[cfg(target_os = "linux")]
-    source_health: RecordingSourceHealth,
     actor: ActorRef<MicrophoneFeed>,
     config: SupportedStreamConfig,
     audio_info: AudioInfo,
@@ -1815,11 +1490,6 @@ impl MicrophoneFeedLock {
             })
             .await
             .map_err(|error| SetInputError::BuildStream(format!("{error}")))
-    }
-
-    #[cfg(target_os = "linux")]
-    pub(crate) fn source_health(&self) -> RecordingSourceHealth {
-        self.source_health.clone()
     }
 
     pub fn config(&self) -> &SupportedStreamConfig {
@@ -1934,24 +1604,6 @@ struct LockedInputReconnected {
     done_tx: mpsc::SyncSender<()>,
 }
 
-#[cfg(target_os = "linux")]
-struct SystemInputFailed {
-    id: u32,
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Clone, Copy)]
-struct ReconnectSystemInput {
-    id: u32,
-    generation: u64,
-}
-
-#[cfg(target_os = "linux")]
-struct SystemReconnectFailed {
-    id: u32,
-    generation: u64,
-}
-
 struct InputConnectFailed {
     id: u32,
 }
@@ -1976,12 +1628,8 @@ impl StreamLogAction {
 }
 
 struct StreamSpawnParams {
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(windows)]
     health: Arc<StreamHealth>,
-    #[cfg(target_os = "linux")]
-    pulse_input_role: crate::sources::screen_capture::PulseInputRole,
-    #[cfg(target_os = "linux")]
-    system_stream_cancel: tokio_util::sync::CancellationToken,
     id: u32,
     label: String,
     settings: Option<MicrophoneDeviceSettings>,
@@ -2044,13 +1692,6 @@ impl MicrophoneFeed {
 
                 let label = msg.label.clone();
 
-                #[cfg(target_os = "linux")]
-                if self.pulse_input_role
-                    == crate::sources::screen_capture::PulseInputRole::SystemAudio
-                {
-                    self.system_stream_cancel.cancel();
-                    self.system_stream_cancel = tokio_util::sync::CancellationToken::new();
-                }
                 #[cfg(windows)]
                 {
                     self.selection_generation = self.selection_generation.wrapping_add(1);
@@ -2058,7 +1699,7 @@ impl MicrophoneFeed {
                 }
                 let actor_ref = actor_ref.clone();
                 let setup_cancel = tokio_util::sync::CancellationToken::new();
-                #[cfg(any(target_os = "linux", windows))]
+                #[cfg(windows)]
                 let health = {
                     let health = Arc::new(StreamHealth::new(id));
                     self.stream_health
@@ -2067,12 +1708,8 @@ impl MicrophoneFeed {
                     health
                 };
                 let (ready_future, done_tx) = Self::spawn_input_stream(StreamSpawnParams {
-                    #[cfg(any(target_os = "linux", windows))]
+                    #[cfg(windows)]
                     health,
-                    #[cfg(target_os = "linux")]
-                    pulse_input_role: self.pulse_input_role,
-                    #[cfg(target_os = "linux")]
-                    system_stream_cancel: self.system_stream_cancel.clone(),
                     id,
                     label: label.clone(),
                     settings: msg.settings,
@@ -2160,18 +1797,6 @@ impl MicrophoneFeed {
                         .boxed());
                 }
 
-                #[cfg(target_os = "linux")]
-                if let Some(pending) = &self.system_reconnect
-                    && pending.generation == self.lock_generation
-                    && pending.label == msg.label
-                {
-                    return Ok(pending
-                        .ready
-                        .clone()
-                        .map(|result| result.map(|(config, _)| config))
-                        .boxed());
-                }
-
                 let label = msg.label.clone();
 
                 let new_id = self.input_id_counter;
@@ -2179,34 +1804,19 @@ impl MicrophoneFeed {
 
                 let previous_id = inner.id;
                 let generation = self.lock_generation;
-                #[cfg(target_os = "linux")]
-                if self.pulse_input_role
-                    == crate::sources::screen_capture::PulseInputRole::SystemAudio
-                {
-                    self.system_stream_cancel.cancel();
-                    self.system_stream_cancel = tokio_util::sync::CancellationToken::new();
-                }
-                #[cfg(any(target_os = "linux", windows))]
+                #[cfg(windows)]
                 let health = {
                     let health = Arc::new(StreamHealth::new(new_id));
                     self.stream_health.retain(|key, _| *key == inner.id);
                     let _ = self.stream_health.insert(new_id, health.clone());
-                    #[cfg(target_os = "linux")]
-                    if let Some(recording) = &self.recording_health {
-                        recording.begin_reconnect(generation, health.clone());
-                    }
                     health
                 };
                 let actor_ref = actor_ref.clone();
                 #[cfg(windows)]
                 let windows_health = health.clone();
                 let (ready_future, done_tx) = Self::spawn_input_stream(StreamSpawnParams {
-                    #[cfg(any(target_os = "linux", windows))]
+                    #[cfg(windows)]
                     health,
-                    #[cfg(target_os = "linux")]
-                    pulse_input_role: self.pulse_input_role,
-                    #[cfg(target_os = "linux")]
-                    system_stream_cancel: self.system_stream_cancel.clone(),
                     id: new_id,
                     label: label.clone(),
                     settings: msg.settings,
@@ -2218,20 +1828,6 @@ impl MicrophoneFeed {
                     dropped_message_count: self.dropped_message_count.clone(),
                     log_action: StreamLogAction::Rebuild,
                 });
-                #[cfg(target_os = "linux")]
-                let ready_future = if self.pulse_input_role
-                    == crate::sources::screen_capture::PulseInputRole::SystemAudio
-                {
-                    cancellable_system_stream_ready(ready_future, self.system_stream_cancel.clone())
-                } else {
-                    ready_future
-                };
-                #[cfg(target_os = "linux")]
-                let ready_future = if let Some(health) = &self.recording_health {
-                    health.observe_ready(generation, new_id, ready_future)
-                } else {
-                    ready_future
-                };
                 let ready = ready_future.shared();
                 #[cfg(windows)]
                 {
@@ -2247,19 +1843,6 @@ impl MicrophoneFeed {
                         },
                         windows_health,
                     );
-                }
-
-                #[cfg(target_os = "linux")]
-                if self.pulse_input_role
-                    == crate::sources::screen_capture::PulseInputRole::SystemAudio
-                {
-                    self.system_reconnect = Some(SystemReconnect {
-                        previous_id,
-                        id: new_id,
-                        generation,
-                        label: label.clone(),
-                        ready: ready.clone(),
-                    });
                 }
 
                 tokio::spawn({
@@ -2291,13 +1874,6 @@ impl MicrophoneFeed {
                                         error: format!(
                                             "Requested microphone rebuild failed: {_error}"
                                         ),
-                                    })
-                                    .await;
-                                #[cfg(target_os = "linux")]
-                                let _ = actor
-                                    .tell(SystemReconnectFailed {
-                                        id: new_id,
-                                        generation,
                                     })
                                     .await;
                             }
@@ -2678,18 +2254,6 @@ impl Message<Lock> for MicrophoneFeed {
             self.recording_reconnect = None;
         }
         let generation = self.lock_generation;
-        #[cfg(target_os = "linux")]
-        let source_health = RecordingSourceHealth::new(
-            generation,
-            self.stream_health
-                .get(&attached.id)
-                .cloned()
-                .unwrap_or_else(|| Arc::new(StreamHealth::new(attached.id))),
-        );
-        #[cfg(target_os = "linux")]
-        {
-            self.recording_health = Some(source_health.clone());
-        }
         let token = Arc::new(());
         let token_weak = Arc::downgrade(&token);
 
@@ -2717,8 +2281,6 @@ impl Message<Lock> for MicrophoneFeed {
         Ok(MicrophoneFeedLock {
             #[cfg(windows)]
             generation,
-            #[cfg(target_os = "linux")]
-            source_health,
             audio_info,
             actor: ctx.actor_ref().clone(),
             config,
@@ -2870,174 +2432,13 @@ impl MicrophoneFeed {
                 return;
             }
         }
-        #[cfg(target_os = "linux")]
-        if self.lock_generation != msg.generation
-            || !matches!(&self.state, State::Locked { inner, token }
-                if inner.id == msg.previous_id && inner.label == msg.label && token.strong_count() > 0)
-            || self
-                .recording_health
-                .as_ref()
-                .is_some_and(|health| !health.expects_reconnect(msg.generation, msg.id))
-        {
-            return;
-        }
-        #[cfg(target_os = "linux")]
-        if self.pulse_input_role == crate::sources::screen_capture::PulseInputRole::SystemAudio {
-            let current = !self.system_stream_cancel.is_cancelled()
-                && matches!(&self.state, State::Locked { inner, token }
-                    if token.strong_count() > 0 && inner.id == msg.previous_id && inner.label == msg.label);
-            if !current
-                || self.lock_generation != msg.generation
-                || !self.system_reconnect.as_ref().is_some_and(|pending| {
-                    pending.previous_id == msg.previous_id
-                        && pending.id == msg.id
-                        && pending.generation == msg.generation
-                })
-            {
-                return;
-            }
-            self.system_reconnect = None;
-            self.system_failed_input = None;
-        }
         if let State::Locked { inner, .. } = &mut self.state
             && inner.label == msg.label
         {
-            #[cfg(target_os = "linux")]
-            if msg.generation == self.lock_generation
-                && inner.id == msg.previous_id
-                && let Some(recording) = &self.recording_health
-            {
-                recording.commit_reconnect(msg.generation, msg.id);
-            }
             inner.id = msg.id;
             inner.config = msg.config;
             inner.buffer_size_frames = msg.buffer_size_frames;
             inner.done_tx = msg.done_tx;
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-impl MicrophoneFeed {
-    fn take_system_error_reconnect(&mut self, id: u32) -> Option<ReconnectSystemInput> {
-        if self.pulse_input_role == crate::sources::screen_capture::PulseInputRole::SystemAudio
-            && self.system_reconnect.as_ref().is_some_and(|pending| {
-                pending.id == id && pending.generation == self.lock_generation
-            })
-        {
-            if let Some(recording) = &self.recording_health {
-                recording.fail_reconnect(
-                    self.lock_generation,
-                    id,
-                    "Replacement audio stream failed before acceptance".into(),
-                );
-            }
-            self.system_failed_input = Some(id);
-            self.system_stream_cancel.cancel();
-            self.system_reconnect = None;
-            return None;
-        }
-        if self.pulse_input_role != crate::sources::screen_capture::PulseInputRole::SystemAudio
-            || self.system_stream_cancel.is_cancelled()
-            || self.system_failed_input == Some(id)
-            || self.system_reconnect.is_some()
-        {
-            return None;
-        }
-        let State::Locked { inner, token } = &self.state else {
-            return None;
-        };
-        if inner.id != id || token.strong_count() == 0 {
-            return None;
-        }
-        self.system_failed_input = Some(id);
-        Some(ReconnectSystemInput {
-            id,
-            generation: self.lock_generation,
-        })
-    }
-
-    fn system_reconnect_request_is_current(&self, msg: ReconnectSystemInput) -> bool {
-        self.pulse_input_role == crate::sources::screen_capture::PulseInputRole::SystemAudio
-            && self.lock_generation == msg.generation
-            && !self.system_stream_cancel.is_cancelled()
-            && matches!(&self.state, State::Locked { inner, token }
-                if inner.id == msg.id && token.strong_count() > 0)
-    }
-}
-
-#[cfg(target_os = "linux")]
-impl Message<SystemInputFailed> for MicrophoneFeed {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SystemInputFailed, ctx: &mut Context<Self, Self::Reply>) {
-        let Some(request) = self.take_system_error_reconnect(msg.id) else {
-            return;
-        };
-        let actor = ctx.actor_ref();
-        tokio::spawn(async move {
-            match actor.ask(request).await {
-                Ok(ready) => match ready.await {
-                    Ok(_) => info!("System audio recovered after native stream error"),
-                    Err(error) => warn!(%error, "System audio error recovery did not complete"),
-                },
-                Err(error) => warn!(%error, "System audio error recovery could not start"),
-            }
-        });
-    }
-}
-
-#[cfg(target_os = "linux")]
-impl Message<ReconnectSystemInput> for MicrophoneFeed {
-    type Reply =
-        Result<BoxFuture<'static, Result<SupportedStreamConfig, SetInputError>>, SetInputError>;
-
-    async fn handle(
-        &mut self,
-        msg: ReconnectSystemInput,
-        ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        if !self.system_reconnect_request_is_current(msg) {
-            return Err(SetInputError::BuildStream(
-                "System audio recovery no longer belongs to the active input".into(),
-            ));
-        }
-        let State::Locked { inner, .. } = &self.state else {
-            return Err(SetInputError::Locked(FeedLockedError));
-        };
-        let request = SetInput {
-            label: inner.label.clone(),
-            settings: Some(MicrophoneDeviceSettings {
-                sample_rate: Some(inner.config.sample_rate().0),
-                channels: Some(inner.config.channels()),
-            }),
-        };
-        info!(
-            stream_id = msg.id,
-            "Recovering system audio after native stream error"
-        );
-        self.set_input(request, ctx.actor_ref())
-    }
-}
-
-#[cfg(target_os = "linux")]
-impl Message<SystemReconnectFailed> for MicrophoneFeed {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: SystemReconnectFailed, _: &mut Context<Self, Self::Reply>) {
-        if let Some(recording) = &self.recording_health {
-            recording.fail_reconnect(
-                msg.generation,
-                msg.id,
-                "Requested audio stream rebuild failed".into(),
-            );
-        }
-        if self
-            .system_reconnect
-            .as_ref()
-            .is_some_and(|pending| pending.id == msg.id && pending.generation == msg.generation)
-        {
-            self.system_reconnect = None;
         }
     }
 }
@@ -3056,11 +2457,6 @@ impl Message<Unlock> for MicrophoneFeed {
             return;
         }
 
-        #[cfg(target_os = "linux")]
-        if self.pulse_input_role == crate::sources::screen_capture::PulseInputRole::SystemAudio {
-            self.system_stream_cancel.cancel();
-            self.system_reconnect = None;
-        }
         replace_with_or_abort(&mut self.state, |state| {
             if let State::Locked { inner, .. } = state {
                 State::Open(OpenState {
@@ -3139,7 +2535,7 @@ pub mod synthetic {
             });
             // A recording subscription attaches to the input's stream
             // health, which opening a real input registers.
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(windows)]
             let _ = feed
                 .stream_health
                 .insert(STREAM_ID, Arc::new(StreamHealth::new(STREAM_ID)));
@@ -3656,337 +3052,6 @@ mod tests {
         report(StreamError::DeviceNotAvailable);
     }
 
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn system_audio_feed_retains_its_input_role() {
-        let (sender, _receiver) = flume::bounded(1);
-        let microphone = MicrophoneFeed::new(sender.clone());
-        let system_audio = MicrophoneFeed::new_system_audio(sender);
-        assert_eq!(
-            microphone.pulse_input_role,
-            crate::sources::screen_capture::PulseInputRole::Microphone
-        );
-        assert_eq!(
-            system_audio.pulse_input_role,
-            crate::sources::screen_capture::PulseInputRole::SystemAudio
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn routed_audio_waits_until_the_route_is_confirmed() {
-        let received = Instant::now();
-        assert!(!audio_follows_confirmed_route(
-            received,
-            Some(Duration::ZERO),
-            true,
-            None
-        ));
-        assert!(audio_follows_confirmed_route(received, None, false, None));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn routed_audio_rejects_old_samples_delivered_after_the_route_changed() {
-        let routed_at = cap_timestamp::Timestamps::now();
-        let received = routed_at.instant() + Duration::from_millis(20);
-        assert!(!audio_follows_confirmed_route(
-            received,
-            Some(Duration::from_millis(40)),
-            true,
-            Some(routed_at)
-        ));
-        assert!(audio_follows_confirmed_route(
-            received,
-            Some(Duration::from_millis(10)),
-            true,
-            Some(routed_at)
-        ));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn routed_audio_rejects_an_unknown_or_unrepresentable_capture_delay() {
-        let routed_at = cap_timestamp::Timestamps::now();
-        let received = routed_at.instant() + Duration::from_millis(20);
-        assert!(!audio_follows_confirmed_route(
-            received,
-            None,
-            true,
-            Some(routed_at)
-        ));
-        assert!(!audio_follows_confirmed_route(
-            received,
-            Some(Duration::MAX),
-            true,
-            Some(routed_at)
-        ));
-    }
-
-    #[cfg(target_os = "linux")]
-    fn system_recovery_fixture() -> (MicrophoneFeed, Arc<()>, SupportedStreamConfig) {
-        let (sender, _receiver) = flume::bounded(1);
-        let mut feed = MicrophoneFeed::new_system_audio(sender);
-        let token = Arc::new(());
-        let config = SupportedStreamConfig::new(
-            1,
-            cpal::SampleRate(48_000),
-            cpal::SupportedBufferSize::Unknown,
-            SampleFormat::F32,
-        );
-        let (done_tx, _done_rx) = mpsc::sync_channel(1);
-        feed.lock_generation = 11;
-        feed.input_id_counter = 8;
-        feed.state = State::Locked {
-            inner: AttachedState {
-                id: 7,
-                label: "synthetic-system".into(),
-                config: config.clone(),
-                buffer_size_frames: None,
-                done_tx,
-            },
-            token: Arc::downgrade(&token),
-        };
-        (feed, token, config)
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn system_error_schedules_one_reconnect_and_ignores_stale_errors() {
-        let (mut feed, _token, _) = system_recovery_fixture();
-        assert!(feed.take_system_error_reconnect(6).is_none());
-        let request = feed.take_system_error_reconnect(7).unwrap();
-        assert_eq!((request.id, request.generation), (7, 11));
-        assert!(feed.take_system_error_reconnect(7).is_none());
-        assert!(feed.system_reconnect_request_is_current(request));
-        feed.lock_generation += 1;
-        assert!(!feed.system_reconnect_request_is_current(request));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn microphone_errors_do_not_enter_system_audio_recovery() {
-        let (mut feed, _token, _) = system_recovery_fixture();
-        feed.pulse_input_role = crate::sources::screen_capture::PulseInputRole::Microphone;
-        assert!(feed.take_system_error_reconnect(7).is_none());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn watchdog_joins_pending_system_reconnect_without_reopening_device() {
-        let (mut feed, _token, config) = system_recovery_fixture();
-        let (ready_tx, ready_rx) = oneshot::channel();
-        feed.system_reconnect = Some(SystemReconnect {
-            previous_id: 7,
-            id: 8,
-            generation: 11,
-            label: "synthetic-system".into(),
-            ready: async move { ready_rx.await.unwrap() }.boxed().shared(),
-        });
-        let actor = MicrophoneFeed::spawn(feed);
-        let first = actor
-            .ask(SetInput {
-                label: "synthetic-system".into(),
-                settings: None,
-            })
-            .await
-            .unwrap();
-        let second = actor
-            .ask(SetInput {
-                label: "synthetic-system".into(),
-                settings: None,
-            })
-            .await
-            .unwrap();
-        ready_tx.send(Ok((config, None))).unwrap();
-        assert_eq!(first.await.unwrap().sample_rate(), cpal::SampleRate(48_000));
-        assert_eq!(
-            second.await.unwrap().sample_rate(),
-            cpal::SampleRate(48_000)
-        );
-        actor.kill();
-        actor.wait_for_shutdown().await;
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn stale_system_reconnect_completion_cannot_replace_current_input() {
-        let (mut feed, _token, config) = system_recovery_fixture();
-        feed.system_reconnect = Some(SystemReconnect {
-            previous_id: 7,
-            id: 8,
-            generation: 11,
-            label: "synthetic-system".into(),
-            ready: futures::future::ready(Ok((config.clone(), None)))
-                .boxed()
-                .shared(),
-        });
-        for (previous_id, generation, id) in [(6, 11, 8), (7, 10, 8), (7, 11, 9)] {
-            let (done_tx, _done_rx) = mpsc::sync_channel(1);
-            feed.handle_locked_input_reconnected(LockedInputReconnected {
-                previous_id,
-                generation,
-                id,
-                label: "synthetic-system".into(),
-                config: config.clone(),
-                buffer_size_frames: None,
-                done_tx,
-            });
-            assert!(matches!(&feed.state, State::Locked { inner, .. } if inner.id==7));
-            assert!(feed.system_reconnect.is_some());
-        }
-        let (done_tx, _done_rx) = mpsc::sync_channel(1);
-        feed.handle_locked_input_reconnected(LockedInputReconnected {
-            previous_id: 7,
-            generation: 11,
-            id: 8,
-            label: "synthetic-system".into(),
-            config,
-            buffer_size_frames: None,
-            done_tx,
-        });
-        assert!(matches!(&feed.state, State::Locked { inner, .. } if inner.id==8));
-        assert!(feed.system_reconnect.is_none());
-        assert!(feed.take_system_error_reconnect(7).is_none());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn system_unlock_cancels_pending_rebuild_and_rejects_late_completion() {
-        let (mut feed, token, config) = system_recovery_fixture();
-        let cancel = feed.system_stream_cancel.clone();
-        let ready =
-            cancellable_system_stream_ready(futures::future::pending().boxed(), cancel.clone())
-                .shared();
-        feed.system_reconnect = Some(SystemReconnect {
-            previous_id: 7,
-            id: 8,
-            generation: 11,
-            label: "synthetic-system".into(),
-            ready: ready.clone(),
-        });
-        let actor = MicrophoneFeed::spawn(feed);
-        drop(token);
-        actor.tell(Unlock { generation: 11 }).await.unwrap();
-        actor.ask(GetDroppedMessageCount).await.unwrap();
-        assert!(cancel.is_cancelled());
-        assert!(
-            tokio::time::timeout(Duration::from_millis(100), ready)
-                .await
-                .unwrap()
-                .is_err()
-        );
-        let (done_tx, done_rx) = mpsc::sync_channel(1);
-        actor
-            .tell(LockedInputReconnected {
-                previous_id: 7,
-                generation: 11,
-                id: 8,
-                label: "synthetic-system".into(),
-                config,
-                buffer_size_frames: None,
-                done_tx,
-            })
-            .await
-            .unwrap();
-        actor.ask(GetDroppedMessageCount).await.unwrap();
-        assert!(matches!(
-            done_rx.try_recv(),
-            Err(mpsc::TryRecvError::Disconnected)
-        ));
-        actor.kill();
-        actor.wait_for_shutdown().await;
-    }
-
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn pending_system_stream_error_cancels_ready_and_rejects_completion() {
-        let (mut feed, _token, config) = system_recovery_fixture();
-        let cancel = feed.system_stream_cancel.clone();
-        let ready =
-            cancellable_system_stream_ready(futures::future::pending().boxed(), cancel.clone())
-                .shared();
-        feed.system_reconnect = Some(SystemReconnect {
-            previous_id: 7,
-            id: 8,
-            generation: 11,
-            label: "synthetic-system".into(),
-            ready: ready.clone(),
-        });
-        assert!(feed.take_system_error_reconnect(6).is_none());
-        assert!(!cancel.is_cancelled());
-        assert!(feed.take_system_error_reconnect(8).is_none());
-        assert!(cancel.is_cancelled());
-        assert!(
-            tokio::time::timeout(Duration::from_millis(100), ready)
-                .await
-                .unwrap()
-                .is_err()
-        );
-        let (done_tx, done_rx) = mpsc::sync_channel(1);
-        feed.handle_locked_input_reconnected(LockedInputReconnected {
-            previous_id: 7,
-            generation: 11,
-            id: 8,
-            label: "synthetic-system".into(),
-            config,
-            buffer_size_frames: None,
-            done_tx,
-        });
-        assert!(matches!(&feed.state, State::Locked { inner, .. } if inner.id == 7));
-        assert!(matches!(
-            done_rx.try_recv(),
-            Err(mpsc::TryRecvError::Disconnected)
-        ));
-        assert!(feed.take_system_error_reconnect(8).is_none());
-        assert!(feed.take_system_error_reconnect(7).is_none());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn fault_after_ready_success_retires_cached_reconnect_before_completion() {
-        let (mut feed, _token, config) = system_recovery_fixture();
-        let ready = futures::future::ready(Ok((config.clone(), None)))
-            .boxed()
-            .shared();
-        ready.clone().await.unwrap();
-        feed.system_reconnect = Some(SystemReconnect {
-            previous_id: 7,
-            id: 8,
-            generation: 11,
-            label: "synthetic-system".into(),
-            ready,
-        });
-        assert!(feed.take_system_error_reconnect(8).is_none());
-        assert!(feed.system_reconnect.is_none());
-        let (done_tx, done_rx) = mpsc::sync_channel(1);
-        feed.handle_locked_input_reconnected(LockedInputReconnected {
-            previous_id: 7,
-            generation: 11,
-            id: 8,
-            label: "synthetic-system".into(),
-            config,
-            buffer_size_frames: None,
-            done_tx,
-        });
-        assert!(matches!(&feed.state, State::Locked { inner, .. } if inner.id == 7));
-        assert!(feed.system_reconnect.is_none());
-        assert!(matches!(
-            done_rx.try_recv(),
-            Err(mpsc::TryRecvError::Disconnected)
-        ));
-        assert!(feed.take_system_error_reconnect(8).is_none());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn dropping_system_feed_cancels_stream_and_recovery_work() {
-        let (feed, _token, _) = system_recovery_fixture();
-        let cancel = feed.system_stream_cancel.clone();
-        drop(feed);
-        assert!(cancel.is_cancelled());
-    }
-
     #[test]
     fn native_error_notifies_recovery_only_once_per_stream() {
         let (sender, _receiver) = flume::bounded(1);
@@ -4098,17 +3163,6 @@ mod tests {
             estimate_rate(48_000, 480, Duration::from_millis(10)),
             Some(48_000)
         );
-    }
-
-    #[test]
-    fn virtual_linux_microphones_use_the_backend_buffer_size() {
-        let linux = cfg!(target_os = "linux");
-
-        assert_eq!(uses_default_microphone_buffer(Some("default")), linux);
-        assert_eq!(uses_default_microphone_buffer(Some("PULSE")), linux);
-        assert_eq!(uses_default_microphone_buffer(Some("PipeWire")), linux);
-        assert!(!uses_default_microphone_buffer(Some("USB Microphone")));
-        assert!(!uses_default_microphone_buffer(None));
     }
 
     #[test]
@@ -4380,231 +3434,6 @@ mod tests {
                 }
             }
         }
-    }
-}
-
-#[cfg(all(test, target_os = "linux"))]
-mod required_recording_health_tests {
-    use super::*;
-
-    fn microphone_fixture() -> (
-        MicrophoneFeed,
-        RecordingSourceHealth,
-        SupportedStreamConfig,
-        Arc<()>,
-    ) {
-        let (errors, _) = flume::bounded(1);
-        let mut feed = MicrophoneFeed::new(errors);
-        let health = RecordingSourceHealth::new(3, Arc::new(StreamHealth::new(7)));
-        let config = SupportedStreamConfig::new(
-            1,
-            cpal::SampleRate(48_000),
-            cpal::SupportedBufferSize::Unknown,
-            SampleFormat::F32,
-        );
-        let token = Arc::new(());
-        let (done_tx, _) = mpsc::sync_channel(1);
-        feed.lock_generation = 3;
-        feed.recording_health = Some(health.clone());
-        feed.state = State::Locked {
-            inner: AttachedState {
-                id: 7,
-                label: "synthetic-microphone".into(),
-                config: config.clone(),
-                buffer_size_frames: None,
-                done_tx,
-            },
-            token: Arc::downgrade(&token),
-        };
-        (feed, health, config, token)
-    }
-
-    fn replacement(
-        config: SupportedStreamConfig,
-        generation: u64,
-        previous_id: u32,
-        id: u32,
-    ) -> LockedInputReconnected {
-        let (done_tx, _) = mpsc::sync_channel(1);
-        LockedInputReconnected {
-            previous_id,
-            generation,
-            id,
-            label: "synthetic-microphone".into(),
-            config,
-            buffer_size_frames: None,
-            done_tx,
-        }
-    }
-
-    #[test]
-    fn older_microphone_rebuild_cannot_split_actual_input_from_current_health() {
-        let (mut feed, health, config, _token) = microphone_fixture();
-        health.begin_reconnect(3, Arc::new(StreamHealth::new(8)));
-        health.begin_reconnect(3, Arc::new(StreamHealth::new(9)));
-        feed.handle_locked_input_reconnected(replacement(config.clone(), 3, 7, 8));
-        assert!(matches!(&feed.state, State::Locked { inner, .. } if inner.id == 7));
-        assert!(health.frame_is_current(7));
-        feed.handle_locked_input_reconnected(replacement(config, 3, 7, 9));
-        assert!(matches!(&feed.state, State::Locked { inner, .. } if inner.id == 9));
-        assert!(health.frame_is_current(9));
-        assert!(!health.frame_is_current(8));
-    }
-
-    #[test]
-    fn old_lock_or_previous_input_completion_cannot_replace_current_microphone() {
-        let (mut feed, health, config, _token) = microphone_fixture();
-        health.begin_reconnect(3, Arc::new(StreamHealth::new(8)));
-        feed.handle_locked_input_reconnected(replacement(config.clone(), 2, 7, 8));
-        feed.handle_locked_input_reconnected(replacement(config, 3, 6, 8));
-        assert!(matches!(&feed.state, State::Locked { inner, .. } if inner.id == 7));
-        assert!(health.frame_is_current(7));
-        assert!(health.expects_reconnect(3, 8));
-    }
-
-    #[test]
-    fn actual_backend_callback_requires_replacement_frame_before_success() {
-        let stream = Arc::new(StreamHealth::new(7));
-        let health = RecordingSourceHealth::new(3, stream.clone());
-        let (tx, _rx) = flume::bounded(1);
-        let mut callback = microphone_stream_error_handler(tx, move || {
-            stream.failed.store(true, Ordering::Release);
-        });
-        callback(StreamError::DeviceNotAvailable);
-        assert!(health.terminal_error().is_none());
-        assert!(health.stop_error().is_some());
-        let replacement = Arc::new(StreamHealth::new(8));
-        health.begin_reconnect(3, replacement);
-        health.commit_reconnect(3, 8);
-        assert!(health.stop_error().is_some());
-        assert!(!health.frame_is_current(7));
-        health.accepted_frame(7);
-        assert!(health.stop_error().is_some());
-        assert!(health.frame_is_current(8));
-        health.accepted_frame(8);
-        assert!(health.stop_error().is_none());
-    }
-
-    #[tokio::test]
-    async fn pulse_loss_failed_rebuild_is_retained_before_ready_reply() {
-        let stream = Arc::new(StreamHealth::new(0));
-        let health = RecordingSourceHealth::new(1, stream.clone());
-        stream.failed.store(true, Ordering::Release);
-        health.begin_reconnect(1, Arc::new(StreamHealth::new(1)));
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let ready = health.observe_ready(
-            1,
-            1,
-            async move {
-                rx.await.unwrap();
-                Err(SetInputError::DeviceNotFound)
-            }
-            .boxed(),
-        );
-        assert!(health.terminal_error().is_none());
-        tx.send(()).unwrap();
-        assert!(ready.await.is_err());
-        assert!(health.terminal_error().unwrap().contains("DeviceNotFound"));
-        health.commit_reconnect(1, 1);
-        health.accepted_frame(1);
-        assert!(health.stop_error().is_some());
-    }
-
-    #[test]
-    fn discovery_failure_is_sticky_without_a_silence_threshold() {
-        let health = RecordingSourceHealth::test_healthy(7);
-        health.fail_current(1, 7, "DeviceNotFound".into());
-        health.begin_reconnect(1, Arc::new(StreamHealth::new(8)));
-        health.commit_reconnect(1, 8);
-        health.accepted_frame(8);
-        assert_eq!(health.stop_error().as_deref(), Some("DeviceNotFound"));
-    }
-
-    #[test]
-    fn stale_generation_and_previous_rebuild_cannot_poison_current_stream() {
-        let health = RecordingSourceHealth::new(3, Arc::new(StreamHealth::new(7)));
-        health.begin_reconnect(3, Arc::new(StreamHealth::new(8)));
-        health.fail_current(2, 7, "stale lock".into());
-        health.fail_reconnect(2, 8, "stale lock".into());
-        health.fail_reconnect(3, 6, "stale rebuild".into());
-        health.commit_reconnect(3, 8);
-        health.fail_current(3, 7, "retired stream".into());
-        health.fail_reconnect(3, 8, "late old ready error".into());
-        assert!(health.stop_error().is_none());
-        assert!(health.frame_is_current(8));
-        assert!(!health.frame_is_current(7));
-    }
-
-    #[test]
-    fn failed_pending_stream_cannot_be_committed_as_healthy() {
-        let health = RecordingSourceHealth::test_healthy(7);
-        let replacement = Arc::new(StreamHealth::new(8));
-        health.begin_reconnect(1, replacement.clone());
-        replacement.failed.store(true, Ordering::Release);
-        health.commit_reconnect(1, 8);
-        health.accepted_frame(8);
-        assert!(health.terminal_error().is_some());
-    }
-
-    #[test]
-    fn failed_current_callbacks_cannot_wait_forever_for_a_receive_timeout() {
-        let stream = Arc::new(StreamHealth::new(7));
-        let health = RecordingSourceHealth::new(3, stream.clone());
-        let (tx, _rx) = flume::bounded(1);
-        let mut callback = microphone_stream_error_handler(tx, move || {
-            stream.failed.store(true, Ordering::Release);
-        });
-        callback(StreamError::DeviceNotAvailable);
-        assert!(health.terminal_error().is_none());
-        for _ in 0..128 {
-            assert!(!health.frame_is_current(7));
-        }
-        let error = health.terminal_error().unwrap();
-        assert!(error.contains("failed while continuing to deliver samples"));
-        assert_eq!(health.stop_error(), Some(error));
-    }
-
-    #[test]
-    fn failed_retired_callbacks_do_not_poison_a_healthy_current_replacement() {
-        let health = RecordingSourceHealth::new(3, Arc::new(StreamHealth::new(7)));
-        health.test_backend_failure();
-        health.begin_reconnect(3, Arc::new(StreamHealth::new(8)));
-        health.commit_reconnect(3, 8);
-        for _ in 0..128 {
-            assert!(!health.frame_is_current(7));
-        }
-        assert!(health.terminal_error().is_none());
-        assert!(health.frame_is_current(8));
-        health.accepted_frame(8);
-        assert!(health.stop_error().is_none());
-    }
-
-    #[test]
-    fn callback_failure_is_not_cleared_by_stale_or_late_rebuild_completion() {
-        let (mut feed, health, config, _token) = microphone_fixture();
-        health.begin_reconnect(3, Arc::new(StreamHealth::new(8)));
-        health.test_backend_failure();
-        assert!(!health.frame_is_current(7));
-        let error = health.terminal_error();
-        for generation in [2, 3] {
-            feed.handle_locked_input_reconnected(replacement(config.clone(), generation, 7, 8));
-            health.accepted_frame(8);
-            assert!(matches!(&feed.state, State::Locked { inner, .. } if inner.id == 7));
-            assert!(!health.frame_is_current(8));
-            assert_eq!(health.terminal_error(), error);
-            assert_eq!(health.stop_error(), error);
-        }
-    }
-
-    #[test]
-    fn healthy_silence_and_ready_without_backend_error_remain_successful() {
-        let health = RecordingSourceHealth::test_healthy(7);
-        assert!(health.stop_error().is_none());
-        health.begin_reconnect(1, Arc::new(StreamHealth::new(8)));
-        assert!(health.stop_error().is_none());
-        health.commit_reconnect(1, 8);
-        health.accepted_frame(8);
-        assert!(health.stop_error().is_none());
     }
 }
 

@@ -47,8 +47,6 @@ mod frame_windows;
 #[cfg(target_os = "macos")]
 pub mod iosurface_texture;
 mod layers;
-#[cfg(target_os = "linux")]
-pub mod linux_gpu;
 mod managed_segment;
 mod mask;
 pub mod notch_shape;
@@ -7024,15 +7022,7 @@ impl<'a> FrameRenderer<'a> {
             }
             converter
         }
-        #[cfg(target_os = "linux")]
-        {
-            let mut converter = frame_pipeline::RgbaToNv12Converter::new(&self.constants.device);
-            if crate::linux_gpu::enabled() && !self.constants.is_software_adapter {
-                converter.enable_external_output();
-            }
-            converter
-        }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(not(target_os = "macos"))]
         frame_pipeline::RgbaToNv12Converter::new(&self.constants.device)
     }
 
@@ -7721,8 +7711,6 @@ impl<'a> FrameRenderer<'a> {
             format: frame_pipeline::GpuOutputFormat::Nv12,
             #[cfg(target_os = "macos")]
             surface: None,
-            #[cfg(target_os = "linux")]
-            gpu: None,
         }
     }
 

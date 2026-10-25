@@ -69,7 +69,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     fn buffered_model_cleanup_handles_nonzero_allocations() {
         let mut child = std::process::Command::new(std::env::current_exe().unwrap());
         child.args([
@@ -82,10 +82,6 @@ mod tests {
             .env("MallocNanoZone", "0")
             .env("MallocScribble", "1")
             .env("MallocPreScribble", "1");
-        #[cfg(target_os = "linux")]
-        child
-            .env("MALLOC_PERTURB_", "165")
-            .env("GLIBC_TUNABLES", "glibc.malloc.tcache_count=0");
         assert!(child.status().unwrap().success());
     }
 

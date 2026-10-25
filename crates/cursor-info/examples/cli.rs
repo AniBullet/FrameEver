@@ -8,7 +8,6 @@ use std::collections::HashMap;
 
 #[allow(unreachable_code)]
 fn main() {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     return run();
     panic!("Unsupported platform!");
 }

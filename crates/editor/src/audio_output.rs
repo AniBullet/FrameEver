@@ -1502,9 +1502,7 @@ fn ensure_stream(state: &mut Option<StreamState>) -> bool {
 }
 
 fn playback_output_info(config: &cpal::SupportedStreamConfig) -> AudioInfo {
-    // ALSA's supported maximum is not the queue size used by BufferSize::Default.
-    let buffer_size = cfg!(target_os = "linux").then_some(1024);
-    let mut info = AudioInfo::from_stream_config_with_buffer(config, buffer_size);
+    let mut info = AudioInfo::from_stream_config_with_buffer(config, None);
     info.sample_format = info.sample_format.packed();
     info.for_ffmpeg_output()
 }
@@ -1673,28 +1671,6 @@ mod tests {
         assert_eq!(idle.remaining(playing_until), IDLE_PAUSE_AFTER);
         assert!(!idle.should_pause(playing_until + IDLE_PAUSE_AFTER / 2, false));
         assert!(idle.should_pause(playing_until + IDLE_PAUSE_AFTER, false));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn supported_buffer_maximum_does_not_skip_the_start_of_playback() {
-        for sample_rate in [44_100, 48_000] {
-            let config = cpal::SupportedStreamConfig::new(
-                2,
-                cpal::SampleRate(sample_rate),
-                cpal::SupportedBufferSize::Range {
-                    min: 1,
-                    max: 4_194_304,
-                },
-                SampleFormat::F32,
-            );
-            let (source, _) = source_with_info(playback_output_info(&config), true);
-            let playhead = source.buffer.current_playhead_secs();
-            assert!(
-                (playhead - 0.03).abs() < 1.0 / f64::from(sample_rate),
-                "sample_rate={sample_rate}, playhead={playhead}"
-            );
-        }
     }
 
     #[test]

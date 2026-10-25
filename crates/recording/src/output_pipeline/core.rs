@@ -51,16 +51,7 @@ fn remap_video_timestamp(
     timestamp: Timestamp,
     frame_duration_ns: u64,
 ) -> cap_timestamp::SourceClockRemap {
-    #[cfg(target_os = "linux")]
-    {
-        // Nominal cadence snapping accumulates lag for slower continuous sources,
-        // then releases it as a >100ms step despite a <50ms source interval.
-        source_clock.remap_preserving_cadence(master_clock, timestamp, frame_duration_ns)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        source_clock.remap(master_clock, timestamp, frame_duration_ns)
-    }
+    source_clock.remap(master_clock, timestamp, frame_duration_ns)
 }
 
 pub const AV_START_ALIGNMENT_LIMIT_NS: u64 = 500_000_000;
@@ -308,7 +299,6 @@ pub(crate) fn trim_audio_frame_front(
     Some(new_frame)
 }
 
-#[cfg(any(test, target_os = "macos", windows))]
 pub(crate) enum BlockingThreadFinish {
     Clean,
     Failed(anyhow::Error),
@@ -323,13 +313,11 @@ pub(crate) struct OopMediaFailureAfterJoin {
 }
 
 impl OopMediaFailureAfterJoin {
-    #[cfg(any(test, target_os = "macos", windows))]
     pub(crate) fn new(source: anyhow::Error) -> Self {
         Self { source }
     }
 }
 
-#[cfg(any(test, target_os = "macos", windows))]
 pub(crate) fn resolve_oop_thread_finish(
     thread_result: BlockingThreadFinish,
 ) -> anyhow::Result<anyhow::Result<()>> {
@@ -350,7 +338,6 @@ pub(crate) fn resolve_oop_thread_finish(
     }
 }
 
-#[cfg(any(test, target_os = "macos", windows))]
 fn join_blocking_thread(
     handle: std::thread::JoinHandle<anyhow::Result<()>>,
     label: &str,
@@ -365,7 +352,6 @@ fn join_blocking_thread(
     }
 }
 
-#[cfg(any(test, target_os = "macos", windows))]
 pub(crate) fn spawn_blocking_thread_timeout_cleanup(
     handle: std::thread::JoinHandle<anyhow::Result<()>>,
     label: &str,
@@ -713,7 +699,6 @@ pub(crate) fn send_with_stall_budget_flume_for<T>(
     }
 }
 
-#[cfg(any(test, target_os = "macos", windows))]
 pub(crate) fn wait_for_blocking_thread_finish(
     handle: std::thread::JoinHandle<anyhow::Result<()>>,
     timeout: Duration,
@@ -741,7 +726,6 @@ pub(crate) fn wait_for_blocking_thread_finish(
     }
 }
 
-#[cfg(any(target_os = "macos", windows))]
 pub(crate) fn combine_finish_errors(
     primary: anyhow::Error,
     secondary: anyhow::Error,
@@ -761,15 +745,12 @@ pub(crate) struct AudioTimestampGenerator {
 }
 
 const VIDEO_WALL_CLOCK_TOLERANCE_SECS: f64 = 0.1;
-#[cfg(not(target_os = "linux"))]
 const STALE_CAPTURE_SECS: f64 = 1.0;
 // A capture-time step this long since the previous frame means the source went
 // quiet (a static screen, dropped frames).
-#[cfg(not(target_os = "linux"))]
 const SOURCE_GAP: Duration = Duration::from_millis(100);
 // After such a gap, a capture time this much older than the frame's hand-off
 // is not trusted.
-#[cfg(not(target_os = "linux"))]
 const STALE_AFTER_GAP_NS: i128 = 50_000_000;
 
 impl AudioTimestampGenerator {
@@ -1173,7 +1154,6 @@ impl CaptureInstantTimeline {
     // Continues an existing output timeline from `output_epoch`, which the
     // frame captured at `source` was stamped with, so later frames advance by
     // their capture-time delta.
-    #[cfg(not(target_os = "linux"))]
     fn continuing(
         source: Duration,
         output_epoch: Duration,
@@ -1188,7 +1168,6 @@ impl CaptureInstantTimeline {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
     fn candidate(&self, source: Duration) -> Duration {
         self.output_epoch
             .saturating_add(source.saturating_sub(self.source_epoch))
@@ -1197,7 +1176,6 @@ impl CaptureInstantTimeline {
     // Stamps one frame with `output` (kept monotonic and under the wall-clock
     // bound) without moving the epoch, so later frames keep their capture
     // cadence.
-    #[cfg(not(target_os = "linux"))]
     fn place(&mut self, output: Duration, wall: Duration) -> Duration {
         let bound = wall.saturating_add(Duration::from_secs_f64(VIDEO_WALL_CLOCK_TOLERANCE_SECS));
         let output = output.clamp(self.last_output, bound.max(self.last_output));
@@ -1242,7 +1220,6 @@ impl CaptureInstantTimeline {
 // target, and the applied correction slews toward it by at most
 // 1/CLOCK_DRIFT_SLEW_DIVISOR of each frame's capture interval. Host-clock
 // sources never engage, so their stamps are unchanged.
-#[cfg(not(target_os = "linux"))]
 #[derive(Default)]
 struct CaptureClockDrift {
     reference_lag_ns: Option<i128>,
@@ -1258,20 +1235,14 @@ struct CaptureClockDrift {
     last_capture: Option<Duration>,
 }
 
-#[cfg(not(target_os = "linux"))]
 const CLOCK_DRIFT_WINDOW: Duration = Duration::from_secs(1);
-#[cfg(not(target_os = "linux"))]
 const CLOCK_DRIFT_ENGAGE_NS: i128 = 25_000_000;
-#[cfg(not(target_os = "linux"))]
 const CLOCK_DRIFT_SLEW_DIVISOR: i128 = 20;
 // 2%: faster than any capture clock drifts.
-#[cfg(not(target_os = "linux"))]
 const CLOCK_DRIFT_MAX_RATE_DIVISOR: i128 = 50;
 // Slack for the minimum itself moving between windows.
-#[cfg(not(target_os = "linux"))]
 const CLOCK_DRIFT_JITTER_NS: i128 = 5_000_000;
 
-#[cfg(not(target_os = "linux"))]
 impl CaptureClockDrift {
     fn observe(&mut self, lag_ns: i128, wall: Duration, waited: bool) {
         if waited && self.window_min_lag.is_none_or(|(min, _)| lag_ns < min) {
@@ -1350,17 +1321,10 @@ impl CaptureClockDrift {
 }
 
 struct VideoDriftTracker {
-    #[cfg(target_os = "linux")]
-    capture_timeline: CaptureInstantTimeline,
-    #[cfg(not(target_os = "linux"))]
     capture_clock: Option<CaptureInstantTimeline>,
-    #[cfg(not(target_os = "linux"))]
     min_capture_lag_secs: Option<f64>,
-    #[cfg(not(target_os = "linux"))]
     clock_drift: CaptureClockDrift,
-    #[cfg(not(target_os = "linux"))]
     last_capture: Option<Duration>,
-    #[cfg(not(target_os = "linux"))]
     waited_for_frame: bool,
     anchor: Option<(f64, f64)>,
     anchor_deferred: bool,
@@ -1371,17 +1335,10 @@ struct VideoDriftTracker {
 impl VideoDriftTracker {
     fn new() -> Self {
         Self {
-            #[cfg(target_os = "linux")]
-            capture_timeline: CaptureInstantTimeline::default(),
-            #[cfg(not(target_os = "linux"))]
             capture_clock: None,
-            #[cfg(not(target_os = "linux"))]
             min_capture_lag_secs: None,
-            #[cfg(not(target_os = "linux"))]
             clock_drift: CaptureClockDrift::default(),
-            #[cfg(not(target_os = "linux"))]
             last_capture: None,
-            #[cfg(not(target_os = "linux"))]
             waited_for_frame: true,
             anchor: None,
             anchor_deferred: false,
@@ -1402,12 +1359,7 @@ impl VideoDriftTracker {
     // behind the loop (a mux-side delay, where the capture time is the right
     // stamp whatever the delay).
     fn waited_for_frame(&mut self, waited: bool) {
-        #[cfg(not(target_os = "linux"))]
-        {
-            self.waited_for_frame = waited;
-        }
-        #[cfg(target_os = "linux")]
-        let _ = waited;
+        self.waited_for_frame = waited;
     }
 
     // Post-warmup video PTS are pinned to the wall clock, but anchored at the
@@ -1485,7 +1437,6 @@ impl VideoDriftTracker {
     // only difference. The wall clock still sizes the bridge over a detected
     // source discontinuity, and stamps the frames whose capture time cannot be
     // trusted, exactly as before.
-    #[cfg(not(target_os = "linux"))]
     fn calculate_capture_timestamp(
         &mut self,
         source_duration: Duration,
@@ -1618,21 +1569,6 @@ fn calculate_video_timestamp(
     wall_elapsed: Duration,
     discontinuity: bool,
 ) -> Duration {
-    #[cfg(target_os = "linux")]
-    {
-        let _ = capture_elapsed;
-        if matches!(source_timestamp, Timestamp::Instant(_)) {
-            // Linux capture stamps the same monotonic clock as the consumer. Arrival
-            // latency is not device-clock drift and must not replace capture cadence.
-            let (duration, capped) =
-                tracker
-                    .capture_timeline
-                    .calculate(source_duration, wall_elapsed, discontinuity);
-            tracker.capped_frame_count += u64::from(capped);
-            return duration;
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
     if stamped_on_host_clock(&source_timestamp) {
         return tracker.calculate_capture_timestamp(
             source_duration,
@@ -1646,7 +1582,6 @@ fn calculate_video_timestamp(
 
 // Capture clocks that are the wall clock's own monotonic host clock, so their
 // deltas carry no drift against it. SystemTime can be stepped and slewed.
-#[cfg(not(target_os = "linux"))]
 fn stamped_on_host_clock(timestamp: &Timestamp) -> bool {
     match timestamp {
         Timestamp::Instant(_) => true,
@@ -2404,13 +2339,10 @@ pub(crate) struct PipelineBuildScope(Arc<PipelineBuildScopeInner>);
 type CaptureCompletion = Shared<BoxFuture<'static, Result<(), String>>>;
 
 struct ScopeError {
-    #[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
     message: String,
-    #[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
     uncertain: bool,
 }
 
-#[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
 #[derive(Debug)]
 pub(crate) struct PipelineJoinReport {
     pub quiescent: bool,
@@ -2421,9 +2353,6 @@ struct PipelineBuildScopeInner {
     parent: Option<PipelineBuildScope>,
     strict_lifetime: bool,
     wait_for_video_start: bool,
-    #[cfg(target_os = "linux")]
-    required_source_health: bool,
-    #[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
     drain: tokio::sync::Mutex<()>,
     cancelled: CancellationToken,
     committed: AtomicBool,
@@ -2470,22 +2399,16 @@ impl PipelineBuildScope {
         Self::with_lifetime_policy(false, false, false)
     }
 
-    #[cfg(any(test, target_os = "linux"))]
+    #[cfg(test)]
     pub(crate) fn new_lifetime() -> Self {
         Self::with_lifetime(true)
     }
 
-    #[cfg(any(test, target_os = "linux", windows))]
+    #[cfg(any(test, windows))]
     fn with_lifetime(strict_lifetime: bool) -> Self {
         Self::with_lifetime_policy(strict_lifetime, false, true)
     }
 
-    #[cfg(target_os = "linux")]
-    pub(crate) fn new_studio_lifetime() -> Self {
-        Self::with_lifetime_policy(true, true, true)
-    }
-
-    #[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
     fn with_lifetime_policy(
         strict_lifetime: bool,
         _required_source_health: bool,
@@ -2495,26 +2418,8 @@ impl PipelineBuildScope {
             parent: None,
             strict_lifetime,
             wait_for_video_start,
-            #[cfg(target_os = "linux")]
-            required_source_health: _required_source_health,
             drain: tokio::sync::Mutex::new(()),
             cancelled: CancellationToken::new(),
-            committed: AtomicBool::new(false),
-            tokens: std::sync::Mutex::new(Vec::new()),
-            completions: std::sync::Mutex::new(Vec::new()),
-            cleanup_errors: std::sync::Mutex::new(Vec::new()),
-        }))
-    }
-
-    #[cfg(target_os = "linux")]
-    pub(crate) fn child_transaction(&self) -> Self {
-        Self(Arc::new(PipelineBuildScopeInner {
-            parent: Some(self.clone()),
-            strict_lifetime: self.requires_joined_stop(),
-            wait_for_video_start: self.0.wait_for_video_start,
-            required_source_health: self.0.required_source_health,
-            drain: tokio::sync::Mutex::new(()),
-            cancelled: self.cancellation().child_token(),
             committed: AtomicBool::new(false),
             tokens: std::sync::Mutex::new(Vec::new()),
             completions: std::sync::Mutex::new(Vec::new()),
@@ -2605,7 +2510,6 @@ impl PipelineBuildScope {
         });
     }
 
-    #[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
     pub(crate) async fn cancel_and_join_report(&self) -> PipelineJoinReport {
         self.cancel();
         let _drain = self.0.drain.lock().await;
@@ -2630,7 +2534,7 @@ impl PipelineBuildScope {
         }
     }
 
-    #[cfg(any(test, target_os = "linux"))]
+    #[cfg(test)]
     pub(crate) async fn cancel_and_join(&self) -> Result<(), String> {
         self.cancel_and_join_report()
             .await
@@ -2638,16 +2542,10 @@ impl PipelineBuildScope {
             .map_or(Ok(()), Err)
     }
 
-    #[cfg(target_os = "linux")]
-    pub(crate) fn requires_source_health(&self) -> bool {
-        self.0.required_source_health
-    }
-
     pub(crate) fn requires_joined_stop(&self) -> bool {
         self.0.strict_lifetime
     }
 
-    #[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
     pub(crate) fn commit(&self) -> bool {
         let mut tokens = self.0.tokens.lock().unwrap();
         if self.0.cancelled.is_cancelled() {
@@ -2669,9 +2567,7 @@ impl PipelineBuildScope {
         }
         if !self.0.committed.load(Ordering::Acquire) {
             self.0.cleanup_errors.lock().unwrap().push(ScopeError {
-                #[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
                 message: error,
-                #[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
                 uncertain: true,
             });
         }
@@ -2693,7 +2589,7 @@ impl PipelineBuildScope {
         self.cancel();
     }
 
-    #[cfg(any(test, target_os = "linux"))]
+    #[cfg(test)]
     pub(crate) fn idle_report(&self) -> Option<PipelineJoinReport> {
         self.prune_completed();
         if !self.0.completions.lock().unwrap().is_empty() {
@@ -2720,9 +2616,7 @@ impl PipelineBuildScope {
         }
         if !self.is_committed() {
             self.0.cleanup_errors.lock().unwrap().push(ScopeError {
-                #[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
                 message: error,
-                #[cfg(any(test, target_os = "linux", target_os = "macos", windows))]
                 uncertain: !self.requires_joined_stop(),
             });
         }
@@ -2843,13 +2737,11 @@ impl TaskPool {
     }
 }
 
-#[cfg(any(windows, target_os = "macos", test))]
 struct PipelineStartupGuard {
     scope: PipelineBuildScope,
     armed: bool,
 }
 
-#[cfg(any(windows, target_os = "macos", test))]
 impl Drop for PipelineStartupGuard {
     fn drop(&mut self) {
         if self.armed {
@@ -2867,12 +2759,10 @@ impl Drop for PipelineStartupGuard {
     }
 }
 
-#[cfg(any(windows, target_os = "macos", test))]
 #[derive(Debug, thiserror::Error)]
 #[error("Capture startup cleanup is unconfirmed: {0}")]
 pub(crate) struct PipelineStartupCleanupUnconfirmed(String);
 
-#[cfg(any(windows, target_os = "macos", test))]
 pub(crate) async fn finish_pipeline_startup<T>(
     scope: &PipelineBuildScope,
     startup: impl Future<Output = anyhow::Result<T>>,
@@ -4984,7 +4874,7 @@ impl std::error::Error for PipelineDoneError {
 }
 
 impl PipelineDoneError {
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(windows)]
     pub(crate) fn from_message(message: String) -> Self {
         Self(Arc::new(anyhow!(message)))
     }
@@ -5361,7 +5251,6 @@ pub trait VideoMuxer: Muxer {
 mod tests {
     use super::*;
 
-    #[cfg(not(target_os = "linux"))]
     mod video_skipped_frames {
         use super::*;
 
@@ -5508,7 +5397,6 @@ mod tests {
     // Sources on the host clock after the warmup anchor: stamped by capture
     // time, with the wall clock (when the mux loop processed the frame) only
     // bounding the output and bridging detected discontinuities.
-    #[cfg(not(target_os = "linux"))]
     mod video_capture_clock {
         use super::*;
 
@@ -6186,149 +6074,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
-    mod video_cadence {
-        use super::*;
-
-        fn chain(samples: &[(u64, u64)], nominal: u64) -> Vec<Duration> {
-            let timestamps = Timestamps::now();
-            let master = MasterClock::new(timestamps, 48_000);
-            let mut source = SourceClockState::new("video-cadence");
-            let mut anomaly = TimestampAnomalyTracker::new("video-cadence");
-            let mut drift = VideoDriftTracker::new();
-            samples
-                .iter()
-                .map(|&(elapsed, paused)| {
-                    let remap = remap_video_timestamp(
-                        &mut source,
-                        &master,
-                        Timestamp::Instant(timestamps.instant() + Duration::from_nanos(elapsed)),
-                        nominal,
-                    );
-                    let content = remap
-                        .duration()
-                        .saturating_sub(Duration::from_nanos(paused));
-                    let wall =
-                        Duration::from_nanos(elapsed).saturating_sub(Duration::from_nanos(paused));
-                    let adjusted = anomaly
-                        .process_timestamp(
-                            Timestamp::Instant(timestamps.instant() + content),
-                            timestamps,
-                            wall,
-                        )
-                        .unwrap();
-                    calculate_video_timestamp(
-                        &mut drift,
-                        Timestamp::Instant(timestamps.instant() + Duration::from_nanos(elapsed)),
-                        adjusted,
-                        adjusted,
-                        wall,
-                        anomaly.take_resync_flag()
-                            || matches!(remap.outcome, SourceClockOutcome::HardReset),
-                    )
-                })
-                .collect()
-        }
-
-        #[tokio::test]
-        async fn first_video_gate_keeps_existing_audio_anchor() {
-            let timestamps = Timestamps::now();
-            let master = MasterClock::new(timestamps, 48_000);
-            let timestamp = Timestamp::Instant(timestamps.instant() + Duration::from_millis(50));
-            let mut video = SourceClockState::new("video");
-            let mut legacy = SourceClockState::new("legacy");
-            let first = remap_video_timestamp(&mut video, &master, timestamp, 33_333_333);
-            let original = legacy.remap(&master, timestamp, 33_333_333);
-            let gate = VideoStartGate::new();
-            gate.publish(first.master_ns);
-            assert_eq!(
-                gate.wait_with_timeout(VIDEO_START_GATE_TIMEOUT).await,
-                Some(original.master_ns)
-            );
-        }
-
-        #[test]
-        fn recorded_gap_stays_below_fifty_ms_through_video_chain() {
-            let samples = [
-                46154413, 65568721, 110897087, 132556133, 194257322, 210630064, 295866539,
-                331422825, 358539718, 391572010, 419586633, 463879066, 472447881, 513265949,
-                553800082, 612231200, 659399095,
-            ]
-            .map(|raw| (raw, 0));
-            let output = chain(&samples, 33_333_333);
-            assert_eq!(output[0], Duration::ZERO);
-            let gap = output[16].saturating_sub(output[15]);
-            assert!(gap.as_nanos().abs_diff(47_167_895) <= 2);
-            assert!(gap < Duration::from_millis(50));
-        }
-
-        #[test]
-        fn per_frame_cadence_survives_full_video_chain() {
-            for nominal in [24, 30, 60] {
-                for actual in [10, 15, 20, 24, 25, 30, 48, 60, 90, 120, 240, 500, 1000] {
-                    let samples: Vec<_> = (0..(actual * 5))
-                        .map(|frame| (frame * 1_000_000_000 / actual, 0))
-                        .collect();
-                    let output = chain(&samples, 1_000_000_000 / nominal);
-                    for (source, mapped) in samples.windows(2).zip(output.windows(2)) {
-                        let expected = source[1].0 - source[0].0;
-                        assert!(mapped[1] >= mapped[0]);
-                        assert!(
-                            mapped[1]
-                                .saturating_sub(mapped[0])
-                                .as_nanos()
-                                .abs_diff(u128::from(expected))
-                                <= 2
-                        );
-                    }
-                }
-            }
-        }
-
-        #[test]
-        fn pause_subtraction_preserves_first_anchor_and_resumed_cadence() {
-            let samples = [
-                (40_000_000, 0),
-                (73_000_000, 0),
-                (106_000_000, 0),
-                (439_000_000, 300_000_000),
-                (472_000_000, 300_000_000),
-            ];
-            let output = chain(&samples, 33_333_333);
-            assert_eq!(output[0], Duration::ZERO);
-            for pair in output.windows(2) {
-                assert!(
-                    pair[1]
-                        .saturating_sub(pair[0])
-                        .as_nanos()
-                        .abs_diff(33_000_000)
-                        <= 2
-                );
-            }
-        }
-
-        #[test]
-        fn backward_input_and_real_gap_do_not_manufacture_cadence() {
-            let samples = [
-                (0, 0),
-                (100_000_000, 0),
-                (90_000_000, 0),
-                (110_000_000, 0),
-                (510_000_000, 0),
-            ];
-            let output = chain(&samples, 33_333_333);
-            assert!(output.windows(2).all(|pair| pair[1] >= pair[0]));
-            assert_eq!(output[2], output[1]);
-            assert!(
-                output[4]
-                    .saturating_sub(output[3])
-                    .as_nanos()
-                    .abs_diff(400_000_000)
-                    <= 2
-            );
-        }
-    }
-
     mod shared_pause_state {
         use super::*;
 
@@ -6839,487 +6584,6 @@ mod tests {
             assert_eq!(
                 audio_tail_padding_duration(Duration::from_millis(100), Duration::from_secs(2)),
                 Duration::from_millis(1900)
-            );
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    mod capture_instant_timeline {
-        use super::*;
-
-        fn ns(value: u64) -> Duration {
-            Duration::from_nanos(value)
-        }
-
-        fn frame_timestamp() -> Timestamp {
-            Timestamp::Instant(Instant::now())
-        }
-
-        fn calculate(
-            tracker: &mut VideoDriftTracker,
-            source: u64,
-            wall: u64,
-            discontinuity: bool,
-        ) -> Duration {
-            calculate_video_timestamp(
-                tracker,
-                frame_timestamp(),
-                ns(source),
-                ns(source),
-                ns(wall),
-                discontinuity,
-            )
-        }
-
-        #[test]
-        fn native_ordinal_133_preserves_capture_interval_after_warmup() {
-            let samples: &[(u64, u64)] = &[
-                (0, 95682793),
-                (27114964, 147244255),
-                (60160557, 199388240),
-                (123221877, 206342290),
-                (152789024, 239281720),
-                (232599956, 333259377),
-                (295278757, 372096844),
-                (327645815, 404019663),
-                (346693336, 438355353),
-                (390125563, 463239050),
-                (461444811, 523692693),
-                (496175220, 556146493),
-                (522173230, 573227922),
-                (547810413, 613717485),
-                (599483227, 662648900),
-                (622143716, 683799166),
-                (653322178, 704266328),
-                (677965580, 729287177),
-                (743925832, 817289105),
-                (765119259, 835720492),
-                (800035952, 861270203),
-                (854691131, 952278456),
-                (892577468, 977307886),
-                (925267593, 999309140),
-                (949152808, 1017310478),
-                (1006483464, 1066060480),
-                (1030563143, 1100737517),
-                (1087435730, 1144289057),
-                (1101814640, 1191294860),
-                (1142833915, 1217268250),
-                (1171564664, 1225892757),
-                (1215798278, 1296271844),
-                (1276981397, 1341417948),
-                (1309165232, 1364655229),
-                (1329230154, 1404836225),
-                (1393693885, 1475283205),
-                (1406446130, 1493856875),
-                (1460256350, 1512827414),
-                (1486213959, 1542133916),
-                (1512645240, 1560280748),
-                (1571202683, 1644421532),
-                (1613713459, 1673917608),
-                (1642606942, 1718293675),
-                (1678478526, 1745523622),
-                (1696749980, 1748250721),
-                (1761742242, 1823933723),
-                (1822251806, 1904273466),
-                (1860994502, 1939526586),
-                (1888123407, 1977284880),
-                (1907059505, 2000275786),
-                (1946012225, 2020717947),
-                (2031233403, 2100269282),
-                (2064926440, 2124618968),
-                (2091112984, 2161949543),
-                (2122543422, 2178547351),
-                (2144113787, 2253263992),
-                (2185788866, 2271275250),
-                (2230450579, 2283847141),
-                (2269112003, 2323081597),
-                (2307122953, 2381987888),
-                (2335732840, 2430652777),
-                (2390476690, 2467268307),
-                (2415113492, 2477456286),
-                (2440965369, 2511142223),
-                (2477442026, 2538265428),
-                (2513422432, 2567814576),
-                (2532149686, 2596242329),
-                (2570516834, 2627255178),
-                (2630242342, 2715605554),
-                (2655671601, 2739268745),
-                (2679498415, 2751284594),
-                (2729143936, 2809405467),
-                (2774166027, 2841336826),
-                (2793740769, 2860534471),
-                (2870112077, 2959054426),
-                (2932352250, 2994701925),
-                (2978563457, 3054888123),
-                (3004195190, 3069118210),
-                (3031165202, 3114242144),
-                (3073116317, 3127275405),
-                (3087138649, 3142267139),
-                (3136511014, 3203722494),
-                (3170114549, 3239271471),
-                (3201140428, 3283541426),
-                (3246395395, 3349166652),
-                (3254900458, 3377959113),
-                (3309141978, 3390760579),
-                (3340957325, 3413324226),
-                (3358433092, 3437863406),
-                (3409109695, 3474602578),
-                (3440375930, 3500357634),
-                (3507039168, 3556797691),
-                (3529418791, 3606586485),
-                (3562327660, 3632263159),
-                (3612599725, 3684279992),
-                (3652098487, 3724271064),
-                (3666758543, 3740864232),
-                (3698771254, 3759100796),
-                (3745137884, 3814431649),
-                (3781807025, 3861222329),
-                (3828330689, 3909337637),
-                (3849757551, 3924938763),
-                (3875883585, 3969996566),
-                (3927426507, 3987524084),
-                (3996114899, 4070341220),
-                (4043707826, 4125770086),
-                (4067699962, 4148199310),
-                (4111763603, 4188502299),
-                (4128373672, 4201374747),
-                (4213094350, 4262705540),
-                (4252122591, 4304026062),
-                (4268685089, 4320207471),
-                (4324275768, 4374900381),
-                (4344114556, 4432277358),
-                (4381189566, 4463689246),
-                (4405543372, 4512288595),
-                (4448678652, 4528149937),
-                (4475884119, 4553694878),
-                (4514765008, 4567665839),
-                (4546595365, 4604550715),
-                (4612707041, 4701234411),
-                (4658496569, 4724579455),
-                (4667576795, 4748274576),
-                (4719807141, 4774989832),
-                (4753114760, 4814929274),
-                (4780462090, 4838286948),
-                (4803455396, 4862250995),
-                (4862109561, 4930871675),
-                (4905776243, 4989576641),
-                (4948579797, 5024259800),
-                (4958297956, 5067454972),
-                (5002307326, 5082842023),
-                (5075126037, 5195619816),
-                (5101227820, 5233440232),
-                (5130159594, 5245275488),
-                (5160109270, 5285294841),
-                (5192822186, 5312331994),
-                (5237848647, 5334840270),
-                (5258351260, 5361280670),
-                (5293070059, 5378075643),
-                (5334731567, 5400524067),
-                (5386212938, 5444750921),
-                (5405893663, 5479289486),
-                (5453122582, 5510267564),
-                (5507043685, 5571672489),
-                (5546518086, 5626289808),
-                (5573929588, 5641292811),
-                (5608114445, 5680287162),
-                (5674838485, 5733649014),
-                (5701931439, 5768001895),
-                (5736228699, 5791201955),
-                (5752422158, 5803592483),
-                (5808328595, 5864060157),
-                (5837780620, 5903265543),
-                (5875250638, 5936343426),
-                (5927795302, 5978633579),
-                (5955926529, 6015670768),
-                (5997998796, 6071906271),
-                (6008695527, 6083528852),
-                (6066479624, 6138095519),
-                (6082278355, 6147868400),
-                (6138774393, 6198932651),
-                (6163215591, 6221301584),
-                (6232385643, 6308320581),
-                (6272067069, 6330646713),
-                (6303203431, 6390131086),
-            ];
-            let mut candidate = VideoDriftTracker::new();
-            let mut legacy = VideoDriftTracker::new();
-            let mut corrected = Vec::new();
-            let mut previous = Vec::new();
-            for &(source, wall) in samples {
-                corrected.push(calculate(&mut candidate, source, wall, false));
-                previous.push(legacy.calculate_timestamp(ns(source), ns(wall)));
-            }
-            assert_eq!(previous[132].saturating_sub(previous[131]), ns(112_777_793));
-            assert_eq!(
-                corrected[132].saturating_sub(corrected[131]),
-                ns(72_818_711)
-            );
-            for (sample, output) in samples.windows(2).zip(corrected.windows(2)) {
-                assert_eq!(
-                    output[1].saturating_sub(output[0]),
-                    ns(sample[1].0 - sample[0].0)
-                );
-            }
-        }
-
-        #[test]
-        fn slower_and_faster_capture_ignore_consumer_arrival_jitter() {
-            for actual_fps in [10u64, 15, 20, 24, 25, 30, 48, 60, 90, 120, 240, 500, 1000] {
-                let mut tracker = VideoDriftTracker::new();
-                let mut previous = Duration::ZERO;
-                for frame in 0..actual_fps * 6 {
-                    let source = frame * 1_000_000_000 / actual_fps;
-                    let delay = if frame % 7 == 0 {
-                        120_000_000
-                    } else {
-                        10_000_000
-                    };
-                    let output = calculate(&mut tracker, source, source + delay, false);
-                    assert_eq!(output, ns(source));
-                    assert!(output >= previous);
-                    previous = output;
-                }
-            }
-        }
-
-        #[test]
-        fn duplicate_and_backstep_do_not_advance_output() {
-            let mut tracker = VideoDriftTracker::new();
-            for (source, wall, expected) in [
-                (0, 50, 0),
-                (3000, 3050, 3000),
-                (3000, 3150, 3000),
-                (2990, 3200, 3000),
-                (3033, 3300, 3033),
-            ] {
-                assert_eq!(
-                    calculate(&mut tracker, source * 1_000_000, wall * 1_000_000, false),
-                    ns(expected * 1_000_000)
-                );
-            }
-        }
-
-        #[test]
-        fn actual_long_gap_survives_anomaly_tracker_with_bunched_arrivals() {
-            let timestamps = Timestamps::now();
-            let mut anomaly = TimestampAnomalyTracker::new("capture-gap");
-            let mut drift = VideoDriftTracker::new();
-            for (source, wall) in [(0, 100), (3000, 7100), (7000, 7101), (7033, 7200)] {
-                let timestamp =
-                    Timestamp::Instant(timestamps.instant() + Duration::from_millis(source));
-                let validated = anomaly
-                    .process_timestamp(timestamp, timestamps, Duration::from_millis(wall))
-                    .unwrap();
-                assert!(!anomaly.take_resync_flag());
-                assert_eq!(
-                    calculate_video_timestamp(
-                        &mut drift,
-                        timestamp,
-                        validated,
-                        validated,
-                        Duration::from_millis(wall),
-                        false
-                    ),
-                    Duration::from_millis(source)
-                );
-            }
-        }
-
-        #[test]
-        fn hard_reset_reanchors_once_then_preserves_source_intervals() {
-            let epoch = Timestamps::now();
-            let mut anomaly = TimestampAnomalyTracker::new("reset");
-            let mut tracker = VideoDriftTracker::new();
-            for (source, wall, expected, outcome) in [
-                (0u64, 50u64, 0u64, SourceClockOutcome::Trusted),
-                (3000, 3050, 3000, SourceClockOutcome::Trusted),
-                (6050, 6050, 6000, SourceClockOutcome::HardReset),
-                (6083, 6250, 6033, SourceClockOutcome::Trusted),
-                (6116, 6260, 6066, SourceClockOutcome::Trusted),
-            ] {
-                if matches!(outcome, SourceClockOutcome::HardReset) {
-                    anomaly = TimestampAnomalyTracker::new("reset");
-                }
-                let timestamp = Timestamp::Instant(epoch.instant() + Duration::from_millis(source));
-                let wall = Duration::from_millis(wall);
-                let validated = anomaly.process_timestamp(timestamp, epoch, wall).unwrap();
-                let discontinuity =
-                    anomaly.take_resync_flag() || matches!(outcome, SourceClockOutcome::HardReset);
-                let output = calculate_video_timestamp(
-                    &mut tracker,
-                    timestamp,
-                    validated,
-                    validated,
-                    wall,
-                    discontinuity,
-                );
-                assert!(
-                    output.abs_diff(Duration::from_millis(expected)) <= Duration::from_nanos(2)
-                );
-            }
-        }
-
-        #[test]
-        fn anomaly_resync_retains_prior_output_and_resumes_content_clock() {
-            let epoch = Timestamps::now();
-            let mut anomaly = TimestampAnomalyTracker::new("resync");
-            let mut tracker = VideoDriftTracker::new();
-            for (source, wall, expected, resynced) in [
-                (0u64, 50u64, 0u64, false),
-                (3000, 3050, 3000, false),
-                (10_000, 3090, 3040, true),
-                (10_033, 3250, 3073, false),
-            ] {
-                let timestamp = Timestamp::Instant(epoch.instant() + Duration::from_millis(source));
-                let wall = Duration::from_millis(wall);
-                let validated = anomaly.process_timestamp(timestamp, epoch, wall).unwrap();
-                let actual_resync = anomaly.take_resync_flag();
-                assert_eq!(actual_resync, resynced);
-                let output = calculate_video_timestamp(
-                    &mut tracker,
-                    timestamp,
-                    validated,
-                    validated,
-                    wall,
-                    actual_resync,
-                );
-                assert!(
-                    output.abs_diff(Duration::from_millis(expected)) <= Duration::from_nanos(2)
-                );
-            }
-        }
-
-        #[test]
-        fn initial_discontinuity_does_not_inject_startup_wait() {
-            let mut tracker = VideoDriftTracker::new();
-            assert_eq!(
-                calculate(&mut tracker, 0, 30_000_000_000, true),
-                Duration::ZERO
-            );
-            assert_eq!(
-                calculate(&mut tracker, 33_000_000, 30_200_000_000, false),
-                ns(33_000_000)
-            );
-        }
-
-        #[test]
-        fn pause_is_excised_before_both_clocks_and_recovery() {
-            let mut tracker = VideoDriftTracker::new();
-            for (source, wall, paused, expected) in [
-                (0u64, 50u64, 0u64, 0u64),
-                (3000, 3050, 0, 3000),
-                (6033, 6200, 3000, 3033),
-                (6066, 6300, 3000, 3066),
-            ] {
-                let source =
-                    Duration::from_millis(source).saturating_sub(Duration::from_millis(paused));
-                let wall =
-                    Duration::from_millis(wall).saturating_sub(Duration::from_millis(paused));
-                assert_eq!(
-                    calculate_video_timestamp(
-                        &mut tracker,
-                        frame_timestamp(),
-                        source,
-                        source,
-                        wall,
-                        false
-                    ),
-                    Duration::from_millis(expected)
-                );
-            }
-        }
-
-        #[test]
-        fn new_studio_segment_has_no_previous_epoch_floor() {
-            let mut old = VideoDriftTracker::new();
-            calculate(&mut old, 9_000_000_000, 9_050_000_000, false);
-            let mut resumed = VideoDriftTracker::new();
-            assert_eq!(
-                calculate(&mut resumed, 0, 250_000_000, false),
-                Duration::ZERO
-            );
-            assert_eq!(
-                calculate(&mut resumed, 33_000_000, 450_000_000, false),
-                ns(33_000_000)
-            );
-        }
-
-        #[test]
-        fn non_instant_clock_keeps_legacy_device_drift_correction() {
-            let mut policy = VideoDriftTracker::new();
-            let mut original = VideoDriftTracker::new();
-            for (source, wall) in [(2.0, 2.0), (10.1, 10.0), (60.3, 60.0)] {
-                let source = Duration::from_secs_f64(source);
-                let wall = Duration::from_secs_f64(wall);
-                let actual = calculate_video_timestamp(
-                    &mut policy,
-                    Timestamp::SystemTime(std::time::SystemTime::now()),
-                    source,
-                    source,
-                    wall,
-                    false,
-                );
-                assert_eq!(actual, original.calculate_timestamp(source, wall));
-            }
-        }
-
-        #[test]
-        fn source_bound_and_previous_floor_survive_future_clock_glitch() {
-            let mut tracker = VideoDriftTracker::new();
-            let wall = Duration::from_secs(1);
-            let bound =
-                wall.saturating_add(Duration::from_secs_f64(VIDEO_WALL_CLOCK_TOLERANCE_SECS));
-            let capped = calculate(&mut tracker, 100_000_000_000, 1_000_000_000, false);
-            assert_eq!(capped, bound);
-            assert_eq!(calculate(&mut tracker, 0, 900_000_000, false), bound);
-            assert!(tracker.capped_frame_count() > 0);
-        }
-
-        #[test]
-        fn audio_sample_clock_does_not_follow_video_arrival_jitter() {
-            let mut video = VideoDriftTracker::new();
-            let mut audio = AudioTimestampGenerator::new(48_000);
-            for frame in 0..180u64 {
-                let source = Duration::from_nanos(frame * 1_000_000_000 / 30);
-                let wall = source.saturating_add(Duration::from_millis(if frame % 3 == 0 {
-                    180
-                } else {
-                    50
-                }));
-                let pts = calculate_video_timestamp(
-                    &mut video,
-                    frame_timestamp(),
-                    source,
-                    source,
-                    wall,
-                    false,
-                );
-                let audio_pts = audio.next_timestamp(1600);
-                assert!(pts.abs_diff(audio_pts) <= Duration::from_nanos(1));
-            }
-        }
-
-        #[test]
-        fn drain_uses_same_content_timeline_not_drain_arrival() {
-            let mut tracker = VideoDriftTracker::new();
-            calculate(&mut tracker, 3_000_000_000, 3_050_000_000, false);
-            assert_eq!(
-                calculate(&mut tracker, 3_033_000_000, 4_000_000_000, false),
-                ns(3_033_000_000)
-            );
-            assert_eq!(
-                calculate(&mut tracker, 3_066_000_000, 4_001_000_000, false),
-                ns(3_066_000_000)
-            );
-        }
-
-        #[test]
-        fn static_last_frame_tail_still_covers_stop_content_time() {
-            let mut tracker = VideoDriftTracker::new();
-            let last = calculate(&mut tracker, 3_000_000_000, 3_050_000_000, false);
-            assert_eq!(
-                static_video_tail_timestamp(last, ns(7_000_000_000), ns(33_333_333)),
-                Some(ns(6_966_666_667))
             );
         }
     }
@@ -11029,349 +10293,6 @@ mod tests {
                 None
             );
         }
-        #[cfg(target_os = "linux")]
-        mod configured_audio_tail {
-            use super::*;
-
-            #[derive(Clone, Debug)]
-            struct ObservedFrame {
-                samples: usize,
-                timestamp: Duration,
-                pcm: Vec<f32>,
-            }
-
-            #[derive(Clone, Default)]
-            struct Observation {
-                frames: Arc<std::sync::Mutex<Vec<ObservedFrame>>>,
-                events: Arc<std::sync::Mutex<Vec<&'static str>>>,
-                first_frame: Arc<tokio::sync::Notify>,
-            }
-
-            struct ObservedMuxer(Observation);
-
-            impl Muxer for ObservedMuxer {
-                type Config = Observation;
-
-                async fn setup(
-                    config: Self::Config,
-                    _output_path: PathBuf,
-                    _video_config: Option<VideoInfo>,
-                    _audio_config: Option<AudioInfo>,
-                    _pause_flag: Arc<AtomicBool>,
-                    _tasks: &mut TaskPool,
-                ) -> anyhow::Result<Self> {
-                    Ok(Self(config))
-                }
-
-                fn stop(&mut self) {
-                    self.0.events.lock().unwrap().push("mux-stop");
-                }
-
-                fn finish(&mut self, _timestamp: Duration) -> anyhow::Result<anyhow::Result<()>> {
-                    Ok(Ok(()))
-                }
-            }
-
-            impl AudioMuxer for ObservedMuxer {
-                fn send_audio_frame(
-                    &mut self,
-                    frame: AudioFrame,
-                    timestamp: Duration,
-                ) -> anyhow::Result<()> {
-                    let count = frame.inner.samples() * TEST_CHANNELS;
-                    let pcm = frame.inner.data(0)[..count * size_of::<f32>()]
-                        .chunks_exact(size_of::<f32>())
-                        .map(|bytes| f32::from_ne_bytes(bytes.try_into().unwrap()))
-                        .collect::<Vec<_>>();
-                    let silent = pcm.iter().all(|sample| *sample == 0.0);
-                    self.0.events.lock().unwrap().push(if silent {
-                        "silence"
-                    } else {
-                        "real-audio"
-                    });
-                    self.0.frames.lock().unwrap().push(ObservedFrame {
-                        samples: frame.inner.samples(),
-                        timestamp,
-                        pcm,
-                    });
-                    self.0.first_frame.notify_one();
-                    Ok(())
-                }
-            }
-
-            struct StopReportingSource {
-                info: AudioInfo,
-                observation: Observation,
-                failure_scope: Option<PipelineBuildScope>,
-                return_stop_error: bool,
-            }
-
-            impl AudioSource for StopReportingSource {
-                type Config = Self;
-
-                fn setup(
-                    config: Self::Config,
-                    _tx: mpsc::Sender<AudioFrame>,
-                    _ctx: &mut SetupCtx,
-                ) -> impl Future<Output = anyhow::Result<Self>> + Send + 'static {
-                    future::ready(Ok(config))
-                }
-
-                fn audio_info(&self) -> AudioInfo {
-                    self.info
-                }
-
-                async fn stop(&mut self) -> anyhow::Result<()> {
-                    self.observation.events.lock().unwrap().push("source-stop");
-                    if let Some(scope) = &self.failure_scope {
-                        self.observation.events.lock().unwrap().push("source-error");
-                        scope.fail_required(
-                            "Backend failure first observed during source Stop".into(),
-                        );
-                    }
-                    if self.return_stop_error {
-                        self.observation.events.lock().unwrap().push("source-error");
-                        return Err(anyhow!("Cleanup failed during source Stop"));
-                    }
-                    Ok(())
-                }
-            }
-
-            #[derive(Clone, Copy)]
-            enum StopCause {
-                Healthy,
-                LegacyHealthy,
-                CurrentSource,
-                SiblingSource,
-                FirstReportedAtSourceStop,
-                MissingCleanupScopeStopError,
-            }
-
-            async fn reach_tail_target(timestamps: Timestamps) {
-                let target = timestamps.instant() + Duration::from_millis(100);
-                while Instant::now() < target {
-                    tokio::time::sleep_until(tokio::time::Instant::from_std(target)).await;
-                }
-            }
-
-            async fn configure_case(
-                cause: StopCause,
-                queued_before_cancel: bool,
-            ) -> (Observation, PipelineJoinReport) {
-                let parent = if matches!(cause, StopCause::LegacyHealthy) {
-                    PipelineBuildScope::new()
-                } else {
-                    PipelineBuildScope::new_studio_lifetime()
-                };
-                let scope = parent.child_transaction();
-                let sibling = parent.child_transaction();
-                let stop = CancellationToken::new();
-                scope.register_token(stop.clone());
-                assert!(scope.commit());
-                assert!(sibling.commit());
-                let info = test_audio_info();
-                let timestamps = Timestamps::now();
-                let clock = MasterClock::new(timestamps, TEST_SAMPLE_RATE);
-                let (health_tx, _health_rx) = new_health_channel();
-                let mut context = SetupCtx::new(
-                    health_tx,
-                    clock,
-                    stop.clone(),
-                    PipelineStopSignal::default(),
-                );
-                let observation = Observation::default();
-                let muxer = Arc::new(Mutex::new(ObservedMuxer(observation.clone())));
-                let (mut sender, receiver) = mpsc::channel(4);
-                sender
-                    .try_send(AudioFrame::new(
-                        make_test_frame(&info, 480, 0.25),
-                        Timestamp::Instant(timestamps.instant()),
-                    ))
-                    .unwrap();
-                if queued_before_cancel {
-                    sender
-                        .try_send(AudioFrame::new(
-                            make_test_frame(&info, 480, 0.5),
-                            Timestamp::Instant(timestamps.instant() + Duration::from_millis(10)),
-                        ))
-                        .unwrap();
-                    scope.fail_required("Known source failure before queued drain".into());
-                    assert!(stop.is_cancelled());
-                    reach_tail_target(timestamps).await;
-                }
-                let observed = observation.clone();
-                let stop_failure =
-                    matches!(cause, StopCause::FirstReportedAtSourceStop).then(|| scope.clone());
-                scope
-                    .run(async {
-                        let source = StopReportingSource {
-                            info,
-                            observation: observed,
-                            failure_scope: stop_failure,
-                            return_stop_error: matches!(
-                                cause,
-                                StopCause::MissingCleanupScopeStopError
-                            ),
-                        };
-                        let mut source = ErasedAudioSource::new(source);
-                        if matches!(cause, StopCause::MissingCleanupScopeStopError) {
-                            source.cleanup_scope = None;
-                        }
-                        PreparedAudioSources {
-                            audio_info: info,
-                            audio_rx: receiver,
-                            erased_audio_sources: vec![source],
-                            has_wireless_source: false,
-                        }
-                        .configure(
-                            &mut context,
-                            muxer,
-                            stop.clone(),
-                            timestamps,
-                            None,
-                            SharedWallClockPause::new(Arc::new(AtomicBool::new(false))),
-                            false,
-                            None,
-                            None,
-                            Arc::new(OnceLock::new()),
-                            AudioAnchor::FirstFrame,
-                        );
-                    })
-                    .await;
-                if !queued_before_cancel {
-                    tokio::time::timeout(
-                        Duration::from_secs(1),
-                        observation.first_frame.notified(),
-                    )
-                    .await
-                    .unwrap();
-                    reach_tail_target(timestamps).await;
-                    match cause {
-                        StopCause::Healthy
-                        | StopCause::LegacyHealthy
-                        | StopCause::FirstReportedAtSourceStop
-                        | StopCause::MissingCleanupScopeStopError => parent.cancel(),
-                        StopCause::CurrentSource => {
-                            scope.fail_required("Current source failed".into())
-                        }
-                        StopCause::SiblingSource => {
-                            sibling.fail_required("Sibling source failed".into())
-                        }
-                    }
-                }
-                assert!(stop.is_cancelled());
-                let tasks = std::mem::take(&mut context.tasks.0);
-                assert_eq!(tasks.len(), 1);
-                for (name, task) in tasks {
-                    assert_eq!(name, "mux-audio");
-                    tokio::time::timeout(Duration::from_secs(1), task)
-                        .await
-                        .unwrap()
-                        .unwrap()
-                        .unwrap();
-                }
-                drop(sender);
-                let report =
-                    tokio::time::timeout(Duration::from_secs(1), parent.cancel_and_join_report())
-                        .await
-                        .unwrap();
-                assert_eq!(
-                    report.quiescent,
-                    !matches!(cause, StopCause::MissingCleanupScopeStopError),
-                );
-                assert_eq!(
-                    observation
-                        .events
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .filter(|event| **event == "source-stop")
-                        .count(),
-                    1
-                );
-                (observation, report)
-            }
-
-            fn assert_only_real(observation: &Observation, expected: &[f32]) {
-                let frames = observation.frames.lock().unwrap();
-                assert_eq!(frames.len(), expected.len());
-                for (index, (frame, value)) in frames.iter().zip(expected).enumerate() {
-                    assert_eq!(frame.samples, 480);
-                    assert!(frame.pcm.iter().all(|sample| sample == value));
-                    assert_eq!(frame.timestamp, Duration::from_millis(index as u64 * 10));
-                }
-                assert!(!observation.events.lock().unwrap().contains(&"silence"));
-            }
-
-            #[tokio::test(flavor = "current_thread")]
-            async fn healthy_stop_still_muxes_tail_silence_after_actual_pcm() {
-                for cause in [StopCause::Healthy, StopCause::LegacyHealthy] {
-                    let (observed, report) = configure_case(cause, false).await;
-                    assert!(report.error.is_none());
-                    let frames = observed.frames.lock().unwrap();
-                    assert!(frames.len() >= 2);
-                    assert_eq!(frames[0].samples, 480);
-                    assert!(frames[0].pcm.iter().all(|sample| *sample == 0.25));
-                    assert!(
-                        frames[1..]
-                            .iter()
-                            .all(|frame| frame.pcm.iter().all(|sample| *sample == 0.0))
-                    );
-                    assert!(frames[1..].iter().map(|frame| frame.samples).sum::<usize>() >= 4320);
-                    assert_eq!(frames[1].timestamp, Duration::from_millis(10));
-                    let events = observed.events.lock().unwrap();
-                    let stopped = events
-                        .iter()
-                        .position(|event| *event == "source-stop")
-                        .unwrap();
-                    let padding = events.iter().position(|event| *event == "silence").unwrap();
-                    assert_eq!(stopped < padding, matches!(cause, StopCause::Healthy));
-                }
-            }
-
-            #[tokio::test(flavor = "current_thread")]
-            async fn committed_current_source_failure_prevents_muxed_tail_silence() {
-                let (observed, report) = configure_case(StopCause::CurrentSource, false).await;
-                assert!(report.error.unwrap().contains("Current source failed"));
-                assert_only_real(&observed, &[0.25]);
-            }
-
-            #[tokio::test(flavor = "current_thread")]
-            async fn committed_sibling_failure_prevents_muxed_tail_silence() {
-                let (observed, report) = configure_case(StopCause::SiblingSource, false).await;
-                assert!(report.error.unwrap().contains("Sibling source failed"));
-                assert_only_real(&observed, &[0.25]);
-            }
-
-            #[tokio::test(flavor = "current_thread")]
-            async fn failure_cancellation_drains_every_queued_real_frame_without_tail() {
-                let (observed, report) = configure_case(StopCause::CurrentSource, true).await;
-                assert!(report.error.unwrap().contains("Known source failure"));
-                assert_only_real(&observed, &[0.25, 0.5]);
-            }
-
-            #[tokio::test(flavor = "current_thread")]
-            async fn source_stop_failure_is_recorded_before_padding_decision() {
-                for cause in [
-                    StopCause::FirstReportedAtSourceStop,
-                    StopCause::MissingCleanupScopeStopError,
-                ] {
-                    let (observed, report) = configure_case(cause, false).await;
-                    assert!(report.error.unwrap().contains("during source Stop"));
-                    assert_only_real(&observed, &[0.25]);
-                    let events = observed.events.lock().unwrap();
-                    let failure = events
-                        .iter()
-                        .position(|event| *event == "source-error")
-                        .unwrap();
-                    let mux_stop = events
-                        .iter()
-                        .position(|event| *event == "mux-stop")
-                        .unwrap();
-                    assert!(failure < mux_stop);
-                }
-            }
-        }
     }
 }
 
@@ -12193,110 +11114,5 @@ mod lifetime_scope_tests {
         );
         release.send(()).unwrap();
         assert!(joining.await.quiescent);
-    }
-}
-
-#[cfg(all(test, target_os = "linux"))]
-mod studio_parent_lifetime_tests {
-    use super::*;
-
-    #[test]
-    fn committed_source_failure_disallows_sibling_audio_tail_padding() {
-        let parent = PipelineBuildScope::new_lifetime();
-        let source = parent.child_transaction();
-        let sibling = parent.child_transaction();
-        assert!(source.commit());
-        assert!(sibling.commit());
-        source.fail_required("Requested microphone ended".into());
-        assert!(source.has_recorded_error());
-        assert!(parent.has_recorded_error());
-        assert!(sibling.has_recorded_error());
-    }
-
-    #[test]
-    fn discarded_transaction_does_not_disable_healthy_parent_audio_padding() {
-        let parent = PipelineBuildScope::new_lifetime();
-        let discarded = parent.child_transaction();
-        discarded.record_finalization_error("Abandoned setup failed".into());
-        discarded.cancel();
-        assert!(discarded.has_recorded_error());
-        assert!(!parent.has_recorded_error());
-    }
-
-    #[tokio::test]
-    async fn committed_transaction_keeps_actual_writer_owned_by_parent() {
-        let parent = PipelineBuildScope::new_lifetime();
-        let child = parent.child_transaction();
-        let (started_tx, started_rx) = oneshot::channel();
-        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
-        child
-            .run(async {
-                let mut tasks = TaskPool::default();
-                tasks.spawn_thread("studio-test-writer", move || {
-                    let _ = started_tx.send(());
-                    release_rx.blocking_recv().map_err(anyhow::Error::from)?;
-                    Ok(())
-                });
-            })
-            .await;
-        started_rx.await.unwrap();
-        assert!(child.commit());
-        let joining = tokio::spawn({
-            let parent = parent.clone();
-            async move { parent.cancel_and_join_report().await }
-        });
-        tokio::task::yield_now().await;
-        assert!(!joining.is_finished());
-        release_tx.send(()).unwrap();
-        assert!(joining.await.unwrap().quiescent);
-    }
-
-    #[tokio::test]
-    async fn committed_transaction_tokens_still_receive_parent_stop() {
-        let parent = PipelineBuildScope::new_lifetime();
-        let child = parent.child_transaction();
-        let token = CancellationToken::new();
-        child.register_token(token.clone());
-        assert!(child.commit());
-        child.cancel();
-        assert!(!token.is_cancelled());
-        parent.cancel();
-        assert!(token.is_cancelled());
-    }
-
-    #[tokio::test]
-    async fn discarded_transaction_does_not_cancel_healthy_parent() {
-        let parent = PipelineBuildScope::new_lifetime();
-        let child = parent.child_transaction();
-        child.cancel();
-        assert!(!parent.cancellation().is_cancelled());
-        assert!(child.cancel_and_join_report().await.quiescent);
-    }
-
-    #[tokio::test]
-    async fn caught_cleanup_failure_after_commit_remains_parent_uncertainty() {
-        let parent = PipelineBuildScope::new_lifetime();
-        let child = parent.child_transaction();
-        assert!(child.commit());
-        child.spawn_cleanup(async { Err(anyhow!("native source stop failed")) });
-        let report = parent.cancel_and_join_report().await;
-        assert!(!report.quiescent);
-        assert!(report.error.unwrap().contains("native source stop failed"));
-    }
-
-    #[tokio::test]
-    async fn panic_in_committed_child_is_not_a_joined_parent_acknowledgement() {
-        let parent = PipelineBuildScope::new_lifetime();
-        let child = parent.child_transaction();
-        let completion = child.task_completion();
-        assert!(child.commit());
-        let task = tokio::spawn(async move {
-            let _completion = completion;
-            panic!("owned writer panic");
-        });
-        assert!(task.await.is_err());
-        let report = parent.cancel_and_join_report().await;
-        assert!(!report.quiescent);
-        assert!(report.error.is_some());
     }
 }

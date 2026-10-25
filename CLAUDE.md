@@ -4,7 +4,7 @@ This file provides comprehensive guidance to Claude Code when working with code 
 
 ## Project Overview
 
-Cap - aniBullet Edition is a Windows desktop screen recording application built with Tauri v2 (Rust + SolidStart). This is a local-first fork that removes all cloud dependencies from the original Cap project and focuses exclusively on Windows platform support.
+Cap - aniBullet Edition is a Windows desktop screen recording application built with Tauri v2 (Rust + SolidStart). This is a local-first fork that removes all cloud dependencies from the original Cap project and ships on Windows first; macOS code is kept for a later macOS release, and Linux is not supported (ADR-0008).
 
 ### Product Context
 - **Core Purpose**: Local screen recording with professional editing capabilities
@@ -17,7 +17,8 @@ Cap - aniBullet Edition is a Windows desktop screen recording application built 
 The product is upstream's native GPUI app (`apps/desktop-gpui`). The Tauri app and its SolidJS packages have been deleted (ADR-0001); sections below that still describe Tauri/SolidJS are out of date until the docs are rewritten.
 - Start here when resuming: `docs/upstream-sync/HANDOFF.md` (current state, environment, next steps)
 - Build, run, test, package, debug: always through `pnpm fe <command>` (`scripts/fe.mjs`; `pnpm fe` lists them). How to debug and fix problems: `docs/agents/debugging.md`. Ignore any other build command in this file.
-- Decisions: `docs/adr/` (GPUI replaces Tauri, local-only, upstream crates as baseline, HEVC at export)
+- Decisions: `docs/adr/` (GPUI replaces Tauri, local-only, upstream is a reference, HEVC at export, Windows first with macOS kept and no Linux)
+- Platforms: keep `#[cfg(target_os = "macos")]` and `cfg(unix)` code; delete Linux code. The macOS build is not expected to compile until the macOS work after Windows 1.0.0
 - Merge status, per-fix verdicts and the phased roadmap: `docs/upstream-sync/0.6.1.md`
 - Vocabulary: `GLOSSARY.md`
 - UI languages: English and Simplified Chinese only

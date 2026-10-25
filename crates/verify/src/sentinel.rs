@@ -127,9 +127,6 @@ fn raise_priority() {
     }
 }
 
-#[cfg(not(any(target_os = "macos", windows)))]
-fn raise_priority() {}
-
 /// Start of a measured window (a case).
 #[derive(Clone, Copy)]
 pub struct Mark {

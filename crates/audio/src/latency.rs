@@ -519,12 +519,6 @@ pub fn estimate_input_latency(
     {
         windows::estimate_input_latency(sample_rate, buffer_size_frames, device_name)
     }
-
-    #[cfg(not(any(target_os = "macos", windows)))]
-    {
-        let _ = device_name;
-        InputLatencyInfo::from_buffer_only(sample_rate, buffer_size_frames)
-    }
 }
 
 fn time_based_alpha(dt_secs: f64, tau_secs: f64) -> f64 {

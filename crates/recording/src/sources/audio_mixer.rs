@@ -885,10 +885,6 @@ fn mixer_now() -> Timestamp {
     {
         Timestamp::PerformanceCounter(cap_timestamp::PerformanceCounterTimestamp::now())
     }
-    #[cfg(not(any(target_os = "macos", windows)))]
-    {
-        Timestamp::Instant(Instant::now())
-    }
 }
 
 /// Input timestamps jitter around their sample clock (Linux stamps samples

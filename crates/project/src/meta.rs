@@ -96,9 +96,6 @@ impl Default for Platform {
 
         #[cfg(target_os = "macos")]
         return Self::MacOS;
-
-        #[cfg(target_os = "linux")]
-        return Self::Linux;
     }
 }
 

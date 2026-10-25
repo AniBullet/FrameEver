@@ -14,8 +14,6 @@
 //! `off` skips. Without Screen Recording permission the cases skip unless
 //! `CAP_VERIFY_REQUIRE_CAPTURE=1`.
 
-#![cfg(any(target_os = "macos", windows))]
-
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},

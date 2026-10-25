@@ -16,7 +16,7 @@ Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `
   - HEVC and AV1 export (editor export panel and `frameever export --codec`).
   - Compression and version management for Instant recordings (Settings → Recordings), including automatic compression.
   - Brand: core colour Klein blue `#1F3FD8`; icon and installer art from `packaging/brand/render_brand.py` (`docs/brand/app-icon.md`).
-  - UI fonts: Inter for English, MiSans for Chinese (`theme::ui_font()`, `docs/i18n.md`). MiSans is fetched by `pnpm fe setup` and never committed.
+  - UI fonts: Inter for English, HarmonyOS Sans SC for Chinese, loaded only for the Chinese UI (`theme::ui_font()`, `docs/i18n.md`). HarmonyOS Sans is fetched by `pnpm fe setup` and never committed.
   - Dependency upgrades to current stable majors (2026-10-24); what is held back and why is under Phase 4 in `0.6.1.md`.
   - `pnpm fe privacy` and the pre-push hook (see Environment).
   - First release number set to 1.0.0 (ADR-0007); `CHANGELOG.md` has an unreleased `[1.0.0]` section.
@@ -28,16 +28,22 @@ Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `
   - AniBullet/FrameEver#38 (closes #21): Chinese captions route to Whisper (Parakeet has no CJK vocabulary), split UTF-8 tokens are rebuilt, no spaces between CJK characters, full-width punctuation, a Simplified Chinese prompt. The long-trim crash did not reproduce.
   - AniBullet/FrameEver#39 (closes #2): Tauri app deleted. Sounds, music and backgrounds were not checked by hand in a running dev build.
 - Tests: `pnpm fe test --all` is green on `main` (GPUI 1075, enc-ffmpeg 180, export 45, CLI 48). After the folder rename, a stale `ffmpeg-sys-next` build cache pointed at the old folder and linking failed with `avcodec.lib` missing; `cargo clean -p ffmpeg-sys-next` in both workspaces fixed it.
-- AniBullet/FrameEver#4: the shared crates have no macOS/Linux `cfg` branches, modules, files or target dependencies left (about 46,000 lines removed, `crates/workspace-hack` left as generated). Windows test results are unchanged. `cap_utils::linux_package` and `linux_runtime` are gone, so the Linux-only call sites in `apps/desktop-gpui/src/{installer,main}.rs` and `apps/cli/src/main.rs` go with #5.
+- Platforms changed on 2026-10-25 (ADR-0008): Windows first, macOS kept for a later release, no Linux. The macOS-only crates deleted by #3 were restored from our history, and AniBullet/FrameEver#4 was redone to remove Linux only: the shared crates have no Linux `cfg` branches, modules, files, examples or target dependencies left (about 18,000 lines; `crates/workspace-hack` is generated and was left alone). Windows test results are unchanged. `cap_utils::linux_package`, `linux_runtime` and `cap_cli_install::appimage` are gone, so the Linux-only call sites in `apps/desktop-gpui/src/{installer,main}.rs` and `apps/cli/src/main.rs` go with #5.
 
 ## What is left
 
 The open issues on `AniBullet/FrameEver` are the one list (`gh issue list`); native blocking links give the order (`gh api repos/AniBullet/FrameEver/issues/<n>/dependencies/blocked_by`).
 
-- Decisions of 2026-10-24: ADR-0006 (one visible storage folder `Videos\FrameEver` with `Recordings`, `Screenshots`, `Exports`; `.ever` projects with a format version; export records; no database; old data only through the separate FrameEver Converter) and ADR-0007 (upstream is a reference; internal names become `frameever-*` / `FRAMEEVER_*`; macOS/Linux code removed; version starts at 1.0.0).
-- Next in the cleanup chain: #3 (macOS-only crates) and #4 (shared crates) are done; #5 (app and CLI), #6 rename crates, #7 rename environment variables, #8 docs rewrite. The storage spec AniBullet/FrameEver#1 (sub-issues #9–#12) follows #7; then FrameEver Converter (#13, #14); then the first release (#15, owner).
-- Small independent tickets still open: #19 (remote-desktop note in Excluded Windows; neutral editor frame placeholder) and #22 (MiSans variable font, Chinese-only loading). Owner tasks: #16 (phase 2 checks on real hardware), #17 (benchmark, after the release).
+- Decisions of 2026-10-24: ADR-0006 (one visible storage folder `Videos\FrameEver` with `Recordings`, `Screenshots`, `Exports`; `.ever` projects with a format version; export records; no database; old data only through the separate FrameEver Converter) and ADR-0007 (upstream is a reference; internal names become `frameever-*` / `FRAMEEVER_*`; version starts at 1.0.0). ADR-0008 (2026-10-25) replaces the Windows-only scope: macOS code stays, Linux code goes.
+- Next in the cleanup chain: #4 (Linux out of the shared crates) is done; #5 (Linux out of the app, the CLI and the packaging scripts), #6 rename crates, #7 rename environment variables, #8 docs rewrite. The storage spec AniBullet/FrameEver#1 (sub-issues #9–#12) follows #7; then FrameEver Converter (#13, #14); then the first release (#15, owner).
+- Small independent tickets still open: #19 (remote-desktop note in Excluded Windows; neutral editor frame placeholder). Owner tasks: #16 (phase 2 checks on real hardware), #17 (benchmark, after the release).
 - Not ticketed on purpose: the in-app automations runner and upstream fixes to port later (upstream watch list in `0.6.1.md`); recording start latency (part of the benchmark ticket).
+
+### Platform plan (ADR-0008)
+
+1. Now until Windows 1.0.0: Windows is the only platform built, tested and released. macOS code stays in the tree but is not kept compiling; do not delete it, and do not spend time on it. Remove Linux code wherever it is found (#5 for the app, CLI and scripts).
+2. After Windows 1.0.0 (#15): make the macOS build compile and run on the owner's Mac (start with cap-rendering's Metal interop, which was not ported to wgpu 30), then add a macOS CI build and packaging job: AniBullet/FrameEver#40 (blocked by #15) and #41 (blocked by #40). Signing and notarization need an Apple Developer account, which the owner decides on.
+3. macOS fixes from upstream are ported by hand (ADR-0007), from the upstream watch list in `0.6.1.md`.
 
 ### UI redesign and library (wayfinder map AniBullet/FrameEver#23)
 

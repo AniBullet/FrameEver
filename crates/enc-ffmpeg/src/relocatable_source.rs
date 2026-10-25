@@ -81,14 +81,6 @@ fn identity(file: &File) -> io::Result<FileIdentity> {
             file_id: information.FileId.Identifier,
         })
     }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = file;
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Managed source identity is unsupported on this platform",
-        ))
-    }
 }
 
 fn directory_identity(path: &Path) -> io::Result<FileIdentity> {

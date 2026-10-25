@@ -30,4 +30,3 @@ windows = { workspace = true, features = [
     "Win32_Media_MediaFoundation",
     "Win32_Security",
 ] }
-

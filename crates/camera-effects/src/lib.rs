@@ -18,7 +18,6 @@ use mask_refinement::smooth_mask_value;
 use matte::{MattePipeline, MatteTextures};
 use segmentation::SegmentationModel;
 
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub fn onnx_runtime_library_path() -> Option<std::path::PathBuf> {
     segmentation::onnx_runtime_library_path()
 }

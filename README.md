@@ -24,7 +24,7 @@
 - **没有限制**：没有时长上限、没有数量上限、没有付费功能、没有水印。
 - **原生、轻快**：基于 [Cap](https://github.com/CapSoftware/Cap) 0.6.1 的原生 GPUI 界面，用 Rust 编写，直接用 GPU 绘制。
 - **文件小**：导出支持 HEVC 和 AV1，同样画质下文件约为 H.264 的 1/3 到 1/4。
-- **中文友好**：完整的简体中文界面，中文用 MiSans 字体。
+- **中文友好**：完整的简体中文界面，中文用 HarmonyOS Sans 字体。
 
 ## 功能
 
@@ -72,7 +72,7 @@ FrameEver 只在以下情况联网，且不会发送你录制的任何内容：
 | AI 字幕 | 云端服务 | 本地模型，离线 |
 | 导出编码 | H.264 | H.264、HEVC、AV1 |
 | 界面语言 | 英文 | 简体中文、英文 |
-| 平台 | macOS、Windows | Windows |
+| 平台 | macOS、Windows | Windows（macOS 版在 Windows 1.0 之后） |
 
 ## 开发
 
@@ -89,7 +89,7 @@ pnpm fe package   # 打包安装程序到 dist/
 
 FrameEver 基于 [Cap](https://github.com/CapSoftware/Cap) 改造，遵循 **AGPL-3.0** 协议：保留原始版权声明、公开全部源代码。部分模块（`cap-camera*`、`scap-*`）为 MIT 协议，见各模块的 LICENSE。FrameEver 是独立项目，与 Cap 官方无关，不使用 Cap 的名称和标志。
 
-感谢 Cap 团队和所有贡献者。界面字体使用 [Inter](https://rsms.me/inter/)（SIL OFL 1.1）和小米 [MiSans](https://hyperos.mi.com/font/)。
+感谢 Cap 团队和所有贡献者。界面字体使用 [Inter](https://rsms.me/inter/)（SIL OFL 1.1）和华为 [HarmonyOS Sans](https://developer.huawei.com/consumer/cn/design/resource/)。
 
 ---
 

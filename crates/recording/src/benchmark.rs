@@ -441,15 +441,6 @@ impl EncoderInfo {
                 gpu_type: gpu,
             }
         }
-
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        {
-            Self {
-                name: "libx264".to_string(),
-                is_hardware: false,
-                gpu_type: None,
-            }
-        }
     }
 
     pub fn print_info(&self) {

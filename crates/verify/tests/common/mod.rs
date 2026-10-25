@@ -158,11 +158,7 @@ impl Decoder {
 
     /// Decoders that are actually distinct on this platform.
     pub fn all() -> Vec<Decoder> {
-        if cfg!(any(target_os = "macos", target_os = "windows")) {
-            vec![Decoder::Default, Decoder::Ffmpeg]
-        } else {
-            vec![Decoder::Default]
-        }
+        vec![Decoder::Default, Decoder::Ffmpeg]
     }
 
     /// The `DecoderType` display prefix this choice must produce. A silent

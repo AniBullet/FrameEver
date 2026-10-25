@@ -7,9 +7,6 @@ edition = "2024"
 nix = { version = "0.29.0", features = ["fs"] }
 libc = "0.2"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "5.18.0", default-features = false, features = ["tokio"] }
-
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Foundation",
@@ -37,9 +34,6 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies]
 tracing-appender = "0.2.3"
 tempfile = "3"
-
-[target.'cfg(target_os = "linux")'.dev-dependencies]
-zbus = { version = "5.18.0", default-features = false, features = ["tokio", "blocking-api"] }
 
 [lints]
 workspace = true

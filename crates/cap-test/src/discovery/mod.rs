@@ -190,22 +190,12 @@ fn detect_os_version() -> String {
         .unwrap_or_else(|| "Windows (unknown version)".to_string())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn detect_os_version() -> String {
-    "Unknown OS".to_string()
-}
-
 #[cfg(target_os = "macos")]
 fn detect_gpu() -> Option<String> {
     Some("Apple Silicon / Intel UHD".to_string())
 }
 
 #[cfg(target_os = "windows")]
-fn detect_gpu() -> Option<String> {
-    None
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn detect_gpu() -> Option<String> {
     None
 }

@@ -130,7 +130,6 @@ pub const SENTINEL_PERIOD_SECS: f64 = 0.002;
 
 /// Every wake of the stimulus's real-time sentinel thread (host ticks) and
 /// the scheduling it ran under.
-#[cfg(any(target_os = "macos", windows))]
 #[derive(Clone, Debug)]
 pub struct SentinelLog {
     pub realtime: crate::sched::Realtime,
@@ -138,7 +137,6 @@ pub struct SentinelLog {
     pub wakes: Vec<u64>,
 }
 
-#[cfg(any(target_os = "macos", windows))]
 impl SentinelLog {
     pub fn read(path: &std::path::Path) -> anyhow::Result<Self> {
         #[derive(serde::Deserialize)]
@@ -207,10 +205,8 @@ pub fn host_add_secs(a: u64, secs: f64) -> u64 {
     (a as f64 + secs * crate::sched::qpc_frequency() as f64).round() as u64
 }
 
-#[cfg(any(target_os = "macos", windows))]
 pub use process::StimulusProcess;
 
-#[cfg(any(target_os = "macos", windows))]
 mod process {
     use std::{
         io::{BufRead, BufReader, Write},

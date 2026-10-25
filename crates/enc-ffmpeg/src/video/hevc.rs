@@ -543,11 +543,6 @@ fn get_encoder_priority() -> &'static [&'static str] {
             _ => ENCODER_PRIORITY_DEFAULT,
         }
     }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        &["libx265"]
-    }
 }
 
 fn get_codec_and_options(

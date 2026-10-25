@@ -988,29 +988,18 @@ impl H264Encoder {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 const VIDEOTOOLBOX_4K_MAX_FPS: f64 = 55.0;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 const VIDEOTOOLBOX_1080P_MAX_FPS: f64 = 190.0;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 const NVENC_4K_MAX_FPS: f64 = 120.0;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 const NVENC_1080P_MAX_FPS: f64 = 500.0;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 const QSV_4K_MAX_FPS: f64 = 90.0;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 const QSV_1080P_MAX_FPS: f64 = 300.0;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 const AMF_4K_MAX_FPS: f64 = 100.0;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 const AMF_1080P_MAX_FPS: f64 = 350.0;
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 const PIXELS_4K: f64 = 3840.0 * 2160.0;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 const PIXELS_1080P: f64 = 1920.0 * 1080.0;
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn estimate_hw_encoder_max_fps(encoder_name: &str, width: u32, height: u32) -> f64 {
     let pixels = (width as f64) * (height as f64);
 
@@ -1040,9 +1029,6 @@ fn requires_software_encoder(config: &VideoInfo, preset: H264Preset, is_export: 
     if preset == H264Preset::HighThroughput {
         return true;
     }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let _ = config;
 
     #[cfg(target_os = "macos")]
     {
@@ -1094,15 +1080,6 @@ fn requires_software_encoder(config: &VideoInfo, preset: H264Preset, is_export: 
     false
 }
 
-#[cfg(target_os = "linux")]
-fn linux_encoder_priority(nvidia_device_available: bool) -> &'static [&'static str] {
-    if nvidia_device_available {
-        &["h264_nvenc", "libx264"]
-    } else {
-        &["libx264"]
-    }
-}
-
 fn get_default_encoder_priority(_config: &VideoInfo) -> &'static [&'static str] {
     #[cfg(target_os = "macos")]
     {
@@ -1132,16 +1109,6 @@ fn get_default_encoder_priority(_config: &VideoInfo) -> &'static [&'static str] 
             },
             None => ENCODER_PRIORITY_DEFAULT,
         }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        linux_encoder_priority(std::path::Path::new("/dev/nvidiactl").exists())
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    {
-        &["libx264"]
     }
 }
 
@@ -1359,8 +1326,7 @@ fn cached_hardware_self_test(
         sync::{Mutex, OnceLock},
     };
 
-    if !(cfg!(target_os = "windows") || (cfg!(target_os = "linux") && codec.name() == "h264_nvenc"))
-    {
+    if !cfg!(target_os = "windows") {
         return Ok(());
     }
 
@@ -1688,79 +1654,6 @@ mod self_test_tests {
 
         let realtime = videotoolbox_options(false);
         assert_eq!(realtime.get("g"), None);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_nvidia_device_prefers_nvenc_and_keeps_software_fallback() {
-        assert_eq!(linux_encoder_priority(true), &["h264_nvenc", "libx264"]);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_without_nvidia_preserves_software_encoder() {
-        assert_eq!(linux_encoder_priority(false), &["libx264"]);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_high_throughput_preserves_software_encoder() {
-        let config = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 160, 120, 30);
-
-        assert_eq!(
-            get_encoder_priority_with_override(
-                &config,
-                H264Preset::HighThroughput,
-                Some(linux_encoder_priority(true)),
-                false,
-            ),
-            &["libx264"],
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_crf_preserves_software_encoder() {
-        ffmpeg::init().ok();
-        let config = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 160, 120, 30);
-        let codecs = get_codec_and_options(
-            &config,
-            H264Preset::Ultrafast,
-            Some(linux_encoder_priority(true)),
-            true,
-            Some(23),
-        );
-
-        assert_eq!(codecs.len(), 1);
-        assert_eq!(codecs[0].0.name(), "libx264");
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_nvenc_self_test_decodes_real_gray_frames_when_available() {
-        if !std::path::Path::new("/dev/nvidiactl").exists() {
-            return;
-        }
-
-        ffmpeg::init().ok();
-        let Some(codec) = encoder::find_by_name("h264_nvenc") else {
-            return;
-        };
-        let config = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 160, 120, 30);
-        let options = get_codec_and_options(
-            &config,
-            H264Preset::Ultrafast,
-            Some(&["h264_nvenc", "libx264"]),
-            false,
-            None,
-        )
-        .into_iter()
-        .find(|(candidate, _)| candidate.name() == "h264_nvenc")
-        .expect("available NVENC encoder is configured")
-        .1;
-
-        cached_hardware_self_test(codec, &options, &config, 160, 120, 0.3, None)
-            .expect("real NVIDIA hardware preserves neutral gray through encode and decode");
     }
 }
 

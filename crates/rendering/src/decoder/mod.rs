@@ -152,8 +152,6 @@ pub struct DecodedFrame {
     image_buf_backing: Option<Arc<SendableImageBuf>>,
     #[cfg(target_os = "windows")]
     d3d11_texture_backing: Option<Arc<SendableD3D11Texture>>,
-    #[cfg(target_os = "linux")]
-    cuda_nv12: Option<Arc<crate::linux_gpu::CudaNv12Frame>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -278,8 +276,6 @@ impl DecodedFrame {
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
             d3d11_texture_backing: None,
-            #[cfg(target_os = "linux")]
-            cuda_nv12: None,
         }
     }
 
@@ -296,34 +292,7 @@ impl DecodedFrame {
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
             d3d11_texture_backing: None,
-            #[cfg(target_os = "linux")]
-            cuda_nv12: None,
         }
-    }
-
-    /// NV12 frame that never left GPU memory (NVDEC on Linux render hosts).
-    /// `storage` is the decoder's per-frame allocation: layers compare it to
-    /// skip re-uploading a frame they already hold (VFR holds, fps upsampling).
-    #[cfg(target_os = "linux")]
-    pub fn new_nv12_cuda(
-        frame: Arc<crate::linux_gpu::CudaNv12Frame>,
-        storage: Arc<Vec<u8>>,
-    ) -> Self {
-        Self {
-            data: storage,
-            width: frame.width,
-            height: frame.height,
-            format: PixelFormat::Nv12,
-            matrix: YuvMatrix::Bt601,
-            y_stride: frame.y_pitch as u32,
-            uv_stride: frame.uv_pitch as u32,
-            cuda_nv12: Some(frame),
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    pub fn cuda_nv12(&self) -> Option<&Arc<crate::linux_gpu::CudaNv12Frame>> {
-        self.cuda_nv12.as_ref()
     }
 
     pub fn new_nv12(data: Vec<u8>, width: u32, height: u32, y_stride: u32, uv_stride: u32) -> Self {
@@ -339,8 +308,6 @@ impl DecodedFrame {
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
             d3d11_texture_backing: None,
-            #[cfg(target_os = "linux")]
-            cuda_nv12: None,
         }
     }
 
@@ -363,8 +330,6 @@ impl DecodedFrame {
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
             d3d11_texture_backing: None,
-            #[cfg(target_os = "linux")]
-            cuda_nv12: None,
         }
     }
 
@@ -407,8 +372,6 @@ impl DecodedFrame {
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
             d3d11_texture_backing: None,
-            #[cfg(target_os = "linux")]
-            cuda_nv12: None,
         }
     }
 
@@ -431,8 +394,6 @@ impl DecodedFrame {
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
             d3d11_texture_backing: None,
-            #[cfg(target_os = "linux")]
-            cuda_nv12: None,
         }
     }
 
@@ -1727,46 +1688,6 @@ pub async fn spawn_decoder(
                     )),
                 }
             }
-        }
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        let _ = force_ffmpeg;
-        let (ready_tx, ready_rx) = oneshot::channel::<Result<DecoderInitResult, String>>();
-        let (tx, rx) = mpsc::channel();
-
-        ffmpeg::FfmpegDecoder::spawn(name, path, fps, rx, ready_tx)
-            .map_err(|e| format!("'{name}' decoder / {e}"))?;
-
-        match tokio::time::timeout(timeout_duration, ready_rx).await {
-            Ok(Ok(Ok(init_result))) => {
-                info!(
-                    "Video '{}' using {} decoder ({}x{})",
-                    name, init_result.decoder_type, init_result.width, init_result.height
-                );
-                let status = DecoderStatus {
-                    decoder_type: init_result.decoder_type,
-                    video_width: init_result.width,
-                    video_height: init_result.height,
-                    fallback_reason: None,
-                };
-                Ok(AsyncVideoDecoderHandle {
-                    sender: tx,
-                    offset,
-                    status,
-                    max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
-                    #[cfg(target_os = "macos")]
-                    fallback: None,
-                    #[cfg(target_os = "macos")]
-                    sequential_access: None,
-                })
-            }
-            Ok(Ok(Err(e))) => Err(format!("'{name}' decoder initialization failed: {e}")),
-            Ok(Err(e)) => Err(format!("'{name}' decoder channel closed: {e}")),
-            Err(_) => Err(format!(
-                "'{name}' decoder timed out after 30s initializing: {path_display}"
-            )),
         }
     }
 }

@@ -1,12 +1,5 @@
 //! `cap-verify-stimulus <spec json> <log path>`: see `cap_verify::stimulus`.
 
-#[cfg(not(any(target_os = "macos", windows)))]
-fn main() {
-    eprintln!("cap-verify-stimulus only runs on macOS and Windows");
-    std::process::exit(2);
-}
-
-#[cfg(any(target_os = "macos", windows))]
 fn main() {
     if let Err(e) = app::run() {
         println!("error {e}");
@@ -14,7 +7,6 @@ fn main() {
     }
 }
 
-#[cfg(any(target_os = "macos", windows))]
 mod app {
     use std::{
         fs::File,

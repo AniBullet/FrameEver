@@ -1,6 +1,6 @@
 use std::{io, path::Path};
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 pub(super) fn publish(source: &Path, destination: &Path) -> io::Result<()> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
@@ -12,16 +12,6 @@ pub(super) fn publish(source: &Path, destination: &Path) -> io::Result<()> {
             source_name.as_ptr(),
             destination_name.as_ptr(),
             libc::RENAME_EXCL,
-        )
-    };
-    #[cfg(target_os = "linux")]
-    let result = unsafe {
-        libc::renameat2(
-            libc::AT_FDCWD,
-            source_name.as_ptr(),
-            libc::AT_FDCWD,
-            destination_name.as_ptr(),
-            libc::RENAME_NOREPLACE,
         )
     };
     if result == 0 {

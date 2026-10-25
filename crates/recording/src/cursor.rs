@@ -53,88 +53,6 @@ pub struct IncrementalCaptureOutputs {
 pub struct CursorCaptureTarget {
     pub crop_bounds: CursorCropBounds,
     pub display: scap_targets::Display,
-    #[cfg(target_os = "linux")]
-    pub window: Option<scap_targets::WindowId>,
-}
-
-#[cfg(target_os = "linux")]
-struct X11WindowCursor {
-    connection: x11rb::rust_connection::RustConnection,
-    window: u32,
-}
-
-#[cfg(target_os = "linux")]
-impl X11WindowCursor {
-    fn new(id: &scap_targets::WindowId) -> anyhow::Result<Self> {
-        let (connection, _) = x11rb::connect(None)?;
-        Ok(Self {
-            connection,
-            window: id.to_string().parse()?,
-        })
-    }
-
-    fn position(&self) -> Option<(f64, f64)> {
-        use x11rb::protocol::xproto::ConnectionExt as _;
-
-        let geometry = self
-            .connection
-            .get_geometry(self.window)
-            .ok()?
-            .reply()
-            .ok()?;
-        let pointer = self
-            .connection
-            .query_pointer(self.window)
-            .ok()?
-            .reply()
-            .ok()?;
-        if !pointer.same_screen {
-            return None;
-        }
-        normalized_window_cursor(
-            pointer.win_x,
-            pointer.win_y,
-            geometry.width,
-            geometry.height,
-        )
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn normalized_window_cursor(x: i16, y: i16, width: u16, height: u16) -> Option<(f64, f64)> {
-    (width != 0 && height != 0).then(|| {
-        (
-            f64::from(x) / f64::from(width),
-            f64::from(y) / f64::from(height),
-        )
-    })
-}
-
-#[cfg(all(test, target_os = "linux"))]
-mod window_cursor_tests {
-    use super::normalized_window_cursor;
-
-    #[test]
-    fn window_local_cursor_coordinates_follow_resized_content() {
-        assert_eq!(
-            normalized_window_cursor(300, 150, 600, 300),
-            Some((0.5, 0.5))
-        );
-        assert_eq!(
-            normalized_window_cursor(300, 150, 1200, 600),
-            Some((0.25, 0.25))
-        );
-        assert_eq!(
-            normalized_window_cursor(-60, 330, 600, 300),
-            Some((-0.1, 1.1))
-        );
-    }
-
-    #[test]
-    fn empty_windows_cannot_produce_cursor_coordinates() {
-        assert_eq!(normalized_window_cursor(1, 1, 0, 300), None);
-        assert_eq!(normalized_window_cursor(1, 1, 600, 0), None);
-    }
 }
 
 impl CursorActor {
@@ -150,17 +68,6 @@ impl CursorActor {
 }
 
 const CURSOR_FLUSH_INTERVAL_SECS: u64 = 5;
-
-#[cfg(target_os = "linux")]
-fn prefers_wayland_portal_cursor() -> bool {
-    if std::env::var_os("WAYLAND_DISPLAY").is_none() {
-        return false;
-    }
-
-    std::env::var_os("DISPLAY").is_none()
-        || std::env::var("XDG_SESSION_TYPE")
-            .is_ok_and(|session| session.eq_ignore_ascii_case("wayland"))
-}
 
 fn flush_cursor_data(output_path: &Path, moves: &[CursorMoveEvent], clicks: &[CursorClickEvent]) {
     let events = CursorEvents {
@@ -460,24 +367,6 @@ pub fn spawn_cursor_recorder(
     start_gate: Option<RecordingStartGate>,
     incremental_outputs: IncrementalCaptureOutputs,
 ) -> CursorActor {
-    #[cfg(target_os = "linux")]
-    if prefers_wayland_portal_cursor() {
-        let (tx, rx) = oneshot::channel();
-        let _ = tx.send(CursorActorResponse {
-            cursors: prev_cursors,
-            next_cursor_id,
-            moves: vec![],
-            clicks: vec![],
-            keyboard_presses: vec![],
-        });
-        return CursorActor {
-            stop: None,
-            stop_wakeup: None,
-            thread: None,
-            rx: rx.shared(),
-        };
-    }
-
     use device_query::{DeviceQuery, DeviceState};
     use std::time::Duration;
     use tracing::{error, info};
@@ -496,14 +385,6 @@ pub fn spawn_cursor_recorder(
         let _completion = completion;
         let crop_bounds = target.crop_bounds;
         let display = target.display;
-        #[cfg(target_os = "linux")]
-        let window_cursor = target.window.as_ref().and_then(|id| {
-            X11WindowCursor::new(id)
-                .inspect_err(|error| tracing::error!(%error, "X11 window cursor setup failed"))
-                .ok()
-        });
-        #[cfg(target_os = "linux")]
-        let mut last_window_position = None;
         let device_state = DeviceState::new();
         let mut last_mouse_state = device_state.get_mouse();
         let mut last_keys: Vec<device_query::Keycode> = device_state.get_keys();
@@ -563,15 +444,6 @@ pub fn spawn_cursor_recorder(
             if position_changed {
                 last_position = position;
             }
-            #[cfg(target_os = "linux")]
-            let window_position = window_cursor.as_ref().and_then(X11WindowCursor::position);
-            #[cfg(target_os = "linux")]
-            let position_changed = position_changed
-                || (target.window.is_some() && window_position != last_window_position);
-            #[cfg(target_os = "linux")]
-            {
-                last_window_position = window_position;
-            }
 
             // The cursor image only labels this tick's move and click events,
             // and reading it builds a full TIFF of every representation
@@ -623,12 +495,6 @@ pub fn spawn_cursor_recorder(
                     .and_then(|p| p.normalize())
                     .map(|p| p.with_crop(crop_bounds))
                     .map(|p| (p.x(), p.y()));
-                #[cfg(target_os = "linux")]
-                let cropped_norm_pos = if target.window.is_some() {
-                    window_position
-                } else {
-                    cropped_norm_pos
-                };
 
                 if let Some((x, y)) = cropped_norm_pos {
                     let mouse_event = CursorMoveEvent {
@@ -1024,196 +890,6 @@ mod macos_cursor_tests {
         assert_eq!(actual.image, expected_image);
         assert_eq!(actual.hotspot.x, hotspot.x / size.width);
         assert_eq!(actual.hotspot.y, hotspot.y / size.height);
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn get_cursor_data() -> Option<CursorData> {
-    thread_local! {
-        static X11_CURSOR: std::cell::RefCell<X11CursorSource> = std::cell::RefCell::default();
-    }
-
-    X11_CURSOR
-        .with_borrow_mut(X11CursorSource::cursor_data)
-        .or_else(fallback_cursor_data)
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Default)]
-struct X11CursorSource {
-    connection: Option<x11rb::rust_connection::RustConnection>,
-    last_image: Option<X11CursorImage>,
-}
-
-#[cfg(target_os = "linux")]
-struct X11CursorImage {
-    width: u16,
-    height: u16,
-    pixels: Vec<u32>,
-    png: Vec<u8>,
-}
-
-#[cfg(target_os = "linux")]
-impl X11CursorSource {
-    fn cursor_data(&mut self) -> Option<CursorData> {
-        let cursor = self.cursor_image()?;
-
-        let width = u32::from(cursor.width);
-        let height = u32::from(cursor.height);
-        if width == 0 || height == 0 {
-            return None;
-        }
-
-        Some(CursorData {
-            image: self.png(cursor.width, cursor.height, cursor.cursor_image)?,
-            hotspot: XY::new(
-                f64::from(cursor.xhot) / f64::from(width),
-                f64::from(cursor.yhot) / f64::from(height),
-            ),
-            shape: None,
-        })
-    }
-
-    fn cursor_image(&mut self) -> Option<x11rb::protocol::xfixes::GetCursorImageReply> {
-        use x11rb::protocol::xfixes::ConnectionExt as _;
-
-        if let Some(connection) = self.connection.take()
-            && let Some(cursor) = connection
-                .xfixes_get_cursor_image()
-                .ok()
-                .and_then(|cookie| cookie.reply().ok())
-        {
-            self.connection = Some(connection);
-            return Some(cursor);
-        }
-
-        let (connection, _) = x11rb::connect(None).ok()?;
-        connection.xfixes_query_version(5, 0).ok()?.reply().ok()?;
-        let cursor = connection.xfixes_get_cursor_image().ok()?.reply().ok()?;
-        self.connection = Some(connection);
-        Some(cursor)
-    }
-
-    fn png(&mut self, width: u16, height: u16, pixels: Vec<u32>) -> Option<Vec<u8>> {
-        if let Some(last) = &self.last_image
-            && last.width == width
-            && last.height == height
-            && last.pixels == pixels
-        {
-            return Some(last.png.clone());
-        }
-
-        let png = x11_cursor_png(width, height, &pixels)?;
-        self.last_image = Some(X11CursorImage {
-            width,
-            height,
-            pixels,
-            png: png.clone(),
-        });
-        Some(png)
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn x11_cursor_png(width: u16, height: u16, pixels: &[u32]) -> Option<Vec<u8>> {
-    let pixel_count = usize::from(width).checked_mul(usize::from(height))?;
-    if pixels.len() != pixel_count {
-        return None;
-    }
-
-    let mut rgba = Vec::with_capacity(pixel_count.checked_mul(4)?);
-    for &pixel in pixels {
-        rgba.push(((pixel >> 16) & 0xff) as u8);
-        rgba.push(((pixel >> 8) & 0xff) as u8);
-        rgba.push((pixel & 0xff) as u8);
-        rgba.push(((pixel >> 24) & 0xff) as u8);
-    }
-
-    let image = image::RgbaImage::from_raw(u32::from(width), u32::from(height), rgba)?;
-    let mut bytes = std::io::Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgba8(image)
-        .write_to(&mut bytes, image::ImageFormat::Png)
-        .ok()?;
-    Some(bytes.into_inner())
-}
-
-#[cfg(target_os = "linux")]
-fn fallback_cursor_data() -> Option<CursorData> {
-    use std::sync::OnceLock;
-
-    static CURSOR_PNG: OnceLock<Vec<u8>> = OnceLock::new();
-
-    let image = CURSOR_PNG.get_or_init(linux_cursor_png).clone();
-    if image.is_empty() {
-        return None;
-    }
-
-    Some(CursorData {
-        image,
-        hotspot: XY::new(0.0, 0.0),
-        shape: None,
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn linux_cursor_png() -> Vec<u8> {
-    let mut image = image::RgbaImage::new(24, 24);
-    for y in 0..18 {
-        for x in 0..=y.min(10) {
-            image.put_pixel(x, y, image::Rgba([0, 0, 0, 255]));
-        }
-    }
-    for y in 2..15 {
-        for x in 1..=y.min(8) {
-            image.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
-        }
-    }
-
-    let mut bytes = std::io::Cursor::new(Vec::new());
-    if image::DynamicImage::ImageRgba8(image)
-        .write_to(&mut bytes, image::ImageFormat::Png)
-        .is_err()
-    {
-        return Vec::new();
-    }
-    bytes.into_inner()
-}
-
-#[cfg(all(test, target_os = "linux"))]
-mod x11_cursor_tests {
-    use super::{X11CursorSource, x11_cursor_png};
-
-    #[test]
-    fn cached_cursor_pngs_match_a_fresh_encode() {
-        let mut source = X11CursorSource::default();
-        let arrow = vec![0xff00_0000; 6];
-        let hand = vec![0x80ff_ffff; 6];
-
-        for (width, height, pixels) in [
-            (2, 3, &arrow),
-            (2, 3, &arrow),
-            (2, 3, &hand),
-            (3, 2, &hand),
-            (2, 3, &arrow),
-        ] {
-            assert_eq!(
-                source.png(width, height, pixels.clone()),
-                x11_cursor_png(width, height, pixels)
-            );
-        }
-    }
-
-    #[test]
-    fn cursor_pixels_are_encoded_as_rgba() {
-        let png = x11_cursor_png(1, 1, &[0x8011_2233]).unwrap();
-        let image = image::load_from_memory(&png).unwrap().into_rgba8();
-        assert_eq!(image.get_pixel(0, 0).0, [0x11, 0x22, 0x33, 0x80]);
-    }
-
-    #[test]
-    fn cursor_with_mismatched_pixel_count_is_skipped() {
-        let mut source = X11CursorSource::default();
-        assert_eq!(source.png(2, 2, vec![0; 3]), None);
     }
 }
 

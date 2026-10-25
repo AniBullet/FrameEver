@@ -14,11 +14,6 @@ mod windows;
 #[cfg(windows)]
 use windows::*;
 
-#[cfg(target_os = "linux")]
-mod linux;
-#[cfg(target_os = "linux")]
-pub use linux::*;
-
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -119,10 +114,6 @@ impl Debug for Format {
                         VideoFormatInner::MediaFoundation(_) => &"MediaFoundation",
                     }
                 }
-                #[cfg(target_os = "linux")]
-                {
-                    &"Linux"
-                }
             })
             .finish()
     }
@@ -199,9 +190,6 @@ pub enum StartCapturingError {
     #[cfg(windows)]
     #[error("{0}")]
     Native(windows_core::Error),
-    #[cfg(target_os = "linux")]
-    #[error("{0}")]
-    Native(String),
 }
 
 /// How the capture session negotiates pixel format and device format.
@@ -261,8 +249,6 @@ impl CameraInfo {
                 Box::new(callback),
             )?),
             #[cfg(windows)]
-            native: Some(start_capturing_impl(self, format, Box::new(callback))?),
-            #[cfg(target_os = "linux")]
             native: Some(start_capturing_impl(self, format, Box::new(callback))?),
         })
     }
