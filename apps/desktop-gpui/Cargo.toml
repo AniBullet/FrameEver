@@ -248,8 +248,8 @@ gpui_tokio = { path = "../../../zed-cap/crates/gpui_tokio" }
 # build deps at opt-level 2 and keep the app crate itself at 0.
 opt-level = 0
 # Incremental caches for this dep tree run to gigabytes on a disk that has
-# already been filled to zero once; only the app crate, the one that changes
-# on every edit, opts back in below.
+# already been filled to zero once; only the app crate and the shared crates
+# edited most often opt back in below, and `pnpm fe` prunes stale caches.
 incremental = false
 
 [profile.dev.package."*"]
@@ -270,6 +270,24 @@ opt-level = 3
 [profile.dev.package.frameever-desktop-gpui]
 incremental = true
 debug = "line-tables-only"
+
+[profile.dev.package.frameever-project]
+incremental = true
+
+[profile.dev.package.frameever-rendering]
+incremental = true
+
+[profile.dev.package.frameever-recording]
+incremental = true
+
+[profile.dev.package.frameever-editor]
+incremental = true
+
+[profile.dev.package.frameever-export]
+incremental = true
+
+[profile.dev.package.frameever-verify]
+incremental = true
 
 [profile.release]
 codegen-units = 1

@@ -23,6 +23,8 @@ Everything goes through one entry point, `pnpm fe <command>` (`scripts/fe.mjs`).
 | `pnpm fe export h264\|hevc\|av1` | Export the newest test recording to `target/testdata/exports/` |
 | `pnpm fe package` | Build the installer into `dist/` exactly as CI does |
 
+Test cadence: while iterating run `pnpm fe test <filter>` (an app-only edit rebuilds in about 20 s); run `pnpm fe check` only when you want errors without running anything, since `test` compiles the same code. Run `pnpm fe test --all` and `pnpm fe lint` once, before committing. An edit in a shared crate (`frameever-project`, `-rendering`, `-recording`, `-editor`, `-export`) rebuilds everything above it, 30–45 s; renaming or upgrading crates rebuilds everything. `dev`, `check`, `test` and `lint` keep the four newest incremental caches per crate and delete older ones.
+
 ## Where things are
 
 | What | Where |

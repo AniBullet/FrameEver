@@ -118,6 +118,34 @@ export function testProfileEnv(env = process.env) {
 	};
 }
 
+export function staleIncrementalDirs(dir, keep = 4) {
+	if (!existsSync(dir)) return [];
+	const byCrate = new Map();
+	for (const name of readdirSync(dir)) {
+		const full = path.join(dir, name);
+		const crate = name.replace(/-[^-]+$/, "");
+		const entries = byCrate.get(crate) ?? [];
+		entries.push({ full, mtime: statSync(full).mtimeMs });
+		byCrate.set(crate, entries);
+	}
+	return [...byCrate.values()].flatMap((entries) =>
+		entries
+			.sort((a, b) => b.mtime - a.mtime)
+			.slice(keep)
+			.map((entry) => entry.full),
+	);
+}
+
+function pruneIncremental() {
+	for (const workspace of [gpuiDir, root]) {
+		for (const stale of staleIncrementalDirs(path.join(workspace, "target", "debug", "incremental"))) {
+			try {
+				rmSync(stale, { recursive: true, force: true });
+			} catch {}
+		}
+	}
+}
+
 function step(title) {
 	console.log(`\n\u001b[36m▸ ${title}\u001b[0m`);
 }
@@ -395,6 +423,7 @@ const WATCH_DIRS = [
 ];
 
 function dev({ flags }) {
+	pruneIncremental();
 	if (flags.lang && !["zh-CN", "en"].includes(flags.lang)) {
 		fail("--lang takes zh-CN or en");
 	}
@@ -465,6 +494,7 @@ function dev({ flags }) {
 }
 
 function check() {
+	pruneIncremental();
 	step("GPUI app");
 	run("cargo", ["check", "--tests"], { cwd: gpuiDir });
 	step("CLI");
@@ -473,6 +503,7 @@ function check() {
 }
 
 function test({ flags, positional }) {
+	pruneIncremental();
 	step("GPUI tests");
 	run("cargo", ["test", "--bin", "frameever-gpui", ...positional], {
 		cwd: gpuiDir,
@@ -508,6 +539,7 @@ function fmt() {
 }
 
 function lint() {
+	pruneIncremental();
 	step("Format");
 	run("cargo", ["fmt", "--check"], { cwd: gpuiDir });
 	step("Clippy");

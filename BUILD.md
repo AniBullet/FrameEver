@@ -43,6 +43,8 @@ pnpm fe setup
 | `pnpm fe fmt` | 格式化代码 |
 | `pnpm fe export h264\|hevc\|av1` | 用最新的测试录制导出视频到 `target/testdata/exports/` |
 
+测试节奏：改代码时用 `pnpm fe test <过滤词>`，只改应用代码约 20 秒；`pnpm fe check` 只在想看编译错误又不想跑测试时用，`test` 本身会编译同样的代码。`pnpm fe test --all` 和 `pnpm fe lint` 提交前跑一次就够。改共享 crate（`frameever-project`、`-rendering`、`-recording`、`-editor`、`-export`）会连带重编上层，约 30–45 秒；crate 改名或升级依赖会全部重编。`dev`、`check`、`test`、`lint` 每次会自动只保留每个 crate 最新的 4 份增量缓存，删除更旧的。
+
 ## 打包安装程序
 
 ```powershell

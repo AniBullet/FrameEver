@@ -15,6 +15,7 @@ import {
 	parseCargoUpdate,
 	setLargeAddressAware,
 	SEMVER,
+	staleIncrementalDirs,
 	stampReleaseDate,
 	stampVersion,
 	testProfileEnv,
@@ -191,4 +192,23 @@ test("watch mode runs a copy so a rebuild can replace the binary", async () => {
 		runCopyPath(path.join("debug", "frameever-gpui.exe")),
 		path.join("debug", "frameever-gpui.fe-run.exe"),
 	);
+});
+
+test("each crate keeps its newest incremental caches and drops the rest", () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "fe-"));
+	assert.deepEqual(staleIncrementalDirs(path.join(dir, "missing")), []);
+	const ages = {
+		"frameever_gpui-aaa": 1,
+		"frameever_gpui-bbb": 2,
+		"frameever_gpui-ccc": 3,
+		"frameever_editor-ddd": 1,
+		"build_script_build-eee": 5,
+	};
+	for (const [name, age] of Object.entries(ages)) {
+		mkdirSync(path.join(dir, name));
+		const time = new Date(Date.now() - age * 60_000);
+		utimesSync(path.join(dir, name), time, time);
+	}
+	assert.deepEqual(staleIncrementalDirs(dir, 2), [path.join(dir, "frameever_gpui-ccc")]);
+	rmSync(dir, { recursive: true });
 });
