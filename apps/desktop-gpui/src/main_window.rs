@@ -730,25 +730,22 @@ struct LibraryRow<T> {
 pub(crate) struct RecordingStartPermit(std::rc::Rc<std::cell::Cell<bool>>);
 
 impl RecordingStartPermit {
-    fn prepare(phase: Phase, clean_capture_owned: bool, preparing: bool) -> Result<Self, String> {
-        if phase != Phase::Idle || clean_capture_owned || preparing {
+    fn prepare(phase: Phase, preparing: bool) -> Result<Self, String> {
+        if phase != Phase::Idle || preparing {
             return Err("Another recording or recording preparation owns the inputs".into());
         }
         Ok(Self(std::rc::Rc::new(std::cell::Cell::new(true))))
     }
 
-    fn allows(&self, phase: Phase, clean_capture_owned: bool) -> bool {
-        if phase != Phase::Idle || clean_capture_owned {
+    fn allows(&self, phase: Phase) -> bool {
+        if phase != Phase::Idle {
             self.cancel();
         }
         self.0.get()
     }
 
     pub(crate) fn is_current(&self, cx: &gpui::App) -> bool {
-        self.allows(
-            RecordingSession::global(cx).read(cx).phase,
-            app_windows::clean_capture_owned(cx),
-        )
+        self.allows(RecordingSession::global(cx).read(cx).phase)
     }
 
     pub(crate) fn cancel(&self) {
@@ -2213,11 +2210,8 @@ impl MainWindow {
         if self.device_format_pending.is_some() {
             return Err("Wait for the device format change to finish before recording".into());
         }
-        let permit = RecordingStartPermit::prepare(
-            self.session.read(cx).phase,
-            app_windows::clean_capture_owned(cx),
-            self.checking_storage,
-        )?;
+        let permit =
+            RecordingStartPermit::prepare(self.session.read(cx).phase, self.checking_storage)?;
         self.pending_device_restore = crate::store::RecordingInputSettings::default();
         self.checking_storage = true;
         self.deep_link_start = Some(permit.clone());
@@ -2241,7 +2235,6 @@ impl MainWindow {
         self.session.read(cx).phase == Phase::Idle
             && !self.is_preparing_recording()
             && !self.device_restore_suspended
-            && !app_windows::clean_capture_owned(cx)
     }
 
     pub(crate) fn finish_deep_link_start(&mut self, permit: &RecordingStartPermit) {
@@ -2668,9 +2661,6 @@ impl Render for MainWindow {
                     .filter(|_| self.session.read(cx).phase == Phase::Idle),
                 |this, recording| this.child(self.render_recovery_toast(recording, cx)),
             )
-            .when(app_windows::clean_capture_pending(cx), |this| {
-                this.child(self.render_clean_capture_preflight(cx))
-            })
             .when(self.microphone_warning.is_some(), |this| {
                 this.child(self.render_microphone_warning(cx))
             })
@@ -2882,46 +2872,6 @@ impl MainWindow {
                                 cx.stop_propagation();
                                 on_dismiss(this, cx);
                             })),
-                    ),
-            )
-    }
-
-    fn render_clean_capture_preflight(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        div()
-            .absolute()
-            .inset_0()
-            .bg(theme.gray_1)
-            .flex()
-            .flex_col()
-            .justify_center()
-            .gap(px(16.))
-            .p(px(24.))
-            .child(
-                div()
-                    .text_size(px(18.))
-                    .child(t!("Keep your capture clean")),
-            )
-            .child(
-                div()
-                    .text_size(px(14.))
-                    .child(app_windows::clean_capture_camera_message(cx)),
-            )
-            .child(
-                div()
-                    .text_size(px(14.))
-                    .child(app_windows::clean_capture_shortcut_message(cx)),
-            )
-            .child(
-                div()
-                    .id("cancel-clean-capture")
-                    .rounded(px(8.))
-                    .p(px(12.))
-                    .bg(theme.gray_3)
-                    .cursor_pointer()
-                    .child(t!("Cancel"))
-                    .on_click(
-                        cx.listener(|_, _, _, cx| cx.defer(app_windows::cancel_clean_capture)),
                     ),
             )
     }
@@ -6567,45 +6517,43 @@ mod recording_start_permit_tests {
             Phase::Recording { paused: true },
             Phase::Stopping,
         ] {
-            for owned in [false, true] {
-                for preparing in [false, true] {
-                    let mut inputs = ("original camera", "original microphone");
-                    let result = RecordingStartPermit::prepare(phase, owned, preparing).map(|_| {
-                        inputs = ("requested camera", "requested microphone");
-                    });
-                    let allowed = phase == Phase::Idle && !owned && !preparing;
-                    assert_eq!(result.is_ok(), allowed);
-                    assert_eq!(
-                        inputs,
-                        if allowed {
-                            ("requested camera", "requested microphone")
-                        } else {
-                            ("original camera", "original microphone")
-                        }
-                    );
-                }
+            for preparing in [false, true] {
+                let mut inputs = ("original camera", "original microphone");
+                let result = RecordingStartPermit::prepare(phase, preparing).map(|_| {
+                    inputs = ("requested camera", "requested microphone");
+                });
+                let allowed = phase == Phase::Idle && !preparing;
+                assert_eq!(result.is_ok(), allowed);
+                assert_eq!(
+                    inputs,
+                    if allowed {
+                        ("requested camera", "requested microphone")
+                    } else {
+                        ("original camera", "original microphone")
+                    }
+                );
             }
         }
     }
 
     #[test]
     fn rejected_start_does_not_revoke_the_request_that_owns_preparation() {
-        let current = RecordingStartPermit::prepare(Phase::Idle, false, false).unwrap();
-        assert!(RecordingStartPermit::prepare(Phase::Idle, false, true).is_err());
-        assert!(current.allows(Phase::Idle, false));
+        let current = RecordingStartPermit::prepare(Phase::Idle, false).unwrap();
+        assert!(RecordingStartPermit::prepare(Phase::Idle, true).is_err());
+        assert!(current.allows(Phase::Idle));
     }
 
     #[test]
     fn cancelled_permit_blocks_preview_storage_prompt_and_final_handoff_callbacks() {
         for stop_before in 0..5 {
-            let permit = RecordingStartPermit::prepare(Phase::Idle, false, false).unwrap();
+            let permit = RecordingStartPermit::prepare(Phase::Idle, false).unwrap();
             let callbacks: [_; 5] = std::array::from_fn(|_| permit.clone());
             let mut started = false;
             for (step, callback) in callbacks.iter().enumerate() {
                 if step == stop_before {
                     permit.cancel();
                 }
-                if !callback.allows(Phase::Idle, false) {
+                if !callback.allows(Phase::Idle) {
                     continue;
                 }
                 if step == callbacks.len() - 1 {
@@ -6617,45 +6565,44 @@ mod recording_start_permit_tests {
     }
 
     #[test]
-    fn observing_transition_or_clean_ownership_permanently_revokes_a_request() {
-        for (phase, owned) in [
-            (Phase::Starting, false),
-            (Phase::Recording { paused: false }, false),
-            (Phase::Stopping, false),
-            (Phase::Idle, true),
+    fn observing_a_transition_permanently_revokes_a_request() {
+        for phase in [
+            Phase::Starting,
+            Phase::Recording { paused: false },
+            Phase::Stopping,
         ] {
-            let permit = RecordingStartPermit::prepare(Phase::Idle, false, false).unwrap();
-            assert!(!permit.allows(phase, owned));
-            assert!(!permit.allows(Phase::Idle, false));
+            let permit = RecordingStartPermit::prepare(Phase::Idle, false).unwrap();
+            assert!(!permit.allows(phase));
+            assert!(!permit.allows(Phase::Idle));
         }
     }
 
     #[test]
     fn stale_completion_cannot_revoke_a_later_start_permit() {
-        let previous = RecordingStartPermit::prepare(Phase::Idle, false, false).unwrap();
+        let previous = RecordingStartPermit::prepare(Phase::Idle, false).unwrap();
         let completion = previous.clone();
         assert!(completion.same(&previous));
         previous.cancel();
-        let current = RecordingStartPermit::prepare(Phase::Idle, false, false).unwrap();
+        let current = RecordingStartPermit::prepare(Phase::Idle, false).unwrap();
         assert!(!completion.same(&current));
         completion.cancel();
-        assert!(current.allows(Phase::Idle, false));
+        assert!(current.allows(Phase::Idle));
     }
 
     #[test]
     fn cancel_current_rejects_queued_callbacks_after_rearm() {
-        let first = RecordingStartPermit::prepare(Phase::Idle, false, false).unwrap();
+        let first = RecordingStartPermit::prepare(Phase::Idle, false).unwrap();
         let callbacks: [_; 3] = std::array::from_fn(|_| first.clone());
         let mut retained = Some(first);
         assert!(RecordingStartPermit::cancel_current(&mut retained));
         assert!(retained.is_none());
-        retained = Some(RecordingStartPermit::prepare(Phase::Idle, false, false).unwrap());
+        retained = Some(RecordingStartPermit::prepare(Phase::Idle, false).unwrap());
 
         for callback in callbacks {
-            assert!(!callback.allows(Phase::Idle, false));
+            assert!(!callback.allows(Phase::Idle));
             assert!(!retained.as_ref().unwrap().same(&callback));
             callback.cancel();
-            assert!(retained.as_ref().unwrap().allows(Phase::Idle, false));
+            assert!(retained.as_ref().unwrap().allows(Phase::Idle));
         }
         assert!(RecordingStartPermit::cancel_current(&mut retained));
         assert!(!RecordingStartPermit::cancel_current(&mut retained));

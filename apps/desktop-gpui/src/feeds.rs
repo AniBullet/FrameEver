@@ -197,10 +197,7 @@ fn run_camera_preview_worker(config: CameraPreviewWorkerConfig) {
             .recv(&reset_rx, Event::Command);
         let mut frame = match selector.wait() {
             Event::Frame(Ok(frame)) => frame,
-            Event::Command(Ok(command)) => {
-                match command {
-                    CameraWorkerCommand::Reset => {}
-                }
+            Event::Command(Ok(CameraWorkerCommand::Reset)) => {
                 scaler = None;
                 processor = None;
                 previous_blur = 0;

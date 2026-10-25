@@ -414,26 +414,13 @@ pub(crate) fn recording_start_allowed(cx: &App) -> bool {
         .is_none_or(|coordinator| coordinator.gate.recording_start_allowed())
 }
 
-fn quit_phase(phase: Phase, ui_cleanup_pending: bool) -> Phase {
-    if phase == Phase::Idle && ui_cleanup_pending {
-        Phase::Stopping
-    } else {
-        phase
-    }
-}
-
 pub fn quit(cx: &mut App) {
     let session = RecordingSession::global(cx);
     if !cx.has_global::<QuitCoordinator>() {
         cx.set_global(QuitCoordinator::default());
     }
     let phase = session.read(cx).phase;
-    let ui_cleanup_pending = app_windows::clean_capture_owned(cx);
-    let Some((generation, action)) = cx
-        .global_mut::<QuitCoordinator>()
-        .gate
-        .request(quit_phase(phase, ui_cleanup_pending))
-    else {
+    let Some((generation, action)) = cx.global_mut::<QuitCoordinator>().gate.request(phase) else {
         return;
     };
     if action == QuitAction::Exit {
@@ -452,15 +439,11 @@ pub fn quit(cx: &mut App) {
     })
     .detach();
     apply_quit_action(action, cx);
-    if phase == Phase::Idle && ui_cleanup_pending {
-        app_windows::cancel_clean_capture(cx);
-        advance_pending_quit(generation, false, cx);
-    }
 }
 
 fn advance_pending_quit(generation: u64, timed_out: bool, cx: &mut App) {
     let session = RecordingSession::global(cx);
-    let phase = quit_phase(session.read(cx).phase, app_windows::clean_capture_owned(cx));
+    let phase = session.read(cx).phase;
     let failed = session.read(cx).error.is_some();
     let action = cx
         .global_mut::<QuitCoordinator>()
@@ -655,45 +638,6 @@ fn visible_window_classes(cx: &mut App) -> (bool, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn quit_waits_for_recording_ui_restoration() {
-        for phase in [Phase::Idle, Phase::Starting] {
-            let mut gate = QuitGate::default();
-            let (generation, action) = gate.request(quit_phase(phase, true)).unwrap();
-            assert_ne!(action, QuitAction::Exit);
-            assert!(!gate.recording_start_allowed());
-            assert_eq!(
-                gate.advance(generation, quit_phase(Phase::Idle, true), false, false),
-                QuitAction::Wait
-            );
-            assert_eq!(
-                gate.advance(generation, quit_phase(Phase::Idle, false), false, false),
-                QuitAction::Exit
-            );
-        }
-    }
-
-    #[test]
-    fn restoration_failure_or_timeout_keeps_cap_open() {
-        for failed in [false, true] {
-            let mut gate = QuitGate::default();
-            let (generation, _) = gate.request(quit_phase(Phase::Idle, true)).unwrap();
-            assert_eq!(
-                gate.advance(generation, quit_phase(Phase::Idle, true), failed, !failed),
-                if failed {
-                    QuitAction::Failed
-                } else {
-                    QuitAction::TimedOut
-                }
-            );
-            assert!(gate.recording_start_allowed());
-            assert_eq!(
-                gate.advance(generation, quit_phase(Phase::Idle, false), false, false),
-                QuitAction::Wait
-            );
-        }
-    }
 
     #[test]
     fn quit_deadline_does_not_authorize_exit_after_a_delayed_stop() {

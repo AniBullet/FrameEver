@@ -466,10 +466,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "按下要使用的按键。Esc 取消，Delete 删除。",
     ),
     (
-        "Shortcuts can't be changed while this recording holds its stop key. Stop recording first.",
-        "当前录制正在占用停止快捷键，暂时无法修改快捷键。请先停止录制。",
-    ),
-    (
         "Another app or the system already uses this shortcut. Click to choose a different one.",
         "其他应用或系统已经在使用这个快捷键。点击以选择其他快捷键。",
     ),

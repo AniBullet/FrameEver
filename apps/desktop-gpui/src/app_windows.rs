@@ -2581,38 +2581,6 @@ pub fn restore_content_protection(cx: &mut App) {
     apply_content_protection(windows, |_| false, cx);
 }
 
-pub(crate) fn clean_capture_camera_message(cx: &App) -> &'static str {
-    let _ = cx;
-    t!(
-        "FrameEver will hide its camera preview and recording controls. Any selected camera will keep recording as a separate editable track."
-    )
-}
-
-pub fn clean_capture_owned(cx: &App) -> bool {
-    {
-        let _ = cx;
-        false
-    }
-}
-
-pub fn clean_capture_pending(cx: &App) -> bool {
-    {
-        let _ = cx;
-        false
-    }
-}
-
-pub fn clean_capture_shortcut_message(cx: &App) -> String {
-    {
-        let _ = cx;
-        String::new()
-    }
-}
-
-pub fn cancel_clean_capture(cx: &mut App) {
-    let _ = cx;
-}
-
 /// The whole start flow: bar up (in its Starting state), main window hidden,
 /// engine started with the bar excluded from capture.
 pub fn begin_recording(mut config: StartConfig, cx: &mut App) {
@@ -4720,11 +4688,7 @@ fn restore_after_editor_close(key: &Path, cx: &mut App) {
             .editor_recording_target()
             .is_some_and(|path| editor_key(&path) == key)
     {
-        if clean_capture_owned(cx) {
-            cancel_clean_capture(cx);
-        } else {
-            abort_editor_recording_flow(cx);
-        }
+        abort_editor_recording_flow(cx);
     }
 
     let windows = cx.global::<AppWindows>();
@@ -4776,9 +4740,7 @@ fn editor_deletion_allowed(
         .into());
     }
     let session = RecordingSession::global(cx);
-    if session.read(cx).phase != Phase::Idle
-        || session.read(cx).editor_recording_target().is_some()
-        || clean_capture_owned(cx)
+    if session.read(cx).phase != Phase::Idle || session.read(cx).editor_recording_target().is_some()
     {
         return Err(t!("Finish or cancel the recording before deleting this project.").into());
     }

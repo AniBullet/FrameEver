@@ -89,7 +89,6 @@ fn overlay_viewport_size(viewport: (f32, f32), previous: (f32, f32)) -> (f32, f3
 
 fn recording_devices_available(cx: &App) -> bool {
     crate::session::RecordingSession::global(cx).read(cx).phase == crate::session::Phase::Idle
-        && !app_windows::clean_capture_owned(cx)
         && cx
             .global::<app_windows::AppWindows>()
             .main

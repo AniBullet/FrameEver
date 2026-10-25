@@ -111,7 +111,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Don't show again", "不再提示"),
     ("Record without microphone", "不使用麦克风录制"),
     ("Close", "关闭"),
-    ("Keep your capture clean", "保持画面干净"),
     ("Cancel", "取消"),
     (" · ~{seconds}s", " · 约 {seconds} 秒"),
     (" · ~{minutes}m", " · 约 {minutes} 分钟"),
@@ -440,10 +439,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     (
         "The selected area changed or is no longer available. Select it again.",
         "所选区域已变化或不可用，请重新选择。",
-    ),
-    (
-        "FrameEver will hide its camera preview and recording controls. Any selected camera will keep recording as a separate editable track.",
-        "帧刻会隐藏摄像头预览和录制控制栏。所选摄像头会继续录制为一条可单独编辑的轨道。",
     ),
     (
         "Opening this recording failed: {error}",

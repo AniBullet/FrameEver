@@ -297,20 +297,6 @@ pub fn init(cx: &mut App) {
     .detach();
 }
 
-fn dispatch_recording_stop<C>(
-    phase: Phase,
-    clean_capture_owned: bool,
-    context: &mut C,
-    cancel_preflight: impl FnOnce(&mut C),
-    stop_session: impl FnOnce(&mut C),
-) {
-    if phase == Phase::Idle && clean_capture_owned {
-        cancel_preflight(context);
-    } else {
-        stop_session(context);
-    }
-}
-
 impl DeepLinkAction {
     /// `DeepLinkAction::execute` (`deeplink_actions.rs:186-296`), arm for arm,
     /// against this app's counterparts: the session and feeds globals where
@@ -441,19 +427,11 @@ impl DeepLinkAction {
                     cx.notify();
                 });
                 let session = RecordingSession::global(cx);
-                dispatch_recording_stop(
-                    session.read(cx).phase,
-                    app_windows::clean_capture_owned(cx),
-                    cx,
-                    app_windows::cancel_clean_capture,
-                    |cx| {
-                        if session.read(cx).phase == crate::session::Phase::Idle {
-                            app_windows::abort_editor_recording_flow(cx);
-                        } else {
-                            session.update(cx, |session, cx| session.stop(cx));
-                        }
-                    },
-                );
+                if session.read(cx).phase == Phase::Idle {
+                    app_windows::abort_editor_recording_flow(cx);
+                } else {
+                    session.update(cx, |session, cx| session.stop(cx));
+                }
                 Ok(())
             }
             // `pause_recording` / `resume_recording`
@@ -612,36 +590,6 @@ fn camera_selection(id: DeviceOrModelID) -> SelectedCamera {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn stop_dispatch_cancels_idle_preflight_and_preserves_live_session_stop() {
-        for phase in [
-            Phase::Idle,
-            Phase::Starting,
-            Phase::Recording { paused: false },
-            Phase::Recording { paused: true },
-            Phase::Stopping,
-        ] {
-            for owned in [false, true] {
-                let mut effects = (0, 0);
-                dispatch_recording_stop(
-                    phase,
-                    owned,
-                    &mut effects,
-                    |effects| effects.0 += 1,
-                    |effects| effects.1 += 1,
-                );
-                assert_eq!(
-                    effects,
-                    if phase == Phase::Idle && owned {
-                        (1, 0)
-                    } else {
-                        (0, 1)
-                    }
-                );
-            }
-        }
-    }
 
     #[test]
     fn forwarded_actions_wait_in_the_existing_queue_until_dispatch() {

@@ -171,25 +171,15 @@ pub fn reload(cx: &mut App) {
 
 /// Drop every OS registration while the Shortcuts page records a combo, so
 /// pressing an already-bound combo reaches the page instead of firing.
-/// Returns false when the bindings cannot be released.
-pub fn pause(cx: &mut App) -> bool {
+pub fn pause(cx: &mut App) {
     if !cx.has_global::<Hotkeys>() || cx.global::<Hotkeys>().paused {
-        return true;
-    }
-    if editing_blocked(cx) {
-        return false;
+        return;
     }
     unregister_all(cx);
     let hotkeys = cx.global_mut::<Hotkeys>();
     hotkeys.paused = true;
     hotkeys.release_idle_manager();
     tracing::info!("global hotkeys paused while a shortcut is recorded");
-    true
-}
-
-pub fn editing_blocked(cx: &App) -> bool {
-    let _ = cx;
-    false
 }
 
 /// End a [`pause`] and register the store's bindings again. Returns whether

@@ -493,11 +493,7 @@ impl EditorWindow {
                     .as_ref()
                     == Some(&editor_path)
                 {
-                    if app_windows::clean_capture_owned(cx) {
-                        app_windows::cancel_clean_capture(cx);
-                    } else {
-                        app_windows::abort_editor_recording_flow(cx);
-                    }
+                    app_windows::abort_editor_recording_flow(cx);
                 }
             });
         }
@@ -1274,7 +1270,7 @@ impl EditorWindow {
             return false;
         }
         let session = RecordingSession::global(cx);
-        if session.read(cx).phase != Phase::Idle || app_windows::clean_capture_owned(cx) {
+        if session.read(cx).phase != Phase::Idle {
             tracing::warn!("a recording is already live; not starting another from the editor");
             return false;
         }
