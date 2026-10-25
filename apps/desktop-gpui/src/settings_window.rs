@@ -3850,7 +3850,7 @@ impl SettingsWindow {
                             .mt(px(12.))
                             .text_size(px(12.))
                             .text_color(theme.settings_muted())
-                            .child(t!("Remote desktop windows can't be excluded.")),
+                            .child(t!("Over Remote Desktop or a streaming app, FrameEver windows stay visible in recordings.")),
                     )
                     .into_any_element(),
             ],

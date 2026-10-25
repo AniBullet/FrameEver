@@ -281,7 +281,7 @@ impl Default for FrameConfiguration {
         Self {
             style: FrameStyle::None,
             theme: FrameTheme::default(),
-            url: "Cap.so".to_string(),
+            url: String::new(),
             title: String::new(),
         }
     }
