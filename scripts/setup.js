@@ -7,10 +7,6 @@ import * as path from "node:path";
 import { env } from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import {
-	createLinuxBundleConfig,
-	GPUI_RPM_DEPENDS,
-} from "./linux-bundle-config.mjs";
 
 const exec = promisify(execCb);
 const execFile = promisify(execFileCb);
@@ -250,94 +246,6 @@ async function main() {
 			throw new Error(
 				"CMake was not found. Install the Visual Studio C++ CMake tools component.",
 			);
-	} else if (process.platform === "linux") {
-		const triple = process.env.RUST_TARGET_TRIPLE;
-		if (triple) {
-			cargoConfigContents += FFMPEG_CARGO_ENV;
-
-			const NATIVE_DEPS_VERSION = "v0.26";
-			const NATIVE_DEPS_URL = `https://github.com/spacedriveapp/native-deps/releases/download/${NATIVE_DEPS_VERSION}`;
-			const NATIVE_DEPS_ASSETS = {
-				x86_64: "native-deps-x86_64-linux-gnu.tar.xz",
-				aarch64: "native-deps-aarch64-linux-gnu.tar.xz",
-			};
-
-			const nativeDepsTar = NATIVE_DEPS_ASSETS[arch];
-			if (!nativeDepsTar)
-				throw new Error(`Unsupported Linux arch for native deps: ${arch}`);
-
-			const nativeDepsTarPath = path.join(
-				targetDir,
-				`${NATIVE_DEPS_VERSION}-${nativeDepsTar}`,
-			);
-			let downloadedNativeDeps = false;
-			if (!(await fileExists(nativeDepsTarPath))) {
-				console.log(`Downloading ${nativeDepsTar}`);
-				const bytes = await fetch(`${NATIVE_DEPS_URL}/${nativeDepsTar}`)
-					.then((r) => r.blob())
-					.then((b) => b.arrayBuffer());
-				await fs.writeFile(nativeDepsTarPath, Buffer.from(bytes));
-				console.log("Downloaded native deps");
-				downloadedNativeDeps = true;
-			} else console.log(`Using cached ${nativeDepsTar}`);
-
-			const nativeDepsDir = path.join(targetDir, "native-deps");
-			const nativeLibDir = path.join(nativeDepsDir, "lib");
-			if (downloadedNativeDeps || !(await fileExists(nativeLibDir))) {
-				await fs
-					.rm(nativeDepsDir, { recursive: true, force: true })
-					.catch(() => {});
-				await fs.mkdir(nativeDepsDir, { recursive: true });
-				await execFile("tar", ["xf", nativeDepsTarPath, "-C", nativeDepsDir]);
-				console.log("Extracted native-deps");
-			} else console.log("Using cached native-deps");
-
-			const onnxRuntimePath = await setupLinuxOnnxRuntime();
-			const debLibDir = path.join(nativeDepsDir, "cap-deb-libs");
-			await fs.rm(debLibDir, { recursive: true, force: true }).catch(() => {});
-			await fs.mkdir(debLibDir, { recursive: true });
-
-			const profileDirs = [];
-			for (const profile of ["debug", "release"]) {
-				profileDirs.push(path.join(targetDir, profile));
-				profileDirs.push(path.join(targetDir, triple, profile));
-			}
-			for (const dir of profileDirs) await fs.mkdir(dir, { recursive: true });
-
-			const sonameLibs = (await fs.readdir(nativeLibDir)).filter((name) =>
-				/\.so\.\d+$/.test(name),
-			);
-			for (const name of sonameLibs) {
-				const realPath = await fs.realpath(path.join(nativeLibDir, name));
-				await fs.copyFile(realPath, path.join(debLibDir, name));
-				for (const dir of profileDirs)
-					await fs.copyFile(realPath, path.join(dir, name));
-			}
-			const onnxRuntimeName = path.basename(onnxRuntimePath);
-			const onnxRuntimeNames = [onnxRuntimeName, `${onnxRuntimeName}.1`];
-			for (const name of onnxRuntimeNames) {
-				await fs.copyFile(onnxRuntimePath, path.join(debLibDir, name));
-				for (const dir of profileDirs)
-					await fs.copyFile(onnxRuntimePath, path.join(dir, name));
-			}
-			const bundledLibraries = [
-				...new Set([...sonameLibs, ...onnxRuntimeNames]),
-			];
-			console.log(
-				`Staged ${bundledLibraries.length} shared libraries for Linux bundling`,
-			);
-			await writeLinuxTauriConfig(bundledLibraries);
-
-			cargoConfigContents += `ORT_DYLIB_PATH = { relative = true, force = true, value = "${cargoConfigPath(
-				path.relative(__root, onnxRuntimePath),
-			)}" }\n`;
-			cargoConfigContents += `\n[target.${triple}]\nrustflags = ["-C", "link-arg=-Wl,-rpath,$ORIGIN", "-C", "link-arg=-Wl,-rpath,$ORIGIN/../lib/cap"]\n`;
-		} else {
-			const onnxRuntimePath = await setupLinuxOnnxRuntime();
-			cargoConfigContents += `[env]\nORT_DYLIB_PATH = { relative = true, force = true, value = "${cargoConfigPath(
-				path.relative(__root, onnxRuntimePath),
-			)}" }\n`;
-		}
 	}
 
 	await fs.mkdir(path.join(__root, ".cargo"), { recursive: true });
@@ -542,50 +450,6 @@ async function setupWindowsOnnxRuntime() {
 	return outputPath;
 }
 
-async function setupLinuxOnnxRuntime() {
-	const version = "1.24.3";
-	const platformArch = { x86_64: "x64", aarch64: "aarch64" }[arch];
-	if (!platformArch)
-		throw new Error(`Unsupported Linux arch for ONNX Runtime: ${arch}`);
-
-	const archiveName = `onnxruntime-linux-${platformArch}-${version}.tgz`;
-	const archivePath = path.join(targetDir, archiveName);
-	const extractDir = path.join(targetDir, archiveName.replace(/\.tgz$/, ""));
-	const outputDir = path.join(targetDir, "native-deps", "onnxruntime", "lib");
-	const outputPath = path.join(outputDir, "libonnxruntime.so");
-	const markerPath = path.join(outputDir, "asset.txt");
-	const marker = await fs
-		.readFile(markerPath, "utf-8")
-		.then((value) => value.trim())
-		.catch(() => null);
-
-	if (!(await fileExists(archivePath))) {
-		const response = await fetch(
-			`https://github.com/microsoft/onnxruntime/releases/download/v${version}/${archiveName}`,
-		);
-		if (!response.ok)
-			throw new Error(
-				`Failed to download ${archiveName}: HTTP ${response.status}`,
-			);
-		await fs.writeFile(archivePath, Buffer.from(await response.arrayBuffer()));
-		console.log(`Downloaded ${archiveName}`);
-	} else console.log(`Using cached ${archiveName}`);
-
-	if (!(await fileExists(outputPath)) || marker !== archiveName) {
-		await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
-		await execFile("tar", ["xf", archivePath, "-C", targetDir]);
-		await fs.mkdir(outputDir, { recursive: true });
-		await fs.copyFile(
-			path.join(extractDir, "lib", "libonnxruntime.so"),
-			outputPath,
-		);
-		await fs.writeFile(markerPath, archiveName);
-		console.log("Prepared ONNX Runtime shared library");
-	} else console.log("Using cached ONNX Runtime shared library");
-
-	return outputPath;
-}
-
 async function setupWindowsDxc() {
 	const asset = {
 		version: "1.9.2607.13",
@@ -711,59 +575,6 @@ async function fileExists(path) {
 		.access(path)
 		.then(() => true)
 		.catch(() => false);
-}
-
-async function writeLinuxTauriConfig(sonameLibs) {
-	const pluginName = "libasound_module_pcm_pulse.so";
-	const pluginDirectories = [
-		`/usr/lib/${arch}-linux-gnu/alsa-lib`,
-		"/usr/lib64/alsa-lib",
-		"/usr/lib/alsa-lib",
-	];
-	let pulsePlugin;
-	for (const directory of pluginDirectories) {
-		const candidate = path.join(directory, pluginName);
-		if (await fileExists(candidate)) {
-			pulsePlugin = candidate;
-			break;
-		}
-	}
-	if (!pulsePlugin) {
-		throw new Error(
-			"The ALSA PulseAudio plugin is required for Linux bundles. Install libasound2-plugins (Debian/Ubuntu), alsa-plugins-pulseaudio (Fedora), or alsa-plugins (Arch).",
-		);
-	}
-	const appimageLibDir = path.join(
-		__root,
-		"target/native-deps/cap-appimage-libs",
-	);
-	await fs.mkdir(appimageLibDir, { recursive: true });
-	await fs.copyFile(pulsePlugin, path.join(appimageLibDir, pluginName));
-
-	const gpuiDirectory = path.join(__root, "apps", "desktop-gpui");
-	const gpuiConfig = JSON.parse(
-		await fs.readFile(path.join(gpuiDirectory, "tauri.conf.json"), "utf8"),
-	);
-	await writeFileIfChanged(
-		path.join(gpuiDirectory, "tauri.linux.conf.json"),
-		`${JSON.stringify(
-			createLinuxBundleConfig(
-				sonameLibs,
-				{},
-				gpuiConfig.bundle.linux.deb.depends,
-				{
-					root: "../..",
-					rpmDependencies: GPUI_RPM_DEPENDS,
-					mediaFramework: false,
-				},
-			),
-			null,
-			"\t",
-		)}\n`,
-	);
-	console.log(
-		`Generated Linux Tauri package configs with ${sonameLibs.length} shared libraries`,
-	);
 }
 
 async function missingFiles(dir, names) {

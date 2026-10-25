@@ -164,11 +164,6 @@ pub fn process_alive(pid: u32) -> bool {
     }
 }
 
-#[cfg(not(any(unix, windows)))]
-pub fn process_alive(_pid: u32) -> bool {
-    true
-}
-
 /// Best-effort prompt stop on unix (the worker also polls the stop file, which is the cross-platform
 /// path). No-op elsewhere.
 #[cfg(unix)]

@@ -3,7 +3,7 @@
 //! The Solid app leans on `<input type="color">` (`color-utils.tsx:52-64`),
 //! which macOS renders as the floating `NSColorPanel` -- detached from the
 //! swatch, parked wherever the OS last left it, and absent entirely on the
-//! Windows/Linux builds of this app. This component replaces that seam with a
+//! Windows build of this app. This component replaces that seam with a
 //! panel anchored to the swatch itself: a saturation/value field, a hue rail,
 //! and the live swatch + hex entry, all drawn by gpui so every platform gets
 //! the same picker.

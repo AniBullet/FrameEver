@@ -917,11 +917,6 @@ mod platform {
     }
 
     async fn capture_target_thumbnail(target: ScreenCaptureTarget) -> Option<RgbaImage> {
-        #[cfg(target_os = "linux")]
-        if cap_recording::screenshot::uses_wayland_portal() {
-            return None;
-        }
-
         let image = match capture_screenshot(target).await {
             Ok(image) => image.into_rgba8(),
             Err(error) => {

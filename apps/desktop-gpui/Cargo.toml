@@ -32,8 +32,6 @@ cap-gpui-kernels = { path = "kernels" }
 # which our transparent rounded main-window shell depends on.
 gpui = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d" }
 gpui_platform = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d", features = [
-    "wayland",
-    "x11",
     "font-kit",
     "runtime_shaders",
 ] }
@@ -127,7 +125,7 @@ sanitize-filename = "0.6.0"
 semver = "1"
 base64 = "0.23"
 minisign-verify = "0.3.0"
-rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+rfd = { version = "0.17", default-features = false }
 # The screenshot export compositor (`src/screenshot_export.rs`): the canvas-2d
 # work `renderScreenshotExportCanvas` does in the webview -- shape rasterizing,
 # text, and the share fingerprint. All three are already in this lockfile
@@ -146,7 +144,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 
 # Web-backed settings pages (feedback, changelog, license) and transcription
-# model downloads. rustls so Linux builds do not pick up an OpenSSL system dep.
+# model downloads. rustls so no build picks up an OpenSSL system dep.
 # `multipart` is the log/diagnostic-report upload (`src/diagnostics.rs`):
 # `/api/desktop/logs` takes a multipart form, the same one the Tauri app posts.
 bytes = "1"
@@ -196,14 +194,6 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-ashpd = { version = "0.11", default-features = false, features = ["tokio"] }
-wayland-client = "0.31"
-
-[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-raw-window-handle = "0.6"
-x11rb = "0.13"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Native window treatment (panel levels, Spaces) gpui does not expose. Same

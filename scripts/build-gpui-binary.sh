@@ -65,10 +65,6 @@ if [[ "$target" == *windows-msvc ]]; then
 	node "$repo_root/scripts/verify-windows-stack.mjs" "$source_binary"
 fi
 
-if [[ "$target" == *linux* ]]; then
-	patchelf --set-rpath '$ORIGIN:$ORIGIN/../lib/cap' "$source_binary"
-fi
-
 mkdir -p "$binaries_dir"
 cp "$source_binary" "$staged_binary"
 if [[ "$extension" != ".exe" ]]; then

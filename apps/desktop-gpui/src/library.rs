@@ -625,10 +625,6 @@ pub fn open_path(path: &Path) {
                 .args(["/C", "start", "", &path.to_string_lossy()])
                 .spawn()
         }
-        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-        {
-            std::process::Command::new("xdg-open").arg(path).spawn()
-        }
     };
     if let Err(error) = result {
         tracing::warn!(path = %path.display(), "opening a path failed: {error}");
@@ -649,11 +645,6 @@ pub fn reveal_in_folder(path: &Path) {
             std::process::Command::new("explorer")
                 .arg(format!("/select,{}", path.display()))
                 .spawn()
-        }
-        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-        {
-            let parent = path.parent().unwrap_or(path);
-            std::process::Command::new("xdg-open").arg(parent).spawn()
         }
     };
     if let Err(error) = result {

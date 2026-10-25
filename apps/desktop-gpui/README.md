@@ -87,12 +87,11 @@ binary `Cap`/`Cap.exe`, and runs `tauri bundle` against this crate
 with what installed copies of the Tauri app already update through:
 
 - the same identity (`Cap`, `so.cap.desktop`, main binary `Cap`), so the macOS
-  bundle, the NSIS uninstall key and install folder, and the `cap` deb package
-  are the ones already on disk, and permissions and data carry over;
-- the same updater artifacts — `Cap.app.tar.gz`, the NSIS `-setup.exe`, the
-  deb and the AppImage — signed with the same updater key and published under
-  the platform names (`darwin-aarch64`, `windows-x86_64`, `linux-x86_64-deb`,
-  …) every existing install already polls.
+  bundle and the NSIS uninstall key and install folder are the ones already on
+  disk, and permissions and data carry over;
+- the same updater artifacts — `Cap.app.tar.gz` and the NSIS `-setup.exe` —
+  signed with the same updater key and published under the platform names
+  (`darwin-aarch64`, `windows-x86_64`) every existing install already polls.
 
 The update to 0.6.1 is therefore installed by the Tauri updater of whatever
 build the user has; it simply lands this app in place.
@@ -104,12 +103,6 @@ directly. Release sidecars are built without debug info and stripped.
 After `tauri bundle`, the release shrinks every artifact without changing a
 byte of what gets installed:
 
-- `scripts/finalize-linux-gpui-packages.mjs` drops the WebKitGTK and GTK
-  dependencies the Tauri CLI always adds, links the duplicate
-  `libonnxruntime.so` to its `.so.1`, recompresses the deb with a 192 MiB xz
-  window and the RPM with zstd level 22, and re-signs both.
-- `scripts/finalize-linux-appimage.mjs` (`webview: false`) prunes the AppImage
-  to the libraries its binaries actually load.
 - `scripts/finalize-macos-packages.mjs` recompresses `Cap.app.tar.gz` with
   zopfli (still plain gzip for every updater) and converts the disk image to
   LZMA, keeping the original if conversion or signing fails.
@@ -133,8 +126,7 @@ Tauri app used, and `src/installer.rs` does the rest without Tauri:
    `.app.tar.gz` beside the running bundle and swaps it in with two renames
    (asking for an administrator password only when the folder is not
    writable); on Windows starts the NSIS installer with `/P /R /UPDATE` and
-   quits; on Linux installs the deb through `pkexec dpkg -i` or replaces the
-   AppImage in place.
+   quits.
 3. **Relaunch** waits for this process to exit and reopens the new build.
 
 Progress shows in the settings sidebar footer, and the update never installs

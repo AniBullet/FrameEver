@@ -139,11 +139,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Recording starts in {remaining}",
         "{remaining} 秒后开始录制",
     ),
-    (
-        "Recording paused. FrameEver will hide before resuming.",
-        "录制已暂停。继续录制前帧刻会先隐藏。",
-    ),
-    ("Resume", "继续"),
     ("Cancel Recording", "取消录制"),
     ("Stopping...", "正在停止…"),
     ("Stop Recording", "停止录制"),
@@ -355,46 +350,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "当前帧刻不是从应用包运行的",
     ),
     (
-        "This copy of FrameEver isn't running from an AppImage",
-        "当前帧刻不是从 AppImage 运行的",
-    ),
-    (
-        "This package can't be installed on Linux",
-        "此安装包无法在 Linux 上安装",
-    ),
-    (
-        "Press and release Ctrl+Shift+F9 to start. Use the same shortcut to stop. This temporary shortcut does not change your settings.",
-        "按下并松开 Ctrl+Shift+F9 开始录制，再按一次停止。这个临时快捷键不会更改你的设置。",
-    ),
-    (
-        "Approve a recording shortcut, or activate the FrameEver Stop tray icon when it appears. Recording has not started.",
-        "请批准录制快捷键，或在帧刻停止托盘图标出现后点击它。录制尚未开始。",
-    ),
-    (
-        "Activate the FrameEver Stop tray icon to start. Activate the same icon again to stop. Recording will not start until you use that control.",
-        "点击帧刻停止托盘图标开始录制，再点击一次停止。在你使用该图标之前不会开始录制。",
-    ),
-    (
-        "Press and release {label} to start. Use the same shortcut to stop. This temporary shortcut does not change your settings.",
-        "按下并松开 {label} 开始录制，再按一次停止。这个临时快捷键不会更改你的设置。",
-    ),
-    (
-        "Global shortcuts are unavailable. Recording has not started.",
-        "全局快捷键不可用。录制尚未开始。",
-    ),
-    (
-        "A recording shortcut is already reserved.",
-        "录制快捷键已被占用。",
-    ),
-    (
-        "Ctrl+Shift+F9 is assigned to another FrameEver action. Change that shortcut before recording.",
-        "Ctrl+Shift+F9 已分配给帧刻的其他操作。请先更改那个快捷键再录制。",
-    ),
-    (
-        "Ctrl+Shift+F9 is unavailable: {error}. Recording has not started.",
-        "Ctrl+Shift+F9 不可用：{error}。录制尚未开始。",
-    ),
-    (
         "This recording will not include your voice.",
         "这次录制不会包含你的声音。",
     ),
@@ -487,48 +442,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "所选区域已变化或不可用，请重新选择。",
     ),
     (
-        "Move the whole camera preview inside the capture area before starting Instant recording",
-        "开始快速录制前，请把摄像头预览完整移到录制区域内",
-    ),
-    (
-        "Instant camera overlays require an X11 desktop on Linux",
-        "在 Linux 上，快速模式的摄像头叠加层需要 X11 桌面",
-    ),
-    (
-        "Open the selected camera preview before Instant recording",
-        "开始快速录制前，请先打开所选摄像头的预览",
-    ),
-    (
-        "Wait for the selected camera preview before recording",
-        "请等所选摄像头的预览出现后再录制",
-    ),
-    (
-        "FrameEver will hide its preview and controls. Any selected camera will appear at its preview position with the selected shape and effects. Keep the whole preview inside the capture area. Opening FrameEver will stop this Instant recording before showing its controls.",
-        "帧刻会隐藏预览和控制栏。所选摄像头会以设定的形状和特效出现在预览所在的位置。请让预览完整留在录制区域内。打开帧刻会先停止这次快速录制，再显示控制栏。",
-    ),
-    (
         "FrameEver will hide its camera preview and recording controls. Any selected camera will keep recording as a separate editable track.",
         "帧刻会隐藏摄像头预览和录制控制栏。所选摄像头会继续录制为一条可单独编辑的轨道。",
-    ),
-    (
-        "Clean Studio capture requires an X11 window.",
-        "工作室模式的纯净录制需要 X11 窗口。",
-    ),
-    (
-        "Close the previous recording controls before starting a clean capture.",
-        "开始纯净录制前，请先关闭上一次的录制控制栏。",
-    ),
-    (
-        "Recording cleanup is incomplete: {error}. A new recording is blocked.",
-        "录制清理未完成：{error}。暂时无法开始新的录制。",
-    ),
-    (
-        "Selected devices changed. Start again to confirm the new recording inputs.",
-        "所选设备已变化。请重新开始，以确认新的录制输入。",
-    ),
-    (
-        "Selected devices changed before recording started. Start again to confirm the inputs.",
-        "录制开始前所选设备已变化。请重新开始以确认输入。",
     ),
     (
         "Opening this recording failed: {error}",

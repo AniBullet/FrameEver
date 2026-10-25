@@ -23,7 +23,7 @@ const repoRoot = path.dirname(path.dirname(gpuiDirectory));
 test("targets map to their packaging platform and main binary", () => {
 	assert.equal(targetPlatform("aarch64-apple-darwin"), "darwin");
 	assert.equal(targetPlatform("x86_64-pc-windows-msvc"), "win32");
-	assert.equal(targetPlatform("x86_64-unknown-linux-gnu"), "linux");
+	assert.equal(targetPlatform("x86_64-unknown-linux-gnu"), null);
 	assert.equal(targetPlatform("wasm32-unknown-unknown"), null);
 	assert.equal(mainBinaryName("x86_64-pc-windows-msvc"), "FrameEver.exe");
 	assert.equal(mainBinaryName("aarch64-apple-darwin"), "FrameEver");
@@ -163,15 +163,14 @@ test("platform resources point at the shared native dependencies", () => {
 	const windows = gpuiPlatformConfig("win32").bundle.resources;
 	assert.equal(windows["../../target/ffmpeg/bin/*.dll"], "./");
 	assert.equal(windows["../../target/native-deps/onnxruntime/lib/*.dll"], "./");
-	assert.equal(gpuiPlatformConfig("linux"), null);
 });
 
 test("tauri bundle runs against the GPUI crate with its pinned toolchain", () => {
-	assert.deepEqual(bundleArguments("x86_64-unknown-linux-gnu", ["--verbose"]), [
+	assert.deepEqual(bundleArguments("x86_64-pc-windows-msvc", ["--verbose"]), [
 		"tauri",
 		"bundle",
 		"--target",
-		"x86_64-unknown-linux-gnu",
+		"x86_64-pc-windows-msvc",
 		"--verbose",
 	]);
 	const environment = bundleEnvironment({ PATH: "/bin" });

@@ -172,15 +172,6 @@ fn app_data_root() -> PathBuf {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."))
     }
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| ".".into()))
-                    .join(".local/share")
-            })
-    }
 }
 
 pub fn import_legacy_data() {

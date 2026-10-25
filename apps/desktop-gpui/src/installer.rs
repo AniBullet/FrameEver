@@ -29,12 +29,6 @@ pub(crate) fn update_platform() -> Result<String, String> {
     platform_for(arch)
 }
 
-#[cfg(target_os = "linux")]
-fn platform_for(arch: &str) -> Result<String, String> {
-    cap_utils::linux_package::updater_target(arch)
-}
-
-#[cfg(not(target_os = "linux"))]
 fn platform_for(arch: &str) -> Result<String, String> {
     let os = if cfg!(target_os = "macos") {
         "darwin"
@@ -48,8 +42,6 @@ fn platform_for(arch: &str) -> Result<String, String> {
 pub(crate) enum ArtifactKind {
     AppArchive,
     NsisInstaller,
-    Deb,
-    AppImage,
 }
 
 impl ArtifactKind {
@@ -58,10 +50,6 @@ impl ArtifactKind {
             Ok(Self::AppArchive)
         } else if platform.starts_with("windows-") {
             Ok(Self::NsisInstaller)
-        } else if platform.starts_with("linux-") && platform.contains("-deb") {
-            Ok(Self::Deb)
-        } else if platform.starts_with("linux-") && platform.contains("-appimage") {
-            Ok(Self::AppImage)
         } else {
             Err(format!("Unsupported update platform: {platform}"))
         }
@@ -71,8 +59,6 @@ impl ArtifactKind {
         match self {
             Self::AppArchive => "FrameEver.app.tar.gz",
             Self::NsisInstaller => "FrameEver-setup.exe",
-            Self::Deb => "FrameEver.deb",
-            Self::AppImage => "FrameEver.AppImage",
         }
     }
 
@@ -80,8 +66,6 @@ impl ArtifactKind {
         match self {
             Self::AppArchive => header.starts_with(&[0x1f, 0x8b]),
             Self::NsisInstaller => header.starts_with(b"MZ"),
-            Self::Deb => header.starts_with(b"!<arch>\n"),
-            Self::AppImage => header.starts_with(b"\x7fELF"),
         }
     }
 }
@@ -643,47 +627,6 @@ pub(crate) fn launch_installer(installer: &Path, arguments: &[&str]) -> Result<(
     }
 }
 
-#[cfg(target_os = "linux")]
-pub(crate) fn install_deb(package: &Path) -> Result<(), String> {
-    let status = std::process::Command::new("pkexec")
-        .arg("dpkg")
-        .arg("-i")
-        .arg(package)
-        .status()
-        .map_err(|error| format!("Could not ask for permission to install: {error}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("The package wasn't installed. Approve the system prompt, or install it from the FrameEver releases page.".to_string())
-    }
-}
-
-#[cfg(any(target_os = "linux", all(test, unix)))]
-pub(crate) fn install_appimage(image: &Path, destination: &Path) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt as _;
-
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "The AppImage has no parent folder".to_string())?;
-    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let name = destination
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let staged = parent.join(format!(".{name}.update-{}", std::process::id()));
-    let copied = std::fs::copy(image, &staged)
-        .and_then(|_| std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)))
-        .and_then(|()| std::fs::rename(&staged, destination));
-    if let Err(error) = copied {
-        let _ = std::fs::remove_file(&staged);
-        return Err(format!(
-            "Could not install {}: {error}",
-            destination.display()
-        ));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -822,14 +765,6 @@ mod tests {
     #[test]
     fn update_platforms_map_to_their_artifact_kinds() {
         assert_eq!(
-            ArtifactKind::for_platform("linux-x86_64-appimage"),
-            Ok(ArtifactKind::AppImage)
-        );
-        assert_eq!(
-            ArtifactKind::for_platform("linux-x86_64-deb"),
-            Ok(ArtifactKind::Deb)
-        );
-        assert_eq!(
             ArtifactKind::for_platform("darwin-aarch64"),
             Ok(ArtifactKind::AppArchive)
         );
@@ -837,11 +772,9 @@ mod tests {
             ArtifactKind::for_platform("windows-x86_64"),
             Ok(ArtifactKind::NsisInstaller)
         );
-        assert!(ArtifactKind::for_platform("linux-x86_64-rpm").is_err());
-        if !cfg!(target_os = "linux") {
-            let platform = update_platform().unwrap();
-            assert!(ArtifactKind::for_platform(&platform).is_ok(), "{platform}");
-        }
+        assert!(ArtifactKind::for_platform("linux-x86_64-deb").is_err());
+        let platform = update_platform().unwrap();
+        assert!(ArtifactKind::for_platform(&platform).is_ok(), "{platform}");
     }
 
     #[test]
@@ -881,24 +814,24 @@ mod tests {
             .block_on(download_into(
                 &root,
                 &encode(TEST_KEY),
-                ArtifactKind::AppImage,
+                ArtifactKind::NsisInstaller,
                 &release(url),
                 &mut |done, total| updates.push((done, total)),
             ))
             .unwrap();
         assert_eq!(server.join().unwrap(), 1);
-        assert_eq!(downloaded, root.join("frameever/9.9.9/FrameEver.AppImage"));
+        assert_eq!(downloaded, root.join("frameever/9.9.9/FrameEver-setup.exe"));
         assert_eq!(std::fs::read(&downloaded).unwrap(), b"test");
         assert_eq!(updates.first(), Some(&(0, Some(4))));
         assert_eq!(updates.last(), Some(&(4, Some(4))));
         assert!(!stale.exists());
-        assert!(check_artifact_kind(&downloaded, ArtifactKind::AppImage).is_err());
+        assert!(check_artifact_kind(&downloaded, ArtifactKind::NsisInstaller).is_err());
 
         let reused = runtime
             .block_on(download_into(
                 &root,
                 &encode(TEST_KEY),
-                ArtifactKind::AppImage,
+                ArtifactKind::NsisInstaller,
                 &release("http://127.0.0.1:9/unreachable".to_string()),
                 &mut |_, _| panic!("a verified cached download must not be fetched again"),
             ))
@@ -913,8 +846,6 @@ mod tests {
         for (kind, header) in [
             (ArtifactKind::AppArchive, &b"\x1f\x8b\x08\x00"[..]),
             (ArtifactKind::NsisInstaller, &b"MZ\x90\x00"[..]),
-            (ArtifactKind::Deb, &b"!<arch>\ndebian"[..]),
-            (ArtifactKind::AppImage, &b"\x7fELF\x02\x01"[..]),
         ] {
             let file = root.join("artifact");
             std::fs::write(&file, header).unwrap();
@@ -938,7 +869,7 @@ mod tests {
             .block_on(download_into(
                 &root,
                 &encode(TEST_KEY),
-                ArtifactKind::AppImage,
+                ArtifactKind::NsisInstaller,
                 &release(url),
                 &mut |_, _| {},
             ))
@@ -946,8 +877,8 @@ mod tests {
         assert_eq!(server.join().unwrap(), 1);
         assert!(error.contains("signature verification"));
         let version_dir = root.join("frameever").join("9.9.9");
-        assert!(!version_dir.join("FrameEver.AppImage").exists());
-        assert!(!version_dir.join("FrameEver.AppImage.partial").exists());
+        assert!(!version_dir.join("FrameEver-setup.exe").exists());
+        assert!(!version_dir.join("FrameEver-setup.exe.partial").exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1026,37 +957,6 @@ mod tests {
         assert!(swap(&staged).success());
         assert_eq!(plist(&destination), "fresh");
         assert_eq!(std::fs::read_dir(&applications).unwrap().count(), 1);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn appimages_are_replaced_in_place_and_made_executable() {
-        use std::os::unix::fs::PermissionsExt as _;
-
-        let root = scratch("appimage");
-        let source = root.join("download.AppImage");
-        std::fs::write(&source, b"\x7fELFnew").unwrap();
-        let destination = root.join("Applications").join("FrameEver.AppImage");
-        install_appimage(&source, &destination).unwrap();
-        assert_eq!(std::fs::read(&destination).unwrap(), b"\x7fELFnew");
-        assert_eq!(
-            std::fs::metadata(&destination)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o755
-        );
-        std::fs::write(&source, b"\x7fELFnewer").unwrap();
-        install_appimage(&source, &destination).unwrap();
-        assert_eq!(std::fs::read(&destination).unwrap(), b"\x7fELFnewer");
-        assert_eq!(
-            std::fs::read_dir(root.join("Applications"))
-                .unwrap()
-                .count(),
-            1
-        );
         std::fs::remove_dir_all(root).unwrap();
     }
 }

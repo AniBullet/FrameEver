@@ -1978,26 +1978,6 @@ impl EditorWindow {
                             return;
                         };
                         let cancel = ui.cancel.clone();
-                        #[cfg(target_os = "linux")]
-                        {
-                            if !ui.phase.is_busy() {
-                                return;
-                            }
-                            let response = crate::editor_modal::confirm_cancel_export(window, cx);
-                            cx.spawn_in(window, async move |this, cx| {
-                                let confirmed = response.await;
-                                let _ = this.update_in(cx, |this, _, cx| {
-                                    if let Some(ui) = this.export.as_mut()
-                                        && ui.phase.is_busy()
-                                    {
-                                        cancel_matching_export(&ui.cancel, &cancel, confirmed);
-                                    }
-                                    cx.notify();
-                                });
-                            })
-                            .detach();
-                        }
-                        #[cfg(not(target_os = "linux"))]
                         cx.spawn_in(window, async move |this, cx| {
                             let confirmed = platform::confirm_dialog(
                                 t!("Cancel export?"),
@@ -2104,40 +2084,6 @@ async fn confirm_export_resources(
     let result = async {
         let warning = check.map_err(|error| error.to_string())??;
         if let Some(message) = warning {
-            #[cfg(target_os = "linux")]
-            let confirmed = {
-                let response = loop {
-                    let pending = this.update_in(cx, |this, window, cx| {
-                        let current = this.export.as_ref().is_some_and(|ui| {
-                            Arc::ptr_eq(&ui.cancel, cancel)
-                                && !ui.close_requested
-                                && !cancel.load(Ordering::Acquire)
-                        });
-                        let response = (current && !window.has_active_prompt()).then(|| {
-                            crate::editor_modal::confirm_action(
-                                t!("Check export resources"),
-                                &message,
-                                t!("Proceed anyway"),
-                                t!("Go back"),
-                                window,
-                                cx,
-                            )
-                        });
-                        (current, response)
-                    });
-                    match pending {
-                        Ok((true, Some(response))) => break response,
-                        Ok((true, None)) => {
-                            cx.background_executor()
-                                .timer(Duration::from_millis(50))
-                                .await;
-                        }
-                        _ => return Ok(false),
-                    }
-                };
-                response.await
-            };
-            #[cfg(not(target_os = "linux"))]
             let confirmed = {
                 let current = this
                     .update(cx, |this, _| {

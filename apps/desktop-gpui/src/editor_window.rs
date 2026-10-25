@@ -1944,16 +1944,6 @@ impl EditorWindow {
                 })
             });
             if let Some(message) = blocked {
-                #[cfg(target_os = "linux")]
-                if window.root::<Self>().flatten().is_some_and(|editor| {
-                    editor.read(cx).export.as_ref().is_some_and(|export| {
-                        export.phase == crate::editor_export::ExportPhase::ChoosingFile
-                    })
-                }) {
-                    let response = crate::editor_modal::retained_alert(&message, window, cx);
-                    cx.spawn(async move |_| response.await).detach();
-                    return false;
-                }
                 cx.spawn(async move |_| {
                     crate::platform::alert_dialog(t!("Recording retained"), &message);
                 })
@@ -7588,14 +7578,6 @@ impl EditorWindow {
         self.sidebar.picking_image = true;
         let project_path = self.project_path.clone();
         cx.spawn_in(window, async move |this, cx| {
-            #[cfg(target_os = "linux")]
-            let source = crate::platform::open_file_panel_async(
-                &[(t!("Images"), crate::import::OVERLAY_IMAGE_EXTENSIONS)],
-                None,
-                cx,
-            )
-            .await;
-            #[cfg(not(target_os = "linux"))]
             let source = crate::import::pick_import_file(
                 &[(t!("Images"), crate::import::OVERLAY_IMAGE_EXTENSIONS)],
                 cx,

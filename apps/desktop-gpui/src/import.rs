@@ -408,11 +408,7 @@ pub(crate) async fn pick_import_file(
             .collect();
         crate::platform::open_image_panel(&extensions)
     }
-    #[cfg(target_os = "linux")]
-    {
-        crate::platform::open_file_panel_from_app_async(filters, _cx).await
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(target_os = "macos"))]
     {
         let mut dialog = rfd::FileDialog::new();
         for (name, extensions) in filters {

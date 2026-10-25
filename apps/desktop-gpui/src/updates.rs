@@ -703,37 +703,6 @@ fn apply_package(
     Ok(None)
 }
 
-#[cfg(target_os = "linux")]
-fn apply_package(package: &std::path::Path, kind: ArtifactKind) -> Result<Option<PathBuf>, String> {
-    match kind {
-        ArtifactKind::Deb => {
-            let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-            let executable = without_deleted_suffix(&executable);
-            installer::install_deb(package)?;
-            Ok(Some(executable))
-        }
-        ArtifactKind::AppImage => {
-            let image = std::env::var_os("APPIMAGE")
-                .map(PathBuf::from)
-                .filter(|path| path.is_absolute())
-                .ok_or_else(|| {
-                    t!("This copy of FrameEver isn't running from an AppImage").to_string()
-                })?;
-            installer::install_appimage(package, &image)?;
-            Ok(Some(image))
-        }
-        ArtifactKind::AppArchive | ArtifactKind::NsisInstaller => {
-            Err(t!("This package can't be installed on Linux").to_string())
-        }
-    }
-}
-
-#[cfg(any(target_os = "linux", test))]
-fn without_deleted_suffix(executable: &std::path::Path) -> PathBuf {
-    let path = executable.to_string_lossy();
-    PathBuf::from(path.strip_suffix(" (deleted)").unwrap_or(&path))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -941,17 +910,5 @@ mod tests {
         for phase in [ExportPhase::Idle, ExportPhase::Done, ExportPhase::Failed] {
             assert!(!phase.is_busy());
         }
-    }
-
-    #[test]
-    fn deb_relaunch_targets_the_installed_path_even_after_replacement() {
-        assert_eq!(
-            without_deleted_suffix(std::path::Path::new("/usr/bin/FrameEver (deleted)")),
-            PathBuf::from("/usr/bin/FrameEver")
-        );
-        assert_eq!(
-            without_deleted_suffix(std::path::Path::new("/usr/bin/FrameEver")),
-            PathBuf::from("/usr/bin/FrameEver")
-        );
     }
 }

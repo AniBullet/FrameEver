@@ -92,7 +92,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "{error}. Capture cleanup is unconfirmed. Use Ctrl+Shift+F9 to retry Stop.",
         "{error}。无法确认录制已清理。请按 Ctrl+Shift+F9 重试停止。",
     ),
-    ("Recording startup failed", "录制启动失败"),
     ("Recording ended unexpectedly.", "录制意外结束。"),
     (
         "Recording completion task failed: {error}",
@@ -101,10 +100,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     (
         "Low storage. Stopping and saving your recording\u{2026}",
         "存储空间不足。正在停止并保存录制…",
-    ),
-    (
-        "Capture cleanup is unconfirmed. Local files are preserved; use Ctrl+Shift+F9 to retry Stop.",
-        "无法确认录制已清理。本地文件已保留；请按 Ctrl+Shift+F9 重试停止。",
     ),
     ("Stop task failed: {error}", "停止任务失败：{error}"),
     ("Capture stop was not acknowledged", "录制未响应停止请求"),
@@ -135,14 +130,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "{error}。如果录制无法安全继续，请点停止。",
     ),
     (
-        "{error}. Use your recording Stop control to stop recording.",
-        "{error}。请用录制的停止按钮停止录制。",
-    ),
-    (
-        "Restart could not hide FrameEver windows: {error}",
-        "重新开始时无法隐藏帧刻的窗口：{error}",
-    ),
-    (
         "{error}; discard/restart stopped, local recording retained",
         "{error}；已停止丢弃或重新开始，本地录制已保留",
     ),
@@ -153,30 +140,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     (
         "Studio discard stop was not acknowledged; local recording retained",
         "工作室录制未响应丢弃请求；本地录制已保留",
-    ),
-    (
-        "{error}. Failed recording files were preserved.",
-        "{error}。失败的录制文件已保留。",
-    ),
-    (
-        "{error}. Cleanup is unconfirmed; retry Stop.",
-        "{error}。无法确认已清理；请重试停止。",
-    ),
-    (
-        "Cancel task failed: {error}. Cleanup is unconfirmed; retry Stop.",
-        "取消任务失败：{error}。无法确认已清理；请重试停止。",
-    ),
-    (
-        "Capture cleanup is unconfirmed; retry Stop.",
-        "无法确认录制已清理；请重试停止。",
-    ),
-    (
-        "Instant capture cleanup is unconfirmed; local files preserved",
-        "无法确认快速录制已清理；本地文件已保留",
-    ),
-    (
-        "Studio capture cleanup is unconfirmed",
-        "无法确认工作室录制已清理",
     ),
     (
         "Studio capture cleanup is unconfirmed; local files preserved",
@@ -227,16 +190,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "恢复的录制帧率无效。",
     ),
     (
-        "Requested Instant camera has not been prepared. Please select the camera again.",
-        "快速模式所需的摄像头尚未准备好。请重新选择摄像头。",
-    ),
-    (
         "Camera-only recording requires a selected camera.",
         "仅摄像头录制需要先选择一个摄像头。",
-    ),
-    (
-        "Recording startup failed; capture cleanup is unconfirmed and files are preserved",
-        "录制启动失败；无法确认录制已清理，文件已保留",
     ),
     (
         "Selected microphone '{label}' is not the connected microphone '{device}'. Please select it again.",
@@ -270,10 +225,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     (
         "Device selection changed before the format was applied",
         "设备在应用格式之前已更换",
-    ),
-    (
-        "Camera selection changed during recording",
-        "录制过程中更换了摄像头",
     ),
     (
         "Camera preview subscription is unavailable",

@@ -75,9 +75,8 @@ fn overlay_display_is_active(
     cursor_display: Option<&DisplayId>,
     display: &DisplayId,
     only_overlay: bool,
-    window_hovered: bool,
 ) -> bool {
-    cursor_display.map_or(only_overlay || window_hovered, |cursor| cursor == display)
+    cursor_display.map_or(only_overlay, |cursor| cursor == display)
 }
 
 fn overlay_viewport_size(viewport: (f32, f32), previous: (f32, f32)) -> (f32, f32) {
@@ -877,12 +876,11 @@ impl OverlayWindow {
 
     /// True when the cursor is on this overlay's display -- `data-over` in the
     /// display variant, `isActiveDisplay` in the area variant.
-    fn is_active_display(&self, window: &Window, cx: &App) -> bool {
+    fn is_active_display(&self, cx: &App) -> bool {
         overlay_display_is_active(
             self.select.read(cx).cursor_display.as_ref(),
             &self.display_id,
             cx.global::<app_windows::AppWindows>().overlays.len() == 1,
-            cfg!(target_os = "linux") && window.is_window_hovered(),
         )
     }
 }
@@ -962,12 +960,12 @@ impl Render for OverlayWindow {
             .text_color(gpui::white());
 
         let root = if self.recording_area {
-            root.child(self.render_area_variant(window, cx))
+            root.child(self.render_area_variant(cx))
         } else {
             match mode {
-                Some(TargetType::Display) => root.child(self.render_display_variant(window, cx)),
+                Some(TargetType::Display) => root.child(self.render_display_variant(cx)),
                 Some(TargetType::Window) => root.child(self.render_window_variant(cx)),
-                Some(TargetType::Area) => root.child(self.render_area_variant(window, cx)),
+                Some(TargetType::Area) => root.child(self.render_area_variant(cx)),
                 Some(TargetType::CameraOnly) => root.child(self.render_camera_variant(cx)),
                 None => root,
             }
@@ -1343,8 +1341,8 @@ impl OverlayWindow {
 
     /// `data-[over='true']:bg-blue-600/40` over `bg-black/60`, centered
     /// monitor art, name, resolution.
-    fn render_display_variant(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let over = self.is_active_display(window, cx);
+    fn render_display_variant(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let over = self.is_active_display(cx);
         let resolution = self.physical_size.map(|(width, height)| {
             // `${size().width}x${size().height} · ${display.refresh_rate}FPS`
             format!("{width}x{height} · {}FPS", self.refresh_rate)
@@ -1573,14 +1571,10 @@ impl OverlayWindow {
     /// The crop overlay: `bg-black/45` outside the selection, a `border-white/50`
     /// region with eight handles, a size readout on top and the start cluster
     /// placed against the crop.
-    fn render_area_variant(
-        &self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<gpui::Div> {
+    fn render_area_variant(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let interacting = self.drag.is_some();
         // `shouldShowOverlay = isInteracting() || isActiveDisplay()`.
-        let visible = self.recording_area || interacting || self.is_active_display(window, cx);
+        let visible = self.recording_area || interacting || self.is_active_display(cx);
         let crop = self.crop;
         let min = area_min_size(self.select.read(cx).recording_mode);
         let valid = crop.is_some_and(|crop| crop.is_valid_for(min));
@@ -2541,34 +2535,10 @@ mod tests {
     fn a_single_overlay_remains_interactive_without_a_global_cursor_probe() {
         let display = "1".parse::<DisplayId>().unwrap();
         let other = "2".parse::<DisplayId>().unwrap();
-        assert!(overlay_display_is_active(None, &display, true, false));
-        assert!(!overlay_display_is_active(None, &display, false, false));
-        assert!(overlay_display_is_active(
-            Some(&display),
-            &display,
-            false,
-            false
-        ));
-        assert!(!overlay_display_is_active(
-            Some(&other),
-            &display,
-            true,
-            false
-        ));
-    }
-
-    #[test]
-    fn native_window_hover_activates_the_correct_overlay_without_global_coordinates() {
-        let display = "1".parse::<DisplayId>().unwrap();
-        let other = "2".parse::<DisplayId>().unwrap();
-        assert!(overlay_display_is_active(None, &display, false, true));
-        assert!(!overlay_display_is_active(None, &display, false, false));
-        assert!(!overlay_display_is_active(
-            Some(&other),
-            &display,
-            false,
-            true
-        ));
+        assert!(overlay_display_is_active(None, &display, true));
+        assert!(!overlay_display_is_active(None, &display, false));
+        assert!(overlay_display_is_active(Some(&display), &display, false));
+        assert!(!overlay_display_is_active(Some(&other), &display, true));
     }
 
     #[test]

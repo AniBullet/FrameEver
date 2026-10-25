@@ -847,10 +847,6 @@ async fn start_recording(
             let upload_lock = upload_lock
                 .ok_or_else(|| "Instant recording project ownership is unavailable".to_string())?;
             let mut builder = instant_builder;
-            #[cfg(target_os = "linux")]
-            if camera_active {
-                builder = builder.with_linux_camera_composition();
-            }
             builder = builder.with_max_output_size(
                 cap_recording::RecordingDefaults::default().instant_mode_max_resolution,
             );

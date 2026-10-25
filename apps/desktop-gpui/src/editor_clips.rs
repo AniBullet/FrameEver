@@ -1566,11 +1566,7 @@ impl EditorWindow {
         cx.spawn_in(window, async move |this, cx| {
             #[cfg(target_os = "macos")]
             let source = crate::platform::open_image_panel(&["mp4"]);
-            #[cfg(target_os = "linux")]
-            let source =
-                crate::platform::open_file_panel_async(&[(t!("MP4 Video"), &["mp4"])], None, cx)
-                    .await;
-            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            #[cfg(not(target_os = "macos"))]
             let source = rfd::FileDialog::new()
                 .add_filter(t!("MP4 Video"), &["mp4"])
                 .pick_file();
@@ -2081,16 +2077,7 @@ async fn pick_existing_recording_path(_cx: &mut gpui::AsyncWindowContext) -> Opt
     {
         crate::platform::open_image_panel(&["cap"])
     }
-    #[cfg(target_os = "linux")]
-    {
-        crate::platform::open_file_panel_async(
-            &[(t!("FrameEver Recording"), &["cap"])],
-            Some(crate::recording::recordings_dir()),
-            _cx,
-        )
-        .await
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(target_os = "macos"))]
     {
         rfd::FileDialog::new()
             .set_directory(crate::recording::recordings_dir())

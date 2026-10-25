@@ -9,7 +9,7 @@ export function shouldBuildGpui(
 	profile,
 	developmentWorkspaceAvailable = true,
 ) {
-	if (!["darwin", "win32", "linux"].includes(platform)) return false;
+	if (!["darwin", "win32"].includes(platform)) return false;
 	if (profile === "release") return true;
 	return (
 		platform === "darwin" &&

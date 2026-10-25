@@ -160,256 +160,6 @@ pub fn bar_level(db: f64) -> f64 {
 #[cfg(not(target_os = "macos"))]
 enum CameraWorkerCommand {
     Reset,
-    #[cfg(target_os = "linux")]
-    Record(RecordingCameraWorker),
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Clone)]
-pub struct CameraProcessingFactory {
-    commands: flume::Sender<CameraWorkerCommand>,
-    actor: ActorRef<CameraFeed>,
-    selected: DeviceOrModelID,
-    epoch: u64,
-    current_epoch: Arc<std::sync::atomic::AtomicU64>,
-    recording_active: Arc<AtomicBool>,
-    next_generation: Arc<std::sync::atomic::AtomicU64>,
-}
-
-#[cfg(target_os = "linux")]
-struct CameraRecordingReservation(Arc<AtomicBool>);
-
-#[cfg(target_os = "linux")]
-impl CameraRecordingReservation {
-    fn try_acquire(active: &Arc<AtomicBool>) -> Option<Self> {
-        active
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .ok()
-            .map(|_| Self(active.clone()))
-    }
-}
-
-#[cfg(target_os = "linux")]
-impl Drop for CameraRecordingReservation {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
-    }
-}
-
-#[cfg(target_os = "linux")]
-struct RecordingCameraAttachment {
-    feed: ActorRef<CameraFeed>,
-    sender: flume::Sender<cap_recording::FFmpegVideoFrame>,
-    runtime: tokio::runtime::Handle,
-    _reservation: CameraRecordingReservation,
-}
-
-#[cfg(target_os = "linux")]
-impl Drop for RecordingCameraAttachment {
-    fn drop(&mut self) {
-        let feed = self.feed.clone();
-        let sender = self.sender.clone();
-        drop(self.runtime.spawn(async move {
-            let _ = feed.ask(camera::RemoveSender(sender)).await;
-        }));
-    }
-}
-
-#[cfg(target_os = "linux")]
-struct RecordingCameraWorker {
-    frames: flume::Receiver<cap_recording::FFmpegVideoFrame>,
-    publisher: cap_recording::instant_recording::LinuxCameraPublisher,
-    processing: cap_recording::instant_recording::LinuxCameraProcessing,
-    epoch: u64,
-    current_epoch: Arc<std::sync::atomic::AtomicU64>,
-    generation: u64,
-    not_before: Instant,
-    _attachment: RecordingCameraAttachment,
-}
-
-#[cfg(target_os = "linux")]
-impl CameraProcessingFactory {
-    pub async fn subscribe(
-        &self,
-        feed: Arc<camera::CameraFeedLock>,
-        processing: cap_recording::instant_recording::LinuxCameraProcessing,
-    ) -> anyhow::Result<cap_recording::instant_recording::LinuxProcessedCameraSource> {
-        let info = feed.camera_info();
-        let matches = match &self.selected {
-            DeviceOrModelID::DeviceID(id) => info.device_id() == id,
-            DeviceOrModelID::ModelID(id) => info.model_id() == Some(id),
-        };
-        anyhow::ensure!(
-            matches && feed.id() == self.actor.id(),
-            "Processed camera factory does not match the locked camera"
-        );
-        anyhow::ensure!(
-            self.current_epoch.load(Ordering::Acquire) == self.epoch,
-            "Camera selection changed before recording"
-        );
-        let reservation = tokio::time::timeout(Duration::from_millis(1500), async {
-            loop {
-                if let Some(reservation) =
-                    CameraRecordingReservation::try_acquire(&self.recording_active)
-                {
-                    break reservation;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .map_err(|_| anyhow::anyhow!("A processed camera recording is already active"))?;
-        let (sender, frames) = flume::bounded(2);
-        let attachment = RecordingCameraAttachment {
-            feed: self.actor.clone(),
-            sender: sender.clone(),
-            runtime: tokio::runtime::Handle::current(),
-            _reservation: reservation,
-        };
-        anyhow::ensure!(
-            self.current_epoch.load(Ordering::Acquire) == self.epoch,
-            "Camera selection changed while waiting for recording processing"
-        );
-        let not_before = Instant::now();
-        let generation = self.next_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        let (publisher, mut source) =
-            cap_recording::instant_recording::LinuxProcessedCameraSource::channel(
-                feed.clone(),
-                processing,
-                generation,
-                not_before,
-            );
-        tokio::time::timeout(
-            Duration::from_millis(1500),
-            feed.ask(camera::AddSender(sender)),
-        )
-        .await
-        .map_err(|_| anyhow::anyhow!("Timed out attaching processed camera"))?
-        .map_err(|error| anyhow::anyhow!("Attaching processed camera: {error}"))?;
-        tokio::time::timeout(
-            Duration::from_millis(1500),
-            self.commands
-                .send_async(CameraWorkerCommand::Record(RecordingCameraWorker {
-                    frames,
-                    publisher,
-                    processing,
-                    epoch: self.epoch,
-                    current_epoch: self.current_epoch.clone(),
-                    generation,
-                    not_before,
-                    _attachment: attachment,
-                })),
-        )
-        .await
-        .map_err(|_| anyhow::anyhow!("Camera processing worker command deadline exceeded"))?
-        .map_err(|_| anyhow::anyhow!("Camera preview processing worker is unavailable"))?;
-        source.wait_ready(Duration::from_secs(10)).await?;
-        anyhow::ensure!(
-            self.current_epoch.load(Ordering::Acquire) == self.epoch,
-            "Camera selection changed while preparing recording effects"
-        );
-        Ok(source)
-    }
-}
-
-#[cfg(target_os = "linux")]
-impl RecordingCameraWorker {
-    fn publish(
-        &self,
-        image: &gpui::RenderImage,
-        dims: (usize, usize),
-        timestamp: cap_timestamp::Timestamp,
-        mask: Option<cap_recording::instant_recording::LinuxCameraMaskReceipt>,
-    ) {
-        if self.publisher.is_cancelled() {
-            return;
-        }
-        match validate_recording_camera_frame(
-            timestamp,
-            self.not_before,
-            self.epoch,
-            self.current_epoch.load(Ordering::Acquire),
-        ) {
-            Ok(true) => {}
-            Ok(false) => return,
-            Err(error) => {
-                self.publisher.fail(error);
-                return;
-            }
-        }
-        let Some(bytes) = image.as_bytes(0) else {
-            self.publisher
-                .fail("Processed camera pixels unavailable".to_string());
-            return;
-        };
-        self.publisher.publish(
-            cap_recording::instant_recording::LinuxProcessedCameraFrame {
-                bgra: Arc::from(bytes),
-                dimensions: (dims.0 as u32, dims.1 as u32),
-                stride: dims.0 * 4,
-                timestamp,
-                generation: self.generation,
-                processing: self.processing,
-                mask,
-            },
-        );
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn validate_recording_camera_frame(
-    timestamp: cap_timestamp::Timestamp,
-    not_before: Instant,
-    epoch: u64,
-    current_epoch: u64,
-) -> Result<bool, String> {
-    if epoch != current_epoch {
-        return Err(t!("Camera selection changed during recording").to_string());
-    }
-    let cap_timestamp::Timestamp::Instant(captured_at) = timestamp else {
-        return Err("Camera capture timestamp is not monotonic".to_string());
-    };
-    Ok(captured_at >= not_before)
-}
-
-#[cfg(target_os = "linux")]
-fn checked_recording_blur(
-    status: &cap_camera_effects::BlurOutputStatus,
-    expected_mode: cap_camera_effects::BlurMode,
-    dimensions: (u32, u32),
-    now: Instant,
-) -> Result<Option<cap_recording::instant_recording::LinuxCameraMaskReceipt>, String> {
-    match status.applied_at(
-        now,
-        cap_recording::instant_recording::LINUX_CAMERA_MAX_MASK_AGE,
-    ) {
-        Ok(applied) if applied.mode == expected_mode && applied.output_dimensions == dimensions => {
-            Ok(Some(
-                cap_recording::instant_recording::LinuxCameraMaskReceipt {
-                    generation: applied.mask.generation,
-                    submitted_at: applied.mask.input_submitted_at,
-                    completed_at: applied.mask.inference_completed_at,
-                },
-            ))
-        }
-        Err(cap_camera_effects::BlurOutputUnavailable::Pending) => Ok(None),
-        other => Err(format!("Requested camera blur was not applied: {other:?}")),
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn frozen_processing_state(
-    processing: cap_recording::instant_recording::LinuxCameraProcessing,
-) -> (u8, bool) {
-    use cap_recording::instant_recording::LinuxCameraBlur;
-    (
-        match processing.blur {
-            LinuxCameraBlur::Off => 0,
-            LinuxCameraBlur::Light => 1,
-            LinuxCameraBlur::Heavy => 2,
-        },
-        processing.mirrored,
-    )
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -436,63 +186,20 @@ fn run_camera_preview_worker(config: CameraPreviewWorkerConfig) {
     let mut processor = None;
     let mut previous_blur = 0;
     let mut blur_failed = false;
-    #[cfg(target_os = "linux")]
-    let mut recording: Option<RecordingCameraWorker> = None;
     loop {
-        #[cfg(target_os = "linux")]
-        if recording
-            .as_ref()
-            .is_some_and(|recording| recording.publisher.is_cancelled())
-        {
-            recording = None;
-            scaler = None;
-            processor = None;
-            previous_blur = 0;
-            blur_failed = false;
-        }
         enum Event {
             Frame(Result<cap_recording::FFmpegVideoFrame, flume::RecvError>),
             Command(Result<CameraWorkerCommand, flume::RecvError>),
         }
         let input = &frame_rx;
-        #[cfg(target_os = "linux")]
-        let input = recording
-            .as_ref()
-            .map_or(input, |recording| &recording.frames);
         let selector = flume::Selector::new()
             .recv(input, Event::Frame)
             .recv(&reset_rx, Event::Command);
-        #[cfg(target_os = "linux")]
-        let poll_cancellation = recording.is_some();
-        #[cfg(not(target_os = "linux"))]
-        let poll_cancellation = false;
-        let event = if poll_cancellation {
-            selector.wait_timeout(Duration::from_millis(50)).ok()
-        } else {
-            Some(selector.wait())
-        };
-        let mut frame = match event {
-            Some(Event::Frame(Ok(frame))) => frame,
-            Some(Event::Command(Ok(command))) => {
+        let mut frame = match selector.wait() {
+            Event::Frame(Ok(frame)) => frame,
+            Event::Command(Ok(command)) => {
                 match command {
-                    CameraWorkerCommand::Reset =>
-                    {
-                        #[cfg(target_os = "linux")]
-                        if let Some(recording) = &recording {
-                            recording
-                                .publisher
-                                .fail("Camera preview was reset during recording".to_string());
-                        }
-                    }
-                    #[cfg(target_os = "linux")]
-                    CameraWorkerCommand::Record(next) => {
-                        if recording.is_some() {
-                            next.publisher
-                                .fail("Another processed camera lease is still active".to_string());
-                            continue;
-                        }
-                        recording = Some(next);
-                    }
+                    CameraWorkerCommand::Reset => {}
                 }
                 scaler = None;
                 processor = None;
@@ -500,12 +207,9 @@ fn run_camera_preview_worker(config: CameraPreviewWorkerConfig) {
                 blur_failed = false;
                 continue;
             }
-            Some(Event::Frame(Err(_)) | Event::Command(Err(_))) => break,
-            None => continue,
+            Event::Frame(Err(_)) | Event::Command(Err(_)) => break,
         };
         let processing_active = active.load(Ordering::Acquire);
-        #[cfg(target_os = "linux")]
-        let processing_active = processing_active || recording.is_some();
         if !processing_active {
             continue;
         }
@@ -514,25 +218,6 @@ fn run_camera_preview_worker(config: CameraPreviewWorkerConfig) {
         }
         let requested_blur = blur.load(Ordering::Relaxed);
         let requested_mirror = mirrored.load(Ordering::Relaxed);
-        #[cfg(target_os = "linux")]
-        let (requested_blur, requested_mirror) = if let Some(recording) = &recording {
-            match validate_recording_camera_frame(
-                frame.timestamp,
-                recording.not_before,
-                recording.epoch,
-                recording.current_epoch.load(Ordering::Acquire),
-            ) {
-                Ok(true) => {}
-                Ok(false) => continue,
-                Err(error) => {
-                    recording.publisher.fail(error);
-                    continue;
-                }
-            }
-            frozen_processing_state(recording.processing)
-        } else {
-            (requested_blur, requested_mirror)
-        };
         if requested_blur != previous_blur {
             processor = None;
             blur_failed = false;
@@ -544,31 +229,12 @@ fn run_camera_preview_worker(config: CameraPreviewWorkerConfig) {
             _ => None,
         }
         .filter(|_| !blur_failed && crate::camera_blur_portable::blur_allowed());
-        #[cfg(target_os = "linux")]
-        if requested_blur != 0
-            && blur_mode.is_none()
-            && let Some(recording) = &recording
-        {
-            recording
-                .publisher
-                .fail("Requested camera blur is unavailable".to_string());
-        }
         let max_dims = blur_mode.map(|_| crate::camera_blur_portable::MAX_DIMS);
         let Some((mut image, dims)) =
             camera_preview_image(&frame.inner, &mut scaler, requested_mirror, max_dims)
         else {
-            #[cfg(target_os = "linux")]
-            if let Some(recording) = &recording {
-                recording
-                    .publisher
-                    .fail("Camera frame conversion failed".to_string());
-            }
             continue;
         };
-        #[cfg(target_os = "linux")]
-        let mut applied_mask = None;
-        #[cfg(target_os = "linux")]
-        let mut effects_ready = requested_blur == 0;
         if let Some(mode) = blur_mode
             && !blur_failed
         {
@@ -581,75 +247,19 @@ fn run_camera_preview_worker(config: CameraPreviewWorkerConfig) {
                     Err(error) => {
                         tracing::warn!("camera blur preview unavailable: {error:#}");
                         blur_failed = true;
-                        #[cfg(target_os = "linux")]
-                        if let Some(recording) = &recording {
-                            recording.publisher.fail(format!(
-                                "Requested camera blur initialization failed: {error:#}"
-                            ));
-                        }
                     }
                 }
             }
             if let Some(worker) = processor.as_mut() {
-                #[cfg(target_os = "linux")]
-                let require_verified_output = recording.is_some();
-                #[cfg(not(target_os = "linux"))]
-                let require_verified_output = false;
-                let processed = if require_verified_output {
-                    worker
-                        .process_with_status(&image, dims, mode)
-                        .map(|(image, status)| (image, Some(status)))
-                } else {
-                    worker
-                        .process(&image, dims, mode)
-                        .map(|image| (image, None))
-                };
-                match processed {
-                    Ok((blurred, status)) => {
-                        image = blurred;
-                        #[cfg(not(target_os = "linux"))]
-                        drop(status);
-                        #[cfg(target_os = "linux")]
-                        if let Some(recording) = &recording {
-                            let applied = status
-                                .as_ref()
-                                .ok_or_else(|| {
-                                    "Requested camera blur has no output receipt".to_string()
-                                })
-                                .and_then(|status| {
-                                    checked_recording_blur(
-                                        status,
-                                        mode,
-                                        (dims.0 as u32, dims.1 as u32),
-                                        Instant::now(),
-                                    )
-                                });
-                            match applied {
-                                Ok(mask) => {
-                                    effects_ready = mask.is_some();
-                                    applied_mask = mask;
-                                }
-                                Err(error) => recording.publisher.fail(error),
-                            }
-                        }
-                    }
+                match worker.process(&image, dims, mode) {
+                    Ok(blurred) => image = blurred,
                     Err(error) => {
                         tracing::warn!("camera blur preview stopped: {error:#}");
                         processor = None;
                         blur_failed = true;
-                        #[cfg(target_os = "linux")]
-                        if let Some(recording) = &recording {
-                            recording
-                                .publisher
-                                .fail(format!("Requested camera blur failed: {error:#}"));
-                        }
                     }
                 }
             }
-        }
-        #[cfg(target_os = "linux")]
-        if effects_ready && let Some(recording) = &recording {
-            recording.publish(&image, dims, frame.timestamp, applied_mask);
         }
         if active.load(Ordering::Acquire) {
             match preview_tx.try_send(crate::camera_window::CameraPreviewFrame {
@@ -659,10 +269,6 @@ fn run_camera_preview_worker(config: CameraPreviewWorkerConfig) {
             }) {
                 Ok(()) | Err(flume::TrySendError::Full(_)) => {}
                 Err(flume::TrySendError::Disconnected(_)) => {
-                    #[cfg(target_os = "linux")]
-                    if recording.is_some() {
-                        continue;
-                    }
                     break;
                 }
             }
@@ -709,10 +315,6 @@ pub struct Feeds {
     #[cfg(not(target_os = "macos"))]
     camera_preview_reset: Option<flume::Sender<CameraWorkerCommand>>,
     camera_input_epoch: Arc<AtomicU64>,
-    #[cfg(target_os = "linux")]
-    camera_recording_active: Arc<AtomicBool>,
-    #[cfg(target_os = "linux")]
-    camera_recording_generation: Arc<std::sync::atomic::AtomicU64>,
     // Channel-holding tasks; dropping them ends the pumps.
     _frame_pump: Option<gpui::Task<()>>,
     _meter_pump: Option<gpui::Task<()>>,
@@ -772,10 +374,6 @@ impl Feeds {
             #[cfg(not(target_os = "macos"))]
             camera_preview_reset: None,
             camera_input_epoch: Arc::new(AtomicU64::new(0)),
-            #[cfg(target_os = "linux")]
-            camera_recording_active: Arc::new(AtomicBool::new(false)),
-            #[cfg(target_os = "linux")]
-            camera_recording_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             _frame_pump: None,
             _meter_pump: None,
             mic_meter_tx: None,
@@ -798,19 +396,6 @@ impl Feeds {
         }
         self.camera.as_ref()?;
         self.camera_actor.clone().filter(|actor| actor.is_alive())
-    }
-
-    #[cfg(target_os = "linux")]
-    pub fn camera_processing_factory(&self) -> Option<CameraProcessingFactory> {
-        Some(CameraProcessingFactory {
-            commands: self.camera_preview_reset.clone()?,
-            actor: self.camera_actor()?,
-            selected: self.camera.as_ref()?.id.clone(),
-            epoch: self.camera_epoch,
-            current_epoch: self.camera_input_epoch.clone(),
-            recording_active: self.camera_recording_active.clone(),
-            next_generation: self.camera_recording_generation.clone(),
-        })
     }
 
     pub fn mic_actor(&self) -> Option<ActorRef<MicrophoneFeed>> {
@@ -846,11 +431,6 @@ impl Feeds {
             camera: self.camera_settings,
             microphone: self.microphone_settings,
         }
-    }
-
-    #[cfg(target_os = "linux")]
-    pub(crate) fn set_camera_preview_rendering(&self, enabled: bool) -> bool {
-        self.camera_preview_active.swap(enabled, Ordering::AcqRel)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -1945,142 +1525,6 @@ mod tests {
         assert_eq!(receiver.sender_count(), 2);
         actor.stop_gracefully().await.unwrap();
         actor.wait_for_shutdown().await;
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn recording_blur_pending_failure_stale_and_wrong_effect_cannot_certify_pixels() {
-        use cap_camera_effects::{
-            BlurFailure, BlurMaskReceipt, BlurMaskStatus, BlurMode, BlurOutputStatus,
-        };
-        let now = Instant::now();
-        let mut status = BlurOutputStatus {
-            mode: BlurMode::Light,
-            output_sequence: 1,
-            output_dimensions: (4, 2),
-            mask: BlurMaskStatus::Pending,
-        };
-        assert!(
-            checked_recording_blur(&status, BlurMode::Light, (4, 2), now)
-                .unwrap()
-                .is_none()
-        );
-        for failure in [
-            BlurFailure::Inference("failed".into()),
-            BlurFailure::Readback("failed".into()),
-        ] {
-            status.mask = BlurMaskStatus::Failed(failure);
-            assert!(checked_recording_blur(&status, BlurMode::Light, (4, 2), now).is_err());
-        }
-        status.mask = BlurMaskStatus::Ready(BlurMaskReceipt {
-            generation: 7,
-            input_submitted_at: now,
-            inference_completed_at: now,
-            input_dimensions: (4, 2),
-        });
-        let applied = checked_recording_blur(&status, BlurMode::Light, (4, 2), now)
-            .unwrap()
-            .unwrap();
-        assert_eq!(applied.generation, 7);
-        assert_eq!(applied.submitted_at, now);
-        assert!(checked_recording_blur(&status, BlurMode::Heavy, (4, 2), now).is_err());
-        assert!(checked_recording_blur(&status, BlurMode::Light, (2, 4), now).is_err());
-        assert!(
-            checked_recording_blur(
-                &status,
-                BlurMode::Light,
-                (4, 2),
-                now + cap_recording::instant_recording::LINUX_CAMERA_MAX_MASK_AGE
-                    + Duration::from_millis(1)
-            )
-            .is_err()
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn recording_camera_reservation_releases_only_its_owned_attempt() {
-        let active = Arc::new(AtomicBool::new(false));
-        let first = CameraRecordingReservation::try_acquire(&active).unwrap();
-        assert!(active.load(Ordering::Acquire));
-        assert!(CameraRecordingReservation::try_acquire(&active).is_none());
-        assert!(active.load(Ordering::Acquire));
-        drop(first);
-        assert!(!active.load(Ordering::Acquire));
-        let restarted = CameraRecordingReservation::try_acquire(&active).unwrap();
-        assert!(CameraRecordingReservation::try_acquire(&active).is_none());
-        drop(restarted);
-        assert!(!active.load(Ordering::Acquire));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn recording_camera_rejects_queued_frames_and_changed_selection() {
-        let old = Instant::now();
-        let subscribed = old + Duration::from_millis(1);
-        assert_eq!(
-            validate_recording_camera_frame(
-                cap_timestamp::Timestamp::Instant(old),
-                subscribed,
-                7,
-                7
-            ),
-            Ok(false)
-        );
-        assert_eq!(
-            validate_recording_camera_frame(
-                cap_timestamp::Timestamp::Instant(subscribed),
-                subscribed,
-                7,
-                7
-            ),
-            Ok(true)
-        );
-        assert!(
-            validate_recording_camera_frame(
-                cap_timestamp::Timestamp::Instant(subscribed),
-                subscribed,
-                7,
-                8
-            )
-            .is_err()
-        );
-        assert!(
-            validate_recording_camera_frame(
-                cap_timestamp::Timestamp::Instant(old),
-                subscribed,
-                7,
-                8
-            )
-            .is_err()
-        );
-        assert!(
-            validate_recording_camera_frame(
-                cap_timestamp::Timestamp::SystemTime(std::time::SystemTime::now()),
-                subscribed,
-                7,
-                7,
-            )
-            .is_err()
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn recording_processing_keeps_exact_mirror_and_light_heavy_identity() {
-        use cap_recording::instant_recording::{LinuxCameraBlur, LinuxCameraProcessing};
-        for (blur, encoded) in [
-            (LinuxCameraBlur::Off, 0),
-            (LinuxCameraBlur::Light, 1),
-            (LinuxCameraBlur::Heavy, 2),
-        ] {
-            for mirrored in [false, true] {
-                assert_eq!(
-                    frozen_processing_state(LinuxCameraProcessing { mirrored, blur }),
-                    (encoded, mirrored)
-                );
-            }
-        }
     }
 
     /// Both level mappings keep the web app's orientation: `picker_level` is 1

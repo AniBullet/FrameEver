@@ -1,7 +1,7 @@
 //! OS permission checks -- `src-tauri/src/permissions.rs`, without Tauri.
 //!
-//! macOS is the only platform that gates onboarding on these. Windows and
-//! Linux report [`OSPermissionStatus::NotNeeded`] for every row, matching
+//! macOS is the only platform that gates onboarding on these. Windows
+//! reports [`OSPermissionStatus::NotNeeded`] for every row, matching
 //! `do_permissions_check` over there.
 //!
 //! ## Detection, and why it is cheap

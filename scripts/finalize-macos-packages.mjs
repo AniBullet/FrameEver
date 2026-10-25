@@ -1,12 +1,48 @@
+import { spawnSync } from "node:child_process";
 import { mkdtemp, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
-import {
-	runCommand,
-	signUpdaterArtifact,
-	withoutUpdaterSecrets,
-} from "./finalize-linux-appimage.mjs";
+import { gpuiDirectory } from "./bundle-gpui.mjs";
+
+export function runCommand(command, args, options = {}) {
+	const result = spawnSync(command, args, { stdio: "inherit", ...options });
+	if (result.error) throw result.error;
+	if (result.status !== 0) {
+		throw new Error(`${command} failed with ${result.signal ?? result.status}`);
+	}
+	return result;
+}
+
+const updaterSecrets = [
+	"TAURI_SIGNING_PRIVATE_KEY",
+	"TAURI_SIGNING_PRIVATE_KEY_PASSWORD",
+	"TAURI_PRIVATE_KEY",
+	"TAURI_PRIVATE_KEY_PASSWORD",
+];
+
+export function withoutUpdaterSecrets(env) {
+	const tools = { ...env };
+	for (const name of updaterSecrets) delete tools[name];
+	return tools;
+}
+
+export async function signUpdaterArtifact(
+	filename,
+	{ env = process.env, run = runCommand } = {},
+) {
+	await run("bun", ["run", "tauri", "signer", "sign", filename], {
+		cwd: gpuiDirectory,
+		env: {
+			...env,
+			TAURI_PRIVATE_KEY: env.TAURI_SIGNING_PRIVATE_KEY,
+			TAURI_PRIVATE_KEY_PASSWORD: env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? "",
+		},
+	});
+	if (!(await stat(`${filename}.sig`)).size) {
+		throw new Error(`Updater signature for ${filename} is empty`);
+	}
+}
 
 const captured = (env) => ({
 	env: { ...env, LC_ALL: "C" },

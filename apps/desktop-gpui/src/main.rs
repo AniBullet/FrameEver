@@ -32,8 +32,6 @@ mod editor_crop;
 mod editor_edits;
 mod editor_export;
 mod editor_hover_bench;
-#[cfg(target_os = "linux")]
-mod editor_modal;
 mod editor_panels;
 mod editor_preparing;
 mod editor_sidebar;
@@ -254,30 +252,6 @@ fn app_runtime() -> tokio::runtime::Runtime {
 }
 
 fn main() {
-    #[cfg(target_os = "linux")]
-    if let Some(threads) = cap_utils::linux_runtime::llvmpipe_thread_count() {
-        // Mesa counts host CPUs inside containers; apply the process limit before logging starts threads.
-        unsafe {
-            std::env::set_var("LP_NUM_THREADS", threads.to_string());
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    if let Some(config) = cap_utils::linux_package::appimage_alsa_config_path() {
-        // Logging starts a worker thread, so configure the process environment first.
-        unsafe {
-            std::env::set_var("ALSA_CONFIG_PATH", config);
-        }
-    }
-
-    // The AppImage CLI launcher re-enters the AppImage with `--cap-cli`; hand
-    // it to the bundled CLI before logging, single-instance or the GUI start.
-    #[cfg(target_os = "linux")]
-    if let Err(error) = cap_cli_install::appimage::dispatch_cli() {
-        eprintln!("{error}");
-        std::process::exit(1);
-    }
-
     let _log_guard = init_logging();
 
     single_instance::acquire();
@@ -342,10 +316,8 @@ fn main() {
         // A first run always lands in onboarding, and these two flags are a
         // store read rather than the gate's TCC queries -- so the main window
         // starts hidden instead of flashing up before onboarding replaces it.
-        // Linux keeps the gate: its main window tracks retained visibility.
-        let first_run = cfg!(not(target_os = "linux"))
-            && (!crate::store::has_completed_startup()
-                || !crate::store::has_completed_onboarding());
+        let first_run =
+            !crate::store::has_completed_startup() || !crate::store::has_completed_onboarding();
         let window_handle = cx
             .open_window(
                 WindowOptions {
@@ -357,7 +329,7 @@ fn main() {
                     // traffic lights -- the whole shell is custom-drawn. In gpui a
                     // `None` titlebar drops NSClosable/NSMiniaturizable/NSResizable
                     // from the style mask, which is the equivalent.
-                    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                    #[cfg(not(target_os = "windows"))]
                     titlebar: None,
                     #[cfg(target_os = "windows")]
                     titlebar: Some(gpui::TitlebarOptions {
@@ -365,17 +337,6 @@ fn main() {
                         appears_transparent: true,
                         ..Default::default()
                     }),
-                    #[cfg(target_os = "linux")]
-                    titlebar: Some(gpui::TitlebarOptions {
-                        title: Some("FrameEver".into()),
-                        ..Default::default()
-                    }),
-                    #[cfg(target_os = "linux")]
-                    app_id: Some("FrameEver".into()),
-                    #[cfg(target_os = "linux")]
-                    window_min_size: Some(size(px(MAIN_WINDOW_WIDTH), px(MAIN_WINDOW_HEIGHT))),
-                    #[cfg(target_os = "linux")]
-                    window_decorations: Some(gpui::WindowDecorations::Client),
                     #[cfg(target_os = "macos")]
                     kind: gpui::WindowKind::Floating,
                     #[cfg(not(target_os = "macos"))]
@@ -430,8 +391,6 @@ fn main() {
                 return;
             }
         }
-        #[cfg(target_os = "linux")]
-        single_instance::init_linux_reopen(cx);
         updates::schedule_startup_check(cx);
 
         // The app menu (and with it ⌘W/⌘M/⌘Q) and the status-bar item. Both
@@ -522,10 +481,6 @@ fn main() {
                         shadow: true,
                     },
                 );
-                #[cfg(target_os = "linux")]
-                if let Err(error) = platform::remove_x11_window_decorations(window) {
-                    tracing::warn!(%error, "could not remove X11 main window decorations");
-                }
                 tracing::info!(
                     number = platform::window_number(window),
                     "main window opened"
@@ -581,8 +536,6 @@ fn main() {
             }
         })
         .detach();
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        let _ = native_main;
 
         // `CAP_GPUI_DEBUG_LIGHTS=1`: poll the main window's style mask and
         // standard-button set, logging on change -- pins down *when* AppKit
@@ -756,10 +709,7 @@ fn main() {
     runtime.shutdown_background();
 }
 
-#[cfg(all(
-    test,
-    any(target_os = "windows", target_os = "macos", target_os = "linux")
-))]
+#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
 mod runtime_tests {
     #[cfg(target_os = "windows")]
     fn current_stack_size() -> usize {
@@ -773,22 +723,6 @@ mod runtime_tests {
     #[cfg(target_os = "macos")]
     fn current_stack_size() -> usize {
         unsafe { libc::pthread_get_stacksize_np(libc::pthread_self()) }
-    }
-
-    #[cfg(target_os = "linux")]
-    fn current_stack_size() -> usize {
-        unsafe {
-            let mut attr = std::mem::zeroed::<libc::pthread_attr_t>();
-            assert_eq!(libc::pthread_getattr_np(libc::pthread_self(), &mut attr), 0);
-            let mut address = std::ptr::null_mut();
-            let mut size = 0;
-            assert_eq!(
-                libc::pthread_attr_getstack(&attr, &mut address, &mut size),
-                0
-            );
-            libc::pthread_attr_destroy(&mut attr);
-            size
-        }
     }
 
     #[test]

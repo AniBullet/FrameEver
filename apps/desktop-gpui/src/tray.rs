@@ -1083,32 +1083,6 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::*;
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-mod stub {
-    use gpui::App;
-
-    use super::{Entry, PreviousItem, current_menu_entries, scan_previous};
-
-    pub fn init(_cx: &mut App) {}
-    pub fn set_recording(_recording: bool, _cx: &mut App) {}
-    pub fn mode_changed(_mode: crate::main_window::Mode, _cx: &mut App) {}
-    pub fn refresh_previous(_cx: &mut App) {}
-    pub fn refresh_menu(_cx: &mut App) {}
-    pub fn previous_items(_cx: &App) -> Vec<PreviousItem> {
-        scan_previous(false)
-    }
-    pub fn menu_snapshot(cx: &App) -> Vec<Entry> {
-        current_menu_entries(
-            cx,
-            crate::main_window::Mode::from_store(),
-            &scan_previous(false),
-        )
-    }
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub use stub::*;
-
 /// Keeps the `Global` import honest on non-mac builds.
 #[allow(dead_code)]
 fn _global_bound<T: Global>() {}

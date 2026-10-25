@@ -3300,7 +3300,7 @@ impl SettingsWindow {
     }
 }
 
-/// Best-effort `SystemDiagnostics.{macos,linux}Version.displayName`.
+/// Best-effort `SystemDiagnostics.macosVersion.displayName`.
 fn os_version() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
@@ -3318,14 +3318,6 @@ fn os_version() -> Option<String> {
             Some(build) => format!("macOS {version} ({build})"),
             None => format!("macOS {version}"),
         })
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::fs::read_to_string("/etc/os-release")
-            .ok()?
-            .lines()
-            .find_map(|line| line.strip_prefix("PRETTY_NAME=").map(str::to_string))
-            .map(|value| value.trim_matches('"').to_string())
     }
     #[cfg(target_os = "windows")]
     {

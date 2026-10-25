@@ -14,13 +14,11 @@ export const gpuiToolchain = process.env.CAP_GPUI_RUST_TOOLCHAIN || "1.95.0";
 const platformConfigNames = {
 	darwin: "tauri.macos.conf.json",
 	win32: "tauri.windows.conf.json",
-	linux: "tauri.linux.conf.json",
 };
 
 export function targetPlatform(target) {
 	if (/-apple-darwin$/.test(target)) return "darwin";
 	if (/-pc-windows-msvc$/.test(target)) return "win32";
-	if (/-unknown-linux-gnu$/.test(target)) return "linux";
 	return null;
 }
 
@@ -150,15 +148,6 @@ export async function bundleGpui(target, args, { env = process.env } = {}) {
 	console.log(`Staged ${staged}`);
 	if (noBundle) return;
 	await writePlatformConfig(platform);
-	if (platform === "linux") {
-		await fs
-			.access(path.join(gpuiDirectory, platformConfigNames.linux))
-			.catch(() => {
-				throw new Error(
-					"Missing apps/desktop-gpui/tauri.linux.conf.json; run `RUST_TARGET_TRIPLE=<target> bun run cap-setup` first",
-				);
-			});
-	}
 
 	run("pnpm", ["run", ...bundleArguments(target, bundleArgs)], {
 		cwd: gpuiDirectory,

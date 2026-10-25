@@ -12,11 +12,11 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { runCommand } from "./finalize-linux-appimage.mjs";
 import {
 	convertDiskImage,
 	finalizeMacosPackages,
 	recompressUpdaterArchive,
+	runCommand,
 } from "./finalize-macos-packages.mjs";
 
 const available = (command) =>

@@ -3569,7 +3569,7 @@ impl SettingsWindow {
             .flex()
             .flex_col()
             .gap(px(12.))
-            .child(self.text_field(Field::ProjectName, cx))
+            .child(self.text_field(Field::ProjectName))
             .child(
                 // The live preview box. The Tauri card renders
                 // `commands.formatProjectName(...)`; ours formats the six
@@ -4098,14 +4098,13 @@ impl SettingsWindow {
     /// there binds `onKeyDown`, so Return does nothing in either app. What the
     /// window still owns is what Escape means, which is "revert to what is
     /// stored".
-    fn text_field(&self, field: Field, cx: &mut Context<Self>) -> gpui::Div {
+    fn text_field(&self, field: Field) -> gpui::Div {
         let (id, input) = match field {
             Field::ProjectName => ("project-name-input", &self.project_name_input),
             // Drawn by the Recordings page itself, as a search field.
             Field::RecordingsSearch => ("recordings-search", &self.recordings.search_input),
             Field::ScreenshotsSearch => ("screenshots-search", &self.screenshots.search_input),
         };
-        let _ = cx;
         div().child(ui::TextInput::settings(&self.theme, id, input))
     }
 

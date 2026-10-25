@@ -25,7 +25,7 @@
 //!   second instance on macOS -- the AppleEvent goes to the running process.
 //! * **App launched by the URL.** Tauri's single-instance plugin hands the new
 //!   launch's `frameever://` argv to the surviving old instance
-//!   (`lib.rs:5193-5204`). Linux and Windows forward action URLs to the
+//!   (`lib.rs:5193-5204`). Windows forwards action URLs to the
 //!   surviving instance; [`init`] reads argv on the initial launch. On macOS the
 //!   launch URL additionally arrives as the same GURL event once the run loop
 //!   starts; both roads feed one channel, and the channel buffers until the
@@ -421,8 +421,6 @@ impl DeepLinkAction {
                                     camera_feed,
                                     mic_feed,
                                     mic_meter,
-                                    #[cfg(target_os = "linux")]
-                                    linux_instant_camera: None,
                                     start_gate: None,
                                 },
                                 permit.clone(),

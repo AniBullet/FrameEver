@@ -207,200 +207,6 @@ async fn run_pause_control(
     PauseControlOutcome { paused, error }
 }
 
-#[cfg(target_os = "linux")]
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct RecordingOwner {
-    generation: u64,
-    project_dir: std::path::PathBuf,
-}
-
-#[cfg(target_os = "linux")]
-#[derive(PartialEq, Eq)]
-pub(crate) struct RecordingConfirmationTicket {
-    owner: RecordingOwner,
-    operation: u64,
-    phase: Phase,
-    pause_sequence: u64,
-    clean_sequence: u64,
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Clone)]
-struct TerminalTicket {
-    owner: RecordingOwner,
-    operation: u64,
-}
-
-#[cfg(target_os = "linux")]
-impl TerminalTicket {
-    fn is_current(
-        &self,
-        phase: Phase,
-        generation: u64,
-        operation: u64,
-        owner: Option<&RecordingOwner>,
-        retains_active: bool,
-    ) -> bool {
-        phase == Phase::Stopping
-            && generation == self.owner.generation
-            && operation == self.operation
-            && (!retains_active || owner == Some(&self.owner))
-    }
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CleanControlKind {
-    Pause,
-    Resume,
-    VerifyPaused,
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct CleanControlTicket {
-    owner: RecordingOwner,
-    sequence: u64,
-    kind: CleanControlKind,
-}
-
-#[cfg(target_os = "linux")]
-struct PendingCleanControl {
-    ticket: CleanControlTicket,
-    abort: futures_util::future::AbortHandle,
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Default)]
-struct CleanControlState {
-    pending: Option<PendingCleanControl>,
-    sequence: u64,
-    paused_owner: Option<RecordingOwner>,
-    uncertain: bool,
-}
-
-#[cfg(target_os = "linux")]
-impl CleanControlState {
-    fn begin(
-        &mut self,
-        owner: RecordingOwner,
-        kind: CleanControlKind,
-    ) -> (CleanControlTicket, futures_util::future::AbortRegistration) {
-        self.invalidate();
-        self.sequence = self.sequence.wrapping_add(1);
-        let ticket = CleanControlTicket {
-            owner,
-            sequence: self.sequence,
-            kind,
-        };
-        let (abort, registration) = futures_util::future::AbortHandle::new_pair();
-        self.pending = Some(PendingCleanControl {
-            ticket: ticket.clone(),
-            abort,
-        });
-        (ticket, registration)
-    }
-
-    fn invalidate(&mut self) {
-        if let Some(pending) = self.pending.take() {
-            pending.abort.abort();
-        }
-        self.paused_owner = None;
-    }
-
-    fn pending_kind(&self) -> Option<CleanControlKind> {
-        self.pending.as_ref().map(|pending| pending.ticket.kind)
-    }
-
-    fn complete(
-        &mut self,
-        ticket: &CleanControlTicket,
-        owner: Option<&RecordingOwner>,
-        phase: Phase,
-        outcome: &CleanControlOutcome,
-    ) -> bool {
-        if owner != Some(&ticket.owner)
-            || !matches!(phase, Phase::Recording { .. })
-            || self
-                .pending
-                .as_ref()
-                .is_none_or(|pending| pending.ticket != *ticket)
-        {
-            return false;
-        }
-        self.pending = None;
-        self.uncertain = outcome.paused.is_none();
-        self.paused_owner = (outcome.paused == Some(true)).then(|| ticket.owner.clone());
-        true
-    }
-
-    fn paused_for(&self, owner: Option<&RecordingOwner>) -> bool {
-        !self.uncertain
-            && self.pending.is_none()
-            && owner.is_some()
-            && self.paused_owner.as_ref() == owner
-    }
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Debug)]
-struct CleanControlOutcome {
-    paused: Option<bool>,
-    error: Option<String>,
-}
-
-#[cfg(target_os = "linux")]
-async fn after_clean_visibility(
-    visibility: Option<crate::app_windows::CleanVisibility>,
-    control: impl Future<Output = anyhow::Result<()>>,
-) -> anyhow::Result<()> {
-    if let Some(visibility) = visibility {
-        visibility.await?;
-    }
-    control.await
-}
-
-#[cfg(target_os = "linux")]
-async fn run_clean_control(
-    kind: CleanControlKind,
-    control: impl Future<Output = anyhow::Result<()>>,
-    query_paused: impl Future<Output = anyhow::Result<bool>>,
-    settle: impl Future<Output = ()>,
-) -> CleanControlOutcome {
-    if kind == CleanControlKind::Resume {
-        settle.await;
-    }
-    let result = control.await;
-    let control_succeeded = result.is_ok();
-    let state = tokio::time::timeout(Duration::from_secs(2), query_paused).await;
-    let (paused, state_error) = match state {
-        Ok(Ok(paused)) => (Some(paused), None),
-        Ok(Err(error)) => (
-            None,
-            Some(t!(
-                "Could not confirm capture state: {error}",
-                error = format!("{error:#}")
-            )),
-        ),
-        Err(_) => (None, Some(t!("Timed out confirming capture state").into())),
-    };
-    let paused = match paused {
-        Some(true) => Some(true),
-        Some(false) if control_succeeded && kind == CleanControlKind::Resume => Some(false),
-        _ => None,
-    };
-    let error = result
-        .err()
-        .map(|error| format!("{error:#}"))
-        .or(state_error)
-        .or_else(|| {
-            let expected = kind != CleanControlKind::Resume;
-            (paused != Some(expected))
-                .then(|| t!("Capture did not acknowledge the requested pause state").into())
-        });
-    CleanControlOutcome { paused, error }
-}
-
 pub struct RecordingSession {
     pub phase: Phase,
     active: Option<ActiveRecording>,
@@ -452,17 +258,7 @@ pub struct RecordingSession {
     discarding: Option<Task<Result<(), tokio::task::JoinError>>>,
     pause_control: PauseControlState,
     pause_control_error: Option<String>,
-    #[cfg(target_os = "linux")]
-    instant_attempt: Option<recording::InstantAttempt>,
-    #[cfg(target_os = "linux")]
-    terminal_operation: u64,
     pipeline_failed: bool,
-    #[cfg(target_os = "linux")]
-    stop_requested: bool,
-    #[cfg(target_os = "linux")]
-    clean_control: CleanControlState,
-    #[cfg(target_os = "linux")]
-    show_controls_after_pause: bool,
 }
 
 struct SessionGlobal(Entity<RecordingSession>);
@@ -498,17 +294,7 @@ impl RecordingSession {
             discarding: None,
             pause_control: PauseControlState::default(),
             pause_control_error: None,
-            #[cfg(target_os = "linux")]
-            instant_attempt: None,
-            #[cfg(target_os = "linux")]
-            terminal_operation: 0,
             pipeline_failed: false,
-            #[cfg(target_os = "linux")]
-            stop_requested: false,
-            #[cfg(target_os = "linux")]
-            clean_control: CleanControlState::default(),
-            #[cfg(target_os = "linux")]
-            show_controls_after_pause: false,
         });
         cx.set_global(SessionGlobal(session.clone()));
         session
@@ -555,18 +341,10 @@ impl RecordingSession {
     }
 
     pub fn pause_pending(&self) -> bool {
-        #[cfg(target_os = "linux")]
-        if self.clean_control.pending.is_some() {
-            return true;
-        }
         self.pause_control.pending.is_some()
     }
 
     pub fn pause_uncertain(&self) -> bool {
-        #[cfg(target_os = "linux")]
-        if self.clean_control.uncertain {
-            return true;
-        }
         self.pause_control.uncertain
     }
 
@@ -683,12 +461,6 @@ impl RecordingSession {
         self.pause_control.uncertain = false;
         self.pause_control_error = None;
         self.pipeline_failed = false;
-        #[cfg(target_os = "linux")]
-        {
-            self.instant_attempt = None;
-            self.clean_control.invalidate();
-            self.clean_control.uncertain = false;
-        }
         self.phase = Phase::Starting;
         self.error = None;
         self.storage_warning = false;
@@ -801,21 +573,6 @@ impl RecordingSession {
             return;
         }
 
-        #[cfg(target_os = "linux")]
-        {
-            self.instant_attempt = (config.mode == recording::RecordingMode::Instant)
-                .then(recording::InstantAttempt::new);
-        }
-        #[cfg(target_os = "linux")]
-        let attempt = self.instant_attempt.clone();
-        #[cfg(target_os = "linux")]
-        let start: std::pin::Pin<
-            Box<dyn Future<Output = anyhow::Result<ActiveRecording>> + Send>,
-        > = match attempt.clone() {
-            Some(attempt) => Box::pin(recording::start_tracked(config, attempt)),
-            None => Box::pin(recording::start(config)),
-        };
-        #[cfg(not(target_os = "linux"))]
         let start = recording::start(config);
         let discarding = self.discarding.take();
         let task = gpui_tokio::Tokio::spawn(cx, async move {
@@ -830,21 +587,6 @@ impl RecordingSession {
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
-            #[cfg(target_os = "linux")]
-            let startup_failed = !matches!(&result, Ok(Ok(_)));
-            #[cfg(target_os = "linux")]
-            let startup_joined = if startup_failed {
-                match &attempt {
-                    Some(attempt) => {
-                        attempt.cancel();
-                        attempt.wait_for_quiescence().await
-                            == cap_recording::instant_recording::InstantQuiescence::Joined
-                    }
-                    None => true,
-                }
-            } else {
-                false
-            };
             this.update(cx, |this, cx| {
                 if this.recording_generation != generation || this.phase != Phase::Starting {
                     if let Ok(Ok(active)) = result {
@@ -865,15 +607,6 @@ impl RecordingSession {
                         this.error = Some(format!("{error:#}"));
                         this.abort_start_cue();
                         this.countdown_remaining = None;
-                        #[cfg(target_os = "linux")]
-                        {
-                            this.phase = if startup_joined {
-                                Phase::Idle
-                            } else {
-                                Phase::Starting
-                            };
-                        }
-                        #[cfg(not(target_os = "linux"))]
                         {
                             this.phase = Phase::Idle;
                         }
@@ -883,37 +616,10 @@ impl RecordingSession {
                         this.error = Some(t!("Recording task failed.").into());
                         this.abort_start_cue();
                         this.countdown_remaining = None;
-                        #[cfg(target_os = "linux")]
-                        {
-                            this.phase = if startup_joined {
-                                Phase::Idle
-                            } else {
-                                Phase::Starting
-                            };
-                        }
-                        #[cfg(not(target_os = "linux"))]
                         {
                             this.phase = Phase::Idle;
                         }
                     }
-                }
-                #[cfg(target_os = "linux")]
-                if startup_failed && !startup_joined {
-                    this.stop_requested = false;
-                    this.clean_control.uncertain = true;
-                    this.error = Some(t!(
-                        "{error}. Capture cleanup is unconfirmed. Use Ctrl+Shift+F9 to retry Stop.",
-                        error = this
-                            .error
-                            .as_deref()
-                            .unwrap_or(t!("Recording startup failed"))
-                    ));
-                }
-                #[cfg(target_os = "linux")]
-                if this.phase == Phase::Idle {
-                    this.stop_requested = false;
-                    this.clean_control = CleanControlState::default();
-                    this.show_controls_after_pause = false;
                 }
                 cx.notify();
             })
@@ -945,12 +651,6 @@ impl RecordingSession {
         }
         self.monitor_storage(project_dir, cx);
         self.monitor_recording_failure(done, cx);
-        #[cfg(target_os = "linux")]
-        if self.stop_requested {
-            self.stop(cx);
-        } else if self.show_controls_after_pause {
-            self.show_clean_capture_controls(cx);
-        }
         cx.notify();
     }
 
@@ -966,9 +666,6 @@ impl RecordingSession {
             if let Some(previous) = previous {
                 let _ = previous.await;
             }
-            #[cfg(target_os = "linux")]
-            let discarded = active.cancel_preserving().await;
-            #[cfg(not(target_os = "linux"))]
             let discarded = active.cancel_and_delete().await;
             if let Err(error) = discarded {
                 tracing::warn!(%error, "discarding a cancelled recording start failed");
@@ -1080,45 +777,6 @@ impl RecordingSession {
             self.finish(cx);
             return;
         }
-        #[cfg(target_os = "linux")]
-        if matches!(self.phase, Phase::Starting | Phase::Stopping)
-            && let Some(attempt) = self.instant_attempt.clone()
-        {
-            attempt.cancel();
-            if self.phase == Phase::Stopping || self.stop_requested {
-                self.stop_requested = true;
-                cx.notify();
-                return;
-            }
-            self.stop_requested = true;
-            let generation = self.recording_generation;
-            let task =
-                gpui_tokio::Tokio::spawn(cx, async move { attempt.wait_for_quiescence().await });
-            cx.spawn(async move |this, cx| {
-                let result = task.await;
-                this.update(cx, |this, cx| {
-                    if this.recording_generation != generation || this.phase != Phase::Starting || this.active.is_some() { return; }
-                    if matches!(result, Ok(cap_recording::instant_recording::InstantQuiescence::Joined)) {
-                        this.finish(cx);
-                    } else {
-                        this.stop_requested = false;
-                        this.clean_control.uncertain = true;
-                        this.error = Some(t!("Capture cleanup is unconfirmed. Local files are preserved; use Ctrl+Shift+F9 to retry Stop.").into());
-                        cx.notify();
-                    }
-                }).ok();
-            }).detach();
-            cx.notify();
-            return;
-        }
-        #[cfg(target_os = "linux")]
-        if crate::app_windows::clean_capture_active(cx)
-            && clean_capture_stop_must_wait(self.phase, self.clean_control.pending_kind())
-        {
-            self.stop_requested = true;
-            cx.notify();
-            return;
-        }
         if !matches!(self.phase, Phase::Recording { .. }) {
             return;
         }
@@ -1130,22 +788,6 @@ impl RecordingSession {
         let Some(active) = self.active.as_ref() else {
             return;
         };
-        #[cfg(target_os = "linux")]
-        let stop_owner = RecordingOwner {
-            generation: self.recording_generation,
-            project_dir: active.project_dir.clone(),
-        };
-        #[cfg(target_os = "linux")]
-        let operation = {
-            self.terminal_operation = self.terminal_operation.wrapping_add(1);
-            self.terminal_operation
-        };
-        #[cfg(target_os = "linux")]
-        let stop_ticket = TerminalTicket {
-            owner: stop_owner.clone(),
-            operation,
-        };
-        #[cfg(not(target_os = "linux"))]
         let stop_generation = self.recording_generation;
         let phase_before_stop = self.phase;
         let low_storage = self.stopped_for_low_storage;
@@ -1175,10 +817,6 @@ impl RecordingSession {
         } else {
             (None, None)
         };
-        #[cfg(target_os = "linux")]
-        let retained_stop = active
-            .instant_stop_handle(recording_failed)
-            .or_else(|| active.clean_studio_stop_handle(studio_progress, camera_snapshot));
         #[cfg(windows)]
         let retained_stop = recording_failed
             .then(|| active.failed_stop_handle())
@@ -1187,8 +825,6 @@ impl RecordingSession {
         let retained_stop = recording_failed
             .then(|| active.failed_stop_handle())
             .or_else(|| active.clean_studio_stop_handle(studio_progress, camera_snapshot));
-        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-        let retained_stop: Option<recording::CaptureStopFuture> = None;
         let retains_active = retained_stop.is_some();
         let stop_future: recording::CaptureStopFuture = match retained_stop {
             Some(future) => future,
@@ -1197,11 +833,6 @@ impl RecordingSession {
                 Box::pin(async move { (true, active.stop(camera_snapshot).await) })
             }
         };
-        #[cfg(target_os = "linux")]
-        {
-            self.clean_control.invalidate();
-            self.stop_requested = false;
-        }
         self.stopped_elapsed = Some(self.elapsed());
         self.pause_control.cancel_for_stop();
         self.phase = Phase::Stopping;
@@ -1222,16 +853,11 @@ impl RecordingSession {
             let finalization = pending.finalization.clone();
             let captured =
                 gpui_tokio::Tokio::spawn(cx, async move { finalization.wait_for_capture().await });
-            #[cfg(target_os = "linux")]
-            let capture_ticket = stop_ticket.clone();
             cx.spawn(async move |this, cx| {
                 if !matches!(captured.await, Ok(true)) {
                     return;
                 }
                 this.update(cx, |this, cx| {
-                    #[cfg(target_os = "linux")]
-                    if !capture_ticket.is_current(this.phase, this.recording_generation, this.terminal_operation, this.recording_owner().as_ref(), retains_active) { return; }
-                    #[cfg(not(target_os = "linux"))]
                     if this.recording_generation != pending.generation || this.phase != Phase::Stopping { return; }
                     if let Some(current) = this.preparing_studio_editor_mut()
                         && current.finalization.same_job(&pending.finalization)
@@ -1247,9 +873,6 @@ impl RecordingSession {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
-                #[cfg(target_os = "linux")]
-                if !stop_ticket.is_current(this.phase, this.recording_generation, this.terminal_operation, this.recording_owner().as_ref(), retains_active) { return; }
-                #[cfg(not(target_os = "linux"))]
                 if this.recording_generation != stop_generation || this.phase != Phase::Stopping { return; }
                 let capture_stopped = match &result {
                     Ok((stopped, _)) => *stopped,
@@ -1283,11 +906,7 @@ impl RecordingSession {
                     };
                     #[cfg(target_os = "macos")]
                     let message = t!("{error}. Capture cleanup is unconfirmed. Use your recording Stop control to retry.", error = error);
-                    #[cfg(not(any(target_os = "macos", windows)))]
-                    let message = t!("{error}. Capture cleanup is unconfirmed. Use Ctrl+Shift+F9 to retry Stop.", error = error);
                     this.error = Some(message);
-                    #[cfg(target_os = "linux")]
-                    { this.clean_control.uncertain = true; }
                     cx.notify();
                     return;
                 }
@@ -1337,11 +956,6 @@ impl RecordingSession {
     }
 
     pub fn toggle_pause(&mut self, cx: &mut Context<Self>) {
-        #[cfg(target_os = "linux")]
-        if crate::app_windows::clean_capture_active(cx) {
-            self.toggle_clean_capture_pause(cx);
-            return;
-        }
         let Phase::Recording { paused } = self.phase else {
             return;
         };
@@ -1419,202 +1033,13 @@ impl RecordingSession {
         .detach();
     }
 
-    #[cfg(target_os = "linux")]
-    fn recording_owner(&self) -> Option<RecordingOwner> {
-        self.active.as_ref().map(|active| RecordingOwner {
-            generation: self.recording_generation,
-            project_dir: active.project_dir.clone(),
-        })
-    }
-
-    #[cfg(target_os = "linux")]
-    pub(crate) fn confirmation_ticket(&self) -> Option<RecordingConfirmationTicket> {
-        if !matches!(self.phase, Phase::Recording { .. })
-            || self.pause_unavailable()
-            || self.stop_requested
-        {
-            return None;
-        }
-        Some(RecordingConfirmationTicket {
-            owner: self.recording_owner()?,
-            operation: self.terminal_operation,
-            phase: self.phase,
-            pause_sequence: self.pause_control.sequence,
-            clean_sequence: self.clean_control.sequence,
-        })
-    }
-
-    #[cfg(target_os = "linux")]
-    pub(crate) fn confirmation_is_current(&self, ticket: &RecordingConfirmationTicket) -> bool {
-        self.confirmation_ticket().as_ref() == Some(ticket)
-    }
-
-    #[cfg(target_os = "linux")]
-    pub fn instant_cleanup_safe(&self) -> bool {
-        self.instant_attempt.as_ref().is_none_or(|attempt| {
-            attempt.quiescence() == cap_recording::instant_recording::InstantQuiescence::Joined
-        })
-    }
-
-    #[cfg(target_os = "linux")]
-    pub fn clean_capture_controls_safe(&self) -> bool {
-        clean_capture_controls_can_reveal(
-            self.mode(),
-            self.phase,
-            self.clean_control
-                .paused_for(self.recording_owner().as_ref()),
-        )
-    }
-
-    #[cfg(target_os = "linux")]
-    pub fn show_clean_capture_controls(&mut self, cx: &mut Context<Self>) {
-        if self.mode() == Some(crate::recording::RecordingMode::Instant) {
-            self.stop(cx);
-            return;
-        }
-        self.show_controls_after_pause = true;
-        if self.clean_capture_controls_safe() {
-            cx.defer(crate::app_windows::show_main_window_after_capture_pause);
-        } else if self.clean_control.pending.is_none() && !self.clean_control.uncertain {
-            match self.phase {
-                Phase::Recording { paused: true } => {
-                    self.begin_clean_control(CleanControlKind::VerifyPaused, cx)
-                }
-                Phase::Recording { paused: false } => {
-                    self.begin_clean_control(CleanControlKind::Pause, cx)
-                }
-                _ => {}
-            }
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    fn toggle_clean_capture_pause(&mut self, cx: &mut Context<Self>) {
-        if self.clean_control.pending.is_some() || self.clean_control.uncertain {
-            return;
-        }
-        let Phase::Recording { paused } = self.phase else {
-            return;
-        };
-        self.begin_clean_control(
-            if paused {
-                CleanControlKind::Resume
-            } else {
-                CleanControlKind::Pause
-            },
-            cx,
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    fn begin_clean_control(&mut self, kind: CleanControlKind, cx: &mut Context<Self>) {
-        let Some(active) = self.active.as_ref() else {
-            return;
-        };
-        let owner = RecordingOwner {
-            generation: self.recording_generation,
-            project_dir: active.project_dir.clone(),
-        };
-        let control = match kind {
-            CleanControlKind::Resume => active.resume_handle(),
-            CleanControlKind::Pause => active.pause_handle(),
-            CleanControlKind::VerifyPaused => Box::pin(async { Ok(()) }),
-        };
-        let query_paused = active.is_paused_handle();
-        let visibility = if kind == CleanControlKind::Resume {
-            match crate::app_windows::hide_clean_capture_main(cx) {
-                Ok(visibility) => Some(visibility),
-                Err(error) => {
-                    self.error = Some(error.to_string());
-                    cx.notify();
-                    return;
-                }
-            }
-        } else {
-            None
-        };
-        if kind == CleanControlKind::Resume {
-            self.show_controls_after_pause = false;
-        }
-        let control = after_clean_visibility(visibility, control);
-        let (ticket, registration) = self.clean_control.begin(owner, kind);
-        cx.notify();
-        let task = gpui_tokio::Tokio::spawn(
-            cx,
-            futures_util::future::Abortable::new(
-                run_clean_control(kind, control, query_paused, async {
-                    tokio::time::sleep(Duration::from_millis(150)).await
-                }),
-                registration,
-            ),
-        );
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let outcome = match result {
-                Ok(Ok(outcome)) => outcome,
-                Ok(Err(_)) => return,
-                Err(error) => CleanControlOutcome {
-                    paused: None,
-                    error: Some(t!("Capture control task failed: {error}", error = error)),
-                },
-            };
-            this.update(cx, |this, cx| {
-                let owner = this.recording_owner();
-                if !this
-                    .clean_control
-                    .complete(&ticket, owner.as_ref(), this.phase, &outcome)
-                {
-                    return;
-                }
-                if let Some(paused) = outcome.paused {
-                    let was_paused = this.is_paused();
-                    this.phase = Phase::Recording { paused };
-                    if was_paused && !paused {
-                        if let Some(since) = this.paused_since.take() {
-                            this.paused_accum += since.elapsed();
-                        }
-                    } else if !was_paused && paused {
-                        this.paused_since = Some(Instant::now());
-                    }
-                }
-                if let Some(error) = outcome.error {
-                    tracing::error!(%error, "clean capture pause/resume failed");
-                    this.error = Some(t!(
-                        "{error}. Use your recording Stop control to stop recording.",
-                        error = error
-                    ));
-                    if outcome.paused == Some(true) {
-                        this.show_controls_after_pause = true;
-                    }
-                }
-                if this.stop_requested {
-                    this.stop(cx);
-                } else if this.show_controls_after_pause && this.clean_capture_controls_safe() {
-                    cx.defer(crate::app_windows::show_main_window_after_capture_pause);
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
     /// Cancel the live recording and delete its project directory (the bar's
     /// trash button).
     pub fn delete(&mut self, cx: &mut Context<Self>) {
         if self.pause_unavailable() {
             return;
         }
-        #[cfg(target_os = "linux")]
-        if self.clean_control.pending.is_some() || self.clean_control.uncertain {
-            return;
-        }
         if !matches!(self.phase, Phase::Recording { .. }) {
-            return;
-        }
-        #[cfg(target_os = "linux")]
-        if self.mode() == Some(recording::RecordingMode::Instant) {
-            self.discard_instant(None, cx);
             return;
         }
         #[cfg(any(target_os = "macos", windows))]
@@ -1645,44 +1070,17 @@ impl RecordingSession {
         if !crate::menus::recording_start_allowed(cx) || self.pause_unavailable() {
             return;
         }
-        #[cfg(target_os = "linux")]
-        if self.clean_control.pending.is_some() || self.clean_control.uncertain {
-            return;
-        }
         if !matches!(self.phase, Phase::Recording { .. }) {
             return;
         }
         let Some(config) = self.last_config.clone() else {
             return;
         };
-        #[cfg(target_os = "linux")]
-        let config = {
-            let mut config = config;
-            if let Err(error) = crate::app_windows::refresh_linux_instant_camera(&mut config, cx) {
-                self.error = Some(error.to_string());
-                cx.notify();
-                return;
-            }
-            config
-        };
-        #[cfg(target_os = "linux")]
-        let clean_capture = crate::app_windows::clean_capture_active(cx);
-        #[cfg(target_os = "linux")]
-        if clean_capture {
-            self.show_controls_after_pause = false;
-        }
-        #[cfg(target_os = "linux")]
-        if self.mode() == Some(recording::RecordingMode::Instant) {
-            self.discard_instant(Some(config), cx);
-            return;
-        }
         #[cfg(any(target_os = "macos", windows))]
         if self.mode() == Some(recording::RecordingMode::Studio) {
             self.discard_studio_after_stop(Some(config), cx);
             return;
         }
-        #[cfg(target_os = "linux")]
-        let restart_generation = self.recording_generation;
         self.storage_monitor = None;
         let Some(active) = self.active.take() else {
             return;
@@ -1700,62 +1098,10 @@ impl RecordingSession {
             if let Ok(Err(error)) = task.await {
                 tracing::error!("restart: discarding old recording: {error:#}");
             }
-            #[cfg(target_os = "linux")]
-            if !this
-                .update(cx, |this, _| {
-                    this.recording_generation == restart_generation && this.phase == Phase::Starting
-                })
-                .unwrap_or(false)
-            {
-                return;
-            }
-            #[cfg(target_os = "linux")]
-            if clean_capture {
-                let visibility = cx.update(|cx| {
-                    crate::app_windows::hide_clean_capture_main(cx)
-                        .map(|visibility| gpui_tokio::Tokio::spawn(cx, visibility))
-                });
-                let result = match visibility {
-                    Ok(task) => task
-                        .await
-                        .map_err(anyhow::Error::from)
-                        .and_then(|result| result),
-                    Err(error) => Err(error),
-                };
-                if let Err(error) = result {
-                    this.update(cx, |this, cx| {
-                        if this.recording_generation != restart_generation
-                            || this.phase != Phase::Starting
-                        {
-                            return;
-                        }
-                        this.error = Some(t!(
-                            "Restart could not hide FrameEver windows: {error}",
-                            error = error
-                        ));
-                        this.finish(cx);
-                    })
-                    .ok();
-                    return;
-                }
-                cx.background_executor()
-                    .timer(Duration::from_millis(150))
-                    .await;
-            }
             this.update(cx, |this, cx| {
                 // Restart bypasses the Idle guard in `start` by construction:
                 // we are in `Starting` and `start` would bail, so inline the
                 // same transition.
-                #[cfg(target_os = "linux")]
-                if this.recording_generation != restart_generation || this.phase != Phase::Starting
-                {
-                    return;
-                }
-                #[cfg(target_os = "linux")]
-                if this.stop_requested {
-                    this.finish(cx);
-                    return;
-                }
                 this.phase = Phase::Idle;
                 this.start(config, cx);
             })
@@ -1836,109 +1182,10 @@ impl RecordingSession {
         .detach();
     }
 
-    #[cfg(target_os = "linux")]
-    fn discard_instant(&mut self, restart: Option<StartConfig>, cx: &mut Context<Self>) {
-        let Some(active) = self.active.as_ref() else {
-            return;
-        };
-        let Some(future) = active.instant_delete_handle() else {
-            return;
-        };
-        let owner = self.recording_owner().unwrap();
-        self.terminal_operation = self.terminal_operation.wrapping_add(1);
-        let operation = self.terminal_operation;
-        let ticket = TerminalTicket {
-            owner: owner.clone(),
-            operation,
-        };
-        self.storage_monitor = None;
-        self.failure_monitor = None;
-        self.clean_control.invalidate();
-        self.phase = Phase::Stopping;
-        self.stop_requested = false;
-        let settle = restart.is_some() && crate::app_windows::clean_capture_active(cx);
-        cx.notify();
-        let task = gpui_tokio::Tokio::spawn(cx, future);
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let continue_restart = this.update(cx, |this, cx| {
-                if !ticket.is_current(this.phase, this.recording_generation, this.terminal_operation, this.recording_owner().as_ref(), true) { return false; }
-                match result {
-                    Ok((true, Ok(_))) => {
-                        this.active = None;
-                        if restart.is_some() && !this.stop_requested { true } else { this.finish(cx); false }
-                    }
-                    Ok((true, Err(error))) => {
-                        this.active = None;
-                        this.error = Some(t!("{error}. Failed recording files were preserved.", error = format!("{error:#}")));
-                        this.finish(cx);
-                        false
-                    }
-                    result => {
-                        this.phase = Phase::Recording { paused: false };
-                        this.clean_control.uncertain = true;
-                        this.error = Some(match result {
-                            Ok((_, Err(error))) => t!("{error}. Cleanup is unconfirmed; retry Stop.", error = format!("{error:#}")),
-                            Err(error) => t!("Cancel task failed: {error}. Cleanup is unconfirmed; retry Stop.", error = error),
-                            _ => t!("Capture cleanup is unconfirmed; retry Stop.").into(),
-                        });
-                        cx.notify();
-                        false
-                    }
-                }
-            }).unwrap_or(false);
-            if !continue_restart { return; }
-            if settle {
-                let visibility = cx.update(|cx| crate::app_windows::hide_clean_capture_main(cx)
-                    .map(|visibility| gpui_tokio::Tokio::spawn(cx, visibility)));
-                let result = match visibility {
-                    Ok(task) => task.await.map_err(anyhow::Error::from).and_then(|result| result),
-                    Err(error) => Err(error),
-                };
-                if let Err(error) = result {
-                    this.update(cx, |this, cx| {
-                        if ticket.is_current(this.phase, this.recording_generation, this.terminal_operation, None, false) && this.active.is_none() {
-                            this.error = Some(t!("Restart could not hide FrameEver windows: {error}", error = error));
-                            this.finish(cx);
-                        }
-                    }).ok();
-                    return;
-                }
-                cx.background_executor().timer(Duration::from_millis(150)).await;
-            }
-            this.update(cx, |this, cx| {
-                if !ticket.is_current(this.phase, this.recording_generation, this.terminal_operation, None, false) || this.active.is_some() { return; }
-                if this.stop_requested { this.finish(cx); return; }
-                if !this.instant_cleanup_safe() { this.finish(cx); return; }
-                this.phase = Phase::Idle;
-                this.start(restart.unwrap(), cx);
-            }).ok();
-        }).detach();
-    }
-
     fn finish(&mut self, cx: &mut Context<Self>) {
         self.abort_start_cue();
         self.discard_primed(cx);
         self.start_gate = None;
-        #[cfg(target_os = "linux")]
-        if !self.instant_cleanup_safe() {
-            self.clean_control.uncertain = true;
-            self.error = Some(t!("Capture cleanup is unconfirmed. Local files are preserved; use Ctrl+Shift+F9 to retry Stop.").into());
-            self.phase = if self.active.is_some() {
-                Phase::Recording { paused: false }
-            } else {
-                Phase::Starting
-            };
-            cx.notify();
-            return;
-        }
-        #[cfg(target_os = "linux")]
-        {
-            self.stop_requested = false;
-            self.clean_control.invalidate();
-            self.clean_control.uncertain = false;
-            self.show_controls_after_pause = false;
-        }
         self.failure_monitor = None;
         self.pause_control.invalidate();
         self.pause_control.uncertain = false;
@@ -2028,436 +1275,6 @@ mod countdown_tests {
                 expected
             );
         }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn clean_capture_stop_must_wait(phase: Phase, transition: Option<CleanControlKind>) -> bool {
-    phase == Phase::Starting || transition == Some(CleanControlKind::Pause)
-}
-
-#[cfg(target_os = "linux")]
-fn clean_capture_controls_can_reveal(
-    mode: Option<crate::recording::RecordingMode>,
-    phase: Phase,
-    paused_acknowledged: bool,
-) -> bool {
-    mode == Some(crate::recording::RecordingMode::Studio)
-        && phase == (Phase::Recording { paused: true })
-        && paused_acknowledged
-}
-
-#[cfg(all(test, target_os = "linux"))]
-mod clean_capture_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn resume_waits_for_visibility_before_polling_capture_control() {
-        let (send, receive) = flume::bounded::<()>(1);
-        let polled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let observed = polled.clone();
-        let visibility = Box::pin(async move {
-            receive.recv_async().await?;
-            Ok(())
-        });
-        let control = async move {
-            observed.store(true, std::sync::atomic::Ordering::SeqCst);
-            Ok(())
-        };
-        let mut pending = Box::pin(after_clean_visibility(Some(visibility), control));
-        assert!(futures_util::poll!(&mut pending).is_pending());
-        assert!(!polled.load(std::sync::atomic::Ordering::SeqCst));
-        send.send(()).unwrap();
-        pending.await.unwrap();
-        assert!(polled.load(std::sync::atomic::Ordering::SeqCst));
-    }
-
-    #[tokio::test]
-    async fn failed_visibility_never_resumes_capture() {
-        let visibility = Box::pin(async { anyhow::bail!("unmap not acknowledged") });
-        let control = async { Err(anyhow::anyhow!("capture control must not be polled")) };
-        assert_eq!(
-            after_clean_visibility(Some(visibility), control)
-                .await
-                .unwrap_err()
-                .to_string(),
-            "unmap not acknowledged"
-        );
-    }
-
-    #[test]
-    fn instant_pause_never_authorizes_mapping_recording_controls() {
-        for paused_acknowledged in [false, true] {
-            for phase in [
-                Phase::Idle,
-                Phase::Starting,
-                Phase::Recording { paused: false },
-                Phase::Recording { paused: true },
-                Phase::Stopping,
-            ] {
-                assert!(!clean_capture_controls_can_reveal(
-                    Some(crate::recording::RecordingMode::Instant),
-                    phase,
-                    paused_acknowledged,
-                ));
-                assert_eq!(
-                    clean_capture_controls_can_reveal(
-                        Some(crate::recording::RecordingMode::Studio),
-                        phase,
-                        paused_acknowledged,
-                    ),
-                    phase == (Phase::Recording { paused: true }) && paused_acknowledged,
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn recording_failure_targets_only_the_current_recording() {
-        for paused in [false, true] {
-            assert!(recording_failure_is_current(
-                Phase::Recording { paused },
-                2,
-                2
-            ));
-            assert!(!recording_failure_is_current(
-                Phase::Recording { paused },
-                2,
-                1
-            ));
-        }
-    }
-
-    #[test]
-    fn recording_failure_does_not_repeat_stop_or_interrupt_restart() {
-        for phase in [Phase::Idle, Phase::Starting, Phase::Stopping] {
-            assert!(!recording_failure_is_current(phase, 2, 2));
-        }
-    }
-
-    #[test]
-    fn stop_waits_only_for_start_and_pause_acknowledgement() {
-        assert!(clean_capture_stop_must_wait(Phase::Starting, None));
-        for paused in [true, false] {
-            let phase = Phase::Recording { paused };
-            assert!(clean_capture_stop_must_wait(
-                phase,
-                Some(CleanControlKind::Pause)
-            ));
-            for kind in [
-                None,
-                Some(CleanControlKind::Resume),
-                Some(CleanControlKind::VerifyPaused),
-            ] {
-                assert!(!clean_capture_stop_must_wait(phase, kind));
-            }
-        }
-    }
-    fn owner(generation: u64, project: &str) -> RecordingOwner {
-        RecordingOwner {
-            generation,
-            project_dir: project.into(),
-        }
-    }
-
-    #[tokio::test]
-    async fn pause_only_reveals_after_the_same_actor_acknowledges_paused() {
-        let owner = owner(1, "recording-a");
-        let mut state = CleanControlState::default();
-        let (ticket, registration) = state.begin(owner.clone(), CleanControlKind::Pause);
-        let (queried_tx, queried_rx) = tokio::sync::oneshot::channel();
-        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
-        let mut task = tokio::spawn(futures_util::future::Abortable::new(
-            run_clean_control(
-                CleanControlKind::Pause,
-                async { Ok(()) },
-                async {
-                    queried_tx.send(()).unwrap();
-                    Ok(ack_rx.await.unwrap())
-                },
-                async {},
-            ),
-            registration,
-        ));
-        queried_rx.await.unwrap();
-        assert!(!state.paused_for(Some(&owner)));
-        assert!(clean_capture_stop_must_wait(
-            Phase::Recording { paused: false },
-            state.pending_kind()
-        ));
-        assert!(
-            tokio::time::timeout(Duration::from_millis(10), &mut task)
-                .await
-                .is_err()
-        );
-        ack_tx.send(true).unwrap();
-        let outcome = task.await.unwrap().unwrap();
-        assert!(outcome.error.is_none());
-        assert!(state.complete(
-            &ticket,
-            Some(&owner),
-            Phase::Recording { paused: false },
-            &outcome
-        ));
-        assert!(state.paused_for(Some(&owner)));
-    }
-
-    #[tokio::test]
-    async fn failed_resume_or_pause_requires_true_paused_acknowledgement() {
-        for kind in [CleanControlKind::Resume, CleanControlKind::Pause] {
-            for acknowledged in [true, false] {
-                let outcome = run_clean_control(
-                    kind,
-                    async { anyhow::bail!("setup or teardown failed") },
-                    async { Ok(acknowledged) },
-                    async {},
-                )
-                .await;
-                assert!(outcome.error.is_some());
-                assert_eq!(outcome.paused, acknowledged.then_some(true));
-                let owner = owner(1, "recording-a");
-                let mut state = CleanControlState::default();
-                let (ticket, _) = state.begin(owner.clone(), kind);
-                assert!(state.complete(
-                    &ticket,
-                    Some(&owner),
-                    Phase::Recording { paused: true },
-                    &outcome
-                ));
-                assert_eq!(state.paused_for(Some(&owner)), acknowledged);
-                assert_eq!(state.uncertain, !acknowledged);
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn actor_transport_error_never_confirms_a_safe_pause() {
-        let outcome = run_clean_control(
-            CleanControlKind::Pause,
-            async { Ok(()) },
-            async { anyhow::bail!("actor stopped") },
-            async {},
-        )
-        .await;
-        assert_eq!(outcome.paused, None);
-        assert!(outcome.error.unwrap().contains("actor stopped"));
-    }
-
-    #[tokio::test]
-    async fn stop_interrupts_a_blocked_resume_without_waiting_for_control_completion() {
-        struct Dropped(std::sync::Arc<std::sync::atomic::AtomicBool>);
-        impl Drop for Dropped {
-            fn drop(&mut self) {
-                self.0.store(true, std::sync::atomic::Ordering::Release);
-            }
-        }
-        let owner = owner(2, "recording-b");
-        let mut state = CleanControlState::default();
-        let (ticket, registration) = state.begin(owner.clone(), CleanControlKind::Resume);
-        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let control_dropped = dropped.clone();
-        let task = tokio::spawn(futures_util::future::Abortable::new(
-            run_clean_control(
-                CleanControlKind::Resume,
-                async move {
-                    let _guard = Dropped(control_dropped);
-                    started_tx.send(()).unwrap();
-                    std::future::pending::<anyhow::Result<()>>().await
-                },
-                async { panic!("A cancelled resume must not query state") },
-                async {},
-            ),
-            registration,
-        ));
-        started_rx.await.unwrap();
-        assert!(!clean_capture_stop_must_wait(
-            Phase::Recording { paused: true },
-            state.pending_kind()
-        ));
-        state.invalidate();
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-        let stopping = tokio::spawn(async move {
-            stop_tx.send(()).unwrap();
-        });
-        tokio::time::timeout(Duration::from_secs(1), stop_rx)
-            .await
-            .unwrap()
-            .unwrap();
-        stopping.await.unwrap();
-        assert!(task.await.unwrap().is_err());
-        assert!(dropped.load(std::sync::atomic::Ordering::Acquire));
-        assert!(!state.complete(
-            &ticket,
-            Some(&owner),
-            Phase::Stopping,
-            &CleanControlOutcome {
-                paused: Some(true),
-                error: None
-            }
-        ));
-    }
-
-    #[tokio::test]
-    async fn stop_during_hidden_window_settle_never_dispatches_resume() {
-        let owner = owner(1, "recording-a");
-        let mut state = CleanControlState::default();
-        let (_, registration) = state.begin(owner, CleanControlKind::Resume);
-        let (settled_tx, settled_rx) = tokio::sync::oneshot::channel();
-        let dispatched = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let called = dispatched.clone();
-        let task = tokio::spawn(futures_util::future::Abortable::new(
-            run_clean_control(
-                CleanControlKind::Resume,
-                async move {
-                    called.store(true, std::sync::atomic::Ordering::Release);
-                    Ok(())
-                },
-                async { Ok(false) },
-                async {
-                    settled_tx.send(()).unwrap();
-                    std::future::pending::<()>().await;
-                },
-            ),
-            registration,
-        ));
-        settled_rx.await.unwrap();
-        state.invalidate();
-        assert!(task.await.unwrap().is_err());
-        assert!(!dispatched.load(std::sync::atomic::Ordering::Acquire));
-    }
-
-    #[tokio::test]
-    async fn queued_control_completion_cannot_clear_a_newer_recording_or_operation() {
-        for next_owner in [
-            owner(1, "recording-a"),
-            owner(2, "recording-a"),
-            owner(1, "recording-b"),
-        ] {
-            let prior = owner(1, "recording-a");
-            let mut state = CleanControlState::default();
-            let (ticket, _) = state.begin(prior, CleanControlKind::Pause);
-            let outcome = run_clean_control(
-                CleanControlKind::Pause,
-                async { Ok(()) },
-                async { Ok(true) },
-                async {},
-            )
-            .await;
-            let (next_ticket, _) = state.begin(next_owner.clone(), CleanControlKind::Resume);
-            assert!(!state.complete(
-                &ticket,
-                Some(&next_owner),
-                Phase::Recording { paused: true },
-                &outcome
-            ));
-            assert_eq!(state.pending.as_ref().unwrap().ticket, next_ticket);
-            assert!(!state.paused_for(Some(&next_owner)));
-        }
-    }
-
-    #[tokio::test]
-    async fn successful_resume_requires_nonpaused_ack_and_never_authorizes_main() {
-        let outcome = run_clean_control(
-            CleanControlKind::Resume,
-            async { Ok(()) },
-            async { Ok(false) },
-            async {},
-        )
-        .await;
-        assert_eq!(outcome.paused, Some(false));
-        assert!(outcome.error.is_none());
-        let owner = owner(1, "recording-a");
-        let mut state = CleanControlState::default();
-        let (ticket, _) = state.begin(owner.clone(), CleanControlKind::Resume);
-        assert!(state.complete(
-            &ticket,
-            Some(&owner),
-            Phase::Recording { paused: true },
-            &outcome
-        ));
-        assert!(!state.paused_for(Some(&owner)));
-        assert!(!state.uncertain);
-    }
-    #[tokio::test]
-    async fn missing_paused_acknowledgement_times_out_without_authorizing_main() {
-        let outcome = run_clean_control(
-            CleanControlKind::Pause,
-            async { Ok(()) },
-            std::future::pending::<anyhow::Result<bool>>(),
-            async {},
-        )
-        .await;
-        assert_eq!(outcome.paused, None);
-        assert!(outcome.error.unwrap().contains("Timed out"));
-    }
-}
-
-#[cfg(all(test, target_os = "linux"))]
-mod instant_terminal_tests {
-    use super::*;
-
-    fn owner(generation: u64, directory: &str) -> RecordingOwner {
-        RecordingOwner {
-            generation,
-            project_dir: directory.into(),
-        }
-    }
-
-    #[tokio::test]
-    async fn late_stop_completion_cannot_release_a_retry_or_new_recording() {
-        let original = owner(3, "original.cap");
-        let ticket = TerminalTicket {
-            owner: original.clone(),
-            operation: 1,
-        };
-        let (complete, completed) = tokio::sync::oneshot::channel();
-        let operation = async {
-            completed.await.unwrap();
-            ticket
-        };
-        tokio::pin!(operation);
-        assert!(
-            tokio::time::timeout(Duration::from_millis(10), &mut operation)
-                .await
-                .is_err()
-        );
-        complete.send(()).unwrap();
-        let ticket = operation.await;
-        assert!(!ticket.is_current(Phase::Stopping, 3, 2, Some(&original), true));
-        assert!(!ticket.is_current(Phase::Stopping, 4, 1, Some(&owner(4, "next.cap")), true));
-        assert!(!ticket.is_current(
-            Phase::Stopping,
-            3,
-            1,
-            Some(&owner(3, "different.cap")),
-            true
-        ));
-        assert!(ticket.is_current(Phase::Stopping, 3, 1, Some(&original), true));
-    }
-
-    #[tokio::test]
-    async fn restart_settle_completion_cannot_override_stop_or_later_generation() {
-        let ticket = TerminalTicket {
-            owner: owner(8, "prior.cap"),
-            operation: 5,
-        };
-        let (release, wait) = tokio::sync::oneshot::channel();
-        let settle = async {
-            wait.await.unwrap();
-            ticket
-        };
-        tokio::pin!(settle);
-        assert!(
-            tokio::time::timeout(Duration::from_millis(10), &mut settle)
-                .await
-                .is_err()
-        );
-        release.send(()).unwrap();
-        let ticket = settle.await;
-        assert!(!ticket.is_current(Phase::Idle, 8, 5, None, false));
-        assert!(!ticket.is_current(Phase::Starting, 9, 5, None, false));
-        assert!(ticket.is_current(Phase::Stopping, 8, 5, None, false));
     }
 }
 

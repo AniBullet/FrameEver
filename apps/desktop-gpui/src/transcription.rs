@@ -134,8 +134,7 @@ fn caption_engine(
 
 /// Tauri's `appLocalDataDir()` for the `so.cap.desktop` identifier: on macOS
 /// `~/Library/Application Support`, on Windows `%LOCALAPPDATA%` (deliberately
-/// *not* the roaming dir [`store::app_data_dir`] uses), on Linux
-/// `$XDG_DATA_HOME`/`~/.local/share`.
+/// *not* the roaming dir [`store::app_data_dir`] uses).
 fn app_local_data_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))

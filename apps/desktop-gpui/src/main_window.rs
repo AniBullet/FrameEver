@@ -2150,8 +2150,6 @@ impl MainWindow {
             camera_feed,
             mic_feed,
             mic_meter,
-            #[cfg(target_os = "linux")]
-            linux_instant_camera: None,
             start_gate: None,
         };
 
@@ -3491,14 +3489,6 @@ impl MainWindow {
         let starting = phase == Phase::Starting;
         let countdown = self.session.read(cx).countdown_remaining();
         let can_stop = !stopping && (!starting || countdown.is_some());
-        #[cfg(target_os = "linux")]
-        let can_resume = clean_capture_resume_available(
-            phase,
-            app_windows::clean_capture_active(cx),
-            self.session.read(cx).clean_capture_controls_safe(),
-        );
-        #[cfg(not(target_os = "linux"))]
-        let can_resume = false;
 
         let mut wash: Hsla = theme.gray_1.into();
         wash.a = 0.8;
@@ -3534,50 +3524,6 @@ impl MainWindow {
                         .text_color(theme.red_9)
                         .text_center()
                         .child(error),
-                )
-            })
-            .when(can_resume, |this| {
-                this.child(
-                    div()
-                        .mb(px(12.))
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.))
-                        .text_size(px(12.))
-                        .child(t!("Recording paused. FrameEver will hide before resuming."))
-                        .child(
-                            div()
-                                .id("resume-clean-recording")
-                                .h(px(36.))
-                                .w_full()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(8.))
-                                .border_1()
-                                .border_color(theme.gray_5)
-                                .bg(theme.gray_3)
-                                .child(t!("Resume"))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    #[cfg(target_os = "linux")]
-                                    {
-                                        let session = this.session.clone();
-                                        cx.defer(move |cx| {
-                                            if clean_capture_resume_available(
-                                                session.read(cx).phase,
-                                                app_windows::clean_capture_active(cx),
-                                                session.read(cx).clean_capture_controls_safe(),
-                                            ) {
-                                                session.update(cx, |session, cx| {
-                                                    session.toggle_pause(cx)
-                                                });
-                                            }
-                                        });
-                                    }
-                                    #[cfg(not(target_os = "linux"))]
-                                    let _ = (this, cx);
-                                })),
-                        ),
                 )
             })
             .child(
@@ -6432,11 +6378,6 @@ fn recording_error_text(error: String) -> impl IntoElement + Styled {
         .child(error)
 }
 
-#[cfg(any(target_os = "linux", test))]
-fn clean_capture_resume_available(phase: Phase, active: bool, paused_acknowledged: bool) -> bool {
-    active && phase == (Phase::Recording { paused: true }) && paused_acknowledged
-}
-
 fn clear_shown_idle_error(phase: Phase, current: &mut Option<String>, shown: &str) -> bool {
     if phase != Phase::Idle || current.as_deref() != Some(shown) {
         return false;
@@ -6780,27 +6721,6 @@ mod mode_hover_tests {
 #[cfg(test)]
 mod recording_error_panel_tests {
     use super::*;
-
-    #[test]
-    fn clean_capture_resume_requires_the_acknowledged_active_paused_session() {
-        for phase in [
-            Phase::Idle,
-            Phase::Starting,
-            Phase::Recording { paused: false },
-            Phase::Recording { paused: true },
-            Phase::Stopping,
-        ] {
-            for active in [false, true] {
-                for acknowledged in [false, true] {
-                    assert_eq!(
-                        clean_capture_resume_available(phase, active, acknowledged),
-                        active && acknowledged && phase == (Phase::Recording { paused: true }),
-                    );
-                }
-            }
-        }
-    }
-
     #[test]
     fn long_error_keeps_bounded_scrollable_text() {
         let mut element = recording_error_text("Requested microphone unavailable. ".repeat(200));
