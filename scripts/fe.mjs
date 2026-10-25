@@ -20,6 +20,7 @@ import { describe as describeFinding, privacyCheck } from "./privacy.mjs";
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const gpuiDir = path.join(root, "apps", "desktop-gpui");
 export const testdataDir = path.join(gpuiDir, "target", "testdata");
+const testRecordingsDir = path.join(testdataDir, "storage", "Recordings");
 export const distDir = path.join(root, "dist");
 export const target = "x86_64-pc-windows-msvc";
 const ffmpegBin = path.join(root, "target", "ffmpeg", "bin");
@@ -113,7 +114,7 @@ export function testProfileEnv(env = process.env) {
 	return {
 		...withFfmpeg(env),
 		FRAMEEVER_GPUI_APP_DATA_DIR: path.join(testdataDir, "appdata"),
-		FRAMEEVER_GPUI_RECORDINGS_DIR: path.join(testdataDir, "recordings"),
+		FRAMEEVER_GPUI_STORAGE_DIR: path.join(testdataDir, "storage"),
 		FRAMEEVER_GPUI_LOG_DIR: path.join(testdataDir, "logs"),
 	};
 }
@@ -429,7 +430,7 @@ function dev({ flags }) {
 	}
 	const isolated = !flags.real;
 	if (isolated) {
-		mkdirSync(path.join(testdataDir, "recordings"), { recursive: true });
+		mkdirSync(testRecordingsDir, { recursive: true });
 		if (flags.lang) writeTestLanguage(flags.lang);
 	} else if (flags.lang) {
 		fail("--lang only applies to the test profile; change the language in Settings instead");
@@ -564,7 +565,7 @@ export function firstRecording(dir) {
 function exportVideo({ flags, positional }) {
 	const codec = positional[0] ?? "h264";
 	if (!["h264", "hevc", "av1"].includes(codec)) fail("Codec must be h264, hevc or av1");
-	const project = flags.project ?? firstRecording(path.join(testdataDir, "recordings"));
+	const project = flags.project ?? firstRecording(testRecordingsDir);
 	if (!project) {
 		fail("No test recording yet. Run `pnpm fe dev`, record something, then try again.");
 	}
@@ -868,7 +869,7 @@ function doctor() {
 	);
 	add(
 		"Test recording (for fe export)",
-		Boolean(firstRecording(path.join(testdataDir, "recordings"))),
+		Boolean(firstRecording(testRecordingsDir)),
 		"",
 		"pnpm fe dev, then record something",
 	);

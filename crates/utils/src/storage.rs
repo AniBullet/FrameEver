@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::brand::{RECORDINGS_DIR_NAME, SCREENSHOTS_DIR_NAME};
+use crate::brand::{RECORDINGS_DIR_NAME, SCREENSHOTS_DIR_NAME, STORAGE_DIR_NAME};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectKind {
@@ -11,27 +11,40 @@ pub enum ProjectKind {
     Screenshot,
 }
 
+impl ProjectKind {
+    fn dir_name(self) -> &'static str {
+        match self {
+            Self::Recording => RECORDINGS_DIR_NAME,
+            Self::Screenshot => SCREENSHOTS_DIR_NAME,
+        }
+    }
+}
+
+pub const STORAGE_PATH_KEY: &str = "storagePath";
+pub const PREVIOUS_STORAGE_PATHS_KEY: &str = "previousStoragePaths";
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StorageSettings {
-    pub recordings_path: Option<PathBuf>,
-    pub previous_recordings_paths: Vec<PathBuf>,
+    pub storage_path: Option<PathBuf>,
+    pub previous_storage_paths: Vec<PathBuf>,
 }
 
 impl StorageSettings {
     pub fn from_settings_document(document: &serde_json::Value) -> Self {
         document
             .get("general_settings")
+            .and_then(serde_json::Value::as_object)
             .map(Self::from_general_settings)
             .unwrap_or_default()
     }
 
-    pub fn from_general_settings(general: &serde_json::Value) -> Self {
+    pub fn from_general_settings(general: &serde_json::Map<String, serde_json::Value>) -> Self {
         let setting = |key: &str| general.get(key);
         Self {
-            recordings_path: setting("recordingsPath")
+            storage_path: setting(STORAGE_PATH_KEY)
                 .and_then(serde_json::Value::as_str)
                 .map(PathBuf::from),
-            previous_recordings_paths: setting("previousRecordingsPaths")
+            previous_storage_paths: setting(PREVIOUS_STORAGE_PATHS_KEY)
                 .and_then(serde_json::Value::as_array)
                 .map(|paths| {
                     paths
@@ -42,6 +55,40 @@ impl StorageSettings {
                 })
                 .unwrap_or_default(),
         }
+    }
+
+    pub fn general_settings_entries(&self) -> [(&'static str, serde_json::Value); 2] {
+        let path_value = |path: &PathBuf| serde_json::Value::from(path.to_string_lossy());
+        [
+            (
+                STORAGE_PATH_KEY,
+                self.storage_path
+                    .as_ref()
+                    .map(path_value)
+                    .unwrap_or_default(),
+            ),
+            (
+                PREVIOUS_STORAGE_PATHS_KEY,
+                self.previous_storage_paths.iter().map(path_value).collect(),
+            ),
+        ]
+    }
+
+    pub fn choose_storage_folder(&mut self, folder: Option<PathBuf>) {
+        if let Some(old) = self.storage_path.take()
+            && Some(&old) != folder.as_ref()
+            && !self.previous_storage_paths.contains(&old)
+        {
+            self.previous_storage_paths.push(old);
+        }
+        if let Some(new) = &folder {
+            self.previous_storage_paths.retain(|path| path != new);
+        }
+        self.storage_path = folder;
+    }
+
+    pub fn remove_previous_storage_folder(&mut self, folder: &Path) {
+        self.previous_storage_paths.retain(|path| path != folder);
     }
 
     pub fn load(settings_file: &Path) -> Self {
@@ -55,7 +102,7 @@ impl StorageSettings {
 
 pub const APP_DATA_DIR_ENV: &str = "FRAMEEVER_GPUI_APP_DATA_DIR";
 pub const SETTINGS_FILE_ENV: &str = "FRAMEEVER_GPUI_TAURI_STORE";
-pub const RECORDINGS_DIR_ENV: &str = "FRAMEEVER_GPUI_RECORDINGS_DIR";
+pub const STORAGE_DIR_ENV: &str = "FRAMEEVER_GPUI_STORAGE_DIR";
 const SETTINGS_FILE_NAME: &str = "store";
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -87,8 +134,18 @@ pub fn settings_file() -> PathBuf {
     env_path(SETTINGS_FILE_ENV).unwrap_or_else(|| app_data_dir().join(SETTINGS_FILE_NAME))
 }
 
-pub fn recordings_override() -> Option<PathBuf> {
-    env_path(RECORDINGS_DIR_ENV)
+pub fn storage_override() -> Option<PathBuf> {
+    env_path(STORAGE_DIR_ENV)
+}
+
+pub fn default_storage_dir() -> PathBuf {
+    if let Some(test_profile) = env_path(APP_DATA_DIR_ENV) {
+        return test_profile.join(STORAGE_DIR_NAME);
+    }
+    directories::UserDirs::new()
+        .and_then(|dirs| dirs.video_dir().map(Path::to_path_buf))
+        .unwrap_or_else(app_data_dir)
+        .join(STORAGE_DIR_NAME)
 }
 
 pub fn is_project(path: &Path) -> bool {
@@ -170,28 +227,31 @@ pub fn projects_in(dir: &Path) -> Vec<PathBuf> {
 
 #[derive(Debug, Clone)]
 pub struct Storage {
-    app_data_dir: PathBuf,
+    default_storage_dir: PathBuf,
     settings: StorageSettings,
-    recordings_override: Option<PathBuf>,
+    storage_override: Option<PathBuf>,
 }
 
 impl Storage {
-    pub fn new(app_data_dir: PathBuf, settings: StorageSettings) -> Self {
+    pub fn new(default_storage_dir: PathBuf, settings: StorageSettings) -> Self {
         Self {
-            app_data_dir,
+            default_storage_dir,
             settings,
-            recordings_override: None,
+            storage_override: None,
         }
     }
 
-    pub fn with_recordings_override(mut self, dir: Option<PathBuf>) -> Self {
-        self.recordings_override = dir;
+    pub fn with_storage_override(mut self, dir: Option<PathBuf>) -> Self {
+        self.storage_override = dir;
         self
     }
 
     pub fn from_environment() -> Self {
-        Self::new(app_data_dir(), StorageSettings::load(&settings_file()))
-            .with_recordings_override(recordings_override())
+        Self::new(
+            default_storage_dir(),
+            StorageSettings::load(&settings_file()),
+        )
+        .with_storage_override(storage_override())
     }
 
     pub fn projects(&self, kind: ProjectKind) -> Vec<PathBuf> {
@@ -201,47 +261,48 @@ impl Storage {
             .collect()
     }
 
-    pub fn recordings_dir(&self) -> PathBuf {
-        if let Some(dir) = &self.recordings_override {
+    pub fn storage_dir(&self) -> PathBuf {
+        if let Some(dir) = &self.storage_override {
             return dir.clone();
         }
         self.settings
-            .recordings_path
+            .storage_path
             .clone()
             .filter(|path| path.is_absolute() && std::fs::create_dir_all(path).is_ok())
-            .unwrap_or_else(|| self.default_dir(ProjectKind::Recording))
+            .unwrap_or_else(|| self.default_storage_dir.clone())
+    }
+
+    pub fn new_projects_dir(&self, kind: ProjectKind) -> PathBuf {
+        self.storage_dir().join(kind.dir_name())
+    }
+
+    pub fn recordings_dir(&self) -> PathBuf {
+        self.new_projects_dir(ProjectKind::Recording)
     }
 
     pub fn screenshots_dir(&self) -> PathBuf {
-        self.default_dir(ProjectKind::Screenshot)
-    }
-
-    pub fn default_dir(&self, kind: ProjectKind) -> PathBuf {
-        self.app_data_dir.join(match kind {
-            ProjectKind::Recording => RECORDINGS_DIR_NAME,
-            ProjectKind::Screenshot => SCREENSHOTS_DIR_NAME,
-        })
+        self.new_projects_dir(ProjectKind::Screenshot)
     }
 
     pub fn known_dirs(&self, kind: ProjectKind) -> Vec<PathBuf> {
-        let candidates = match kind {
-            ProjectKind::Recording => {
-                if let Some(dir) = &self.recordings_override {
-                    vec![dir.clone()]
-                } else {
-                    self.settings
-                        .recordings_path
-                        .iter()
-                        .cloned()
-                        .chain([self.default_dir(kind)])
-                        .chain(self.settings.previous_recordings_paths.iter().cloned())
-                        .filter(|path| path.is_absolute())
-                        .collect()
-                }
-            }
-            ProjectKind::Screenshot => vec![self.default_dir(kind)],
+        let storage_dirs: Vec<PathBuf> = match &self.storage_override {
+            Some(dir) => vec![dir.clone()],
+            None => self
+                .settings
+                .storage_path
+                .iter()
+                .cloned()
+                .chain([self.default_storage_dir.clone()])
+                .chain(self.settings.previous_storage_paths.iter().cloned())
+                .filter(|path| path.is_absolute())
+                .collect(),
         };
-        dedupe_existing_dirs(candidates)
+        dedupe_existing_dirs(
+            storage_dirs
+                .into_iter()
+                .map(|dir| dir.join(kind.dir_name()))
+                .collect(),
+        )
     }
 }
 
@@ -275,80 +336,165 @@ mod tests {
         }
     }
 
+    fn settings_with_folder(storage_path: PathBuf, previous: Vec<PathBuf>) -> StorageSettings {
+        StorageSettings {
+            storage_path: Some(storage_path),
+            previous_storage_paths: previous,
+        }
+    }
+
     #[test]
-    fn recording_folders_are_custom_then_default_then_previous_without_duplicates_or_missing_ones()
-    {
+    fn new_projects_go_to_recordings_and_screenshots_in_the_default_storage_folder() {
         let tree = Tree::new();
-        let app_data = tree.dir("app");
-        let default = tree.dir("app/recordings");
-        let custom = tree.dir("custom");
-        let previous = tree.dir("previous");
+        let storage = Storage::new(tree.path("Videos/FrameEver"), StorageSettings::default());
+
+        assert_eq!(storage.storage_dir(), tree.path("Videos/FrameEver"));
+        assert_eq!(
+            storage.recordings_dir(),
+            tree.path("Videos/FrameEver/Recordings")
+        );
+        assert_eq!(
+            storage.screenshots_dir(),
+            tree.path("Videos/FrameEver/Screenshots")
+        );
+    }
+
+    #[test]
+    fn a_custom_storage_folder_holds_both_recordings_and_screenshots() {
+        let tree = Tree::new();
         let storage = Storage::new(
-            app_data,
-            StorageSettings {
-                recordings_path: Some(custom.clone()),
-                previous_recordings_paths: vec![
+            tree.path("Videos/FrameEver"),
+            settings_with_folder(tree.path("D/Captures"), Vec::new()),
+        );
+
+        assert_eq!(storage.storage_dir(), tree.path("D/Captures"));
+        assert!(tree.path("D/Captures").is_dir());
+        assert_eq!(storage.recordings_dir(), tree.path("D/Captures/Recordings"));
+        assert_eq!(
+            storage.screenshots_dir(),
+            tree.path("D/Captures/Screenshots")
+        );
+    }
+
+    #[test]
+    fn an_unavailable_storage_folder_sends_new_projects_to_the_default_until_it_returns() {
+        let tree = Tree::new();
+        std::fs::write(tree.path("unplugged"), b"").unwrap();
+        let default = tree.path("Videos/FrameEver");
+        let unplugged = Storage::new(
+            default.clone(),
+            settings_with_folder(tree.path("unplugged/FrameEver"), Vec::new()),
+        );
+        let relative = Storage::new(
+            default.clone(),
+            settings_with_folder("relative".into(), Vec::new()),
+        );
+
+        assert_eq!(unplugged.storage_dir(), default);
+        assert_eq!(relative.storage_dir(), default);
+
+        std::fs::remove_file(tree.path("unplugged")).unwrap();
+        let shot = tree.dir("unplugged/FrameEver/Screenshots/Shot.ever");
+        assert_eq!(unplugged.storage_dir(), tree.path("unplugged/FrameEver"));
+        assert_eq!(unplugged.projects(ProjectKind::Screenshot), vec![shot]);
+    }
+
+    #[test]
+    fn known_folders_are_custom_then_default_then_previous_per_kind_without_duplicates_or_missing_ones()
+     {
+        let tree = Tree::new();
+        let default_recordings = tree.dir("Videos/FrameEver/Recordings");
+        let default_screenshots = tree.dir("Videos/FrameEver/Screenshots");
+        let custom_recordings = tree.dir("custom/Recordings");
+        let custom_screenshots = tree.dir("custom/Screenshots");
+        let previous_recordings = tree.dir("previous/Recordings");
+        let previous_screenshots = tree.dir("previous/Screenshots");
+        let storage = Storage::new(
+            tree.path("Videos/FrameEver"),
+            settings_with_folder(
+                tree.path("custom"),
+                vec![
                     tree.path("unplugged"),
-                    previous.clone(),
-                    custom.clone(),
+                    tree.path("previous"),
+                    tree.path("custom"),
                     PathBuf::from("relative"),
                 ],
-            },
+            ),
         );
 
         assert_eq!(
             storage.known_dirs(ProjectKind::Recording),
-            vec![custom, default, previous]
+            vec![custom_recordings, default_recordings, previous_recordings]
+        );
+        assert_eq!(
+            storage.known_dirs(ProjectKind::Screenshot),
+            vec![
+                custom_screenshots,
+                default_screenshots,
+                previous_screenshots
+            ]
         );
     }
 
     #[test]
-    fn new_recordings_go_to_the_custom_folder_unless_it_cannot_be_created() {
+    fn the_storage_override_receives_new_projects_and_is_the_only_folder_scanned() {
         let tree = Tree::new();
-        let app_data = tree.dir("app");
-        std::fs::write(tree.path("not-a-drive"), b"").unwrap();
-        let storage_with = |custom: PathBuf| {
-            Storage::new(
-                app_data.clone(),
-                StorageSettings {
-                    recordings_path: Some(custom),
-                    previous_recordings_paths: Vec::new(),
-                },
-            )
-        };
-
-        let custom = tree.path("custom");
-        assert_eq!(storage_with(custom.clone()).recordings_dir(), custom);
-        assert!(custom.is_dir());
-
-        assert_eq!(
-            storage_with(tree.path("not-a-drive/Recordings")).recordings_dir(),
-            tree.path("app/recordings")
-        );
-        assert_eq!(
-            storage_with(PathBuf::from("relative")).recordings_dir(),
-            tree.path("app/recordings")
-        );
-    }
-
-    #[test]
-    fn the_recordings_override_receives_new_recordings_and_is_the_only_folder_scanned() {
-        let tree = Tree::new();
-        let app_data = tree.dir("app");
-        tree.dir("app/recordings");
-        let custom = tree.dir("custom");
-        let isolated = tree.dir("isolated");
+        tree.dir("Videos/FrameEver/Recordings");
+        tree.dir("custom/Recordings");
+        let isolated = tree.dir("isolated/Recordings");
         let storage = Storage::new(
-            app_data,
-            StorageSettings {
-                recordings_path: Some(custom),
-                previous_recordings_paths: Vec::new(),
-            },
+            tree.path("Videos/FrameEver"),
+            settings_with_folder(tree.path("custom"), Vec::new()),
         )
-        .with_recordings_override(Some(isolated.clone()));
+        .with_storage_override(Some(tree.path("isolated")));
 
         assert_eq!(storage.recordings_dir(), isolated);
+        assert_eq!(storage.screenshots_dir(), tree.path("isolated/Screenshots"));
         assert_eq!(storage.known_dirs(ProjectKind::Recording), vec![isolated]);
+        assert!(storage.known_dirs(ProjectKind::Screenshot).is_empty());
+    }
+
+    #[test]
+    fn choosing_a_new_storage_folder_keeps_the_old_one_as_a_previous_folder() {
+        let mut settings = StorageSettings::default();
+
+        settings.choose_storage_folder(Some("D:\\One".into()));
+        assert_eq!(settings, settings_with_folder("D:\\One".into(), Vec::new()));
+
+        settings.choose_storage_folder(Some("E:\\Two".into()));
+        settings.choose_storage_folder(Some("E:\\Two".into()));
+        assert_eq!(
+            settings,
+            settings_with_folder("E:\\Two".into(), vec!["D:\\One".into()])
+        );
+
+        settings.choose_storage_folder(Some("D:\\One".into()));
+        assert_eq!(
+            settings,
+            settings_with_folder("D:\\One".into(), vec!["E:\\Two".into()])
+        );
+
+        settings.choose_storage_folder(None);
+        assert_eq!(
+            settings,
+            StorageSettings {
+                storage_path: None,
+                previous_storage_paths: vec!["E:\\Two".into(), "D:\\One".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_previous_folder_can_be_removed_and_is_then_no_longer_scanned() {
+        let tree = Tree::new();
+        tree.dir("old/Recordings/Old.ever");
+        let mut settings = settings_with_folder(tree.path("new"), vec![tree.path("old")]);
+
+        settings.remove_previous_storage_folder(&tree.path("old"));
+
+        assert_eq!(settings, settings_with_folder(tree.path("new"), Vec::new()));
+        let storage = Storage::new(tree.path("Videos/FrameEver"), settings);
+        assert!(storage.projects(ProjectKind::Recording).is_empty());
     }
 
     #[test]
@@ -427,18 +573,14 @@ mod tests {
     #[test]
     fn projects_are_listed_from_every_known_folder_of_their_kind() {
         let tree = Tree::new();
-        let app_data = tree.dir("app");
-        let default_project = tree.dir("app/recordings/Default.ever");
-        let custom_project = tree.dir("custom/Custom.ever");
-        let previous_project = tree.dir("previous/Previous.ever");
-        tree.dir("previous/Not a project");
-        let screenshot = tree.dir("app/screenshots/Shot.ever");
+        let default_project = tree.dir("Videos/FrameEver/Recordings/Default.ever");
+        let custom_project = tree.dir("custom/Recordings/Custom.ever");
+        let previous_project = tree.dir("previous/Recordings/Previous.ever");
+        tree.dir("previous/Recordings/Not a project");
+        let screenshot = tree.dir("previous/Screenshots/Shot.ever");
         let storage = Storage::new(
-            app_data,
-            StorageSettings {
-                recordings_path: Some(tree.path("custom")),
-                previous_recordings_paths: vec![tree.path("previous")],
-            },
+            tree.path("Videos/FrameEver"),
+            settings_with_folder(tree.path("custom"), vec![tree.path("previous")]),
         );
 
         let mut recordings = storage.projects(ProjectKind::Recording);
@@ -450,43 +592,33 @@ mod tests {
     }
 
     #[test]
-    fn storage_settings_are_read_from_the_settings_document() {
+    fn storage_settings_are_read_from_the_settings_document_and_written_back_as_entries() {
         let document = serde_json::json!({
             "general_settings": {
-                "recordingsPath": "D:\\Recordings",
-                "previousRecordingsPaths": ["E:\\Old", 7, "F:\\Older"],
+                "storagePath": "D:\\Captures",
+                "previousStoragePaths": ["E:\\Old", 7, "F:\\Older"],
+                "recordingsPath": "G:\\Upstream",
                 "hideDockIcon": true
             }
         });
+        let settings = StorageSettings::from_settings_document(&document);
 
         assert_eq!(
-            StorageSettings::from_settings_document(&document),
-            StorageSettings {
-                recordings_path: Some(PathBuf::from("D:\\Recordings")),
-                previous_recordings_paths: vec![
-                    PathBuf::from("E:\\Old"),
-                    PathBuf::from("F:\\Older")
-                ],
-            }
+            settings,
+            settings_with_folder(
+                "D:\\Captures".into(),
+                vec!["E:\\Old".into(), "F:\\Older".into()]
+            )
         );
+        let entries: serde_json::Map<_, _> = settings
+            .general_settings_entries()
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect();
+        assert_eq!(StorageSettings::from_general_settings(&entries), settings);
         assert_eq!(
             StorageSettings::from_settings_document(&serde_json::json!([])),
             StorageSettings::default()
-        );
-    }
-
-    #[test]
-    fn screenshots_live_in_the_app_data_screenshots_folder() {
-        let tree = Tree::new();
-        let app_data = tree.dir("app");
-        let storage = Storage::new(app_data, StorageSettings::default());
-
-        assert_eq!(storage.screenshots_dir(), tree.path("app/screenshots"));
-        assert!(storage.known_dirs(ProjectKind::Screenshot).is_empty());
-        let screenshots = tree.dir("app/screenshots");
-        assert_eq!(
-            storage.known_dirs(ProjectKind::Screenshot),
-            vec![screenshots]
         );
     }
 }

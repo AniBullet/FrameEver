@@ -514,19 +514,6 @@ fn opt_string_at(map: &Map<String, Value>, key: &str) -> Option<String> {
         .map(|value| value.to_string())
 }
 
-fn strings_at(map: &Map<String, Value>, key: &str) -> Vec<String> {
-    map.get(key)
-        .and_then(Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(Value::as_str)
-                .map(|value| value.to_string())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 fn enum_at<T: SettingsEnum>(map: &Map<String, Value>, key: &str) -> T {
     map.get(key)
         .and_then(Value::as_str)
@@ -860,12 +847,7 @@ pub struct GeneralSettings {
     pub capture_keyboard_events: bool,
     pub macbook_notch_overlay: bool,
     pub max_fps: u32,
-    pub recordings_path: Option<String>,
-    /// Custom folders the library has been pointed at before. Not rendered by
-    /// any page -- the recordings scan reads it, because
-    /// `known_recordings_dirs` keeps listing recordings that were left behind
-    /// in a folder the user has since switched away from.
-    pub previous_recordings_paths: Vec<String>,
+    pub storage: frameever_utils::storage::StorageSettings,
     pub default_project_name_template: Option<String>,
     pub excluded_windows: Vec<WindowExclusion>,
     pub update_channel: UpdateChannel,
@@ -1210,8 +1192,7 @@ impl GeneralSettings {
             capture_keyboard_events: bool_at(general, "captureKeyboardEvents", true),
             macbook_notch_overlay: bool_at(general, "macbookNotchOverlay", false),
             max_fps: u32_at(general, "maxFps", 60),
-            recordings_path: opt_string_at(general, "recordingsPath"),
-            previous_recordings_paths: strings_at(general, "previousRecordingsPaths"),
+            storage: frameever_utils::storage::StorageSettings::from_general_settings(general),
             default_project_name_template: opt_string_at(general, "defaultProjectNameTemplate"),
             // Key absent -> the default exclusion list, matching the Rust
             // struct's `#[serde(default = "default_excluded_windows")]`. Key

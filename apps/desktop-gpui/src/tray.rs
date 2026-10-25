@@ -213,7 +213,7 @@ fn load_thumbnail_png(path: &Path) -> Option<Vec<u8>> {
 /// `load_all_previous_items` + the background thumbnail pass, in one call.
 ///
 /// Reuses the library scan the main window's Recents runs on, so the two lists
-/// can never disagree about what is in the library (and `FRAMEEVER_GPUI_RECORDINGS_DIR`
+/// can never disagree about what is in the library (and `FRAMEEVER_GPUI_STORAGE_DIR`
 /// redirects both). Two nuances inherited from that scan rather than from
 /// `load_all_previous_items`: each kind is capped at `RECENT_MEDIA_LIMIT`
 /// before the merge, and a screenshot sorts by its PNG's timestamp rather than

@@ -1658,12 +1658,6 @@ async fn read_shareable_content() -> anyhow::Result<frameever_recording::Sendabl
     Ok(content.into())
 }
 
-/// The recordings library root, resolved the way `GeneralSettingsStore::
-/// recordings_dir` resolves it so both apps share one library: the custom
-/// `recordingsPath` from the Tauri store if it is absolute and creatable,
-/// otherwise `<app data>/recordings`. `FRAMEEVER_GPUI_RECORDINGS_DIR` overrides both
-/// (used by the automated end-to-end check so test recordings stay out of the
-/// user's library).
 pub fn recordings_dir() -> PathBuf {
     crate::library::storage().recordings_dir()
 }

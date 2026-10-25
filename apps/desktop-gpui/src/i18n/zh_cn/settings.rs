@@ -290,11 +290,18 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Maximum framerate for screen capture.",
         "屏幕捕获的最高帧率。",
     ),
-    ("Default (Application Support)", "默认（应用数据目录）"),
     ("Storage", "存储"),
     (
-        "Where FrameEver saves your recordings.",
-        "帧刻保存录制文件的位置。",
+        "Where FrameEver saves recordings and screenshots, in the Recordings and Screenshots folders.",
+        "帧刻保存录制和截图的位置，分别放在 Recordings 和 Screenshots 文件夹中。",
+    ),
+    (
+        "This folder is unavailable. New recordings and screenshots go to the default folder until it is back.",
+        "此文件夹当前不可用。在它恢复之前，新的录制和截图会保存到默认文件夹。",
+    ),
+    (
+        "Previous folders. FrameEver still lists recordings and screenshots kept in them.",
+        "以前用过的文件夹。帧刻仍会列出其中的录制和截图。",
     ),
     ("Reset", "重置"),
     ("Save", "保存"),

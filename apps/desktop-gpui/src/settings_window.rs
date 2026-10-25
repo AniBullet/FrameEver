@@ -12,7 +12,13 @@
 //! file the shipping app uses, one key at a time, through
 //! [`crate::store::set_store_setting`].
 
-use std::{cell::Cell, path::PathBuf, rc::Rc, sync::Arc, time::Duration};
+use std::{
+    cell::Cell,
+    path::{Path, PathBuf},
+    rc::Rc,
+    sync::Arc,
+    time::Duration,
+};
 
 use gpui::{
     AppContext as _, Bounds, Context, Entity, FocusHandle, FontWeight, Hsla, InteractiveElement,
@@ -3399,37 +3405,71 @@ impl SettingsWindow {
         )
     }
 
-    /// `StorageSection` -- `recordingsPath`.
+    fn write_storage(&mut self, cx: &mut Context<Self>) {
+        for (key, value) in self.settings.storage.general_settings_entries() {
+            self.write(key, value, cx);
+        }
+    }
+
+    fn storage_path_box(&self, path: &Path) -> gpui::Div {
+        let theme = self.theme;
+        div()
+            .flex()
+            .flex_row()
+            .flex_1()
+            .items_center()
+            .gap(px(8.))
+            .px(px(12.))
+            .py(px(8.))
+            .min_w_0()
+            .rounded(px(8.))
+            .bg(theme.settings_fill())
+            .border_1()
+            .border_color(theme.settings_border())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(12.))
+                    .child(path.to_string_lossy().to_string()),
+            )
+    }
+
     fn render_storage(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let path = self.settings.recordings_path.clone();
-        let is_custom = path.is_some();
-        // `Default (Application Support)`
-        let display = path.unwrap_or_else(|| t!("Default (Application Support)").to_string());
+        let storage = &self.settings.storage;
+        let is_custom = storage.storage_path.is_some();
+        let unavailable = storage
+            .storage_path
+            .as_ref()
+            .is_some_and(|path| !path.is_dir());
+        let display = storage
+            .storage_path
+            .clone()
+            .unwrap_or_else(frameever_utils::storage::default_storage_dir);
 
         let mut actions = div().flex().flex_row().justify_end().gap(px(8.));
         if is_custom {
             actions = actions.child(self.button(
-                "recordings-reset",
+                "storage-reset",
                 (ui::ButtonVariant::Gray, None),
                 "Reset to Default",
                 false,
                 cx,
                 |this, _window, cx| {
-                    this.settings.recordings_path = None;
-                    this.write("recordingsPath", Value::Null, cx);
+                    this.settings.storage.choose_storage_folder(None);
+                    this.write_storage(cx);
                 },
             ));
         }
         actions = actions.child(self.button(
-            "recordings-pick",
+            "storage-pick",
             (ui::ButtonVariant::Dark, None),
             "Choose Folder",
             false,
             cx,
             |_, window, cx| {
-                // `commands.pickRecordingsFolder()` opens an NSOpenPanel in
-                // directory mode; gpui wraps the same panel.
                 let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
                     files: false,
                     directories: true,
@@ -3444,9 +3484,8 @@ impl SettingsWindow {
                         return;
                     };
                     this.update(cx, |this, cx| {
-                        let path = path.to_string_lossy().to_string();
-                        this.settings.recordings_path = Some(path.clone());
-                        this.write("recordingsPath", Value::String(path), cx);
+                        this.settings.storage.choose_storage_folder(Some(path));
+                        this.write_storage(cx);
                     })
                     .ok();
                 })
@@ -3454,45 +3493,71 @@ impl SettingsWindow {
             },
         ));
 
+        let mut content = div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(self.storage_path_box(&display));
+        if unavailable {
+            content = content.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme.settings_muted())
+                    .child(t!(
+                        "This folder is unavailable. New recordings and screenshots go to the default folder until it is back."
+                    )),
+            );
+        }
+        content = content.child(actions);
+
+        if !storage.previous_storage_paths.is_empty() {
+            let mut previous = div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .pt(px(4.))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme.settings_muted())
+                        .child(t!(
+                            "Previous folders. FrameEver still lists recordings and screenshots kept in them."
+                        )),
+                );
+            for (index, path) in storage.previous_storage_paths.iter().enumerate() {
+                let folder = path.clone();
+                previous = previous.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(self.storage_path_box(path))
+                        .child(self.button(
+                            ("storage-previous-remove", index),
+                            (ui::ButtonVariant::Gray, None),
+                            "Remove",
+                            false,
+                            cx,
+                            move |this, _window, cx| {
+                                this.settings
+                                    .storage
+                                    .remove_previous_storage_folder(&folder);
+                                this.write_storage(cx);
+                            },
+                        )),
+                );
+            }
+            content = content.child(previous);
+        }
+
         self.section(
             t!("Storage"),
-            Some(t!("Where FrameEver saves your recordings.")),
+            Some(t!(
+                "Where FrameEver saves recordings and screenshots, in the Recordings and Screenshots folders."
+            )),
             None,
-            vec![
-                self.card(true)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(12.))
-                            .child(
-                                // `flex items-center gap-2 px-3 py-2 rounded-lg
-                                //  bg-gray-3 border border-gray-4 min-w-0`
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(px(8.))
-                                    .px(px(12.))
-                                    .py(px(8.))
-                                    .min_w_0()
-                                    .rounded(px(8.))
-                                    .bg(theme.settings_fill())
-                                    .border_1()
-                                    .border_color(theme.settings_border())
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .truncate()
-                                            .text_size(px(12.))
-                                            .child(display),
-                                    ),
-                            )
-                            .child(actions),
-                    )
-                    .into_any_element(),
-            ],
+            vec![self.card(true).child(content).into_any_element()],
         )
     }
 

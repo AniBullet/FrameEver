@@ -635,9 +635,9 @@ Sizes are the Tauri app's, from Tauri `src-tauri/src/windows.rs`.
 
 The app records for real, through the same `frameever-recording` actors the Tauri
 app drives — studio and instant, screen + microphone, written into the same
-recordings library (`recordingsPath` from the Tauri settings store, falling
-back to `<app data>/recordings`; `FRAMEEVER_GPUI_RECORDINGS_DIR` overrides both for
-tests). Studio projects are finalized with `RecoveryManager::remux_if_needed`,
+recordings library (`Recordings` in the storage folder: `storagePath` from
+the settings store, falling back to `Videos\FrameEver`;
+`FRAMEEVER_GPUI_STORAGE_DIR` overrides both for tests). Studio projects are finalized with `RecoveryManager::remux_if_needed`,
 instant projects get `content/output.mp4` plus the
 `recording-meta.json`/`project-config.json` pair, mirroring the CLI's
 `finalize_completed` — a project recorded here exports cleanly with
@@ -720,13 +720,13 @@ by doing the same work rather than by asking it. `library.rs` is
 (Tauri `src-tauri/src/lib.rs:3974-4092`) plus the `recentMedia` query's
 merge (`new-main/index.tsx:2217-2263`):
 
-- **Directories.** `known_recordings_dirs` — the active recordings folder,
-  then the default `<app data>/recordings`, then every path in the store's
-  `previousRecordingsPaths`, deduplicated by canonical path and skipping ones
-  that do not exist. Recordings left behind in a folder the user has since
-  switched away from stay visible, which is the whole point of that list.
-  Screenshots come from `<app data>/screenshots`, which the custom-folder
-  setting never moves.
+- **Directories.** `frameever_utils::storage::Storage::known_dirs` — for each
+  kind, the `Recordings` or `Screenshots` folder of the custom storage folder,
+  then of the default `Videos\FrameEver`, then of every path in the store's
+  `previousStoragePaths`, deduplicated by canonical path and skipping ones
+  that do not exist. Projects left behind in a storage folder the user has
+  since switched away from stay visible; Settings lists those folders and can
+  remove one.
 - **Metadata.** `frameever-project`'s own `RecordingMeta::load_for_project`, so the
   studio/instant split and the clip count come off the same enum the Tauri
   command reads them off. A directory whose `recording-meta.json` is missing
@@ -755,8 +755,8 @@ merge (`new-main/index.tsx:2217-2263`):
   recording that just finished appear at the head of the carousel without a
   restart.
 
-`FRAMEEVER_GPUI_RECORDINGS_DIR` scopes the scan as well as the writes: when it is
-set, it is the *only* directory listed. A verification run that redirects the
+`FRAMEEVER_GPUI_STORAGE_DIR` scopes the scan as well as the writes: when it is
+set, it is the *only* storage folder listed. A verification run that redirects the
 library would otherwise still be reading the user's real one.
 
 ## Camera preview and app-scoped feeds

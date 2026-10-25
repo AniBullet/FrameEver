@@ -494,17 +494,21 @@ fn recordings_list_includes_the_custom_and_previous_folders_the_app_scans() {
     let app_data = root.path().join("app");
     let custom = root.path().join("custom");
     let previous = root.path().join("previous");
-    write_named_meta(&app_data.join("recordings/Default.ever"), "Default");
-    write_named_meta(&custom.join("Custom.ever"), "Custom");
-    write_named_meta(&previous.join("Previous.ever"), "Previous");
-    write_named_meta(&previous.join("Older.cap"), "Older");
-    write_named_meta(&previous.join("Not a project"), "Not a project");
+    write_named_meta(
+        &app_data.join("FrameEver/Recordings/Default.ever"),
+        "Default",
+    );
+    write_named_meta(&custom.join("Recordings/Custom.ever"), "Custom");
+    write_named_meta(&previous.join("Recordings/Previous.ever"), "Previous");
+    write_named_meta(&previous.join("Recordings/Older.cap"), "Older");
+    write_named_meta(&previous.join("Recordings/Not a project"), "Not a project");
+    write_named_meta(&previous.join("Screenshots/Shot.ever"), "Shot");
     std::fs::write(
         app_data.join("store"),
         serde_json::to_vec(&serde_json::json!({
             "general_settings": {
-                "recordingsPath": custom,
-                "previousRecordingsPaths": [previous]
+                "storagePath": custom,
+                "previousStoragePaths": [previous]
             }
         }))
         .unwrap(),
@@ -515,7 +519,7 @@ fn recordings_list_includes_the_custom_and_previous_folders_the_app_scans() {
         .args(["recordings", "list", "--format", "json"])
         .env("FRAMEEVER_GPUI_APP_DATA_DIR", &app_data)
         .env_remove("FRAMEEVER_GPUI_TAURI_STORE")
-        .env_remove("FRAMEEVER_GPUI_RECORDINGS_DIR")
+        .env_remove("FRAMEEVER_GPUI_STORAGE_DIR")
         .output()
         .unwrap();
 

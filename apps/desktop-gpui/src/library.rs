@@ -93,12 +93,12 @@ fn media_sort_time_millis(path: &Path) -> f64 {
 
 pub fn storage() -> Storage {
     Storage::new(
-        crate::store::app_data_dir(),
-        StorageSettings::from_general_settings(&serde_json::Value::Object(
-            crate::store::store_section(crate::store::GENERAL_SETTINGS),
+        frameever_utils::storage::default_storage_dir(),
+        StorageSettings::from_general_settings(&crate::store::store_section(
+            crate::store::GENERAL_SETTINGS,
         )),
     )
-    .with_recordings_override(frameever_utils::storage::recordings_override())
+    .with_storage_override(frameever_utils::storage::storage_override())
 }
 
 pub fn known_recordings_dirs() -> Vec<PathBuf> {
@@ -1441,37 +1441,38 @@ mod tests {
     #[test]
     fn the_library_lists_ever_projects_from_every_known_folder_and_ignores_cap_folders() {
         let root = temp_dir("storage-folders");
-        let app_data = root.join("app");
+        let default = root.join("Videos/FrameEver");
         let custom = root.join("custom");
         let previous = root.join("previous");
+        let previous_recordings = previous.join("Recordings");
         for dir in [
-            app_data.join("recordings"),
-            custom.clone(),
-            previous.clone(),
+            default.join("Recordings"),
+            custom.join("Recordings"),
+            previous_recordings.clone(),
         ] {
             std::fs::create_dir_all(dir).unwrap();
         }
-        write_studio_bundle(&app_data.join("recordings"), "Default", 1);
-        write_studio_bundle(&custom, "Custom", 1);
-        write_studio_bundle(&previous, "Previous", 1);
+        write_studio_bundle(&default.join("Recordings"), "Default", 1);
+        write_studio_bundle(&custom.join("Recordings"), "Custom", 1);
+        write_studio_bundle(&previous_recordings, "Previous", 1);
         for folder in ["Not a project", "Older.cap"] {
-            let not_a_project = previous.join(folder);
+            let not_a_project = previous_recordings.join(folder);
             std::fs::create_dir_all(&not_a_project).unwrap();
             std::fs::copy(
-                previous.join("Previous.ever/recording-meta.json"),
+                previous_recordings.join("Previous.ever/recording-meta.json"),
                 not_a_project.join("recording-meta.json"),
             )
             .unwrap();
         }
-        let screenshots = app_data.join("screenshots");
+        let screenshots = previous.join("Screenshots");
         write_screenshot_bundle(&screenshots, "Shot");
         let older_shot = write_screenshot_bundle(&screenshots, "Older shot");
         std::fs::rename(&older_shot, screenshots.join("Older shot.cap")).unwrap();
         let storage = Storage::new(
-            app_data,
+            default,
             StorageSettings {
-                recordings_path: Some(custom),
-                previous_recordings_paths: vec![previous],
+                storage_path: Some(custom),
+                previous_storage_paths: vec![previous],
             },
         );
 
@@ -1481,8 +1482,10 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["Custom", "Default", "Previous"]);
-        let shots: Vec<_> = list_screenshots_in(&screenshots)
-            .into_iter()
+        let shots: Vec<_> = storage
+            .known_dirs(ProjectKind::Screenshot)
+            .iter()
+            .flat_map(|dir| list_screenshots_in(dir))
             .map(|item| item.pretty_name)
             .collect();
         assert_eq!(shots, ["Shot"]);

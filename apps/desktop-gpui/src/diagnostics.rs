@@ -693,11 +693,16 @@ fn settings_snapshot() -> Value {
         "outOfProcessMuxer": settings.out_of_process_muxer,
         "crashRecoveryRecording": settings.crash_recovery_recording,
         "enableNativeCameraPreview": settings.enable_native_camera_preview,
-        "recordingsPath": settings.recordings_path.as_deref().map(redact_home_paths),
-        "previousRecordingsPaths": settings
-            .previous_recordings_paths
+        "storagePath": settings
+            .storage
+            .storage_path
+            .as_deref()
+            .map(|path| redact_home_paths(&path.to_string_lossy())),
+        "previousStoragePaths": settings
+            .storage
+            .previous_storage_paths
             .iter()
-            .map(|path| redact_home_paths(path))
+            .map(|path| redact_home_paths(&path.to_string_lossy()))
             .collect::<Vec<_>>(),
         "updateChannel": settings.update_channel.as_json(),
         "instanceId": instance_id,

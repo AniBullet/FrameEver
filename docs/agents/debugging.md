@@ -37,7 +37,7 @@ Test cadence: while iterating run `pnpm fe test <filter>` (an app-only edit rebu
 | Translations | `apps/desktop-gpui/src/i18n/zh_cn/*.rs`, rules in `docs/i18n.md` |
 | Brand constants | `crates/utils/src/brand.rs` |
 
-Environment variables the app reads: `FRAMEEVER_GPUI_APP_DATA_DIR`, `FRAMEEVER_GPUI_RECORDINGS_DIR`, `FRAMEEVER_GPUI_LOG_DIR` (set by `fe dev`), `FRAMEEVER_GPUI_DEV_RESTORE` (window state across `--watch` relaunches), `RUST_LOG` (for example `RUST_LOG=frameever_gpui=debug,frameever_recording=debug pnpm fe dev`).
+Environment variables the app reads: `FRAMEEVER_GPUI_APP_DATA_DIR` (also moves the default storage folder to `<that folder>\FrameEver`, so a test profile never touches `Videos\FrameEver`), `FRAMEEVER_GPUI_STORAGE_DIR` (the only storage folder written and scanned), `FRAMEEVER_GPUI_LOG_DIR` (set by `fe dev`), `FRAMEEVER_GPUI_DEV_RESTORE` (window state across `--watch` relaunches), `RUST_LOG` (for example `RUST_LOG=frameever_gpui=debug,frameever_recording=debug pnpm fe dev`).
 
 ## Debugging by area
 

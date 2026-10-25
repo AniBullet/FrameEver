@@ -11,8 +11,9 @@ pub const URL_SCHEME: &str = "frameever";
 pub const CLI_COMMAND: &str = "frameever";
 pub const RELEASES_REPO: &str = "AniBullet/FrameEver";
 pub const PROJECT_EXTENSION: &str = "ever";
-pub const RECORDINGS_DIR_NAME: &str = "recordings";
-pub const SCREENSHOTS_DIR_NAME: &str = "screenshots";
+pub const STORAGE_DIR_NAME: &str = app_name!();
+pub const RECORDINGS_DIR_NAME: &str = "Recordings";
+pub const SCREENSHOTS_DIR_NAME: &str = "Screenshots";
 
 pub fn is_app_url(raw: &str) -> bool {
     raw.strip_prefix(URL_SCHEME)
