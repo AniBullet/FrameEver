@@ -29,6 +29,7 @@ Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `
   - AniBullet/FrameEver#39 (closes #2): Tauri app deleted. Sounds, music and backgrounds were not checked by hand in a running dev build.
 - Tests: `pnpm fe test --all` is green on `main` (GPUI 1075, enc-ffmpeg 180, export 45, CLI 48). After the folder rename, a stale `ffmpeg-sys-next` build cache pointed at the old folder and linking failed with `avcodec.lib` missing; `cargo clean -p ffmpeg-sys-next` in both workspaces fixed it.
 - Platforms changed on 2026-10-25 (ADR-0008): Windows first, macOS kept for a later release, no Linux. The macOS-only crates deleted by #3 were restored from our history, and AniBullet/FrameEver#4 was redone to remove Linux only: the shared crates have no Linux `cfg` branches, modules, files, examples or target dependencies left (about 18,000 lines; `crates/workspace-hack` is generated and was left alone). Windows test results are unchanged. `cap_utils::linux_package`, `linux_runtime` and `cap_cli_install::appimage` are gone, so the Linux-only call sites in `apps/desktop-gpui/src/{installer,main}.rs` and `apps/cli/src/main.rs` go with #5.
+- Not yet verified or pushed (2026-10-25): the ADR-0008 revert and the Linux-only #4 commit are on local `main` only; #4 closes on push (`Closes #4`). The GPUI tests were not run on them, because uncommitted #22 work in `apps/desktop-gpui` did not compile at the time. The session that finishes last runs `pnpm fe test --all` and `pnpm fe lint`, then pushes everything.
 
 ## What is left
 
