@@ -29,7 +29,6 @@ impl Default for HwDecoderCapabilities {
 
 static HW_CAPABILITIES: OnceLock<HwDecoderCapabilities> = OnceLock::new();
 
-#[cfg(target_os = "windows")]
 fn query_d3d11_video_decoder_capabilities() -> HwDecoderCapabilities {
     use windows::{
         Win32::{
@@ -137,11 +136,6 @@ fn query_d3d11_video_decoder_capabilities() -> HwDecoderCapabilities {
             HwDecoderCapabilities::default()
         }
     }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn query_d3d11_video_decoder_capabilities() -> HwDecoderCapabilities {
-    HwDecoderCapabilities::default()
 }
 
 pub fn get_hw_decoder_capabilities() -> &'static HwDecoderCapabilities {

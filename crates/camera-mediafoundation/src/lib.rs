@@ -1,4 +1,3 @@
-#![cfg(windows)]
 #![allow(non_snake_case)]
 
 use cap_mediafoundation_utils::*;

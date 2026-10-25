@@ -2,8 +2,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cap_project::{ClipTransitionType, CursorEvents, ProjectConfiguration};
-#[cfg(target_os = "macos")]
-use cap_rendering::SurfaceFrame;
 use cap_rendering::{
     DecodedSegmentFrames, FrameLayout, FrameRenderStageTimings, FrameRenderer, Nv12RenderedFrame,
     ProjectUniforms, RenderVideoConstants, RenderedFrame, RendererLayers, TransitionRenderInput,
@@ -53,16 +51,12 @@ pub struct RendererTransitionInput {
 pub enum EditorFrameOutput {
     Rgba(RenderedFrame),
     Nv12(Nv12RenderedFrame),
-    #[cfg(target_os = "macos")]
-    Surface(SurfaceFrame),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EditorFrameFormat {
     #[default]
     Rgba,
-    #[cfg(target_os = "macos")]
-    BgraSurface,
 }
 
 pub type RendererLayersReceiver = oneshot::Receiver<RendererLayers>;
@@ -491,60 +485,6 @@ impl Renderer {
                             FrameRenderStageTimings::default(),
                         )
                     }),
-                #[cfg(target_os = "macos")]
-                (EditorFrameFormat::BgraSurface, PendingRenderInput::Single(input)) => {
-                    frame_renderer
-                        .render_immediate_bgra_surface(
-                            input.segment_frames,
-                            input.uniforms,
-                            &input.cursor,
-                            true,
-                            &mut layers,
-                        )
-                        .await
-                        .map(|frame| {
-                            (
-                                EditorFrameOutput::Surface(frame),
-                                PlaybackRenderOutputFormat::Bgra,
-                                FrameRenderStageTimings::default(),
-                            )
-                        })
-                }
-                #[cfg(target_os = "macos")]
-                (
-                    EditorFrameFormat::BgraSurface,
-                    PendingRenderInput::Transition {
-                        outgoing,
-                        incoming,
-                        kind,
-                        progress,
-                    },
-                ) => frame_renderer
-                    .render_transition_bgra_surface(
-                        TransitionRenderInput {
-                            segment_frames: outgoing.segment_frames,
-                            uniforms: outgoing.uniforms,
-                            cursor: &outgoing.cursor,
-                            render_display: true,
-                        },
-                        TransitionRenderInput {
-                            segment_frames: incoming.segment_frames,
-                            uniforms: incoming.uniforms,
-                            cursor: &incoming.cursor,
-                            render_display: true,
-                        },
-                        kind,
-                        progress,
-                        &mut layers,
-                    )
-                    .await
-                    .map(|frame| {
-                        (
-                            EditorFrameOutput::Surface(frame),
-                            PlaybackRenderOutputFormat::Bgra,
-                            FrameRenderStageTimings::default(),
-                        )
-                    }),
             };
             match render_result {
                 Ok((frame, output_format, render_stage_timings)) => {
@@ -552,8 +492,6 @@ impl Renderer {
                     let frame_number = match &frame {
                         EditorFrameOutput::Rgba(frame) => frame.frame_number,
                         EditorFrameOutput::Nv12(frame) => frame.frame_number,
-                        #[cfg(target_os = "macos")]
-                        EditorFrameOutput::Surface(frame) => frame.frame_number,
                     };
                     let callback_start = Instant::now();
                     (frame_cb)(frame, frame_layout);

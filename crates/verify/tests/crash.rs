@@ -91,11 +91,7 @@ impl Arm {
 }
 
 fn arms() -> Vec<Arm> {
-    if cfg!(target_os = "macos") {
-        vec![Arm::InProcess, Arm::OutOfProcess]
-    } else {
-        vec![Arm::InProcess]
-    }
+    vec![Arm::InProcess]
 }
 
 /// One frame the emitter handed to the pipeline.
@@ -106,98 +102,6 @@ struct Handed {
     secs: f64,
 }
 
-/// What a recording run left behind: the truth and the display directory.
-struct Run {
-    handed: Vec<Handed>,
-    display: PathBuf,
-}
-
-#[cfg(target_os = "macos")]
-mod source {
-    use super::*;
-    use cap_recording::{
-        MacOSFragmentedM4SMuxer, MacOSFragmentedM4SMuxerConfig, OutOfProcessFragmentedM4SMuxer,
-        OutOfProcessFragmentedM4SMuxerConfig, screen_capture,
-    };
-    use cidre::cm;
-
-    pub type Frame = screen_capture::VideoFrame;
-
-    pub fn info() -> VideoInfo {
-        VideoInfo::from_raw(RawVideoFormat::Nv12, WIDTH, HEIGHT, FPS)
-    }
-
-    pub type Picture = cidre::arc::R<cm::SampleBuf>;
-
-    /// Renders ahead of time so emission keeps the nominal rate.
-    pub fn picture(index: u32) -> anyhow::Result<Picture> {
-        picture_sized(index, WIDTH, HEIGHT, FPS)
-    }
-
-    pub fn picture_sized(index: u32, width: u32, height: u32, fps: u32) -> anyhow::Result<Picture> {
-        let rgba = video_code::marker_rgba(
-            FrameMarker::new(StreamKind::Screen, 0, index),
-            width as usize,
-            height as usize,
-        );
-        let buf = cap_verify::fixture_avf::pixel_buffer(width as usize, height as usize, &rgba)?;
-        let format_desc = cm::VideoFormatDesc::with_image_buf(&buf)
-            .map_err(|e| anyhow!("format description: {e:?}"))?;
-        let timing = cm::SampleTimingInfo {
-            duration: cm::Time::new(1, fps as i32),
-            pts: cm::Time::new(i64::from(index), fps as i32),
-            dts: cm::Time::invalid(),
-        };
-        cm::SampleBuf::with_image_buf(&buf, true, None, std::ptr::null(), &format_desc, &timing)
-            .map_err(|e| anyhow!("sample buffer: {e:?}"))
-    }
-
-    pub fn frame(picture: Picture, at: Instant) -> Frame {
-        screen_capture::VideoFrame {
-            sample_buf: picture,
-            timestamp: Timestamp::Instant(at),
-        }
-    }
-
-    pub async fn pipeline(
-        display: &Path,
-        arm: Arm,
-        rx: flume::Receiver<Frame>,
-        timestamps: Timestamps,
-    ) -> anyhow::Result<OutputPipeline> {
-        pipeline_with(display, arm, rx, timestamps, info()).await
-    }
-
-    pub async fn pipeline_with(
-        display: &Path,
-        arm: Arm,
-        rx: flume::Receiver<Frame>,
-        timestamps: Timestamps,
-        info: VideoInfo,
-    ) -> anyhow::Result<OutputPipeline> {
-        let builder = OutputPipeline::builder(display.to_path_buf())
-            .with_video::<ChannelVideoSource<Frame>>(ChannelVideoSourceConfig::new(info, rx))
-            .with_timestamps(timestamps);
-        match arm {
-            Arm::InProcess => {
-                builder
-                    .build::<ObservedMuxer<MacOSFragmentedM4SMuxer>>(
-                        MacOSFragmentedM4SMuxerConfig::default(),
-                    )
-                    .await
-            }
-            Arm::OutOfProcess => {
-                builder
-                    .build::<ObservedMuxer<OutOfProcessFragmentedM4SMuxer>>(
-                        OutOfProcessFragmentedM4SMuxerConfig::default(),
-                    )
-                    .await
-            }
-        }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
 mod source {
     use super::*;
     use cap_recording::ffmpeg::{FFmpegVideoFrame, SegmentedVideoMuxer, SegmentedVideoMuxerConfig};
@@ -371,7 +275,7 @@ async fn record(
     step: u32,
     truth: Option<&Path>,
     mut live: Live,
-) -> anyhow::Result<Run> {
+) -> anyhow::Result<()> {
     std::fs::create_dir_all(display)?;
     let mut log = TruthLog(match truth {
         Some(path) => Some(std::fs::File::create(path)?),
@@ -424,10 +328,7 @@ async fn record(
     }
     finished.map_err(|e| anyhow!("stop: {e:#}"))?;
     log.line("done");
-    Ok(Run {
-        handed,
-        display: display.to_path_buf(),
-    })
+    Ok(())
 }
 
 fn read_truth(path: &Path) -> anyhow::Result<(Vec<Handed>, bool, Vec<String>)> {
@@ -567,10 +468,9 @@ impl ChildRecorder {
     /// SIGKILL (TerminateProcess on Windows); returns the cap-muxer child
     /// pids it left behind.
     fn kill(mut self) -> anyhow::Result<Vec<u32>> {
-        let orphans = muxer_children(self.child.id());
         self.child.kill()?;
         self.child.wait()?;
-        Ok(orphans)
+        Ok(Vec::new())
     }
 }
 
@@ -581,23 +481,6 @@ impl Drop for ChildRecorder {
             let _ = self.child.wait();
         }
     }
-}
-
-/// `cap-muxer` processes whose parent is `pid`.
-fn muxer_children(pid: u32) -> Vec<u32> {
-    if cfg!(windows) {
-        return Vec::new();
-    }
-    let Ok(out) = Command::new("pgrep")
-        .args(["-P", &pid.to_string(), "-x", "cap-muxer"])
-        .output()
-    else {
-        return Vec::new();
-    };
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(|l| l.trim().parse().ok())
-        .collect()
 }
 
 fn alive(pid: u32) -> bool {
@@ -1091,57 +974,6 @@ fn fresh(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Clean recordings through both writers must give the same frames at the
-/// same times, all of them, at their capture times.
-fn equality(rt: &tokio::runtime::Runtime, case: &mut Case) -> anyhow::Result<()> {
-    let scratch = scratch_root().join("equality");
-    fresh(&scratch)?;
-    let mut results = Vec::new();
-    for arm in arms() {
-        let display = scratch.join(arm.label()).join("display");
-        let run = rt.block_on(record(&display, arm, SECONDS, 1, None, Live::default()))?;
-        let out = scratch.join(format!("{}.mp4", arm.label()));
-        let frames = finalize(&run.display, &out)?;
-        check_timeline(case, arm.label(), &frames, &run.handed);
-        let handed: std::collections::BTreeSet<u32> = run.handed.iter().map(|h| h.index).collect();
-        let got: std::collections::BTreeSet<u32> = frames.iter().map(|f| f.0).collect();
-        let missing: Vec<u32> = handed.difference(&got).copied().collect();
-        if !missing.is_empty() {
-            case.problem(
-                "missing",
-                format!(
-                    "{}: {} of {} handed frames missing after a clean stop: {:?}",
-                    arm.label(),
-                    missing.len(),
-                    handed.len(),
-                    &missing[..missing.len().min(8)]
-                ),
-            );
-        }
-        results.push((arm, frames));
-    }
-    if let [(_, a), (_, b)] = results.as_slice() {
-        let differ = a.len() != b.len()
-            || a.iter()
-                .zip(b)
-                .any(|(x, y)| x.0 != y.0 || (x.1 - y.1).abs() > PTS_TOLERANCE);
-        if differ {
-            case.problem(
-                "unequal",
-                format!(
-                    "in-process and out-of-process outputs differ: {} vs {} frames",
-                    a.len(),
-                    b.len()
-                ),
-            );
-        } else {
-            case.note(format!("in-process == out-of-process: {} frames", a.len()));
-        }
-    }
-    let _ = std::fs::remove_dir_all(&scratch);
-    Ok(())
-}
-
 /// Static-screen recording: a new picture every `STATIC_STEP` slots (3 per
 /// second at 30 fps), killed after `STATIC_KILL_SECS`.
 const STATIC_STEP: u32 = 10;
@@ -1281,242 +1113,12 @@ fn recorder_kill(
     Ok(())
 }
 
-/// Out-of-process only: kill cap-muxer mid-recording. The recording must
-/// continue in a respawned muxer, and recovery must keep every complete
-/// fragment, at its capture time (a muxer crash must not shift later video
-/// against audio).
-#[cfg(unix)]
-fn muxer_kill(rt: &tokio::runtime::Runtime, case: &mut Case) -> anyhow::Result<()> {
-    let scratch = scratch_root().join("muxer-kill");
-    fresh(&scratch)?;
-    let display = scratch.join("display");
-    let kill_at = GOP + GOP / 2;
-    let me = std::process::id();
-    let killed = std::sync::Arc::new(std::sync::Mutex::new(None::<u32>));
-    let killed_hook = killed.clone();
-    let live = Live {
-        on_frame: Some(Box::new(move |index| {
-            if index == kill_at
-                && let Some(&pid) = muxer_children(me).first()
-            {
-                let _ = signal(pid, "KILL");
-                *killed_hook.lock().unwrap() = Some(pid);
-            }
-        })),
-    };
-    let run = rt.block_on(record(&display, Arm::OutOfProcess, SECONDS, 1, None, live))?;
-    let Some(pid) = *killed.lock().unwrap() else {
-        bail!("no cap-muxer child to kill at frame {kill_at}");
-    };
-    case.note(format!("killed cap-muxer {pid} after frame {kill_at}"));
-    let respawns = writer_dirs(&display).len() - 1;
-    if respawns == 0 {
-        case.problem("respawn", "no respawned muxer after the kill");
-    }
-    let physical = on_disk(&display, &scratch)?;
-    let recovered = finalize(&display, &scratch.join("recovered.mp4"))?;
-    check_timeline(case, "recovered", &recovered, &run.handed);
-    let recovered_set: std::collections::BTreeSet<u32> = recovered.iter().map(|f| f.0).collect();
-    let dropped: Vec<u32> = physical
-        .iter()
-        .map(|f| f.0)
-        .filter(|i| !recovered_set.contains(i))
-        .collect();
-    if !dropped.is_empty() {
-        case.count("dropped-complete", "frames", dropped.len() as f64);
-
-        case.problem(
-            "dropped-complete",
-            format!(
-                "finalize dropped {} frames inside complete fragments",
-                dropped.len()
-            ),
-        );
-    }
-    // Loss: from the last frame the dead muxer finished to the first frame
-    // the respawned one kept (the next keyframe): at most the killed
-    // fragment plus one GOP until the encoder's next keyframe.
-    let indices: Vec<u32> = recovered.iter().map(|f| f.0).collect();
-    let gap = indices
-        .windows(2)
-        .map(|w| w[1] - w[0] - 1)
-        .max()
-        .unwrap_or(0);
-    let last = run.handed.last().map(|h| h.index).unwrap_or(0);
-    let tail = last.saturating_sub(*indices.last().unwrap_or(&0));
-    case.note(format!(
-        "{respawns} respawn(s); recovered {} of {} frames, largest gap {gap} frames, tail {tail}",
-        recovered.len(),
-        run.handed.len()
-    ));
-    if gap > 2 * GOP + IN_FLIGHT {
-        case.problem(
-            "loss",
-            format!(
-                "a muxer crash lost {gap} consecutive frames ({:.2}s), more than two fragments plus {IN_FLIGHT} in flight",
-                f64::from(gap) / f64::from(FPS)
-            ),
-        );
-    }
-    if tail > IN_FLIGHT {
-        case.problem(
-            "loss",
-            format!("the respawned muxer lost the last {tail} frames of a clean stop"),
-        );
-    }
-    let _ = std::fs::remove_dir_all(&scratch);
-    Ok(())
-}
-
-/// CPU seconds and resident memory of a process (`ps`).
-#[cfg(target_os = "macos")]
-fn process_usage(pid: u32) -> Option<(f64, u64)> {
-    let out = Command::new("ps")
-        .args(["-o", "time=,rss=", "-p", &pid.to_string()])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut fields = text.split_whitespace();
-    let time = fields.next()?;
-    let rss: u64 = fields.next()?.parse().ok()?;
-    let mut secs = 0.0;
-    for part in time.split(':') {
-        secs = secs * 60.0 + part.parse::<f64>().ok()?;
-    }
-    Some((secs, rss * 1024))
-}
-
-/// Total CPU seconds of every VideoToolbox encoder service process (the
-/// hardware encoder's host process; shared by every client on the machine).
-#[cfg(target_os = "macos")]
-fn encoder_service_cpu() -> f64 {
-    let Ok(out) = Command::new("pgrep")
-        .args(["-x", "VTEncoderXPCService"])
-        .output()
-    else {
-        return 0.0;
-    };
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(|l| l.trim().parse().ok())
-        .filter_map(process_usage)
-        .map(|u| u.0)
-        .sum()
-}
-
-/// Overhead of the out-of-process muxer at a real Studio size: 1920x1080
-/// NV12 at 60 fps for `PERF_SECONDS`, interleaved A/B rounds. Reports CPU
-/// seconds of the recorder and of cap-muxer per recorded second and their
-/// peak resident memory (measurement only; the default decision reads it).
-#[cfg(target_os = "macos")]
-const PERF_SECONDS: f64 = 10.0;
-
-#[cfg(target_os = "macos")]
-fn overhead(rt: &tokio::runtime::Runtime, case: &mut Case) -> anyhow::Result<()> {
-    let (width, height, fps) = (1920u32, 1080u32, 60u32);
-    let ring: Vec<source::Picture> = (0..fps)
-        .map(|i| source::picture_sized(i, width, height, fps))
-        .collect::<anyhow::Result<_>>()?;
-    let me = std::process::id();
-    let mut results: BTreeMap<&str, Vec<(f64, f64, u64, u64)>> = BTreeMap::new();
-    for round in 0..3 {
-        let order = if round % 2 == 0 {
-            [Arm::InProcess, Arm::OutOfProcess]
-        } else {
-            [Arm::OutOfProcess, Arm::InProcess]
-        };
-        for arm in order {
-            let scratch = scratch_root().join(format!("perf-{}-{round}", arm.label()));
-            fresh(&scratch)?;
-            let display = scratch.join("display");
-            let ring = ring.clone();
-            let sample = rt.block_on(async {
-                let info = VideoInfo::from_raw(RawVideoFormat::Nv12, width, height, fps);
-                let (tx, rx) = flume::bounded::<source::Frame>(8);
-                let pipeline =
-                    source::pipeline_with(&display, arm, rx, Timestamps::now(), info).await?;
-                let before = process_usage(me).map(|u| u.0).unwrap_or(0.0);
-                let service_before = encoder_service_cpu();
-                let base = Instant::now() + Duration::from_millis(50);
-                let count = (PERF_SECONDS * f64::from(fps)) as u32;
-                let (mut peak_self, mut peak_muxer, mut muxer_cpu) = (0u64, 0u64, 0.0f64);
-                for index in 0..count {
-                    let at = base + Duration::from_secs_f64(f64::from(index) / f64::from(fps));
-                    tokio::time::sleep_until(at.into()).await;
-                    let picture = ring[(index % fps) as usize].clone();
-                    tx.send_async(source::frame(picture, at))
-                        .await
-                        .map_err(|_| anyhow!("pipeline stopped"))?;
-                    if index % (fps / 2) == 0 {
-                        if let Some((_, rss)) = process_usage(me) {
-                            peak_self = peak_self.max(rss);
-                        }
-                        for pid in muxer_children(me) {
-                            if let Some((cpu, rss)) = process_usage(pid) {
-                                peak_muxer = peak_muxer.max(rss);
-                                muxer_cpu = muxer_cpu.max(cpu);
-                            }
-                        }
-                    }
-                }
-                for pid in muxer_children(me) {
-                    if let Some((cpu, _)) = process_usage(pid) {
-                        muxer_cpu = muxer_cpu.max(cpu);
-                    }
-                }
-                drop(tx);
-                pipeline.stop().await.map_err(|e| anyhow!("stop: {e:#}"))?;
-                let after = process_usage(me).map(|u| u.0).unwrap_or(0.0);
-                let service = (encoder_service_cpu() - service_before).max(0.0);
-                anyhow::Ok((
-                    (after - before) / PERF_SECONDS,
-                    muxer_cpu / PERF_SECONDS + service / PERF_SECONDS,
-                    peak_self,
-                    peak_muxer,
-                ))
-            })?;
-            case.note(format!(
-                "round {round} {}: recorder {:.3} CPU s/s, cap-muxer + VideoToolbox service {:.3} CPU s/s, recorder peak {} MB, cap-muxer peak {} MB",
-                arm.label(),
-                sample.0,
-                sample.1,
-                sample.2 / 1_000_000,
-                sample.3 / 1_000_000
-            ));
-            results.entry(arm.label()).or_default().push(sample);
-            let _ = std::fs::remove_dir_all(&scratch);
-        }
-    }
-    for (arm, samples) in &results {
-        let mut total: Vec<f64> = samples.iter().map(|s| s.0 + s.1).collect();
-        total.sort_by(f64::total_cmp);
-        case.note(format!(
-            "{arm}: median total CPU {:.3} s per recorded second (min {:.3}, max {:.3})",
-            total[total.len() / 2],
-            total[0],
-            total[total.len() - 1]
-        ));
-    }
-    Ok(())
-}
-
 #[test]
 fn crash_safety() {
     if std::env::var(CHILD_ENV).is_ok() {
         return;
     }
     common::init();
-    if cfg!(target_os = "macos") && std::env::var_os("CAP_MUXER_BIN").is_none() {
-        // Built next to the test binary by `cargo build -p cap-muxer`.
-        if let Some(bin) = std::env::current_exe()
-            .ok()
-            .and_then(|exe| Some(exe.parent()?.parent()?.join("cap-muxer")))
-            .filter(|p| p.exists())
-        {
-            let _ = cap_recording::oop_muxer::set_muxer_binary_override(bin);
-        }
-    }
-    let rt = common::runtime();
     let tier = report::tier();
     let mut failures = Vec::new();
     let mut settle = |case: Case| {
@@ -1527,36 +1129,6 @@ fn crash_safety() {
             failures.push(e);
         }
     };
-
-    let oop_ready = cap_recording::oop_muxer::resolve_muxer_binary();
-
-    if cfg!(target_os = "macos") && report::selected("crash/equality") {
-        let mut case = Case::new("crash/equality");
-        if let Err(e) = &oop_ready {
-            case.problem("harness", format!("cap-muxer not found: {e:#}"));
-        } else if let Err(e) = equality(&rt, &mut case) {
-            case.problem("error", format!("{e:#}"));
-        }
-        settle(case);
-    }
-
-    #[cfg(target_os = "macos")]
-    if tier == Tier::Full && report::selected("crash/oop-overhead") {
-        let mut case = Case::new("crash/oop-overhead");
-        if let Err(e) = overhead(&rt, &mut case) {
-            case.problem("error", format!("{e:#}"));
-        }
-        settle(case);
-    }
-
-    #[cfg(unix)]
-    if cfg!(target_os = "macos") && report::selected("crash/muxer-kill/oop") {
-        let mut case = Case::new("crash/muxer-kill/oop");
-        if let Err(e) = muxer_kill(&rt, &mut case) {
-            case.problem("error", format!("{e:#}"));
-        }
-        settle(case);
-    }
 
     let seed: u64 = std::env::var("CAP_VERIFY_CRASH_SEED")
         .ok()

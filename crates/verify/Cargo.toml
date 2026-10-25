@@ -25,9 +25,6 @@ tokio = { workspace = true }
 cap-verify-expect = { path = "../verify-expect" }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-cidre = { workspace = true }
-
 [dev-dependencies]
 cap-recording = { path = "../recording", features = ["test-utils"] }
 cap-editor = { path = "../editor", features = ["test-hooks"] }
@@ -37,12 +34,6 @@ cap-rendering = { path = "../rendering" }
 cpal = { workspace = true }
 tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[target.'cfg(target_os = "macos")'.dev-dependencies]
-cap-camera-ffmpeg = { path = "../camera-ffmpeg" }
-scap-targets = { path = "../scap-targets" }
-
-[target.'cfg(windows)'.dev-dependencies]
 scap-targets = { path = "../scap-targets" }
 cap-camera-windows = { path = "../camera-windows" }
 cap-mediafoundation-utils = { path = "../mediafoundation-utils" }

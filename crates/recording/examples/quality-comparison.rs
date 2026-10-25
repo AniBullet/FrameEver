@@ -92,16 +92,7 @@ async fn run_recording(
 
     println!("  Starting...");
 
-    let handle = builder
-        .build(
-            #[cfg(target_os = "macos")]
-            Some(cap_recording::SendableShareableContent::from(
-                cidre::sc::ShareableContent::current()
-                    .await
-                    .expect("Failed to get shareable content"),
-            )),
-        )
-        .await?;
+    let handle = builder.build().await?;
 
     let start = Instant::now();
     let sample_interval = Duration::from_secs(2);

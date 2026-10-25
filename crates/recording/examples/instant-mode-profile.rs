@@ -216,14 +216,7 @@ async fn profile_instant_recording(
     println!("Starting instant recording...");
 
     let handle = builder
-        .build(
-            #[cfg(target_os = "macos")]
-            Some(cap_recording::SendableShareableContent::from(
-                cidre::sc::ShareableContent::current()
-                    .await
-                    .expect("Failed to get shareable content"),
-            )),
-        )
+        .build()
         .await
         .expect("Failed to build instant recording");
 
@@ -370,17 +363,7 @@ async fn profile_sustained_instant(duration_secs: u64, include_mic: bool) {
     println!("Starting sustained instant recording...");
     profiler.sample();
 
-    let handle = builder
-        .build(
-            #[cfg(target_os = "macos")]
-            Some(cap_recording::SendableShareableContent::from(
-                cidre::sc::ShareableContent::current()
-                    .await
-                    .expect("Failed to get shareable content"),
-            )),
-        )
-        .await
-        .expect("Failed to build recording");
+    let handle = builder.build().await.expect("Failed to build recording");
 
     let start = Instant::now();
     let mut next_sample = Instant::now() + Duration::from_secs(5);

@@ -1193,11 +1193,6 @@ fn concatenate_m4s_segments_with_init_validated_with_reader(
     ));
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
     let mut combined_file = options.open(&combined_path)?;
     let result = (|| {
         for path in std::iter::once(init_path).chain(segments.iter().map(PathBuf::as_path)) {
@@ -1737,19 +1732,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn concat_relative_entries_cannot_be_interpreted_as_url_schemes() {
-        assert_eq!(
-            concat_fragment_entry(
-                Path::new("recording/https:fragment.m4a"),
-                Path::new("recording/output.concat.txt"),
-            )
-            .unwrap(),
-            "file './https:fragment.m4a'\n"
-        );
-    }
-
     #[test]
     fn unrepresentable_concat_entries_fail_before_creating_the_list() {
         let directory = tempfile::tempdir().unwrap();
@@ -1758,52 +1740,6 @@ mod tests {
             assert!(write_concat_list(&[directory.path().join(name)], &list).is_err());
             assert!(!list.exists());
         }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn concat_entries_reject_non_unicode_names_without_lossy_conversion() {
-        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
-
-        let fragment =
-            Path::new("recording").join(OsString::from_vec(b"fragment-\xff.m4a".to_vec()));
-        assert!(matches!(
-            concat_fragment_entry(&fragment, Path::new("recording/output.concat.txt")),
-            Err(super::RemuxError::InvalidConcatPath(_))
-        ));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn concat_entries_preserve_symlink_spelling() {
-        let directory = tempfile::tempdir().unwrap();
-        let actual = directory.path().join("actual");
-        std::fs::create_dir(&actual).unwrap();
-        std::fs::write(actual.join("fragment.m4a"), []).unwrap();
-        let alias = directory.path().join("alias");
-        std::os::unix::fs::symlink(&actual, &alias).unwrap();
-
-        assert_eq!(
-            concat_fragment_entry(
-                &alias.join("fragment.m4a"),
-                &directory.path().join("output.concat.txt"),
-            )
-            .unwrap(),
-            "file './alias/fragment.m4a'\n"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn concat_input_rejects_non_unicode_paths_explicitly() {
-        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
-
-        let path = std::path::PathBuf::from(OsString::from_vec(b"input-\xff.concat.txt".to_vec()));
-        assert!(matches!(
-            super::open_input_with_format(&path, "concat", ffmpeg::Dictionary::new()),
-            Err(super::RemuxError::Io(error))
-                if error.kind() == std::io::ErrorKind::InvalidInput
-        ));
     }
 
     fn encode_test_audio(directory: &Path) -> std::path::PathBuf {
@@ -1975,12 +1911,6 @@ mod tests {
     #[test]
     fn concat_audio_and_video_with_quoted_parent_directories() {
         assert_concat_roundtrip("recording 'quoted' λ");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn concat_audio_and_video_with_newline_parent_directories() {
-        assert_concat_roundtrip("recording\n");
     }
 
     /// Encodes a small mp4 whose frames are stamped with the given

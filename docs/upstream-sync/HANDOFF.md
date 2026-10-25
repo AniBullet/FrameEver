@@ -27,14 +27,15 @@ Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `
   - AniBullet/FrameEver#37 (closes #18): Windows notifications when automatic compression succeeds or fails (log and folder buttons on failure). Not yet clicked through with a real Instant recording.
   - AniBullet/FrameEver#38 (closes #21): Chinese captions route to Whisper (Parakeet has no CJK vocabulary), split UTF-8 tokens are rebuilt, no spaces between CJK characters, full-width punctuation, a Simplified Chinese prompt. The long-trim crash did not reproduce.
   - AniBullet/FrameEver#39 (closes #2): Tauri app deleted. Sounds, music and backgrounds were not checked by hand in a running dev build.
-- Tests: each PR's session reported its own branch green (GPUI tests 1070 on the last one, plus `test --all` and `lint`); the suite has not been re-run on `main` after all six merges, so run `pnpm fe test --all` first.
+- Tests: `pnpm fe test --all` is green on `main` (GPUI 1075, enc-ffmpeg 180, export 45, CLI 48). After the folder rename, a stale `ffmpeg-sys-next` build cache pointed at the old folder and linking failed with `avcodec.lib` missing; `cargo clean -p ffmpeg-sys-next` in both workspaces fixed it.
+- AniBullet/FrameEver#4: the shared crates have no macOS/Linux `cfg` branches, modules, files or target dependencies left (about 46,000 lines removed, `crates/workspace-hack` left as generated). Windows test results are unchanged. `cap_utils::linux_package` and `linux_runtime` are gone, so the Linux-only call sites in `apps/desktop-gpui/src/{installer,main}.rs` and `apps/cli/src/main.rs` go with #5.
 
 ## What is left
 
 The open issues on `AniBullet/FrameEver` are the one list (`gh issue list`); native blocking links give the order (`gh api repos/AniBullet/FrameEver/issues/<n>/dependencies/blocked_by`).
 
 - Decisions of 2026-10-24: ADR-0006 (one visible storage folder `Videos\FrameEver` with `Recordings`, `Screenshots`, `Exports`; `.ever` projects with a format version; export records; no database; old data only through the separate FrameEver Converter) and ADR-0007 (upstream is a reference; internal names become `frameever-*` / `FRAMEEVER_*`; macOS/Linux code removed; version starts at 1.0.0).
-- Next in the cleanup chain: #3 (macOS-only crates) is done; #4 and #5 (can run one after the other), #6 rename crates, #7 rename environment variables, #8 docs rewrite. The storage spec AniBullet/FrameEver#1 (sub-issues #9–#12) follows #7; then FrameEver Converter (#13, #14); then the first release (#15, owner).
+- Next in the cleanup chain: #3 (macOS-only crates) and #4 (shared crates) are done; #5 (app and CLI), #6 rename crates, #7 rename environment variables, #8 docs rewrite. The storage spec AniBullet/FrameEver#1 (sub-issues #9–#12) follows #7; then FrameEver Converter (#13, #14); then the first release (#15, owner).
 - Small independent tickets still open: #19 (remote-desktop note in Excluded Windows; neutral editor frame placeholder) and #22 (MiSans variable font, Chinese-only loading). Owner tasks: #16 (phase 2 checks on real hardware), #17 (benchmark, after the release).
 - Not ticketed on purpose: the in-app automations runner and upstream fixes to port later (upstream watch list in `0.6.1.md`); recording start latency (part of the benchmark ticket).
 

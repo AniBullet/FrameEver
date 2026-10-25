@@ -12,14 +12,8 @@ use std::{
 use sysinfo::System;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-#[cfg(windows)]
 fn default_input_dir() -> PathBuf {
     std::env::temp_dir().join("cap-real-device-tests")
-}
-
-#[cfg(not(windows))]
-fn default_input_dir() -> PathBuf {
-    PathBuf::from("/tmp/cap-real-device-tests")
 }
 
 #[derive(Parser)]

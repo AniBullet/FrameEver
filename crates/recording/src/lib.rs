@@ -22,8 +22,6 @@ pub mod upload_preparation;
 pub mod upload_resume;
 pub mod upload_verification;
 
-#[cfg(target_os = "linux")]
-pub use capture_pipeline::target_to_display_and_crop;
 pub use resolution_limits::{H264_MAX_DIMENSION, calculate_gpu_compatible_size};
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -85,33 +83,9 @@ pub struct RecordingBaseInputs {
     pub capture_system_audio: bool,
     pub mic_feed: Option<Arc<MicrophoneFeedLock>>,
     pub camera_feed: Option<Arc<CameraFeedLock>>,
-    #[cfg(target_os = "macos")]
-    pub shareable_content: Option<SendableShareableContent>,
-    #[cfg(target_os = "macos")]
-    pub excluded_windows: Vec<scap_targets::WindowId>,
     /// Present when the pipeline is primed ahead of the start cue; capture is
     /// held back until it is armed.
     pub start_gate: Option<RecordingStartGate>,
-}
-
-#[cfg(target_os = "macos")]
-#[derive(Clone)]
-pub struct SendableShareableContent(
-    Arc<std::sync::Mutex<cidre::arc::R<cidre::sc::ShareableContent>>>,
-);
-
-#[cfg(target_os = "macos")]
-impl SendableShareableContent {
-    pub fn retained(&self) -> cidre::arc::R<cidre::sc::ShareableContent> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
-    }
-}
-
-#[cfg(target_os = "macos")]
-impl From<cidre::arc::R<cidre::sc::ShareableContent>> for SendableShareableContent {
-    fn from(value: cidre::arc::R<cidre::sc::ShareableContent>) -> Self {
-        Self(Arc::new(std::sync::Mutex::new(value)))
-    }
 }
 
 #[derive(specta::Type, Serialize, Deserialize, Clone, Debug)]

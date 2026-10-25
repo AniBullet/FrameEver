@@ -158,12 +158,6 @@ impl ScenarioRunner {
         let display = Display::primary();
         let (error_tx, _error_rx) = flume::bounded::<StreamError>(16);
 
-        #[cfg(target_os = "macos")]
-        let shareable_content = cidre::sc::ShareableContent::current()
-            .await
-            .context("Failed to get shareable content")
-            .map(cap_recording::SendableShareableContent::from)?;
-
         let mic_lock = if with_mic {
             if let Some((label, _, _)) = MicrophoneFeed::default_device() {
                 let mic_feed = MicrophoneFeed::spawn(MicrophoneFeed::new(error_tx.clone()));
@@ -230,13 +224,7 @@ impl ScenarioRunner {
 
         info!("Scenario [{}]: starting recording", description);
 
-        let handle = builder
-            .build(
-                #[cfg(target_os = "macos")]
-                Some(shareable_content),
-            )
-            .await
-            .context("Failed to start recording")?;
+        let handle = builder.build().await.context("Failed to start recording")?;
 
         if let Some((action, delay_secs)) = mid_action {
             let pre_delay = Duration::from_secs(delay_secs.min(duration_secs / 2));

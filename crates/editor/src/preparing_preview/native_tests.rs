@@ -318,19 +318,6 @@ async fn ordinary_composed_frames(
             .unwrap(),
         );
     }
-    #[cfg(target_os = "macos")]
-    if !force_ffmpeg {
-        for decoder in &decoders {
-            assert_eq!(
-                decoder.screen_decoder_status().decoder_type,
-                cap_rendering::decoder::DecoderType::AVAssetReader,
-            );
-            assert_eq!(
-                decoder.camera_decoder_status().unwrap().decoder_type,
-                cap_rendering::decoder::DecoderType::AVAssetReader,
-            );
-        }
-    }
     let duration = fixture.project.timeline.as_ref().unwrap().duration();
     let constants = RenderVideoConstants::new_with_options(
         RenderOptions {
@@ -792,11 +779,6 @@ async fn composed_parity_with_reference(
                     assert_eq!(frame_format, EditorFrameFormat::Rgba);
                     frame
                 }
-                #[cfg(target_os = "macos")]
-                EditorFrameOutput::Surface(frame) => {
-                    assert_eq!(frame_format, EditorFrameFormat::BgraSurface);
-                    surface_rgba(frame)
-                }
                 EditorFrameOutput::Nv12(_) => panic!("Unexpected NV12 output"),
             };
             sender.send((request, frame, layout)).unwrap();
@@ -994,99 +976,6 @@ async fn native_callback_panic_joins_workers_and_releases_source_owner() {
     assert!(fixture.rename_succeeded.load(Ordering::Acquire));
 }
 
-#[cfg(target_os = "macos")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_preparing_matches_default_avasset_editor_decoder() {
-    composed_parity_with_reference(
-        fixture(false),
-        &[0, 45, 12, 90],
-        false,
-        EditorFrameFormat::Rgba,
-    )
-    .await;
-    composed_parity_with_reference(
-        fixture(true),
-        &[0, 45, 12, 90],
-        false,
-        EditorFrameFormat::Rgba,
-    )
-    .await;
-}
-
-#[cfg(target_os = "macos")]
-fn surface_rgba(frame: cap_rendering::SurfaceFrame) -> RenderedFrame {
-    use std::ffi::c_void;
-
-    unsafe extern "C" {
-        fn CVPixelBufferLockBaseAddress(buffer: *const c_void, flags: u64) -> i32;
-        fn CVPixelBufferUnlockBaseAddress(buffer: *const c_void, flags: u64) -> i32;
-        fn CVPixelBufferGetBaseAddress(buffer: *const c_void) -> *const u8;
-        fn CVPixelBufferGetBytesPerRow(buffer: *const c_void) -> usize;
-        fn CVPixelBufferGetDataSize(buffer: *const c_void) -> usize;
-        fn CVPixelBufferGetWidth(buffer: *const c_void) -> usize;
-        fn CVPixelBufferGetHeight(buffer: *const c_void) -> usize;
-        fn CVPixelBufferGetPixelFormatType(buffer: *const c_void) -> u32;
-    }
-
-    struct LockedBuffer(*const c_void);
-
-    impl Drop for LockedBuffer {
-        fn drop(&mut self) {
-            unsafe {
-                CVPixelBufferUnlockBaseAddress(self.0, 1);
-            }
-        }
-    }
-
-    let buffer = std::ptr::from_ref(frame.pixel_buffer.as_ref()).cast::<c_void>();
-    assert_eq!(unsafe { CVPixelBufferLockBaseAddress(buffer, 1) }, 0);
-    let lock = LockedBuffer(buffer);
-    let width = unsafe { CVPixelBufferGetWidth(buffer) };
-    let height = unsafe { CVPixelBufferGetHeight(buffer) };
-    let stride = unsafe { CVPixelBufferGetBytesPerRow(buffer) };
-    let data_size = unsafe { CVPixelBufferGetDataSize(buffer) };
-    assert_eq!(
-        unsafe { CVPixelBufferGetPixelFormatType(buffer) },
-        u32::from_be_bytes(*b"BGRA")
-    );
-    assert_eq!(width, frame.width as usize);
-    assert_eq!(height, frame.height as usize);
-    let row_bytes = width.checked_mul(4).unwrap();
-    let buffer_bytes = stride.checked_mul(height).unwrap();
-    assert!(row_bytes > 0 && height > 0 && stride >= row_bytes);
-    assert!(data_size >= buffer_bytes);
-    let address = unsafe { CVPixelBufferGetBaseAddress(buffer) };
-    assert!(!address.is_null());
-    let pixels = unsafe { std::slice::from_raw_parts(address, buffer_bytes) };
-    let mut rgba = Vec::with_capacity(row_bytes.checked_mul(height).unwrap());
-    for row in pixels.chunks_exact(stride) {
-        for pixel in row[..row_bytes].chunks_exact(4) {
-            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
-        }
-    }
-    drop(lock);
-    RenderedFrame {
-        data: Arc::new(rgba),
-        width: frame.width,
-        height: frame.height,
-        padded_bytes_per_row: row_bytes.try_into().unwrap(),
-        frame_number: frame.frame_number,
-        target_time_ns: frame.target_time_ns,
-    }
-}
-
-#[cfg(target_os = "macos")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_preparing_bgra_surface_matches_default_avasset_editor_frame() {
-    composed_parity_with_reference(
-        fixture(false),
-        &[0, 45, 12, 90],
-        false,
-        EditorFrameFormat::BgraSurface,
-    )
-    .await;
-}
-
 fn handoff_fixture() -> Fixture {
     use std::io::Write;
 
@@ -1265,8 +1154,6 @@ async fn native_handoff_reuses_pcm_preserves_audio_across_candidate_disposal_and
                 let frame = match output {
                     crate::EditorFrameOutput::Rgba(frame) => frame.frame_number,
                     crate::EditorFrameOutput::Nv12(frame) => frame.frame_number,
-                    #[cfg(target_os = "macos")]
-                    crate::EditorFrameOutput::Surface(frame) => frame.frame_number,
                 };
                 frames.send_replace(Some(frame));
             }),
@@ -1413,8 +1300,6 @@ async fn native_silent_handoff_opens_and_renders_through_an_equivalent_editor_pa
                 let frame = match output {
                     crate::EditorFrameOutput::Rgba(frame) => frame.frame_number,
                     crate::EditorFrameOutput::Nv12(frame) => frame.frame_number,
-                    #[cfg(target_os = "macos")]
-                    crate::EditorFrameOutput::Surface(frame) => frame.frame_number,
                 };
                 frames.send_replace(Some(frame));
             }),
@@ -1615,8 +1500,6 @@ async fn native_studio_sound_releases_preparing_audio_and_preserves_transport() 
                 let frame = match output {
                     crate::EditorFrameOutput::Rgba(frame) => frame.frame_number,
                     crate::EditorFrameOutput::Nv12(frame) => frame.frame_number,
-                    #[cfg(target_os = "macos")]
-                    crate::EditorFrameOutput::Surface(frame) => frame.frame_number,
                 };
                 frames.send_replace(Some(frame));
             }),

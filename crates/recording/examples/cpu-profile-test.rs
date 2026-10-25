@@ -84,17 +84,7 @@ async fn profile_recording(
     cpu.sample();
     println!("Starting recording...");
 
-    let handle = builder
-        .build(
-            #[cfg(target_os = "macos")]
-            Some(cap_recording::SendableShareableContent::from(
-                cidre::sc::ShareableContent::current()
-                    .await
-                    .expect("Failed to get shareable content"),
-            )),
-        )
-        .await
-        .expect("Failed to build recording");
+    let handle = builder.build().await.expect("Failed to build recording");
 
     let start = Instant::now();
     let sample_interval = Duration::from_secs(2);

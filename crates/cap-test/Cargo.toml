@@ -43,14 +43,6 @@ sysinfo = "0.39"
 parking_lot = "0.13"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 tempfile = "3"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-cidre = { workspace = true }
-
-[target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",

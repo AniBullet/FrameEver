@@ -923,25 +923,13 @@ async fn skip_editor_runs_without_open_editor_capability() {
 #[test]
 fn shell_command_line_quotes_args_with_spaces() {
     let line = shell_command_line("echo", &["hello world".to_string(), "plain".to_string()]);
-    #[cfg(not(target_os = "windows"))]
-    assert_eq!(line, "echo 'hello world' plain");
-    #[cfg(target_os = "windows")]
     assert_eq!(line, "echo \"hello world\" plain");
 }
 
 #[test]
 fn shell_command_line_escapes_embedded_quotes() {
-    #[cfg(not(target_os = "windows"))]
-    {
-        let line = shell_command_line("printf", &["it's".to_string()]);
-        assert_eq!(line, "printf 'it'\\''s'");
-        assert_eq!(shell_command_line("x", &[String::new()]), "x ''");
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let line = shell_command_line("echo", &["a\"b".to_string()]);
-        assert_eq!(line, "echo \"a\"\"b\"");
-    }
+    let line = shell_command_line("echo", &["a\"b".to_string()]);
+    assert_eq!(line, "echo \"a\"\"b\"");
 }
 
 #[test]

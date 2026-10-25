@@ -851,7 +851,6 @@ async fn main() {
     let force_ffmpeg = args.iter().any(|arg| arg == "--force-ffmpeg");
     // The editor holds a 1ms timer resolution while playing; this measures under the same condition.
     let timer_1ms = args.iter().any(|arg| arg == "--timer-1ms");
-    #[cfg(target_os = "windows")]
     if timer_1ms {
         unsafe { windows::Win32::Media::timeBeginPeriod(1) };
     }

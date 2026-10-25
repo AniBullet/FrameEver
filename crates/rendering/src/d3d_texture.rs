@@ -8,8 +8,6 @@ pub enum D3DTextureError {
     DeviceMismatch,
     OpenSharedHandleFailed(String),
     HalTextureCreationFailed(String),
-    #[cfg(not(target_os = "windows"))]
-    NotSupported,
 }
 
 impl std::fmt::Display for D3DTextureError {
@@ -23,15 +21,12 @@ impl std::fmt::Display for D3DTextureError {
             Self::DeviceMismatch => write!(f, "D3D11 and D3D12 device mismatch"),
             Self::OpenSharedHandleFailed(e) => write!(f, "Failed to open shared handle: {e}"),
             Self::HalTextureCreationFailed(e) => write!(f, "Failed to create HAL texture: {e}"),
-            #[cfg(not(target_os = "windows"))]
-            Self::NotSupported => write!(f, "D3D textures are only supported on Windows"),
         }
     }
 }
 
 impl std::error::Error for D3DTextureError {}
 
-#[cfg(target_os = "windows")]
 mod windows_impl {
     use super::D3DTextureError;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -374,5 +369,4 @@ mod windows_impl {
     }
 }
 
-#[cfg(target_os = "windows")]
 pub use windows_impl::*;

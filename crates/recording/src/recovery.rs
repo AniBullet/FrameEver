@@ -27,12 +27,7 @@ use crate::studio_recording::CompletedRecording;
 mod prefix;
 mod preparing_observer;
 mod preparing_projection;
-#[cfg(unix)]
-mod retirement;
 
-#[cfg(unix)]
-type PreparingRecoveryLock = retirement::RecoveryLease;
-#[cfg(not(unix))]
 type PreparingRecoveryLock = RecoveryLock;
 
 pub use preparing_observer::{
@@ -306,15 +301,6 @@ impl RecoveryManager {
             RecoveryLock::acquire,
             preparing,
         )?;
-        #[cfg(unix)]
-        if unread && let Some(workspace) = published_workspace.into_inner() {
-            let retired = RecoveryLock::acquire(project_path)
-                .and_then(|_lock| retirement::retire_unread_originals(project_path, &workspace));
-            if let Err(error) = retired {
-                warn!(path = %workspace.display(), %error, "Original media backup retained");
-            }
-        }
-        #[cfg(not(unix))]
         let _ = (unread, published_workspace);
         Ok(true)
     }
@@ -1404,14 +1390,6 @@ impl RecoveryManager {
             elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
             "Studio finalization complete"
         );
-        #[cfg(unix)]
-        if matches!(purpose, RecoveryPurpose::Finalize)
-            && preparing_source.is_some()
-            && let HeldRecoveryLock::Shared(lease) = &lock
-            && let Err(error) = lease.retire_originals(project, &workspace)
-        {
-            warn!(path = %workspace.display(), %error, "Original media backup retained");
-        }
         Ok(RecoveredRecording {
             project_path: project.clone(),
             meta,
@@ -2913,13 +2891,6 @@ impl RecoveryManager {
 
 fn create_private_recovery_dir(path: &Path) -> std::io::Result<()> {
     let builder = std::fs::DirBuilder::new();
-    #[cfg(unix)]
-    let builder = {
-        use std::os::unix::fs::DirBuilderExt;
-        let mut builder = builder;
-        builder.mode(0o700);
-        builder
-    };
     builder.create(path)
 }
 
@@ -3090,8 +3061,6 @@ enum HeldRecoveryLock {
 impl HeldRecoveryLock {
     fn new(lock: RecoveryLock, preparing: bool) -> Self {
         if preparing {
-            #[cfg(unix)]
-            let lock = retirement::RecoveryLease::new(lock);
             Self::Shared(Arc::new(lock))
         } else {
             Self::Owned { _lock: lock }
@@ -3132,8 +3101,6 @@ fn prepare_studio_source(
 
 struct RecoveryLock {
     _file: std::fs::File,
-    #[cfg(unix)]
-    owner_pid: libc::pid_t,
 }
 
 impl RecoveryLock {
@@ -3162,21 +3129,11 @@ impl RecoveryLock {
         let path = project.join(".recovery.lock");
         let mut options = std::fs::OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-            options
-                .share_mode(0)
-                .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-        }
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options
+            .share_mode(0)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
         let file = options.open(&path)?;
         let metadata = file.metadata()?;
         reject_recovery_link(&metadata)?;
@@ -3185,24 +3142,7 @@ impl RecoveryLock {
                 "Invalid recovery lock file".into(),
             ));
         }
-        #[cfg(unix)]
-        {
-            use std::os::fd::AsRawFd;
-            use std::os::unix::fs::MetadataExt;
-            if metadata.nlink() != 1 || metadata.uid() != unsafe { libc::geteuid() } {
-                return Err(RecoveryError::Validation(
-                    "Recovery lock is not exclusively owned".into(),
-                ));
-            }
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-                return Err(std::io::Error::last_os_error().into());
-            }
-        }
-        let lock = Self {
-            _file: file,
-            #[cfg(unix)]
-            owner_pid: unsafe { libc::getpid() },
-        };
+        let lock = Self { _file: file };
         if let Err(error) = reconcile(project) {
             warn!(path = %project.display(), %error, "Interrupted recovery publication requires attention; all files retained");
             return Err(error);
@@ -3211,30 +3151,13 @@ impl RecoveryLock {
     }
 }
 
-#[cfg(unix)]
-impl Drop for RecoveryLock {
-    fn drop(&mut self) {
-        use std::os::fd::AsRawFd;
-
-        // CLOEXEC still leaves a fork-to-exec window that can outlive this guard.
-        if self.owner_pid == unsafe { libc::getpid() }
-            && unsafe { libc::flock(self._file.as_raw_fd(), libc::LOCK_UN) } != 0
-        {
-            warn!(error = %std::io::Error::last_os_error(), "Failed to release recovery lock");
-        }
-    }
-}
-
 fn reject_recovery_link(metadata: &std::fs::Metadata) -> Result<(), RecoveryError> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return Err(RecoveryError::Validation(
-                "Recovery input is a reparse point".into(),
-            ));
-        }
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(RecoveryError::Validation(
+            "Recovery input is a reparse point".into(),
+        ));
     }
     if metadata.file_type().is_symlink() {
         return Err(RecoveryError::Validation(
@@ -3267,13 +3190,6 @@ fn copy_recovery_input_with_durability(
         }
     } else if metadata.is_file() {
         let mut input = std::fs::File::open(source)?;
-        #[cfg(target_os = "macos")]
-        if clone_recovery_file(&input, destination) {
-            if durability == RecoveryCopyDurability::Durable {
-                std::fs::File::open(destination)?.sync_all()?;
-            }
-            return Ok(());
-        }
         let mut output = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -3289,16 +3205,6 @@ fn copy_recovery_input_with_durability(
         )));
     }
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn clone_recovery_file(input: &std::fs::File, destination: &Path) -> bool {
-    use std::{os::fd::AsRawFd, os::unix::ffi::OsStrExt};
-
-    let Ok(destination) = std::ffi::CString::new(destination.as_os_str().as_bytes()) else {
-        return false;
-    };
-    unsafe { libc::fclonefileat(input.as_raw_fd(), libc::AT_FDCWD, destination.as_ptr(), 0) == 0 }
 }
 
 type RecoverySnapshot = std::collections::BTreeMap<PathBuf, Option<Vec<u8>>>;
@@ -3503,16 +3409,8 @@ struct RecoveryPublicationState {
 fn open_recovery_publication_file(path: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(0x0020_0000);
-    }
+    use std::os::windows::fs::OpenOptionsExt;
+    options.custom_flags(0x0020_0000);
     let file = options.open(path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() || reject_recovery_link(&metadata).is_err() {
@@ -3553,8 +3451,6 @@ fn recovery_publication_segments_stamp(
         size: u64,
         modified: Duration,
         created: Option<Duration>,
-        #[cfg(unix)]
-        identity: (u64, u64),
     }
     fn visit(
         root: &Path,
@@ -3569,8 +3465,6 @@ fn recovery_publication_segments_stamp(
                 "Invalid publication tree entry".into(),
             ));
         }
-        #[cfg(unix)]
-        use std::os::unix::fs::MetadataExt;
         let _ = entries.insert(
             path.strip_prefix(root)
                 .map_err(|error| RecoveryError::Validation(error.to_string()))?
@@ -3592,8 +3486,6 @@ fn recovery_publication_segments_stamp(
                     .created()
                     .ok()
                     .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok()),
-                #[cfg(unix)]
-                identity: (metadata.dev(), metadata.ino()),
             },
         );
         if metadata.is_dir() {
@@ -3662,34 +3554,12 @@ fn recovery_publication_workspace(project: &Path, name: &str) -> Result<PathBuf,
             "Invalid publication workspace".into(),
         ));
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
-            return Err(RecoveryError::Validation(
-                "Publication workspace is not privately owned".into(),
-            ));
-        }
-    }
     Ok(workspace)
 }
 
 fn read_recovery_publication(path: &Path) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let file = open_recovery_publication_file(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = file.metadata()?;
-        if metadata.nlink() != 1
-            || metadata.uid() != unsafe { libc::geteuid() }
-            || metadata.mode() & 0o077 != 0
-        {
-            return Err(std::io::Error::other(
-                "Recovery publication receipt is not privately owned",
-            ));
-        }
-    }
     let mut bytes = Vec::new();
     file.take(RECOVERY_PUBLICATION_MAX_BYTES + 1)
         .read_to_end(&mut bytes)?;
@@ -3759,13 +3629,6 @@ fn begin_recovery_publication(project: &Path, workspace: &Path) -> Result<Vec<u8
     ] {
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-        }
         let mut file = options.open(path)?;
         file.write_all(&bytes)?;
         file.sync_all()?;
@@ -4850,71 +4713,6 @@ mod clean_studio_snapshot_tests {
         assert_preparing_entry_point_matches_ordinary(PreparingEntryCase::Supported);
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn preparing_retirement_preserves_every_encoded_video_packet() {
-        fn packets(path: &Path) -> Vec<Vec<u8>> {
-            let mut input = ffmpeg::format::input(path).unwrap();
-            let video = input
-                .streams()
-                .best(ffmpeg::media::Type::Video)
-                .unwrap()
-                .index();
-            input
-                .packets()
-                .filter_map(|(stream, packet)| {
-                    (stream.index() == video).then(|| packet.data().unwrap().to_vec())
-                })
-                .collect()
-        }
-
-        let directory = playable_studio_project(StudioRecordingStatus::NeedsRemux);
-        let project = directory.path();
-        let completed = completed_preparing_fixture(project);
-        let (job, observer) = PreparingStudioJob::claim(&completed, 42).unwrap();
-        let metadata = RecordingMeta::load_for_project(project).unwrap();
-        let recording = RecoveryManager::analyze_incomplete(project, &metadata).unwrap();
-        let scratch = tempfile::tempdir().unwrap();
-        let original = scratch.path().join("original.mp4");
-        let mut joined = fs::File::create(&original).unwrap();
-        let segment = &recording.recoverable_segments[0];
-        for path in segment
-            .display_init_segment
-            .iter()
-            .chain(&segment.display_fragments)
-        {
-            std::io::copy(&mut fs::File::open(path).unwrap(), &mut joined).unwrap();
-        }
-        drop(joined);
-        let expected = packets(&original);
-        assert_eq!(expected.len(), 60);
-        RecoveryManager::finalize_with_preparing(&recording, job).unwrap();
-        assert!(observer.publication_succeeded());
-        drop(observer);
-        drop(wait_for_recovery_lock(project));
-        assert_eq!(packets(&project.join(OUTPUT)), expected);
-        let workspaces: Vec<_> = fs::read_dir(project)
-            .unwrap()
-            .map(Result::unwrap)
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".recovery-")
-            })
-            .collect();
-        assert_eq!(workspaces.len(), 1);
-        assert!(!workspaces[0].path().join("original-segments").exists());
-        assert!(matches!(
-            RecordingMeta::load_for_project(project)
-                .unwrap()
-                .studio_meta()
-                .unwrap()
-                .status(),
-            StudioRecordingStatus::Complete
-        ));
-    }
-
     #[test]
     fn inspected_preparing_finalization_matches_ordinary_configuration_behavior_after_edits() {
         assert_preparing_entry_point_matches_ordinary(PreparingEntryCase::EditedConfiguration);
@@ -5099,34 +4897,6 @@ mod clean_studio_snapshot_tests {
         assert!(RecoveryLock::acquire(project).is_ok());
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn a_stop_without_a_preparing_editor_retires_the_original_media_backup() {
-        let directory = playable_studio_project(StudioRecordingStatus::NeedsRemux);
-        let project = directory.path();
-
-        assert!(RecoveryManager::remux_if_needed(project).unwrap());
-
-        let workspaces: Vec<_> = fs::read_dir(project)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .filter(|path| {
-                path.file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .starts_with(".recovery-")
-            })
-            .collect();
-        assert_eq!(workspaces.len(), 1);
-        assert!(!workspaces[0].join("original-segments").exists());
-        let meta = RecordingMeta::load_for_project(project).unwrap();
-        let StudioRecordingMeta::MultipleSegments { inner } = meta.studio_meta().unwrap() else {
-            panic!()
-        };
-        let display = meta.path(&inner.segments[0].display.path);
-        assert!(cap_enc_ffmpeg::remux::get_video_fps(&display).is_some());
-    }
-
     #[test]
     fn studio_finalization_keeps_the_recorded_display_fps() {
         let directory = playable_studio_project(StudioRecordingStatus::NeedsRemux);
@@ -5242,7 +5012,7 @@ mod clean_studio_snapshot_tests {
             .unwrap();
         // A stop without a preparing editor retires the original backup once
         // the published tracks above are in place (unix only, for now).
-        assert_eq!(backup.join("original-segments").exists(), !cfg!(unix));
+        assert!(backup.join("original-segments").exists());
     }
 
     #[test]
@@ -6243,27 +6013,6 @@ mod transactional_recovery_tests {
         }
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn legacy_publication_receipts_never_fall_back_to_version_two_stamps() {
-        let (_temporary, project, workspace) = publication_fixture_with_version(2, true);
-        let legacy =
-            recovery_publication_state_for_version(&project, RecoveryPublicationStampVersion::V1)
-                .unwrap();
-        let path = project.join(RECOVERY_PUBLICATION);
-        let mut receipt: RecoveryPublication =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert!(legacy.segments != receipt.original.segments);
-        receipt.version = 1;
-        let bytes = serde_json::to_vec(&receipt).unwrap();
-        std::fs::write(&path, &bytes).unwrap();
-        std::fs::write(workspace.join(RECOVERY_PUBLICATION_RECEIPT), &bytes).unwrap();
-        let before = recovery_snapshot(&project).unwrap();
-        assert!(RecoveryLock::acquire(&project).is_err());
-        assert_eq!(recovery_snapshot(&project).unwrap(), before);
-        assert_eq!(std::fs::read(path).unwrap(), bytes);
-    }
-
     fn scannable_publication_fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
         let (temporary, project, workspace) = publication_fixture();
         let meta = RecordingMeta {
@@ -6709,30 +6458,6 @@ mod transactional_recovery_tests {
         assert!(workspace.join("original-segments/raw.m4s").is_file());
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn publication_reconciliation_refuses_symlinked_receipts_and_workspace_entries() {
-        use std::os::unix::fs::symlink;
-        for target in ["receipt", "workspace", "segments", "metadata", "content"] {
-            let (temporary, project, workspace) = publication_fixture();
-            interrupt_publication(&project, &workspace, 1);
-            let source = match target {
-                "receipt" => project.join(RECOVERY_PUBLICATION),
-                "workspace" => workspace.clone(),
-                "segments" => workspace.join("original-segments"),
-                "metadata" => workspace.join("original-recording-meta.json"),
-                "content" => project.join("content"),
-                _ => unreachable!(),
-            };
-            let outside = temporary.path().join("outside");
-            std::fs::rename(&source, &outside).unwrap();
-            symlink(&outside, &source).unwrap();
-            assert!(RecoveryLock::acquire(&project).is_err());
-            assert!(source.symlink_metadata().unwrap().file_type().is_symlink());
-            assert!(outside.exists());
-        }
-    }
-
     #[test]
     fn recovery_publication_rolls_back_each_failed_rename() {
         for failure in 1..=4 {
@@ -7073,69 +6798,6 @@ mod transactional_recovery_tests {
         drop(reacquired);
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn recovery_lock_release_does_not_wait_for_inherited_descriptor() {
-        let dir = tempfile::tempdir().unwrap();
-        let lock = RecoveryLock::acquire(dir.path()).unwrap();
-        let inherited = lock._file.try_clone().unwrap();
-        assert!(RecoveryLock::acquire(dir.path()).is_err());
-        drop(lock);
-        let reacquired = RecoveryLock::acquire(dir.path()).unwrap();
-        drop(inherited);
-        assert!(RecoveryLock::acquire(dir.path()).is_err());
-        drop(reacquired);
-        assert!(RecoveryLock::acquire(dir.path()).is_ok());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn recovery_lock_inherited_guard_drop_does_not_unlock_parent() {
-        fn reap_child(pid: libc::pid_t) -> std::io::Result<Option<i32>> {
-            let deadline = std::time::Instant::now() + Duration::from_secs(5);
-            loop {
-                let mut status = 0;
-                match unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) } {
-                    waited if waited == pid => return Ok(Some(status)),
-                    -1 => {
-                        let error = std::io::Error::last_os_error();
-                        if error.kind() != std::io::ErrorKind::Interrupted {
-                            return Err(error);
-                        }
-                    }
-                    _ => {}
-                }
-                if std::time::Instant::now() >= deadline {
-                    return Ok(None);
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        }
-
-        let dir = tempfile::tempdir().unwrap();
-        let lock = RecoveryLock::acquire(dir.path()).unwrap();
-        let pid = unsafe { libc::fork() };
-        if pid == 0 {
-            // Only async-signal-safe operations may run in a child forked from the test harness.
-            drop(lock);
-            unsafe { libc::_exit(0) };
-        }
-        assert!(pid >= 0, "fork failed: {}", std::io::Error::last_os_error());
-        let status = match reap_child(pid).unwrap() {
-            Some(status) => status,
-            None => {
-                let killed = unsafe { libc::kill(pid, libc::SIGKILL) };
-                let reaped = reap_child(pid);
-                panic!("Forked lock probe timed out: kill={killed}, reap={reaped:?}");
-            }
-        };
-        assert!(libc::WIFEXITED(status));
-        assert_eq!(libc::WEXITSTATUS(status), 0);
-        assert!(RecoveryLock::acquire(dir.path()).is_err());
-        drop(lock);
-        assert!(RecoveryLock::acquire(dir.path()).is_ok());
-    }
-
     #[test]
     fn recovery_manifest_paths_cannot_escape_the_track_directory() {
         let dir = Path::new("content/segments/segment-0/display");
@@ -7151,25 +6813,6 @@ mod transactional_recovery_tests {
             recovery_child_path(dir, "segment_0.m4s"),
             Some(dir.join("segment_0.m4s"))
         );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn recovery_rejects_symlinks_and_creates_private_workspace() {
-        use std::os::unix::fs::{PermissionsExt, symlink};
-        let dir = tempfile::tempdir().unwrap();
-        let outside = dir.path().join("outside");
-        std::fs::write(&outside, b"outside").unwrap();
-        let project = dir.path().join("project");
-        create_private_recovery_dir(&project).unwrap();
-        assert_eq!(
-            std::fs::metadata(&project).unwrap().permissions().mode() & 0o777,
-            0o700
-        );
-        symlink(&outside, project.join("content")).unwrap();
-        assert!(recovery_snapshot(&project).is_err());
-        assert!(copy_recovery_input(&project.join("content"), &project.join("copy")).is_err());
-        assert_eq!(std::fs::read(&outside).unwrap(), b"outside");
     }
 
     fn large_recovery_project() -> (tempfile::TempDir, Vec<PathBuf>) {
@@ -7449,23 +7092,6 @@ mod timed_fragment_tests {
         let info = RecoveryManager::find_studio_fragments_with_init(directory.path());
         assert_eq!(info.fragments, [source]);
         assert_eq!(recovery_snapshot(directory.path()).unwrap(), before);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn unreadable_pending_fragment_stays_listed_for_a_retry() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let directory = tempfile::tempdir().unwrap();
-        let (source, _) = fixture(directory.path());
-        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o000)).unwrap();
-        if std::fs::File::open(&source).is_ok() {
-            // Permissions do not apply (running as root).
-            return;
-        }
-        let info = RecoveryManager::find_studio_fragments_with_init(directory.path());
-        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert_eq!(info.fragments, [source]);
     }
 
     #[test]

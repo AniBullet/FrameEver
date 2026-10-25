@@ -4,40 +4,28 @@ use crate::{
     sources::screen_capture::{self, CropBounds, ScreenCaptureFormat, ScreenCaptureTarget},
 };
 
-#[cfg(target_os = "macos")]
-use crate::output_pipeline::{MacOSFragmentedM4SMuxer, MacOSFragmentedM4SMuxerConfig};
-#[cfg(windows)]
 use crate::output_pipeline::{WindowsFragmentedM4SMuxer, WindowsFragmentedM4SMuxerConfig};
 use anyhow::anyhow;
-#[cfg(any(target_os = "macos", windows))]
 use cap_enc_ffmpeg::h264::H264EncoderBuilder;
-#[cfg(target_os = "linux")]
-use cap_enc_ffmpeg::h264::H264Preset;
-#[cfg(windows)]
 use cap_enc_ffmpeg::h264::H264Preset;
 use cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent;
 use cap_timestamp::Timestamps;
 use std::path::PathBuf;
 
-#[cfg(windows)]
 use std::sync::Arc;
-#[cfg(windows)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[cfg(windows)]
 #[derive(Clone, Debug)]
 pub struct EncoderPreferences {
     force_software: Arc<AtomicBool>,
 }
 
-#[cfg(windows)]
 impl Default for EncoderPreferences {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(windows)]
 impl EncoderPreferences {
     pub fn new() -> Self {
         Self {
@@ -66,7 +54,7 @@ pub trait MakeCapturePipeline: ScreenCaptureFormat + std::fmt::Debug + 'static {
         shared_pause_state: Option<SharedPauseState>,
         output_size: Option<(u32, u32)>,
         quality: StudioQuality,
-        #[cfg(windows)] encoder_preferences: EncoderPreferences,
+        encoder_preferences: EncoderPreferences,
     ) -> anyhow::Result<OutputPipeline>
     where
         Self: Sized;
@@ -85,151 +73,6 @@ pub trait MakeCapturePipeline: ScreenCaptureFormat + std::fmt::Debug + 'static {
 
 pub struct Stop;
 
-#[cfg(target_os = "macos")]
-impl MakeCapturePipeline for screen_capture::CMSampleBufferCapture {
-    async fn make_studio_mode_pipeline(
-        screen_capture: screen_capture::VideoSourceConfig,
-        output_path: PathBuf,
-        start_time: Timestamps,
-        start_gate: Option<RecordingStartGate>,
-        fragmented: bool,
-        use_oop_muxer: bool,
-        shared_pause_state: Option<SharedPauseState>,
-        output_size: Option<(u32, u32)>,
-        quality: StudioQuality,
-    ) -> anyhow::Result<OutputPipeline> {
-        let ultra = quality == StudioQuality::Ultra;
-        let compatibility = quality == StudioQuality::Compatibility;
-
-        tracing::debug!(
-            ?quality,
-            ultra,
-            compatibility,
-            fragmented,
-            use_oop_muxer,
-            "Studio mode capture pipeline quality selection"
-        );
-
-        if fragmented {
-            let fragments_dir = output_path
-                .parent()
-                .map(|p| p.join("display"))
-                .unwrap_or_else(|| output_path.with_file_name("display"));
-
-            let bpp = if ultra {
-                H264EncoderBuilder::ULTRA_BPP
-            } else if compatibility {
-                H264EncoderBuilder::QUALITY_BPP * 0.5
-            } else {
-                H264EncoderBuilder::QUALITY_BPP
-            };
-
-            let preset = if ultra {
-                cap_enc_ffmpeg::h264::H264Preset::Medium
-            } else {
-                cap_enc_ffmpeg::h264::H264Preset::Ultrafast
-            };
-
-            tracing::debug!(bpp, ?preset, "Fragmented studio pipeline encoder config");
-
-            let oop_ok = if use_oop_muxer {
-                match crate::output_pipeline::oop_muxer::resolve_muxer_binary() {
-                    Ok(bin_path) => {
-                        tracing::info!(
-                            bin_path = %bin_path.display(),
-                            "Using out-of-process fragmented M4S muxer (Phase 5 OOP isolation)"
-                        );
-                        true
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            error = %err,
-                            "out_of_process_muxer requested but cap-muxer binary is unavailable; \
-                             falling back to in-process muxer to preserve the recording"
-                        );
-                        false
-                    }
-                }
-            } else {
-                false
-            };
-
-            if oop_ok {
-                use crate::output_pipeline::{
-                    OutOfProcessFragmentedM4SMuxer, OutOfProcessFragmentedM4SMuxerConfig,
-                };
-
-                OutputPipeline::builder(fragments_dir)
-                    .with_video::<screen_capture::VideoSource>(screen_capture)
-                    .with_timestamps(start_time)
-                    .with_start_gate(start_gate.clone())
-                    .build::<OutOfProcessFragmentedM4SMuxer>(OutOfProcessFragmentedM4SMuxerConfig {
-                        preset,
-                        bpp,
-                        output_size,
-                        shared_pause_state,
-                        ..Default::default()
-                    })
-                    .await
-            } else {
-                OutputPipeline::builder(fragments_dir)
-                    .with_video::<screen_capture::VideoSource>(screen_capture)
-                    .with_timestamps(start_time)
-                    .with_start_gate(start_gate.clone())
-                    .build::<MacOSFragmentedM4SMuxer>(MacOSFragmentedM4SMuxerConfig {
-                        timed_fragments: true,
-                        preset,
-                        bpp,
-                        output_size,
-                        shared_pause_state,
-                        ..Default::default()
-                    })
-                    .await
-            }
-        } else {
-            tracing::debug!(
-                ultra_quality = ultra,
-                "Non-fragmented studio pipeline encoder config"
-            );
-
-            OutputPipeline::builder(output_path.clone())
-                .with_video::<screen_capture::VideoSource>(screen_capture)
-                .with_timestamps(start_time)
-                .with_start_gate(start_gate.clone())
-                .build::<AVFoundationMp4Muxer>(AVFoundationMp4MuxerConfig {
-                    output_height: output_size.map(|(_, h)| h),
-                    instant_mode: false,
-                    ultra_quality: ultra,
-                    compatibility_quality: compatibility,
-                })
-                .await
-        }
-    }
-
-    async fn make_instant_segmented_video_pipeline(
-        screen_capture: screen_capture::VideoSourceConfig,
-        segments_dir: PathBuf,
-        output_size: (u32, u32),
-        start_time: Timestamps,
-        start_gate: Option<RecordingStartGate>,
-        segment_tx: Option<std::sync::mpsc::Sender<SegmentCompletedEvent>>,
-    ) -> anyhow::Result<OutputPipeline> {
-        OutputPipeline::builder(segments_dir)
-            .with_video::<screen_capture::VideoSource>(screen_capture)
-            .with_timestamps(start_time)
-            .with_start_gate(start_gate.clone())
-            .build::<MacOSFragmentedM4SMuxer>(MacOSFragmentedM4SMuxerConfig {
-                timed_fragments: false,
-                bpp: H264EncoderBuilder::INSTANT_MODE_BPP,
-                output_size: Some(output_size),
-                segment_tx,
-                ..Default::default()
-            })
-            .await
-    }
-}
-
-#[cfg(windows)]
 impl MakeCapturePipeline for screen_capture::Direct3DCapture {
     #[allow(clippy::too_many_arguments)]
     async fn make_studio_mode_pipeline(
@@ -374,76 +217,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
     }
 }
 
-#[cfg(target_os = "linux")]
-impl MakeCapturePipeline for screen_capture::X11Capture {
-    async fn make_studio_mode_pipeline(
-        screen_capture: screen_capture::VideoSourceConfig,
-        output_path: PathBuf,
-        start_time: Timestamps,
-        start_gate: Option<RecordingStartGate>,
-        _fragmented: bool,
-        _use_oop_muxer: bool,
-        shared_pause_state: Option<SharedPauseState>,
-        output_size: Option<(u32, u32)>,
-        quality: StudioQuality,
-    ) -> anyhow::Result<OutputPipeline> {
-        let fragments_dir = output_path
-            .parent()
-            .map(|p| p.join("display"))
-            .unwrap_or_else(|| output_path.with_file_name("display"));
-
-        let ultra = quality == StudioQuality::Ultra;
-        OutputPipeline::builder(fragments_dir)
-            .with_video::<screen_capture::VideoSource>(screen_capture)
-            .with_timestamps(start_time)
-            .with_start_gate(start_gate.clone())
-            .build::<crate::ffmpeg::SegmentedVideoMuxer>(crate::ffmpeg::SegmentedVideoMuxerConfig {
-                timed_fragments: true,
-                segment_duration: std::time::Duration::from_secs(2),
-                preset: if ultra {
-                    H264Preset::Medium
-                } else {
-                    H264Preset::Ultrafast
-                },
-                output_size,
-                shared_pause_state,
-                segment_tx: None,
-            })
-            .await
-    }
-
-    async fn make_instant_segmented_video_pipeline(
-        screen_capture: screen_capture::VideoSourceConfig,
-        segments_dir: PathBuf,
-        output_size: (u32, u32),
-        start_time: Timestamps,
-        start_gate: Option<RecordingStartGate>,
-        segment_tx: Option<std::sync::mpsc::Sender<SegmentCompletedEvent>>,
-    ) -> anyhow::Result<OutputPipeline> {
-        OutputPipeline::builder(segments_dir)
-            .with_video::<screen_capture::VideoSource>(screen_capture)
-            .with_timestamps(start_time)
-            .with_start_gate(start_gate.clone())
-            .build::<crate::ffmpeg::SegmentedVideoMuxer>(crate::ffmpeg::SegmentedVideoMuxerConfig {
-                timed_fragments: false,
-                segment_duration: std::time::Duration::from_secs(2),
-                preset: H264Preset::Ultrafast,
-                output_size: Some(output_size),
-                shared_pause_state: None,
-                segment_tx,
-            })
-            .await
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub type ScreenCaptureMethod = screen_capture::CMSampleBufferCapture;
-
-#[cfg(windows)]
 pub type ScreenCaptureMethod = screen_capture::Direct3DCapture;
-
-#[cfg(target_os = "linux")]
-pub type ScreenCaptureMethod = screen_capture::X11Capture;
 
 pub fn target_to_display_and_crop(
     target: &ScreenCaptureTarget,
@@ -459,47 +233,6 @@ pub fn target_to_display_and_crop(
         ScreenCaptureTarget::Window { id } => {
             let window = Window::from_id(id).ok_or_else(|| anyhow!("Window not found"))?;
 
-            #[cfg(target_os = "macos")]
-            {
-                let raw_display_bounds = display
-                    .raw_handle()
-                    .logical_bounds()
-                    .ok_or_else(|| anyhow!("No display bounds"))?;
-                let raw_window_bounds = window
-                    .raw_handle()
-                    .logical_bounds()
-                    .ok_or_else(|| anyhow!("No window bounds"))?;
-
-                Some(LogicalBounds::new(
-                    LogicalPosition::new(
-                        raw_window_bounds.position().x() - raw_display_bounds.position().x(),
-                        raw_window_bounds.position().y() - raw_display_bounds.position().y(),
-                    ),
-                    raw_window_bounds.size(),
-                ))
-            }
-
-            #[cfg(windows)]
-            {
-                let raw_display_position = display
-                    .raw_handle()
-                    .physical_position()
-                    .ok_or_else(|| anyhow!("No display bounds"))?;
-                let raw_window_bounds = window
-                    .raw_handle()
-                    .physical_bounds()
-                    .ok_or_else(|| anyhow!("No window bounds"))?;
-
-                Some(PhysicalBounds::new(
-                    PhysicalPosition::new(
-                        raw_window_bounds.position().x() - raw_display_position.x(),
-                        raw_window_bounds.position().y() - raw_display_position.y(),
-                    ),
-                    raw_window_bounds.size(),
-                ))
-            }
-
-            #[cfg(target_os = "linux")]
             {
                 let raw_display_position = display
                     .raw_handle()
@@ -523,46 +256,20 @@ pub fn target_to_display_and_crop(
             bounds: relative_bounds,
             ..
         } => {
-            #[cfg(target_os = "macos")]
-            {
-                Some(*relative_bounds)
-            }
-
-            #[cfg(windows)]
-            {
-                let raw_display_size = display
-                    .physical_size()
-                    .ok_or_else(|| anyhow!("No display bounds"))?;
-                let logical_display_size = display
-                    .logical_size()
-                    .ok_or_else(|| anyhow!("No display logical size"))?;
-                Some(
-                    screen_capture::logical_area_to_physical_bounds(
-                        *relative_bounds,
-                        logical_display_size,
-                        raw_display_size,
-                    )
-                    .ok_or_else(|| anyhow!("Invalid display bounds"))?,
+            let raw_display_size = display
+                .physical_size()
+                .ok_or_else(|| anyhow!("No display bounds"))?;
+            let logical_display_size = display
+                .logical_size()
+                .ok_or_else(|| anyhow!("No display logical size"))?;
+            Some(
+                screen_capture::logical_area_to_physical_bounds(
+                    *relative_bounds,
+                    logical_display_size,
+                    raw_display_size,
                 )
-            }
-
-            #[cfg(target_os = "linux")]
-            {
-                let raw_display_size = display
-                    .physical_size()
-                    .ok_or_else(|| anyhow!("No display bounds"))?;
-                let logical_display_size = display
-                    .logical_size()
-                    .ok_or_else(|| anyhow!("No display logical size"))?;
-                Some(
-                    screen_capture::logical_area_to_physical_bounds(
-                        *relative_bounds,
-                        logical_display_size,
-                        raw_display_size,
-                    )
-                    .ok_or_else(|| anyhow!("Invalid display bounds"))?,
-                )
-            }
+                .ok_or_else(|| anyhow!("Invalid display bounds"))?,
+            )
         }
         ScreenCaptureTarget::CameraOnly => {
             return Err(anyhow!("Camera-only target has no display"));
@@ -681,7 +388,6 @@ mod display_notch_tests {
     }
 }
 
-#[cfg(windows)]
 pub fn create_d3d_device()
 -> windows::core::Result<windows::Win32::Graphics::Direct3D11::ID3D11Device> {
     use windows::Win32::Graphics::{

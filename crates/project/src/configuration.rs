@@ -443,7 +443,7 @@ pub struct BackgroundBlurConfig {
 
 impl BackgroundBlurConfig {
     pub fn removes_background(&self) -> bool {
-        cfg!(target_os = "macos") && self.mode == BackgroundBlurMode::Remove
+        false
     }
 
     pub fn is_active(&self) -> bool {
@@ -3156,10 +3156,7 @@ mod tests {
         assert!(matches!(round_trip.shape, CameraShape::Square));
         let legacy: Camera = serde_json::from_str("{}").unwrap();
         assert_eq!(legacy.background_blur.mode, BackgroundBlurMode::Off);
-        assert_eq!(
-            round_trip.background_blur.is_active(),
-            cfg!(target_os = "macos")
-        );
+        assert_eq!(round_trip.background_blur.is_active(), false);
     }
 
     fn timeline_with_transitions(transitions: Vec<ClipTransition>) -> TimelineConfiguration {

@@ -32,8 +32,6 @@ impl From<io::Error> for UploadLockError {
 pub struct UploadLock {
     _file: fs::File,
     project: PathBuf,
-    #[cfg(unix)]
-    owner_pid: libc::pid_t,
 }
 
 impl UploadLock {
@@ -45,51 +43,21 @@ impl UploadLock {
             .ok_or_else(|| io::Error::other("Recording has no parent directory"))?;
         let directory = parent.join(".upload-locks");
         let builder = fs::DirBuilder::new();
-        #[cfg(unix)]
-        let builder = {
-            use std::os::unix::fs::DirBuilderExt;
-            let mut builder = builder;
-            builder.mode(0o700);
-            builder
-        };
         match builder.create(&directory) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),
         }
         let directory_meta = metadata(&directory, true).map_err(io::Error::other)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{MetadataExt, PermissionsExt};
-            if directory_meta.uid() != unsafe { libc::geteuid() }
-                || directory_meta.permissions().mode() & 0o077 != 0
-            {
-                return Err(io::Error::other("Upload lock directory is not private").into());
-            }
-        }
-        #[cfg(not(unix))]
         let _ = directory_meta;
-        #[cfg(windows)]
         let identity = project.to_string_lossy().to_lowercase().into_bytes();
-        #[cfg(not(windows))]
-        let identity = project.as_os_str().as_encoded_bytes().to_vec();
         let path = directory.join(format!("{}.lock", blake3::hash(&identity).to_hex()));
         let mut options = fs::OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            options.share_mode(0).custom_flags(0x0020_0000);
-        }
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(0).custom_flags(0x0020_0000);
         let file = options.open(&path).map_err(|error| {
-            if cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33)) {
+            if matches!(error.raw_os_error(), Some(32 | 33)) {
                 UploadLockError::Busy
             } else {
                 UploadLockError::Io(error)
@@ -99,33 +67,13 @@ impl UploadLock {
         if !file_meta.is_file() || file_meta.len() != 0 {
             return Err(io::Error::other("Invalid upload lock file").into());
         }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            if file_meta.file_attributes() & 0x400 != 0 {
-                return Err(io::Error::other("Upload lock is a reparse point").into());
-            }
-        }
-        #[cfg(unix)]
-        {
-            use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
-            if file_meta.nlink() != 1 || file_meta.uid() != unsafe { libc::geteuid() } {
-                return Err(io::Error::other("Upload lock is not exclusively owned").into());
-            }
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-                let error = io::Error::last_os_error();
-                return Err(if error.kind() == io::ErrorKind::WouldBlock {
-                    UploadLockError::Busy
-                } else {
-                    UploadLockError::Io(error)
-                });
-            }
+        use std::os::windows::fs::MetadataExt;
+        if file_meta.file_attributes() & 0x400 != 0 {
+            return Err(io::Error::other("Upload lock is a reparse point").into());
         }
         let lock = Self {
             _file: file,
             project,
-            #[cfg(unix)]
-            owner_pid: unsafe { libc::getpid() },
         };
         metadata(&lock.project, true).map_err(io::Error::other)?;
         if lock.project.canonicalize()? != lock.project {
@@ -138,19 +86,6 @@ impl UploadLock {
 
     pub fn project_path(&self) -> &Path {
         &self.project
-    }
-}
-
-#[cfg(unix)]
-impl Drop for UploadLock {
-    fn drop(&mut self) {
-        use std::os::fd::AsRawFd;
-
-        if self.owner_pid == unsafe { libc::getpid() }
-            && unsafe { libc::flock(self._file.as_raw_fd(), libc::LOCK_UN) } != 0
-        {
-            tracing::warn!(error = %io::Error::last_os_error(), "Failed to release upload lock");
-        }
     }
 }
 
@@ -176,15 +111,12 @@ struct Segment {
 fn metadata(path: &Path, directory: bool) -> Result<fs::Metadata, String> {
     let metadata =
         fs::symlink_metadata(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        if metadata.file_attributes() & 0x400 != 0 {
-            return Err(format!(
-                "{}: reparse points cannot be resumed",
-                path.display()
-            ));
-        }
+    use std::os::windows::fs::MetadataExt;
+    if metadata.file_attributes() & 0x400 != 0 {
+        return Err(format!(
+            "{}: reparse points cannot be resumed",
+            path.display()
+        ));
     }
     if metadata.file_type().is_symlink()
         || (directory && !metadata.is_dir())
@@ -401,40 +333,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn upload_lock_releases_despite_an_inherited_descriptor() {
-        let directory = tempfile::tempdir().unwrap();
-        let project = directory.path().join("recording.cap");
-        fs::create_dir(&project).unwrap();
-        let first = UploadLock::acquire(&project).unwrap();
-        let inherited = first._file.try_clone().unwrap();
-        drop(first);
-        let second = UploadLock::acquire(&project).unwrap();
-        drop(inherited);
-        assert!(matches!(
-            UploadLock::acquire(&project),
-            Err(UploadLockError::Busy)
-        ));
-        drop(second);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn upload_lock_rejects_a_linked_lock_directory() {
-        let directory = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let project = directory.path().join("recording.cap");
-        fs::create_dir(&project).unwrap();
-        std::os::unix::fs::symlink(outside.path(), directory.path().join(".upload-locks")).unwrap();
-        assert!(matches!(
-            UploadLock::acquire(&project),
-            Err(UploadLockError::Io(_))
-        ));
-        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
-    }
-
-    #[cfg(windows)]
     #[test]
     fn upload_lock_normalizes_windows_path_case() {
         let directory = tempfile::tempdir().unwrap();
@@ -701,30 +599,5 @@ mod tests {
         )
         .unwrap();
         assert!(collect_segment_events(project.path(), true).is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn linked_manifest_init_fragment_and_track_are_withheld() {
-        for relative in [
-            "content/display/manifest.json",
-            "content/display/init.mp4",
-            "content/display/segment_001.m4s",
-            "content/audio",
-        ] {
-            let project = fixture();
-            let original = project.path().join(relative);
-            let target = project.path().join("retained-original");
-            fs::rename(&original, &target).unwrap();
-            std::os::unix::fs::symlink(&target, &original).unwrap();
-            assert!(collect_segment_events(project.path(), true).is_err());
-            assert!(target.exists());
-            assert!(
-                fs::symlink_metadata(original)
-                    .unwrap()
-                    .file_type()
-                    .is_symlink()
-            );
-        }
     }
 }

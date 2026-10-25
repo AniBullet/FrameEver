@@ -132,11 +132,6 @@ pub struct LogFile {
 fn read_tail(path: &Path, budget: usize) -> std::io::Result<(String, u64, usize)> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
     let mut file = options.open(path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {

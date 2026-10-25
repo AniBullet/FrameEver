@@ -1,17 +1,14 @@
-#[cfg(target_os = "windows")]
 use windows::Win32::{
     Foundation::LUID,
     Graphics::Dxgi::{CreateDXGIFactory1, IDXGIAdapter, IDXGIFactory1},
 };
 
-#[cfg(target_os = "windows")]
 #[derive(Clone, Copy, Debug)]
 pub struct AdapterLuid {
     pub low: u32,
     pub high: i32,
 }
 
-#[cfg(target_os = "windows")]
 pub fn detect_adapter_luid_for_wgpu(adapter: &wgpu::Adapter) -> Option<AdapterLuid> {
     let info = adapter.get_info();
 
@@ -54,14 +51,4 @@ pub fn detect_adapter_luid_for_wgpu(adapter: &wgpu::Adapter) -> Option<AdapterLu
     None
 }
 
-#[cfg(not(target_os = "windows"))]
-#[derive(Clone, Copy, Debug)]
-pub struct AdapterLuid {
-    pub low: u32,
-    pub high: i32,
-}
 
-#[cfg(not(target_os = "windows"))]
-pub fn detect_adapter_luid_for_wgpu(_: &wgpu::Adapter) -> Option<AdapterLuid> {
-    None
-}

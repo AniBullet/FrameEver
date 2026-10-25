@@ -109,12 +109,6 @@ fn run(mut log: Option<std::fs::File>) {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn raise_priority() {
-    let _ = crate::sched::request_realtime(PERIOD.as_secs_f64(), 0.000_5);
-}
-
-#[cfg(windows)]
 fn raise_priority() {
     unsafe extern "system" {
         fn GetCurrentThread() -> isize;
@@ -126,9 +120,6 @@ fn raise_priority() {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
     }
 }
-
-#[cfg(not(any(target_os = "macos", windows)))]
-fn raise_priority() {}
 
 /// Start of a measured window (a case).
 #[derive(Clone, Copy)]
@@ -204,26 +195,6 @@ pub fn window(since: Mark) -> Window {
     }
 }
 
-/// User plus system CPU time of this process.
-#[cfg(unix)]
-fn process_cpu_secs() -> Option<f64> {
-    unsafe extern "C" {
-        fn getrusage(who: i32, usage: *mut i64) -> i32;
-    }
-    // struct rusage starts with two struct timeval (user, system), 16 bytes
-    // each on 64-bit macOS and Linux; the rest is longs. A larger buffer
-    // keeps the call in bounds on either.
-    let mut usage = [0i64; 32];
-    // SAFETY: RUSAGE_SELF (0) and a buffer larger than struct rusage.
-    if unsafe { getrusage(0, usage.as_mut_ptr()) } != 0 {
-        return None;
-    }
-    // tv_usec is 32 bits on macOS (then padding), 64 on Linux.
-    let usec = |v: i64| (v & 0xffff_ffff) as f64 / 1e6;
-    Some(usage[0] as f64 + usec(usage[1]) + usage[2] as f64 + usec(usage[3]))
-}
-
-#[cfg(windows)]
 fn process_cpu_secs() -> Option<f64> {
     unsafe extern "system" {
         fn GetCurrentProcess() -> isize;

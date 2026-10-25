@@ -507,16 +507,6 @@ fn is_shell_safe_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b"-_./:=@%+,".contains(&b)
 }
 
-#[cfg(not(target_os = "windows"))]
-fn quote_shell_arg(arg: &str) -> String {
-    if !arg.is_empty() && arg.bytes().all(is_shell_safe_byte) {
-        arg.to_string()
-    } else {
-        format!("'{}'", arg.replace('\'', "'\\''"))
-    }
-}
-
-#[cfg(target_os = "windows")]
 fn quote_shell_arg(arg: &str) -> String {
     if !arg.is_empty() && arg.bytes().all(is_shell_safe_byte) {
         arg.to_string()

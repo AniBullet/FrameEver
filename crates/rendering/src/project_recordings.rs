@@ -24,7 +24,7 @@ pub(crate) fn open_headers(path: &Path) -> Option<ffmpeg::format::context::Input
     Some(unsafe { ffmpeg::format::context::Input::wrap(context) })
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(test)]
 pub(crate) fn header_video_metadata(path: &Path) -> Option<(u32, u32, crate::cpu_yuv::YuvMatrix)> {
     let input = open_headers(path)?;
     let stream = input.streams().best(ffmpeg::media::Type::Video)?;

@@ -54,14 +54,7 @@ async fn run_recording_benchmark(
     println!("\nStarting recording...");
     let start = Instant::now();
 
-    let handle = builder
-        .build(
-            #[cfg(target_os = "macos")]
-            Some(cap_recording::SendableShareableContent::from(
-                cidre::sc::ShareableContent::current().await?,
-            )),
-        )
-        .await?;
+    let handle = builder.build().await?;
 
     tokio::time::sleep(Duration::from_secs(config.duration_secs)).await;
 
@@ -116,12 +109,7 @@ async fn run_pause_resume_benchmark(duration_secs: u64) -> Result<(), Box<dyn st
             id: Display::primary().id(),
         },
     )
-    .build(
-        #[cfg(target_os = "macos")]
-        Some(cap_recording::SendableShareableContent::from(
-            cidre::sc::ShareableContent::current().await?,
-        )),
-    )
+    .build()
     .await?;
 
     let segment_duration = duration_secs / 4;
@@ -176,12 +164,7 @@ async fn stress_test_recording(
                 id: Display::primary().id(),
             },
         )
-        .build(
-            #[cfg(target_os = "macos")]
-            Some(cap_recording::SendableShareableContent::from(
-                cidre::sc::ShareableContent::current().await?,
-            )),
-        )
+        .build()
         .await?;
         start_times.push(start.elapsed());
 

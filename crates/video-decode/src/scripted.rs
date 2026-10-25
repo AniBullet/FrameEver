@@ -96,28 +96,11 @@ pub(crate) struct ScriptState {
     pub(crate) script: Script,
     counters: Counters,
     vended: Mutex<Vec<u32>>,
-    #[cfg(target_os = "macos")]
-    samples: Mutex<HashMap<usize, avf::SharedSample>>,
 }
 
 impl ScriptState {
     fn record_vend(&self, index: usize) {
         self.vended.lock().unwrap().push(index as u32);
-    }
-
-    /// Whether `pts` (in stream ticks) is at or before `value / scale` seconds.
-    #[cfg(target_os = "macos")]
-    fn at_or_before(&self, pts: i64, value: i64, scale: i32) -> bool {
-        let (num, den) = self.script.time_base;
-        (pts as i128) * (num as i128) * (scale as i128) <= (value as i128) * (den as i128)
-    }
-
-    #[cfg(target_os = "macos")]
-    fn newest_at_or_before(&self, value: i64, scale: i32) -> Option<usize> {
-        self.script
-            .frames
-            .partition_point(|frame| self.at_or_before(frame.pts, value, scale))
-            .checked_sub(1)
     }
 }
 
@@ -185,8 +168,6 @@ pub fn register(script: Script) -> Registration {
         script,
         counters: Counters::default(),
         vended: Mutex::new(Vec::new()),
-        #[cfg(target_os = "macos")]
-        samples: Mutex::new(HashMap::new()),
     });
     registry()
         .lock()
@@ -294,122 +275,4 @@ fn rescale_rounded(a: i64, b: i64, c: i64) -> i64 {
         (product - c / 2) / c
     };
     rounded as i64
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) use avf::AvfReader;
-
-#[cfg(target_os = "macos")]
-mod avf {
-    use super::*;
-    use cidre::{arc::R, cm, cv};
-
-    /// Sample buffers are immutable once built and CoreFoundation reference
-    /// counting is thread safe, so a script shares them across its readers.
-    pub(crate) struct SharedSample(R<cm::SampleBuf>);
-
-    unsafe impl Send for SharedSample {}
-
-    pub(crate) struct AvfReader {
-        state: Arc<ScriptState>,
-        next: usize,
-        trimmed_start: Option<cm::Time>,
-    }
-
-    impl AvfReader {
-        pub(crate) fn start(state: Arc<ScriptState>, start: cm::Time) -> Self {
-            state.counters.reader_starts.fetch_add(1, Ordering::Relaxed);
-            let script = &state.script;
-            let past_end = state.at_or_before(script.end_pts(), start.value, start.scale);
-            let (next, trimmed_start) = if past_end {
-                (script.frames.len(), None)
-            } else {
-                match state.newest_at_or_before(start.value, start.scale) {
-                    None => (0, None),
-                    Some(index) => {
-                        let pts = script.frames[index].pts;
-                        let (num, den) = script.time_base;
-                        let exact = (pts as i128) * (num as i128) * (start.scale as i128)
-                            == (start.value as i128) * (den as i128);
-                        (index, (!exact).then_some(start))
-                    }
-                }
-            };
-            Self {
-                state,
-                next,
-                trimmed_start,
-            }
-        }
-
-        pub(crate) fn next_sample_buf(&mut self) -> Option<R<cm::SampleBuf>> {
-            let script = &self.state.script;
-            let frame = script.frames.get(self.next)?;
-            let index = self.next;
-            self.next += 1;
-            self.state.record_vend(index);
-
-            let trimmed = self.trimmed_start.take();
-            if trimmed.is_none()
-                && let Some(SharedSample(sample)) = self.state.samples.lock().unwrap().get(&index)
-            {
-                return Some(sample.retained());
-            }
-            let (num, den) = script.time_base;
-            let pts = trimmed.unwrap_or_else(|| cm::Time::new(frame.pts * num as i64, den));
-            let end = script
-                .frames
-                .get(index + 1)
-                .map_or(script.end_pts(), |next| next.pts);
-            let duration = cm::Time::new((end - frame.pts) * num as i64, den);
-
-            let mut pixel_buf = cv::PixelBuf::new(
-                FRAME_WIDTH as usize,
-                FRAME_HEIGHT as usize,
-                cv::PixelFormat::_420V,
-                None,
-            )
-            .ok()?;
-            unsafe {
-                pixel_buf
-                    .lock_base_addr(cv::pixel_buffer::LockFlags::DEFAULT)
-                    .result()
-                    .ok()?;
-                let row = identity_row(index as u32);
-                for plane in 0..2 {
-                    let bytes =
-                        pixel_buf.plane_bytes_per_row(plane) * pixel_buf.plane_height(plane);
-                    let base = pixel_buf.plane_base_address(plane) as *mut u8;
-                    std::ptr::write_bytes(base, if plane == 0 { 16 } else { 128 }, bytes);
-                    if plane == 0 {
-                        std::ptr::copy_nonoverlapping(row.as_ptr(), base, row.len());
-                    }
-                }
-                pixel_buf.unlock_lock_base_addr(cv::pixel_buffer::LockFlags::DEFAULT);
-            }
-            let format = cm::VideoFormatDesc::with_image_buf(&pixel_buf).ok()?;
-            let timing = cm::SampleTimingInfo {
-                duration,
-                pts,
-                dts: cm::Time::invalid(),
-            };
-            let sample = cm::SampleBuf::with_image_buf(
-                &pixel_buf,
-                true,
-                None,
-                std::ptr::null(),
-                &format,
-                &timing,
-            )
-            .ok()?;
-            if trimmed.is_none() {
-                self.state
-                    .samples
-                    .lock()
-                    .unwrap()
-                    .insert(index, SharedSample(sample.retained()));
-            }
-            Some(sample)
-        }
-    }
 }

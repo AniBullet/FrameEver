@@ -489,64 +489,36 @@ impl From<QueueFrameError> for crate::video::h264::QueueFrameError {
 }
 
 fn get_av1_encoder_priority() -> &'static [&'static str] {
-    #[cfg(target_os = "windows")]
-    {
-        use cap_frame_converter::{GpuVendor, detect_primary_gpu};
+    use cap_frame_converter::{GpuVendor, detect_primary_gpu};
 
-        static AV1_PRIORITY_NVIDIA: &[&str] = &["av1_nvenc", "av1_qsv", "av1_amf", "libsvtav1"];
-        static AV1_PRIORITY_AMD: &[&str] = &["av1_amf", "av1_nvenc", "av1_qsv", "libsvtav1"];
-        static AV1_PRIORITY_INTEL: &[&str] = &["av1_qsv", "av1_nvenc", "av1_amf", "libsvtav1"];
+    static AV1_PRIORITY_NVIDIA: &[&str] = &["av1_nvenc", "av1_qsv", "av1_amf", "libsvtav1"];
+    static AV1_PRIORITY_AMD: &[&str] = &["av1_amf", "av1_nvenc", "av1_qsv", "libsvtav1"];
+    static AV1_PRIORITY_INTEL: &[&str] = &["av1_qsv", "av1_nvenc", "av1_amf", "libsvtav1"];
 
-        match detect_primary_gpu().map(|info| info.vendor) {
-            Some(GpuVendor::Amd) => AV1_PRIORITY_AMD,
-            Some(GpuVendor::Intel) => AV1_PRIORITY_INTEL,
-            _ => AV1_PRIORITY_NVIDIA,
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        &["libsvtav1"]
+    match detect_primary_gpu().map(|info| info.vendor) {
+        Some(GpuVendor::Amd) => AV1_PRIORITY_AMD,
+        Some(GpuVendor::Intel) => AV1_PRIORITY_INTEL,
+        _ => AV1_PRIORITY_NVIDIA,
     }
 }
 
 fn get_encoder_priority() -> &'static [&'static str] {
-    #[cfg(target_os = "macos")]
-    {
-        &[
-            "hevc_videotoolbox",
-            "hevc_qsv",
-            "hevc_nvenc",
-            "hevc_amf",
-            "hevc_mf",
-            "libx265",
-        ]
-    }
+    use cap_frame_converter::{GpuVendor, detect_primary_gpu};
 
-    #[cfg(target_os = "windows")]
-    {
-        use cap_frame_converter::{GpuVendor, detect_primary_gpu};
+    static ENCODER_PRIORITY_NVIDIA: &[&str] =
+        &["hevc_nvenc", "hevc_mf", "hevc_qsv", "hevc_amf", "libx265"];
+    static ENCODER_PRIORITY_AMD: &[&str] =
+        &["hevc_amf", "hevc_mf", "hevc_nvenc", "hevc_qsv", "libx265"];
+    static ENCODER_PRIORITY_INTEL: &[&str] =
+        &["hevc_qsv", "hevc_mf", "hevc_nvenc", "hevc_amf", "libx265"];
+    static ENCODER_PRIORITY_DEFAULT: &[&str] =
+        &["hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_mf", "libx265"];
 
-        static ENCODER_PRIORITY_NVIDIA: &[&str] =
-            &["hevc_nvenc", "hevc_mf", "hevc_qsv", "hevc_amf", "libx265"];
-        static ENCODER_PRIORITY_AMD: &[&str] =
-            &["hevc_amf", "hevc_mf", "hevc_nvenc", "hevc_qsv", "libx265"];
-        static ENCODER_PRIORITY_INTEL: &[&str] =
-            &["hevc_qsv", "hevc_mf", "hevc_nvenc", "hevc_amf", "libx265"];
-        static ENCODER_PRIORITY_DEFAULT: &[&str] =
-            &["hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_mf", "libx265"];
-
-        match detect_primary_gpu().map(|info| info.vendor) {
-            Some(GpuVendor::Nvidia) => ENCODER_PRIORITY_NVIDIA,
-            Some(GpuVendor::Amd) => ENCODER_PRIORITY_AMD,
-            Some(GpuVendor::Intel) => ENCODER_PRIORITY_INTEL,
-            _ => ENCODER_PRIORITY_DEFAULT,
-        }
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        &["libx265"]
+    match detect_primary_gpu().map(|info| info.vendor) {
+        Some(GpuVendor::Nvidia) => ENCODER_PRIORITY_NVIDIA,
+        Some(GpuVendor::Amd) => ENCODER_PRIORITY_AMD,
+        Some(GpuVendor::Intel) => ENCODER_PRIORITY_INTEL,
+        _ => ENCODER_PRIORITY_DEFAULT,
     }
 }
 

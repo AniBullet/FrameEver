@@ -301,13 +301,9 @@ impl VideoSource for NativeCamera {
         let stopped = Arc::new(AtomicBool::new(false));
         let stopped_clone = stopped.clone();
 
-        let task =
-            forward_native_frames(rx, video_tx, stop_rx, stopped_clone, cfg!(windows), report)
-                .map(|result| result.map(drop));
-        #[cfg(windows)]
+        let task = forward_native_frames(rx, video_tx, stop_rx, stopped_clone, true, report)
+            .map(|result| result.map(drop));
         ctx.tasks().spawn("native-camera", task);
-        #[cfg(not(windows))]
-        drop(tokio::spawn(task));
 
         Ok(Self {
             feed_lock,

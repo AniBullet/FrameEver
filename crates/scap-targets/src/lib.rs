@@ -54,15 +54,7 @@ impl Display {
     }
 
     pub fn notch(&self) -> Option<NotchGeometry> {
-        #[cfg(target_os = "macos")]
-        {
-            self.0.notch()
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            None
-        }
+        None
     }
 }
 
@@ -178,21 +170,6 @@ impl Window {
     pub fn display_relative_logical_bounds(&self) -> Option<LogicalBounds> {
         let display = self.display()?;
 
-        #[cfg(target_os = "macos")]
-        {
-            let display_logical_bounds = display.raw_handle().logical_bounds()?;
-            let window_logical_bounds = self.raw_handle().logical_bounds()?;
-
-            Some(LogicalBounds::new(
-                LogicalPosition::new(
-                    window_logical_bounds.position().x() - display_logical_bounds.position().x(),
-                    window_logical_bounds.position().y() - display_logical_bounds.position().y(),
-                ),
-                window_logical_bounds.size(),
-            ))
-        }
-
-        #[cfg(windows)]
         {
             let display_physical_bounds = display.raw_handle().physical_bounds()?;
             let display_logical_size = display.logical_size()?;
@@ -217,20 +194,6 @@ impl Window {
                     display_relative_physical_bounds.size().width() * scale,
                     display_relative_physical_bounds.size().height() * scale,
                 ),
-            ))
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            let display_bounds = display.raw_handle().logical_bounds()?;
-            let window_bounds = self.raw_handle().logical_bounds()?;
-
-            Some(LogicalBounds::new(
-                LogicalPosition::new(
-                    window_bounds.position().x() - display_bounds.position().x(),
-                    window_bounds.position().y() - display_bounds.position().y(),
-                ),
-                window_bounds.size(),
             ))
         }
     }
@@ -276,7 +239,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(target_os = "macos"))]
     #[test]
     fn no_notch_off_macos() {
         assert!(Display::list().iter().all(|d| d.notch().is_none()));

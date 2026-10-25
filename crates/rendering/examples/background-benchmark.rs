@@ -41,8 +41,6 @@ struct Case {
 #[serde(rename_all = "kebab-case")]
 enum Mode {
     PlaybackRgba,
-    #[cfg(target_os = "macos")]
-    PlaybackBgraSurface,
     ExportNv12,
 }
 
@@ -161,12 +159,7 @@ async fn main() -> Result<()> {
     }
     let source = DecodedFrame::new_with_arc(Arc::new(pixels), screen_size.x, screen_size.y);
     let cursor = CursorEvents::default();
-    let modes = [
-        Mode::PlaybackRgba,
-        #[cfg(target_os = "macos")]
-        Mode::PlaybackBgraSurface,
-        Mode::ExportNv12,
-    ];
+    let modes = [Mode::PlaybackRgba, Mode::ExportNv12];
     for repetition in 0..args.repetitions {
         for offset in 0..cases.len() {
             let case = &cases[(offset + repetition as usize) % cases.len()];
@@ -182,8 +175,6 @@ async fn main() -> Result<()> {
             zoom.ensure_precomputed_until(duration as f32);
             for mode in modes {
                 let mut renderer = FrameRenderer::new(&constants);
-                #[cfg(target_os = "macos")]
-                renderer.enable_nv12_surface_output();
                 let mut layers = RendererLayers::new_with_options(
                     &constants.device,
                     &constants.queue,
@@ -210,20 +201,6 @@ async fn main() -> Result<()> {
                                 .render_immediate(frame, uniforms, &cursor, true, &mut layers)
                                 .await?;
                             std::hint::black_box(&output.data);
-                            output.frame_number
-                        }
-                        #[cfg(target_os = "macos")]
-                        Mode::PlaybackBgraSurface => {
-                            let output = renderer
-                                .render_immediate_bgra_surface(
-                                    frame,
-                                    uniforms,
-                                    &cursor,
-                                    true,
-                                    &mut layers,
-                                )
-                                .await?;
-                            std::hint::black_box(&output.pixel_buffer);
                             output.frame_number
                         }
                         Mode::ExportNv12 => {

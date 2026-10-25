@@ -36,7 +36,8 @@ fn frame_thread_count(
 
 fn total_memory_bytes() -> Option<u64> {
     let system = sysinfo::System::new_with_specifics(
-        sysinfo::RefreshKind::nothing().with_memory(sysinfo::MemoryRefreshKind::nothing().with_ram()),
+        sysinfo::RefreshKind::nothing()
+            .with_memory(sysinfo::MemoryRefreshKind::nothing().with_ram()),
     );
     Some(system.total_memory()).filter(|memory| *memory > 0)
 }

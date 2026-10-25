@@ -1,9 +1,7 @@
 fn main() {
-    #[cfg(windows)]
     windows::main();
 }
 
-#[cfg(windows)]
 mod windows {
     use scap_targets::*;
     use std::time::Duration;

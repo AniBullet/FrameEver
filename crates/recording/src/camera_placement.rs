@@ -82,9 +82,6 @@ pub fn recording_camera_placement(
 }
 
 fn display_bounds(display: scap_targets::Display) -> Option<[f64; 4]> {
-    #[cfg(target_os = "macos")]
-    let bounds = display.raw_handle().logical_bounds()?;
-    #[cfg(not(target_os = "macos"))]
     let bounds = display.raw_handle().physical_bounds()?;
     Some([
         bounds.position().x(),
@@ -100,9 +97,6 @@ fn capture_bounds(target: &ScreenCaptureTarget) -> Option<[f64; 4]> {
         ScreenCaptureTarget::Display { .. } => display_bounds(target.display()?),
         ScreenCaptureTarget::Window { id } => {
             let window = scap_targets::Window::from_id(id)?;
-            #[cfg(target_os = "macos")]
-            let bounds = window.raw_handle().logical_bounds()?;
-            #[cfg(not(target_os = "macos"))]
             let bounds = window.raw_handle().physical_bounds()?;
             Some([
                 bounds.position().x(),
@@ -114,9 +108,6 @@ fn capture_bounds(target: &ScreenCaptureTarget) -> Option<[f64; 4]> {
         ScreenCaptureTarget::Area { bounds, .. } => {
             let display = target.display()?;
             let origin = display_bounds(display)?;
-            #[cfg(target_os = "macos")]
-            let scale = (1.0, 1.0);
-            #[cfg(not(target_os = "macos"))]
             let scale = {
                 let logical = display.logical_size()?;
                 (origin[2] / logical.width(), origin[3] / logical.height())

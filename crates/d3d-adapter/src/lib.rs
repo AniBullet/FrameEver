@@ -10,8 +10,6 @@
 // device underneath us. Forcing a real physical adapter eliminates the failure mode
 // entirely while having no behavioural impact on machines without virtual displays.
 
-#![cfg(target_os = "windows")]
-
 use tracing::{info, warn};
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, IDXGIAdapter, IDXGIAdapter1, IDXGIFactory1,

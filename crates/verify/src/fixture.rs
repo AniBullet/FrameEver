@@ -235,28 +235,6 @@ fn write_video_track(
     segment: u8,
     spec: &VideoTrackSpec,
 ) -> anyhow::Result<()> {
-    #[cfg(target_os = "macos")]
-    if spec.encoder == TrackEncoder::AvFoundation {
-        let times: Vec<(u32, f64)> = spec
-            .timing
-            .slots(spec.fps)
-            .into_iter()
-            .map(|slot| {
-                (
-                    slot,
-                    spec.pts_offset + f64::from(slot) / f64::from(spec.fps),
-                )
-            })
-            .collect();
-        return crate::fixture_avf::write_video_track(
-            path,
-            |slot| FrameMarker::new(kind, segment, slot),
-            spec.width,
-            spec.height,
-            spec.fps,
-            &times,
-        );
-    }
     let mut config = VideoWriterConfig::new(spec.width, spec.height, spec.fps);
     config.gop = spec.gop;
     config.b_frames = spec.b_frames;

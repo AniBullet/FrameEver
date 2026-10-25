@@ -61,13 +61,7 @@ pub fn host() -> Option<String> {
 }
 
 pub fn platform() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "macos"
-    } else if cfg!(target_os = "windows") {
-        "windows"
-    } else {
-        "linux"
-    }
+    "windows"
 }
 
 /// A closed range of measured values.

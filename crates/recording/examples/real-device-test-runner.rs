@@ -19,14 +19,8 @@ use std::{
 };
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-#[cfg(windows)]
 fn default_output_dir() -> PathBuf {
     std::env::temp_dir().join("cap-real-device-tests")
-}
-
-#[cfg(not(windows))]
-fn default_output_dir() -> PathBuf {
-    PathBuf::from("/tmp/cap-real-device-tests")
 }
 
 #[derive(Parser)]
@@ -1400,11 +1394,6 @@ async fn execute_recording(
         None
     };
 
-    #[cfg(target_os = "macos")]
-    let shareable_content = cap_recording::SendableShareableContent::from(
-        cidre::sc::ShareableContent::current().await?,
-    );
-
     let mut builder = studio_recording::Actor::builder(
         recording_dir.clone(),
         ScreenCaptureTarget::Display {
@@ -1423,12 +1412,7 @@ async fn execute_recording(
         builder = builder.with_camera_feed(camera);
     }
 
-    let handle = builder
-        .build(
-            #[cfg(target_os = "macos")]
-            Some(shareable_content),
-        )
-        .await?;
+    let handle = builder.build().await?;
 
     for action in &scenario.actions {
         match action {
@@ -1555,36 +1539,6 @@ async fn run_test(
     report
 }
 
-#[cfg(target_os = "macos")]
-async fn check_permissions() -> anyhow::Result<()> {
-    println!("\nChecking macOS permissions...\n");
-
-    match cidre::sc::ShareableContent::current().await {
-        Ok(_) => println!("  Screen Recording: GRANTED"),
-        Err(_) => {
-            println!("  Screen Recording: DENIED");
-            println!("\n  Please grant Screen Recording permission in:");
-            println!("  System Preferences > Security & Privacy > Privacy > Screen Recording");
-        }
-    }
-
-    if MicrophoneFeed::default_device().is_some() {
-        println!("  Microphone: AVAILABLE (permission will be requested on first use)");
-    } else {
-        println!("  Microphone: NO DEVICE FOUND");
-    }
-
-    if cap_camera::list_cameras().next().is_some() {
-        println!("  Camera: AVAILABLE (permission will be requested on first use)");
-    } else {
-        println!("  Camera: NO DEVICE FOUND");
-    }
-
-    println!();
-    Ok(())
-}
-
-#[cfg(windows)]
 async fn check_permissions() -> anyhow::Result<()> {
     println!("\nChecking Windows device availability...\n");
 
@@ -1732,58 +1686,23 @@ impl SystemInfo {
 }
 
 fn get_os_version() -> String {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("sw_vers")
-            .arg("-productVersion")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| "unknown".to_string())
-    }
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .args(["/C", "ver"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| "unknown".to_string())
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        "unknown".to_string()
-    }
+    std::process::Command::new("cmd")
+        .args(["/C", "ver"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn get_cpu_info() -> String {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("sysctl")
-            .arg("-n")
-            .arg("machdep.cpu.brand_string")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| "unknown".to_string())
-    }
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("wmic")
-            .args(["cpu", "get", "name"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .and_then(|s| s.lines().nth(1).map(|l| l.trim().to_string()))
-            .unwrap_or_else(|| "unknown".to_string())
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        "unknown".to_string()
-    }
+    std::process::Command::new("wmic")
+        .args(["cpu", "get", "name"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| s.lines().nth(1).map(|l| l.trim().to_string()))
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn get_failure_tags(report: &TestReport) -> Vec<&'static str> {
@@ -2165,11 +2084,8 @@ fn write_benchmark_to_file(benchmark_md: &str) -> anyhow::Result<()> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    #[cfg(windows)]
-    {
-        use windows::Win32::UI::HiDpi::{PROCESS_PER_MONITOR_DPI_AWARE, SetProcessDpiAwareness};
-        unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE).ok() };
-    }
+    use windows::Win32::UI::HiDpi::{PROCESS_PER_MONITOR_DPI_AWARE, SetProcessDpiAwareness};
+    unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE).ok() };
 
     tracing_subscriber::registry()
         .with(fmt::layer())
@@ -2191,13 +2107,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let devices = AvailableDevices::discover()?;
-
-    #[cfg(target_os = "macos")]
-    if cidre::sc::ShareableContent::current().await.is_err() {
-        bail!(
-            "Screen Recording permission not granted. Run with 'check-permissions' to see details."
-        );
-    }
 
     let scenarios: Vec<TestScenario> = match cli.command {
         Some(Commands::Baseline) => vec![TestScenario::baseline(Duration::from_secs(cli.duration))],

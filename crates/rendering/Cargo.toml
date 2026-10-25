@@ -37,21 +37,6 @@ tiny-skia = "0.11"
 clap = { version = "4.5", features = ["derive"] }
 dirs = "7.0"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-cidre.workspace = true
-metal = "0.31"
-objc2 = "0.6"
-wgpu-hal = { workspace = true, features = ["metal"] }
-wgpu-core.workspace = true
-foreign-types = "0.5"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-wgpu-hal = { workspace = true, features = ["vulkan"] }
-ash = "0.38"
-libloading = "0.8"
-
-[target.'cfg(target_os = "windows")'.dependencies]
 wgpu-hal = { workspace = true, features = ["dx12"] }
 wgpu-core.workspace = true
 windows = { workspace = true, features = [

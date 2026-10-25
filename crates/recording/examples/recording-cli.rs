@@ -8,12 +8,9 @@ pub async fn main() {
     unsafe { std::env::set_var("RUST_LOG", "trace") };
     unsafe { std::env::set_var("RUST_BACKTRACE", "1") };
 
-    #[cfg(windows)]
-    {
-        use windows::Win32::UI::HiDpi::{PROCESS_PER_MONITOR_DPI_AWARE, SetProcessDpiAwareness};
+    use windows::Win32::UI::HiDpi::{PROCESS_PER_MONITOR_DPI_AWARE, SetProcessDpiAwareness};
 
-        unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE).unwrap() };
-    }
+    unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE).unwrap() };
 
     tracing_subscriber::fmt::init();
 
@@ -62,12 +59,7 @@ pub async fn main() {
     //     camera_feed.ask(feeds::camera::Lock).await.unwrap(),
     // ))
     // .with_mic_feed(Arc::new(mic_feed.ask(microphone::Lock).await.unwrap()))
-    .build(
-        #[cfg(target_os = "macos")]
-        Some(cap_recording::SendableShareableContent::from(
-            cidre::sc::ShareableContent::current().await.unwrap(),
-        )),
-    )
+    .build()
     .await
     .unwrap();
 

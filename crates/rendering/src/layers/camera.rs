@@ -9,9 +9,6 @@ use crate::{
     yuv_converter::{YuvConverterPipelines, YuvToRgbaConverter},
 };
 
-#[cfg(target_os = "macos")]
-use crate::yuv_converter::RetainedImageBuf;
-
 pub struct CameraLayer {
     frame_textures: [wgpu::Texture; 2],
     frame_texture_views: [wgpu::TextureView; 2],
@@ -23,8 +20,6 @@ pub struct CameraLayer {
     last_recording_time: Option<f32>,
     last_frame_storage: Option<DecodedFrameStorageIdentity>,
     yuv_converter: YuvToRgbaConverter,
-    #[cfg(target_os = "macos")]
-    frame_sources: [Option<RetainedImageBuf>; 2],
     blur_bind_group: Option<wgpu::BindGroup>,
     blur_active: bool,
     blur_cache: Option<BlurCacheEntry>,
@@ -92,8 +87,6 @@ impl CameraLayer {
             last_recording_time: None,
             last_frame_storage: None,
             yuv_converter,
-            #[cfg(target_os = "macos")]
-            frame_sources: [None, None],
             blur_bind_group: None,
             blur_active: false,
             blur_cache: None,
@@ -175,7 +168,6 @@ impl CameraLayer {
                         return;
                     }
 
-                    #[cfg(target_os = "windows")]
                     {
                         if let Some(nv12_texture) = camera_frame.d3d11_texture_backing() {
                             if let Ok(d3d11_device) = unsafe { nv12_texture.GetDevice() } {
@@ -220,24 +212,6 @@ impl CameraLayer {
                         }
                     }
 
-                    #[cfg(target_os = "macos")]
-                    let iosurface_converted = camera_frame
-                        .with_image_buf(|image_buf| {
-                            self.yuv_converter
-                                .convert_nv12_from_iosurface(device, queue, image_buf)
-                                .is_ok()
-                        })
-                        .unwrap_or(false);
-                    #[cfg(target_os = "linux")]
-                    let iosurface_converted = camera_frame.cuda_nv12().is_some_and(|cuda| {
-                        self.yuv_converter
-                            .convert_nv12_cuda(device, queue, cuda)
-                            .inspect_err(|error| {
-                                tracing::warn!(%error, "CUDA camera frame conversion failed")
-                            })
-                            .is_ok()
-                    });
-                    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                     let iosurface_converted = false;
 
                     if iosurface_converted && self.yuv_converter.output_texture().is_some() {
@@ -409,9 +383,6 @@ impl CameraLayer {
 
             self.resize_frame_texture(device, next_texture, frame_size.x, frame_size.y);
 
-            #[cfg(target_os = "macos")]
-            let mut frame_source = None;
-
             match format {
                 PixelFormat::Rgba => {
                     let frame_data_bytes = camera_frame.data();
@@ -438,23 +409,6 @@ impl CameraLayer {
                     );
                 }
                 PixelFormat::Nv12 => {
-                    #[cfg(target_os = "macos")]
-                    let converted_into_frame = {
-                        frame_source = camera_frame
-                            .with_image_buf(|image_buf| {
-                                self.yuv_converter
-                                    .convert_nv12_from_iosurface_into(
-                                        device,
-                                        encoder,
-                                        image_buf,
-                                        &self.frame_texture_views[next_texture],
-                                    )
-                                    .ok()
-                            })
-                            .flatten();
-                        frame_source.is_some()
-                    };
-                    #[cfg(not(target_os = "macos"))]
                     let converted_into_frame = false;
 
                     if !converted_into_frame {
@@ -467,18 +421,6 @@ impl CameraLayer {
                             return;
                         }
 
-                        // Submitted on its own ahead of `encoder`, so queue order
-                        // still has the conversion land before the copy below.
-                        #[cfg(target_os = "linux")]
-                        let iosurface_converted = camera_frame.cuda_nv12().is_some_and(|cuda| {
-                            self.yuv_converter
-                                .convert_nv12_cuda(device, queue, cuda)
-                                .inspect_err(|error| {
-                                    tracing::warn!(%error, "CUDA camera frame conversion failed")
-                                })
-                                .is_ok()
-                        });
-                        #[cfg(not(target_os = "linux"))]
                         let iosurface_converted = false;
 
                         if iosurface_converted && self.yuv_converter.output_texture().is_some() {
@@ -539,8 +481,6 @@ impl CameraLayer {
                 }
             }
 
-            #[cfg(target_os = "macos")]
-            RetainedImageBuf::replace(queue, &mut self.frame_sources[next_texture], frame_source);
             self.last_recording_time = Some(recording_time);
             self.last_frame_storage = Some(frame_storage);
             self.current_texture = next_texture;

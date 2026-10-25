@@ -11,19 +11,12 @@ serde = { version = "1.0.219", features = ["derive"] }
 specta = { workspace = true, features = ["derive"] }
 strum = { version = "0.28.0", features = ["derive"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
-
-[target.'cfg(target_os= "windows")'.dependencies]
 windows = { workspace = true, features = [
 	"Win32_Graphics_Gdi",
 	"Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]
-
-[target.'cfg(target_os = "macos")'.dev-dependencies]
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3.0", features = ["NSCursor", "NSApplication"] }
-
 
 [lints]
 workspace = true

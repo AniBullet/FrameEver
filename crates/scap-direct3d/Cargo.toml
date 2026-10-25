@@ -4,7 +4,18 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 
-[target.'cfg(windows)'.dependencies]
+[dev-dependencies]
+scap-targets = { path = "../scap-targets" }
+scap-ffmpeg = { path = "../scap-ffmpeg" }
+windows-numerics = "0.3"
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 windows = { workspace = true, features = [
     "System",
     "Graphics_Capture",
@@ -32,19 +43,4 @@ windows = { workspace = true, features = [
     "Win32_System_SystemInformation",
     "Win32_System_LibraryLoader",
 ] }
-
-[dev-dependencies]
-scap-targets = { path = "../scap-targets" }
-scap-ffmpeg = { path = "../scap-ffmpeg" }
-windows-numerics = "0.3"
-
-[lints]
-workspace = true
-
-[dependencies]
-thiserror.workspace = true
-tracing.workspace = true
-workspace-hack = { version = "0.1", path = "../workspace-hack" }
-
-[target.'cfg(target_os = "windows")'.dependencies]
 cap-d3d-adapter = { path = "../d3d-adapter" }

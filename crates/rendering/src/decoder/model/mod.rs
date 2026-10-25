@@ -72,13 +72,11 @@ use cap_video_decode::scripted::{self, Script};
 
 use generate::{PatternKind, Rng, SourceKind};
 
-#[cfg(target_os = "macos")]
-use super::DecoderType;
 use super::spawn_decoder;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Decoder {
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[allow(dead_code)]
     Avf,
     Ffmpeg,
 }
@@ -301,10 +299,6 @@ fn run_case(case: &Case, runtime: &tokio::runtime::Runtime, trace: bool) -> Outc
             handle.prefer_sequential_access();
         }
         let decoder_type = handle.decoder_type();
-        #[cfg(target_os = "macos")]
-        if case.decoder == Decoder::Avf {
-            assert_eq!(decoder_type, DecoderType::AVAssetReader);
-        }
         registration.take_vended();
 
         let mut previous: Option<(u32, usize)> = None;
@@ -1087,12 +1081,6 @@ fn run_suite(decoder: Decoder) {
         verdict.unexpected.len(),
         verdict.fixed.len()
     );
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-fn avassetreader_answers_match_the_reference_model() {
-    run_suite(Decoder::Avf);
 }
 
 #[test]

@@ -1,17 +1,7 @@
 use crate::cpu_yuv::{self, YuvMatrix};
 
-#[cfg(target_os = "macos")]
-use crate::iosurface_texture::{
-    IOSurfaceTextureCache, IOSurfaceTextureError, import_metal_texture_to_wgpu,
-};
-
-#[cfg(target_os = "macos")]
-use cidre::cv;
-
-#[cfg(target_os = "windows")]
 use crate::d3d_texture::{D3D11WgpuInterop, D3DTextureError};
 
-#[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CPU_ACCESS_READ, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_TEXTURE2D_DESC,
     D3D11_USAGE_STAGING, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
@@ -19,9 +9,6 @@ use windows::Win32::Graphics::Direct3D11::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum YuvConversionError {
-    #[cfg(target_os = "linux")]
-    #[error("GPU interop: {0}")]
-    GpuInterop(String),
     #[error("{plane} plane size mismatch: expected {expected}, got {actual}")]
     PlaneSizeMismatch {
         plane: &'static str,
@@ -40,13 +27,8 @@ pub enum YuvConversionError {
         value: u32,
         max: u32,
     },
-    #[cfg(target_os = "macos")]
-    #[error("IOSurface error: {0}")]
-    IOSurfaceError(#[from] IOSurfaceTextureError),
-    #[cfg(target_os = "windows")]
     #[error("D3D texture error: {0}")]
     D3DTextureError(#[from] D3DTextureError),
-    #[cfg(target_os = "windows")]
     #[error("D3D11 error: {0}")]
     D3D11Error(String),
 }
@@ -102,27 +84,12 @@ fn upload_plane_with_stride(
 const MAX_TEXTURE_WIDTH: u32 = 7680;
 const MAX_TEXTURE_HEIGHT: u32 = 4320;
 
-// On macOS, IOSurface frames convert straight into the layer textures, so the
-// converter's own textures start minimal and only grow for a fallback path.
-#[cfg(target_os = "macos")]
-const INITIAL_TEXTURE_WIDTH: u32 = TEXTURE_SIZE_PADDING;
-#[cfg(target_os = "macos")]
-const INITIAL_TEXTURE_HEIGHT: u32 = TEXTURE_SIZE_PADDING;
-#[cfg(not(target_os = "macos"))]
 const INITIAL_TEXTURE_WIDTH: u32 = 1920;
-#[cfg(not(target_os = "macos"))]
 const INITIAL_TEXTURE_HEIGHT: u32 = 1080;
 
 const TEXTURE_SIZE_PADDING: u32 = 64;
 
-// The 2x2 block kernel was only measured as a win on Linux; Apple GPUs were slower and Windows is untested.
-#[cfg(target_os = "linux")]
-const YUV420P_ENTRY_POINT: &str = "main_block";
-#[cfg(target_os = "linux")]
-const YUV420P_PIXELS_PER_WORKGROUP: u32 = 16;
-#[cfg(not(target_os = "linux"))]
 const YUV420P_ENTRY_POINT: &str = "main";
-#[cfg(not(target_os = "linux"))]
 const YUV420P_PIXELS_PER_WORKGROUP: u32 = 8;
 
 fn align_dimension(dim: u32) -> u32 {
@@ -478,44 +445,6 @@ impl YuvConverterPipelines {
     }
 }
 
-/// Conversions whose GPU work can still be pending when a new one starts. The
-/// renderer waits for the previous frame only after submitting the next one,
-/// and a transition frame converts twice (outgoing, then incoming), so up to
-/// three earlier sources may still be sampled.
-#[cfg(target_os = "macos")]
-const RETAINED_IOSURFACE_SOURCES: usize = 4;
-
-#[cfg(target_os = "macos")]
-#[must_use]
-pub struct RetainedImageBuf {
-    _image_buf: cidre::arc::R<cv::ImageBuf>,
-}
-
-#[cfg(target_os = "macos")]
-impl RetainedImageBuf {
-    fn new(image_buf: &cv::ImageBuf) -> Self {
-        Self {
-            _image_buf: image_buf.retained(),
-        }
-    }
-
-    /// Stores `source` in `slot`. The work that sampled the buffer it replaces
-    /// has already been submitted, so that buffer is released once the queue
-    /// has finished it.
-    pub(crate) fn replace(queue: &wgpu::Queue, slot: &mut Option<Self>, source: Option<Self>) {
-        if let Some(previous) = std::mem::replace(slot, source) {
-            queue.on_submitted_work_done(move || drop(previous));
-        }
-    }
-}
-
-// SAFETY: the buffer is only retained and released, never read, and
-// CoreVideo reference counting is thread-safe.
-#[cfg(target_os = "macos")]
-unsafe impl Send for RetainedImageBuf {}
-#[cfg(target_os = "macos")]
-unsafe impl Sync for RetainedImageBuf {}
-
 pub struct YuvToRgbaConverter {
     pipelines: Arc<YuvConverterPipelines>,
     matrix: YuvMatrix,
@@ -534,24 +463,11 @@ pub struct YuvToRgbaConverter {
     allocated_height: u32,
     gpu_max_texture_size: u32,
     bind_group_cache: BindGroupCache,
-    #[cfg(target_os = "macos")]
-    iosurface_cache: Option<IOSurfaceTextureCache>,
-    #[cfg(target_os = "macos")]
-    iosurface_sources: [Option<RetainedImageBuf>; RETAINED_IOSURFACE_SOURCES],
-    #[cfg(target_os = "macos")]
-    next_iosurface_source: usize,
-    #[cfg(target_os = "windows")]
     d3d11_staging_texture: Option<ID3D11Texture2D>,
-    #[cfg(target_os = "windows")]
     d3d11_staging_width: u32,
-    #[cfg(target_os = "windows")]
     d3d11_staging_height: u32,
-    #[cfg(target_os = "windows")]
     zero_copy_failed: bool,
-    #[cfg(target_os = "windows")]
     d3d11_interop: D3D11WgpuInterop,
-    #[cfg(target_os = "linux")]
-    cuda_staging: Option<crate::linux_gpu::SharedRing>,
 }
 
 impl YuvToRgbaConverter {
@@ -604,161 +520,12 @@ impl YuvToRgbaConverter {
             allocated_height: initial_height,
             gpu_max_texture_size,
             bind_group_cache: BindGroupCache::new(),
-            #[cfg(target_os = "macos")]
-            iosurface_cache: IOSurfaceTextureCache::new(),
-            #[cfg(target_os = "macos")]
-            iosurface_sources: Default::default(),
-            #[cfg(target_os = "macos")]
-            next_iosurface_source: 0,
-            #[cfg(target_os = "windows")]
             d3d11_staging_texture: None,
-            #[cfg(target_os = "windows")]
             d3d11_staging_width: 0,
-            #[cfg(target_os = "windows")]
             d3d11_staging_height: 0,
-            #[cfg(target_os = "windows")]
             zero_copy_failed: false,
-            #[cfg(target_os = "windows")]
             d3d11_interop: D3D11WgpuInterop::new(),
-            #[cfg(target_os = "linux")]
-            cuda_staging: None,
         }
-    }
-
-    /// NV12 straight from NVDEC: device-to-device into a Vulkan-shared
-    /// staging buffer, then GPU copies into the plane textures. Nothing
-    /// touches system memory.
-    #[cfg(target_os = "linux")]
-    pub fn convert_nv12_cuda(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        frame: &crate::linux_gpu::CudaNv12Frame,
-    ) -> Result<&wgpu::TextureView, YuvConversionError> {
-        // There is no CPU copy of a CUDA frame to fall back to, so a failed
-        // conversion leaves the previous texture on screen; count it so the
-        // caller can reject the render instead of encoding stale frames.
-        self.convert_nv12_cuda_into_textures(device, queue, frame)
-            .inspect_err(|_| crate::linux_gpu::note_interop_failure())
-    }
-
-    #[cfg(target_os = "linux")]
-    fn convert_nv12_cuda_into_textures(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        frame: &crate::linux_gpu::CudaNv12Frame,
-    ) -> Result<&wgpu::TextureView, YuvConversionError> {
-        let width = frame.width;
-        let height = frame.height;
-        let (effective_width, effective_height, _downscaled) =
-            validate_dimensions(width, height, self.gpu_max_texture_size)?;
-        self.ensure_texture_size(device, effective_width, effective_height);
-        self.swap_output_buffer();
-
-        let pitch = u64::from(width.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT));
-        let needed = pitch * u64::from(height) * 3 / 2;
-        if self
-            .cuda_staging
-            .as_ref()
-            .is_none_or(|ring| ring.size() < needed)
-        {
-            self.cuda_staging = Some(
-                crate::linux_gpu::SharedRing::new(device, 3, needed, "NV12 CUDA Staging")
-                    .map_err(YuvConversionError::GpuInterop)?,
-            );
-        }
-        let ring = self.cuda_staging.as_mut().expect("staging ring");
-        let slot = ring.acquire(device).ok_or_else(|| {
-            YuvConversionError::GpuInterop("no free CUDA staging slot".to_string())
-        })?;
-        let base = slot.shared.cuda_ptr;
-        let y_rows = height as usize;
-        let copied = crate::linux_gpu::copy_plane(
-            frame.y,
-            frame.y_pitch,
-            base,
-            pitch as usize,
-            width as usize,
-            y_rows,
-        )
-        .and_then(|_| {
-            crate::linux_gpu::copy_plane(
-                frame.uv,
-                frame.uv_pitch,
-                base + pitch * u64::from(height),
-                pitch as usize,
-                width as usize,
-                y_rows / 2,
-            )
-        })
-        .and_then(|_| crate::linux_gpu::synchronize());
-        if let Err(error) = copied {
-            slot.release();
-            return Err(YuvConversionError::GpuInterop(error));
-        }
-
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("NV12 CUDA Conversion Encoder"),
-        });
-        encoder.copy_buffer_to_texture(
-            wgpu::TexelCopyBufferInfo {
-                buffer: &slot.shared.buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(pitch as u32),
-                    rows_per_image: Some(height),
-                },
-            },
-            self.y_texture.as_image_copy(),
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
-        encoder.copy_buffer_to_texture(
-            wgpu::TexelCopyBufferInfo {
-                buffer: &slot.shared.buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: pitch * u64::from(height),
-                    bytes_per_row: Some(pitch as u32),
-                    rows_per_image: Some(height / 2),
-                },
-            },
-            self.uv_texture.as_image_copy(),
-            wgpu::Extent3d {
-                width: width / 2,
-                height: height / 2,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        let output_index = self.current_output;
-        let bind_group = self.bind_group_cache.get_or_create_nv12(
-            device,
-            &self.pipelines.nv12_bind_group_layout,
-            &self.y_view,
-            &self.uv_view,
-            &self.output_views[output_index],
-            output_index,
-            self.allocated_width,
-            self.allocated_height,
-        );
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("NV12 CUDA Conversion Pass"),
-                ..Default::default()
-            });
-            compute_pass.set_pipeline(self.pipelines.nv12.get(self.matrix));
-            compute_pass.set_bind_group(0, bind_group, &[]);
-            compute_pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
-        }
-        queue.submit(std::iter::once(encoder.finish()));
-        let released = std::sync::Arc::clone(&slot);
-        queue.on_submitted_work_done(move || released.release());
-
-        Ok(self.current_output_view())
     }
 
     fn create_y_texture(
@@ -1128,152 +895,6 @@ impl YuvToRgbaConverter {
         Ok(self.current_output_view())
     }
 
-    #[cfg(target_os = "macos")]
-    pub fn convert_nv12_from_iosurface(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        image_buf: &cv::ImageBuf,
-    ) -> Result<&wgpu::TextureView, YuvConversionError> {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("NV12 IOSurface Conversion Encoder"),
-        });
-
-        self.convert_nv12_from_iosurface_to_encoder(device, &mut encoder, image_buf)?;
-        queue.submit(std::iter::once(encoder.finish()));
-
-        Ok(self.current_output_view())
-    }
-
-    #[cfg(target_os = "macos")]
-    pub fn convert_nv12_from_iosurface_to_encoder(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        image_buf: &cv::ImageBuf,
-    ) -> Result<&wgpu::TextureView, YuvConversionError> {
-        if self.iosurface_cache.is_none() {
-            return Err(IOSurfaceTextureError::NoMetalDevice.into());
-        }
-
-        if image_buf.io_surf().is_none() {
-            return Err(IOSurfaceTextureError::NoIOSurface.into());
-        }
-
-        let width = image_buf.width() as u32;
-        let height = image_buf.height() as u32;
-
-        let (effective_width, effective_height, _downscaled) =
-            validate_dimensions(width, height, self.gpu_max_texture_size)?;
-        self.ensure_texture_size(device, effective_width, effective_height);
-        self.swap_output_buffer();
-
-        self.encode_nv12_from_iosurface(device, encoder, image_buf, self.current_output_view())?;
-
-        // The Metal textures alias the IOSurface without retaining the pixel
-        // buffer, and the decoder recycles released buffers for new pictures.
-        // Hold the source until enough later conversions have started that
-        // the caller has waited for the GPU work that sampled it.
-        self.iosurface_sources[self.next_iosurface_source] = Some(RetainedImageBuf::new(image_buf));
-        self.next_iosurface_source = (self.next_iosurface_source + 1) % RETAINED_IOSURFACE_SOURCES;
-
-        Ok(self.current_output_view())
-    }
-
-    #[cfg(target_os = "macos")]
-    pub fn convert_nv12_from_iosurface_into(
-        &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        image_buf: &cv::ImageBuf,
-        target: &wgpu::TextureView,
-    ) -> Result<RetainedImageBuf, YuvConversionError> {
-        validate_dimensions(
-            image_buf.width() as u32,
-            image_buf.height() as u32,
-            self.gpu_max_texture_size,
-        )?;
-
-        self.encode_nv12_from_iosurface(device, encoder, image_buf, target)?;
-
-        Ok(RetainedImageBuf::new(image_buf))
-    }
-
-    #[cfg(target_os = "macos")]
-    fn encode_nv12_from_iosurface(
-        &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        image_buf: &cv::ImageBuf,
-        output_view: &wgpu::TextureView,
-    ) -> Result<(), YuvConversionError> {
-        let io_surface = image_buf
-            .io_surf()
-            .ok_or(IOSurfaceTextureError::NoIOSurface)?;
-
-        let width = image_buf.width() as u32;
-        let height = image_buf.height() as u32;
-
-        let cache = self
-            .iosurface_cache
-            .as_ref()
-            .ok_or(IOSurfaceTextureError::NoMetalDevice)?;
-        let y_metal_texture = cache.create_y_texture(io_surface, width, height)?;
-        let uv_metal_texture = cache.create_uv_texture(io_surface, width, height)?;
-
-        let y_wgpu_texture = import_metal_texture_to_wgpu(
-            device,
-            &y_metal_texture,
-            wgpu::TextureFormat::R8Unorm,
-            width,
-            height,
-            Some("IOSurface Y Plane"),
-        )?;
-
-        let uv_wgpu_texture = import_metal_texture_to_wgpu(
-            device,
-            &uv_metal_texture,
-            wgpu::TextureFormat::Rg8Unorm,
-            width / 2,
-            height / 2,
-            Some("IOSurface UV Plane"),
-        )?;
-
-        let y_view = y_wgpu_texture.create_view(&Default::default());
-        let uv_view = uv_wgpu_texture.create_view(&Default::default());
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("NV12 IOSurface Converter Bind Group"),
-            layout: &self.pipelines.nv12_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&y_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&uv_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(output_view),
-                },
-            ],
-        });
-
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("NV12 IOSurface Conversion Pass (Batched)"),
-                ..Default::default()
-            });
-            compute_pass.set_pipeline(self.pipelines.nv12.get(self.matrix));
-            compute_pass.set_bind_group(0, &bind_group, &[]);
-            compute_pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
-        }
-
-        Ok(())
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn convert_yuv420p(
         &mut self,
@@ -1425,7 +1046,6 @@ impl YuvToRgbaConverter {
         Ok(self.current_output_view())
     }
 
-    #[cfg(target_os = "windows")]
     #[allow(clippy::too_many_arguments)]
     pub fn convert_nv12_from_d3d11_texture(
         &mut self,
@@ -1588,7 +1208,6 @@ impl YuvToRgbaConverter {
         Ok(self.current_output_view())
     }
 
-    #[cfg(target_os = "windows")]
     pub fn convert_nv12_from_d3d11_shared_handles(
         &mut self,
         device: &wgpu::Device,
@@ -1682,7 +1301,6 @@ impl YuvToRgbaConverter {
         Ok(self.current_output_view())
     }
 
-    #[cfg(target_os = "windows")]
     #[allow(clippy::too_many_arguments)]
     pub fn convert_nv12_with_fallback(
         &mut self,
@@ -1745,12 +1363,10 @@ impl YuvToRgbaConverter {
         )
     }
 
-    #[cfg(target_os = "windows")]
     pub fn is_using_zero_copy(&self) -> bool {
         !self.zero_copy_failed
     }
 
-    #[cfg(target_os = "windows")]
     pub fn reset_zero_copy_state(&mut self) {
         self.zero_copy_failed = false;
         self.d3d11_interop.invalidate();

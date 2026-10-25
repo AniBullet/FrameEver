@@ -347,7 +347,6 @@ fn local_relative(path: &Path) -> Result<(), String> {
             .all(|part| matches!(part, Component::Normal(_)))
         || path.to_str().is_none_or(|value| {
             value.contains(':')
-                || (cfg!(unix) && value.contains('\\'))
                 || value
                     .split(['/', '\\'])
                     .any(|part| matches!(part, "" | "." | ".."))
@@ -404,16 +403,8 @@ fn read_bounded(root: &Path, relative: &Path, limit: u64) -> Result<Vec<u8>, Str
     }
     let mut options = OpenOptions::new();
     options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(0x0020_0000);
-    }
+    use std::os::windows::fs::OpenOptionsExt;
+    options.custom_flags(0x0020_0000);
     let file: File = options
         .open(root.join(relative))
         .map_err(|error| error.to_string())?;
@@ -1363,29 +1354,6 @@ mod tests {
             let before = fixture.snapshot();
             assert!(fixture.project().is_err());
             assert_eq!(before, fixture.snapshot());
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn preparing_projection_rejects_source_and_asset_symlinks() {
-        for asset in [false, true] {
-            let mut fixture = Fixture::new(1);
-            fixture.add_optional_tracks_and_sidecars();
-            let path = if asset {
-                fixture
-                    .directory
-                    .path()
-                    .join("content/cursors/cursor_0.png")
-            } else {
-                fixture.recording.recoverable_segments[0].display_fragments[0].clone()
-            };
-            let outside = tempfile::NamedTempFile::new().unwrap();
-            std::fs::copy(&path, outside.path()).unwrap();
-            std::fs::remove_file(&path).unwrap();
-            std::os::unix::fs::symlink(outside.path(), &path).unwrap();
-            assert!(fixture.project().is_err());
-            assert!(path.symlink_metadata().unwrap().file_type().is_symlink());
         }
     }
 }

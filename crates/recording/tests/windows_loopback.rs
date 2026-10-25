@@ -12,7 +12,6 @@
 //! `CAP_REQUIRE_AUDIO_ENDPOINT=1`, which turns both the missing-endpoint
 //! skip and the content assertions into hard failures — silence on CI is
 //! digital, so any nonzero sample there is a real defect.
-#![cfg(windows)]
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

@@ -12,13 +12,10 @@ pub struct NV12ToRGBA {
 impl NV12ToRGBA {
     pub async fn new() -> Self {
         println!("NV12ToRGBA");
-        #[cfg(target_os = "windows")]
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::DX12 | wgpu::Backends::VULKAN,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
-        #[cfg(not(target_os = "windows"))]
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {

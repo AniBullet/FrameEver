@@ -239,17 +239,6 @@ async fn wait_for_ready(ready_file: &Path, timeout: Duration) -> bool {
     false
 }
 
-#[cfg(unix)]
-fn send_sigkill(pid: i32) -> Result<()> {
-    let result = unsafe { libc::kill(pid, libc::SIGKILL) };
-    if result != 0 {
-        let err = std::io::Error::last_os_error();
-        anyhow::bail!("kill(pid={pid}, SIGKILL) failed: {err}");
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
 fn send_sigkill(pid: i32) -> Result<()> {
     let output = Command::new("taskkill")
         .args(["/F", "/T", "/PID"])

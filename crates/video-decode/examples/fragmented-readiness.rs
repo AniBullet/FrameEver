@@ -16,13 +16,7 @@ fn main() -> Result<(), String> {
         .map_or(Ok(30), |value| value.parse::<usize>())
         .map_err(|error| error.to_string())?;
     let hardware = std::env::var_os("CAP_BENCH_HW").is_some();
-    let device = hardware.then_some(if cfg!(target_os = "macos") {
-        ffmpeg::sys::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX
-    } else if cfg!(target_os = "windows") {
-        ffmpeg::sys::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA
-    } else {
-        ffmpeg::sys::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI
-    });
+    let device = hardware.then_some(ffmpeg::sys::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA);
     let started = Instant::now();
     let mut decoder = FFmpegDecoder::new(&path, device)?;
     let opened_ms = started.elapsed().as_secs_f64() * 1000.0;

@@ -1,11 +1,7 @@
 fn main() {
-    #[cfg(windows)]
     windows::main();
-    #[cfg(not(windows))]
-    panic!("This example is only available on Windows");
 }
 
-#[cfg(windows)]
 mod windows {
     use cap_camera_directshow::*;
     use std::{fmt::Display, time::Duration};

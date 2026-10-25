@@ -86,7 +86,7 @@ impl MaskRefiner {
     /// and bright jewellery; the guided filter then sharpens those dips into
     /// holes shaped like the detail. Pockets larger than `max_area` samples
     /// are left alone, so a real gap such as an arm on a hip stays open.
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(test)]
     pub fn fill_holes(&mut self, mask: &mut [f32], max_area: usize) {
         const SOLID: f32 = 0.9;
         let width = self.width;

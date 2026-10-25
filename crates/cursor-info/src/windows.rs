@@ -154,7 +154,6 @@ impl CursorShapeWindows {
     }
 }
 
-#[cfg(target_os = "windows")]
 mod windows_only {
     use super::*;
     use ::windows::{

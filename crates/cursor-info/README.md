@@ -52,7 +52,6 @@ println!("Cursor: {}", cursor); // Output: "MacOS|Arrow"
 #### macOS
 
 ```rust
-#[cfg(target_os = "macos")]
 use cap_cursor_info::CursorShapeMacOS;
 
 // Detect cursor from hash (macOS uses image hashing)
@@ -65,7 +64,6 @@ if let Some(cursor) = CursorShapeMacOS::from_hash(hash) {
 #### Windows
 
 ```rust
-#[cfg(target_os = "windows")]
 use cap_cursor_info::CursorShape;
 use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
 

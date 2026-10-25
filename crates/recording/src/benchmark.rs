@@ -423,31 +423,12 @@ pub struct EncoderInfo {
 
 impl EncoderInfo {
     pub fn detect() -> Self {
-        #[cfg(target_os = "macos")]
-        {
-            Self {
-                name: "h264_videotoolbox".to_string(),
-                is_hardware: true,
-                gpu_type: Some(detect_macos_gpu()),
-            }
-        }
-
-        #[cfg(target_os = "windows")]
         {
             let (name, gpu) = detect_windows_encoder();
             Self {
                 name,
                 is_hardware: true,
                 gpu_type: gpu,
-            }
-        }
-
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        {
-            Self {
-                name: "libx264".to_string(),
-                is_hardware: false,
-                gpu_type: None,
             }
         }
     }
@@ -460,12 +441,6 @@ impl EncoderInfo {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn detect_macos_gpu() -> String {
-    "Apple Silicon / Intel UHD".to_string()
-}
-
-#[cfg(target_os = "windows")]
 fn detect_windows_encoder() -> (String, Option<String>) {
     let encoders = ["h264_nvenc", "h264_qsv", "h264_amf", "h264_mf"];
     for name in encoders {

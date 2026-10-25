@@ -877,18 +877,7 @@ impl AudioMixer {
 }
 
 fn mixer_now() -> Timestamp {
-    #[cfg(target_os = "macos")]
-    {
-        Timestamp::MachAbsoluteTime(cap_timestamp::MachAbsoluteTimestamp::now())
-    }
-    #[cfg(windows)]
-    {
-        Timestamp::PerformanceCounter(cap_timestamp::PerformanceCounterTimestamp::now())
-    }
-    #[cfg(not(any(target_os = "macos", windows)))]
-    {
-        Timestamp::Instant(Instant::now())
-    }
+    Timestamp::PerformanceCounter(cap_timestamp::PerformanceCounterTimestamp::now())
 }
 
 /// Input timestamps jitter around their sample clock (Linux stamps samples

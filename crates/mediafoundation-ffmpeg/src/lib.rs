@@ -1,5 +1,3 @@
-#![cfg(windows)]
-
 mod audio;
 mod h264;
 

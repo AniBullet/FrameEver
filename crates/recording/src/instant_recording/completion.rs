@@ -115,8 +115,6 @@ mod tests {
     }
 
     async fn fixture(project: &Path, output: OutputFiles, with_audio: bool, fail: bool) -> Fixture {
-        #[cfg(target_os = "linux")]
-        let lifetime = super::super::InstantLifetimeOwner::new();
         let timestamps = Timestamps::now();
         let video_info = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 4, 4, 30);
         let progressive = matches!(output, OutputFiles::Progressive);
@@ -147,8 +145,6 @@ mod tests {
             ))
             .with_timestamps(timestamps)
             .build::<TestMuxer>(fail);
-        #[cfg(target_os = "linux")]
-        let build = lifetime.lifecycle.0.scope.run(build);
         let video = build.await.unwrap();
         video_sender
             .send(Frame(Timestamp::Instant(timestamps.instant())))
@@ -167,8 +163,6 @@ mod tests {
                 ))
                 .with_timestamps(timestamps)
                 .build::<TestMuxer>(false);
-            #[cfg(target_os = "linux")]
-            let build = lifetime.lifecycle.0.scope.run(build);
             let audio = build.await.unwrap();
             sender
                 .try_send(AudioFrame::new(
@@ -207,8 +201,6 @@ mod tests {
             total_pause_duration: Duration::ZERO,
             pause_started_at: None,
             terminal_stop_error: None,
-            #[cfg(target_os = "linux")]
-            lifetime,
         });
         Fixture {
             actor,

@@ -4,20 +4,8 @@ use std::{
     time::Duration,
 };
 
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "macos")]
-use macos::*;
-
-#[cfg(windows)]
 mod windows;
-#[cfg(windows)]
 use windows::*;
-
-#[cfg(target_os = "linux")]
-mod linux;
-#[cfg(target_os = "linux")]
-pub use linux::*;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -46,7 +34,6 @@ pub fn list_cameras() -> impl Iterator<Item = CameraInfo> {
     list_cameras_impl()
 }
 
-#[cfg(windows)]
 pub type NativeFormat = cap_camera_windows::VideoFormatInner;
 
 #[derive(Debug, Clone)]
@@ -106,22 +93,11 @@ impl Debug for Format {
         f.debug_struct("Format")
             .field("info", &self.info)
             .field("native", {
-                #[cfg(target_os = "macos")]
-                {
-                    &"AVFoundation"
-                }
-                #[cfg(windows)]
-                {
-                    use cap_camera_windows::VideoFormatInner;
+                use cap_camera_windows::VideoFormatInner;
 
-                    match &self.native {
-                        VideoFormatInner::DirectShow(_) => &"DirectShow",
-                        VideoFormatInner::MediaFoundation(_) => &"MediaFoundation",
-                    }
-                }
-                #[cfg(target_os = "linux")]
-                {
-                    &"Linux"
+                match &self.native {
+                    VideoFormatInner::DirectShow(_) => &"DirectShow",
+                    VideoFormatInner::MediaFoundation(_) => &"MediaFoundation",
                 }
             })
             .finish()
@@ -185,23 +161,14 @@ impl Display for ModelID {
 
 #[derive(thiserror::Error, Debug)]
 pub enum StartCapturingError {
-    #[cfg(windows)]
     #[error("GetDevicesFailed/{0}")]
     GetDevicesFailed(#[from] cap_camera_windows::GetDevicesError),
     #[error("Device not found")]
     DeviceNotFound,
-    #[cfg(windows)]
     #[error("{0}")]
     Inner(#[from] cap_camera_windows::StartCapturingError),
-    #[cfg(target_os = "macos")]
-    #[error("{0}")]
-    Native(#[from] AVFoundationError),
-    #[cfg(windows)]
     #[error("{0}")]
     Native(windows_core::Error),
-    #[cfg(target_os = "linux")]
-    #[error("{0}")]
-    Native(String),
 }
 
 /// How the capture session negotiates pixel format and device format.
@@ -245,7 +212,7 @@ impl CameraInfo {
         self.start_capturing_with_mode(format, CaptureMode::default(), callback)
     }
 
-    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+    #[allow(unused_variables)]
     pub fn start_capturing_with_mode(
         &self,
         format: Format,
@@ -253,16 +220,6 @@ impl CameraInfo {
         callback: impl FnMut(CapturedFrame) + Send + 'static,
     ) -> Result<CaptureHandle, StartCapturingError> {
         Ok(CaptureHandle {
-            #[cfg(target_os = "macos")]
-            native: Some(start_capturing_impl(
-                self,
-                format,
-                mode,
-                Box::new(callback),
-            )?),
-            #[cfg(windows)]
-            native: Some(start_capturing_impl(self, format, Box::new(callback))?),
-            #[cfg(target_os = "linux")]
             native: Some(start_capturing_impl(self, format, Box::new(callback))?),
         })
     }
