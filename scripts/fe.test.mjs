@@ -7,15 +7,13 @@ import {
 	changelogSection,
 	firstRecording,
 	isLargeAddressAware,
-	MISANS_WEIGHTS,
-	missingMisans,
+	missingChineseFont,
 	missingNativeDeps,
 	missingNsisFiles,
 	NSIS,
 	parseArgs,
 	parseCargoUpdate,
 	setLargeAddressAware,
-	setWeightClass,
 	SEMVER,
 	stampReleaseDate,
 	stampVersion,
@@ -67,30 +65,14 @@ test("packaging names each missing native dependency folder", () => {
 	rmSync(dir, { recursive: true });
 });
 
-test("every MiSans weight the UI uses must be on disk", () => {
+test("the Chinese UI font and its licence must be on disk", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "fe-"));
-	assert.equal(missingMisans(dir).length, MISANS_WEIGHTS.length);
-	writeFileSync(path.join(dir, "MiSans-Regular.ttf"), "");
-	assert.equal(missingMisans(dir).includes("MiSans-Regular.ttf"), false);
+	assert.deepEqual(missingChineseFont(dir), ["HarmonyOS_Sans_SC.ttf", "LICENSE-HarmonyOS-Sans.txt"]);
+	writeFileSync(path.join(dir, "HarmonyOS_Sans_SC.ttf"), "");
+	assert.deepEqual(missingChineseFont(dir), ["LICENSE-HarmonyOS-Sans.txt"]);
+	writeFileSync(path.join(dir, "LICENSE-HarmonyOS-Sans.txt"), "");
+	assert.deepEqual(missingChineseFont(dir), []);
 	rmSync(dir, { recursive: true });
-});
-
-test("rewriting a font's weight class changes only that field and keeps it valid", () => {
-	const font = Buffer.alloc(12 + 2 * 16 + 64);
-	font.writeUInt16BE(2, 4);
-	font.write("OS/2", 12, "latin1");
-	font.writeUInt32BE(44, 12 + 8);
-	font.writeUInt32BE(8, 12 + 12);
-	font.write("head", 28, "latin1");
-	font.writeUInt32BE(52, 28 + 8);
-	font.writeUInt32BE(12, 28 + 12);
-	font.writeUInt16BE(330, 44 + 4);
-	const out = setWeightClass(font, 400);
-	assert.equal(out.readUInt16BE(44 + 4), 400);
-	assert.equal(font.readUInt16BE(44 + 4), 330);
-	let sum = 0;
-	for (let index = 0; index < out.length; index += 4) sum = (sum + out.readUInt32BE(index)) >>> 0;
-	assert.equal(sum, 0xb1b0afba);
 });
 
 test("marking a PE image large-address-aware sets only that flag", () => {

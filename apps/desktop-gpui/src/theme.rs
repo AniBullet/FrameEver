@@ -15,7 +15,7 @@ use crate::store::AppTheme;
 
 pub fn ui_font() -> &'static str {
     match crate::i18n::current() {
-        crate::i18n::Language::SimplifiedChinese => "MiSans",
+        crate::i18n::Language::SimplifiedChinese => "HarmonyOS Sans SC",
         crate::i18n::Language::English => "Inter",
     }
 }

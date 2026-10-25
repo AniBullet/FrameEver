@@ -182,6 +182,12 @@ def font(app, name, size):
     return ImageFont.truetype(str(app / "assets" / "fonts" / name), size)
 
 
+def chinese_font(app, weight, size):
+    face = font(app, "harmonyos-sans/HarmonyOS_Sans_SC.ttf", size)
+    face.set_variation_by_name(weight)
+    return face
+
+
 def text(image, xy, value, face, colour, alpha=255):
     layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).text(xy, value, font=face, fill=(*rgb(colour), alpha))
@@ -195,9 +201,9 @@ def write_installer_images(app, scale=2):
     side = Image.new("RGBA", (w, h), (*rgb(SURFACE), 255))
     side.alpha_composite(render_icon(40 * scale), (left, 24 * scale))
     text(side, (left, 196 * scale), "FrameEver", font(app, "Inter-SemiBold.ttf", 19 * scale), INK)
-    text(side, (left, 222 * scale), "帧刻", font(app, "misans/MiSans-Medium.ttf", 11 * scale), INK, 220)
+    text(side, (left, 222 * scale), "帧刻", chinese_font(app, "Medium", 11 * scale), INK, 220)
     ImageDraw.Draw(side).rectangle((left, 246 * scale, left + 16 * scale, 247 * scale), fill=rgb(PLATE))
-    text(side, (left, 254 * scale), "一刻，凝成永恒", font(app, "misans/MiSans-Regular.ttf", 9 * scale), INK_SECONDARY)
+    text(side, (left, 254 * scale), "一刻，凝成永恒", chinese_font(app, "Regular", 9 * scale), INK_SECONDARY)
     text(side, (left, 290 * scale), "by aniBullet", font(app, "Inter-Regular.ttf", 7 * scale), INK_SECONDARY, 200)
     side.convert("RGB").save(out / "nsis-sidebar.bmp")
 

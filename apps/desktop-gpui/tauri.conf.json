@@ -38,7 +38,8 @@
 			"assets/backgrounds/orange/*": "assets/backgrounds/orange/",
 			"assets/backgrounds/purple/*": "assets/backgrounds/purple/",
 			"assets/music/*.mp3": "assets/music/",
-			"assets/icons/LICENSE-*.txt": "licenses/icons/"
+			"assets/icons/LICENSE-*.txt": "licenses/icons/",
+			"assets/fonts/harmonyos-sans/LICENSE-*.txt": "licenses/fonts/"
 		},
 		"fileAssociations": [
 			{

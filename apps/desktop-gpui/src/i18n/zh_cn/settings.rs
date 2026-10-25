@@ -148,7 +148,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Installing v{version}…", "正在安装 v{version}…"),
     ("View previous versions", "查看历史版本"),
     ("Based on Cap (AGPL-3.0)", "基于 Cap（AGPL-3.0）"),
-    ("Chinese font: MiSans by Xiaomi", "中文字体：小米 MiSans"),
+    (
+        "Chinese font: HarmonyOS Sans by Huawei",
+        "中文字体：华为 HarmonyOS Sans",
+    ),
     ("Icons: Lucide (ISC)", "图标：Lucide（ISC）"),
     ("Icons: Phosphor (MIT)", "图标：Phosphor（MIT）"),
     ("Import", "导入"),

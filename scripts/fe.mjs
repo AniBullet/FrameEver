@@ -23,10 +23,15 @@ export const testdataDir = path.join(gpuiDir, "target", "testdata");
 export const distDir = path.join(root, "dist");
 export const target = "x86_64-pc-windows-msvc";
 const ffmpegBin = path.join(root, "target", "ffmpeg", "bin");
-export const MISANS_URL = "https://hyperos.mi.com/font-download/MiSans.zip";
-export const MISANS_WEIGHTS = ["Regular", "Medium", "Semibold", "Bold"];
-const MISANS_WEIGHT_CLASS = { Regular: 400, Medium: 500, Semibold: 600, Bold: 700 };
-export const misansDir = path.join(gpuiDir, "assets", "fonts", "misans");
+const HARMONYOS_SANS = {
+	url: "https://alliance-communityfile-drcn.dbankcdn.com/FileServer/getFile/cmtyManage/011/111/111/0000000000011111111.20260627152129.89276966309836366526585265125586:50001231000000:2800:A0161E048334FE0271F9F5ECBBD5070D17381C7846125F4D7109DBC7B532C715.zip?needInitFileName=true",
+	sha1: "22f5ba9f45fe6c70d4b6403a18bbd6620779a245",
+	members: {
+		"HarmonyOS_Sans_SC.ttf": "HarmonyOS Sans/HarmonyOS_Sans_SC.ttf",
+		"LICENSE-HarmonyOS-Sans.txt": "HarmonyOS Sans/LICENSE-update.txt",
+	},
+};
+export const chineseFontDir = path.join(gpuiDir, "assets", "fonts", "harmonyos-sans");
 const isWindows = process.platform === "win32";
 
 export const NSIS = {
@@ -57,7 +62,7 @@ export const NSIS = {
 };
 
 const COMMANDS = {
-	setup: "Prepare a fresh machine: JS deps, FFmpeg/ONNX/DXC, patched gpui, MiSans font",
+	setup: "Prepare a fresh machine: JS deps, FFmpeg/ONNX/DXC, patched gpui, HarmonyOS Sans font",
 	dev: "Build and run the app (test data by default). --watch, --lang zh-CN|en, --real",
 	check: "Compile-check the GPUI app and the CLI, tests included",
 	test: "Run GPUI tests (optional filter). --all adds encoder, export, CLI and script tests",
@@ -201,8 +206,8 @@ function setup({ flags }) {
 	step("Patched gpui checkout (../zed-cap)");
 	run(gitBash(), [path.join("scripts", "prepare-gpui-dependency.sh")]);
 
-	step("MiSans (Chinese UI font, fetched from Xiaomi; its license forbids committing it)");
-	fetchMisans();
+	step("HarmonyOS Sans (Chinese UI font, fetched from Huawei; its license forbids committing it)");
+	fetchChineseFont();
 
 	if (isWindows) {
 		step("NSIS installer compiler (Tauri's toolset, made large-address-aware)");
@@ -294,65 +299,30 @@ function systemTar() {
 	return isWindows ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
 }
 
-export function missingMisans(dir = misansDir) {
-	return MISANS_WEIGHTS.map((weight) => `MiSans-${weight}.ttf`).filter(
-		(name) => !existsSync(path.join(dir, name)),
-	);
+export function missingChineseFont(dir = chineseFontDir) {
+	return Object.keys(HARMONYOS_SANS.members).filter((name) => !existsSync(path.join(dir, name)));
 }
 
-function tableChecksum(font, offset, length) {
-	let sum = 0;
-	const padded = Buffer.alloc(Math.ceil(length / 4) * 4);
-	font.copy(padded, 0, offset, offset + length);
-	for (let index = 0; index < padded.length; index += 4) {
-		sum = (sum + padded.readUInt32BE(index)) >>> 0;
-	}
-	return sum;
-}
-
-export function setWeightClass(input, weightClass) {
-	const font = Buffer.from(input);
-	const tables = new Map();
-	const count = font.readUInt16BE(4);
-	for (let index = 0; index < count; index += 1) {
-		const record = 12 + index * 16;
-		tables.set(font.toString("latin1", record, record + 4), {
-			record,
-			offset: font.readUInt32BE(record + 8),
-			length: font.readUInt32BE(record + 12),
-		});
-	}
-	const os2 = tables.get("OS/2");
-	const head = tables.get("head");
-	font.writeUInt16BE(weightClass, os2.offset + 4);
-	font.writeUInt32BE(tableChecksum(font, os2.offset, os2.length), os2.record + 4);
-	font.writeUInt32BE(0, head.offset + 8);
-	font.writeUInt32BE(tableChecksum(font, head.offset, head.length), head.record + 4);
-	const total = tableChecksum(font, 0, font.length);
-	font.writeUInt32BE((0xb1b0afba - total) >>> 0, head.offset + 8);
-	return font;
-}
-
-function fetchMisans() {
-	if (missingMisans().length === 0) {
+function fetchChineseFont() {
+	rmSync(path.join(gpuiDir, "assets", "fonts", "misans"), { recursive: true, force: true });
+	if (missingChineseFont().length === 0) {
 		console.log("  Already present.");
 		return;
 	}
-	const cache = path.join(root, "target", "native-deps", "MiSans.zip");
-	mkdirSync(path.dirname(cache), { recursive: true });
-	if (!existsSync(cache)) run("curl", ["-fSL", "-o", cache, MISANS_URL]);
-	const staging = path.join(root, "target", "native-deps", "misans-extract");
+	const cache = downloadVerified(
+		HARMONYOS_SANS.url,
+		HARMONYOS_SANS.sha1,
+		path.join(root, "target", "native-deps", "HarmonyOS-Sans.zip"),
+	);
+	const staging = path.join(root, "target", "native-deps", "harmonyos-sans-extract");
 	mkdirSync(staging, { recursive: true });
-	const members = MISANS_WEIGHTS.map((weight) => `MiSans/ttf/MiSans-${weight}.ttf`);
-	run(systemTar(), ["-xf", cache, "-C", staging, ...members]);
-	mkdirSync(misansDir, { recursive: true });
-	for (const weight of MISANS_WEIGHTS) {
-		const source = path.join(staging, "MiSans", "ttf", `MiSans-${weight}.ttf`);
-		const font = setWeightClass(readFileSync(source), MISANS_WEIGHT_CLASS[weight]);
-		writeFileSync(path.join(misansDir, `MiSans-${weight}.ttf`), font);
+	run(systemTar(), ["-xf", cache, "-C", staging, ...Object.values(HARMONYOS_SANS.members)]);
+	mkdirSync(chineseFontDir, { recursive: true });
+	for (const [name, member] of Object.entries(HARMONYOS_SANS.members)) {
+		copyFileSync(path.join(staging, member), path.join(chineseFontDir, name));
 	}
-	const still = missingMisans();
-	if (still.length > 0) fail(`MiSans files missing after extraction: ${still.join(", ")}`);
+	const still = missingChineseFont();
+	if (still.length > 0) fail(`HarmonyOS Sans files missing after extraction: ${still.join(", ")}`);
 }
 
 function writeTestLanguage(lang) {
@@ -601,7 +571,7 @@ export const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
 function packageInstaller({ flags }) {
 	if (!isWindows) fail("Packaging targets Windows; run it on Windows.");
-	const missing = [...missingNativeDeps(), ...missingMisans()];
+	const missing = [...missingNativeDeps(), ...missingChineseFont()];
 	if (missing.length > 0) {
 		fail(`Native dependencies are missing (${missing.join(", ")}). Run: pnpm fe setup`);
 	}
@@ -842,8 +812,8 @@ function doctor() {
 		"",
 		"pnpm fe setup",
 	);
-	const fonts = missingMisans();
-	add("MiSans font files", fonts.length === 0, fonts.join(", "), "pnpm fe setup");
+	const fonts = missingChineseFont();
+	add("HarmonyOS Sans font files", fonts.length === 0, fonts.join(", "), "pnpm fe setup");
 	add(
 		"Patched gpui (../zed-cap)",
 		existsSync(path.join(root, "..", "zed-cap", "crates", "gpui")),

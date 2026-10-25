@@ -7,8 +7,11 @@
 //! silently -- the element lays out at its declared size and draws nothing.
 
 use std::borrow::Cow;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::{App, AssetSource, Result, SharedString};
+
+use crate::i18n::Language;
 
 /// Expands to `(path, bytes)` pairs rooted at `assets/`.
 macro_rules! assets {
@@ -28,13 +31,13 @@ const FONTS: &[(&str, &[u8])] = assets!("fonts":
     "Inter-Medium.ttf",
     "Inter-SemiBold.ttf",
     "Inter-Bold.ttf",
-    "misans/MiSans-Regular.ttf",
-    "misans/MiSans-Medium.ttf",
-    "misans/MiSans-Semibold.ttf",
-    "misans/MiSans-Bold.ttf",
     // Adobe, SIL Open Font License 1.1 (the licence is embedded in the font).
     "SourceSerif4-Light.ttf",
 );
+
+const CHINESE_UI_FONT: &[(&str, &[u8])] = assets!("fonts": "harmonyos-sans/HarmonyOS_Sans_SC.ttf");
+
+static CHINESE_UI_FONT_LOADED: AtomicBool = AtomicBool::new(false);
 
 /// Mostly Cap's own icon set, lifted from Tauri `ui-solid/icons`. gpui
 /// rasterises an SVG and keeps only its alpha, tinting the result with the
@@ -273,19 +276,33 @@ impl AssetSource for Assets {
 }
 
 impl Assets {
-    /// Register the embedded Geist faces with the text system.
-    ///
-    /// gpui resolves `.font_family("Geist")` against whatever the platform text
-    /// system knows about, so this has to run before the first window renders or
-    /// text silently falls back to the system UI font.
     pub fn load_fonts(&self, cx: &App) -> Result<()> {
-        cx.text_system().add_fonts(
-            FONTS
-                .iter()
-                .map(|(_, bytes)| Cow::Borrowed(*bytes))
-                .collect(),
-        )
+        cx.text_system().add_fonts(borrowed(FONTS))?;
+        self.load_chinese_font_if_needed(cx)
     }
+
+    pub fn load_chinese_font_if_needed(&self, cx: &App) -> Result<()> {
+        if !needs_chinese_font(
+            crate::i18n::current(),
+            CHINESE_UI_FONT_LOADED.load(Ordering::Relaxed),
+        ) {
+            return Ok(());
+        }
+        cx.text_system().add_fonts(borrowed(CHINESE_UI_FONT))?;
+        CHINESE_UI_FONT_LOADED.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+fn needs_chinese_font(language: Language, already_loaded: bool) -> bool {
+    language == Language::SimplifiedChinese && !already_loaded
+}
+
+fn borrowed(fonts: &'static [(&'static str, &'static [u8])]) -> Vec<Cow<'static, [u8]>> {
+    fonts
+        .iter()
+        .map(|(_, bytes)| Cow::Borrowed(*bytes))
+        .collect()
 }
 
 #[cfg(test)]
@@ -457,6 +474,10 @@ mod tests {
             config["bundle"]["resources"]["assets/icons/LICENSE-*.txt"],
             "licenses/icons/"
         );
+        assert_eq!(
+            config["bundle"]["resources"]["assets/fonts/harmonyos-sans/LICENSE-*.txt"],
+            "licenses/fonts/"
+        );
     }
 
     /// Same contract for the bitmaps, which `img()` resolves through the
@@ -490,6 +511,15 @@ mod tests {
             unused.is_empty(),
             "images embedded but never drawn: {unused:?}"
         );
+    }
+
+    #[test]
+    fn only_the_chinese_ui_loads_the_chinese_font_and_only_once() {
+        assert!(!needs_chinese_font(Language::English, false));
+        assert!(needs_chinese_font(Language::SimplifiedChinese, false));
+        assert!(!needs_chinese_font(Language::SimplifiedChinese, true));
+        assert!(!FONTS.iter().any(|(name, _)| name.contains("HarmonyOS")));
+        assert!(Assets.load("fonts/Inter-Regular.ttf").unwrap().is_some());
     }
 
     #[test]

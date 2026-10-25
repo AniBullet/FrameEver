@@ -1736,8 +1736,8 @@ impl SettingsWindow {
                     ),
                     (
                         "settings-font-credit",
-                        t!("Chinese font: MiSans by Xiaomi"),
-                        "https://hyperos.mi.com/font/",
+                        t!("Chinese font: HarmonyOS Sans by Huawei"),
+                        "https://developer.huawei.com/consumer/cn/design/resource/",
                     ),
                     (
                         "settings-lucide-credit",
@@ -2805,6 +2805,9 @@ impl SettingsWindow {
                 cx,
             );
             crate::i18n::set(crate::i18n::resolve(this.settings.language.as_deref()));
+            if let Err(error) = crate::assets::Assets.load_chinese_font_if_needed(cx) {
+                tracing::error!("failed to load the Chinese UI font: {error:#}");
+            }
             cx.defer(|cx: &mut gpui::App| cx.refresh_windows());
         });
 
