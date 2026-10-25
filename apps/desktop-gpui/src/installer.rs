@@ -536,7 +536,7 @@ fn replace_directory(new: &Path, destination: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", all(test, unix)))]
 const PRIVILEGED_REPLACE_SCRIPT: &str = r#"destination="$1"
 replacement="$2"
 backup="$3"

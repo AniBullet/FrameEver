@@ -638,10 +638,6 @@ fn opt_string_at(map: &Map<String, Value>, key: &str) -> Option<String> {
         .map(|value| value.to_string())
 }
 
-fn string_at(map: &Map<String, Value>, key: &str, default: &str) -> String {
-    opt_string_at(map, key).unwrap_or_else(|| default.to_string())
-}
-
 fn strings_at(map: &Map<String, Value>, key: &str) -> Vec<String> {
     map.get(key)
         .and_then(Value::as_array)
