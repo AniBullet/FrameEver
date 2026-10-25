@@ -339,6 +339,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Excluded windows", "排除的窗口"),
     ("Hide windows from recordings.", "在录制中隐藏这些窗口。"),
     (
+        "Hide FrameEver windows from recordings.",
+        "在录制中隐藏帧刻的窗口。",
+    ),
+    (
         "Over Remote Desktop or a streaming app, FrameEver windows stay visible in recordings.",
         "通过远程桌面或串流软件使用时，帧刻的窗口会留在录制画面里。",
     ),

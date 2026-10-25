@@ -1302,9 +1302,9 @@ impl SettingsWindow {
             }
             MenuKind::PostDeletion => enum_items(self.settings.post_deletion_behaviour),
             MenuKind::AddWindow => self
-                .available_windows()
+                .add_window_options()
                 .into_iter()
-                .map(|window| ui::MenuItem::new(window_option_label(&window), false))
+                .map(|(label, _)| ui::MenuItem::new(label, false))
                 .collect(),
             kind => self.pages_menu_items(kind),
         }
@@ -1344,17 +1344,11 @@ impl SettingsWindow {
                 }
             }
             MenuKind::AddWindow => {
-                let Some(option) = self.available_windows().get(index).cloned() else {
+                let Some((_, rule)) = self.add_window_options().into_iter().nth(index) else {
                     return;
                 };
-                // `handleAddWindow`: the title is only recorded when there is
-                // no bundle id to match on.
                 let mut next = self.settings.excluded_windows.clone();
-                next.push(WindowExclusion {
-                    bundle_identifier: None,
-                    owner_name: Some(option.app.clone()),
-                    window_title: Some(option.label.clone()),
-                });
+                next.push(rule);
                 self.write_excluded(next, cx);
             }
             kind => self.pages_choose(kind, index, window, cx),
@@ -1362,9 +1356,29 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    fn add_window_options(&self) -> Vec<(String, WindowExclusion)> {
+        if !store::OTHER_APP_WINDOWS_EXCLUDABLE {
+            return self
+                .missing_default_exclusions()
+                .into_iter()
+                .map(|rule| (rule.primary_label().to_string(), rule))
+                .collect();
+        }
+        self.available_windows()
+            .into_iter()
+            .map(|window| {
+                let label = window_option_label(&window);
+                let rule = WindowExclusion {
+                    bundle_identifier: None,
+                    owner_name: Some(window.app),
+                    window_title: Some(window.label),
+                };
+                (label, rule)
+            })
+            .collect()
+    }
+
     /// `availableWindows`: everything not already covered by an exclusion.
-    /// The `ostype === "windows"` narrowing is not reproduced -- this app is
-    /// macOS-only so far.
     fn available_windows(&self) -> Vec<WindowOption> {
         self.windows
             .iter()
@@ -3672,6 +3686,7 @@ impl SettingsWindow {
     fn render_excluded_windows(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let missing = self.missing_default_exclusions();
+        let nothing_to_add = self.add_window_options().is_empty();
 
         let right = div()
             .flex()
@@ -3693,13 +3708,13 @@ impl SettingsWindow {
                     "exclusions-add",
                     (ui::ButtonVariant::Dark, Some("icons/plus.svg")),
                     t!("Add"),
-                    self.windows.is_empty(),
+                    nothing_to_add,
                     cx,
                     |_, _, _| {},
                 )
                 .on_click(cx.listener(
                     |this, event: &gpui::ClickEvent, window, cx| {
-                        if !this.windows.is_empty() {
+                        if !this.add_window_options().is_empty() {
                             this.open_menu(MenuKind::AddWindow, event.position(), window, cx);
                         }
                     },
@@ -3844,7 +3859,11 @@ impl SettingsWindow {
 
         self.section(
             t!("Excluded windows"),
-            Some(t!("Hide windows from recordings.")),
+            Some(if store::OTHER_APP_WINDOWS_EXCLUDABLE {
+                t!("Hide windows from recordings.")
+            } else {
+                t!("Hide FrameEver windows from recordings.")
+            }),
             Some(right),
             vec![
                 card.child(chips)
