@@ -20,7 +20,7 @@ use std::{
 };
 use tracing::{debug, error, info, warn};
 
-pub const ENV_BIN_PATH: &str = "CAP_MUXER_BIN";
+pub const ENV_BIN_PATH: &str = "FRAMEEVER_MUXER_BIN";
 const STDERR_RING_LIMIT: usize = 128;
 const RESPAWN_COOLDOWN: Duration = Duration::from_millis(500);
 const RESPAWN_STABILITY_WINDOW: Duration = Duration::from_secs(5);
@@ -195,8 +195,8 @@ impl MuxerSubprocess {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .env(
-                "CAP_MUXER_LOG",
-                std::env::var("CAP_MUXER_LOG").unwrap_or_else(|_| "info".to_string()),
+                "FRAMEEVER_MUXER_LOG",
+                std::env::var("FRAMEEVER_MUXER_LOG").unwrap_or_else(|_| "info".to_string()),
             );
         configure_muxer_command(&mut command);
 
@@ -824,7 +824,7 @@ impl RespawningMuxerSubprocess {
 }
 
 pub fn feature_enabled() -> bool {
-    std::env::var("CAP_OUT_OF_PROCESS_MUXER")
+    std::env::var("FRAMEEVER_OUT_OF_PROCESS_MUXER")
         .ok()
         .filter(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .is_some()

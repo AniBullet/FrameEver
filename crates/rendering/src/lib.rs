@@ -208,7 +208,7 @@ pub fn set_force_software_wgpu_adapter(value: bool) {
 
 pub fn force_software_wgpu_adapter() -> bool {
     FORCE_SOFTWARE_WGPU_ADAPTER.load(Ordering::Acquire)
-        || std::env::var("CAP_RENDER_FORCE_SOFTWARE_ADAPTER").is_ok_and(|value| {
+        || std::env::var("FRAMEEVER_RENDER_FORCE_SOFTWARE_ADAPTER").is_ok_and(|value| {
             matches!(
                 value.to_ascii_lowercase().as_str(),
                 "1" | "true" | "yes" | "on"
@@ -1274,7 +1274,7 @@ pub async fn render_video_to_channel(
 /// frames, exactly as before the IOSurface path existed.
 #[cfg(target_os = "macos")]
 pub fn zero_copy_export_disabled() -> bool {
-    std::env::var("CAP_EXPORT_DISABLE_ZERO_COPY").is_ok_and(|value| {
+    std::env::var("FRAMEEVER_EXPORT_DISABLE_ZERO_COPY").is_ok_and(|value| {
         matches!(
             value.to_ascii_lowercase().as_str(),
             "1" | "true" | "yes" | "on"
@@ -1283,7 +1283,7 @@ pub fn zero_copy_export_disabled() -> bool {
 }
 
 /// Cumulative wall time per stage of the NV12 export loop (µs), for finding
-/// which stage a render slot waits on. Off unless CAP_RENDER_LOOP_STATS=1;
+/// which stage a render slot waits on. Off unless FRAMEEVER_RENDER_LOOP_STATS=1;
 /// `take` reads and resets.
 pub mod loop_stats {
     use std::sync::{
@@ -1300,7 +1300,7 @@ pub mod loop_stats {
 
     pub fn enabled() -> bool {
         static ENABLED: OnceLock<bool> = OnceLock::new();
-        *ENABLED.get_or_init(|| std::env::var("CAP_RENDER_LOOP_STATS").as_deref() == Ok("1"))
+        *ENABLED.get_or_init(|| std::env::var("FRAMEEVER_RENDER_LOOP_STATS").as_deref() == Ok("1"))
     }
 
     pub fn add(counter: &AtomicU64, elapsed: std::time::Duration) {

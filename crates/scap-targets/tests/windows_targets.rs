@@ -67,7 +67,7 @@ impl Drop for FixtureProcess {
 
 #[test]
 fn window_fixture_process() {
-    if std::env::var_os("CAP_WINDOW_DISCOVERY_FIXTURE").is_none() {
+    if std::env::var_os("FRAMEEVER_WINDOW_DISCOVERY_FIXTURE").is_none() {
         return;
     }
 
@@ -116,7 +116,7 @@ fn discovers_foreign_top_level_windows_and_preserves_target_filters() {
     let mut fixture = FixtureProcess(
         Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "window_fixture_process", "--nocapture"])
-            .env("CAP_WINDOW_DISCOVERY_FIXTURE", "1")
+            .env("FRAMEEVER_WINDOW_DISCOVERY_FIXTURE", "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()

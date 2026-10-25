@@ -2847,7 +2847,7 @@ impl EditorWindow {
         if self.preparing_auto_played
             || !self.preparing_frame_presented
             || !self.preparing_controls_ready()
-            || !std::env::var("CAP_GPUI_AUTO_PREPARING_PLAY").is_ok_and(|value| value == "1")
+            || !std::env::var("FRAMEEVER_GPUI_AUTO_PREPARING_PLAY").is_ok_and(|value| value == "1")
         {
             return;
         }
@@ -3293,13 +3293,13 @@ impl EditorWindow {
         self.seek_to_time(total, cx);
     }
 
-    /// Harness only (`CAP_GPUI_AUTO_SEEK`, `CAP_GPUI_AUTO_PLAYBACK_TORTURE`):
+    /// Harness only (`FRAMEEVER_GPUI_AUTO_SEEK`, `FRAMEEVER_GPUI_AUTO_PLAYBACK_TORTURE`):
     /// seek to a fraction along the timeline.
     ///
     /// It goes the long way round -- fraction to a window x, then through the
     /// same [`Self::time_at`] mapping a real click takes -- so the geometry is
     /// exercised too. Only gpui's event delivery is skipped, for the same
-    /// reason as every other `CAP_GPUI_AUTO_*` hook: unprivileged synthetic
+    /// reason as every other `FRAMEEVER_GPUI_AUTO_*` hook: unprivileged synthetic
     /// clicks are dropped.
     pub fn seek_fraction(&mut self, fraction: f64, window: &mut Window, cx: &mut Context<Self>) {
         let viewport_width: f32 = window.viewport_size().width.into();
@@ -3309,7 +3309,7 @@ impl EditorWindow {
         self.seek_to_time(time, cx);
     }
 
-    /// Harness only (`CAP_GPUI_AUTO_PLAYBACK`): stop and emit the run's
+    /// Harness only (`FRAMEEVER_GPUI_AUTO_PLAYBACK`): stop and emit the run's
     /// numbers. Identical to pressing pause -- the report is emitted on every
     /// stop, this just guarantees one happens.
     pub fn stop_for_measurement(&mut self, cx: &mut Context<Self>) {
@@ -7816,7 +7816,7 @@ impl EditorWindow {
         cx.notify();
     }
 
-    /// `CAP_GPUI_AUTO_ADD_TRACK` (see `app_windows::drive_auto_sidebar`).
+    /// `FRAMEEVER_GPUI_AUTO_ADD_TRACK` (see `app_windows::drive_auto_sidebar`).
     pub(crate) fn auto_add_track(
         &mut self,
         spec: &str,
@@ -7846,7 +7846,7 @@ impl EditorWindow {
         cx.notify();
     }
 
-    /// `CAP_GPUI_AUTO_CLIP_MENU` (see `app_windows::drive_auto_sidebar`).
+    /// `FRAMEEVER_GPUI_AUTO_CLIP_MENU` (see `app_windows::drive_auto_sidebar`).
     pub(crate) fn auto_clip_menu(
         &mut self,
         spec: &str,
@@ -11958,9 +11958,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "set CAP_AUTO_ZOOM_BENCH_PROJECT to a disposable recording bundle"]
+    #[ignore = "set FRAMEEVER_AUTO_ZOOM_BENCH_PROJECT to a disposable recording bundle"]
     fn auto_zoom_click_loading_benchmark() {
-        let path = PathBuf::from(std::env::var_os("CAP_AUTO_ZOOM_BENCH_PROJECT").unwrap());
+        let path = PathBuf::from(std::env::var_os("FRAMEEVER_AUTO_ZOOM_BENCH_PROJECT").unwrap());
         let meta = RecordingMeta::load_for_project(&path).unwrap();
         let RecordingMetaInner::Studio(studio) = &meta.inner else {
             panic!("benchmark requires a Studio recording");

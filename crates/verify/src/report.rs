@@ -5,7 +5,7 @@
 //! `frameever-verify-expect` (a listed class passes as XFAIL, a listed class that
 //! no longer occurs fails with "remove this xfail", any other failure fails
 //! with the exact mismatches and a one-line local repro command), and the
-//! result is written as a JSON record to `CAP_VERIFY_REPORT_DIR`.
+//! result is written as a JSON record to `FRAMEEVER_VERIFY_REPORT_DIR`.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -24,10 +24,10 @@ pub enum Tier {
     Full,
 }
 
-/// `CAP_VERIFY_TIER=full` selects the merge-gate/nightly tier; anything else
+/// `FRAMEEVER_VERIFY_TIER=full` selects the merge-gate/nightly tier; anything else
 /// (or unset) is the fast PR tier.
 pub fn tier() -> Tier {
-    match std::env::var("CAP_VERIFY_TIER").as_deref() {
+    match std::env::var("FRAMEEVER_VERIFY_TIER").as_deref() {
         Ok("full") => Tier::Full,
         _ => Tier::Fast,
     }
@@ -64,7 +64,7 @@ const WALL_CLOCK_CLASSES: &[&str] = &["dropped"];
 
 /// Set by scripts/verify/retry.py when it reruns a test once.
 fn retrying() -> bool {
-    std::env::var("CAP_VERIFY_RETRY").as_deref() == Ok("1")
+    std::env::var("FRAMEEVER_VERIFY_RETRY").as_deref() == Ok("1")
 }
 
 pub struct Case {
@@ -195,18 +195,18 @@ impl Case {
     }
 
     /// Marks the case as impossible on this machine. With
-    /// `CAP_VERIFY_REQUIRE_SUPPORTED=1` (CI) it is a failure of class
+    /// `FRAMEEVER_VERIFY_REQUIRE_SUPPORTED=1` (CI) it is a failure of class
     /// `unsupported` unless the case matches one of the comma-separated globs
-    /// in `CAP_VERIFY_UNSUPPORTED_ALLOW` (the per-platform allowlist in
+    /// in `FRAMEEVER_VERIFY_UNSUPPORTED_ALLOW` (the per-platform allowlist in
     /// scripts/verify/suites.json, each with its reason).
     pub fn unsupported(&mut self, reason: impl Into<String>) {
         let reason = reason.into();
-        let allowed = std::env::var("CAP_VERIFY_UNSUPPORTED_ALLOW")
+        let allowed = std::env::var("FRAMEEVER_VERIFY_UNSUPPORTED_ALLOW")
             .unwrap_or_default()
             .split(',')
             .map(str::trim)
             .any(|glob| !glob.is_empty() && glob_match(glob, &self.id));
-        if std::env::var("CAP_VERIFY_REQUIRE_SUPPORTED").as_deref() == Ok("1") && !allowed {
+        if std::env::var("FRAMEEVER_VERIFY_REQUIRE_SUPPORTED").as_deref() == Ok("1") && !allowed {
             self.problem(
                 "unsupported",
                 format!("unsupported on this machine: {reason}"),
@@ -327,7 +327,7 @@ pub fn xfails_for(id: &str) -> Vec<Xfail> {
 fn repro_command(id: &str) -> String {
     let test = id.split('/').next().unwrap_or("export");
     format!(
-        "CAP_VERIFY_CASE='{id}' CAP_VERIFY_TIER={} cargo test -p frameever-verify --test {test} -- --nocapture",
+        "FRAMEEVER_VERIFY_CASE='{id}' FRAMEEVER_VERIFY_TIER={} cargo test -p frameever-verify --test {test} -- --nocapture",
         match tier() {
             Tier::Fast => "fast",
             Tier::Full => "full",
@@ -335,8 +335,8 @@ fn repro_command(id: &str) -> String {
     )
 }
 
-/// Whether a case runs: `CAP_VERIFY_CASE`, `CAP_VERIFY_SKIP` and
-/// `CAP_VERIFY_SHARD` (see `frameever_verify_expect::case_selected`).
+/// Whether a case runs: `FRAMEEVER_VERIFY_CASE`, `FRAMEEVER_VERIFY_SKIP` and
+/// `FRAMEEVER_VERIFY_SHARD` (see `frameever_verify_expect::case_selected`).
 pub fn selected(id: &str) -> bool {
     frameever_verify_expect::case_selected(id)
 }

@@ -7,7 +7,7 @@ pub mod prores;
 pub mod videotoolbox_hw;
 
 pub(crate) fn force_software_encoder() -> bool {
-    std::env::var("CAP_EXPORT_FORCE_SOFTWARE_ENCODER").is_ok_and(|value| {
+    std::env::var("FRAMEEVER_EXPORT_FORCE_SOFTWARE_ENCODER").is_ok_and(|value| {
         matches!(
             value.to_ascii_lowercase().as_str(),
             "1" | "true" | "yes" | "on"

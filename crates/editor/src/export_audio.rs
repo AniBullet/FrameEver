@@ -1354,10 +1354,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires CAP_STUDIO_SOUND_TEST_AUDIO pointing to a local microphone recording"]
+    #[ignore = "requires FRAMEEVER_STUDIO_SOUND_TEST_AUDIO pointing to a local microphone recording"]
     fn studio_sound_real_voice_matches_preview_and_export_at_every_tier() {
         ffmpeg::init().unwrap();
-        let path = PathBuf::from(std::env::var_os("CAP_STUDIO_SOUND_TEST_AUDIO").unwrap());
+        let path = PathBuf::from(std::env::var_os("FRAMEEVER_STUDIO_SOUND_TEST_AUDIO").unwrap());
         let audio = Arc::new(AudioData::from_file(&path).unwrap());
         let paths = vec![path; 3];
         let data = vec![audio.clone(); 3];
@@ -1394,10 +1394,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires CAP_STUDIO_SOUND_BENCH_RECORDING pointing to a local Studio recording"]
+    #[ignore = "requires FRAMEEVER_STUDIO_SOUND_BENCH_RECORDING pointing to a local Studio recording"]
     fn studio_sound_streams_a_real_recording_with_bounded_memory() {
         ffmpeg::init().unwrap();
-        let path = std::env::var_os("CAP_STUDIO_SOUND_BENCH_RECORDING").unwrap();
+        let path = std::env::var_os("FRAMEEVER_STUDIO_SOUND_BENCH_RECORDING").unwrap();
         let recording = RecordingMeta::load_for_project(Path::new(&path)).unwrap();
         let mut totals = Vec::new();
         for improve in [false, true] {

@@ -74,7 +74,7 @@ fn an_orphaned_muxer_finishes_its_open_fragment() {
     let directory = tempfile::tempdir().unwrap();
     let output = directory.path().join("display");
     let mut child = Command::new(env!("CARGO_BIN_EXE_frameever-muxer"))
-        .env("CAP_MUXER_LOG", "warn")
+        .env("FRAMEEVER_MUXER_LOG", "warn")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

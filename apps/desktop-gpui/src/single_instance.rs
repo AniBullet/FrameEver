@@ -1115,9 +1115,9 @@ int main(int argc, char **argv) {
                         "single_instance::macos_tests::acquire_child_probe",
                         "--test-threads=1",
                     ])
-                    .env("CAP_GPUI_MACOS_INSTANCE_PROBE", &self.directory)
-                    .env("CAP_GPUI_MACOS_INSTANCE_LABEL", label)
-                    .env("CAP_GPUI_APP_DATA_DIR", &self.directory)
+                    .env("FRAMEEVER_GPUI_MACOS_INSTANCE_PROBE", &self.directory)
+                    .env("FRAMEEVER_GPUI_MACOS_INSTANCE_LABEL", label)
+                    .env("FRAMEEVER_GPUI_APP_DATA_DIR", &self.directory)
                     .stdout(Stdio::null())
                     .spawn()
                     .unwrap(),
@@ -1601,11 +1601,12 @@ int main(int argc, char **argv) {
 
     #[test]
     fn acquire_child_probe() {
-        let Some(directory) = std::env::var_os("CAP_GPUI_MACOS_INSTANCE_PROBE").map(PathBuf::from)
+        let Some(directory) =
+            std::env::var_os("FRAMEEVER_GPUI_MACOS_INSTANCE_PROBE").map(PathBuf::from)
         else {
             return;
         };
-        let label = std::env::var("CAP_GPUI_MACOS_INSTANCE_LABEL").unwrap();
+        let label = std::env::var("FRAMEEVER_GPUI_MACOS_INSTANCE_LABEL").unwrap();
         assert!(matches!(label.as_str(), "a" | "b" | "metadata"));
         if label == "metadata" {
             assert!(read_macos_instance_file(&directory.join("cap-gpui.pid")).is_err());

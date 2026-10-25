@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Summarises engine verification records (JSON lines written to
-CAP_VERIFY_REPORT_DIR by every suite) as GitHub job-summary markdown or
+FRAMEEVER_VERIFY_REPORT_DIR by every suite) as GitHub job-summary markdown or
 plain text.
 
   summary.py [--title T] [--text] [--junit FILE]... [--flaky FILE] DIR...

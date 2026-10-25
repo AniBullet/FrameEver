@@ -244,9 +244,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires CAP_THUMBNAIL_TEST_PROJECT pointing to the synthetic red then blue video fixture and a GPU"]
+    #[ignore = "Requires FRAMEEVER_THUMBNAIL_TEST_PROJECT pointing to the synthetic red then blue video fixture and a GPU"]
     async fn native_thumbnail_tracks_edits_and_reuses_unchanged_projects() {
-        let source = std::path::PathBuf::from(std::env::var("CAP_THUMBNAIL_TEST_PROJECT").unwrap());
+        let source =
+            std::path::PathBuf::from(std::env::var("FRAMEEVER_THUMBNAIL_TEST_PROJECT").unwrap());
         let fixture = tempfile::tempdir().unwrap();
         let path = fixture.path().to_path_buf();
         std::fs::create_dir(path.join("content")).unwrap();

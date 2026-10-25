@@ -45,10 +45,10 @@ def run_once(side, target, case, tier, fixtures, report):
     binary = side["binaries"][target]
     env = dict(
         os.environ,
-        CAP_VERIFY_FIXTURE_DIR=str(fixtures),
-        CAP_VERIFY_REPORT_DIR=str(report),
-        CAP_VERIFY_CASE=case,
-        CAP_VERIFY_TIER=tier,
+        FRAMEEVER_VERIFY_FIXTURE_DIR=str(fixtures),
+        FRAMEEVER_VERIFY_REPORT_DIR=str(report),
+        FRAMEEVER_VERIFY_CASE=case,
+        FRAMEEVER_VERIFY_TIER=tier,
     )
     report.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()

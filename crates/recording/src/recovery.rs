@@ -7337,7 +7337,7 @@ mod transactional_recovery_tests {
     }
     #[test]
     fn recovery_lock_child_probe() {
-        let Some(path) = std::env::var_os("CAP_RECOVERY_LOCK_CHILD") else {
+        let Some(path) = std::env::var_os("FRAMEEVER_RECOVERY_LOCK_CHILD") else {
             return;
         };
         let project = PathBuf::from(path);
@@ -7363,7 +7363,7 @@ mod transactional_recovery_tests {
                     "recovery::transactional_recovery_tests::recovery_lock_child_probe",
                     "--nocapture",
                 ])
-                .env("CAP_RECOVERY_LOCK_CHILD", directory.path())
+                .env("FRAMEEVER_RECOVERY_LOCK_CHILD", directory.path())
                 .stdout(std::process::Stdio::null())
                 .spawn()
                 .unwrap(),

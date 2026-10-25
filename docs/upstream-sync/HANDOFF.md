@@ -22,7 +22,7 @@ Read this first, then the open issues on `AniBullet/FrameEver` (what is left), `
   - First release number set to 1.0.0 (ADR-0007); `CHANGELOG.md` has an unreleased `[1.0.0]` section.
 - Done in the 2026-10-25 batch (all squash-merged into `main`):
   - AniBullet/FrameEver#33 (closes #32): Lucide (ISC/MIT) and Phosphor (MIT) icon licence notices beside the icons, in the installer and in Settings credits; 15 unused SVGs deleted; a test fails on any unreferenced icon. The installer was not rebuilt to look at the notice.
-  - AniBullet/FrameEver#34 (closes #20): `CAP_EXPORT_FORCE_SOFTWARE_ENCODER=1` forces libx265 and SVT-AV1 for HEVC/AV1 export and compression; measurements in `0.6.1.md`.
+  - AniBullet/FrameEver#34 (closes #20): `FRAMEEVER_EXPORT_FORCE_SOFTWARE_ENCODER=1` forces libx265 and SVT-AV1 for HEVC/AV1 export and compression; measurements in `0.6.1.md`.
   - AniBullet/FrameEver#36 (closes #35): software HEVC uses CRF derived from bits per pixel instead of the NVENC bitrate; the test clip went from 6.2 MB to 0.75 MB at SSIM 0.9963.
   - AniBullet/FrameEver#37 (closes #18): Windows notifications when automatic compression succeeds or fails (log and folder buttons on failure). Not yet clicked through with a real Instant recording.
   - AniBullet/FrameEver#38 (closes #21): Chinese captions route to Whisper (Parakeet has no CJK vocabulary), split UTF-8 tokens are rebuilt, no spaces between CJK characters, full-width punctuation, a Simplified Chinese prompt. The long-trim crash did not reproduce.

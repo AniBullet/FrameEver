@@ -1,15 +1,15 @@
-//! `CAP_GPUI_AUTO_HOVER_BENCH=1` (with `CAP_GPUI_AUTO_EDITOR`): the editor's
+//! `FRAMEEVER_GPUI_AUTO_HOVER_BENCH=1` (with `FRAMEEVER_GPUI_AUTO_EDITOR`): the editor's
 //! per-move cost while the pointer glides over a paused timeline. The pointer
 //! sweeps the timeline at a fixed speed and moves arrive at
-//! `CAP_GPUI_AUTO_HOVER_BENCH_HZ` (default 120); a move that lands while the
+//! `FRAMEEVER_GPUI_AUTO_HOVER_BENCH_HZ` (default 120); a move that lands while the
 //! previous one is still being handled is coalesced into the next, as the OS
 //! does. Each move runs the timeline's own hover handler, then one synchronous
 //! `Window::draw` (view renders + layout + prepaint + paint) is timed with it.
-//! `CAP_GPUI_AUTO_SIDEBAR` picks the sidebar tab that stays open meanwhile.
+//! `FRAMEEVER_GPUI_AUTO_SIDEBAR` picks the sidebar tab that stays open meanwhile.
 //!
 //! Run:
-//!   CAP_GPUI_AUTO_EDITOR=<project.cap> CAP_GPUI_AUTO_HOVER_BENCH=1 \
-//!     CAP_GPUI_AUTO_SIDEBAR=captions CAP_GPUI_NO_MENUS=1 CAP_GPUI_NO_TRAY=1 \
+//!   FRAMEEVER_GPUI_AUTO_EDITOR=<project.cap> FRAMEEVER_GPUI_AUTO_HOVER_BENCH=1 \
+//!     FRAMEEVER_GPUI_AUTO_SIDEBAR=captions FRAMEEVER_GPUI_NO_MENUS=1 FRAMEEVER_GPUI_NO_TRAY=1 \
 //!     cargo run --release
 
 use std::time::{Duration, Instant};
@@ -24,7 +24,7 @@ const WARMUP: Duration = Duration::from_secs(1);
 const MEASURED: Duration = Duration::from_secs(6);
 
 pub async fn run(handle: WindowHandle<EditorWindow>, cx: &mut gpui::AsyncApp) {
-    if !std::env::var("CAP_GPUI_AUTO_HOVER_BENCH").is_ok_and(|value| value == "1") {
+    if !std::env::var("FRAMEEVER_GPUI_AUTO_HOVER_BENCH").is_ok_and(|value| value == "1") {
         return;
     }
     cx.background_executor()
@@ -40,13 +40,13 @@ pub async fn run(handle: WindowHandle<EditorWindow>, cx: &mut gpui::AsyncApp) {
         .timer(Duration::from_millis(500))
         .await;
 
-    let mouse_hz = std::env::var("CAP_GPUI_AUTO_HOVER_BENCH_HZ")
+    let mouse_hz = std::env::var("FRAMEEVER_GPUI_AUTO_HOVER_BENCH_HZ")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|hz| *hz > 0)
         .unwrap_or(DEFAULT_MOUSE_HZ);
     let interval = Duration::from_micros(1_000_000 / mouse_hz);
-    let sweep_secs = std::env::var("CAP_GPUI_AUTO_HOVER_BENCH_SWEEP_SECS")
+    let sweep_secs = std::env::var("FRAMEEVER_GPUI_AUTO_HOVER_BENCH_SWEEP_SECS")
         .ok()
         .and_then(|value| value.parse::<f32>().ok())
         .filter(|secs| *secs > 0.)
@@ -107,7 +107,7 @@ pub async fn run(handle: WindowHandle<EditorWindow>, cx: &mut gpui::AsyncApp) {
 
     println!(
         "hover-bench: sidebar tab {}, pointer at {mouse_hz}Hz crossing the timeline in {sweep_secs}s, {} moves handled and {frames:?} preview frames presented in {:.1}s",
-        std::env::var("CAP_GPUI_AUTO_SIDEBAR").unwrap_or_else(|_| "default".into()),
+        std::env::var("FRAMEEVER_GPUI_AUTO_SIDEBAR").unwrap_or_else(|_| "default".into()),
         move_us.len(),
         MEASURED.as_secs_f64(),
     );

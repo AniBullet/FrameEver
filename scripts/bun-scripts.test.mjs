@@ -15,11 +15,11 @@ async function fixture(t) {
 	await mkdir(path.join(root, "apps/web"), { recursive: true });
 	await writeFile(
 		path.join(root, "argv.mjs"),
-		"console.log(JSON.stringify({args:process.argv.slice(2),cwd:process.cwd(),node:!!process.versions.node,bun:!!process.versions.bun,env:process.env.CAP_SCRIPT_ENV_PROBE??null}));",
+		"console.log(JSON.stringify({args:process.argv.slice(2),cwd:process.cwd(),node:!!process.versions.node,bun:!!process.versions.bun,env:process.env.FRAMEEVER_SCRIPT_ENV_PROBE??null}));",
 	);
 	await writeFile(
 		path.join(root, ".env"),
-		"CAP_SCRIPT_ENV_PROBE=from-dotenv\n",
+		"FRAMEEVER_SCRIPT_ENV_PROBE=from-dotenv\n",
 	);
 	await writeFile(
 		path.join(root, "package.json"),
@@ -45,7 +45,7 @@ function run(root, args) {
 	const result = spawnSync("bun", ["run", ...args], {
 		cwd: root,
 		encoding: "utf8",
-		env: { ...process.env, CAP_SCRIPT_ENV_PROBE: "inherited" },
+		env: { ...process.env, FRAMEEVER_SCRIPT_ENV_PROBE: "inherited" },
 	});
 	assert.equal(result.status, 0, result.error?.message ?? result.stderr);
 	return JSON.parse(result.stdout.trim());

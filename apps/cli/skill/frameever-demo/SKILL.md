@@ -42,7 +42,7 @@ alias frameever-demo='node <skilldir>/frameever-demo.mjs'
 - **`python3`** and **`ffmpeg`/`ffprobe`** on PATH.
 - The **`frameever` CLI** on PATH (FrameEver) with macOS
   **screen-recording permission** granted to it. Both stages otherwise resolve
-  the binary from `FRAMEEVER_BIN` (or `CAP_BIN`); if neither is set they error clearly.
+  the binary from `FRAMEEVER_BIN`; if it is not set they error clearly.
 
 ## One-liner
 
@@ -180,7 +180,7 @@ Orchestrator (`frameever-demo <url> [flags]`):
 (light/smooth). Music resolves only from the skill's bundled
 `assets/music/<id>.mp3`; an unknown id errors.
 
-**Binary resolution** (both scripts): FrameEver binary = env `FRAMEEVER_BIN` (or `CAP_BIN`), else `frameever` on
+**Binary resolution** (both scripts): FrameEver binary = env `FRAMEEVER_BIN`, else `frameever` on
 PATH, else a clear error. Chromium = newest cached
 `~/Library/Caches/ms-playwright/chromium-*` (macOS), else the pinned
 `chromium-1228` build.

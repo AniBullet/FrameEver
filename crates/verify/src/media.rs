@@ -68,7 +68,7 @@ fn find_video_encoder(codec: VideoCodec) -> anyhow::Result<ffmpeg::Codec> {
         // itself uses (VideoToolbox, Media Foundation).
         VideoCodec::Hevc => &["hevc_videotoolbox", "hevc_mf"],
     };
-    if let Ok(name) = std::env::var("CAP_VERIFY_FORCE_ENCODER") {
+    if let Ok(name) = std::env::var("FRAMEEVER_VERIFY_FORCE_ENCODER") {
         return ffmpeg::encoder::find_by_name(&name).ok_or_else(|| anyhow!("no {name}"));
     }
     names

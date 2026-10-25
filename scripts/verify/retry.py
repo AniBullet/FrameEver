@@ -22,7 +22,7 @@ retried per job; beyond that the job fails as an unusable machine.
 
 A test with any FAIL or XPASS case, or that crashed or timed out without
 starvation evidence, is not retried: it fails the run as before. The retry
-runs with CAP_VERIFY_RETRY=1, so a case that is inconclusive again fails as
+runs with FRAMEEVER_VERIFY_RETRY=1, so a case that is inconclusive again fails as
 `environment`.
 
 Usage: retry.py <junit.xml> <report dir>   (retry.py test: self-test)

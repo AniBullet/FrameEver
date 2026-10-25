@@ -36,18 +36,18 @@
 //! `expectations.toml`.
 //!
 //! Environment:
-//! - `CAP_DECODER_MODEL_SCALE`: multiplies every family's seed count.
-//! - `CAP_DECODER_MODEL_FILTER`: only run cases whose name contains this.
-//! - `CAP_DECODER_MODEL_CASE` + `CAP_DECODER_MODEL_SEED_INDEX`: replay one
+//! - `FRAMEEVER_DECODER_MODEL_SCALE`: multiplies every family's seed count.
+//! - `FRAMEEVER_DECODER_MODEL_FILTER`: only run cases whose name contains this.
+//! - `FRAMEEVER_DECODER_MODEL_CASE` + `FRAMEEVER_DECODER_MODEL_SEED_INDEX`: replay one
 //!   sequence and print every request.
-//! - `CAP_DECODER_MODEL_SHRINK`: `none`, `new` (default, unexpected failures
+//! - `FRAMEEVER_DECODER_MODEL_SHRINK`: `none`, `new` (default, unexpected failures
 //!   only) or `all`.
-//! - `CAP_DECODER_MODEL_THREADS`: worker threads (at most 3 for
+//! - `FRAMEEVER_DECODER_MODEL_THREADS`: worker threads (at most 3 for
 //!   AVAssetReader, 4 for FFmpeg).
-//! - `CAP_DECODER_MODEL_REPORT=<prefix>`: also write the report to
-//!   `<prefix>.<decoder>.txt`; `CAP_DECODER_MODEL_SEEDS_OUT=<prefix>` writes
+//! - `FRAMEEVER_DECODER_MODEL_REPORT=<prefix>`: also write the report to
+//!   `<prefix>.<decoder>.txt`; `FRAMEEVER_DECODER_MODEL_SEEDS_OUT=<prefix>` writes
 //!   every seed's outcome to `<prefix>.<decoder>.tsv`.
-//! - `CAP_VERIFY_REPORT_DIR=<dir>`: write one JSON record per case for the
+//! - `FRAMEEVER_VERIFY_REPORT_DIR=<dir>`: write one JSON record per case for the
 //!   CI summary and for `frameever-verify-expect bless` (see
 //!   `crates/verify-expect`), which rewrites `expectations.toml` to match.
 //!
@@ -740,11 +740,11 @@ fn write_records(
             };
             let repro = match replay_seed {
                 Some(seed) => format!(
-                    "CAP_DECODER_MODEL_CASE={} CAP_DECODER_MODEL_SEED_INDEX={seed} cargo test -p frameever-rendering --lib decoder::model::{test} -- --nocapture",
+                    "FRAMEEVER_DECODER_MODEL_CASE={} FRAMEEVER_DECODER_MODEL_SEED_INDEX={seed} cargo test -p frameever-rendering --lib decoder::model::{test} -- --nocapture",
                     result.name
                 ),
                 None => format!(
-                    "CAP_DECODER_MODEL_FILTER={} cargo test -p frameever-rendering --lib decoder::model::{test} -- --nocapture",
+                    "FRAMEEVER_DECODER_MODEL_FILTER={} cargo test -p frameever-rendering --lib decoder::model::{test} -- --nocapture",
                     result.name
                 ),
             };
@@ -753,7 +753,7 @@ fn write_records(
                 expectations: EXPECTATIONS.into(),
                 case: result.name.clone(),
                 platform: platform.into(),
-                tier: std::env::var("CAP_VERIFY_TIER").unwrap_or_else(|_| "fast".into()),
+                tier: std::env::var("FRAMEEVER_VERIFY_TIER").unwrap_or_else(|_| "fast".into()),
                 outcome,
                 failures,
                 seeds_ran: ran.get(&result.name).cloned().flatten(),
@@ -775,15 +775,15 @@ fn write_records(
 fn run_suite(decoder: Decoder) {
     let xfails = frameever_verify_expect::parse(include_str!("expectations.toml"))
         .unwrap_or_else(|e| panic!("{EXPECTATIONS}: {e}"));
-    let filter = std::env::var("CAP_DECODER_MODEL_FILTER").ok();
-    let scale: f64 = std::env::var("CAP_DECODER_MODEL_SCALE")
+    let filter = std::env::var("FRAMEEVER_DECODER_MODEL_FILTER").ok();
+    let scale: f64 = std::env::var("FRAMEEVER_DECODER_MODEL_SCALE")
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(1.0);
 
     if let (Ok(name), Some(seed_index)) = (
-        std::env::var("CAP_DECODER_MODEL_CASE"),
-        env_usize("CAP_DECODER_MODEL_SEED_INDEX"),
+        std::env::var("FRAMEEVER_DECODER_MODEL_CASE"),
+        env_usize("FRAMEEVER_DECODER_MODEL_SEED_INDEX"),
     ) {
         let Some(family) = FAMILIES
             .iter()
@@ -848,7 +848,7 @@ fn run_suite(decoder: Decoder) {
         Decoder::Avf => 3,
         Decoder::Ffmpeg => 4,
     };
-    let threads = env_usize("CAP_DECODER_MODEL_THREADS")
+    let threads = env_usize("FRAMEEVER_DECODER_MODEL_THREADS")
         .unwrap_or_else(|| {
             std::thread::available_parallelism()
                 .map(usize::from)
@@ -895,7 +895,7 @@ fn run_suite(decoder: Decoder) {
             .sort_by_key(|(case, failure)| (failure.class, case.seed_index));
     }
 
-    if let Ok(path) = std::env::var("CAP_DECODER_MODEL_SEEDS_OUT") {
+    if let Ok(path) = std::env::var("FRAMEEVER_DECODER_MODEL_SEEDS_OUT") {
         let mut lines = String::new();
         for result in &mut results {
             result.outcomes.sort_by_key(|(seed_index, _)| *seed_index);
@@ -1003,7 +1003,8 @@ fn run_suite(decoder: Decoder) {
         );
     }
 
-    let shrink_mode = std::env::var("CAP_DECODER_MODEL_SHRINK").unwrap_or_else(|_| "new".into());
+    let shrink_mode =
+        std::env::var("FRAMEEVER_DECODER_MODEL_SHRINK").unwrap_or_else(|_| "new".into());
     let runtime = runtime();
     for result in &results {
         let mut shown: BTreeMap<FailureClass, bool> = BTreeMap::new();
@@ -1033,7 +1034,7 @@ fn run_suite(decoder: Decoder) {
             );
             let _ = writeln!(
                 report,
-                "  replay: CAP_DECODER_MODEL_CASE={} CAP_DECODER_MODEL_SEED_INDEX={}",
+                "  replay: FRAMEEVER_DECODER_MODEL_CASE={} FRAMEEVER_DECODER_MODEL_SEED_INDEX={}",
                 result.name, case.seed_index
             );
             let wants_shrink = match shrink_mode.as_str() {
@@ -1078,7 +1079,7 @@ fn run_suite(decoder: Decoder) {
         let _ = writeln!(report, "\nUNEXPECTED PASS {}", fixed.message(EXPECTATIONS));
     }
     eprintln!("{report}");
-    if let Ok(path) = std::env::var("CAP_DECODER_MODEL_REPORT") {
+    if let Ok(path) = std::env::var("FRAMEEVER_DECODER_MODEL_REPORT") {
         let _ = std::fs::write(format!("{path}.{}.txt", decoder.name()), report.as_bytes());
     }
     assert!(

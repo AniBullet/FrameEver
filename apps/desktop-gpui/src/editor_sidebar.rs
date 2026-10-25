@@ -485,7 +485,7 @@ pub fn wallpapers_for_theme(theme: &str) -> Vec<&'static str> {
 /// installed Cap.app (whose paths are byte-identical to what the shipping app
 /// would write) and falling back to the repository the dev build runs from.
 pub fn wallpaper_dir() -> Option<PathBuf> {
-    let override_dir = std::env::var_os("CAP_GPUI_WALLPAPERS_DIR").map(PathBuf::from);
+    let override_dir = std::env::var_os("FRAMEEVER_GPUI_WALLPAPERS_DIR").map(PathBuf::from);
     wallpaper_dir_from(
         &crate::store::bundled_resource_dirs(),
         override_dir.as_deref(),
@@ -3965,7 +3965,7 @@ impl SelectionRing for gpui::Stateful<gpui::Div> {
 // ---------------------------------------------------------------------------
 
 impl EditorWindow {
-    /// `CAP_GPUI_AUTO_SIDEBAR=<tab>[:<scroll>]`, through the rail's own handler
+    /// `FRAMEEVER_GPUI_AUTO_SIDEBAR=<tab>[:<scroll>]`, through the rail's own handler
     /// so the tab switch is the one a click makes -- selection cleared, menu
     /// dismissed, body back to the top -- with the scroll applied afterwards.
     pub(crate) fn auto_select_sidebar_tab(
@@ -3993,7 +3993,7 @@ impl EditorWindow {
         window.refresh();
     }
 
-    /// `CAP_GPUI_AUTO_SELECT=<track>:<i>[,<i>][@<scroll>]`, through
+    /// `FRAMEEVER_GPUI_AUTO_SELECT=<track>:<i>[,<i>][@<scroll>]`, through
     /// `set_selection` so the panel opens exactly as a timeline click opens it.
     ///
     /// The optional `@<scroll>` is the same escape hatch the tab hook has: a

@@ -7,7 +7,7 @@
 //! interval and records how late it wakes. A wake gap of
 //! [`STARVATION_GAP_MS`] or more means the machine did not run the process
 //! for that long. The series is kept in memory for [`crate::report`] (per
-//! case) and appended to `<CAP_VERIFY_REPORT_DIR>/sentinel-<pid>.log`, so a
+//! case) and appended to `<FRAMEEVER_VERIFY_REPORT_DIR>/sentinel-<pid>.log`, so a
 //! test killed by its timeout still leaves its evidence.
 //!
 //! Only classes that legitimately depend on wall-clock timing may be excused
@@ -41,7 +41,7 @@ fn state() -> &'static State {
             started: Instant::now(),
             gaps: Mutex::new(Vec::new()),
         };
-        let log = std::env::var_os("CAP_VERIFY_REPORT_DIR").and_then(|dir| {
+        let log = std::env::var_os("FRAMEEVER_VERIFY_REPORT_DIR").and_then(|dir| {
             let dir = std::path::PathBuf::from(dir);
             std::fs::create_dir_all(&dir).ok()?;
             let mut file = std::fs::OpenOptions::new()

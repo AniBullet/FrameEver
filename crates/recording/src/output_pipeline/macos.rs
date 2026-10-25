@@ -64,7 +64,7 @@ fn check_disk_space_to_start(output_path: &std::path::Path) -> anyhow::Result<()
 }
 
 fn get_mp4_muxer_buffer_size(instant_mode: bool) -> usize {
-    std::env::var("CAP_MP4_MUXER_BUFFER_SIZE")
+    std::env::var("FRAMEEVER_MP4_MUXER_BUFFER_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(if instant_mode {
@@ -1552,12 +1552,12 @@ mod tests {
         #[test]
         fn env_override_takes_precedence() {
             unsafe {
-                std::env::set_var("CAP_MP4_MUXER_BUFFER_SIZE", "500");
+                std::env::set_var("FRAMEEVER_MP4_MUXER_BUFFER_SIZE", "500");
             }
             let normal = get_mp4_muxer_buffer_size(false);
             let instant = get_mp4_muxer_buffer_size(true);
             unsafe {
-                std::env::remove_var("CAP_MP4_MUXER_BUFFER_SIZE");
+                std::env::remove_var("FRAMEEVER_MP4_MUXER_BUFFER_SIZE");
             }
             assert_eq!(normal, 500);
             assert_eq!(instant, 500);
@@ -1566,12 +1566,12 @@ mod tests {
         #[test]
         fn invalid_env_falls_back_to_defaults() {
             unsafe {
-                std::env::set_var("CAP_MP4_MUXER_BUFFER_SIZE", "not_a_number");
+                std::env::set_var("FRAMEEVER_MP4_MUXER_BUFFER_SIZE", "not_a_number");
             }
             let normal = get_mp4_muxer_buffer_size(false);
             let instant = get_mp4_muxer_buffer_size(true);
             unsafe {
-                std::env::remove_var("CAP_MP4_MUXER_BUFFER_SIZE");
+                std::env::remove_var("FRAMEEVER_MP4_MUXER_BUFFER_SIZE");
             }
             assert_eq!(normal, DEFAULT_MP4_MUXER_BUFFER_SIZE);
             assert_eq!(instant, DEFAULT_MP4_MUXER_BUFFER_SIZE_INSTANT);

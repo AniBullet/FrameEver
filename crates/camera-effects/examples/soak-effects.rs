@@ -198,7 +198,7 @@ async fn main() -> anyhow::Result<()> {
         started.elapsed().as_secs_f64(),
         heap_mib()
     );
-    if let Ok(seconds) = std::env::var("CAP_EFFECTS_SOAK_HOLD_SECONDS") {
+    if let Ok(seconds) = std::env::var("FRAMEEVER_EFFECTS_SOAK_HOLD_SECONDS") {
         std::thread::sleep(Duration::from_secs(seconds.parse()?));
     }
     Ok(())

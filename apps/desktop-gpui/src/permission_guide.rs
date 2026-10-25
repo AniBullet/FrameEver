@@ -52,17 +52,17 @@ fn app_bundle() -> Option<PathBuf> {
         return Some(bundle.to_path_buf());
     }
     #[cfg(debug_assertions)]
-    if std::env::var("CAP_GPUI_FORCE_PERMISSION_GUIDE").is_ok_and(|value| value == "1") {
+    if std::env::var("FRAMEEVER_GPUI_FORCE_PERMISSION_GUIDE").is_ok_and(|value| value == "1") {
         return Some(exe);
     }
     None
 }
 
-/// `CAP_GPUI_PERMISSION_GUIDE_PREVIEW=1` (debug builds): pretend a Settings
+/// `FRAMEEVER_GPUI_PERMISSION_GUIDE_PREVIEW=1` (debug builds): pretend a Settings
 /// window is up and frontmost, so the panel can be photographed.
 fn preview() -> bool {
     cfg!(debug_assertions)
-        && std::env::var("CAP_GPUI_PERMISSION_GUIDE_PREVIEW").is_ok_and(|value| value == "1")
+        && std::env::var("FRAMEEVER_GPUI_PERMISSION_GUIDE_PREVIEW").is_ok_and(|value| value == "1")
 }
 
 pub fn eligible(permission: OSPermission) -> bool {
@@ -252,7 +252,7 @@ pub fn window_handle(cx: &App) -> Option<gpui::AnyWindowHandle> {
     cx.try_global::<GuideGlobal>()?.handle.map(Into::into)
 }
 
-/// `CAP_GPUI_PERMISSION_GUIDE_PREVIEW=1`: open the guide at launch.
+/// `FRAMEEVER_GPUI_PERMISSION_GUIDE_PREVIEW=1`: open the guide at launch.
 #[cfg(debug_assertions)]
 pub fn preview_from_env(cx: &mut App) {
     if preview() {

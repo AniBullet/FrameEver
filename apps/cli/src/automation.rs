@@ -355,31 +355,17 @@ fn map_compression(
 
 fn context_env(ctx: &TriggerContext) -> Vec<(&'static str, String)> {
     let mut env = Vec::new();
-    let mut push = |names: [&'static str; 2], value: String| {
-        for name in names {
-            env.push((name, value.clone()));
-        }
-    };
     if let Some(p) = &ctx.project_path {
-        push(
-            ["FRAMEEVER_PROJECT_PATH", "CAP_PROJECT_PATH"],
-            p.to_string_lossy().to_string(),
-        );
+        env.push(("FRAMEEVER_PROJECT_PATH", p.to_string_lossy().to_string()));
     }
     if let Some(p) = &ctx.image_path {
-        push(
-            ["FRAMEEVER_IMAGE_PATH", "CAP_IMAGE_PATH"],
-            p.to_string_lossy().to_string(),
-        );
+        env.push(("FRAMEEVER_IMAGE_PATH", p.to_string_lossy().to_string()));
     }
     if let Some(p) = &ctx.output_path {
-        push(
-            ["FRAMEEVER_OUTPUT_PATH", "CAP_OUTPUT_PATH"],
-            p.to_string_lossy().to_string(),
-        );
+        env.push(("FRAMEEVER_OUTPUT_PATH", p.to_string_lossy().to_string()));
     }
     if let Some(l) = &ctx.share_link {
-        push(["FRAMEEVER_SHARE_LINK", "CAP_SHARE_LINK"], l.clone());
+        env.push(("FRAMEEVER_SHARE_LINK", l.clone()));
     }
     env
 }
@@ -509,6 +495,25 @@ pub fn list(format: crate::OutputFormat) -> Result<(), String> {
 mod tests {
     use super::*;
     use frameever_automation::{Action, AutomationRule, MatchMode};
+
+    #[test]
+    fn run_command_env_has_only_frameever_names() {
+        let ctx = TriggerContext::new()
+            .with_project_path(PathBuf::from("p.cap"))
+            .with_image_path(PathBuf::from("i.png"))
+            .with_output_path(PathBuf::from("o.mp4"))
+            .with_share_link("https://example.test/s/1".to_string());
+        let names: Vec<&str> = context_env(&ctx).iter().map(|(name, _)| *name).collect();
+        assert_eq!(
+            names,
+            [
+                "FRAMEEVER_PROJECT_PATH",
+                "FRAMEEVER_IMAGE_PATH",
+                "FRAMEEVER_OUTPUT_PATH",
+                "FRAMEEVER_SHARE_LINK"
+            ]
+        );
+    }
 
     #[tokio::test]
     async fn cli_upload_cleanup_retains_media_without_a_verified_receipt() {

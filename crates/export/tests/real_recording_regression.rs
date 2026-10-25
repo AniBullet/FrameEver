@@ -13,7 +13,7 @@ use frameever_rendering::{
 };
 
 fn real_recording_path() -> Option<PathBuf> {
-    std::env::var_os("CAP_REAL_RECORDING_PATH")
+    std::env::var_os("FRAMEEVER_REAL_RECORDING_PATH")
         .map(PathBuf::from)
         .filter(|path| path.exists())
 }
@@ -120,7 +120,7 @@ async fn render_sampled_sequence_frames(
 async fn export_sequence_render_matches_editor_reference_for_real_recording()
 -> Result<(), Box<dyn std::error::Error>> {
     let Some(project_path) = real_recording_path() else {
-        println!("Skipping test: CAP_REAL_RECORDING_PATH is not set");
+        println!("Skipping test: FRAMEEVER_REAL_RECORDING_PATH is not set");
         return Ok(());
     };
 

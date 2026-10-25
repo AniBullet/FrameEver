@@ -869,20 +869,20 @@ impl ProbeConfig {
             std::env::var(name).with_context(|| format!("Explicit manual probe requires {name}"))
         };
         let config = Self {
-            fixture: PathBuf::from(required("CAP_PREPARING_FIXTURE")?),
-            fixture_name: required("CAP_PREPARING_FIXTURE_NAME")?,
-            manifest_path: PathBuf::from(required("CAP_PREPARING_FIXTURE_MANIFEST")?),
-            work_root: PathBuf::from(required("CAP_PREPARING_WORK_ROOT")?),
-            output: PathBuf::from(required("CAP_PREPARING_EVIDENCE_OUTPUT")?),
-            source_manifest: PathBuf::from(required("CAP_PREPARING_SOURCE_MANIFEST")?),
-            source_manifest_sha256: required("CAP_PREPARING_SOURCE_MANIFEST_SHA256")?,
-            binary_sha256: required("CAP_PREPARING_BINARY_SHA256")?,
-            current_writer_snapshot: std::env::var("CAP_PREPARING_CURRENT_WRITER_SNAPSHOT")
+            fixture: PathBuf::from(required("FRAMEEVER_PREPARING_FIXTURE")?),
+            fixture_name: required("FRAMEEVER_PREPARING_FIXTURE_NAME")?,
+            manifest_path: PathBuf::from(required("FRAMEEVER_PREPARING_FIXTURE_MANIFEST")?),
+            work_root: PathBuf::from(required("FRAMEEVER_PREPARING_WORK_ROOT")?),
+            output: PathBuf::from(required("FRAMEEVER_PREPARING_EVIDENCE_OUTPUT")?),
+            source_manifest: PathBuf::from(required("FRAMEEVER_PREPARING_SOURCE_MANIFEST")?),
+            source_manifest_sha256: required("FRAMEEVER_PREPARING_SOURCE_MANIFEST_SHA256")?,
+            binary_sha256: required("FRAMEEVER_PREPARING_BINARY_SHA256")?,
+            current_writer_snapshot: std::env::var("FRAMEEVER_PREPARING_CURRENT_WRITER_SNAPSHOT")
                 .as_deref()
                 == Ok("1"),
             legacy_control: match (
-                std::env::var("CAP_PREPARING_LEGACY_CONTROL"),
-                std::env::var("CAP_PREPARING_LEGACY_CONTROL_SHA256"),
+                std::env::var("FRAMEEVER_PREPARING_LEGACY_CONTROL"),
+                std::env::var("FRAMEEVER_PREPARING_LEGACY_CONTROL_SHA256"),
             ) {
                 (Ok(path), Ok(hash)) => Some((PathBuf::from(path), hash)),
                 (Err(std::env::VarError::NotPresent), Err(std::env::VarError::NotPresent)) => None,
@@ -929,8 +929,8 @@ async fn run_probe(config: &ProbeConfig, evidence: &mut Value) -> Result<()> {
         "native-mic-60.cap" => &[0.0, 30.0, 58.0, 1.0],
         "replay-2h.cap" => {
             ensure!(
-                std::env::var("CAP_PREPARING_ALLOW_TWO_HOURS").as_deref() == Ok("1"),
-                "Two-hour copies require explicit CAP_PREPARING_ALLOW_TWO_HOURS=1"
+                std::env::var("FRAMEEVER_PREPARING_ALLOW_TWO_HOURS").as_deref() == Ok("1"),
+                "Two-hour copies require explicit FRAMEEVER_PREPARING_ALLOW_TWO_HOURS=1"
             );
             &[0.0, 3600.0, 7194.5, 1.0]
         }

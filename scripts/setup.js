@@ -35,7 +35,7 @@ async function main() {
 	let cargoConfigContents = "";
 	let cargoBuildContents = "";
 	const sccachePath = await findExecutable("sccache");
-	const useSccache = env.CAP_USE_SCCACHE === "1";
+	const useSccache = env.FRAMEEVER_USE_SCCACHE === "1";
 
 	if (sccachePath && useSccache && (await canUseSccache(sccachePath))) {
 		cargoBuildContents += `\n[build]\nrustc-wrapper = "${sccachePath.replaceAll("\\", "/")}"\n`;
@@ -44,7 +44,7 @@ async function main() {
 		console.log("sccache not found, using rustc directly");
 	else if (!useSccache)
 		console.log(
-			`sccache found at ${sccachePath}, using rustc directly. Set CAP_USE_SCCACHE=1 to enable it.`,
+			`sccache found at ${sccachePath}, using rustc directly. Set FRAMEEVER_USE_SCCACHE=1 to enable it.`,
 		);
 
 	if (process.platform === "darwin") {

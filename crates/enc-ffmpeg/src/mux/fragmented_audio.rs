@@ -623,7 +623,7 @@ mod recording_encoder_tests {
 
     #[test]
     fn recording_audio_uses_audiotoolbox_on_macos() {
-        if std::env::var_os("CAP_RECORDING_FFMPEG_AAC").is_some_and(|v| !v.is_empty()) {
+        if std::env::var_os("FRAMEEVER_RECORDING_FFMPEG_AAC").is_some_and(|v| !v.is_empty()) {
             return;
         }
         let directory = tempfile::tempdir().unwrap();

@@ -31,7 +31,7 @@ fn collect(path: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn repo_root() -> PathBuf {
-    std::env::var_os("CAP_VERIFY_ROOT")
+    std::env::var_os("FRAMEEVER_VERIFY_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
 }

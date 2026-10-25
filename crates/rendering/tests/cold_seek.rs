@@ -32,11 +32,11 @@ fn pixels(frame: &DecodedFrame) -> u64 {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "Requires CAP_DECODER_TEST_VIDEO (at least 8 seconds) and CAP_DECODER_TEST_FPS on macOS"]
+#[ignore = "Requires FRAMEEVER_DECODER_TEST_VIDEO (at least 8 seconds) and FRAMEEVER_DECODER_TEST_FPS on macOS"]
 async fn cold_and_idle_seeks_match_sequential_decode() {
     ffmpeg::init().unwrap();
-    let path = PathBuf::from(std::env::var_os("CAP_DECODER_TEST_VIDEO").unwrap());
-    let fps: u32 = std::env::var("CAP_DECODER_TEST_FPS")
+    let path = PathBuf::from(std::env::var_os("FRAMEEVER_DECODER_TEST_VIDEO").unwrap());
+    let fps: u32 = std::env::var("FRAMEEVER_DECODER_TEST_FPS")
         .unwrap()
         .parse()
         .unwrap();

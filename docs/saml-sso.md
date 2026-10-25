@@ -94,7 +94,7 @@ After that gate passes, deploy the additive migration before the application cha
 
 The migration is generated from `packages/database/schema.ts` with `bun run db:generate --name=saml_sso`. Commit its generated SQL and snapshot/journal metadata together; do not hand-edit the SQL. Migration `0041` follows the existing recording-jobs migration and retains its snapshot ancestry.
 
-Focused tests live under `apps/web/__tests__/unit/sso-*.test.ts`, alongside the existing auth, mobile, Pro, BAA, and webhook regression suites. `apps/web/__tests__/integration/sso-database.test.ts` uses actual MySQL and requires `CAP_SSO_TEST_DATABASE_URL` to point to a local, session-scoped database named `cap_sso_*` with the generated schema. It refuses production/non-local URLs and retains its synthetic fixtures for inspection.
+Focused tests live under `apps/web/__tests__/unit/sso-*.test.ts`, alongside the existing auth, mobile, Pro, BAA, and webhook regression suites. `apps/web/__tests__/integration/sso-database.test.ts` uses actual MySQL and requires `FRAMEEVER_SSO_TEST_DATABASE_URL` to point to a local, session-scoped database named `cap_sso_*` with the generated schema. It refuses production/non-local URLs and retains its synthetic fixtures for inspection.
 
 Before enabling a customer, verify a real WorkOS flow on the candidate deployment: owner purchase/confirmation, admin setup and domain verification, SP-initiated and IdP-initiated sign-in, a new member, an existing account, repeat/concurrent sign-ins, wrong-domain/organization rejection, and native app return. Check cancellation, failed renewal, webhook retries, and Pro/BAA isolation in Stripe test mode. Unit tests, mocks, and local database tests do not prove a live IdP roundtrip.
 

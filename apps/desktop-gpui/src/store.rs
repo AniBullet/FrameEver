@@ -148,7 +148,7 @@ pub struct ExportPrefs {
 }
 
 pub fn app_data_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("CAP_GPUI_APP_DATA_DIR")
+    if let Ok(dir) = std::env::var("FRAMEEVER_GPUI_APP_DATA_DIR")
         && !dir.trim().is_empty()
     {
         return PathBuf::from(dir);
@@ -175,7 +175,7 @@ fn app_data_root() -> PathBuf {
 }
 
 pub fn import_legacy_data() {
-    if std::env::var_os("CAP_GPUI_APP_DATA_DIR").is_some() {
+    if std::env::var_os("FRAMEEVER_GPUI_APP_DATA_DIR").is_some() {
         return;
     }
     match import_legacy_data_into(&legacy_app_data_dir(), &app_data_dir()) {
@@ -272,7 +272,7 @@ fn copy_dir_missing(source: &Path, destination: &Path) -> std::io::Result<()> {
 
 pub(crate) fn bundled_resource_dirs() -> Vec<PathBuf> {
     let executable = std::env::current_exe().ok();
-    let override_dir = std::env::var_os("CAP_GPUI_RESOURCES_DIR").map(PathBuf::from);
+    let override_dir = std::env::var_os("FRAMEEVER_GPUI_RESOURCES_DIR").map(PathBuf::from);
     bundled_resource_dirs_for(executable.as_deref(), override_dir.as_deref())
 }
 
@@ -436,7 +436,7 @@ pub(crate) fn set_test_tauri_store_path(path: Option<PathBuf>) {
 
 /// The tauri-plugin-store file, shared with the shipping app.
 ///
-/// `CAP_GPUI_TAURI_STORE` redirects it at a copy, which is how the tests --
+/// `FRAMEEVER_GPUI_TAURI_STORE` redirects it at a copy, which is how the tests --
 /// and any verification run that must not touch the user's real settings --
 /// work.
 pub fn tauri_store_path() -> PathBuf {
@@ -445,7 +445,7 @@ pub fn tauri_store_path() -> PathBuf {
         return path;
     }
 
-    match std::env::var("CAP_GPUI_TAURI_STORE") {
+    match std::env::var("FRAMEEVER_GPUI_TAURI_STORE") {
         Ok(path) if !path.is_empty() => PathBuf::from(path),
         // `Store.load("store")`: no extension, and the sibling `store.json`
         // is a different (stale) file.
@@ -2364,7 +2364,7 @@ mod tests {
 
     #[test]
     fn temporary_stores_are_thread_local_without_mutating_process_environment() {
-        let original = std::env::var_os("CAP_GPUI_TAURI_STORE");
+        let original = std::env::var_os("FRAMEEVER_GPUI_TAURI_STORE");
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(4));
         let workers = (0..4)
             .map(|index| {
@@ -2380,7 +2380,7 @@ mod tests {
                     ));
                     barrier.wait();
                     assert_eq!(GeneralSettings::load().max_fps, 24 + index);
-                    assert_eq!(std::env::var_os("CAP_GPUI_TAURI_STORE"), original);
+                    assert_eq!(std::env::var_os("FRAMEEVER_GPUI_TAURI_STORE"), original);
                 })
             })
             .collect::<Vec<_>>();
@@ -2388,7 +2388,7 @@ mod tests {
         for worker in workers {
             worker.join().unwrap();
         }
-        assert_eq!(std::env::var_os("CAP_GPUI_TAURI_STORE"), original);
+        assert_eq!(std::env::var_os("FRAMEEVER_GPUI_TAURI_STORE"), original);
     }
 
     /// The compatibility contract: writing one setting must leave every key

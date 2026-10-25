@@ -41,13 +41,13 @@ code run on that platform: AVFoundation, VideoToolbox and Metal on macOS;
 Media Foundation, Direct3D and WASAPI on Windows. When you run the suite
 locally, the platform-independent suites run on every OS.
 
-`CAP_VERIFY_TIER=full` (the FULL tier) uses longer fixtures and more seeds.
+`FRAMEEVER_VERIFY_TIER=full` (the FULL tier) uses longer fixtures and more seeds.
 
 ## Chaos suite
 
 `crates/verify/tests/chaos.rs` tries to crash the engines. Every probe feeds one
 hostile input to a product entry point and runs in its own child process (the
-test binary re-run with `CAP_VERIFY_CHAOS_CHILD`), so an abort, a fatal signal,
+test binary re-run with `FRAMEEVER_VERIFY_CHAOS_CHILD`), so an abort, a fatal signal,
 an Objective-C exception or a hang ends the child, not the run. A panic hook in
 the child records every panic on any thread. Outcomes:
 
@@ -74,11 +74,11 @@ Areas, one test per area (`chaos_recording`, `chaos_files`, `chaos_export`,
 - `chaos/fuzz/`: seeded fuzzing (structure-aware JSON, box-aware MP4 bytes).
   Each seed runs in a batch child; a crash or hang is pinned to its seed, and
   a failing seed is shrunk by dropping mutations while it fails the same way.
-  The failure prints `CAP_VERIFY_CHAOS_SEED` and `CAP_VERIFY_CHAOS_KEEP` for
+  The failure prints `FRAMEEVER_VERIFY_CHAOS_SEED` and `FRAMEEVER_VERIFY_CHAOS_KEEP` for
   its repro.
 
-`CAP_VERIFY_CHAOS_JOBS` sets the children run at once per test (default a
-quarter of the cores, at most 3). `CAP_VERIFY_CHAOS_KEEP_SCRATCH=1` keeps
+`FRAMEEVER_VERIFY_CHAOS_JOBS` sets the children run at once per test (default a
+quarter of the cores, at most 3). `FRAMEEVER_VERIFY_CHAOS_KEEP_SCRATCH=1` keeps
 each probe's scratch directory, child log and stderr.
 
 ## Running locally
@@ -95,15 +95,15 @@ Install cargo-nextest (`cargo install cargo-nextest --locked`) to run the
 tests in parallel, one process per test. Without it, the script runs
 `cargo test` per suite. The local run uses the `dev` profile and shares its
 build with normal development. CI uses the `ci-verify` profile
-(`CAP_VERIFY_CARGO_PROFILE=ci-verify`). Generated fixtures are cached in
-`target/verify-fixtures`, or in `CAP_VERIFY_FIXTURE_DIR` when it is set.
+(`FRAMEEVER_VERIFY_CARGO_PROFILE=ci-verify`). Generated fixtures are cached in
+`target/verify-fixtures`, or in `FRAMEEVER_VERIFY_FIXTURE_DIR` when it is set.
 
 Every failure prints the exact frames or samples that are wrong, the seed,
 and a one-line repro command, for example:
 
 ```sh
-CAP_VERIFY_CASE='export/backward-hold/backward-jumps/mp460/avf' CAP_VERIFY_TIER=fast cargo test -p frameever-verify --test export -- --nocapture
-CAP_DECODER_MODEL_CASE=decoder-model/avf/syn/edlist/playback CAP_DECODER_MODEL_SEED_INDEX=3 cargo test -p frameever-rendering --lib decoder::model::avassetreader_answers_match_the_reference_model -- --nocapture
+FRAMEEVER_VERIFY_CASE='export/backward-hold/backward-jumps/mp460/avf' FRAMEEVER_VERIFY_TIER=fast cargo test -p frameever-verify --test export -- --nocapture
+FRAMEEVER_DECODER_MODEL_CASE=decoder-model/avf/syn/edlist/playback FRAMEEVER_DECODER_MODEL_SEED_INDEX=3 cargo test -p frameever-rendering --lib decoder::model::avassetreader_answers_match_the_reference_model -- --nocapture
 ```
 
 ## Known failures: strict expectations
@@ -173,7 +173,7 @@ blessed failure is a bug that the suite keeps checking.
   case that delivered too few frames becomes `inconclusive`, and a test
   killed at its timeout, by wgpu's 6.3 s queue drain or by a lost GPU device is
   retryable when its sentinel log shows the gap. `scripts/verify/retry.py` reruns those tests
-  once with `CAP_VERIFY_RETRY=1`; a case that is inconclusive again fails as
+  once with `FRAMEEVER_VERIFY_RETRY=1`; a case that is inconclusive again fails as
   `environment`, and the job passes only if every failure was retryable and
   every retry passed. Content, frame identity, timestamps and sync never
   become inconclusive. Any other failed test is rerun once only so that the

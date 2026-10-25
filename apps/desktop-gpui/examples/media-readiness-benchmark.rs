@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("Pass a video path and optional audio path"))?;
     let audio_path = arguments.next().map(PathBuf::from);
-    let force_ffmpeg = std::env::var_os("CAP_BENCH_FORCE_FFMPEG").is_some();
+    let force_ffmpeg = std::env::var_os("FRAMEEVER_BENCH_FORCE_FFMPEG").is_some();
     let started = Instant::now();
     let video = Video::new(&path, 0.0).map_err(anyhow::Error::msg)?;
     let probe_ms = started.elapsed().as_secs_f64() * 1000.0;

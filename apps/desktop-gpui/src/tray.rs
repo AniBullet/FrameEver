@@ -213,7 +213,7 @@ fn load_thumbnail_png(path: &Path) -> Option<Vec<u8>> {
 /// `load_all_previous_items` + the background thumbnail pass, in one call.
 ///
 /// Reuses the library scan the main window's Recents runs on, so the two lists
-/// can never disagree about what is in the library (and `CAP_GPUI_RECORDINGS_DIR`
+/// can never disagree about what is in the library (and `FRAMEEVER_GPUI_RECORDINGS_DIR`
 /// redirects both). Two nuances inherited from that scan rather than from
 /// `load_all_previous_items`: each kind is capped at `RECENT_MEDIA_LIMIT`
 /// before the merge, and a screenshot sorts by its PNG's timestamp rather than
@@ -525,22 +525,22 @@ pub fn describe_menu(entries: &[Entry]) -> String {
     out
 }
 
-/// `CAP_GPUI_AUTO_TRAY=<spec>` picks a menu row and activates it through
+/// `FRAMEEVER_GPUI_AUTO_TRAY=<spec>` picks a menu row and activates it through
 /// [`handle_item`] -- the exact function the ObjC action's channel drain calls,
 /// so the harness path and the click path are one path. It exists for the same
-/// reason as every other `CAP_GPUI_AUTO_*` hook: unprivileged synthetic clicks
+/// reason as every other `FRAMEEVER_GPUI_AUTO_*` hook: unprivileged synthetic clicks
 /// are dropped, and a status-item menu is a nested tracking run loop on top of
 /// that.
 ///
-/// `CAP_GPUI_TRAY_DUMP=<path>` writes [`describe_menu`] of the live menu.
+/// `FRAMEEVER_GPUI_TRAY_DUMP=<path>` writes [`describe_menu`] of the live menu.
 pub fn drive_from_env(cx: &mut App) {
-    let spec = std::env::var("CAP_GPUI_AUTO_TRAY")
+    let spec = std::env::var("FRAMEEVER_GPUI_AUTO_TRAY")
         .ok()
         .filter(|s| !s.is_empty());
-    let dump = std::env::var("CAP_GPUI_TRAY_DUMP")
+    let dump = std::env::var("FRAMEEVER_GPUI_TRAY_DUMP")
         .ok()
         .filter(|s| !s.is_empty());
-    let delay_ms = std::env::var("CAP_GPUI_AUTO_TRAY_DELAY")
+    let delay_ms = std::env::var("FRAMEEVER_GPUI_AUTO_TRAY_DELAY")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(3000);
@@ -567,7 +567,7 @@ pub fn drive_from_env(cx: &mut App) {
                 match harness_item(spec, cx) {
                     Some(item) => handle_item(item, cx),
                     None if spec == "stop" => stop_recording(cx),
-                    None => tracing::error!(spec, "CAP_GPUI_AUTO_TRAY: unknown item"),
+                    None => tracing::error!(spec, "FRAMEEVER_GPUI_AUTO_TRAY: unknown item"),
                 }
             }
         });

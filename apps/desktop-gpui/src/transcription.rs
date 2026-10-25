@@ -2529,11 +2529,13 @@ mod tests {
 
     #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
     #[test]
-    #[ignore = "needs CAP_PARAKEET_BENCH_MODEL and CAP_PARAKEET_BENCH_WAV"]
+    #[ignore = "needs FRAMEEVER_PARAKEET_BENCH_MODEL and FRAMEEVER_PARAKEET_BENCH_WAV"]
     fn benchmark_parakeet_transcription() {
-        let model = std::env::var("CAP_PARAKEET_BENCH_MODEL").expect("CAP_PARAKEET_BENCH_MODEL");
-        let wav =
-            PathBuf::from(std::env::var("CAP_PARAKEET_BENCH_WAV").expect("CAP_PARAKEET_BENCH_WAV"));
+        let model = std::env::var("FRAMEEVER_PARAKEET_BENCH_MODEL")
+            .expect("FRAMEEVER_PARAKEET_BENCH_MODEL");
+        let wav = PathBuf::from(
+            std::env::var("FRAMEEVER_PARAKEET_BENCH_WAV").expect("FRAMEEVER_PARAKEET_BENCH_WAV"),
+        );
         let started = std::time::Instant::now();
         let result = process_with_parakeet(&wav, &model);
         let seconds = started.elapsed().as_secs_f64();
@@ -2541,7 +2543,7 @@ mod tests {
             Ok(segments) => {
                 let words: Vec<&CaptionWord> = segments.iter().flat_map(|s| &s.words).collect();
                 println!("parakeet_seconds={seconds:.2} words={}", words.len());
-                if let Ok(path) = std::env::var("CAP_PARAKEET_BENCH_WORDS") {
+                if let Ok(path) = std::env::var("FRAMEEVER_PARAKEET_BENCH_WORDS") {
                     let dump: String = words
                         .iter()
                         .map(|w| format!("{}\t{:.2}\t{:.2}\n", w.text, w.start, w.end))
@@ -2554,12 +2556,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs CAP_CAPTIONS_PROJECT, CAP_CAPTIONS_MODEL and CAP_CAPTIONS_LANGUAGE"]
+    #[ignore = "needs FRAMEEVER_CAPTIONS_PROJECT, FRAMEEVER_CAPTIONS_MODEL and FRAMEEVER_CAPTIONS_LANGUAGE"]
     fn caption_a_real_project() {
-        let project_path =
-            PathBuf::from(std::env::var("CAP_CAPTIONS_PROJECT").expect("CAP_CAPTIONS_PROJECT"));
-        let model = std::env::var("CAP_CAPTIONS_MODEL").expect("CAP_CAPTIONS_MODEL");
-        let language = std::env::var("CAP_CAPTIONS_LANGUAGE").expect("CAP_CAPTIONS_LANGUAGE");
+        let project_path = PathBuf::from(
+            std::env::var("FRAMEEVER_CAPTIONS_PROJECT").expect("FRAMEEVER_CAPTIONS_PROJECT"),
+        );
+        let model = std::env::var("FRAMEEVER_CAPTIONS_MODEL").expect("FRAMEEVER_CAPTIONS_MODEL");
+        let language =
+            std::env::var("FRAMEEVER_CAPTIONS_LANGUAGE").expect("FRAMEEVER_CAPTIONS_LANGUAGE");
         let started = std::time::Instant::now();
         let segments = transcribe_blocking(&project_path, &model, &language)
             .unwrap_or_else(|error| panic!("{}", caption_generation_error_message(&error)));

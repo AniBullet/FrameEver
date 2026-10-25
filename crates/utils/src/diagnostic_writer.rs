@@ -5,7 +5,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-pub const RECORD_PREFIX: &[u8] = b"CAP_DIAGNOSTIC ";
+pub const RECORD_PREFIX: &[u8] = b"FRAMEEVER_DIAGNOSTIC ";
 pub const MAX_RECORD_BYTES: usize = 4096;
 pub const MAX_FILE_BYTES: u64 = 4_500_000 / 2;
 static WRITE_FAILURES: AtomicU64 = AtomicU64::new(0);
@@ -160,7 +160,7 @@ mod tests {
             .finish(StalledWriter(blocked));
         let errors = writer.error_counter();
         for _ in 0..1000 {
-            writer.write_all(b"CAP_DIAGNOSTIC {}\n").unwrap();
+            writer.write_all(b"FRAMEEVER_DIAGNOSTIC {}\n").unwrap();
         }
         assert!(errors.dropped_lines() > 0);
         drop(release);
@@ -171,15 +171,15 @@ mod tests {
     fn interrupted_record_does_not_corrupt_the_next_process_record() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("cap-test.log.diagnostic-current.jsonl");
-        std::fs::write(&path, b"CAP_DIAGNOSTIC {\"partial\":").unwrap();
+        std::fs::write(&path, b"FRAMEEVER_DIAGNOSTIC {\"partial\":").unwrap();
         let mut writer = DiagnosticWriter::new(Vec::new(), dir.path(), "cap-test.log");
         writer
-            .write_all(b"CAP_DIAGNOSTIC {\"complete\":true}\n")
+            .write_all(b"FRAMEEVER_DIAGNOSTIC {\"complete\":true}\n")
             .unwrap();
         let text = std::fs::read_to_string(path).unwrap();
         let complete = text
             .lines()
-            .filter_map(|line| line.strip_prefix("CAP_DIAGNOSTIC "))
+            .filter_map(|line| line.strip_prefix("FRAMEEVER_DIAGNOSTIC "))
             .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
             .collect::<Vec<_>>();
         assert_eq!(complete, vec![serde_json::json!({"complete": true})]);
@@ -223,7 +223,7 @@ mod tests {
             ordinary: Vec::new(),
             journal: FullDisk,
         };
-        writer.write_all(b"CAP_DIAGNOSTIC {}\n").unwrap();
+        writer.write_all(b"FRAMEEVER_DIAGNOSTIC {}\n").unwrap();
         writer.write_all(b"recording is still running\n").unwrap();
         writer.flush().unwrap();
         assert_eq!(writer.ordinary, b"recording is still running\n");
@@ -235,7 +235,7 @@ mod tests {
         let blocked = dir.path().join("cap-test.log.diagnostic-current.jsonl");
         std::fs::create_dir(&blocked).unwrap();
         let mut writer = DiagnosticWriter::new(Vec::new(), dir.path(), "cap-test.log");
-        writer.write_all(b"CAP_DIAGNOSTIC {}\n").unwrap();
+        writer.write_all(b"FRAMEEVER_DIAGNOSTIC {}\n").unwrap();
         assert!(writer.journal.disabled);
         writer.write_all(b"ordinary log").unwrap();
         assert!(blocked.is_dir());
@@ -254,7 +254,7 @@ mod tests {
         )
         .unwrap();
         let mut writer = DiagnosticWriter::new(Vec::new(), dir.path(), "cap-test.log");
-        writer.write_all(b"CAP_DIAGNOSTIC {}\n").unwrap();
+        writer.write_all(b"FRAMEEVER_DIAGNOSTIC {}\n").unwrap();
         assert!(writer.journal.disabled);
         assert_eq!(std::fs::read_to_string(original).unwrap(), "preserve me");
     }

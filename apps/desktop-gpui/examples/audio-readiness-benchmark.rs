@@ -13,7 +13,7 @@ fn main() -> anyhow::Result<()> {
         .nth(1)
         .map(PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("Pass an audio path"))?;
-    if std::env::var_os("CAP_BENCH_PROGRESSIVE_AUDIO").is_some() {
+    if std::env::var_os("FRAMEEVER_BENCH_PROGRESSIVE_AUDIO").is_some() {
         return progressive_audio(path);
     }
     background_audio(path)
@@ -77,7 +77,7 @@ fn background_audio_report(path: PathBuf, full: &AudioData, full_ms: f64) -> any
     let window_frames = AudioData::SAMPLE_RATE as usize * 2;
     let mut windows = Vec::new();
     let mut matches_reference = true;
-    let streaming = if std::env::var_os("CAP_BENCH_STREAM_AUDIO").is_some() {
+    let streaming = if std::env::var_os("FRAMEEVER_BENCH_STREAM_AUDIO").is_some() {
         let started = Instant::now();
         let mut stream = AudioStream::open(&path, Arc::new(AtomicBool::new(false)))?;
         let open_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -142,7 +142,7 @@ fn background_audio_report(path: PathBuf, full: &AudioData, full_ms: f64) -> any
         sample_frames / 2,
         sample_frames.saturating_sub(window_frames),
     ] {
-        if std::env::var_os("CAP_BENCH_FULL_AUDIO_ONLY").is_some() {
+        if std::env::var_os("FRAMEEVER_BENCH_FULL_AUDIO_ONLY").is_some() {
             break;
         }
         let end = start.saturating_add(window_frames).min(sample_frames);
@@ -261,7 +261,7 @@ fn methodology() -> serde_json::Value {
 }
 
 fn mix_benchmark(audio: &impl frameever_audio::AudioSampleSource) -> Option<serde_json::Value> {
-    if std::env::var_os("CAP_BENCH_MIX_AUDIO").is_none() || audio.sample_count() < 48_000 {
+    if std::env::var_os("FRAMEEVER_BENCH_MIX_AUDIO").is_none() || audio.sample_count() < 48_000 {
         return None;
     }
     let tracks = [frameever_audio::AudioRendererTrack {

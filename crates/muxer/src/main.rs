@@ -59,7 +59,7 @@ fn report(message: std::fmt::Arguments) {
 }
 
 fn init_tracing() {
-    let filter = std::env::var("CAP_MUXER_LOG").unwrap_or_else(|_| "info".to_string());
+    let filter = std::env::var("FRAMEEVER_MUXER_LOG").unwrap_or_else(|_| "info".to_string());
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
@@ -100,7 +100,7 @@ fn classify_io_error(err: &ffmpeg::Error) -> bool {
 const DEFAULT_FRAME_QUEUE_BYTES: usize = 64 * 1024 * 1024;
 
 fn resolve_queue_capacity() -> usize {
-    std::env::var("CAP_MUXER_IO_BUF_MB")
+    std::env::var("FRAMEEVER_MUXER_IO_BUF_MB")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .filter(|&mb| mb > 0 && mb <= 1024)

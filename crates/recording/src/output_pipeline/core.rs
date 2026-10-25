@@ -1636,7 +1636,7 @@ async fn next_frame<S: futures::Stream + Unpin>(rx: &mut S) -> (Option<S::Item>,
 const DEFAULT_VIDEO_SOURCE_CHANNEL_CAPACITY: usize = 300;
 
 fn get_video_source_channel_capacity() -> usize {
-    std::env::var("CAP_VIDEO_SOURCE_BUFFER_SIZE")
+    std::env::var("FRAMEEVER_VIDEO_SOURCE_BUFFER_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_VIDEO_SOURCE_CHANNEL_CAPACITY)

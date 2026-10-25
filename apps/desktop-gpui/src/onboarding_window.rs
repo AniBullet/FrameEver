@@ -292,7 +292,7 @@ impl OnboardingWindow {
         #[cfg(debug_assertions)]
         if !this.welcome
             && !this.permissions_only
-            && let Ok(name) = std::env::var("CAP_GPUI_ONBOARDING_STEP")
+            && let Ok(name) = std::env::var("FRAMEEVER_GPUI_ONBOARDING_STEP")
             && let Some(step) = Step::ALL
                 .into_iter()
                 .find(|step| format!("{step:?}").eq_ignore_ascii_case(&name))

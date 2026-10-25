@@ -21,7 +21,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--profile", default=os.environ.get("CAP_VERIFY_CARGO_PROFILE", "dev"))
+    parser.add_argument("--profile", default=os.environ.get("FRAMEEVER_VERIFY_CARGO_PROFILE", "dev"))
     parser.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
     args = parser.parse_args()
     with open(os.path.join(ROOT, "scripts", "verify", "guards.toml"), "rb") as f:
@@ -29,7 +29,7 @@ def main():
     changed = []
     for g in guards:
         cmd = ["cargo", "test", "--profile", args.profile, "-p", g["package"], g["target"], "--", "--exact", g["test"]]
-        if os.environ.get("CAP_VERIFY_LOCKED") == "1":
+        if os.environ.get("FRAMEEVER_VERIFY_LOCKED") == "1":
             cmd.insert(2, "--locked")
         print(f"guard {g['id']}: {' '.join(cmd)}", flush=True)
         result = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)

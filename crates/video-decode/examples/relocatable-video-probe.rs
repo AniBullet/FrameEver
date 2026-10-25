@@ -187,7 +187,7 @@ fn main() -> Result<(), String> {
         input_hashes.push(file_digest(path)?);
         relative_paths.push(relative);
     }
-    let hardware = std::env::var_os("CAP_BENCH_HW").is_some();
+    let hardware = std::env::var_os("FRAMEEVER_BENCH_HW").is_some();
     let device = hardware.then_some(if cfg!(target_os = "macos") {
         ffmpeg::sys::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX
     } else if cfg!(target_os = "windows") {
@@ -195,7 +195,7 @@ fn main() -> Result<(), String> {
     } else {
         ffmpeg::sys::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI
     });
-    let managed_first = std::env::var_os("CAP_PROBE_MANAGED_FIRST").is_some();
+    let managed_first = std::env::var_os("FRAMEEVER_PROBE_MANAGED_FIRST").is_some();
     let (source, managed, ordinary, source_setup_ms) = if managed_first {
         let (source, managed, setup_ms) = open_managed(&original, &relative_paths, device)?;
         let ordinary = open_probe(|| FFmpegDecoder::new(&input, device))?;

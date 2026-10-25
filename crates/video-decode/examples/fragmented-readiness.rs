@@ -12,10 +12,10 @@ fn main() -> Result<(), String> {
         .map(|time| time.parse::<f32>().map_err(|error| error.to_string()))
         .collect::<Result<Vec<_>, _>>()?;
     let times = if times.is_empty() { vec![0.0] } else { times };
-    let frames_per_seek = std::env::var("CAP_BENCH_FRAMES")
+    let frames_per_seek = std::env::var("FRAMEEVER_BENCH_FRAMES")
         .map_or(Ok(30), |value| value.parse::<usize>())
         .map_err(|error| error.to_string())?;
-    let hardware = std::env::var_os("CAP_BENCH_HW").is_some();
+    let hardware = std::env::var_os("FRAMEEVER_BENCH_HW").is_some();
     let device = hardware.then_some(if cfg!(target_os = "macos") {
         ffmpeg::sys::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX
     } else if cfg!(target_os = "windows") {

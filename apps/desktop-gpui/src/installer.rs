@@ -307,7 +307,7 @@ pub(crate) fn check_artifact_kind(file: &Path, kind: ArtifactKind) -> Result<(),
 }
 
 fn staging_root() -> PathBuf {
-    if let Some(directory) = std::env::var_os("CAP_GPUI_UPDATE_STAGING_DIR")
+    if let Some(directory) = std::env::var_os("FRAMEEVER_GPUI_UPDATE_STAGING_DIR")
         && !directory.is_empty()
     {
         return PathBuf::from(directory);

@@ -298,7 +298,7 @@ total_size = bytes_per_frame * total_frames
 1. `RgbaToNv12Converter` gained a surface-output mode: the existing compute shader writes the same NV12 bytes (256-aligned stride, values unchanged) and the GPU copies them into an IOSurface-backed 420v CVPixelBuffer from a fixed 8-slot ring — no readback, no map. Fallback to readback mode is automatic if the surface machinery fails.
 2. `Nv12RenderedFrame` optionally carries an `Nv12Surface`; the export render channel is otherwise unchanged. Only `render_video_to_channel_nv12` enables surface output (macOS, hardware adapter), so the editor's NV12 consumers are untouched.
 3. The export encoder thread decides its input mode from the first frame it receives: surface frames open `h264_videotoolbox` with `AV_PIX_FMT_VIDEOTOOLBOX` + `AVHWFramesContext` (the primitive added for recording) and queue wrapped CVPixelBuffers zero-copy; CPU frames (non-macOS, software adapter, escape hatch) keep the existing path. CRF/libx264 exports receive surface frames into the software encoder via a single lock-and-copy (one copy where there used to be readback + two).
-4. `CAP_EXPORT_DISABLE_ZERO_COPY=1` forces the previous readback + software-frame path end to end.
+4. `FRAMEEVER_EXPORT_DISABLE_ZERO_COPY=1` forces the previous readback + software-frame path end to end.
 
 **Verification**:
 - `frame_pipeline::surface_output_tests::the_surface_output_matches_the_readback_output`: surface NV12 bytes match readback NV12 bytes exactly (max delta 0) at 1920x1080 and 1284x722 (stride-padding case).

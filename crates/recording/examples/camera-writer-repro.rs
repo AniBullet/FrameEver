@@ -338,7 +338,7 @@ fn main() -> anyhow::Result<()> {
 
     let args = env::args().collect::<Vec<_>>();
     let preferred_camera =
-        value_flag(&args, "--camera").or_else(|| env::var("CAP_CAMERA_NAME").ok());
+        value_flag(&args, "--camera").or_else(|| env::var("FRAMEEVER_CAMERA_NAME").ok());
     let frame_limit = value_flag(&args, "--frames")
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(12);

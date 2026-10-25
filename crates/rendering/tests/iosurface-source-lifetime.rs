@@ -262,7 +262,7 @@ fn settle(wrong: &[String]) {
         expectations: EXPECTATIONS.into(),
         case: CASE.into(),
         platform: platform().into(),
-        tier: std::env::var("CAP_VERIFY_TIER").unwrap_or_else(|_| "fast".into()),
+        tier: std::env::var("FRAMEEVER_VERIFY_TIER").unwrap_or_else(|_| "fast".into()),
         outcome,
         failures: observed
             .keys()

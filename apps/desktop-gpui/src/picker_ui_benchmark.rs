@@ -9,11 +9,11 @@ use crate::{
 };
 
 pub fn run(main: WindowHandle<MainWindow>, cx: &mut App) {
-    let Some(output) = std::env::var_os("CAP_PICKER_BENCHMARK_OUTPUT") else {
+    let Some(output) = std::env::var_os("FRAMEEVER_PICKER_BENCHMARK_OUTPUT") else {
         return;
     };
     cx.spawn(async move |cx| {
-        let delay = std::env::var("CAP_PICKER_BENCHMARK_DELAY_MS")
+        let delay = std::env::var("FRAMEEVER_PICKER_BENCHMARK_DELAY_MS")
             .ok()
             .and_then(|delay| delay.parse().ok())
             .unwrap_or(2000);

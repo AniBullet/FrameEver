@@ -1082,17 +1082,17 @@ impl MainWindow {
 
                 this.restore_recording_inputs(cx);
 
-                // `CAP_GPUI_AUTO_CAMERA=1`: select the first camera the way a
+                // `FRAMEEVER_GPUI_AUTO_CAMERA=1`: select the first camera the way a
                 // click would -- the automated check drives the preview window
                 // this way because synthetic clicks are dropped.
-                if std::env::var("CAP_GPUI_AUTO_CAMERA").is_ok_and(|v| v == "1")
+                if std::env::var("FRAMEEVER_GPUI_AUTO_CAMERA").is_ok_and(|v| v == "1")
                     && this.camera.is_none()
                     && let Some(first) = this.devices.cameras.first().cloned()
                 {
                     tracing::info!(camera = %first.label, "auto-selecting camera");
                     this.set_camera_selection(Some(first), cx);
                 }
-                if std::env::var("CAP_GPUI_AUTO_MIC").is_ok_and(|value| value == "1")
+                if std::env::var("FRAMEEVER_GPUI_AUTO_MIC").is_ok_and(|value| value == "1")
                     && this.microphone.is_none()
                 {
                     let selected =
@@ -1110,11 +1110,11 @@ impl MainWindow {
                         this.set_microphone_selection(Some(microphone), cx);
                     }
                 }
-                // `CAP_GPUI_AUTO_PANEL=display|window`: open that target
+                // `FRAMEEVER_GPUI_AUTO_PANEL=display|window`: open that target
                 // picker panel the way the chevron click does. Same reason as
-                // `CAP_GPUI_AUTO_CAMERA` above -- the chrome screenshots need
+                // `FRAMEEVER_GPUI_AUTO_CAMERA` above -- the chrome screenshots need
                 // the card grid on screen and synthetic clicks are dropped.
-                match std::env::var("CAP_GPUI_AUTO_PANEL").as_deref() {
+                match std::env::var("FRAMEEVER_GPUI_AUTO_PANEL").as_deref() {
                     Ok("display") => {
                         this.open_panel(Panel::Target(TargetType::Display), window, cx)
                     }
@@ -1816,14 +1816,14 @@ impl MainWindow {
         }
     }
 
-    /// Dev-only end-to-end driver (`CAP_GPUI_AUTO_RECORD=studio:5`): synthetic
+    /// Dev-only end-to-end driver (`FRAMEEVER_GPUI_AUTO_RECORD=studio:5`): synthetic
     /// clicks are dropped without Accessibility permission, so the automated
     /// check arms a target and drives start/stop through the same methods the
     /// buttons call.
     ///
-    /// `CAP_GPUI_AUTO_OVERLAY=display|window|area` routes the start through the
+    /// `FRAMEEVER_GPUI_AUTO_OVERLAY=display|window|area` routes the start through the
     /// target-select overlay instead of straight off this window --
-    /// `CAP_GPUI_AUTO_AREA=x,y,w,h` seeds the crop the drag would have drawn,
+    /// `FRAMEEVER_GPUI_AUTO_AREA=x,y,w,h` seeds the crop the drag would have drawn,
     /// and the window variant pins the first enumerated window the way picking
     /// one from the dropdown does.
     pub fn auto_record(
@@ -1839,14 +1839,14 @@ impl MainWindow {
         self.mode = mode;
         self.target = Some(overlay.unwrap_or(TargetType::Display));
         self.system_audio =
-            std::env::var("CAP_GPUI_AUTO_SYSTEM_AUDIO").is_ok_and(|value| value == "1");
+            std::env::var("FRAMEEVER_GPUI_AUTO_SYSTEM_AUDIO").is_ok_and(|value| value == "1");
         cx.notify();
 
-        // `CAP_GPUI_AUTO_PAUSE=1`: wiggle pause/resume in the middle third, so
+        // `FRAMEEVER_GPUI_AUTO_PAUSE=1`: wiggle pause/resume in the middle third, so
         // ffprobe duration < wall time proves the pause reached the engine.
-        let pause_wiggle = std::env::var("CAP_GPUI_AUTO_PAUSE").is_ok_and(|v| v == "1");
+        let pause_wiggle = std::env::var("FRAMEEVER_GPUI_AUTO_PAUSE").is_ok_and(|v| v == "1");
 
-        let skip_mic = std::env::var("CAP_GPUI_AUTO_NO_MIC").is_ok_and(|v| v == "1")
+        let skip_mic = std::env::var("FRAMEEVER_GPUI_AUTO_NO_MIC").is_ok_and(|v| v == "1")
             || mode == Mode::Screenshot;
         if skip_mic {
             self.set_microphone_selection(None, cx);
@@ -1923,7 +1923,7 @@ impl MainWindow {
                 if !found {
                     tracing::error!(
                         title = %wanted,
-                        "CAP_GPUI_AUTO_WINDOW: no matching window"
+                        "FRAMEEVER_GPUI_AUTO_WINDOW: no matching window"
                     );
                     return;
                 }
@@ -2030,7 +2030,7 @@ impl MainWindow {
         cx.notify();
     }
 
-    /// `CAP_GPUI_AUTO_OVERLAY` on its own (no `CAP_GPUI_AUTO_RECORD`): open the
+    /// `FRAMEEVER_GPUI_AUTO_OVERLAY` on its own (no `FRAMEEVER_GPUI_AUTO_RECORD`): open the
     /// overlays and leave them up, which is how the screenshots are taken.
     pub fn auto_open_overlay(
         &mut self,
@@ -2063,7 +2063,7 @@ impl MainWindow {
 
     /// Start with the target the UI state describes. The overlays own the real
     /// start affordance now; this is the harness path
-    /// (`CAP_GPUI_AUTO_RECORD` without `CAP_GPUI_AUTO_OVERLAY`).
+    /// (`FRAMEEVER_GPUI_AUTO_RECORD` without `FRAMEEVER_GPUI_AUTO_OVERLAY`).
     pub fn start_recording(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(target) = self.armed_target() else {
             return;
@@ -5817,7 +5817,7 @@ impl MainWindow {
                         // in-window info panel -- `showWindow("ModeSelect")` is
                         // `Mode.tsx`'s *fallback*, and nothing in the shipping
                         // frontend reaches it. The standalone window exists
-                        // here for parity (`CAP_GPUI_AUTO_MODE_SELECT` opens
+                        // here for parity (`FRAMEEVER_GPUI_AUTO_MODE_SELECT` opens
                         // it), but the dot mirrors the observed behavior.
                         this.open_panel(Panel::ModeInfo, window, cx);
                     })),
@@ -6241,10 +6241,10 @@ fn black_alpha(alpha: f32) -> Hsla {
     color
 }
 
-/// `CAP_GPUI_AUTO_OVERLAY=display|window|area|camera`, the harness's stand-in
+/// `FRAMEEVER_GPUI_AUTO_OVERLAY=display|window|area|camera`, the harness's stand-in
 /// for clicking a target tile.
 pub fn auto_overlay_kind() -> Option<TargetType> {
-    match std::env::var("CAP_GPUI_AUTO_OVERLAY").ok()?.as_str() {
+    match std::env::var("FRAMEEVER_GPUI_AUTO_OVERLAY").ok()?.as_str() {
         "display" => Some(TargetType::Display),
         "window" => Some(TargetType::Window),
         "area" => Some(TargetType::Area),
@@ -6254,7 +6254,7 @@ pub fn auto_overlay_kind() -> Option<TargetType> {
 }
 
 pub(crate) fn auto_window_title() -> Option<String> {
-    std::env::var("CAP_GPUI_AUTO_WINDOW")
+    std::env::var("FRAMEEVER_GPUI_AUTO_WINDOW")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -6264,10 +6264,10 @@ fn window_matches(window: &crate::devices::WindowOption, title: &str) -> bool {
     window.label == title
 }
 
-/// `CAP_GPUI_AUTO_AREA=x,y,width,height`, the harness's stand-in for drawing a
+/// `FRAMEEVER_GPUI_AUTO_AREA=x,y,width,height`, the harness's stand-in for drawing a
 /// crop with the mouse.
 fn auto_area_rect() -> Option<crate::target_overlay::AreaRect> {
-    crate::target_overlay::AreaRect::parse(&std::env::var("CAP_GPUI_AUTO_AREA").ok()?)
+    crate::target_overlay::AreaRect::parse(&std::env::var("FRAMEEVER_GPUI_AUTO_AREA").ok()?)
 }
 
 /// `InfoPill` + `TargetSelectInfoPill`: 24px tall, min 40px wide, `px-2.5`,

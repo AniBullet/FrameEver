@@ -856,7 +856,7 @@ mod app {
         use cpal::host::coreaudio::StreamInstantExt;
 
         let host = cpal::default_host();
-        let device = match std::env::var("CAP_VERIFY_AUDIO_OUTPUT") {
+        let device = match std::env::var("FRAMEEVER_VERIFY_AUDIO_OUTPUT") {
             Ok(name) if !name.is_empty() => host
                 .output_devices()
                 .map_err(|e| format!("output devices: {e}"))?

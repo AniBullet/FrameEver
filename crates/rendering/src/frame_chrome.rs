@@ -659,11 +659,11 @@ mod tests {
     }
 
     /// Visual iteration helper: dumps every style/theme chrome to PNGs.
-    /// `CAP_CHROME_DUMP_DIR=/tmp/x cargo test -p frameever-rendering dump_chrome -- --ignored`
+    /// `FRAMEEVER_CHROME_DUMP_DIR=/tmp/x cargo test -p frameever-rendering dump_chrome -- --ignored`
     #[test]
     #[ignore]
     fn dump_chrome_pngs() {
-        let Ok(dir) = std::env::var("CAP_CHROME_DUMP_DIR") else {
+        let Ok(dir) = std::env::var("FRAMEEVER_CHROME_DUMP_DIR") else {
             return;
         };
         std::fs::create_dir_all(&dir).unwrap();

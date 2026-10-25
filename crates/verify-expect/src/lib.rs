@@ -33,7 +33,7 @@
 //! `require_bound = true` rejects unseeded entries without a bound.
 //!
 //! Every suite writes one JSON line per case ([`Record`]) to
-//! `CAP_VERIFY_REPORT_DIR` when it is set. The `frameever-verify-expect` binary
+//! `FRAMEEVER_VERIFY_REPORT_DIR` when it is set. The `frameever-verify-expect` binary
 //! rewrites the expectations files from those records (`bless`), and
 //! `scripts/verify/summary.py` turns them into the CI job summary.
 
@@ -48,11 +48,11 @@ use serde::{Deserialize, Serialize};
 
 pub const PLATFORMS: [&str; 3] = ["linux", "macos", "windows"];
 
-/// The machine class from `CAP_VERIFY_HOST` (see [`Xfail::hosts`]); `local`
+/// The machine class from `FRAMEEVER_VERIFY_HOST` (see [`Xfail::hosts`]); `local`
 /// when unset (a developer machine).
 pub fn host() -> Option<String> {
     Some(
-        std::env::var("CAP_VERIFY_HOST")
+        std::env::var("FRAMEEVER_VERIFY_HOST")
             .ok()
             .map(|h| h.trim().to_string())
             .filter(|h| !h.is_empty())
@@ -187,7 +187,7 @@ pub struct Xfail {
     /// machine stall (flaky entries only).
     pub starved: bool,
     /// Machine classes the entry applies to, matched against
-    /// `CAP_VERIFY_HOST` (CI sets `github-hosted` or `blacksmith`; `local`
+    /// `FRAMEEVER_VERIFY_HOST` (CI sets `github-hosted` or `blacksmith`; `local`
     /// when unset); empty means every host. For a defect only one class of machine reaches
     /// (for example the software encoder path of VMs without a hardware
     /// encoder), with the reason in `reason`.
@@ -254,10 +254,10 @@ pub fn glob_match(pattern: &str, text: &str) -> bool {
 }
 
 /// Case selection shared by every suite:
-/// - `CAP_VERIFY_CASE`: comma-separated globs; only matching cases run.
-/// - `CAP_VERIFY_SKIP`: comma-separated globs; matching cases are skipped
+/// - `FRAMEEVER_VERIFY_CASE`: comma-separated globs; only matching cases run.
+/// - `FRAMEEVER_VERIFY_SKIP`: comma-separated globs; matching cases are skipped
 ///   (the per-platform FAST tier trims in `scripts/verify/suites.json`).
-/// - `CAP_VERIFY_SHARD=i/n`: only cases whose id hashes to shard `i` (1-based)
+/// - `FRAMEEVER_VERIFY_SHARD=i/n`: only cases whose id hashes to shard `i` (1-based)
 ///   of `n` run, so one suite can be split across CI jobs case by case.
 pub fn case_selected(id: &str) -> bool {
     let env = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
@@ -268,17 +268,17 @@ pub fn case_selected(id: &str) -> bool {
             .filter(|p| !p.is_empty())
             .collect()
     };
-    if let Some(only) = env("CAP_VERIFY_CASE")
+    if let Some(only) = env("FRAMEEVER_VERIFY_CASE")
         && !globs(only).iter().any(|p| glob_match(p, id))
     {
         return false;
     }
-    if let Some(skip) = env("CAP_VERIFY_SKIP")
+    if let Some(skip) = env("FRAMEEVER_VERIFY_SKIP")
         && globs(skip).iter().any(|p| glob_match(p, id))
     {
         return false;
     }
-    match env("CAP_VERIFY_SHARD").and_then(|v| parse_shard(&v)) {
+    match env("FRAMEEVER_VERIFY_SHARD").and_then(|v| parse_shard(&v)) {
         Some((index, count)) => shard_of(id, count) == index,
         None => true,
     }
@@ -1033,7 +1033,7 @@ pub enum Outcome {
     Inconclusive,
 }
 
-/// One case's result, written as a JSON line to `CAP_VERIFY_REPORT_DIR`.
+/// One case's result, written as a JSON line to `FRAMEEVER_VERIFY_REPORT_DIR`.
 /// Suites may add fields (for example per-stream mismatch lists); readers
 /// ignore what they do not know.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1077,12 +1077,12 @@ pub struct Record {
 }
 
 pub fn report_dir() -> Option<PathBuf> {
-    std::env::var_os("CAP_VERIFY_REPORT_DIR")
+    std::env::var_os("FRAMEEVER_VERIFY_REPORT_DIR")
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
 }
 
-/// Appends records to `<CAP_VERIFY_REPORT_DIR>/<suite>-<pid>.jsonl` (no-op
+/// Appends records to `<FRAMEEVER_VERIFY_REPORT_DIR>/<suite>-<pid>.jsonl` (no-op
 /// when the variable is unset). Any extra JSON fields in `extra` are merged
 /// into each line.
 pub fn write_records(records: &[(Record, serde_json::Value)]) {

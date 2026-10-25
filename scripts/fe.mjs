@@ -112,9 +112,9 @@ export function withFfmpeg(env = process.env) {
 export function testProfileEnv(env = process.env) {
 	return {
 		...withFfmpeg(env),
-		CAP_GPUI_APP_DATA_DIR: path.join(testdataDir, "appdata"),
-		CAP_GPUI_RECORDINGS_DIR: path.join(testdataDir, "recordings"),
-		CAP_GPUI_LOG_DIR: path.join(testdataDir, "logs"),
+		FRAMEEVER_GPUI_APP_DATA_DIR: path.join(testdataDir, "appdata"),
+		FRAMEEVER_GPUI_RECORDINGS_DIR: path.join(testdataDir, "recordings"),
+		FRAMEEVER_GPUI_LOG_DIR: path.join(testdataDir, "logs"),
 	};
 }
 
@@ -436,7 +436,7 @@ function dev({ flags }) {
 	}
 	const env = {
 		...(isolated ? testProfileEnv() : withFfmpeg()),
-		CAP_GPUI_DEV_RESTORE: path.join(testdataDir, "dev-restore.json"),
+		FRAMEEVER_GPUI_DEV_RESTORE: path.join(testdataDir, "dev-restore.json"),
 	};
 	console.log(
 		isolated

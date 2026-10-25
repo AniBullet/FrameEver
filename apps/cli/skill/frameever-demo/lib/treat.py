@@ -23,8 +23,8 @@ ASSETS = os.path.join(SKILL_DIR, "assets")
 
 
 def resolve_cap():
-    """FrameEver binary: env FRAMEEVER_BIN or CAP_BIN, else `frameever` on PATH, else a clear error."""
-    override = os.environ.get("FRAMEEVER_BIN") or os.environ.get("CAP_BIN")
+    """FrameEver binary: env FRAMEEVER_BIN, else `frameever` on PATH, else a clear error."""
+    override = os.environ.get("FRAMEEVER_BIN")
     if override:
         return override
     p = shutil.which("frameever")

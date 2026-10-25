@@ -1309,7 +1309,7 @@ fn get_codec_and_options(
 /// add to recording start for a failure mode never observed there. Results
 /// are cached per everything that shapes the encode path (encoder, resolution,
 /// input pixel format, frame rate, bitrate inputs, and the full option set)
-/// so the cost is one-time per process, and `CAP_DISABLE_ENCODER_SELF_TEST=1`
+/// so the cost is one-time per process, and `FRAMEEVER_DISABLE_ENCODER_SELF_TEST=1`
 /// bypasses the check as an escape hatch.
 fn cached_hardware_self_test(
     codec: Codec,
@@ -1330,7 +1330,7 @@ fn cached_hardware_self_test(
         return Ok(());
     }
 
-    if std::env::var("CAP_DISABLE_ENCODER_SELF_TEST")
+    if std::env::var("FRAMEEVER_DISABLE_ENCODER_SELF_TEST")
         .is_ok_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
     {
         return Ok(());

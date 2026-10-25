@@ -438,11 +438,11 @@ pub fn write_fixture(spec: &FixtureSpec, dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Root for generated fixtures: `CAP_VERIFY_FIXTURE_DIR`, else
+/// Root for generated fixtures: `FRAMEEVER_VERIFY_FIXTURE_DIR`, else
 /// `<target>/verify-fixtures`. CI caches this directory keyed by the
 /// generator sources.
 pub fn fixture_root() -> PathBuf {
-    if let Some(dir) = std::env::var_os("CAP_VERIFY_FIXTURE_DIR") {
+    if let Some(dir) = std::env::var_os("FRAMEEVER_VERIFY_FIXTURE_DIR") {
         return PathBuf::from(dir);
     }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

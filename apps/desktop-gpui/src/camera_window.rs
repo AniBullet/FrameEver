@@ -20,7 +20,7 @@
 //! [`CameraToolbarView`] mounted `.cached()`, re-rendered only when the parent
 //! notifies (hover, resize, state mutations). A per-frame `window.refresh()`
 //! would bust every cache and relayout the whole window at camera rate
-//! (`CAP_GPUI_AUTO_CAMERA_BENCH`, 8 interleaved A/B pairs: median p50 draw
+//! (`FRAMEEVER_GPUI_AUTO_CAMERA_BENCH`, 8 interleaved A/B pairs: median p50 draw
 //! 319us -> 222us; the remainder is gpui's fixed per-draw cost, which a
 //! clean-draw floor measurement puts at ~150us on this window either way).
 //! Verified live on a real C920: 29.9fps delivered, 29.9fps painted with no

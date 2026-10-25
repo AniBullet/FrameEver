@@ -715,10 +715,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires CAP_MANAGED_AUDIO_FIXTURE_ROOT and CAP_MANAGED_AUDIO_FIXTURE_PATH"]
+    #[ignore = "Requires FRAMEEVER_MANAGED_AUDIO_FIXTURE_ROOT and FRAMEEVER_MANAGED_AUDIO_FIXTURE_PATH"]
     async fn canonical_audio_matches_independent_stream_through_eof() {
-        let root = PathBuf::from(std::env::var_os("CAP_MANAGED_AUDIO_FIXTURE_ROOT").unwrap());
-        let relative = PathBuf::from(std::env::var_os("CAP_MANAGED_AUDIO_FIXTURE_PATH").unwrap());
+        let root = PathBuf::from(std::env::var_os("FRAMEEVER_MANAGED_AUDIO_FIXTURE_ROOT").unwrap());
+        let relative =
+            PathBuf::from(std::env::var_os("FRAMEEVER_MANAGED_AUDIO_FIXTURE_PATH").unwrap());
         let canonical = root.join(&relative);
         let managed = ManagedProgressiveAudio::spawn(
             ManagedAudioInput::new(RelocatableSource::new(root).unwrap(), relative).unwrap(),

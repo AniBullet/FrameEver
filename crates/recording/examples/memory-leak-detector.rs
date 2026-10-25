@@ -632,7 +632,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "  --oop-muxer         Use the out-of-process frameever-muxer for fragmented MP4"
             );
             println!(
-                "                      (requires frameever-muxer binary; set CAP_MUXER_BIN or build it)"
+                "                      (requires frameever-muxer binary; set FRAMEEVER_MUXER_BIN or build it)"
             );
             println!();
             println!("Examples:");

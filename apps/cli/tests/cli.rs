@@ -677,7 +677,7 @@ fn non_interactive_s3_requires_secure_credential_input() {
             "--format",
             "json",
         ])
-        .env("CAP_AGENT_TOKEN", "cap_cli_synthetic_test_token")
+        .env("FRAMEEVER_AGENT_TOKEN", "cap_cli_synthetic_test_token")
         .stdin(Stdio::null())
         .output()
         .unwrap();
@@ -754,7 +754,7 @@ fn agent_content_mutations_require_explicit_confirmation() {
             .args(args)
             .arg("--format")
             .arg("json")
-            .env("CAP_AGENT_TOKEN", "cap_cli_synthetic_test_token")
+            .env("FRAMEEVER_AGENT_TOKEN", "cap_cli_synthetic_test_token")
             .stdin(Stdio::null())
             .output()
             .unwrap();
@@ -804,7 +804,7 @@ fn agent_installer_dry_run_is_machine_readable() {
 fn new_commands_emit_json_errors_for_local_format_flag() {
     let caps_output = cap()
         .args(["caps", "get", "!", "--format", "json"])
-        .env("CAP_AGENT_TOKEN", "cap_cli_synthetic_test_token")
+        .env("FRAMEEVER_AGENT_TOKEN", "cap_cli_synthetic_test_token")
         .output()
         .unwrap();
     assert_eq!(caps_output.status.code(), Some(1));
@@ -840,8 +840,8 @@ fn mcp_stdout_is_protocol_only_and_exposes_expected_tools() {
     let mut command = cap();
     command
         .args(["mcp", "serve"])
-        .env("CAP_AGENT_TOKEN", "cap_cli_synthetic_test_token")
-        .env("CAP_SERVER_URL", "http://127.0.0.1:9")
+        .env("FRAMEEVER_AGENT_TOKEN", "cap_cli_synthetic_test_token")
+        .env("FRAMEEVER_SERVER_URL", "http://127.0.0.1:9")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1001,8 +1001,8 @@ fn mcp_cancellation_stops_wait_polling() {
     let mut command = cap();
     command
         .args(["mcp", "serve"])
-        .env("CAP_AGENT_TOKEN", "cap_cli_synthetic_test_token")
-        .env("CAP_SERVER_URL", server_url)
+        .env("FRAMEEVER_AGENT_TOKEN", "cap_cli_synthetic_test_token")
+        .env("FRAMEEVER_SERVER_URL", server_url)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1163,7 +1163,7 @@ fn clean_error_has_no_debug_quotes() {
 
 #[test]
 fn upload_missing_file_emits_json_error() {
-    // Whether auth comes from CAP_API_KEY, the desktop login, or is absent, uploading a path that
+    // Whether auth comes from FRAMEEVER_API_KEY, the desktop login, or is absent, uploading a path that
     // does not exist must fail with a machine-readable error before any network call.
     let output = run(&["upload", "/tmp/does-not-exist-cap.mp4", "--format", "json"]);
     assert!(!output.status.success());
@@ -1186,8 +1186,8 @@ fn auth_status_json_reports_source() {
 fn auth_status_recognizes_agent_environment_credentials() {
     let output = cap()
         .args(["auth", "status", "--json"])
-        .env("CAP_AGENT_TOKEN", "cap_cli_synthetic_agent_status")
-        .env("CAP_SERVER_URL", "http://127.0.0.1:9876")
+        .env("FRAMEEVER_AGENT_TOKEN", "cap_cli_synthetic_agent_status")
+        .env("FRAMEEVER_SERVER_URL", "http://127.0.0.1:9876")
         .output()
         .unwrap();
     assert!(output.status.success(), "stderr: {}", stderr(&output));
@@ -1223,8 +1223,8 @@ fn auth_status_verifies_agent_credentials_with_the_server() {
     });
     let output = cap()
         .args(["auth", "status", "--json"])
-        .env("CAP_AGENT_TOKEN", "cap_cli_synthetic_agent_status")
-        .env("CAP_SERVER_URL", server_url)
+        .env("FRAMEEVER_AGENT_TOKEN", "cap_cli_synthetic_agent_status")
+        .env("FRAMEEVER_SERVER_URL", server_url)
         .output()
         .unwrap();
     server.join().unwrap();
@@ -1243,8 +1243,8 @@ fn auth_status_verifies_agent_credentials_with_the_server() {
 fn agent_credentials_reject_insecure_remote_servers() {
     let output = cap()
         .args(["caps", "list", "--json"])
-        .env("CAP_AGENT_TOKEN", "cap_cli_synthetic_agent_status")
-        .env("CAP_SERVER_URL", "http://example.com")
+        .env("FRAMEEVER_AGENT_TOKEN", "cap_cli_synthetic_agent_status")
+        .env("FRAMEEVER_SERVER_URL", "http://example.com")
         .output()
         .unwrap();
     assert!(!output.status.success());

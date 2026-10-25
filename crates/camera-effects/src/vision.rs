@@ -128,7 +128,7 @@ enum Request {
 
 impl Request {
     fn new() -> Self {
-        if std::env::var("CAP_CAMERA_SEGMENTATION").as_deref() != Ok("vision-segmentation")
+        if std::env::var("FRAMEEVER_CAMERA_SEGMENTATION").as_deref() != Ok("vision-segmentation")
             && let Some(request) = PersonInstanceMaskRequest::new()
         {
             return Self::Instances(request);

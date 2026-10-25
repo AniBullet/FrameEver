@@ -34,8 +34,8 @@ Restart the agent afterwards. The full machine-readable contract is always `fram
 | `FRAMEEVER_NO_MODIFY_PATH` | `desktop install-cli` | Set to skip editing shell profiles / the user PATH.      |
 
 Run Command automations receive `FRAMEEVER_PROJECT_PATH`, `FRAMEEVER_IMAGE_PATH` and
-`FRAMEEVER_OUTPUT_PATH` when the trigger provides them. The older `CAP_*` names are still set so rules
-imported from Cap-aniBullet 2.x keep working.
+`FRAMEEVER_OUTPUT_PATH` when the trigger provides them. The older `CAP_*` names are no longer set;
+FrameEver Converter rewrites rules from Cap-aniBullet 2.x.
 
 ## Typical workflow
 

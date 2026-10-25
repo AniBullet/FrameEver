@@ -243,7 +243,7 @@ case = "recording/instant/system-only"
 class = "sync-screen-system"
 platforms = ["macos"]
 bound = { count = 1, offset-ms = [100, 250] }
-reason = "NEW: Instant with system audio and no microphone: the first ScreenCaptureKit audio buffer becomes audio zero, so system audio plays 140 to 184 ms early (developer Mac, 8 of 8). Runs only where system audio is played and required (CAP_VERIFY_REQUIRE_SYSTEM_AUDIO); elsewhere it reports unsupported"
+reason = "NEW: Instant with system audio and no microphone: the first ScreenCaptureKit audio buffer becomes audio zero, so system audio plays 140 to 184 ms early (developer Mac, 8 of 8). Runs only where system audio is played and required (FRAMEEVER_VERIFY_REQUIRE_SYSTEM_AUDIO); elsewhere it reports unsupported"
 link = ""
 
 [[xfail]]

@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn portable_blur_processes_bgra_frames_without_changing_dimensions() {
         #[cfg(not(target_os = "macos"))]
-        if std::env::var_os("CAP_GPUI_TEST_PORTABLE_BLUR").is_none() {
+        if std::env::var_os("FRAMEEVER_GPUI_TEST_PORTABLE_BLUR").is_none() {
             return;
         }
 
@@ -370,7 +370,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn portable_blur_processes_real_webcam_frames_when_requested() {
-        if std::env::var_os("CAP_GPUI_TEST_REAL_CAMERA").is_none() {
+        if std::env::var_os("FRAMEEVER_GPUI_TEST_REAL_CAMERA").is_none() {
             return;
         }
 

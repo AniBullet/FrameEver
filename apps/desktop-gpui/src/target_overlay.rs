@@ -469,7 +469,7 @@ impl AreaRect {
         }
     }
 
-    /// `x,y,width,height` -- the `CAP_GPUI_AUTO_AREA` harness format.
+    /// `x,y,width,height` -- the `FRAMEEVER_GPUI_AUTO_AREA` harness format.
     pub fn parse(spec: &str) -> Option<Self> {
         let values: Vec<f32> = spec
             .split(',')
@@ -735,7 +735,7 @@ impl OverlayWindow {
     }
 
     /// Seed an area selection without drawing one -- the harness path
-    /// (`CAP_GPUI_AUTO_AREA`), since unprivileged synthetic drags are dropped.
+    /// (`FRAMEEVER_GPUI_AUTO_AREA`), since unprivileged synthetic drags are dropped.
     pub fn set_crop(&mut self, crop: AreaRect, cx: &mut Context<Self>) {
         if self.recording_area {
             return;

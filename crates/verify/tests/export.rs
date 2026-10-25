@@ -1334,7 +1334,7 @@ fn recorded_studio_audio() {
                         ),
                     ] {
                         let heard = audio_code::locate_markers(&mono, 48_000, source);
-                        if std::env::var_os("CAP_VERIFY_DUMP_AUDIO").is_some() {
+                        if std::env::var_os("FRAMEEVER_VERIFY_DUMP_AUDIO").is_some() {
                             for h in &heard {
                                 eprintln!(
                                     "  heard {}: {:?} at {:.4}s gain {:.3}",

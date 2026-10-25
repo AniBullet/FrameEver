@@ -214,7 +214,7 @@ impl EditorWindow {
         self.note_edit(reason, Some(TrackKind::ThreeD));
     }
 
-    /// `CAP_GPUI_AUTO_CAMERA3D=add[:<time>]|auto`, through the same actions the
+    /// `FRAMEEVER_GPUI_AUTO_CAMERA3D=add[:<time>]|auto`, through the same actions the
     /// lane's own chips run, so a probe can photograph a freshly made shot.
     pub(crate) fn auto_camera3d(
         &mut self,

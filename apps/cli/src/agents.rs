@@ -14,7 +14,7 @@ const BUNDLED_SKILL: &str = include_str!("../skill/frameever/SKILL.md");
 
 // The cap-demo companion skill ships as a directory tree (scripts, cursor and
 // music assets) embedded into the binary alongside the main cap skill.
-static CAP_DEMO_SKILL: include_dir::Dir<'static> =
+static FRAMEEVER_DEMO_SKILL: include_dir::Dir<'static> =
     include_dir::include_dir!("$CARGO_MANIFEST_DIR/skill/frameever-demo");
 
 // Flatten every embedded file (recursively) so each becomes its own install
@@ -296,7 +296,7 @@ impl InstallArgs {
             // Ship the cap-demo companion skill as one change per embedded file.
             let demo_dir = cap_demo_skill_dir(self.target)?;
             let mut demo_files = Vec::new();
-            collect_demo_files(&CAP_DEMO_SKILL, &mut demo_files);
+            collect_demo_files(&FRAMEEVER_DEMO_SKILL, &mut demo_files);
             demo_files.sort_by(|a, b| a.path().cmp(b.path()));
             for file in demo_files {
                 let relative = file.path();

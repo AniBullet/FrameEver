@@ -521,7 +521,7 @@ mod tests {
         let later = pixels(&mut layer, &constants, &config, 900).await;
         assert_ne!(first, later);
         assert_eq!(first, pixels(&mut layer, &constants, &config, 0).await);
-        if let Some(directory) = std::env::var_os("CAP_GRADIENT_TEST_OUTPUT") {
+        if let Some(directory) = std::env::var_os("FRAMEEVER_GRADIENT_TEST_OUTPUT") {
             std::fs::create_dir_all(&directory).unwrap();
             for (name, data) in [
                 ("gradient-start.png", &first),

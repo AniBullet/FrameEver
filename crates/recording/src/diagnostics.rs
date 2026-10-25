@@ -596,7 +596,7 @@ pub fn collect_recent_recordings(
 
 /// The machine's capture shapes expressed as `sync_matrix` case parameters,
 /// so a report can be replayed as a synthetic matrix run
-/// (`CAP_SYNC_MATRIX_FROM_REPORT`).
+/// (`FRAMEEVER_SYNC_MATRIX_FROM_REPORT`).
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncMatrixHints {

@@ -1108,7 +1108,7 @@ impl FfmpegDecoder {
         let _ = ready_tx.send(Ok(init_result));
 
         let readahead_limit = FRAME_CACHE_SIZE as u32;
-        let readahead = std::env::var("CAP_DECODER_READAHEAD")
+        let readahead = std::env::var("FRAMEEVER_DECODER_READAHEAD")
             .ok()
             .and_then(|value| value.parse::<u32>().ok())
             .unwrap_or(0)

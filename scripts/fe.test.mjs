@@ -38,8 +38,8 @@ test("FFmpeg goes first on the path, keeping the host's own path key", () => {
 	assert.equal(Object.keys(env).filter((key) => key.toLowerCase() === "path").length, 1);
 	assert.match(env.Path, /target[\\/]ffmpeg[\\/]bin.C:\\Windows$/);
 	const profile = testProfileEnv({ PATH: "/bin" });
-	assert.match(profile.CAP_GPUI_APP_DATA_DIR, /target[\\/]testdata[\\/]appdata$/);
-	assert.match(profile.CAP_GPUI_RECORDINGS_DIR, /testdata[\\/]recordings$/);
+	assert.match(profile.FRAMEEVER_GPUI_APP_DATA_DIR, /target[\\/]testdata[\\/]appdata$/);
+	assert.match(profile.FRAMEEVER_GPUI_RECORDINGS_DIR, /testdata[\\/]recordings$/);
 });
 
 test("the newest .cap bundle is the test recording", () => {

@@ -64,7 +64,7 @@ async fn native_picker_latency() -> anyhow::Result<()> {
         });
     }
 
-    let device_id = std::env::var("CAP_PICKER_BENCH_CAMERA_ID")?;
+    let device_id = std::env::var("FRAMEEVER_PICKER_BENCH_CAMERA_ID")?;
     let camera_info = frameever_camera::list_cameras()
         .find(|camera| camera.device_id() == device_id)
         .ok_or_else(|| anyhow::anyhow!("Benchmark camera is unavailable"))?;

@@ -8,11 +8,11 @@
 //! and the CLI, and every output frame and audio marker is then checked
 //! against the host-clock truth logged by the sources.
 //!
-//! Capture mode (`CAP_VERIFY_CAPTURE`): `display` records the primary display
+//! Capture mode (`FRAMEEVER_VERIFY_CAPTURE`): `display` records the primary display
 //! with a fullscreen stimulus (CI); `window` records only the stimulus window
 //! (default on a developer Mac, so other screen activity cannot leak in);
 //! `off` skips. Without Screen Recording permission the cases skip unless
-//! `CAP_VERIFY_REQUIRE_CAPTURE=1`.
+//! `FRAMEEVER_VERIFY_REQUIRE_CAPTURE=1`.
 
 use std::{
     collections::BTreeMap,
@@ -379,10 +379,10 @@ fn specs() -> Vec<Spec> {
     specs
 }
 
-/// `CAP_VERIFY_SOAK_SECS`: at most 1800 s, because the microphone's 12-bit
+/// `FRAMEEVER_VERIFY_SOAK_SECS`: at most 1800 s, because the microphone's 12-bit
 /// marker index (one marker every 0.5 s) runs out past 34 minutes.
 fn soak_specs() -> Vec<Spec> {
-    let Some(value) = std::env::var("CAP_VERIFY_SOAK_SECS")
+    let Some(value) = std::env::var("FRAMEEVER_VERIFY_SOAK_SECS")
         .ok()
         .filter(|v| !v.trim().is_empty())
     else {
@@ -394,7 +394,7 @@ fn soak_specs() -> Vec<Spec> {
         .ok()
         .filter(|s| s.is_finite() && *s > 0.0)
         .unwrap_or_else(|| {
-            panic!("CAP_VERIFY_SOAK_SECS={value:?} is not a positive number of seconds")
+            panic!("FRAMEEVER_VERIFY_SOAK_SECS={value:?} is not a positive number of seconds")
         });
     let seconds = seconds.min(1800.0);
     vec![
@@ -442,7 +442,7 @@ enum CaptureMode {
 }
 
 fn capture_mode() -> Option<CaptureMode> {
-    match std::env::var("CAP_VERIFY_CAPTURE").as_deref() {
+    match std::env::var("FRAMEEVER_VERIFY_CAPTURE").as_deref() {
         Ok("display") => Some(CaptureMode::Display),
         Ok("window") => Some(CaptureMode::Window),
         Ok("off") => None,
@@ -452,16 +452,16 @@ fn capture_mode() -> Option<CaptureMode> {
 }
 
 /// System audio is required on a developer Mac and, with
-/// `CAP_VERIFY_REQUIRE_SYSTEM_AUDIO=1`, anywhere.
+/// `FRAMEEVER_VERIFY_REQUIRE_SYSTEM_AUDIO=1`, anywhere.
 fn require_system_audio() -> bool {
-    match std::env::var("CAP_VERIFY_REQUIRE_SYSTEM_AUDIO").as_deref() {
+    match std::env::var("FRAMEEVER_VERIFY_REQUIRE_SYSTEM_AUDIO").as_deref() {
         Ok("1") | Ok("true") => true,
         Ok(_) => false,
         Err(_) => std::env::var_os("CI").is_none(),
     }
 }
 
-/// `CAP_VERIFY_STIMULUS_AUDIO=0` keeps the stimulus silent, so the system
+/// `FRAMEEVER_VERIFY_STIMULUS_AUDIO=0` keeps the stimulus silent, so the system
 /// audio track carries no markers and is not checked (unless system audio
 /// is required). On a host whose output device does reach
 /// ScreenCaptureKit but whose system-audio timing is not yet characterised
@@ -469,7 +469,7 @@ fn require_system_audio() -> bool {
 /// runners, where the output devices give ScreenCaptureKit only silence.
 fn stimulus_plays_system_audio() -> bool {
     !matches!(
-        std::env::var("CAP_VERIFY_STIMULUS_AUDIO").as_deref(),
+        std::env::var("FRAMEEVER_VERIFY_STIMULUS_AUDIO").as_deref(),
         Ok("0") | Ok("false")
     )
 }
@@ -514,7 +514,7 @@ fn init() {
 fn real_capture() {
     init();
     let Some(capture) = capture_mode() else {
-        eprintln!("[frameever-verify] recording: CAP_VERIFY_CAPTURE=off, skipping");
+        eprintln!("[frameever-verify] recording: FRAMEEVER_VERIFY_CAPTURE=off, skipping");
         return;
     };
     let rt = runtime();
@@ -522,7 +522,7 @@ fn real_capture() {
         Ok(content) => content,
         Err(e) => {
             let message = format!("{e:#}");
-            if env_flag("CAP_VERIFY_REQUIRE_CAPTURE") {
+            if env_flag("FRAMEEVER_VERIFY_REQUIRE_CAPTURE") {
                 panic!("{message}");
             }
             eprintln!("[frameever-verify] recording: {message}, skipping");
@@ -530,7 +530,7 @@ fn real_capture() {
         }
     };
     let tier = report::tier();
-    let repeat: usize = std::env::var("CAP_VERIFY_REPEAT")
+    let repeat: usize = std::env::var("FRAMEEVER_VERIFY_REPEAT")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(1);
@@ -588,10 +588,10 @@ fn real_capture() {
         }
         if !spec.mic && !require_system_audio() {
             // Recorded, so the summary shows it (and CI's
-            // CAP_VERIFY_REQUIRE_SUPPORTED fails it unless allowlisted).
+            // FRAMEEVER_VERIFY_REQUIRE_SUPPORTED fails it unless allowlisted).
             let mut case = Case::new(spec.id);
             case.unsupported(
-                "system audio is this case's only audio and this host does not play and require system audio (CAP_VERIFY_REQUIRE_SYSTEM_AUDIO unset)",
+                "system audio is this case's only audio and this host does not play and require system audio (FRAMEEVER_VERIFY_REQUIRE_SYSTEM_AUDIO unset)",
             );
             if let Err(e) = report::settle(case) {
                 failures.push(e);
@@ -1060,7 +1060,7 @@ fn persist_sources(
     verdicts: &[SourceVerdict],
     fallback: &Path,
 ) -> PathBuf {
-    let dir = std::env::var_os("CAP_VERIFY_DUMP")
+    let dir = std::env::var_os("FRAMEEVER_VERIFY_DUMP")
         .map(|d| PathBuf::from(d).join("sources"))
         .unwrap_or_else(|| fallback.to_path_buf());
     let path = dir.join(format!("{stem}.json"));
@@ -1251,7 +1251,7 @@ async fn build_instant(
 }
 
 fn stimulus_binary() -> PathBuf {
-    std::env::var_os("CAP_VERIFY_STIMULUS_BIN")
+    std::env::var_os("FRAMEEVER_VERIFY_STIMULUS_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             // Built by `cargo build -p frameever-verify-stimulus` into the same
@@ -1264,7 +1264,7 @@ fn stimulus_binary() -> PathBuf {
                 .join(format!("frameever-verify-stimulus{}", std::env::consts::EXE_SUFFIX));
             assert!(
                 path.exists(),
-                "{} not found: build it first with `cargo build -p frameever-verify-stimulus` (same profile), or set CAP_VERIFY_STIMULUS_BIN",
+                "{} not found: build it first with `cargo build -p frameever-verify-stimulus` (same profile), or set FRAMEEVER_VERIFY_STIMULUS_BIN",
                 path.display()
             );
             path
@@ -1442,7 +1442,7 @@ async fn run_case(
     if self_check_enabled() {
         self_check(&recorded, reference, case)?;
     }
-    if !case.failed() && !env_flag("CAP_VERIFY_KEEP") {
+    if !case.failed() && !env_flag("FRAMEEVER_VERIFY_KEEP") {
         let _ = std::fs::remove_dir_all(&scratch);
     } else {
         case.note(format!("artifacts kept at {}", scratch.display()));
@@ -1584,7 +1584,7 @@ fn frozen_failures(
 
 /// Keeps every attempt's sentinel log with the source evidence.
 fn keep_sentinel_log(attempt_scratch: &Path, stem: &str) -> PathBuf {
-    let Some(dir) = std::env::var_os("CAP_VERIFY_DUMP") else {
+    let Some(dir) = std::env::var_os("FRAMEEVER_VERIFY_DUMP") else {
         return attempt_scratch.join(SENTINEL_FILE);
     };
     let dir = PathBuf::from(dir).join("sources");
@@ -1612,7 +1612,7 @@ fn implicate(case: &Case, times: impl IntoIterator<Item = f64>) {
 /// observer) next to the source evidence: the case's scratch directory is
 /// removed when a retry passes.
 fn keep_stimulus_log(attempt_scratch: &Path, stem: &str) {
-    if let Some(dir) = std::env::var_os("CAP_VERIFY_DUMP") {
+    if let Some(dir) = std::env::var_os("FRAMEEVER_VERIFY_DUMP") {
         let dir = PathBuf::from(dir).join("sources");
         let _ = std::fs::create_dir_all(&dir);
         let _ = std::fs::copy(
@@ -2103,7 +2103,7 @@ fn unscripted_stimulus_stalls_remain_failures() {
 }
 
 fn scratch_root() -> PathBuf {
-    std::env::var_os("CAP_VERIFY_SCRATCH")
+    std::env::var_os("FRAMEEVER_VERIFY_SCRATCH")
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("cap-verify-recording"))
 }
@@ -2792,7 +2792,7 @@ impl Injection {
 }
 
 fn self_check_enabled() -> bool {
-    match std::env::var("CAP_VERIFY_SELF_CHECK").as_deref() {
+    match std::env::var("FRAMEEVER_VERIFY_SELF_CHECK").as_deref() {
         Ok("0") | Ok("false") => false,
         Ok(_) => true,
         Err(_) => std::env::var_os("CI").is_some(),
@@ -3187,7 +3187,9 @@ fn check_video(case: &mut Case, track: &Track, check: VideoCheck) -> anyhow::Res
             skipped
         ));
     }
-    if let Some(dir) = std::env::var_os("CAP_VERIFY_DUMP").filter(|_| INJECTION.get().is_none()) {
+    if let Some(dir) =
+        std::env::var_os("FRAMEEVER_VERIFY_DUMP").filter(|_| INJECTION.get().is_none())
+    {
         let rows: Vec<String> = indices
             .iter()
             .map(|(pts, i)| {
@@ -3416,7 +3418,9 @@ fn check_audio(
     if order.windows(2).any(|w| w[1].0 < w[0].0) {
         case.problem("timestamps", format!("{name}: markers out of order"));
     }
-    if let Some(dir) = std::env::var_os("CAP_VERIFY_DUMP").filter(|_| INJECTION.get().is_none()) {
+    if let Some(dir) =
+        std::env::var_os("FRAMEEVER_VERIFY_DUMP").filter(|_| INJECTION.get().is_none())
+    {
         let rows: Vec<String> = located
             .iter()
             .map(|m| {

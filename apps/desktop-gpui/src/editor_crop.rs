@@ -2176,8 +2176,8 @@ impl EditorWindow {
 }
 
 impl EditorWindow {
-    /// `CAP_GPUI_AUTO_CROP=<spec>`, for the same reason as every other
-    /// `CAP_GPUI_AUTO_*` hook: an unprivileged synthetic click is dropped, and
+    /// `FRAMEEVER_GPUI_AUTO_CROP=<spec>`, for the same reason as every other
+    /// `FRAMEEVER_GPUI_AUTO_*` hook: an unprivileged synthetic click is dropped, and
     /// the dialog has to be **up** before a real `CGEvent` drag inside it can
     /// be posted at all.
     ///
@@ -2208,7 +2208,7 @@ impl EditorWindow {
         window.refresh();
     }
 
-    /// `CAP_GPUI_AUTO_CANVAS=1` selects the on-canvas display box so the
+    /// `FRAMEEVER_GPUI_AUTO_CANVAS=1` selects the on-canvas display box so the
     /// overlay draws, which is what a click on it would do.
     pub(crate) fn auto_canvas_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.canvas_selection = Some(crate::editor_canvas::CanvasSelection::Display);

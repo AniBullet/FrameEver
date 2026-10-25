@@ -37,13 +37,13 @@ Test cadence: while iterating run `pnpm fe test <filter>` (an app-only edit rebu
 | Translations | `apps/desktop-gpui/src/i18n/zh_cn/*.rs`, rules in `docs/i18n.md` |
 | Brand constants | `crates/utils/src/brand.rs` |
 
-Environment variables the app reads: `CAP_GPUI_APP_DATA_DIR`, `CAP_GPUI_RECORDINGS_DIR`, `CAP_GPUI_LOG_DIR` (set by `fe dev`), `CAP_GPUI_DEV_RESTORE` (window state across `--watch` relaunches), `RUST_LOG` (for example `RUST_LOG=frameever_gpui=debug,frameever_recording=debug pnpm fe dev`).
+Environment variables the app reads: `FRAMEEVER_GPUI_APP_DATA_DIR`, `FRAMEEVER_GPUI_RECORDINGS_DIR`, `FRAMEEVER_GPUI_LOG_DIR` (set by `fe dev`), `FRAMEEVER_GPUI_DEV_RESTORE` (window state across `--watch` relaunches), `RUST_LOG` (for example `RUST_LOG=frameever_gpui=debug,frameever_recording=debug pnpm fe dev`).
 
 ## Debugging by area
 
 **The app won't start or crashes at launch.** Run `pnpm fe doctor`, then `pnpm fe dev` and read the console, then `pnpm fe logs`. Exit code `0xc0000135` / `STATUS_DLL_NOT_FOUND` means FFmpeg DLLs weren't on the path: start the app through `pnpm fe dev`, not by double-clicking the debug exe.
 
-**Recording, export, or file handling.** Reproduce without the UI through the CLI: `cargo run -p frameever -- doctor --json`, `cargo run -p frameever -- targets --json`, `cargo run -p frameever -- record start --screen <id> --json --detach` then `record stop`, and `pnpm fe export <codec>` (set `CAP_EXPORT_FORCE_SOFTWARE_ENCODER=1` to skip the GPU encoders and use libx264, libx265 or SVT-AV1; it also applies to HEVC compression). Inspect results with `ffprobe` from `target/ffmpeg/bin` (codec, frame count, duration) and compare quality with `ffmpeg -i a.mp4 -i b.mp4 -lavfi "[0:v][1:v]ssim" -f null -`. Unit tests for encoders live in `crates/enc-ffmpeg/src/mux/mp4.rs`, `crates/enc-ffmpeg/src/video/hevc.rs` (encoder selection) and `crates/export/src/compress.rs`; add one that fails before your fix.
+**Recording, export, or file handling.** Reproduce without the UI through the CLI: `cargo run -p frameever -- doctor --json`, `cargo run -p frameever -- targets --json`, `cargo run -p frameever -- record start --screen <id> --json --detach` then `record stop`, and `pnpm fe export <codec>` (set `FRAMEEVER_EXPORT_FORCE_SOFTWARE_ENCODER=1` to skip the GPU encoders and use libx264, libx265 or SVT-AV1; it also applies to HEVC compression). Inspect results with `ffprobe` from `target/ffmpeg/bin` (codec, frame count, duration) and compare quality with `ffmpeg -i a.mp4 -i b.mp4 -lavfi "[0:v][1:v]ssim" -f null -`. Unit tests for encoders live in `crates/enc-ffmpeg/src/mux/mp4.rs`, `crates/enc-ffmpeg/src/video/hevc.rs` (encoder selection) and `crates/export/src/compress.rs`; add one that fails before your fix.
 
 **UI layout or text.** Read the render code (`src/*_window.rs`, `src/settings_pages.rs`, `src/editor_*.rs`) and the theme (`src/theme.rs`). Change it, run `pnpm fe check`, then ask the owner to look with `pnpm fe dev` (or `--lang zh-CN` for Chinese layout).
 

@@ -56,11 +56,11 @@ fn preview_resolution_base() -> XY<u32> {
 /// test, so they take turns.
 static E0_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// A studio `.cap` to render. `CAP_GPUI_E0_PROJECT` wins; otherwise the newest
+/// A studio `.cap` to render. `FRAMEEVER_GPUI_E0_PROJECT` wins; otherwise the newest
 /// bundle on the Desktop that has a baked `screenshots/display.jpg` (i.e. one
 /// the shipping app finished normally) and parses as a studio recording.
 fn locate_project() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("CAP_GPUI_E0_PROJECT") {
+    if let Some(explicit) = std::env::var_os("FRAMEEVER_GPUI_E0_PROJECT") {
         let path = PathBuf::from(explicit);
         return path.is_dir().then_some(path);
     }
@@ -133,12 +133,12 @@ fn renders_frame_zero_of_a_real_studio_project() {
     let Some(source) = locate_project() else {
         eprintln!(
             "skipping: no studio .cap with screenshots/display.jpg found \
-             (set CAP_GPUI_E0_PROJECT to point at one)"
+             (set FRAMEEVER_GPUI_E0_PROJECT to point at one)"
         );
         return;
     };
 
-    let out_dir = std::env::var_os("CAP_GPUI_E0_OUT_DIR")
+    let out_dir = std::env::var_os("FRAMEEVER_GPUI_E0_OUT_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")));
     std::fs::create_dir_all(&out_dir).expect("create output dir");
@@ -315,12 +315,12 @@ fn the_bgra_surface_frame_matches_the_rgba_render() {
     let Some(source) = locate_project() else {
         eprintln!(
             "skipping: no studio .cap with screenshots/display.jpg found \
-             (set CAP_GPUI_E0_PROJECT to point at one)"
+             (set FRAMEEVER_GPUI_E0_PROJECT to point at one)"
         );
         return;
     };
 
-    let out_dir = std::env::var_os("CAP_GPUI_E0_OUT_DIR")
+    let out_dir = std::env::var_os("FRAMEEVER_GPUI_E0_OUT_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")));
     std::fs::create_dir_all(&out_dir).expect("create output dir");

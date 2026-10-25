@@ -64,7 +64,7 @@ pub fn judge(case: &mut Case, label: &str, report: &AudioReport) {
 pub fn check_pcm(case: &mut Case, label: &str, model: &AudioModel, mono: &[f32]) -> AudioReport {
     let heard = audio_model::hear(mono, 0.0, &model.rate_windows);
     let report = audio_model::check(model, &heard);
-    if std::env::var_os("CAP_VERIFY_DUMP_AUDIO").is_some() {
+    if std::env::var_os("FRAMEEVER_VERIFY_DUMP_AUDIO").is_some() {
         for h in &heard {
             eprintln!("  heard {label}: {h:?}");
         }

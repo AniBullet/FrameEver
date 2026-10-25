@@ -855,9 +855,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "compares real recordings listed in CAP_KEYFRAME_INDEX_FILES (colon separated)"]
+    #[ignore = "compares real recordings listed in FRAMEEVER_KEYFRAME_INDEX_FILES (colon separated)"]
     fn container_index_matches_real_recordings() {
-        let Ok(files) = std::env::var("CAP_KEYFRAME_INDEX_FILES") else {
+        let Ok(files) = std::env::var("FRAMEEVER_KEYFRAME_INDEX_FILES") else {
             return;
         };
         let mut mismatches = Vec::new();

@@ -194,8 +194,8 @@ def cmd_env(args):
     config = load_config()
     names = [n for n in (args.suites or "").split(",") if n]
     allow = ",".join(config.get("unsupported", {}).get(args.platform, {}).keys())
-    if allow and "CAP_VERIFY_UNSUPPORTED_ALLOW" not in os.environ:
-        print(f"export CAP_VERIFY_UNSUPPORTED_ALLOW={shlex.quote(allow)}")
+    if allow and "FRAMEEVER_VERIFY_UNSUPPORTED_ALLOW" not in os.environ:
+        print(f"export FRAMEEVER_VERIFY_UNSUPPORTED_ALLOW={shlex.quote(allow)}")
     for suite in select(config, args.tier, args.platform, names or None, args.local):
         for key, value in suite.get("env", {}).items():
             if isinstance(value, dict):

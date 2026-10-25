@@ -36,9 +36,9 @@ case "${1:-}" in
       Linux) platform=linux ;;
       *) platform=windows ;;
     esac
-    export CAP_VERIFY_REPORT_DIR="${CAP_VERIFY_REPORT_DIR:-$root/target/verify-report/$platform-$tier}"
+    export FRAMEEVER_VERIFY_REPORT_DIR="${FRAMEEVER_VERIFY_REPORT_DIR:-$root/target/verify-report/$platform-$tier}"
     scripts/verify/run.sh "$@" || true
-    reports=("$CAP_VERIFY_REPORT_DIR")
+    reports=("$FRAMEEVER_VERIFY_REPORT_DIR")
     ;;
 esac
 

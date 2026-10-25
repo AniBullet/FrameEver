@@ -506,7 +506,7 @@ impl EditorInstance {
         // VideoToolbox is too slow for real-time playback fall back to the
         // FFmpeg decoder.
         let force_ffmpeg_for_editor = cfg!(target_os = "windows")
-            || std::env::var_os("CAP_EDITOR_FORCE_FFMPEG_DECODER").is_some();
+            || std::env::var_os("FRAMEEVER_EDITOR_FORCE_FFMPEG_DECODER").is_some();
         if force_ffmpeg_for_editor {
             tracing::info!("Using FFmpeg decoder for editor preview");
         }

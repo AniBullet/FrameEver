@@ -1,7 +1,7 @@
 //! Needs a clip of at least 30 s so the `follow` scenario does not run off the
 //! end. Run from `apps/desktop-gpui`:
-//!   CAP_GPUI_AUTO_EDITOR=<studio .cap> CAP_GPUI_AUTO_TIMELINE_BENCH=1 \
-//!     CAP_GPUI_NO_MENUS=1 CAP_GPUI_NO_TRAY=1 CAP_GPUI_MUTE_AUDIO=1 \
+//!   FRAMEEVER_GPUI_AUTO_EDITOR=<studio .cap> FRAMEEVER_GPUI_AUTO_TIMELINE_BENCH=1 \
+//!     FRAMEEVER_GPUI_NO_MENUS=1 FRAMEEVER_GPUI_NO_TRAY=1 FRAMEEVER_GPUI_MUTE_AUDIO=1 \
 //!     cargo run --release
 
 use std::time::{Duration, Instant};
@@ -99,7 +99,7 @@ impl Scenario {
 }
 
 pub(crate) async fn run(handle: WindowHandle<EditorWindow>, cx: &mut AsyncApp) {
-    if !std::env::var("CAP_GPUI_AUTO_TIMELINE_BENCH").is_ok_and(|value| value == "1") {
+    if !std::env::var("FRAMEEVER_GPUI_AUTO_TIMELINE_BENCH").is_ok_and(|value| value == "1") {
         return;
     }
 

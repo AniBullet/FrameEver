@@ -10,7 +10,7 @@
 //! timestamps to the wall clock; each case therefore costs its content
 //! duration. Keep cases short.
 //!
-//! Set `CAP_SYNC_MATRIX_REPORT` to write a JSON report of every case.
+//! Set `FRAMEEVER_SYNC_MATRIX_REPORT` to write a JSON report of every case.
 
 use std::{
     path::{Path, PathBuf},
@@ -1303,13 +1303,13 @@ fn unmatched_sent_indices(sent: &[f64], pts: &[f64], period: f64) -> String {
 
 // Replaying a user's machine
 // --------------------------
-// `CAP_SYNC_MATRIX_FROM_REPORT=<path to a DiagnosticReport JSON>` replaces the
+// `FRAMEEVER_SYNC_MATRIX_FROM_REPORT=<path to a DiagnosticReport JSON>` replaces the
 // curated matrix with cases built from that report's `matrixHints`, so a
 // support report can be re-run locally against the shapes the reporter
 // actually has:
 //
-//   CAP_SYNC_MATRIX_FROM_REPORT=~/Downloads/report.json \
-//   CAP_SYNC_MATRIX_REPORT=/tmp/replay.json \
+//   FRAMEEVER_SYNC_MATRIX_FROM_REPORT=~/Downloads/report.json \
+//   FRAMEEVER_SYNC_MATRIX_REPORT=/tmp/replay.json \
 //     cargo test -p frameever-recording --test sync_matrix -- --nocapture
 //
 // Every display hint is crossed with every audio-input hint, capped at
@@ -1816,8 +1816,8 @@ async fn synthetic_device_matrix_preserves_sync() {
 
     warm_up_video_encoder().await;
 
-    // Randomized cases are reproducible: rerun with CAP_SYNC_MATRIX_SEED=<seed>.
-    let seed: u64 = std::env::var("CAP_SYNC_MATRIX_SEED")
+    // Randomized cases are reproducible: rerun with FRAMEEVER_SYNC_MATRIX_SEED=<seed>.
+    let seed: u64 = std::env::var("FRAMEEVER_SYNC_MATRIX_SEED")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or_else(|| {
@@ -1826,15 +1826,15 @@ async fn synthetic_device_matrix_preserves_sync() {
                 .map(|d| d.as_nanos() as u64)
                 .unwrap_or(0x5EED)
         });
-    let random_cases: usize = std::env::var("CAP_SYNC_MATRIX_RANDOM_CASES")
+    let random_cases: usize = std::env::var("FRAMEEVER_SYNC_MATRIX_RANDOM_CASES")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(6);
-    eprintln!("randomized cases: {random_cases}, CAP_SYNC_MATRIX_SEED={seed}");
+    eprintln!("randomized cases: {random_cases}, FRAMEEVER_SYNC_MATRIX_SEED={seed}");
 
     // Replay mode runs only the reporter's shapes; the curated matrix is a
     // different question than "does this user's machine hold sync".
-    if let Ok(report_path) = std::env::var("CAP_SYNC_MATRIX_FROM_REPORT") {
+    if let Ok(report_path) = std::env::var("FRAMEEVER_SYNC_MATRIX_FROM_REPORT") {
         run_report_replay(&report_path, &mut results).await;
         finish(results, seed);
         return;
@@ -2007,7 +2007,7 @@ async fn synthetic_device_matrix_preserves_sync() {
 
 /// Writes the optional JSON report and applies the pass/degradation gates.
 fn finish(results: Vec<CaseResult>, seed: u64) {
-    if let Ok(report_path) = std::env::var("CAP_SYNC_MATRIX_REPORT") {
+    if let Ok(report_path) = std::env::var("FRAMEEVER_SYNC_MATRIX_REPORT") {
         #[derive(Serialize)]
         struct Report<'a> {
             seed: u64,

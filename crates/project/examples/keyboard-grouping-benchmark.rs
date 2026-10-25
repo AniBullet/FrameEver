@@ -109,7 +109,7 @@ fn main() {
             }));
         }
     }
-    if let Some(path) = std::env::var_os("CAP_KEYBOARD_BENCH_OUTPUT") {
+    if let Some(path) = std::env::var_os("FRAMEEVER_KEYBOARD_BENCH_OUTPUT") {
         std::fs::write(path, serde_json::to_vec(&outputs).unwrap()).unwrap();
     }
     if check_scaling {

@@ -2,7 +2,7 @@
 //!
 //! A gpui binary cannot hot-reload Rust, so `dev.sh` rebuilds and relaunches
 //! on save. What makes the relaunch *feel* like the Solid dev server is this
-//! module: while `CAP_GPUI_DEV_RESTORE` names a state file, the app snapshots
+//! module: while `FRAMEEVER_GPUI_DEV_RESTORE` names a state file, the app snapshots
 //! its window layout twice a second -- which windows are open, the settings
 //! page, each editor's project, sidebar tab and scroll, every frame in raw
 //! AppKit coordinates -- and the next launch reopens all of it in place,
@@ -66,7 +66,7 @@ pub fn enabled() -> bool {
 }
 
 fn state_path() -> Option<PathBuf> {
-    std::env::var("CAP_GPUI_DEV_RESTORE")
+    std::env::var("FRAMEEVER_GPUI_DEV_RESTORE")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .map(PathBuf::from)

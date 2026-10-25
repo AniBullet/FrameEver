@@ -421,11 +421,11 @@ mod mac {
 
         let bounds = content_view.bounds();
 
-        // `CAP_GPUI_MATERIAL=none|vibrancy`: bisect hooks for the chrome
+        // `FRAMEEVER_GPUI_MATERIAL=none|vibrancy`: bisect hooks for the chrome
         // screenshots -- `none` keeps only the squircle clip (no material
         // view), `vibrancy` skips the glass branch and takes the pre-26
         // fallback. Unset means the real recipe.
-        let material_override = std::env::var("CAP_GPUI_MATERIAL").ok();
+        let material_override = std::env::var("FRAMEEVER_GPUI_MATERIAL").ok();
         if material_override.as_deref() == Some("none") {
             return None;
         }
@@ -672,7 +672,7 @@ mod mac {
         }
     }
 
-    /// Dev probe (`CAP_GPUI_DEBUG_LIGHTS=1`): the window's style mask plus
+    /// Dev probe (`FRAMEEVER_GPUI_DEBUG_LIGHTS=1`): the window's style mask plus
     /// which standard titlebar buttons AppKit has materialized. Read-only
     /// `msg_send`s, safe inside a gpui update.
     pub fn debug_titlebar_state(window: &Window) -> Option<String> {

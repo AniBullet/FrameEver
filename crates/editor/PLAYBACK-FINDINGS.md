@@ -785,7 +785,7 @@ The CPU RGBA→NV12 conversion was taking 15-25ms per frame for 3024x1964 resolu
 **Goal**: Measure the 2026-10-15 renderer changes inside the GPUI app, and check a preview slowdown seen in the first branch run.
 
 **What was done**:
-1. Debug builds of `apps/desktop-gpui` (Rust 1.96.1) from main (83237e994) and from the branch, driven by the `CAP_GPUI_AUTO_*` hooks against a copy of the blur recording with audio muted: an in-editor export, 4 s of playback, and playback with 60 seeks across the timeline. `/usr/bin/time -l` recorded CPU time (user + sys) and instructions retired for the app process. Three runs per scenario.
+1. Debug builds of `apps/desktop-gpui` (Rust 1.96.1) from main (83237e994) and from the branch, driven by the `FRAMEEVER_GPUI_AUTO_*` hooks against a copy of the blur recording with audio muted: an in-editor export, 4 s of playback, and playback with 60 seeks across the timeline. `/usr/bin/time -l` recorded CPU time (user + sys) and instructions retired for the app process. Three runs per scenario.
 2. The sets ran in the order branch, main, branch within about 25 minutes, each starting a few minutes after its own debug build finished; the main set also followed the `frameever-gpui` test suite. No other heavy work of ours ran during any set. The second branch set was added because the first painted fewer frames than main while seeking.
 
 **Results** (per run):

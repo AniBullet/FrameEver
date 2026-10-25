@@ -66,7 +66,8 @@ impl AACEncoder {
         output: &mut format::context::Output,
     ) -> Result<Self, AACEncoderError> {
         let prefer_audiotoolbox = cfg!(target_os = "macos")
-            && std::env::var_os("CAP_RECORDING_FFMPEG_AAC").is_none_or(|value| value.is_empty());
+            && std::env::var_os("FRAMEEVER_RECORDING_FFMPEG_AAC")
+                .is_none_or(|value| value.is_empty());
         Self::init_for_recording_with(prefer_audiotoolbox, input_config, output)
     }
 
@@ -600,7 +601,7 @@ mod tests {
             audio
         }
 
-        let seconds = std::env::var("CAP_AAC_BENCH_SECONDS")
+        let seconds = std::env::var("FRAMEEVER_AAC_BENCH_SECONDS")
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(60usize);

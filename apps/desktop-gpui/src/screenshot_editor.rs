@@ -838,7 +838,7 @@ impl HexTarget {
 enum ExportDestination {
     Clipboard,
     File,
-    /// `CAP_GPUI_AUTO_SCREENSHOT_EXPORT=<path>`: the harness destination --
+    /// `FRAMEEVER_GPUI_AUTO_SCREENSHOT_EXPORT=<path>`: the harness destination --
     /// the same GPU export, written straight to the path (a save panel
     /// cannot be driven without Accessibility).
     Harness(PathBuf),
@@ -1121,16 +1121,16 @@ impl ScreenshotEditorWindow {
             self.ensure_wallpapers(cx);
         }
         self.ensure_background_image(cx);
-        if let Ok(dest) = std::env::var("CAP_GPUI_AUTO_SCREENSHOT_EXPORT")
+        if let Ok(dest) = std::env::var("FRAMEEVER_GPUI_AUTO_SCREENSHOT_EXPORT")
             && !dest.trim().is_empty()
         {
             self.export_image(ExportDestination::Harness(PathBuf::from(dest)), window, cx);
         }
-        // `CAP_GPUI_AUTO_SCREENSHOT_CROP=1`: open the crop dialog once the
-        // image size is known -- the same reason as `CAP_GPUI_AUTO_CROP` on
+        // `FRAMEEVER_GPUI_AUTO_SCREENSHOT_CROP=1`: open the crop dialog once the
+        // image size is known -- the same reason as `FRAMEEVER_GPUI_AUTO_CROP` on
         // the video editor: unprivileged synthetic clicks are dropped, and the
         // dialog has to be up before a real drag inside it can be posted.
-        if std::env::var("CAP_GPUI_AUTO_SCREENSHOT_CROP").is_ok_and(|value| value == "1") {
+        if std::env::var("FRAMEEVER_GPUI_AUTO_SCREENSHOT_CROP").is_ok_and(|value| value == "1") {
             self.open_crop_dialog(window, cx);
         }
         cx.notify();

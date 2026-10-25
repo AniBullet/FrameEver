@@ -13,7 +13,7 @@ export function shouldBuildGpui(
 	if (profile === "release") return true;
 	return (
 		platform === "darwin" &&
-		environment.CAP_GPUI_DEV !== "0" &&
+		environment.FRAMEEVER_GPUI_DEV !== "0" &&
 		developmentWorkspaceAvailable
 	);
 }
@@ -63,7 +63,7 @@ function main() {
 	) {
 		console.log(
 			`Skipping Cap GPUI ${profile} build on ${process.platform}${
-				process.env.CAP_GPUI_DEV === "0" ? " because CAP_GPUI_DEV=0" : ""
+				process.env.FRAMEEVER_GPUI_DEV === "0" ? " because FRAMEEVER_GPUI_DEV=0" : ""
 			}.`,
 		);
 		return;

@@ -366,9 +366,10 @@ mod tests {
     use std::time::Instant;
 
     #[test]
-    #[ignore = "requires CAP_CAMERA_EFFECT_TEST_FRAME containing a 1280x720 RGBA webcam frame"]
+    #[ignore = "requires FRAMEEVER_CAMERA_EFFECT_TEST_FRAME containing a 1280x720 RGBA webcam frame"]
     fn native_cutout_preserves_alpha_through_iosurface_and_preview_image() {
-        let pixels = std::fs::read(std::env::var("CAP_CAMERA_EFFECT_TEST_FRAME").unwrap()).unwrap();
+        let pixels =
+            std::fs::read(std::env::var("FRAMEEVER_CAMERA_EFFECT_TEST_FRAME").unwrap()).unwrap();
         let (width, height) = BLUR_MAX_DIMS;
         assert_eq!(pixels.len(), width * height * 4);
         let properties = cf::Dictionary::new();

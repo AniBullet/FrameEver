@@ -51,9 +51,9 @@ const KEEP_REPORTS: usize = 5;
 /// window feel endless.
 pub const DEFAULT_DURATION_SECS: u64 = 20;
 
-/// `CAP_GPUI_SELFTEST_BIN`: an explicit path to the `cap` binary, which wins
+/// `FRAMEEVER_GPUI_SELFTEST_BIN`: an explicit path to the `cap` binary, which wins
 /// over every probe below. The verification harness sets it; nothing else does.
-const SELFTEST_BIN_ENV: &str = "CAP_GPUI_SELFTEST_BIN";
+const SELFTEST_BIN_ENV: &str = "FRAMEEVER_GPUI_SELFTEST_BIN";
 
 /// The shipping app. The gpui binary is unbundled in dev and carries no
 /// sidecar of its own, so it borrows the installed app's -- the same fallback
@@ -127,7 +127,7 @@ Attach an exported log or diagnostic report if it helps. Review it first; it sta
 }
 
 pub fn logs_dir() -> PathBuf {
-    if let Ok(directory) = std::env::var("CAP_GPUI_LOG_DIR")
+    if let Ok(directory) = std::env::var("FRAMEEVER_GPUI_LOG_DIR")
         && !directory.trim().is_empty()
     {
         return PathBuf::from(directory);

@@ -694,8 +694,8 @@ impl output_pipeline::VideoSource for VideoSource {
         // that API is unsupported (or silently ineffective) the gate keeps
         // high-refresh monitors from recording far more frames than the
         // nominal rate. For sources at or below nominal it admits everything.
-        let cadence_interval_hns = if std::env::var("CAP_DISABLE_CAPTURE_CADENCE").is_ok() {
-            info!("Capture cadence gate disabled via CAP_DISABLE_CAPTURE_CADENCE");
+        let cadence_interval_hns = if std::env::var("FRAMEEVER_DISABLE_CAPTURE_CADENCE").is_ok() {
+            info!("Capture cadence gate disabled via FRAMEEVER_DISABLE_CAPTURE_CADENCE");
             None
         } else {
             let fps = video_info.fps();

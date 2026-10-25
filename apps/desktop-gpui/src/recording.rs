@@ -1655,11 +1655,11 @@ async fn read_shareable_content() -> anyhow::Result<frameever_recording::Sendabl
 /// The recordings library root, resolved the way `GeneralSettingsStore::
 /// recordings_dir` resolves it so both apps share one library: the custom
 /// `recordingsPath` from the Tauri store if it is absolute and creatable,
-/// otherwise `<app data>/recordings`. `CAP_GPUI_RECORDINGS_DIR` overrides both
+/// otherwise `<app data>/recordings`. `FRAMEEVER_GPUI_RECORDINGS_DIR` overrides both
 /// (used by the automated end-to-end check so test recordings stay out of the
 /// user's library).
 pub fn recordings_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("CAP_GPUI_RECORDINGS_DIR")
+    if let Ok(dir) = std::env::var("FRAMEEVER_GPUI_RECORDINGS_DIR")
         && !dir.trim().is_empty()
     {
         return PathBuf::from(dir);

@@ -102,4 +102,4 @@ diff -u /tmp/before-video.md5 /tmp/after-video.md5
 
 All six measured pairs matched, including frame sizes, sample counts and
 timestamps. The native GPUI auto-export hook also completed an export of the
-official fixture with the title, using an isolated `CAP_GPUI_APP_DATA_DIR`.
+official fixture with the title, using an isolated `FRAMEEVER_GPUI_APP_DATA_DIR`.

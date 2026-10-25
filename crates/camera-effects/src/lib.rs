@@ -278,7 +278,7 @@ enum Segmenter {
 impl Segmenter {
     fn new() -> anyhow::Result<Self> {
         #[cfg(target_os = "macos")]
-        if std::env::var("CAP_CAMERA_SEGMENTATION").as_deref() != Ok("onnx") {
+        if std::env::var("FRAMEEVER_CAMERA_SEGMENTATION").as_deref() != Ok("onnx") {
             match vision::VisionSegmenter::new() {
                 Ok(segmenter) => return Ok(Self::Vision(Box::new(segmenter))),
                 Err(error) => {

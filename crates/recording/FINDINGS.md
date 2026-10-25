@@ -66,8 +66,8 @@
   - May need latency compensation in audio pipeline
   
 - [ ] **Buffer tuning for dropped frames** (optional)
-  - Try increasing `CAP_MP4_MUXER_BUFFER_SIZE` env var (default: 60)
-  - Try increasing `CAP_VIDEO_SOURCE_BUFFER_SIZE` env var (default: 300)
+  - Try increasing `FRAMEEVER_MP4_MUXER_BUFFER_SIZE` env var (default: 60)
+  - Try increasing `FRAMEEVER_VIDEO_SOURCE_BUFFER_SIZE` env var (default: 300)
 
 ### Completed
 - [x] Fix #1: Non-blocking MP4 muxer (2026-01-28)

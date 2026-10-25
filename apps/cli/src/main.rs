@@ -419,7 +419,7 @@ fn main() {
         )
         .init();
 
-    let _diagnostic_guard = if std::env::var_os("CAP_DIAGNOSTIC_PARENT").is_some() {
+    let _diagnostic_guard = if std::env::var_os("FRAMEEVER_DIAGNOSTIC_PARENT").is_some() {
         let (writer, guard) = tracing_appender::non_blocking(std::io::stderr());
         let queue_errors = writer.error_counter();
         frameever_utils::operation_diagnostics::install_queue_loss_counter(move || {
@@ -429,9 +429,9 @@ fn main() {
             frameever_utils::operation_diagnostics::AppInfo {
                 flavor: "export_worker",
                 version: env!("CARGO_PKG_VERSION"),
-                source_revision: option_env!("CAP_BUILD_REVISION"),
+                source_revision: option_env!("FRAMEEVER_BUILD_REVISION"),
                 debug_build: cfg!(debug_assertions),
-                source_dirty: option_env!("CAP_BUILD_DIRTY").map(|value| value == "true"),
+                source_dirty: option_env!("FRAMEEVER_BUILD_DIRTY").map(|value| value == "true"),
             },
             move |bytes| {
                 use std::io::Write;

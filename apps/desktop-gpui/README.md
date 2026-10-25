@@ -53,7 +53,7 @@ leaves the previous build running, the way Vite keeps the page alive under an
 error overlay. The relaunch reopens exactly where the old process was: same
 windows at the same frames, same settings page, same editor project with its
 sidebar tab and scroll (`src/dev_restore.rs`, driven by
-`CAP_GPUI_DEV_RESTORE`, applied through the same entry points real clicks
+`FRAMEEVER_GPUI_DEV_RESTORE`, applied through the same entry points real clicks
 take). Relaunches deliberately do not activate the app, so keyboard focus
 stays in your code editor while the windows refresh beside it; and the swap
 waits out an in-flight recording rather than truncating it (the state file
@@ -187,7 +187,7 @@ Everything below is real, not mocked.
   puts them. Picking a mode goes through the same path the main window's own
   pill does. Opening it hides the main window and gets it back on close.
   Nothing in the shipping frontend reaches this window (see the deviation),
-  so here it opens via `CAP_GPUI_AUTO_MODE_SELECT`.
+  so here it opens via `FRAMEEVER_GPUI_AUTO_MODE_SELECT`.
 - **Recents, with real thumbnails.** The expanded window's carousel is the
   real filesystem library: `list_recordings` + `list_screenshots` transcribed
   into `library.rs` (every known recordings folder, `recording-meta.json`
@@ -546,10 +546,10 @@ otherwise latches whatever the real keyboard last reported):
   through the colour to `#FFFFFF`.
 
 Regressions: **none**. `cargo test` is 226 unit tests + the frame-0 integration
-test, green. `CAP_GPUI_AUTO_PLAYBACK=16` measured
+test, green. `FRAMEEVER_GPUI_AUTO_PLAYBACK=16` measured
 `playback fps=59.8 frames=968 dropped=0 (convert_avg=446us over 16.19s)` — the
 same 59.8–59.9 the timeline unit measured — with zero errors, zero warnings and
-zero `RefCell already borrowed`. A `CAP_GPUI_AUTO_RECORD=studio:5` cycle
+zero `RefCell already borrowed`. A `FRAMEEVER_GPUI_AUTO_RECORD=studio:5` cycle
 completed with the same three zeroes and wrote its thumbnail.
 
 ## Deviations from the Tauri app
@@ -566,7 +566,7 @@ Things that are deliberately different, and why.
 | **NSWindow, not NSPanel** | The Tauri app class-swizzles its windows into `NSPanel`s via `tauri_nspanel`. Here the main window stays a normal `NSWindow` and gets the observable parts — level 100, `CanJoinAllSpaces \| FullScreenPrimary` — from the `platform` module. (`WindowKind::Floating` is *not* a shortcut to this: its panel hides on app deactivation.) The controls bar *is* a real panel via `WindowKind::PopUp`, whose non-activating behavior it genuinely needs. |
 | **Controls bar level 8, faithfully** | `windows.rs` raises the bar with `CGWindowLevelForKey(10)` under a constant named `kCGMaximumWindowLevelKey` — but key 10 is `kCGModalPanelWindowLevelKey` (maximum is 14), so the shipping bar actually runs at level 8. Reproduced verbatim rather than "fixed" from over here. |
 | **Resize does not re-clamp** | Expand/collapse animates over 180ms with an ease-out cubic, as the Tauri app does, but does not re-clamp the window into the monitor work area afterwards — expanding near a screen edge can push the window off it. |
-| **The mode select window is harness-only** | `Mode.tsx`'s info button is `commands.showWindow("ModeSelect")` *unless* its host passes `onInfoClick` — and shipping `new-main` passes one, so the dot opens the in-body `ModeInfoPanel` in both apps. Nothing else in the shipping frontend calls `showWindow("ModeSelect")` either, so the standalone window is dead code there; here it is built for parity and reachable via `CAP_GPUI_AUTO_MODE_SELECT`. The device and target pickers are body panels in both apps. |
+| **The mode select window is harness-only** | `Mode.tsx`'s info button is `commands.showWindow("ModeSelect")` *unless* its host passes `onInfoClick` — and shipping `new-main` passes one, so the dot opens the in-body `ModeInfoPanel` in both apps. Nothing else in the shipping frontend calls `showWindow("ModeSelect")` either, so the standalone window is dead code there; here it is built for parity and reachable via `FRAMEEVER_GPUI_AUTO_MODE_SELECT`. The device and target pickers are body panels in both apps. |
 | **No target thumbnails** | Display and window cards render the icon fallback the real card falls back to before its thumbnail arrives. Live previews need the capture pipeline. |
 | **Search has no highlighted match** | The field itself is real (`ui::TextInput::search`, see [Text input](#text-input)); what is not reproduced is the Tauri panels' highlighting of the matched run inside each row. The filter test is the same case-insensitive `includes`. Escape still clears before it closes — that pair is the window's, not the field's. Opening the camera or microphone panel now focuses the field, which the display and window panels already did (`open_panel`); before the field was real there was nothing to focus into. |
 | **Plan badge is always "Personal"** | Which of Pro/Commercial applies comes from the license query. There is no auth or license plumbing yet, and claiming a plan would be worse than showing none. |
@@ -636,7 +636,7 @@ Sizes are the Tauri app's, from Tauri `src-tauri/src/windows.rs`.
 The app records for real, through the same `frameever-recording` actors the Tauri
 app drives — studio and instant, screen + microphone, written into the same
 recordings library (`recordingsPath` from the Tauri settings store, falling
-back to `<app data>/recordings`; `CAP_GPUI_RECORDINGS_DIR` overrides both for
+back to `<app data>/recordings`; `FRAMEEVER_GPUI_RECORDINGS_DIR` overrides both for
 tests). Studio projects are finalized with `RecoveryManager::remux_if_needed`,
 instant projects get `content/output.mp4` plus the
 `recording-meta.json`/`project-config.json` pair, mirroring the CLI's
@@ -694,20 +694,20 @@ Recording-specific deviations:
 | **Camera id is DeviceID-only** | The Tauri app persists `ModelID` when a camera advertises one, so the same camera survives re-plugging into a different port. |
 | **Defaults are the builder's** | `desktop_recording_defaults` (studio quality, fps caps, custom cursor) is not applied yet — it reads the Tauri settings store. |
 
-`CAP_GPUI_AUTO_RECORD=studio:5` (or `instant:4`) arms the primary display and
+`FRAMEEVER_GPUI_AUTO_RECORD=studio:5` (or `instant:4`) arms the primary display and
 drives a start/stop through the button code paths — the end-to-end check uses
 it because unprivileged synthetic clicks are dropped. Add
-`CAP_GPUI_AUTO_PAUSE=1` to pause for the middle third: two segments whose
+`FRAMEEVER_GPUI_AUTO_PAUSE=1` to pause for the middle third: two segments whose
 summed duration is ~⅔ of wall time is the proof the pause reached the engine.
-`CAP_GPUI_AUTO_CAMERA=1` selects the first camera at startup the way a click
-would, opening the preview bubble; combined with `CAP_GPUI_AUTO_RECORD` it
+`FRAMEEVER_GPUI_AUTO_CAMERA=1` selects the first camera at startup the way a click
+would, opening the preview bubble; combined with `FRAMEEVER_GPUI_AUTO_RECORD` it
 verifies the camera track end to end.
 
-`CAP_GPUI_AUTO_OVERLAY=display|window|area|camera` arms a target mode the way
+`FRAMEEVER_GPUI_AUTO_OVERLAY=display|window|area|camera` arms a target mode the way
 clicking its tile does and opens the target-select overlays; on its own it
 leaves them up (how the screenshots are taken), combined with
-`CAP_GPUI_AUTO_RECORD` it routes the start through the overlay's own Start
-button. `CAP_GPUI_AUTO_AREA=x,y,width,height` seeds the crop a drag would have
+`FRAMEEVER_GPUI_AUTO_RECORD` it routes the start through the overlay's own Start
+button. `FRAMEEVER_GPUI_AUTO_AREA=x,y,width,height` seeds the crop a drag would have
 drawn (synthetic drags are dropped without Accessibility). The area variant
 was verified end to end: a seeded 800×500 crop recorded a 1600×1000 (2×)
 display track.
@@ -755,7 +755,7 @@ merge (`new-main/index.tsx:2217-2263`):
   recording that just finished appear at the head of the carousel without a
   restart.
 
-`CAP_GPUI_RECORDINGS_DIR` scopes the scan as well as the writes: when it is
+`FRAMEEVER_GPUI_RECORDINGS_DIR` scopes the scan as well as the writes: when it is
 set, it is the *only* directory listed. A verification run that redirects the
 library would otherwise still be reading the user's real one.
 
@@ -889,7 +889,7 @@ replacing it with a fresh object would delete someone's auth token.
 
 Reads are field-by-field rather than `derive(Deserialize)` on a struct: one
 enum value written by a newer Tauri build would otherwise fail the whole
-deserialize and blank every row on the page. `CAP_GPUI_TAURI_STORE` points the
+deserialize and blank every row on the page. `FRAMEEVER_GPUI_TAURI_STORE` points the
 whole module at a copy, which is how the tests — and any verification run that
 must not touch real settings — work.
 
@@ -971,7 +971,7 @@ The exit code is deliberately ignored — the CLI exits non-zero for a `fail` or
 is read off the `Report` line instead.
 
 Sidecar resolution (`resolve_selftest_binary`), in order, with
-`CAP_GPUI_SELFTEST_BIN` winning over all of it:
+`FRAMEEVER_GPUI_SELFTEST_BIN` winning over all of it:
 
 1. Next to the running executable — `cap-cli`, `cap-cli-<triple>`, then
    `cap`. This is where the sidecar sits in a packaged build and where a dev
@@ -1152,11 +1152,11 @@ cargo test --test editor_frame0 -- --nocapture
 ```
 
 It picks the newest studio `.cap` on the Desktop with a baked
-`screenshots/display.jpg` (or `CAP_GPUI_E0_PROJECT=<path>`), **copies it**,
+`screenshots/display.jpg` (or `FRAMEEVER_GPUI_E0_PROJECT=<path>`), **copies it**,
 builds a real `EditorInstance` over the copy with the headless audio sink
 (`AudioOutput::new_headless`, so no cpal device is opened), pushes one
 instruction onto `preview_tx`, and writes the frame the callback hands back as
-a PNG into `CARGO_TARGET_TMPDIR` (or `CAP_GPUI_E0_OUT_DIR`). With no `.cap`
+a PNG into `CARGO_TARGET_TMPDIR` (or `FRAMEEVER_GPUI_E0_OUT_DIR`). With no `.cap`
 available it skips rather than fails.
 
 Three things it exists to pin down:
@@ -1341,7 +1341,7 @@ timeline, and the audio track through the editor's own `AudioOutput`.
 
 #### The measured numbers
 
-`CAP_GPUI_AUTO_PLAYBACK=16` on a 15.9s studio recording (display + mic),
+`FRAMEEVER_GPUI_AUTO_PLAYBACK=16` on a 15.9s studio recording (display + mic),
 1248×702 preview base, 1080×702 frames, dev build:
 
 ```
@@ -1397,7 +1397,7 @@ app crate itself stays unoptimised (see [Running it](#running-it)).
 
 Reliability, same binary:
 
-- **45 play/pause/seek cycles** (`CAP_GPUI_AUTO_PLAYBACK_TORTURE=45`): 45/45
+- **45 play/pause/seek cycles** (`FRAMEEVER_GPUI_AUTO_PLAYBACK_TORTURE=45`): 45/45
   completed, 45 stop reports, zero errors, zero warnings, zero "RefCell already
   borrowed". Each 320ms burst delivered 14–20 frames at 41.8–59.8 fps (the low
   end is the burst that includes the engine's own start-up inside its 320ms),
@@ -1410,7 +1410,7 @@ Reliability, same binary:
   Re-run over the eleven-row timeline: **45/45 cycles, 45 stop reports, zero
   errors, zero warnings, zero "RefCell already borrowed", and zero frames
   dropped across all 45 put together** (fps 53.7–59.6 per 320ms burst).
-- **Closing mid-playback** (`CAP_GPUI_AUTO_EDITOR_CLOSE=3`, which sends
+- **Closing mid-playback** (`FRAMEEVER_GPUI_AUTO_EDITOR_CLOSE=3`, which sends
   `performClose:` — the traffic light's own path): `sample` shows one
   `cap-playback` thread while playing, **none** 1.2s after the close, and a new
   one after reopening. The app stays alive, the main window comes back, and the
@@ -1810,7 +1810,7 @@ nothing else.
 
 ### Measured
 
-`CAP_GPUI_AUTO_PLAYBACK=16` on the ten-row all-tracks fixture, with the whole
+`FRAMEEVER_GPUI_AUTO_PLAYBACK=16` on the ten-row all-tracks fixture, with the whole
 interaction layer live:
 
 ```
@@ -1823,7 +1823,7 @@ only run on real pointer events, and the added per-paint work is one
 `Option<&Selection>` comparison per segment.
 
 **22 torture cycles with edits fired at them throughout**
-(`CAP_GPUI_AUTO_PLAYBACK_TORTURE=22` plus 72 scripted select/drag/delete/undo
+(`FRAMEEVER_GPUI_AUTO_PLAYBACK_TORTURE=22` plus 72 scripted select/drag/delete/undo
 actions from outside, overlapping the playback): 22/22 cycles, 22 stop reports,
 **zero errors, zero warnings, zero panics, zero `RefCell already borrowed`, and
 zero dropped frames** across every cycle (53.6–59.7 fps per 340ms burst — the
@@ -2082,7 +2082,7 @@ render at all, in this app and in the shipping one. Embedding them would add
 `resolveResource("assets/backgrounds/<id>.jpg")` does, preferring an installed
 `/Applications/Cap.app` — whose paths are byte-identical to what the shipping
 app writes — and falling back to the repository the dev build runs from
-(`CAP_GPUI_WALLPAPERS_DIR` overrides both). Picking the fifth macOS tile on
+(`FRAMEEVER_GPUI_WALLPAPERS_DIR` overrides both). Picking the fifth macOS tile on
 this machine wrote
 `/Applications/Cap.app/Contents/Resources/assets/backgrounds/macOS/tahoe-dark.jpg`,
 which is exactly the string the Tauri app would have written. The thumbnails
@@ -2215,7 +2215,7 @@ visibly changed the bubble from a centre-cropped rounded square to the camera's
 own aspect, and the text edit above re-rendered the title as it was typed —
 both captured before and after.
 
-**Playback is unchanged**, measured with `CAP_GPUI_MUTE_AUDIO=1` so the probes
+**Playback is unchanged**, measured with `FRAMEEVER_GPUI_MUTE_AUDIO=1` so the probes
 could run silently. Three runs each of the Camera tab, the 3D panel and the
 text panel — the two heaviest things the sidebar can draw:
 
@@ -2224,7 +2224,7 @@ camera  59.7 / 59.6 / 59.6   3d  59.8 / 59.8 / 59.8   text  59.8 / 59.7 / 59.8
 ```
 
 zero dropped frames in eight of the nine runs and one dropped frame in the
-ninth. A record cycle (`CAP_GPUI_AUTO_RECORD=studio:5`) still starts, writes
+ninth. A record cycle (`FRAMEEVER_GPUI_AUTO_RECORD=studio:5`) still starts, writes
 its 14 MB `display.mp4`, its audio, its thumbnail and its meta, and finalizes
 with zero errors; across 45 runs in this unit nothing logged a panic or a
 `RefCell already borrowed`.
@@ -2271,25 +2271,25 @@ black (a useful way to read the tint's alpha back, in fact — a 0.55 white tint
 lands on `#8c8c8c`). Anything about the material actually being live has to be
 judged from a full-screen `screencapture -x`.
 
-`CAP_GPUI_AUTO_SETTINGS=1` opens the settings window at startup, exactly as
+`FRAMEEVER_GPUI_AUTO_SETTINGS=1` opens the settings window at startup, exactly as
 the header gear does (main window hidden included). Pass a page slug instead
-of `1` — `CAP_GPUI_AUTO_SETTINGS=hotkeys` — to land on another sidebar entry;
+of `1` — `FRAMEEVER_GPUI_AUTO_SETTINGS=hotkeys` — to land on another sidebar entry;
 an unknown slug falls back to General.
 
-`CAP_GPUI_AUTO_MODE_SELECT=1` opens the mode select window at startup, exactly
+`FRAMEEVER_GPUI_AUTO_MODE_SELECT=1` opens the mode select window at startup, exactly
 as the mode dot does (main window hidden included). A mode name instead of `1`
-— `CAP_GPUI_AUTO_MODE_SELECT=studio` — also clicks that card, which is how the
+— `FRAMEEVER_GPUI_AUTO_MODE_SELECT=studio` — also clicks that card, which is how the
 selection is checked end to end: the run logs `recording mode changed` with both
 the main window's mode and the target-select overlay's.
 
-`CAP_GPUI_AUTO_TELEPROMPTER=1` opens the teleprompter, as the header's
+`FRAMEEVER_GPUI_AUTO_TELEPROMPTER=1` opens the teleprompter, as the header's
 scan-text button does. Any other value is *typed into the script* through the
 same `edit_script` a keystroke takes, debounced write included — how the
 persistence round trip is checked without synthetic key events. Add
-`CAP_GPUI_AUTO_PLAY=1` to press play 1.2s after opening, once the window has
+`FRAMEEVER_GPUI_AUTO_PLAY=1` to press play 1.2s after opening, once the window has
 painted and there is a scrollable height to move through.
 
-`CAP_GPUI_AUTO_EDITOR=<path-to-.cap>` opens the editor on that bundle, exactly
+`FRAMEEVER_GPUI_AUTO_EDITOR=<path-to-.cap>` opens the editor on that bundle, exactly
 as a studio Recents card does. `=1` picks the newest studio recording the
 library scan finds — the same list Recents reads, so it is the card that would
 be first in the carousel.
@@ -2390,38 +2390,38 @@ distance. The clip's own handles have no threshold and apply all of it.
 The editor's playback hooks all wait 1.5s after the project loads, so the
 decoders are warm and the stopwatch measures playback rather than startup:
 
-- `CAP_GPUI_AUTO_PLAYBACK=<seconds>` presses play, waits, and pauses — which
+- `FRAMEEVER_GPUI_AUTO_PLAYBACK=<seconds>` presses play, waits, and pauses — which
   logs the run's `playback fps=… frames=… dropped=…` line. (Every stop logs
   one; this just guarantees a stop happens.)
-- `CAP_GPUI_AUTO_SEEK=<fraction>` seeks to a fraction along the timeline
+- `FRAMEEVER_GPUI_AUTO_SEEK=<fraction>` seeks to a fraction along the timeline
   *through the click path*: the fraction becomes a window x and goes through
   the same `timeline_time_from_x` a real click does, so only gpui's event
   delivery is skipped. Applied before the play hook, which is how the
-  end-of-media stop is checked (`CAP_GPUI_AUTO_SEEK=0.95` +
-  `CAP_GPUI_AUTO_PLAYBACK=12` stops after 0.8s, not 12).
-- `CAP_GPUI_AUTO_PLAYBACK_TORTURE=<cycles>` runs play → 320ms → pause → seek
+  end-of-media stop is checked (`FRAMEEVER_GPUI_AUTO_SEEK=0.95` +
+  `FRAMEEVER_GPUI_AUTO_PLAYBACK=12` stops after 0.8s, not 12).
+- `FRAMEEVER_GPUI_AUTO_PLAYBACK_TORTURE=<cycles>` runs play → 320ms → pause → seek
   cycles, logging `torture: cycle done` each time and `torture: complete` at
   the end.
-- `CAP_GPUI_AUTO_EDITOR_CLOSE=<seconds>` closes the editor that many seconds
+- `FRAMEEVER_GPUI_AUTO_EDITOR_CLOSE=<seconds>` closes the editor that many seconds
   into playback via `performClose:` — the traffic light's own path, so
   `on_window_should_close` and `editor_closed` both run — then reopens it 2s
   later. Once per process, or the reopened window would close itself forever.
 
 Two more drive the config sidebar, both through the handlers a click uses:
 
-- `CAP_GPUI_AUTO_SIDEBAR=<tab>[:<scroll>]` selects a rail tab and optionally
+- `FRAMEEVER_GPUI_AUTO_SIDEBAR=<tab>[:<scroll>]` selects a rail tab and optionally
   scrolls its body. The scroll half exists because **a synthetic wheel does not
   scroll the tab body** — a `CGEvent` scroll delivered over the sidebar reaches
   the app (the timeline's own wheel handler logs one when the pointer is over
   the strip) but moves nothing when it lands there, so a tab taller than 470px
   cannot be photographed below the fold without it. The *selection* panel is
   the exception: a wheel does scroll that one.
-- `CAP_GPUI_AUTO_SELECT=<track>:<i>[,<i>]` selects timeline segments so their
+- `FRAMEEVER_GPUI_AUTO_SELECT=<track>:<i>[,<i>]` selects timeline segments so their
   panel opens, through `set_selection` — the same call a timeline click makes.
 
 And one that exists for the person running the probes rather than the app:
 
-- `CAP_GPUI_MUTE_AUDIO=1` swaps `EditorInstance`'s audio output for the
+- `FRAMEEVER_GPUI_MUTE_AUDIO=1` swaps `EditorInstance`'s audio output for the
   headless one the integration test uses, so a probe can run while its author
   is on a call. The editor otherwise prewarms the default output at load and
   plays the recording the moment Play is pressed. The video pump is identical
@@ -2433,7 +2433,7 @@ end to end rather than through their hooks: `swift click.swift <window-number>
 <x> <y> [drag-to-x] [drag-to-y]` posts `CGEvent`s in window-relative logical
 points, and `osascript -e 'tell application "System Events" to key code 49'`
 sends Space. Without that permission both are silently dropped, which is why
-the `CAP_GPUI_AUTO_*` hooks exist at all.
+the `FRAMEEVER_GPUI_AUTO_*` hooks exist at all.
 
 The component library's behaviour contracts were checked the same way, against
 the settings window: a click on a select opens its menu, `key code 125` walks
@@ -2449,7 +2449,7 @@ posted at it are dropped — with or without Accessibility, and identically on
 the pre-consolidation binary. Its search field has to be checked through the
 panel it filters.
 
-`CAP_GPUI_TAURI_STORE=<path>` points every settings read and write at another
+`FRAMEEVER_GPUI_TAURI_STORE=<path>` points every settings read and write at another
 file. Use it for anything that toggles a setting: the default is the store the
 shipping app is also writing, and a probe run should not be editing the real
 one. `cp "$HOME/Library/Application Support/so.cap.desktop/store" /tmp/probe`

@@ -615,7 +615,7 @@ mod tests {
         let output = root.join("relaunched");
         std::fs::write(
             &executable,
-            b"#!/bin/sh\nprintf relaunched > \"$CAP_GPUI_RELAUNCH_TEST_OUTPUT\"\n",
+            b"#!/bin/sh\nprintf relaunched > \"$FRAMEEVER_GPUI_RELAUNCH_TEST_OUTPUT\"\n",
         )
         .unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -626,7 +626,7 @@ mod tests {
             .spawn()
             .unwrap();
         let mut replacement = relaunch_command(&executable, previous.id())
-            .env("CAP_GPUI_RELAUNCH_TEST_OUTPUT", &output)
+            .env("FRAMEEVER_GPUI_RELAUNCH_TEST_OUTPUT", &output)
             .spawn()
             .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(400));

@@ -3,7 +3,7 @@ set -euo pipefail
 
 profile="${1:-release}"
 requested_target="${2:-${RUST_TARGET_TRIPLE:-}}"
-toolchain="${CAP_GPUI_RUST_TOOLCHAIN:-1.95.0}"
+toolchain="${FRAMEEVER_GPUI_RUST_TOOLCHAIN:-1.95.0}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gpui_dir="$repo_root/apps/desktop-gpui"
 binaries_dir="$gpui_dir/binaries"

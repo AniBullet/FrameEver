@@ -47,7 +47,7 @@ mod tests {
     use std::{io::Write, process::Stdio, time::Duration};
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
-    const CHILD_MODE: &str = "CAP_UTILS_PIPE_TEST_CHILD";
+    const CHILD_MODE: &str = "FRAMEEVER_UTILS_PIPE_TEST_CHILD";
     const LINE_COUNT: usize = 20_000;
 
     #[test]

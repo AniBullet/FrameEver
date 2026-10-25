@@ -98,7 +98,7 @@ impl FrameScaler {
 }
 
 fn get_pixel_buffer_pool_size() -> usize {
-    std::env::var("CAP_PIXEL_BUFFER_POOL_SIZE")
+    std::env::var("FRAMEEVER_PIXEL_BUFFER_POOL_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(20)
@@ -139,14 +139,14 @@ fn create_pixel_buffer_pool(width: usize, height: usize) -> Option<arc::R<cv::Pi
 }
 
 fn get_screen_buffer_size() -> usize {
-    std::env::var("CAP_SCREEN_BUFFER_SIZE")
+    std::env::var("FRAMEEVER_SCREEN_BUFFER_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(15)
 }
 
 fn get_max_queue_depth() -> isize {
-    std::env::var("CAP_MAX_QUEUE_DEPTH")
+    std::env::var("FRAMEEVER_MAX_QUEUE_DEPTH")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(8)

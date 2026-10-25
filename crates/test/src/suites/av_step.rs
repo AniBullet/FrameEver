@@ -275,16 +275,19 @@ impl StepReading {
     }
 }
 
-// When CAP_AV_STEP_KEEP=<dir> is set, copy the probed video out of the temp
+// When FRAMEEVER_AV_STEP_KEEP=<dir> is set, copy the probed video out of the temp
 // recording before it is cleaned up, so the raw frame timing can be inspected
 // directly with ffprobe.
 fn persist_if_requested(src: &std::path::Path, label: &str) {
-    let Ok(dir) = std::env::var("CAP_AV_STEP_KEEP") else {
+    let Ok(dir) = std::env::var("FRAMEEVER_AV_STEP_KEEP") else {
         return;
     };
     let dir = std::path::PathBuf::from(dir);
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        warn!("CAP_AV_STEP_KEEP: failed to create {}: {e}", dir.display());
+        warn!(
+            "FRAMEEVER_AV_STEP_KEEP: failed to create {}: {e}",
+            dir.display()
+        );
         return;
     }
     let safe: String = label
@@ -294,7 +297,10 @@ fn persist_if_requested(src: &std::path::Path, label: &str) {
     let dest = dir.join(format!("{safe}.mp4"));
     match std::fs::copy(src, &dest) {
         Ok(_) => info!("Kept recording for inspection: {}", dest.display()),
-        Err(e) => warn!("CAP_AV_STEP_KEEP: copy of {} failed: {e}", src.display()),
+        Err(e) => warn!(
+            "FRAMEEVER_AV_STEP_KEEP: copy of {} failed: {e}",
+            src.display()
+        ),
     }
 }
 

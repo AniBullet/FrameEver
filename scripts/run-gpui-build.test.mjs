@@ -12,7 +12,7 @@ test("GPUI release builds run on every supported desktop platform", () => {
 test("GPUI development builds honor their platform and opt-out guards", () => {
 	assert.equal(shouldBuildGpui("darwin", {}, "debug"), true);
 	assert.equal(
-		shouldBuildGpui("darwin", { CAP_GPUI_DEV: "0" }, "debug"),
+		shouldBuildGpui("darwin", { FRAMEEVER_GPUI_DEV: "0" }, "debug"),
 		false,
 	);
 	assert.equal(shouldBuildGpui("darwin", {}, "debug", false), false);
@@ -22,7 +22,7 @@ test("GPUI development builds honor their platform and opt-out guards", () => {
 test("the development opt-out never suppresses supported release builds", () => {
 	for (const platform of ["darwin", "win32"]) {
 		assert.equal(
-			shouldBuildGpui(platform, { CAP_GPUI_DEV: "0" }, "release"),
+			shouldBuildGpui(platform, { FRAMEEVER_GPUI_DEV: "0" }, "release"),
 			true,
 		);
 	}
@@ -33,7 +33,7 @@ test("macOS development only bundles an enabled and available GPUI sidecar", () 
 	assert.equal(shouldBundleGpui("darwin", {}, "debug", false), false);
 	assert.equal(shouldBundleGpui("darwin", {}, "debug", true, false), false);
 	assert.equal(
-		shouldBundleGpui("darwin", { CAP_GPUI_DEV: "0" }, "debug", true),
+		shouldBundleGpui("darwin", { FRAMEEVER_GPUI_DEV: "0" }, "debug", true),
 		false,
 	);
 });
@@ -41,7 +41,7 @@ test("macOS development only bundles an enabled and available GPUI sidecar", () 
 test("release bundling is mandatory on every supported desktop platform", () => {
 	for (const platform of ["darwin", "win32"]) {
 		assert.equal(
-			shouldBundleGpui(platform, { CAP_GPUI_DEV: "0" }, "release", false),
+			shouldBundleGpui(platform, { FRAMEEVER_GPUI_DEV: "0" }, "release", false),
 			true,
 		);
 	}

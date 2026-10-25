@@ -1328,7 +1328,7 @@ pub fn mode_select_closed(cx: &mut App) {
 }
 
 /// Click a mode card in the open mode select window (harness path for
-/// `CAP_GPUI_AUTO_MODE_SELECT=<mode>`; synthetic clicks are dropped).
+/// `FRAMEEVER_GPUI_AUTO_MODE_SELECT=<mode>`; synthetic clicks are dropped).
 pub fn choose_mode_in_mode_select(mode: Mode, cx: &mut App) {
     let Some(handle) = cx.global::<AppWindows>().mode_select else {
         return;
@@ -1497,7 +1497,7 @@ pub fn open_teleprompter(cx: &mut App) {
 }
 
 /// Type into the open teleprompter (harness path for
-/// `CAP_GPUI_AUTO_TELEPROMPTER=<script>`; synthetic key events are dropped
+/// `FRAMEEVER_GPUI_AUTO_TELEPROMPTER=<script>`; synthetic key events are dropped
 /// without Accessibility, and this drives the same `edit_script` the key
 /// handler does, debounced write included).
 pub fn type_into_teleprompter(text: String, cx: &mut App) {
@@ -1513,7 +1513,7 @@ pub fn type_into_teleprompter(text: String, cx: &mut App) {
 }
 
 /// Drive the teleprompter's play button (harness path for
-/// `CAP_GPUI_AUTO_PLAY=1`). Only meaningful once the window has painted --
+/// `FRAMEEVER_GPUI_AUTO_PLAY=1`). Only meaningful once the window has painted --
 /// the scrollable height does not exist before that.
 pub fn play_teleprompter(cx: &mut App) {
     let Some(handle) = cx.global::<AppWindows>().teleprompter else {
@@ -3630,7 +3630,7 @@ pub(crate) fn prewarm_shared_wgpu_device(cx: &App) {
 }
 
 fn editor_audio_output() -> Arc<frameever_editor::AudioOutput> {
-    if std::env::var("CAP_GPUI_MUTE_AUDIO").is_ok_and(|value| value == "1") {
+    if std::env::var("FRAMEEVER_GPUI_MUTE_AUDIO").is_ok_and(|value| value == "1") {
         Arc::new(frameever_editor::AudioOutput::new_headless(Box::new(
             |_, _| {},
         )))
@@ -3913,7 +3913,7 @@ fn load_editor_project_candidate(
             gpui_tokio::Tokio::spawn(cx, async move {
                 // `EditorInstance::new`: the real constructor, exactly as the
                 // Tauri app calls it (`lib.rs:6592`) -- except under
-                // `CAP_GPUI_MUTE_AUDIO=1`, which swaps in the headless audio
+                // `FRAMEEVER_GPUI_MUTE_AUDIO=1`, which swaps in the headless audio
                 // output (the integration test's constructor) so playback
                 // stays silent: verification probes must be able to run while
                 // the user is on a call, and the editor otherwise plays the
@@ -4151,7 +4151,7 @@ fn load_editor_project_candidate(
 }
 
 async fn drive_auto_export(handle: WindowHandle<EditorWindow>, cx: &mut gpui::AsyncApp) {
-    if let Ok(page) = std::env::var("CAP_GPUI_AUTO_EXPORT_PAGE") {
+    if let Ok(page) = std::env::var("FRAMEEVER_GPUI_AUTO_EXPORT_PAGE") {
         cx.background_executor()
             .timer(std::time::Duration::from_millis(300))
             .await;
@@ -4165,7 +4165,7 @@ async fn drive_auto_export(handle: WindowHandle<EditorWindow>, cx: &mut gpui::As
         });
         return;
     }
-    let Some(path) = std::env::var_os("CAP_GPUI_AUTO_EXPORT").map(PathBuf::from) else {
+    let Some(path) = std::env::var_os("FRAMEEVER_GPUI_AUTO_EXPORT").map(PathBuf::from) else {
         return;
     };
 
@@ -4284,27 +4284,27 @@ fn load_editor_waveforms(
     .detach();
 }
 
-/// `CAP_GPUI_AUTO_SIDEBAR=<tab>[:<scroll>]` selects a config-sidebar tab and
-/// optionally scrolls its body, `CAP_GPUI_AUTO_CAMERA3D=add[:<time>]|auto`
-/// makes a 3D shot, and `CAP_GPUI_AUTO_SELECT=<track>:<i>[,<i>]` selects
+/// `FRAMEEVER_GPUI_AUTO_SIDEBAR=<tab>[:<scroll>]` selects a config-sidebar tab and
+/// optionally scrolls its body, `FRAMEEVER_GPUI_AUTO_CAMERA3D=add[:<time>]|auto`
+/// makes a 3D shot, and `FRAMEEVER_GPUI_AUTO_SELECT=<track>:<i>[,<i>]` selects
 /// timeline segments so their panel opens.
 ///
-/// They exist for the same reason as every other `CAP_GPUI_AUTO_*` hook, plus
+/// They exist for the same reason as every other `FRAMEEVER_GPUI_AUTO_*` hook, plus
 /// one specific to this pane: **a synthetic wheel does not scroll the sidebar's
 /// body.** A `CGEvent` scroll delivered over the sidebar reaches the app (the
 /// timeline's own wheel handler logs one when the pointer is over the strip)
 /// but moves nothing when it lands on the scroll body, so a tab taller than
 /// 470px cannot be photographed below the fold without this.
 async fn drive_auto_sidebar(handle: WindowHandle<EditorWindow>, cx: &mut gpui::AsyncApp) {
-    let tab = std::env::var("CAP_GPUI_AUTO_SIDEBAR").ok();
-    let select = std::env::var("CAP_GPUI_AUTO_SELECT").ok();
-    let canvas = std::env::var("CAP_GPUI_AUTO_CANVAS").ok();
-    let crop = std::env::var("CAP_GPUI_AUTO_CROP").ok();
-    let clip_menu = std::env::var("CAP_GPUI_AUTO_CLIP_MENU").ok();
-    let camera3d = std::env::var("CAP_GPUI_AUTO_CAMERA3D").ok();
-    let add_track = std::env::var("CAP_GPUI_AUTO_ADD_TRACK").ok();
+    let tab = std::env::var("FRAMEEVER_GPUI_AUTO_SIDEBAR").ok();
+    let select = std::env::var("FRAMEEVER_GPUI_AUTO_SELECT").ok();
+    let canvas = std::env::var("FRAMEEVER_GPUI_AUTO_CANVAS").ok();
+    let crop = std::env::var("FRAMEEVER_GPUI_AUTO_CROP").ok();
+    let clip_menu = std::env::var("FRAMEEVER_GPUI_AUTO_CLIP_MENU").ok();
+    let camera3d = std::env::var("FRAMEEVER_GPUI_AUTO_CAMERA3D").ok();
+    let add_track = std::env::var("FRAMEEVER_GPUI_AUTO_ADD_TRACK").ok();
     let generate_zoom =
-        std::env::var("CAP_GPUI_AUTO_GENERATE_ZOOM").is_ok_and(|value| value == "1");
+        std::env::var("FRAMEEVER_GPUI_AUTO_GENERATE_ZOOM").is_ok_and(|value| value == "1");
     if tab.is_none()
         && select.is_none()
         && canvas.is_none()
@@ -4332,7 +4332,7 @@ async fn drive_auto_sidebar(handle: WindowHandle<EditorWindow>, cx: &mut gpui::A
             .ok();
     }
 
-    // `CAP_GPUI_AUTO_CAMERA3D=add[:<time>]|auto`: make a 3D shot the way the
+    // `FRAMEEVER_GPUI_AUTO_CAMERA3D=add[:<time>]|auto`: make a 3D shot the way the
     // lane's own chips make one. Before the selection hook, so a probe can
     // create a shot and then photograph its panel.
     if let Some(spec) = camera3d {
@@ -4353,18 +4353,18 @@ async fn drive_auto_sidebar(handle: WindowHandle<EditorWindow>, cx: &mut gpui::A
             .ok();
     }
 
-    // `CAP_GPUI_AUTO_CANVAS=1`: select the on-canvas display box, which a
+    // `FRAMEEVER_GPUI_AUTO_CANVAS=1`: select the on-canvas display box, which a
     // click on it does. Before the crop hook, because opening the crop dialog
     // hides the overlay.
-    if std::env::var("CAP_GPUI_AUTO_CANVAS").is_ok_and(|value| value == "1") {
+    if std::env::var("FRAMEEVER_GPUI_AUTO_CANVAS").is_ok_and(|value| value == "1") {
         handle
             .update(cx, |view, window, cx| view.auto_canvas_select(window, cx))
             .ok();
     }
 
-    // `CAP_GPUI_AUTO_CROP=1[:16x9][:nosnap]`: open the crop dialog through the
+    // `FRAMEEVER_GPUI_AUTO_CROP=1[:16x9][:nosnap]`: open the crop dialog through the
     // toolbar's own handler.
-    if let Ok(spec) = std::env::var("CAP_GPUI_AUTO_CROP")
+    if let Ok(spec) = std::env::var("FRAMEEVER_GPUI_AUTO_CROP")
         && !spec.is_empty()
     {
         handle
@@ -4372,7 +4372,7 @@ async fn drive_auto_sidebar(handle: WindowHandle<EditorWindow>, cx: &mut gpui::A
             .ok();
     }
 
-    // `CAP_GPUI_AUTO_CLIP_MENU=<index>[:split]`: open clip `<index>`'s settings
+    // `FRAMEEVER_GPUI_AUTO_CLIP_MENU=<index>[:split]`: open clip `<index>`'s settings
     // menu the way a right-click on it does, optionally splitting the first
     // clip at 40% first so the merge rows have a neighbour to act on.
     if let Some(spec) = clip_menu {
@@ -4383,8 +4383,8 @@ async fn drive_auto_sidebar(handle: WindowHandle<EditorWindow>, cx: &mut gpui::A
             .ok();
     }
 
-    // `CAP_GPUI_AUTO_ADD_TRACK=1` opens the add-track tray;
-    // `CAP_GPUI_AUTO_ADD_TRACK=<text|mask|style|audio|...>` opens it and picks
+    // `FRAMEEVER_GPUI_AUTO_ADD_TRACK=1` opens the add-track tray;
+    // `FRAMEEVER_GPUI_AUTO_ADD_TRACK=<text|mask|style|audio|...>` opens it and picks
     // that tile, then treats the player as hovered so its overlay draws.
     if let Some(spec) = add_track {
         handle
@@ -4395,36 +4395,36 @@ async fn drive_auto_sidebar(handle: WindowHandle<EditorWindow>, cx: &mut gpui::A
     }
 }
 
-/// `CAP_GPUI_AUTO_PLAYBACK=<seconds>` presses play once the project is up and
-/// pauses N seconds later; `CAP_GPUI_AUTO_PLAYBACK_TORTURE=<cycles>` runs
+/// `FRAMEEVER_GPUI_AUTO_PLAYBACK=<seconds>` presses play once the project is up and
+/// pauses N seconds later; `FRAMEEVER_GPUI_AUTO_PLAYBACK_TORTURE=<cycles>` runs
 /// play/pause/seek cycles instead. Both exist for the same reason as every
-/// other `CAP_GPUI_AUTO_*` hook: unprivileged synthetic clicks are dropped, so
+/// other `FRAMEEVER_GPUI_AUTO_*` hook: unprivileged synthetic clicks are dropped, so
 /// a verification run needs a way to press the button.
 async fn drive_auto_playback(
     project_path: PathBuf,
     handle: WindowHandle<EditorWindow>,
     cx: &mut gpui::AsyncApp,
 ) {
-    let play_secs = std::env::var("CAP_GPUI_AUTO_PLAYBACK")
+    let play_secs = std::env::var("FRAMEEVER_GPUI_AUTO_PLAYBACK")
         .ok()
         .and_then(|value| value.parse::<f64>().ok());
-    let torture = std::env::var("CAP_GPUI_AUTO_PLAYBACK_TORTURE")
+    let torture = std::env::var("FRAMEEVER_GPUI_AUTO_PLAYBACK_TORTURE")
         .ok()
         .and_then(|value| value.parse::<u32>().ok());
-    // `CAP_GPUI_AUTO_SEEK=0.6`: a paused seek to 60% along the timeline, the
+    // `FRAMEEVER_GPUI_AUTO_SEEK=0.6`: a paused seek to 60% along the timeline, the
     // way a click on the ruler there does it.
-    let seek = std::env::var("CAP_GPUI_AUTO_SEEK")
+    let seek = std::env::var("FRAMEEVER_GPUI_AUTO_SEEK")
         .ok()
         .and_then(|value| value.parse::<f64>().ok());
-    let seek_time = std::env::var("CAP_GPUI_AUTO_SEEK_TIME")
+    let seek_time = std::env::var("FRAMEEVER_GPUI_AUTO_SEEK_TIME")
         .ok()
         .and_then(|value| value.parse::<f64>().ok())
         .filter(|seconds| seconds.is_finite() && *seconds >= 0.0);
-    // `CAP_GPUI_AUTO_SCRUB_PLAYING=<n>`: a synthetic ruler drag during
+    // `FRAMEEVER_GPUI_AUTO_SCRUB_PLAYING=<n>`: a synthetic ruler drag during
     // playback -- n seeks at 33ms intervals sweeping 20% to 70% of the
     // timeline. This is the live-seek path's perf gate: every seek lands on a
     // RUNNING engine through `seek_to_time`, exactly as a real drag does.
-    let scrub_playing = std::env::var("CAP_GPUI_AUTO_SCRUB_PLAYING")
+    let scrub_playing = std::env::var("FRAMEEVER_GPUI_AUTO_SCRUB_PLAYING")
         .ok()
         .and_then(|value| value.parse::<u32>().ok());
     if play_secs.is_none()
@@ -4525,7 +4525,7 @@ async fn drive_auto_playback(
             .ok();
     }
 
-    // `CAP_GPUI_AUTO_EDITOR_CLOSE=<secs>`: close the editor that many seconds
+    // `FRAMEEVER_GPUI_AUTO_EDITOR_CLOSE=<secs>`: close the editor that many seconds
     // into playback, through `performClose:` -- the traffic light's own path,
     // so the window's `on_window_should_close` handler and `editor_closed`
     // both run. Proof that a playing editor tears down cleanly.
@@ -4534,7 +4534,7 @@ async fn drive_auto_playback(
     // test.
     static CLOSE_SCENARIO_DONE: std::sync::atomic::AtomicBool =
         std::sync::atomic::AtomicBool::new(false);
-    let close_after = std::env::var("CAP_GPUI_AUTO_EDITOR_CLOSE")
+    let close_after = std::env::var("FRAMEEVER_GPUI_AUTO_EDITOR_CLOSE")
         .ok()
         .and_then(|value| value.parse::<f64>().ok())
         .filter(|_| !CLOSE_SCENARIO_DONE.swap(true, std::sync::atomic::Ordering::SeqCst));

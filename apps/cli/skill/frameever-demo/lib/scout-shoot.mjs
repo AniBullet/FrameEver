@@ -39,9 +39,9 @@ if (forceStory && forceStory !== "click" && forceStory !== "scroll") {
 mkdirSync(outDir, { recursive: true });
 
 // --- binary resolution --------------------------------------------------------
-// FrameEver binary: env FRAMEEVER_BIN or CAP_BIN, else `frameever` on PATH, else a clear error.
+// FrameEver binary: env FRAMEEVER_BIN, else `frameever` on PATH, else a clear error.
 function resolveCap() {
-	const override = process.env.FRAMEEVER_BIN || process.env.CAP_BIN;
+	const override = process.env.FRAMEEVER_BIN;
 	if (override) return override;
 	const lookup = process.platform === "win32" ? "where frameever" : "command -v frameever";
 	try {

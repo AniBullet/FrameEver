@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_REMOTESESSION};
 
-const ENV_OVERRIDE: &str = "CAP_WINDOW_CAPTURE_EXCLUSION";
+const ENV_OVERRIDE: &str = "FRAMEEVER_WINDOW_CAPTURE_EXCLUSION";
 // Shadow reports S:102 for protected windows; EC2/DCV still displays excluded windows.
 const SMBIOS_MARKERS: &[&str] = &["shadow"];
 const VIRTUAL_DISPLAY_MARKERS: &[&str] = &[

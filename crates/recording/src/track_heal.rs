@@ -928,13 +928,13 @@ mod tests {
     }
 
     /// Manual harness for healing a real .cap bundle:
-    /// `CAP_HEAL_PROJECT_PATH=/path/to/recording.cap cargo test -p frameever-recording \
+    /// `FRAMEEVER_HEAL_PROJECT_PATH=/path/to/recording.cap cargo test -p frameever-recording \
     ///   --lib track_heal::tests::heal_project_from_env -- --ignored --nocapture`
     #[test]
     #[ignore]
     fn heal_project_from_env() {
-        let path =
-            std::env::var("CAP_HEAL_PROJECT_PATH").expect("CAP_HEAL_PROJECT_PATH must be set");
+        let path = std::env::var("FRAMEEVER_HEAL_PROJECT_PATH")
+            .expect("FRAMEEVER_HEAL_PROJECT_PATH must be set");
         let healed = heal_stretched_tracks(Path::new(&path)).unwrap();
         println!("healed: {healed}");
     }

@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn runtime_load_failures_remain_retryable() {
-        const CHILD_ENV: &str = "CAP_CAMERA_EFFECTS_LOADER_TEST_CHILD";
+        const CHILD_ENV: &str = "FRAMEEVER_CAMERA_EFFECTS_LOADER_TEST_CHILD";
         if let Some(path) = std::env::var_os(CHILD_ENV) {
             assert!(crate::initialize_onnx_runtime().is_err());
             std::fs::write(&path, b"invalid ONNX Runtime library").unwrap();

@@ -114,7 +114,7 @@ fn parse_auto_record(spec: &str) -> Option<(main_window::Mode, u64)> {
     Some((mode, secs.parse().ok()?))
 }
 
-/// `CAP_GPUI_AUTO_EDITOR`: a `.cap` path, or `1` for the newest studio
+/// `FRAMEEVER_GPUI_AUTO_EDITOR`: a `.cap` path, or `1` for the newest studio
 /// recording the library scan finds. The library is the same one Recents
 /// reads, so `=1` opens exactly the card that would be first in the carousel
 /// (skipping instant recordings and screenshots, which the editor rejects).
@@ -129,7 +129,7 @@ fn resolve_auto_editor(target: &str) -> Option<std::path::PathBuf> {
         .map(|item| item.bundle)
 }
 
-/// `CAP_GPUI_AUTO_SCREENSHOT_EDITOR`: a screenshot `.cap` path, or `1` for
+/// `FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR`: a screenshot `.cap` path, or `1` for
 /// the newest screenshot in the library -- [`resolve_auto_editor`]'s shape
 /// for the screenshot editor.
 fn resolve_auto_screenshot_editor(target: &str) -> Option<std::path::PathBuf> {
@@ -179,9 +179,9 @@ fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
                 frameever_utils::operation_diagnostics::AppInfo {
                     flavor: "gpui",
                     version: env!("CARGO_PKG_VERSION"),
-                    source_revision: option_env!("CAP_BUILD_REVISION"),
+                    source_revision: option_env!("FRAMEEVER_BUILD_REVISION"),
                     debug_build: cfg!(debug_assertions),
-                    source_dirty: option_env!("CAP_BUILD_DIRTY").map(|value| value == "true"),
+                    source_dirty: option_env!("FRAMEEVER_BUILD_DIRTY").map(|value| value == "true"),
                 },
                 move |bytes| {
                     use std::io::Write;
@@ -400,10 +400,10 @@ fn main() {
         // The app menu (and with it ⌘W/⌘M/⌘Q) and the status-bar item. Both
         // reach into the window registry, so they come after it -- and the menu
         // before the tray, because the tray's Quit item is the menu's Quit.
-        if !std::env::var("CAP_GPUI_NO_MENUS").is_ok_and(|v| v == "1") {
+        if !std::env::var("FRAMEEVER_GPUI_NO_MENUS").is_ok_and(|v| v == "1") {
             menus::init(cx);
         }
-        if !std::env::var("CAP_GPUI_NO_TRAY").is_ok_and(|v| v == "1") {
+        if !std::env::var("FRAMEEVER_GPUI_NO_TRAY").is_ok_and(|v| v == "1") {
             tray::init(cx);
         }
         // The store's global shortcuts, after the registry they dispatch into.
@@ -427,13 +427,13 @@ fn main() {
             })
             .detach();
         }
-        // `CAP_GPUI_AUTO_TRAY` / `CAP_GPUI_TRAY_DUMP`: the tray's harness path.
+        // `FRAMEEVER_GPUI_AUTO_TRAY` / `FRAMEEVER_GPUI_TRAY_DUMP`: the tray's harness path.
         tray::drive_from_env(cx);
-        // `CAP_GPUI_AUTO_CLOSE=settings|main:<secs>`: run the ⌘W body against
+        // `FRAMEEVER_GPUI_AUTO_CLOSE=settings|main:<secs>`: run the ⌘W body against
         // that window after a delay -- exercises the exact deferred close path
         // without synthetic keypresses (which race whatever the user has
         // focused).
-        if let Ok(spec) = std::env::var("CAP_GPUI_AUTO_CLOSE")
+        if let Ok(spec) = std::env::var("FRAMEEVER_GPUI_AUTO_CLOSE")
             && let Some((which, secs)) = spec.split_once(':')
             && let Ok(secs) = secs.parse::<u64>()
         {
@@ -460,7 +460,7 @@ fn main() {
         // shown; the main window is up by here.
         menus::sync_dock_visibility(cx);
 
-        // `CAP_GPUI_DEV_RESTORE=<state file>`: `dev.sh`'s relaunch loop.
+        // `FRAMEEVER_GPUI_DEV_RESTORE=<state file>`: `dev.sh`'s relaunch loop.
         // Reopens the previous process's windows in place and keeps the
         // state file current for the next swap.
         if let Some(dev_restore) = dev_restore {
@@ -541,10 +541,10 @@ fn main() {
         })
         .detach();
 
-        // `CAP_GPUI_DEBUG_LIGHTS=1`: poll the main window's style mask and
+        // `FRAMEEVER_GPUI_DEBUG_LIGHTS=1`: poll the main window's style mask and
         // standard-button set, logging on change -- pins down *when* AppKit
         // materializes titlebar buttons on the buttonless main window.
-        if std::env::var("CAP_GPUI_DEBUG_LIGHTS").is_ok_and(|v| v == "1") {
+        if std::env::var("FRAMEEVER_GPUI_DEBUG_LIGHTS").is_ok_and(|v| v == "1") {
             cx.spawn(async move |cx| {
                 let mut last = None::<String>;
                 loop {
@@ -566,11 +566,11 @@ fn main() {
             .detach();
         }
 
-        // `CAP_GPUI_AUTO_SETTINGS=1` (or a page slug, e.g. `hotkeys`): open
+        // `FRAMEEVER_GPUI_AUTO_SETTINGS=1` (or a page slug, e.g. `hotkeys`): open
         // the settings window the way the header gear does. Same reason as
-        // every other `CAP_GPUI_AUTO_*` hook -- unprivileged synthetic clicks
+        // every other `FRAMEEVER_GPUI_AUTO_*` hook -- unprivileged synthetic clicks
         // are dropped, so the screenshot harness needs a way in.
-        if let Ok(page) = std::env::var("CAP_GPUI_AUTO_SETTINGS")
+        if let Ok(page) = std::env::var("FRAMEEVER_GPUI_AUTO_SETTINGS")
             && !page.is_empty()
         {
             let page =
@@ -578,14 +578,14 @@ fn main() {
             app_windows::open_settings(page, cx);
         }
 
-        permissions_ui::auto_open_from_env(cx); // `CAP_GPUI_AUTO_PERMISSIONS=1`: the permissions surface.
+        permissions_ui::auto_open_from_env(cx); // `FRAMEEVER_GPUI_AUTO_PERMISSIONS=1`: the permissions surface.
         #[cfg(debug_assertions)]
         snapshot::arm_from_env(cx);
 
-        // `CAP_GPUI_AUTO_MODE_SELECT=1`: open the 580x340 mode picker the way
+        // `FRAMEEVER_GPUI_AUTO_MODE_SELECT=1`: open the 580x340 mode picker the way
         // the mode dot does, main window hidden included. A mode name instead
         // of `1` also clicks that card.
-        if let Ok(mode) = std::env::var("CAP_GPUI_AUTO_MODE_SELECT")
+        if let Ok(mode) = std::env::var("FRAMEEVER_GPUI_AUTO_MODE_SELECT")
             && !mode.is_empty()
         {
             app_windows::open_mode_select(cx);
@@ -599,30 +599,30 @@ fn main() {
             }
         }
 
-        // `CAP_GPUI_AUTO_CAMERA_BENCH=1`: open the camera bubble and pump
+        // `FRAMEEVER_GPUI_AUTO_CAMERA_BENCH=1`: open the camera bubble and pump
         // synthetic frames through the production delivery path, reporting
         // gpui draw timings for that window. See `camera_bench`.
         #[cfg(target_os = "macos")]
-        if std::env::var("CAP_GPUI_AUTO_CAMERA_BENCH").is_ok_and(|v| v == "1") {
+        if std::env::var("FRAMEEVER_GPUI_AUTO_CAMERA_BENCH").is_ok_and(|v| v == "1") {
             camera_bench::run(cx);
         }
 
-        // `CAP_GPUI_AUTO_TELEPROMPTER=1`: open the teleprompter the way the
+        // `FRAMEEVER_GPUI_AUTO_TELEPROMPTER=1`: open the teleprompter the way the
         // header's scan-text button does. Same reason as the other hooks:
         // unprivileged synthetic clicks are dropped. Any other value is typed
         // into the script through the same path a keystroke takes, which is how
         // the persistence round trip is checked.
-        if let Ok(script) = std::env::var("CAP_GPUI_AUTO_TELEPROMPTER")
+        if let Ok(script) = std::env::var("FRAMEEVER_GPUI_AUTO_TELEPROMPTER")
             && !script.is_empty()
         {
             app_windows::open_teleprompter(cx);
             if script != "1" {
                 app_windows::type_into_teleprompter(script, cx);
             }
-            // `CAP_GPUI_AUTO_PLAY=1`: press play once the window has painted --
+            // `FRAMEEVER_GPUI_AUTO_PLAY=1`: press play once the window has painted --
             // the scrollable height, which is what decides whether playback can
             // start at all, does not exist before the first frame.
-            if std::env::var("CAP_GPUI_AUTO_PLAY").is_ok_and(|value| value == "1") {
+            if std::env::var("FRAMEEVER_GPUI_AUTO_PLAY").is_ok_and(|value| value == "1") {
                 cx.spawn(async move |cx| {
                     cx.background_executor()
                         .timer(std::time::Duration::from_millis(1200))
@@ -633,23 +633,25 @@ fn main() {
             }
         }
 
-        // `CAP_GPUI_AUTO_EDITOR=<path-to-.cap>`: open the editor on that
+        // `FRAMEEVER_GPUI_AUTO_EDITOR=<path-to-.cap>`: open the editor on that
         // bundle the way a Recents card does. `=1` picks the newest studio
-        // recording in the library. Same reason as the other `CAP_GPUI_AUTO_*`
+        // recording in the library. Same reason as the other `FRAMEEVER_GPUI_AUTO_*`
         // hooks -- unprivileged synthetic clicks are dropped, so the
         // screenshot harness needs a way in.
-        if let Ok(target) = std::env::var("CAP_GPUI_AUTO_EDITOR")
+        if let Ok(target) = std::env::var("FRAMEEVER_GPUI_AUTO_EDITOR")
             && !target.is_empty()
         {
             match resolve_auto_editor(&target) {
                 Some(path) => app_windows::open_editor(path, cx),
-                None => tracing::error!(target, "CAP_GPUI_AUTO_EDITOR: no studio .cap to open"),
+                None => {
+                    tracing::error!(target, "FRAMEEVER_GPUI_AUTO_EDITOR: no studio .cap to open")
+                }
             }
         }
 
-        // `CAP_GPUI_AUTO_HOTKEY=<store key>`: run a hotkey action's dispatch
+        // `FRAMEEVER_GPUI_AUTO_HOTKEY=<store key>`: run a hotkey action's dispatch
         // arm (e.g. `screenshotDisplay`) as if the OS shortcut fired.
-        if let Ok(action) = std::env::var("CAP_GPUI_AUTO_HOTKEY")
+        if let Ok(action) = std::env::var("FRAMEEVER_GPUI_AUTO_HOTKEY")
             && !action.is_empty()
         {
             let action = action.clone();
@@ -664,28 +666,28 @@ fn main() {
             .detach();
         }
 
-        // `CAP_GPUI_AUTO_SCREENSHOT_EDITOR=<path-to-.cap>` (or `1` for the
+        // `FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR=<path-to-.cap>` (or `1` for the
         // newest screenshot): open the screenshot editor the way a Recents
         // card does.
-        if let Ok(target) = std::env::var("CAP_GPUI_AUTO_SCREENSHOT_EDITOR")
+        if let Ok(target) = std::env::var("FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR")
             && !target.is_empty()
         {
             match resolve_auto_screenshot_editor(&target) {
                 Some(path) => app_windows::open_screenshot_editor(path, cx),
                 None => tracing::error!(
                     target,
-                    "CAP_GPUI_AUTO_SCREENSHOT_EDITOR: no screenshot .cap to open"
+                    "FRAMEEVER_GPUI_AUTO_SCREENSHOT_EDITOR: no screenshot .cap to open"
                 ),
             }
         }
 
-        // `CAP_GPUI_AUTO_RECORD=studio:5` / `instant:4` / `screenshot`: arm
+        // `FRAMEEVER_GPUI_AUTO_RECORD=studio:5` / `instant:4` / `screenshot`: arm
         // the primary display and record for N seconds (or capture once). The
         // end-to-end check drives the recorder this way because unprivileged
         // synthetic clicks are dropped.
         #[cfg(debug_assertions)]
         picker_ui_benchmark::run(window_handle, cx);
-        if let Ok(auto) = std::env::var("CAP_GPUI_AUTO_RECORD")
+        if let Ok(auto) = std::env::var("FRAMEEVER_GPUI_AUTO_RECORD")
             && let Some((mode, secs)) = parse_auto_record(&auto)
         {
             window_handle
@@ -694,7 +696,7 @@ fn main() {
                 })
                 .expect("failed to arm auto-record");
         } else if let Some(kind) = main_window::auto_overlay_kind() {
-            // `CAP_GPUI_AUTO_OVERLAY` without a recording: put the overlays up
+            // `FRAMEEVER_GPUI_AUTO_OVERLAY` without a recording: put the overlays up
             // and leave them there, which is how they get screenshotted.
             window_handle
                 .update(cx, |view, window, cx| {

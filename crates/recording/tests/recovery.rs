@@ -186,7 +186,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 fn performance_fixture_path() -> PathBuf {
-    if let Ok(path) = std::env::var("CAP_PERFORMANCE_FIXTURES_DIR") {
+    if let Ok(path) = std::env::var("FRAMEEVER_PERFORMANCE_FIXTURES_DIR") {
         return PathBuf::from(path).join("reference-recording.cap");
     }
 

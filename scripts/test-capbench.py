@@ -215,8 +215,8 @@ class CapbenchTests(unittest.TestCase):
         self.assertIn("delivered_fps", capbench.BENCHES["record-studio-60"]["better"])
 
     def test_variant_env_is_scoped_per_label(self):
-        env = capbench.parse_variant_env(["base", "t4"], ["t4:CAP_EXP_DECODE_THREADS=4", "t4:X=a=b"])
-        self.assertEqual(env, {"base": {}, "t4": {"CAP_EXP_DECODE_THREADS": "4", "X": "a=b"}})
+        env = capbench.parse_variant_env(["base", "t4"], ["t4:FRAMEEVER_EXP_DECODE_THREADS=4", "t4:X=a=b"])
+        self.assertEqual(env, {"base": {}, "t4": {"FRAMEEVER_EXP_DECODE_THREADS": "4", "X": "a=b"}})
         with self.assertRaises(SystemExit):
             capbench.parse_variant_env(["base"], ["other:K=V"])
 

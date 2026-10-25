@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const CAP_DIR_NAME: &str = ".frameever";
+const FRAMEEVER_DIR_NAME: &str = ".frameever";
 const BIN_DIR_NAME: &str = "bin";
 const CLI_BINARY_STEM: &str = "frameever-cli";
 
@@ -50,7 +50,7 @@ fn home_dir() -> Result<PathBuf, String> {
 
 fn install_dir() -> Result<PathBuf, String> {
     let home = home_dir()?;
-    let cap_bin = home.join(CAP_DIR_NAME).join(BIN_DIR_NAME);
+    let frameever_bin = home.join(FRAMEEVER_DIR_NAME).join(BIN_DIR_NAME);
     let local_bin = home.join(".local/bin");
 
     // Prefer whichever candidate already holds a Cap-managed shim, so `status` and `install` agree
@@ -59,7 +59,7 @@ fn install_dir() -> Result<PathBuf, String> {
     // Also match a shim pointing at a different/older Cap install so `install` repoints it in place
     // rather than leaving it stranded and creating a second shim elsewhere.
     if let Ok(target) = target_path() {
-        for candidate in [&cap_bin, &local_bin] {
+        for candidate in [&frameever_bin, &local_bin] {
             let shim = candidate.join(SHIM_NAME);
             if shim_points_to(&shim, &target).unwrap_or(false) || shim_is_cap_managed(&shim) {
                 return Ok(candidate.clone());
@@ -67,15 +67,15 @@ fn install_dir() -> Result<PathBuf, String> {
         }
     }
 
-    if path_is_present(&cap_bin.join(SHIM_NAME)) || cfg!(windows) {
-        return Ok(cap_bin);
+    if path_is_present(&frameever_bin.join(SHIM_NAME)) || cfg!(windows) {
+        return Ok(frameever_bin);
     }
 
     if path_contains_install_dir(&local_bin) {
         return Ok(local_bin);
     }
 
-    Ok(cap_bin)
+    Ok(frameever_bin)
 }
 
 fn shim_path() -> Result<PathBuf, String> {
@@ -488,7 +488,7 @@ pub fn install() -> Result<CliInstallStatus, String> {
 }
 
 fn path_edit_disabled() -> bool {
-    env::var_os("FRAMEEVER_NO_MODIFY_PATH").is_some() || env::var_os("CAP_NO_MODIFY_PATH").is_some()
+    env::var_os("FRAMEEVER_NO_MODIFY_PATH").is_some()
 }
 
 /// Persist `install_dir` to the user's PATH (shell profile on unix, User registry on Windows) so a

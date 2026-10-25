@@ -9,7 +9,7 @@
 //!
 //! On developer machines without a usable render endpoint the test skips
 //! loudly. CI installs a virtual audio device (Scream) and sets
-//! `CAP_REQUIRE_AUDIO_ENDPOINT=1`, which turns both the missing-endpoint
+//! `FRAMEEVER_REQUIRE_AUDIO_ENDPOINT=1`, which turns both the missing-endpoint
 //! skip and the content assertions into hard failures — silence on CI is
 //! digital, so any nonzero sample there is a real defect.
 #![cfg(windows)]
@@ -110,7 +110,7 @@ fn play_tone() -> Option<cpal::Stream> {
 
 #[test]
 fn loopback_delivers_through_silence_and_captures_tone() {
-    let require_endpoint = std::env::var("CAP_REQUIRE_AUDIO_ENDPOINT").is_ok();
+    let require_endpoint = std::env::var("FRAMEEVER_REQUIRE_AUDIO_ENDPOINT").is_ok();
 
     let reference = Timestamps::now();
     let events: Arc<Mutex<Vec<PacketEvent>>> = Arc::new(Mutex::new(Vec::new()));
@@ -138,7 +138,7 @@ fn loopback_delivers_through_silence_and_captures_tone() {
         Err(e) => {
             assert!(
                 !require_endpoint,
-                "CAP_REQUIRE_AUDIO_ENDPOINT is set but the loopback capturer \
+                "FRAMEEVER_REQUIRE_AUDIO_ENDPOINT is set but the loopback capturer \
                  could not be created: {e}. On CI this means the virtual audio \
                  driver did not install correctly."
             );
@@ -208,7 +208,7 @@ fn loopback_delivers_through_silence_and_captures_tone() {
     let Some(tone) = play_tone() else {
         assert!(
             !require_endpoint,
-            "CAP_REQUIRE_AUDIO_ENDPOINT is set but no tone could be played \
+            "FRAMEEVER_REQUIRE_AUDIO_ENDPOINT is set but no tone could be played \
              on the default render device"
         );
         eprintln!("skipping tone phase: could not open an output stream");

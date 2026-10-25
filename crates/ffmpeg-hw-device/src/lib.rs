@@ -47,7 +47,7 @@ pub struct HwDevice {
 
 fn linux_gpu_frames() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var("CAP_LINUX_GPU_FRAMES").as_deref() == Ok("1"))
+    *ENABLED.get_or_init(|| std::env::var("FRAMEEVER_LINUX_GPU_FRAMES").as_deref() == Ok("1"))
 }
 
 impl HwDevice {

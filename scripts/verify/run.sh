@@ -5,7 +5,7 @@
 #
 #   --suites a,b           only these suites (scripts/verify/suites.json);
 #                          default: every suite of the tier on this platform
-#   --case GLOB            only cases matching GLOB (CAP_VERIFY_CASE)
+#   --case GLOB            only cases matching GLOB (FRAMEEVER_VERIFY_CASE)
 #   --list                 print the plan and exit
 #   --check-rerun-selection  check that a test name read back from Python
 #                          (as the retry and flaky reruns do) selects exactly
@@ -17,12 +17,12 @@
 #
 # Uses cargo-nextest when installed (one process per test, parallel), else
 # runs `cargo test` per suite. Results: one JSON line per case in
-# $CAP_VERIFY_REPORT_DIR (default target/verify-report/<platform>-<tier>),
+# $FRAMEEVER_VERIFY_REPORT_DIR (default target/verify-report/<platform>-<tier>),
 # summarised at the end by scripts/verify/summary.py.
 #
-# Environment: CAP_VERIFY_CARGO_PROFILE (default dev; CI uses ci-verify),
-# CAP_VERIFY_NEXTEST_PROFILE (default default; CI uses ci),
-# CAP_VERIFY_FIXTURE_DIR (generated fixtures cache).
+# Environment: FRAMEEVER_VERIFY_CARGO_PROFILE (default dev; CI uses ci-verify),
+# FRAMEEVER_VERIFY_NEXTEST_PROFILE (default default; CI uses ci),
+# FRAMEEVER_VERIFY_FIXTURE_DIR (generated fixtures cache).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -39,7 +39,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     fast|full) tier="$1" ;;
     --suites) suites="$2"; shift ;;
-    --case) export CAP_VERIFY_CASE="$2"; shift ;;
+    --case) export FRAMEEVER_VERIFY_CASE="$2"; shift ;;
     --list) mode=list ;;
     --check-rerun-selection) mode=check-selection ;;
     --no-run) mode=build ;;
@@ -71,7 +71,7 @@ filter="$(sed -n 3p <<<"$plan")"
 skip="$(sed -n 4p <<<"$plan")"
 eval "$("$py" scripts/verify/plan.py env --tier "$tier" --platform "$platform" ${suites:+--suites "$suites"} $local_flag)"
 if [[ -n "$skip" ]]; then
-  export CAP_VERIFY_SKIP="${CAP_VERIFY_SKIP:+$CAP_VERIFY_SKIP,}$skip"
+  export FRAMEEVER_VERIFY_SKIP="${FRAMEEVER_VERIFY_SKIP:+$FRAMEEVER_VERIFY_SKIP,}$skip"
 fi
 
 if [[ -z "$suite_names" ]]; then
@@ -79,28 +79,28 @@ if [[ -z "$suite_names" ]]; then
   exit 0
 fi
 
-# CAP_VERIFY_CARGO_CONFIG: extra `--config KEY=VALUE` overrides, `;` separated
-# (profile experiments). CAP_VERIFY_LOCKED=1 adds --locked.
-if [[ -n "${CAP_VERIFY_CARGO_CONFIG:-}" ]]; then
-  IFS=';' read -r -a overrides <<<"$CAP_VERIFY_CARGO_CONFIG"
+# FRAMEEVER_VERIFY_CARGO_CONFIG: extra `--config KEY=VALUE` overrides, `;` separated
+# (profile experiments). FRAMEEVER_VERIFY_LOCKED=1 adds --locked.
+if [[ -n "${FRAMEEVER_VERIFY_CARGO_CONFIG:-}" ]]; then
+  IFS=';' read -r -a overrides <<<"$FRAMEEVER_VERIFY_CARGO_CONFIG"
   for override in "${overrides[@]}"; do
     [[ -n "$override" ]] && cargo_args+=(--config "$override")
   done
 fi
-if [[ "${CAP_VERIFY_LOCKED:-}" == 1 ]]; then
+if [[ "${FRAMEEVER_VERIFY_LOCKED:-}" == 1 ]]; then
   cargo_args+=(--locked)
 fi
 
-profile="${CAP_VERIFY_CARGO_PROFILE:-dev}"
-nextest_profile="${CAP_VERIFY_NEXTEST_PROFILE:-default}"
-export CAP_VERIFY_TIER="$tier"
-export CAP_VERIFY_REPORT_DIR="${CAP_VERIFY_REPORT_DIR:-$root/target/verify-report/$platform-$tier}"
+profile="${FRAMEEVER_VERIFY_CARGO_PROFILE:-dev}"
+nextest_profile="${FRAMEEVER_VERIFY_NEXTEST_PROFILE:-default}"
+export FRAMEEVER_VERIFY_TIER="$tier"
+export FRAMEEVER_VERIFY_REPORT_DIR="${FRAMEEVER_VERIFY_REPORT_DIR:-$root/target/verify-report/$platform-$tier}"
 
-echo "engine verify: $tier tier on $platform: $suite_names${CAP_VERIFY_SHARD:+ (case shard $CAP_VERIFY_SHARD)}"
+echo "engine verify: $tier tier on $platform: $suite_names${FRAMEEVER_VERIFY_SHARD:+ (case shard $FRAMEEVER_VERIFY_SHARD)}"
 if [[ "$mode" == list ]]; then
   echo "cargo: ${cargo_args[*]}"
   echo "filter: $filter"
-  echo "skip: ${CAP_VERIFY_SKIP:-}"
+  echo "skip: ${FRAMEEVER_VERIFY_SKIP:-}"
   exit 0
 fi
 
@@ -108,7 +108,7 @@ fi
 # the same profile so it sits beside the test binaries
 # (target/<profile>/frameever-muxer).
 if [[ ( " ${suite_names//,/ } " == *" crash "* || " ${suite_names//,/ } " == *" chaos "* ) && "$mode" != archive ]]; then
-  cargo build --profile "$profile" -p frameever-muxer ${CAP_VERIFY_LOCKED:+--locked}
+  cargo build --profile "$profile" -p frameever-muxer ${FRAMEEVER_VERIFY_LOCKED:+--locked}
 fi
 
 have_nextest=0
@@ -152,9 +152,9 @@ case "$mode" in
 esac
 
 if [[ -z "${CI:-}" ]]; then
-  rm -rf "$CAP_VERIFY_REPORT_DIR"
+  rm -rf "$FRAMEEVER_VERIFY_REPORT_DIR"
 fi
-mkdir -p "$CAP_VERIFY_REPORT_DIR"
+mkdir -p "$FRAMEEVER_VERIFY_REPORT_DIR"
 
 status=0
 started=$SECONDS
@@ -180,16 +180,16 @@ if [[ $have_nextest == 1 ]]; then
   "${run[@]}" ${shard[@]+"${shard[@]}"} -E "$filter" ${extra[@]+"${extra[@]}"} || status=$?
   junit="${CARGO_TARGET_DIR:-$root/target}/nextest/$nextest_profile/junit.xml"
   # Always kept: the gate checks that every planned test ran (floor.py).
-  if [[ -f "$junit" ]]; then cp "$junit" "$CAP_VERIFY_REPORT_DIR/junit.xml"; fi
+  if [[ -f "$junit" ]]; then cp "$junit" "$FRAMEEVER_VERIFY_REPORT_DIR/junit.xml"; fi
   # Starvation retry: a test whose only failures are wall-clock classes
   # under a proven machine stall (inconclusive cases, or a timeout with the
-  # sentinel's evidence) runs once more with CAP_VERIFY_RETRY=1. The run
+  # sentinel's evidence) runs once more with FRAMEEVER_VERIFY_RETRY=1. The run
   # passes only if every failed test was retryable and every retry passed;
   # a case inconclusive again fails as `environment`. See retry.py.
-  if [[ $status != 0 && -f "$CAP_VERIFY_REPORT_DIR/junit.xml" ]]; then
+  if [[ $status != 0 && -f "$FRAMEEVER_VERIFY_REPORT_DIR/junit.xml" ]]; then
     # Python on Windows ends lines with CRLF: strip the CR, or the last
     # field (and the test name in a filter) carries it.
-    retry_plan="$("$py" scripts/verify/retry.py "$CAP_VERIFY_REPORT_DIR/junit.xml" "$CAP_VERIFY_REPORT_DIR" | tr -d '\r')"
+    retry_plan="$("$py" scripts/verify/retry.py "$FRAMEEVER_VERIFY_REPORT_DIR/junit.xml" "$FRAMEEVER_VERIFY_REPORT_DIR" | tr -d '\r')"
     blocking="$(sed -n 's/^blocking\t//p' <<<"$retry_plan")"
     retried=0
     retry_failed=0
@@ -198,11 +198,11 @@ if [[ $have_nextest == 1 ]]; then
       retried=$((retried + 1))
       echo "retrying $binary $name once: $evidence"
       echo "::warning title=Retried after a machine stall::$binary $name: $evidence"
-      echo "$binary $name: $evidence" >>"$CAP_VERIFY_REPORT_DIR/retried.txt"
-      if ! CAP_VERIFY_RETRY=1 CAP_VERIFY_REPORT_DIR="$CAP_VERIFY_REPORT_DIR/retry" \
+      echo "$binary $name: $evidence" >>"$FRAMEEVER_VERIFY_REPORT_DIR/retried.txt"
+      if ! FRAMEEVER_VERIFY_RETRY=1 FRAMEEVER_VERIFY_REPORT_DIR="$FRAMEEVER_VERIFY_REPORT_DIR/retry" \
         "${run[@]}" -E "binary_id($binary) and test(=$name)"; then
         retry_failed=$((retry_failed + 1))
-        echo "$binary $name: failed again on retry" >>"$CAP_VERIFY_REPORT_DIR/retried.txt"
+        echo "$binary $name: failed again on retry" >>"$FRAMEEVER_VERIFY_REPORT_DIR/retried.txt"
       fi
     done <<<"$retry_plan"
     if [[ $retried -gt 0 && "${blocking:-1}" == 0 && $retry_failed == 0 ]]; then
@@ -212,15 +212,15 @@ if [[ $have_nextest == 1 ]]; then
   fi
   # No other retries: any other failed test is rerun once only to label it
   # flaky in the summary. The run still fails.
-  if [[ $status != 0 && -n "${CAP_VERIFY_FLAKY_FILE:-}" && -f "$CAP_VERIFY_REPORT_DIR/junit.xml" ]]; then
-    : >"$CAP_VERIFY_FLAKY_FILE"
+  if [[ $status != 0 && -n "${FRAMEEVER_VERIFY_FLAKY_FILE:-}" && -f "$FRAMEEVER_VERIFY_REPORT_DIR/junit.xml" ]]; then
+    : >"$FRAMEEVER_VERIFY_FLAKY_FILE"
     while IFS=$'\t' read -r binary name; do
       [[ -z "$binary" ]] && continue
       echo "rerunning $binary $name once to check for flakiness"
       rerun=0
-      CAP_VERIFY_REPORT_DIR="$CAP_VERIFY_REPORT_DIR.rerun" "${run[@]}" -E "binary_id($binary) and test(=$name)" || rerun=$?
+      FRAMEEVER_VERIFY_REPORT_DIR="$FRAMEEVER_VERIFY_REPORT_DIR.rerun" "${run[@]}" -E "binary_id($binary) and test(=$name)" || rerun=$?
       if [[ $rerun == 0 ]]; then
-        echo "$binary $name" >>"$CAP_VERIFY_FLAKY_FILE"
+        echo "$binary $name" >>"$FRAMEEVER_VERIFY_FLAKY_FILE"
       elif [[ $rerun == 4 ]]; then
         # nextest's NO_TESTS_RUN: the filter is wrong, not the test.
         echo "::error title=Flaky rerun selected no test::$binary $name"
@@ -229,7 +229,7 @@ if [[ $have_nextest == 1 ]]; then
     done < <("$py" -c 'import sys, xml.etree.ElementTree as ET
 for c in ET.parse(sys.argv[1]).getroot().iter("testcase"):
     if c.find("failure") is not None or c.find("error") is not None:
-        print(c.get("classname"), c.get("name"), sep="\t")' "$CAP_VERIFY_REPORT_DIR/junit.xml" | tr -d '\r' | head -n 5)
+        print(c.get("classname"), c.get("name"), sep="\t")' "$FRAMEEVER_VERIFY_REPORT_DIR/junit.xml" | tr -d '\r' | head -n 5)
   fi
 else
   if [[ $prepare_fixtures == 1 ]]; then
@@ -252,7 +252,7 @@ fi
 
 echo
 "$py" scripts/verify/summary.py --title "$platform $tier" --text \
-  --junit "$CAP_VERIFY_REPORT_DIR/junit.xml" ${CAP_VERIFY_FLAKY_FILE:+--flaky "$CAP_VERIFY_FLAKY_FILE"} \
-  "$CAP_VERIFY_REPORT_DIR" || true
+  --junit "$FRAMEEVER_VERIFY_REPORT_DIR/junit.xml" ${FRAMEEVER_VERIFY_FLAKY_FILE:+--flaky "$FRAMEEVER_VERIFY_FLAKY_FILE"} \
+  "$FRAMEEVER_VERIFY_REPORT_DIR" || true
 echo "engine verify: $tier tier on $platform finished in $((SECONDS - started)) s (exit $status)"
 exit $status

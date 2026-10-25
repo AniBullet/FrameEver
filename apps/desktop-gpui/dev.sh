@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Save-to-relaunch dev loop: rebuilds on change and swaps the running app only
 # when the build succeeds, so the old UI stays up through compile errors. The
-# app persists its window state through CAP_GPUI_DEV_RESTORE and reopens where
+# app persists its window state through FRAMEEVER_GPUI_DEV_RESTORE and reopens where
 # it was, and the swap waits out an in-flight recording (see dev_restore.rs).
 set -uo pipefail
 cd "$(dirname "$0")" || exit 1
@@ -59,7 +59,7 @@ stop_app() {
 }
 
 start_app() {
-	CAP_GPUI_DEV_RESTORE="$STATE_FILE" RUST_LOG="${RUST_LOG:-frameever_gpui=info}" "$BIN" &
+	FRAMEEVER_GPUI_DEV_RESTORE="$STATE_FILE" RUST_LOG="${RUST_LOG:-frameever_gpui=info}" "$BIN" &
 	APP_PID=$!
 	echo "[dev] app running (pid $APP_PID)"
 }

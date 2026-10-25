@@ -325,7 +325,7 @@ fn resolve_recording_path(explicit: Option<PathBuf>) -> Result<PathBuf> {
         return Ok(path);
     }
 
-    if let Some(path) = std::env::var_os("CAP_TEST_RECORDING_PATH") {
+    if let Some(path) = std::env::var_os("FRAMEEVER_TEST_RECORDING_PATH") {
         return Ok(PathBuf::from(path));
     }
 
@@ -341,7 +341,7 @@ fn resolve_recording_path(explicit: Option<PathBuf>) -> Result<PathBuf> {
     }
 
     anyhow::bail!(
-        "Performance suite requires a recording fixture. Pass --recording-path, set CAP_TEST_RECORDING_PATH, or place the fixture at performance-fixtures/reference-recording.cap"
+        "Performance suite requires a recording fixture. Pass --recording-path, set FRAMEEVER_TEST_RECORDING_PATH, or place the fixture at performance-fixtures/reference-recording.cap"
     )
 }
 

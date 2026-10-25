@@ -96,11 +96,11 @@ fn media_sort_time_millis(path: &Path) -> f64 {
 /// folders -- so switching the storage folder never hides existing recordings.
 /// Deduplicated by canonical path; directories that do not exist are skipped.
 ///
-/// `CAP_GPUI_RECORDINGS_DIR` collapses the whole list to that one directory.
+/// `FRAMEEVER_GPUI_RECORDINGS_DIR` collapses the whole list to that one directory.
 /// The override exists so a verification run stays out of the user's library,
 /// and a scan that still walked the real one would defeat it.
 pub fn known_recordings_dirs() -> Vec<PathBuf> {
-    if let Ok(dir) = std::env::var("CAP_GPUI_RECORDINGS_DIR")
+    if let Ok(dir) = std::env::var("FRAMEEVER_GPUI_RECORDINGS_DIR")
         && !dir.trim().is_empty()
     {
         return dedupe_existing_dirs(vec![PathBuf::from(dir)]);
@@ -897,9 +897,9 @@ fn drain_decode_jobs<J, R>(
 /// backups and migration skip it), not the `so.cap.desktop` app-data dir both
 /// apps share.
 fn thumbnail_cache_dir() -> PathBuf {
-    // Verification runs point CAP_GPUI_APP_DATA_DIR at a sandbox; a cache that
+    // Verification runs point FRAMEEVER_GPUI_APP_DATA_DIR at a sandbox; a cache that
     // still wrote to the user's real one would leak state across runs.
-    if std::env::var("CAP_GPUI_APP_DATA_DIR").is_ok_and(|dir| !dir.trim().is_empty()) {
+    if std::env::var("FRAMEEVER_GPUI_APP_DATA_DIR").is_ok_and(|dir| !dir.trim().is_empty()) {
         return crate::store::app_data_dir().join("thumbnail-cache");
     }
     dirs::cache_dir().map_or_else(
@@ -1489,7 +1489,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "manual filesystem benchmark; set CAP_GPUI_LIBRARY_BENCH_DIR and CAP_GPUI_LIBRARY_BENCH_MODE"]
+    #[ignore = "manual filesystem benchmark; set FRAMEEVER_GPUI_LIBRARY_BENCH_DIR and FRAMEEVER_GPUI_LIBRARY_BENCH_MODE"]
     fn recording_scan_benchmark() {
         fn eager_scan(dirs: &[PathBuf]) -> Vec<RecordingItem> {
             let mut out = Vec::new();
@@ -1514,15 +1514,15 @@ mod tests {
         }
 
         let dirs = [PathBuf::from(
-            std::env::var("CAP_GPUI_LIBRARY_BENCH_DIR")
+            std::env::var("FRAMEEVER_GPUI_LIBRARY_BENCH_DIR")
                 .expect("Set the benchmark library directory"),
         )];
-        let eager = match std::env::var("CAP_GPUI_LIBRARY_BENCH_MODE").as_deref() {
+        let eager = match std::env::var("FRAMEEVER_GPUI_LIBRARY_BENCH_MODE").as_deref() {
             Ok("eager") => true,
             Ok("bounded") => false,
-            _ => panic!("CAP_GPUI_LIBRARY_BENCH_MODE must be eager or bounded"),
+            _ => panic!("FRAMEEVER_GPUI_LIBRARY_BENCH_MODE must be eager or bounded"),
         };
-        let limit = std::env::var("CAP_GPUI_LIBRARY_BENCH_LIMIT")
+        let limit = std::env::var("FRAMEEVER_GPUI_LIBRARY_BENCH_LIMIT")
             .unwrap_or_else(|_| RECENT_MEDIA_LIMIT.to_string())
             .parse::<usize>()
             .expect("The benchmark limit must be an integer");
@@ -1977,7 +1977,7 @@ mod tests {
 
     #[test]
     fn recovery_restores_interrupted_real_recording_when_fixture_is_provided() {
-        let Ok(source) = std::env::var("CAP_GPUI_RECOVERY_FIXTURE") else {
+        let Ok(source) = std::env::var("FRAMEEVER_GPUI_RECOVERY_FIXTURE") else {
             return;
         };
         let _ = ffmpeg::init();

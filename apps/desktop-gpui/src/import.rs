@@ -2241,14 +2241,14 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// `CAP_IMPORT_BENCH_SOURCES=a.mp4,b.mp4 cargo test --bin frameever-gpui benchmark_video_import -- --ignored --nocapture`
+    /// `FRAMEEVER_IMPORT_BENCH_SOURCES=a.mp4,b.mp4 cargo test --bin frameever-gpui benchmark_video_import -- --ignored --nocapture`
     #[test]
-    #[ignore = "benchmark: transcodes the videos named by CAP_IMPORT_BENCH_SOURCES"]
+    #[ignore = "benchmark: transcodes the videos named by FRAMEEVER_IMPORT_BENCH_SOURCES"]
     fn benchmark_video_import() {
         ffmpeg::init().unwrap();
-        let sources = std::env::var("CAP_IMPORT_BENCH_SOURCES")
-            .expect("CAP_IMPORT_BENCH_SOURCES must list the videos to import");
-        let runs = std::env::var("CAP_IMPORT_BENCH_RUNS")
+        let sources = std::env::var("FRAMEEVER_IMPORT_BENCH_SOURCES")
+            .expect("FRAMEEVER_IMPORT_BENCH_SOURCES must list the videos to import");
+        let runs = std::env::var("FRAMEEVER_IMPORT_BENCH_RUNS")
             .ok()
             .and_then(|runs| runs.parse::<usize>().ok())
             .unwrap_or(3)

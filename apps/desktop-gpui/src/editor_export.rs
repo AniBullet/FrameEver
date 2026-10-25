@@ -707,7 +707,7 @@ impl EditorWindow {
                     "mp4"
                 };
                 let default = format!("{pretty_name}.{ext}");
-                let chosen: Result<Option<PathBuf>, String> = match std::env::var_os("CAP_GPUI_AUTO_EXPORT") {
+                let chosen: Result<Option<PathBuf>, String> = match std::env::var_os("FRAMEEVER_GPUI_AUTO_EXPORT") {
                     Some(path) => Ok(Some(PathBuf::from(path))),
                     None => {
                         #[cfg(target_os = "macos")]

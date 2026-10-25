@@ -4,7 +4,7 @@ use std::{
 };
 
 fn git_executable() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("CAP_BUILD_GIT") {
+    if let Some(path) = std::env::var_os("FRAMEEVER_BUILD_GIT") {
         let path = PathBuf::from(path);
         return (path.is_absolute() && path.is_file()).then_some(path);
     }
@@ -19,7 +19,7 @@ fn git_executable() -> Option<PathBuf> {
 }
 
 pub fn emit() {
-    println!("cargo:rerun-if-env-changed=CAP_BUILD_GIT");
+    println!("cargo:rerun-if-env-changed=FRAMEEVER_BUILD_GIT");
     println!("cargo:rerun-if-changed=src");
     let Some(executable) = git_executable() else {
         return;
@@ -42,13 +42,13 @@ pub fn emit() {
         if (revision.len() == 40 || revision.len() == 64)
             && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
         {
-            println!("cargo:rustc-env=CAP_BUILD_REVISION={revision}");
+            println!("cargo:rustc-env=FRAMEEVER_BUILD_REVISION={revision}");
         }
     }
     if let Some(output) = git(&["diff-index", "--quiet", "HEAD", "--"]) {
         match output.status.code() {
-            Some(0) => println!("cargo:rustc-env=CAP_BUILD_DIRTY=false"),
-            Some(1) => println!("cargo:rustc-env=CAP_BUILD_DIRTY=true"),
+            Some(0) => println!("cargo:rustc-env=FRAMEEVER_BUILD_DIRTY=false"),
+            Some(1) => println!("cargo:rustc-env=FRAMEEVER_BUILD_DIRTY=true"),
             _ => {}
         }
     }

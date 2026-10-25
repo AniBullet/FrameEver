@@ -281,13 +281,13 @@ fn register_from_store(cx: &mut App) {
     tracing::info!(count = hotkeys.bindings.len(), "global hotkeys registered");
 }
 
-/// `CAP_GPUI_AUTO_HOTKEY=<store key>`: run an action's dispatch arm without
+/// `FRAMEEVER_GPUI_AUTO_HOTKEY=<store key>`: run an action's dispatch arm without
 /// the OS keypress (unprivileged synthetic key events are dropped, the same
-/// reason every other `CAP_GPUI_AUTO_*` hook exists).
+/// reason every other `FRAMEEVER_GPUI_AUTO_*` hook exists).
 pub fn dispatch_for_harness(key: &str, cx: &mut App) {
     match HotkeyAction::from_store_key(key) {
         Some(action) => dispatch(action, cx),
-        None => tracing::error!(key, "CAP_GPUI_AUTO_HOTKEY: unknown action"),
+        None => tracing::error!(key, "FRAMEEVER_GPUI_AUTO_HOTKEY: unknown action"),
     }
 }
 

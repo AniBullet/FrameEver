@@ -30,7 +30,7 @@ use tracing::*;
 const DEFAULT_MUXER_BUFFER_SIZE: usize = 240;
 
 fn get_muxer_buffer_size() -> usize {
-    std::env::var("CAP_MUXER_BUFFER_SIZE")
+    std::env::var("FRAMEEVER_MUXER_BUFFER_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_MUXER_BUFFER_SIZE)

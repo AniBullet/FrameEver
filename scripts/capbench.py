@@ -321,7 +321,7 @@ def export_bench(fps, resolution, quality, extra=()):
         "post": post,
         "requires": lambda ctx: on_path("ffprobe"),
         "timeout": 900,
-        "env": {"CAP_DISABLE_ENCODER_SELF_TEST": None},
+        "env": {"FRAMEEVER_DISABLE_ENCODER_SELF_TEST": None},
         "better": {
             "wall_s": "lower", "cpu_s": "lower", "peak_commit_mb": "lower",
             "export_fps": "higher", "steady_fps": "higher", "first_frame_s": "lower",

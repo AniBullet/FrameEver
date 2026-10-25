@@ -20,14 +20,14 @@ use std::{
 
 use frameever_verify::report::{self, Case, Tier};
 
-pub const CHILD_ENV: &str = "CAP_VERIFY_CHAOS_CHILD";
-const LOG_ENV: &str = "CAP_VERIFY_CHAOS_LOG";
-const SCRATCH_ENV: &str = "CAP_VERIFY_CHAOS_SCRATCH";
-const SEEDS_ENV: &str = "CAP_VERIFY_CHAOS_SEEDS";
+pub const CHILD_ENV: &str = "FRAMEEVER_VERIFY_CHAOS_CHILD";
+const LOG_ENV: &str = "FRAMEEVER_VERIFY_CHAOS_LOG";
+const SCRATCH_ENV: &str = "FRAMEEVER_VERIFY_CHAOS_SCRATCH";
+const SEEDS_ENV: &str = "FRAMEEVER_VERIFY_CHAOS_SEEDS";
 /// Restricts a fuzz case to one seed (the repro of a seeded failure).
-pub const SEED_ENV: &str = "CAP_VERIFY_CHAOS_SEED";
+pub const SEED_ENV: &str = "FRAMEEVER_VERIFY_CHAOS_SEED";
 /// Comma-separated mutation indices a fuzz seed applies (shrinking).
-pub const KEEP_ENV: &str = "CAP_VERIFY_CHAOS_KEEP";
+pub const KEEP_ENV: &str = "FRAMEEVER_VERIFY_CHAOS_KEEP";
 
 /// What an engine did with a hostile input.
 pub enum Verdict {
@@ -170,7 +170,7 @@ fn install_panic_hook() {
     }));
 }
 
-/// The child side: runs only when `CAP_VERIFY_CHAOS_CHILD` names a probe.
+/// The child side: runs only when `FRAMEEVER_VERIFY_CHAOS_CHILD` names a probe.
 pub fn child_main(all: fn() -> Vec<Probe>) {
     let Ok(id) = std::env::var(CHILD_ENV) else {
         return;
@@ -329,7 +329,7 @@ fn signal_name(signal: i32) -> String {
 }
 
 pub fn scratch_root() -> PathBuf {
-    std::env::var_os("CAP_VERIFY_SCRATCH")
+    std::env::var_os("FRAMEEVER_VERIFY_SCRATCH")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
         .join("cap-verify-chaos")
@@ -667,7 +667,7 @@ pub fn run_group(all: fn() -> Vec<Probe>, prefix: &str) {
         .filter(|p| p.id.starts_with(prefix) && report::selected(&p.id))
         .filter(|p| !(p.full_only && tier == Tier::Fast))
         .collect();
-    let jobs = std::env::var("CAP_VERIFY_CHAOS_JOBS")
+    let jobs = std::env::var("FRAMEEVER_VERIFY_CHAOS_JOBS")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or_else(|| {
@@ -708,5 +708,5 @@ pub fn run_group(all: fn() -> Vec<Probe>, prefix: &str) {
 }
 
 fn keep_scratch() -> bool {
-    std::env::var_os("CAP_VERIFY_CHAOS_KEEP_SCRATCH").is_some()
+    std::env::var_os("FRAMEEVER_VERIFY_CHAOS_KEEP_SCRATCH").is_some()
 }

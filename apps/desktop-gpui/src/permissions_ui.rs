@@ -7,7 +7,7 @@
 //!    returns true whenever a required permission has been revoked, and the
 //!    onboarding window opens straight on the permissions step (the Tauri
 //!    app's `permissionsOnly` flow).
-//! 3. `CAP_GPUI_AUTO_PERMISSIONS=1` -- the screenshot harness, below.
+//! 3. `FRAMEEVER_GPUI_AUTO_PERMISSIONS=1` -- the screenshot harness, below.
 //!
 //! Everything stateful about a row lives here so it can be unit-tested
 //! without a window: status classification (via [`permissions::classify`]),
@@ -188,12 +188,12 @@ pub fn sweep_raw_preflight() -> Option<RawPermissions> {
 }
 
 fn fake_spec() -> Option<String> {
-    std::env::var("CAP_GPUI_FAKE_PERMISSIONS")
+    std::env::var("FRAMEEVER_GPUI_FAKE_PERMISSIONS")
         .ok()
         .filter(|spec| !spec.is_empty())
 }
 
-/// `CAP_GPUI_FAKE_PERMISSIONS=screen=nd,ax=granted,mic=denied,cam=restricted[,hint]`:
+/// `FRAMEEVER_GPUI_FAKE_PERMISSIONS=screen=nd,ax=granted,mic=denied,cam=restricted[,hint]`:
 /// the screenshot harness's way to photograph non-granted states on a machine
 /// whose TCC grants are all in place, without ever resetting TCC or raising a
 /// real prompt. `denied` on screen/ax renders as an attempted-and-failed
@@ -231,13 +231,13 @@ fn parse_fake(spec: &str) -> Option<RawPermissions> {
 
 static FORCE_SURFACE: AtomicBool = AtomicBool::new(false);
 
-/// `CAP_GPUI_AUTO_PERMISSIONS=1`: open the permissions surface regardless of
+/// `FRAMEEVER_GPUI_AUTO_PERMISSIONS=1`: open the permissions surface regardless of
 /// store flags or current grants -- unprivileged synthetic clicks are
 /// dropped, so the screenshot harness needs a way in, the same reason every
-/// other `CAP_GPUI_AUTO_*` hook exists. Checking is preflight-only, so this
+/// other `FRAMEEVER_GPUI_AUTO_*` hook exists. Checking is preflight-only, so this
 /// never triggers a TCC prompt by itself.
 pub fn auto_open_from_env(cx: &mut gpui::App) {
-    if std::env::var("CAP_GPUI_AUTO_PERMISSIONS").is_ok_and(|value| value == "1") {
+    if std::env::var("FRAMEEVER_GPUI_AUTO_PERMISSIONS").is_ok_and(|value| value == "1") {
         FORCE_SURFACE.store(true, Ordering::Release);
         crate::app_windows::open_onboarding(cx);
     }

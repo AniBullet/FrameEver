@@ -63,7 +63,7 @@ const SECONDS: f64 = 8.0;
 /// container round to at most 1/90000 s; half a millisecond is far below the
 /// 33 ms frame period and above any rounding.
 const PTS_TOLERANCE: f64 = 0.0005;
-const CHILD_ENV: &str = "CAP_VERIFY_CRASH_CHILD";
+const CHILD_ENV: &str = "FRAMEEVER_VERIFY_CRASH_CHILD";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Arm {
@@ -468,7 +468,7 @@ fn secs_complete(line: &str) -> bool {
         .is_some_and(|d| d.len() == 6)
 }
 
-/// Runs only as a child of `crash_safety` (`CAP_VERIFY_CRASH_CHILD` set):
+/// Runs only as a child of `crash_safety` (`FRAMEEVER_VERIFY_CRASH_CHILD` set):
 /// records into the given directory until it is killed or finishes.
 #[test]
 fn crash_child_recorder() {
@@ -1083,7 +1083,7 @@ fn check_recovery(
 }
 
 fn scratch_root() -> PathBuf {
-    std::env::var_os("CAP_VERIFY_SCRATCH")
+    std::env::var_os("FRAMEEVER_VERIFY_SCRATCH")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
         .join("cap-verify-crash")
@@ -1279,7 +1279,7 @@ fn recorder_kill(
         Err(e) => return Err(e),
     };
     check_recovery(case, &recovered, &physical, &handed, &pending);
-    if std::env::var_os("CAP_VERIFY_KEEP").is_none() {
+    if std::env::var_os("FRAMEEVER_VERIFY_KEEP").is_none() {
         let _ = std::fs::remove_dir_all(&scratch);
     }
     Ok(())
@@ -1512,7 +1512,7 @@ fn crash_safety() {
         return;
     }
     common::init();
-    if cfg!(target_os = "macos") && std::env::var_os("CAP_MUXER_BIN").is_none() {
+    if cfg!(target_os = "macos") && std::env::var_os("FRAMEEVER_MUXER_BIN").is_none() {
         // Built next to the test binary by `cargo build -p frameever-muxer`.
         if let Some(bin) = std::env::current_exe()
             .ok()
@@ -1564,7 +1564,7 @@ fn crash_safety() {
         settle(case);
     }
 
-    let seed: u64 = std::env::var("CAP_VERIFY_CRASH_SEED")
+    let seed: u64 = std::env::var("FRAMEEVER_VERIFY_CRASH_SEED")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(20261016);

@@ -1,4 +1,4 @@
-//! `CAP_GPUI_AUTO_CAMERA_BENCH=1`: the camera bubble's per-frame draw cost,
+//! `FRAMEEVER_GPUI_AUTO_CAMERA_BENCH=1`: the camera bubble's per-frame draw cost,
 //! measured on the production path. Opens the real camera window, pumps
 //! synthetic 420v camera frames through `deliver_camera_frame` at ~30fps, and
 //! times `Window::draw` for that window: view render + taffy layout + prepaint
@@ -9,7 +9,7 @@
 //! display too, where the display link never ticks.
 //!
 //! Run:
-//!   CAP_GPUI_AUTO_CAMERA_BENCH=1 CAP_GPUI_NO_MENUS=1 CAP_GPUI_NO_TRAY=1 \
+//!   FRAMEEVER_GPUI_AUTO_CAMERA_BENCH=1 FRAMEEVER_GPUI_NO_MENUS=1 FRAMEEVER_GPUI_NO_TRAY=1 \
 //!     cargo run --release
 
 use std::time::{Duration, Instant};

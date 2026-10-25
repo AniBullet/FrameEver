@@ -1,4 +1,4 @@
-//! `CAP_GPUI_SNAPSHOT=/path/out.png[,delay_ms]`: write the onboarding window
+//! `FRAMEEVER_GPUI_SNAPSHOT=/path/out.png[,delay_ms]`: write the onboarding window
 //! to a PNG after a delay, then quit. Debug builds only; the design loop uses
 //! it because a shell without Screen Recording cannot `screencapture`, while
 //! this binary already holds the grant.
@@ -10,7 +10,7 @@ use gpui::App;
 
 pub fn arm_from_env(cx: &mut App) {
     crate::permission_guide::preview_from_env(cx);
-    let Ok(spec) = std::env::var("CAP_GPUI_SNAPSHOT") else {
+    let Ok(spec) = std::env::var("FRAMEEVER_GPUI_SNAPSHOT") else {
         return;
     };
     let mut parts = spec.split(',');
@@ -32,7 +32,7 @@ pub fn arm_from_env(cx: &mut App) {
         let mut number = None;
         for _ in 0..20 {
             number = cx.update(|cx| {
-                let target = std::env::var("CAP_GPUI_SNAPSHOT_WINDOW").unwrap_or_default();
+                let target = std::env::var("FRAMEEVER_GPUI_SNAPSHOT_WINDOW").unwrap_or_default();
                 let handle = if target == "guide" {
                     crate::permission_guide::window_handle(cx)
                 } else if target == "main" {
