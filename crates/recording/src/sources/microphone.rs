@@ -76,8 +76,12 @@ fn reset_reconnect_after_frame(
 }
 
 pub struct Microphone {
+    #[cfg(windows)]
     capture_scope: crate::output_pipeline::PipelineBuildScope,
+    #[cfg(windows)]
     subscription: Arc<microphone::RecordingSubscription>,
+    #[cfg(target_os = "linux")]
+    required_health: Option<RequiredMicrophoneHealth>,
     info: AudioInfo,
     _lock: Arc<MicrophoneFeedLock>,
     cancel: CancellationToken,
@@ -90,6 +94,7 @@ pub struct Microphone {
 // the rest of the process.
 impl Drop for Microphone {
     fn drop(&mut self) {
+        #[cfg(windows)]
         if let Some(error) = self.subscription.retire() {
             self.capture_scope.fail_required(error);
         }
@@ -207,6 +212,44 @@ impl MicResampler {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+struct RequiredMicrophoneHealth {
+    source: microphone::RecordingSourceHealth,
+    scope: crate::output_pipeline::PipelineBuildScope,
+}
+
+#[cfg(target_os = "linux")]
+impl RequiredMicrophoneHealth {
+    fn check_terminal(&self) -> bool {
+        if let Some(error) = self.source.terminal_error() {
+            self.scope.fail_required(error);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn accepts_frame(&self, id: u32) -> bool {
+        let current = self.source.frame_is_current(id);
+        if !current {
+            self.check_terminal();
+        }
+        current
+    }
+
+    fn fail(&self, error: String) {
+        self.source.fail(error);
+        self.check_terminal();
+    }
+
+    fn stop(&self) {
+        if let Some(error) = self.source.stop_error() {
+            self.scope.fail_required(error);
+        }
+    }
+}
+
 impl AudioSource for Microphone {
     type Config = Arc<MicrophoneFeedLock>;
 
@@ -220,9 +263,13 @@ impl AudioSource for Microphone {
         Self: Sized,
     {
         let health_tx = ctx.health_tx().clone();
+        #[cfg(windows)]
         let capture_scope = crate::output_pipeline::PipelineBuildScope::new();
+        #[cfg(windows)]
         let source_cancel = ctx.stop_token().child_token();
+        #[cfg(windows)]
         let subscription = feed_lock.recording_subscription(source_cancel.clone());
+        #[cfg(windows)]
         {
             capture_scope.register_token(source_cancel.clone());
             let scope = capture_scope.clone();
@@ -234,7 +281,16 @@ impl AudioSource for Microphone {
                 finish_recording_subscription(&scope, &feed, subscription).await
             });
         }
+        #[cfg(target_os = "linux")]
+        let required_health = crate::output_pipeline::PipelineBuildScope::current()
+            .filter(crate::output_pipeline::PipelineBuildScope::requires_source_health)
+            .map(|scope| RequiredMicrophoneHealth {
+                source: feed_lock.source_health(),
+                scope,
+            });
+        #[cfg(windows)]
         let setup_scope = capture_scope.clone();
+        #[cfg(windows)]
         let setup_cancel = source_cancel.clone().drop_guard();
         let setup = async move {
             let source_info = feed_lock.audio_info();
@@ -249,6 +305,9 @@ impl AudioSource for Microphone {
                 sample_rate: Some(source_info.sample_rate),
                 channels: u16::try_from(source_info.channels).ok(),
             };
+            #[cfg(not(windows))]
+            let cancel = CancellationToken::new();
+            #[cfg(windows)]
             let cancel = source_cancel;
             let (tx, rx) = flume::bounded(128);
 
@@ -258,6 +317,7 @@ impl AudioSource for Microphone {
                 Duration::from_millis(5)
             };
 
+            #[cfg(windows)]
             feed_lock
                 .attach_recording_subscription(
                     subscription.clone(),
@@ -266,6 +326,18 @@ impl AudioSource for Microphone {
                     "microphone-feed:recording".into(),
                 )
                 .await?;
+            #[cfg(not(windows))]
+            feed_lock
+                .ask(microphone::AddRecordingSender {
+                    sender: tx,
+                    health_tx: health_tx.clone(),
+                    label: "microphone-feed:recording".to_string(),
+                })
+                .await
+                .map_err(|err| match err {
+                    SendError::ActorNotRunning(_) => MicrophoneSourceError::ActorNotRunning,
+                    other => MicrophoneSourceError::AddSenderFailed(other.map_msg(|_| ())),
+                })?;
 
             let mic_frame_counter = Arc::new(AtomicU64::new(0));
             let mic_drop_counter = Arc::new(AtomicU64::new(0));
@@ -298,11 +370,17 @@ impl AudioSource for Microphone {
                 let drop_counter = mic_drop_counter.clone();
                 let silence_counter = mic_silence_counter.clone();
                 let feed_lock = feed_lock.clone();
+                #[cfg(not(windows))]
+                let device_name = device_name.clone();
                 let health_tx = health_tx.clone();
                 let cancel = cancel.clone();
                 let recording_muted = recording_muted.clone();
+                #[cfg(windows)]
                 let capture_scope = capture_scope.clone();
+                #[cfg(windows)]
                 let subscription = subscription.clone();
+                #[cfg(target_os = "linux")]
+                let required_health = required_health.clone();
                 async move {
                     let mut resampler: Option<MicResampler> = None;
                     let mut silence_mode = false;
@@ -315,8 +393,16 @@ impl AudioSource for Microphone {
                     let mut logged_current_source: Option<(u32, u16, SampleFormat)> = None;
 
                     loop {
+                        #[cfg(windows)]
                         if let Some(error) = subscription.error() {
                             capture_scope.fail_required(error);
+                            break;
+                        }
+                        #[cfg(target_os = "linux")]
+                        if required_health
+                            .as_ref()
+                            .is_some_and(RequiredMicrophoneHealth::check_terminal)
+                        {
                             break;
                         }
                         let recv_result = tokio::select! {
@@ -326,7 +412,15 @@ impl AudioSource for Microphone {
                         };
                         match recv_result {
                             Ok(Ok(frame)) => {
+                                #[cfg(windows)]
                                 if !subscription.accepts_frame(frame.stream_id) {
+                                    continue;
+                                }
+                                #[cfg(target_os = "linux")]
+                                if required_health
+                                    .as_ref()
+                                    .is_some_and(|health| !health.accepts_frame(frame.stream_id))
+                                {
                                     continue;
                                 }
                                 if silence_mode {
@@ -431,6 +525,12 @@ impl AudioSource for Microphone {
                                     .await
                                 {
                                     Ok(Ok(())) => {
+                                        #[cfg(target_os = "linux")]
+                                        if sample_count > 0
+                                            && let Some(health) = &required_health
+                                        {
+                                            health.source.accepted_frame(frame.stream_id);
+                                        }
                                         frame_counter.fetch_add(1, Ordering::Relaxed);
                                     }
                                     _ => {
@@ -440,10 +540,17 @@ impl AudioSource for Microphone {
                             }
                             Ok(Err(_)) => {
                                 debug!("Microphone feed channel closed");
+                                #[cfg(windows)]
                                 if !cancel.is_cancelled() {
                                     capture_scope.fail_required(
                                         "Requested microphone feed closed before Stop".into(),
                                     );
+                                }
+                                #[cfg(target_os = "linux")]
+                                if !cancel.is_cancelled()
+                                    && let Some(health) = &required_health
+                                {
+                                    health.fail("Requested audio feed closed before Stop".into());
                                 }
                                 break;
                             }
@@ -478,23 +585,39 @@ impl AudioSource for Microphone {
                                     reconnect_in_flight.store(true, Ordering::Relaxed);
 
                                     let feed = feed_lock.clone();
+                                    #[cfg(not(windows))]
+                                    let name = device_name.clone();
                                     let in_flight = reconnect_in_flight.clone();
                                     let attempt_cancel = cancel.clone();
+                                    #[cfg(windows)]
                                     let capture_scope = capture_scope.clone();
+                                    #[cfg(windows)]
                                     let subscription = subscription.clone();
+                                    #[cfg(target_os = "linux")]
+                                    let required_health = required_health.clone();
                                     crate::output_pipeline::spawn_capture_task(async move {
                                         let _ = complete_reconnect_attempt(
                                             in_flight,
                                             attempt_cancel,
                                             async move {
+                                                #[cfg(windows)]
                                                 let reconnect = feed.reconnect_recording_subscription(subscription, reconnect_settings).await;
+                                                #[cfg(not(windows))]
+                                                let reconnect = feed.ask(microphone::SetInput {
+                                                    label: name, settings: Some(reconnect_settings),
+                                                }).await;
                                                 let ready = match reconnect {
                                                     Ok(r) => r,
                                                     Err(e) => {
                                                         warn!("Microphone reconnect failed: {e}");
+                                                        #[cfg(windows)]
                                                         capture_scope.fail_required(format!(
                                                             "Requested microphone reconnect failed: {e}"
                                                         ));
+                                                        #[cfg(target_os = "linux")]
+                                                        if let Some(health) = &required_health {
+                                                            health.fail(format!("Requested audio reconnect failed: {e}"));
+                                                        }
                                                         return;
                                                     }
                                                 };
@@ -504,6 +627,7 @@ impl AudioSource for Microphone {
                                                     }
                                                     Err(e) => {
                                                         warn!("Microphone reconnect stream failed: {e}");
+                                                        #[cfg(windows)]
                                                         capture_scope.fail_required(format!(
                                                             "Requested microphone reconnect stream failed: {e}"
                                                         ));
@@ -656,16 +780,28 @@ impl AudioSource for Microphone {
                 }
             });
 
+            #[cfg(windows)]
             drop(setup_cancel.disarm());
             Ok(Self {
+                #[cfg(windows)]
                 capture_scope,
+                #[cfg(windows)]
                 subscription,
                 info: audio_info,
                 _lock: feed_lock,
+                #[cfg(target_os = "linux")]
+                required_health,
                 cancel,
             })
         };
-        async move { setup_scope.run(setup).await }
+        #[cfg(windows)]
+        {
+            async move { setup_scope.run(setup).await }
+        }
+        #[cfg(not(windows))]
+        {
+            setup
+        }
     }
 
     fn audio_info(&self) -> AudioInfo {
@@ -673,17 +809,35 @@ impl AudioSource for Microphone {
     }
 
     fn stop(&mut self) -> impl Future<Output = anyhow::Result<()>> + Send {
+        #[cfg(target_os = "linux")]
+        if let Some(health) = &self.required_health {
+            health.stop();
+        }
+        #[cfg(windows)]
         if let Some(error) = self.subscription.retire() {
             self.capture_scope.fail_required(error);
         }
         self.cancel.cancel();
+        #[cfg(windows)]
         let scope = self.capture_scope.clone();
+        #[cfg(windows)]
         let feed = self._lock.clone();
+        #[cfg(windows)]
         let subscription = self.subscription.clone();
-        async move { finish_recording_subscription(&scope, &feed, subscription).await }
+        async move {
+            #[cfg(windows)]
+            {
+                finish_recording_subscription(&scope, &feed, subscription).await
+            }
+            #[cfg(not(windows))]
+            {
+                Ok(())
+            }
+        }
     }
 }
 
+#[cfg(windows)]
 async fn finish_recording_subscription(
     scope: &crate::output_pipeline::PipelineBuildScope,
     feed: &microphone::MicrophoneFeedLock,
@@ -698,6 +852,7 @@ async fn finish_recording_subscription(
     joined
 }
 
+#[cfg(any(windows, test))]
 async fn microphone_producers_join(
     scope: &crate::output_pipeline::PipelineBuildScope,
 ) -> anyhow::Result<()> {
@@ -1180,6 +1335,174 @@ mod tests {
         }
 
         assert!(prev.is_some(), "resampler produced no frames");
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod required_source_outcome_tests {
+    use super::*;
+    use crate::output_pipeline::PipelineBuildScope;
+
+    #[tokio::test]
+    async fn continuing_failed_callbacks_cancel_before_receive_timeout_and_join_owned_work() {
+        let scope = PipelineBuildScope::new_studio_lifetime();
+        let cancel = CancellationToken::new();
+        scope.register_token(cancel.clone());
+        let health = RequiredMicrophoneHealth {
+            source: microphone::RecordingSourceHealth::test_healthy(7),
+            scope: scope.clone(),
+        };
+        let (sender, receiver) = flume::bounded(128);
+        for _ in 0..128 {
+            sender.try_send(7).unwrap();
+        }
+        health.source.test_backend_failure();
+        assert!(!health.check_terminal());
+        let completion = scope.task_completion();
+        let (release, released) = tokio::sync::oneshot::channel();
+        let writer = tokio::spawn(async move {
+            let _completion = completion;
+            released.await.unwrap();
+        });
+        assert!(!health.accepts_frame(receiver.try_recv().unwrap()));
+        assert_eq!(receiver.len(), 127);
+        assert!(cancel.is_cancelled());
+        health.stop();
+        let joined = tokio::spawn(async move { scope.cancel_and_join_report().await });
+        tokio::task::yield_now().await;
+        assert!(!joined.is_finished());
+        release.send(()).unwrap();
+        writer.await.unwrap();
+        let report = joined.await.unwrap();
+        assert!(report.quiescent);
+        assert!(
+            report
+                .error
+                .unwrap()
+                .contains("failed while continuing to deliver samples")
+        );
+    }
+
+    #[tokio::test]
+    async fn healthy_and_stale_callbacks_preserve_successful_required_source_stop() {
+        let scope = PipelineBuildScope::new_studio_lifetime();
+        let cancel = CancellationToken::new();
+        scope.register_token(cancel.clone());
+        let health = RequiredMicrophoneHealth {
+            source: microphone::RecordingSourceHealth::test_healthy(7),
+            scope: scope.clone(),
+        };
+        for _ in 0..128 {
+            assert!(health.accepts_frame(7));
+            assert!(!health.accepts_frame(6));
+        }
+        assert!(!health.check_terminal());
+        assert!(!cancel.is_cancelled());
+        health.stop();
+        let report = scope.cancel_and_join_report().await;
+        assert!(report.quiescent);
+        assert!(report.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn continued_backend_error_in_committed_resume_cancels_parent_attempt() {
+        let parent = PipelineBuildScope::new_studio_lifetime();
+        let child = parent.child_transaction();
+        let cancel = CancellationToken::new();
+        child.register_token(cancel.clone());
+        assert!(child.commit());
+        let health = RequiredMicrophoneHealth {
+            source: microphone::RecordingSourceHealth::test_healthy(8),
+            scope: child,
+        };
+        health.source.test_backend_failure();
+        assert!(!health.accepts_frame(8));
+        assert!(cancel.is_cancelled());
+        health.stop();
+        let report = parent.cancel_and_join_report().await;
+        assert!(report.quiescent);
+        assert!(
+            report
+                .error
+                .unwrap()
+                .contains("failed while continuing to deliver samples")
+        );
+    }
+
+    #[tokio::test]
+    async fn confirmed_audio_failure_cancels_siblings_but_waits_for_owned_writer() {
+        let scope = PipelineBuildScope::new_studio_lifetime();
+        let cancel = CancellationToken::new();
+        scope.register_token(cancel.clone());
+        let completion = scope.task_completion();
+        let health = RequiredMicrophoneHealth {
+            source: microphone::RecordingSourceHealth::test_healthy(0),
+            scope: scope.clone(),
+        };
+        let (release, released) = tokio::sync::oneshot::channel();
+        let writer = tokio::spawn(async move {
+            let _completion = completion;
+            released.await.unwrap();
+        });
+        health.fail("DeviceNotFound after confirmed Pulse loss".into());
+        assert!(cancel.is_cancelled());
+        health.stop();
+        let joined = tokio::spawn(async move { scope.cancel_and_join_report().await });
+        tokio::task::yield_now().await;
+        assert!(!joined.is_finished());
+        release.send(()).unwrap();
+        writer.await.unwrap();
+        let report = joined.await.unwrap();
+        assert!(report.quiescent);
+        assert!(report.error.unwrap().contains("DeviceNotFound"));
+    }
+
+    #[tokio::test]
+    async fn feed_eof_cannot_be_a_successful_required_source_stop() {
+        let scope = PipelineBuildScope::new_studio_lifetime();
+        let health = RequiredMicrophoneHealth {
+            source: microphone::RecordingSourceHealth::test_healthy(7),
+            scope: scope.clone(),
+        };
+        health.fail("Requested audio feed closed before Stop".into());
+        health.stop();
+        let report = scope.cancel_and_join_report().await;
+        assert!(report.quiescent);
+        assert!(report.error.unwrap().contains("closed before Stop"));
+    }
+
+    #[tokio::test]
+    async fn healthy_required_source_stop_does_not_invent_failure() {
+        let scope = PipelineBuildScope::new_studio_lifetime();
+        let health = RequiredMicrophoneHealth {
+            source: microphone::RecordingSourceHealth::test_healthy(7),
+            scope: scope.clone(),
+        };
+        assert!(!health.check_terminal());
+        health.stop();
+        let report = scope.cancel_and_join_report().await;
+        assert!(report.quiescent);
+        assert!(report.error.is_none());
+        assert!(!PipelineBuildScope::new_lifetime().requires_source_health());
+    }
+
+    #[tokio::test]
+    async fn committed_resume_audio_failure_still_cancels_parent_attempt() {
+        let parent = PipelineBuildScope::new_studio_lifetime();
+        let child = parent.child_transaction();
+        assert!(child.requires_source_health());
+        let cancel = CancellationToken::new();
+        child.register_token(cancel.clone());
+        assert!(child.commit());
+        let health = RequiredMicrophoneHealth {
+            source: microphone::RecordingSourceHealth::test_healthy(8),
+            scope: child,
+        };
+        health.fail("current replacement failed".into());
+        assert!(cancel.is_cancelled());
+        let report = parent.cancel_and_join_report().await;
+        assert!(report.quiescent);
+        assert!(report.error.is_some());
     }
 }
 

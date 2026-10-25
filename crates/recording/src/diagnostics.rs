@@ -327,7 +327,10 @@ pub fn collect_storage_info(recordings_path: &Path) -> Option<StorageInfo> {
 }
 
 fn home_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
     let raw = std::env::var_os("USERPROFILE");
+    #[cfg(not(windows))]
+    let raw = std::env::var_os("HOME");
 
     raw.map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
@@ -348,7 +351,12 @@ fn redact_prefix(value: &str, home: &str) -> String {
     if home.is_empty() {
         return value.to_string();
     }
-    replace_ignore_ascii_case(value, home)
+    if cfg!(windows) {
+        // Windows paths are case-insensitive, so `c:\users\bob` is the same
+        // directory as the `C:\Users\Bob` the environment reports.
+        return replace_ignore_ascii_case(value, home);
+    }
+    value.replace(home, "~")
 }
 
 /// `str::replace` with an ASCII-case-insensitive needle, substituting `~`.
@@ -779,6 +787,7 @@ pub fn redact_json_strings(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
+#[cfg(target_os = "windows")]
 mod windows_impl {
     use super::*;
 
@@ -1052,7 +1061,249 @@ mod windows_impl {
     }
 }
 
+#[cfg(target_os = "macos")]
+mod macos_impl {
+    use super::*;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    #[serde(rename_all = "camelCase")]
+    pub struct MacOSVersionInfo {
+        pub major: u32,
+        pub minor: u32,
+        pub patch: u32,
+        pub display_name: String,
+        pub build_number: String,
+        pub is_apple_silicon: bool,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SystemDiagnostics {
+        pub macos_version: Option<MacOSVersionInfo>,
+        pub available_encoders: Vec<String>,
+        pub screen_capture_supported: bool,
+        pub metal_supported: bool,
+        pub gpu_name: Option<String>,
+    }
+
+    pub fn collect_diagnostics() -> SystemDiagnostics {
+        let macos_version = get_macos_version();
+        let available_encoders = get_available_encoders();
+        let metal_supported = check_metal_support();
+        let gpu_name = get_gpu_name();
+
+        tracing::info!("System Diagnostics:");
+        if let Some(ref ver) = macos_version {
+            tracing::info!(
+                "  macOS: {} (Build {}), Apple Silicon: {}",
+                ver.display_name,
+                ver.build_number,
+                ver.is_apple_silicon
+            );
+        }
+        if let Some(ref gpu) = gpu_name {
+            tracing::info!("  GPU: {}", gpu);
+        }
+        tracing::info!("  Metal: {}", metal_supported);
+        tracing::info!("  Encoders: {:?}", available_encoders);
+
+        SystemDiagnostics {
+            macos_version,
+            available_encoders,
+            screen_capture_supported: true,
+            metal_supported,
+            gpu_name,
+        }
+    }
+
+    fn get_macos_version() -> Option<MacOSVersionInfo> {
+        use std::process::Command;
+
+        let version_output = Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()?;
+        let version_str = String::from_utf8_lossy(&version_output.stdout);
+        let version_str = version_str.trim();
+
+        let parts: Vec<u32> = version_str
+            .split('.')
+            .filter_map(|s| s.parse().ok())
+            .collect();
+
+        let (major, minor, patch) = match parts.as_slice() {
+            [maj, min, pat, ..] => (*maj, *min, *pat),
+            [maj, min] => (*maj, *min, 0),
+            [maj] => (*maj, 0, 0),
+            _ => return None,
+        };
+
+        let build_output = Command::new("sw_vers").arg("-buildVersion").output().ok()?;
+        let build_number = String::from_utf8_lossy(&build_output.stdout)
+            .trim()
+            .to_string();
+
+        let is_apple_silicon = std::env::consts::ARCH == "aarch64";
+
+        let display_name = format!(
+            "macOS {}.{}.{} ({})",
+            major,
+            minor,
+            patch,
+            if is_apple_silicon {
+                "Apple Silicon"
+            } else {
+                "Intel"
+            }
+        );
+
+        Some(MacOSVersionInfo {
+            major,
+            minor,
+            patch,
+            display_name,
+            build_number,
+            is_apple_silicon,
+        })
+    }
+
+    fn check_metal_support() -> bool {
+        std::env::consts::ARCH == "aarch64"
+            || std::process::Command::new("system_profiler")
+                .args(["SPDisplaysDataType"])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).contains("Metal"))
+                .unwrap_or(false)
+    }
+
+    fn get_gpu_name() -> Option<String> {
+        use std::process::Command;
+
+        let output = Command::new("system_profiler")
+            .args(["SPDisplaysDataType", "-json"])
+            .output()
+            .ok()?;
+
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+
+        json.get("SPDisplaysDataType")?
+            .as_array()?
+            .first()?
+            .get("sppci_model")
+            .or_else(|| {
+                json.get("SPDisplaysDataType")?
+                    .as_array()?
+                    .first()?
+                    .get("_name")
+            })?
+            .as_str()
+            .map(|s| s.to_string())
+    }
+
+    fn get_available_encoders() -> Vec<String> {
+        let candidates = [
+            "h264_videotoolbox",
+            "libx264",
+            "hevc_videotoolbox",
+            "libx265",
+        ];
+
+        candidates
+            .iter()
+            .filter(|name| ffmpeg::encoder::find_by_name(name).is_some())
+            .map(|s| s.to_string())
+            .collect()
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod linux_impl {
+    use super::*;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SystemDiagnostics {
+        pub kernel_version: Option<String>,
+        pub available_encoders: Vec<String>,
+        pub screen_capture_supported: bool,
+        pub gpu_name: Option<String>,
+    }
+
+    pub fn collect_diagnostics() -> SystemDiagnostics {
+        let kernel_version = get_kernel_version();
+        let available_encoders = get_available_encoders();
+        let gpu_name = get_gpu_name();
+
+        tracing::info!("System Diagnostics:");
+        if let Some(ref version) = kernel_version {
+            tracing::info!("  Kernel: {}", version);
+        }
+        if let Some(ref gpu) = gpu_name {
+            tracing::info!("  GPU: {}", gpu);
+        }
+        tracing::info!("  Encoders: {:?}", available_encoders);
+
+        SystemDiagnostics {
+            kernel_version,
+            available_encoders,
+            screen_capture_supported: true,
+            gpu_name,
+        }
+    }
+
+    fn get_kernel_version() -> Option<String> {
+        std::fs::read_to_string("/proc/sys/kernel/osrelease")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    fn get_gpu_name() -> Option<String> {
+        let output = std::process::Command::new("glxinfo")
+            .arg("-B")
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .find_map(|line| {
+                line.trim()
+                    .strip_prefix("OpenGL renderer string:")
+                    .map(|name| name.trim().to_string())
+            })
+            .filter(|name| !name.is_empty())
+    }
+
+    fn get_available_encoders() -> Vec<String> {
+        let candidates = [
+            "h264_nvenc",
+            "h264_vaapi",
+            "h264_qsv",
+            "libx264",
+            "hevc_nvenc",
+            "hevc_vaapi",
+            "libx265",
+        ];
+
+        candidates
+            .iter()
+            .filter(|name| ffmpeg::encoder::find_by_name(name).is_some())
+            .map(|s| s.to_string())
+            .collect()
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub use windows_impl::*;
+
+#[cfg(target_os = "macos")]
+pub use macos_impl::*;
+
+#[cfg(target_os = "linux")]
+pub use linux_impl::*;
 
 #[cfg(test)]
 mod tests {

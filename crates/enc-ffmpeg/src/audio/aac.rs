@@ -65,7 +65,9 @@ impl AACEncoder {
         input_config: AudioInfo,
         output: &mut format::context::Output,
     ) -> Result<Self, AACEncoderError> {
-        Self::init_for_recording_with(false, input_config, output)
+        let prefer_audiotoolbox = cfg!(target_os = "macos")
+            && std::env::var_os("CAP_RECORDING_FFMPEG_AAC").is_none_or(|value| value.is_empty());
+        Self::init_for_recording_with(prefer_audiotoolbox, input_config, output)
     }
 
     pub(crate) fn init_for_recording_with(
@@ -105,6 +107,27 @@ impl AACEncoder {
         input_config: AudioInfo,
         output: &mut format::context::Output,
     ) -> Result<Self, AACEncoderError> {
+        #[cfg(target_os = "macos")]
+        {
+            // AudioToolbox defaults to constant bitrate, which fills silence up to
+            // the full 320 kbps; average bitrate keeps silent stretches near-free.
+            let mut options = ffmpeg::Dictionary::new();
+            options.set("aac_at_mode", "abr");
+            match Self::init_with_codec(
+                "aac_at",
+                options,
+                Self::OUTPUT_BITRATE,
+                Priming::Keep,
+                input_config,
+                output,
+            ) {
+                Ok(encoder) => return Ok(encoder),
+                Err(error) => {
+                    tracing::warn!(%error, "AudioToolbox AAC encoder unavailable, using FFmpeg's");
+                }
+            }
+        }
+
         Self::init(input_config, output)
     }
 
@@ -535,6 +558,19 @@ mod tests {
             .map(|(_, packet)| packet.size())
             .sum::<usize>();
         assert!(bytes < 40_000, "10 s of silence took {bytes} bytes");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn export_encoder_uses_audiotoolbox_on_macos() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut output = format::output(&directory.path().join("audio.mp4")).unwrap();
+        let encoder = AACEncoder::init_for_export(
+            AudioInfo::new_raw(Sample::F32(Type::Packed), 48_000, 2),
+            &mut output,
+        )
+        .unwrap();
+        assert_eq!(encoder.codec_name().as_deref(), Some("aac_at"));
     }
 
     #[test]

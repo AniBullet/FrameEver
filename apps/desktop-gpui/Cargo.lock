@@ -227,6 +227,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "annotate-snippets"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "710e8eae58854cdc1790fcb56cca04d712a17be849eeb81da2a724bf4bae2bc4"
+dependencies = [
+ "anstyle",
+ "unicode-width",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -774,6 +784,29 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
+version = "0.65.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfdf7b466f9a4903edc73f95d6d2bcd5baf8ae620638762244d3f60143643cc5"
+dependencies = [
+ "bitflags 1.3.2",
+ "cexpr",
+ "clang-sys",
+ "lazy_static",
+ "lazycell",
+ "log",
+ "peeking_take_while",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash 1.1.0",
+ "shlex 1.3.0",
+ "syn 2.0.119",
+ "which 4.4.2",
+]
+
+[[package]]
+name = "bindgen"
 version = "0.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f49d8fed880d473ea71efb9bf597651e77201bdd4893efe54c9e5d65ae04ce6f"
@@ -816,6 +849,7 @@ version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
 dependencies = [
+ "annotate-snippets",
  "bitflags 2.13.2",
  "cexpr",
  "clang-sys",
@@ -1073,6 +1107,7 @@ version = "0.1.0"
 dependencies = [
  "cap-enc-ffmpeg",
  "cap-rnnoise",
+ "cidre",
  "cpal 0.15.3",
  "ffmpeg-next",
  "serde",
@@ -1087,13 +1122,26 @@ dependencies = [
 name = "cap-camera"
 version = "0.1.0"
 dependencies = [
+ "cap-camera-avfoundation",
  "cap-camera-windows",
+ "cidre",
+ "objc2-av-foundation",
  "serde",
  "specta",
  "thiserror 2.0.21",
  "tracing",
+ "v4l",
  "windows 0.62.2",
  "windows-core 0.62.2",
+ "workspace-hack",
+]
+
+[[package]]
+name = "cap-camera-avfoundation"
+version = "0.1.0"
+dependencies = [
+ "cidre",
+ "tracing",
  "workspace-hack",
 ]
 
@@ -1114,6 +1162,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "cidre",
+ "libc",
  "libloading 0.9.0",
  "ndarray 0.16.1",
  "ort",
@@ -1127,7 +1177,9 @@ name = "cap-camera-ffmpeg"
 version = "0.1.0"
 dependencies = [
  "cap-camera",
+ "cap-camera-avfoundation",
  "cap-camera-windows",
+ "cidre",
  "ffmpeg-next",
  "thiserror 2.0.21",
  "tracing",
@@ -1176,6 +1228,7 @@ dependencies = [
 name = "cap-cursor-capture"
 version = "0.1.0"
 dependencies = [
+ "core-graphics 0.24.0",
  "device_query",
  "scap-targets",
  "workspace-hack",
@@ -1312,6 +1365,20 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows 0.62.2",
+ "workspace-hack",
+]
+
+[[package]]
+name = "cap-enc-avfoundation"
+version = "0.1.0"
+dependencies = [
+ "cap-media-info",
+ "cidre",
+ "ffmpeg-next",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
  "workspace-hack",
 ]
 
@@ -1513,6 +1580,7 @@ name = "cap-recording"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ashpd 0.11.1",
  "blake3",
  "cap-audio",
  "cap-camera",
@@ -1521,6 +1589,7 @@ dependencies = [
  "cap-cursor-capture",
  "cap-cursor-info",
  "cap-d3d-adapter",
+ "cap-enc-avfoundation",
  "cap-enc-ffmpeg",
  "cap-enc-mediafoundation",
  "cap-fail",
@@ -1536,11 +1605,17 @@ dependencies = [
  "cap-timestamp",
  "cap-utils",
  "chrono",
+ "cidre",
+ "cocoa 0.26.0",
+ "core-foundation 0.10.1",
+ "core-graphics 0.24.0",
+ "coreaudio-rs 0.11.3",
  "cpal 0.15.3",
  "device_query",
  "either",
  "ffmpeg-next",
  "flume",
+ "foreign-types-shared 0.3.1",
  "futures",
  "hex",
  "image 0.25.10",
@@ -1548,7 +1623,11 @@ dependencies = [
  "inquire",
  "kameo",
  "libc",
+ "objc",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
  "parking_lot 0.13.0",
+ "pipewire",
  "relative-path",
  "replace_with",
  "retry",
@@ -1556,7 +1635,9 @@ dependencies = [
  "scap-cpal",
  "scap-direct3d",
  "scap-ffmpeg",
+ "scap-screencapturekit",
  "scap-targets",
+ "screencapturekit 0.3.6",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -1570,6 +1651,7 @@ dependencies = [
  "uuid",
  "windows 0.62.2",
  "workspace-hack",
+ "x11rb",
 ]
 
 [[package]]
@@ -1577,6 +1659,7 @@ name = "cap-rendering"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ash",
  "bezier_easing",
  "build-time",
  "bytemuck",
@@ -1586,15 +1669,20 @@ dependencies = [
  "cap-flags",
  "cap-project",
  "cap-video-decode",
+ "cidre",
  "clap",
  "dirs 7.0.0",
  "ffmpeg-hw-device",
  "ffmpeg-next",
+ "foreign-types 0.5.0",
  "futures",
  "futures-intrusive",
  "glyphon",
  "image 0.25.10",
+ "libloading 0.8.9",
  "log",
+ "metal 0.31.0",
+ "objc2 0.6.5",
  "rayon",
  "reactive_graph",
  "resvg 0.45.1",
@@ -1624,6 +1712,7 @@ dependencies = [
 name = "cap-timestamp"
 version = "0.1.0"
 dependencies = [
+ "cidre",
  "cpal 0.15.3",
  "windows 0.62.2",
  "workspace-hack",
@@ -1637,6 +1726,8 @@ dependencies = [
  "directories",
  "flume",
  "futures",
+ "libc",
+ "nix",
  "serde",
  "serde_json",
  "tokio",
@@ -1645,6 +1736,7 @@ dependencies = [
  "windows 0.62.2",
  "windows-sys 0.61.2",
  "workspace-hack",
+ "zbus",
 ]
 
 [[package]]
@@ -1652,11 +1744,13 @@ name = "cap-verify"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cap-enc-avfoundation",
  "cap-media-info",
  "cap-project",
  "cap-recording",
  "cap-timestamp",
  "cap-verify-expect",
+ "cidre",
  "ffmpeg-next",
  "flume",
  "futures",
@@ -1683,6 +1777,7 @@ version = "0.1.0"
 dependencies = [
  "cap-d3d-adapter",
  "cap-enc-ffmpeg",
+ "cidre",
  "ffmpeg-hw-device",
  "ffmpeg-next",
  "num_cpus",
@@ -1754,6 +1849,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fac387a98bb7c37292057cffc56d62ecb629900026402633ae9160df93a8766"
 dependencies = [
  "nom 7.1.3",
+]
+
+[[package]]
+name = "cfg-expr"
+version = "0.20.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ba9e9ec16c447027685b1f897b720e18e9a8afd00bd7332c483537e38086c9f"
+dependencies = [
+ "smallvec",
+ "target-lexicon",
 ]
 
 [[package]]
@@ -2121,6 +2226,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cookie-factory"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9885fa71e26b8ab7855e2ec7cae6e9b380edff76cd052e07c683a0319d51b3a2"
+
+[[package]]
 name = "cookie_store"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2136,6 +2247,15 @@ dependencies = [
  "serde_json",
  "time",
  "url",
+]
+
+[[package]]
+name = "core-audio-types-rs"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bebfc66b5ef3f159b3c4a6097e7c2a2e2cc71ec77fff7913e9895fae45f4c349"
+dependencies = [
+ "core-foundation 0.10.1",
 ]
 
 [[package]]
@@ -2182,6 +2302,19 @@ name = "core-graphics"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa95a34622365fa5bbf40b20b75dba8dfa8c94c734aea8ac9a5ca38af14316f1"
+dependencies = [
+ "bitflags 2.13.2",
+ "core-foundation 0.10.1",
+ "core-graphics-types 0.2.0",
+ "foreign-types 0.5.0",
+ "libc",
+]
+
+[[package]]
+name = "core-graphics"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "064badf302c3194842cf2c5d61f56cc88e54a759313879cdf03abdd27d0c3b97"
 dependencies = [
  "bitflags 2.13.2",
  "core-foundation 0.10.1",
@@ -2239,6 +2372,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-media-rs"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6592bdc3e2b3479140e8c64d419b62d613526c8b61136ca990cd0bae4377db4f"
+dependencies = [
+ "core-audio-types-rs",
+ "core-foundation 0.10.1",
+ "core-utils-rs",
+ "core-video-rs",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "core-text"
 version = "21.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2248,6 +2394,16 @@ dependencies = [
  "core-graphics 0.24.0",
  "foreign-types 0.5.0",
  "libc",
+]
+
+[[package]]
+name = "core-utils-rs"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "791d9e8eb99cff8db5e2b6a5bb420b893476b7a064bb6889b2a691c1bb6d745c"
+dependencies = [
+ "core-foundation 0.10.1",
+ "four-char-code",
 ]
 
 [[package]]
@@ -2261,7 +2417,20 @@ dependencies = [
  "core-graphics2",
  "io-surface",
  "libc",
- "metal",
+ "metal 0.33.0",
+]
+
+[[package]]
+name = "core-video-rs"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1f1614e163a5d6fb972305fa14fc5c2989143da0426c213b74785b31e1fadb8"
+dependencies = [
+ "core-foundation 0.10.1",
+ "core-graphics 0.24.0",
+ "core-utils-rs",
+ "io-surface",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3303,6 +3472,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "four-char-code"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42da99970737c0150e3c5cd1cdc510735a2511739f5c3aa3c6bfc9f31441488d"
+
+[[package]]
 name = "freetype-sys"
 version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3722,7 +3897,7 @@ dependencies = [
  "lyon",
  "mach2 0.5.0",
  "media",
- "metal",
+ "metal 0.33.0",
  "num_cpus",
  "objc",
  "parking",
@@ -3846,7 +4021,7 @@ dependencies = [
  "log",
  "mach2 0.5.0",
  "media",
- "metal",
+ "metal 0.33.0",
  "objc",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -3909,7 +4084,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "log",
- "which",
+ "which 6.0.3",
 ]
 
 [[package]]
@@ -4890,6 +5065,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
+name = "lazycell"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
+
+[[package]]
 name = "leak"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4965,6 +5146,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61ff90caf6077a803a240f62fdbe88645a890bbca49ef8174c3cb0404362171d"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "libspa"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "882f7427e7989dcc9d388b7f05c4630390a1d7696f9ffa469cd4a7a48f0b4c40"
+dependencies = [
+ "bitflags 2.13.2",
+ "cc",
+ "cookie-factory",
+ "libc",
+ "libspa-sys",
+ "nom 8.0.0",
+ "rustix 1.1.5",
+ "system-deps",
+]
+
+[[package]]
+name = "libspa-sys"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b6e17bdaf63ed0d5e4144022624032b41fd9733112e8c74ac26fc9bf1291924"
+dependencies = [
+ "bindgen 0.72.1",
+ "cc",
+ "system-deps",
 ]
 
 [[package]]
@@ -5275,7 +5483,7 @@ dependencies = [
  "core-video",
  "ctor",
  "foreign-types 0.5.0",
- "metal",
+ "metal 0.33.0",
  "objc",
 ]
 
@@ -5301,6 +5509,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "metal"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f569fb946490b5743ad69813cb19629130ce9374034abe31614a36402d18f99e"
+dependencies = [
+ "bitflags 2.13.2",
+ "block",
+ "core-graphics-types 0.1.3",
+ "foreign-types 0.5.0",
+ "log",
+ "objc",
+ "paste",
 ]
 
 [[package]]
@@ -5624,6 +5847,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
+name = "nix"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
+dependencies = [
+ "bitflags 2.13.2",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
 name = "no_std_io2"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5930,6 +6165,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-av-foundation"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "478ae33fcac9df0a18db8302387c666b8ef08a3e2d62b510ca4fc278a384b6c0"
+dependencies = [
+ "bitflags 2.13.2",
+ "block2 0.6.2",
+ "dispatch2",
+ "objc2 0.6.5",
+ "objc2-avf-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-core-image 0.3.2",
+ "objc2-core-media",
+ "objc2-core-video",
+ "objc2-foundation 0.3.2",
+ "objc2-image-io",
+ "objc2-media-toolbox",
+ "objc2-quartz-core 0.3.2",
+]
+
+[[package]]
 name = "objc2-avf-audio"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6055,6 +6313,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-core-media"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05ec576860167a15dd9fce7fbee7512beb4e31f532159d3482d1f9c6caedf31d"
+dependencies = [
+ "bitflags 2.13.2",
+ "dispatch2",
+ "objc2 0.6.5",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-core-video",
+]
+
+[[package]]
 name = "objc2-core-text"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6120,6 +6393,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-image-io"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32b0446e98cf4a784cc7a0177715ff317eeaa8463841c616cfc78aa4f953c4ea"
+dependencies = [
+ "objc2 0.6.5",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+]
+
+[[package]]
 name = "objc2-io-kit"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6138,6 +6422,18 @@ dependencies = [
  "bitflags 2.13.2",
  "objc2 0.6.5",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-media-toolbox"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edd9fdde720df3da7046bb9097811000c1e7ab5cd579fa89d96b27d56781fb30"
+dependencies = [
+ "objc2 0.6.5",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-core-media",
 ]
 
 [[package]]
@@ -6609,6 +6905,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "peeking_take_while"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
+
+[[package]]
 name = "pem-rfc7468"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6716,6 +7018,31 @@ dependencies = [
  "atomic-waker",
  "fastrand",
  "futures-io",
+]
+
+[[package]]
+name = "pipewire"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bde71084c4e25959d68f1ea54daa75e5ecdb338e5caf0b5510143b79baa32d5c"
+dependencies = [
+ "bitflags 2.13.2",
+ "libc",
+ "libspa",
+ "libspa-sys",
+ "pipewire-sys",
+ "rustix 1.1.5",
+]
+
+[[package]]
+name = "pipewire-sys"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ce653f53e63e5b93853218092ee9a8906a5d082c92f3f1db26316955dd63ce0"
+dependencies = [
+ "bindgen 0.72.1",
+ "libspa-sys",
+ "system-deps",
 ]
 
 [[package]]
@@ -7937,10 +8264,25 @@ dependencies = [
 name = "scap-ffmpeg"
 version = "0.1.0"
 dependencies = [
+ "cidre",
  "cpal 0.15.3",
  "ffmpeg-next",
  "scap-direct3d",
+ "scap-screencapturekit",
  "windows 0.62.2",
+ "workspace-hack",
+]
+
+[[package]]
+name = "scap-screencapturekit"
+version = "0.1.0"
+dependencies = [
+ "cidre",
+ "futures",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "tracing",
  "workspace-hack",
 ]
 
@@ -7948,12 +8290,23 @@ dependencies = [
 name = "scap-targets"
 version = "0.1.0"
 dependencies = [
+ "cidre",
+ "cocoa 0.26.0",
+ "core-foundation 0.10.1",
+ "core-graphics 0.24.0",
  "image 0.24.9",
+ "objc",
+ "rustix 1.1.5",
  "serde",
  "specta",
+ "tokio",
  "tracing",
+ "uuid",
+ "wayland-client",
+ "wayland-protocols",
  "windows 0.62.2",
  "workspace-hack",
+ "x11rb",
 ]
 
 [[package]]
@@ -8051,6 +8404,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a5eeeb57ac94960cfe5ff4c402be6585ae4c8d29a2cf41b276048c2e849d64e"
 dependencies = [
  "screencapturekit-sys",
+]
+
+[[package]]
+name = "screencapturekit"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c62ae379564f834110c5b020cc731a7c14b8ec4879b4367579a467a0a704c21"
+dependencies = [
+ "block2 0.6.2",
+ "core-foundation 0.10.1",
+ "core-graphics 0.25.0",
+ "core-media-rs",
+ "core-utils-rs",
+ "core-video-rs",
+ "dispatch",
+ "objc",
 ]
 
 [[package]]
@@ -8982,6 +9351,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "system-deps"
+version = "7.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "396a35feb67335377e0251fcbc1092fc85c484bd4e3a7a54319399da127796e7"
+dependencies = [
+ "cfg-expr",
+ "heck 0.5.0",
+ "pkg-config",
+ "toml 1.1.8+spec-1.1.0",
+ "version-compare",
+]
+
+[[package]]
 name = "taffy"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9004,6 +9386,12 @@ dependencies = [
  "libc",
  "objc",
 ]
+
+[[package]]
+name = "target-lexicon"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "tauri-winres"
@@ -9907,6 +10295,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "v4l"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8fbfea44a46799d62c55323f3c55d06df722fbe577851d848d328a1041c3403"
+dependencies = [
+ "bitflags 1.3.2",
+ "libc",
+ "v4l2-sys-mit",
+]
+
+[[package]]
+name = "v4l2-sys-mit"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6779878362b9bacadc7893eac76abe69612e8837ef746573c4a5239daf11990b"
+dependencies = [
+ "bindgen 0.65.1",
+]
+
+[[package]]
 name = "v_frame"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9964,6 +10372,12 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
+name = "version-compare"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03c2856837ef78f57382f06b2b8563a2f512f7185d732608fd9176cb3b8edf0e"
 
 [[package]]
 name = "version_check"
@@ -10612,6 +11026,18 @@ dependencies = [
  "raw-window-handle",
  "static_assertions",
  "web-sys",
+]
+
+[[package]]
+name = "which"
+version = "4.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87ba24419a2078cd2b0f2ede2691b6c66d8e47836da3b6db8265ebad47afbfc7"
+dependencies = [
+ "either",
+ "home",
+ "once_cell",
+ "rustix 0.38.44",
 ]
 
 [[package]]
@@ -11882,7 +12308,7 @@ dependencies = [
  "log",
  "objc",
  "rand 0.8.8",
- "screencapturekit",
+ "screencapturekit 0.2.8",
  "screencapturekit-sys",
  "sysinfo 0.31.4",
  "tao-core-video-sys",

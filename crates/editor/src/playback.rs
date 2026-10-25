@@ -82,8 +82,10 @@ fn clip_audio_changed(previous: &ProjectConfiguration, next: &ProjectConfigurati
     }
 }
 
+#[cfg(target_os = "windows")]
 struct WindowsTimerResolution;
 
+#[cfg(target_os = "windows")]
 impl WindowsTimerResolution {
     fn set_high_precision() -> Self {
         unsafe {
@@ -93,6 +95,7 @@ impl WindowsTimerResolution {
     }
 }
 
+#[cfg(target_os = "windows")]
 impl Drop for WindowsTimerResolution {
     fn drop(&mut self) {
         unsafe {
@@ -109,6 +112,7 @@ fn precision_sleep_sync(deadline: Instant) {
 
     let remaining = deadline.saturating_duration_since(now);
 
+    #[cfg(target_os = "windows")]
     {
         let spin_threshold = Duration::from_millis(2);
         if remaining > spin_threshold {
@@ -117,6 +121,11 @@ fn precision_sleep_sync(deadline: Instant) {
         while Instant::now() < deadline {
             std::hint::spin_loop();
         }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::thread::sleep(remaining);
     }
 }
 
@@ -1298,6 +1307,7 @@ impl Playback {
                 });
             }
 
+            #[cfg(target_os = "windows")]
             let _timer_guard = WindowsTimerResolution::set_high_precision();
 
             // Attach this playback's audio to the session's persistent output

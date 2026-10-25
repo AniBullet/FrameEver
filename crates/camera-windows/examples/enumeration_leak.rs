@@ -9,6 +9,7 @@
 //! per-enumeration wall time also rises as leaked threads and handles
 //! accumulate.
 
+#[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mode = std::env::args().nth(1).unwrap_or_else(|| "both".into());
     let iterations: usize = std::env::args()
@@ -92,4 +93,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("done");
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("Camera enumeration leak validation requires Windows");
+    std::process::exit(1);
 }

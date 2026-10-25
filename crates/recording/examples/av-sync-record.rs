@@ -47,7 +47,12 @@ pub async fn main() {
         },
     )
     .with_system_audio(true)
-    .build()
+    .build(
+        #[cfg(target_os = "macos")]
+        Some(cap_recording::SendableShareableContent::from(
+            cidre::sc::ShareableContent::current().await.unwrap(),
+        )),
+    )
     .await
     .unwrap();
 

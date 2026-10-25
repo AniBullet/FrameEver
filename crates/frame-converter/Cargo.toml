@@ -17,6 +17,10 @@ crossbeam-channel = "0.5"
 thread_local = "1.1"
 parking_lot = "0.13"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+
+[target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
@@ -26,3 +30,4 @@ windows = { workspace = true, features = [
     "Win32_Media_MediaFoundation",
     "Win32_Security",
 ] }
+

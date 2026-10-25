@@ -17,6 +17,17 @@ cap-verify = { path = "../verify" }
 anyhow = { workspace = true }
 serde_json = "1"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cidre = { workspace = true }
+cpal = { workspace = true }
+futures = { workspace = true }
+objc2-foundation = "0.3.1"
+scap-screencapturekit = { path = "../scap-screencapturekit" }
+softbuffer = "0.4"
+winit = "0.30"
+
+[target.'cfg(windows)'.dependencies]
 cpal = { workspace = true }
 winit = "0.30"
 windows = { workspace = true, features = [

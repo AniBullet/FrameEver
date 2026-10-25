@@ -1,3 +1,4 @@
+#![cfg(windows)]
 #![allow(non_snake_case)]
 
 use std::{

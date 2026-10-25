@@ -225,7 +225,17 @@ async fn test_recording_cycles(
             mic_feed_ref = Some(mic_feed);
         }
 
-        let handle = builder.build().await.expect("Failed to build recording");
+        let handle = builder
+            .build(
+                #[cfg(target_os = "macos")]
+                Some(cap_recording::SendableShareableContent::from(
+                    cidre::sc::ShareableContent::current()
+                        .await
+                        .expect("Failed to get shareable content"),
+                )),
+            )
+            .await
+            .expect("Failed to build recording");
 
         tokio::time::sleep(config.active_duration).await;
 
@@ -320,7 +330,17 @@ async fn test_sustained_recording(duration_secs: u64, include_camera: bool, incl
     println!("\nStarting recording...");
     profiler.sample();
 
-    let handle = builder.build().await.expect("Failed to build recording");
+    let handle = builder
+        .build(
+            #[cfg(target_os = "macos")]
+            Some(cap_recording::SendableShareableContent::from(
+                cidre::sc::ShareableContent::current()
+                    .await
+                    .expect("Failed to get shareable content"),
+            )),
+        )
+        .await
+        .expect("Failed to build recording");
 
     let start = Instant::now();
     let mut next_sample = Instant::now() + Duration::from_secs(2);

@@ -3,6 +3,30 @@ use cap_camera_effects::{BlurMode, BlurProcessor};
 use std::time::{Duration, Instant};
 
 fn heap_mib() -> Option<[f64; 2]> {
+    #[cfg(target_os = "macos")]
+    {
+        #[repr(C)]
+        #[derive(Default)]
+        struct MallocStatistics {
+            blocks_in_use: u32,
+            size_in_use: usize,
+            max_size_in_use: usize,
+            size_allocated: usize,
+        }
+        unsafe extern "C" {
+            fn malloc_zone_statistics(
+                zone: *mut std::ffi::c_void,
+                statistics: *mut MallocStatistics,
+            );
+        }
+        let mut statistics = MallocStatistics::default();
+        unsafe { malloc_zone_statistics(std::ptr::null_mut(), &mut statistics) };
+        Some([
+            statistics.size_in_use as f64 / 1_048_576.0,
+            statistics.size_allocated as f64 / 1_048_576.0,
+        ])
+    }
+    #[cfg(not(target_os = "macos"))]
     None
 }
 

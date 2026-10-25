@@ -1,5 +1,45 @@
 use std::{io, path::Path};
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(super) fn publish(source: &Path, destination: &Path) -> io::Result<()> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let source_name = CString::new(source.as_os_str().as_bytes())?;
+    let destination_name = CString::new(destination.as_os_str().as_bytes())?;
+    #[cfg(target_os = "macos")]
+    let result = unsafe {
+        libc::renamex_np(
+            source_name.as_ptr(),
+            destination_name.as_ptr(),
+            libc::RENAME_EXCL,
+        )
+    };
+    #[cfg(target_os = "linux")]
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            source_name.as_ptr(),
+            libc::AT_FDCWD,
+            destination_name.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::Unsupported
+            || matches!(error.raw_os_error(), Some(libc::ENOSYS | libc::EINVAL))
+        {
+            // Production recovery publishes the enclosing workspace only after all prefixes validate.
+            copy_without_links(source, destination)
+        } else {
+            Err(error)
+        }
+    }
+}
+
+#[cfg(windows)]
 pub(super) fn publish(source: &Path, destination: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows::{Win32::Storage::FileSystem::MoveFileW, core::PCWSTR};
@@ -21,14 +61,14 @@ pub(super) fn publish(source: &Path, destination: &Path) -> io::Result<()> {
         .map_err(|_| io::Error::last_os_error())
 }
 
-#[cfg(test)]
+#[cfg(any(unix, test))]
 fn copy_without_links(source: &Path, destination: &Path) -> io::Result<()> {
     let mut input = std::fs::File::open(source)?;
     let length = input.metadata()?.len();
     copy_to_new_file(&mut input, destination, length)
 }
 
-#[cfg(test)]
+#[cfg(any(unix, test))]
 fn copy_to_new_file(input: &mut impl io::Read, destination: &Path, length: u64) -> io::Result<()> {
     let mut output = std::fs::OpenOptions::new()
         .write(true)

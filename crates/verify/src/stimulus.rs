@@ -130,6 +130,7 @@ pub const SENTINEL_PERIOD_SECS: f64 = 0.002;
 
 /// Every wake of the stimulus's real-time sentinel thread (host ticks) and
 /// the scheduling it ran under.
+#[cfg(any(target_os = "macos", windows))]
 #[derive(Clone, Debug)]
 pub struct SentinelLog {
     pub realtime: crate::sched::Realtime,
@@ -137,6 +138,7 @@ pub struct SentinelLog {
     pub wakes: Vec<u64>,
 }
 
+#[cfg(any(target_os = "macos", windows))]
 impl SentinelLog {
     pub fn read(path: &std::path::Path) -> anyhow::Result<Self> {
         #[derive(serde::Deserialize)]
@@ -169,22 +171,46 @@ impl SentinelLog {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub fn host_now() -> u64 {
+    cidre::mach::abs_time()
+}
+
+/// Seconds between two mach host times (`a - b`).
+#[cfg(target_os = "macos")]
+pub fn host_secs(a: u64, b: u64) -> f64 {
+    let info = cidre::mach::TimeBaseInfo::new();
+    let ticks = a as f64 - b as f64;
+    ticks * f64::from(info.numer) / f64::from(info.denom) / 1e9
+}
+
+#[cfg(target_os = "macos")]
+pub fn host_add_secs(a: u64, secs: f64) -> u64 {
+    let info = cidre::mach::TimeBaseInfo::new();
+    (a as f64 + secs * 1e9 * f64::from(info.denom) / f64::from(info.numer)).round() as u64
+}
+
 /// QueryPerformanceCounter ticks, the clock Windows capture is stamped with.
+#[cfg(windows)]
 pub fn host_now() -> u64 {
     crate::sched::qpc_now()
 }
 
 /// Seconds between two host times (`a - b`).
+#[cfg(windows)]
 pub fn host_secs(a: u64, b: u64) -> f64 {
     (a as f64 - b as f64) / crate::sched::qpc_frequency() as f64
 }
 
+#[cfg(windows)]
 pub fn host_add_secs(a: u64, secs: f64) -> u64 {
     (a as f64 + secs * crate::sched::qpc_frequency() as f64).round() as u64
 }
 
+#[cfg(any(target_os = "macos", windows))]
 pub use process::StimulusProcess;
 
+#[cfg(any(target_os = "macos", windows))]
 mod process {
     use std::{
         io::{BufRead, BufReader, Write},

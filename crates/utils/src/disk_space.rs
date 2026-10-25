@@ -168,6 +168,31 @@ impl DiskSpaceStatus {
     }
 }
 
+#[cfg(unix)]
+pub fn free_bytes_for_path(path: &Path) -> io::Result<u64> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let probe_path = resolve_existing_ancestor(path);
+    let c_path = CString::new(probe_path.as_os_str().as_bytes())
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    let rc = unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) };
+    if rc != 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let bavail = stat.f_bavail as u64;
+    let frsize = if stat.f_frsize == 0 {
+        stat.f_bsize
+    } else {
+        stat.f_frsize
+    };
+    Ok(bavail.saturating_mul(frsize))
+}
+
+#[cfg(windows)]
 pub fn free_bytes_for_path(path: &Path) -> io::Result<u64> {
     use std::os::windows::ffi::OsStrExt;
     use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
@@ -354,6 +379,17 @@ mod tests {
             );
             assert_eq!(monitor.fragments.len(), 256);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recording_storage_does_not_follow_symbolic_links() {
+        let directory = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(directory.path(), directory.path().join("loop")).unwrap();
+        assert_eq!(
+            recording_storage(directory.path()).unwrap().recording_bytes,
+            0
+        );
     }
 
     #[test]

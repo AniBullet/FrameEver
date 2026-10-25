@@ -363,6 +363,7 @@ mod tests {
     }
 
     fn assert_released(path: &Path) {
+        #[cfg(windows)]
         {
             use std::os::windows::fs::OpenOptionsExt;
             let file = std::fs::OpenOptions::new()

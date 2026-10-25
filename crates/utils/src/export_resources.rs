@@ -10,7 +10,7 @@ const CRITICAL_MEMORY_SAMPLES: u8 = 3;
 const STOP_PREFIX: &str = "Export stopped to protect your computer: ";
 
 // Only macOS reports memory pressure; elsewhere every sample is Unknown.
-#[allow(dead_code)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum MemoryPressure {
     #[default]
@@ -45,6 +45,9 @@ struct PressureHistory {
 
 impl ExportResources {
     pub fn new(mut disks: Vec<DiskBudget>) -> Self {
+        #[cfg(target_os = "macos")]
+        let system_path = Some(PathBuf::from("/System/Volumes/Data"));
+        #[cfg(not(target_os = "macos"))]
         let system_path = directories::BaseDirs::new().map(|home| home.home_dir().to_path_buf());
         if let Some(path) = system_path {
             disks.push(DiskBudget {
@@ -233,6 +236,31 @@ pub fn estimated_working_bytes(megabytes: f64) -> u64 {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn memory_pressure() -> MemoryPressure {
+    let mut level = 0u32;
+    let mut length = std::mem::size_of_val(&level);
+    let result = unsafe {
+        libc::sysctlbyname(
+            c"kern.memorystatus_vm_pressure_level".as_ptr(),
+            (&mut level as *mut u32).cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result != 0 || length != std::mem::size_of_val(&level) {
+        return MemoryPressure::Unknown;
+    }
+    match level {
+        1 => MemoryPressure::Normal,
+        2 => MemoryPressure::Warning,
+        4 => MemoryPressure::Critical,
+        _ => MemoryPressure::Unknown,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
 fn memory_pressure() -> MemoryPressure {
     MemoryPressure::Unknown
 }
@@ -509,5 +537,59 @@ mod tests {
         };
         assert_eq!(observation.free_bytes.len(), resources.disks.len());
         assert!(observation.free_bytes[0].is_some());
+    }
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    #[ignore]
+    async fn sample_cost_and_footprint_probe() {
+        fn usage() -> libc::rusage_info_v2 {
+            let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v2>::zeroed();
+            let result = unsafe {
+                libc::proc_pid_rusage(
+                    std::process::id() as i32,
+                    libc::RUSAGE_INFO_V2,
+                    usage.as_mut_ptr().cast(),
+                )
+            };
+            assert_eq!(result, 0);
+            unsafe { usage.assume_init() }
+        }
+        let resources = ExportResources::new(vec![DiskBudget {
+            path: std::env::temp_dir(),
+            description: "your export drive",
+            estimated_bytes: 0,
+        }]);
+        for _ in 0..100 {
+            drop(resources.read().await);
+        }
+        let before = usage();
+        let start = std::time::Instant::now();
+        let mut samples = 0;
+        let mut skipped = 0;
+        while samples < 50_000 {
+            let observation = resources.read().await;
+            if observation.free_bytes.len() == resources.disks.len() {
+                samples += 1;
+                if samples % 10_000 == 0 {
+                    println!("samples={samples} footprint={}", usage().ri_phys_footprint);
+                }
+            } else {
+                skipped += 1;
+                tokio::task::yield_now().await;
+            }
+        }
+        let elapsed = start.elapsed();
+        let after = usage();
+        let cpu_ns = after
+            .ri_user_time
+            .saturating_add(after.ri_system_time)
+            .saturating_sub(before.ri_user_time.saturating_add(before.ri_system_time));
+        println!(
+            "samples={samples} skipped={skipped} wall_ms={} cpu_ms={:.3} footprint_before={} footprint_after={}",
+            elapsed.as_millis(),
+            cpu_ns as f64 / 1_000_000.0,
+            before.ri_phys_footprint,
+            after.ri_phys_footprint
+        );
     }
 }

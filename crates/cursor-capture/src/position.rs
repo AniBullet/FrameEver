@@ -32,6 +32,29 @@ pub struct RelativeCursorPosition {
 
 impl RelativeCursorPosition {
     pub fn from_raw(raw: RawCursorPosition, display: Display) -> Option<Self> {
+        #[cfg(windows)]
+        {
+            let physical_bounds = display.raw_handle().physical_bounds()?;
+
+            Some(Self {
+                x: raw.x - physical_bounds.position().x() as i32,
+                y: raw.y - physical_bounds.position().y() as i32,
+                display,
+            })
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let logical_bounds = display.raw_handle().logical_bounds()?;
+
+            Some(Self {
+                x: raw.x - logical_bounds.position().x() as i32,
+                y: raw.y - logical_bounds.position().y() as i32,
+                display,
+            })
+        }
+
+        #[cfg(target_os = "linux")]
         {
             let physical_bounds = display.raw_handle().physical_bounds()?;
 
@@ -48,6 +71,43 @@ impl RelativeCursorPosition {
     }
 
     pub fn normalize(&self) -> Option<NormalizedCursorPosition> {
+        #[cfg(windows)]
+        {
+            let bounds = self.display().raw_handle().physical_bounds()?;
+            let size = bounds.size();
+
+            Some(NormalizedCursorPosition {
+                x: self.x as f64 / size.width(),
+                y: self.y as f64 / size.height(),
+                crop: CursorCropBounds {
+                    x: 0.0,
+                    y: 0.0,
+                    width: size.width(),
+                    height: size.height(),
+                },
+                display: self.display,
+            })
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let bounds = self.display().raw_handle().logical_bounds()?;
+            let size = bounds.size();
+
+            Some(NormalizedCursorPosition {
+                x: self.x as f64 / size.width(),
+                y: self.y as f64 / size.height(),
+                crop: CursorCropBounds {
+                    x: 0.0,
+                    y: 0.0,
+                    width: size.width(),
+                    height: size.height(),
+                },
+                display: self.display,
+            })
+        }
+
+        #[cfg(target_os = "linux")]
         {
             let bounds = self.display().raw_handle().physical_bounds()?;
             let size = bounds.size();
@@ -87,7 +147,28 @@ pub struct CursorCropBounds {
 }
 
 impl CursorCropBounds {
+    #[cfg(target_os = "macos")]
+    pub fn new_macos(bounds: LogicalBounds) -> Self {
+        Self {
+            x: bounds.position().x(),
+            y: bounds.position().y(),
+            width: bounds.size().width(),
+            height: bounds.size().height(),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
     pub fn new_windows(bounds: PhysicalBounds) -> Self {
+        Self {
+            x: bounds.position().x(),
+            y: bounds.position().y(),
+            width: bounds.size().width(),
+            height: bounds.size().height(),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn new_linux(bounds: PhysicalBounds) -> Self {
         Self {
             x: bounds.position().x(),
             y: bounds.position().y(),

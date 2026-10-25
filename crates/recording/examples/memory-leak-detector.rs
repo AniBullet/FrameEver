@@ -16,6 +16,22 @@ use tracing::{info, warn};
 
 const DEFAULT_DURATION_SECS: u64 = 120;
 
+#[cfg(target_os = "macos")]
+fn get_memory_usage() -> Option<MemoryStats> {
+    use libproc::libproc::pid_rusage::{RUsageInfoV4, pidrusage};
+
+    let pid = std::process::id() as i32;
+    let rusage: RUsageInfoV4 = pidrusage(pid).ok()?;
+
+    Some(MemoryStats {
+        resident_mb: rusage.ri_resident_size as f64 / 1024.0 / 1024.0,
+        footprint_mb: Some(rusage.ri_phys_footprint as f64 / 1024.0 / 1024.0),
+        dirty_mb: None,
+        compressed_mb: None,
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
 fn get_memory_usage() -> Option<MemoryStats> {
     None
 }
@@ -237,7 +253,14 @@ async fn run_memory_test(
     println!("\nStarting recording...");
     let start = Instant::now();
 
-    let handle = builder.build().await?;
+    let handle = builder
+        .build(
+            #[cfg(target_os = "macos")]
+            Some(cap_recording::SendableShareableContent::from(
+                cidre::sc::ShareableContent::current().await?,
+            )),
+        )
+        .await?;
 
     let sample_interval = Duration::from_secs(1);
     let mut next_sample = start + sample_interval;
@@ -438,7 +461,14 @@ async fn run_cycles_test(
             }
         }
 
-        let handle = builder.build().await?;
+        let handle = builder
+            .build(
+                #[cfg(target_os = "macos")]
+                Some(cap_recording::SendableShareableContent::from(
+                    cidre::sc::ShareableContent::current().await?,
+                )),
+            )
+            .await?;
 
         tokio::time::sleep(Duration::from_secs(cycle_duration_secs)).await;
 

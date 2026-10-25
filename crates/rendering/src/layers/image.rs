@@ -28,6 +28,8 @@ enum FileVersion {
         length: u64,
         modified: Option<SystemTime>,
         created: Option<SystemTime>,
+        #[cfg(unix)]
+        identity: (u64, u64, i64, i64),
     },
     Unavailable(ErrorKind),
     NotFile,
@@ -42,6 +44,16 @@ impl FileVersion {
             length: metadata.len(),
             modified: metadata.modified().ok(),
             created: metadata.created().ok(),
+            #[cfg(unix)]
+            identity: {
+                use std::os::unix::fs::MetadataExt;
+                (
+                    metadata.dev(),
+                    metadata.ino(),
+                    metadata.ctime(),
+                    metadata.ctime_nsec(),
+                )
+            },
         }
     }
 

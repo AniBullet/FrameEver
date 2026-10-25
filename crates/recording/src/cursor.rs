@@ -53,6 +53,88 @@ pub struct IncrementalCaptureOutputs {
 pub struct CursorCaptureTarget {
     pub crop_bounds: CursorCropBounds,
     pub display: scap_targets::Display,
+    #[cfg(target_os = "linux")]
+    pub window: Option<scap_targets::WindowId>,
+}
+
+#[cfg(target_os = "linux")]
+struct X11WindowCursor {
+    connection: x11rb::rust_connection::RustConnection,
+    window: u32,
+}
+
+#[cfg(target_os = "linux")]
+impl X11WindowCursor {
+    fn new(id: &scap_targets::WindowId) -> anyhow::Result<Self> {
+        let (connection, _) = x11rb::connect(None)?;
+        Ok(Self {
+            connection,
+            window: id.to_string().parse()?,
+        })
+    }
+
+    fn position(&self) -> Option<(f64, f64)> {
+        use x11rb::protocol::xproto::ConnectionExt as _;
+
+        let geometry = self
+            .connection
+            .get_geometry(self.window)
+            .ok()?
+            .reply()
+            .ok()?;
+        let pointer = self
+            .connection
+            .query_pointer(self.window)
+            .ok()?
+            .reply()
+            .ok()?;
+        if !pointer.same_screen {
+            return None;
+        }
+        normalized_window_cursor(
+            pointer.win_x,
+            pointer.win_y,
+            geometry.width,
+            geometry.height,
+        )
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn normalized_window_cursor(x: i16, y: i16, width: u16, height: u16) -> Option<(f64, f64)> {
+    (width != 0 && height != 0).then(|| {
+        (
+            f64::from(x) / f64::from(width),
+            f64::from(y) / f64::from(height),
+        )
+    })
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod window_cursor_tests {
+    use super::normalized_window_cursor;
+
+    #[test]
+    fn window_local_cursor_coordinates_follow_resized_content() {
+        assert_eq!(
+            normalized_window_cursor(300, 150, 600, 300),
+            Some((0.5, 0.5))
+        );
+        assert_eq!(
+            normalized_window_cursor(300, 150, 1200, 600),
+            Some((0.25, 0.25))
+        );
+        assert_eq!(
+            normalized_window_cursor(-60, 330, 600, 300),
+            Some((-0.1, 1.1))
+        );
+    }
+
+    #[test]
+    fn empty_windows_cannot_produce_cursor_coordinates() {
+        assert_eq!(normalized_window_cursor(1, 1, 0, 300), None);
+        assert_eq!(normalized_window_cursor(1, 1, 600, 0), None);
+    }
 }
 
 impl CursorActor {
@@ -68,6 +150,17 @@ impl CursorActor {
 }
 
 const CURSOR_FLUSH_INTERVAL_SECS: u64 = 5;
+
+#[cfg(target_os = "linux")]
+fn prefers_wayland_portal_cursor() -> bool {
+    if std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        return false;
+    }
+
+    std::env::var_os("DISPLAY").is_none()
+        || std::env::var("XDG_SESSION_TYPE")
+            .is_ok_and(|session| session.eq_ignore_ascii_case("wayland"))
+}
 
 fn flush_cursor_data(output_path: &Path, moves: &[CursorMoveEvent], clicks: &[CursorClickEvent]) {
     let events = CursorEvents {
@@ -367,6 +460,24 @@ pub fn spawn_cursor_recorder(
     start_gate: Option<RecordingStartGate>,
     incremental_outputs: IncrementalCaptureOutputs,
 ) -> CursorActor {
+    #[cfg(target_os = "linux")]
+    if prefers_wayland_portal_cursor() {
+        let (tx, rx) = oneshot::channel();
+        let _ = tx.send(CursorActorResponse {
+            cursors: prev_cursors,
+            next_cursor_id,
+            moves: vec![],
+            clicks: vec![],
+            keyboard_presses: vec![],
+        });
+        return CursorActor {
+            stop: None,
+            stop_wakeup: None,
+            thread: None,
+            rx: rx.shared(),
+        };
+    }
+
     use device_query::{DeviceQuery, DeviceState};
     use std::time::Duration;
     use tracing::{error, info};
@@ -385,6 +496,14 @@ pub fn spawn_cursor_recorder(
         let _completion = completion;
         let crop_bounds = target.crop_bounds;
         let display = target.display;
+        #[cfg(target_os = "linux")]
+        let window_cursor = target.window.as_ref().and_then(|id| {
+            X11WindowCursor::new(id)
+                .inspect_err(|error| tracing::error!(%error, "X11 window cursor setup failed"))
+                .ok()
+        });
+        #[cfg(target_os = "linux")]
+        let mut last_window_position = None;
         let device_state = DeviceState::new();
         let mut last_mouse_state = device_state.get_mouse();
         let mut last_keys: Vec<device_query::Keycode> = device_state.get_keys();
@@ -444,6 +563,15 @@ pub fn spawn_cursor_recorder(
             if position_changed {
                 last_position = position;
             }
+            #[cfg(target_os = "linux")]
+            let window_position = window_cursor.as_ref().and_then(X11WindowCursor::position);
+            #[cfg(target_os = "linux")]
+            let position_changed = position_changed
+                || (target.window.is_some() && window_position != last_window_position);
+            #[cfg(target_os = "linux")]
+            {
+                last_window_position = window_position;
+            }
 
             // The cursor image only labels this tick's move and click events,
             // and reading it builds a full TIFF of every representation
@@ -495,6 +623,12 @@ pub fn spawn_cursor_recorder(
                     .and_then(|p| p.normalize())
                     .map(|p| p.with_crop(crop_bounds))
                     .map(|p| (p.x(), p.y()));
+                #[cfg(target_os = "linux")]
+                let cropped_norm_pos = if target.window.is_some() {
+                    window_position
+                } else {
+                    cropped_norm_pos
+                };
 
                 if let Some((x, y)) = cropped_norm_pos {
                     let mouse_event = CursorMoveEvent {
@@ -644,6 +778,10 @@ fn cursor_id_for_image(
                 None => save_cursor_image(&cursor_path, &rgba_image),
             };
             if saved {
+                #[cfg(target_os = "macos")]
+                let shape = cap_cursor_info::CursorShapeMacOS::from_hash(&hex::encode(hash_bytes))
+                    .map(Into::into);
+                #[cfg(not(target_os = "macos"))]
                 let shape = data.shape;
                 response.cursors.insert(
                     id,
@@ -672,15 +810,28 @@ fn cursor_id_for_image(
 struct CursorData {
     image: Vec<u8>,
     hotspot: XY<f64>,
+    #[cfg(not(target_os = "macos"))]
     shape: Option<CursorShape>,
 }
 
+/// Cheap enough to take every tick (~0.1 ms against ~0.4 ms for the TIFF),
+/// and changes whenever the TIFF would, since both come from the same image.
+#[cfg(target_os = "macos")]
+#[derive(PartialEq)]
+struct CursorFingerprint {
+    pixels: Vec<u8>,
+    bitmap: (usize, usize, usize),
+    size: (u64, u64),
+    hotspot: (u64, u64),
+}
+
+#[cfg(not(target_os = "macos"))]
 #[derive(PartialEq)]
 struct CursorFingerprint;
 
 enum CursorSample {
     /// The cursor still matches the fingerprint of the last registered image.
-    #[allow(dead_code)]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Unchanged,
     Read {
         fingerprint: Option<CursorFingerprint>,
@@ -688,6 +839,7 @@ enum CursorSample {
     },
 }
 
+#[cfg(not(target_os = "macos"))]
 fn sample_cursor(_known: Option<&CursorFingerprint>) -> CursorSample {
     CursorSample::Read {
         fingerprint: None,
@@ -695,6 +847,377 @@ fn sample_cursor(_known: Option<&CursorFingerprint>) -> CursorSample {
     }
 }
 
+/// One read of the current cursor per tick: its fingerprint, and its encoded
+/// image only when that fingerprint differs from `known`, both from the same
+/// `NSCursor` so a shape change between two reads can't pair them wrongly.
+#[cfg(target_os = "macos")]
+fn sample_cursor(known: Option<&CursorFingerprint>) -> CursorSample {
+    use objc::rc::autoreleasepool;
+    use objc2::{ClassType, msg_send, rc::Retained};
+    use objc2_app_kit::NSCursor;
+
+    autoreleasepool(|| unsafe {
+        #[allow(deprecated)]
+        let Some(cursor) = NSCursor::currentSystemCursor().or_else(|| {
+            let cursor: Option<Retained<NSCursor>> = msg_send![NSCursor::class(), currentCursor];
+            cursor
+        }) else {
+            return CursorSample::Read {
+                fingerprint: None,
+                data: None,
+            };
+        };
+        let fingerprint = macos_cursor_fingerprint(&cursor);
+        if fingerprint.is_some() && fingerprint.as_ref() == known {
+            return CursorSample::Unchanged;
+        }
+        CursorSample::Read {
+            data: macos_cursor_data(&cursor),
+            fingerprint,
+        }
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn macos_cursor_fingerprint(cursor: &objc2_app_kit::NSCursor) -> Option<CursorFingerprint> {
+    use core_graphics::image::CGImageRef;
+    use foreign_types_shared::ForeignTypeRef;
+    use objc::{sel, sel_impl};
+    use objc2::{msg_send, rc::Retained};
+    use objc2_app_kit::NSImage;
+
+    unsafe {
+        let image: Option<Retained<NSImage>> = msg_send![cursor, image];
+        let image = image?;
+        let size = image.size();
+        let hotspot = cursor.hotSpot();
+        let image_ptr = Retained::as_ptr(&image) as *mut objc::runtime::Object;
+        let nil = std::ptr::null_mut::<objc::runtime::Object>();
+        // `CGImageForProposedRect:context:hints:` returns an autoreleased
+        // CGImageRef, valid for the caller's autorelease pool.
+        let cg_image: *mut std::ffi::c_void = objc::msg_send![
+            image_ptr,
+            CGImageForProposedRect: std::ptr::null_mut::<std::ffi::c_void>()
+            context: nil
+            hints: nil
+        ];
+        if cg_image.is_null() {
+            return None;
+        }
+        let cg_image = CGImageRef::from_ptr(cg_image.cast());
+        Some(CursorFingerprint {
+            pixels: cg_image.data().bytes().to_vec(),
+            bitmap: (
+                cg_image.width(),
+                cg_image.height(),
+                cg_image.bytes_per_row(),
+            ),
+            size: (size.width.to_bits(), size.height.to_bits()),
+            hotspot: (hotspot.x.to_bits(), hotspot.y.to_bits()),
+        })
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_cursor_data(cursor: &objc2_app_kit::NSCursor) -> Option<CursorData> {
+    use objc2::{msg_send, rc::Retained};
+    use objc2_app_kit::NSImage;
+
+    unsafe {
+        // AppKit can return nil for transient system cursors despite NSCursor.image's nonnull annotation.
+        let image: Option<Retained<NSImage>> = msg_send![cursor, image];
+        let image = image?;
+        let size = image.size();
+        let hotspot = cursor.hotSpot();
+        if !size.width.is_finite()
+            || !size.height.is_finite()
+            || size.width <= 0.0
+            || size.height <= 0.0
+            || !hotspot.x.is_finite()
+            || !hotspot.y.is_finite()
+        {
+            return None;
+        }
+
+        let image_data = image.TIFFRepresentation()?;
+        let image = image_data.as_bytes_unchecked().to_vec();
+
+        Some(CursorData {
+            image,
+            hotspot: XY::new(hotspot.x / size.width, hotspot.y / size.height),
+        })
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_cursor_tests {
+    use super::{macos_cursor_data, macos_cursor_fingerprint};
+    use objc2::{AllocAnyThread, class, msg_send, rc::Retained, runtime::AnyObject};
+    use objc2_app_kit::{NSCursor, NSImage};
+
+    #[test]
+    fn cursor_without_image_is_skipped() {
+        let cursor = unsafe { NSCursor::new() };
+        assert!(macos_cursor_data(&cursor).is_none());
+    }
+
+    #[test]
+    fn zero_sized_cursor_is_skipped() {
+        let image = unsafe { NSImage::initWithSize(NSImage::alloc(), Default::default()) };
+        let cursor = NSCursor::initWithImage_hotSpot(NSCursor::alloc(), &image, Default::default());
+        assert!(macos_cursor_data(&cursor).is_none());
+    }
+
+    fn cursor_with(color: [u8; 4]) -> Retained<NSCursor> {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(8, 8, image::Rgba(color))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let png = png.into_inner();
+        let data: Retained<AnyObject> = unsafe {
+            msg_send![class!(NSData), dataWithBytes: png.as_ptr().cast::<std::ffi::c_void>(), length: png.len()]
+        };
+        let image: Retained<NSImage> = unsafe { msg_send![NSImage::alloc(), initWithData: &*data] };
+        NSCursor::initWithImage_hotSpot(NSCursor::alloc(), &image, Default::default())
+    }
+
+    #[test]
+    fn the_fingerprint_tells_cursor_shapes_apart_without_encoding_them() {
+        let arrow = macos_cursor_fingerprint(&cursor_with([20, 40, 80, 255])).unwrap();
+        let same = macos_cursor_fingerprint(&cursor_with([20, 40, 80, 255])).unwrap();
+        let recolored = macos_cursor_fingerprint(&cursor_with([200, 40, 80, 255])).unwrap();
+        assert!(arrow == same);
+        assert!(arrow != recolored);
+        assert!(!arrow.pixels.is_empty());
+    }
+
+    #[test]
+    fn a_cursor_without_an_image_has_no_fingerprint() {
+        let cursor = unsafe { NSCursor::new() };
+        assert!(macos_cursor_fingerprint(&cursor).is_none());
+    }
+
+    #[test]
+    fn valid_cursor_keeps_image_and_hotspot() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([20, 40, 80, 255]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let png = png.into_inner();
+        let data: Retained<AnyObject> = unsafe {
+            msg_send![class!(NSData), dataWithBytes: png.as_ptr().cast::<std::ffi::c_void>(), length: png.len()]
+        };
+        let image: Retained<NSImage> = unsafe { msg_send![NSImage::alloc(), initWithData: &*data] };
+        let cursor = NSCursor::initWithImage_hotSpot(NSCursor::alloc(), &image, Default::default());
+        let image = unsafe { cursor.image() };
+        let expected_image = unsafe {
+            image
+                .TIFFRepresentation()
+                .unwrap()
+                .as_bytes_unchecked()
+                .to_vec()
+        };
+        let size = unsafe { image.size() };
+        let hotspot = unsafe { cursor.hotSpot() };
+        let actual = macos_cursor_data(&cursor).unwrap();
+
+        assert_eq!(actual.image, expected_image);
+        assert_eq!(actual.hotspot.x, hotspot.x / size.width);
+        assert_eq!(actual.hotspot.y, hotspot.y / size.height);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn get_cursor_data() -> Option<CursorData> {
+    thread_local! {
+        static X11_CURSOR: std::cell::RefCell<X11CursorSource> = std::cell::RefCell::default();
+    }
+
+    X11_CURSOR
+        .with_borrow_mut(X11CursorSource::cursor_data)
+        .or_else(fallback_cursor_data)
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct X11CursorSource {
+    connection: Option<x11rb::rust_connection::RustConnection>,
+    last_image: Option<X11CursorImage>,
+}
+
+#[cfg(target_os = "linux")]
+struct X11CursorImage {
+    width: u16,
+    height: u16,
+    pixels: Vec<u32>,
+    png: Vec<u8>,
+}
+
+#[cfg(target_os = "linux")]
+impl X11CursorSource {
+    fn cursor_data(&mut self) -> Option<CursorData> {
+        let cursor = self.cursor_image()?;
+
+        let width = u32::from(cursor.width);
+        let height = u32::from(cursor.height);
+        if width == 0 || height == 0 {
+            return None;
+        }
+
+        Some(CursorData {
+            image: self.png(cursor.width, cursor.height, cursor.cursor_image)?,
+            hotspot: XY::new(
+                f64::from(cursor.xhot) / f64::from(width),
+                f64::from(cursor.yhot) / f64::from(height),
+            ),
+            shape: None,
+        })
+    }
+
+    fn cursor_image(&mut self) -> Option<x11rb::protocol::xfixes::GetCursorImageReply> {
+        use x11rb::protocol::xfixes::ConnectionExt as _;
+
+        if let Some(connection) = self.connection.take()
+            && let Some(cursor) = connection
+                .xfixes_get_cursor_image()
+                .ok()
+                .and_then(|cookie| cookie.reply().ok())
+        {
+            self.connection = Some(connection);
+            return Some(cursor);
+        }
+
+        let (connection, _) = x11rb::connect(None).ok()?;
+        connection.xfixes_query_version(5, 0).ok()?.reply().ok()?;
+        let cursor = connection.xfixes_get_cursor_image().ok()?.reply().ok()?;
+        self.connection = Some(connection);
+        Some(cursor)
+    }
+
+    fn png(&mut self, width: u16, height: u16, pixels: Vec<u32>) -> Option<Vec<u8>> {
+        if let Some(last) = &self.last_image
+            && last.width == width
+            && last.height == height
+            && last.pixels == pixels
+        {
+            return Some(last.png.clone());
+        }
+
+        let png = x11_cursor_png(width, height, &pixels)?;
+        self.last_image = Some(X11CursorImage {
+            width,
+            height,
+            pixels,
+            png: png.clone(),
+        });
+        Some(png)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn x11_cursor_png(width: u16, height: u16, pixels: &[u32]) -> Option<Vec<u8>> {
+    let pixel_count = usize::from(width).checked_mul(usize::from(height))?;
+    if pixels.len() != pixel_count {
+        return None;
+    }
+
+    let mut rgba = Vec::with_capacity(pixel_count.checked_mul(4)?);
+    for &pixel in pixels {
+        rgba.push(((pixel >> 16) & 0xff) as u8);
+        rgba.push(((pixel >> 8) & 0xff) as u8);
+        rgba.push((pixel & 0xff) as u8);
+        rgba.push(((pixel >> 24) & 0xff) as u8);
+    }
+
+    let image = image::RgbaImage::from_raw(u32::from(width), u32::from(height), rgba)?;
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .ok()?;
+    Some(bytes.into_inner())
+}
+
+#[cfg(target_os = "linux")]
+fn fallback_cursor_data() -> Option<CursorData> {
+    use std::sync::OnceLock;
+
+    static CURSOR_PNG: OnceLock<Vec<u8>> = OnceLock::new();
+
+    let image = CURSOR_PNG.get_or_init(linux_cursor_png).clone();
+    if image.is_empty() {
+        return None;
+    }
+
+    Some(CursorData {
+        image,
+        hotspot: XY::new(0.0, 0.0),
+        shape: None,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn linux_cursor_png() -> Vec<u8> {
+    let mut image = image::RgbaImage::new(24, 24);
+    for y in 0..18 {
+        for x in 0..=y.min(10) {
+            image.put_pixel(x, y, image::Rgba([0, 0, 0, 255]));
+        }
+    }
+    for y in 2..15 {
+        for x in 1..=y.min(8) {
+            image.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
+        }
+    }
+
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    if image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .is_err()
+    {
+        return Vec::new();
+    }
+    bytes.into_inner()
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod x11_cursor_tests {
+    use super::{X11CursorSource, x11_cursor_png};
+
+    #[test]
+    fn cached_cursor_pngs_match_a_fresh_encode() {
+        let mut source = X11CursorSource::default();
+        let arrow = vec![0xff00_0000; 6];
+        let hand = vec![0x80ff_ffff; 6];
+
+        for (width, height, pixels) in [
+            (2, 3, &arrow),
+            (2, 3, &arrow),
+            (2, 3, &hand),
+            (3, 2, &hand),
+            (2, 3, &arrow),
+        ] {
+            assert_eq!(
+                source.png(width, height, pixels.clone()),
+                x11_cursor_png(width, height, pixels)
+            );
+        }
+    }
+
+    #[test]
+    fn cursor_pixels_are_encoded_as_rgba() {
+        let png = x11_cursor_png(1, 1, &[0x8011_2233]).unwrap();
+        let image = image::load_from_memory(&png).unwrap().into_rgba8();
+        assert_eq!(image.get_pixel(0, 0).0, [0x11, 0x22, 0x33, 0x80]);
+    }
+
+    #[test]
+    fn cursor_with_mismatched_pixel_count_is_skipped() {
+        let mut source = X11CursorSource::default();
+        assert_eq!(source.png(2, 2, vec![0; 3]), None);
+    }
+}
+
+#[cfg(windows)]
 fn get_cursor_data() -> Option<CursorData> {
     use windows::Win32::Foundation::{HWND, POINT};
     use windows::Win32::Graphics::Gdi::{
@@ -1117,6 +1640,73 @@ mod incremental_writer_tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn flushes_do_not_wait_for_a_blocked_writer() {
+        use std::ffi::CString;
+        use std::io::Read;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("cursor.json");
+        let fifo_c = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+        let outputs = IncrementalCaptureOutputs {
+            cursor: Some(fifo.clone()),
+            keyboard: Some(dir.path().join("keyboard.bin")),
+        };
+
+        // Opening a FIFO for writing blocks until a reader arrives, which
+        // stands in for a stalled output volume.
+        let writer = CursorFileWriter::spawn(outputs.clone()).unwrap();
+        let started = Instant::now();
+        for events in [10, 20, 30, 40] {
+            writer.flush(|| IncrementalSnapshot::capture(&outputs, &response(events)));
+        }
+        assert!(writer.save_image(
+            dir.path().join("cursor_0.png"),
+            image::RgbaImage::from_pixel(8, 8, image::Rgba([20, 40, 80, 255])),
+        ));
+        assert!(started.elapsed() < Duration::from_millis(500));
+
+        let mut drain = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&fifo)
+            .unwrap();
+        let done = Arc::new(AtomicBool::new(false));
+        let drainer = {
+            let done = done.clone();
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                while !done.load(Ordering::Acquire) {
+                    if !matches!(drain.read(&mut buf), Ok(n) if n > 0) {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }
+            })
+        };
+
+        let final_response = response(50);
+        let unsaved = writer.finish(Some(IncrementalSnapshot::capture(
+            &outputs,
+            &final_response,
+        )));
+        done.store(true, Ordering::Release);
+        drainer.join().unwrap();
+
+        assert!(unsaved.is_empty());
+        assert!(dir.path().join("cursor_0.png").exists());
+        let expected = dir.path().join("expected-keyboard.bin");
+        flush_keyboard_data(&expected, &final_response.keyboard_presses);
+        assert_eq!(
+            std::fs::read(dir.path().join("keyboard.bin")).unwrap(),
+            std::fs::read(expected).unwrap()
+        );
+    }
+
     #[test]
     fn unsaved_cursor_images_are_reported() {
         let dir = tempfile::tempdir().unwrap();
@@ -1181,6 +1771,7 @@ mod cursor_image_tests {
         CursorData {
             image,
             hotspot: XY::new(0.0, 0.0),
+            #[cfg(not(target_os = "macos"))]
             shape: None,
         }
     }

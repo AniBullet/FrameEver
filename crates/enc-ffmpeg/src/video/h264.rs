@@ -14,6 +14,8 @@ use tracing::{debug, error, info, trace, warn};
 use crate::base::EncoderBase;
 use crate::video::force_software_encoder;
 use crate::video::h264_packet::H264PacketEncoder;
+#[cfg(target_os = "macos")]
+use crate::video::videotoolbox_hw::VideoToolboxHwFrames;
 use std::sync::Arc;
 
 fn is_420(format: ffmpeg::format::Pixel) -> bool {
@@ -297,6 +299,141 @@ impl H264EncoderBuilder {
             input_width,
             input_height,
             converted_frame_pool,
+            #[cfg(target_os = "macos")]
+            videotoolbox_hw: None,
+        })
+    }
+
+    /// Builds an `h264_videotoolbox` encoder that consumes IOSurface-backed
+    /// NV12 CVPixelBuffers directly (`AV_PIX_FMT_VIDEOTOOLBOX`), skipping the
+    /// per-frame CPU plane copy a software-input encoder requires. Frames are
+    /// queued through [`H264Encoder::wrap_videotoolbox_pixel_buffer`].
+    ///
+    /// Fails (so the caller can fall back to the software-input path) when
+    /// the input is not NV12, scaling is requested, the target frame rate
+    /// exceeds VideoToolbox's estimated capability, or the hardware contexts
+    /// cannot be created.
+    #[cfg(target_os = "macos")]
+    pub fn build_videotoolbox_hw_input(
+        self,
+        output: &mut format::context::Output,
+    ) -> Result<H264Encoder, H264EncoderError> {
+        let input_config = self.input_config;
+
+        if input_config.pixel_format != ffmpeg::format::Pixel::NV12 {
+            return Err(H264EncoderError::VideoToolboxHwInput(format!(
+                "input pixel format {:?} is not NV12",
+                input_config.pixel_format
+            )));
+        }
+        if let Some((width, height)) = self.output_size
+            && (width != input_config.width || height != input_config.height)
+        {
+            return Err(H264EncoderError::VideoToolboxHwInput(format!(
+                "scaling {}x{} -> {}x{} requires the software input path",
+                input_config.width, input_config.height, width, height
+            )));
+        }
+        let output_width = input_config.width;
+        let output_height = input_config.height;
+        if !output_width.is_multiple_of(2) || !output_height.is_multiple_of(2) {
+            return Err(H264EncoderError::InvalidOutputDimensions {
+                width: output_width,
+                height: output_height,
+            });
+        }
+        if force_software_encoder()
+            || requires_software_encoder(&input_config, self.preset, self.is_export)
+        {
+            return Err(H264EncoderError::VideoToolboxHwInput(
+                "software encoder required for this resolution/frame rate".to_string(),
+            ));
+        }
+        if self.crf.is_some() {
+            return Err(H264EncoderError::VideoToolboxHwInput(
+                "CRF encoding uses libx264".to_string(),
+            ));
+        }
+
+        let codec =
+            encoder::find_by_name("h264_videotoolbox").ok_or(H264EncoderError::CodecNotFound)?;
+        let encoder_options = get_codec_and_options(
+            &input_config,
+            self.preset,
+            Some(&["h264_videotoolbox"]),
+            self.is_export,
+            None,
+        )
+        .into_iter()
+        .next()
+        .map(|(_, options)| options)
+        .ok_or(H264EncoderError::CodecNotFound)?;
+
+        let hw_frames = VideoToolboxHwFrames::new(output_width, output_height)
+            .map_err(|e| H264EncoderError::VideoToolboxHwInput(e.to_string()))?;
+
+        let thread_count = thread::available_parallelism()
+            .map(|v| v.get())
+            .unwrap_or(1);
+
+        let encoder = {
+            let mut encoder_ctx = context::Context::new_with_codec(codec);
+            encoder_ctx.set_threading(Config::count(thread_count));
+            let mut encoder = encoder_ctx.encoder().video()?;
+
+            encoder.set_width(output_width);
+            encoder.set_height(output_height);
+            encoder.set_format(ffmpeg::format::Pixel::VIDEOTOOLBOX);
+            encoder.set_time_base(input_config.time_base);
+            encoder.set_frame_rate(Some(input_config.frame_rate));
+            encoder.set_colorspace(color::Space::BT709);
+            encoder.set_color_range(color::Range::MPEG);
+            unsafe {
+                (*encoder.as_mut_ptr()).color_primaries =
+                    ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_BT709;
+                (*encoder.as_mut_ptr()).color_trc =
+                    ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT709;
+            }
+
+            let bitrate = get_bitrate(
+                output_width,
+                output_height,
+                input_config.frame_rate.0 as f32 / input_config.frame_rate.1 as f32,
+                self.bpp,
+            );
+            encoder.set_bit_rate(bitrate);
+            encoder.set_max_bit_rate(bitrate * 3 / 2);
+
+            unsafe { hw_frames.attach_to_encoder(encoder.as_mut_ptr()) };
+
+            encoder.open_as_with(codec, encoder_options)?
+        };
+
+        let mut output_stream = output.add_stream(codec)?;
+        let stream_index = output_stream.index();
+        output_stream.set_time_base((1, H264Encoder::TIME_BASE));
+        output_stream.set_rate(input_config.frame_rate);
+        output_stream.set_parameters(&encoder);
+
+        info!(
+            width = output_width,
+            height = output_height,
+            fps = input_config.frame_rate.0 as f32 / input_config.frame_rate.1.max(1) as f32,
+            "Selected hardware H264 encoder with zero-copy VideoToolbox input"
+        );
+
+        Ok(H264Encoder {
+            base: EncoderBase::new(stream_index),
+            encoder,
+            converter: None,
+            output_format: ffmpeg::format::Pixel::VIDEOTOOLBOX,
+            output_width,
+            output_height,
+            input_format: input_config.pixel_format,
+            input_width: input_config.width,
+            input_height: input_config.height,
+            converted_frame_pool: None,
+            videotoolbox_hw: Some(Arc::new(hw_frames)),
         })
     }
 
@@ -685,6 +822,8 @@ pub struct H264Encoder {
     input_width: u32,
     input_height: u32,
     converted_frame_pool: Option<frame::Video>,
+    #[cfg(target_os = "macos")]
+    videotoolbox_hw: Option<Arc<VideoToolboxHwFrames>>,
 }
 
 pub struct ConversionRequirements {
@@ -710,6 +849,35 @@ impl H264Encoder {
 
     pub fn builder(input_config: VideoInfo) -> H264EncoderBuilder {
         H264EncoderBuilder::new(input_config)
+    }
+
+    /// Whether this encoder was built with
+    /// [`H264EncoderBuilder::build_videotoolbox_hw_input`] and expects
+    /// wrapped CVPixelBuffer frames instead of software frames.
+    #[cfg(target_os = "macos")]
+    pub fn is_videotoolbox_hw_input(&self) -> bool {
+        self.videotoolbox_hw.is_some()
+    }
+
+    /// Wraps an IOSurface-backed NV12 `CVPixelBufferRef` as a frame this
+    /// encoder can queue directly. Only available on encoders built with
+    /// [`H264EncoderBuilder::build_videotoolbox_hw_input`].
+    ///
+    /// # Safety
+    /// `pixel_buffer` must be a valid `CVPixelBufferRef` matching the
+    /// encoder's dimensions with a biplanar 4:2:0 pixel format.
+    #[cfg(target_os = "macos")]
+    pub unsafe fn wrap_videotoolbox_pixel_buffer(
+        &self,
+        pixel_buffer: *mut std::ffi::c_void,
+    ) -> Result<frame::Video, H264EncoderError> {
+        let hw_frames = self.videotoolbox_hw.as_ref().ok_or_else(|| {
+            H264EncoderError::VideoToolboxHwInput(
+                "encoder was not built for VideoToolbox hardware input".to_string(),
+            )
+        })?;
+        unsafe { hw_frames.wrap_pixel_buffer(pixel_buffer) }
+            .map_err(|e| H264EncoderError::VideoToolboxHwInput(e.to_string()))
     }
 
     pub fn conversion_requirements(&self) -> ConversionRequirements {
@@ -820,18 +988,29 @@ impl H264Encoder {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const VIDEOTOOLBOX_4K_MAX_FPS: f64 = 55.0;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const VIDEOTOOLBOX_1080P_MAX_FPS: f64 = 190.0;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const NVENC_4K_MAX_FPS: f64 = 120.0;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const NVENC_1080P_MAX_FPS: f64 = 500.0;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const QSV_4K_MAX_FPS: f64 = 90.0;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const QSV_1080P_MAX_FPS: f64 = 300.0;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const AMF_4K_MAX_FPS: f64 = 100.0;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const AMF_1080P_MAX_FPS: f64 = 350.0;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const PIXELS_4K: f64 = 3840.0 * 2160.0;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const PIXELS_1080P: f64 = 1920.0 * 1080.0;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn estimate_hw_encoder_max_fps(encoder_name: &str, width: u32, height: u32) -> f64 {
     let pixels = (width as f64) * (height as f64);
 
@@ -862,6 +1041,29 @@ fn requires_software_encoder(config: &VideoInfo, preset: H264Preset, is_export: 
         return true;
     }
 
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = config;
+
+    #[cfg(target_os = "macos")]
+    {
+        let fps =
+            config.frame_rate.numerator() as f64 / config.frame_rate.denominator().max(1) as f64;
+        let max_hw_fps =
+            estimate_hw_encoder_max_fps("h264_videotoolbox", config.width, config.height);
+        let headroom_factor = 0.9;
+        if fps > max_hw_fps * headroom_factor {
+            debug!(
+                width = config.width,
+                height = config.height,
+                target_fps = fps,
+                hw_max_fps = max_hw_fps,
+                "Target FPS exceeds VideoToolbox capability, using software encoder"
+            );
+            return true;
+        }
+    }
+
+    #[cfg(target_os = "windows")]
     {
         use cap_frame_converter::{GpuVendor, detect_primary_gpu};
 
@@ -892,27 +1094,54 @@ fn requires_software_encoder(config: &VideoInfo, preset: H264Preset, is_export: 
     false
 }
 
+#[cfg(target_os = "linux")]
+fn linux_encoder_priority(nvidia_device_available: bool) -> &'static [&'static str] {
+    if nvidia_device_available {
+        &["h264_nvenc", "libx264"]
+    } else {
+        &["libx264"]
+    }
+}
+
 fn get_default_encoder_priority(_config: &VideoInfo) -> &'static [&'static str] {
-    use cap_frame_converter::{GpuVendor, detect_primary_gpu};
+    #[cfg(target_os = "macos")]
+    {
+        &["h264_videotoolbox", "libx264"]
+    }
 
-    static ENCODER_PRIORITY_NVIDIA: &[&str] =
-        &["h264_nvenc", "h264_mf", "h264_qsv", "h264_amf", "libx264"];
-    static ENCODER_PRIORITY_AMD: &[&str] =
-        &["h264_amf", "h264_mf", "h264_nvenc", "h264_qsv", "libx264"];
-    static ENCODER_PRIORITY_INTEL: &[&str] =
-        &["h264_qsv", "h264_mf", "h264_nvenc", "h264_amf", "libx264"];
-    static ENCODER_PRIORITY_DEFAULT: &[&str] =
-        &["h264_nvenc", "h264_qsv", "h264_amf", "h264_mf", "libx264"];
+    #[cfg(target_os = "windows")]
+    {
+        use cap_frame_converter::{GpuVendor, detect_primary_gpu};
 
-    match detect_primary_gpu() {
-        Some(info) if !info.supports_hardware_encoding() => &["libx264"],
-        Some(info) => match info.vendor {
-            GpuVendor::Nvidia => ENCODER_PRIORITY_NVIDIA,
-            GpuVendor::Amd => ENCODER_PRIORITY_AMD,
-            GpuVendor::Intel => ENCODER_PRIORITY_INTEL,
-            _ => ENCODER_PRIORITY_DEFAULT,
-        },
-        None => ENCODER_PRIORITY_DEFAULT,
+        static ENCODER_PRIORITY_NVIDIA: &[&str] =
+            &["h264_nvenc", "h264_mf", "h264_qsv", "h264_amf", "libx264"];
+        static ENCODER_PRIORITY_AMD: &[&str] =
+            &["h264_amf", "h264_mf", "h264_nvenc", "h264_qsv", "libx264"];
+        static ENCODER_PRIORITY_INTEL: &[&str] =
+            &["h264_qsv", "h264_mf", "h264_nvenc", "h264_amf", "libx264"];
+        static ENCODER_PRIORITY_DEFAULT: &[&str] =
+            &["h264_nvenc", "h264_qsv", "h264_amf", "h264_mf", "libx264"];
+
+        match detect_primary_gpu() {
+            Some(info) if !info.supports_hardware_encoding() => &["libx264"],
+            Some(info) => match info.vendor {
+                GpuVendor::Nvidia => ENCODER_PRIORITY_NVIDIA,
+                GpuVendor::Amd => ENCODER_PRIORITY_AMD,
+                GpuVendor::Intel => ENCODER_PRIORITY_INTEL,
+                _ => ENCODER_PRIORITY_DEFAULT,
+            },
+            None => ENCODER_PRIORITY_DEFAULT,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        linux_encoder_priority(std::path::Path::new("/dev/nvidiactl").exists())
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        &["libx264"]
     }
 }
 
@@ -937,6 +1166,7 @@ fn export_encoder_priority_override(
     _config: &VideoInfo,
     _preset: H264Preset,
 ) -> Option<&'static [&'static str]> {
+    #[cfg(target_os = "windows")]
     {
         use cap_frame_converter::{GpuVendor, detect_primary_gpu};
 
@@ -1128,6 +1358,11 @@ fn cached_hardware_self_test(
         fmt::Write,
         sync::{Mutex, OnceLock},
     };
+
+    if !(cfg!(target_os = "windows") || (cfg!(target_os = "linux") && codec.name() == "h264_nvenc"))
+    {
+        return Ok(());
+    }
 
     if std::env::var("CAP_DISABLE_ENCODER_SELF_TEST")
         .is_ok_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
@@ -1423,6 +1658,109 @@ mod self_test_tests {
         let config = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 160, 120, 30);
         hardware_encoder_self_test(codec, options, &config, 160, 120, 0.3, None)
             .expect("healthy encoder passes the round trip");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn videotoolbox_export_uses_the_default_keyframe_interval() {
+        if force_software_encoder() {
+            return;
+        }
+        ffmpeg::init().ok();
+        let config = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Nv12, 1920, 1080, 60);
+        let videotoolbox_options = |is_export| {
+            get_codec_and_options(
+                &config,
+                H264Preset::Medium,
+                Some(&["h264_videotoolbox"]),
+                is_export,
+                None,
+            )
+            .into_iter()
+            .find(|(codec, _)| codec.name() == "h264_videotoolbox")
+            .expect("VideoToolbox encoder is available on macOS")
+            .1
+        };
+
+        let export = videotoolbox_options(true);
+        let expected = (DEFAULT_KEYFRAME_INTERVAL_SECS * 60).to_string();
+        assert_eq!(export.get("g"), Some(expected.as_str()));
+
+        let realtime = videotoolbox_options(false);
+        assert_eq!(realtime.get("g"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_nvidia_device_prefers_nvenc_and_keeps_software_fallback() {
+        assert_eq!(linux_encoder_priority(true), &["h264_nvenc", "libx264"]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_without_nvidia_preserves_software_encoder() {
+        assert_eq!(linux_encoder_priority(false), &["libx264"]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_high_throughput_preserves_software_encoder() {
+        let config = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 160, 120, 30);
+
+        assert_eq!(
+            get_encoder_priority_with_override(
+                &config,
+                H264Preset::HighThroughput,
+                Some(linux_encoder_priority(true)),
+                false,
+            ),
+            &["libx264"],
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_crf_preserves_software_encoder() {
+        ffmpeg::init().ok();
+        let config = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 160, 120, 30);
+        let codecs = get_codec_and_options(
+            &config,
+            H264Preset::Ultrafast,
+            Some(linux_encoder_priority(true)),
+            true,
+            Some(23),
+        );
+
+        assert_eq!(codecs.len(), 1);
+        assert_eq!(codecs[0].0.name(), "libx264");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_nvenc_self_test_decodes_real_gray_frames_when_available() {
+        if !std::path::Path::new("/dev/nvidiactl").exists() {
+            return;
+        }
+
+        ffmpeg::init().ok();
+        let Some(codec) = encoder::find_by_name("h264_nvenc") else {
+            return;
+        };
+        let config = VideoInfo::from_raw(cap_media_info::RawVideoFormat::Bgra, 160, 120, 30);
+        let options = get_codec_and_options(
+            &config,
+            H264Preset::Ultrafast,
+            Some(&["h264_nvenc", "libx264"]),
+            false,
+            None,
+        )
+        .into_iter()
+        .find(|(candidate, _)| candidate.name() == "h264_nvenc")
+        .expect("available NVENC encoder is configured")
+        .1;
+
+        cached_hardware_self_test(codec, &options, &config, 160, 120, 0.3, None)
+            .expect("real NVIDIA hardware preserves neutral gray through encode and decode");
     }
 }
 

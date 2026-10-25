@@ -305,7 +305,7 @@ fn realtime_loop() {
                     // not Cap, so only the identity checks and the minimum
                     // below apply there. A wall-clock class: a proven
                     // machine stall makes it inconclusive, never excused.
-                    let floor = 0.0;
+                    let floor = if cfg!(windows) { 0.0 } else { 0.75 };
                     let due = (total - first) as usize;
                     let share = delivered.len() as f64 / due.max(1) as f64;
                     if let Some(ready) = telemetry.ready_after

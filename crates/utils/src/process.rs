@@ -2,6 +2,7 @@ use std::io;
 use tokio::process::{Child, Command};
 
 pub fn spawn_with_piped_output(mut command: Command) -> io::Result<Child> {
+    #[cfg(windows)]
     let (stdout, stderr) = {
         use std::os::windows::io::OwnedHandle;
 
@@ -20,10 +21,16 @@ pub fn spawn_with_piped_output(mut command: Command) -> io::Result<Child> {
         (stdout, stderr)
     };
 
+    #[cfg(not(windows))]
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
     let child = command.spawn()?;
     // Command retains write handles that would prevent EOF after the worker exits.
     drop(command);
 
+    #[cfg(windows)]
     let child = {
         let mut child = child;
         child.stdout = Some(stdout);
@@ -179,6 +186,7 @@ mod tests {
         assert!(spawn_with_piped_output(command).is_err());
     }
 
+    #[cfg(windows)]
     #[tokio::test]
     async fn windows_output_handles_are_synchronous() {
         use std::{ffi::c_void, os::windows::io::AsRawHandle};

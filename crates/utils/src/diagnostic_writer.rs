@@ -77,6 +77,11 @@ impl Journal {
         reject_non_regular(&self.current)?;
         let mut options = OpenOptions::new();
         options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
         let mut file = options.open(&self.current)?;
         self.bytes = file.metadata()?.len();
         if self.bytes > 0 && self.bytes < MAX_FILE_BYTES {
@@ -235,5 +240,22 @@ mod tests {
         writer.write_all(b"ordinary log").unwrap();
         assert!(blocked.is_dir());
         assert_eq!(writer.ordinary, b"ordinary log");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn diagnostic_files_never_follow_a_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = dir.path().join("original");
+        std::fs::write(&original, "preserve me").unwrap();
+        std::os::unix::fs::symlink(
+            &original,
+            dir.path().join("cap-test.log.diagnostic-current.jsonl"),
+        )
+        .unwrap();
+        let mut writer = DiagnosticWriter::new(Vec::new(), dir.path(), "cap-test.log");
+        writer.write_all(b"CAP_DIAGNOSTIC {}\n").unwrap();
+        assert!(writer.journal.disabled);
+        assert_eq!(std::fs::read_to_string(original).unwrap(), "preserve me");
     }
 }

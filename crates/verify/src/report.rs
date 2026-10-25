@@ -34,7 +34,13 @@ pub fn tier() -> Tier {
 }
 
 pub fn platform() -> &'static str {
-    "windows"
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

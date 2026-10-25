@@ -134,7 +134,13 @@ fn discover_system_info() -> SystemInfo {
 
     let memory_gb = sys.total_memory() / 1024 / 1024 / 1024;
 
-    let platform = "Windows".to_string();
+    let platform = if cfg!(target_os = "macos") {
+        "macOS".to_string()
+    } else if cfg!(target_os = "windows") {
+        "Windows".to_string()
+    } else {
+        "Unknown".to_string()
+    };
 
     let os_version = detect_os_version();
     let gpu = detect_gpu();
@@ -148,6 +154,25 @@ fn discover_system_info() -> SystemInfo {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn detect_os_version() -> String {
+    std::process::Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout)
+                    .ok()
+                    .map(|s| format!("macOS {}", s.trim()))
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "macOS (unknown version)".to_string())
+}
+
+#[cfg(target_os = "windows")]
 fn detect_os_version() -> String {
     std::process::Command::new("cmd")
         .args(["/C", "ver"])
@@ -165,6 +190,22 @@ fn detect_os_version() -> String {
         .unwrap_or_else(|| "Windows (unknown version)".to_string())
 }
 
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn detect_os_version() -> String {
+    "Unknown OS".to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn detect_gpu() -> Option<String> {
+    Some("Apple Silicon / Intel UHD".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn detect_gpu() -> Option<String> {
+    None
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn detect_gpu() -> Option<String> {
     None
 }

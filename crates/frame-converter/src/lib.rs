@@ -7,7 +7,14 @@ pub use pool::*;
 mod frame_pool;
 pub use frame_pool::*;
 
+#[cfg(target_os = "macos")]
+mod videotoolbox;
+#[cfg(target_os = "macos")]
+pub use videotoolbox::*;
+
+#[cfg(target_os = "windows")]
 mod d3d11;
+#[cfg(target_os = "windows")]
 pub use d3d11::*;
 
 use std::sync::Arc;
@@ -28,6 +35,9 @@ pub enum ConvertError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConverterBackend {
+    #[cfg(target_os = "macos")]
+    VideoToolbox,
+    #[cfg(target_os = "windows")]
     D3D11,
     Swscale,
     Passthrough,
@@ -36,6 +46,9 @@ pub enum ConverterBackend {
 impl std::fmt::Display for ConverterBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(target_os = "macos")]
+            ConverterBackend::VideoToolbox => write!(f, "VideoToolbox (hardware)"),
+            #[cfg(target_os = "windows")]
             ConverterBackend::D3D11 => write!(f, "D3D11 (GPU)"),
             ConverterBackend::Swscale => write!(f, "swscale (CPU)"),
             ConverterBackend::Passthrough => write!(f, "passthrough"),
@@ -62,6 +75,9 @@ pub trait FrameConverter: Send + Sync + 'static {
 
     fn is_hardware_accelerated(&self) -> bool {
         match self.backend() {
+            #[cfg(target_os = "macos")]
+            ConverterBackend::VideoToolbox => true,
+            #[cfg(target_os = "windows")]
             ConverterBackend::D3D11 => true,
             ConverterBackend::Swscale => false,
             ConverterBackend::Passthrough => false,
@@ -169,26 +185,53 @@ pub fn create_converter_with_details(
         config.output_height
     );
 
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let mut fallback_reasons: Vec<String> = Vec::new();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let fallback_reasons: Vec<String> = Vec::new();
 
-    match D3D11Converter::new(config.clone()) {
-        Ok(converter) => {
-            let gpu_info = converter.gpu_info();
-            tracing::info!(
-                "✓ Created D3D11 hardware converter - GPU: {} ({})",
-                gpu_info.description,
-                gpu_info.vendor_name()
-            );
-            return Ok(ConverterSelectionResult {
-                converter: Arc::new(converter),
-                backend: ConverterBackend::D3D11,
-                fallback_reason: None,
-            });
+    #[cfg(target_os = "macos")]
+    {
+        match VideoToolboxConverter::new(config.clone()) {
+            Ok(converter) => {
+                tracing::info!(
+                    "✓ Created VideoToolbox converter - hardware accelerated pixel transfer"
+                );
+                return Ok(ConverterSelectionResult {
+                    converter: Arc::new(converter),
+                    backend: ConverterBackend::VideoToolbox,
+                    fallback_reason: None,
+                });
+            }
+            Err(e) => {
+                let reason = format!("VideoToolbox: {e}");
+                tracing::debug!("{reason}");
+                fallback_reasons.push(reason);
+            }
         }
-        Err(e) => {
-            let reason = format!("D3D11: {e}");
-            tracing::debug!("{reason}");
-            fallback_reasons.push(reason);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        match D3D11Converter::new(config.clone()) {
+            Ok(converter) => {
+                let gpu_info = converter.gpu_info();
+                tracing::info!(
+                    "✓ Created D3D11 hardware converter - GPU: {} ({})",
+                    gpu_info.description,
+                    gpu_info.vendor_name()
+                );
+                return Ok(ConverterSelectionResult {
+                    converter: Arc::new(converter),
+                    backend: ConverterBackend::D3D11,
+                    fallback_reason: None,
+                });
+            }
+            Err(e) => {
+                let reason = format!("D3D11: {e}");
+                tracing::debug!("{reason}");
+                fallback_reasons.push(reason);
+            }
         }
     }
 

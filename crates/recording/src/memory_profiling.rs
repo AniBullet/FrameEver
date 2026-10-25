@@ -161,10 +161,99 @@ impl ProcessStats {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn time_value_to_secs(tv: &libc::time_value_t) -> f64 {
+    tv.seconds as f64 + tv.microseconds as f64 / 1_000_000.0
+}
+
+#[cfg(target_os = "macos")]
+fn get_task_basic_info() -> Option<libc::mach_task_basic_info> {
+    let mut info = libc::mach_task_basic_info {
+        virtual_size: 0,
+        resident_size: 0,
+        resident_size_max: 0,
+        user_time: libc::time_value_t {
+            seconds: 0,
+            microseconds: 0,
+        },
+        system_time: libc::time_value_t {
+            seconds: 0,
+            microseconds: 0,
+        },
+        policy: 0,
+        suspend_count: 0,
+    };
+    let mut count = (std::mem::size_of::<libc::mach_task_basic_info>()
+        / std::mem::size_of::<libc::natural_t>())
+        as libc::mach_msg_type_number_t;
+
+    let ret = unsafe {
+        libc::task_info(
+            libc::mach_task_self(),
+            libc::MACH_TASK_BASIC_INFO,
+            &mut info as *mut _ as libc::task_info_t,
+            &mut count,
+        )
+    };
+
+    if ret != libc::KERN_SUCCESS {
+        return None;
+    }
+
+    Some(info)
+}
+
+#[cfg(target_os = "macos")]
+fn get_thread_count() -> u32 {
+    unsafe {
+        let mut thread_list: libc::thread_act_array_t = std::ptr::null_mut();
+        let mut thread_count: libc::mach_msg_type_number_t = 0;
+
+        let ret = libc::task_threads(libc::mach_task_self(), &mut thread_list, &mut thread_count);
+
+        if ret != libc::KERN_SUCCESS {
+            return 0;
+        }
+
+        if !thread_list.is_null() && thread_count > 0 {
+            libc::vm_deallocate(
+                libc::mach_task_self(),
+                thread_list as libc::vm_address_t,
+                (thread_count as usize) * std::mem::size_of::<libc::thread_act_t>(),
+            );
+        }
+
+        thread_count
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn get_memory_usage() -> Option<MemoryStats> {
+    let info = get_task_basic_info()?;
+    Some(MemoryStats {
+        resident_mb: info.resident_size as f64 / 1024.0 / 1024.0,
+        footprint_mb: None,
+    })
+}
+
+#[cfg(target_os = "macos")]
+pub fn get_process_stats() -> Option<ProcessStats> {
+    let info = get_task_basic_info()?;
+    Some(ProcessStats {
+        resident_mb: info.resident_size as f64 / 1024.0 / 1024.0,
+        cpu_user_secs: time_value_to_secs(&info.user_time),
+        cpu_system_secs: time_value_to_secs(&info.system_time),
+        thread_count: get_thread_count(),
+        wall_time: Instant::now(),
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
 pub fn get_memory_usage() -> Option<MemoryStats> {
     None
 }
 
+#[cfg(not(target_os = "macos"))]
 pub fn get_process_stats() -> Option<ProcessStats> {
     None
 }

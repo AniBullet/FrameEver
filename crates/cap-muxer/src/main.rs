@@ -90,6 +90,7 @@ fn classify_io_error(err: &ffmpeg::Error) -> bool {
     if *errno == libc::ENOSPC {
         return true;
     }
+    #[cfg(windows)]
     if *errno == 112 {
         return true;
     }
@@ -426,7 +427,10 @@ fn open_output(state: &mut State, params: &StartParams) -> Result<OpenOutput, Mu
 
     let manifest_path = base_path.join("dash_manifest.mpd");
 
+    #[cfg(target_os = "windows")]
     let manifest_path_str = manifest_path.to_string_lossy().replace('\\', "/");
+    #[cfg(not(target_os = "windows"))]
+    let manifest_path_str = manifest_path.to_string_lossy().to_string();
 
     let mut output = format::output_as(&manifest_path_str, "dash")
         .map_err(|e| MuxerError::FFmpeg(anyhow!("format::output_as: {e}")))?;
@@ -947,8 +951,11 @@ mod tests {
         for path in [init_path, directory.join("dash_manifest.mpd")] {
             let mut options = std::fs::OpenOptions::new();
             options.read(true).write(true);
-            use std::os::windows::fs::OpenOptionsExt;
-            options.share_mode(0);
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                options.share_mode(0);
+            }
             let file = options.open(&path).unwrap();
             assert_eq!(file.metadata().unwrap().len(), 0);
             drop(file);

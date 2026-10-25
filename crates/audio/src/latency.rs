@@ -232,8 +232,14 @@ const DECREASE_TAU_SECS: f64 = 1.0;
 const MAX_RISE_PER_SEC: f64 = 0.75;
 const WARMUP_GUARD_SAMPLES: u32 = 3;
 const WARMUP_SPIKE_RATIO: f64 = 50.0;
+#[cfg(not(target_os = "macos"))]
 const FALLBACK_WIRED_LATENCY_SECS: f64 = 0.03;
+#[cfg(target_os = "macos")]
+const WIRELESS_FALLBACK_LATENCY_SECS: f64 = 0.20;
 const WIRELESS_MIN_LATENCY_SECS: f64 = 0.12;
+
+#[cfg(target_os = "macos")]
+const AIRPLAY_MIN_LATENCY_SECS: f64 = 1.8;
 
 /// Tracks the measured output latency reported by the active audio device.
 ///
@@ -430,12 +436,20 @@ pub fn default_output_latency_hint(
         return None;
     }
 
-    let fallback = (buffer_size_frames as f64 / sample_rate as f64)
-        .clamp(FALLBACK_WIRED_LATENCY_SECS, MAX_LATENCY_SECS);
-    Some(OutputLatencyHint::new(
-        fallback,
-        OutputTransportKind::Unknown,
-    ))
+    #[cfg(target_os = "macos")]
+    {
+        macos::default_output_latency_hint(sample_rate, buffer_size_frames)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let fallback = (buffer_size_frames as f64 / sample_rate as f64)
+            .clamp(FALLBACK_WIRED_LATENCY_SECS, MAX_LATENCY_SECS);
+        Some(OutputLatencyHint::new(
+            fallback,
+            OutputTransportKind::Unknown,
+        ))
+    }
 }
 
 /// Whether the default output device is the built-in output, whose stream can
@@ -443,7 +457,15 @@ pub fn default_output_latency_hint(
 /// External, wireless, AirPlay and display outputs keep running because some
 /// drop the start of audio or take seconds to wake after their stream stops.
 pub fn default_output_supports_idle_pause() -> bool {
-    false
+    #[cfg(target_os = "macos")]
+    {
+        macos::default_output_supports_idle_pause()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -487,7 +509,22 @@ pub fn estimate_input_latency(
         return InputLatencyInfo::new(0.0, 0.0, OutputTransportKind::Unknown);
     }
 
-    windows::estimate_input_latency(sample_rate, buffer_size_frames, device_name)
+    #[cfg(target_os = "macos")]
+    {
+        macos::estimate_input_latency(sample_rate, buffer_size_frames, device_name)
+            .unwrap_or_else(|| InputLatencyInfo::from_buffer_only(sample_rate, buffer_size_frames))
+    }
+
+    #[cfg(windows)]
+    {
+        windows::estimate_input_latency(sample_rate, buffer_size_frames, device_name)
+    }
+
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = device_name;
+        InputLatencyInfo::from_buffer_only(sample_rate, buffer_size_frames)
+    }
 }
 
 fn time_based_alpha(dt_secs: f64, tau_secs: f64) -> f64 {
@@ -504,14 +541,250 @@ fn time_based_alpha(dt_secs: f64, tau_secs: f64) -> f64 {
 }
 
 fn transport_constraints(transport: OutputTransportKind) -> (f64, f64) {
-    match transport {
-        OutputTransportKind::Wireless | OutputTransportKind::ContinuityWireless => {
-            (WIRELESS_MIN_LATENCY_SECS, MAX_LATENCY_SECS)
+    #[cfg(target_os = "macos")]
+    {
+        match transport {
+            OutputTransportKind::Airplay => (AIRPLAY_MIN_LATENCY_SECS, MAX_LATENCY_SECS),
+            OutputTransportKind::Wireless | OutputTransportKind::ContinuityWireless => {
+                (WIRELESS_MIN_LATENCY_SECS, MAX_LATENCY_SECS)
+            }
+            _ => (0.0, MAX_LATENCY_SECS),
         }
-        _ => (0.0, MAX_LATENCY_SECS),
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        match transport {
+            OutputTransportKind::Wireless | OutputTransportKind::ContinuityWireless => {
+                (WIRELESS_MIN_LATENCY_SECS, MAX_LATENCY_SECS)
+            }
+            _ => (0.0, MAX_LATENCY_SECS),
+        }
     }
 }
 
+#[cfg(target_os = "macos")]
+mod macos {
+    #[cfg(target_os = "macos")]
+    use super::AIRPLAY_MIN_LATENCY_SECS;
+    use super::{
+        InputLatencyInfo, MAX_LATENCY_SECS, OutputLatencyHint, OutputTransportKind,
+        WIRELESS_FALLBACK_LATENCY_SECS, WIRELESS_MIN_LATENCY_SECS, transport_constraints,
+    };
+    use cidre::{
+        core_audio::{
+            DeviceTransportType, PropElement, PropScope, PropSelector,
+            hardware::{Device, Stream, System},
+        },
+        os,
+    };
+
+    pub(super) fn default_output_latency_hint(
+        sample_rate: u32,
+        fallback_buffer_frames: u32,
+    ) -> Option<OutputLatencyHint> {
+        let device = System::default_output_device().ok()?;
+        compute_latency_hint(&device, sample_rate, fallback_buffer_frames).ok()
+    }
+
+    pub(super) fn default_output_supports_idle_pause() -> bool {
+        System::default_output_device()
+            .ok()
+            .and_then(|device| device.transport_type().ok())
+            .is_some_and(|transport| transport == DeviceTransportType::BUILT_IN)
+    }
+
+    pub(super) fn estimate_input_latency(
+        sample_rate: u32,
+        buffer_size_frames: u32,
+        device_name: Option<&str>,
+    ) -> Option<InputLatencyInfo> {
+        // Resolve the actual device being recorded from; the system-default
+        // input may be a different device with very different latency
+        // characteristics (e.g. a Bluetooth headset while recording from a
+        // wired interface).
+        let device =
+            input_device_by_name(device_name).or_else(|| System::default_input_device().ok())?;
+        compute_input_latency(&device, sample_rate, buffer_size_frames).ok()
+    }
+
+    fn input_device_by_name(device_name: Option<&str>) -> Option<Device> {
+        let target = device_name?;
+        System::devices().ok()?.into_iter().find(|device| {
+            has_input_streams(device) && device.name().is_ok_and(|name| name.to_string() == target)
+        })
+    }
+
+    fn has_input_streams(device: &Device) -> bool {
+        device.streams().is_ok_and(|streams| {
+            streams
+                .iter()
+                .any(|stream| is_input_stream(stream).unwrap_or(false))
+        })
+    }
+
+    fn compute_input_latency(
+        device: &Device,
+        sample_rate: u32,
+        fallback_buffer_frames: u32,
+    ) -> os::Result<InputLatencyInfo> {
+        let transport = device
+            .transport_type()
+            .unwrap_or(DeviceTransportType::UNKNOWN);
+        let transport_kind = transport_kind(transport);
+
+        let device_latency_frames =
+            scoped_u32(device, PropSelector::DEVICE_LATENCY, PropScope::INPUT).unwrap_or(0);
+        let safety_offset_frames =
+            scoped_u32(device, PropSelector::DEVICE_SAFETY_OFFSET, PropScope::INPUT).unwrap_or(0);
+        let buffer_frames = device
+            .prop(&PropSelector::DEVICE_BUF_FRAME_SIZE.global_addr())
+            .unwrap_or(fallback_buffer_frames);
+        let stream_latency_frames = max_input_stream_latency(device).unwrap_or(0);
+
+        let device_sample_rate = device.nominal_sample_rate().unwrap_or(sample_rate as f64);
+        let effective_rate = if device_sample_rate > 0.0 {
+            device_sample_rate
+        } else {
+            sample_rate as f64
+        };
+
+        let device_latency_total_frames = device_latency_frames as u64
+            + safety_offset_frames as u64
+            + stream_latency_frames as u64;
+
+        let device_latency_secs = device_latency_total_frames as f64 / effective_rate;
+        let buffer_latency_secs = buffer_frames as f64 / effective_rate;
+
+        Ok(InputLatencyInfo::new(
+            device_latency_secs,
+            buffer_latency_secs,
+            transport_kind,
+        ))
+    }
+
+    fn max_input_stream_latency(device: &Device) -> os::Result<u32> {
+        let streams = device.streams()?;
+        let mut max_latency = 0u32;
+
+        for stream in streams {
+            if is_input_stream(&stream)?
+                && let Ok(latency) = stream.latency()
+            {
+                max_latency = max_latency.max(latency);
+            }
+        }
+
+        Ok(max_latency)
+    }
+
+    fn is_input_stream(stream: &Stream) -> os::Result<bool> {
+        stream.direction().map(|dir| dir == 1)
+    }
+
+    fn compute_latency_hint(
+        device: &Device,
+        sample_rate: u32,
+        fallback_buffer_frames: u32,
+    ) -> os::Result<OutputLatencyHint> {
+        let transport = device
+            .transport_type()
+            .unwrap_or(DeviceTransportType::UNKNOWN);
+        let transport_kind = transport_kind(transport);
+
+        let device_latency_frames =
+            scoped_u32(device, PropSelector::DEVICE_LATENCY, PropScope::OUTPUT).unwrap_or(0);
+        let safety_offset_frames = scoped_u32(
+            device,
+            PropSelector::DEVICE_SAFETY_OFFSET,
+            PropScope::OUTPUT,
+        )
+        .unwrap_or(0);
+        let buffer_frames = device
+            .prop(&PropSelector::DEVICE_BUF_FRAME_SIZE.global_addr())
+            .unwrap_or(fallback_buffer_frames);
+        let stream_latency_frames = max_output_stream_latency(device).unwrap_or(0);
+
+        let device_sample_rate = device.nominal_sample_rate().unwrap_or(sample_rate as f64);
+        let effective_rate = if device_sample_rate > 0.0 {
+            device_sample_rate
+        } else {
+            sample_rate as f64
+        };
+
+        let total_frames = device_latency_frames as u64
+            + safety_offset_frames as u64
+            + buffer_frames as u64
+            + stream_latency_frames as u64;
+
+        if total_frames == 0 {
+            let (floor, ceiling) = transport_constraints(transport_kind);
+            let base_latency = (buffer_frames as f64 / effective_rate).min(ceiling);
+            let fallback = if transport_kind.is_wireless() {
+                base_latency.max(WIRELESS_FALLBACK_LATENCY_SECS).max(floor)
+            } else {
+                base_latency.max(floor)
+            }
+            .min(MAX_LATENCY_SECS);
+            return Ok(OutputLatencyHint::new(fallback, transport_kind));
+        }
+
+        let mut latency_secs = total_frames as f64 / effective_rate;
+
+        match transport_kind {
+            OutputTransportKind::Airplay => {
+                latency_secs = latency_secs.max(AIRPLAY_MIN_LATENCY_SECS);
+            }
+            OutputTransportKind::Wireless | OutputTransportKind::ContinuityWireless => {
+                latency_secs = latency_secs.max(WIRELESS_MIN_LATENCY_SECS);
+            }
+            _ => {}
+        }
+
+        latency_secs = latency_secs.min(MAX_LATENCY_SECS);
+
+        Ok(OutputLatencyHint::new(latency_secs, transport_kind))
+    }
+
+    fn scoped_u32(device: &Device, selector: PropSelector, scope: PropScope) -> os::Result<u32> {
+        device.prop(&selector.addr(scope, PropElement::MAIN))
+    }
+
+    fn max_output_stream_latency(device: &Device) -> os::Result<u32> {
+        let streams = device.streams()?;
+        let mut max_latency = 0u32;
+
+        for stream in streams {
+            if is_output_stream(&stream)?
+                && let Ok(latency) = stream.latency()
+            {
+                max_latency = max_latency.max(latency);
+            }
+        }
+
+        Ok(max_latency)
+    }
+
+    fn is_output_stream(stream: &Stream) -> os::Result<bool> {
+        stream.direction().map(|dir| dir == 0)
+    }
+
+    fn transport_kind(transport: DeviceTransportType) -> OutputTransportKind {
+        match transport {
+            DeviceTransportType::AIR_PLAY => OutputTransportKind::Airplay,
+            DeviceTransportType::BLUETOOTH | DeviceTransportType::BLUETOOTH_LE => {
+                OutputTransportKind::Wireless
+            }
+            DeviceTransportType::CONTINUITY_CAPTURE_WIRELESS => {
+                OutputTransportKind::ContinuityWireless
+            }
+            DeviceTransportType::UNKNOWN => OutputTransportKind::Unknown,
+            _ => OutputTransportKind::Wired,
+        }
+    }
+}
+
+#[cfg(windows)]
 mod windows {
     use super::{InputLatencyInfo, OutputTransportKind, WIRELESS_MIN_LATENCY_SECS};
     use tracing::{debug, trace};

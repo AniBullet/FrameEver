@@ -1,10 +1,16 @@
 use anyhow::Context;
 use ort::session::Session;
 use ort::value::{DynValue, TensorRef};
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 
+#[cfg(target_os = "macos")]
+const ORT_LIBRARY_NAME: &str = "libonnxruntime.dylib";
+#[cfg(target_os = "linux")]
+const ORT_LIBRARY_NAME: &str = "libonnxruntime.so";
+#[cfg(target_os = "windows")]
 const ORT_LIBRARY_NAME: &str = "onnxruntime.dll";
 
 const MODEL_BYTES: &[u8] = include_bytes!("../assets/selfie_segmentation.onnx");
@@ -168,7 +174,24 @@ fn create_session() -> anyhow::Result<Session> {
         .with_inter_op_spinning(false)
         .map_err(|error| anyhow::anyhow!("Failed to disable ONNX inter-op spinning: {error}"))?;
 
-    builder = try_register_directml(builder);
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        // This small graph is cheaper on two CPU threads than CoreML's partition transfers and compilation.
+        builder = builder
+            .with_intra_threads(2)
+            .map_err(|error| anyhow::anyhow!("Failed to limit segmentation threads: {error}"))?;
+        tracing::info!("Camera background segmentation: CPU inference with two threads");
+    }
+
+    #[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
+    {
+        builder = try_register_coreml(builder);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        builder = try_register_directml(builder);
+    }
 
     let session = builder
         .commit_from_memory(MODEL_BYTES)
@@ -191,6 +214,7 @@ fn create_session() -> anyhow::Result<Session> {
     Ok(session)
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub(crate) fn init_runtime() -> anyhow::Result<()> {
     let path = onnx_runtime_library_path().context("Failed to find ONNX Runtime library")?;
     let (library, path) = preflight_runtime(&path)?;
@@ -203,6 +227,7 @@ pub(crate) fn init_runtime() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 fn preflight_runtime(path: &std::path::Path) -> anyhow::Result<(libloading::Library, PathBuf)> {
     let path = if path.is_absolute() {
         path.to_path_buf()
@@ -246,6 +271,7 @@ fn preflight_runtime(path: &std::path::Path) -> anyhow::Result<(libloading::Libr
     Ok((library, path))
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 fn validate_runtime_version(version: &str) -> anyhow::Result<()> {
     let mut parts = version.split('.');
     let major = parts.next().and_then(|part| part.parse::<u32>().ok());
@@ -258,6 +284,7 @@ fn validate_runtime_version(version: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub(crate) fn onnx_runtime_library_path() -> Option<PathBuf> {
     std::env::var_os("ORT_DYLIB_PATH")
         .map(PathBuf::from)
@@ -268,6 +295,12 @@ pub(crate) fn onnx_runtime_library_path() -> Option<PathBuf> {
         })
 }
 
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+pub(crate) fn init_runtime() -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 fn onnx_runtime_candidates(executable: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
@@ -275,6 +308,9 @@ fn onnx_runtime_candidates(executable: Option<&Path>) -> Vec<PathBuf> {
         candidates.push(exe_dir.join(ORT_LIBRARY_NAME));
 
         if let Some(contents_dir) = exe_dir.parent() {
+            #[cfg(target_os = "linux")]
+            candidates.push(contents_dir.join("lib/cap").join(ORT_LIBRARY_NAME));
+
             candidates.push(
                 contents_dir
                     .join("Resources")
@@ -299,6 +335,27 @@ fn onnx_runtime_candidates(executable: Option<&Path>) -> Vec<PathBuf> {
 // logger), so a CPU-only runtime DLL would make the "registered" log a false
 // positive while inference silently runs on CPU.
 
+#[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
+fn try_register_coreml(
+    builder: ort::session::builder::SessionBuilder,
+) -> ort::session::builder::SessionBuilder {
+    match builder.with_execution_providers([
+        ort::execution_providers::CoreMLExecutionProvider::default()
+            .build()
+            .error_on_failure(),
+    ]) {
+        Ok(b) => {
+            tracing::info!("Camera background blur: CoreML execution provider registered");
+            b
+        }
+        Err(e) => {
+            tracing::warn!("Camera background blur: CoreML EP registration failed, using CPU: {e}");
+            e.recover()
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn try_register_directml(
     builder: ort::session::builder::SessionBuilder,
 ) -> ort::session::builder::SessionBuilder {
@@ -324,6 +381,29 @@ fn try_register_directml(
 mod tests {
     use super::{MODEL_CHANNEL_SIZE, populate_rgb_planes};
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn runtime_candidates_include_installed_and_relocated_linux_packages() {
+        for (executable, library) in [
+            ("/usr/bin/cap", "/usr/lib/cap/libonnxruntime.so"),
+            (
+                "/tmp/.mount_Cap/usr/bin/cap",
+                "/tmp/.mount_Cap/usr/lib/cap/libonnxruntime.so",
+            ),
+        ] {
+            let candidates = super::onnx_runtime_candidates(Some(std::path::Path::new(executable)));
+            assert!(candidates.contains(&std::path::PathBuf::from(library)));
+            assert!(
+                candidates
+                    .iter()
+                    .position(|path| path.as_path() == std::path::Path::new(library))
+                    .unwrap()
+                    < candidates.len() - 1
+            );
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     #[test]
     fn runtime_version_requires_compatible_major_and_api() {
         for minor in [ort::MINOR_VERSION, ort::MINOR_VERSION + 1] {
@@ -338,6 +418,7 @@ mod tests {
         }
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     #[test]
     fn runtime_load_failures_remain_retryable() {
         const CHILD_ENV: &str = "CAP_CAMERA_EFFECTS_LOADER_TEST_CHILD";

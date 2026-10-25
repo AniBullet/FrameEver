@@ -1,9 +1,12 @@
 use std::time::Duration;
 
 fn main() {
-    use windows::Win32::UI::HiDpi::{PROCESS_PER_MONITOR_DPI_AWARE, SetProcessDpiAwareness};
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::HiDpi::{PROCESS_PER_MONITOR_DPI_AWARE, SetProcessDpiAwareness};
 
-    unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE).unwrap() };
+        unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE).unwrap() };
+    }
 
     // Test display functionality
     println!("=== Display Information ===");
@@ -67,6 +70,17 @@ fn main() {
         for (index, window) in windows.iter().take(5).enumerate() {
             // Limit to first 5 windows
             println!("\nWindow {}: {}", index + 1, window.id());
+
+            #[cfg(target_os = "macos")]
+            if let Some(bounds) = window.raw_handle().logical_bounds() {
+                println!(
+                    "  Bounds: {}x{} at ({}, {})",
+                    bounds.size().width(),
+                    bounds.size().height(),
+                    bounds.position().x(),
+                    bounds.position().y()
+                );
+            }
 
             if let Some(owner) = window.owner_name() {
                 println!("  Application: {owner}");

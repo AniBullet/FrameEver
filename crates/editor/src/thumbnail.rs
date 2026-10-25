@@ -262,7 +262,11 @@ mod tests {
             "status": {"status": "Complete"}
         })).unwrap()).unwrap();
         ffmpeg::init().unwrap();
-        for format in [crate::EditorFrameFormat::Rgba] {
+        for format in [
+            crate::EditorFrameFormat::Rgba,
+            #[cfg(target_os = "macos")]
+            crate::EditorFrameFormat::BgraSurface,
+        ] {
             let mut project = ProjectConfiguration::default();
             project.background.source = cap_project::BackgroundSource::Color {
                 value: [20, 200, 40],

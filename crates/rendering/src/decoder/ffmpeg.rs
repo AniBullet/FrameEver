@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use ffmpeg::sys::AVHWDeviceType;
 use ffmpeg::{format, frame};
 use std::{
@@ -13,6 +14,7 @@ use tokio::sync::oneshot;
 use tracing::info;
 
 use crate::{DecodedFrame, PixelFormat};
+#[cfg(target_os = "windows")]
 use cap_video_decode::FrameTextures;
 
 use crate::cpu_yuv::YuvMatrix;
@@ -36,10 +38,17 @@ struct ProcessedFrame {
     matrix: YuvMatrix,
     y_stride: u32,
     uv_stride: u32,
+    #[cfg(target_os = "linux")]
+    cuda: Option<Arc<crate::linux_gpu::CudaNv12Frame>>,
 }
 
 impl ProcessedFrame {
     fn to_decoded_frame(&self) -> DecodedFrame {
+        #[cfg(target_os = "linux")]
+        if let Some(cuda) = &self.cuda {
+            return DecodedFrame::new_nv12_cuda(Arc::clone(cuda), Arc::clone(&self.data))
+                .with_matrix(self.matrix);
+        }
         let frame = match self.format {
             PixelFormat::Rgba => {
                 DecodedFrame::new_with_arc(Arc::clone(&self.data), self.width, self.height)
@@ -76,6 +85,9 @@ struct PendingRequest {
 }
 
 const MAX_FRAME_CACHE_BYTES: usize = 128 * 1024 * 1024;
+/// Cache weight of a frame still on the GPU (it pins an NVDEC surface).
+#[cfg(target_os = "linux")]
+const CUDA_FRAME_CACHE_WEIGHT: usize = 16 * 1024 * 1024;
 
 fn extract_yuv_planes(frame: &frame::Video) -> Option<(Vec<u8>, PixelFormat, u32, u32)> {
     let height = frame.height();
@@ -135,6 +147,38 @@ impl CachedFrame {
     fn process_cpu(&mut self, converter: &mut FrameConverter) -> ProcessedFrame {
         match self {
             Self::Raw { frame, number } => {
+                #[cfg(target_os = "linux")]
+                if crate::linux_gpu::enabled() && frame.format() == format::Pixel::CUDA {
+                    // Keep NVDEC's surface: a new reference holds it alive
+                    // while the compositor copies it device-to-device.
+                    let data = unsafe {
+                        let mut reference = frame::Video::empty();
+                        ffmpeg::ffi::av_frame_ref(reference.as_mut_ptr(), frame.as_ptr());
+                        let raw = reference.as_ptr();
+                        let cuda = crate::linux_gpu::CudaNv12Frame::new(
+                            (*raw).data[0] as u64,
+                            (*raw).data[1] as u64,
+                            (*raw).linesize[0] as usize,
+                            (*raw).linesize[1] as usize,
+                            frame.width(),
+                            frame.height(),
+                            Box::new(reference),
+                        );
+                        ProcessedFrame {
+                            data: Arc::new(Vec::new()),
+                            number: *number,
+                            width: frame.width(),
+                            height: frame.height(),
+                            format: PixelFormat::Nv12,
+                            matrix: YuvMatrix::from_color_space(frame.color_space()),
+                            y_stride: cuda.y_pitch as u32,
+                            uv_stride: cuda.uv_pitch as u32,
+                            cuda: Some(Arc::new(cuda)),
+                        }
+                    };
+                    *self = Self::Processed(data.clone());
+                    return data;
+                }
                 let data = if let Some((yuv_data, pixel_format, y_stride, uv_stride)) =
                     extract_yuv_planes(frame)
                 {
@@ -147,6 +191,8 @@ impl CachedFrame {
                         matrix: YuvMatrix::from_color_space(frame.color_space()),
                         y_stride,
                         uv_stride,
+                        #[cfg(target_os = "linux")]
+                        cuda: None,
                     }
                 } else {
                     let frame_buffer = converter.convert(frame);
@@ -159,6 +205,8 @@ impl CachedFrame {
                         matrix: YuvMatrix::from_color_space(frame.color_space()),
                         y_stride: frame.width() * 4,
                         uv_stride: 0,
+                        #[cfg(target_os = "linux")]
+                        cuda: None,
                     }
                 };
 
@@ -167,12 +215,14 @@ impl CachedFrame {
                 data
             }
             Self::Processed(data) => data.clone(),
+            #[cfg(target_os = "windows")]
             Self::Gpu { .. } => unreachable!(),
         }
     }
 
     fn produce(&mut self, converter: &mut FrameConverter) -> OutputFrame {
         match self {
+            #[cfg(target_os = "windows")]
             Self::Gpu { frame, number, .. } => OutputFrame {
                 number: *number,
                 frame: frame.clone(),
@@ -199,6 +249,7 @@ enum CachedFrame {
         number: u32,
     },
     Processed(ProcessedFrame),
+    #[cfg(target_os = "windows")]
     Gpu {
         frame: DecodedFrame,
         number: u32,
@@ -208,6 +259,16 @@ enum CachedFrame {
 
 impl CachedFrame {
     fn estimated_bytes(&self) -> usize {
+        // Frames still on the GPU pin an NVDEC surface each; weighting them
+        // at 16 MB caps the 128 MB cache at 8 surfaces, inside the pool.
+        #[cfg(target_os = "linux")]
+        match self {
+            Self::Raw { frame, .. } if frame.format() == format::Pixel::CUDA => {
+                return CUDA_FRAME_CACHE_WEIGHT;
+            }
+            Self::Processed(frame) if frame.cuda.is_some() => return CUDA_FRAME_CACHE_WEIGHT,
+            _ => {}
+        }
         match self {
             Self::Raw { frame, .. } => {
                 let height = frame.height() as usize;
@@ -231,6 +292,7 @@ impl CachedFrame {
                 }
             }
             Self::Processed(frame) => frame.data.len(),
+            #[cfg(target_os = "windows")]
             Self::Gpu { frame, .. } => (frame.width() as usize)
                 .saturating_mul(frame.height() as usize)
                 .saturating_mul(3),
@@ -473,7 +535,22 @@ impl FfmpegDecoder {
         managed: Option<Arc<ManagedVideoControl>>,
     ) {
         let hw_device_type = if use_hw_acceleration {
-            Some(AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA)
+            #[cfg(target_os = "windows")]
+            {
+                Some(AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA)
+            }
+            #[cfg(target_os = "macos")]
+            {
+                Some(AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX)
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            {
+                // Opt-in NVDEC for Linux GPU hosts (render farm workers).
+                match std::env::var("CAP_LINUX_HW_DECODE").as_deref() {
+                    Ok("cuda") => Some(ffmpeg::sys::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA),
+                    _ => None,
+                }
+            }
         } else {
             None
         };
@@ -1093,6 +1170,17 @@ impl FfmpegDecoder {
         };
         let _ = ready_tx.send(Ok(init_result));
 
+        // Export read-ahead: with no request pending, keep decoding forward
+        // into the cache so the renderer's next sequential request is served
+        // at once instead of waiting out NVDEC latency (~4.5 ms per 3K frame,
+        // which otherwise sits in every export frame). Bounded by `readahead`
+        // frames past the last request and by the cache's byte budget (hw
+        // surfaces). Off unless CAP_DECODER_READAHEAD is set: editor
+        // playback keeps its on-demand behaviour.
+        // More than the cache holds would evict the frames just decoded ahead.
+        #[cfg(target_os = "linux")]
+        let readahead_limit = (MAX_FRAME_CACHE_BYTES / CUDA_FRAME_CACHE_WEIGHT) as u32;
+        #[cfg(not(target_os = "linux"))]
         let readahead_limit = FRAME_CACHE_SIZE as u32;
         let readahead = std::env::var("CAP_DECODER_READAHEAD")
             .ok()
@@ -1625,6 +1713,8 @@ mod cache_tests {
             matrix: YuvMatrix::Bt601,
             y_stride: 2,
             uv_stride: 2,
+            #[cfg(target_os = "linux")]
+            cuda: None,
         })
     }
 

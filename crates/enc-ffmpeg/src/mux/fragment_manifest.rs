@@ -319,6 +319,7 @@ impl FragmentManifestTracker {
         }
     }
 
+    #[cfg(target_os = "windows")]
     fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
         const MAX_RETRIES: u32 = 10;
         const RETRY_DELAY_MS: u64 = 50;
@@ -343,6 +344,11 @@ impl FragmentManifestTracker {
             }
         }
         Err(last_error.unwrap_or_else(|| std::io::Error::other("rename failed after retries")))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+        std::fs::rename(from, to)
     }
 
     fn collect_orphaned_segments(&mut self) {

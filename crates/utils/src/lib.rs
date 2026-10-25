@@ -13,8 +13,16 @@ pub mod brand;
 pub mod diagnostic_writer;
 pub mod disk_space;
 pub mod export_resources;
+#[cfg(any(target_os = "linux", test))]
+pub mod linux_package;
+#[cfg(target_os = "linux")]
+pub mod linux_recording_stop;
+#[cfg(any(target_os = "linux", test))]
+pub mod linux_runtime;
 pub mod local_captions;
 pub mod log_upload;
+#[cfg(target_os = "macos")]
+pub mod macos_qos;
 pub mod operation_diagnostics;
 pub mod process;
 
@@ -491,5 +499,16 @@ mod dedicated_thread_tests {
             error.to_string(),
             "panic-test thread stopped before finishing"
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn blocking_zbus_runs_from_an_async_task() {
+        // A headless host may have no session bus; only a thread failure is a regression.
+        let result = run_on_dedicated_thread("zbus-test", || {
+            zbus::blocking::Connection::session().map(drop)
+        })
+        .await;
+        assert!(result.is_ok());
     }
 }

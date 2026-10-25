@@ -81,11 +81,28 @@ fn main() {
 }
 
 fn native_format_suffix(format: &Format) -> String {
-    let _ = format;
-    String::new()
+    #[cfg(target_os = "macos")]
+    {
+        let mut fourcc = format.native().format_desc().media_sub_type().to_be_bytes();
+        format!(" [{}]", cidre::four_cc_to_str(&mut fourcc))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = format;
+        String::new()
+    }
 }
 
-fn print_authorization_status() {}
+fn print_authorization_status() {
+    #[cfg(target_os = "macos")]
+    {
+        use cidre::av;
+        match av::CaptureDevice::authorization_status_for_media_type(av::MediaType::video()) {
+            Ok(status) => println!("Camera authorization status: {status:?}"),
+            Err(err) => println!("Camera authorization status unavailable: {err:?}"),
+        }
+    }
+}
 
 fn pick_test_format(formats: &[Format]) -> Option<Format> {
     let mut candidates: Vec<Format> = formats
@@ -180,6 +197,23 @@ fn capture_test(camera: &CameraInfo, mode: CaptureMode) {
 }
 
 fn describe_frame(frame: &cap_camera::CapturedFrame) -> String {
-    let _ = frame;
-    "<frame>".to_string()
+    #[cfg(target_os = "macos")]
+    {
+        let sample_buf = frame.native().sample_buf();
+        let Some(desc) = sample_buf.format_desc() else {
+            return "<no format desc>".to_string();
+        };
+        let mut fourcc = desc.media_sub_type().to_be_bytes();
+        let dims = frame
+            .native()
+            .image_buf()
+            .map(|buf| format!("{}x{}", buf.width(), buf.height()))
+            .unwrap_or_else(|| "<no image buf>".to_string());
+        format!("{} [{}]", dims, cidre::four_cc_to_str(&mut fourcc))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = frame;
+        "<frame>".to_string()
+    }
 }

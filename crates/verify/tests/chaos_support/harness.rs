@@ -304,6 +304,13 @@ fn objc_exception(path: &Path) -> Option<String> {
         .map(one_line)
 }
 
+#[cfg(unix)]
+fn signal_of(status: &std::process::ExitStatus) -> Option<i32> {
+    use std::os::unix::process::ExitStatusExt;
+    status.signal()
+}
+
+#[cfg(not(unix))]
 fn signal_of(_status: &std::process::ExitStatus) -> Option<i32> {
     None
 }
@@ -313,8 +320,10 @@ fn signal_name(signal: i32) -> String {
         4 => "SIGILL".into(),
         5 => "SIGTRAP".into(),
         6 => "SIGABRT".into(),
+        7 if cfg!(target_os = "linux") => "SIGBUS".into(),
         8 => "SIGFPE".into(),
         9 => "SIGKILL".into(),
+        10 if cfg!(target_os = "macos") => "SIGBUS".into(),
         11 => "SIGSEGV".into(),
         other => format!("signal {other}"),
     }

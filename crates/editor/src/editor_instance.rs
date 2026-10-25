@@ -500,7 +500,14 @@ impl EditorInstance {
         // Segment setup (decoder init + kicking off audio decodes) is
         // independent of the GPU/render setup below, so run it concurrently on
         // its own task.
-        tracing::info!("Using FFmpeg decoder for editor preview");
+        // The env override lets headless harnesses on runners whose
+        // VideoToolbox is too slow for real-time playback fall back to the
+        // FFmpeg decoder.
+        let force_ffmpeg_for_editor = cfg!(target_os = "windows")
+            || std::env::var_os("CAP_EDITOR_FORCE_FFMPEG_DECODER").is_some();
+        if force_ffmpeg_for_editor {
+            tracing::info!("Using FFmpeg decoder for editor preview");
+        }
 
         let completed_audio = completed_audio.and_then(|handoff| {
             let matching = handoff.into_matching(&recording_meta, meta);
@@ -519,7 +526,7 @@ impl EditorInstance {
                 create_segments_with_audio(
                     &recording_meta,
                     &studio_meta,
-                    true,
+                    force_ffmpeg_for_editor,
                     true,
                     completed_audio.as_deref(),
                 )

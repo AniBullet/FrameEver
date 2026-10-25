@@ -1,3 +1,5 @@
+#![cfg(target_os = "windows")]
+
 use std::{collections::HashMap, time::Duration};
 
 mod test_utils {

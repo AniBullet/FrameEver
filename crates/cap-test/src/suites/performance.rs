@@ -83,6 +83,7 @@ pub async fn run_suite(
     })
 }
 
+#[cfg(target_os = "windows")]
 async fn probe_windows_ci_software_adapter(recording_path: &Path) -> Option<Vec<TestResult>> {
     if !std::env::var("GITHUB_ACTIONS")
         .map(|value| value == "true")
@@ -127,6 +128,12 @@ async fn probe_windows_ci_software_adapter(recording_path: &Path) -> Option<Vec<
     ])
 }
 
+#[cfg(not(target_os = "windows"))]
+async fn probe_windows_ci_software_adapter(_recording_path: &Path) -> Option<Vec<TestResult>> {
+    None
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn skipped_result(
     test_id: &str,
     name: &str,

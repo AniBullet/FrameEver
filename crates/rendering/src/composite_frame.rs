@@ -422,6 +422,11 @@ impl CompositeVideoFramePipeline {
     }
 
     pub fn create_frame_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
+        #[cfg(target_os = "macos")]
+        let usage = wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::STORAGE_BINDING
+            | wgpu::TextureUsages::COPY_DST;
+        #[cfg(not(target_os = "macos"))]
         let usage = wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::COPY_DST;

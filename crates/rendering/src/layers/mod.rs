@@ -36,11 +36,33 @@ pub fn new_font_system() -> glyphon::FontSystem {
         let init_phase = crate::readiness::Phase::start("font.template_init");
         let font_system = crate::readiness::measure("font.system_scan", glyphon::FontSystem::new);
         let mut db = font_system.db().clone();
-        // WebView2 (Chromium): sans-serif → Arial, serif → Times New
-        // Roman, monospace → Consolas.
-        db.set_sans_serif_family("Arial");
-        db.set_serif_family("Times New Roman");
-        db.set_monospace_family("Consolas");
+        // Pin the generic families to the fonts the editor webview resolves
+        // them to. fontdb's stock defaults (e.g. "Arial") often don't match
+        // any installed face, in which case cosmic-text silently shapes with
+        // an arbitrary fallback font — and canvas overlays measured in the
+        // webview no longer match what the renderer draws.
+        #[cfg(target_os = "macos")]
+        {
+            // WKWebView: sans-serif → Helvetica, serif → Times, monospace →
+            // Courier.
+            db.set_sans_serif_family("Helvetica");
+            db.set_serif_family("Times New Roman");
+            db.set_monospace_family("Courier New");
+        }
+        #[cfg(windows)]
+        {
+            // WebView2 (Chromium): sans-serif → Arial, serif → Times New
+            // Roman, monospace → Consolas.
+            db.set_sans_serif_family("Arial");
+            db.set_serif_family("Times New Roman");
+            db.set_monospace_family("Consolas");
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            db.set_sans_serif_family("DejaVu Sans");
+            db.set_serif_family("DejaVu Serif");
+            db.set_monospace_family("DejaVu Sans Mono");
+        }
         let template = (font_system.locale().to_string(), db);
         init_phase.finish("returned");
         template

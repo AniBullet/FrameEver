@@ -22,7 +22,13 @@ struct DirectoryState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FileIdentity {
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    #[cfg(windows)]
     volume: u64,
+    #[cfg(windows)]
     file_id: [u8; 16],
 }
 
@@ -44,6 +50,16 @@ pub struct RelocatableReader {
 }
 
 fn identity(file: &File) -> io::Result<FileIdentity> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = file.metadata()?;
+        Ok(FileIdentity {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        })
+    }
+    #[cfg(windows)]
     {
         use std::os::windows::io::AsRawHandle;
         use windows::Win32::{
@@ -65,14 +81,25 @@ fn identity(file: &File) -> io::Result<FileIdentity> {
             file_id: information.FileId.Identifier,
         })
     }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = file;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Managed source identity is unsupported on this platform",
+        ))
+    }
 }
 
 fn directory_identity(path: &Path) -> io::Result<FileIdentity> {
     let mut options = File::options();
     options.read(true);
-    use std::os::windows::fs::OpenOptionsExt;
-    use windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
-    options.custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+        options.custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0);
+    }
     let file = options.open(path)?;
     if !file.metadata()?.is_dir() {
         return Err(io::Error::new(
@@ -84,9 +111,16 @@ fn directory_identity(path: &Path) -> io::Result<FileIdentity> {
 }
 
 fn is_link(metadata: &Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
-    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
 }
 
 fn open_relative(root: &Path, relative: &Path) -> io::Result<File> {
@@ -638,6 +672,17 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn source_paths_cannot_follow_a_symbolic_link() {
+        let fixture = Fixture::new();
+        let source = fixture.source();
+        fs::write(fixture.0.join("outside"), b"outside").unwrap();
+        std::os::unix::fs::symlink(fixture.0.join("outside"), fixture.0.join("original/link"))
+            .unwrap();
+        assert!(source.reader(Path::new("link")).is_err());
+    }
+
     #[test]
     fn many_lazy_readers_do_not_retain_file_handles() {
         let fixture = Fixture::new();
@@ -658,6 +703,16 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn source_root_cannot_be_a_symbolic_link() {
+        let fixture = Fixture::new();
+        let link = fixture.0.join("link");
+        std::os::unix::fs::symlink(fixture.0.join("original"), &link).unwrap();
+        assert!(RelocatableSource::new(link).is_err());
+    }
+
+    #[cfg(windows)]
     #[test]
     fn source_root_cannot_be_a_directory_junction() {
         let fixture = Fixture::new();
@@ -802,6 +857,36 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn batch_rejects_linked_parent_and_expected_root_alias() {
+        let fixture = Fixture::new();
+        let source = fixture.source();
+        let original = fixture.0.join("original");
+        std::os::unix::fs::symlink(&original, fixture.0.join("alias")).unwrap();
+        assert_eq!(
+            source
+                .relocate_from(&fixture.0.join("alias"), fixture.0.join("retained"))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+        fs::create_dir(original.join("display")).unwrap();
+        fs::write(original.join("display/0.m4s"), b"original").unwrap();
+        std::os::unix::fs::symlink(original.join("display"), original.join("linked")).unwrap();
+        assert_eq!(
+            source
+                .readers(&[
+                    PathBuf::from("display/0.m4s"),
+                    PathBuf::from("linked/0.m4s")
+                ])
+                .err()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
+
     #[test]
     fn competing_expected_source_moves_have_only_one_owner() {
         let fixture = Fixture::new();
@@ -854,16 +939,19 @@ mod tests {
                     .iter()
                     .all(|file| file.strong_count() == 0)
             );
-            use std::os::windows::fs::OpenOptionsExt;
-            for name in ["0.m4s", "1.m4s"] {
-                drop(
-                    File::options()
-                        .read(true)
-                        .write(true)
-                        .share_mode(0)
-                        .open(self.root.join(name))
-                        .unwrap(),
-                );
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                for name in ["0.m4s", "1.m4s"] {
+                    drop(
+                        File::options()
+                            .read(true)
+                            .write(true)
+                            .share_mode(0)
+                            .open(self.root.join(name))
+                            .unwrap(),
+                    );
+                }
             }
             let renamed = self.root.with_extension("lease-released");
             fs::rename(&self.root, &renamed).unwrap();

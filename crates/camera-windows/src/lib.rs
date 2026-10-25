@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 use cap_camera_directshow::{AM_MEDIA_TYPEVideoExt, AMMediaType};
 use cap_mediafoundation_utils::*;
 use std::{

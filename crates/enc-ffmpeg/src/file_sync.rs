@@ -4,7 +4,7 @@ pub fn sync_media_file(path: &Path) -> io::Result<()> {
     // Windows FlushFileBuffers requires GENERIC_WRITE; Unix also permits read-only handles.
     OpenOptions::new()
         .read(true)
-        .write(true)
+        .write(cfg!(windows))
         .open(path)?
         .sync_all()
 }

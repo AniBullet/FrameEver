@@ -211,7 +211,10 @@ impl SegmentedVideoEncoder {
 
         let manifest_path = base_path.join("dash_manifest.mpd");
 
+        #[cfg(target_os = "windows")]
         let manifest_path_str = manifest_path.to_string_lossy().replace('\\', "/");
+        #[cfg(not(target_os = "windows"))]
+        let manifest_path_str = manifest_path.to_string_lossy().to_string();
 
         let mut output = super::dash_output::create(&manifest_path_str)?;
 
@@ -252,6 +255,22 @@ impl SegmentedVideoEncoder {
             builder = builder.with_output_size(width, height)?;
         }
 
+        #[cfg(target_os = "macos")]
+        let hw_attempt = if config.prefer_videotoolbox_hw_input {
+            match builder.clone().build_videotoolbox_hw_input(&mut output) {
+                Ok(encoder) => Some(encoder),
+                Err(error) => {
+                    tracing::info!(
+                        %error,
+                        "VideoToolbox zero-copy input unavailable, using software frame path"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        #[cfg(not(target_os = "macos"))]
         let hw_attempt: Option<H264Encoder> = None;
 
         let encoder = match hw_attempt {
@@ -336,6 +355,30 @@ impl SegmentedVideoEncoder {
                 media_type: SegmentMediaType::Video,
             });
         }
+    }
+
+    /// Whether frames should be queued as CVPixelBuffers via
+    /// [`Self::queue_hw_pixel_buffer`] instead of software frames.
+    #[cfg(target_os = "macos")]
+    pub fn is_videotoolbox_hw_input(&self) -> bool {
+        self.encoder.is_videotoolbox_hw_input()
+    }
+
+    /// Queues an IOSurface-backed NV12 `CVPixelBufferRef` without copying its
+    /// planes. Only valid when [`Self::is_videotoolbox_hw_input`] is true.
+    ///
+    /// # Safety
+    /// `pixel_buffer` must be a valid `CVPixelBufferRef` matching the
+    /// encoder's dimensions with a biplanar 4:2:0 pixel format.
+    #[cfg(target_os = "macos")]
+    pub unsafe fn queue_hw_pixel_buffer(
+        &mut self,
+        pixel_buffer: *mut std::ffi::c_void,
+        timestamp: Duration,
+    ) -> Result<(), QueueFrameError> {
+        let frame = unsafe { self.encoder.wrap_videotoolbox_pixel_buffer(pixel_buffer) }
+            .map_err(InitError::Encoder)?;
+        self.queue_frame(frame, timestamp)
     }
 
     pub fn queue_frame(
@@ -535,6 +578,7 @@ impl SegmentedVideoEncoder {
         }
     }
 
+    #[cfg(target_os = "windows")]
     fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
         const MAX_RETRIES: u32 = 10;
         const RETRY_DELAY_MS: u64 = 50;
@@ -564,6 +608,11 @@ impl SegmentedVideoEncoder {
             }
         }
         Err(last_error.unwrap_or_else(|| std::io::Error::other("rename failed after retries")))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+        std::fs::rename(from, to)
     }
 
     fn collect_orphaned_segments(&mut self) {

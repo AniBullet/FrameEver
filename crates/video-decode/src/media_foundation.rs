@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
+#[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::core::PCSTR;
 use windows::{

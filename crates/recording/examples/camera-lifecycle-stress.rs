@@ -5,6 +5,15 @@ use cap_recording::{
 use kameo::actor::Spawn as _;
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "macos")]
+fn get_memory_mb() -> Option<f64> {
+    use libproc::libproc::pid_rusage::{RUsageInfoV4, pidrusage};
+    let pid = std::process::id() as i32;
+    let rusage: RUsageInfoV4 = pidrusage(pid).ok()?;
+    Some(rusage.ri_phys_footprint as f64 / 1024.0 / 1024.0)
+}
+
+#[cfg(not(target_os = "macos"))]
 fn get_memory_mb() -> Option<f64> {
     None
 }
@@ -12,7 +21,26 @@ fn get_memory_mb() -> Option<f64> {
 fn thread_count() -> usize {
     std::fs::read_dir("/proc/self/task")
         .map(|d| d.count())
-        .unwrap_or_else(|_| 0)
+        .unwrap_or_else(|_| {
+            #[cfg(target_os = "macos")]
+            {
+                use std::process::Command;
+                Command::new("ps")
+                    .args(["-M", "-p", &std::process::id().to_string()])
+                    .output()
+                    .ok()
+                    .and_then(|o| {
+                        String::from_utf8(o.stdout)
+                            .ok()
+                            .map(|s| s.lines().count().saturating_sub(1))
+                    })
+                    .unwrap_or(0)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                0
+            }
+        })
 }
 
 struct Snapshot {

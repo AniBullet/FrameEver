@@ -44,6 +44,7 @@ fn safe_buffer_size(supported: &SupportedBufferSize, sample_rate: u32) -> Buffer
 /// Keep a silent render stream open on the captured device for the lifetime
 /// of the capturer so packets flow continuously (the same workaround OBS
 /// uses for desktop audio).
+#[cfg(windows)]
 fn build_silence_keepalive(device: &cpal::Device) -> Option<Stream> {
     use cpal::traits::DeviceTrait;
 
@@ -101,10 +102,12 @@ pub fn create_capturer(
 
     // A failed keepalive is non-fatal: capture still works whenever other
     // clients render audio (the pre-keepalive behavior).
+    #[cfg(windows)]
     let keepalive = build_silence_keepalive(&output_device);
 
     Ok(Capturer {
         stream,
+        #[cfg(windows)]
         keepalive,
         config,
         _output_device: output_device,
@@ -117,6 +120,7 @@ unsafe impl Send for Capturer {}
 
 pub struct Capturer {
     stream: Stream,
+    #[cfg(windows)]
     keepalive: Option<Stream>,
     config: StreamConfig,
     _output_device: cpal::Device,
@@ -126,6 +130,7 @@ pub struct Capturer {
 
 impl Capturer {
     pub fn play(&self) -> Result<(), PlayStreamError> {
+        #[cfg(windows)]
         if let Some(keepalive) = &self.keepalive
             && let Err(e) = keepalive.play()
         {
@@ -137,6 +142,7 @@ impl Capturer {
 
     pub fn pause(&self) -> Result<(), PauseStreamError> {
         let result = self.stream.pause();
+        #[cfg(windows)]
         if let Some(keepalive) = &self.keepalive {
             let _ = keepalive.pause();
         }
@@ -151,6 +157,13 @@ impl Capturer {
     /// Without it, loopback capture only produces packets while other
     /// applications play audio.
     pub fn has_silence_keepalive(&self) -> bool {
-        self.keepalive.is_some()
+        #[cfg(windows)]
+        {
+            self.keepalive.is_some()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
     }
 }

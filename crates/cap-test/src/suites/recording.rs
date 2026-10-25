@@ -85,6 +85,12 @@ impl RecordingTestRunner {
 
         let target_fps = self.config.display.as_ref().map(|d| d.fps).unwrap_or(30);
 
+        #[cfg(target_os = "macos")]
+        let shareable_content = cidre::sc::ShareableContent::current()
+            .await
+            .context("Failed to get shareable content - check screen recording permissions")
+            .map(cap_recording::SendableShareableContent::from)?;
+
         let (error_tx, _error_rx) = flume::bounded::<StreamError>(16);
 
         let mic_lock = if let Some(ref _audio_config) = self.config.audio {
@@ -156,7 +162,13 @@ impl RecordingTestRunner {
             builder = builder.with_camera_feed(camera);
         }
 
-        let handle = builder.build().await.context("Failed to start recording")?;
+        let handle = builder
+            .build(
+                #[cfg(target_os = "macos")]
+                Some(shareable_content),
+            )
+            .await
+            .context("Failed to start recording")?;
 
         let start = Instant::now();
 

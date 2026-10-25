@@ -4,6 +4,8 @@ mod gpu_tests;
 mod mask_refinement;
 mod matte;
 mod segmentation;
+#[cfg(target_os = "macos")]
+mod vision;
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -16,6 +18,7 @@ use mask_refinement::smooth_mask_value;
 use matte::{MattePipeline, MatteTextures};
 use segmentation::SegmentationModel;
 
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub fn onnx_runtime_library_path() -> Option<std::path::PathBuf> {
     segmentation::onnx_runtime_library_path()
 }
@@ -248,6 +251,8 @@ fn validate_mask_samples(mask: &[f32], expected_samples: usize) -> Result<(), Bl
 struct ReadbackFrame {
     submitted_at: Instant,
     dimensions: (u32, u32),
+    #[cfg(target_os = "macos")]
+    input_dimensions: (u32, u32),
 }
 
 struct OnnxSegmenter {
@@ -257,12 +262,31 @@ struct OnnxSegmenter {
     smoothed_mask: Vec<f32>,
 }
 
+/// What a submitted Vision frame will be reported as once its mask lands.
+#[cfg(target_os = "macos")]
+struct PendingMask {
+    submitted_at: Instant,
+    dimensions: (u32, u32),
+    failure_revision: u64,
+}
+
 enum Segmenter {
+    #[cfg(target_os = "macos")]
+    Vision(Box<vision::VisionSegmenter>),
     Onnx(Box<OnnxSegmenter>),
 }
 
 impl Segmenter {
     fn new() -> anyhow::Result<Self> {
+        #[cfg(target_os = "macos")]
+        if std::env::var("CAP_CAMERA_SEGMENTATION").as_deref() != Ok("onnx") {
+            match vision::VisionSegmenter::new() {
+                Ok(segmenter) => return Ok(Self::Vision(Box::new(segmenter))),
+                Err(error) => {
+                    tracing::warn!("Vision person segmentation unavailable, using ONNX: {error:#}")
+                }
+            }
+        }
         let pixel_count = (SEGMENTATION_SIZE * SEGMENTATION_SIZE) as usize;
         Ok(Self::Onnx(Box::new(OnnxSegmenter {
             model: SegmentationModel::new()?,
@@ -274,6 +298,8 @@ impl Segmenter {
 
     fn input_dimensions(&self, width: u32, height: u32) -> (u32, u32) {
         match self {
+            #[cfg(target_os = "macos")]
+            Self::Vision(_) => vision::input_dimensions(width, height),
             Self::Onnx(_) => {
                 let _ = (width, height);
                 (SEGMENTATION_SIZE, SEGMENTATION_SIZE)
@@ -284,12 +310,16 @@ impl Segmenter {
     /// Vision reads BGRA pixel buffers; the ONNX model takes RGBA.
     fn wants_bgra(&self) -> bool {
         match self {
+            #[cfg(target_os = "macos")]
+            Self::Vision(_) => true,
             Self::Onnx(_) => false,
         }
     }
 
     fn reset(&mut self) {
         match self {
+            #[cfg(target_os = "macos")]
+            Self::Vision(segmenter) => segmenter.reset(),
             Self::Onnx(onnx) => reset_mask_buffers([&mut onnx.mask_data, &mut onnx.smoothed_mask]),
         }
     }
@@ -358,6 +388,10 @@ pub struct BlurProcessor {
     mask_dimensions: (u32, u32),
     last_inference: Instant,
     segmentation_input: Option<SegmentationInput>,
+    #[cfg(target_os = "macos")]
+    segmentation_source: Option<vision::SharedPixelBuffer>,
+    #[cfg(target_os = "macos")]
+    pending_mask: Option<PendingMask>,
     readback_pixels: Vec<u8>,
     readback_state: ReadbackState,
     inference_interval: Duration,
@@ -510,6 +544,10 @@ impl BlurProcessor {
                 .checked_sub(std::time::Duration::from_secs(1))
                 .unwrap_or_else(Instant::now),
             segmentation_input: None,
+            #[cfg(target_os = "macos")]
+            segmentation_source: None,
+            #[cfg(target_os = "macos")]
+            pending_mask: None,
             readback_pixels: Vec::new(),
             readback_state: ReadbackState::Idle,
             inference_interval: DEFAULT_INFERENCE_INTERVAL,
@@ -547,6 +585,14 @@ impl BlurProcessor {
         self.inference_interval = interval;
     }
 
+    /// The BGRA IOSurface frame behind the next `process*` call's input
+    /// texture. Vision then reads it directly: no GPU downsample, readback
+    /// or copy. Only used for the very next frame.
+    #[cfg(target_os = "macos")]
+    pub fn set_segmentation_source(&mut self, buffer: cidre::arc::R<cidre::cv::PixelBuf>) {
+        self.segmentation_source = Some(vision::SharedPixelBuffer(buffer));
+    }
+
     /// Call between outputs after submitting prior work; discard queued output readbacks too.
     pub fn reset_mask_history(&mut self) {
         if matches!(self.readback_state, ReadbackState::InFlight { .. })
@@ -556,6 +602,10 @@ impl BlurProcessor {
         }
         self.readback_state = ReadbackState::Idle;
         self.segmenter.reset();
+        #[cfg(target_os = "macos")]
+        {
+            self.pending_mask = None;
+        }
         self.mask_bytes.fill(255);
         self.mask_initialized = false;
         self.mask_dirty = true;
@@ -619,6 +669,12 @@ impl BlurProcessor {
                 && (matches!(self.readback_state, ReadbackState::InFlight { .. })
                     || self.last_inference.elapsed() >= self.inference_interval));
         match self.segmenter {
+            #[cfg(target_os = "macos")]
+            Segmenter::Vision(_) => {
+                if self.run_vision(device, queue, input_texture, should_infer) {
+                    self.mask_dirty = true;
+                }
+            }
             Segmenter::Onnx(_) => {
                 if should_infer {
                     self.inference_requested = false;
@@ -814,6 +870,8 @@ impl BlurProcessor {
         };
 
         let result = match &mut self.segmenter {
+            #[cfg(target_os = "macos")]
+            Segmenter::Vision(_) => return false,
             Segmenter::Onnx(onnx) => segment_with_onnx(
                 onnx,
                 &mut self.readback_pixels,
@@ -842,6 +900,113 @@ impl BlurProcessor {
                 false
             }
         }
+    }
+
+    /// Vision path: collect a finished mask, then submit the current frame
+    /// if the segmenter is idle. Live callers never wait; synchronous
+    /// callers (export) and the first frame after a reset block so the mask
+    /// matches the frame being rendered.
+    #[cfg(target_os = "macos")]
+    fn run_vision(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        input_texture: &wgpu::Texture,
+        should_infer: bool,
+    ) -> bool {
+        let wait = self.frame_synchronous || !self.mask_initialized;
+        let source = self.segmentation_source.take();
+        let mut updated = self.collect_vision(wait);
+        let busy = matches!(&self.segmenter, Segmenter::Vision(segmenter) if segmenter.is_busy());
+        if !should_infer || busy {
+            return updated;
+        }
+
+        let failure_revision = self.mask_status.failure_revision;
+        let dimensions = (input_texture.width(), input_texture.height());
+        let submitted = if let Some(source) = source
+            .filter(|source| (source.0.width() as u32, source.0.height() as u32) == dimensions)
+        {
+            let Segmenter::Vision(segmenter) = &mut self.segmenter else {
+                return updated;
+            };
+            segmenter
+                .submit_pixel_buffer(source)
+                .map(|()| (Instant::now(), dimensions))
+        } else {
+            // Waiting only covers the small downsample copy; it lets Vision
+            // start on this frame instead of one frame later.
+            let Some(frame) = self.readback_downsampled(device, queue, input_texture, true) else {
+                return updated;
+            };
+            let Segmenter::Vision(segmenter) = &mut self.segmenter else {
+                return updated;
+            };
+            segmenter
+                .submit_pixels(&self.readback_pixels, frame.input_dimensions)
+                .map(|()| (frame.submitted_at, frame.dimensions))
+        };
+        match submitted {
+            Ok((submitted_at, dimensions)) => {
+                self.inference_requested = false;
+                self.last_inference = Instant::now();
+                self.pending_mask = Some(PendingMask {
+                    submitted_at,
+                    dimensions,
+                    failure_revision,
+                });
+            }
+            Err(error) => {
+                self.mask_status
+                    .fail(BlurFailure::Inference(format!("{error:#}")));
+                return updated;
+            }
+        }
+        if wait {
+            updated |= self.collect_vision(true);
+        }
+        updated
+    }
+
+    #[cfg(target_os = "macos")]
+    fn collect_vision(&mut self, wait: bool) -> bool {
+        let Segmenter::Vision(segmenter) = &mut self.segmenter else {
+            return false;
+        };
+        let Some(result) = segmenter.collect(wait) else {
+            return false;
+        };
+        let pending = self.pending_mask.take();
+        let failure = match result {
+            Ok((mask, (width, height))) => {
+                let expected_samples = (width * height) as usize;
+                if mask.len() == expected_samples && expected_samples > 0 {
+                    self.mask_bytes.clear();
+                    self.mask_bytes.extend_from_slice(mask);
+                    self.mask_dimensions = (width, height);
+                    self.mask_initialized = true;
+                    if let Some(pending) = pending {
+                        self.mask_status.complete(
+                            pending.failure_revision,
+                            pending.submitted_at,
+                            pending.dimensions,
+                            Instant::now(),
+                        );
+                    }
+                    return true;
+                }
+                BlurFailure::InvalidMask {
+                    expected_samples,
+                    actual_samples: mask.len(),
+                }
+            }
+            Err(error) => {
+                tracing::warn!("Segmentation inference failed: {error:#}");
+                BlurFailure::Inference(format!("{error:#}"))
+            }
+        };
+        self.mask_status.fail(failure);
+        false
     }
 
     fn readback_downsampled(
@@ -1006,6 +1171,8 @@ impl BlurProcessor {
                 Some(ReadbackFrame {
                     submitted_at,
                     dimensions,
+                    #[cfg(target_os = "macos")]
+                    input_dimensions: input.dimensions,
                 })
             }
             READBACK_READY_ERR => {

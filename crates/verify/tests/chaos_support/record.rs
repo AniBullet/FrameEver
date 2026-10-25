@@ -63,6 +63,17 @@ fn timestamp(clock: Clock, timestamps: Timestamps) -> Timestamp {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn host(timestamps: Timestamps, secs: f64) -> Timestamp {
+    let base = timestamps.mach_absolute_time();
+    Timestamp::MachAbsoluteTime(if secs >= 0.0 {
+        base + Duration::from_secs_f64(secs)
+    } else {
+        base - Duration::from_secs_f64(-secs)
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
 fn host(timestamps: Timestamps, secs: f64) -> Timestamp {
     timestamp(Clock::Instant(secs), timestamps)
 }
@@ -302,12 +313,20 @@ fn ffmpeg_frame(format: Pixel, width: u32, height: u32, seed: u32) -> ffmpeg::fr
 pub enum VideoMuxer {
     Mp4,
     Segmented,
+    #[cfg(target_os = "macos")]
+    MacFragmented,
+    #[cfg(target_os = "macos")]
+    MacOop,
+    #[cfg(target_os = "macos")]
+    MacAvfMp4,
 }
 
 impl VideoMuxer {
     fn output(&self, dir: &Path) -> std::path::PathBuf {
         match self {
             VideoMuxer::Mp4 => dir.join("out.mp4"),
+            #[cfg(target_os = "macos")]
+            VideoMuxer::MacAvfMp4 => dir.join("out.mp4"),
             _ => dir.join("display"),
         }
     }
@@ -374,6 +393,137 @@ async fn run_ffmpeg_video(
     }
 }
 
+#[cfg(target_os = "macos")]
+mod mac {
+    use super::*;
+    use cap_recording::{
+        MacOSFragmentedM4SMuxer, MacOSFragmentedM4SMuxerConfig, OutOfProcessFragmentedM4SMuxer,
+        OutOfProcessFragmentedM4SMuxerConfig, screen_capture,
+    };
+    use cidre::{arc, cf, cm, cv};
+
+    pub fn cv_format(format: Pixel) -> cv::PixelFormat {
+        match format {
+            Pixel::BGRA => cv::PixelFormat::_32_BGRA,
+            Pixel::UYVY422 => cv::PixelFormat::_2VUY,
+            Pixel::P010LE => cv::PixelFormat(u32::from_be_bytes(*b"x420")),
+            Pixel::YUYV422 => cv::PixelFormat(u32::from_be_bytes(*b"yuvs")),
+            Pixel::NV21 => cv::PixelFormat::_420F,
+            _ => cv::PixelFormat::_420V,
+        }
+    }
+
+    pub fn sample(
+        format: Pixel,
+        width: u32,
+        height: u32,
+        fps: u32,
+        index: u32,
+    ) -> anyhow::Result<arc::R<cm::SampleBuf>> {
+        let io_surface_properties = cf::Dictionary::new();
+        let keys: [&cf::Type; 1] = [cv::pixel_buffer::keys::io_surf_props().as_ref()];
+        let values: [&cf::Type; 1] = [io_surface_properties.as_ref()];
+        let attrs = cf::Dictionary::with_keys_values(&keys, &values)
+            .ok_or_else(|| anyhow!("pixel buffer attributes"))?;
+        let buf = cv::PixelBuf::new(
+            width as usize,
+            height as usize,
+            cv_format(format),
+            Some(&attrs),
+        )
+        .map_err(|e| anyhow!("pixel buffer {width}x{height} {format:?}: {e:?}"))?;
+        let format_desc = cm::VideoFormatDesc::with_image_buf(&buf)
+            .map_err(|e| anyhow!("format description: {e:?}"))?;
+        let timing = cm::SampleTimingInfo {
+            duration: cm::Time::new(1, fps.max(1) as i32),
+            pts: cm::Time::new(i64::from(index), fps.max(1) as i32),
+            dts: cm::Time::invalid(),
+        };
+        cm::SampleBuf::with_image_buf(&buf, true, None, std::ptr::null(), &format_desc, &timing)
+            .map_err(|e| anyhow!("sample buffer: {e:?}"))
+    }
+
+    pub async fn run_screen(
+        ctx: &Ctx,
+        muxer: &VideoMuxer,
+        script: &VideoScript,
+    ) -> anyhow::Result<Verdict> {
+        let timestamps = Timestamps::now();
+        let (tx, rx) = flume::bounded::<screen_capture::VideoFrame>(64);
+        let output = muxer.output(&ctx.scratch);
+        let builder = OutputPipeline::builder(output.clone())
+            .with_video::<ChannelVideoSource<screen_capture::VideoFrame>>(
+                ChannelVideoSourceConfig::new(script.info, rx),
+            )
+            .with_timestamps(timestamps);
+        let built = match muxer {
+            VideoMuxer::MacFragmented => {
+                builder
+                    .build::<MacOSFragmentedM4SMuxer>(MacOSFragmentedM4SMuxerConfig::default())
+                    .await
+            }
+            VideoMuxer::MacOop => {
+                builder
+                    .build::<OutOfProcessFragmentedM4SMuxer>(
+                        OutOfProcessFragmentedM4SMuxerConfig::default(),
+                    )
+                    .await
+            }
+            _ => {
+                builder
+                    .build::<cap_recording::AVFoundationMp4Muxer>(
+                        cap_recording::AVFoundationMp4MuxerConfig {
+                            output_height: None,
+                            instant_mode: false,
+                            ultra_quality: false,
+                            compatibility_quality: false,
+                        },
+                    )
+                    .await
+            }
+        };
+        let pipeline = match built {
+            Ok(p) => p,
+            Err(e) => return Ok(Verdict::rejected(format!("build: {e:#}"))),
+        };
+        let fps = script.info.fps();
+        let mut tx = Some(tx);
+        for (i, f) in script.frames.iter().enumerate() {
+            if script.pause_at.contains(&i) {
+                pipeline.pause();
+            }
+            if script.resume_at.contains(&i) {
+                pipeline.resume();
+            }
+            if script.vanish_after == Some(i) {
+                tx = None;
+            }
+            if f.wait > 0.0 {
+                tokio::time::sleep(Duration::from_secs_f64(f.wait)).await;
+            }
+            let Some(sender) = &tx else { break };
+            // A size no pixel buffer can have never reaches the recorder.
+            let Ok(sample_buf) = sample(f.format, f.width, f.height, fps, i as u32) else {
+                continue;
+            };
+            let frame = screen_capture::VideoFrame {
+                sample_buf,
+                timestamp: timestamp(f.clock, timestamps),
+            };
+            if sender.send_async(frame).await.is_err() {
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let stopped = pipeline.stop().await;
+        drop(tx);
+        match stopped {
+            Err(e) => Ok(Verdict::rejected(format!("stop: {e:#}"))),
+            Ok(_) => Ok(judge_output(&output, script.expect_media)),
+        }
+    }
+}
+
 /// Video scripts every muxer runs in the FAST tier; FULL runs them all.
 const FAST_VIDEO: &[&str] = &[
     "control",
@@ -422,6 +572,57 @@ fn video_probes(out: &mut Vec<Probe>) {
             } else {
                 probe
             });
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mac_muxers: [NamedMuxer; 3] = [
+            ("mac-fragmented", || VideoMuxer::MacFragmented),
+            ("mac-oop", || VideoMuxer::MacOop),
+            ("mac-avf-mp4", || VideoMuxer::MacAvfMp4),
+        ];
+        for (muxer_name, muxer) in mac_muxers {
+            for (name, full, script) in video_scripts(Pixel::NV12, Pixel::BGRA) {
+                let full = full || !FAST_VIDEO.contains(&name);
+                let probe = Probe::new(
+                    format!("chaos/record/video/{muxer_name}/{name}"),
+                    60,
+                    move |ctx| {
+                        let muxer = muxer();
+                        ctx.block_on(mac::run_screen(ctx, &muxer, &script))
+                    },
+                );
+                out.push(if full { probe.full() } else { probe });
+            }
+        }
+        for format in [
+            Pixel::NV12,
+            Pixel::NV21,
+            Pixel::BGRA,
+            Pixel::UYVY422,
+            Pixel::YUYV422,
+            Pixel::P010LE,
+        ] {
+            for (w, h) in [(1, 1), (2, 2), (641, 361), (3, 1080), (1920, 1)] {
+                let id = format!(
+                    "chaos/record/camera-convert/{}/{w}x{h}",
+                    format!("{format:?}").to_lowercase()
+                );
+                out.push(Probe::new(id, 30, move |_ctx| {
+                    let Ok(sample) = mac::sample(format, w, h, 30, 0) else {
+                        return Ok(Verdict::Ok("no pixel buffer of this shape".into()));
+                    };
+                    Ok(match cap_camera_ffmpeg::sample_buf_as_ffmpeg(&sample) {
+                        Ok(frame) => Verdict::Ok(format!(
+                            "{}x{} {:?}",
+                            frame.width(),
+                            frame.height(),
+                            frame.format()
+                        )),
+                        Err(e) => Verdict::rejected(e),
+                    })
+                }));
+            }
         }
     }
 }
@@ -971,3 +1172,6 @@ pub fn probes() -> Vec<Probe> {
     super::actors::probes(&mut out);
     out
 }
+
+#[cfg(target_os = "macos")]
+pub use mac::sample as mac_sample;

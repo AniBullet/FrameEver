@@ -519,18 +519,21 @@ async fn record_segment(
 /// (more under load); the product raises the timer resolution the same way
 /// for playback and export.
 fn high_resolution_timer() {
-    #[link(name = "winmm")]
-    unsafe extern "system" {
-        fn timeBeginPeriod(period: u32) -> u32;
+    #[cfg(windows)]
+    {
+        #[link(name = "winmm")]
+        unsafe extern "system" {
+            fn timeBeginPeriod(period: u32) -> u32;
+        }
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            assert_eq!(
+                unsafe { timeBeginPeriod(1) },
+                0,
+                "set Windows timer resolution"
+            );
+        });
     }
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        assert_eq!(
-            unsafe { timeBeginPeriod(1) },
-            0,
-            "set Windows timer resolution"
-        );
-    });
 }
 
 pub async fn record_studio(spec: &RecordedSpec, dir: &Path) -> anyhow::Result<()> {
@@ -667,8 +670,8 @@ pub async fn record_instant(spec: &InstantSpec, dir: &Path) -> anyhow::Result<()
         builder = builder.with_start_gate(Some(gate.clone()));
     }
     // Mirrors the product's Instant audio pipeline: anchored at the recording
-    // epoch behind a start gate.
-    if gate.is_some() {
+    // epoch behind a start gate, and on Linux.
+    if gate.is_some() || cfg!(target_os = "linux") {
         builder = builder.with_audio_anchor(cap_recording::AudioAnchor::PipelineEpoch);
     }
     let has_audio = spec.mic_delay.is_some() || spec.system_audio;

@@ -99,6 +99,10 @@ fn prebuild_spare_layers_in_background() {
 /// the first task after a (re)start pays none of it.
 pub async fn warm() -> Result<serde_json::Value> {
     let started = Instant::now();
+    #[cfg(target_os = "linux")]
+    if cap_rendering::linux_gpu::enabled() {
+        cap_rendering::linux_gpu::init().map_err(|error| anyhow!("cuda: {error}"))?;
+    }
     let shared = shared_device().await?;
     let device_ms = started.elapsed().as_millis() as u64;
     cap_rendering::prebuild_spare_layers(&shared.device, &shared.queue, shared.is_software_adapter);
@@ -109,6 +113,12 @@ pub async fn warm() -> Result<serde_json::Value> {
 }
 
 fn cap_rendering_gpu_frames_expected() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        cap_rendering::linux_gpu::enabled()
+            && std::env::var("RF_ENCODER").as_deref() == Ok("h264_nvenc")
+    }
+    #[cfg(not(target_os = "linux"))]
     false
 }
 
@@ -160,6 +170,12 @@ pub struct VideoTimings {
 }
 
 fn gpu_mem() -> [u64; 3] {
+    #[cfg(target_os = "linux")]
+    {
+        let (allocated, pooled, free) = cap_rendering::linux_gpu::memory_stats();
+        [allocated as u64, pooled as u64, free]
+    }
+    #[cfg(not(target_os = "linux"))]
     [0, 0, 0]
 }
 
@@ -172,6 +188,10 @@ fn bitrate(width: u32, height: u32, fps: f32, bpp: f32) -> usize {
 
 pub async fn render(request: VideoRequest) -> Result<VideoResult> {
     let started = Instant::now();
+    #[cfg(target_os = "linux")]
+    if cap_rendering::linux_gpu::enabled() {
+        cap_rendering::linux_gpu::init().map_err(|error| anyhow!("cuda: {error}"))?;
+    }
     let mut timings = VideoTimings::default();
     timings.gpu_mem.push(gpu_mem());
     let project = load_project(&request.project)?;
@@ -311,6 +331,8 @@ pub async fn render(request: VideoRequest) -> Result<VideoResult> {
         (received, forward_blocked_us)
     };
     cap_rendering::loop_stats::take();
+    #[cfg(target_os = "linux")]
+    cap_rendering::linux_gpu::take_interop_failures();
     let (render_result, (received, forward_blocked_us)) = tokio::join!(render, forward);
     let [decode, render_us, next_decode, join, send, _] = cap_rendering::loop_stats::take();
     timings.render_ms = render_started.elapsed().as_millis() as u64;
@@ -344,6 +366,13 @@ pub async fn render(request: VideoRequest) -> Result<VideoResult> {
         && !encoded.cuda_input
     {
         bail!("gpu path degraded: frames reached the encoder through system memory");
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let failures = cap_rendering::linux_gpu::take_interop_failures();
+        if failures > 0 && std::env::var("RF_REQUIRE_GPU").as_deref() == Ok("1") {
+            bail!("gpu path degraded: {failures} decoded frames failed to reach the compositor");
+        }
     }
     let ms = |us: u64| us / 1000;
     timings.pipeline = Some(serde_json::json!({
@@ -398,6 +427,9 @@ fn encode(
     // The renderer decides where frames live; the first one tells us whether
     // NVENC should take CUDA surfaces (GPU-only path) or system memory.
     let first = frames.recv().ok();
+    #[cfg(target_os = "linux")]
+    let cuda_input = nvenc && first.as_ref().is_some_and(|frame| frame.gpu.is_some());
+    #[cfg(not(target_os = "linux"))]
     let cuda_input = false;
     let cuda_frames = if cuda_input {
         Some(CudaFrames::new(width, height)?)
@@ -531,6 +563,20 @@ fn encode(
                 rendered.width,
                 rendered.height
             );
+        }
+        #[cfg(target_os = "linux")]
+        if let (Some(cuda_frames), Some(gpu)) = (&cuda_frames, rendered.gpu.as_ref()) {
+            let copy = Instant::now();
+            let mut surface = cuda_frames.frame(gpu, width, height)?;
+            stats[1] += copy.elapsed().as_micros() as u64;
+            surface.set_pts(Some(pts));
+            drop(rendered);
+            let encode = Instant::now();
+            encoder.send_frame(&surface)?;
+            drain(&mut encoder, &mut sizes, &mut keyframes)?;
+            stats[2] += encode.elapsed().as_micros() as u64;
+            waiting = Instant::now();
+            continue;
         }
         // The encoder may still hold a reference to the previous frame's buffer.
         unsafe { ffmpeg::ffi::av_frame_make_writable(nv12.as_mut_ptr()) };
@@ -718,6 +764,50 @@ impl CudaFrames {
             }
             Ok(Self { device, frames })
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn frame(
+        &self,
+        gpu: &cap_rendering::linux_gpu::GpuNv12Output,
+        width: u32,
+        height: u32,
+    ) -> Result<frame::Video> {
+        let mut surface = frame::Video::empty();
+        unsafe {
+            let result = ffmpeg::ffi::av_hwframe_get_buffer(self.frames, surface.as_mut_ptr(), 0);
+            if result < 0 {
+                bail!("av_hwframe_get_buffer: {result}");
+            }
+            let raw = surface.as_mut_ptr();
+            (*raw).color_range = ffmpeg::ffi::AVColorRange::AVCOL_RANGE_MPEG;
+            (*raw).colorspace = ffmpeg::ffi::AVColorSpace::AVCOL_SPC_BT709;
+            (*raw).color_primaries = ffmpeg::ffi::AVColorPrimaries::AVCOL_PRI_BT709;
+            (*raw).color_trc = ffmpeg::ffi::AVColorTransferCharacteristic::AVCOL_TRC_BT709;
+            let source = gpu.cuda_ptr();
+            cap_rendering::linux_gpu::copy_plane(
+                source,
+                gpu.y_stride as usize,
+                (*raw).data[0] as u64,
+                (*raw).linesize[0] as usize,
+                width as usize,
+                height as usize,
+            )
+            .map_err(|error| anyhow!(error))?;
+            cap_rendering::linux_gpu::copy_plane(
+                source + gpu.uv_offset,
+                gpu.uv_stride as usize,
+                (*raw).data[1] as u64,
+                (*raw).linesize[1] as usize,
+                width as usize,
+                height as usize / 2,
+            )
+            .map_err(|error| anyhow!(error))?;
+            // The source slot is released (and reused by Vulkan) once `gpu`
+            // drops, so the copy must have landed before this returns.
+            cap_rendering::linux_gpu::synchronize().map_err(|error| anyhow!(error))?;
+        }
+        Ok(surface)
     }
 }
 

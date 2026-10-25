@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 use std::{
     ops::{Deref, DerefMut},
     ptr::null_mut,

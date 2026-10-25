@@ -689,6 +689,11 @@ async fn run_preview(
                     .render_immediate(frames, uniforms, &cursor, true, &mut layers)
                     .await
                     .map(EditorFrameOutput::Rgba),
+                #[cfg(target_os = "macos")]
+                EditorFrameFormat::BgraSurface => renderer
+                    .render_immediate_bgra_surface(frames, uniforms, &cursor, true, &mut layers)
+                    .await
+                    .map(EditorFrameOutput::Surface),
             };
             check_cursor_error(&constants)?;
             control.check()?;
@@ -798,6 +803,8 @@ fn validate_output(
     let (number, width, height) = match output {
         EditorFrameOutput::Rgba(frame) => (frame.frame_number, frame.width, frame.height),
         EditorFrameOutput::Nv12(frame) => (frame.frame_number, frame.width, frame.height),
+        #[cfg(target_os = "macos")]
+        EditorFrameOutput::Surface(frame) => (frame.frame_number, frame.width, frame.height),
     };
     if number != request.frame_number || [width, height] != layout.output_size {
         Err(PreparingPreviewError::Render(

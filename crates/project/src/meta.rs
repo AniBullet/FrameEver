@@ -82,12 +82,24 @@ pub struct SharingMeta {
     pub content_hash: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub enum Platform {
     MacOS,
-    #[default]
     Windows,
     Linux,
+}
+
+impl Default for Platform {
+    fn default() -> Self {
+        #[cfg(windows)]
+        return Self::Windows;
+
+        #[cfg(target_os = "macos")]
+        return Self::MacOS;
+
+        #[cfg(target_os = "linux")]
+        return Self::Linux;
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -216,6 +228,7 @@ impl RecordingMeta {
                 .map_err(Either::Right)?;
         }
         prepare(temporary.as_file_mut(), meta.as_bytes()).map_err(Either::Right)?;
+        #[cfg(windows)]
         {
             // tempfile 3.23 lacks Rust's Windows rename fallback for open readers.
             let (file, path) = temporary
@@ -226,6 +239,12 @@ impl RecordingMeta {
             path.disable_cleanup(true);
             drop(file);
         }
+        #[cfg(not(windows))]
+        drop(
+            temporary
+                .persist(&meta_path)
+                .map_err(|error| Either::Right(error.error))?,
+        );
         Ok(())
     }
 
@@ -928,6 +947,7 @@ mod metadata_save_tests {
         assert_no_temporary_metadata(project.path());
     }
 
+    #[cfg(windows)]
     #[test]
     fn denied_metadata_replacement_preserves_previous_metadata() {
         use std::os::windows::fs::OpenOptionsExt;
@@ -952,6 +972,45 @@ mod metadata_save_tests {
         drop(locked);
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(path).unwrap(), LEGACY_METADATA);
+        assert_no_temporary_metadata(project.path());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_replacement_preserves_existing_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let project = tempfile::tempdir().unwrap();
+        let path = project.path().join("recording-meta.json");
+        std::fs::write(&path, LEGACY_METADATA).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+        recording(project.path()).save_for_project().unwrap();
+
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_metadata_and_its_target_are_preserved() {
+        let project = tempfile::tempdir().unwrap();
+        let target = project.path().join("original.json");
+        let path = project.path().join("recording-meta.json");
+        std::fs::write(&target, LEGACY_METADATA).unwrap();
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+
+        assert!(recording(project.path()).save_for_project().is_err());
+
+        assert!(
+            std::fs::symlink_metadata(path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(std::fs::read_to_string(target).unwrap(), LEGACY_METADATA);
         assert_no_temporary_metadata(project.path());
     }
 }

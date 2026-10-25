@@ -1,3 +1,5 @@
+#![cfg(target_os = "windows")]
+
 use scap_targets::{Window, WindowId};
 use std::{
     io::{BufRead, BufReader, Write},

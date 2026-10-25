@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 use std::sync::OnceLock;
 use windows::Win32::System::SystemInformation::OSVERSIONINFOEXW;
 

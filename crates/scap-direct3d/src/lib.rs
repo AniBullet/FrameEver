@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 mod windows_version;
 
 pub use windows_version::WindowsVersion;

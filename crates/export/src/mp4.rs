@@ -426,16 +426,20 @@ impl Mp4ExportSettings {
             // VideoToolbox for zero-copy hardware input (falling back to
             // software frames if that fails), CPU frames keep today's path.
             let first_frame = frame_rx.recv().ok();
-            if encoder_cancellation
-                .as_ref()
-                .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
-                || encoder_user_cancellation
-                    .as_ref()
-                    .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
-            {
+            if encoder_cancellation.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed)) || encoder_user_cancellation.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
                 return Err(Mp4PipelineError::Interrupted);
             }
+            #[cfg(target_os = "macos")]
+            let want_hw_input = !self.optimize_filesize
+                && self.codec == ExportCodec::H264
+                && matches!(
+                    first_frame.as_ref().map(|frame| &frame.payload),
+                    Some(ExportFramePayload::Surface(_))
+                );
 
+            #[cfg(target_os = "macos")]
+            let mut encoder_is_hw = false;
+            #[cfg(not(target_os = "macos"))]
             let encoder_is_hw = false;
 
             let mut detached_audio = None;
@@ -469,24 +473,42 @@ impl Mp4ExportSettings {
                     audio,
                 ),
                 ExportCodec::H264 => MP4File::init(
-                    "output",
-                    encoder_output_path.clone(),
-                    self.optimize_filesize,
-                    |o| {
-                        let builder = H264Encoder::builder(video_info)
+                "output",
+                encoder_output_path.clone(),
+                self.optimize_filesize,
+                |o| {
+                    #[cfg(target_os = "macos")]
+                    if want_hw_input {
+                        match H264Encoder::builder(video_info)
                             .with_bpp(self.effective_bpp())
-                            .with_export_priority()
                             .with_export_settings()
-                            .with_external_conversion();
-                        let builder = if self.optimize_filesize {
-                            builder.with_crf(self.compression.crf_value())
-                        } else {
-                            builder
-                        };
-                        builder.build(o)
-                    },
-                    audio,
-                ),
+                            .build_videotoolbox_hw_input(o)
+                        {
+                            Ok(encoder) => {
+                                encoder_is_hw = true;
+                                return Ok(encoder);
+                            }
+                            Err(error) => info!(
+                                %error,
+                                "Zero-copy VideoToolbox export input unavailable, using software frames"
+                            ),
+                        }
+                    }
+
+                    let builder = H264Encoder::builder(video_info)
+                        .with_bpp(self.effective_bpp())
+                        .with_export_priority()
+                        .with_export_settings()
+                        .with_external_conversion();
+                    let builder = if self.optimize_filesize {
+                        builder.with_crf(self.compression.crf_value())
+                    } else {
+                        builder
+                    };
+                    builder.build(o)
+                },
+                audio,
+            ),
             };
             let mut encoder = encoder.map_err(|v| v.to_string())?;
             if let Some(timing) = &sample_timing {
@@ -502,9 +524,7 @@ impl Mp4ExportSettings {
                 Some(audio_encoder) => {
                     let source = match streaming_audio.take() {
                         Some(audio) => ExportAudioSource::Streaming(audio),
-                        None => ExportAudioSource::Renderer(
-                            AudioRenderer::new(audio_segments).with_music(music),
-                        ),
+                        None => ExportAudioSource::Renderer(AudioRenderer::new(audio_segments).with_music(music)),
                     };
                     let worker_cancellation = encoder_cancellation.clone();
                     let worker_user_cancellation = encoder_user_cancellation.clone();
@@ -518,12 +538,8 @@ impl Mp4ExportSettings {
                             sampled: sample_timing.is_some(),
                         },
                         move || {
-                            worker_cancellation
-                                .as_ref()
-                                .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
-                                || worker_user_cancellation
-                                    .as_ref()
-                                    .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
+                            worker_cancellation.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed))
+                                || worker_user_cancellation.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed))
                         },
                     )?)
                 }
@@ -543,19 +559,10 @@ impl Mp4ExportSettings {
                 .into_iter()
                 .chain(std::iter::from_fn(|| frame_rx.recv().ok()));
             for input in frames {
-                if sample_timing
-                    .as_ref()
-                    .is_some_and(|timing| timing.is_cancelled())
-                {
+                if sample_timing.as_ref().is_some_and(|timing| timing.is_cancelled()) {
                     return Err(Mp4PipelineError::Interrupted);
                 }
-                if encoder_cancellation
-                    .as_ref()
-                    .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
-                    || encoder_user_cancellation
-                        .as_ref()
-                        .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
-                {
+                if encoder_cancellation.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed)) || encoder_user_cancellation.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
                     return Err(Mp4PipelineError::Interrupted);
                 }
                 if let Some(worker) = &mut audio_worker {
@@ -579,6 +586,44 @@ impl Mp4ExportSettings {
                                 Duration::MAX,
                             )
                             .map_err(|err| err.to_string())?;
+                    }
+                    #[cfg(target_os = "macos")]
+                    ExportFramePayload::Surface(surface) => {
+                        if encoder_is_hw {
+                            let h264 = encoder
+                                .video_encoder()
+                                .ok_or_else(|| "Zero-copy export input needs the H.264 encoder".to_string())?;
+                            let mut frame = unsafe {
+                                h264.wrap_videotoolbox_pixel_buffer(surface.as_pixel_buffer_ptr())
+                            }
+                            .map_err(|err| err.to_string())?;
+                            frame.set_pts(Some(input.frame_number as i64));
+                            encoder
+                                .queue_video_frame_reusable(
+                                    &mut frame,
+                                    &mut converted_frame,
+                                    Duration::MAX,
+                                )
+                                .map_err(|err| err.to_string())?;
+                        } else {
+                            fill_nv12_frame_from_surface(
+                                &mut reusable_frame,
+                                surface,
+                                input.width,
+                                input.height,
+                                input.frame_number as i64,
+                            )
+                            .ok_or_else(|| {
+                                "failed to lock NV12 surface for encoding".to_string()
+                            })?;
+                            encoder
+                                .queue_video_frame_reusable(
+                                    &mut reusable_frame,
+                                    &mut converted_frame,
+                                    Duration::MAX,
+                                )
+                                .map_err(|err| err.to_string())?;
+                        }
                     }
                 }
                 if let Some(worker) = &mut audio_worker {
@@ -614,13 +659,7 @@ impl Mp4ExportSettings {
             if let Some(audio) = &mut streaming_audio {
                 audio.validate_to_end().map_err(Mp4PipelineError::from)?;
             }
-            if encoder_cancellation
-                .as_ref()
-                .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
-                || encoder_user_cancellation
-                    .as_ref()
-                    .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
-            {
+            if encoder_cancellation.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed)) || encoder_user_cancellation.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
                 return Err(Mp4PipelineError::Interrupted);
             }
 
@@ -629,25 +668,17 @@ impl Mp4ExportSettings {
                 .map_err(|e| format!("Failed to finish encoding: {e}"))?;
 
             if let Err(e) = res.video_finish {
-                return Err(Mp4PipelineError::Failure(format!(
-                    "Video encoding failed: {e}"
-                )));
+                return Err(Mp4PipelineError::Failure(format!("Video encoding failed: {e}")));
             }
             if let Err(e) = res.audio_finish {
-                return Err(Mp4PipelineError::Failure(format!(
-                    "Audio encoding failed: {e}"
-                )));
+                return Err(Mp4PipelineError::Failure(format!("Audio encoding failed: {e}")));
             }
 
             Ok::<_, Mp4PipelineError>(encoder_output_path)
         })
         .then(move |r| async move {
-            let result = r
-                .map_err(|e| Mp4PipelineError::Failure(e.to_string()))
-                .and_then(|v| v);
-            if result.is_err()
-                && let Some(cancel) = &encoder_result_cancellation
-            {
+            let result = r.map_err(|e| Mp4PipelineError::Failure(e.to_string())).and_then(|v| v);
+            if result.is_err() && let Some(cancel) = &encoder_result_cancellation {
                 cancel.store(true, Ordering::Relaxed);
             }
             result
@@ -757,6 +788,8 @@ impl Mp4ExportSettings {
 
 enum ExportFramePayload {
     Cpu(SharedNv12Buffer),
+    #[cfg(target_os = "macos")]
+    Surface(cap_rendering::Nv12Surface),
 }
 
 struct ExportFrame {
@@ -774,6 +807,21 @@ impl ExportFrame {
     fn materialize_nv12(&self) -> Option<(Vec<u8>, u32)> {
         match &self.payload {
             ExportFramePayload::Cpu(data) => Some((data.as_ref().to_vec(), self.y_stride)),
+            #[cfg(target_os = "macos")]
+            ExportFramePayload::Surface(surface) => {
+                surface.with_locked_planes(|y_plane, y_stride, uv_plane, uv_stride| {
+                    let width = self.width as usize;
+                    let height = self.height as usize;
+                    let mut data = Vec::with_capacity(width * height * 3 / 2);
+                    for row in 0..height {
+                        data.extend_from_slice(&y_plane[row * y_stride..row * y_stride + width]);
+                    }
+                    for row in 0..(height / 2) {
+                        data.extend_from_slice(&uv_plane[row * uv_stride..row * uv_stride + width]);
+                    }
+                    (data, self.width)
+                })
+            }
         }
     }
 }
@@ -786,6 +834,18 @@ struct FirstFrameNv12 {
 }
 
 fn nv12_from_rendered_frame(frame: Nv12RenderedFrame) -> ExportFrame {
+    #[cfg(target_os = "macos")]
+    if let Some(surface) = frame.surface {
+        return ExportFrame {
+            width: frame.width,
+            height: frame.height,
+            y_stride: frame.y_stride,
+            frame_number: frame.frame_number,
+            timeline_frame: frame.frame_number,
+            payload: ExportFramePayload::Surface(surface),
+        };
+    }
+
     if frame.format != GpuOutputFormat::Rgba {
         return ExportFrame {
             width: frame.width,
@@ -1132,6 +1192,10 @@ fn join_audio_thread(
 #[derive(Debug)]
 pub(crate) struct TemporaryExportOutput {
     path: tempfile::TempPath,
+    #[cfg(unix)]
+    file: std::fs::File,
+    #[cfg(unix)]
+    final_permissions: std::fs::Permissions,
 }
 
 impl AsRef<std::path::Path> for TemporaryExportOutput {
@@ -1149,6 +1213,26 @@ impl TemporaryExportOutput {
         self,
         output: &std::path::Path,
     ) -> Result<(), tempfile::PathPersistError> {
+        #[cfg(unix)]
+        let prepare_permissions = || {
+            use std::os::unix::fs::MetadataExt;
+            let path_metadata = std::fs::symlink_metadata(&self.path)?;
+            let file_metadata = self.file.metadata()?;
+            if !path_metadata.is_file()
+                || path_metadata.dev() != file_metadata.dev()
+                || path_metadata.ino() != file_metadata.ino()
+            {
+                return Err(std::io::Error::other("Export temporary file was replaced"));
+            }
+            self.file.set_permissions(self.final_permissions.clone())
+        };
+        #[cfg(unix)]
+        if let Err(error) = prepare_permissions() {
+            return Err(tempfile::PathPersistError {
+                error,
+                path: self.path,
+            });
+        }
         self.path.persist_noclobber(output)
     }
 }
@@ -1166,9 +1250,32 @@ pub(crate) fn temporary_export_output(
         .suffix(&suffix)
         .tempfile_in(parent)
         .map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    let final_permissions = {
+        use std::os::unix::fs::PermissionsExt;
+        // An empty sibling captures creation permissions without changing the
+        // process-wide umask or exposing incomplete media to other users.
+        let probe = tempfile::Builder::new()
+            .prefix(".cap-export-permissions-")
+            .permissions(std::fs::Permissions::from_mode(0o666))
+            .tempfile_in(parent)
+            .map_err(|error| error.to_string())?;
+        probe
+            .as_file()
+            .metadata()
+            .map_err(|error| error.to_string())?
+            .permissions()
+    };
     let (file, path) = temporary.into_parts();
+    #[cfg(not(unix))]
     drop(file);
-    Ok(TemporaryExportOutput { path })
+    Ok(TemporaryExportOutput {
+        path,
+        #[cfg(unix)]
+        file,
+        #[cfg(unix)]
+        final_permissions,
+    })
 }
 
 fn packed_audio_frame(data: &[f32]) -> ffmpeg::frame::Audio {
@@ -1199,6 +1306,37 @@ fn silent_audio_frame(samples: usize) -> ffmpeg::frame::Audio {
         frame.data_mut(plane).fill(0);
     }
     frame
+}
+
+#[cfg(target_os = "macos")]
+fn fill_nv12_frame_from_surface(
+    frame: &mut ffmpeg::frame::Video,
+    surface: &cap_rendering::Nv12Surface,
+    width: u32,
+    height: u32,
+    pts: i64,
+) -> Option<()> {
+    surface.with_locked_planes(|y_plane, y_stride, uv_plane, uv_stride| {
+        frame.set_pts(Some(pts));
+        let width = width as usize;
+        let height = height as usize;
+
+        let dst_y_stride = frame.stride(0);
+        for row in 0..height {
+            let src_start = row * y_stride;
+            let dst_start = row * dst_y_stride;
+            frame.data_mut(0)[dst_start..dst_start + width]
+                .copy_from_slice(&y_plane[src_start..src_start + width]);
+        }
+
+        let dst_uv_stride = frame.stride(1);
+        for row in 0..(height / 2) {
+            let src_start = row * uv_stride;
+            let dst_start = row * dst_uv_stride;
+            frame.data_mut(1)[dst_start..dst_start + width]
+                .copy_from_slice(&uv_plane[src_start..src_start + width]);
+        }
+    })
 }
 
 fn fill_nv12_frame_direct(
@@ -1726,6 +1864,53 @@ mod tests {
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn temporary_output_preserves_default_creation_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("export.mp4");
+        let reference = directory.path().join("reference.mp4");
+        std::fs::write(&reference, b"reference").unwrap();
+        let temporary = temporary_export_output(&output).unwrap();
+        assert_eq!(
+            std::fs::metadata(&temporary).unwrap().permissions().mode() & 0o077,
+            0
+        );
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
+        std::fs::write(&temporary, b"completed").unwrap();
+        temporary.persist_noclobber(&output).unwrap();
+        assert_eq!(
+            std::fs::metadata(output).unwrap().permissions().mode() & 0o777,
+            std::fs::metadata(reference).unwrap().permissions().mode() & 0o777
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replaced_temporary_output_cannot_change_another_files_permissions() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("export.mp4");
+        let private = directory.path().join("private.mp4");
+        std::fs::write(&private, b"private recording").unwrap();
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let temporary = temporary_export_output(&output).unwrap();
+        let temporary_path = temporary.to_path_buf();
+        std::fs::remove_file(&temporary_path).unwrap();
+        symlink(&private, &temporary_path).unwrap();
+
+        drop(temporary.persist_noclobber(&output).unwrap_err());
+
+        assert!(!output.exists());
+        assert!(!temporary_path.exists());
+        assert_eq!(std::fs::read(&private).unwrap(), b"private recording");
+        assert_eq!(
+            std::fs::metadata(private).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
     #[test]
     fn silent_audio_frame_matches_renderer_format() {
         ffmpeg::init().unwrap();
@@ -1816,6 +2001,10 @@ mod tests {
             frame_number: 0,
             target_time_ns: 0,
             format: GpuOutputFormat::Nv12,
+            #[cfg(target_os = "macos")]
+            surface: None,
+            #[cfg(target_os = "linux")]
+            gpu: None,
         };
 
         let result = nv12_from_rendered_frame(frame);

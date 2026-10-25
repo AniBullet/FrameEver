@@ -149,14 +149,20 @@ pub enum Decoder {
 impl Decoder {
     pub fn label(self) -> &'static str {
         match self {
-            Decoder::Default => "mf",
+            Decoder::Default if cfg!(target_os = "macos") => "avf",
+            Decoder::Default if cfg!(target_os = "windows") => "mf",
+            Decoder::Default => "ffmpeg",
             Decoder::Ffmpeg => "ffmpeg",
         }
     }
 
     /// Decoders that are actually distinct on this platform.
     pub fn all() -> Vec<Decoder> {
-        vec![Decoder::Default, Decoder::Ffmpeg]
+        if cfg!(any(target_os = "macos", target_os = "windows")) {
+            vec![Decoder::Default, Decoder::Ffmpeg]
+        } else {
+            vec![Decoder::Default]
+        }
     }
 
     /// The `DecoderType` display prefix this choice must produce. A silent
@@ -164,8 +170,9 @@ impl Decoder {
     /// would otherwise test the wrong decoder under this label.
     pub fn expected_type(self) -> &'static str {
         match self {
-            Decoder::Default => "MediaFoundation",
-            Decoder::Ffmpeg => "FFmpeg",
+            Decoder::Default if cfg!(target_os = "macos") => "AVAssetReader",
+            Decoder::Default if cfg!(target_os = "windows") => "MediaFoundation",
+            _ => "FFmpeg",
         }
     }
 }
@@ -205,7 +212,7 @@ pub fn check_decoders(case: &mut Case, decoder: Decoder, segments: &[cap_editor:
 /// falls back to FFmpeg there. Any other Media Foundation failure stays a
 /// `decoder-fallback` test failure.
 pub fn decoder_unsupported(project: &Project, decoder: Decoder) -> Option<String> {
-    if decoder != Decoder::Default {
+    if decoder != Decoder::Default || !cfg!(target_os = "windows") {
         return None;
     }
     static PROBE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();

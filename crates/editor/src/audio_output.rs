@@ -22,6 +22,8 @@ use std::{
 };
 
 use cap_audio::{AudioData, FromSampleBytes};
+#[cfg(not(target_os = "windows"))]
+use cap_audio::{LatencyCorrectionConfig, LatencyCorrector, default_output_latency_hint};
 use cap_media_info::AudioInfo;
 use cap_project::ProjectConfiguration;
 use cpal::{
@@ -544,6 +546,8 @@ struct ActiveSource<T: FromSampleBytes> {
     playhead_rx: watch::Receiver<f64>,
     ack: Option<SourceAcknowledgement>,
     preparing_request: Option<Arc<PreparingAudioRequest>>,
+    #[cfg(not(target_os = "windows"))]
+    latency_corrector: LatencyCorrector,
 }
 
 enum ActiveSourceBuffer<T: FromSampleBytes> {
@@ -969,6 +973,33 @@ fn install_source<T: FromSampleBytes + cpal::FromSample<f32>>(
         ));
     }
 
+    #[cfg(not(target_os = "windows"))]
+    let latency_corrector = {
+        let hint = if use_device_latency_hint {
+            default_output_latency_hint(output_info.sample_rate, output_info.buffer_size)
+        } else {
+            None
+        };
+        if let Some(hint) = hint
+            && hint.latency_secs > 0.0
+        {
+            if hint.transport.is_wireless() {
+                info!(
+                    "Applying wireless audio output latency hint: {:.1} ms",
+                    hint.latency_secs * 1_000.0
+                );
+            } else {
+                info!(
+                    "Applying audio output latency hint: {:.1} ms",
+                    hint.latency_secs * 1_000.0
+                );
+            }
+        }
+        LatencyCorrector::new(hint, LatencyCorrectionConfig::default())
+    };
+    #[cfg(not(target_os = "windows"))]
+    let initial_latency_secs = latency_corrector.initial_output_latency_secs();
+    #[cfg(target_os = "windows")]
     let initial_latency_secs = {
         let _ = use_device_latency_hint;
         0.0
@@ -1022,6 +1053,8 @@ fn install_source<T: FromSampleBytes + cpal::FromSample<f32>>(
         playhead_rx,
         ack: Some(ack),
         preparing_request,
+        #[cfg(not(target_os = "windows"))]
+        latency_corrector,
     });
     install_tx
         .send(if let Some(retire_tx) = retire_tx {
@@ -1049,6 +1082,16 @@ fn install_progressive_source<T: FromSampleBytes + cpal::FromSample<f32>>(
     if request.is_cancelled() {
         return Err("Preparing audio request cancelled".into());
     }
+    #[cfg(not(target_os = "windows"))]
+    let latency_corrector = LatencyCorrector::new(
+        if use_device_latency_hint {
+            default_output_latency_hint(output_info.sample_rate, output_info.buffer_size)
+        } else {
+            None
+        },
+        LatencyCorrectionConfig::default(),
+    );
+    #[cfg(target_os = "windows")]
     let _ = use_device_latency_hint;
     let (buffer, output) = PreparingAudioBuffer::<T>::spawn(
         sources,
@@ -1074,6 +1117,8 @@ fn install_progressive_source<T: FromSampleBytes + cpal::FromSample<f32>>(
             playhead_rx,
             ack: Some(SourceAcknowledgement::Preparing(request.clone())),
             preparing_request: Some(request.clone()),
+            #[cfg(not(target_os = "windows"))]
+            latency_corrector,
         })))
         .map_err(|_| "Audio callback channel closed".to_string())
 }
@@ -1457,7 +1502,9 @@ fn ensure_stream(state: &mut Option<StreamState>) -> bool {
 }
 
 fn playback_output_info(config: &cpal::SupportedStreamConfig) -> AudioInfo {
-    let mut info = AudioInfo::from_stream_config_with_buffer(config, None);
+    // ALSA's supported maximum is not the queue size used by BufferSize::Default.
+    let buffer_size = cfg!(target_os = "linux").then_some(1024);
+    let mut info = AudioInfo::from_stream_config_with_buffer(config, buffer_size);
     info.sample_format = info.sample_format.packed();
     info.for_ffmpeg_output()
 }
@@ -1493,6 +1540,9 @@ where
                     return;
                 };
 
+                #[cfg(not(target_os = "windows"))]
+                let latency_secs = source.latency_corrector.update_from_callback(info);
+                #[cfg(target_os = "windows")]
                 let latency_secs = {
                     let _ = info;
                     0.0
@@ -1623,6 +1673,28 @@ mod tests {
         assert_eq!(idle.remaining(playing_until), IDLE_PAUSE_AFTER);
         assert!(!idle.should_pause(playing_until + IDLE_PAUSE_AFTER / 2, false));
         assert!(idle.should_pause(playing_until + IDLE_PAUSE_AFTER, false));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn supported_buffer_maximum_does_not_skip_the_start_of_playback() {
+        for sample_rate in [44_100, 48_000] {
+            let config = cpal::SupportedStreamConfig::new(
+                2,
+                cpal::SampleRate(sample_rate),
+                cpal::SupportedBufferSize::Range {
+                    min: 1,
+                    max: 4_194_304,
+                },
+                SampleFormat::F32,
+            );
+            let (source, _) = source_with_info(playback_output_info(&config), true);
+            let playhead = source.buffer.current_playhead_secs();
+            assert!(
+                (playhead - 0.03).abs() < 1.0 / f64::from(sample_rate),
+                "sample_rate={sample_rate}, playhead={playhead}"
+            );
+        }
     }
 
     #[test]

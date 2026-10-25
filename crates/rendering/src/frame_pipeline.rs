@@ -7,6 +7,13 @@ use wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 
 use crate::{ProjectUniforms, RenderingError};
 
+#[cfg(target_os = "macos")]
+use crate::iosurface_texture::{IOSurfaceTextureCache, import_metal_texture_to_wgpu_with_usage};
+#[cfg(target_os = "macos")]
+use cidre::{arc, cf, cv, io, mtl};
+#[cfg(target_os = "macos")]
+use foreign_types::ForeignType;
+
 const GPU_BUFFER_WAIT_TIMEOUT_SECS: u64 = 10;
 const SOFTWARE_GPU_BUFFER_WAIT_TIMEOUT_SECS: u64 = 60;
 
@@ -217,7 +224,264 @@ pub struct RgbaToNv12Converter {
     cached_texture_view: Option<wgpu::TextureView>,
     cached_texture_ptr: usize,
     surface_output: bool,
+    #[cfg(target_os = "macos")]
+    surface_ring: Option<Nv12SurfaceRing>,
+    #[cfg(all(test, target_os = "macos"))]
+    surface_setup_should_fail: bool,
+    #[cfg(target_os = "linux")]
+    external_ring: Option<crate::linux_gpu::SharedRing>,
+    #[cfg(target_os = "linux")]
+    external_output: bool,
     export_deadlines: bool,
+}
+
+/// An NV12 CVPixelBuffer produced by the GPU converter, ready for zero-copy
+/// VideoToolbox encoding. Consumers outside this crate use the raw-pointer and
+/// locked-plane accessors so they need no CoreVideo bindings of their own.
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
+pub struct Nv12Surface(arc::R<cv::PixelBuf>);
+
+#[cfg(target_os = "macos")]
+unsafe impl Send for Nv12Surface {}
+#[cfg(target_os = "macos")]
+unsafe impl Sync for Nv12Surface {}
+
+#[cfg(target_os = "macos")]
+impl Nv12Surface {
+    /// The underlying `CVPixelBufferRef`, valid while `self` is alive.
+    pub fn as_pixel_buffer_ptr(&self) -> *mut std::ffi::c_void {
+        (self.0.as_ref() as *const cv::PixelBuf as *const std::ffi::c_void).cast_mut()
+    }
+
+    /// Locks the buffer for CPU reads and hands the callback both NV12 planes
+    /// with their strides: `(y, y_stride, uv, uv_stride)`.
+    pub fn with_locked_planes<T>(
+        &self,
+        callback: impl FnOnce(&[u8], usize, &[u8], usize) -> T,
+    ) -> Option<T> {
+        let mut buf = self.0.clone();
+        unsafe {
+            buf.lock_base_addr(cv::pixel_buffer::LockFlags::READ_ONLY)
+                .result()
+                .ok()?;
+        }
+        let y_stride = buf.plane_bytes_per_row(0);
+        let uv_stride = buf.plane_bytes_per_row(1);
+        let y_height = buf.plane_height(0);
+        let uv_height = buf.plane_height(1);
+        let result = unsafe {
+            let y_plane =
+                std::slice::from_raw_parts(buf.plane_base_address(0), y_stride * y_height);
+            let uv_plane =
+                std::slice::from_raw_parts(buf.plane_base_address(1), uv_stride * uv_height);
+            callback(y_plane, y_stride, uv_plane, uv_stride)
+        };
+        unsafe {
+            buf.unlock_lock_base_addr(cv::pixel_buffer::LockFlags::READ_ONLY);
+        }
+        Some(result)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn surface_allocation_attributes(limit: usize) -> Result<arc::R<cf::Dictionary>, RenderingError> {
+    let threshold = cf::Number::from_usize(limit);
+    cf::Dictionary::with_keys_values(
+        &[cv::pixel_buffer_pool::aux_attr_keys::allocation_threashold().as_ref()],
+        &[threshold.as_ref()],
+    )
+    .ok_or_else(|| RenderingError::Surface("Failed to create surface allocation limit".to_string()))
+}
+
+#[cfg(target_os = "macos")]
+async fn acquire_surface_buffer<T: Send>(
+    owner: &mut T,
+    mut allocate: impl FnMut(&mut T) -> Result<arc::R<cv::PixelBuf>, cidre::os::Error> + Send,
+) -> Result<arc::R<cv::PixelBuf>, RenderingError> {
+    let started = Instant::now();
+    loop {
+        let error = match allocate(owner) {
+            Ok(buffer) => return Ok(buffer),
+            Err(error) => error,
+        };
+        if error != cv::err::WOULD_EXCEED_ALLOCATION_THRESHOLD
+            || started.elapsed() >= std::time::Duration::from_secs(2)
+        {
+            return Err(RenderingError::Surface(format!(
+                "Surface pool is unavailable: {error}"
+            )));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+}
+
+#[cfg(target_os = "macos")]
+// The pool controls reuse; cached imports must not keep a CVPixelBuffer lease.
+// CoreVideo also tracks CVMetalTexture consumers that do not retain that buffer.
+struct Nv12SurfaceSlot {
+    surface: arc::R<io::Surf>,
+    y_texture: wgpu::Texture,
+    uv_texture: wgpu::Texture,
+}
+
+#[cfg(target_os = "macos")]
+struct Nv12SurfaceRing {
+    texture_cache: IOSurfaceTextureCache,
+    slots: Vec<Nv12SurfaceSlot>,
+    pool: Option<arc::R<cv::PixelBufPool>>,
+    allocation_attributes: arc::R<cf::Dictionary>,
+    next: usize,
+    size: (u32, u32),
+}
+
+// SAFETY: same contract as RgbaToBgraSurfaceConverter — the CF objects have
+// atomic refcounts and all access is serialized by the owning converter.
+#[cfg(target_os = "macos")]
+unsafe impl Send for Nv12SurfaceRing {}
+
+#[cfg(target_os = "macos")]
+impl Nv12SurfaceRing {
+    const SLOTS: usize = 8;
+    const MAX_BUFFERS: usize = 32;
+
+    fn new() -> Result<Self, RenderingError> {
+        let texture_cache = IOSurfaceTextureCache::new()
+            .ok_or_else(|| RenderingError::Surface("Metal device is unavailable".to_string()))?;
+        Ok(Self {
+            texture_cache,
+            slots: Vec::new(),
+            pool: None,
+            allocation_attributes: surface_allocation_attributes(Self::MAX_BUFFERS)?,
+            next: 0,
+            size: (0, 0),
+        })
+    }
+
+    fn ensure_size(
+        &mut self,
+        _device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> Result<(), RenderingError> {
+        if self.size == (width, height) && self.pool.is_some() {
+            return Ok(());
+        }
+
+        let minimum_count = cf::Number::from_usize(3);
+        let width_number = cf::Number::from_usize(width as usize);
+        let height_number = cf::Number::from_usize(height as usize);
+        let io_surface_properties = cf::Dictionary::new();
+        let pool_keys: [&cf::Type; 1] =
+            [cv::pixel_buffer_pool::keys::minimum_buffer_count().as_ref()];
+        let pool_values: [&cf::Type; 1] = [minimum_count.as_ref()];
+        let pool_attributes = cf::Dictionary::with_keys_values(&pool_keys, &pool_values)
+            .ok_or_else(|| {
+                RenderingError::Surface("Failed to create pixel buffer pool attributes".to_string())
+            })?;
+        let pixel_buffer_keys: [&cf::Type; 5] = [
+            cv::pixel_buffer::keys::pixel_format().as_ref(),
+            cv::pixel_buffer::keys::width().as_ref(),
+            cv::pixel_buffer::keys::height().as_ref(),
+            cv::pixel_buffer::keys::io_surf_props().as_ref(),
+            cv::pixel_buffer::keys::metal_compatibility().as_ref(),
+        ];
+        let pixel_buffer_values: [&cf::Type; 5] = [
+            cv::PixelFormat::_420V.to_cf_number().as_ref(),
+            width_number.as_ref(),
+            height_number.as_ref(),
+            io_surface_properties.as_ref(),
+            cf::Boolean::value_true().as_ref(),
+        ];
+        let pixel_buffer_attributes =
+            cf::Dictionary::with_keys_values(&pixel_buffer_keys, &pixel_buffer_values).ok_or_else(
+                || RenderingError::Surface("Failed to create pixel buffer attributes".to_string()),
+            )?;
+        let pool = cv::PixelBufPool::new(
+            Some(pool_attributes.as_ref()),
+            Some(pixel_buffer_attributes.as_ref()),
+        )
+        .map_err(|error| RenderingError::Surface(error.to_string()))?;
+
+        self.pool = Some(pool);
+        self.slots.clear();
+        self.next = 0;
+        self.size = (width, height);
+        Ok(())
+    }
+
+    async fn next_slot(
+        &mut self,
+        device: &wgpu::Device,
+    ) -> Result<(arc::R<cv::PixelBuf>, &Nv12SurfaceSlot), RenderingError> {
+        if self.pool.is_none() {
+            return Err(RenderingError::Surface(
+                "NV12 pool is unavailable".to_string(),
+            ));
+        }
+        let pixel_buffer = acquire_surface_buffer(self, |this| {
+            this.pool
+                .as_ref()
+                .expect("pool checked above")
+                .pixel_buf_with_aux_attrs(Some(&this.allocation_attributes))
+        })
+        .await?;
+        let io_surface = pixel_buffer
+            .io_surf()
+            .ok_or_else(|| RenderingError::Surface("Pixel buffer has no IOSurface".to_string()))?;
+        let index = if let Some(index) = self
+            .slots
+            .iter()
+            .position(|slot| std::ptr::eq(slot.surface.as_ref(), io_surface))
+        {
+            index
+        } else {
+            let (width, height) = self.size;
+            let y_metal = self
+                .texture_cache
+                .create_y_texture(io_surface, width, height)
+                .map_err(|error| RenderingError::Surface(error.to_string()))?;
+            let y_texture = import_metal_texture_to_wgpu_with_usage(
+                device,
+                &y_metal,
+                wgpu::TextureFormat::R8Unorm,
+                width,
+                height,
+                wgpu::TextureUsages::COPY_DST,
+                Some("NV12 IOSurface Y"),
+            )
+            .map_err(|error| RenderingError::Surface(error.to_string()))?;
+            let uv_metal = self
+                .texture_cache
+                .create_uv_texture(io_surface, width, height)
+                .map_err(|error| RenderingError::Surface(error.to_string()))?;
+            let uv_texture = import_metal_texture_to_wgpu_with_usage(
+                device,
+                &uv_metal,
+                wgpu::TextureFormat::Rg8Unorm,
+                width / 2,
+                height / 2,
+                wgpu::TextureUsages::COPY_DST,
+                Some("NV12 IOSurface UV"),
+            )
+            .map_err(|error| RenderingError::Surface(error.to_string()))?;
+            let slot = Nv12SurfaceSlot {
+                surface: io_surface.retained(),
+                y_texture,
+                uv_texture,
+            };
+            if self.slots.len() < Self::SLOTS {
+                self.slots.push(slot);
+                self.slots.len() - 1
+            } else {
+                let index = self.next;
+                self.slots[index] = slot;
+                self.next = (index + 1) % Self::SLOTS;
+                index
+            }
+        };
+        Ok((pixel_buffer, &self.slots[index]))
+    }
 }
 
 #[repr(C)]
@@ -311,6 +575,14 @@ impl RgbaToNv12Converter {
             cached_texture_view: None,
             cached_texture_ptr: 0,
             surface_output: false,
+            #[cfg(target_os = "macos")]
+            surface_ring: None,
+            #[cfg(all(test, target_os = "macos"))]
+            surface_setup_should_fail: false,
+            #[cfg(target_os = "linux")]
+            external_ring: None,
+            #[cfg(target_os = "linux")]
+            external_output: false,
             export_deadlines: false,
         }
     }
@@ -318,6 +590,23 @@ impl RgbaToNv12Converter {
     /// See `FrameRenderer::use_export_deadlines`.
     pub fn use_export_deadlines(&mut self) {
         self.export_deadlines = true;
+    }
+
+    /// Keep NV12 output on the GPU: the compute result is copied into a ring
+    /// of CUDA-shared buffers for NVENC instead of being read back.
+    #[cfg(target_os = "linux")]
+    pub fn enable_external_output(&mut self) {
+        self.external_output = true;
+    }
+
+    /// Emit IOSurface-backed NV12 CVPixelBuffers instead of CPU readbacks:
+    /// the same compute output is GPU-copied into imported IOSurface planes
+    /// (byte-identical pixel values, 256-aligned stride for the buffer→texture
+    /// copy). If the surface machinery fails at any point the converter falls
+    /// back to readback mode permanently.
+    #[cfg(target_os = "macos")]
+    pub fn enable_surface_output(&mut self) {
+        self.surface_output = true;
     }
 
     fn aligned_stride(&self, width: u32) -> u32 {
@@ -337,11 +626,56 @@ impl RgbaToNv12Converter {
     }
 
     fn ensure_buffers(&mut self, device: &wgpu::Device, width: u32, height: u32) {
+        #[cfg(target_os = "macos")]
+        if self.surface_output {
+            let ring_result = {
+                #[cfg(all(test, target_os = "macos"))]
+                if self.surface_setup_should_fail {
+                    Err(RenderingError::Surface(
+                        "test surface setup failure".to_string(),
+                    ))
+                } else {
+                    match self.surface_ring.as_mut() {
+                        Some(ring) => ring.ensure_size(device, width, height),
+                        None => Nv12SurfaceRing::new().and_then(|mut ring| {
+                            ring.ensure_size(device, width, height)?;
+                            self.surface_ring = Some(ring);
+                            Ok(())
+                        }),
+                    }
+                }
+                #[cfg(not(all(test, target_os = "macos")))]
+                {
+                    match self.surface_ring.as_mut() {
+                        Some(ring) => ring.ensure_size(device, width, height),
+                        None => Nv12SurfaceRing::new().and_then(|mut ring| {
+                            ring.ensure_size(device, width, height)?;
+                            self.surface_ring = Some(ring);
+                            Ok(())
+                        }),
+                    }
+                }
+            };
+            if let Err(error) = ring_result {
+                tracing::warn!(
+                    %error,
+                    "NV12 IOSurface ring unavailable, falling back to CPU readback output"
+                );
+                self.surface_output = false;
+                self.surface_ring = None;
+                self.cached_width = 0;
+            }
+        }
+
         let stride = self.aligned_stride(width);
         if self.cached_width == width
             && self.cached_height == height
             && self.cached_stride == stride
         {
+            #[cfg(target_os = "macos")]
+            if self.surface_output {
+                self.readback_buffers = [None, None];
+            }
             return;
         }
 
@@ -462,6 +796,94 @@ impl RgbaToNv12Converter {
             pass.dispatch_workgroups(width.div_ceil(4 * 8), height.div_ceil(2 * 8), 1);
         }
 
+        #[cfg(target_os = "macos")]
+        if self.surface_output
+            && let Some(ring) = self.surface_ring.as_mut()
+        {
+            let (pixel_buffer, slot) = ring.next_slot(device).await?;
+            let y_plane_bytes = (y_stride as u64) * (height as u64);
+            encoder.copy_buffer_to_texture(
+                wgpu::TexelCopyBufferInfo {
+                    buffer: nv12_buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(y_stride),
+                        rows_per_image: None,
+                    },
+                },
+                slot.y_texture.as_image_copy(),
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            encoder.copy_buffer_to_texture(
+                wgpu::TexelCopyBufferInfo {
+                    buffer: nv12_buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: y_plane_bytes,
+                        bytes_per_row: Some(uv_stride),
+                        rows_per_image: None,
+                    },
+                },
+                slot.uv_texture.as_image_copy(),
+                wgpu::Extent3d {
+                    width: width / 2,
+                    height: height / 2,
+                    depth_or_array_layers: 1,
+                },
+            );
+            self.pending = Some(PendingNv12Output::Surface(PendingNv12Surface {
+                pixel_buffer,
+                completed: None,
+                width,
+                height,
+                y_stride,
+                frame_number,
+                frame_rate,
+                export_deadlines: self.export_deadlines,
+            }));
+            return Ok(true);
+        }
+
+        #[cfg(target_os = "linux")]
+        if self.external_output {
+            let nv12_size = self.nv12_size(width, height);
+            if self
+                .external_ring
+                .as_ref()
+                .is_none_or(|ring| ring.size() < nv12_size)
+            {
+                // Frames in flight between renderer and encoder hold slots,
+                // so the ring covers both channels' depth.
+                match crate::linux_gpu::SharedRing::new(device, 16, nv12_size, "NV12 CUDA Output") {
+                    Ok(ring) => self.external_ring = Some(ring),
+                    Err(error) => {
+                        tracing::warn!(%error, "CUDA output unavailable, reading frames back");
+                        self.external_output = false;
+                    }
+                }
+            }
+            if let Some(ring) = self.external_ring.as_mut().filter(|_| self.external_output) {
+                let slot = ring
+                    .acquire(device)
+                    .ok_or(RenderingError::BufferMapWaitingFailed)?;
+                encoder.copy_buffer_to_buffer(nv12_buffer, 0, &slot.shared.buffer, 0, nv12_size);
+                self.pending = Some(PendingNv12Output::External(PendingNv12External {
+                    slot: Some(slot),
+                    completed: None,
+                    width,
+                    height,
+                    y_stride,
+                    frame_number,
+                    frame_rate,
+                    export_deadlines: self.export_deadlines,
+                }));
+                return Ok(true);
+            }
+        }
+
         let readback_buffer = match self.readback_buffers[readback_idx].as_ref() {
             Some(b) => b.clone(),
             None => return Ok(false),
@@ -500,6 +922,38 @@ impl RgbaToNv12Converter {
                 pending.armed = Some((rx, submission.clone()));
                 pending.mapped = true;
             }
+            #[cfg(target_os = "macos")]
+            Some(PendingNv12Output::Surface(pending)) => {
+                pending.completed = unsafe {
+                    queue.as_hal::<wgpu_hal::api::Metal, _, _>(|queue| {
+                        let queue = queue?.as_raw().lock();
+                        let queue = &*queue.as_ptr().cast::<mtl::CmdQueue>();
+                        let mut marker = queue.new_cmd_buf()?;
+                        let (tx, rx) = oneshot::channel();
+                        let mut tx = Some(tx);
+                        let mut handler =
+                            mtl::CmdBufHandler::new1(move |buffer: &mut mtl::CmdBuf| {
+                                if let Some(tx) = tx.take() {
+                                    let _ =
+                                        tx.send(buffer.status() == mtl::CmdBufStatus::Completed);
+                                }
+                            });
+                        // This queue marker completes after the surface copy without requiring wgpu polling.
+                        marker.add_completed_handler(&mut handler);
+                        marker.commit();
+                        Some(rx)
+                    })
+                };
+            }
+            #[cfg(target_os = "linux")]
+            Some(PendingNv12Output::External(pending)) => {
+                let completed = Arc::new(AtomicBool::new(false));
+                let callback_completed = Arc::clone(&completed);
+                queue.on_submitted_work_done(move || {
+                    callback_completed.store(true, Ordering::Release);
+                });
+                pending.completed = Some(completed);
+            }
             None => {}
         }
         let _ = queue;
@@ -512,6 +966,82 @@ impl RgbaToNv12Converter {
 
 pub enum PendingNv12Output {
     Readback(PendingNv12Readback),
+    #[cfg(target_os = "macos")]
+    Surface(PendingNv12Surface),
+    #[cfg(target_os = "linux")]
+    External(PendingNv12External),
+}
+
+#[cfg(target_os = "linux")]
+pub struct PendingNv12External {
+    slot: Option<Arc<crate::linux_gpu::RingSlot>>,
+    completed: Option<Arc<AtomicBool>>,
+    width: u32,
+    height: u32,
+    y_stride: u32,
+    frame_number: u32,
+    frame_rate: u32,
+    export_deadlines: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for PendingNv12External {
+    fn drop(&mut self) {
+        // Abandoned before hand-off (error or flush): free the slot.
+        if let Some(slot) = self.slot.take() {
+            slot.release();
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl PendingNv12External {
+    async fn wait(mut self, device: &wgpu::Device) -> Result<Nv12RenderedFrame, RenderingError> {
+        let Some(completed) = self.completed.clone() else {
+            return Err(RenderingError::BufferMapWaitingFailed);
+        };
+        let started = Instant::now();
+        let timeout_duration = gpu_buffer_wait_timeout(self.export_deadlines);
+        let mut poll_count = 0u32;
+        loop {
+            if readback_waited(started, self.frame_number) > timeout_duration {
+                return Err(RenderingError::BufferMapWaitingFailed);
+            }
+            if completed.load(Ordering::Acquire) {
+                break;
+            }
+            device.poll(wgpu::PollType::Poll)?;
+            poll_count += 1;
+            if poll_count < 10 {
+                tokio::task::yield_now().await;
+            } else if poll_count < 100 {
+                tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+            } else {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        }
+        let slot = self
+            .slot
+            .take()
+            .ok_or(RenderingError::BufferMapWaitingFailed)?;
+        let target_time_ns =
+            (self.frame_number as u64 * 1_000_000_000) / self.frame_rate.max(1) as u64;
+        Ok(Nv12RenderedFrame {
+            data: SharedNv12Buffer::from_vec(Vec::new()),
+            width: self.width,
+            height: self.height,
+            y_stride: self.y_stride,
+            frame_number: self.frame_number,
+            target_time_ns,
+            format: GpuOutputFormat::Nv12,
+            gpu: Some(Arc::new(crate::linux_gpu::GpuNv12Output {
+                slot,
+                y_stride: self.y_stride,
+                uv_offset: u64::from(self.y_stride) * u64::from(self.height),
+                uv_stride: self.y_stride,
+            })),
+        })
+    }
 }
 
 impl PendingNv12Output {
@@ -522,7 +1052,65 @@ impl PendingNv12Output {
     ) -> Result<Nv12RenderedFrame, RenderingError> {
         match self {
             Self::Readback(pending) => pending.wait_with_pool(device, buffer_pool).await,
+            #[cfg(target_os = "macos")]
+            Self::Surface(pending) => pending.wait(device).await,
+            #[cfg(target_os = "linux")]
+            Self::External(pending) => pending.wait(device).await,
         }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub struct PendingNv12Surface {
+    pixel_buffer: arc::R<cv::PixelBuf>,
+    completed: Option<oneshot::Receiver<bool>>,
+    width: u32,
+    height: u32,
+    y_stride: u32,
+    frame_number: u32,
+    frame_rate: u32,
+    export_deadlines: bool,
+}
+
+#[cfg(target_os = "macos")]
+unsafe impl Send for PendingNv12Surface {}
+
+#[cfg(target_os = "macos")]
+impl PendingNv12Surface {
+    async fn wait(mut self, device: &wgpu::Device) -> Result<Nv12RenderedFrame, RenderingError> {
+        let completed = self
+            .completed
+            .take()
+            .ok_or(RenderingError::BufferMapWaitingFailed)?;
+        let started = Instant::now();
+        let timeout_duration = gpu_buffer_wait_timeout(self.export_deadlines);
+        let remaining = timeout_duration
+            .checked_sub(readback_waited(started, self.frame_number))
+            .ok_or(RenderingError::BufferMapWaitingFailed)?;
+        let succeeded = tokio::time::timeout(remaining, completed)
+            .await
+            .map_err(|_| RenderingError::BufferMapWaitingFailed)?
+            .map_err(|_| RenderingError::BufferMapWaitingFailed)?;
+        if !succeeded || readback_waited(started, self.frame_number) > timeout_duration {
+            return Err(RenderingError::BufferMapWaitingFailed);
+        }
+        device.poll(wgpu::PollType::Poll)?;
+
+        let target_time_ns =
+            (self.frame_number as u64 * 1_000_000_000) / self.frame_rate.max(1) as u64;
+
+        Ok(Nv12RenderedFrame {
+            data: SharedNv12Buffer::from_vec(Vec::new()),
+            width: self.width,
+            height: self.height,
+            y_stride: self.y_stride,
+            frame_number: self.frame_number,
+            target_time_ns,
+            format: GpuOutputFormat::Nv12,
+            surface: Some(Nv12Surface(self.pixel_buffer)),
+            #[cfg(target_os = "linux")]
+            gpu: None,
+        })
     }
 }
 
@@ -612,6 +1200,10 @@ impl PendingNv12Readback {
             frame_number: self.frame_number,
             target_time_ns,
             format: GpuOutputFormat::Nv12,
+            #[cfg(target_os = "macos")]
+            surface: None,
+            #[cfg(target_os = "linux")]
+            gpu: None,
         })
     }
 }
@@ -636,6 +1228,14 @@ pub struct Nv12RenderedFrame {
     pub frame_number: u32,
     pub target_time_ns: u64,
     pub format: GpuOutputFormat,
+    /// When set, the frame lives in an IOSurface-backed CVPixelBuffer and
+    /// `data` is empty (surface-output mode; macOS export path).
+    #[cfg(target_os = "macos")]
+    pub surface: Option<Nv12Surface>,
+    /// When set, the frame lives in a CUDA-shared GPU buffer and `data` is
+    /// empty (Linux GPU render hosts, NVENC input).
+    #[cfg(target_os = "linux")]
+    pub gpu: Option<Arc<crate::linux_gpu::GpuNv12Output>>,
 }
 
 impl Nv12RenderedFrame {
@@ -648,6 +1248,10 @@ impl Nv12RenderedFrame {
             frame_number: self.frame_number,
             target_time_ns: self.target_time_ns,
             format: self.format,
+            #[cfg(target_os = "macos")]
+            surface: self.surface.clone(),
+            #[cfg(target_os = "linux")]
+            gpu: self.gpu.clone(),
         }
     }
 
@@ -667,6 +1271,376 @@ impl Nv12RenderedFrame {
         } else {
             &[]
         }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub struct SurfaceFrame {
+    pub pixel_buffer: arc::R<cv::PixelBuf>,
+    pub width: u32,
+    pub height: u32,
+    pub frame_number: u32,
+    pub target_time_ns: u64,
+}
+
+#[cfg(target_os = "macos")]
+unsafe impl Send for SurfaceFrame {}
+
+#[cfg(target_os = "macos")]
+unsafe impl Sync for SurfaceFrame {}
+
+#[cfg(target_os = "macos")]
+pub struct RgbaToBgraSurfaceConverter {
+    pipeline: wgpu::RenderPipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
+    texture_cache: IOSurfaceTextureCache,
+    surface_ring: Vec<BgraSurfaceSlot>,
+    next_surface: usize,
+    pool: Option<arc::R<cv::PixelBufPool>>,
+    allocation_attributes: arc::R<cf::Dictionary>,
+    pool_size: (u32, u32),
+    /// Bind groups keyed by source-texture identity. The session ping-pongs
+    /// between two render targets, so two entries cover the steady state; a
+    /// resolution change swaps both entries out within two frames, so no
+    /// retired texture is kept alive past that.
+    source_bind_groups: Vec<(wgpu::Texture, wgpu::BindGroup)>,
+    readiness_first_output: bool,
+}
+
+#[cfg(target_os = "macos")]
+unsafe impl Send for RgbaToBgraSurfaceConverter {}
+
+#[cfg(target_os = "macos")]
+const BGRA_SURFACE_RING_SIZE: usize = 8;
+
+#[cfg(target_os = "macos")]
+const BGRA_SURFACE_RING_MAX: usize = 12;
+
+#[cfg(target_os = "macos")]
+struct BgraSurfaceSlot {
+    surface: arc::R<io::Surf>,
+    /// Held so the IOSurface-imported texture's lifetime is explicit rather
+    /// than riding on `view`'s internal parent reference.
+    _texture: wgpu::Texture,
+    view: wgpu::TextureView,
+}
+
+#[cfg(target_os = "macos")]
+impl RgbaToBgraSurfaceConverter {
+    pub fn new(device: &wgpu::Device) -> Result<Self, RenderingError> {
+        let phase = crate::readiness::Phase::start("bgra.converter");
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("RGBA to BGRA Surface Blit"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shaders/blit_bgra_surface.wgsl"
+            ))),
+        });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("RGBA to BGRA Surface Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("RGBA to BGRA Surface Pipeline Layout"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("RGBA to BGRA Surface Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Bgra8Unorm,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let texture_cache = IOSurfaceTextureCache::new()
+            .ok_or_else(|| RenderingError::Surface("Metal device is unavailable".to_string()))?;
+
+        let converter = Self {
+            pipeline,
+            bind_group_layout,
+            texture_cache,
+            surface_ring: Vec::new(),
+            next_surface: 0,
+            pool: None,
+            allocation_attributes: surface_allocation_attributes(BGRA_SURFACE_RING_MAX)?,
+            pool_size: (0, 0),
+            source_bind_groups: Vec::new(),
+            readiness_first_output: true,
+        };
+        phase.finish("returned");
+        Ok(converter)
+    }
+
+    fn source_bind_group(
+        &mut self,
+        device: &wgpu::Device,
+        source_texture: &wgpu::Texture,
+    ) -> wgpu::BindGroup {
+        if let Some((_, bind_group)) = self
+            .source_bind_groups
+            .iter()
+            .find(|(texture, _)| texture == source_texture)
+        {
+            return bind_group.clone();
+        }
+        let source_view = source_texture.create_view(&Default::default());
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("RGBA to BGRA Surface Bind Group"),
+            layout: &self.bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&source_view),
+            }],
+        });
+        if self.source_bind_groups.len() >= 2 {
+            self.source_bind_groups.remove(0);
+        }
+        self.source_bind_groups
+            .push((source_texture.clone(), bind_group.clone()));
+        bind_group
+    }
+
+    fn ensure_pixel_buffer_pool(
+        &mut self,
+        _device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> Result<(), RenderingError> {
+        if self.pool_size == (width, height) && self.pool.is_some() {
+            return Ok(());
+        }
+
+        let minimum_count = cf::Number::from_usize(3);
+        let width_number = cf::Number::from_usize(width as usize);
+        let height_number = cf::Number::from_usize(height as usize);
+        let io_surface_properties = cf::Dictionary::new();
+        let pool_keys: [&cf::Type; 1] =
+            [cv::pixel_buffer_pool::keys::minimum_buffer_count().as_ref()];
+        let pool_values: [&cf::Type; 1] = [minimum_count.as_ref()];
+        let pool_attributes = cf::Dictionary::with_keys_values(&pool_keys, &pool_values)
+            .ok_or_else(|| {
+                RenderingError::Surface("Failed to create pixel buffer pool attributes".to_string())
+            })?;
+        let pixel_buffer_keys: [&cf::Type; 5] = [
+            cv::pixel_buffer::keys::pixel_format().as_ref(),
+            cv::pixel_buffer::keys::width().as_ref(),
+            cv::pixel_buffer::keys::height().as_ref(),
+            cv::pixel_buffer::keys::io_surf_props().as_ref(),
+            cv::pixel_buffer::keys::metal_compatibility().as_ref(),
+        ];
+        let pixel_buffer_values: [&cf::Type; 5] = [
+            cv::PixelFormat::_32_BGRA.to_cf_number().as_ref(),
+            width_number.as_ref(),
+            height_number.as_ref(),
+            io_surface_properties.as_ref(),
+            cf::Boolean::value_true().as_ref(),
+        ];
+        let pixel_buffer_attributes =
+            cf::Dictionary::with_keys_values(&pixel_buffer_keys, &pixel_buffer_values).ok_or_else(
+                || RenderingError::Surface("Failed to create pixel buffer attributes".to_string()),
+            )?;
+        let pool = cv::PixelBufPool::new(
+            Some(pool_attributes.as_ref()),
+            Some(pixel_buffer_attributes.as_ref()),
+        )
+        .map_err(|error| RenderingError::Surface(error.to_string()))?;
+        self.surface_ring.clear();
+        self.pool = Some(pool);
+        self.next_surface = 0;
+        self.pool_size = (width, height);
+        Ok(())
+    }
+
+    fn build_slot(
+        &mut self,
+        device: &wgpu::Device,
+        pixel_buffer: &cv::PixelBuf,
+        width: u32,
+        height: u32,
+    ) -> Result<BgraSurfaceSlot, RenderingError> {
+        let metal_usage = mtl::TextureUsage::SHADER_READ | mtl::TextureUsage::RENDER_TARGET;
+        let io_surface = pixel_buffer
+            .io_surf()
+            .ok_or_else(|| RenderingError::Surface("Pixel buffer has no IOSurface".to_string()))?;
+        let metal_texture = self
+            .texture_cache
+            .create_bgra_texture_with_usage(io_surface, width, height, metal_usage)
+            .map_err(|error| RenderingError::Surface(error.to_string()))?;
+        let texture = import_metal_texture_to_wgpu_with_usage(
+            device,
+            &metal_texture,
+            wgpu::TextureFormat::Bgra8Unorm,
+            width,
+            height,
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+            Some("BGRA IOSurface"),
+        )
+        .map_err(|error| RenderingError::Surface(error.to_string()))?;
+        let view = texture.create_view(&Default::default());
+        Ok(BgraSurfaceSlot {
+            surface: io_surface.retained(),
+            _texture: texture,
+            view,
+        })
+    }
+
+    async fn acquire_slot(
+        &mut self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> Result<(arc::R<cv::PixelBuf>, usize), RenderingError> {
+        if self.pool.is_none() {
+            return Err(RenderingError::Surface(
+                "BGRA pool is unavailable".to_string(),
+            ));
+        }
+        let pixel_buffer = acquire_surface_buffer(self, |this| {
+            this.pool
+                .as_ref()
+                .expect("pool checked above")
+                .pixel_buf_with_aux_attrs(Some(&this.allocation_attributes))
+        })
+        .await?;
+        let surface = pixel_buffer
+            .io_surf()
+            .ok_or_else(|| RenderingError::Surface("Pixel buffer has no IOSurface".to_string()))?;
+        let index = if let Some(index) = self
+            .surface_ring
+            .iter()
+            .position(|slot| std::ptr::eq(slot.surface.as_ref(), surface))
+        {
+            index
+        } else {
+            let slot = self.build_slot(device, &pixel_buffer, width, height)?;
+            if self.surface_ring.len() < BGRA_SURFACE_RING_SIZE {
+                self.surface_ring.push(slot);
+                self.surface_ring.len() - 1
+            } else {
+                let index = self.next_surface;
+                self.surface_ring[index] = slot;
+                self.next_surface = (index + 1) % BGRA_SURFACE_RING_SIZE;
+                index
+            }
+        };
+        Ok((pixel_buffer, index))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn encode(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        source_texture: &wgpu::Texture,
+        width: u32,
+        height: u32,
+        frame_number: u32,
+        frame_rate: u32,
+    ) -> Result<PendingSurface, RenderingError> {
+        self.ensure_pixel_buffer_pool(device, width, height)?;
+        let bind_group = self.source_bind_group(device, source_texture);
+        let (pixel_buffer, slot_index) = self.acquire_slot(device, width, height).await?;
+        let slot = &self.surface_ring[slot_index];
+        let dest_view = slot.view.clone();
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("RGBA to BGRA IOSurface Blit"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &dest_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+
+        Ok(PendingSurface {
+            pixel_buffer,
+            width,
+            height,
+            frame_number,
+            frame_rate,
+        })
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub struct PendingSurface {
+    pixel_buffer: arc::R<cv::PixelBuf>,
+    width: u32,
+    height: u32,
+    frame_number: u32,
+    frame_rate: u32,
+}
+
+#[cfg(target_os = "macos")]
+unsafe impl Send for PendingSurface {}
+
+#[cfg(target_os = "macos")]
+impl PendingSurface {
+    pub async fn wait(
+        self,
+        device: &wgpu::Device,
+        submission: wgpu::SubmissionIndex,
+    ) -> Result<SurfaceFrame, RenderingError> {
+        let started = Instant::now();
+        if !wait_for_submission(
+            device,
+            &submission,
+            started,
+            self.frame_number,
+            gpu_buffer_wait_timeout(false),
+        )
+        .await
+        {
+            return Err(RenderingError::BufferMapWaitingFailed);
+        }
+
+        Ok(SurfaceFrame {
+            pixel_buffer: self.pixel_buffer,
+            width: self.width,
+            height: self.height,
+            frame_number: self.frame_number,
+            target_time_ns: (self.frame_number as u64 * 1_000_000_000)
+                / self.frame_rate.max(1) as u64,
+        })
     }
 }
 
@@ -1272,6 +2246,10 @@ pub async fn finish_encoder_nv12_pooled(
             frame_number: f.frame_number,
             target_time_ns: f.target_time_ns,
             format: GpuOutputFormat::Rgba,
+            #[cfg(target_os = "macos")]
+            surface: None,
+            #[cfg(target_os = "linux")]
+            gpu: None,
         }));
     }
 
@@ -1291,6 +2269,51 @@ pub async fn finish_encoder_nv12_pooled(
     } else {
         Ok(None)
     }
+}
+
+#[cfg(target_os = "macos")]
+pub async fn finish_encoder_bgra_surface(
+    session: &mut RenderSession,
+    converter: &mut RgbaToBgraSurfaceConverter,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    uniforms: &ProjectUniforms,
+    mut encoder: wgpu::CommandEncoder,
+) -> Result<SurfaceFrame, RenderingError> {
+    let phase = std::mem::take(&mut converter.readiness_first_output)
+        .then(|| crate::readiness::Phase::start("bgra.first_output"));
+    let texture = if session.current_is_left {
+        &session.textures.0
+    } else {
+        &session.textures.1
+    };
+    let pending = converter
+        .encode(
+            device,
+            &mut encoder,
+            texture,
+            uniforms.output_size.0,
+            uniforms.output_size.1,
+            uniforms.frame_number,
+            uniforms.frame_rate,
+        )
+        .await?;
+    if let Some(phase) = &phase {
+        phase.mark("submit_start");
+    }
+    let submission = queue.submit(std::iter::once(encoder.finish()));
+    if let Some(phase) = &phase {
+        phase.mark("submit_returned");
+    }
+    let result = pending.wait(device, submission).await;
+    if let Some(phase) = phase {
+        phase.finish(if result.is_ok() {
+            "frame_ready"
+        } else {
+            "error"
+        });
+    }
+    result
 }
 
 pub async fn flush_pending_readback(
@@ -1353,5 +2376,689 @@ mod readback_output_tests {
     fn empty_readback_dimensions_do_not_access_the_buffer() {
         assert_eq!(active_readback_byte_len(2_048, 0, 3_594_240), None);
         assert_eq!(active_readback_byte_len(0, 270, 3_594_240), None);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod surface_output_tests {
+    use super::*;
+
+    fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
+        let instance = crate::create_wgpu_instance_sync();
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+            apply_limit_buckets: false,
+        }))
+        .ok()?;
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()
+    }
+
+    fn gradient_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("exactness source"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let mut data = vec![0u8; (width * height * 4) as usize];
+        for row in 0..height as usize {
+            for col in 0..width as usize {
+                let i = (row * width as usize + col) * 4;
+                data[i] = ((col * 7 + row) % 256) as u8;
+                data[i + 1] = ((row * 5 + col * 3) % 256) as u8;
+                data[i + 2] = ((col + row * 11) % 256) as u8;
+                data[i + 3] = 255;
+            }
+        }
+        queue.write_texture(
+            texture.as_image_copy(),
+            &data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        texture
+    }
+
+    async fn convert(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        converter: &mut RgbaToNv12Converter,
+        source: &wgpu::Texture,
+        width: u32,
+        height: u32,
+    ) -> Nv12RenderedFrame {
+        let mut encoder = device.create_command_encoder(&Default::default());
+        assert!(
+            converter
+                .submit_conversion(device, queue, &mut encoder, source, width, height, 0, 30)
+                .await
+                .expect("conversion submission")
+        );
+        let submission = queue.submit(std::iter::once(encoder.finish()));
+        converter.after_submit(queue, &submission);
+        converter
+            .take_pending()
+            .expect("conversion pending")
+            .wait_with_pool(device, None)
+            .await
+            .expect("conversion completes")
+    }
+
+    #[tokio::test]
+    async fn surface_completion_wakes_without_device_polling() {
+        let Some((device, queue)) = device() else {
+            eprintln!("no GPU adapter available, skipping");
+            return;
+        };
+        let source = gradient_texture(&device, &queue, 64, 32);
+        let mut converter = RgbaToNv12Converter::new(&device);
+        converter.enable_surface_output();
+        let mut encoder = device.create_command_encoder(&Default::default());
+        assert!(
+            converter
+                .submit_conversion(&device, &queue, &mut encoder, &source, 64, 32, 0, 30)
+                .await
+                .expect("surface conversion")
+        );
+        let submission = queue.submit([encoder.finish()]);
+        converter.after_submit(&queue, &submission);
+        let Some(PendingNv12Output::Surface(mut pending)) = converter.take_pending() else {
+            panic!("expected surface output");
+        };
+        let completed = pending.completed.take().expect("native completion signal");
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), completed)
+                .await
+                .expect("native completion without polling")
+                .expect("completion sender")
+        );
+        let (tx, rx) = oneshot::channel();
+        tx.send(false).expect("completion receiver");
+        pending.completed = Some(rx);
+        assert!(matches!(
+            pending.wait(&device).await,
+            Err(RenderingError::BufferMapWaitingFailed)
+        ));
+    }
+
+    fn assert_surface_matches_cpu(
+        cpu_frame: &Nv12RenderedFrame,
+        surface_frame: &Nv12RenderedFrame,
+    ) {
+        let width = surface_frame.width as usize;
+        let height = surface_frame.height as usize;
+        let cpu_stride = cpu_frame.y_stride as usize;
+        let surface = surface_frame
+            .surface
+            .as_ref()
+            .expect("surface output produces a CVPixelBuffer");
+
+        let mut max_delta = 0u8;
+        surface
+            .with_locked_planes(|y_plane, y_stride, uv_plane, uv_stride| {
+                for row in 0..height {
+                    let cpu_row = &cpu_frame.data[row * cpu_stride..row * cpu_stride + width];
+                    let surf_row = &y_plane[row * y_stride..row * y_stride + width];
+                    for (a, b) in cpu_row.iter().zip(surf_row) {
+                        max_delta = max_delta.max(a.abs_diff(*b));
+                    }
+                }
+                let cpu_uv_base = cpu_stride * height;
+                for row in 0..(height / 2) {
+                    let cpu_row = &cpu_frame.data
+                        [cpu_uv_base + row * cpu_stride..cpu_uv_base + row * cpu_stride + width];
+                    let surf_row = &uv_plane[row * uv_stride..row * uv_stride + width];
+                    for (a, b) in cpu_row.iter().zip(surf_row) {
+                        max_delta = max_delta.max(a.abs_diff(*b));
+                    }
+                }
+            })
+            .expect("lock surface planes");
+
+        assert_eq!(max_delta, 0, "surface NV12 diverges from readback NV12");
+    }
+
+    /// The IOSurface output is a GPU copy of the same compute-shader buffer
+    /// the readback path maps, so every pixel must match byte-for-byte. Both
+    /// strides differ (4-aligned vs 256-aligned vs the IOSurface's own), which
+    /// is exactly what this guards.
+    #[tokio::test]
+    async fn the_surface_output_matches_the_readback_output() {
+        let Some((device, queue)) = device() else {
+            eprintln!("no GPU adapter available, skipping");
+            return;
+        };
+
+        for (width, height) in [(1920u32, 1080u32), (1284, 722)] {
+            let source = gradient_texture(&device, &queue, width, height);
+
+            let mut readback_converter = RgbaToNv12Converter::new(&device);
+            let cpu_frame = convert(
+                &device,
+                &queue,
+                &mut readback_converter,
+                &source,
+                width,
+                height,
+            )
+            .await;
+            assert!(cpu_frame.surface.is_none());
+            let mut surface_converter = RgbaToNv12Converter::new(&device);
+            surface_converter.enable_surface_output();
+            let surface_frame = convert(
+                &device,
+                &queue,
+                &mut surface_converter,
+                &source,
+                width,
+                height,
+            )
+            .await;
+            assert!(
+                surface_converter
+                    .readback_buffers
+                    .iter()
+                    .all(|buffer| buffer.is_none())
+            );
+            assert_surface_matches_cpu(&cpu_frame, &surface_frame);
+        }
+    }
+
+    #[tokio::test]
+    async fn late_surface_enable_releases_same_stride_readbacks() {
+        let Some((device, queue)) = device() else {
+            eprintln!("no GPU adapter available, skipping");
+            return;
+        };
+
+        let width = 256;
+        let height = 4;
+        let source = gradient_texture(&device, &queue, width, height);
+        let mut converter = RgbaToNv12Converter::new(&device);
+        let cpu_frame = convert(&device, &queue, &mut converter, &source, width, height).await;
+        assert!(cpu_frame.surface.is_none());
+        assert!(
+            converter
+                .readback_buffers
+                .iter()
+                .all(|buffer| buffer.is_some())
+        );
+        assert_eq!(converter.cached_stride, width);
+
+        converter.enable_surface_output();
+        let surface_frame = convert(&device, &queue, &mut converter, &source, width, height).await;
+
+        assert!(surface_frame.surface.is_some());
+        assert_surface_matches_cpu(&cpu_frame, &surface_frame);
+        assert!(
+            converter
+                .readback_buffers
+                .iter()
+                .all(|buffer| buffer.is_none())
+        );
+        assert_eq!(converter.cached_stride, width);
+    }
+
+    #[tokio::test]
+    async fn failed_surface_setup_falls_back_to_exact_persistent_readback() {
+        let Some((device, queue)) = device() else {
+            eprintln!("no GPU adapter available, skipping");
+            return;
+        };
+
+        let width = 1284;
+        let height = 722;
+        let source = gradient_texture(&device, &queue, width, height);
+
+        let mut readback_converter = RgbaToNv12Converter::new(&device);
+        let expected = convert(
+            &device,
+            &queue,
+            &mut readback_converter,
+            &source,
+            width,
+            height,
+        )
+        .await;
+
+        let mut fallback_converter = RgbaToNv12Converter::new(&device);
+        fallback_converter.enable_surface_output();
+        fallback_converter.surface_setup_should_fail = true;
+        let fallback = convert(
+            &device,
+            &queue,
+            &mut fallback_converter,
+            &source,
+            width,
+            height,
+        )
+        .await;
+
+        assert!(fallback.surface.is_none());
+        assert!(!fallback_converter.surface_output);
+        assert!(fallback_converter.surface_ring.is_none());
+        assert!(
+            fallback_converter
+                .readback_buffers
+                .iter()
+                .all(|buffer| buffer.is_some())
+        );
+        assert_eq!(fallback.data.as_ref(), expected.data.as_ref());
+        assert_eq!(fallback.width, expected.width);
+        assert_eq!(fallback.height, expected.height);
+        assert_eq!(fallback.y_stride, expected.y_stride);
+        assert_eq!(fallback.frame_number, expected.frame_number);
+        assert_eq!(fallback.target_time_ns, expected.target_time_ns);
+        assert!(fallback.format == expected.format);
+
+        let second = convert(
+            &device,
+            &queue,
+            &mut fallback_converter,
+            &source,
+            width,
+            height,
+        )
+        .await;
+        assert!(second.surface.is_none());
+        assert!(
+            fallback_converter
+                .readback_buffers
+                .iter()
+                .all(|buffer| buffer.is_some())
+        );
+        assert_eq!(second.data.as_ref(), expected.data.as_ref());
+
+        let size_a = (256, 4);
+        let size_b = (1284, 722);
+        let source_a = gradient_texture(&device, &queue, size_a.0, size_a.1);
+        let source_b = gradient_texture(&device, &queue, size_b.0, size_b.1);
+
+        let mut resized_readback_converter = RgbaToNv12Converter::new(&device);
+        let expected_resized = convert(
+            &device,
+            &queue,
+            &mut resized_readback_converter,
+            &source_b,
+            size_b.0,
+            size_b.1,
+        )
+        .await;
+
+        let mut resized_converter = RgbaToNv12Converter::new(&device);
+        resized_converter.enable_surface_output();
+        let surface_a = convert(
+            &device,
+            &queue,
+            &mut resized_converter,
+            &source_a,
+            size_a.0,
+            size_a.1,
+        )
+        .await;
+        assert!(surface_a.surface.is_some());
+        assert!(resized_converter.surface_ring.is_some());
+        assert!(resized_converter.cached_bind_groups.is_some());
+        assert!(resized_converter.nv12_buffer.is_some());
+        assert!(
+            resized_converter
+                .readback_buffers
+                .iter()
+                .all(|buffer| buffer.is_none())
+        );
+
+        resized_converter.surface_setup_should_fail = true;
+        let resized_fallback = convert(
+            &device,
+            &queue,
+            &mut resized_converter,
+            &source_b,
+            size_b.0,
+            size_b.1,
+        )
+        .await;
+        assert!(resized_fallback.surface.is_none());
+        assert!(!resized_converter.surface_output);
+        assert!(resized_converter.surface_ring.is_none());
+        assert!(
+            resized_converter
+                .readback_buffers
+                .iter()
+                .all(|buffer| buffer.is_some())
+        );
+        assert_eq!(
+            resized_fallback.data.as_ref(),
+            expected_resized.data.as_ref()
+        );
+        assert_eq!(resized_fallback.width, expected_resized.width);
+        assert_eq!(resized_fallback.height, expected_resized.height);
+        assert_eq!(resized_fallback.y_stride, expected_resized.y_stride);
+        assert_eq!(resized_fallback.frame_number, expected_resized.frame_number);
+        assert_eq!(
+            resized_fallback.target_time_ns,
+            expected_resized.target_time_ns
+        );
+        assert!(resized_fallback.format == expected_resized.format);
+
+        let first_buffer_ids = resized_converter
+            .readback_buffers
+            .iter()
+            .map(|buffer| {
+                buffer
+                    .as_ref()
+                    .map(|buffer| std::sync::Arc::as_ptr(buffer) as usize)
+            })
+            .collect::<Vec<_>>();
+        let resized_second = convert(
+            &device,
+            &queue,
+            &mut resized_converter,
+            &source_b,
+            size_b.0,
+            size_b.1,
+        )
+        .await;
+        let second_buffer_ids = resized_converter
+            .readback_buffers
+            .iter()
+            .map(|buffer| {
+                buffer
+                    .as_ref()
+                    .map(|buffer| std::sync::Arc::as_ptr(buffer) as usize)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(first_buffer_ids, second_buffer_ids);
+        assert!(resized_second.surface.is_none());
+        assert_eq!(resized_second.data.as_ref(), expected_resized.data.as_ref());
+    }
+    fn fill_gray(queue: &wgpu::Queue, texture: &wgpu::Texture, width: u32, height: u32, value: u8) {
+        let data = [value, value, value, 255].repeat((width * height) as usize);
+        queue.write_texture(
+            texture.as_image_copy(),
+            &data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    fn nv12_first_y(frame: &Nv12RenderedFrame) -> u8 {
+        match frame.surface.as_ref() {
+            Some(surface) => surface
+                .with_locked_planes(|y, _, _, _| y[0])
+                .expect("lock Y plane"),
+            None => frame.data[0],
+        }
+    }
+
+    fn bgra_first_pixel(frame: &SurfaceFrame) -> [u8; 4] {
+        unsafe extern "C" {
+            fn CVPixelBufferGetBaseAddress(buffer: *const std::ffi::c_void) -> *const u8;
+        }
+        let mut buffer = frame.pixel_buffer.clone();
+        unsafe {
+            buffer
+                .lock_base_addr(cv::pixel_buffer::LockFlags::READ_ONLY)
+                .result()
+                .expect("lock BGRA");
+        }
+        let pixel = unsafe {
+            std::slice::from_raw_parts(
+                CVPixelBufferGetBaseAddress((buffer.as_ref() as *const cv::PixelBuf).cast()),
+                4,
+            )
+        };
+        let result = [pixel[0], pixel[1], pixel[2], pixel[3]];
+        unsafe {
+            buffer.unlock_lock_base_addr(cv::pixel_buffer::LockFlags::READ_ONLY);
+        }
+        result
+    }
+
+    #[tokio::test]
+    async fn retained_nv12_frames_are_not_overwritten_at_ring_wrap() {
+        let Some((device, queue)) = device() else {
+            eprintln!("no GPU adapter available, skipping");
+            return;
+        };
+        let (width, height) = (64, 32);
+        let source = gradient_texture(&device, &queue, width, height);
+        let mut converter = RgbaToNv12Converter::new(&device);
+        converter.enable_surface_output();
+        let mut held = Vec::new();
+        let mut expected = Vec::new();
+        for index in 0..12u8 {
+            fill_gray(&queue, &source, width, height, index * 17);
+            let frame = convert(&device, &queue, &mut converter, &source, width, height).await;
+            expected.push(nv12_first_y(&frame));
+            held.push(frame);
+        }
+        let actual: Vec<_> = held.iter().map(nv12_first_y).collect();
+        eprintln!("NV12 held expected={expected:?} actual={actual:?}");
+        assert_eq!(
+            actual, expected,
+            "a retained frame changed after producer ring wrap"
+        );
+    }
+
+    #[tokio::test]
+    async fn retained_bgra_frames_are_not_overwritten_at_ring_cap() {
+        let Some((device, queue)) = device() else {
+            eprintln!("no GPU adapter available, skipping");
+            return;
+        };
+        let (width, height) = (64, 32);
+        let source = gradient_texture(&device, &queue, width, height);
+        let mut converter = RgbaToBgraSurfaceConverter::new(&device).expect("BGRA converter");
+        let mut held = Vec::new();
+        let mut expected = Vec::new();
+        for index in 0..12u8 {
+            fill_gray(&queue, &source, width, height, index * 17);
+            let mut encoder = device.create_command_encoder(&Default::default());
+            let pending = converter
+                .encode(
+                    &device,
+                    &mut encoder,
+                    &source,
+                    width,
+                    height,
+                    u32::from(index),
+                    30,
+                )
+                .await
+                .expect("BGRA output");
+            let submission = queue.submit(std::iter::once(encoder.finish()));
+            let frame = pending
+                .wait(&device, submission)
+                .await
+                .expect("BGRA completion");
+            expected.push(bgra_first_pixel(&frame));
+            held.push(frame);
+        }
+        let actual: Vec<_> = held.iter().map(bgra_first_pixel).collect();
+        eprintln!("BGRA held expected={expected:?} actual={actual:?}");
+        assert_eq!(
+            actual, expected,
+            "a retained frame changed after producer ring cap"
+        );
+    }
+
+    async fn convert_bgra(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        converter: &mut RgbaToBgraSurfaceConverter,
+        source: &wgpu::Texture,
+        width: u32,
+        height: u32,
+    ) -> SurfaceFrame {
+        let mut encoder = device.create_command_encoder(&Default::default());
+        let pending = converter
+            .encode(device, &mut encoder, source, width, height, 0, 30)
+            .await
+            .expect("BGRA submission");
+        let submission = queue.submit(std::iter::once(encoder.finish()));
+        pending.wait(device, submission).await.expect("BGRA output")
+    }
+
+    #[tokio::test]
+    async fn cvmetal_texture_leases_prevent_bgra_recycling() {
+        let Some((device, queue)) = device() else {
+            eprintln!("no GPU adapter available, skipping");
+            return;
+        };
+        let source = gradient_texture(&device, &queue, 64, 32);
+        let metal_device = mtl::Device::sys_default().expect("native Metal device");
+        let cache =
+            cv::MetalTextureCache::create(None, &metal_device, None).expect("CVMetal cache");
+        let mut converter = RgbaToBgraSurfaceConverter::new(&device).expect("BGRA converter");
+        let mut held = Vec::new();
+        for index in 0..12u8 {
+            fill_gray(&queue, &source, 64, 32, index * 17);
+            let frame = convert_bgra(&device, &queue, &mut converter, &source, 64, 32).await;
+            let texture = cache
+                .texture(
+                    &frame.pixel_buffer,
+                    None,
+                    mtl::PixelFormat::Bgra8UNorm,
+                    64,
+                    32,
+                    0,
+                )
+                .expect("CVMetal texture");
+            held.push((
+                texture,
+                frame.pixel_buffer.io_surf().expect("IOSurface").retained(),
+                bgra_first_pixel(&frame),
+            ));
+        }
+        for (_, surface, expected) in &held {
+            let pixel_buffer = cv::PixelBuf::with_io_surf(surface, None).expect("temporary reader");
+            let frame = SurfaceFrame {
+                pixel_buffer,
+                width: 64,
+                height: 32,
+                frame_number: 0,
+                target_time_ns: 0,
+            };
+            assert_eq!(
+                bgra_first_pixel(&frame),
+                *expected,
+                "CVMetalTexture-only owner was overwritten"
+            );
+        }
+        assert_eq!(converter.surface_ring.len(), BGRA_SURFACE_RING_SIZE);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(20),
+                converter.encode(&device, &mut encoder, &source, 64, 32, 0, 30)
+            )
+            .await
+            .is_err()
+        );
+        drop(held.remove(0));
+        let resumed = convert_bgra(&device, &queue, &mut converter, &source, 64, 32).await;
+        assert_eq!(bgra_first_pixel(&resumed), [187, 187, 187, 255]);
+    }
+
+    #[tokio::test]
+    async fn nv12_pool_is_bounded_and_recovers_after_cancelled_wait() {
+        let Some((device, queue)) = device() else {
+            eprintln!("no GPU adapter available, skipping");
+            return;
+        };
+        let source = gradient_texture(&device, &queue, 64, 32);
+        let mut converter = RgbaToNv12Converter::new(&device);
+        converter.enable_surface_output();
+        let mut held = Vec::new();
+        for index in 0..Nv12SurfaceRing::MAX_BUFFERS {
+            fill_gray(&queue, &source, 64, 32, index as u8 * 7);
+            held.push(convert(&device, &queue, &mut converter, &source, 64, 32).await);
+        }
+        assert_eq!(
+            converter.surface_ring.as_ref().unwrap().slots.len(),
+            Nv12SurfaceRing::SLOTS
+        );
+        let mut encoder = device.create_command_encoder(&Default::default());
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(20),
+                converter.submit_conversion(&device, &queue, &mut encoder, &source, 64, 32, 0, 30)
+            )
+            .await
+            .is_err()
+        );
+        drop(held.remove(0));
+        let resumed = convert(&device, &queue, &mut converter, &source, 64, 32).await;
+        assert!(resumed.surface.is_some());
+        assert!(converter.readback_buffers.iter().all(Option::is_none));
+        drop(resumed);
+        let old = nv12_first_y(&held[0]);
+        let resized_source = gradient_texture(&device, &queue, 128, 64);
+        let resized = convert(&device, &queue, &mut converter, &resized_source, 128, 64).await;
+        assert_eq!((resized.width, resized.height), (128, 64));
+        assert_eq!(nv12_first_y(&held[0]), old);
+    }
+
+    #[tokio::test]
+    async fn surface_texture_cache_reuses_imports_after_consumers_release() {
+        let Some((device, queue)) = device() else {
+            eprintln!("no GPU adapter available, skipping");
+            return;
+        };
+        let source = gradient_texture(&device, &queue, 1920, 1080);
+        let mut nv12 = RgbaToNv12Converter::new(&device);
+        nv12.enable_surface_output();
+        let mut bgra = RgbaToBgraSurfaceConverter::new(&device).expect("BGRA converter");
+        let started = Instant::now();
+        for _ in 0..120 {
+            drop(convert(&device, &queue, &mut nv12, &source, 1920, 1080).await);
+        }
+        eprintln!(
+            "NV12 120 sequential1920x1080 {:?}, imports={}",
+            started.elapsed(),
+            nv12.surface_ring.as_ref().unwrap().slots.len()
+        );
+        assert_eq!(nv12.surface_ring.as_ref().unwrap().slots.len(), 1);
+        let started = Instant::now();
+        for _ in 0..120 {
+            drop(convert_bgra(&device, &queue, &mut bgra, &source, 1920, 1080).await);
+        }
+        eprintln!(
+            "BGRA 120 sequential1920x1080 {:?}, imports={}",
+            started.elapsed(),
+            bgra.surface_ring.len()
+        );
+        assert_eq!(bgra.surface_ring.len(), 1);
     }
 }

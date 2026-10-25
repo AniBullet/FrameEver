@@ -55,6 +55,8 @@ ringbuf = "0.5.3"
 lru = "0.19"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = ["Win32_Media"] }
 
 [dev-dependencies]

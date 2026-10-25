@@ -14,6 +14,8 @@
 //! `off` skips. Without Screen Recording permission the cases skip unless
 //! `CAP_VERIFY_REQUIRE_CAPTURE=1`.
 
+#![cfg(any(target_os = "macos", windows))]
+
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -39,6 +41,8 @@ use cap_recording::{
     screen_capture::ScreenCaptureTarget,
     studio_recording,
 };
+#[cfg(target_os = "macos")]
+use cap_verify::fixture_avf;
 use cap_verify::{
     audio_code::{self, AudioSource, MarkerPlacement},
     media,
@@ -53,6 +57,50 @@ use cap_verify::{
 
 use platform::{Shareable, host_timestamp};
 
+/// What differs between the macOS and Windows hosts: the capture permission
+/// check, the host clock the sources are stamped with and thread priority.
+#[cfg(target_os = "macos")]
+mod platform {
+    use cap_timestamp::{MachAbsoluteTimestamp, Timestamp};
+
+    pub type Shareable = cap_recording::SendableShareableContent;
+
+    /// ScreenCaptureKit's shareable content, which also checks the Screen
+    /// Recording permission.
+    pub async fn shareable() -> anyhow::Result<Shareable> {
+        cidre::sc::ShareableContent::current()
+            .await
+            .map(Shareable::from)
+            .map_err(|e| {
+                anyhow::anyhow!("ScreenCaptureKit unavailable ({e:?}); grant Screen Recording")
+            })
+    }
+
+    pub fn host_timestamp(ticks: u64) -> Timestamp {
+        Timestamp::MachAbsoluteTime(MachAbsoluteTimestamp::new(ticks))
+    }
+
+    /// Host ticks to nanoseconds: ticks * numer / denom.
+    pub fn timebase() -> [u64; 2] {
+        let info = cidre::mach::TimeBaseInfo::new();
+        [u64::from(info.numer), u64::from(info.denom)]
+    }
+
+    pub fn raise_thread_qos() {
+        const QOS_CLASS_USER_INITIATED: u32 = 0x19;
+        unsafe extern "C" {
+            fn pthread_set_qos_class_self_np(qos: u32, relative_priority: i32) -> i32;
+        }
+        unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0) };
+    }
+
+    /// Every host has an output device for the system audio stimulus.
+    pub fn system_audio_output() -> bool {
+        true
+    }
+}
+
+#[cfg(windows)]
 mod platform {
     use cap_timestamp::{PerformanceCounterTimestamp, Timestamp};
 
@@ -1062,8 +1110,20 @@ fn persist_sources(
     path
 }
 
+#[cfg(target_os = "macos")]
+fn camera_frame(slot: u32, capture: u64) -> Option<NativeCameraFrame> {
+    let (w, h) = CAMERA_SIZE;
+    let rgba = video_code::marker_rgba(FrameMarker::new(StreamKind::Camera, 0, slot), w, h);
+    let sample_buf = camera_sample(&rgba, w, h, capture).ok()?;
+    Some(NativeCameraFrame {
+        sample_buf,
+        timestamp: host_timestamp(capture),
+    })
+}
+
 /// An NV12 frame in a Media Foundation memory buffer, as the Windows camera
 /// feed hands native frames to the encoder.
+#[cfg(windows)]
 fn camera_frame(slot: u32, capture: u64) -> Option<NativeCameraFrame> {
     use cap_mediafoundation_utils::IMFMediaBufferExt;
     use windows::Win32::Media::MediaFoundation::MFCreateMemoryBuffer;
@@ -1084,6 +1144,27 @@ fn camera_frame(slot: u32, capture: u64) -> Option<NativeCameraFrame> {
         is_bottom_up: false,
         timestamp: host_timestamp(capture),
     })
+}
+
+#[cfg(target_os = "macos")]
+fn camera_sample(
+    rgba: &[u8],
+    w: usize,
+    h: usize,
+    host: u64,
+) -> anyhow::Result<cidre::arc::R<cidre::cm::SampleBuf>> {
+    use cidre::cm;
+    let buf = fixture_avf::pixel_buffer(w, h, rgba)?;
+    let format_desc = cm::VideoFormatDesc::with_image_buf(&buf)
+        .map_err(|e| anyhow::anyhow!("format description: {e:?}"))?;
+    let nanos = (host_secs(host, 0) * 1e9).round() as i64;
+    let timing = cm::SampleTimingInfo {
+        duration: cm::Time::new(1, CAMERA_FPS as i32),
+        pts: cm::Time::new(nanos, 1_000_000_000),
+        dts: cm::Time::invalid(),
+    };
+    cm::SampleBuf::with_image_buf(&buf, true, None, std::ptr::null(), &format_desc, &timing)
+        .map_err(|e| anyhow::anyhow!("sample buffer: {e:?}"))
 }
 
 enum Handle {
@@ -1132,6 +1213,11 @@ fn studio_builder(
         camera,
         None,
     );
+    // Windows Graphics Capture records the display without per-window
+    // exclusion; the stimulus covers it full screen.
+    #[cfg(target_os = "macos")]
+    let builder = builder.with_excluded_windows(excluded);
+    #[cfg(windows)]
     let _ = excluded;
     let builder = builder
         .with_keyboard_capture(false)
@@ -1144,16 +1230,26 @@ async fn build_studio(
     builder: studio_recording::ActorBuilder,
     shareable: &Shareable,
 ) -> anyhow::Result<studio_recording::ActorHandle> {
-    let () = *shareable;
-    builder.build().await
+    #[cfg(target_os = "macos")]
+    return builder.build(Some(shareable.clone())).await;
+    #[cfg(windows)]
+    {
+        let () = *shareable;
+        builder.build().await
+    }
 }
 
 async fn build_instant(
     builder: instant_recording::ActorBuilder,
     shareable: &Shareable,
 ) -> anyhow::Result<instant_recording::ActorHandle> {
-    let () = *shareable;
-    builder.build().await
+    #[cfg(target_os = "macos")]
+    return builder.build(Some(shareable.clone())).await;
+    #[cfg(windows)]
+    {
+        let () = *shareable;
+        builder.build().await
+    }
 }
 
 fn stimulus_binary() -> PathBuf {
@@ -1856,6 +1952,74 @@ fn source_lateness_is_attributed_to_the_source_or_to_cap() {
     assert!(source_scheduling(&overslept, reference, window).is_ok());
 }
 
+#[test]
+#[cfg_attr(
+    not(target_os = "macos"),
+    ignore = "its expected class is a macOS expectation (recording/instant/screen-mic-system sync-screen-mic)"
+)]
+fn sentinel_freezes_excuse_only_failures_localized_inside_them() {
+    let reference = host_now();
+    // A sentinel log with a 300 ms gap at 9.9 s and a 60 ms gap at 5 s.
+    let mut wakes = vec![host_add_secs(reference, 1.0)];
+    let mut t: f64 = 1.0;
+    while t < 12.0 {
+        t += if (t - 9.9).abs() < 0.001 {
+            0.3
+        } else if (t - 5.0).abs() < 0.001 {
+            0.06
+        } else {
+            0.002
+        };
+        t = (t * 1000.0).round() / 1000.0;
+        wakes.push(host_add_secs(reference, t));
+    }
+    let realtime = test_trace("camera", vec![]).realtime;
+    let mut text = serde_json::json!({
+        "period_secs": 0.002,
+        "first": wakes[0],
+        "realtime": realtime,
+        "end": realtime.state,
+    })
+    .to_string();
+    for w in wakes.windows(2) {
+        text.push_str(&format!("\n{}", w[1] - w[0]));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(SENTINEL_FILE);
+    std::fs::write(&path, text).unwrap();
+    let log = SentinelLog::read(&path).unwrap();
+    assert_eq!(log.wakes, wakes);
+    let freezes = machine_freezes(&log, reference, (2.0, 11.0));
+    assert_eq!(freezes.len(), 1);
+    assert!((freezes[0].0 - 9.9).abs() < 1e-3 && (freezes[0].1 - 10.2).abs() < 1e-3);
+    assert!(machine_freezes(&log, reference, (2.0, 9.0)).is_empty());
+
+    let excuse = |problems: &[(&str, Option<Vec<f64>>)], freezes: &[(f64, f64)]| {
+        let mut case = Case::new("recording/instant/screen-mic-system");
+        IMPLICATED.with(|m| m.borrow_mut().clear());
+        for (class, times) in problems {
+            case.problem(class, format!("{class} problem"));
+            if let Some(times) = times {
+                implicate(&case, times.iter().copied());
+            }
+        }
+        let implicated = IMPLICATED.with(|m| std::mem::take(&mut *m.borrow_mut()));
+        frozen_failures(&case, 0, &implicated, freezes)
+    };
+    let lost = ("missing", Some(vec![9.8, 10.0, 10.4]));
+    // Expected classes (sync-screen-mic here) never need an excuse.
+    let clock = ("sync-screen-mic", None);
+    assert!(excuse(&[lost.clone(), clock.clone()], &freezes).is_some());
+    // Without a freeze, or outside it, a loss stays a Cap failure.
+    assert!(excuse(&[lost.clone()], &[]).is_none());
+    assert!(excuse(&[("missing", Some(vec![10.0, 10.6]))], &freezes).is_none());
+    assert!(excuse(&[("missing", Some(vec![9.7]))], &freezes).is_none());
+    // A failure that is not localized (a sync median) is never excused.
+    assert!(excuse(&[lost, ("sync-screen-system", None)], &freezes).is_none());
+    // Only expected failures: nothing to excuse.
+    assert!(excuse(&[clock], &freezes).is_none());
+}
+
 /// A feed that stops taking frames (scripted slow consumer: its actor is
 /// blocked for 4 s) must be reported as a product failure of class
 /// `camera-ingress` / `mic-ingress`, never as a late, inconclusive source.
@@ -2043,6 +2207,8 @@ async fn record(
             let builder = instant_recording::Actor::builder(project.clone(), target)
                 .with_system_audio(system_audio)
                 .with_max_output_size(defaults.instant_mode_max_resolution);
+            #[cfg(target_os = "macos")]
+            let builder = builder.with_excluded_windows(excluded);
             let builder = if spec.mic {
                 builder.with_mic_feed(mic_lock.clone())
             } else {
@@ -2198,44 +2364,57 @@ const CRASH_LOSS_BUDGET: f64 = 3.0;
 /// Windows, where a live recorder's files are open for shared reading. Taken
 /// of a live project, the copy is what a crash leaves on disk.
 fn copy_project(from: &Path, to: &Path) -> anyhow::Result<()> {
-    fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-        std::fs::create_dir_all(to)?;
-        let mut copied = std::collections::HashSet::new();
-        // The recorder renames `.tmp` fragments as it finishes them: a
-        // file listed can be gone by the time it is opened, under a name
-        // the next listing has.
-        for _ in 0..5 {
-            let mut vanished = false;
-            for entry in std::fs::read_dir(from)? {
-                let entry = entry?;
-                let name = entry.file_name();
-                if copied.contains(&name) {
-                    continue;
-                }
-                let target = to.join(&name);
-                let result = if entry.file_type()?.is_dir() {
-                    copy_dir(&entry.path(), &target)
-                } else {
-                    std::fs::copy(entry.path(), &target).map(|_| ())
-                };
-                match result {
-                    Ok(()) => {
-                        copied.insert(name);
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => vanished = true,
-                    Err(e) => return Err(e),
-                }
-            }
-            if !vanished {
-                return Ok(());
-            }
-        }
-        Err(std::io::Error::other(format!(
-            "files in {} kept disappearing while it was copied",
-            from.display()
-        )))
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("cp")
+            .arg("-cR")
+            .arg(from)
+            .arg(to)
+            .status()?;
+        anyhow::ensure!(status.success(), "cp -cR failed");
+        Ok(())
     }
-    copy_dir(from, to).map_err(Into::into)
+    #[cfg(windows)]
+    {
+        fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+            std::fs::create_dir_all(to)?;
+            let mut copied = std::collections::HashSet::new();
+            // The recorder renames `.tmp` fragments as it finishes them: a
+            // file listed can be gone by the time it is opened, under a name
+            // the next listing has.
+            for _ in 0..5 {
+                let mut vanished = false;
+                for entry in std::fs::read_dir(from)? {
+                    let entry = entry?;
+                    let name = entry.file_name();
+                    if copied.contains(&name) {
+                        continue;
+                    }
+                    let target = to.join(&name);
+                    let result = if entry.file_type()?.is_dir() {
+                        copy_dir(&entry.path(), &target)
+                    } else {
+                        std::fs::copy(entry.path(), &target).map(|_| ())
+                    };
+                    match result {
+                        Ok(()) => {
+                            copied.insert(name);
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => vanished = true,
+                        Err(e) => return Err(e),
+                    }
+                }
+                if !vanished {
+                    return Ok(());
+                }
+            }
+            Err(std::io::Error::other(format!(
+                "files in {} kept disappearing while it was copied",
+                from.display()
+            )))
+        }
+        copy_dir(from, to).map_err(Into::into)
+    }
 }
 
 async fn finalize_instant(

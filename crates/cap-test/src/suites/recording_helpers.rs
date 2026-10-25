@@ -73,6 +73,12 @@ pub async fn record_studio_at_path(
         Display::primary()
     };
 
+    #[cfg(target_os = "macos")]
+    let shareable_content = cidre::sc::ShareableContent::current()
+        .await
+        .context("Failed to get shareable content - check screen recording permissions")
+        .map(cap_recording::SendableShareableContent::from)?;
+
     let (error_tx, _error_rx) = flume::bounded::<StreamError>(16);
 
     let mic_lock = if opts.include_mic {
@@ -141,7 +147,13 @@ pub async fn record_studio_at_path(
         builder = builder.with_camera_feed(camera);
     }
 
-    let handle = builder.build().await.context("Failed to start recording")?;
+    let handle = builder
+        .build(
+            #[cfg(target_os = "macos")]
+            Some(shareable_content),
+        )
+        .await
+        .context("Failed to start recording")?;
 
     info!(
         "Recording for {}s at {}fps -> {}",
@@ -274,7 +286,10 @@ pub async fn record_instant_camera_for_duration(
     }
 
     let handle = builder
-        .build()
+        .build(
+            #[cfg(target_os = "macos")]
+            None,
+        )
         .await
         .context("Failed to start instant recording")?;
 
