@@ -681,7 +681,23 @@ pub fn install_url_scheme_handler() {
 pub fn set_dock_icon(_png: &[u8]) {}
 
 pub fn save_file_panel(suggested: &str, extensions: &[&str]) -> Option<PathBuf> {
-    let mut dialog = rfd::FileDialog::new().set_file_name(suggested);
+    save_file_dialog(rfd::FileDialog::new(), suggested, extensions)
+}
+
+pub fn save_file_panel_in(folder: &Path, suggested: &str, extensions: &[&str]) -> Option<PathBuf> {
+    save_file_dialog(
+        rfd::FileDialog::new().set_directory(folder),
+        suggested,
+        extensions,
+    )
+}
+
+fn save_file_dialog(
+    dialog: rfd::FileDialog,
+    suggested: &str,
+    extensions: &[&str],
+) -> Option<PathBuf> {
+    let mut dialog = dialog.set_file_name(suggested);
     if !extensions.is_empty() {
         dialog = dialog.add_filter(t!("Export"), extensions);
     }

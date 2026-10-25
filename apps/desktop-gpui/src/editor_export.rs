@@ -18,6 +18,7 @@ use frameever_project::{BackgroundSource, XY};
 use frameever_utils::export_resources::{
     DiskBudget, ExportResources, estimated_working_bytes, is_resource_stop,
 };
+use frameever_utils::storage::ExportRecord;
 use gpui::{
     Context, FontWeight, Hsla, InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, ParentElement, RenderImage, StatefulInteractiveElement, Styled, Window, div, img,
@@ -697,26 +698,30 @@ impl EditorWindow {
         ui.output_path = None;
         cx.notify();
 
+        let ext = if cursor_only {
+            "mov"
+        } else if format == ExportFormatKind::Gif {
+            "gif"
+        } else {
+            "mp4"
+        };
+        let recorded_codec = (ext == "mp4").then(|| format!("{codec:?}"));
+        let record_project = project_path.clone();
+
         ui.export_task = Some(cx.spawn_in(window, async move |this, cx| {
             let save_path = if destination == ExportDestination::File {
-                let ext = if cursor_only {
-                    "mov"
-                } else if format == ExportFormatKind::Gif {
-                    "gif"
-                } else {
-                    "mp4"
-                };
                 let default = format!("{pretty_name}.{ext}");
                 let chosen: Result<Option<PathBuf>, String> = match std::env::var_os("FRAMEEVER_GPUI_AUTO_EXPORT") {
                     Some(path) => Ok(Some(PathBuf::from(path))),
                     None => {
+                        let folder = library::export_dialog_folder();
                         #[cfg(target_os = "macos")]
                         {
-                            platform::try_save_file_panel(&default, &[ext])
+                            platform::try_save_file_panel(Some(&folder), &default, &[ext])
                         }
                         #[cfg(not(target_os = "macos"))]
                         {
-                            Ok(platform::save_file_panel_async(&default, &[ext], cx).await)
+                            Ok(platform::save_file_panel_in(&folder, &default, &[ext]))
                         }
                     }
                 };
@@ -837,6 +842,19 @@ impl EditorWindow {
                             cx.notify();
                         });
                     } else {
+                        library::record_export(
+                            &record_project,
+                            &ExportRecord {
+                                path: path.clone(),
+                                format: ext.to_string(),
+                                codec: recorded_codec,
+                                exported_at: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs(),
+                            },
+                            notify_file_save,
+                        );
                         if notify_file_save {
                             crate::app_sounds::play_notification();
                         }

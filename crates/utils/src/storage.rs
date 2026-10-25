@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::brand::{RECORDINGS_DIR_NAME, SCREENSHOTS_DIR_NAME, STORAGE_DIR_NAME};
+use crate::brand::{EXPORTS_DIR_NAME, RECORDINGS_DIR_NAME, SCREENSHOTS_DIR_NAME, STORAGE_DIR_NAME};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectKind {
@@ -22,6 +22,23 @@ impl ProjectKind {
 
 pub const STORAGE_PATH_KEY: &str = "storagePath";
 pub const PREVIOUS_STORAGE_PATHS_KEY: &str = "previousStoragePaths";
+pub const LAST_EXPORT_FOLDER_KEY: &str = "lastExportFolder";
+
+pub fn last_export_folder(general: &serde_json::Map<String, serde_json::Value>) -> Option<PathBuf> {
+    general
+        .get(LAST_EXPORT_FOLDER_KEY)
+        .and_then(serde_json::Value::as_str)
+        .map(PathBuf::from)
+}
+
+pub fn last_export_folder_entry(export: &Path) -> Option<(&'static str, serde_json::Value)> {
+    export.parent().map(|folder| {
+        (
+            LAST_EXPORT_FOLDER_KEY,
+            serde_json::Value::from(folder.to_string_lossy()),
+        )
+    })
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StorageSettings {
@@ -158,6 +175,7 @@ pub fn is_project(path: &Path) -> bool {
 pub const FORMAT_VERSION: u64 = 1;
 const PROJECT_FILE_NAME: &str = "frameever.json";
 const FORMAT_VERSION_KEY: &str = "formatVersion";
+const EXPORTS_KEY: &str = "exports";
 const LEGACY_PROJECT_EXTENSION: &str = "cap";
 
 pub fn project_dir_name(name: &str) -> String {
@@ -194,11 +212,61 @@ fn read_project_file(project: &Path) -> serde_json::Map<String, serde_json::Valu
         .unwrap_or_default()
 }
 
+fn write_project_file(
+    project: &Path,
+    document: &serde_json::Map<String, serde_json::Value>,
+) -> std::io::Result<()> {
+    let bytes = serde_json::to_vec_pretty(document).map_err(std::io::Error::other)?;
+    std::fs::write(project.join(PROJECT_FILE_NAME), bytes)
+}
+
 pub fn stamp_format_version(project: &Path) -> std::io::Result<()> {
     let mut document = read_project_file(project);
     document.insert(FORMAT_VERSION_KEY.into(), FORMAT_VERSION.into());
-    let bytes = serde_json::to_vec_pretty(&document).map_err(std::io::Error::other)?;
-    std::fs::write(project.join(PROJECT_FILE_NAME), bytes)
+    write_project_file(project, &document)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportRecord {
+    pub path: PathBuf,
+    pub format: String,
+    pub codec: Option<String>,
+    pub exported_at: u64,
+}
+
+fn read_project_file_for_update(
+    project: &Path,
+) -> std::io::Result<serde_json::Map<String, serde_json::Value>> {
+    match std::fs::read(project.join(PROJECT_FILE_NAME)) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(std::io::Error::other),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
+        Err(error) => Err(error),
+    }
+}
+
+pub fn record_export(project: &Path, record: &ExportRecord) -> std::io::Result<()> {
+    let mut document = read_project_file_for_update(project)?;
+    let entry = serde_json::to_value(record).map_err(std::io::Error::other)?;
+    match document.get_mut(EXPORTS_KEY) {
+        Some(serde_json::Value::Array(records)) => records.push(entry),
+        _ => {
+            document.insert(EXPORTS_KEY.into(), vec![entry].into());
+        }
+    }
+    write_project_file(project, &document)
+}
+
+pub fn exports(project: &Path) -> Vec<ExportRecord> {
+    let document = read_project_file(project);
+    document
+        .get(EXPORTS_KEY)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| serde_json::from_value::<ExportRecord>(entry.clone()).ok())
+        .filter(|record| record.path.is_file())
+        .collect()
 }
 
 pub fn format_version(project: &Path) -> Option<u64> {
@@ -282,6 +350,21 @@ impl Storage {
 
     pub fn screenshots_dir(&self) -> PathBuf {
         self.new_projects_dir(ProjectKind::Screenshot)
+    }
+
+    pub fn exports_dir(&self) -> PathBuf {
+        self.storage_dir().join(EXPORTS_DIR_NAME)
+    }
+
+    pub fn export_dialog_folder(&self, last_export_folder: Option<&Path>) -> PathBuf {
+        if let Some(folder) = last_export_folder.filter(|folder| folder.is_dir()) {
+            return folder.to_path_buf();
+        }
+        let exports = self.exports_dir();
+        if let Err(error) = std::fs::create_dir_all(&exports) {
+            tracing::warn!(%error, path = %exports.display(), "Could not create the exports folder");
+        }
+        exports
     }
 
     pub fn known_dirs(&self, kind: ProjectKind) -> Vec<PathBuf> {
@@ -546,6 +629,97 @@ mod tests {
         assert_eq!(document["formatVersion"], 1);
         assert_eq!(document["exports"][0]["path"], "D:\\out.mp4");
         assert_eq!(format_version(&tree.dir("Unstamped.ever")), None);
+    }
+
+    fn export_record(path: PathBuf, format: &str, codec: Option<&str>, at: u64) -> ExportRecord {
+        ExportRecord {
+            path,
+            format: format.into(),
+            codec: codec.map(Into::into),
+            exported_at: at,
+        }
+    }
+
+    #[test]
+    fn an_export_is_recorded_in_the_project_and_read_back() {
+        let tree = Tree::new();
+        let project = create_project(&tree.path("Recordings"), "Demo").unwrap();
+        let video = tree.path("Exports/Demo.mp4");
+        tree.dir("Exports");
+        std::fs::write(&video, b"video").unwrap();
+        let record = export_record(video, "mp4", Some("H264"), 1_793_000_000);
+
+        record_export(&project, &record).unwrap();
+
+        assert_eq!(exports(&project), vec![record]);
+        assert_eq!(format_version(&project), Some(1));
+    }
+
+    #[test]
+    fn an_unreadable_frameever_file_is_left_alone_instead_of_overwritten_by_an_export() {
+        let tree = Tree::new();
+        let project = tree.dir("Damaged.ever");
+        std::fs::write(project.join("frameever.json"), b"{ not json").unwrap();
+
+        let result = record_export(
+            &project,
+            &export_record(tree.path("Demo.mp4"), "mp4", None, 1),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read(project.join("frameever.json")).unwrap(),
+            b"{ not json"
+        );
+    }
+
+    #[test]
+    fn the_save_dialog_opens_in_the_last_export_folder_or_the_exports_folder_the_first_time() {
+        let tree = Tree::new();
+        let storage = Storage::new(tree.path("Videos/FrameEver"), StorageSettings::default());
+
+        let first_time = storage.export_dialog_folder(None);
+        assert_eq!(first_time, tree.path("Videos/FrameEver/Exports"));
+        assert!(first_time.is_dir());
+
+        let chosen = tree.dir("D/Shared");
+        assert_eq!(storage.export_dialog_folder(Some(&chosen)), chosen);
+        assert_eq!(
+            storage.export_dialog_folder(Some(&tree.path("unplugged"))),
+            first_time
+        );
+
+        let general = serde_json::json!({ "lastExportFolder": chosen.to_string_lossy() });
+        assert_eq!(
+            last_export_folder(general.as_object().unwrap()),
+            Some(chosen.clone())
+        );
+        assert_eq!(last_export_folder(&serde_json::Map::new()), None);
+        assert_eq!(
+            last_export_folder_entry(&chosen.join("Demo.mp4")),
+            Some((LAST_EXPORT_FOLDER_KEY, general["lastExportFolder"].clone()))
+        );
+        assert_eq!(last_export_folder_entry(Path::new("")), None);
+    }
+
+    #[test]
+    fn every_export_is_kept_in_order_and_exports_whose_files_are_gone_are_dropped() {
+        let tree = Tree::new();
+        let project = create_project(&tree.path("Recordings"), "Demo").unwrap();
+        tree.dir("Exports");
+        let first = export_record(tree.path("Exports/Demo.mp4"), "mp4", Some("Hevc"), 1);
+        let moved = export_record(tree.path("Exports/Demo.gif"), "gif", None, 2);
+        let third = export_record(tree.path("Elsewhere/Demo.mov"), "mov", None, 3);
+        tree.dir("Elsewhere");
+        for record in [&first, &moved, &third] {
+            std::fs::write(&record.path, b"video").unwrap();
+            record_export(&project, record).unwrap();
+        }
+
+        std::fs::remove_file(&moved.path).unwrap();
+
+        assert_eq!(exports(&project), vec![first, third]);
+        assert!(exports(&tree.dir("Unexported.ever")).is_empty());
     }
 
     #[test]

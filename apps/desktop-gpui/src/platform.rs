@@ -1597,7 +1597,7 @@ mod mac {
     }
 
     pub fn save_file_panel(suggested: &str, extensions: &[&str]) -> Option<std::path::PathBuf> {
-        match try_save_file_panel(suggested, extensions) {
+        match try_save_file_panel(None, suggested, extensions) {
             Ok(path) => path,
             Err(error) => {
                 tracing::error!(error, "Save dialog failed");
@@ -1607,6 +1607,7 @@ mod mac {
     }
 
     pub fn try_save_file_panel(
+        folder: Option<&std::path::Path>,
         suggested: &str,
         extensions: &[&str],
     ) -> Result<Option<std::path::PathBuf>, String> {
@@ -1620,6 +1621,14 @@ mod mac {
             }
             let _: () = msg_send![panel, setCanCreateDirectories: true];
             let _: () = msg_send![panel, setNameFieldStringValue: &*NSString::from_str(suggested)];
+            if let Some(folder) = folder {
+                let folder = NSString::from_str(&folder.to_string_lossy());
+                let url: *mut AnyObject =
+                    msg_send![class!(NSURL), fileURLWithPath: &*folder, isDirectory: true];
+                if !url.is_null() {
+                    let _: () = msg_send![panel, setDirectoryURL: url];
+                }
+            }
             if !extensions.is_empty() {
                 let types: Vec<Id<NSString>> = extensions
                     .iter()

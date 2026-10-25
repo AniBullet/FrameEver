@@ -14,6 +14,7 @@ pub const PROJECT_EXTENSION: &str = "ever";
 pub const STORAGE_DIR_NAME: &str = app_name!();
 pub const RECORDINGS_DIR_NAME: &str = "Recordings";
 pub const SCREENSHOTS_DIR_NAME: &str = "Screenshots";
+pub const EXPORTS_DIR_NAME: &str = "Exports";
 
 pub fn is_app_url(raw: &str) -> bool {
     raw.strip_prefix(URL_SCHEME)

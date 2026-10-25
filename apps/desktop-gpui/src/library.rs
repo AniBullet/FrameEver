@@ -27,7 +27,10 @@ use frameever_project::{
     StudioRecordingStatus,
 };
 use frameever_recording::{recovery::RecoveryManager, upload_resume::UploadLock};
-use frameever_utils::storage::{ProjectKind, Storage, StorageSettings, is_project};
+use frameever_utils::storage::{
+    ExportRecord, ProjectKind, Storage, StorageSettings, is_project, last_export_folder,
+    last_export_folder_entry,
+};
 use gpui::RenderImage;
 
 use crate::i18n::t;
@@ -92,13 +95,32 @@ fn media_sort_time_millis(path: &Path) -> f64 {
 }
 
 pub fn storage() -> Storage {
+    storage_from(&crate::store::store_section(crate::store::GENERAL_SETTINGS))
+}
+
+fn storage_from(general: &serde_json::Map<String, serde_json::Value>) -> Storage {
     Storage::new(
         frameever_utils::storage::default_storage_dir(),
-        StorageSettings::from_general_settings(&crate::store::store_section(
-            crate::store::GENERAL_SETTINGS,
-        )),
+        StorageSettings::from_general_settings(general),
     )
     .with_storage_override(frameever_utils::storage::storage_override())
+}
+
+pub fn export_dialog_folder() -> PathBuf {
+    let general = crate::store::store_section(crate::store::GENERAL_SETTINGS);
+    storage_from(&general).export_dialog_folder(last_export_folder(&general).as_deref())
+}
+
+pub fn record_export(project: &Path, record: &ExportRecord, remember_folder: bool) {
+    if let Err(error) = frameever_utils::storage::record_export(project, record) {
+        tracing::warn!(%error, project = %project.display(), "Could not record the export");
+    }
+    if remember_folder
+        && let Some((key, value)) = last_export_folder_entry(&record.path)
+        && !crate::store::set_store_setting(crate::store::GENERAL_SETTINGS, key, value)
+    {
+        tracing::warn!("Could not remember the export folder");
+    }
 }
 
 pub fn known_recordings_dirs() -> Vec<PathBuf> {
