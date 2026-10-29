@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Main window and library · PROTOTYPE</title>
+<style>
+:root{--bg:#ececec;--desk:#cdcdcd;--win:#fbfbfb;--line:#a3a3a3;--ink:#1f1f1f;--mute:#6a6a6a;--fill:#e6e6e6;--fill2:#d6d6d6;--strong:#3b3b3b}
+*{box-sizing:border-box}
+body{margin:0;font:13px/1.45 system-ui,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg)}
+button{font:inherit;color:inherit;background:var(--win);border:1px solid var(--line);padding:4px 9px;cursor:pointer}
+button:hover{background:var(--fill)}
+button.on{background:var(--strong);color:#fff;border-color:var(--strong)}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;padding:16px 16px 72px}
+@media (max-width:1100px){.app{grid-template-columns:1fr}}
+#stage{position:relative;width:100%}
+#desk{position:absolute;left:0;top:0;width:1280px;height:800px;background:var(--desk);transform-origin:0 0;overflow:hidden;border:1px solid var(--line)}
+.win{position:absolute;background:var(--win);border:1px solid var(--strong);display:flex;flex-direction:column;box-shadow:0 2px 0 rgba(0,0,0,.08)}
+.win.focus{outline:2px solid var(--ink)}
+.tb{height:32px;display:flex;align-items:center;gap:8px;padding:0 6px 0 12px;border-bottom:1px solid var(--line);background:var(--fill);flex:none}
+.tb b{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb .x{border:0;background:none;padding:2px 8px}
+.wb{flex:1;min-height:0;display:flex;flex-direction:column}
+.rec{display:flex;flex-direction:column;gap:10px;padding:14px;flex:1}
+.lbl{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+.seg{display:flex}
+.seg button{flex:1;margin-left:-1px}
+.row{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--line);padding:7px 10px;background:#fff}
+.row span{color:var(--mute)}
+.go{padding:12px;font-weight:700;background:var(--strong);color:#fff;border-color:var(--strong)}
+.go:hover{background:#000}
+.foot{border-top:1px solid var(--line);padding:10px 14px;display:flex;gap:8px;align-items:center}
+.foot .grow{flex:1}
+.badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;background:var(--ink);color:#fff;font-size:11px;text-align:center}
+.strip{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);background:#f3f3f3;flex:none}
+.strip .seg button{flex:none}
+.strip .row{padding:5px 8px;gap:8px}
+.strip .go{padding:7px 14px;margin-left:auto}
+.lib{flex:1;min-height:0;display:flex}
+.side{width:170px;border-right:1px solid var(--line);padding:10px 8px;display:flex;flex-direction:column;gap:2px;flex:none}
+.nav{border:0;background:none;text-align:left;display:flex;justify-content:space-between;padding:6px 8px}
+.nav span{color:var(--mute)}
+.nav.on span{color:#ddd}
+.lmain{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{display:flex;gap:8px;align-items:center;padding:10px;border-bottom:1px solid var(--line)}
+.bar input{flex:0 1 220px;font:inherit;border:1px solid var(--line);padding:4px 8px;background:#fff}
+.bar .sp{flex:1}
+.mute{color:var(--mute)}
+.grid{flex:1;overflow:auto;padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;align-content:start}
+.tile{border:1px solid var(--line);background:#fff;padding:6px;cursor:pointer}
+.tile.sel{outline:2px solid var(--ink)}
+.tile.fresh{border:2px dashed var(--ink)}
+.th{aspect-ratio:16/9;background:var(--fill2);display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:18px}
+.nm{margin-top:6px;font-weight:600;display:flex;gap:6px;align-items:center}
+.nm em{font-style:normal;font-size:10px;background:var(--ink);color:#fff;padding:0 4px}
+.mt{font-size:11px;color:var(--mute)}
+.det{width:220px;border-left:1px solid var(--line);padding:12px;display:flex;flex-direction:column;gap:8px;flex:none}
+.player{position:relative;cursor:pointer}
+.fs{position:absolute;right:4px;bottom:4px;padding:0 6px;font-size:12px}
+.ctrl,.qvctrl{display:flex;gap:6px;align-items:center}
+.track{flex:1;height:6px;background:var(--fill2);cursor:pointer;position:relative}
+.track i{position:absolute;left:0;top:0;bottom:0;background:var(--ink)}
+.qv{position:absolute;inset:0;background:#2a2a2a;color:#eee;z-index:1500;display:flex;flex-direction:column;padding:16px 24px;gap:12px}
+.qv button{background:#444;border-color:#666;color:#fff}
+.qvtop{display:flex;gap:10px;align-items:center}
+.mute2{color:#aaa}
+.qvbody{flex:1;display:flex;align-items:center;gap:12px;min-height:0}
+.qvmedia{flex:1;height:100%;background:#4a4a4a;display:flex;align-items:center;justify-content:center;font-size:28px;color:#ccc}
+.nb{font-size:22px;padding:20px 10px}
+.qv .track{background:#555}
+.qv .track i{background:#eee}
+.qvhint{text-align:center;color:#999;font-size:11px}
+.empty{color:var(--mute);padding:30px;grid-column:1/-1;text-align:center}
+.ed{flex:1;display:grid;grid-template-columns:1fr 200px;grid-template-rows:1fr 110px;gap:10px;padding:10px}
+.ed .pv{background:var(--fill2);display:flex;align-items:center;justify-content:center;color:var(--mute)}
+.ed .sb{grid-row:1/3;grid-column:2;background:var(--fill);padding:10px;color:var(--mute)}
+.ed .tl{background:var(--fill);padding:10px;color:var(--mute)}
+.taskbar{position:absolute;left:0;right:0;bottom:0;height:40px;background:#9b9b9b;display:flex;align-items:center;gap:6px;padding:0 10px;z-index:950}
+.taskbar .ic{width:30px;height:26px;background:#bdbdbd;border:1px solid #888}
+.taskbar .ic.run{border-bottom:3px solid var(--ink)}
+.taskbar .sp{flex:1}
+.trayic{width:30px;height:26px;background:var(--strong);color:#fff;border:0;font-size:11px;font-weight:700;padding:0}
+.clock{font-size:11px;color:#222;margin-left:8px}
+.traymenu{position:absolute;right:40px;bottom:46px;width:250px;background:var(--win);border:1px solid var(--strong);z-index:1000;padding:4px 0}
+.traymenu button{display:block;width:100%;text-align:left;border:0;background:none;padding:6px 14px}
+.traymenu button:hover{background:var(--fill)}
+.traymenu .hd{font-size:11px;color:var(--mute);padding:6px 14px 2px}
+.traymenu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.traymenu .key{font-weight:700}
+.pill{position:absolute;left:50%;transform:translateX(-50%);bottom:64px;background:var(--strong);color:#fff;display:flex;gap:8px;align-items:center;padding:6px 8px 6px 14px;z-index:900}
+.pill button{background:#555;border-color:#777;color:#fff}
+.toast{position:absolute;right:16px;bottom:52px;width:300px;background:var(--win);border:1px solid var(--strong);padding:12px;z-index:900;display:flex;flex-direction:column;gap:8px}
+.toast div{display:flex;gap:8px}
+.panel{display:flex;flex-direction:column;gap:14px}
+.panel section{background:var(--win);border:1px solid var(--line);padding:12px}
+.panel h1{font-size:16px;margin:0 0 4px}
+.panel h2{font-size:13px;margin:0 0 8px}
+.panel ul{margin:6px 0 0;padding-left:18px}
+.tabs{display:flex;gap:0}
+.tabs button{flex:1;margin-left:-1px}
+.scen{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+pre{margin:0;font-size:11px;white-space:pre-wrap;background:var(--fill);padding:8px;max-height:180px;overflow:auto}
+.log{font-size:12px;max-height:220px;overflow:auto;margin:0;padding-left:18px}
+.log li:first-child{font-weight:700}
+.switcher{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;background:#111;color:#fff;padding:6px;z-index:2000;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.switcher button{background:#333;border-color:#555;color:#fff}
+.switcher span{padding:0 12px;white-space:nowrap}
+.proto{font-size:11px;color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="app">
+	<div id="stage"><div id="desk"></div></div>
+	<div class="panel" id="panel"></div>
+</div>
+<div class="switcher"><button data-act="prev">&larr;</button><span id="swlabel"></span><button data-act="next">&rarr;</button></div>
+<script>
+const VARIANTS = {
+	A: {
+		name: "Home with the library as its body",
+		zh: "主页即图库",
+		what: "一个大窗口：顶部一条录制栏，下面整个是图库。窗口就是 FrameEver 本身，图库永远在眼前。",
+		after: "录完：主窗口回来，新项目排在最前并高亮选中；Studio 录制和截图同时在前面打开编辑器。",
+		tray: "托盘：“Open FrameEver” 就是打开图库；最近项目点击后在主窗口里选中它。",
+		pros: ["只有一个窗口、一个地方", "录完找东西不用想去哪里", "最像 Loom / Screen Studio 这类“主页”"],
+		cons: ["只想快速录一下时，打开的窗口很大", "录制设置只能挤在一条横栏里", "启动即大窗口，不再是轻量录制器"],
+	},
+	B: {
+		name: "Small recorder + separate library window",
+		zh: "小录制窗 + 独立图库窗",
+		what: "主窗口很小，只负责开始录制；图库是另一个独立窗口，从录制窗底部的 “Library” 或托盘打开。",
+		after: "录完：录制窗回来；“录完打开图库”开启时，图库窗口打开并选中新项目；关闭时右下角弹出 “Show in library” 提示。",
+		tray: "托盘：“Open Recorder” 和 “Open Library” 是两个入口；最近项目点击后打开图库并选中。",
+		pros: ["录制入口最轻", "图库可以单独放大、放到另一块屏幕", "两个窗口各自记住大小和位置"],
+		cons: ["要管理两个窗口，任务栏可能出现两个图标", "“FrameEver 在哪”有两个答案", "编辑器、图库、录制窗三者来回切换"],
+	},
+	C: {
+		name: "Small window that expands into the library",
+		zh: "小窗口一步展开成图库",
+		what: "同一个窗口：紧凑态只有录制；点 “Library ▸” 原地展开成大窗口，左边一列录制、右边图库；“◂ Compact” 收回。接近现在 GPUI 的紧凑/展开。",
+		after: "录完：“录完打开图库”开启时窗口回来并直接展开、选中新项目；关闭时保持紧凑，展开按钮上显示新项目数。",
+		tray: "托盘：“Open FrameEver” 打开紧凑态，“Open Library” 直接打开展开态；最近项目点击后展开并选中。",
+		pros: ["只有一个窗口，又不常驻占地方", "录制设置在展开后仍完整可见", "改动最小，延续现有结构"],
+		cons: ["窗口尺寸跳变，位置要处理（向哪边长）", "展开后录制列一直占宽度", "紧凑态和展开态要各记一套大小"],
+	},
+};
+const ORDER = ["A", "B", "C"];
+const MODES = [["studio", "Studio"], ["instant", "Instant"], ["screenshot", "Screenshot"]];
+const TARGETS = ["Display", "Window", "Area"];
+const FILTERS = [["all", "All"], ["studio", "Studio"], ["instant", "Instant"], ["screenshot", "Screenshots"], ["exported", "Exported"]];
+const KIND = { studio: "Studio", instant: "Instant", screenshot: "Screenshot" };
+const GLYPH = { studio: "▶", instant: "⚡", screenshot: "▣" };
+
+function seed() {
+	return [
+		{ id: 1, name: "Product demo", kind: "studio", dur: "3:42", exported: true, when: "Today 10:12" },
+		{ id: 2, name: "Bug repro", kind: "instant", dur: "0:48", exported: true, when: "Today 09:30" },
+		{ id: 3, name: "Settings page", kind: "screenshot", dur: "", exported: false, when: "Yesterday" },
+		{ id: 4, name: "Onboarding walk", kind: "studio", dur: "7:05", exported: false, when: "Yesterday" },
+		{ id: 5, name: "Quick reply", kind: "instant", dur: "0:21", exported: true, when: "Mon" },
+		{ id: 6, name: "Timeline glitch", kind: "screenshot", dur: "", exported: false, when: "Mon" },
+		{ id: 7, name: "Release notes", kind: "studio", dur: "2:10", exported: true, when: "Oct 24" },
+		{ id: 8, name: "Teleprompter take", kind: "studio", dur: "4:33", exported: false, when: "Oct 22" },
+	];
+}
+
+let S = null;
+function fresh(variant, keep) {
+	S = {
+		variant,
+		mode: "studio",
+		target: "Display",
+		phase: "idle",
+		elapsed: 0,
+		wins: {},
+		z: [],
+		expanded: false,
+		unseen: 0,
+		items: seed(),
+		sel: null,
+		fresh: null,
+		filter: "all",
+		query: "",
+		tray: false,
+		toast: null,
+		openAfter: keep ? keep.openAfter : true,
+		playing: false,
+		pos: 0,
+		muted: false,
+		preview: false,
+		editorFor: null,
+		count: 0,
+		log: [],
+		run: 0,
+	};
+	initialWindows();
+	log(`Variant ${variant}: ${VARIANTS[variant].zh}`);
+}
+function initialWindows() {
+	S.wins = {};
+	S.z = [];
+	S.expanded = false;
+	S.tray = false;
+	S.toast = null;
+	S.phase = "idle";
+	open("main");
+}
+function open(id) {
+	S.wins[id] = true;
+	front(id);
+}
+function close(id) {
+	delete S.wins[id];
+	S.z = S.z.filter((w) => w !== id);
+}
+function front(id) {
+	if (!S.wins[id]) return;
+	S.z = S.z.filter((w) => w !== id).concat(id);
+}
+function log(text) {
+	S.log.unshift(text);
+	S.log = S.log.slice(0, 40);
+}
+
+function geo(id) {
+	const v = S.variant;
+	if (id === "editor") {
+		const it = S.items.find((i) => i.id === S.editorFor);
+		const title = it && it.kind === "screenshot" ? "Screenshot editor" : "Editor";
+		return { x: 250, y: 70, w: 880, h: 600, title: `${title} — ${it ? it.name : ""}` };
+	}
+	if (id === "library") return { x: 330, y: 40, w: 900, h: 640, title: "FrameEver — Library" };
+	if (v === "A") return { x: 100, y: 28, w: 1080, h: 700, title: "FrameEver" };
+	if (v === "C" && S.expanded) return { x: 60, y: 28, w: 1120, h: 700, title: "FrameEver" };
+	return { x: 60, y: 90, w: 330, h: 520, title: "FrameEver" };
+}
+
+function recorderStack() {
+	return `<div class="rec">
+		<div class="lbl">Mode</div>
+		<div class="seg">${MODES.map(([m, l]) => `<button class="${S.mode === m ? "on" : ""}" data-act="mode:${m}">${l}</button>`).join("")}</div>
+		<div class="lbl">Capture</div>
+		<div class="seg">${TARGETS.map((t) => `<button class="${S.target === t ? "on" : ""}" data-act="target:${t}">${t}</button>`).join("")}</div>
+		<div class="row">Camera <span>No Camera ▾</span></div>
+		<div class="row">Microphone <span>Default ▾</span></div>
+		<div class="row">System audio <span>On</span></div>
+		<div style="flex:1"></div>
+		<button class="go" data-act="record">${S.mode === "screenshot" ? "Take screenshot" : "Start recording"}</button>
+	</div>`;
+}
+function recorderStrip() {
+	return `<div class="strip">
+		<div class="seg">${MODES.map(([m, l]) => `<button class="${S.mode === m ? "on" : ""}" data-act="mode:${m}">${l}</button>`).join("")}</div>
+		<div class="seg">${TARGETS.map((t) => `<button class="${S.target === t ? "on" : ""}" data-act="target:${t}">${t}</button>`).join("")}</div>
+		<div class="row">Camera <span>None ▾</span></div>
+		<div class="row">Mic <span>Default ▾</span></div>
+		<div class="row">System <span>On</span></div>
+		<button class="go" data-act="record">${S.mode === "screenshot" ? "Take screenshot" : "Start recording"}</button>
+	</div>`;
+}
+function matches(it, f) {
+	if (f === "all") return true;
+	if (f === "exported") return it.exported;
+	return it.kind === f;
+}
+function libraryBody(withDetail) {
+	const q = S.query.trim().toLowerCase();
+	const list = S.items.filter((i) => matches(i, S.filter) && (!q || i.name.toLowerCase().includes(q)));
+	const sel = S.items.find((i) => i.id === S.sel);
+	return `<div class="lib">
+		<div class="side">
+			${FILTERS.map(([f, l]) => `<button class="nav ${S.filter === f ? "on" : ""}" data-act="filter:${f}">${l}<span>${S.items.filter((i) => matches(i, f)).length}</span></button>`).join("")}
+			<div style="flex:1"></div>
+			<button class="nav" data-act="noop:settings">Settings</button>
+		</div>
+		<div class="lmain">
+			<div class="bar"><input id="q" placeholder="Search" value="${S.query}"><span class="mute">${list.length} items</span><span class="sp"></span><button>Grid</button><button>List</button></div>
+			<div class="grid">${list.map(tile).join("") || '<div class="empty">No matching items</div>'}</div>
+		</div>
+		${withDetail && sel ? detail(sel) : ""}
+	</div>`;
+}
+function tile(it) {
+	const cls = [it.id === S.sel ? "sel" : "", it.id === S.fresh ? "fresh" : ""].join(" ");
+	return `<div class="tile ${cls}" data-act="select:${it.id}">
+		<div class="th">${GLYPH[it.kind]}</div>
+		<div class="nm">${it.name}${it.id === S.fresh ? "<em>NEW</em>" : ""}</div>
+		<div class="mt">${KIND[it.kind]}${it.dur ? ` · ${it.dur}` : ""}${it.exported ? " · Exported" : ""} · ${it.when}</div>
+	</div>`;
+}
+function detail(it) {
+	const media = it.kind === "screenshot"
+		? `<div class="th player" data-act="preview">${GLYPH[it.kind]}<button class="fs" data-act="preview" title="Full-screen preview (Space)">⤢</button></div>`
+		: `<div class="th player">${S.playing ? "▶ playing" : GLYPH[it.kind]}<button class="fs" data-act="preview" title="Full-screen preview (Space)">⤢</button></div>
+		<div class="ctrl"><button data-act="play">${S.playing ? "❚❚" : "▶"}</button><div class="track" data-act="seek"><i style="width:${S.pos}%"></i></div><span class="mute">${fmt(Math.round((S.pos / 100) * durSec(it)))}/${it.dur}</span><button data-act="mute">${S.muted ? "🔇" : "🔊"}</button></div>`;
+	return `<div class="det">
+		${media}
+		<div class="mute" style="font-size:11px">Space or double-click: full-screen preview</div>
+		<b>${it.name}</b>
+		<div class="mute">${KIND[it.kind]}${it.dur ? ` · ${it.dur}` : ""} · ${it.when}</div>
+		<div class="mute">${it.exported ? "Exported" : "Not exported"}</div>
+		<button data-act="openEditor:${it.id}">Open in editor</button>
+		<button data-act="noop:export">Export…</button>
+		<button data-act="noop:folder">Show in folder</button>
+		<button data-act="noop:delete">Delete</button>
+	</div>`;
+}
+function durSec(it) {
+	if (!it.dur) return 0;
+	const [m, s] = it.dur.split(":").map(Number);
+	return m * 60 + s;
+}
+function previewHtml() {
+	const it = S.items.find((i) => i.id === S.sel);
+	if (!S.preview || !it) return "";
+	const video = it.kind !== "screenshot";
+	return `<div class="qv">
+		<div class="qvtop"><b>${it.name}</b><span class="mute2">${KIND[it.kind]}${it.dur ? ` · ${it.dur}` : ""} · ${it.when}</span><span style="flex:1"></span><button data-act="openEditor:${it.id}">Open in editor</button><button data-act="noop:export">Export…</button><button data-act="closePreview">✕ Esc</button></div>
+		<div class="qvbody"><button class="nb" data-act="step:-1">‹</button><div class="qvmedia">${video ? (S.playing ? "▶ playing" : "▶") : "▣ image"}</div><button class="nb" data-act="step:1">›</button></div>
+		${video ? `<div class="qvctrl"><button data-act="play">${S.playing ? "❚❚" : "▶"}</button><div class="track" data-act="seek"><i style="width:${S.pos}%"></i></div><span>${fmt(Math.round((S.pos / 100) * durSec(it)))}/${it.dur}</span><button data-act="mute">${S.muted ? "🔇" : "🔊"}</button><button data-act="noop:speed">1×</button></div>` : '<div class="qvctrl"><span>Zoom · fit / 100%</span></div>'}
+		<div class="qvhint">Space / Esc close · ← → previous / next item · K play/pause</div>
+	</div>`;
+}
+function editorBody() {
+	return `<div class="strip"><button data-act="toLibrary">◂ Library</button><span class="mute">Editor toolbar</span><span style="flex:1"></span><button data-act="noop:export">Export</button></div>
+	<div class="ed"><div class="pv">Preview</div><div class="sb">Sidebar panels</div><div class="tl">Timeline</div></div>`;
+}
+function body(id) {
+	const v = S.variant;
+	if (id === "editor") return editorBody();
+	if (id === "library") return libraryBody(true);
+	if (v === "A") return recorderStrip() + libraryBody(true);
+	if (v === "B") {
+		return `${recorderStack()}<div class="foot"><span class="grow mute">${S.items.length} items</span><button data-act="toLibrary">Library</button></div>`;
+	}
+	if (S.expanded) {
+		return `<div class="lib"><div style="width:300px;border-right:1px solid var(--line);display:flex;flex-direction:column;flex:none">${recorderStack()}<div class="foot"><button data-act="collapse">◂ Compact</button></div></div>${libraryBody(true)}</div>`;
+	}
+	return `${recorderStack()}<div class="foot"><span class="grow mute">${S.items.length} items</span><button data-act="expand">Library ▸${S.unseen ? `<span class="badge">${S.unseen}</span>` : ""}</button></div>`;
+}
+function windowHtml(id, i) {
+	const g = geo(id);
+	const focus = i === S.z.length - 1 ? "focus" : "";
+	return `<div class="win ${focus}" data-win="${id}" style="left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px;z-index:${i + 1}">
+		<div class="tb"><b>${g.title}</b><button class="x" data-act="minimize:${id}">–</button><button class="x" data-act="close:${id}">✕</button></div>
+		<div class="wb">${body(id)}</div>
+	</div>`;
+}
+function trayItems() {
+	const v = S.variant;
+	const top = {
+		A: [["openMain", "Open FrameEver", true]],
+		B: [["openMain", "Open Recorder", true], ["openLibrary", "Open Library", true]],
+		C: [["openMain", "Open FrameEver", true], ["openLibrary", "Open Library", true]],
+	}[v];
+	const recent = S.items.slice(0, 3);
+	return `<div class="traymenu">
+		${top.map(([a, l, k]) => `<button class="${k ? "key" : ""}" data-act="tray:${a}">${l}</button>`).join("")}
+		<hr>
+		<button data-act="tray:recDisplay">Record Display</button>
+		<button data-act="tray:recWindow">Record Window</button>
+		<button data-act="tray:recArea">Record Area</button>
+		<button data-act="tray:shot">Take a Screenshot</button>
+		<hr>
+		<div class="hd">Recent</div>
+		${recent.map((r) => `<button data-act="tray:recent:${r.id}">${GLYPH[r.kind]} ${r.name}</button>`).join("")}
+		<hr>
+		<button data-act="noop:settings">Settings</button>
+		<button data-act="noop:quit">Quit FrameEver</button>
+	</div>`;
+}
+function fmt(s) {
+	return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+function renderDesk() {
+	const desk = document.getElementById("desk");
+	const wins = S.z.map(windowHtml).join("");
+	const pill = S.phase === "recording" ? `<div class="pill">● ${KIND[S.mode]} · ${S.target} · ${fmt(S.elapsed)}<button data-act="noop:pause">Pause</button><button data-act="stop">Stop</button><button data-act="cancel">Cancel</button></div>` : "";
+	const toast = S.toast ? `<div class="toast"><b>${S.toast.text}</b><div><button data-act="toastOpen">Show in library</button><button data-act="toastClose">Dismiss</button></div></div>` : "";
+	const running = (id) => (S.wins[id] ? "run" : "");
+	const taskIcons = S.variant === "B" ? `<div class="ic ${running("main")}" title="Recorder"></div><div class="ic ${running("library")}" title="Library"></div>` : `<div class="ic ${running("main")}" title="FrameEver"></div>`;
+	desk.innerHTML = `${wins}${pill}${toast}${S.tray ? trayItems() : ""}${previewHtml()}
+		<div class="taskbar"><div class="ic"></div><div class="ic"></div>${taskIcons}${S.wins.editor ? '<div class="ic run" title="Editor"></div>' : ""}<span class="sp"></span><button class="trayic" data-act="trayToggle">FE</button><span class="clock">10:42</span></div>`;
+}
+function renderPanel() {
+	const V = VARIANTS[S.variant];
+	const state = {
+		windows: S.z.map((id) => (id === "main" && S.variant === "C" ? `main (${S.expanded ? "expanded" : "compact"})` : id)),
+		focused: S.z[S.z.length - 1] || null,
+		recording: S.phase === "recording",
+		selected: S.items.find((i) => i.id === S.sel)?.name || null,
+		newItem: S.items.find((i) => i.id === S.fresh)?.name || null,
+		openLibraryAfterRecording: S.variant === "A" ? "n/a (always home)" : S.openAfter,
+	};
+	document.getElementById("panel").innerHTML = `
+	<section>
+		<div class="proto">PROTOTYPE · 灰度线框，只看结构 · 工单 #29</div>
+		<h1>Main window and library</h1>
+		<div class="tabs">${ORDER.map((k) => `<button class="${k === S.variant ? "on" : ""}" data-act="variant:${k}">${k} · ${VARIANTS[k].zh}</button>`).join("")}</div>
+	</section>
+	<section>
+		<h2>${S.variant} — ${V.name}</h2>
+		<div>${V.what}</div>
+		<p>${V.after}</p>
+		<div>${V.tray}</div>
+		<ul>${V.pros.map((p) => `<li>＋ ${p}</li>`).join("")}${V.cons.map((p) => `<li>－ ${p}</li>`).join("")}</ul>
+	</section>
+	<section>
+		<h2>自动演示（也可以直接在左边点）</h2>
+		<div class="scen">
+			<button data-act="scenario:studio">Studio 录制 → 停止</button>
+			<button data-act="scenario:instant">Instant 录制 → 停止</button>
+			<button data-act="scenario:screenshot">截图</button>
+			<button data-act="scenario:tray">从托盘打开</button>
+			<button data-act="scenario:editor">编辑器 → 回图库</button>
+			<button data-act="reset">重置</button>
+		</div>
+		<label style="display:flex;gap:6px;align-items:center;margin-top:10px"><input type="checkbox" data-act="toggleOpenAfter" ${S.openAfter ? "checked" : ""}> Open library after recording（B、C 生效）</label>
+	</section>
+	<section><h2>State</h2><pre>${JSON.stringify(state, null, 2)}</pre></section>
+	<section><h2>Log</h2><ol class="log" reversed>${S.log.map((l) => `<li>${l}</li>`).join("")}</ol></section>`;
+	document.getElementById("swlabel").textContent = `${S.variant} (${V.name})`;
+}
+function render() {
+	const q = document.activeElement && document.activeElement.id === "q";
+	renderDesk();
+	renderPanel();
+	if (q) {
+		const el = document.getElementById("q");
+		if (el) {
+			el.focus();
+			el.setSelectionRange(el.value.length, el.value.length);
+		}
+	}
+}
+
+function goLibrary(selectId, why) {
+	if (selectId != null) S.sel = selectId;
+	if (S.variant === "A") {
+		open("main");
+		log(`${why}: main window (it is the library)`);
+	} else if (S.variant === "B") {
+		open("library");
+		log(`${why}: library window opens`);
+	} else {
+		S.expanded = true;
+		S.unseen = 0;
+		open("main");
+		log(`${why}: main window expands into the library`);
+	}
+}
+function openMain(why) {
+	if (S.variant === "C") S.expanded = false;
+	open("main");
+	log(`${why}: ${S.variant === "B" ? "recorder" : S.variant === "C" ? "compact main window" : "main window"}`);
+}
+function startRecording(why) {
+	if (S.phase === "recording") return;
+	S.tray = false;
+	S.toast = null;
+	if (S.mode === "screenshot") {
+		close("main");
+		log(`${why}: screenshot of ${S.target}`);
+		finish();
+		return;
+	}
+	S.phase = "recording";
+	S.elapsed = 0;
+	close("main");
+	log(`${why}: recording ${KIND[S.mode]} · ${S.target}; main window hides, controls bar shows`);
+}
+function finish() {
+	S.count += 1;
+	const kind = S.mode;
+	const it = {
+		id: 100 + S.count,
+		name: kind === "screenshot" ? `Screenshot ${S.count}` : `Recording ${S.count}`,
+		kind,
+		dur: kind === "screenshot" ? "" : fmt(Math.max(S.elapsed, 1)),
+		exported: false,
+		when: "Just now",
+	};
+	S.items.unshift(it);
+	S.fresh = it.id;
+	S.phase = "idle";
+	S.filter = "all";
+	S.query = "";
+	const v = S.variant;
+	if (v === "A") {
+		S.sel = it.id;
+		open("main");
+		log("Finished: main window returns, new item first and selected");
+	} else if (v === "B") {
+		open("main");
+		if (S.openAfter) {
+			S.sel = it.id;
+			open("library");
+			log("Finished: recorder returns, library window opens with the new item selected");
+		} else {
+			S.toast = { text: `${kind === "screenshot" ? "Screenshot" : "Recording"} saved`, id: it.id };
+			log("Finished: recorder returns, toast offers Show in library");
+		}
+	} else {
+		if (S.openAfter) {
+			S.sel = it.id;
+			S.expanded = true;
+			S.unseen = 0;
+			log("Finished: main window returns expanded, new item selected");
+		} else {
+			S.unseen += 1;
+			log("Finished: main window returns compact, Library ▸ shows a new-item count");
+		}
+		open("main");
+	}
+	if (kind !== "instant") {
+		S.editorFor = it.id;
+		open("editor");
+		log(`${kind === "studio" ? "Editor" : "Screenshot editor"} opens in front`);
+	}
+}
+
+function act(a, el) {
+	const [k, ...rest] = a.split(":");
+	const arg = rest.join(":");
+	if (k !== "trayToggle" && !k.startsWith("tray")) S.tray = false;
+	switch (k) {
+		case "prev":
+		case "next": {
+			const i = ORDER.indexOf(S.variant);
+			setVariant(ORDER[(i + (k === "next" ? 1 : ORDER.length - 1)) % ORDER.length]);
+			return;
+		}
+		case "variant":
+			setVariant(arg);
+			return;
+		case "reset":
+			fresh(S.variant, S);
+			break;
+		case "mode":
+			S.mode = arg;
+			break;
+		case "target":
+			S.target = arg;
+			break;
+		case "record":
+			startRecording("Start");
+			break;
+		case "stop":
+			finish();
+			break;
+		case "cancel":
+			S.phase = "idle";
+			open("main");
+			log("Cancelled: main window returns");
+			break;
+		case "close":
+		case "minimize":
+			close(arg);
+			log(`${k === "close" ? "Closed" : "Minimized"} ${arg}${arg === "main" ? " (FrameEver stays in the tray)" : ""}`);
+			break;
+		case "filter":
+			S.filter = arg;
+			break;
+		case "select":
+			if (S.sel !== Number(arg)) {
+				S.playing = false;
+				S.pos = 0;
+			}
+			S.sel = Number(arg);
+			break;
+		case "play":
+			S.playing = !S.playing;
+			break;
+		case "mute":
+			S.muted = !S.muted;
+			break;
+		case "seek":
+			S.pos = Math.min(100, S.pos + 20);
+			break;
+		case "preview":
+			S.preview = true;
+			log("Full-screen preview opens over everything");
+			break;
+		case "closePreview":
+			S.preview = false;
+			break;
+		case "step": {
+			const i = S.items.findIndex((x) => x.id === S.sel);
+			const n = S.items[(i + Number(arg) + S.items.length) % S.items.length];
+			S.sel = n.id;
+			S.pos = 0;
+			break;
+		}
+		case "openEditor":
+			S.editorFor = Number(arg);
+			open("editor");
+			log("Open in editor");
+			break;
+		case "toLibrary":
+			goLibrary(S.editorFor ?? S.sel, "Library button");
+			break;
+		case "expand":
+			S.expanded = true;
+			S.unseen = 0;
+			log("Library ▸: window expands in place");
+			break;
+		case "collapse":
+			S.expanded = false;
+			log("◂ Compact: window shrinks back to the recorder");
+			break;
+		case "trayToggle":
+			S.tray = !S.tray;
+			break;
+		case "tray": {
+			S.tray = false;
+			const [what, id] = arg.split(":");
+			if (what === "openMain") openMain("Tray");
+			else if (what === "openLibrary") goLibrary(null, "Tray Open Library");
+			else if (what === "recent") goLibrary(Number(id), "Tray recent item");
+			else if (what === "shot") {
+				S.mode = "screenshot";
+				S.target = "Area";
+				startRecording("Tray");
+			} else {
+				S.target = what.replace("rec", "");
+				if (S.mode === "screenshot") S.mode = "studio";
+				startRecording("Tray");
+			}
+			break;
+		}
+		case "toastOpen":
+			goLibrary(S.toast.id, "Toast");
+			S.toast = null;
+			break;
+		case "toastClose":
+			S.toast = null;
+			break;
+		case "toggleOpenAfter":
+			S.openAfter = el.checked;
+			log(`Open library after recording: ${S.openAfter ? "on" : "off"}`);
+			break;
+		case "scenario":
+			scenario(arg);
+			return;
+		case "noop":
+			log(`(${arg}: outside this prototype)`);
+			break;
+	}
+	render();
+}
+function setVariant(v) {
+	fresh(v, S);
+	const u = new URL(location.href);
+	u.searchParams.set("variant", v);
+	history.replaceState(null, "", u);
+	render();
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function scenario(name) {
+	const token = ++S.run;
+	const step = async (fn, ms = 900) => {
+		await sleep(ms);
+		if (token !== S.run) throw new Error("stopped");
+		fn();
+		render();
+	};
+	S.z.forEach((id) => {
+		if (id !== "main") close(id);
+	});
+	S.toast = null;
+	S.tray = false;
+	S.phase = "idle";
+	if (!S.wins.main) open("main");
+	if (S.variant === "C") S.expanded = false;
+	log(`— scenario: ${name}`);
+	render();
+	try {
+		if (name === "studio" || name === "instant" || name === "screenshot") {
+			await step(() => {
+				S.mode = name;
+			}, 500);
+			await step(() => startRecording("Start"));
+			if (name !== "screenshot") await step(() => finish(), 2600);
+		} else if (name === "tray") {
+			await step(() => {
+				close("main");
+				log("FrameEver is only in the tray");
+			}, 500);
+			await step(() => {
+				S.tray = true;
+			});
+			await step(() => {
+				S.tray = false;
+				openMain("Tray");
+			}, 1400);
+			await step(() => {
+				close("main");
+				S.tray = true;
+			}, 1400);
+			await step(() => {
+				S.tray = false;
+				if (S.variant === "A") goLibrary(S.items[0].id, "Tray recent item");
+				else goLibrary(null, "Tray Open Library");
+			}, 1400);
+		} else if (name === "editor") {
+			await step(() => {
+				S.editorFor = S.items[0].id;
+				open("editor");
+				log("Open in editor");
+			}, 500);
+			await step(() => goLibrary(S.editorFor, "Editor ◂ Library"), 1400);
+		}
+	} catch {}
+}
+
+document.addEventListener("click", (e) => {
+	const w = e.target.closest("[data-win]");
+	if (w) front(w.dataset.win);
+	const t = e.target.closest("[data-act]");
+	if (t && t.type !== "checkbox") act(t.dataset.act, t);
+	else if (w) render();
+});
+document.addEventListener("dblclick", (e) => {
+	const t = e.target.closest(".tile");
+	if (t) act("preview");
+});
+document.addEventListener("change", (e) => {
+	if (e.target.dataset.act === "toggleOpenAfter") act("toggleOpenAfter", e.target);
+});
+document.addEventListener("input", (e) => {
+	if (e.target.id === "q") {
+		S.query = e.target.value;
+		render();
+	}
+});
+document.addEventListener("keydown", (e) => {
+	const el = document.activeElement;
+	if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+	if (S.preview) {
+		if (e.key === "Escape" || e.key === " ") act("closePreview");
+		if (e.key === "ArrowLeft") act("step:-1");
+		if (e.key === "ArrowRight") act("step:1");
+		if (e.key === "k" || e.key === "K") act("play");
+		e.preventDefault();
+		return;
+	}
+	if (e.key === " " && S.sel != null) {
+		e.preventDefault();
+		act("preview");
+		return;
+	}
+	if (e.key === "ArrowLeft") act("prev");
+	if (e.key === "ArrowRight") act("next");
+	if (e.key === "Escape" && S.tray) {
+		S.tray = false;
+		render();
+	}
+});
+setInterval(() => {
+	if (S.phase === "recording") {
+		S.elapsed += 1;
+		renderDesk();
+	}
+	if (S.playing) {
+		S.pos = Math.min(100, S.pos + 4);
+		if (S.pos >= 100) S.playing = false;
+		renderDesk();
+	}
+}, 1000);
+function fit() {
+	const stage = document.getElementById("stage");
+	const s = Math.min(1, stage.clientWidth / 1280);
+	document.getElementById("desk").style.transform = `scale(${s})`;
+	stage.style.height = `${800 * s}px`;
+}
+window.addEventListener("resize", fit);
+const start = new URLSearchParams(location.search).get("variant");
+fresh(ORDER.includes(start) ? start : "A");
+render();
+fit();
+</script>
+</body>
+</html>
