@@ -28,7 +28,7 @@ Open `scripts/av-sync/av-sync-stimulus.html` in a browser, click **Start & go
 full-screen**. Optional: `av-sync-stimulus.html?interval=1.5` to change spacing
 (pass the same value to `--interval` later).
 
-## 3. Record with Cap (≥ 60 s; longer is better for drift)
+## 3. Record with FrameEver (≥ 60 s; longer is better for drift)
 
 Record one of these modes, then **stop**:
 
@@ -44,18 +44,18 @@ Run each mode you care about for **2–5 minutes** so any drift is visible
 
 ## 4. Locate the files
 
-Inside the recording folder (open it from the editor, or your Cap recordings
-directory):
+Inside the project (the `.ever` folder in the storage folder; the library can
+open it):
 
-- **Instant mode:** `content/output.mp4` — video + audio in one file.
-- **Studio mode:** `content/segments/segment-0/`
+- **Instant recording:** `content/output.mp4` — video + audio in one file.
+- **Studio recording:** `content/segments/segment-0/`
   - `display.mp4` (screen), `camera.mp4` (webcam)
   - `audio-input.ogg`/`.m4a` (mic), `system_audio.ogg`/`.m4a` (system)
 
 ## 5. Analyze
 
 ```bash
-# instant-mode single file (audio muxed in):
+# Instant recording, single file (audio muxed in):
 target/debug/av-sync-check --video content/output.mp4
 
 # studio: screen video vs mic audio
@@ -95,7 +95,7 @@ differs between machines (latency) and is not the metric.
 It's normal for the tool to detect only ~half the flashes (a brief flash vs
 on-change screen capture) and to drop a few outliers; as long as the surviving
 events agree (tight stddev, no significant trend), sync is good. A reference run
-of Cap's own pipeline (screen + system audio) landed at a stable ~150 ms offset
+of the recording pipeline (screen + system audio) landed at a stable ~150 ms offset
 (stddev ~8 ms) with no significant trend.
 
 ## The matrix to cover

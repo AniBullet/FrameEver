@@ -9,32 +9,30 @@ when every checked frame and sample matches.
 
 ## Suites
 
-The suites are listed in `scripts/verify/suites.json`:
+The suites are listed in `scripts/verify/suites.json`. `scripts/verify/run.sh`
+picks the ones for this OS and tier; a suite marked "any" tests
+platform-independent logic and runs on every OS:
 
-| Suite | What it checks | FAST tier | FULL tier |
+| Suite | What it checks | Windows | macOS |
 | --- | --- | --- | --- |
-| `verify-self` | marker codecs, reference model, report | linux | linux, macos |
-| `export` | every exported frame (MP4, GIF, both decoders on macOS) | linux, macos, windows | all |
-| `playback` | offline-driven editor playback frames | linux, macos | all |
-| `seek` | random, keyframe and scrub seeks | linux, macos | all |
-| `audio` | export and offline playback audio against sample-accurate markers | linux, macos, windows | all |
-| `editing` | random edit sequences exported and checked frame by frame | linux | linux |
-| `chaos` | hostile device data, files, projects and settings: no panic, abort, signal, Objective-C exception, hang or wrong success | macos | macos |
-| `captions` | fake-transcriber captions: segments and rendered captions on the right frames | linux | linux |
-| `decoder-model-ffmpeg` | FFmpeg decoder decisions on scripted media (`frameever-rendering` `decoder::model`) | linux | linux |
-| `decoder-model-avf` | AVAssetReader decoder decisions on scripted media | macos | macos |
+| `verify-self` | marker codecs, reference model, report | fast | fast, full |
+| `export` | every exported frame (MP4, GIF, both decoders on macOS) | fast, full | fast, full |
+| `playback` | offline-driven editor playback frames | full | fast, full |
+| `seek` | random, keyframe and scrub seeks | full | fast, full |
+| `crash` | fragmented Studio recording under recorder and muxer kills, and recovery from what is on disk | fast, full | fast, full |
+| `audio` | export and offline playback audio against sample-accurate markers | fast, full | fast, full |
+| `editing` | random edit sequences exported and checked frame by frame | any | any |
+| `captions` | fake-transcriber captions: segments and rendered captions on the right frames | any | any |
+| `decoder-model-ffmpeg` | FFmpeg decoder decisions on scripted media (`frameever-rendering` `decoder::model`) | any | any |
+| `chaos` | hostile device data, files, projects and settings: no panic, abort, signal, Objective-C exception, hang or wrong success | — | fast, full |
+| `decoder-model-avf` | AVAssetReader decoder decisions on scripted media | — | fast, full |
+| `native-rendering` | native macOS rendering regressions in the YUV converter | — | fast, full |
 
 The app-level caption tests
 (`apps/desktop-gpui/src/transcription/verify_tests.rs`: a fake transcriber
 behind the real extraction and caption pipeline) live in the GPUI app's own
-workspace and run inside `cargo test --bin frameever-gpui`. Run them locally
-with
+workspace and run inside `cargo test --bin frameever-gpui`. Run them with
 `cargo test --manifest-path apps/desktop-gpui/Cargo.toml --bin frameever-gpui transcription::`.
-
-Platform-independent logic runs on Linux only in CI. Suites that test platform
-code run on that platform: AVFoundation, VideoToolbox and Metal on macOS;
-Media Foundation, Direct3D and WASAPI on Windows. When you run the suite
-locally, the platform-independent suites run on every OS.
 
 `FRAMEEVER_VERIFY_TIER=full` (the FULL tier) uses longer fixtures and more seeds.
 
@@ -79,8 +77,8 @@ each probe's scratch directory, child log and stderr.
 ## Running locally
 
 ```sh
-scripts/verify/run.sh fast                    # what CI runs on this OS for a PR
-scripts/verify/run.sh full                    # merge-queue and nightly tier
+scripts/verify/run.sh fast                    # the quick tier for this OS
+scripts/verify/run.sh full                    # longer fixtures and more seeds
 scripts/verify/run.sh fast --suites seek      # one suite
 scripts/verify/run.sh fast --case 'export/basic/*'
 scripts/verify/run.sh fast --list             # print the plan
@@ -88,9 +86,9 @@ scripts/verify/run.sh fast --list             # print the plan
 
 Install cargo-nextest (`cargo install cargo-nextest --locked`) to run the
 tests in parallel, one process per test. Without it, the script runs
-`cargo test` per suite. The local run uses the `dev` profile and shares its
-build with normal development. CI uses the `ci-verify` profile
-(`FRAMEEVER_VERIFY_CARGO_PROFILE=ci-verify`). Generated fixtures are cached in
+`cargo test` per suite. The run uses the `dev` profile and shares its
+build with normal development; `FRAMEEVER_VERIFY_CARGO_PROFILE=ci-verify` uses
+the optimised `ci-verify` profile instead. Generated fixtures are cached in
 `target/verify-fixtures`, or in `FRAMEEVER_VERIFY_FIXTURE_DIR` when it is set.
 
 Every failure prints the exact frames or samples that are wrong, the seed,
@@ -116,7 +114,7 @@ platforms = ["macos"]                  # optional, absent = every platform
 seeds = "0 3-7"                        # optional, seeded suites only
 flaky = true                           # optional; state the measured rate
 reason = "what is wrong"
-link = "https://github.com/CapSoftware/Cap/pull/2595"   # empty = no fix yet
+link = "https://github.com/AniBullet/FrameEver/issues/<n>"  # empty = no fix yet
 ```
 
 - A failure that is not listed fails the run.
@@ -133,7 +131,6 @@ To update the files after a deliberate change, run:
 
 ```sh
 scripts/verify/bless.sh fast              # run here and rewrite from the results
-scripts/verify/bless.sh --run <run id>    # rewrite from a CI run, all three OSes
 ```
 
 Bless changes only the entries of the platforms that ran. It keeps the
@@ -141,46 +138,9 @@ reasons and links of existing entries, and gives each new failure a `TODO:`
 reason. Replace every `TODO:` reason before you merge. Review the diff: a
 blessed failure is a bug that the suite keeps checking.
 
-## CI
-
-`.github/workflows/engine-verify.yml`:
-
-- **Plan.** `scripts/verify/plan.py` maps the changed paths to suites through
-  the root workspace dependency graph (`cargo metadata`). The standalone
-  GPUI app is outside that graph, so any change under `apps/desktop-gpui/`
-  conservatively selects every engine suite. This selection does not replace
-  the app's own tests or prove coverage of its orchestration. A PR that changes
-  only docs or the web app runs no engine suite.
-- **Tiers.** FAST runs on every PR push. FULL runs when the PR has the
-  `verify-full` label, in the merge queue, and nightly.
-- **Jobs.** One job per platform builds the selected tests with the
-  `ci-verify` profile and runs them with nextest. Dependencies are optimised
-  and cached; workspace crates are not optimised. A platform with
-  `shards > 1` in `suites.json` uploads a nextest archive, and shard jobs run
-  partitions of it.
-- **No retries, except for a proven machine stall.** Every test process
-  runs a starvation sentinel (`crates/verify/src/sentinel.rs`): a
-  high-priority thread that sleeps 2 ms and records how late it wakes, plus
-  the process CPU time over wall time. Each case record carries that series
-  (`machine`), and `sentinel-<pid>.log` keeps it for tests that are killed.
-  A wake gap of 100 ms or more proves the runner stopped scheduling the
-  process. Only wall-clock failures are excused by it: a real-time playback
-  case that delivered too few frames becomes `inconclusive`, and a test
-  killed at its timeout, by wgpu's 6.3 s queue drain or by a lost GPU device is
-  retryable when its sentinel log shows the gap. `scripts/verify/retry.py` reruns those tests
-  once with `FRAMEEVER_VERIFY_RETRY=1`; a case that is inconclusive again fails as
-  `environment`, and the job passes only if every failure was retryable and
-  every retry passed. Content, frame identity, timestamps and sync never
-  become inconclusive. Any other failed test is rerun once only so that the
-  summary can label it flaky; the job still fails.
-- **Summary.** Each job summary lists the failing cases, their exact frames
-  or samples, and a repro command. The report records are uploaded as the
-  `verify-report-*` artifacts, which `bless.sh --run` reads.
-- **Gate.** Make the `Engine verify` job a required check.
-
 ## Baseline comparison
 
-Run `python3 scripts/verify/diff.py BASE_DIR MAIN_DIR --json comparison.json` with downloaded report artifacts. Comma-separated run directories combine independent runs on each side. Keep both sides on the same OS image.
+Run `python3 scripts/verify/diff.py BASE_DIR MAIN_DIR --json comparison.json` over two report directories. Comma-separated run directories combine independent runs on each side. Keep both sides on the same OS image.
 
 A required track absent from a recording leaves its dependent classes unobserved with reason `track absent`. A newly observed class appears in the coverage-gained column and is still judged by main's own expectations. Coverage gain alone is not an equal or worse result.
 
