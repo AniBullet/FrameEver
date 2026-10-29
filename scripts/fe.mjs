@@ -65,12 +65,13 @@ export const NSIS = {
 const COMMANDS = {
 	setup: "Prepare a fresh machine: JS deps, FFmpeg/ONNX/DXC, patched gpui, HarmonyOS Sans font",
 	dev: "Build and run the app (test data by default). --watch, --lang zh-CN|en, --real",
-	check: "Compile-check the GPUI app and the CLI, tests included",
-	test: "Run GPUI tests (optional filter). --all adds encoder, export, utils, CLI and script tests",
+	check: "Compile-check the GPUI app, FrameEver Converter and the CLI, tests included",
+	test: "Run GPUI tests (optional filter). --all adds converter, encoder, export, utils, CLI and script tests",
 	lint: "Format check, clippy and translation tests",
 	fmt: "Format the GPUI app and the root crates FrameEver changed",
 	export: "Export the test recording: fe export h264|hevc|av1 [--project <.ever>]",
-	package: "Build the Windows installer into dist/. --skip-sidecars, --version <x.y.z>",
+	converter: "Run FrameEver Converter against a fresh fake Cap-aniBullet 2.x install. --lang zh-CN|en",
+	package: "Build the Windows installer and FrameEver Converter into dist/. --skip-sidecars, --version <x.y.z>",
 	release: "Check, tag and push a release: fe release <x.y.z> [--skip-tests]",
 	notes: "Print the CHANGELOG.md section for a version: fe notes <x.y.z>",
 	deps: "Show Rust dependency updates within version ranges and newer versions needing a manual bump. --apply updates both Cargo.lock files",
@@ -405,6 +406,56 @@ function launchApp(env) {
 	return child;
 }
 
+export function converterAssetName(version) {
+	return `FrameEver-Converter_${version}_x64.exe`;
+}
+
+export function converterEnv(dir, env = process.env) {
+	return {
+		...env,
+		APPDATA: path.join(dir, "AppData", "Roaming"),
+		FRAMEEVER_CONVERTER_VIDEOS_DIR: path.join(dir, "Videos"),
+		FRAMEEVER_GPUI_APP_DATA_DIR: path.join(dir, "FrameEver"),
+	};
+}
+
+export function writeFakeCapAniBullet2(dir) {
+	const env = converterEnv(dir, {});
+	const write = (file, content) => {
+		mkdirSync(path.dirname(file), { recursive: true });
+		writeFileSync(file, content);
+	};
+	write(
+		path.join(env.APPDATA, "so.cap.desktop.anibullet", "store"),
+		JSON.stringify({ general_settings: { recordingQuality: "high", autoCompressInstant: true } }),
+	);
+	const base = path.join(env.FRAMEEVER_CONVERTER_VIDEOS_DIR, "Cap Recordings");
+	write(
+		path.join(base, "recordings", "Studio demo.cap", "recording-meta.json"),
+		JSON.stringify({ pretty_name: "Studio demo", platform: "Windows" }),
+	);
+	write(path.join(base, "exports", "video", "Instant clip.mp4"), "original");
+	write(path.join(base, "exports", "video", "Instant clip_compressed.mp4"), "compressed");
+	write(path.join(base, "exports", "screenshot", "Screenshot.png"), "png");
+}
+
+function converter({ flags }) {
+	const dir = path.join(testdataDir, "converter");
+	rmSync(dir, { recursive: true, force: true });
+	writeFakeCapAniBullet2(dir);
+	const env = converterEnv(dir);
+	if (typeof flags.lang === "string") {
+		const store = path.join(env.FRAMEEVER_GPUI_APP_DATA_DIR, "store");
+		mkdirSync(path.dirname(store), { recursive: true });
+		writeFileSync(store, JSON.stringify({ general_settings: { language: flags.lang } }));
+	}
+	step("Build FrameEver Converter");
+	run("cargo", ["build", "-p", "frameever-converter-app"], { cwd: gpuiDir });
+	console.log(`  Fake Cap-aniBullet 2.x install and FrameEver data: ${dir}`);
+	const exe = path.join(gpuiDir, "target", "debug", isWindows ? "frameever-converter.exe" : "frameever-converter");
+	run(exe, [], { env });
+}
+
 const WATCH_DIRS = [
 	"apps/desktop-gpui/src",
 	"apps/desktop-gpui/assets",
@@ -498,7 +549,9 @@ function check() {
 	pruneIncremental();
 	step("GPUI app");
 	run("cargo", ["check", "--tests"], { cwd: gpuiDir });
-	step("CLI and converter");
+	step("FrameEver Converter");
+	run("cargo", ["check", "-p", CONVERTER_APP, "--tests"], { cwd: gpuiDir });
+	step("CLI and converter core");
 	run("cargo", ["check", "-p", "frameever", "-p", "frameever-converter", "--tests"]);
 	console.log("\n\u001b[32m✓ Everything compiles\u001b[0m");
 }
@@ -515,6 +568,7 @@ function test({ flags, positional }) {
 		run("cargo", ["test", "-p", "frameever-enc-ffmpeg", "--lib"], { env: withFfmpeg() });
 		run("cargo", ["test", "-p", "frameever-utils", "--lib"]);
 		run("cargo", ["test", "-p", "frameever-converter"]);
+		run("cargo", ["test", "-p", CONVERTER_APP], { cwd: gpuiDir });
 		run("cargo", ["test", "-p", "frameever-export", "--lib"], { env: withFfmpeg() });
 		run("cargo", ["test", "-p", "frameever", "--bin", "frameever"], { env: withFfmpeg() });
 		run("cargo", ["test", "-p", "frameever", "--test", "cli"], { env: withFfmpeg() });
@@ -538,8 +592,11 @@ const ROOT_CRATES = [
 	"frameever-cli-install",
 ];
 
+const CONVERTER_APP = "frameever-converter-app";
+
 function fmt() {
 	run("cargo", ["fmt"], { cwd: gpuiDir });
+	run("cargo", ["fmt", "-p", CONVERTER_APP], { cwd: gpuiDir });
 	run("cargo", ["fmt", ...ROOT_CRATES.flatMap((crate) => ["-p", crate])]);
 }
 
@@ -547,11 +604,14 @@ function lint() {
 	pruneIncremental();
 	step("Format");
 	run("cargo", ["fmt", "--check"], { cwd: gpuiDir });
+	run("cargo", ["fmt", "-p", CONVERTER_APP, "--check"], { cwd: gpuiDir });
 	step("Clippy");
 	run("cargo", ["clippy", "--tests"], { cwd: gpuiDir });
+	run("cargo", ["clippy", "-p", CONVERTER_APP, "--tests"], { cwd: gpuiDir });
 	run("cargo", ["clippy", ...ROOT_CRATES.flatMap((crate) => ["-p", crate]), "--tests"]);
 	step("Translations");
 	run("cargo", ["test", "--bin", "frameever-gpui", "i18n::"], { cwd: gpuiDir, env: withFfmpeg() });
+	run("cargo", ["test", "-p", CONVERTER_APP, "--lib", "i18n::"], { cwd: gpuiDir });
 	console.log("\n\u001b[32m✓ Lint passed\u001b[0m");
 }
 
@@ -597,7 +657,10 @@ export function missingNativeDeps(base = root) {
 		.map(([dir]) => dir);
 }
 
-const versionManifests = [path.join(gpuiDir, "Cargo.toml")];
+export const versionManifests = [
+	path.join(gpuiDir, "Cargo.toml"),
+	path.join(gpuiDir, "converter", "Cargo.toml"),
+];
 
 export function stampVersion(version, manifests = versionManifests) {
 	for (const manifest of manifests) {
@@ -660,12 +723,27 @@ function packageInstaller({ flags }) {
 	mkdirSync(distDir, { recursive: true });
 	const copied = [newest, `${newest}.sig`].filter((file) => existsSync(file));
 	for (const file of copied) copyFileSync(file, path.join(distDir, path.basename(file)));
+
+	step("FrameEver Converter");
+	run("cargo", ["build", "--release", "-p", CONVERTER_APP, "--target", target], { cwd: gpuiDir });
+	const converterExe = path.join(gpuiDir, "target", target, "release", "frameever-converter.exe");
+	const converterManifest = path.join(gpuiDir, "converter", "Cargo.toml");
+	const converterAsset = path.join(distDir, converterAssetName(manifestVersion(converterManifest)));
+	copyFileSync(converterExe, converterAsset);
+
 	const minutes = ((Date.now() - started) / 60000).toFixed(1);
-	const size = (statSync(newest).size / 1024 / 1024).toFixed(1);
+	const megabytes = (file) => (statSync(file).size / 1024 / 1024).toFixed(1);
 	console.log(
-		`\n\u001b[32m✓ ${path.join(distDir, path.basename(newest))} (${size} MB, ${minutes} min)\u001b[0m`,
+		`\n\u001b[32m✓ ${path.join(distDir, path.basename(newest))} (${megabytes(newest)} MB, ${minutes} min)\u001b[0m`,
 	);
 	if (copied.length > 1) console.log("  Updater signature copied next to it.");
+	console.log(`\u001b[32m✓ ${converterAsset} (${megabytes(converterAsset)} MB)\u001b[0m`);
+}
+
+function manifestVersion(manifest) {
+	const version = readFileSync(manifest, "utf8").match(/^version = "(.*)"$/m)?.[1];
+	if (!version) fail(`package.version not found in ${manifest}`);
+	return version;
 }
 
 export function changelogSection(text, version) {
@@ -924,6 +1002,7 @@ const HANDLERS = {
 	lint,
 	fmt,
 	export: exportVideo,
+	converter,
 	package: packageInstaller,
 	release,
 	notes,

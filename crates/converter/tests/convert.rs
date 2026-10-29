@@ -3,7 +3,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use frameever_converter::{OldInstall, Source, Target, convert, find_installs};
+use frameever_converter::{OldInstall, Source, Target, convert, destination, find_installs};
 use frameever_project::{
     InstantRecordingMeta, Platform, RecordingMeta, RecordingMetaInner, SingleSegment,
     StudioRecordingMeta, VideoMeta,
@@ -158,6 +158,10 @@ fn a_default_cap_anibullet_2_install_lands_in_the_storage_folder_with_compressed
             videos_dir: machine.videos(),
         }]
     );
+    assert_eq!(
+        destination(&installs[0], &machine.target()),
+        machine.path("Videos/FrameEver")
+    );
     let report = convert(&installs[0], &machine.target());
 
     assert!(report.skipped.is_empty(), "{report:?}");
@@ -250,6 +254,10 @@ fn a_cap_anibullet_2_custom_folder_becomes_the_storage_folder_and_its_projects_s
     );
     machine.write("D/Captures/exports/video/Clip.mp4", b"clip");
 
+    assert_eq!(
+        destination(&machine.installs()[0], &machine.target()),
+        custom
+    );
     let report = convert(&machine.installs()[0], &machine.target());
 
     assert!(report.skipped.is_empty(), "{report:?}");
@@ -468,4 +476,47 @@ fn a_cap_anibullet_2_jpeg_screenshot_becomes_a_png_screenshot_project_with_its_d
     assert_eq!((decoded.width(), decoded.height()), (4, 3));
     assert_eq!(date_of(&png), SystemTime::UNIX_EPOCH + AN_OLD_DAY);
     assert!(!jpeg.exists());
+}
+
+#[test]
+fn a_picked_folder_converts_the_old_projects_and_loose_exports_in_it_and_leaves_settings_alone() {
+    let machine = Machine::new();
+    let picked = machine.path("E/Old captures");
+    studio_project(picked.join("Direct.cap"), "Direct");
+    studio_project(picked.join("recordings/Nested.cap"), "Nested");
+    studio_project(picked.join("screenshots/Snap.cap"), "Snap");
+    machine.write("E/Old captures/exports/video/Clip.mp4", b"clip");
+    machine.write("E/Old captures/exports/screenshot/Shot.png", b"png");
+    machine.write("E/Old captures/notes.txt", b"not a project");
+
+    let install = OldInstall::picked_folder(&picked);
+    assert_eq!(install.source, Source::Folder);
+    assert_eq!(install.items().len(), 5);
+    let report = convert(&install, &machine.target());
+
+    assert!(report.skipped.is_empty(), "{report:?}");
+    assert_eq!(report.settings_error, None);
+    let storage = machine.storage();
+    let names = |kind| {
+        listed(&storage, kind)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(ProjectKind::Recording), ["Clip", "Direct", "Nested"]);
+    assert_eq!(names(ProjectKind::Screenshot), ["Shot", "Snap"]);
+    assert!(picked.join("notes.txt").exists());
+    assert!(!machine.target().settings_file.exists());
+}
+
+#[test]
+fn a_picked_screenshots_folder_holds_screenshot_projects() {
+    let machine = Machine::new();
+    let picked = machine.path("AppData/Roaming/so.cap.desktop/screenshots");
+    studio_project(picked.join("Snap.cap"), "Snap");
+
+    let items = OldInstall::picked_folder(&picked).items();
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].kind(), ProjectKind::Screenshot);
 }

@@ -136,6 +136,20 @@ jobs:
             console.log(`Updater signature key ${signed} matches the built-in public key`);
           ' "$installer.sig"
 
+      - name: Check FrameEver Converter
+        shell: bash
+        run: |
+          shopt -s nullglob
+          converters=("$BUNDLE_DIR"/FrameEver-Converter_*_x64.exe)
+          if [[ ${#converters[@]} -ne 1 ]]; then
+            echo "::error::Expected one FrameEver Converter in $BUNDLE_DIR, found ${#converters[@]}"
+            exit 1
+          fi
+          if [[ "${converters[0]}" != *"_${{ steps.version.outputs.version }}_"* ]]; then
+            echo "::error::${converters[0]} is not named after version ${{ steps.version.outputs.version }}"
+            exit 1
+          fi
+
       - name: Put the release notes next to the installer
         shell: bash
         run: cp "$RUNNER_TEMP/notes.md" "$BUNDLE_DIR/notes.md"
@@ -147,6 +161,7 @@ jobs:
           path: |
             ${{ env.BUNDLE_DIR }}/*-setup.exe
             ${{ env.BUNDLE_DIR }}/*-setup.exe.sig
+            ${{ env.BUNDLE_DIR }}/FrameEver-Converter_*.exe
             ${{ env.BUNDLE_DIR }}/notes.md
           if-no-files-found: error
 
@@ -204,4 +219,4 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --notes-file dist/notes.md \
             "${prerelease[@]}" \
-            dist/*-setup.exe dist/*-setup.exe.sig dist/latest.json
+            dist/*-setup.exe dist/*-setup.exe.sig dist/FrameEver-Converter_*.exe dist/latest.json

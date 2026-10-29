@@ -16,12 +16,13 @@ Everything goes through one entry point, `pnpm fe <command>` (`scripts/fe.mjs`).
 | `pnpm fe setup` | Fix a ✗ from doctor (fetches FFmpeg, ONNX Runtime, DXC, writes `.cargo/config.toml`, prepares `../zed-cap`) |
 | `pnpm fe dev [--lang zh-CN] [--watch]` | Build and run the app on the test profile |
 | `pnpm fe logs [--grep <text>] [--lines N]` | Read the app log after a run (`--real` reads the installed app's log) |
-| `pnpm fe check` | Compile the GPUI app and CLI with tests |
-| `pnpm fe test [filter]` / `--all` | GPUI tests; `--all` adds encoder, export, CLI and script tests |
+| `pnpm fe check` | Compile the GPUI app, FrameEver Converter and the CLI with tests |
+| `pnpm fe test [filter]` / `--all` | GPUI tests; `--all` adds converter, encoder, export, CLI and script tests |
 | `pnpm fe lint` | Format check, clippy, translation tests: run before committing |
 | `pnpm fe fmt` | Format what FrameEver changed |
 | `pnpm fe export h264\|hevc\|av1` | Export the newest test recording to `target/testdata/exports/` |
-| `pnpm fe package` | Build the installer into `dist/` exactly as CI does |
+| `pnpm fe converter [--lang zh-CN]` | Run FrameEver Converter against a fresh fake Cap-aniBullet 2.x install in `target/testdata/converter/` |
+| `pnpm fe package` | Build the installer and `FrameEver-Converter_<version>_x64.exe` into `dist/` exactly as CI does |
 
 Test cadence: while iterating run `pnpm fe test <filter>` (an app-only edit rebuilds in about 20 s); run `pnpm fe check` only when you want errors without running anything, since `test` compiles the same code. Run `pnpm fe test --all` and `pnpm fe lint` once, before committing. An edit in a shared crate (`frameever-project`, `-rendering`, `-recording`, `-editor`, `-export`) rebuilds everything above it, 30–45 s; renaming or upgrading crates rebuilds everything. `dev`, `check`, `test` and `lint` keep the four newest incremental caches per crate and delete older ones.
 

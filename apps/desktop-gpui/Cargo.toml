@@ -5,7 +5,7 @@
 # wgpu-hal, tao) that only exist for the Tauri app.
 [workspace]
 resolver = "2"
-members = [".", "kernels"]
+members = [".", "kernels", "converter"]
 
 [package]
 name = "frameever-desktop-gpui"

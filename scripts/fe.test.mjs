@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
 	changelogSection,
+	converterAssetName,
+	converterEnv,
 	firstRecording,
 	isLargeAddressAware,
 	missingChineseFont,
@@ -19,7 +21,9 @@ import {
 	stampReleaseDate,
 	stampVersion,
 	testProfileEnv,
+	versionManifests,
 	withFfmpeg,
+	writeFakeCapAniBullet2,
 } from "./fe.mjs";
 
 test("flags take a value, an inline value, or stand alone", () => {
@@ -211,4 +215,31 @@ test("each crate keeps its newest incremental caches and drops the rest", () => 
 	}
 	assert.deepEqual(staleIncrementalDirs(dir, 2), [path.join(dir, "frameever_gpui-ccc")]);
 	rmSync(dir, { recursive: true });
+});
+
+test("the converter download is named after the release version", () => {
+	assert.equal(converterAssetName("1.2.3"), "FrameEver-Converter_1.2.3_x64.exe");
+});
+
+test("a release stamps the converter with the same version as the app", () => {
+	assert.ok(versionManifests.some((manifest) => manifest.endsWith(path.join("converter", "Cargo.toml"))));
+});
+
+test("the fake Cap-aniBullet 2.x install has projects, paired videos and a screenshot where 2.x kept them", () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "fe-converter-"));
+	writeFakeCapAniBullet2(dir);
+	const env = converterEnv(dir, {});
+	const base = path.join(env.FRAMEEVER_CONVERTER_VIDEOS_DIR, "Cap Recordings");
+	const store = JSON.parse(readFileSync(path.join(env.APPDATA, "so.cap.desktop.anibullet", "store"), "utf8"));
+	assert.equal(store.general_settings.recordingQuality, "high");
+	for (const relative of [
+		"recordings/Studio demo.cap/recording-meta.json",
+		"exports/video/Instant clip.mp4",
+		"exports/video/Instant clip_compressed.mp4",
+		"exports/screenshot/Screenshot.png",
+	]) {
+		assert.ok(statSync(path.join(base, relative)).isFile(), relative);
+	}
+	assert.equal(env.FRAMEEVER_GPUI_APP_DATA_DIR, path.join(dir, "FrameEver"));
+	rmSync(dir, { recursive: true, force: true });
 });

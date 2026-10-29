@@ -2797,6 +2797,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "frameever-converter"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "frameever-project",
+ "frameever-utils",
+ "image 0.25.10",
+ "serde_json",
+ "workspace-hack",
+]
+
+[[package]]
+name = "frameever-converter-app"
+version = "1.0.0-dev"
+dependencies = [
+ "frameever-converter",
+ "frameever-project",
+ "frameever-utils",
+ "gpui",
+ "gpui_platform",
+ "serde_json",
+ "tauri-winres",
+ "tempfile",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "frameever-cursor-capture"
 version = "0.1.0"
 dependencies = [

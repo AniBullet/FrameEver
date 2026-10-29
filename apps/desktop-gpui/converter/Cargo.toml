@@ -1,0 +1,31 @@
+[package]
+name = "frameever-converter-app"
+version = "1.0.0-dev"
+description = "Brings Cap and Cap-aniBullet 2.x recordings into FrameEver."
+edition = "2024"
+license = "AGPL-3.0"
+publish = false
+
+[[bin]]
+name = "frameever-converter"
+path = "src/main.rs"
+
+[dependencies]
+frameever-converter = { path = "../../../crates/converter" }
+frameever-utils = { path = "../../../crates/utils" }
+gpui = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d" }
+gpui_platform = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d", features = [
+    "font-kit",
+    "runtime_shaders",
+] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Globalization"] }
+
+[build-dependencies]
+tauri-winres = "0.3.7"
+
+[dev-dependencies]
+frameever-project = { path = "../../../crates/project" }
+tempfile = "3"

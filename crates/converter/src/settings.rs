@@ -58,6 +58,16 @@ pub(crate) fn path_list_setting(general: &Map<String, Value>, key: &str) -> Vec<
         .collect()
 }
 
+pub(crate) fn chosen_storage_folder(
+    source: Source,
+    old_general: &Map<String, Value>,
+) -> Option<PathBuf> {
+    match source {
+        Source::CapAniBullet2 => path_setting(old_general, "recordingsSavePath"),
+        Source::Cap | Source::Folder => None,
+    }
+}
+
 pub(crate) fn carry_over(
     source: Source,
     old: &Map<String, Value>,
@@ -79,9 +89,7 @@ pub(crate) fn carry_over(
     for (key, value) in carried_settings(source, &old_general) {
         current.entry(key).or_insert(value);
     }
-    if source == Source::CapAniBullet2
-        && let Some(folder) = path_setting(&old_general, "recordingsSavePath")
-    {
+    if let Some(folder) = chosen_storage_folder(source, &old_general) {
         let mut storage = StorageSettings::from_general_settings(&current);
         if storage.storage_path.is_none() {
             storage.choose_storage_folder(Some(folder));
@@ -118,6 +126,7 @@ fn carried_settings(source: Source, old: &Map<String, Value>) -> Vec<(String, Va
             })
             .map(Value::from),
         Source::Cap => old.get(STUDIO_RECORDING_QUALITY).cloned(),
+        Source::Folder => None,
     };
     if let Some(quality) = quality {
         carried.push((STUDIO_RECORDING_QUALITY.into(), quality));

@@ -28,11 +28,20 @@ const INSTANT_COMPRESSED: &str = "content/output_compressed.mp4";
 const SCREENSHOT_IMAGE: &str = "original.png";
 const SCREENSHOT_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg"];
 const UNKNOWN_INSTANT_FPS: u32 = 30;
+const OLD_SCREENSHOTS_FOLDER: &str = "screenshots";
+const VIDEOS_DIR_ENV: &str = "FRAMEEVER_CONVERTER_VIDEOS_DIR";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     CapAniBullet2,
     Cap,
+    Folder,
+}
+
+impl Source {
+    pub fn carries_settings(self) -> bool {
+        self != Source::Folder
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,8 +136,12 @@ pub fn find_installs_on_this_machine() -> Vec<OldInstall> {
     let app_data_root = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_default();
-    let videos_dir = directories::UserDirs::new()
-        .and_then(|dirs| dirs.video_dir().map(Path::to_path_buf))
+    let videos_dir = std::env::var_os(VIDEOS_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            directories::UserDirs::new().and_then(|dirs| dirs.video_dir().map(Path::to_path_buf))
+        })
         .unwrap_or_default();
     find_installs(&app_data_root, &videos_dir)
 }
@@ -153,6 +166,14 @@ pub fn find_installs(app_data_root: &Path, videos_dir: &Path) -> Vec<OldInstall>
 }
 
 impl OldInstall {
+    pub fn picked_folder(folder: &Path) -> Self {
+        Self {
+            source: Source::Folder,
+            app_data: folder.to_path_buf(),
+            videos_dir: folder.to_path_buf(),
+        }
+    }
+
     fn settings(&self) -> serde_json::Map<String, serde_json::Value> {
         settings::read_document(&self.app_data.join(OLD_SETTINGS_FILE)).unwrap_or_default()
     }
@@ -200,6 +221,33 @@ impl OldInstall {
                     &self.app_data.join("screenshots"),
                     ProjectKind::Screenshot,
                 ));
+            }
+            Source::Folder => {
+                let folder = &self.app_data;
+                let is_screenshots_folder = folder
+                    .file_name()
+                    .is_some_and(|name| name.eq_ignore_ascii_case(OLD_SCREENSHOTS_FOLDER));
+                items.extend(old_projects(
+                    folder,
+                    if is_screenshots_folder {
+                        ProjectKind::Screenshot
+                    } else {
+                        ProjectKind::Recording
+                    },
+                ));
+                items.extend(old_projects(
+                    &folder.join("recordings"),
+                    ProjectKind::Recording,
+                ));
+                items.extend(old_projects(
+                    &folder.join(OLD_SCREENSHOTS_FOLDER),
+                    ProjectKind::Screenshot,
+                ));
+                items.extend(loose_videos(&folder.join("exports").join("video")));
+                items.extend(loose_screenshots(
+                    &folder.join("exports").join("screenshot"),
+                ));
+                put_videos_back_into_their_projects(&mut items);
             }
         }
         items
@@ -319,15 +367,28 @@ fn loose_screenshots(dir: &Path) -> Vec<Item> {
         .collect()
 }
 
+pub fn destination(install: &OldInstall, target: &Target) -> PathBuf {
+    let mut storage_settings = StorageSettings::load(&target.settings_file);
+    if storage_settings.storage_path.is_none()
+        && let Some(folder) =
+            settings::chosen_storage_folder(install.source, &settings::general(&install.settings()))
+    {
+        storage_settings.choose_storage_folder(Some(folder));
+    }
+    Storage::new(target.default_storage_dir.clone(), storage_settings).storage_dir()
+}
+
 pub fn convert(install: &OldInstall, target: &Target) -> Report {
     let items = install.items();
     let mut report = Report {
-        settings_error: settings::carry_over(
-            install.source,
-            &install.settings(),
-            &target.settings_file,
-        )
-        .err(),
+        settings_error: install
+            .source
+            .carries_settings()
+            .then(|| {
+                settings::carry_over(install.source, &install.settings(), &target.settings_file)
+                    .err()
+            })
+            .flatten(),
         ..Report::default()
     };
     let storage = Storage::new(
