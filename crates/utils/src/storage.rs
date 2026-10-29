@@ -182,11 +182,15 @@ pub fn project_dir_name(name: &str) -> String {
     format!("{name}.{}", crate::brand::PROJECT_EXTENSION)
 }
 
+pub fn unused_project_path(parent: &Path, name: &str) -> std::io::Result<PathBuf> {
+    crate::ensure_unique_filename(&project_dir_name(name), parent)
+        .map(|dir_name| parent.join(dir_name))
+        .map_err(std::io::Error::other)
+}
+
 pub fn create_project(parent: &Path, name: &str) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(parent)?;
-    let dir_name = crate::ensure_unique_filename(&project_dir_name(name), parent)
-        .map_err(std::io::Error::other)?;
-    let project = parent.join(dir_name);
+    let project = unused_project_path(parent, name)?;
     std::fs::create_dir(&project)?;
     stamp_format_version(&project)?;
     Ok(project)

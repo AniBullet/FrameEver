@@ -498,8 +498,8 @@ function check() {
 	pruneIncremental();
 	step("GPUI app");
 	run("cargo", ["check", "--tests"], { cwd: gpuiDir });
-	step("CLI");
-	run("cargo", ["check", "-p", "frameever", "--tests"]);
+	step("CLI and converter");
+	run("cargo", ["check", "-p", "frameever", "-p", "frameever-converter", "--tests"]);
 	console.log("\n\u001b[32m✓ Everything compiles\u001b[0m");
 }
 
@@ -511,9 +511,10 @@ function test({ flags, positional }) {
 		env: withFfmpeg(),
 	});
 	if (flags.all) {
-		step("Encoder, export, utils and CLI tests");
+		step("Encoder, export, utils, converter and CLI tests");
 		run("cargo", ["test", "-p", "frameever-enc-ffmpeg", "--lib"], { env: withFfmpeg() });
 		run("cargo", ["test", "-p", "frameever-utils", "--lib"]);
+		run("cargo", ["test", "-p", "frameever-converter"]);
 		run("cargo", ["test", "-p", "frameever-export", "--lib"], { env: withFfmpeg() });
 		run("cargo", ["test", "-p", "frameever", "--bin", "frameever"], { env: withFfmpeg() });
 		run("cargo", ["test", "-p", "frameever", "--test", "cli"], { env: withFfmpeg() });
@@ -533,6 +534,7 @@ const ROOT_CRATES = [
 	"frameever-export",
 	"frameever-enc-ffmpeg",
 	"frameever-utils",
+	"frameever-converter",
 	"frameever-cli-install",
 ];
 

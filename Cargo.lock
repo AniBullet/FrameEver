@@ -2179,6 +2179,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "frameever-converter"
+version = "0.1.0"
+dependencies = [
+ "directories 5.0.1",
+ "frameever-project",
+ "frameever-utils",
+ "image 0.25.10",
+ "serde_json",
+ "tempfile",
+ "workspace-hack",
+]
+
+[[package]]
 name = "frameever-cpal-ffmpeg"
 version = "0.1.0"
 dependencies = [
