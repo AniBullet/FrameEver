@@ -2,11 +2,11 @@
 
 ## 项目简介
 
-FrameEver（帧刻）是基于 [Cap](https://github.com/CapSoftware/Cap) 的本地优先屏幕录制应用分支，专注于：
+FrameEver · 帧刻是 aniBullet 的纯本地屏幕录制和编辑应用，最初从 [Cap](https://github.com/CapSoftware/Cap) 分出，现在独立开发。它专注于：
 
 - 无时长 / 数量限制的本地录制
-- 完全离线运行（无云端依赖）
-- Windows x64 平台
+- 录制、编辑、导出都只在本机完成，不上传任何内容
+- 先发布 Windows x64 版，之后再做 macOS
 - 完全免费、开源
 
 ---
@@ -31,7 +31,7 @@ FrameEver（帧刻）是基于 [Cap](https://github.com/CapSoftware/Cap) 的本�
 | Visual Studio 2022 生成工具 | C++ 桌面开发、LLVM、CMake |
 | Windows | x64 |
 
-> **注意**：本项目仅支持 Windows 平台，macOS / Linux 不在维护范围。
+> **注意**：目前只构建和发布 Windows 版。macOS 代码保留，Windows 1.0.0 之后再做；不支持 Linux。
 
 ### 快速启动
 
@@ -51,36 +51,46 @@ pnpm fe package   # 打包安装程序
 ```
 FrameEver/
 ├── apps/
-│   ├── desktop-gpui/       # GPUI 桌面应用（录制、编辑器、设置）
-│   └── cli/                # 命令行工具
+│   ├── desktop-gpui/       # GPUI 桌面应用（录制、编辑器、资源库、设置）
+│   │   └── converter/      # FrameEver Converter 向导（单独下载）
+│   └── cli/                # 命令行工具 frameever
 ├── crates/
 │   ├── recording/          # 核心录制管线
 │   ├── rendering/          # 视频渲染 & 特效
+│   ├── editor/             # 编辑器播放
 │   ├── export/             # 导出 & 编码
-│   ├── camera*/            # 摄像头跨平台抽象
+│   ├── project/            # 项目格式
+│   ├── converter/          # FrameEver Converter 转换核心
+│   ├── utils/              # 品牌常量、存储文件夹
+│   ├── camera*/            # 摄像头
 │   └── media*/             # 音视频处理
-└── scripts/                # 开发工具脚本
+├── docs/                   # 决策记录（adr/）、agent 指南、交接文档
+└── scripts/                # pnpm fe 和其他开发脚本
 ```
+
+术语以 [GLOSSARY.md](GLOSSARY.md) 为准。
 
 ### 常用命令
 
 ```bash
 pnpm fe dev          # 编译并运行应用
-pnpm fe check        # 编译检查应用和 CLI
-pnpm fe test --all   # 运行测试
+pnpm fe check        # 编译检查应用、FrameEver Converter 和 CLI
+pnpm fe test --all   # 运行全部测试
 pnpm fe lint         # 格式检查、clippy 和翻译检查
-pnpm format          # Biome 格式化
-cargo fmt             # Rust 格式化
-cargo test -p <crate> # 运行指定 crate 测试
+pnpm fe fmt          # 格式化
+pnpm fe converter    # 用假的 Cap-aniBullet 2.x 数据试运行 FrameEver Converter
 ```
 
 ---
 
-## 录制文件位置
+## 数据位置
 
-```
-%APPDATA%\so.cap.desktop.anibullet\recordings\
-```
+| 内容 | 位置 |
+|------|------|
+| 项目、截图、导出（存储文件夹） | 默认 `%USERPROFILE%\Videos\FrameEver\`（`Recordings`、`Screenshots`、`Exports`），可在设置里更改 |
+| 设置 | `%APPDATA%\io.github.anibullet.frameever\` |
+| 日志 | `%LOCALAPPDATA%\io.github.anibullet.frameever\logs\` |
+| `pnpm fe dev` 的测试数据 | `apps/desktop-gpui/target/testdata/` |
 
 ---
 
@@ -88,15 +98,18 @@ cargo test -p <crate> # 运行指定 crate 测试
 
 完整规范请参阅 [AGENTS.md](AGENTS.md)，核心要点：
 
-### TypeScript / SolidJS
-- 2 空格缩进，Biome 格式化（`pnpm format`）
-- 文件名 kebab-case，组件名 PascalCase
+### 通用
 - **不写注释** — 代码通过命名和结构自说明
+- 界面文字只有英文和简体中文，每条新文字都要有中文翻译；专有名词在中文界面保持英文（见 [docs/i18n.md](docs/i18n.md)）
+- 纯扁平设计，不用渐变和毛玻璃
 
 ### Rust
-- `rustfmt` + workspace clippy lints（`cargo fmt`）
-- 模块名 snake_case，crate 名 kebab-case
+- `rustfmt` + workspace clippy lints（`pnpm fe lint`）
+- 模块名 snake_case，crate 名 kebab-case 并以 `frameever-` 开头
 - 禁止 `dbg!()`，正确处理 `Result` / `Option`
+
+### 脚本
+- `scripts/*.mjs`：Tab 缩进，Biome 格式化（`pnpm format`），文件名 kebab-case
 
 ### 本地优先原则
 - 不引入任何云端 SDK / API
@@ -116,15 +129,15 @@ chore:    构建、依赖、清理
 improve:  功能改进（非新功能）
 refactor: 重构（不影响行为）
 docs:     文档变更
-sync:     上游同步
 ```
 
-示例：
+提交说明用中文，有对应 Issue 时写上编号。示例：
 ```
-feat: 新增 HEVC 视频压缩功能
+feat: 新增 HEVC 视频压缩功能（#18）
 fix: 修复区域录制工具条跑到其他屏幕的问题
-chore: v2.2.0 - 清理上游残留云端/认证代码
 ```
+
+`git push` 前会自动运行隐私检查（`pnpm fe privacy`），不要绕过。
 
 ---
 

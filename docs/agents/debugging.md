@@ -31,7 +31,10 @@ Test cadence: while iterating run `pnpm fe test <filter>` (an app-only edit rebu
 | What | Where |
 |---|---|
 | Test profile settings | `apps/desktop-gpui/target/testdata/appdata/store` (JSON) |
-| Test recordings | `apps/desktop-gpui/target/testdata/recordings/*.ever` |
+| Settings (installed app) | `%APPDATA%\io.github.anibullet.frameever\` |
+| Test storage folder | `apps/desktop-gpui/target/testdata/storage/` (`Recordings/*.ever`, `Screenshots/`, `Exports/`) |
+| Test exports from `fe export` | `apps/desktop-gpui/target/testdata/exports/` |
+| Fake 2.x install for `fe converter` | `apps/desktop-gpui/target/testdata/converter/` |
 | App log (test profile) | `apps/desktop-gpui/target/testdata/logs/frameever.log.<date>` |
 | App log (installed app) | `%LOCALAPPDATA%\io.github.anibullet.frameever\logs\` |
 | Installer output | `dist/` |
@@ -50,16 +53,18 @@ Environment variables the app reads: `FRAMEEVER_GPUI_APP_DATA_DIR` (also moves t
 
 **Translations.** `pnpm fe test i18n::` names the exact problem: a `t!` string without a Chinese entry (add it to the area table), a stale entry (delete it), placeholders that differ, or one English string with two Chinese translations (pick one, or use `tc!` for real context differences). Window titles stay English on purpose.
 
-**Settings or data import.** Edit or delete `target/testdata/appdata/store` and rerun `pnpm fe dev`. Import from Cap-aniBullet 2.x is tested in `store.rs` (`cap_anibullet_settings_are_imported_once…`).
+**Settings or storage.** Edit or delete `target/testdata/appdata/store` and rerun `pnpm fe dev`. Folders, projects and export records all go through `frameever_utils::storage` (`crates/utils/src/storage.rs`); test them there.
 
-**Packaging.** `pnpm fe package` prints each step. Missing DLL folders → `pnpm fe setup`. A Tauri bundle error names the file it couldn't find (paths in `apps/desktop-gpui/tauri.conf.json`). Without `TAURI_SIGNING_PRIVATE_KEY` it builds an unsigned installer on purpose. CI runs the same command in `.github/workflows/release.yml`.
+**FrameEver Converter.** The app never reads older data. Conversion rules live in `crates/converter` with their tests; the wizard flow is `apps/desktop-gpui/converter/src/wizard.rs`, tested in `apps/desktop-gpui/converter/tests/wizard.rs`. `pnpm fe converter` rebuilds the fake install on every run, so a run always starts from unconverted data.
+
+**Packaging.** `pnpm fe package` prints each step. Missing DLL folders → `pnpm fe setup`. The installer is bundled by the Tauri CLI (`apps/desktop-gpui/tauri.conf.json`, packaging only); a bundle error names the file it couldn't find. Without `TAURI_SIGNING_PRIVATE_KEY` it builds an installer without an update signature on purpose. CI runs the same command in `.github/workflows/release.yml`.
 
 ## Common errors
 
 | Symptom | Cause and fix |
 |---|---|
 | `bash: ... WSL ... execvpe(/bin/bash) failed` | PowerShell's `bash` is WSL's. Scripts need Git Bash; `pnpm fe` finds it for you |
-| `std::hint::cold_path` / gpui compile errors | Wrong Rust for the GPUI app; it needs stable (`apps/desktop-gpui/rust-toolchain.toml`), the root workspace 1.88 |
+| `std::hint::cold_path` / gpui compile errors | Outdated Rust: both workspaces need current stable (`rust-toolchain.toml`); run `pnpm fe setup` |
 | `cargo build` fails with "Access is denied" on `frameever-gpui.exe` | The app is still running; stop it (pane "停止", or close it) and rebuild |
 | `libclang` / `bindgen` errors | `.cargo/config.toml` lost `LIBCLANG_PATH`; run `pnpm fe setup` |
 | clippy `deref which would be done by auto-deref` on `tr(*x)` | Write `tr(x)` |

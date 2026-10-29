@@ -1,6 +1,6 @@
 # frameever-rendering-skia
 
-A new rendering backend for Cap using Skia, designed to replace the current wgpu-based renderer.
+A rendering backend for FrameEver using Skia, designed to replace the current wgpu-based renderer.
 
 ## Status
 

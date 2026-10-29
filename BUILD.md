@@ -1,6 +1,6 @@
 # 开发与打包指南
 
-本文说明如何在 Windows 上开发、测试和打包 FrameEver · 帧刻（`apps/desktop-gpui`，原生 GPUI 应用）。所有操作都通过一个入口完成：
+本文说明如何在 Windows 上开发、测试和打包 FrameEver · 帧刻：原生 GPUI 应用（`apps/desktop-gpui`）、命令行工具（`apps/cli`）和 FrameEver Converter（`apps/desktop-gpui/converter`）。所有操作都通过一个入口完成：
 
 ```powershell
 pnpm fe            # 列出全部命令
@@ -12,7 +12,7 @@ pnpm fe            # 列出全部命令
 
 | 依赖 | 说明 |
 |---|---|
-| Windows 10/11 x64 | 只支持 Windows |
+| Windows 10/11 x64 | 目前只构建和发布 Windows 版；macOS 代码保留到 Windows 1.0.0 之后再做，不支持 Linux |
 | Node.js 20+ 与 pnpm 10 | `npm install -g pnpm@10.5.2` |
 | Rust（rustup） | stable；`pnpm fe setup` 会补装 |
 | Visual Studio 2022 生成工具 | 含“使用 C++ 的桌面开发”、LLVM（clang）组件和 CMake |
@@ -24,7 +24,7 @@ pnpm fe            # 列出全部命令
 pnpm fe setup
 ```
 
-它会依次：检查工具链；安装 JS 依赖；下载 FFmpeg、ONNX Runtime、DXC 到 `target/`；生成 `.cargo/config.toml`；把打过补丁的 gpui 准备到仓库同级的 `../zed-cap`；从华为官网下载中文界面字体 HarmonyOS Sans（约 22 MB 的官方压缩包，校验 SHA1 后只取简体中文可变字体和许可文本，放进 `apps/desktop-gpui/assets/fonts/harmonyos-sans/`）。它的许可不允许单独再分发字体文件，所以不进仓库，只嵌入安装包，许可文本随安装包放在 `licenses/fonts/`；准备 Tauri 打包用的 NSIS（下载地址和 SHA1 与 Tauri 2.11.2 完全一致，放在 `%LOCALAPPDATA%\tauri\NSIS`），并给它的编译器 `Bin\makensis.exe` 打开大地址支持（见下方常见问题）。重复运行是安全的，已下载的内容会直接复用。
+它会依次：检查工具链；安装 JS 依赖；下载 FFmpeg、ONNX Runtime、DXC 到 `target/`；生成 `.cargo/config.toml`；把打过补丁的 gpui 准备到仓库同级的 `../zed-cap`；从华为官网下载中文界面字体 HarmonyOS Sans（约 22 MB 的官方压缩包，校验 SHA1 后只取简体中文可变字体和许可文本，放进 `apps/desktop-gpui/assets/fonts/harmonyos-sans/`）。它的许可不允许单独再分发字体文件，所以不进仓库，只嵌入安装包，许可文本随安装包放在 `licenses/fonts/`；准备打包安装程序用的 NSIS（安装包由 Tauri 命令行工具生成，应用本身不含 Tauri；下载地址和 SHA1 与 Tauri 2.11.2 完全一致，放在 `%LOCALAPPDATA%\tauri\NSIS`），并给它的编译器 `Bin\makensis.exe` 打开大地址支持（见下方常见问题）。重复运行是安全的，已下载的内容会直接复用。
 
 之后随时可以用 `pnpm fe doctor` 检查环境，缺什么会直接说怎么修。
 
@@ -52,7 +52,7 @@ pnpm fe setup
 pnpm fe package
 ```
 
-依次编译附带程序（命令行、muxer）、正式版应用，再生成 NSIS 安装包，复制到 `dist/`。第一次要完整编译，需要十几到几十分钟。
+依次编译附带程序（命令行、muxer）、正式版应用，再生成 NSIS 安装包，复制到 `dist/`；同时编译单独下载的 `FrameEver-Converter_<版本>_x64.exe`，也放进 `dist/`。第一次要完整编译，需要十几到几十分钟。
 
 - 没有设置 `TAURI_SIGNING_PRIVATE_KEY` 时，会生成不带自动更新签名的安装包，自己测试用足够了。
 - `--version 3.0.0` 会把版本号写进应用再打包（CI 发版时使用）。
@@ -121,11 +121,11 @@ pnpm fe privacy --all     # 扫描仓库里所有已跟踪的文件
 
 **启动时报找不到 DLL（0xc0000135）**：用 `pnpm fe dev` 启动，它会把 FFmpeg 加进 PATH；不要直接双击 `target/debug` 里的 exe。
 
-**编译报 `cold_path` 或 gpui 相关错误**：GPUI 应用需要 Rust stable（见 `apps/desktop-gpui/rust-toolchain.toml`），运行 `pnpm fe setup`。
+**编译报 `cold_path` 或 gpui 相关错误**：Rust 版本太旧，两个工作区都需要最新的 stable（见 `rust-toolchain.toml`），运行 `pnpm fe setup`。
 
 **`cargo build` 报 “Access is denied”**：应用还开着，先关掉再编译。
 
-**打包报 `Internal compiler error #12345: deflateInit() failed`**：NSIS 的编译器 `makensis` 是 32 位程序，默认只能用 2 GB 地址空间。安装脚本和上游一样用 128 MB 的 LZMA 字典，压缩器要一次申请约 1.3 GB 连续内存，内存碎片多时就会失败，所以时好时坏。`pnpm fe setup` 和 `pnpm fe package` 会给 `%LOCALAPPDATA%\tauri\NSIS\Bin\makensis.exe` 打开 PE 文件头里的大地址标志（效果同 `editbin /LARGEADDRESSAWARE`），在 64 位 Windows 上可用 4 GB。Tauri 只检查这个文件是否存在、不校验哈希，所以标志会一直保留；如果 Tauri 因为工具不完整重新解压了 NSIS，再运行一次 `pnpm fe package` 就会重新打上。
+**打包报 `Internal compiler error #12345: deflateInit() failed`**：NSIS 的编译器 `makensis` 是 32 位程序，默认只能用 2 GB 地址空间。安装脚本用 128 MB 的 LZMA 字典（让应用和命令行一起压缩，安装包更小），压缩器要一次申请约 1.3 GB 连续内存，内存碎片多时就会失败，所以时好时坏。`pnpm fe setup` 和 `pnpm fe package` 会给 `%LOCALAPPDATA%\tauri\NSIS\Bin\makensis.exe` 打开 PE 文件头里的大地址标志（效果同 `editbin /LARGEADDRESSAWARE`），在 64 位 Windows 上可用 4 GB。Tauri 只检查这个文件是否存在、不校验哈希，所以标志会一直保留；如果 Tauri 因为工具不完整重新解压了 NSIS，再运行一次 `pnpm fe package` 就会重新打上。
 
 **libclang / bindgen 报错**：`.cargo/config.toml` 缺少 `LIBCLANG_PATH`，运行 `pnpm fe setup`。
 

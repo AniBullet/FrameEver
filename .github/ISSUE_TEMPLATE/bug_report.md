@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a crash, error, or other unusual behaviour by Cap
+about: Report a crash, error, or other unusual behaviour in FrameEver
 title: ""
 labels: bug
 assignees: ""
@@ -16,12 +16,12 @@ assignees: ""
 
 ### Additional Context
 
-- Cap version:
+- FrameEver version:
 - Operating system, version:
 - Device (optional):
 
 <!-- Add or attach any screenshots, logs, etc that might help.
-Cap's debug logs can be found at:
+FrameEver's logs can be found at:
 
-Windows: C:\Users\{your username}\AppData\Roaming\so.cap.desktop\logs
+Windows: %LOCALAPPDATA%\io.github.anibullet.frameever\logs
 -->

@@ -1,24 +1,28 @@
 # frameever-desktop-gpui
 
-Cap's desktop app, rewritten in [gpui](https://www.gpui.rs/). No Tauri, no
-webview — the whole UI is drawn by gpui and every pixel is Rust.
-
-This is the app that ships as **Cap**, from 0.6.1 on. The Tauri app last
-shipped in 0.6.0 and has been deleted from this repository; see
-[Shipping and updates](#shipping-and-updates).
+The FrameEver desktop app, drawn with [gpui](https://www.gpui.rs/). No webview:
+the whole UI is drawn by gpui and every pixel is Rust. It began as upstream
+Cap's GPUI app at 0.6.1; upstream is now a read-only reference (ADR-0007), so
+sections below that compare with "the Tauri app" or name `cap-*` crates
+describe where the code came from, not something that still ships.
 
 The main recording window uses a fixed 330×432 layout with device controls
 and recording and screenshot browsers. The expanded view is no longer available.
 
+This workspace also holds FrameEver Converter's wizard (`converter/`); its
+conversion rules live in the root workspace's `crates/converter`.
+
 ## Running it
 
-```sh
-cd apps/desktop-gpui
-cargo run
+```powershell
+pnpm fe dev
 ```
 
-`RUST_LOG=frameever_gpui=debug cargo run` for logs — note the filter is `frameever_gpui`
-(the binary), not `frameever_desktop_gpui` (the package).
+`pnpm fe dev` uses the test profile in `target/testdata/`, puts FFmpeg on the
+path and writes logs that `pnpm fe logs` reads. For more logging:
+`RUST_LOG=frameever_gpui=debug pnpm fe dev` — note the filter is
+`frameever_gpui` (the binary), not `frameever_desktop_gpui` (the package).
+`BUILD.md` and `docs/agents/debugging.md` at the repo root cover the rest.
 
 The first build takes about 11 minutes and 6.4 GB of `target/`: gpui pulls its
 own revisions of the wgpu and font stacks. After that, an edit rebuilds only
@@ -39,109 +43,87 @@ behind a plain-slice function and call that from the app.
 
 ### The dev loop
 
-```sh
-./dev.sh
+```powershell
+pnpm fe dev --watch
 ```
 
-On Windows use `pnpm fe dev --watch` instead.
+Native Rust cannot hot-reload, so this rebuilds on save instead. It watches
+the app's sources, assets and `kernels/` and the `frameever-*` crates the
+editor depends on (`WATCH_DIRS` in `scripts/fe.mjs`), rebuilds, and swaps the running app
+**only when the build succeeds** — a compile error leaves the previous build
+running. The relaunch reopens exactly where the old process was: same windows
+at the same frames, same settings page, same editor project with its sidebar
+tab and scroll (`src/dev_restore.rs`, driven by `FRAMEEVER_GPUI_DEV_RESTORE`,
+applied through the same entry points real clicks take). Relaunches
+deliberately do not activate the app, so keyboard focus stays in your code
+editor while the windows refresh beside it.
 
-Native Rust cannot hot-reload, so this is the Solid-dev-server feel rebuilt
-from its observable parts. The script watches the app's sources, the `cap-*`
-crates the editor depends on and the local gpui checkout, rebuilds on save,
-and swaps the running app **only when the build succeeds** — a compile error
-leaves the previous build running, the way Vite keeps the page alive under an
-error overlay. The relaunch reopens exactly where the old process was: same
-windows at the same frames, same settings page, same editor project with its
-sidebar tab and scroll (`src/dev_restore.rs`, driven by
-`FRAMEEVER_GPUI_DEV_RESTORE`, applied through the same entry points real clicks
-take). Relaunches deliberately do not activate the app, so keyboard focus
-stays in your code editor while the windows refresh beside it; and the swap
-waits out an in-flight recording rather than truncating it (the state file
-doubles as that handshake — `dev.sh` will not kill the app while it reads
-`"recording":true`).
+`dev.sh` is the same loop for macOS. It also watches the local gpui checkout and waits out an in-flight
+recording rather than truncating it (the restore state file doubles as that
+handshake — it will not kill the app while it reads `"recording":true`).
 
-The loop runs a plain `cargo build`, so it shares every artifact with one run
-by hand: switching between `./dev.sh` and `cargo build` rebuilds nothing.
+Both loops run a plain `cargo build`, so they share every artifact with one
+run by hand.
 
 ### Why it is a separate workspace
 
-`Cargo.toml` declares its own `[workspace]`. The root workspace carries
-`[patch.crates-io]` entries — a vendored `wgpu-hal`, a forked `tao` — that exist
-only for the Tauri app and that gpui's tree does not want. Nesting a second
-workspace here leaves the root `Cargo.lock`, the `cargo hakari` workspace-hack
-and CI completely untouched.
-
-`rust-toolchain.toml` pins `stable` rather than the root's 1.88.0, because
-gpui's dependencies need 1.89+ (`smol_str` 0.3.6, `cosmic-text` 0.19). The
-nearest toolchain file wins, so the Tauri app is unaffected.
+`Cargo.toml` declares its own `[workspace]` with its own `Cargo.lock`. gpui
+comes from a patched checkout in `../../../zed-cap` (prepared by
+`pnpm fe setup`), and gpui's tree pulls its own revisions of wgpu and the font
+stacks that the root workspace's crates do not want. Keeping the two apart
+keeps the root lock and the `cargo hakari` workspace-hack untouched by gpui.
+Both workspaces build with Rust stable (`rust-toolchain.toml`).
 
 ## Shipping and updates
 
-### How Cap is packaged
+### How FrameEver is packaged
 
 `tauri.conf.json` in this directory is a **packaging** config only — nothing
-here links the Tauri runtime. `scripts/bundle-gpui.mjs` builds `frameever-gpui`
+here links the Tauri runtime; the Tauri CLI is used as the NSIS bundler.
+`scripts/bundle-gpui.mjs` builds `frameever-gpui`
 (`scripts/build-gpui-binary.sh release <target>`), stages it as the main
-binary `Cap`/`Cap.exe`, and runs `tauri bundle` against this crate
-(`TAURI_APP_PATH`). Reusing the bundler keeps every artifact byte-compatible
-with what installed copies of the Tauri app already update through:
+binary `FrameEver.exe`, and runs `tauri bundle` against this crate
+(`TAURI_APP_PATH`). The identity is `FrameEver`, `io.github.anibullet.frameever`
+(`crates/utils/src/brand.rs`).
 
-- the same identity (`Cap`, `so.cap.desktop`, main binary `Cap`), so the macOS
-  bundle and the NSIS uninstall key and install folder are the ones already on
-  disk, and permissions and data carry over;
-- the same updater artifacts — `Cap.app.tar.gz` and the NSIS `-setup.exe` —
-  signed with the same updater key and published under the platform names
-  (`darwin-aarch64`, `windows-x86_64`) every existing install already polls.
+The bundle carries the sidecars `frameever-muxer` and `frameever-cli`.
+Release sidecars are built without debug info and stripped.
+`pnpm fe package` also builds FrameEver Converter
+(`FrameEver-Converter_<version>_x64.exe`), a separate download, not part of
+the installer.
 
-The update to 0.6.1 is therefore installed by the Tauri updater of whatever
-build the user has; it simply lands this app in place.
-
-The bundle carries `frameever-muxer` and `cap-cli` only: `cap-exporter` was a
-byte-identical copy of `cap-cli`, and the self-test now runs `cap-cli`
-directly. Release sidecars are built without debug info and stripped.
-
-After `tauri bundle`, the release shrinks every artifact without changing a
-byte of what gets installed:
-
-- `scripts/finalize-macos-packages.mjs` recompresses `Cap.app.tar.gz` with
-  zopfli (still plain gzip for every updater) and converts the disk image to
-  LZMA, keeping the original if conversion or signing fails.
-- `packaging/windows/installer-hooks.nsh` gives the NSIS installer a 128 MB
-  LZMA window, so `cap-cli.exe` compresses against `Cap.exe`. The NSIS install hook (`packaging/windows/installer-hooks.nsh`)
-deletes the Tauri-era `cap-gpui.exe`, `cap-exporter.exe` and Rive assets an
-update in place would otherwise leave behind.
+`packaging/windows/installer-hooks.nsh` gives the NSIS installer a 128 MB
+LZMA window, so the CLI compresses against the app, and its install hook
+deletes `cap-gpui.exe`, `cap-exporter.exe`, `cap-cli.exe` and
+`cap-muxer.exe` left by older installs. `scripts/finalize-macos-packages.mjs` holds the macOS packaging and
+updater-signing steps for the later macOS release.
 
 ### The native updater
 
-`src/updates.rs` checks the CrabNebula endpoint on the same cadence the
-Tauri app used, and `src/installer.rs` does the rest without Tauri:
+`src/updates.rs` decides when to check, and `src/installer.rs` fetches
+`latest.json` from the newest release on `AniBullet/FrameEver` (GitHub
+Releases) and does the rest:
 
 1. **Download** streams the artifact to
-   `<cache>/so.cap.desktop/updates/cap/<version>/` and verifies its minisign
-   signature *while* it downloads (`minisign_verify::StreamVerifier`), so a
-   200 MB update never sits in memory. A verified file is reused on the next
-   attempt instead of being fetched again; anything that fails verification is
-   deleted.
-2. **Install** checks the file's format, then: on macOS unpacks the
-   `.app.tar.gz` beside the running bundle and swaps it in with two renames
-   (asking for an administrator password only when the folder is not
-   writable); on Windows starts the NSIS installer with `/P /R /UPDATE` and
-   quits.
+   `<cache>/io.github.anibullet.frameever/updates/frameever/<version>/` and verifies its
+   minisign signature *while* it downloads (`minisign_verify::StreamVerifier`),
+   so a 200 MB update never sits in memory. A verified file is reused on the
+   next attempt instead of being fetched again; anything that fails
+   verification is deleted.
+2. **Install** checks the file's format, then on Windows starts the NSIS
+   installer with `/P /R /UPDATE` and quits (on macOS it unpacks the
+   `.app.tar.gz` beside the running bundle and swaps it in).
 3. **Relaunch** waits for this process to exit and reopens the new build.
 
 Progress shows in the settings sidebar footer, and the update never installs
-while a recording, export, upload, import or transcription is running.
+while a recording, export, import or transcription is running. A build without
+an update signing key has updates disabled.
 
-### The Tauri app
+### Where the code came from
 
-Releases no longer build the Tauri app. 0.6.0 was its last version, and the
-website's [all versions](https://cap.so/download/versions) page keeps it
-downloadable. Its source was deleted from this repository after commit
-`e94ffd0e5`; comments and docs that cite a file as Tauri `src-tauri/...`,
-Tauri `src/...` or Tauri `ui-solid/...` mean that file in that commit. The
-**Cap GPUI** switch in a debug build's Settings → Experimental
-(`store::request_classic_reopen` and `cap-classic.pending`) has no Tauri app
-left to hand the session back to.
+The Tauri app this code was ported from was deleted from the repository
+(ADR-0001); comments and docs that cite a file as Tauri `src-tauri/...`,
+Tauri `src/...` or Tauri `ui-solid/...` mean that file in commit `e94ffd0e5`.
 
 ## What is implemented
 

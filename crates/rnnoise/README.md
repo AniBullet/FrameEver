@@ -1,4 +1,4 @@
-# Cap RNNoise
+# frameever-rnnoise
 
 This crate embeds the RNNoise model and inference code used by Studio Sound. The C inference code is optimized in development and release builds. Model weights are immutable shared storage; each microphone channel owns its processing state.
 

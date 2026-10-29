@@ -48,7 +48,7 @@
 
 **其他**
 - 命令行工具 `frameever`，可供脚本、自动化规则和 AI 智能体调用（[说明](apps/cli/README.md)）
-- 首次启动自动导入 Cap-aniBullet 2.x 的设置，原来的录制文件继续显示，位置不变
+- 从 Cap-aniBullet 2.x 或 Cap 升级：用单独下载的 FrameEver Converter 把旧的设置、录制、截图和规则转换进 FrameEver 的存储文件夹
 
 ## 安装
 
