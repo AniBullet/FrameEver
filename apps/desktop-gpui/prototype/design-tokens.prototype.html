@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Klein Field tokens · PROTOTYPE</title>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+@font-face{font-family:"HarmonyOS Sans SC";src:local("HarmonyOS Sans SC"),local("HarmonyOS_Sans_SC"),url("../assets/fonts/harmonyos-sans/HarmonyOS_Sans_SC.ttf");font-weight:100 900}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:"Inter","HarmonyOS Sans SC",system-ui,sans-serif;font-size:var(--text-body);line-height:var(--lh-body);background:var(--page);color:var(--foreground);-webkit-font-smoothing:antialiased;padding-bottom:60px;font-feature-settings:"cv11","ss01"}
+svg.lucide{width:var(--icon);height:var(--icon);stroke-width:1.75;flex:none}
+button,input{font:inherit;color:inherit}
+code,.mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:11.5px}
+.top{position:sticky;top:0;z-index:50;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:10px 20px;background:var(--background);border-bottom:1px solid var(--border)}
+.top h1{font-size:15px;margin:0 6px 0 0;font-weight:600;letter-spacing:-.01em}
+.proto{font-size:11px;color:var(--muted-foreground)}
+.fontwarn{display:none;font-size:11px;color:var(--danger-text)}
+.fontwarn.show{display:inline}
+.toc{display:flex;flex-wrap:wrap;gap:2px;padding:8px 20px;border-bottom:1px solid var(--border);background:var(--background);position:sticky;top:53px;z-index:49}
+.toc a{color:var(--muted-foreground);text-decoration:none;font-size:var(--text-small);padding:4px 8px;border-radius:var(--radius-sm);transition:background var(--d-fast) var(--ease-effects),color var(--d-fast) var(--ease-effects)}
+.toc a:hover{background:var(--accent);color:var(--foreground)}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius-md);padding:2px;gap:2px;background:var(--card)}
+.seg button{border:0;background:transparent;height:calc(var(--control) - 6px);padding:0 10px;border-radius:calc(var(--radius-md) - 3px);cursor:pointer;color:var(--muted-foreground);font-weight:500;font-size:var(--text-small);transition:background var(--d-fast) var(--ease-effects),color var(--d-fast) var(--ease-effects)}
+.seg button:hover{color:var(--foreground)}
+.seg button.on{background:var(--primary);color:var(--primary-foreground)}
+:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+main{max-width:1320px;margin:0 auto;padding:0 20px}
+section{padding:28px 0 8px;scroll-margin-top:100px}
+section>h2{font-size:var(--text-heading);line-height:var(--lh-heading);font-weight:600;margin:0 0 4px;letter-spacing:-.015em}
+section>p.lead{margin:0 0 16px;color:var(--muted-foreground);max-width:880px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px}
+.card h3{margin:0 0 8px;font-size:var(--text-title);font-weight:600;letter-spacing:-.01em}
+.card p{margin:6px 0;color:var(--muted-foreground)}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+@media (max-width:980px){.grid2,.grid3{grid-template-columns:1fr}}
+.lab{font-size:11px;color:var(--muted-foreground);margin:0 0 6px;text-transform:uppercase;letter-spacing:.05em;font-weight:500}
+table{width:100%;border-collapse:collapse;font-size:var(--text-small)}
+th{text-align:left;font-weight:500;color:var(--muted-foreground);padding:6px 8px;border-bottom:1px solid var(--border)}
+td{padding:6px 8px;border-top:1px solid var(--border);vertical-align:middle}
+tr:first-child td{border-top:0}
+.scroll{overflow-x:auto}
+.chipv{display:inline-flex;align-items:center;gap:6px}
+.dot{display:inline-block;width:18px;height:18px;border-radius:5px;border:1px solid var(--border);flex:none}
+.pass,.fail,.ui3,.deco{display:inline-block;font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:var(--radius-xs);white-space:nowrap}
+.pass{background:var(--success-tint);color:var(--success-text)}
+.fail{background:var(--danger-tint);color:var(--danger-text)}
+.ui3{background:var(--accent);color:var(--foreground)}
+.deco{background:transparent;color:var(--muted-foreground);border:1px solid var(--border)}
+.ramp{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:0;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border)}
+.ramp .st{padding:8px 6px 6px;min-height:92px;display:flex;flex-direction:column;justify-content:space-between;font-size:10.5px;line-height:1.3}
+.ramp .st b{font-size:12px;font-weight:600}
+.ramp .st span{opacity:.92}
+.ramproles{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));font-size:10.5px;color:var(--muted-foreground);margin:4px 0 14px}
+.ramproles span{padding:0 4px;text-align:center}
+.ramproles .g{grid-column:span 2}
+.ramproles .g3{grid-column:span 3}
+.rampbox{padding:14px;border-radius:var(--radius-lg);border:1px solid var(--border)}
+.rampbox h4{margin:0 0 8px;font-size:13px;font-weight:600}
+.status{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.status div{border-radius:var(--radius-sm);padding:8px;font-size:11px}
+.layers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
+@media (max-width:980px){.layers{grid-template-columns:1fr}}
+.layer{border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;background:var(--card)}
+.layer b{display:block;font-size:var(--text-title);margin-bottom:4px}
+.layer span{color:var(--muted-foreground);font-size:var(--text-small)}
+.layer .n{font-size:11px;font-weight:600;color:var(--link);text-transform:uppercase;letter-spacing:.05em}
+.typerow{display:grid;grid-template-columns:150px 1fr 1fr;gap:16px;align-items:baseline;padding:10px 0;border-top:1px solid var(--border)}
+.typerow:first-child{border-top:0}
+.typerow .meta{font-size:11px;color:var(--muted-foreground)}
+@media (max-width:980px){.typerow{grid-template-columns:1fr}}
+.space{display:flex;align-items:center;gap:12px;padding:3px 0;font-size:var(--text-small)}
+.space i{display:block;height:12px;background:var(--klein-tint-bar);border-radius:2px}
+.space code{width:70px;color:var(--muted-foreground)}
+.space em{font-style:normal;color:var(--muted-foreground);width:40px;text-align:right}
+.radii{display:flex;flex-wrap:wrap;gap:14px}
+.radii div{width:96px;text-align:center;font-size:11px;color:var(--muted-foreground)}
+.radii i{display:block;width:96px;height:64px;background:var(--secondary);border:1px solid var(--border-strong);margin-bottom:6px}
+.conc{position:relative;background:var(--popover);border:1px solid var(--border);padding:var(--ci);border-radius:var(--co);display:inline-block}
+.conc .in{background:var(--secondary);border:1px dashed var(--border-strong);border-radius:max(var(--radius-xs),calc(var(--co) - var(--ci)));width:240px;height:110px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted-foreground);text-align:center;padding:8px}
+input[type=range]{accent-color:var(--primary);width:180px}
+.dens{display:flex;flex-direction:column;gap:var(--gap);background:var(--background);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--pad);max-width:360px}
+.row{display:flex;align-items:center;gap:10px;height:var(--row);padding:0 10px;border-radius:var(--radius-md);background:var(--card);border:1px solid var(--border);transition:background var(--d-fast) var(--ease-effects)}
+.row:hover{background:var(--accent)}
+.row span{flex:1}
+.row em{font-style:normal;color:var(--muted-foreground);font-size:var(--text-small)}
+.row.on{background:var(--selection);border-color:var(--selection)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--control);padding:0 12px;border-radius:var(--radius-md);border:1px solid var(--border);background:var(--secondary);cursor:pointer;font-weight:500;color:var(--secondary-foreground);transition:background var(--d-fast) var(--ease-effects),border-color var(--d-fast) var(--ease-effects)}
+.btn:hover{background:var(--secondary-hover)}
+.btn:active{background:var(--secondary-active)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground)}
+.btn.primary:hover{background:var(--primary-hover);border-color:var(--primary-hover)}
+.btn.primary:active{background:var(--primary-active);border-color:var(--primary-active)}
+.btn.ghost{background:transparent;border-color:transparent}
+.btn.ghost:hover{background:var(--accent)}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:var(--danger-foreground)}
+.input{display:flex;align-items:center;gap:6px;height:var(--control);padding:0 10px;border:1px solid var(--input);border-radius:var(--radius-md);background:var(--background);color:var(--muted-foreground);min-width:200px}
+.input input{border:0;background:transparent;outline:0;width:100%;color:var(--foreground)}
+.input:focus-within{outline:2px solid var(--ring);outline-offset:2px}
+.tog{width:36px;height:20px;border-radius:10px;background:var(--switch);border:0;position:relative;cursor:pointer;padding:0;flex:none;transition:background var(--d-fast) var(--ease-effects)}
+.tog::after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:var(--switch-thumb);transition:left var(--d-move) var(--ease-move)}
+.tog.on{background:var(--primary)}
+.tog.on::after{left:18px;background:var(--primary-foreground)}
+.focusgrid{display:flex;flex-wrap:wrap;gap:20px;align-items:center;padding:18px;background:var(--background);border:1px solid var(--border);border-radius:var(--radius-lg)}
+.ring{outline:2px solid var(--ring)!important;outline-offset:2px}
+.tile{width:150px;border-radius:var(--radius-md);padding:6px;border:1px solid transparent;cursor:pointer}
+.tile.on{background:var(--selection);border-color:var(--selection)}
+.thumb{aspect-ratio:16/10;border-radius:calc(var(--radius-md) - 6px);background:var(--preview);border:1px solid var(--preview-border);position:relative;overflow:hidden}
+.thumb::before{content:"";position:absolute;left:10%;top:14%;width:56%;height:56%;background:var(--preview-2);border-radius:3px}
+.thumb::after{content:"";position:absolute;left:48%;top:36%;width:42%;height:48%;background:var(--preview-3);border-radius:3px}
+.tile .nm{font-size:12px;margin-top:6px;font-weight:500}
+.tile .mt{font-size:11px;color:var(--muted-foreground)}
+.elev{display:flex;gap:0;padding:20px;border-radius:var(--radius-lg);background:var(--page);border:1px solid var(--border)}
+.elev .l0{background:var(--background);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;flex:1;position:relative;min-height:230px}
+.elev .l1{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;width:62%}
+.elev .l2{position:absolute;right:16px;top:70px;width:46%;background:var(--popover);border:1px solid var(--border-strong);border-radius:var(--radius-lg);padding:4px}
+.elev .l2 div{height:var(--row);display:flex;align-items:center;padding:0 10px;border-radius:calc(var(--radius-lg) - 4px);font-size:var(--text-small)}
+.elev .l2 div.h{background:var(--accent)}
+.elev small{display:block;font-size:11px;color:var(--muted-foreground);margin-bottom:6px}
+.klein-ok,.klein-no{display:grid;grid-template-columns:28px 1fr;gap:4px 10px;align-items:start;margin:0;padding:0;list-style:none}
+.klein-ok li,.klein-no li{display:contents}
+.klein-ok i,.klein-no i{font-style:normal;font-weight:700;font-size:12px;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;margin-top:1px}
+.klein-ok i{background:var(--primary);color:var(--primary-foreground)}
+.klein-no i{background:var(--secondary);color:var(--muted-foreground);border:1px solid var(--border)}
+.klein-ok div,.klein-no div{padding:2px 0 10px}
+.klein-ok b,.klein-no b{display:block;font-weight:500}
+.klein-ok span,.klein-no span{font-size:var(--text-small);color:var(--muted-foreground)}
+.mock{background:var(--background);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;position:relative}
+.mock .cap{height:34px;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted-foreground);gap:8px}
+.mock .body{display:flex;min-height:300px}
+.mock .side{width:150px;border-right:1px solid var(--border);padding:8px;display:flex;flex-direction:column;gap:2px;background:var(--sidebar)}
+.mock .nav{height:30px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:calc(var(--radius-md) - 2px);font-size:12px;color:var(--muted-foreground)}
+.mock .nav.on{background:var(--selection);color:var(--selection-foreground)}
+.mock .main{flex:1;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.mock .chips{display:flex;gap:6px}
+.mock .chip{height:24px;padding:0 10px;border-radius:999px;border:1px solid var(--border);font-size:11px;display:inline-flex;align-items:center;color:var(--muted-foreground)}
+.mock .chip.on{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground)}
+.mock .tiles{display:flex;gap:6px}
+.mock .tiles .tile{width:auto;flex:1}
+.mock .prog{height:4px;border-radius:2px;background:var(--slider-bar);position:relative}
+.mock .prog i{position:absolute;left:0;top:0;bottom:0;width:38%;background:var(--progress-bar);border-radius:2px}
+.mock .done{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius-md);background:var(--primary);color:var(--primary-foreground);font-size:12px}
+.mock .acts{display:flex;gap:6px;align-items:center;font-size:12px}
+.mock .acts a{color:var(--link);text-decoration:underline;text-underline-offset:2px}
+.pin{position:absolute;width:18px;height:18px;border-radius:50%;background:var(--foreground);color:var(--background);font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;pointer-events:none;border:2px solid var(--background)}
+.curves{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media (max-width:980px){.curves{grid-template-columns:1fr}}
+.track{position:relative;height:40px;border-radius:var(--radius-md);background:var(--secondary);border:1px solid var(--border);margin:6px 0 12px;overflow:hidden}
+.track .puck{position:absolute;left:4px;top:4px;width:56px;height:30px;border-radius:calc(var(--radius-md) - 4px);background:var(--primary)}
+.track.go .puck{left:calc(100% - 60px)}
+.fadebox{height:40px;border-radius:var(--radius-md);background:var(--popover);border:1px solid var(--border-strong);display:flex;align-items:center;padding:0 12px;font-size:12px;margin:6px 0 12px}
+.fadebox.out{opacity:0}
+.colbox{height:40px;border-radius:var(--radius-md);background:var(--secondary);border:1px solid var(--border);display:flex;align-items:center;padding:0 12px;font-size:12px;margin:6px 0 12px}
+.colbox.on{background:var(--secondary-hover)}
+.never{columns:2;column-gap:24px;margin:0;padding-left:18px;color:var(--muted-foreground)}
+.never li{margin-bottom:6px;break-inside:avoid}
+.never b{color:var(--foreground);font-weight:500}
+@media (max-width:980px){.never{columns:1}}
+.note{font-size:var(--text-small);color:var(--muted-foreground);margin-top:10px}
+.q{border:1px solid var(--border-strong);border-radius:var(--radius-lg);padding:14px 16px;background:var(--card)}
+.q ol{margin:6px 0 0;padding-left:20px}
+.q li{margin:6px 0}
+</style>
+</head>
+<body>
+<div class="top">
+	<h1>Klein Field · 设计 token</h1>
+	<div class="seg" id="themes"></div>
+	<div class="seg" id="densities"></div>
+	<span class="proto">PROTOTYPE · #48 · D 切换深浅色</span>
+	<span class="fontwarn" id="fontwarn">HarmonyOS Sans 未加载，中文显示的是系统字体。在仓库根目录运行 npx --yes http-server apps/desktop-gpui -p 8123 -c-1，再打开 http://localhost:8123/prototype/design-tokens.prototype.html</span>
+</div>
+<nav class="toc" id="toc"></nav>
+<main>
+
+<section id="layers">
+	<h2>三层 token</h2>
+	<p class="lead">每个值都是 OKLCH，按三层流动：品牌层只放色阶，语义层只引用色阶，组件层只引用语义层。深色是基准，浅色单独生成色阶（Radix 的做法），不是把深色反过来。整页都用这些 token 画出来，切换深浅色和密度会实时生效。</p>
+	<div class="layers">
+		<div class="layer"><div class="n">1 · Brand</div><b>品牌层</b><span>Klein 和中性灰的 12 阶色阶（色相 266.4），以及红、琥珀、绿三个状态色。只出现在 <code>theme.rs</code> 常量里，界面代码不直接用。</span></div>
+		<div class="layer"><div class="n">2 · Semantic</div><b>语义层</b><span>shadcn/ui 的名字，和 GPUI Kit 的 <code>ThemeColor</code> 一致：background、foreground、primary、muted、accent、border、input、ring、selection、danger…… 加几个 FrameEver 自己的：link、recording、preview。</span></div>
+		<div class="layer"><div class="n">3 · Component</div><b>组件层</b><span>GPUI Kit 的组件字段（button_primary、switch、slider_bar、list_active、title_bar……）和 FrameEver 的 <code>EditorTokens</code>（时间轴、片段、播放头、波形、画布）。每个字段只取一个语义 token。</span></div>
+	</div>
+</section>
+
+<section id="ramps">
+	<h2>品牌层 · 12 阶色阶</h2>
+	<p class="lead">按 Radix 的角色划分：1–2 背景，3–5 组件底色（常态、悬停、按下），6–8 边框，9–10 实色（9 就是品牌色本身），11–12 文字。浅色高亮度端的蓝色受 sRGB 色域限制，色度被压到色域内（标着“已压”）。两套色阶同时显示，不随顶部的深浅色切换。</p>
+	<div class="grid2" id="rampgrid"></div>
+</section>
+
+<section id="semantic">
+	<h2>语义层</h2>
+	<p class="lead">左边是 shadcn/ui 名字（GPUI Kit 用下划线写法，例如 <code>muted_foreground</code>），右边是它在深色和浅色里取的色阶。注意 shadcn 的 <code>accent</code> 是悬停底色，不是品牌色；品牌色叫 <code>primary</code>，蓝色文字叫 <code>link</code>。</p>
+	<div class="card scroll"><table id="semtable"></table></div>
+</section>
+
+<section id="component">
+	<h2>组件层</h2>
+	<p class="lead">GPUI Kit 自带的组件字段加上编辑器专用的字段。具体字段名在实现时以 GPUI Kit 的 <code>theme_color.rs</code> 为准，这里定的是“取哪个语义 token”。</p>
+	<div class="card scroll"><table id="comptable"></table></div>
+</section>
+
+<section id="contrast">
+	<h2>对比度（WCAG 2）</h2>
+	<p class="lead">每一对文字和底色都在这里，深浅色各算一次。文字要 ≥ 4.5:1（AA）；控件边界、焦点环、开关轨道这些非文字元素要 ≥ 3:1（1.4.11）；区域之间的分隔线是装饰，不要求对比度，单独标出。数值由 OKLCH 换算到 sRGB 后按 WCAG 公式计算。</p>
+	<div class="card scroll"><table id="ctable"></table></div>
+</section>
+
+<section id="type">
+	<h2>字体与字号</h2>
+	<p class="lead">英文和数字用 Inter，中文用 HarmonyOS Sans SC，同一行里按字形自动回退。正文 13.5 px。时间码、计时、文件大小一律用等宽数字（<code>tnum</code>）。只用 400、500、600 三个字重。</p>
+	<div class="card" id="typescale"></div>
+</section>
+
+<section id="space">
+	<h2>间距、圆角、密度</h2>
+	<p class="lead">间距以 2 px 为最小单位、4 px 为主网格。圆角是同心的：里层圆角 = 外层圆角 − 内边距，最小 4 px，这样嵌套的形状弧线平行。</p>
+	<div class="grid3">
+		<div class="card"><h3>间距</h3><div id="spacing"></div></div>
+		<div class="card"><h3>圆角</h3><div class="radii" id="radii"></div><p class="note">窗口外框的 8 px 由 Windows 11 自己画（DWM 圆角），我们不改。</p></div>
+		<div class="card"><h3>同心圆角</h3>
+			<div class="conc" id="conc"><div class="in" id="concin"></div></div>
+			<div style="display:flex;flex-direction:column;gap:6px;margin-top:12px;font-size:12px">
+				<label>外层圆角 <input type="range" min="8" max="24" step="1" id="co"> <span id="cov"></span></label>
+				<label>内边距 <input type="range" min="2" max="16" step="1" id="ci"> <span id="civ"></span></label>
+			</div>
+		</div>
+	</div>
+	<div class="grid2" style="margin-top:16px">
+		<div class="card"><h3>密度</h3><div class="scroll"><table id="denstable"></table></div><p class="note">默认就是 #28 定下的 34 px 行高。紧凑和宽松只是候选：是否在设置里开放密度，见页底的问题。</p></div>
+		<div><div class="lab">当前密度的样例</div><div class="dens" id="denssample"></div></div>
+	</div>
+</section>
+
+<section id="elevation">
+	<h2>边框与层级</h2>
+	<p class="lead">没有阴影，没有毛玻璃，没有模糊（GPUI Kit 里 <code>Theme.shadow = false</code>）。层级只靠两样东西：越高的层越亮（深色）或越白（浅色），以及边框。遮罩是不透明度 60% 的纯色，不模糊背后的内容。</p>
+	<div class="grid2">
+		<div class="elev">
+			<div class="l0"><small>0 · background · 窗口</small>
+				<div class="l1"><small>1 · card · 分组、面板</small><div style="height:60px"></div></div>
+				<div class="l2"><small style="padding:6px 10px 2px">2 · popover · 菜单、下拉、提示</small><div>在编辑器中打开</div><div class="h">导出…</div><div>在文件夹中显示</div></div>
+			</div>
+		</div>
+		<div class="card"><h3>边框三档</h3><div class="scroll"><table id="bordertable"></table></div>
+			<p class="note">线宽一律 1 px，焦点环 2 px。选中的图块用 selection 底色加同色边，不额外加蓝框。</p></div>
+	</div>
+</section>
+
+<section id="focus">
+	<h2>焦点环</h2>
+	<p class="lead">参照 Fluent 2：只在键盘聚焦（<code>focus-visible</code>）时出现，2 px 实线，和控件之间留 2 px 背景色的缝，所以蓝色按钮上的焦点环也看得清。焦点环的圆角 = 控件圆角 + 2 px（同心）。按 Tab 在下面这些控件之间移动试试；第一行常亮显示。</p>
+	<div class="focusgrid" id="focusdemo"></div>
+	<div class="scroll" style="margin-top:12px"><table id="focustable" class="card"></table></div>
+</section>
+
+<section id="klein">
+	<h2>Klein 蓝只能出现在这些地方</h2>
+	<p class="lead">蓝色越少越贵。下面是完整的白名单，没列出的地方一律用中性灰。右边的样例窗口里，编号对应左边的条目。</p>
+	<div class="grid2">
+		<div class="card">
+			<div class="lab">允许</div>
+			<ol class="klein-ok" id="kleinok"></ol>
+			<div class="lab" style="margin-top:8px">不允许</div>
+			<ul class="klein-no" id="kleinno"></ul>
+		</div>
+		<div>
+			<div class="mock" id="mock">
+				<div class="cap"><span style="flex:1">FrameEver</span><i data-lucide="minus"></i><i data-lucide="x"></i></div>
+				<div class="body">
+					<div class="side">
+						<div class="nav on"><i data-lucide="layout-grid"></i>全部</div>
+						<div class="nav"><i data-lucide="clapperboard"></i>Studio</div>
+						<div class="nav"><i data-lucide="zap"></i>Instant</div>
+						<div class="nav"><i data-lucide="image"></i>截图</div>
+					</div>
+					<div class="main">
+						<div class="chips"><span class="chip on">全部 6</span><span class="chip">已导出 4</span><span class="chip">未导出 2</span></div>
+						<div class="tiles">
+							<div class="tile on"><div class="thumb"></div><div class="nm">Product demo</div><div class="mt">Studio · 今天</div></div>
+							<div class="tile"><div class="thumb"></div><div class="nm">Bug repro</div><div class="mt">Instant · 今天</div></div>
+							<div class="tile"><div class="thumb"></div><div class="nm">Settings</div><div class="mt">截图 · 昨天</div></div>
+						</div>
+						<div class="prog"><i></i></div>
+						<div class="acts"><button class="btn primary ring" tabindex="-1">在编辑器中打开</button><button class="btn" tabindex="-1">导出…</button><span style="flex:1"></span><a>了解 Studio 录制</a><button class="tog on" tabindex="-1"></button></div>
+						<div class="done"><i data-lucide="circle-check"></i><span style="flex:1">导出完成 · Product demo.mp4</span></div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</section>
+
+<section id="motion">
+	<h2>动效</h2>
+	<p class="lead">只在 GPUI 能做的范围内：透明度、颜色、位置、尺寸（缩放和旋转只给 SVG 图标）。每个动效都是“固定时长内时间的函数”，没有真正的弹簧物理，弹簧感用闭式曲线模拟。颜色和透明度从不回弹。减少动态效果打开时，所有动效直接到终点。</p>
+	<div class="card scroll"><table id="motiontable"></table></div>
+	<div class="curves" style="margin-top:16px">
+		<div class="card">
+			<h3>移动曲线</h3>
+			<div class="seg" id="movevar" style="margin-bottom:10px"></div>
+			<svg id="curve" viewBox="0 0 320 180" style="width:100%;max-width:420px;display:block"></svg>
+			<p class="note" id="movenote"></p>
+		</div>
+		<div class="card">
+			<h3>试一下</h3>
+			<button class="btn primary" id="play"><i data-lucide="play"></i>播放</button>
+			<div class="lab" style="margin-top:12px">移动 · 380 ms · move</div>
+			<div class="track" id="trk"><div class="puck"></div></div>
+			<div class="lab">淡入淡出 · 180 ms · effects</div>
+			<div class="fadebox" id="fade">录制已保存</div>
+			<div class="lab">颜色 · 120 ms · effects</div>
+			<div class="colbox" id="col">悬停底色</div>
+			<div style="display:flex;align-items:center;gap:10px;font-size:12px"><button class="tog" id="tg"></button>开关：底色 120 ms，圆点 380 ms</div>
+		</div>
+	</div>
+	<div class="card" style="margin-top:16px">
+		<h3>从不做动画的东西</h3>
+		<ul class="never" id="never"></ul>
+	</div>
+</section>
+
+<section id="questions">
+	<h2>请你决定</h2>
+	<div class="q"><ol id="qs"></ol></div>
+</section>
+</main>
+
+<script>
+const KLEIN = [0.463, 0.233, 266.4];
+const H = 266;
+const RAMPS = {
+	dark: {
+		neutral: [[0.145, 0.018, H], [0.175, 0.022, H], [0.21, 0.028, H], [0.25, 0.034, H], [0.275, 0.036, H], [0.29, 0.036, H], [0.36, 0.045, H], [0.52, 0.05, H], [0.58, 0.045, H], [0.64, 0.042, H], [0.76, 0.04, H], [0.955, 0.012, H]],
+		klein: [[0.18, 0.03, 266.4], [0.205, 0.05, 266.4], [0.25, 0.08, 266.4], [0.3, 0.11, 266.4], [0.32, 0.13, 266.4], [0.34, 0.15, 266.4], [0.38, 0.18, 266.4], [0.42, 0.2, 266.4], KLEIN, [0.53, 0.215, 266.4], [0.76, 0.12, 266.4], [0.93, 0.032, 266.4]],
+		red: { tint: [0.27, 0.07, 25], solid: [0.56, 0.21, 25], hover: [0.52, 0.2, 25], text: [0.74, 0.16, 25] },
+		amber: { tint: [0.28, 0.06, 75], solid: [0.8, 0.15, 75], hover: [0.84, 0.14, 75], text: [0.82, 0.14, 80] },
+		green: { tint: [0.27, 0.06, 155], solid: [0.7, 0.15, 155], hover: [0.75, 0.14, 155], text: [0.78, 0.14, 155] },
+	},
+	light: {
+		neutral: [[0.993, 0.003, H], [0.975, 0.01, H], [0.95, 0.016, H], [0.925, 0.02, H], [0.9, 0.022, H], [0.88, 0.028, H], [0.83, 0.035, H], [0.62, 0.045, H], [0.56, 0.045, H], [0.52, 0.045, H], [0.48, 0.04, H], [0.22, 0.04, H]],
+		klein: [[0.99, 0.006, 266.4], [0.975, 0.015, 266.4], [0.955, 0.028, 266.4], [0.92, 0.038, 266.4], [0.89, 0.055, 266.4], [0.85, 0.075, 266.4], [0.78, 0.105, 266.4], [0.7, 0.14, 266.4], KLEIN, [0.42, 0.215, 266.4], [0.4, 0.19, 266.4], [0.27, 0.11, 266.4]],
+		red: { tint: [0.955, 0.025, 25], solid: [0.56, 0.21, 25], hover: [0.5, 0.2, 25], text: [0.5, 0.2, 25] },
+		amber: { tint: [0.96, 0.04, 85], solid: [0.78, 0.15, 75], hover: [0.74, 0.15, 75], text: [0.5, 0.11, 65] },
+		green: { tint: [0.955, 0.03, 155], solid: [0.52, 0.14, 155], hover: [0.47, 0.13, 155], text: [0.47, 0.12, 155] },
+	},
+};
+const ROLES = ["应用底", "背景", "组件", "悬停", "按下", "细边", "边框", "强边", "实色", "实色悬停", "次要文字", "文字"];
+const WHITE = [0.99, 0, 0];
+const SEM = [
+	["background", "n2", "n2", "窗口底色"],
+	["foreground", "n12", "n12", "正文、标题"],
+	["page", "n1", "n3", "窗口外的底（本页、桌面样例）· FrameEver"],
+	["card", "n3", "n3", "分组、设置组、面板"],
+	["card_foreground", "n12", "n12", ""],
+	["popover", "n4", "n1", "菜单、下拉、提示、对话框"],
+	["popover_foreground", "n12", "n12", ""],
+	["muted", "n3", "n3", "安静的底（占位、禁用）"],
+	["muted_foreground", "n11", "n11", "次要文字、说明、元信息"],
+	["secondary", "n4", "n4", "普通按钮"],
+	["secondary_hover", "n5", "n5", ""],
+	["secondary_active", "n6", "n6", ""],
+	["secondary_foreground", "n12", "n12", ""],
+	["accent", "n4", "n4", "悬停底色（列表行、菜单项、幽灵按钮）。不是品牌色"],
+	["accent_foreground", "n12", "n12", ""],
+	["primary", "k9", "k9", "主按钮、开、选中的分段 = Klein #1F3FD8"],
+	["primary_hover", "k10", "k10", ""],
+	["primary_active", "k8", "k11", ""],
+	["primary_foreground", "white", "white", "主色上的文字和图标"],
+	["link", "k11", "k9", "蓝色文字、链接、info · FrameEver（#28 的 accent-text）"],
+	["ring", "k11", "k9", "焦点环"],
+	["selection", "k4", "k4", "选中的列表行、图块、导航项；文字选区"],
+	["selection_foreground", "n12", "k9", "选中项上的文字 · FrameEver"],
+	["border", "n7", "n7", "区域分隔、卡片外框（装饰）"],
+	["border_strong", "n8", "n8", "弹出层外框、需要被看见的控件边界 · FrameEver"],
+	["input", "n8", "n8", "输入框、下拉框边框（≥ 3:1）"],
+	["sidebar", "n2", "n2", "主窗口录制栏、设置导航"],
+	["danger", "red.solid", "red.solid", "删除、停止"],
+	["danger_hover", "red.hover", "red.hover", ""],
+	["danger_foreground", "white", "white", ""],
+	["danger_text", "red.text", "red.text", "错误文字 · FrameEver"],
+	["danger_tint", "red.tint", "red.tint", "错误提示底 · FrameEver"],
+	["warning", "amber.solid", "amber.solid", ""],
+	["warning_foreground", "n1dark", "n12", "琥珀色上用深色字"],
+	["warning_text", "amber.text", "amber.text", ""],
+	["success", "green.solid", "green.solid", ""],
+	["success_text", "green.text", "green.text", ""],
+	["success_tint", "green.tint", "green.tint", ""],
+	["info", "k11", "k9", "等于 link"],
+	["recording", "rec", "rec", "录制中的红点 ≈ 图标里的 #FF3B30 · FrameEver"],
+	["preview", "p.bg", "p.bg", "预览、画布、缩略图底：纯中性 C = 0 · FrameEver"],
+	["preview_border", "p.bd", "p.bd", ""],
+	["overlay", "scrim", "scrim", "对话框遮罩：纯色 60%，不模糊"],
+];
+const COMP = [
+	["按钮", "button_primary / _hover / _active / _foreground", "primary / primary_hover / primary_active / primary_foreground"],
+	["按钮", "button (secondary) / _hover / _active", "secondary / secondary_hover / secondary_active"],
+	["按钮", "button_ghost_hover", "accent"],
+	["按钮", "button_danger", "danger"],
+	["开关", "switch (关)", "border_strong"],
+	["开关", "switch (开)", "primary"],
+	["开关", "switch_thumb", "foreground（深） / white（浅）；开时 primary_foreground"],
+	["滑块", "slider_bar", "border"],
+	["滑块", "slider_fill / slider_thumb", "primary / foreground"],
+	["进度", "progress_bar", "primary"],
+	["分段", "tab_bar_segmented", "card"],
+	["分段", "tab_active (分段选中)", "primary + primary_foreground"],
+	["列表", "list_hover", "accent"],
+	["列表", "list_active / list_active_border", "selection / selection"],
+	["列表", "list_even", "background（不做斑马纹）"],
+	["侧栏", "sidebar / sidebar_border", "sidebar / border"],
+	["侧栏", "sidebar_accent / sidebar_accent_foreground", "selection / selection_foreground"],
+	["标题栏", "title_bar / title_bar_border", "background / border"],
+	["标题栏", "关闭按钮悬停", "danger + danger_foreground（Windows 习惯）"],
+	["窗口", "window_border", "border"],
+	["输入", "input 边框 / caret", "input / foreground"],
+	["输入", "selection（文字选区）", "selection"],
+	["滚动条", "scrollbar_thumb / _hover", "n9 / n10（中性实色）"],
+	["表格", "table_head / table_row_border", "card / border"],
+	["遮罩", "overlay", "overlay"],
+	["编辑器", "stage（画布）", "preview"],
+	["编辑器", "timeline_track", "card"],
+	["编辑器", "timeline_clip / _selected", "secondary_active / selection + ring 边"],
+	["编辑器", "playhead", "link"],
+	["编辑器", "waveform", "muted_foreground"],
+	["编辑器", "crop_handle", "foreground，2 px border_strong 描边"],
+	["录制", "record_dot / countdown", "recording / foreground"],
+];
+const PAIRS = [
+	["foreground", "background", "text", "正文"],
+	["foreground", "card", "text", "分组里的文字"],
+	["foreground", "popover", "text", "菜单文字"],
+	["foreground", "secondary", "text", "普通按钮"],
+	["foreground", "accent", "text", "悬停行上的文字"],
+	["selection_foreground", "selection", "text", "选中行、选中导航"],
+	["muted_foreground", "background", "text", "次要文字"],
+	["muted_foreground", "card", "text", "分组里的说明"],
+	["muted_foreground", "popover", "text", "菜单里的快捷键"],
+	["muted_foreground", "accent", "text", "悬停行上的元信息"],
+	["muted_foreground", "selection", "text", "选中图块的元信息"],
+	["primary_foreground", "primary", "text", "主按钮"],
+	["primary_foreground", "primary_hover", "text", "主按钮悬停"],
+	["primary_foreground", "primary_active", "text", "主按钮按下"],
+	["link", "background", "text", "链接"],
+	["link", "card", "text", "分组里的链接"],
+	["link", "selection", "text", "选中项里的蓝字"],
+	["danger_text", "background", "text", "错误文字"],
+	["danger_text", "danger_tint", "text", "错误提示条"],
+	["danger_foreground", "danger", "text", "删除、停止按钮"],
+	["warning_text", "background", "text", "警告文字"],
+	["warning_foreground", "warning", "text", "琥珀色徽标"],
+	["success_text", "background", "text", "成功文字"],
+	["success_text", "success_tint", "text", "成功提示条"],
+	["white", "badge", "text", "缩略图上的时长徽标"],
+	["ring", "background", "ui", "焦点环"],
+	["ring", "card", "ui", "分组里的焦点环"],
+	["primary", "background", "deco", "主按钮和开关开的外形：靠白字和白色圆点识别（7.41:1），1.4.11 不要求外形本身"],
+	["input", "background", "ui", "输入框边框"],
+	["input", "card", "ui", "分组里的输入框"],
+	["border_strong", "background", "ui", "开关关时的轨道"],
+	["recording", "background", "ui", "录制红点"],
+	["border", "background", "deco", "区域分隔线"],
+	["border", "card", "deco", "卡片外框"],
+	["selection", "background", "deco", "选中底色（靠文字和形状识别）"],
+];
+const TYPE = [
+	["display", 28, 34, 600, "-0.02em", "FrameEver 帧刻", "欢迎页、计时大字"],
+	["heading", 20, 26, 600, "-0.015em", "Library 图库", "窗口内的大标题"],
+	["title", 16, 22, 600, "-0.01em", "Recording 录制设置", "面板标题、对话框标题"],
+	["body-strong", 13.5, 20, 500, "0", "Product demo.mp4 已导出", "列表项名称、按钮"],
+	["body", 13.5, 20, 400, "0", "录制会保存在存储文件夹里，导出后可以在图库中找到。", "正文"],
+	["small", 12, 16, 400, "0", "Studio · 今天 · 182 MB · 3:42", "元信息、说明、标签"],
+	["caption", 11, 14, 500, "0.01em", "NEW · 00:03:42 · Ctrl Shift 2", "徽标、快捷键、时间码"],
+];
+const SPACE = [2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48];
+const RADII = [["xs", 4, "kbd、徽标、缩略图上的标签"], ["sm", 8, "分段里的按钮、小控件"], ["md", 12, "按钮、输入框、列表行、图块（基准）"], ["lg", 16, "卡片、面板、弹出层"], ["xl", 20, "录制控制条"], ["full", 999, "筛选标签、开关、圆点"]];
+const DENSITY = {
+	compact: { label: "紧凑", row: 30, control: 28, body: 13, small: 11.5, pad: 12, gap: 8, icon: 15 },
+	default: { label: "默认", row: 34, control: 32, body: 13.5, small: 12, pad: 16, gap: 10, icon: 16 },
+	comfortable: { label: "宽松", row: 40, control: 36, body: 14, small: 12.5, pad: 20, gap: 12, icon: 16 },
+};
+const MOVE = {
+	spring: { label: "弹簧 · 轻微回弹 2.8%", zeta: 0.75, omega: 10, note: "欠阻尼弹簧的闭式解（ζ = 0.75，ω = 10），在 380 ms 内走完，最多冲过终点 2.8%。GPUI 的 with_easing 只接受 0–1，所以回弹要在动画闭包里算（和现在的 ease_out_back 一样）。只用于位置和尺寸：分段指示块、开关圆点、主窗口展开、提示条滑入。" },
+	critical: { label: "弹簧 · 不回弹", zeta: 1, omega: 9, note: "临界阻尼弹簧（ζ = 1，ω = 9），380 ms 内到达终点，不越过。值始终在 0–1 之间，可以直接交给 GPUI 的 with_easing。比左边那条更安静。" },
+};
+const MOTION = [
+	["duration-fast", "120 ms", "ease-effects", "颜色：悬停、按下、选中底色、开关底色"],
+	["duration-mid", "180 ms", "ease-effects", "透明度：淡入、交叉淡化详情面板、提示条出现"],
+	["duration-exit", "120 ms", "ease-exit", "离开的东西比进来的快：淡出、提示条消失"],
+	["duration-move", "380 ms", "ease-move", "位置和尺寸：分段指示块、开关圆点、主窗口展开、列表新行"],
+	["duration-loop", "1200 ms", "ease-in-out", "录制红点的呼吸（只改透明度，放在单独缓存的小视图里）"],
+	["ease-effects", "cubic-bezier(0.2, 0, 0, 1)", "", "减速进入，不回弹。颜色和透明度都用它"],
+	["ease-exit", "cubic-bezier(0.4, 0, 1, 1)", "", "加速离开（Fluent 2 的 exit）"],
+	["ease-move", "见右下的曲线", "", "弹簧感的闭式曲线，见下方选择"],
+	["列表新行", "180 ms 淡入 + 4 px 下移", "", "只做进入。删除、重排没有过渡"],
+	["减少动态效果", "0 ms", "", "全部跳到终点；Windows 目前读不到系统设置，需要单独补（#25）"],
+];
+const NEVER = [
+	["窗口", "打开、关闭、隐藏、缩放、移动都是瞬间完成；主窗口展开时先把窗口放到最终尺寸，再在窗口里动内容"],
+	["模糊", "没有背景模糊、毛玻璃、Mica、Acrylic（Windows 上 GPUI 也画不出来）"],
+	["缩放和旋转", "卡片、文字、图片、缩略图不缩放不旋转；只有 SVG 图标可以（加载转圈）"],
+	["字号", "不动画字号，也不动画会换行文字的宽度（每帧都要重新排版）"],
+	["SVG 尺寸", "不改图标尺寸做动画，每个尺寸都会重新光栅化"],
+	["列表", "删除和重排没有过渡，只有新行淡入"],
+	["回弹", "颜色和透明度从不回弹；回弹只允许出现在位置和尺寸上"],
+	["预览", "录制预览、编辑器画布周围不做任何持续动画"],
+	["阴影", "不出现也不动画阴影（没有阴影）"],
+];
+const KLEIN_OK = [
+	["主操作", "每个区域最多一个实色蓝按钮：开始录制、在编辑器中打开、导出"],
+	["开 / 选中的控件", "开关开、选中的分段、选中的筛选标签：实色 Klein"],
+	["选中的项", "列表行、图块、导航项用 selection 蓝调底色（k4），不是实色"],
+	["焦点环", "ring：深色 k11，浅色 k9"],
+	["链接和蓝字", "link / info；深色用浅一档的 k11，因为 #1F3FD8 在深色背景上只有约 2.4:1"],
+	["进度和播放位置", "进度条、滑块已填充部分、播放头、时间轴当前位置"],
+	["完成时刻", "导出完成的整条蓝色横条、欢迎页的大色块"],
+	["品牌", "应用图标、字标、关于页"],
+];
+const KLEIN_NO = [
+	["预览和缩略图", "画面本身、它的底和边框都是纯中性灰，避免影响对录制颜色的判断"],
+	["大面积底色", "窗口、标题栏、侧栏、卡片只用带 266 色相的中性灰（色度 ≤ 0.05）"],
+	["正文和标题", "文字是 foreground / muted_foreground，不是蓝"],
+	["闲置的图标", "图标跟文字同色，只在选中项里才变色"],
+	["边框", "除了焦点环和选中项，边框不用蓝"],
+	["状态", "录制、删除、错误用红，警告用琥珀，成功用绿，不借用蓝"],
+	["悬停", "非主按钮的悬停用中性的 accent，不发蓝"],
+	["波形和图表", "用中性色"],
+];
+const QS = [
+	"移动曲线：#28 定的是“弹簧感、颜色和透明度不回弹”。位置和尺寸要轻微回弹（2.8%），还是完全不回弹？在“动效”里切换对比。",
+	"密度：只做默认（34 px），还是在设置里提供紧凑 / 默认 / 宽松？",
+	"输入框和开关关的边框按 WCAG 1.4.11 提到了 ≥ 3:1（n8），比 #28 原型里的边框更显眼。接受，还是只保留装饰性的细边框？",
+	"白名单里有没有该加或该删的地方？比如播放头用蓝还是用白。",
+	"窗口圆角交给 Windows 11（8 px）而不是 #28 原型里的 14 px，同意吗？",
+];
+
+const lin = ([L, C, h]) => {
+	const r = (h * Math.PI) / 180;
+	const a = C * Math.cos(r);
+	const b = C * Math.sin(r);
+	const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+	const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+	const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+	return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+};
+const inGamut = (v) => lin(v).every((x) => x > -0.0005 && x < 1.0005);
+const fit = (v) => {
+	if (inGamut(v)) return { v, fitted: false };
+	let c = v[1];
+	while (c > 0 && !inGamut([v[0], c, v[2]])) c -= 0.001;
+	return { v: [v[0], Math.max(0, +c.toFixed(3)), v[2]], fitted: true };
+};
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const lum = (v) => {
+	const [r, g, b] = lin(v).map(clamp01);
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const mixLum = (fg, bg, alpha) => {
+	const f = lin(fg).map(clamp01);
+	const b = lin(bg).map(clamp01);
+	const c = f.map((x, i) => x * alpha + b[i] * (1 - alpha));
+	return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+const ratio = (la, lb) => (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+const hex = (v) => {
+	const g = (x) => {
+		const y = clamp01(x);
+		return Math.round((y <= 0.0031308 ? 12.92 * y : 1.055 * y ** (1 / 2.4) - 0.055) * 255);
+	};
+	return `#${lin(v).map(g).map((n) => n.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+};
+const css = (v) => `oklch(${+v[0].toFixed(3)} ${+v[1].toFixed(3)} ${+v[2].toFixed(1)})`;
+const fmt = (v) => `${+v[0].toFixed(3)} ${+v[1].toFixed(3)} ${+v[2].toFixed(1)}`;
+
+for (const th of ["dark", "light"]) for (const k of ["neutral", "klein"]) RAMPS[th][k] = RAMPS[th][k].map((v) => fit(v));
+for (const th of ["dark", "light"]) for (const f of ["red", "amber", "green"]) for (const k of Object.keys(RAMPS[th][f])) RAMPS[th][f][k] = fit(RAMPS[th][f][k]).v;
+
+function resolve(theme, ref) {
+	const R = RAMPS[theme];
+	if (ref === "white") return { v: WHITE };
+	if (ref === "rec") return { v: [0.65, 0.22, 29.5] };
+	if (ref === "n1dark") return { v: RAMPS.dark.neutral[0].v };
+	if (ref === "p.bg") return { v: theme === "dark" ? [0.26, 0, 0] : [0.9, 0, 0] };
+	if (ref === "p.bd") return { v: theme === "dark" ? [0.3, 0, 0] : [0.86, 0, 0] };
+	if (ref === "scrim") return { v: theme === "dark" ? R.neutral[0].v : [0.22, 0.04, H], alpha: 0.6 };
+	if (ref === "badge") return { v: [0.15, 0, 0], alpha: 0.82, over: "p.bg" };
+	if (/^[nk]\d+$/.test(ref)) return { v: R[ref[0] === "n" ? "neutral" : "klein"][Number(ref.slice(1)) - 1].v };
+	const [fam, step] = ref.split(".");
+	return { v: R[fam][step] };
+}
+const SEMI = Object.fromEntries(SEM.map((s) => [s[0], s]));
+function semVal(theme, name) {
+	if (name === "white") return { v: WHITE };
+	if (name === "badge") return resolve(theme, "badge");
+	const s = SEMI[name];
+	return resolve(theme, theme === "dark" ? s[1] : s[2]);
+}
+function surfaceLum(theme, name) {
+	const x = semVal(theme, name);
+	if (x.alpha == null) return lum(x.v);
+	const under = x.over ? resolve(theme, x.over).v : semVal(theme, "background").v;
+	return mixLum(x.v, under, x.alpha);
+}
+function pairRatio(theme, fg, bg) {
+	return ratio(lum(semVal(theme, fg).v), surfaceLum(theme, bg));
+}
+function verdict(r, kind) {
+	if (kind === "deco") return `<span class="deco">装饰 · 不要求</span>`;
+	const need = kind === "text" ? 4.5 : 3;
+	const tag = kind === "text" ? (r >= 7 ? "AAA" : "AA") : "≥ 3:1";
+	return r >= need ? `<span class="pass">${tag}</span>` : `<span class="fail">不达标</span>`;
+}
+
+let S = { theme: "dark", density: "default", move: "spring" };
+const cssColor = (x) => (x.alpha == null ? css(x.v) : `oklch(${+x.v[0].toFixed(3)} ${+x.v[1].toFixed(3)} ${+x.v[2].toFixed(1)} / ${x.alpha})`);
+
+function springAt(t, zeta, omega) {
+	if (zeta >= 1) return 1 - Math.exp(-omega * t) * (1 + omega * t);
+	const wd = omega * Math.sqrt(1 - zeta * zeta);
+	return 1 - Math.exp(-zeta * omega * t) * (Math.cos(wd * t) + ((zeta * omega) / wd) * Math.sin(wd * t));
+}
+function springLinear(m) {
+	const pts = [];
+	for (let i = 0; i <= 40; i++) {
+		const t = i / 40;
+		pts.push(i === 40 ? 1 : +springAt(t, m.zeta, m.omega).toFixed(4));
+	}
+	return `linear(${pts.join(", ")})`;
+}
+
+function applyTokens() {
+	const th = S.theme;
+	const root = document.documentElement.style;
+	for (const [name] of SEM) root.setProperty(`--${name.replaceAll("_", "-")}`, cssColor(semVal(th, name)));
+	root.setProperty("--switch", cssColor(semVal(th, "border_strong")));
+	root.setProperty("--switch-thumb", th === "dark" ? cssColor(semVal(th, "foreground")) : css(WHITE));
+	root.setProperty("--slider-bar", cssColor(semVal(th, "border")));
+	root.setProperty("--progress-bar", cssColor(semVal(th, "primary")));
+	root.setProperty("--preview-2", css(th === "dark" ? [0.36, 0, 0] : [0.97, 0, 0]));
+	root.setProperty("--preview-3", css(th === "dark" ? [0.44, 0, 0] : [0.8, 0, 0]));
+	root.setProperty("--klein-tint-bar", css(RAMPS[th].klein[th === "dark" ? 6 : 6].v));
+	const D = DENSITY[S.density];
+	const px = (n) => `${n}px`;
+	const vars = {
+		"--row": px(D.row), "--control": px(D.control), "--text-body": px(D.body), "--text-small": px(D.small), "--pad": px(D.pad), "--gap": px(D.gap), "--icon": px(D.icon),
+		"--text-title": "16px", "--text-heading": "20px", "--lh-body": "20px", "--lh-heading": "26px",
+		"--radius-xs": "4px", "--radius-sm": "8px", "--radius-md": "12px", "--radius-lg": "16px", "--radius-xl": "20px",
+		"--d-fast": "120ms", "--d-mid": "180ms", "--d-exit": "120ms", "--d-move": "380ms",
+		"--ease-effects": "cubic-bezier(0.2,0,0,1)", "--ease-exit": "cubic-bezier(0.4,0,1,1)", "--ease-move": springLinear(MOVE[S.move]),
+	};
+	for (const [k, v] of Object.entries(vars)) root.setProperty(k, v);
+	document.documentElement.style.colorScheme = th;
+}
+
+function renderRamps() {
+	const box = (th, fam, title) => {
+		const steps = RAMPS[th][fam];
+		const bg = RAMPS[th].neutral[1].v;
+		const txtDark = RAMPS[th].neutral[11].v;
+		return `<div class="rampbox" style="background:${css(bg)};color:${css(txtDark)};border-color:${css(RAMPS[th].neutral[6].v)}">
+			<h4>${title}</h4>
+			<div class="ramp" style="border-color:${css(RAMPS[th].neutral[6].v)}">${steps
+				.map((s, i) => {
+					const fg = lum(s.v) > 0.18 ? [0.18, 0.02, H] : [0.97, 0.005, H];
+					return `<div class="st" style="background:${css(s.v)};color:${css(fg)}" title="${css(s.v)} ${hex(s.v)}"><b>${i + 1}</b><span>${fmt(s.v)}<br>${hex(s.v)}${s.fitted ? "<br>已压" : ""}</span></div>`;
+				})
+				.join("")}</div>
+			<div class="ramproles"><span class="g">背景</span><span class="g3">组件</span><span class="g3">边框</span><span class="g">实色</span><span class="g">文字</span></div>
+			${fam === "neutral" ? statusRow(th) : ""}
+		</div>`;
+	};
+	const statusRow = (th) => {
+		const R = RAMPS[th];
+		const names = { red: "红 · 录制、删除、错误", amber: "琥珀 · 警告", green: "绿 · 成功" };
+		return `<div class="status">${["red", "amber", "green"]
+			.map((f) => `<div style="background:${css(R[f].tint)};color:${css(R[f].text)}"><b>${names[f]}</b><div style="display:flex;gap:4px;margin-top:6px">${["tint", "solid", "hover", "text"].map((k) => `<span title="${k} ${css(R[f][k])}" style="flex:1;height:18px;border-radius:4px;background:${css(R[f][k])};border:1px solid ${css(R.neutral[6].v)}"></span>`).join("")}</div><div style="margin-top:4px;opacity:.85">tint · solid · hover · text</div></div>`)
+			.join("")}</div>`;
+	};
+	document.getElementById("rampgrid").innerHTML =
+		box("dark", "neutral", "深色 · neutral（色相 266，色度 0.012–0.05）") + box("light", "neutral", "浅色 · neutral") + box("dark", "klein", "深色 · klein（9 = #1F3FD8）") + box("light", "klein", "浅色 · klein（9 = #1F3FD8）");
+}
+
+function refLabel(ref) {
+	if (/^[nk]\d+$/.test(ref)) return `${ref[0] === "n" ? "neutral" : "klein"}-${ref.slice(1)}`;
+	return { white: "white", rec: "recording", n1dark: "dark neutral-1", "p.bg": "true neutral", "p.bd": "true neutral", scrim: "neutral / 60%" }[ref] || ref;
+}
+function renderSemantic() {
+	const cell = (th, s) => {
+		const ref = th === "dark" ? s[1] : s[2];
+		const x = resolve(th, ref);
+		return `<td><span class="chipv"><span class="dot" style="background:${cssColor(x)}"></span><span><b style="font-weight:500">${refLabel(ref)}</b><br><code>${fmt(x.v)}${x.alpha ? ` / ${x.alpha}` : ""}</code> <code>${hex(x.v)}</code></span></span></td>`;
+	};
+	document.getElementById("semtable").innerHTML = `<tr><th>语义 token</th><th>深色</th><th>浅色</th><th>用在哪</th></tr>${SEM.map((s) => `<tr><td><code>${s[0]}</code></td>${cell("dark", s)}${cell("light", s)}<td style="color:var(--muted-foreground)">${s[3]}</td></tr>`).join("")}`;
+}
+function renderComponent() {
+	document.getElementById("comptable").innerHTML = `<tr><th>组</th><th>组件字段</th><th>取自语义 token</th></tr>${COMP.map((c) => `<tr><td style="color:var(--muted-foreground)">${c[0]}</td><td><code>${c[1]}</code></td><td><code>${c[2]}</code></td></tr>`).join("")}`;
+}
+function renderContrast() {
+	const cell = (th, p) => {
+		const r = pairRatio(th, p[0], p[1]);
+		const fg = semVal(th, p[0]);
+		const bgx = semVal(th, p[1]);
+		const bgcss = p[1] === "badge" ? `color-mix(in oklch, ${css(bgx.v)} 82%, ${css(resolve(th, "p.bg").v)})` : bgx.alpha == null ? css(bgx.v) : cssColor(bgx);
+		const sample = p[2] === "text" ? `<span style="display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:6px;background:${bgcss};color:${css(fg.v)};font-weight:500;border:1px solid ${css(RAMPS[th].neutral[6].v)}">Aa 文字</span>` : `<span style="display:inline-flex;align-items:center;justify-content:center;width:54px;height:24px;border-radius:6px;background:${bgcss};border:1px solid ${css(RAMPS[th].neutral[6].v)}"><span style="width:30px;height:10px;border:2px solid ${css(fg.v)};border-radius:4px"></span></span>`;
+		return `<td>${sample}</td><td class="mono" data-ratio="${th}:${p[0]}:${p[1]}">${r.toFixed(2)}:1</td><td>${verdict(r, p[2])}</td>`;
+	};
+	const kind = { text: "文字", ui: "非文字", deco: "装饰" };
+	document.getElementById("ctable").innerHTML = `<tr><th>前景</th><th>背景</th><th>类型</th><th>场景</th><th>深色</th><th></th><th></th><th>浅色</th><th></th><th></th></tr>${PAIRS.map((p) => `<tr><td><code>${p[0]}</code></td><td><code>${p[1]}</code></td><td style="color:var(--muted-foreground)">${kind[p[2]]}</td><td style="color:var(--muted-foreground)">${p[3]}</td>${cell("dark", p)}${cell("light", p)}</tr>`).join("")}`;
+}
+function renderType() {
+	document.getElementById("typescale").innerHTML = TYPE.map(
+		(t) => `<div class="typerow"><div><code>text-${t[0]}</code><div class="meta">${t[1]} / ${t[2]} px · ${t[3]}${t[4] !== "0" ? ` · ${t[4]}` : ""}<br>${t[6]}</div></div>
+		<div style="font-size:${t[1]}px;line-height:${t[2]}px;font-weight:${t[3]};letter-spacing:${t[4]};font-variant-numeric:tabular-nums">${t[5]}</div>
+		<div style="font-size:${t[1]}px;line-height:${t[2]}px;font-weight:${t[3]};letter-spacing:${t[4]};color:var(--muted-foreground)">${t[0] === "display" ? "00:03:42" : t[0] === "caption" ? "录制中 · 剩余 12.4 GB" : "混排：Studio 录制 1080p · 60 fps"}</div></div>`,
+	).join("") + `<p class="note">Inter 打开 <code>cv11</code>（单层 a）和 <code>ss01</code>（开口数字）。中文不加字距；混排时英文和数字仍走 Inter。倒计时数字 64 px / 600，属于 display 的特例。</p>`;
+}
+function renderSpace() {
+	document.getElementById("spacing").innerHTML = SPACE.map((n, i) => `<div class="space"><code>space-${[0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12][i]}</code><i style="width:${n * 3}px"></i><em>${n} px</em></div>`).join("") + `<p class="note">控件内边距 10–12，相关控件之间 8–10（gap），分组之间 16–24，窗口内边距 16（pad）。</p>`;
+	document.getElementById("radii").innerHTML = RADII.map(([n, v, u]) => `<div><i style="border-radius:${v === 999 ? "32px" : `${v}px`}"></i><code>radius-${n}</code> · ${v === 999 ? "全圆" : `${v} px`}<br>${u}</div>`).join("");
+	const co = document.getElementById("co");
+	const ci = document.getElementById("ci");
+	co.value = 16;
+	ci.value = 4;
+	const upd = () => {
+		const el = document.getElementById("conc");
+		el.style.setProperty("--co", `${co.value}px`);
+		el.style.setProperty("--ci", `${ci.value}px`);
+		document.getElementById("cov").textContent = `${co.value} px`;
+		document.getElementById("civ").textContent = `${ci.value} px`;
+		document.getElementById("concin").textContent = `里层圆角 = ${co.value} − ${ci.value} = ${Math.max(4, co.value - ci.value)} px`;
+	};
+	co.oninput = upd;
+	ci.oninput = upd;
+	upd();
+	document.getElementById("denstable").innerHTML = `<tr><th></th>${Object.values(DENSITY).map((d) => `<th>${d.label}</th>`).join("")}</tr>${[["row", "行高"], ["control", "控件高"], ["body", "正文字号"], ["small", "小字号"], ["pad", "内边距"], ["gap", "间距"], ["icon", "图标"]].map(([k, l]) => `<tr><td><code>${k}</code> ${l}</td>${Object.entries(DENSITY).map(([id, d]) => `<td style="${id === S.density ? "font-weight:600" : ""}">${d[k]} px</td>`).join("")}</tr>`).join("")}`;
+	document.getElementById("denssample").innerHTML = `<div class="row on"><i data-lucide="monitor"></i><span>屏幕</span><em>2560 × 1440</em></div>
+		<div class="row"><i data-lucide="webcam"></i><span>摄像头</span><em>无摄像头</em><i data-lucide="chevron-down"></i></div>
+		<div class="row"><i data-lucide="mic"></i><span>麦克风</span><em>默认</em><i data-lucide="chevron-down"></i></div>
+		<div style="display:flex;gap:var(--gap)"><button class="btn primary" style="flex:1"><i data-lucide="circle"></i>开始录制</button><button class="btn"><i data-lucide="settings"></i></button></div>`;
+	const bt = [["border", "区域之间、卡片、标题栏下的线", "装饰"], ["border_strong", "弹出层外框、开关关的轨道", "≥ 3:1"], ["input", "输入框、下拉框", "≥ 3:1"]];
+	document.getElementById("bordertable").innerHTML = `<tr><th>token</th><th>深色</th><th>浅色</th><th>用在哪</th></tr>${bt.map(([n, u, k]) => `<tr><td><code>${n}</code><br><span style="color:var(--muted-foreground);font-size:11px">${k}</span></td>${["dark", "light"].map((th) => `<td><span class="chipv"><span class="dot" style="background:${css(semVal(th, n).v)}"></span><span class="mono">${pairRatio(th, n, "background").toFixed(2)}:1</span></span></td>`).join("")}<td style="color:var(--muted-foreground)">${u}</td></tr>`).join("")}`;
+}
+function renderFocus() {
+	document.getElementById("focusdemo").innerHTML = `<button class="btn primary ring"><i data-lucide="circle"></i>开始录制</button>
+		<button class="btn ring">导出…</button>
+		<label class="input ring"><i data-lucide="search"></i><input placeholder="搜索" tabindex="-1"></label>
+		<button class="tog on ring" style="outline-offset:2px"></button>
+		<div class="tile on ring"><div class="thumb"></div><div class="nm">Product demo</div><div class="mt">Studio · 今天</div></div>
+		<div style="flex-basis:100%;height:0"></div>
+		<button class="btn primary"><i data-lucide="circle"></i>开始录制</button>
+		<button class="btn">导出…</button>
+		<button class="btn ghost"><i data-lucide="folder-open"></i>在文件夹中显示</button>
+		<label class="input"><i data-lucide="search"></i><input placeholder="搜索"></label>
+		<button class="tog" onclick="this.classList.toggle('on')"></button>
+		<div class="tile" tabindex="0"><div class="thumb"></div><div class="nm">Bug repro</div><div class="mt">Instant · 今天</div></div>`;
+	const rows = [["ring", "background", "焦点环对窗口底"], ["ring", "card", "焦点环对分组底"], ["ring", "selection", "焦点环对选中图块"], ["ring", "primary", "焦点环对蓝色按钮（中间隔着 2 px 背景缝）"]];
+	document.getElementById("focustable").innerHTML = `<tr><th>焦点环</th><th>对</th><th>深色</th><th>浅色</th><th>说明</th></tr>${rows.map(([a, b, n]) => `<tr><td><code>${a}</code></td><td><code>${b}</code></td>${["dark", "light"].map((th) => {
+		const r = pairRatio(th, a, b);
+		return `<td class="mono">${r.toFixed(2)}:1 ${b === "primary" ? `<span class="deco">有缝隔开</span>` : verdict(r, "ui")}</td>`;
+	}).join("")}<td style="color:var(--muted-foreground)">${n}</td></tr>`).join("")}`;
+}
+function renderKlein() {
+	document.getElementById("kleinok").innerHTML = KLEIN_OK.map(([b, s], i) => `<li><i>${i + 1}</i><div><b>${b}</b><span>${s}</span></div></li>`).join("");
+	document.getElementById("kleinno").innerHTML = KLEIN_NO.map(([b, s]) => `<li><i>×</i><div><b>${b}</b><span>${s}</span></div></li>`).join("");
+	requestAnimationFrame(placePins);
+}
+function placePins() {
+	const mock = document.getElementById("mock");
+	mock.querySelectorAll(".pin").forEach((p) => p.remove());
+	const base = mock.getBoundingClientRect();
+	const spots = [[".acts .btn.primary", 1], [".chip.on", 2], [".tile.on", 3], [".nav.on", 3], [".acts .ring", 4], [".acts a", 5], [".prog", 6], [".done", 7], [".acts .tog", 2]];
+	for (const [sel, n] of spots) {
+		const el = mock.querySelector(sel);
+		if (!el) continue;
+		const r = el.getBoundingClientRect();
+		const pin = document.createElement("span");
+		pin.className = "pin";
+		pin.textContent = n;
+		pin.style.left = `${r.right - base.left - 10}px`;
+		pin.style.top = `${r.top - base.top - 10}px`;
+		mock.appendChild(pin);
+	}
+}
+function renderMotion() {
+	document.getElementById("motiontable").innerHTML = `<tr><th>token</th><th>值</th><th>曲线</th><th>用在哪</th></tr>${MOTION.map((m) => `<tr><td><code>${m[0]}</code></td><td class="mono">${m[1]}</td><td><code>${m[2]}</code></td><td style="color:var(--muted-foreground)">${m[3]}</td></tr>`).join("")}`;
+	document.getElementById("movevar").innerHTML = Object.entries(MOVE).map(([k, m]) => `<button class="${S.move === k ? "on" : ""}" data-move="${k}">${m.label}</button>`).join("");
+	document.getElementById("movenote").textContent = MOVE[S.move].note;
+	document.getElementById("never").innerHTML = NEVER.map(([b, s]) => `<li><b>${b}：</b>${s}</li>`).join("");
+	drawCurve();
+}
+function drawCurve() {
+	const W = 320, Hh = 180, x0 = 30, y0 = 150, w = 270, h = 110;
+	const m = MOVE[S.move];
+	const path = (f) => Array.from({ length: 81 }, (_, i) => {
+		const t = i / 80;
+		return `${i ? "L" : "M"}${(x0 + t * w).toFixed(1)},${(y0 - f(t) * h).toFixed(1)}`;
+	}).join(" ");
+	const bez = (p1x, p1y, p2x, p2y) => (t) => {
+		let lo = 0, hi = 1;
+		for (let k = 0; k < 30; k++) {
+			const u = (lo + hi) / 2;
+			const x = 3 * (1 - u) ** 2 * u * p1x + 3 * (1 - u) * u * u * p2x + u ** 3;
+			if (x < t) lo = u; else hi = u;
+		}
+		const u = (lo + hi) / 2;
+		return 3 * (1 - u) ** 2 * u * p1y + 3 * (1 - u) * u * u * p2y + u ** 3;
+	};
+	const st = getComputedStyle(document.documentElement);
+	const c = (n) => st.getPropertyValue(n);
+	document.getElementById("curve").innerHTML = `
+		<line x1="${x0}" y1="${y0}" x2="${x0 + w}" y2="${y0}" stroke="${c("--border")}"/>
+		<line x1="${x0}" y1="${y0 - h}" x2="${x0 + w}" y2="${y0 - h}" stroke="${c("--border")}" stroke-dasharray="3 3"/>
+		<line x1="${x0}" y1="${y0}" x2="${x0}" y2="${y0 - h - 12}" stroke="${c("--border")}"/>
+		<text x="${x0 - 6}" y="${y0 - h + 4}" text-anchor="end" font-size="10" fill="${c("--muted-foreground")}">1</text>
+		<text x="${x0 - 6}" y="${y0 + 4}" text-anchor="end" font-size="10" fill="${c("--muted-foreground")}">0</text>
+		<text x="${x0 + w}" y="${y0 + 16}" text-anchor="end" font-size="10" fill="${c("--muted-foreground")}">380 ms</text>
+		<path d="${path(bez(0.2, 0, 0, 1))}" fill="none" stroke="${c("--muted-foreground")}" stroke-width="1.5" stroke-dasharray="4 3"/>
+		<path d="${path((t) => springAt(t, m.zeta, m.omega))}" fill="none" stroke="${c("--link")}" stroke-width="2.25"/>
+		<text x="${x0 + 8}" y="${y0 - h - 4}" font-size="10" fill="${c("--link")}">ease-move</text>
+		<text x="${x0 + 8}" y="${y0 - h + 12}" font-size="10" fill="${c("--muted-foreground")}">ease-effects（虚线，参照）</text>`;
+}
+
+function chrome() {
+	document.getElementById("themes").innerHTML = [["dark", "深色"], ["light", "浅色"]].map(([v, l]) => `<button class="${S.theme === v ? "on" : ""}" data-theme="${v}">${l}</button>`).join("");
+	document.getElementById("densities").innerHTML = Object.entries(DENSITY).map(([k, d]) => `<button class="${S.density === k ? "on" : ""}" data-density="${k}">${d.label}</button>`).join("");
+	document.getElementById("toc").innerHTML = [["layers", "三层"], ["ramps", "色阶"], ["semantic", "语义层"], ["component", "组件层"], ["contrast", "对比度"], ["type", "字体"], ["space", "间距·圆角·密度"], ["elevation", "边框与层级"], ["focus", "焦点环"], ["klein", "蓝色白名单"], ["motion", "动效"], ["questions", "请你决定"]].map(([id, l]) => `<a href="#${id}">${l}</a>`).join("");
+	document.getElementById("qs").innerHTML = QS.map((q) => `<li>${q}</li>`).join("");
+}
+function all() {
+	applyTokens();
+	chrome();
+	renderRamps();
+	renderSemantic();
+	renderComponent();
+	renderContrast();
+	renderType();
+	renderSpace();
+	renderFocus();
+	renderKlein();
+	renderMotion();
+	if (window.lucide) lucide.createIcons();
+	const u = new URL(location.href);
+	u.searchParams.set("theme", S.theme);
+	u.searchParams.set("density", S.density);
+	u.searchParams.set("move", S.move);
+	history.replaceState(null, "", u);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function play() {
+	const trk = document.getElementById("trk");
+	const fade = document.getElementById("fade");
+	const col = document.getElementById("col");
+	const puck = trk.querySelector(".puck");
+	puck.style.transition = "left var(--d-move) var(--ease-move)";
+	fade.style.transition = "opacity var(--d-exit) var(--ease-exit)";
+	col.style.transition = "background var(--d-fast) var(--ease-effects)";
+	trk.classList.toggle("go");
+	fade.classList.add("out");
+	col.classList.toggle("on");
+	await sleep(500);
+	fade.style.transition = "opacity var(--d-mid) var(--ease-effects)";
+	fade.classList.remove("out");
+}
+
+document.addEventListener("click", (e) => {
+	const q = (s) => e.target.closest(s);
+	let el;
+	if ((el = q("[data-theme]"))) {
+		S.theme = el.dataset.theme;
+		return all();
+	}
+	if ((el = q("[data-density]"))) {
+		S.density = el.dataset.density;
+		return all();
+	}
+	if ((el = q("[data-move]"))) {
+		S.move = el.dataset.move;
+		return all();
+	}
+	if (q("#play")) return play();
+	if ((el = q("#tg"))) return el.classList.toggle("on");
+});
+document.addEventListener("keydown", (e) => {
+	if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+	if (e.key === "d" || e.key === "D") {
+		S.theme = S.theme === "dark" ? "light" : "dark";
+		all();
+	}
+});
+window.addEventListener("resize", placePins);
+const P = new URLSearchParams(location.search);
+if (P.get("theme") === "light") S.theme = "light";
+if (DENSITY[P.get("density")]) S.density = P.get("density");
+if (MOVE[P.get("move")]) S.move = P.get("move");
+all();
+document.fonts.load('16px "HarmonyOS Sans SC"', "帧刻").then((f) => {
+	if (!f.length) document.getElementById("fontwarn").classList.add("show");
+	placePins();
+}).catch(() => document.getElementById("fontwarn").classList.add("show"));
+</script>
+</body>
+</html>
