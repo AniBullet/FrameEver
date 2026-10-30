@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Visual direction · PROTOTYPE</title>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+@font-face{font-family:"HarmonyOS Sans SC";src:local("HarmonyOS Sans SC"),local("HarmonyOS_Sans_SC"),url("../assets/fonts/harmonyos-sans/HarmonyOS_Sans_SC.ttf");font-weight:100 900}
+.fontwarn{display:none;font-size:11px;color:var(--destructive)}
+.fontwarn.show{display:inline}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:"Inter","HarmonyOS Sans SC","Microsoft YaHei UI",system-ui,sans-serif;font-size:var(--text-body);line-height:1.45;background:var(--page);color:var(--foreground);-webkit-font-smoothing:antialiased;padding-bottom:80px}
+body[data-l=zh]{font-family:"Inter","HarmonyOS Sans SC",system-ui,sans-serif}
+svg.lucide{width:var(--icon);height:var(--icon);stroke-width:1.75;flex:none}
+button{font:inherit;color:inherit}
+.top{position:sticky;top:0;z-index:50;display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 20px;background:var(--page);border-bottom:1px solid var(--border-subtle)}
+.top h1{font-size:15px;margin:0 12px 0 0;font-weight:600}
+.proto{font-size:11px;color:var(--muted-foreground)}
+.chooser{display:flex;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden}
+.chooser button{border:0;background:transparent;padding:6px 12px;cursor:pointer;color:var(--muted-foreground)}
+.chooser button.on{background:var(--primary);color:var(--primary-foreground)}
+.intro{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:20px;padding:20px}
+@media (max-width:1000px){.intro{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:16px}
+.card h2{margin:0 0 6px;font-size:var(--text-title);font-weight:600;letter-spacing:-.01em}
+.card p{margin:6px 0;color:var(--muted-foreground)}
+.card ul{margin:8px 0 0;padding-left:18px;color:var(--muted-foreground)}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px;margin-top:8px}
+.sw{border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden;font-size:11px}
+.sw i{display:block;height:34px}
+.sw div{padding:5px 7px;color:var(--muted-foreground)}
+.sw b{display:block;color:var(--foreground);font-weight:500}
+.stage{display:grid;grid-template-columns:330px minmax(0,1fr);gap:20px;padding:0 20px 20px;align-items:start}
+@media (max-width:1000px){.stage{grid-template-columns:1fr}}
+.lab{font-size:11px;color:var(--muted-foreground);margin:0 0 6px;text-transform:uppercase;letter-spacing:.05em}
+.win{background:var(--background);border:1px solid var(--border);border-radius:var(--radius-win);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.cap{height:36px;display:flex;align-items:center;gap:8px;padding:0 4px 0 12px;border-bottom:1px solid var(--border-subtle);flex:none}
+.cap .t{flex:1;font-weight:500;font-size:12px;color:var(--muted-foreground)}
+.cap .cb{width:40px;height:30px;display:flex;align-items:center;justify-content:center;color:var(--muted-foreground);border-radius:var(--radius-xs);transition:background var(--d-fast) var(--ease-enter)}
+.cap .cb:hover{background:var(--hover)}
+.cap .cb.close:hover{background:oklch(0.58 0.21 25);color:#fff}
+.rec{display:flex;flex-direction:column;gap:var(--gap);padding:var(--pad)}
+.field-lab{font-size:var(--text-small);color:var(--muted-foreground);font-weight:500}
+.seg{position:relative;display:flex;background:var(--card);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:3px}
+.seg .ind{position:absolute;top:3px;bottom:3px;border-radius:var(--radius-inner);background:var(--seg-on);transition:left var(--d-move) var(--ease-move),width var(--d-move) var(--ease-move)}
+.seg button{position:relative;flex:1;border:0;background:transparent;height:calc(var(--row) - 6px);display:flex;gap:6px;align-items:center;justify-content:center;cursor:pointer;color:var(--muted-foreground);border-radius:var(--radius-inner);transition:color var(--d-fast) var(--ease-enter);font-weight:500}
+.seg button.on{color:var(--seg-on-fg)}
+.targets{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap-sm)}
+.tg{border:1px solid var(--border-subtle);background:var(--card);border-radius:var(--radius);padding:10px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;color:var(--muted-foreground);transition:background var(--d-fast) var(--ease-enter),border-color var(--d-fast) var(--ease-enter),color var(--d-fast) var(--ease-enter);font-size:var(--text-small);font-weight:500}
+.tg:hover{background:var(--hover)}
+.tg.on{border-color:var(--ring);color:var(--foreground);background:var(--sel-fill)}
+.dev{display:flex;align-items:center;gap:10px;height:var(--row);padding:0 10px;border:1px solid var(--border-subtle);background:var(--card);border-radius:var(--radius);cursor:pointer;transition:background var(--d-fast) var(--ease-enter)}
+.dev:hover{background:var(--hover)}
+.dev span{flex:1}
+.dev em{font-style:normal;color:var(--muted-foreground);font-size:var(--text-small)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--btn);padding:0 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);cursor:pointer;font-weight:500;transition:background var(--d-fast) var(--ease-enter),border-color var(--d-fast) var(--ease-enter)}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground)}
+.btn.primary:hover{background:var(--primary-hover);border-color:var(--primary-hover)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.ghost:hover{background:var(--hover)}
+.btn.icon{width:var(--btn);padding:0}
+.btn:focus-visible,.tg:focus-visible,.seg button:focus-visible,.nav:focus-visible,.tile:focus-visible,.dev:focus-visible,.tog:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+.recbtn{height:calc(var(--btn) + 12px);font-size:calc(var(--text-body) + 1px)}
+.recbtn .dot{width:10px;height:10px;border-radius:50%;background:var(--primary-foreground)}
+.kbd{font-size:11px;color:var(--muted-foreground);border:1px solid var(--border);border-bottom-width:2px;border-radius:var(--radius-xs);padding:0 5px;font-family:inherit}
+.btn.primary .kbd{color:var(--primary-foreground);border-color:color-mix(in oklch,var(--primary-foreground) 40%,transparent)}
+.foot{display:flex;align-items:center;gap:8px;padding:10px var(--pad);border-top:1px solid var(--border-subtle);color:var(--muted-foreground);font-size:var(--text-small)}
+.foot .grow{flex:1}
+.hint{position:absolute;pointer-events:none;color:var(--accent-text);font-family:"Inter","HarmonyOS Sans SC";font-size:12px;display:none}
+[data-d=B] .hint{display:block}
+.doodle path{fill:none;stroke:var(--accent-text);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.squig{display:none;height:8px;width:72px;margin-top:2px}
+[data-d=B] .squig{display:block}
+.overlay{position:absolute;inset:36px 0 0;background:color-mix(in oklch,var(--background) 92%,transparent);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;opacity:0;pointer-events:none;transition:opacity var(--d-mid) var(--ease-enter)}
+.overlay.show{opacity:1;pointer-events:auto}
+.overlay .n{font-size:64px;font-weight:600;letter-spacing:-.02em;transition:opacity var(--d-mid) var(--ease-enter),transform var(--d-move) var(--ease-move)}
+.overlay .n.in{opacity:1;transform:translateY(0)}
+.overlay .n.out{opacity:0;transform:translateY(14px)}
+.big{min-height:620px;overflow-x:auto}
+.big .split{min-width:860px}
+.stage>div,.row2>div{min-width:0}
+.set .split{min-width:560px}
+.set{overflow-x:auto}
+.split{flex:1;display:flex;min-height:0}
+.col-rec{width:276px;border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;background:var(--sidebar)}
+.lib{flex:1;min-width:0;display:flex;flex-direction:column}
+.libhead{display:flex;align-items:center;gap:10px;padding:var(--pad) var(--pad) 0}
+.libhead h3{margin:0;font-size:var(--text-title);font-weight:600;letter-spacing:-.01em}
+.search{display:flex;align-items:center;gap:6px;height:var(--btn);padding:0 10px;border:1px solid var(--border-subtle);border-radius:var(--radius);background:var(--card);color:var(--muted-foreground);min-width:180px;margin-left:auto}
+.search input{border:0;background:transparent;outline:0;color:var(--foreground);font:inherit;width:100%}
+.chips{display:flex;gap:6px;padding:10px var(--pad);flex-wrap:wrap}
+.chip{height:calc(var(--btn) - 4px);padding:0 10px;border-radius:var(--radius-pill);border:1px solid var(--border-subtle);background:transparent;cursor:pointer;color:var(--muted-foreground);display:inline-flex;align-items:center;gap:6px;font-size:var(--text-small);font-weight:500;transition:background var(--d-fast) var(--ease-enter),color var(--d-fast) var(--ease-enter)}
+.chip:hover{background:var(--hover)}
+.chip.on{background:var(--chip-on);color:var(--chip-on-fg);border-color:var(--chip-on)}
+.chip b{font-weight:500;opacity:.7}
+.libbody{flex:1;display:flex;min-height:0}
+.grid{flex:1;overflow:auto;padding:0 var(--pad) var(--pad);display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--tile),1fr));gap:var(--gap);align-content:start}
+.tile{border-radius:var(--radius);padding:6px;cursor:pointer;border:1px solid transparent;transition:background var(--d-fast) var(--ease-enter),border-color var(--d-fast) var(--ease-enter)}
+.tile:hover{background:var(--hover)}
+.tile.on{background:var(--sel-fill);border-color:var(--sel-border)}
+.thumb{aspect-ratio:16/10;border-radius:var(--radius-inner);background:var(--preview);position:relative;overflow:hidden;border:1px solid var(--preview-border)}
+.thumb .w1{position:absolute;left:10%;top:14%;width:56%;height:56%;background:var(--preview-2);border-radius:3px}
+.thumb .w2{position:absolute;left:48%;top:36%;width:42%;height:48%;background:var(--preview-3);border-radius:3px}
+.thumb .badge{position:absolute;right:6px;bottom:6px;font-size:10px;padding:1px 5px;border-radius:var(--radius-xs);background:oklch(0.15 0 0 / .75);color:#fff}
+.thumb .kind{position:absolute;left:6px;top:6px;color:#fff;background:oklch(0.15 0 0 / .6);border-radius:var(--radius-xs);padding:2px;display:flex}
+.thumb .kind svg{width:12px;height:12px}
+.tile .nm{margin-top:7px;font-weight:500;display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .mt{font-size:var(--text-small);color:var(--muted-foreground)}
+.newtag{font-size:10px;font-weight:600;color:var(--primary-foreground);background:var(--primary);padding:0 5px;border-radius:var(--radius-xs)}
+.det{width:286px;border-left:1px solid var(--border-subtle);padding:var(--pad);display:flex;flex-direction:column;gap:10px;transition:opacity var(--d-mid) var(--ease-enter)}
+.det.fade{opacity:0}
+.player{position:relative;aspect-ratio:16/10;border-radius:var(--radius);background:var(--preview);border:1px solid var(--preview-border);overflow:hidden}
+.player .w1{position:absolute;left:10%;top:14%;width:56%;height:56%;background:var(--preview-2);border-radius:3px}
+.player .w2{position:absolute;left:48%;top:36%;width:42%;height:48%;background:var(--preview-3);border-radius:3px;transition:left 4s linear}
+.player.playing .w2{left:30%}
+.pbar{display:flex;align-items:center;gap:8px}
+.track{flex:1;height:4px;border-radius:2px;background:var(--border);position:relative;cursor:pointer}
+.track i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--accent-text);width:0}
+.time{font-size:11px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.meta{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:var(--text-small)}
+.meta span{color:var(--muted-foreground)}
+.det h4{margin:0;font-size:calc(var(--text-body) + 1px);font-weight:600}
+.acts{display:flex;flex-direction:column;gap:6px;margin-top:auto}
+.acts .row{display:flex;gap:6px}
+.acts .row .btn{flex:1}
+.toast{position:absolute;left:50%;bottom:16px;transform:translate(-50%,24px);opacity:0;display:flex;align-items:center;gap:10px;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);padding:8px 8px 8px 12px;transition:opacity var(--d-mid) var(--ease-enter),transform var(--d-move) var(--ease-move);pointer-events:none}
+.toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.toast .ok{color:var(--success)}
+.row2{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:20px;padding:0 20px 20px;align-items:start}
+@media (max-width:1000px){.row2{grid-template-columns:1fr}}
+.set{min-height:440px}
+.setnav{width:190px;padding:var(--pad-sm);display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--border-subtle);background:var(--sidebar)}
+.nav{display:flex;align-items:center;gap:10px;height:var(--row);padding:0 10px;border-radius:var(--radius);border:0;background:transparent;cursor:pointer;color:var(--muted-foreground);text-align:left;font-weight:500;transition:background var(--d-fast) var(--ease-enter),color var(--d-fast) var(--ease-enter)}
+.nav:hover{background:var(--hover);color:var(--foreground)}
+.nav.on{background:var(--nav-on);color:var(--nav-on-fg)}
+.setmain{flex:1;padding:var(--pad) calc(var(--pad) + 6px);min-width:0;transition:opacity var(--d-mid) var(--ease-enter),transform var(--d-mid) var(--ease-enter)}
+.setmain.swap{opacity:0;transform:translateY(6px)}
+.setmain h3{margin:0 0 4px;font-size:var(--text-title);font-weight:600;letter-spacing:-.01em}
+.setmain .sub{color:var(--muted-foreground);margin-bottom:14px}
+.group{border:1px solid var(--border-subtle);border-radius:var(--radius);background:var(--card);overflow:hidden;margin-bottom:14px}
+.srow{display:flex;align-items:center;gap:12px;min-height:calc(var(--row) + 16px);padding:8px 14px;border-top:1px solid var(--border-subtle)}
+.srow:first-child{border-top:0}
+.srow .l{flex:1;min-width:0}
+.srow .l b{display:block;font-weight:500}
+.srow .l span{font-size:var(--text-small);color:var(--muted-foreground)}
+.select{display:inline-flex;align-items:center;gap:6px;height:var(--btn);padding:0 8px 0 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--background);cursor:pointer}
+.tog{width:36px;height:20px;border-radius:10px;background:var(--border);border:0;position:relative;cursor:pointer;transition:background var(--d-fast) var(--ease-enter);padding:0;flex:none}
+.tog::after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:var(--tog-knob);transition:left var(--d-move) var(--ease-move)}
+.tog.on{background:var(--primary)}
+.tog.on::after{left:18px;background:#fff}
+.small-seg{display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.small-seg button{border:0;background:transparent;height:calc(var(--btn) - 2px);padding:0 10px;cursor:pointer;color:var(--muted-foreground);border-left:1px solid var(--border);transition:background var(--d-fast) var(--ease-enter)}
+.small-seg button:first-child{border-left:0}
+.small-seg button.on{background:var(--seg-on);color:var(--seg-on-fg)}
+.path{font-size:var(--text-small);color:var(--muted-foreground);font-family:ui-monospace,Consolas,monospace}
+.side-stack{display:flex;flex-direction:column;gap:20px}
+.desk{background:var(--desk);border-radius:var(--radius-lg);padding:28px 16px;display:flex;flex-direction:column;align-items:center;gap:18px;border:1px solid var(--border-subtle)}
+.bar{display:flex;align-items:center;gap:4px;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius-bar);padding:5px 5px 5px 12px}
+.bar .live{display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums;font-weight:600;margin-right:6px;min-width:84px}
+.bar .rd{width:9px;height:9px;border-radius:50%;background:var(--destructive);transition:opacity var(--d-mid) var(--ease-enter)}
+.bar.idle .rd{opacity:.35}
+.bar .sep{width:1px;height:20px;background:var(--border-subtle);margin:0 4px}
+.bar .btn{height:30px}
+.bar .stop{background:var(--destructive);border-color:var(--destructive);color:#fff}
+.bar .stop:hover{background:var(--destructive-hover);border-color:var(--destructive-hover)}
+.empty{width:100%;text-align:center;padding:18px;border:1px dashed var(--border);border-radius:var(--radius);color:var(--muted-foreground)}
+.empty .doodle{display:none;margin:0 auto 6px}
+[data-d=A] .empty .doodle,[data-d=B] .empty .doodle{display:block}
+.empty .plain{display:flex;justify-content:center;margin-bottom:6px;color:var(--accent-text)}
+[data-d=A] .empty .plain,[data-d=B] .empty .plain{display:none}
+.empty b{display:block;color:var(--foreground);font-weight:500;margin-bottom:2px}
+.done{width:100%;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius);background:var(--done-bg);color:var(--done-fg);border:1px solid var(--done-border)}
+.done .grow{flex:1}
+.done .btn{height:28px;background:var(--done-btn);border-color:var(--done-btn-border);color:var(--done-fg)}
+.motion{font-size:12px}
+.motion table{width:100%;border-collapse:collapse}
+.motion td{padding:4px 0;border-top:1px solid var(--border-subtle);color:var(--muted-foreground)}
+.motion td:first-child{color:var(--foreground);width:40%}
+.switcher{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;background:#111;color:#fff;padding:6px;z-index:2000;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.4);font-family:system-ui,sans-serif;font-size:13px}
+.switcher button{background:#333;border:1px solid #555;color:#fff;border-radius:5px;padding:4px 10px;cursor:pointer}
+.switcher span{padding:0 12px;white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="top">
+	<h1 data-t>Visual direction</h1>
+	<div class="chooser" id="dirs"></div>
+	<div class="chooser" id="themes"></div>
+	<div class="chooser" id="langs"></div>
+	<button class="btn" id="demo"><i data-lucide="play"></i><span data-t>Play the demo</span></button>
+	<span class="proto">PROTOTYPE · #28 · ← → 切换方向，D 切换深浅色</span>
+	<span class="fontwarn" id="fontwarn">HarmonyOS Sans 未加载，中文显示的是系统字体。在仓库根目录运行 npx --yes http-server apps/desktop-gpui -p 8123 -c-1，再打开 http://localhost:8123/prototype/visual-direction.prototype.html</span>
+</div>
+
+<div class="intro">
+	<div class="card" id="about"></div>
+	<div class="card"><div class="lab" data-t>Tokens and contrast on the window background</div><div class="swatches" id="swatches"></div><div class="motion" id="motion" style="margin-top:12px"></div></div>
+</div>
+
+<div class="stage">
+	<div>
+		<div class="lab" data-t>Main window · compact</div>
+		<div class="win" id="compact">
+			<div class="cap"><span class="t">FrameEver</span><span class="cb"><i data-lucide="minus"></i></span><span class="cb close"><i data-lucide="x"></i></span></div>
+			<div class="rec" id="recA"></div>
+			<div class="foot"><span class="grow" data-t>8 items</span><button class="btn ghost" id="expandBtn"><span data-t>Library</span><i data-lucide="chevron-right"></i></button></div>
+			<div class="hint" style="left:150px;bottom:116px">
+				<svg class="doodle" width="120" height="44" viewBox="0 0 120 44"><path d="M6 8c18-6 40-4 58 6s28 18 34 26"/><path d="M90 36l8 5 2-10"/></svg>
+				<span style="position:absolute;left:0;top:-14px" data-t>Start here</span>
+			</div>
+			<div class="overlay" id="count"><div class="n out" id="countN">3</div><div class="proto" data-t>Recording starts in…</div></div>
+		</div>
+	</div>
+	<div>
+		<div class="lab" data-t>Main window · expanded into the library</div>
+		<div class="win big" id="expanded">
+			<div class="cap"><span class="t">FrameEver</span><span class="cb"><i data-lucide="minus"></i></span><span class="cb"><i data-lucide="square"></i></span><span class="cb close"><i data-lucide="x"></i></span></div>
+			<div class="split">
+				<div class="col-rec"><div class="rec" id="recB"></div><div class="foot"><button class="btn ghost"><i data-lucide="chevron-left"></i><span data-t>Compact</span></button><span class="grow"></span><button class="btn ghost icon"><i data-lucide="settings"></i></button></div></div>
+				<div class="lib">
+					<div class="libhead"><div><h3 data-t>Library</h3><svg class="squig doodle" viewBox="0 0 72 8"><path d="M2 5c8-4 12 2 20-1s12-3 20 0 12 2 28-2"/></svg></div><label class="search"><i data-lucide="search"></i><input placeholder="Search" data-tp></label><button class="btn icon ghost"><i data-lucide="layout-grid"></i></button><button class="btn icon ghost"><i data-lucide="list"></i></button></div>
+					<div class="chips" id="chips"></div>
+					<div class="libbody"><div class="grid" id="grid"></div><div class="det" id="det"></div></div>
+				</div>
+			</div>
+			<div class="toast" id="toast"><i data-lucide="circle-check" class="ok"></i><span data-t>Recording saved</span><button class="btn" id="toastShow"><span data-t>Show</span></button></div>
+		</div>
+	</div>
+</div>
+
+<div class="row2">
+	<div>
+		<div class="lab" data-t>Settings · General</div>
+		<div class="win set">
+			<div class="cap"><span class="t" data-t>FrameEver Settings</span><span class="cb"><i data-lucide="minus"></i></span><span class="cb close"><i data-lucide="x"></i></span></div>
+			<div class="split">
+				<div class="setnav" id="setnav"></div>
+				<div class="setmain" id="setmain"></div>
+			</div>
+		</div>
+	</div>
+	<div class="side-stack">
+		<div>
+			<div class="lab" data-t>Recording controls bar · empty state · export complete</div>
+			<div class="desk">
+				<div class="bar idle" id="bar">
+					<div class="live"><span class="rd"></span><span id="timer">00:00</span></div>
+					<button class="btn ghost icon"><i data-lucide="mic"></i></button>
+					<button class="btn ghost icon"><i data-lucide="pause"></i></button>
+					<button class="btn ghost icon"><i data-lucide="rotate-ccw"></i></button>
+					<span class="sep"></span>
+					<button class="btn ghost icon"><i data-lucide="trash-2"></i></button>
+					<button class="btn stop" id="stopBtn"><i data-lucide="square"></i><span data-t>Stop</span></button>
+				</div>
+				<div class="empty">
+					<svg class="doodle" width="64" height="44" viewBox="0 0 64 44"><path d="M8 34c2-14 4-22 8-24s36-2 40 0 4 14 2 24-40 6-48 0z"/><path d="M24 20l8 6 10-12"/></svg>
+					<span class="plain"><i data-lucide="image"></i></span>
+					<b data-t>No screenshots yet</b><span data-t>Press Ctrl+Shift+5 to take one.</span>
+				</div>
+				<div class="done"><i data-lucide="circle-check"></i><span class="grow" data-t>Export complete · Product demo.mp4</span><button class="btn"><span data-t>Show in folder</span></button></div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="switcher"><button data-sw="-1">&larr;</button><span id="swl"></span><button data-sw="1">&rarr;</button></div>
+
+<script>
+const KLEIN = "oklch(0.463 0.233 266.4)";
+const DIRS = {
+	A: {
+		name: "Graphite Studio",
+		zh: "石墨工作室",
+		pitch: { en: "Calm, dense and keyboard-first: Linear and Zed on Windows. Near-neutral greys with a faint cool cast; Klein blue only on the primary action, selection and focus.", zh: "冷静、紧凑、键盘优先：像 Windows 上的 Linear 和 Zed。几乎中性的灰带一点冷色；克莱因蓝只出现在主按钮、选中和焦点上。" },
+		points: {
+			en: ["32 px rows, 13 px text, 6 px radius", "Fluent motion: 83 / 167 / 250 ms, decelerate in, accelerate out, no overshoot", "Hand-drawn only in empty states and onboarding", "Risk: can look like every other dark developer tool"],
+			zh: ["行高 32 px，正文 13 px，圆角 6 px", "Fluent 动效：83 / 167 / 250 ms，进入减速、离开加速，不回弹", "手绘只出现在空状态和引导里", "风险：容易和别的深色开发工具长得一样"],
+		},
+		comp: { row: 32, btn: 30, body: 13, small: 12, title: 15, radius: 6, gap: 8, pad: 14, tile: 150, icon: 15, bar: 8 },
+		motion: { fast: 83, mid: 167, move: 250, enter: "cubic-bezier(0,0,0,1)", move_ease: "cubic-bezier(0,0,0,1)", label: "Fluent 2 · 83/167/250 ms · decelerate (0,0,0,1)" },
+		dark: { bg: [0.165, 0.004, 266], surface: [0.195, 0.005, 266], raised: [0.23, 0.006, 266], bsub: [0.27, 0.006, 266], border: [0.33, 0.008, 266], muted: [0.72, 0.01, 266], text: [0.94, 0.004, 266], hover: [0.52, 0.22, 266.4], atext: [0.72, 0.14, 266.4], tint: [0.27, 0.07, 266.4] },
+		light: { bg: [0.985, 0.002, 266], surface: [0.965, 0.003, 266], raised: [1, 0, 0], bsub: [0.92, 0.004, 266], border: [0.86, 0.006, 266], muted: [0.5, 0.012, 266], text: [0.205, 0.008, 266], hover: [0.42, 0.215, 266.4], atext: null, tint: [0.945, 0.03, 266.4] },
+		sel: "ring",
+	},
+	B: {
+		name: "Paper and Ink",
+		zh: "纸与墨",
+		pitch: { en: "Warm, airy and crafted: Excalidraw's readable hand-drawn touch with Linear's 2026 warm grey. Klein blue is the ink, the only cool colour on screen.", zh: "温暖、留白、有手作感：Excalidraw 那种好读的手绘点缀，加上 Linear 2026 的暖灰。克莱因蓝是“墨水”，是屏幕上唯一的冷色。" },
+		points: {
+			en: ["36 px rows, 14 px text, 10 px radius, generous gutters", "Gentle motion: 200 / 250 / 300 ms, decelerate-min, crossfades rather than slides", "Hand-drawn underline, arrows and empty-state doodles", "Previews stay true neutral so recordings are judged correctly", "Risk: warm chrome next to recordings; must not get muddy"],
+			zh: ["行高 36 px，正文 14 px，圆角 10 px，留白更多", "柔和动效：200 / 250 / 300 ms，decelerate-min，多用淡入淡出而不是滑动", "手绘下划线、箭头和空状态涂鸦", "预览区保持纯中性灰，不影响对录制颜色的判断", "风险：暖色界面挨着录制画面；不能发灰发脏"],
+		},
+		comp: { row: 36, btn: 34, body: 14, small: 12.5, title: 17, radius: 10, gap: 12, pad: 18, tile: 168, icon: 16, bar: 14 },
+		motion: { fast: 200, mid: 250, move: 300, enter: "cubic-bezier(0.33,0,0.1,1)", move_ease: "cubic-bezier(0.33,0,0.1,1)", label: "Fluent decelerate-min · 200/250/300 ms · (0.33,0,0.1,1)" },
+		dark: { bg: [0.185, 0.006, 75], surface: [0.215, 0.007, 75], raised: [0.25, 0.008, 75], bsub: [0.29, 0.008, 75], border: [0.36, 0.01, 75], muted: [0.74, 0.012, 75], text: [0.945, 0.01, 85], hover: [0.52, 0.22, 266.4], atext: [0.74, 0.13, 266.4], tint: [0.27, 0.06, 266.4] },
+		light: { bg: [0.975, 0.008, 85], surface: [0.955, 0.01, 85], raised: [0.995, 0.004, 85], bsub: [0.905, 0.01, 80], border: [0.84, 0.012, 80], muted: [0.5, 0.015, 75], text: [0.23, 0.012, 75], hover: [0.42, 0.215, 266.4], atext: null, tint: [0.94, 0.03, 266.4] },
+		sel: "ring",
+	},
+	C: {
+		name: "Klein Field",
+		zh: "克莱因场",
+		pitch: { en: "Confident and brand-forward, inspired by Material 3 Expressive but flat: the neutrals carry the Klein hue, and large solid blue moments replace gradients.", zh: "自信、品牌感强，参考 Material 3 Expressive 但保持扁平：中性色本身带克莱因蓝的色相，用大块纯色蓝代替渐变。" },
+		points: {
+			en: ["34 px rows, 13.5 px text, 12 px radius", "Spring-like movement (slight overshoot) for panels and toggles; colour and opacity never overshoot", "Solid blue selection fill and a full-width blue bar for export complete", "Previews stay true neutral", "Risk: blue-tinted chrome can tip from calm into loud"],
+			zh: ["行高 34 px，正文 13.5 px，圆角 12 px", "面板和开关用类似弹簧的移动（轻微回弹）；颜色和透明度不回弹", "选中用纯色蓝底，导出完成用整条蓝色横条", "预览区保持纯中性灰", "风险：带蓝的界面容易从冷静变得吵"],
+		},
+		comp: { row: 34, btn: 32, body: 13.5, small: 12, title: 16, radius: 12, gap: 10, pad: 16, tile: 160, icon: 16, bar: 20 },
+		motion: { fast: 120, mid: 180, move: 380, enter: "cubic-bezier(0.2,0,0,1)", move_ease: "cubic-bezier(0.34,1.4,0.64,1)", label: "M3 standard spring as an easing · move 380 ms with overshoot · effects 120/180 ms" },
+		dark: { bg: [0.175, 0.022, 266], surface: [0.21, 0.028, 266], raised: [0.25, 0.034, 266], bsub: [0.29, 0.036, 266], border: [0.36, 0.045, 266], muted: [0.76, 0.04, 266], text: [0.955, 0.012, 266], hover: [0.53, 0.215, 266.4], atext: [0.76, 0.12, 266.4], tint: [0.3, 0.11, 266.4] },
+		light: { bg: [0.975, 0.01, 266], surface: [0.95, 0.016, 266], raised: [0.993, 0.003, 266], bsub: [0.9, 0.022, 266], border: [0.83, 0.035, 266], muted: [0.5, 0.04, 266], text: [0.22, 0.04, 266], hover: [0.42, 0.215, 266.4], atext: null, tint: [0.92, 0.038, 266.4] },
+		sel: "fill",
+	},
+};
+const ORDER = ["A", "B", "C"];
+const ZH = {
+	"Visual direction": "视觉方向",
+	"Play the demo": "播放演示",
+	"Tokens and contrast on the window background": "Token 和在窗口背景上的对比度",
+	"Main window · compact": "主窗口 · 紧凑态",
+	"Main window · expanded into the library": "主窗口 · 展开成图库",
+	"Settings · General": "设置 · 通用",
+	"Recording controls bar · empty state · export complete": "录制控制条 · 空状态 · 导出完成",
+	"8 items": "8 个项目",
+	Library: "图库",
+	Compact: "收起",
+	"Start here": "从这里开始",
+	"Recording starts in…": "即将开始录制…",
+	"Recording saved": "录制已保存",
+	Show: "查看",
+	Stop: "停止",
+	"No screenshots yet": "还没有截图",
+	"Press Ctrl+Shift+5 to take one.": "按 Ctrl+Shift+5 截一张。",
+	"Export complete · Product demo.mp4": "导出完成 · Product demo.mp4",
+	"Show in folder": "在文件夹中显示",
+	"FrameEver Settings": "FrameEver 设置",
+	Search: "搜索",
+	Mode: "模式",
+	Capture: "录制范围",
+	Display: "屏幕",
+	Window: "窗口",
+	Area: "区域",
+	Camera: "摄像头",
+	Microphone: "麦克风",
+	"System audio": "系统声音",
+	"No camera": "无摄像头",
+	Default: "默认",
+	On: "开",
+	"Start recording": "开始录制",
+	"Take screenshot": "截图",
+	Screenshot: "截图",
+	All: "全部",
+	Screenshots: "截图",
+	Exported: "已导出",
+	"Open in editor": "在编辑器中打开",
+	"Export…": "导出…",
+	Duration: "时长",
+	Created: "创建于",
+	Size: "大小",
+	Status: "状态",
+	"Not exported": "未导出",
+	"Just now": "刚刚",
+	Today: "今天",
+	Yesterday: "昨天",
+	General: "通用",
+	Recording: "录制",
+	Shortcuts: "快捷键",
+	Captions: "字幕",
+	Storage: "存储",
+	About: "关于",
+	"How FrameEver starts and looks.": "FrameEver 怎么启动、长什么样。",
+	Language: "语言",
+	"Interface language": "界面语言",
+	Appearance: "外观",
+	"Follow Windows or pick one": "跟随 Windows 或手动选择",
+	System: "系统",
+	Dark: "深色",
+	Light: "浅色",
+	"Start at login": "开机启动",
+	"Open FrameEver in the tray when Windows starts": "Windows 启动时在托盘里打开 FrameEver",
+	"Open library after recording": "录完打开图库",
+	"Expand the main window and select the new item": "展开主窗口并选中新项目",
+	"Storage folder": "存储文件夹",
+	Change: "更改",
+	"Start or stop recording": "开始或停止录制",
+	"Command palette": "命令面板",
+	"Recording saved ": "录制已保存",
+	"Design system": "设计系统",
+	"Motion": "动效",
+	"Fast (hover, colour)": "快（悬停、颜色）",
+	"Mid (fades)": "中（淡入淡出）",
+	"Move (position, size)": "移动（位置、大小）",
+	"Curve": "曲线",
+	"Base": "底层",
+};
+const ITEMS = [
+	{ id: 1, name: "Product demo", kind: "studio", dur: "3:42", when: "Today", exported: true, size: "182 MB" },
+	{ id: 2, name: "Bug repro", kind: "instant", dur: "0:48", when: "Today", exported: true, size: "21 MB" },
+	{ id: 3, name: "Settings page", kind: "screenshot", dur: "", when: "Yesterday", exported: false, size: "1.2 MB" },
+	{ id: 4, name: "Onboarding walk", kind: "studio", dur: "7:05", when: "Yesterday", exported: false, size: "410 MB" },
+	{ id: 5, name: "Quick reply", kind: "instant", dur: "0:21", when: "Mon", exported: true, size: "9 MB" },
+	{ id: 6, name: "Release notes", kind: "studio", dur: "2:10", when: "Oct 24", exported: true, size: "96 MB" },
+];
+const KIND_ICON = { studio: "clapperboard", instant: "zap", screenshot: "image" };
+const KIND_LABEL = { studio: "Studio", instant: "Instant", screenshot: "Screenshot" };
+let S = { dir: "A", theme: "dark", lang: "zh", sel: 1, mode: "studio", target: "Display", filter: "all", nav: "General", playing: false, fresh: null, count: 0 };
+
+const t = (s) => (S.lang === "zh" && ZH[s] ? ZH[s] : s);
+const ok = (v) => `oklch(${v[0]} ${v[1]} ${v[2]})`;
+
+function oklchToLinear([L, C, H]) {
+	const h = (H * Math.PI) / 180;
+	const a = C * Math.cos(h);
+	const b = C * Math.sin(h);
+	const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+	const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+	const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+	const c = (x) => Math.min(1, Math.max(0, x));
+	return [c(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s), c(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s), c(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)];
+}
+const lum = (v) => {
+	const [r, g, b] = oklchToLinear(v);
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (x, y) => {
+	const a = lum(x);
+	const b = lum(y);
+	return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+};
+
+function tokens() {
+	const D = DIRS[S.dir];
+	const P = D[S.theme];
+	const dark = S.theme === "dark";
+	const klein = [0.463, 0.233, 266.4];
+	const atext = P.atext || klein;
+	const c = D.comp;
+	const m = D.motion;
+	const neutralPreview = dark ? [0.26, 0, 0] : [0.9, 0, 0];
+	const fill = D.sel === "fill";
+	const brand = { "--brand-klein": KLEIN, "--brand-hue": "266.4" };
+	const semantic = {
+		"--page": ok(dark ? [P.bg[0] - 0.03, P.bg[1], P.bg[2]] : [P.bg[0] - 0.035, P.bg[1] + 0.002, P.bg[2]]),
+		"--background": ok(P.bg),
+		"--card": ok(P.surface),
+		"--popover": ok(P.raised),
+		"--sidebar": ok(S.dir === "A" ? (dark ? [P.bg[0] - 0.012, P.bg[1], P.bg[2]] : P.surface) : P.bg),
+		"--border-subtle": ok(P.bsub),
+		"--border": ok(P.border),
+		"--hover": ok(dark ? [P.bsub[0] - 0.02, P.bsub[1], P.bsub[2]] : [P.bsub[0] + 0.035, P.bsub[1], P.bsub[2]]),
+		"--foreground": ok(P.text),
+		"--muted-foreground": ok(P.muted),
+		"--primary": KLEIN,
+		"--primary-hover": ok(P.hover),
+		"--primary-foreground": "oklch(0.99 0 0)",
+		"--accent-text": ok(atext),
+		"--ring": ok(atext),
+		"--destructive": dark ? "oklch(0.63 0.2 25)" : "oklch(0.56 0.21 25)",
+		"--destructive-hover": dark ? "oklch(0.68 0.19 25)" : "oklch(0.5 0.2 25)",
+		"--success": dark ? "oklch(0.75 0.15 155)" : "oklch(0.52 0.14 155)",
+		"--desk": ok(dark ? [0.32, 0, 0] : [0.82, 0, 0]),
+		"--preview": ok(neutralPreview),
+		"--preview-2": ok(dark ? [0.36, 0, 0] : [0.97, 0, 0]),
+		"--preview-3": ok(dark ? [0.44, 0, 0] : [0.8, 0, 0]),
+		"--preview-border": ok(dark ? [0.3, 0, 0] : [0.86, 0, 0]),
+	};
+	const component = {
+		"--row": `${c.row}px`,
+		"--btn": `${c.btn}px`,
+		"--text-body": `${c.body}px`,
+		"--text-small": `${c.small}px`,
+		"--text-title": `${c.title}px`,
+		"--radius": `${c.radius}px`,
+		"--radius-inner": `${Math.max(2, c.radius - 3)}px`,
+		"--radius-xs": `${Math.max(3, c.radius - 4)}px`,
+		"--radius-sm": `${Math.max(4, c.radius - 2)}px`,
+		"--radius-lg": `${c.radius + 4}px`,
+		"--radius-win": `${c.radius + 2}px`,
+		"--radius-pill": S.dir === "A" ? `${c.radius}px` : "999px",
+		"--radius-bar": `${c.bar}px`,
+		"--gap": `${c.gap}px`,
+		"--gap-sm": `${Math.round(c.gap * 0.75)}px`,
+		"--pad": `${c.pad}px`,
+		"--pad-sm": `${Math.round(c.pad * 0.6)}px`,
+		"--tile": `${c.tile}px`,
+		"--icon": `${c.icon}px`,
+		"--d-fast": `${m.fast}ms`,
+		"--d-mid": `${m.mid}ms`,
+		"--d-move": `${m.move}ms`,
+		"--ease-enter": m.enter,
+		"--ease-move": m.move_ease,
+		"--seg-on": fill ? KLEIN : ok(dark ? [P.border[0] - 0.02, P.border[1], P.border[2]] : P.raised),
+		"--seg-on-fg": fill ? "oklch(0.99 0 0)" : ok(P.text),
+		"--sel-fill": fill ? ok(P.tint) : "transparent",
+		"--sel-border": fill ? ok(P.tint) : ok(atext),
+		"--nav-on": fill ? ok(P.tint) : ok(dark ? P.bsub : P.bsub),
+		"--nav-on-fg": fill ? ok(dark ? P.text : klein) : ok(P.text),
+		"--chip-on": fill ? KLEIN : ok(P.text),
+		"--chip-on-fg": fill ? "oklch(0.99 0 0)" : ok(P.bg),
+		"--tog-knob": ok(dark ? P.text : [1, 0, 0]),
+		"--done-bg": fill ? KLEIN : ok(P.raised),
+		"--done-fg": fill ? "oklch(0.99 0 0)" : ok(P.text),
+		"--done-border": fill ? KLEIN : ok(P.border),
+		"--done-btn": fill ? "oklch(0.55 0.2 266.4)" : ok(P.surface),
+		"--done-btn-border": fill ? "oklch(0.6 0.18 266.4)" : ok(P.border),
+	};
+	return { brand, semantic, component, P, atext, klein };
+}
+
+function applyTokens() {
+	const T = tokens();
+	const root = document.documentElement.style;
+	for (const layer of [T.brand, T.semantic, T.component]) for (const [k, v] of Object.entries(layer)) root.setProperty(k, v);
+	document.body.dataset.d = S.dir;
+	document.body.dataset.l = S.lang;
+	const sw = [
+		["background", T.P.bg, null],
+		["card", T.P.surface, null],
+		["popover", T.P.raised, null],
+		["border", T.P.border, T.P.bg],
+		["muted-foreground", T.P.muted, T.P.bg],
+		["foreground", T.P.text, T.P.bg],
+		["primary", T.klein, T.P.bg],
+		["accent-text / ring", T.atext, T.P.bg],
+		["primary-foreground on primary", [0.99, 0, 0], T.klein],
+	];
+	document.getElementById("swatches").innerHTML = sw
+		.map(([n, v, on]) => {
+			const cr = on ? contrast(v, on) : null;
+			const pass = cr == null ? "" : cr >= 4.5 ? " · AA" : cr >= 3 ? " · 3:1" : "";
+			return `<div class="sw"><i style="background:${ok(v)}"></i><div><b>${n}</b>${cr ? `${cr.toFixed(1)}:1${pass}` : ok(v).replace("oklch", "")}</div></div>`;
+		})
+		.join("");
+	const m = DIRS[S.dir].motion;
+	document.getElementById("motion").innerHTML = `<div class="lab">${t("Motion")}</div><table>
+		<tr><td>${t("Fast (hover, colour)")}</td><td>${m.fast} ms</td></tr>
+		<tr><td>${t("Mid (fades)")}</td><td>${m.mid} ms</td></tr>
+		<tr><td>${t("Move (position, size)")}</td><td>${m.move} ms · ${m.move_ease}</td></tr>
+		<tr><td>${t("Curve")}</td><td>${m.label}</td></tr>
+		<tr><td>${t("Design system")}</td><td>GPUI Kit · shadcn/ui tokens · Radix ramps · Fluent 2</td></tr></table>`;
+	requestAnimationFrame(placeIndicators);
+}
+
+function about() {
+	const D = DIRS[S.dir];
+	const L = S.lang === "zh" ? "zh" : "en";
+	document.getElementById("about").innerHTML = `<div class="lab">${S.dir} · ${S.theme === "dark" ? t("Dark") : t("Light")}</div>
+		<h2>${D.name}${S.lang === "zh" ? ` · ${D.zh}` : ""}</h2><p>${D.pitch[L]}</p><ul>${D.points[L].map((p) => `<li>${p}</li>`).join("")}</ul>`;
+}
+
+function recorder(id) {
+	const modes = [["studio", "Studio", "clapperboard"], ["instant", "Instant", "zap"], ["screenshot", t("Screenshot"), "image"]];
+	const targets = [["Display", "monitor"], ["Window", "app-window"], ["Area", "scan"]];
+	const shot = S.mode === "screenshot";
+	return `<div class="field-lab">${t("Mode")}</div>
+		<div class="seg" data-seg="${id}"><span class="ind"></span>${modes.map(([m, l, ic]) => `<button class="${S.mode === m ? "on" : ""}" data-mode="${m}"><i data-lucide="${ic}"></i>${l}</button>`).join("")}</div>
+		<div class="field-lab">${t("Capture")}</div>
+		<div class="targets">${targets.map(([tg, ic]) => `<button class="tg ${S.target === tg ? "on" : ""}" data-target="${tg}"><i data-lucide="${ic}"></i>${t(tg)}</button>`).join("")}</div>
+		<button class="dev"><i data-lucide="webcam"></i><span>${t("Camera")}</span><em>${t("No camera")}</em><i data-lucide="chevron-down"></i></button>
+		<button class="dev"><i data-lucide="mic"></i><span>${t("Microphone")}</span><em>${t("Default")}</em><i data-lucide="chevron-down"></i></button>
+		<button class="dev"><i data-lucide="volume-2"></i><span>${t("System audio")}</span><em>${t("On")}</em><i data-lucide="chevron-down"></i></button>
+		<button class="btn primary recbtn" data-record>${shot ? '<i data-lucide="camera"></i>' : '<span class="dot"></span>'}${shot ? t("Take screenshot") : t("Start recording")}<span class="kbd">Ctrl Shift 2</span></button>`;
+}
+
+function renderRecorders() {
+	document.getElementById("recA").innerHTML = recorder("a");
+	document.getElementById("recB").innerHTML = recorder("b");
+	icons();
+	requestAnimationFrame(placeIndicators);
+}
+function placeIndicators() {
+	document.querySelectorAll(".seg").forEach((seg) => {
+		const on = seg.querySelector("button.on");
+		const ind = seg.querySelector(".ind");
+		if (!on || !ind) return;
+		ind.style.left = `${on.offsetLeft}px`;
+		ind.style.width = `${on.offsetWidth}px`;
+	});
+}
+
+function chips() {
+	const F = [["all", "All"], ["studio", "Studio"], ["instant", "Instant"], ["screenshot", "Screenshots"], ["exported", "Exported"]];
+	const n = (f) => ITEMS.filter((i) => match(i, f)).length;
+	document.getElementById("chips").innerHTML = F.map(([f, l]) => `<button class="chip ${S.filter === f ? "on" : ""}" data-filter="${f}">${t(l)} <b>${n(f)}</b></button>`).join("");
+}
+function match(i, f) {
+	return f === "all" ? true : f === "exported" ? i.exported : i.kind === f;
+}
+function grid() {
+	document.getElementById("grid").innerHTML = ITEMS.filter((i) => match(i, S.filter))
+		.map(
+			(i) => `<div class="tile ${i.id === S.sel ? "on" : ""}" data-tile="${i.id}" tabindex="0">
+			<div class="thumb"><span class="w1"></span><span class="w2"></span><span class="kind"><i data-lucide="${KIND_ICON[i.kind]}"></i></span>${i.dur ? `<span class="badge">${i.dur}</span>` : ""}</div>
+			<div class="nm">${i.name}${i.id === S.fresh ? `<span class="newtag">NEW</span>` : ""}</div>
+			<div class="mt">${KIND_LABEL[i.kind] === "Screenshot" ? t("Screenshot") : KIND_LABEL[i.kind]} · ${t(i.when)}${i.exported ? ` · ${t("Exported")}` : ""}</div>
+		</div>`,
+		)
+		.join("");
+	icons();
+}
+function detail(fade) {
+	const el = document.getElementById("det");
+	const draw = () => {
+		const i = ITEMS.find((x) => x.id === S.sel);
+		if (!i) {
+			el.innerHTML = "";
+			return;
+		}
+		const video = i.kind !== "screenshot";
+		el.innerHTML = `<div class="player ${S.playing ? "playing" : ""}"><span class="w1"></span><span class="w2"></span></div>
+			${video ? `<div class="pbar"><button class="btn icon ghost" data-play><i data-lucide="${S.playing ? "pause" : "play"}"></i></button><div class="track"><i id="prog"></i></div><span class="time">${S.playing ? "0:01" : "0:00"} / ${i.dur}</span><button class="btn icon ghost"><i data-lucide="volume-2"></i></button><button class="btn icon ghost"><i data-lucide="maximize-2"></i></button></div>` : ""}
+			<h4>${i.name}</h4>
+			<div class="meta"><span>${t("Status")}</span><b>${i.exported ? t("Exported") : t("Not exported")}</b>${i.dur ? `<span>${t("Duration")}</span><b>${i.dur}</b>` : ""}<span>${t("Created")}</span><b>${t(i.when)}</b><span>${t("Size")}</span><b>${i.size}</b></div>
+			<div class="acts"><button class="btn primary"><i data-lucide="pen-line"></i>${t("Open in editor")}</button><div class="row"><button class="btn"><i data-lucide="download"></i>${t("Export…")}</button><button class="btn icon"><i data-lucide="folder-open"></i></button><button class="btn icon"><i data-lucide="ellipsis"></i></button></div></div>`;
+		icons();
+		if (S.playing) {
+			const p = document.getElementById("prog");
+			p.style.transition = "width 4s linear";
+			requestAnimationFrame(() => (p.style.width = "34%"));
+		}
+		el.classList.remove("fade");
+	};
+	if (fade) {
+		el.classList.add("fade");
+		setTimeout(draw, DIRS[S.dir].motion.mid);
+	} else draw();
+}
+
+const NAV = [["General", "settings-2"], ["Recording", "video"], ["Shortcuts", "keyboard"], ["Captions", "captions"], ["Storage", "hard-drive"], ["About", "info"]];
+function setnav() {
+	document.getElementById("setnav").innerHTML = NAV.map(([n, ic]) => `<button class="nav ${S.nav === n ? "on" : ""}" data-nav="${n}"><i data-lucide="${ic}"></i>${t(n)}</button>`).join("");
+}
+function setmain() {
+	const themeSeg = ["System", "Dark", "Light"].map((x) => `<button class="${(x === "Dark" && S.theme === "dark") || (x === "Light" && S.theme === "light") ? "on" : ""}" data-theme-set="${x}">${t(x)}</button>`).join("");
+	document.getElementById("setmain").innerHTML = `<h3>${t(S.nav)}</h3><div class="sub">${t("How FrameEver starts and looks.")}</div>
+		<div class="group">
+			<div class="srow"><div class="l"><b>${t("Language")}</b><span>${t("Interface language")}</span></div><button class="select">${S.lang === "zh" ? "简体中文" : "English"}<i data-lucide="chevron-down"></i></button></div>
+			<div class="srow"><div class="l"><b>${t("Appearance")}</b><span>${t("Follow Windows or pick one")}</span></div><div class="small-seg">${themeSeg}</div></div>
+			<div class="srow"><div class="l"><b>${t("Start at login")}</b><span>${t("Open FrameEver in the tray when Windows starts")}</span></div><button class="tog on"></button></div>
+			<div class="srow"><div class="l"><b>${t("Open library after recording")}</b><span>${t("Expand the main window and select the new item")}</span></div><button class="tog on"></button></div>
+		</div>
+		<div class="group">
+			<div class="srow"><div class="l"><b>${t("Storage folder")}</b><span class="path">C:\\Users\\you\\Videos\\FrameEver</span></div><button class="btn"><i data-lucide="folder-open"></i>${t("Change")}</button></div>
+			<div class="srow"><div class="l"><b>${t("Start or stop recording")}</b></div><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">2</span></div>
+			<div class="srow"><div class="l"><b>${t("Command palette")}</b></div><span class="kbd">Ctrl</span><span class="kbd">K</span></div>
+		</div>`;
+	icons();
+}
+
+function chooser(id, list, cur, attr) {
+	document.getElementById(id).innerHTML = list.map(([v, l]) => `<button class="${cur === v ? "on" : ""}" data-${attr}="${v}">${l}</button>`).join("");
+}
+function chrome() {
+	chooser("dirs", ORDER.map((k) => [k, `${k} · ${S.lang === "zh" ? DIRS[k].zh : DIRS[k].name}`]), S.dir, "dir");
+	chooser("themes", [["dark", t("Dark")], ["light", t("Light")]], S.theme, "theme");
+	chooser("langs", [["zh", "中文"], ["en", "English"]], S.lang, "lang");
+	document.getElementById("swl").textContent = `${S.dir} · ${DIRS[S.dir].name} · ${S.theme}`;
+	document.querySelectorAll("[data-t]").forEach((el) => {
+		if (!el.dataset.src) el.dataset.src = el.textContent;
+		el.textContent = t(el.dataset.src);
+	});
+	document.querySelectorAll("[data-tp]").forEach((el) => (el.placeholder = t("Search")));
+}
+function icons() {
+	if (window.lucide) lucide.createIcons();
+}
+function all() {
+	applyTokens();
+	about();
+	chrome();
+	renderRecorders();
+	chips();
+	grid();
+	detail(false);
+	setnav();
+	setmain();
+	icons();
+	const u = new URL(location.href);
+	u.searchParams.set("variant", S.dir);
+	u.searchParams.set("theme", S.theme);
+	history.replaceState(null, "", u);
+}
+function setDir(d) {
+	S.dir = d;
+	all();
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let timerId = null;
+async function countdown() {
+	const ov = document.getElementById("count");
+	const n = document.getElementById("countN");
+	if (S.mode === "screenshot") {
+		saved();
+		return;
+	}
+	ov.classList.add("show");
+	for (const k of [3, 2, 1]) {
+		n.textContent = k;
+		n.className = "n out";
+		await sleep(30);
+		n.className = "n in";
+		await sleep(650);
+		n.className = "n out";
+		await sleep(200);
+	}
+	ov.classList.remove("show");
+	startBar();
+}
+function startBar() {
+	const bar = document.getElementById("bar");
+	bar.classList.remove("idle");
+	let s = 0;
+	clearInterval(timerId);
+	timerId = setInterval(() => {
+		s += 1;
+		document.getElementById("timer").textContent = `00:${String(s).padStart(2, "0")}`;
+	}, 1000);
+}
+function saved() {
+	clearInterval(timerId);
+	document.getElementById("bar").classList.add("idle");
+	document.getElementById("timer").textContent = "00:00";
+	S.count += 1;
+	const id = 100 + S.count;
+	ITEMS.unshift({ id, name: S.mode === "screenshot" ? `Screenshot ${S.count}` : `Recording ${S.count}`, kind: S.mode, dur: S.mode === "screenshot" ? "" : "0:07", when: "Just now", exported: false, size: "12 MB" });
+	S.fresh = id;
+	S.sel = id;
+	S.filter = "all";
+	S.playing = false;
+	chips();
+	grid();
+	detail(true);
+	const toast = document.getElementById("toast");
+	toast.classList.add("show");
+	setTimeout(() => toast.classList.remove("show"), 2800);
+}
+async function demo() {
+	S.mode = "studio";
+	renderRecorders();
+	await sleep(300);
+	await countdown();
+	await sleep(2400);
+	saved();
+	await sleep(1400);
+	S.nav = "Recording";
+	swapSettings();
+	await sleep(900);
+	S.nav = "General";
+	swapSettings();
+}
+function swapSettings() {
+	const el = document.getElementById("setmain");
+	setnav();
+	icons();
+	el.classList.add("swap");
+	setTimeout(() => {
+		setmain();
+		el.classList.remove("swap");
+	}, DIRS[S.dir].motion.mid);
+}
+
+document.addEventListener("click", (e) => {
+	const q = (s) => e.target.closest(s);
+	let el;
+	if ((el = q("[data-dir]")) && el.tagName === "BUTTON") return setDir(el.dataset.dir);
+	if ((el = q("[data-theme]"))) {
+		S.theme = el.dataset.theme;
+		return all();
+	}
+	if ((el = q("[data-theme-set]"))) {
+		const v = el.dataset.themeSet;
+		if (v !== "System") {
+			S.theme = v.toLowerCase();
+			return all();
+		}
+		return;
+	}
+	if ((el = q("[data-lang]"))) {
+		S.lang = el.dataset.lang;
+		return all();
+	}
+	if ((el = q("[data-sw]"))) {
+		const i = ORDER.indexOf(S.dir);
+		return setDir(ORDER[(i + Number(el.dataset.sw) + 3) % 3]);
+	}
+	if ((el = q("[data-mode]"))) {
+		S.mode = el.dataset.mode;
+		document.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === S.mode));
+		placeIndicators();
+		setTimeout(renderRecorders, DIRS[S.dir].motion.move);
+		return;
+	}
+	if ((el = q("[data-target]"))) {
+		S.target = el.dataset.target;
+		document.querySelectorAll("[data-target]").forEach((b) => b.classList.toggle("on", b.dataset.target === S.target));
+		return;
+	}
+	if (q("[data-record]")) return countdown();
+	if (q("#stopBtn")) return saved();
+	if (q("#demo")) return demo();
+	if (q("#toastShow")) return document.getElementById("toast").classList.remove("show");
+	if ((el = q("[data-filter]"))) {
+		S.filter = el.dataset.filter;
+		chips();
+		grid();
+		return;
+	}
+	if ((el = q("[data-tile]"))) {
+		const id = Number(el.dataset.tile);
+		if (id === S.sel) return;
+		S.sel = id;
+		S.playing = false;
+		document.querySelectorAll("[data-tile]").forEach((x) => x.classList.toggle("on", Number(x.dataset.tile) === id));
+		return detail(true);
+	}
+	if (q("[data-play]")) {
+		S.playing = !S.playing;
+		return detail(false);
+	}
+	if ((el = q("[data-nav]"))) {
+		if (S.nav === el.dataset.nav) return;
+		S.nav = el.dataset.nav;
+		return swapSettings();
+	}
+	if ((el = q(".tog"))) return el.classList.toggle("on");
+});
+document.addEventListener("keydown", (e) => {
+	if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+	if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+		const i = ORDER.indexOf(S.dir);
+		setDir(ORDER[(i + (e.key === "ArrowRight" ? 1 : 2)) % 3]);
+	}
+	if (e.key === "d" || e.key === "D") {
+		S.theme = S.theme === "dark" ? "light" : "dark";
+		all();
+	}
+});
+window.addEventListener("resize", placeIndicators);
+const P = new URLSearchParams(location.search);
+if (ORDER.includes(P.get("variant"))) S.dir = P.get("variant");
+if (P.get("theme") === "light") S.theme = "light";
+all();
+document.fonts.load('16px "HarmonyOS Sans SC"', "帧刻").then((f) => {
+	if (!f.length) document.getElementById("fontwarn").classList.add("show");
+	placeIndicators();
+}).catch(() => document.getElementById("fontwarn").classList.add("show"));
+</script>
+</body>
+</html>
