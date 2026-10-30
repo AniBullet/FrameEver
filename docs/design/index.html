@@ -138,7 +138,7 @@ shell({ here: "index", depth: 0, sections: [
 ] });
 
 fill("layer-cards", [
-	["1 · Brand", "Brand layer", "品牌层", "Klein and neutral 12-step ramps (hue 266) plus red, amber and green. They appear only as constants in theme.rs; interface code never uses them directly.", "Klein 和中性灰的 12 阶色阶（色相 266），以及红、琥珀、绿。只出现在 theme.rs 常量里，界面代码不直接用。"],
+	["1 · Brand", "Brand layer", "品牌层", "Klein and near-achromatic neutral 12-step ramps plus red, amber and green. They appear only as constants in theme.rs; interface code never uses them directly.", "Klein 和近乎无彩的中性灰 12 阶色阶，以及红、琥珀、绿。只出现在 theme.rs 常量里，界面代码不直接用。"],
 	["2 · Semantic", "Semantic layer", "语义层", "shadcn/ui names matching GPUI Kit's ThemeColor, plus a few of FrameEver's own: link, recording, preview.", "shadcn/ui 的名字，和 GPUI Kit 的 ThemeColor 一致；加几个 FrameEver 自己的：link、recording、preview。"],
 	["3 · Component", "Component layer", "组件层", "GPUI Kit's fields and FrameEver's EditorTokens. Each field takes exactly one semantic token.", "GPUI Kit 的组件字段和 FrameEver 的 EditorTokens。每个字段只取一个语义 token。"],
 ].map(([n, en, zh, de, dz]) => `<div class="card layer"><em>${n}</em><b>${L(en, zh)}</b><span class="body">${L(de, dz)}</span></div>`).join(""));
@@ -176,7 +176,7 @@ const pairs = [
 	["link", "background", "text", "Link", "链接"], ["link", "card", "text", "Link in a group", "分组里的链接"], ["link", "selection", "text", "Blue text on a selected item", "选中项里的蓝字"],
 	["danger_text", "background", "text", "Error text", "错误文字"], ["danger_text", "danger_tint", "text", "Error banner", "错误提示条"], ["danger_foreground", "danger", "text", "Delete, stop", "删除、停止按钮"], ["warning_text", "background", "text", "Warning text", "警告文字"], ["warning_foreground", "warning", "text", "Amber badge", "琥珀色徽标"], ["success_text", "background", "text", "Success text", "成功文字"], ["success_text", "success_tint", "text", "Success banner", "成功提示条"], ["fixed.white", "fixed.badge", "text", "Duration badge on a thumbnail", "缩略图上的时长徽标"],
 	["ring", "background", "ui", "Focus ring", "焦点环"], ["ring", "card", "ui", "Focus ring in a group", "分组里的焦点环"], ["input", "background", "ui", "Input border", "输入框边框"], ["input", "card", "ui", "Input in a group", "分组里的输入框"], ["border_strong", "background", "ui", "Switch track, off", "开关关时的轨道"], ["recording", "background", "ui", "Recording dot", "录制红点"],
-	["primary", "background", "deco", "Primary fill: read by its white text", "主按钮外形：靠白字识别"], ["border", "background", "deco", "Region divider", "区域分隔线"], ["border", "card", "deco", "Card outline", "卡片外框"], ["selection", "background", "deco", "Selected fill: read by its text", "选中底色：靠文字识别"],
+	["primary", "background", "deco", "Primary fill: read by its white text", "主按钮外形：靠白字识别"], ["border", "background", "deco", "Region divider", "区域分隔线"], ["border", "card", "deco", "Row separator in a group", "分组里的行分隔"], ["selection", "background", "deco", "Selected fill: read by its text", "选中底色：靠文字识别"],
 ];
 const verdict = (r, kind) => {
 	if (kind === "deco") return `<span class="badge plain">${L("Decorative", "装饰")}</span>`;
@@ -204,7 +204,7 @@ fill("radius-card", `<h3>${L("Radius", "圆角")}</h3><div class="radii">${Objec
 fill("nest-card", `<h3>${L("Concentric", "同心圆角")}</h3><div class="nest"><div>16 − 4 = 12 px</div></div><p class="note">${L("Control padding 10–12, related controls 8–10, groups 16–24, window padding 16.", "控件内边距 10–12，相关控件之间 8–10，分组之间 16–24，窗口内边距 16。")}</p>`);
 
 fill("elevation-grid", `<div class="levels"><small>0 · background</small><div class="one"><small>1 · card</small></div><div class="menu"><small style="padding:6px 10px 2px">2 · popover</small><div class="item">${L("Open in editor", "在编辑器中打开")}</div><div class="item hover">${L("Export…", "导出…")}</div><div class="item">${L("Show in folder", "在文件夹中显示")}</div></div></div>
-<div class="card"><h3>${L("Three border weights", "边框三档")}</h3><div class="scroll"><table><tr><th>token</th><th>${L("Dark", "深色")}</th><th>${L("Light", "浅色")}</th><th>${L("Used for", "用在哪")}</th></tr>${[["border", "Regions, cards, title bar", "区域、卡片、标题栏"], ["border_strong", "Popover outlines, switch off", "弹出层外框、开关关"], ["input", "Inputs, dropdowns", "输入框、下拉框"]].map(([n, en, zh]) => `<tr><td><code>${n}</code></td>${["dark", "light"].map((t) => `<td><span class="swatch"><i style="background:${color(t, n)}"></i><span class="mono">${contrast(t, n, "background").toFixed(2)}:1</span></span></td>`).join("")}<td class="dim">${L(en, zh)}</td></tr>`).join("")}</table></div><p class="note">${L("All lines are 1 px, the focus ring 2 px. A selected tile uses the selection fill and a matching edge, no extra blue frame.", "线宽一律 1 px，焦点环 2 px。选中的图块用 selection 底色加同色边，不额外加蓝框。")}</p></div>`);
+<div class="card"><h3>${L("Three border weights", "边框三档")}</h3><div class="scroll"><table><tr><th>token</th><th>${L("Dark", "深色")}</th><th>${L("Light", "浅色")}</th><th>${L("Used for", "用在哪")}</th></tr>${[["border", "Regions, rows, popovers, title bar", "区域、行、弹出层、标题栏"], ["border_strong", "Checkbox, switch off", "复选框、开关关"], ["input", "Inputs, dropdowns", "输入框、下拉框"]].map(([n, en, zh]) => `<tr><td><code>${n}</code></td>${["dark", "light"].map((t) => `<td><span class="swatch"><i style="background:${color(t, n)}"></i><span class="mono">${contrast(t, n, "background").toFixed(2)}:1</span></span></td>`).join("")}<td class="dim">${L(en, zh)}</td></tr>`).join("")}</table></div><p class="note">${L("All lines are 1 px, the focus ring 2 px. A selected tile uses the selection fill and a matching edge, no extra blue frame.", "线宽一律 1 px，焦点环 2 px。选中的图块用 selection 底色加同色边，不额外加蓝框。")}</p></div>`);
 
 const sampleTile = (on, name, meta) => `<div style="width:150px;padding:6px;border-radius:var(--radius-md);${on ? "background:var(--selection)" : ""}" tabindex="0"><span class="thumb"></span><div style="font-size:12px;margin-top:6px;font-weight:500">${name}</div><div style="font-size:11px;color:var(--muted-foreground)">${meta}</div></div>`;
 fill("focus-row", `<button class="btn primary ring" tabindex="-1">${icon("circle")}${L("Start recording", "开始录制")}</button><button class="btn ring" tabindex="-1">${L("Export…", "导出…")}</button><label class="input ring" style="width:200px">${icon("search")}<input tabindex="-1" data-ph-en="Search" data-ph-zh="搜索"></label><button class="switch on ring" tabindex="-1"></button><div style="flex-basis:100%;height:0"></div><button class="btn primary">${icon("circle")}${L("Start recording", "开始录制")}</button><button class="btn">${L("Export…", "导出…")}</button><button class="btn ghost">${icon("folder-open")}${L("Show in folder", "在文件夹中显示")}</button><label class="input" style="width:200px">${icon("search")}<input data-ph-en="Search" data-ph-zh="搜索"></label><button class="switch" onclick="this.classList.toggle('on')"></button>`);
@@ -215,8 +215,7 @@ fill("focus-table", `<tr><th>${L("Ring on", "焦点环对")}</th><th>${L("Dark",
 
 const kleinYes = [
 	["Primary action", "主操作", "At most one solid blue button per region: Start recording, Open in editor, Export", "每个区域最多一个实色蓝按钮：开始录制、在编辑器中打开、导出"],
-	["On and selected controls", "开 / 选中的控件", "Switch on, selected segment: solid Klein", "开关开、选中的分段：实色 Klein"],
-	["Selected items", "选中的项", "Rows, tiles and nav items use the blue-tinted selection fill, not solid", "列表行、图块、导航项用 selection 蓝调底色，不是实色"],
+	["On controls", "开启的控件", "Switch, checkbox and radio when on: solid Klein. Segmented controls and the recording mode stay neutral", "开关、复选框、单选的“开”：实色 Klein。分段控件和录制模式用中性灰"],
 	["Focus ring", "焦点环", "ring: klein-11 on dark, klein-9 on light", "ring：深色 klein-11，浅色 klein-9"],
 	["Links and blue text", "链接和蓝字", "link / info; dark uses the lighter klein-11, since #1F3FD8 is about 2.4:1 on dark", "link / info；深色用浅一档的 klein-11，因为 #1F3FD8 在深色上只有约 2.4:1"],
 	["Progress", "进度", "Progress bars and the filled part of sliders. The playhead is white", "进度条、滑块已填充部分。播放头是白色"],
@@ -226,10 +225,11 @@ const kleinYes = [
 ];
 const kleinNo = [
 	["Previews and thumbnails", "预览和缩略图", "Picture, background and border stay true neutral, so they don't colour your judgement of a recording", "画面本身、它的底和边框都是纯中性灰，避免影响对录制颜色的判断"],
-	["Large fills", "大面积底色", "Windows, title bars, sidebars and cards use hue-266 neutrals only (chroma ≤ 0.05)", "窗口、标题栏、侧栏、卡片只用色相 266 的中性灰（色度 ≤ 0.05）"],
+	["Large fills", "大面积底色", "Windows, title bars, sidebars and cards use near-achromatic greys (chroma ≤ 0.01). Depth comes from lightness steps, not outlines", "窗口、标题栏、侧栏、卡片只用近乎无彩的灰（色度 ≤ 0.01），层次靠明暗，不靠描边"],
 	["Body text and headings", "正文和标题", "foreground / muted_foreground, never blue", "文字是 foreground / muted_foreground，不是蓝"],
 	["Idle icons", "闲置的图标", "Icons take the text colour; they change only inside a selected item", "图标跟文字同色，只在选中项里才变色"],
-	["Borders", "边框", "No blue except the focus ring and selected items", "除了焦点环和选中项，边框不用蓝"],
+	["Selected items", "选中的项", "Rows, tiles, nav items and tags use the neutral selection fill", "列表行、图块、导航项、标签用中性的 selection 底色"],
+	["Borders", "边框", "No blue except the focus ring", "除了焦点环，边框不用蓝"],
 	["States", "状态", "Recording, delete and errors are red, warnings amber, success green", "录制、删除、错误用红，警告用琥珀，成功用绿"],
 	["Hover", "悬停", "Non-primary hover is the neutral accent", "非主按钮的悬停用中性的 accent"],
 	["Waveforms and charts", "波形和图表", "Neutral", "用中性色"],

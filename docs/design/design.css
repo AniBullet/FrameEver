@@ -214,7 +214,6 @@ section > p.lead {
 
 .card {
 	background: var(--card);
-	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
 	padding: 16px;
 }
@@ -383,11 +382,10 @@ td.dim {
 
 .seg {
 	display: inline-flex;
-	border: 1px solid var(--border);
 	border-radius: var(--radius-md);
 	padding: 2px;
 	gap: 2px;
-	background: var(--card);
+	background: var(--muted);
 }
 
 .seg.block {
@@ -423,8 +421,8 @@ td.dim {
 }
 
 .seg button.on {
-	background: var(--primary);
-	color: var(--primary-foreground);
+	background: var(--secondary);
+	color: var(--foreground);
 }
 
 .seg button em {
@@ -648,7 +646,7 @@ td.dim {
 
 .menu {
 	background: var(--popover);
-	border: 1px solid var(--border-strong);
+	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
 	padding: 4px;
 	min-width: 200px;
@@ -691,7 +689,7 @@ td.dim {
 
 .dialog {
 	background: var(--popover);
-	border: 1px solid var(--border-strong);
+	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
 	padding: 20px;
 	width: 420px;
@@ -760,7 +758,7 @@ td.dim {
 	padding: 8px 8px 8px 12px;
 	border-radius: var(--radius-md);
 	background: var(--popover);
-	border: 1px solid var(--border-strong);
+	border: 1px solid var(--border);
 }
 
 .toast .grow {
@@ -775,7 +773,7 @@ td.dim {
 	padding: 4px 8px;
 	border-radius: var(--radius-sm);
 	background: var(--popover);
-	border: 1px solid var(--border-strong);
+	border: 1px solid var(--border);
 	font-size: var(--text-small);
 }
 

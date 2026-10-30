@@ -273,8 +273,8 @@
 }
 
 .mode-rail button.on {
-	background: var(--primary);
-	color: var(--primary-foreground);
+	background: var(--secondary);
+	color: var(--foreground);
 }
 
 .record-round {
