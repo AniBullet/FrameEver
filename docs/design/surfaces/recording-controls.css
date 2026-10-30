@@ -145,12 +145,11 @@
 }
 
 .rb-btn.resume {
-	background: var(--amber-tint);
-	color: var(--warning-text);
+	color: var(--foreground);
 }
 
 .rb-btn.muted {
-	color: var(--warning-text);
+	color: var(--danger-text);
 }
 
 .rb-btn.alert {
@@ -250,7 +249,7 @@
 	display: block;
 	height: 100%;
 	width: 40%;
-	background: var(--progress-bar);
+	background: var(--success);
 }
 
 .ask-card {

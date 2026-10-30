@@ -43,7 +43,7 @@ const timeLabel = (s) => {
 	if (s.phase === "saving") return `<span class="rb-time quiet">${icon("rotate-ccw", "sm rb-spin")}${L("Saving…", "正在保存…")}</span>`;
 	if (s.phase === "pausing") return `<span class="rb-time quiet tnum">${L("Pausing…", "正在暂停…")}</span>`;
 	if (s.phase === "resuming") return `<span class="rb-time quiet tnum">${L("Resuming…", "正在继续…")}</span>`;
-	if (s.paused) return `<span class="rb-time warn tnum"><i class="rb-dot"></i>${L("Paused", "已暂停")} <span data-time>${t}</span></span>`;
+	if (s.paused) return `<span class="rb-time warn tnum">${icon("pause", "sm solid")}${L("Paused", "已暂停")} <span data-time>${t}</span></span>`;
 	return `<span class="rb-time tnum"><i class="rb-dot"></i><span data-time>${t}</span></span>`;
 };
 
@@ -231,7 +231,7 @@ const copy = () => {
 		"t-live": ["Recording bar", "录制控制条"],
 		"l-live": ["Runs for real: the timer counts, and Pause, Options, Restart, Delete, Draw and Hide all work. Flip the three structures with the bar at the bottom of the page or the ← → keys. The bar never takes focus from what you're recording, and it is left out of the video.", "下面可以真的操作：计时在走，暂停、选项、重新开始、删除、画笔和隐藏都能点。用页面底部的切换条或 ← → 键换三种结构。控制条不会抢走被录内容的焦点，也不会出现在视频里。"],
 		"t-states": ["Every state", "所有状态"],
-		"l-states": ["These follow the variant and mode chosen above. Stop is the bar's one solid blue button. Red appears only on the recording dot, Delete and errors, amber only on paused and warnings. Studio shows a level only, because its microphone is an editable track and muted spans would bake in silence. Instant can mute. Everything else is the same in both modes.", "这些状态跟随上面选的方案和模式。停止是控制条上唯一的实色蓝按钮。红色只用在录制点、删除和错误上，琥珀色只用在暂停和警告上。工作室只显示音量，因为麦克风是可编辑的轨道，中途静音会把静音写死。即时可以静音。其余两种模式相同。"],
+		"l-states": ["These follow the variant and mode chosen above. Stop is the bar's one solid blue button. Red appears on the recording dot, muted, Delete and errors. Amber means paused or a warning. Green means the microphone is live. Studio shows a level only, because its microphone is an editable track and muted spans would bake in silence. Instant can mute. Everything else is the same in both modes.", "这些状态跟随上面选的方案和模式。停止是控制条上唯一的实色蓝按钮。红色用在录制点、静音、删除和错误上。琥珀色表示暂停或警告。绿色表示麦克风正在收音。工作室只显示音量，因为麦克风是可编辑的轨道，中途静音会把静音写死。即时可以静音。其余两种模式相同。"],
 		"t-options": ["Recording options before you start", "开始前的录制选项"],
 		"l-options": ["The compact window already holds source, camera, microphone and system audio, so the popover carries only what lives on the Recording settings page today, with the same names: quality, frame rate, countdown and what's captured. Open it with Tab and Enter, close it with Esc. M1 keeps the window at 386 px and always shows what's set; it replaces the item count, which the library shows anyway. Screenshot mode has no options.", "紧凑窗口已经有来源、摄像头、麦克风和系统声音，所以这个浮层只放设置“录制”页里的项目，名称完全一致：画质、帧率、倒计时和捕获内容。Tab 加 Enter 打开，Esc 关闭。M1 让窗口保持 386 px，并一直显示当前设置；它替换的是条目数，资源库里本来就有。截图模式没有这些选项。"],
 		"t-keys": ["Keyboard", "键盘"],
@@ -258,7 +258,7 @@ const copy = () => {
 	table("inv", [["Capability", "功能"], ["Today", "现状"], ["In this design", "这份设计"]], [
 		[["Stop, elapsed time", "停止、计时"], ["Ours: one red button", "我们：同一个红色按钮"], ["Stop moves to the far end as the one solid blue button, so a click on the time can't end the take", "停止移到最后，是唯一的实色蓝按钮，点时间不会误停"]],
 		[["Timer past an hour", "超过一小时的计时"], ["Ours shows 62:33; upstream fixed it", "我们显示 62:33；上游已修"], ["1:02:33, port upstream's format", "1:02:33，移植上游格式"]],
-		[["Microphone level, Instant mute", "麦克风音量、即时静音"], ["Ours and upstream", "我们和上游都有"], ["Kept. The level fill is Klein blue, muted is amber", "保留。音量用克莱因蓝，静音用琥珀色"]],
+		[["Microphone level, Instant mute", "麦克风音量、即时静音"], ["Ours and upstream", "我们和上游都有"], ["Kept. The level is green, muted is red", "保留。音量用绿色，静音用红色"]],
 		[["Pause, pending and unconfirmed", "暂停、等待中和未确认"], ["Ours", "我们有"], ["Kept; paused now shows the time too", "保留；暂停时同时显示时间"]],
 		[["Restart, Delete", "重新开始、删除"], ["Windows dialog, which takes focus and can land in the video", "Windows 对话框，会抢焦点，还可能录进视频"], ["A card above the bar, using the confirmation pattern in the copy guide", "控制条上方的卡片，按文案规范的确认格式"]],
 		[["Recording settings", "录制设置"], ["Ours and upstream GPUI: disabled gear", "我们和上游 GPUI：灰掉的齿轮"], ["Options popover", "录制选项浮层"]],
