@@ -21,7 +21,7 @@ A recording captured straight to a single playable video, without an editing ste
 _Avoid_: Quick recording, fast mode
 
 **Studio Sound**:
-FrameEver's voice clean-up for recorded audio: it lowers background noise and evens out loudness. Written as a proper noun in both languages.
+FrameEver's voice clean-up for recorded audio: it lowers background noise and evens out loudness. Capitalised as a proper noun in English; 录音棚音质 in Chinese.
 _Avoid_: noise reduction, audio enhancement
 
 **Project**:
