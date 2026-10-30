@@ -8,7 +8,7 @@ window.FE = (() => {
 		["settings", "Settings", "设置", true],
 		["editor", "Editor", "编辑器", true],
 		["screenshot-editor", "Screenshot editor", "截图编辑器", true],
-		["recording-controls", "Recording controls", "录制控制条", false],
+		["recording-controls", "Recording controls", "录制控制条", true],
 		["area-picker", "Area picker and countdown", "区域选择和倒计时", false],
 		["tray", "Tray", "托盘", false],
 		["camera-teleprompter", "Camera and teleprompter", "摄像头和提词器", false],
