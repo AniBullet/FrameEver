@@ -201,8 +201,8 @@ const renderOptions = () => {
 	const row = place === "M2" && canOpt ? `<button class="device" data-opt="toggle">${icon("sliders-horizontal")}<span class="grow">${L("Options", "录制选项")}</span><em>${summary()}</em>${icon(open ? "chevron-up" : "chevron-down", "sm")}</button>` : "";
 	const start = shot ? L("Take screenshot", "截图") : L("Start recording", "开始录制");
 	const startBtn = place === "M3" && canOpt
-		? `<div class="split"><button class="btn primary tall">${icon("circle", "solid")}${start}</button><button class="btn primary tall" data-opt="toggle" aria-label="${pick("Recording options", "录制选项")}">${icon(open ? "chevron-down" : "chevron-up", "sm")}</button></div>`
-		: `<button class="btn primary block tall">${icon("circle", "solid")}${start}</button>`;
+		? `<div class="split"><button class="btn primary tall">${FE.recordGlyph()}${start}</button><button class="btn primary tall" data-opt="toggle" aria-label="${pick("Recording options", "录制选项")}">${icon(open ? "chevron-down" : "chevron-up", "sm")}</button></div>`
+		: `<button class="btn primary block tall">${FE.recordGlyph()}${start}</button>`;
 	const middle = place === "M1" && canOpt
 		? `<button class="sum ${open ? "on" : ""}" data-opt="toggle" title="${pick("Recording options", "录制选项")}">${icon("sliders-horizontal", "sm")}${summary()}</button>`
 		: `<span class="grow tnum">${L("10 items", "10 项")}</span>`;

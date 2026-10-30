@@ -22,6 +22,7 @@ window.FE = (() => {
 		if (!icons[name]) throw new Error(`No icon: ${name}`);
 		return `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
 	};
+	const recordGlyph = () => '<span class="rec-glyph" aria-hidden="true"></span>';
 	const pick = (en, zh) => (state.lang === "en" ? en : zh);
 
 	const readHash = () => {
@@ -189,5 +190,5 @@ window.FE = (() => {
 		return 1 - Math.exp(-zeta * omega * t) * (Math.cos(damped * t) + ((zeta * omega) / damped) * Math.sin(damped * t));
 	};
 
-	return { tokens, state, L, icon, pick, shell, seg, hex, oklch, color, value, contrast, spring, onChange: (fn) => listeners.push(fn) };
+	return { tokens, state, L, icon, recordGlyph, pick, shell, seg, hex, oklch, color, value, contrast, spring, onChange: (fn) => listeners.push(fn) };
 })();

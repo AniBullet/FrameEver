@@ -365,6 +365,23 @@ td.dim {
 	padding: 0;
 }
 
+.rec-glyph {
+	position: relative;
+	width: var(--icon);
+	height: var(--icon);
+	border-radius: 50%;
+	background: var(--primary-foreground);
+	flex: none;
+}
+
+.rec-glyph::after {
+	content: "";
+	position: absolute;
+	inset: 18%;
+	border-radius: 50%;
+	background: var(--recording);
+}
+
 .btn.block {
 	width: 100%;
 }
