@@ -7,9 +7,9 @@ Object.assign(window.FRAMEEVER_ICONS, {
 });
 
 const variants = {
-	A: ["Sidebar pages", "侧栏分页"],
-	B: ["One long page", "一页到底"],
-	C: ["Home and drill-in", "主页下钻"],
+	K: ["Current Klein Field", "现在的 Klein Field"],
+	G: ["Graphite", "石墨"],
+	I: ["Ink black", "墨黑"],
 };
 
 const v = {
@@ -208,7 +208,7 @@ const rowOf = (key) => {
 const allRows = () => sections.flatMap((section) => section.groups.flatMap((group) => group.rows.map((row) => ({ section, group, row }))));
 const variant = () => {
 	const value = new URLSearchParams(location.hash.slice(1)).get("at");
-	return variants[value] ? value : "A";
+	return variants[value] ? value : "G";
 };
 
 const hotkeyText = (keys) => keys.map((key) => `<span class="kbd">${key}</span>`).join("");
@@ -299,33 +299,7 @@ const renderA = () => {
 	const content = ui.search
 		? `<div class="page-title">${L("Results", "搜索结果")}</div><div class="page-sub">${L(`${matches().length} settings`, `${matches().length} 项设置`)}</div>${resultList()}`
 		: `<div class="page-title">${L(section.en, section.zh)}</div><div class="page-sub">${L(section.sumEn, section.sumZh)}</div>${pageHtml(section)}`;
-	return `<div class="win"><div class="body"><aside class="side"><div class="side-head">${searchBox()}</div><div class="side-list">${nav}</div></aside><div style="flex:1;min-width:0;display:flex;flex-direction:column">${titleBar()}<div class="content" data-scroll>${content}</div></div></div></div>`;
-};
-
-const renderB = () => {
-	const hits = new Set(matches().map(({ row }) => row.k));
-	const filtered = Boolean(ui.search.trim());
-	const nav = sections.map((entry) => {
-		const count = entry.groups.flatMap((group) => group.rows).filter((row) => hits.has(row.k)).length;
-		return `<button class="nav-item ${!filtered && entry.id === ui.page ? "on" : ""}" data-spy="${entry.id}" ${filtered && !count ? 'style="opacity:.4"' : ""}>${icon(entry.icon)}${L(entry.en, entry.zh)}${filtered && count ? `<span class="badge plain" style="margin-left:auto">${count}</span>` : ""}</button>`;
-	}).join("");
-	const body = sections.map((entry) => {
-		const groups = entry.groups
-			.map((group) => ({ ...group, rows: filtered ? group.rows.filter((row) => hits.has(row.k)) : group.rows }))
-			.filter((group) => group.rows.length);
-		if (!groups.length) return "";
-		return `<div class="long-section" id="sec-${entry.id}"><h3>${L(entry.en, entry.zh)}</h3>${groups.map(groupHtml).join("")}</div>`;
-	}).join("");
-	return `<div class="win">${titleBar(`${L("Settings", "设置")}`)}<div class="long-top">${searchBox()}</div><div class="body"><div class="long-nav">${nav}</div><div class="content" data-scroll data-long>${body || `<div class="empty">${L(`Nothing matches "${ui.search}"`, `没有匹配“${ui.search}”的设置`)}</div>`}</div></div></div>`;
-};
-
-const renderC = () => {
-	const section = sections.find((entry) => entry.id === ui.page);
-	if (ui.search || ui.home) {
-		const tiles = sections.map((entry) => `<button class="tile" data-page="${entry.id}"><span class="tile-icon">${icon(entry.icon)}</span><span><b>${L(entry.en, entry.zh)}</b><small>${L(entry.sumEn, entry.sumZh)}</small></span></button>`).join("");
-		return `<div class="win">${titleBar(L("Settings", "设置"))}<div class="home" data-scroll><div class="home-search">${searchBox()}</div>${ui.search ? `<div class="narrow">${resultList()}</div>` : `<div class="tiles">${tiles}</div>`}</div></div>`;
-	}
-	return `<div class="win">${titleBar()}<div class="crumbs"><button class="btn ghost icon" data-home title="${pick("Back  Alt+Left", "返回  Alt+Left")}">${icon("chevron-left")}</button><button class="crumb-link" data-home>${L("Settings", "设置")}</button>${icon("chevron-right")}<b style="font-weight:500">${L(section.en, section.zh)}</b><span class="grow"></span>${searchBox()}</div><div class="content" data-scroll><div class="narrow">${pageHtml(section)}</div></div></div>`;
+	return `<div class="win look-${variant()}"><div class="body"><aside class="side"><div class="side-head">${searchBox()}</div><div class="side-list">${nav}</div></aside><div style="flex:1;min-width:0;display:flex;flex-direction:column">${titleBar()}<div class="content" data-scroll>${content}</div></div></div></div>`;
 };
 
 const stage = document.getElementById("stage");
@@ -334,7 +308,7 @@ const render = () => {
 	const top = scroller?.scrollTop ?? 0;
 	const search = document.activeElement?.matches?.("#stage [data-search]");
 	const caret = search ? document.activeElement.selectionStart : 0;
-	stage.innerHTML = { A: renderA, B: renderB, C: renderC }[variant()]();
+	stage.innerHTML = renderA();
 	const next = stage.querySelector("[data-scroll]");
 	if (next) next.scrollTop = top;
 	if (search) {
@@ -504,9 +478,9 @@ const handleState = (target) => {
 const renderStates = () => {
 	document.getElementById("state-tabs").innerHTML = stateTabs.map(([key, en, zh]) => `<button class="btn ${ui.stateTab === key ? "primary" : ""}" data-tab="${key}">${L(en, zh)}</button>`).join("");
 	const body = {
-		update: () => `<div class="win short" style="padding:14px"><div class="chips" style="margin-bottom:12px">${updateStates.map(([key, en, zh]) => `<button class="btn ${ui.updateState === key ? "primary" : "ghost"}" data-ustate="${key}">${L(en, zh)}</button>`).join("")}</div>${controls.version()}<p class="hint" style="margin:10px 0 0">${L("Ready also puts a count on About in the sidebar. Variant A shows it; the others show a badge on the matching row.", "就绪时侧栏“关于”上出现数字，方案 A 如此；其他方案在对应行显示徽标。")}</p></div>`,
-		folder: () => `<div class="win short" style="padding:14px"><div class="group-card"><div class="row stack">${controls.folder(null, true)}</div></div></div>`,
-		nomatch: () => `<div class="win short" style="padding:14px"><div class="empty">${L('Nothing matches "wxyz"', "没有匹配“wxyz”的设置")}</div></div>`,
+		update: () => `<div class="win short look-${variant()}" style="padding:14px"><div class="chips" style="margin-bottom:12px">${updateStates.map(([key, en, zh]) => `<button class="btn ${ui.updateState === key ? "primary" : "ghost"}" data-ustate="${key}">${L(en, zh)}</button>`).join("")}</div>${controls.version()}<p class="hint" style="margin:10px 0 0">${L("Ready also puts a count on About in the sidebar. Variant A shows it; the others show a badge on the matching row.", "就绪时侧栏“关于”上出现数字，方案 A 如此；其他方案在对应行显示徽标。")}</p></div>`,
+		folder: () => `<div class="win short look-${variant()}" style="padding:14px"><div class="group-card"><div class="row stack">${controls.folder(null, true)}</div></div></div>`,
+		nomatch: () => `<div class="win short look-${variant()}" style="padding:14px"><div class="empty">${L('Nothing matches "wxyz"', "没有匹配“wxyz”的设置")}</div></div>`,
 	}[ui.stateTab]();
 	document.getElementById("state-stage").innerHTML = body;
 };
@@ -537,11 +511,11 @@ document.getElementById("inv").innerHTML = `<table class="inv"><thead><tr><th>${
 
 const copy = {
 	"t-live": ["Settings window", "设置窗口"],
-	"l-live": ["Three structures with the same settings. Use the bar at the bottom or the ← → keys to switch. Everything responds: search, hotkeys (try the conflict by pressing Ctrl+Shift+A on another row), dropdowns, switches.", "同一批设置的三种结构。用底部的切换条或 ← → 键切换。都可以操作：搜索、快捷键（在别的行按 Ctrl+Shift+A 可看到冲突处理）、下拉框、开关。"],
+	"l-live": ["Structure A with three dark treatments. Current is the Klein Field tokens as decided. Graphite and Ink black keep #1F3FD8 but take the blue out of the greys, soften borders and spend the accent only on what is on. Use the bar at the bottom or the ← → keys.", "结构 A 的三种深色处理。“现在的 Klein Field”是已定的 token；石墨和墨黑保留 #1F3FD8，但把灰色里的蓝去掉、边框调淡，蓝色只留给“开启”的东西。用底部切换条或 ← → 键切换。"],
 	"t-states": ["States", "状态"],
 	"l-states": ["The states that the live window doesn't show on its own.", "实时窗口里不会自己出现的状态。"],
 	"t-open": ["Opening and closing", "打开和关闭"],
-	"l-open": ["The same in every variant.", "三种方案都一样。"],
+	"l-open": ["Decided with structure A.", "随结构 A 一起定。"],
 	"t-inv": ["Every setting", "全部设置项"],
 	"l-inv": ["Where each current setting lands, and the GPUI Kit part that draws it. All page and row bodies use setting::{SettingPage, SettingGroup, SettingItem}.", "每个现有设置项的去向和绘制它的 GPUI Kit 组件。页面和行都用 setting::{SettingPage, SettingGroup, SettingItem}。"],
 };

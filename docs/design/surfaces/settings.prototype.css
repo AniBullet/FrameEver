@@ -749,3 +749,125 @@ main {
 	padding: 0 8px;
 	font-weight: 600;
 }
+
+[data-theme="dark"] .win.look-G {
+	--background: oklch(0.165 0.004 266);
+	--sidebar: oklch(0.145 0.004 266);
+	--card: oklch(0.195 0.005 266);
+	--muted: oklch(0.195 0.005 266);
+	--secondary: oklch(0.245 0.006 266);
+	--popover: oklch(0.235 0.006 266);
+	--border: oklch(1 0 0 / 7%);
+	--border-strong: oklch(1 0 0 / 14%);
+	--input: oklch(0.53 0.006 266);
+	--switch: oklch(0.53 0.006 266);
+	--foreground: oklch(0.94 0.003 266);
+	--muted-foreground: oklch(0.72 0.008 266);
+}
+
+[data-theme="dark"] .win.look-I {
+	--background: oklch(0.135 0.002 266);
+	--sidebar: oklch(0.135 0.002 266);
+	--card: oklch(0.135 0.002 266);
+	--muted: oklch(0.175 0.003 266);
+	--secondary: oklch(0.215 0.004 266);
+	--popover: oklch(0.215 0.004 266);
+	--border: oklch(1 0 0 / 8%);
+	--border-strong: oklch(1 0 0 / 14%);
+	--input: oklch(0.52 0.004 266);
+	--switch: oklch(0.52 0.004 266);
+	--foreground: oklch(0.93 0.002 266);
+	--muted-foreground: oklch(0.7 0.006 266);
+}
+
+.win.look-G,
+.win.look-I {
+	border-color: var(--border-strong);
+}
+
+.win.look-G .nav-item.on,
+.win.look-I .nav-item.on {
+	background: var(--secondary);
+	color: var(--foreground);
+}
+
+.win.look-G .seg,
+.win.look-I .seg {
+	background: var(--muted);
+	border-color: transparent;
+}
+
+.win.look-G .seg button.on,
+.win.look-I .seg button.on {
+	background: var(--secondary);
+	color: var(--foreground);
+}
+
+.win.look-G .tier,
+.win.look-I .tier {
+	background: var(--muted);
+	border-color: transparent;
+}
+
+.win.look-G .tier.on,
+.win.look-I .tier.on {
+	background: var(--secondary);
+	border-color: var(--ring);
+}
+
+.win.look-G .pick-select,
+.win.look-I .pick-select {
+	background: var(--secondary);
+	border-color: transparent;
+}
+
+.win.look-G .side-head .input,
+.win.look-I .side-head .input {
+	background: var(--muted);
+}
+
+.win.look-G .group-card {
+	border-color: transparent;
+}
+
+.win.look-I .group-card {
+	background: transparent;
+	border-color: transparent;
+	border-radius: 0;
+}
+
+.win.look-I .row {
+	padding-left: 0;
+	padding-right: 0;
+}
+
+.win.look-I .row.dep {
+	padding-left: 20px;
+}
+
+.win.look-I .side {
+	border-right-color: var(--border);
+}
+
+.win.look-G .page-title,
+.win.look-I .page-title {
+	font-size: 20px;
+	line-height: 28px;
+	letter-spacing: -0.012em;
+}
+
+.win.look-G .group > h4,
+.win.look-I .group > h4 {
+	font-weight: 500;
+}
+
+.win.look-G .content,
+.win.look-I .content {
+	padding-left: 32px;
+	padding-right: 32px;
+}
+
+.win.look-I .about-head {
+	padding-left: 0;
+	padding-right: 0;
+}
