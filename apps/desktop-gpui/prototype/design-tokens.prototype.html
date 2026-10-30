@@ -164,6 +164,17 @@ input[type=range]{accent-color:var(--primary);width:180px}
 .q{border:1px solid var(--border-strong);border-radius:var(--radius-lg);padding:14px 16px;background:var(--card)}
 .q ol{margin:6px 0 0;padding-left:20px}
 .q li{margin:6px 0}
+.welc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:980px){.welc{grid-template-columns:1fr}}
+.wpanel{border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden}
+.wpanel .whead{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;background:var(--card);color:var(--muted-foreground);border-bottom:1px solid var(--border)}
+.wpanel .wbody{padding:22px 16px 18px;display:flex;flex-direction:column;align-items:center;gap:0;min-height:430px}
+.wpanel .wcard{margin-top:14px;width:100%;max-width:330px;border-radius:20px;padding:12px 14px;display:flex;align-items:center;gap:10px;font-size:12.5px}
+.wpanel svg.dd{overflow:visible;display:block}
+.wpanel .wbtn{margin-top:14px;height:36px;padding:0 18px;border-radius:12px;border:0;font-weight:500;cursor:default}
+.inks{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-top:1px solid var(--border);background:var(--card);font-size:10.5px}
+.inks span{display:inline-flex;align-items:center;gap:5px;padding:2px 6px 2px 3px;border-radius:6px;border:1px solid var(--border);color:var(--foreground)}
+.inks i{width:14px;height:14px;border-radius:4px;display:block}
 </style>
 </head>
 <body>
@@ -322,6 +333,18 @@ input[type=range]{accent-color:var(--primary);width:180px}
 	<div class="card" style="margin-top:16px">
 		<h3>从不做动画的东西</h3>
 		<ul class="never" id="never"></ul>
+	</div>
+</section>
+
+<section id="welcome">
+	<h2>欢迎页和引导的手绘</h2>
+	<p class="lead">欢迎页和引导保持现在的风格、手绘涂鸦和动画，不重新设计；它们也是别处手绘点缀的样板。所以 Klein Field 要“托住”它们：下面左边是现在的配色（<code>onboarding_window/stage.rs</code> 的 <code>Paper</code>），右边是同一套墨水换成 Klein Field 语义 token 后的样子，深浅色各一组。路径、线宽、时间都照搬 <code>onboarding_doodles.rs</code> 和 <code>doodle.rs</code>：描线、抖动（boil）、虚线行进、呼吸、浮动、弹出。</p>
+	<div style="display:flex;gap:10px;align-items:center;margin-bottom:12px"><button class="btn primary" id="wreplay"><i data-lucide="rotate-ccw"></i>重播入场</button><span class="note" style="margin:0">墨水对底色的对比度按图形算（≥ 3:1）；track 是装饰性的轨道线。</span></div>
+	<div class="welc" id="welc"></div>
+	<div class="grid2" style="margin-top:16px">
+		<div class="card scroll"><h3>墨水换成哪个 token</h3><table id="inkmap"></table></div>
+		<div class="card scroll"><h3>手绘和欢迎页的动效（保留原样）</h3><table id="doodlemotion"></table>
+			<p class="note">这些比产品界面的 120 / 180 / 380 ms 长，弹出还会超过终点（0.2 → 1.2 → 1）。它们是品牌时刻的例外，只用在欢迎页、引导、空状态这些手绘点缀上；画的是 canvas 路径，所以缩放在 GPUI 里可行。减少动态效果时：不抖动、不入场，直接画好。</p></div>
 	</div>
 </section>
 
@@ -520,6 +543,7 @@ const KLEIN_OK = [
 	["进度和播放位置", "进度条、滑块已填充部分、播放头、时间轴当前位置"],
 	["完成时刻", "导出完成的整条蓝色横条、欢迎页的大色块"],
 	["品牌", "应用图标、字标、关于页"],
+	["手绘点缀", "欢迎页、引导、空状态里 accent 墨水的线（标题下的波浪线、虚线框、箭头），用 link 色"],
 ];
 const KLEIN_NO = [
 	["预览和缩略图", "画面本身、它的底和边框都是纯中性灰，避免影响对录制颜色的判断"],
@@ -537,6 +561,8 @@ const QS = [
 	"输入框和开关关的边框按 WCAG 1.4.11 提到了 ≥ 3:1（n8），比 #28 原型里的边框更显眼。接受，还是只保留装饰性的细边框？",
 	"白名单里有没有该加或该删的地方？比如播放头用蓝还是用白。",
 	"窗口圆角交给 Windows 11（8 px）而不是 #28 原型里的 14 px，同意吗？",
+	"欢迎页和引导：墨水换成 Klein Field 的 token（右栏），还是连底色带墨水都保留现在的 Paper（左栏，浅色是暖白 #FBFAF7）？",
+	"引导里有两处和“纯扁平”冲突：演示画面里的紫色渐变（#667EEA → #764BA2）和半透明的纸卡片（白 5% / 65%）。保留，还是换成纯色？",
 ];
 
 const lin = ([L, C, h]) => {
@@ -825,10 +851,146 @@ function drawCurve() {
 		<text x="${x0 + 8}" y="${y0 - h + 12}" font-size="10" fill="${c("--muted-foreground")}">ease-effects（虚线，参照）</text>`;
 }
 
+const PAPER = {
+	dark: { bg: "#18181b", card: "rgba(255,255,255,0.05)", cardHex: "#222225", ink: "#f2f2f3", soft: "#8e8e96", accent: "#4d8dff", red: "#ff6369", green: "#3dd68c", track: "#3a3a40" },
+	light: { bg: "#fbfaf7", card: "rgba(255,255,255,0.65)", cardHex: "#fefdfc", ink: "#20242c", soft: "#8b8f98", accent: "#4785ff", red: "#e5484d", green: "#2f9e69", track: "#dcdcd4" },
+};
+const INKMAP = [
+	["bg", "background", "background", "页面底"],
+	["card", "card", "popover", "纸卡片（圆角 20，1.5 px track 边）"],
+	["ink", "foreground", "foreground", "主线条、标题"],
+	["soft", "muted_foreground", "muted_foreground", "辅助线、副标题"],
+	["accent", "link", "link", "波浪下划线、虚线框、声波"],
+	["red", "recording", "recording", "录制点"],
+	["green", "success_text", "success_text", "完成的勾"],
+	["track", "border", "border", "轨道、卡片边（装饰）"],
+];
+const DOODLES = {
+	SCREEN: { view: [120, 104], strokes: [
+		{ d: "M 18 12 L 102 12 Q 110 12 110 20 L 110 66 Q 110 74 102 74 L 18 74 Q 10 74 10 66 L 10 20 Q 10 12 18 12 Z", ink: "ink", w: 4, m: ["draw", 80, 850] },
+		{ d: "M 52 74 L 49 88 M 68 74 L 71 88 M 40 90 L 80 90", ink: "ink", w: 4, m: ["draw", 750, 400] },
+		{ d: "M 24 24 L 96 24 L 96 62 L 24 62 Z", ink: "accent", w: 2.5, m: ["fade", 900, 350], march: true },
+		{ d: "M 33 29.5 C 35.5 29.5 37.5 31.5 37.5 34 C 37.5 36.5 35.5 38.5 33 38.5 C 30.5 38.5 28.5 36.5 28.5 34 C 28.5 31.5 30.5 29.5 33 29.5 Z", ink: "red", fill: true, m: ["pop", 1100, 450], pulse: true },
+		{ d: "M 72 38 L 72 56 L 76.5 51.5 L 80 59 L 83 57.6 L 79.6 50.4 L 85.5 50.4 Z", ink: "ink", w: 2.5, m: ["fade", 1250, 300], bob: true },
+	] },
+	UNDERLINE: { view: [132, 12], strokes: [{ d: "M 4 8 C 34 4 78 3 128 6", ink: "accent", w: 3.5, m: ["draw", 350, 650] }] },
+	ALL_SET: { view: [120, 104], strokes: [
+		{ d: "M 60 12 C 84 12 102 30 102 52 C 102 75 84 92 60 92 C 35 92 18 74 18 52 C 18 31 34 14 56 12.5 C 62 12 68 13 73 15", ink: "soft", w: 3, m: ["draw", 450, 750] },
+		{ d: "M 38 54 L 54 70 L 84 34", ink: "green", w: 5.5, m: ["draw", 80, 500] },
+	] },
+};
+const DOODLE_MOTION = [
+	["描线 draw", "300–850 ms，各笔有延迟", "ease-out cubic", "stroke 按弧长从 0 画到 1"],
+	["淡入 fade", "300–400 ms", "ease-out cubic", "虚线框、光标"],
+	["弹出 pop", "450 ms", "缩放 0.2 → 1.2 → 1", "录制点；唯一超过终点的地方"],
+	["抖动 boil", "每 150 ms 换一帧，4 帧", "幅度 1.25，波长 20", "所有涂鸦共用一个时钟"],
+	["虚线行进 march", "1.1 s 一圈", "线性", "虚线 2 / 间隔 4.2"],
+	["浮动 bob", "1.9 s 一圈", "余弦", "上下 4 个单位"],
+	["呼吸 pulse", "1.2 s 一圈", "余弦", "透明度 1 → 0.3 → 1"],
+	["欢迎页入场", "位置 1.1 s，透明度 1 s；依次延迟 0.15 / 0.35 / 0.9 / 1.15 / 1.45 s", "ease-out cubic / smoothstep", "上移 12 px 并淡入"],
+	["欢迎页离开", "1.1 s，每层 0.4 s", "smoothstep", "上移 24 px 并淡出"],
+	["引导换步", "500 ms", "smoothstep", "横向 24 px 滑入并淡入"],
+];
+const hexLum = (h) => {
+	const n = h.replace("#", "");
+	const c = [0, 2, 4].map((i) => parseInt(n.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
+	return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+function inkPalette(kind, th) {
+	if (kind === "paper") {
+		const p = PAPER[th];
+		return { css: { ...p }, lum: Object.fromEntries(Object.keys(p).filter((k) => k !== "card" && k !== "cardHex").map((k) => [k, hexLum(p[k])])), cardLum: hexLum(p.cardHex) };
+	}
+	const out = { css: {}, lum: {} };
+	for (const [ink, d, l] of INKMAP) {
+		const name = th === "dark" ? d : l;
+		out.css[ink] = cssColor(semVal(th, name));
+		out.lum[ink] = lum(semVal(th, name).v);
+	}
+	out.cardLum = out.lum.card;
+	return out;
+}
+const easeOut = (t) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 3;
+const smooth = (t) => {
+	const v = Math.min(1, Math.max(0, t));
+	return v * v * (3 - 2 * v);
+};
+const beat = (e, d, dur) => Math.min(1, Math.max(0, (e - d) / dur));
+let welcomeAt = performance.now();
+function doodleSvg(name, w, h, startMs, pal, key) {
+	const D = DOODLES[name];
+	return `<svg class="dd" width="${w}" height="${h}" viewBox="0 0 ${D.view[0]} ${D.view[1]}" data-doodle="${name}" data-start="${startMs}">
+		<defs><filter id="boil-${key}" x="-10" y="-10" width="${D.view[0] + 20}" height="${D.view[1] + 20}" filterUnits="userSpaceOnUse"><feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="1" seed="1"/><feDisplacementMap in="SourceGraphic" scale="2.5" xChannelSelector="R" yChannelSelector="G"/></filter></defs>
+		<g filter="url(#boil-${key})">${D.strokes.map((s, i) => `<path data-i="${i}" d="${s.d}" ${s.fill ? `fill="${pal[s.ink]}" stroke="none"` : `fill="none" stroke="${pal[s.ink]}" stroke-width="${s.w}" stroke-linecap="round" stroke-linejoin="round"`} ${s.march ? `stroke-dasharray="2 4.2"` : s.m[0] === "draw" ? `pathLength="1" stroke-dasharray="1 2"` : ""} style="transform-box:fill-box;transform-origin:center;opacity:0"/>`).join("")}</g></svg>`;
+}
+function renderWelcome() {
+	const panel = (kind, th) => {
+		const P = inkPalette(kind, th);
+		const pal = P.css;
+		const key = `${kind}-${th}`;
+		const inkChips = ["ink", "soft", "accent", "red", "green", "track"].map((k) => {
+			const r = ratio(P.lum[k], P.lum.bg);
+			const tag = k === "track" ? `<span class="deco" style="padding:0 4px">装饰</span>` : r >= 3 ? `<span class="pass" style="padding:0 4px">≥ 3:1</span>` : `<span class="fail" style="padding:0 4px">不达标</span>`;
+			return `<span><i style="background:${pal[k]}"></i>${k} <b class="mono" style="font-weight:500">${r.toFixed(2)}:1</b>${tag}</span>`;
+		}).join("");
+		const cardBorder = kind === "paper" ? pal.track : pal.track;
+		return `<div class="wpanel"><div class="whead">${kind === "paper" ? "现在 · Paper" : "Klein Field"} · ${th === "dark" ? "深色" : "浅色"}</div>
+			<div class="wbody" style="background:${pal.bg};color:${pal.ink}">
+				<div data-rise="0.35">${doodleSvg("SCREEN", 240, 208, 350, pal, `${key}-s`)}</div>
+				<div data-rise="0.9" style="display:flex;flex-direction:column;align-items:center;margin-top:6px"><div style="font-size:32px;line-height:40px;font-weight:600;letter-spacing:-.01em">欢迎使用 FrameEver</div><div style="margin-top:4px">${doodleSvg("UNDERLINE", 150, 14, 1300, pal, `${key}-u`)}</div></div>
+				<div data-rise="1.15" style="font-size:15px;line-height:22px;color:${pal.soft};margin-top:10px;text-align:center;max-width:340px">录屏、剪辑、导出，全部留在你自己的电脑上。</div>
+				<div data-rise="1.45" class="wcard" style="background:${pal.card};border:1.5px solid ${cardBorder}">${doodleSvg("ALL_SET", 44, 38, 1700, pal, `${key}-a`)}<div><b style="font-weight:500">权限都准备好了</b><div style="color:${pal.soft};font-size:12px">屏幕录制 · 麦克风 · 摄像头</div></div></div>
+			</div>
+			<div class="inks">${inkChips}</div></div>`;
+	};
+	document.getElementById("welc").innerHTML = panel("paper", "dark") + panel("klein", "dark") + panel("paper", "light") + panel("klein", "light");
+	document.getElementById("inkmap").innerHTML = `<tr><th>Paper 墨水</th><th>现在（深 / 浅）</th><th>Klein Field 深色</th><th>Klein Field 浅色</th><th>画什么</th></tr>${INKMAP.map(([ink, d, l, u]) => `<tr><td><code>${ink}</code></td><td><span class="chipv"><span class="dot" style="background:${PAPER.dark[ink]}"></span><span class="dot" style="background:${PAPER.light[ink]}"></span></span></td><td><span class="chipv"><span class="dot" style="background:${cssColor(semVal("dark", d))}"></span><code>${d}</code></span></td><td><span class="chipv"><span class="dot" style="background:${cssColor(semVal("light", l))}"></span><code>${l}</code></span></td><td style="color:var(--muted-foreground)">${u}</td></tr>`).join("")}`;
+	document.getElementById("doodlemotion").innerHTML = `<tr><th>动作</th><th>时间</th><th>曲线</th><th>说明</th></tr>${DOODLE_MOTION.map((m) => `<tr><td>${m[0]}</td><td class="mono" style="font-family:inherit">${m[1]}</td><td><code>${m[2]}</code></td><td style="color:var(--muted-foreground)">${m[3]}</td></tr>`).join("")}`;
+}
+function tickWelcome(now) {
+	const e = now - welcomeAt;
+	const sec = e / 1000;
+	const seed = String(1 + (Math.floor(now / 150) % 4));
+	document.querySelectorAll("#welc feTurbulence").forEach((f) => {
+		if (f.getAttribute("seed") !== seed) f.setAttribute("seed", seed);
+	});
+	document.querySelectorAll("#welc [data-rise]").forEach((el) => {
+		const d = Number(el.dataset.rise);
+		el.style.transform = `translateY(${12 * (1 - easeOut(beat(sec, d, 1.1)))}px)`;
+		el.style.opacity = smooth(beat(sec, d, 1));
+	});
+	document.querySelectorAll("#welc svg[data-doodle]").forEach((svg) => {
+		const D = DOODLES[svg.dataset.doodle];
+		const el = e - Number(svg.dataset.start);
+		const s2 = Math.max(0, el) / 1000;
+		svg.querySelectorAll("path[data-i]").forEach((p) => {
+			const st = D.strokes[Number(p.dataset.i)];
+			const [kind, delay, dur] = st.m;
+			const t = beat(el, delay, dur);
+			let alpha = 1, grow = 1, drawn = 1;
+			if (kind === "draw") drawn = easeOut(t);
+			if (kind === "fade") alpha = easeOut(t);
+			if (kind === "pop") {
+				alpha = easeOut(t);
+				grow = t < 0.6 ? 0.2 + t / 0.6 : 1.2 - 0.2 * ((t - 0.6) / 0.4);
+			}
+			if (t <= 0) alpha = 0;
+			if (st.pulse) alpha *= 0.65 + 0.35 * Math.cos(Math.PI * 2 * ((s2 / 1.2) % 1));
+			const bob = st.bob ? -4 * (0.5 - 0.5 * Math.cos(Math.PI * 2 * ((s2 / 1.9) % 1))) : 0;
+			p.style.opacity = alpha;
+			p.style.transform = `translate(0px, ${bob}px) scale(${grow})`;
+			if (kind === "draw") p.setAttribute("stroke-dashoffset", String(1 - drawn));
+			if (st.march) p.setAttribute("stroke-dashoffset", String(-((s2 / 1.1) % 1) * 6.2));
+		});
+	});
+	requestAnimationFrame(tickWelcome);
+}
+requestAnimationFrame(tickWelcome);
+
 function chrome() {
 	document.getElementById("themes").innerHTML = [["dark", "深色"], ["light", "浅色"]].map(([v, l]) => `<button class="${S.theme === v ? "on" : ""}" data-theme="${v}">${l}</button>`).join("");
 	document.getElementById("densities").innerHTML = Object.entries(DENSITY).map(([k, d]) => `<button class="${S.density === k ? "on" : ""}" data-density="${k}">${d.label}</button>`).join("");
-	document.getElementById("toc").innerHTML = [["layers", "三层"], ["ramps", "色阶"], ["semantic", "语义层"], ["component", "组件层"], ["contrast", "对比度"], ["type", "字体"], ["space", "间距·圆角·密度"], ["elevation", "边框与层级"], ["focus", "焦点环"], ["klein", "蓝色白名单"], ["motion", "动效"], ["questions", "请你决定"]].map(([id, l]) => `<a href="#${id}">${l}</a>`).join("");
+	document.getElementById("toc").innerHTML = [["layers", "三层"], ["ramps", "色阶"], ["semantic", "语义层"], ["component", "组件层"], ["contrast", "对比度"], ["type", "字体"], ["space", "间距·圆角·密度"], ["elevation", "边框与层级"], ["focus", "焦点环"], ["klein", "蓝色白名单"], ["motion", "动效"], ["welcome", "欢迎页手绘"], ["questions", "请你决定"]].map(([id, l]) => `<a href="#${id}">${l}</a>`).join("");
 	document.getElementById("qs").innerHTML = QS.map((q) => `<li>${q}</li>`).join("");
 }
 function all() {
@@ -843,6 +1005,7 @@ function all() {
 	renderFocus();
 	renderKlein();
 	renderMotion();
+	renderWelcome();
 	if (window.lucide) lucide.createIcons();
 	const u = new URL(location.href);
 	u.searchParams.set("theme", S.theme);
@@ -884,6 +1047,10 @@ document.addEventListener("click", (e) => {
 		return all();
 	}
 	if (q("#play")) return play();
+	if (q("#wreplay")) {
+		welcomeAt = performance.now();
+		return;
+	}
 	if ((el = q("#tg"))) return el.classList.toggle("on");
 });
 document.addEventListener("keydown", (e) => {
