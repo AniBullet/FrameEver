@@ -78,6 +78,7 @@ const COMMANDS = {
 	doctor: "Check the environment and say how to fix anything missing",
 	logs: "Print the app log tail: fe logs [--lines 200] [--grep <text>] [--real]",
 	privacy: "Scan what you are about to push for private data (emails, local paths, keys). --staged, --all (every tracked file)",
+	design: "Generate docs/design/tokens.css and tokens.js from tokens.json",
 };
 
 export function parseArgs(argv) {
@@ -987,6 +988,100 @@ function privacy({ flags }) {
 	);
 }
 
+export const designDir = path.join(root, "docs", "design");
+
+export function easeMove({ zeta, omega }, steps = 40) {
+	const damped = omega * Math.sqrt(1 - zeta * zeta);
+	const at = (t) =>
+		1 - Math.exp(-zeta * omega * t) * (Math.cos(damped * t) + ((zeta * omega) / damped) * Math.sin(damped * t));
+	return Array.from({ length: steps + 1 }, (_, index) =>
+		index === steps ? 1 : Number(at(index / steps).toFixed(4)),
+	);
+}
+
+function oklch([lightness, chroma, hue, alpha]) {
+	return `oklch(${lightness} ${chroma} ${hue}${alpha === undefined ? "" : ` / ${alpha}`})`;
+}
+
+function cssName(name) {
+	return `--${name.replaceAll("_", "-")}`;
+}
+
+function brandVars(brand) {
+	const vars = [];
+	for (const [family, steps] of Object.entries(brand)) {
+		for (const [step, value] of Object.entries(steps)) {
+			const name = Array.isArray(steps) ? `${family}-${Number(step) + 1}` : family === "fixed" ? step : `${family}-${step}`;
+			vars.push([`--${name}`, oklch(value)]);
+		}
+	}
+	return vars;
+}
+
+function tokenRef(ref, theme, tokens) {
+	if (!ref.includes(".")) {
+		const known = [...tokens.semantic, ...tokens.componentVars].some((token) => token.name === ref);
+		if (!known) throw new Error(`Unknown design token: ${ref}`);
+		return `var(${cssName(ref)})`;
+	}
+	const [family, step] = ref.split(".");
+	const steps = tokens.brand[theme][family];
+	const value = Array.isArray(steps) ? steps[Number(step) - 1] : steps?.[step];
+	if (!value) throw new Error(`Unknown design token: ${ref}`);
+	if (family === "fixed") return `var(--${step})`;
+	return `var(--${family}-${step})`;
+}
+
+function themeVars(theme, tokens) {
+	return [
+		...brandVars(tokens.brand[theme]),
+		...[...tokens.semantic, ...tokens.componentVars]
+			.map((token) => [cssName(token.name), tokenRef(token[theme], theme, tokens)])
+			.filter(([name, value]) => value !== `var(${name})`),
+	];
+}
+
+function sharedVars(tokens) {
+	const { motion } = tokens;
+	return [
+		...tokens.type.scale.flatMap((step) => [
+			[`--text-${step.name}`, `${step.size}px`],
+			[`--line-${step.name}`, `${step.line}px`],
+		]),
+		...Object.entries(tokens.space).map(([name, value]) => [`--space-${name}`, `${value}px`]),
+		...Object.entries(tokens.radius).map(([name, value]) => [`--radius-${name}`, `${value}px`]),
+		...Object.entries(tokens.size).map(([name, value]) => [
+			`--${name}`,
+			name === "icon-stroke" ? `${value}` : `${value}px`,
+		]),
+		...Object.entries(motion.duration).map(([name, value]) => [`--duration-${name}`, `${value}ms`]),
+		...Object.entries(motion.ease).map(([name, value]) => [`--ease-${name}`, value]),
+		["--ease-move", `linear(${easeMove(motion.move).join(", ")})`],
+	];
+}
+
+function cssRule(selector, vars) {
+	return `${selector} {\n${vars.map(([name, value]) => `\t${name}: ${value};`).join("\n")}\n}\n`;
+}
+
+export function designCss(tokens) {
+	return [
+		cssRule(":root", [["color-scheme", "dark"], ...themeVars("dark", tokens), ...sharedVars(tokens)]),
+		cssRule('[data-theme="light"]', [["color-scheme", "light"], ...themeVars("light", tokens)]),
+	].join("\n");
+}
+
+export function designJs(tokens) {
+	return `window.FRAMEEVER_TOKENS = ${JSON.stringify(tokens)};\n`;
+}
+
+function design() {
+	const tokens = JSON.parse(readFileSync(path.join(designDir, "tokens.json"), "utf8"));
+	writeFileSync(path.join(designDir, "tokens.css"), designCss(tokens));
+	writeFileSync(path.join(designDir, "tokens.js"), designJs(tokens));
+	console.log(`\u001b[32m✓ ${path.join("docs", "design")}: tokens.css, tokens.js\u001b[0m`);
+}
+
 function help() {
 	console.log("Usage: pnpm fe <command> [options]\n");
 	for (const [name, description] of Object.entries(COMMANDS)) {
@@ -1010,6 +1105,7 @@ const HANDLERS = {
 	doctor,
 	logs,
 	privacy,
+	design,
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

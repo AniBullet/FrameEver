@@ -27,7 +27,7 @@ Two Cargo workspaces, both on Rust stable (`rust-toolchain.toml`):
   - `assets/`: fonts, icons, sounds, editor music and backgrounds.
   - `packaging/` and `tauri.conf.json`: installer packaging only. The Tauri CLI is used as the NSIS bundler; nothing links the Tauri runtime.
 - `scripts/`: `fe.mjs` (the `pnpm fe` entry point), packaging, privacy scan and benchmarks.
-- `docs/`: `adr/` (decisions), `agents/` (agent guides), `upstream-sync/` (handoff, roadmap and history), `i18n.md`, `brand/`.
+- `docs/`: `adr/` (decisions), `agents/` (agent guides), `upstream-sync/` (handoff, roadmap and history), `i18n.md`, `brand/`, `design/` (the design reference page and token source; its `README.md` has the rules).
 
 `docs/upstream-sync/0.6.1.md`, `docs/adr/` and `CHANGELOG.md` are history and keep old names. Upstream `CapSoftware/Cap` is a read-only reference: fixes are ported by hand, never merged (ADR-0007).
 
@@ -44,6 +44,7 @@ Everything goes through `pnpm fe <command>` (`scripts/fe.mjs`; `pnpm fe` lists t
 | `pnpm fe lint` / `fmt` | Format check, clippy, translation tests / format |
 | `pnpm fe converter [--lang zh-CN]` | Run FrameEver Converter against a fresh fake 2.x install |
 | `pnpm fe package` | Build the installer and FrameEver Converter into `dist/` |
+| `pnpm fe design` | Generate `docs/design/tokens.css` and `tokens.js` from `tokens.json` |
 
 When asked to "build", "package" or "打包" the app, run `pnpm fe package`.
 

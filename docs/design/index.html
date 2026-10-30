@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FrameEver design reference</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="design.css">
+<style>
+.ramp{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border)}
+.ramp div{padding:8px 6px 6px;min-height:92px;display:flex;flex-direction:column;justify-content:space-between;font-size:10.5px;line-height:1.3}
+.ramp b{font-size:12px;font-weight:600}
+.ramp-roles{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));font-size:10.5px;color:var(--muted-foreground);margin:4px 0 14px;text-align:center}
+.ramp-roles .two{grid-column:span 2}
+.ramp-roles .three{grid-column:span 3}
+.ramp-box{padding:14px;border-radius:var(--radius-lg);border:1px solid var(--border)}
+.ramp-box h4{margin:0 0 8px;font-size:13px;font-weight:600}
+.states{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.states div{border-radius:var(--radius-sm);padding:8px;font-size:11px}
+.states p{display:flex;gap:4px;margin:6px 0 0}
+.states p i{flex:1;height:18px;border-radius:4px}
+.layer b{display:block;font-size:var(--text-title);margin-bottom:4px}
+.layer span.body{color:var(--muted-foreground);font-size:var(--text-small)}
+.layer em{display:block;font-style:normal;font-size:11px;font-weight:600;color:var(--link)}
+.swatch{display:inline-flex;align-items:center;gap:6px}
+.swatch i{display:inline-block;width:18px;height:18px;border-radius:5px;border:1px solid var(--border);flex:none}
+.type-row{display:grid;grid-template-columns:150px 1fr 1fr;gap:16px;align-items:baseline;padding:10px 0;border-top:1px solid var(--border)}
+.type-row:first-child{border-top:0}
+.type-row small{display:block;font-size:11px;color:var(--muted-foreground)}
+@media (max-width:980px){.type-row{grid-template-columns:1fr}}
+.space-row{display:flex;align-items:center;gap:12px;padding:3px 0;font-size:var(--text-small)}
+.space-row i{display:block;height:12px;background:var(--klein-tint-bar);border-radius:2px}
+.space-row code{width:70px;color:var(--muted-foreground)}
+.radii{display:flex;flex-wrap:wrap;gap:14px}
+.radii div{width:96px;text-align:center;font-size:11px;color:var(--muted-foreground)}
+.radii i{display:block;width:96px;height:64px;background:var(--secondary);border:1px solid var(--border-strong);margin-bottom:6px}
+.nest{background:var(--popover);border:1px solid var(--border);padding:4px;border-radius:16px;display:inline-block}
+.nest div{background:var(--secondary);border:1px dashed var(--border-strong);border-radius:12px;width:240px;height:96px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted-foreground)}
+.levels{position:relative;background:var(--background);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;min-height:230px}
+.levels small{display:block;font-size:11px;color:var(--muted-foreground);margin-bottom:6px}
+.levels .one{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;width:62%;height:130px}
+.levels .menu{position:absolute;right:16px;top:70px;width:46%;min-width:0}
+.focus-row{display:flex;flex-wrap:wrap;gap:20px;align-items:center;padding:18px;background:var(--background);border:1px solid var(--border);border-radius:var(--radius-lg)}
+.ring{outline:2px solid var(--ring)!important;outline-offset:2px}
+.rules{display:grid;grid-template-columns:28px 1fr;gap:4px 10px;margin:0;padding:0;list-style:none}
+.rules li{display:contents}
+.rules i{font-style:normal;font-weight:600;font-size:12px;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;margin-top:1px}
+.rules.yes i{background:var(--primary);color:var(--primary-foreground)}
+.rules.no i{background:var(--secondary);color:var(--muted-foreground);border:1px solid var(--border)}
+.rules div{padding:2px 0 10px}
+.rules b{display:block;font-weight:500}
+.rules span.body{font-size:var(--text-small);color:var(--muted-foreground)}
+.track{position:relative;height:40px;border-radius:var(--radius-md);background:var(--secondary);border:1px solid var(--border);margin:6px 0 12px;overflow:hidden}
+.track i{position:absolute;left:4px;top:4px;width:56px;height:30px;border-radius:calc(var(--radius-md) - 4px);background:var(--primary);transition:left var(--duration-move) var(--ease-move)}
+.track.go i{left:calc(100% - 60px)}
+.fade-box,.colour-box{height:40px;border-radius:var(--radius-md);display:flex;align-items:center;padding:0 12px;font-size:12px;margin:6px 0 12px}
+.fade-box{background:var(--popover);border:1px solid var(--border-strong);transition:opacity var(--duration-exit) var(--ease-exit)}
+.fade-box.out{opacity:0}
+.colour-box{background:var(--secondary);border:1px solid var(--border);transition:background var(--duration-fast) var(--ease-effects)}
+.colour-box.on{background:var(--secondary-hover)}
+.never{columns:2;column-gap:24px;margin:0;padding-left:18px;color:var(--muted-foreground)}
+.never li{margin-bottom:6px;break-inside:avoid}
+.never b{color:var(--foreground);font-weight:500}
+@media (max-width:980px){.never{columns:1}}
+.welcome{border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden}
+.welcome header{padding:8px 12px;font-size:11px;font-weight:500;background:var(--card);color:var(--muted-foreground);border-bottom:1px solid var(--border)}
+.welcome .body{padding:22px 16px 18px;display:flex;flex-direction:column;align-items:center;min-height:430px}
+.welcome .paper{margin-top:14px;width:100%;max-width:330px;border-radius:20px;padding:12px 14px;display:flex;align-items:center;gap:10px;font-size:12.5px}
+.welcome svg{overflow:visible;display:block}
+.comp{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.comp-col{display:flex;flex-direction:column;gap:10px}
+</style>
+</head>
+<body>
+<div id="shell"></div>
+<main>
+	<section id="layers">
+		<h2 id="t-layers"></h2>
+		<p class="lead" id="l-layers"></p>
+		<div class="grid-3" id="layer-cards"></div>
+	</section>
+	<section id="ramps"><h2 id="t-ramps"></h2><p class="lead" id="l-ramps"></p><div class="grid-2" id="ramp-grid"></div></section>
+	<section id="semantic"><h2 id="t-semantic"></h2><p class="lead" id="l-semantic"></p><div class="card scroll"><table id="semantic-table"></table></div></section>
+	<section id="component-tokens"><h2 id="t-component"></h2><p class="lead" id="l-component"></p><div class="card scroll"><table id="component-table"></table></div></section>
+	<section id="contrast"><h2 id="t-contrast"></h2><p class="lead" id="l-contrast"></p><div class="card scroll"><table id="contrast-table"></table></div></section>
+	<section id="type"><h2 id="t-type"></h2><p class="lead" id="l-type"></p><div class="card" id="type-scale"></div></section>
+	<section id="space"><h2 id="t-space"></h2><p class="lead" id="l-space"></p>
+		<div class="grid-3">
+			<div class="card" id="space-card"></div>
+			<div class="card" id="radius-card"></div>
+			<div class="card" id="nest-card"></div>
+		</div>
+	</section>
+	<section id="elevation"><h2 id="t-elevation"></h2><p class="lead" id="l-elevation"></p><div class="grid-2" id="elevation-grid"></div></section>
+	<section id="focus"><h2 id="t-focus"></h2><p class="lead" id="l-focus"></p><div class="focus-row" id="focus-row"></div><div class="card scroll" style="margin-top:12px"><table id="focus-table"></table></div></section>
+	<section id="klein"><h2 id="t-klein"></h2><p class="lead" id="l-klein"></p><div class="grid-2" id="klein-grid"></div></section>
+	<section id="motion"><h2 id="t-motion"></h2><p class="lead" id="l-motion"></p><div class="card scroll"><table id="motion-table"></table></div>
+		<div class="grid-2" style="margin-top:16px" id="motion-grid"></div>
+		<div class="card" style="margin-top:16px" id="never-card"></div>
+	</section>
+	<section id="welcome"><h2 id="t-welcome"></h2><p class="lead" id="l-welcome"></p>
+		<div style="margin-bottom:12px"><button class="btn primary" id="replay"></button></div>
+		<div class="grid-2" id="welcome-grid"></div>
+		<div class="grid-2" style="margin-top:16px" id="welcome-tables"></div>
+	</section>
+	<section id="components"><h2 id="t-components"></h2><p class="lead" id="l-components"></p><div class="grid-2" id="component-grid"></div></section>
+</main>
+<script src="tokens.js"></script>
+<script src="icons.js"></script>
+<script src="design.js"></script>
+<script>
+const { tokens, L, icon, shell, hex, oklch, color, value, contrast, spring, onChange } = FE;
+const $ = (id) => document.getElementById(id);
+const fill = (id, html) => {
+	$(id).innerHTML = html;
+};
+const titles = {
+	layers: ["Three token layers", "三层 token", "Every value is OKLCH and flows through three layers: the brand layer holds only ramps, the semantic layer only points at ramps, the component layer only points at semantic names. Dark is the base; light gets its own ramps (the Radix way) rather than a flipped dark. This whole page is drawn with these tokens.", "每个值都是 OKLCH，按三层流动：品牌层只放色阶，语义层只引用色阶，组件层只引用语义层。深色是基准，浅色单独生成色阶（Radix 的做法），不是把深色反过来。整页都用这些 token 画出来。"],
+	ramps: ["Brand layer: 12-step ramps", "品牌层：12 阶色阶", "Radix roles: 1–2 backgrounds, 3–5 component fills (rest, hover, pressed), 6–8 borders, 9–10 solids (9 is the brand colour), 11–12 text. High-lightness light blues are pulled into the sRGB gamut. Both themes always show here, whatever the toggle says.", "按 Radix 的角色划分：1–2 背景，3–5 组件底色（常态、悬停、按下），6–8 边框，9–10 实色（9 就是品牌色本身），11–12 文字。浅色高亮度端的蓝色压进了 sRGB 色域。两套色阶同时显示，不随顶部切换变化。"],
+	semantic: ["Semantic layer", "语义层", "shadcn/ui names, as GPUI Kit's ThemeColor uses them. In shadcn accent is the hover fill, not the brand colour: the brand colour is primary and blue text is link.", "名字来自 shadcn/ui，和 GPUI Kit 的 ThemeColor 一致。注意 shadcn 的 accent 是悬停底色，不是品牌色；品牌色叫 primary，蓝色文字叫 link。"],
+	component: ["Component layer", "组件层", "GPUI Kit's component fields plus FrameEver's editor tokens. Field names follow GPUI Kit's theme_color.rs at implementation time; this table settles which semantic token each one takes.", "GPUI Kit 自带的组件字段加上编辑器专用的字段。具体字段名在实现时以 GPUI Kit 的 theme_color.rs 为准，这里定的是取哪个语义 token。"],
+	contrast: ["Contrast (WCAG 2)", "对比度（WCAG 2）", "Text needs at least 4.5:1 (AA). Control edges, focus rings and the switch track need 3:1 (1.4.11). Dividers between regions are decorative. Ratios are computed live from the tokens.", "文字要 ≥ 4.5:1（AA）；控件边界、焦点环、开关轨道要 ≥ 3:1（1.4.11）；区域之间的分隔线是装饰，不要求对比度。数值由 token 实时算出。"],
+	type: ["Type", "字体与字号", "Inter for Latin and numbers, HarmonyOS Sans SC for Chinese. Body is 13.5 px. Timecodes, timers and file sizes use tabular numbers. Weights: 400, 500, 600.", "英文和数字用 Inter，中文用 HarmonyOS Sans SC。正文 13.5 px。时间码、计时、文件大小一律用等宽数字。只用 400、500、600 三个字重。"],
+	space: ["Space and radius", "间距和圆角", "2 px is the smallest unit and 4 px the main grid. Radii are concentric: inner radius = outer radius − padding, 4 px at least. One density only: 34 px rows, 32 px controls.", "2 px 是最小单位，4 px 是主网格。圆角是同心的：里层圆角 = 外层圆角 − 内边距，最小 4 px。只有一种密度：34 px 行高，32 px 控件。"],
+	elevation: ["Borders and levels", "边框与层级", "No shadow, no glass, no blur. Levels come from two things only: a higher level is lighter (dark theme) or whiter (light theme), and it has a border. The scrim is solid at 60%.", "没有阴影，没有毛玻璃，没有模糊。层级只靠两样东西：越高的层越亮（深色）或越白（浅色），以及边框。遮罩是不透明度 60% 的纯色。"],
+	focus: ["Focus ring", "焦点环", "From Fluent 2: only on keyboard focus, 2 px solid, with a 2 px gap so it stays visible on blue buttons. Radius = control radius + 2 px. The first row is always on; Tab through the second.", "参照 Fluent 2：只在键盘聚焦时出现，2 px 实线，留 2 px 缝，蓝色按钮上也看得清。圆角 = 控件圆角 + 2 px。第一行常亮，按 Tab 在第二行移动试试。"],
+	klein: ["Where Klein blue may appear", "Klein 蓝只能出现在这些地方", "The less blue, the more it means. This is the whole list; anything not on it stays neutral.", "蓝色越少越贵。下面是完整的白名单，没列出的地方一律用中性灰。"],
+	motion: ["Motion", "动效", "Only what GPUI can do: opacity, colour, position, size (scale and rotate for SVG icons only). Colour and opacity never overshoot. With reduced motion on, everything jumps to its end state, except fades on the main window.", "只在 GPUI 能做的范围内：透明度、颜色、位置、尺寸（缩放和旋转只给 SVG 图标）。颜色和透明度从不回弹。减少动态效果打开时全部直接到终点，主窗口展开保留淡入淡出。"],
+	welcome: ["Welcome and onboarding ink", "欢迎页和引导的手绘", "Welcome and onboarding keep their style, doodles and animation; they are the model for hand-drawn touches elsewhere. Only the ink moves onto Klein Field tokens. Paths, widths and timing come from onboarding_doodles.rs and doodle.rs. Gradients and translucent cards become solid.", "欢迎页和引导保持风格、涂鸦和动画，也是别处手绘点缀的样板，只把墨水换成 Klein Field token。路径、线宽、时间照搬 onboarding_doodles.rs 和 doodle.rs。渐变和半透明卡片换成纯色。"],
+	components: ["Components", "组件", "Built on GPUI Kit (#47): structure from shadcn/ui, Windows interaction and motion from Fluent 2. The names below are GPUI Kit's. Surface pages reuse these styles.", "基于 GPUI Kit（#47）：结构来自 shadcn/ui，Windows 上的交互和动效来自 Fluent 2。下面用的是 GPUI Kit 的名字。各界面页复用这里的样式。"],
+};
+for (const [key, [en, zh, leadEn, leadZh]] of Object.entries(titles)) {
+	fill(`t-${key}`, L(en, zh));
+	fill(`l-${key}`, L(leadEn, leadZh));
+}
+shell({ here: "index", depth: 0, sections: [
+	["layers", "Layers", "三层"], ["ramps", "Ramps", "色阶"], ["semantic", "Semantic", "语义层"], ["component-tokens", "Component tokens", "组件层"], ["contrast", "Contrast", "对比度"], ["type", "Type", "字体"], ["space", "Space", "间距"], ["elevation", "Levels", "层级"], ["focus", "Focus", "焦点环"], ["klein", "Klein blue", "蓝色白名单"], ["motion", "Motion", "动效"], ["welcome", "Hand-drawn", "手绘"], ["components", "Components", "组件"],
+] });
+
+fill("layer-cards", [
+	["1 · Brand", "Brand layer", "品牌层", "Klein and neutral 12-step ramps (hue 266) plus red, amber and green. They appear only as constants in theme.rs; interface code never uses them directly.", "Klein 和中性灰的 12 阶色阶（色相 266），以及红、琥珀、绿。只出现在 theme.rs 常量里，界面代码不直接用。"],
+	["2 · Semantic", "Semantic layer", "语义层", "shadcn/ui names matching GPUI Kit's ThemeColor, plus a few of FrameEver's own: link, recording, preview.", "shadcn/ui 的名字，和 GPUI Kit 的 ThemeColor 一致；加几个 FrameEver 自己的：link、recording、preview。"],
+	["3 · Component", "Component layer", "组件层", "GPUI Kit's fields and FrameEver's EditorTokens. Each field takes exactly one semantic token.", "GPUI Kit 的组件字段和 FrameEver 的 EditorTokens。每个字段只取一个语义 token。"],
+].map(([n, en, zh, de, dz]) => `<div class="card layer"><em>${n}</em><b>${L(en, zh)}</b><span class="body">${L(de, dz)}</span></div>`).join(""));
+
+const fmt = (v) => `${v[0]} ${v[1]} ${v[2]}`;
+const ramp = (theme, family, en, zh) => {
+	const steps = tokens.brand[theme][family];
+	const n = (i) => oklch(tokens.brand[theme].neutral[i]);
+	const statusNames = { red: ["Red: recording, delete, error", "红：录制、删除、错误"], amber: ["Amber: warning", "琥珀：警告"], green: ["Green: success", "绿：成功"] };
+	const states = family === "neutral" ? `<div class="states">${["red", "amber", "green"].map((f) => {
+		const s = tokens.brand[theme][f];
+		return `<div style="background:${oklch(s.tint)};color:${oklch(s.text)}"><b>${L(...statusNames[f])}</b><p>${["tint", "solid", "hover", "text"].map((k) => `<i title="${k}" style="background:${oklch(s[k])};border:1px solid ${n(6)}"></i>`).join("")}</p></div>`;
+	}).join("")}</div>` : "";
+	return `<div class="ramp-box" style="background:${n(1)};color:${n(11)};border-color:${n(6)}"><h4>${L(en, zh)}</h4>
+		<div class="ramp" style="border-color:${n(6)}">${steps.map((s, i) => {
+			const light = s[0] > 0.7;
+			return `<div style="background:${oklch(s)};color:${light ? "oklch(0.18 0.02 266)" : "oklch(0.97 0.005 266)"}" title="${fmt(s)}"><b>${i + 1}</b><span>${s[0]}<br>${hex(s)}</span></div>`;
+		}).join("")}</div>
+		<div class="ramp-roles"><span class="two">${L("Backgrounds", "背景")}</span><span class="three">${L("Components", "组件")}</span><span class="three">${L("Borders", "边框")}</span><span class="two">${L("Solids", "实色")}</span><span class="two">${L("Text", "文字")}</span></div>${states}</div>`;
+};
+fill("ramp-grid", ramp("dark", "neutral", "Dark · neutral", "深色 · neutral") + ramp("light", "neutral", "Light · neutral", "浅色 · neutral") + ramp("dark", "klein", "Dark · klein (9 = #1F3FD8)", "深色 · klein（9 = #1F3FD8）") + ramp("light", "klein", "Light · klein (9 = #1F3FD8)", "浅色 · klein（9 = #1F3FD8）"));
+
+const refCell = (theme, ref) => {
+	const v = value(theme, ref);
+	const label = ref.replace(".", "-").replace("fixed-", "");
+	return `<td><span class="swatch"><i style="background:${oklch(v)}"></i><span><b style="font-weight:500">${label}</b><br><code>${fmt(v)}${v[3] ? ` / ${v[3]}` : ""}</code> <code>${hex(v)}</code></span></span></td>`;
+};
+fill("semantic-table", `<tr><th>${L("Token", "语义 token")}</th><th>${L("Dark", "深色")}</th><th>${L("Light", "浅色")}</th><th>${L("Used for", "用在哪")}</th></tr>${tokens.semantic.map((s) => `<tr><td><code>${s.name}</code></td>${refCell("dark", s.dark)}${refCell("light", s.light)}<td class="dim">${s.en ? L(s.en, s.zh) : ""}</td></tr>`).join("")}`);
+fill("component-table", `<tr><th>${L("Group", "组")}</th><th>${L("Component field", "组件字段")}</th><th>${L("Semantic token", "取自语义 token")}</th></tr>${tokens.component.map((c) => `<tr><td class="dim">${c.group}</td><td><code>${c.field}</code></td><td><code>${c.from}</code></td></tr>`).join("")}`);
+
+const pairs = [
+	["foreground", "background", "text", "Body", "正文"], ["foreground", "card", "text", "Text in a group", "分组里的文字"], ["foreground", "popover", "text", "Menu text", "菜单文字"], ["foreground", "secondary", "text", "Normal button", "普通按钮"], ["foreground", "accent", "text", "Text on a hovered row", "悬停行上的文字"], ["selection_foreground", "selection", "text", "Selected row, selected nav", "选中行、选中导航"],
+	["muted_foreground", "background", "text", "Secondary text", "次要文字"], ["muted_foreground", "card", "text", "Description in a group", "分组里的说明"], ["muted_foreground", "popover", "text", "Shortcut in a menu", "菜单里的快捷键"], ["muted_foreground", "accent", "text", "Metadata on a hovered row", "悬停行上的元信息"], ["muted_foreground", "selection", "text", "Metadata on a selected tile", "选中图块的元信息"],
+	["primary_foreground", "primary", "text", "Primary button", "主按钮"], ["primary_foreground", "primary_hover", "text", "Primary hover", "主按钮悬停"], ["primary_foreground", "primary_active", "text", "Primary pressed", "主按钮按下"],
+	["link", "background", "text", "Link", "链接"], ["link", "card", "text", "Link in a group", "分组里的链接"], ["link", "selection", "text", "Blue text on a selected item", "选中项里的蓝字"],
+	["danger_text", "background", "text", "Error text", "错误文字"], ["danger_text", "danger_tint", "text", "Error banner", "错误提示条"], ["danger_foreground", "danger", "text", "Delete, stop", "删除、停止按钮"], ["warning_text", "background", "text", "Warning text", "警告文字"], ["warning_foreground", "warning", "text", "Amber badge", "琥珀色徽标"], ["success_text", "background", "text", "Success text", "成功文字"], ["success_text", "success_tint", "text", "Success banner", "成功提示条"], ["fixed.white", "fixed.badge", "text", "Duration badge on a thumbnail", "缩略图上的时长徽标"],
+	["ring", "background", "ui", "Focus ring", "焦点环"], ["ring", "card", "ui", "Focus ring in a group", "分组里的焦点环"], ["input", "background", "ui", "Input border", "输入框边框"], ["input", "card", "ui", "Input in a group", "分组里的输入框"], ["border_strong", "background", "ui", "Switch track, off", "开关关时的轨道"], ["recording", "background", "ui", "Recording dot", "录制红点"],
+	["primary", "background", "deco", "Primary fill: read by its white text", "主按钮外形：靠白字识别"], ["border", "background", "deco", "Region divider", "区域分隔线"], ["border", "card", "deco", "Card outline", "卡片外框"], ["selection", "background", "deco", "Selected fill: read by its text", "选中底色：靠文字识别"],
+];
+const verdict = (r, kind) => {
+	if (kind === "deco") return `<span class="badge plain">${L("Decorative", "装饰")}</span>`;
+	const need = kind === "text" ? 4.5 : 3;
+	return r >= need ? `<span class="badge pass">${kind === "text" ? (r >= 7 ? "AAA" : "AA") : "≥ 3:1"}</span>` : `<span class="badge fail">${L("Fails", "不达标")}</span>`;
+};
+fill("contrast-table", `<tr><th>${L("Foreground", "前景")}</th><th>${L("Background", "背景")}</th><th>${L("Where", "场景")}</th><th>${L("Dark", "深色")}</th><th></th><th>${L("Light", "浅色")}</th><th></th></tr>${pairs.map(([fg, bg, kind, en, zh]) => {
+	const cell = (theme) => {
+		const r = contrast(theme, fg, bg);
+		return `<td class="mono">${r.toFixed(2)}:1</td><td>${verdict(r, kind)}</td>`;
+	};
+	return `<tr><td><code>${fg}</code></td><td><code>${bg}</code></td><td class="dim">${L(en, zh)}</td>${cell("dark")}${cell("light")}</tr>`;
+}).join("")}`);
+
+const typeUse = { display: ["Welcome page, big timer", "欢迎页、计时大字"], heading: ["Page headings", "窗口内的大标题"], title: ["Panel and dialog titles", "面板标题、对话框标题"], "body-strong": ["Item names, buttons", "列表项名称、按钮"], body: ["Body text", "正文"], small: ["Metadata, descriptions, labels", "元信息、说明、标签"], caption: ["Badges, shortcuts, timecode", "徽标、快捷键、时间码"] };
+const typeSample = { display: ["FrameEver 帧刻", "00:03:42"], heading: ["Library 资源库", "Studio 工作室"], title: ["Recording 录制设置", "导出 3 个文件"], "body-strong": ["Product demo.mp4 已导出", "1080p · 60 fps"], body: ["录制会保存在存储文件夹里，导出后可以在资源库中找到。", "Recordings stay in the storage folder."], small: ["工作室 · 今天 · 182 MB · 3:42", "Studio · Today · 182 MB · 3:42"], caption: ["00:03:42 · Ctrl Shift 2", "录制中 · 剩余 12.4 GB"] };
+fill("type-scale", tokens.type.scale.map((t) => {
+	const css = `font-size:${t.size}px;line-height:${t.line}px;font-weight:${t.weight};letter-spacing:${t.tracking};font-variant-numeric:tabular-nums`;
+	return `<div class="type-row"><div><code>text-${t.name}</code><small>${t.size} / ${t.line} px · ${t.weight}<br>${L(...typeUse[t.name])}</small></div><div style="${css}">${typeSample[t.name][0]}</div><div style="${css};color:var(--muted-foreground)">${typeSample[t.name][1]}</div></div>`;
+}).join(""));
+
+fill("space-card", `<h3>${L("Spacing", "间距")}</h3>${Object.entries(tokens.space).map(([name, px]) => `<div class="space-row"><code>space-${name}</code><i style="width:${px * 3}px"></i><span>${px} px</span></div>`).join("")}`);
+const radiusUse = { xs: ["kbd, badges", "kbd、徽标"], sm: ["Segment buttons", "分段里的按钮"], md: ["Buttons, inputs, rows, tiles", "按钮、输入框、列表行、图块"], lg: ["Cards, panels, popovers", "卡片、面板、弹出层"], xl: ["Recording controls", "录制控制条"], full: ["Tags, switches, dots", "标签、开关、圆点"] };
+fill("radius-card", `<h3>${L("Radius", "圆角")}</h3><div class="radii">${Object.entries(tokens.radius).map(([name, px]) => `<div><i style="border-radius:${Math.min(px, 32)}px"></i><code>${name}</code> · ${px === 999 ? L("Full", "全圆") : `${px} px`}<br>${L(...radiusUse[name])}</div>`).join("")}</div><p class="note">${L("The window's outer corners are left to Windows 11 (8 px).", "窗口外框的 8 px 圆角交给 Windows 11，不自己画。")}</p>`);
+fill("nest-card", `<h3>${L("Concentric", "同心圆角")}</h3><div class="nest"><div>16 − 4 = 12 px</div></div><p class="note">${L("Control padding 10–12, related controls 8–10, groups 16–24, window padding 16.", "控件内边距 10–12，相关控件之间 8–10，分组之间 16–24，窗口内边距 16。")}</p>`);
+
+fill("elevation-grid", `<div class="levels"><small>0 · background</small><div class="one"><small>1 · card</small></div><div class="menu"><small style="padding:6px 10px 2px">2 · popover</small><div class="item">${L("Open in editor", "在编辑器中打开")}</div><div class="item hover">${L("Export…", "导出…")}</div><div class="item">${L("Show in folder", "在文件夹中显示")}</div></div></div>
+<div class="card"><h3>${L("Three border weights", "边框三档")}</h3><div class="scroll"><table><tr><th>token</th><th>${L("Dark", "深色")}</th><th>${L("Light", "浅色")}</th><th>${L("Used for", "用在哪")}</th></tr>${[["border", "Regions, cards, title bar", "区域、卡片、标题栏"], ["border_strong", "Popover outlines, switch off", "弹出层外框、开关关"], ["input", "Inputs, dropdowns", "输入框、下拉框"]].map(([n, en, zh]) => `<tr><td><code>${n}</code></td>${["dark", "light"].map((t) => `<td><span class="swatch"><i style="background:${color(t, n)}"></i><span class="mono">${contrast(t, n, "background").toFixed(2)}:1</span></span></td>`).join("")}<td class="dim">${L(en, zh)}</td></tr>`).join("")}</table></div><p class="note">${L("All lines are 1 px, the focus ring 2 px. A selected tile uses the selection fill and a matching edge, no extra blue frame.", "线宽一律 1 px，焦点环 2 px。选中的图块用 selection 底色加同色边，不额外加蓝框。")}</p></div>`);
+
+const sampleTile = (on, name, meta) => `<div style="width:150px;padding:6px;border-radius:var(--radius-md);${on ? "background:var(--selection)" : ""}" tabindex="0"><span class="thumb"></span><div style="font-size:12px;margin-top:6px;font-weight:500">${name}</div><div style="font-size:11px;color:var(--muted-foreground)">${meta}</div></div>`;
+fill("focus-row", `<button class="btn primary ring" tabindex="-1">${icon("circle")}${L("Start recording", "开始录制")}</button><button class="btn ring" tabindex="-1">${L("Export…", "导出…")}</button><label class="input ring" style="width:200px">${icon("search")}<input tabindex="-1" data-ph-en="Search" data-ph-zh="搜索"></label><button class="switch on ring" tabindex="-1"></button><div style="flex-basis:100%;height:0"></div><button class="btn primary">${icon("circle")}${L("Start recording", "开始录制")}</button><button class="btn">${L("Export…", "导出…")}</button><button class="btn ghost">${icon("folder-open")}${L("Show in folder", "在文件夹中显示")}</button><label class="input" style="width:200px">${icon("search")}<input data-ph-en="Search" data-ph-zh="搜索"></label><button class="switch" onclick="this.classList.toggle('on')"></button>`);
+fill("focus-table", `<tr><th>${L("Ring on", "焦点环对")}</th><th>${L("Dark", "深色")}</th><th>${L("Light", "浅色")}</th></tr>${["background", "card", "selection"].map((bg) => `<tr><td><code>${bg}</code></td>${["dark", "light"].map((t) => {
+	const r = contrast(t, "ring", bg);
+	return `<td class="mono">${r.toFixed(2)}:1 ${verdict(r, "ui")}</td>`;
+}).join("")}</tr>`).join("")}`);
+
+const kleinYes = [
+	["Primary action", "主操作", "At most one solid blue button per region: Start recording, Open in editor, Export", "每个区域最多一个实色蓝按钮：开始录制、在编辑器中打开、导出"],
+	["On and selected controls", "开 / 选中的控件", "Switch on, selected segment: solid Klein", "开关开、选中的分段：实色 Klein"],
+	["Selected items", "选中的项", "Rows, tiles and nav items use the blue-tinted selection fill, not solid", "列表行、图块、导航项用 selection 蓝调底色，不是实色"],
+	["Focus ring", "焦点环", "ring: klein-11 on dark, klein-9 on light", "ring：深色 klein-11，浅色 klein-9"],
+	["Links and blue text", "链接和蓝字", "link / info; dark uses the lighter klein-11, since #1F3FD8 is about 2.4:1 on dark", "link / info；深色用浅一档的 klein-11，因为 #1F3FD8 在深色上只有约 2.4:1"],
+	["Progress", "进度", "Progress bars and the filled part of sliders. The playhead is white", "进度条、滑块已填充部分。播放头是白色"],
+	["Moments of completion", "完成时刻", "The blue bar when an export finishes, the welcome page's big block", "导出完成的整条蓝色横条、欢迎页的大色块"],
+	["Brand", "品牌", "App icon, wordmark, About", "应用图标、字标、关于页"],
+	["Hand-drawn touches", "手绘点缀", "Accent-ink lines on welcome, onboarding and empty states, in link", "欢迎页、引导、空状态里 accent 墨水的线，用 link 色"],
+];
+const kleinNo = [
+	["Previews and thumbnails", "预览和缩略图", "Picture, background and border stay true neutral, so they don't colour your judgement of a recording", "画面本身、它的底和边框都是纯中性灰，避免影响对录制颜色的判断"],
+	["Large fills", "大面积底色", "Windows, title bars, sidebars and cards use hue-266 neutrals only (chroma ≤ 0.05)", "窗口、标题栏、侧栏、卡片只用色相 266 的中性灰（色度 ≤ 0.05）"],
+	["Body text and headings", "正文和标题", "foreground / muted_foreground, never blue", "文字是 foreground / muted_foreground，不是蓝"],
+	["Idle icons", "闲置的图标", "Icons take the text colour; they change only inside a selected item", "图标跟文字同色，只在选中项里才变色"],
+	["Borders", "边框", "No blue except the focus ring and selected items", "除了焦点环和选中项，边框不用蓝"],
+	["States", "状态", "Recording, delete and errors are red, warnings amber, success green", "录制、删除、错误用红，警告用琥珀，成功用绿"],
+	["Hover", "悬停", "Non-primary hover is the neutral accent", "非主按钮的悬停用中性的 accent"],
+	["Waveforms and charts", "波形和图表", "Neutral", "用中性色"],
+];
+fill("klein-grid", `<div class="card"><div class="label">${L("Allowed", "允许")}</div><ol class="rules yes">${kleinYes.map(([a, b, c, d], i) => `<li><i>${i + 1}</i><div><b>${L(a, b)}</b><span class="body">${L(c, d)}</span></div></li>`).join("")}</ol></div><div class="card"><div class="label">${L("Not allowed", "不允许")}</div><ul class="rules no">${kleinNo.map(([a, b, c, d]) => `<li><i>×</i><div><b>${L(a, b)}</b><span class="body">${L(c, d)}</span></div></li>`).join("")}</ul></div>`);
+
+const d = tokens.motion.duration;
+const e = tokens.motion.ease;
+fill("motion-table", `<tr><th>token</th><th>${L("Value", "值")}</th><th>${L("Curve", "曲线")}</th><th>${L("Used for", "用在哪")}</th></tr>${[
+	["duration-fast", `${d.fast} ms`, "ease-effects", "Colour: hover, pressed, selected fill, switch track", "颜色：悬停、按下、选中底色、开关底色"],
+	["duration-mid", `${d.mid} ms`, "ease-effects", "Opacity: fade in, detail panel crossfade, toast in", "透明度：淡入、详情栏交叉淡化、提示条出现"],
+	["duration-exit", `${d.exit} ms`, "ease-exit", "What leaves is faster than what arrives", "离开的东西比进来的快：淡出、提示条消失"],
+	["duration-move", `${d.move} ms`, "ease-move", "Position and size: segment indicator, switch thumb, new rows", "位置和尺寸：分段指示块、开关圆点、列表新行"],
+	["duration-expand", `${d.expand} ms`, "ease-move + ease-fluent-in", "Library sliding in when the main window expands", "主窗口展开时资源库滑入"],
+	["duration-collapse", `${d.collapse} ms`, "ease-fluent-out", "Library fading out before the window shrinks", "主窗口收回前资源库淡出"],
+	["duration-palette-in / out", `${d["palette-in"]} / ${d["palette-out"]} ms`, "ease-fluent-in", "Command palette", "命令面板"],
+	["duration-loop", `${d.loop} ms`, "ease-in-out", "Recording dot breathing (opacity only)", "录制红点的呼吸（只改透明度）"],
+	["ease-effects", e.effects, "", "Decelerate, no overshoot. Colour and opacity", "减速进入，不回弹。颜色和透明度都用它"],
+	["ease-exit", e.exit, "", "Accelerate away (Fluent 2)", "加速离开（Fluent 2）"],
+	["ease-fluent-in", e["fluent-in"], "", "Fluent decelerate", "Fluent 减速"],
+	["ease-fluent-out", e["fluent-out"], "", "Fluent accelerate", "Fluent 加速"],
+	["ease-move", `ζ ${tokens.motion.move.zeta}, ω ${tokens.motion.move.omega}`, "", "Closed-form spring, at most 2.8% past the end; computed in the animation closure", "闭式弹簧，最多冲过终点 2.8%；在动画闭包里算"],
+].map(([a, b, c, f, g]) => `<tr><td><code>${a}</code></td><td class="mono">${b}</td><td><code>${c}</code></td><td class="dim">${L(f, g)}</td></tr>`).join("")}`);
+
+const drawCurve = () => {
+	const x0 = 30, y0 = 150, w = 270, h = 110;
+	const path = Array.from({ length: 81 }, (_, i) => `${i ? "L" : "M"}${(x0 + (i / 80) * w).toFixed(1)},${(y0 - spring(i / 80) * h).toFixed(1)}`).join(" ");
+	return `<svg viewBox="0 0 320 180" style="width:100%;max-width:420px;display:block"><line x1="${x0}" y1="${y0}" x2="${x0 + w}" y2="${y0}" stroke="var(--border)"/><line x1="${x0}" y1="${y0 - h}" x2="${x0 + w}" y2="${y0 - h}" stroke="var(--border)" stroke-dasharray="3 3"/><line x1="${x0}" y1="${y0}" x2="${x0}" y2="${y0 - h - 12}" stroke="var(--border)"/><text x="${x0 - 6}" y="${y0 - h + 4}" text-anchor="end" font-size="10" fill="var(--muted-foreground)">1</text><text x="${x0 - 6}" y="${y0 + 4}" text-anchor="end" font-size="10" fill="var(--muted-foreground)">0</text><text x="${x0 + w}" y="${y0 + 16}" text-anchor="end" font-size="10" fill="var(--muted-foreground)">${d.move} ms</text><path d="${path}" fill="none" stroke="var(--link)" stroke-width="2.25"/></svg>`;
+};
+fill("motion-grid", `<div class="card"><h3>${L("Movement curve", "移动曲线")}</h3>${drawCurve()}</div>
+<div class="card"><h3>${L("Try it", "试一下")}</h3><button class="btn primary" id="play">${icon("play")}${L("Play", "播放")}</button>
+<div class="label" style="margin-top:12px">${L("Move", "移动")} · ${d.move} ms</div><div class="track" id="track"><i></i></div>
+<div class="label">${L("Fade", "淡入淡出")} · ${d.mid} ms</div><div class="fade-box" id="fade">${L("Recording saved", "录制已保存")}</div>
+<div class="label">${L("Colour", "颜色")} · ${d.fast} ms</div><div class="colour-box" id="colour">${L("Hover fill", "悬停底色")}</div>
+<div style="display:flex;align-items:center;gap:10px;font-size:12px"><button class="switch" onclick="this.classList.toggle('on')"></button>${L(`Switch: track ${d.fast} ms, thumb ${d.move} ms`, `开关：底色 ${d.fast} ms，圆点 ${d.move} ms`)}</div></div>`);
+$("play").onclick = () => {
+	$("track").classList.toggle("go");
+	$("colour").classList.toggle("on");
+	$("fade").classList.add("out");
+	setTimeout(() => $("fade").classList.remove("out"), 500);
+};
+const never = [
+	["Windows", "窗口", "Opening, closing, hiding, resizing and moving are instant; the main window snaps once and only content animates", "打开、关闭、隐藏、缩放、移动都是瞬间完成；主窗口只跳一次，动的是窗口里的内容"],
+	["Blur", "模糊", "No backdrop blur, glass, Mica or Acrylic", "没有背景模糊、毛玻璃、Mica、Acrylic"],
+	["Scale and rotate", "缩放和旋转", "Cards, text, images and thumbnails don't scale or rotate; only SVG icons may", "卡片、文字、图片、缩略图不缩放不旋转；只有 SVG 图标可以"],
+	["Font size", "字号", "Never animated, nor the width of wrapping text", "不动画字号，也不动画会换行文字的宽度"],
+	["SVG size", "SVG 尺寸", "Icon size isn't animated; every size rasterises again", "不改图标尺寸做动画，每个尺寸都会重新光栅化"],
+	["Lists", "列表", "No transition on delete or reorder; only new rows fade in", "删除和重排没有过渡，只有新行淡入"],
+	["Overshoot", "回弹", "Only position and size may overshoot, never colour or opacity", "回弹只允许出现在位置和尺寸上，颜色和透明度从不回弹"],
+	["Previews", "预览", "No continuous animation near a recording preview or the editor canvas", "录制预览、编辑器画布周围不做任何持续动画"],
+	["Shadows", "阴影", "There are none", "没有阴影"],
+];
+fill("never-card", `<h3>${L("Never animated", "从不做动画的东西")}</h3><ul class="never">${never.map(([a, b, c, f]) => `<li><b>${L(a, b)}：</b>${L(c, f)}</li>`).join("")}</ul>`);
+
+const inks = [["bg", "background", "background", "Page", "页面底"], ["card", "card", "popover", "Paper card (radius 20, 1.5 px edge)", "纸卡片（圆角 20，1.5 px 边）"], ["ink", "foreground", "foreground", "Main lines, headings", "主线条、标题"], ["soft", "muted_foreground", "muted_foreground", "Helper lines, subtitle", "辅助线、副标题"], ["accent", "link", "link", "Wavy underline, dashed frame, sound waves", "波浪下划线、虚线框、声波"], ["red", "recording", "recording", "Recording dot", "录制点"], ["green", "success_text", "success_text", "Tick", "完成的勾"], ["track", "border", "border", "Tracks, card edge (decorative)", "轨道、卡片边（装饰）"]];
+const doodles = {
+	SCREEN: { view: [120, 104], strokes: [
+		{ d: "M 18 12 L 102 12 Q 110 12 110 20 L 110 66 Q 110 74 102 74 L 18 74 Q 10 74 10 66 L 10 20 Q 10 12 18 12 Z", ink: "ink", w: 4, m: ["draw", 80, 850] },
+		{ d: "M 52 74 L 49 88 M 68 74 L 71 88 M 40 90 L 80 90", ink: "ink", w: 4, m: ["draw", 750, 400] },
+		{ d: "M 24 24 L 96 24 L 96 62 L 24 62 Z", ink: "accent", w: 2.5, m: ["fade", 900, 350], march: true },
+		{ d: "M 33 29.5 C 35.5 29.5 37.5 31.5 37.5 34 C 37.5 36.5 35.5 38.5 33 38.5 C 30.5 38.5 28.5 36.5 28.5 34 C 28.5 31.5 30.5 29.5 33 29.5 Z", ink: "red", fill: true, m: ["pop", 1100, 450], pulse: true },
+		{ d: "M 72 38 L 72 56 L 76.5 51.5 L 80 59 L 83 57.6 L 79.6 50.4 L 85.5 50.4 Z", ink: "ink", w: 2.5, m: ["fade", 1250, 300], bob: true },
+	] },
+	UNDERLINE: { view: [132, 12], strokes: [{ d: "M 4 8 C 34 4 78 3 128 6", ink: "accent", w: 3.5, m: ["draw", 350, 650] }] },
+	ALL_SET: { view: [120, 104], strokes: [
+		{ d: "M 60 12 C 84 12 102 30 102 52 C 102 75 84 92 60 92 C 35 92 18 74 18 52 C 18 31 34 14 56 12.5 C 62 12 68 13 73 15", ink: "soft", w: 3, m: ["draw", 450, 750] },
+		{ d: "M 38 54 L 54 70 L 84 34", ink: "green", w: 5.5, m: ["draw", 80, 500] },
+	] },
+};
+const doodleSvg = (name, w, h, start, pal, key) => {
+	const D = doodles[name];
+	return `<svg width="${w}" height="${h}" viewBox="0 0 ${D.view[0]} ${D.view[1]}" data-doodle="${name}" data-start="${start}"><defs><filter id="boil-${key}" x="-10" y="-10" width="${D.view[0] + 20}" height="${D.view[1] + 20}" filterUnits="userSpaceOnUse"><feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="1" seed="1"/><feDisplacementMap in="SourceGraphic" scale="2.5" xChannelSelector="R" yChannelSelector="G"/></filter></defs><g filter="url(#boil-${key})">${D.strokes.map((s, i) => `<path data-i="${i}" d="${s.d}" ${s.fill ? `fill="${pal[s.ink]}" stroke="none"` : `fill="none" stroke="${pal[s.ink]}" stroke-width="${s.w}" stroke-linecap="round" stroke-linejoin="round"`} ${s.march ? `stroke-dasharray="2 4.2"` : s.m[0] === "draw" ? `pathLength="1" stroke-dasharray="1 2"` : ""} style="transform-box:fill-box;transform-origin:center;opacity:0"/>`).join("")}</g></svg>`;
+};
+const welcomePanel = (theme) => {
+	const pal = Object.fromEntries(inks.map(([ink, dark, light]) => [ink, color(theme, theme === "dark" ? dark : light)]));
+	return `<div class="welcome"><header>Klein Field · ${theme === "dark" ? L("Dark", "深色") : L("Light", "浅色")}</header><div class="body" style="background:${pal.bg};color:${pal.ink}">
+		<div data-rise="0.35">${doodleSvg("SCREEN", 240, 208, 350, pal, `${theme}-s`)}</div>
+		<div data-rise="0.9" style="display:flex;flex-direction:column;align-items:center;margin-top:6px"><div style="font-size:32px;line-height:40px;font-weight:600;letter-spacing:-.01em">${L("Welcome to FrameEver", "欢迎使用 FrameEver")}</div><div style="margin-top:4px">${doodleSvg("UNDERLINE", 150, 14, 1300, pal, `${theme}-u`)}</div></div>
+		<div data-rise="1.15" style="font-size:15px;line-height:22px;color:${pal.soft};margin-top:10px;text-align:center;max-width:340px">${L("Record, edit and export, all on your own computer.", "录屏、剪辑、导出，全部留在你自己的电脑上。")}</div>
+		<div data-rise="1.45" class="paper" style="background:${pal.card};border:1.5px solid ${pal.track}">${doodleSvg("ALL_SET", 44, 38, 1700, pal, `${theme}-a`)}<div><b style="font-weight:500">${L("Permissions are ready", "权限都准备好了")}</b><div style="color:${pal.soft};font-size:12px">${L("Screen recording · Microphone · Camera", "屏幕录制 · 麦克风 · 摄像头")}</div></div></div>
+	</div></div>`;
+};
+fill("welcome-grid", welcomePanel("dark") + welcomePanel("light"));
+fill("welcome-tables", `<div class="card scroll"><h3>${L("Ink to token", "墨水换成哪个 token")}</h3><table><tr><th>${L("Ink", "墨水")}</th><th>${L("Dark", "深色")}</th><th>${L("Light", "浅色")}</th><th>${L("Draws", "画什么")}</th></tr>${inks.map(([ink, dark, light, en, zh]) => `<tr><td><code>${ink}</code></td><td><span class="swatch"><i style="background:${color("dark", dark)}"></i><code>${dark}</code></span></td><td><span class="swatch"><i style="background:${color("light", light)}"></i><code>${light}</code></span></td><td class="dim">${L(en, zh)}</td></tr>`).join("")}</table></div>
+<div class="card scroll"><h3>${L("Hand-drawn motion (unchanged)", "手绘的动效（保留原样）")}</h3><table><tr><th>${L("Action", "动作")}</th><th>${L("Time", "时间")}</th><th>${L("Curve", "曲线")}</th></tr>${[
+	["Draw", "描线", "300–850 ms", "ease-out cubic"], ["Fade", "淡入", "300–400 ms", "ease-out cubic"], ["Pop", "弹出", "450 ms", "0.2 → 1.2 → 1"], ["Boil", "抖动", "150 ms × 4", "1.25 / 20"], ["March", "虚线行进", "1.1 s", "linear"], ["Bob", "浮动", "1.9 s", "cosine"], ["Pulse", "呼吸", "1.2 s", "cosine"], ["Step change", "引导换步", "500 ms", "smoothstep"],
+].map(([a, b, c, f]) => `<tr><td>${L(a, b)}</td><td class="mono">${c}</td><td><code>${f}</code></td></tr>`).join("")}</table><p class="note">${L("Longer than product motion: brand moments only, on welcome, onboarding and empty states. With reduced motion, doodles are drawn complete and still.", "比产品界面的动效长，是品牌时刻的例外，只用在欢迎页、引导、空状态。减少动态效果时直接画好，不抖动。")}</p></div>`);
+let welcomeAt = performance.now();
+$("replay").innerHTML = `${icon("rotate-ccw")}${L("Replay", "重播入场")}`;
+$("replay").onclick = () => {
+	welcomeAt = performance.now();
+};
+const easeOut = (t) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 3;
+const smooth = (t) => {
+	const v = Math.min(1, Math.max(0, t));
+	return v * v * (3 - 2 * v);
+};
+const beat = (at, delay, dur) => Math.min(1, Math.max(0, (at - delay) / dur));
+const tick = (now) => {
+	const ms = now - welcomeAt;
+	const seed = String(1 + (Math.floor(now / 150) % 4));
+	for (const f of document.querySelectorAll("#welcome-grid feTurbulence")) f.setAttribute("seed", seed);
+	for (const el of document.querySelectorAll("#welcome-grid [data-rise]")) {
+		const delay = Number(el.dataset.rise);
+		el.style.transform = `translateY(${12 * (1 - easeOut(beat(ms / 1000, delay, 1.1)))}px)`;
+		el.style.opacity = smooth(beat(ms / 1000, delay, 1));
+	}
+	for (const svg of document.querySelectorAll("#welcome-grid svg[data-doodle]")) {
+		const D = doodles[svg.dataset.doodle];
+		const at = ms - Number(svg.dataset.start);
+		const sec = Math.max(0, at) / 1000;
+		for (const p of svg.querySelectorAll("path[data-i]")) {
+			const s = D.strokes[Number(p.dataset.i)];
+			const [kind, delay, dur] = s.m;
+			const t = beat(at, delay, dur);
+			let alpha = 1;
+			let grow = 1;
+			if (kind === "fade") alpha = easeOut(t);
+			if (kind === "pop") {
+				alpha = easeOut(t);
+				grow = t < 0.6 ? 0.2 + t / 0.6 : 1.2 - 0.2 * ((t - 0.6) / 0.4);
+			}
+			if (t <= 0) alpha = 0;
+			if (s.pulse) alpha *= 0.65 + 0.35 * Math.cos(Math.PI * 2 * ((sec / 1.2) % 1));
+			const bob = s.bob ? -4 * (0.5 - 0.5 * Math.cos(Math.PI * 2 * ((sec / 1.9) % 1))) : 0;
+			p.style.opacity = alpha;
+			p.style.transform = `translate(0px, ${bob}px) scale(${grow})`;
+			if (kind === "draw") p.setAttribute("stroke-dashoffset", String(1 - easeOut(t)));
+			if (s.march) p.setAttribute("stroke-dashoffset", String(-((sec / 1.1) % 1) * 6.2));
+		}
+	}
+	requestAnimationFrame(tick);
+};
+requestAnimationFrame(tick);
+
+const card = (name, body) => `<div class="card"><h3><code style="font-size:13px">${name}</code></h3>${body}</div>`;
+fill("component-grid", [
+	card("Button", `<div class="comp"><button class="btn primary">${L("Start recording", "开始录制")}</button><button class="btn">${L("Export…", "导出…")}</button><button class="btn ghost">${L("Cancel", "取消")}</button><button class="btn danger">${L("Delete", "删除")}</button><button class="btn icon" title="Settings">${icon("settings")}</button><button class="btn" disabled>${L("Compress", "压缩")}</button></div>`),
+	card("Input · Select · Kbd", `<div class="comp"><label class="input" style="width:220px">${icon("search")}<input data-ph-en="Search" data-ph-zh="搜索"><span class="kbd">Ctrl F</span></label><span class="select">${L("Date", "日期")}${icon("chevron-down", "sm")}</span><span class="kbd">Ctrl K</span></div>`),
+	card("Switch · Checkbox · Radio", `<div class="comp"><button class="switch on" onclick="this.classList.toggle('on')"></button><button class="switch" onclick="this.classList.toggle('on')"></button><button class="check on" onclick="this.classList.toggle('on')">${icon("check", "sm")}</button><button class="check" onclick="this.classList.toggle('on')">${icon("check", "sm")}</button></div><div style="margin-top:12px;max-width:320px"><div class="radio on"><i></i><div>${L("Delete the whole project", "删除整个项目")}<small>${L("Moves to the Recycle Bin", "移到回收站")}</small></div></div></div>`),
+	card("TabBar (segmented)", `<div class="comp"><div class="seg"><button class="on">${L("All", "全部")} <em>12</em></button><button>${L("Studio", "工作室")} <em>5</em></button><button>${L("Instant", "即时")} <em>4</em></button><button>${L("Screenshots", "截图")} <em>3</em></button></div></div>`),
+	card("Slider · Progress", `<div class="comp-col"><div class="slider"><i></i><b style="width:58%"></b><u style="left:58%"></u></div><div class="progress"><i style="width:42%"></i></div><div class="note" style="margin:0">${L("Exporting… 42%", "正在导出… 42%")}</div></div>`),
+	card("Tag · Badge", `<div class="comp"><span class="tag on">${L("Exported", "已导出")}${icon("x", "sm")}</span><span class="tag">${L("Not exported", "未导出")}</span><span class="badge">12</span><span class="badge klein">3</span></div>`),
+	card("List", `<div><div class="list-row on">${icon("monitor")}<span class="grow">${L("Display", "显示器")}</span><em>2560 × 1440</em></div><div class="list-row">${icon("video")}<span class="grow">${L("Camera", "摄像头")}</span><em>${L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div><div class="list-row">${icon("mic")}<span class="grow">${L("Microphone", "麦克风")}</span><em>${L("Default", "默认")}</em>${icon("chevron-down", "sm")}</div></div>`),
+	card("PopupMenu · Tooltip", `<div class="comp" style="align-items:flex-start"><div class="menu" style="width:240px"><button>${icon("play")}<span class="grow">${L("Open", "打开")}</span><span class="kbd">Enter</span></button><button>${icon("download")}<span class="grow">${L("Export…", "导出…")}</span></button><hr><button class="danger">${icon("trash")}<span class="grow">${L("Delete…", "删除…")}</span><span class="kbd">Del</span></button></div><span class="tooltip">${L("Split", "分割")}<span class="kbd">S</span></span></div>`),
+	card("Dialog", `<div class="dialog" style="width:100%"><h3>${L("Delete the original video?", "删除原始视频？")}</h3><p>${L("The compressed copy stays. This can't be undone.", "压缩副本会保留。这个操作无法撤销。")}</p><div class="actions"><button class="btn">${L("Cancel", "取消")}</button><button class="btn danger">${L("Delete original", "删除原始视频")}</button></div></div>`),
+	card("Notification", `<div class="toast"><span class="grow">${L("Deleted “Bug repro”", "已删除“Bug repro”")}</span><button class="btn ghost">${L("Undo", "撤销")}</button></div>`),
+].join(""));
+</script>
+</body>
+</html>

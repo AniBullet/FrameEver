@@ -7,6 +7,10 @@ import {
 	changelogSection,
 	converterAssetName,
 	converterEnv,
+	designCss,
+	designDir,
+	designJs,
+	easeMove,
 	firstRecording,
 	isLargeAddressAware,
 	missingChineseFont,
@@ -25,6 +29,67 @@ import {
 	withFfmpeg,
 	writeFakeCapAniBullet2,
 } from "./fe.mjs";
+
+const sampleTokens = () => ({
+	brand: {
+		dark: { neutral: [[0.1, 0.01, 266]], fixed: { overlay: [0.1, 0.01, 266, 0.6] } },
+		light: { neutral: [[0.9, 0.01, 266]], fixed: { overlay: [0.2, 0.04, 266, 0.6] } },
+	},
+	semantic: [
+		{ name: "muted_foreground", dark: "neutral.1", light: "neutral.1" },
+		{ name: "overlay", dark: "fixed.overlay", light: "fixed.overlay" },
+	],
+	componentVars: [{ name: "slider_bar", dark: "muted_foreground", light: "fixed.overlay" }],
+	type: { scale: [{ name: "body", size: 13.5, line: 20, weight: 400, tracking: "0" }] },
+	space: { "0-5": 2 },
+	radius: { md: 12, full: 999 },
+	size: { row: 34 },
+	motion: { duration: { fast: 120 }, ease: { effects: "cubic-bezier(0.2, 0, 0, 1)" }, move: { zeta: 0.75, omega: 10 } },
+});
+
+test("design tokens become one CSS rule per theme, with semantic names pointing at the ramps", () => {
+	const css = designCss(sampleTokens());
+	const [dark, light] = css.split('[data-theme="light"]');
+	assert.match(dark, /--neutral-1: oklch\(0\.1 0\.01 266\);/);
+	assert.match(light, /--neutral-1: oklch\(0\.9 0\.01 266\);/);
+	assert.match(dark, /--muted-foreground: var\(--neutral-1\);/);
+	assert.match(dark, /--overlay: oklch\(0\.1 0\.01 266 \/ 0\.6\);/);
+	assert.match(light, /--slider-bar: var\(--overlay\);/);
+	assert.match(dark, /--text-body: 13\.5px;/);
+	assert.match(dark, /--radius-md: 12px;/);
+	assert.match(dark, /--duration-fast: 120ms;/);
+	assert.match(dark, /--ease-effects: cubic-bezier\(0\.2, 0, 0, 1\);/);
+	assert.match(dark, /--ease-move: linear\(/);
+});
+
+test("a semantic token named like its fixed value keeps the value instead of pointing at itself", () => {
+	const css = designCss(sampleTokens());
+	assert.doesNotMatch(css, /--overlay: var\(--overlay\);/);
+	assert.equal(css.match(/--overlay: oklch/g).length, 2);
+});
+
+test("a token pointing at nothing stops the build", () => {
+	const tokens = sampleTokens();
+	tokens.semantic[0].light = "neutral.2";
+	assert.throws(() => designCss(tokens), /neutral\.2/);
+	tokens.semantic[0].light = "neutral.1";
+	tokens.componentVars[0].dark = "nonsense";
+	assert.throws(() => designCss(tokens), /nonsense/);
+});
+
+test("the movement curve lands on 1 and overshoots by under 3%", () => {
+	const points = easeMove({ zeta: 0.75, omega: 10 });
+	assert.equal(points.at(-1), 1);
+	assert.equal(points[0], 0);
+	assert.ok(Math.max(...points) > 1 && Math.max(...points) < 1.03);
+});
+
+test("the committed design tokens match tokens.json", () => {
+	const read = (name) => readFileSync(path.join(designDir, name), "utf8").replaceAll("\r\n", "\n");
+	const tokens = JSON.parse(read("tokens.json"));
+	assert.equal(read("tokens.css"), designCss(tokens), "Run: pnpm fe design");
+	assert.equal(read("tokens.js"), designJs(tokens), "Run: pnpm fe design");
+});
 
 test("flags take a value, an inline value, or stand alone", () => {
 	assert.deepEqual(parseArgs(["hevc", "--project", "a.ever", "--watch", "--lang=zh-CN"]), {
