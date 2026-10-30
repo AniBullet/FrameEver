@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>FrameEver Hand-drawn Touches</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../design.css">
+<style>
+.page-nav, .font-note { display: none !important; }
+.page-bar { top: env(safe-area-inset-top, 0px); }
+main { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 8px 110px; }
+.verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 14px; }
+.verdict > div { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px 14px; min-width: 0; }
+.verdict b { display: block; font-weight: 600; margin-bottom: 2px; }
+.verdict span.k { color: var(--muted-foreground); font-size: var(--text-small); display: block; margin-bottom: 4px; }
+.cand { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px; background: var(--background); margin-bottom: 14px; }
+.cand-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 10px; }
+.cand-head h3 { margin: 0; font-size: var(--text-title); line-height: var(--line-title); font-weight: 600; }
+.cand-head p { margin: 0; color: var(--muted-foreground); flex: 1 1 320px; min-width: 0; }
+.pick { color: var(--link); font-size: var(--text-small); font-weight: 600; }
+.themes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 10px; }
+.panel { background: var(--background); color: var(--foreground); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; min-width: 0; }
+.panel .ctx { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.big { display: flex; align-items: center; justify-content: center; border-left: 1px solid var(--border); padding-left: 12px; }
+.modes { display: flex; gap: 2px; padding: 2px; border-radius: var(--radius-sm); background: var(--muted); width: fit-content; max-width: 100%; flex-wrap: wrap; }
+.modes span { display: inline-flex; gap: 6px; align-items: center; height: 30px; padding: 0 10px; border-radius: 6px; color: var(--muted-foreground); font-size: var(--text-small); }
+.modes span.on { background: var(--accent); color: var(--accent-foreground); }
+.rowline { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-width: 0; }
+.thumb { position: relative; width: 112px; height: 63px; flex: none; border-radius: var(--radius-sm); background: var(--preview); border: 1px solid var(--border); }
+.badge { position: absolute; left: 5px; top: 5px; display: inline-flex; align-items: center; gap: 4px; padding: 1px 5px; border-radius: 5px; background: var(--popover); color: var(--popover-foreground); font-size: var(--text-caption); line-height: 16px; }
+.menu-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; background: var(--muted); font-size: var(--text-small); min-width: 0; }
+.sizes { display: inline-flex; gap: 10px; align-items: center; color: var(--foreground); }
+.custom { width: var(--w); height: var(--w); fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.dim { color: var(--muted-foreground); }
+.scenes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 14px; }
+.scene { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.scene-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.scene-head b { font-weight: 600; }
+.state { font-size: var(--text-caption); line-height: 16px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--border); color: var(--muted-foreground); }
+.state.on { color: var(--accent-foreground); background: var(--accent); border-color: transparent; }
+.scene .why { color: var(--muted-foreground); font-size: var(--text-small); margin: 0; }
+.win { position: relative; height: 262px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--background); overflow: hidden; display: flex; flex-direction: column; }
+.win-bar { flex: none; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--border); color: var(--muted-foreground); font-size: var(--text-small); }
+.win-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; text-align: center; color: var(--muted-foreground); }
+.win-body .title { color: var(--foreground); font-weight: 500; }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; align-self: start; }
+.cards .c { position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius-sm); background: var(--preview); border: 1px solid var(--border); }
+.cards .c.new { outline: 2px solid var(--ring); outline-offset: 1px; }
+.cards .c svg.dd { position: absolute; right: 4px; bottom: 4px; }
+.cards-label { display: flex; align-items: center; gap: 8px; align-self: flex-start; text-align: left; color: var(--foreground); }
+.compact { width: 240px; max-width: 100%; display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.hint { position: absolute; right: 14px; bottom: 12px; width: 130px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: var(--text-small); color: var(--muted-foreground); text-align: right; }
+.bar { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); bottom: max(14px, env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; justify-content: center; padding: 6px 8px; width: max-content; max-width: calc(100% - 32px); border-radius: var(--radius-md); background: var(--foreground); color: var(--background); }
+.bar button { border: 0; background: transparent; cursor: pointer; color: inherit; height: 28px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; }
+.bar button:hover { background: color-mix(in oklch, var(--background) 16%, transparent); }
+.bar b { font-weight: 600; min-width: 150px; text-align: center; }
+.bar i { width: 1px; height: 18px; background: currentColor; opacity: .3; }
+.bar button.on { background: var(--background); color: var(--foreground); }
+.table-wrap { overflow-x: auto; }
+table.places { width: 100%; border-collapse: collapse; min-width: 640px; }
+table.places th, table.places td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.places th { color: var(--muted-foreground); font-weight: 500; font-size: var(--text-small); }
+table.places td.m { text-align: center; }
+table.places tr.hit td.m.cur { background: var(--accent); color: var(--accent-foreground); }
+.never { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+@media (max-width: 560px) { .panel { grid-template-columns: minmax(0, 1fr); } .big { border-left: 0; border-top: 1px solid var(--border); padding: 10px 0 0; } }
+</style>
+</head>
+<body>
+<div id="shell"></div>
+<main>
+	<section id="intro"><h2 id="t-intro"></h2><p class="lead" id="l-intro"></p><div class="verdict" id="verdict"></div></section>
+	<section id="symbol"><h2 id="t-symbol"></h2><p class="lead" id="l-symbol"></p><div id="cands"></div></section>
+	<section id="places"><h2 id="t-places"></h2><p class="lead" id="l-places"></p><div class="scenes" id="scenes"></div></section>
+	<section id="rules"><h2 id="t-rules"></h2><p class="lead" id="l-rules"></p><div class="card table-wrap" id="table"></div><div class="grid-2" style="margin-top:12px" id="rule-cards"></div></section>
+</main>
+<div class="bar" id="bar"></div>
+<script src="../tokens.js"></script>
+<script src="../icons.js"></script>
+<script src="../design.js"></script>
+<script>
+const { L, icon, shell, onChange, tokens, state, color } = FE;
+const $ = (id) => document.getElementById(id);
+const fill = (id, html) => { $(id).innerHTML = html; };
+const INK = { ink: "--foreground", soft: "--muted-foreground", accent: "--link", red: "--recording", green: "--success-text", track: "--border" };
+const stroke = (d, ink, w, m, extra = {}) => ({ d, ink, w, m, ...extra });
+const DOODLES = {
+	UPLOAD: { view: [120, 104], strokes: [stroke("M 34 58 L 88 58 C 98 58 106 50 106 41 C 106 32 98.5 25 89.5 25 C 86.5 25 84 25.7 81.8 27 C 79 16.5 69.5 9 58.5 9 C 47 9 37.5 16.8 34.8 27.5 C 25.2 28 17.5 35.4 17.5 44 C 17.5 52 24.8 58 34 58 Z", "ink", 4, ["draw", 60, 800]), stroke("M 60 94 L 60 70 M 49 80 L 60 68 L 71 80", "accent", 4, ["fade", 700, 350], { bob: true })] },
+	BOLT: { view: [120, 104], strokes: [stroke("M 26 60 L 68 12 L 61 44 L 94 44 L 52 92 L 59 60 Z", "ink", 4, ["draw", 60, 800]), stroke("M 86 66 L 100 66 M 78 78 L 94 78", "accent", 3.5, ["fade", 700, 350], { bob: true })] },
+	LOOSE: { view: [120, 104], strokes: [stroke("M 70 8 L 30 58 L 58 54 L 44 96 L 96 40 L 64 44 L 73 7", "ink", 4.5, ["draw", 60, 850]), stroke("M 18 26 L 30 22 M 12 40 L 26 37", "accent", 3.5, ["fade", 750, 350], { bob: true })] },
+	READY: { view: [120, 104], strokes: [stroke("M 60 12 C 84 12 102 30 102 52 C 102 75 84 92 60 92 C 35 92 18 74 18 52 C 18 31 34 14 56 12.5 C 62 12 68 13 73 15", "soft", 3, ["draw", 60, 750]), stroke("M 50 34 L 80 52 L 50 70 Z", "accent", 4, ["draw", 650, 450])] },
+	DASH: { view: [120, 104], strokes: [stroke("M 52 20 L 104 52 L 52 84 Z", "ink", 4, ["draw", 60, 750]), stroke("M 36 34 L 16 34 M 32 52 L 8 52 M 36 70 L 16 70", "accent", 3.5, ["draw", 700, 350], { bob: true })] },
+	TRACKS: { view: [120, 104], strokes: [stroke("M 18 30 L 102 30", "accent", 9, ["draw", 60, 500]), stroke("M 18 52 L 84 52", "soft", 9, ["draw", 260, 500]), stroke("M 18 74 L 94 74", "green", 9, ["draw", 460, 500]), stroke("M 62 14 L 62 90", "red", 2.5, ["fade", 900, 300])] },
+	FRAME: { view: [120, 104], strokes: [stroke("M 24 14 L 96 14 Q 104 14 104 22 L 104 74 Q 104 82 96 82 L 24 82 Q 16 82 16 74 L 16 22 Q 16 14 24 14 Z", "accent", 2.5, ["fade", 100, 400], { march: true }), stroke("M 60 37 C 66 37 71 42 71 48 C 71 54 66 59 60 59 C 54 59 49 54 49 48 C 49 42 54 37 60 37 Z", "red", 0, ["pop", 450, 450], { fill: true })] },
+	TICK: { view: [24, 24], strokes: [stroke("M 4 13 L 9.5 18 L 20 6", "green", 3, ["draw", 200, 300])] },
+	ALL_SET: { view: [120, 104], strokes: [stroke("M 60 12 C 84 12 102 30 102 52 C 102 75 84 92 60 92 C 35 92 18 74 18 52 C 18 31 34 14 56 12.5 C 62 12 68 13 73 15", "soft", 3, ["draw", 450, 750]), stroke("M 38 54 L 54 70 L 84 34", "green", 5.5, ["draw", 80, 500])] },
+	FLOW: { view: [120, 104], strokes: [stroke("M 20 20 L 50 20 Q 56 20 56 26 L 56 44 Q 56 50 50 50 L 20 50 Q 14 50 14 44 L 14 26 Q 14 20 20 20 Z", "ink", 3.5, ["draw", 60, 550]), stroke("M 72 56 L 100 56 Q 106 56 106 62 L 106 80 Q 106 86 100 86 L 72 86 Q 66 86 66 80 L 66 62 Q 66 56 72 56 Z", "ink", 3.5, ["draw", 420, 550]), stroke("M 34 52 C 34 72 44 72 62 71", "accent", 3, ["draw", 800, 350])] },
+	LENS: { view: [120, 104], strokes: [stroke("M 52 16 C 68 16 82 30 82 46 C 82 62 68 76 52 76 C 36 76 22 62 22 46 C 22 30 36 16 52 16 Z", "ink", 4, ["draw", 60, 700]), stroke("M 74 68 L 98 92", "accent", 5, ["draw", 650, 300])] },
+	UP_ARROW: { view: [34, 44], strokes: [stroke("M 12 40 C 6 30 8 16 22 6", "accent", 3, ["draw", 200, 450]), stroke("M 12 6 L 23 5 L 22 16", "accent", 3, ["draw", 600, 250])] },
+	UNDERLINE: { view: [132, 12], strokes: [stroke("M 4 8 C 34 4 78 3 128 6", "accent", 3.5, ["draw", 350, 650])] },
+};
+const EXTRA_ICONS = {
+	workflow: '<rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/>',
+	"circle-play": '<path d="M9 9.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997A1 1 0 0 1 9 14.996z"/><circle cx="12" cy="12" r="10"/>',
+	"sketch-bolt": '<path d="M13.6 2.4 5.2 13.4l6.4-.8-2.4 9 10.2-11.8-6.5.8 1-7.2"/>',
+	"play-dash": '<path d="M10 5.5 20.5 12 10 18.5Z"/><path d="M6.5 8.5H3M6 12H1.5M6.5 15.5H3"/>',
+};
+const glyph = (name, size) => EXTRA_ICONS[name] ? `<svg class="custom" style="--w:${size}px" viewBox="0 0 24 24" aria-hidden="true">${EXTRA_ICONS[name]}</svg>` : `<svg class="custom" style="--w:${size}px" viewBox="0 0 24 24" aria-hidden="true">${window.FRAMEEVER_ICONS[name]}</svg>`;
+
+let uid = 0;
+const dd = (name, w, h, start = 0) => {
+	const D = DOODLES[name];
+	const id = `boil-${++uid}`;
+	const paths = D.strokes.map((s, i) => `<path data-i="${i}" d="${s.d}" ${s.fill ? `fill="var(${INK[s.ink]})" stroke="none"` : `fill="none" stroke="var(${INK[s.ink]})" stroke-width="${s.w}" stroke-linecap="round" stroke-linejoin="round"`} ${s.march ? 'stroke-dasharray="2 4.2"' : s.m[0] === "draw" ? 'pathLength="1" stroke-dasharray="1 2"' : ""} style="transform-box:fill-box;transform-origin:center;opacity:0"/>`).join("");
+	return `<svg class="dd" width="${w}" height="${h}" viewBox="0 0 ${D.view[0]} ${D.view[1]}" data-dd="${name}" data-start="${start}" aria-hidden="true"><defs><filter id="${id}" x="-10" y="-10" width="${D.view[0] + 20}" height="${D.view[1] + 20}" filterUnits="userSpaceOnUse"><feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="1" seed="1"/><feDisplacementMap in="SourceGraphic" scale="2.5" xChannelSelector="R" yChannelSelector="G"/></filter></defs><g filter="url(#${id})">${paths}</g></svg>`;
+};
+
+const CANDS = [
+	{ key: "A", icon: "zap", doodle: "BOLT", name: ["Lucide zap, with a traced doodle", "Lucide zap，配一张描出来的手绘"], note: ["The icon stays a stock Lucide glyph at every small size, and onboarding gets the same bolt traced by hand in place of the cloud. One shape everywhere and no custom icon. Automations gives up zap and moves to workflow, so one picture keeps one meaning.", "小图标全用现成的 Lucide，引导页把云朵换成同一个闪电的手绘描线。到处都是一个形状，不用自绘图标。Automations 让出 zap 换成 workflow，一个图只表示一件事。"], rec: true, auto: "workflow" },
+	{ key: "B", icon: "sketch-bolt", doodle: "LOOSE", name: ["Hand-drawn bolt", "手绘闪电"], note: ["A sketched bolt at every size, as the one custom glyph beside Lucide. It has character at 20 px and above. At 14 px the hand is gone and it reads as a slightly uneven Lucide icon.", "所有尺寸都用手绘闪电，是 Lucide 之外唯一的自绘图标。20 px 以上有个性，14 px 时手绘感看不出来，只像一个不太齐的 Lucide 图标。"], auto: "zap" },
+	{ key: "C", icon: "circle-play", doodle: "READY", name: ["Lucide circle-play", "Lucide circle-play"], note: ["Says what Instant means: stop, and it is ready to play. It is the most literal choice, but the same triangle already means play on every card and in the preview.", "说的就是 Instant 的意思：一停就能播放。最直白，但同样的三角形在卡片和预览里已经表示播放。"], auto: "zap" },
+	{ key: "D", icon: "play-dash", doodle: "DASH", name: ["Play with speed lines", "带速度线的播放"], note: ["A drawn mix of play and quick, in Lucide's grid and stroke. It keeps the meaning and avoids the clash with play, at the price of a new glyph people have to learn.", "按 Lucide 网格和线宽自绘，把播放和快合在一起。保留含义，也不和播放撞，代价是一个要重新认识的新图标。"], auto: "zap" },
+];
+const STUDIO = "clapperboard";
+const SHOT = "image";
+const scopeVars = (theme) => {
+	const list = [...tokens.semantic, ...tokens.componentVars].filter((t) => !t.name.includes("."));
+	return list.map((t) => `--${t.name.replace(/_/g, "-")}:${color(theme, t.name)}`).join(";");
+};
+const panel = (c, theme) => `<div class="panel" data-theme="${theme}" style="${scopeVars(theme)}">
+	<div class="ctx">
+		<div class="modes"><span>${glyph(STUDIO, 16)}${L("Studio", "工作室")}</span><span class="on">${glyph(c.icon, 16)}${L("Instant", "即时")}</span><span>${glyph(SHOT, 16)}${L("Screenshot", "截图")}</span></div>
+		<div class="rowline">
+			<div class="thumb"><span class="badge">${glyph(c.icon, 14)}0:48</span></div>
+			<div class="sizes dim">${glyph(c.icon, 14)}${glyph(c.icon, 16)}${glyph(c.icon, 20)}<span class="mono">14 16 20</span></div>
+		</div>
+		<div class="menu-row">${glyph(c.icon, 16)}${L("Start Instant recording", "开始即时录制")}</div>
+		<div class="menu-row dim">${glyph(c.auto, 16)}${L("Automations", "自动化")}</div>
+	</div>
+	<div class="big">${dd(c.doodle, 112, 97, 200)}</div>
+</div>`;
+const renderCands = () => fill("cands", `<div class="cand"><div class="cand-head"><h3>${L("Today in onboarding", "现在引导页的样子")}</h3><p>${L("The cloud with an arrow still says upload, which FrameEver never does. Studio and Screenshot stay as they are, so the bolt has to sit beside them.", "云朵加箭头说的还是上传，而 FrameEver 从不上传。工作室和截图的插图不动，闪电要和它们放在一起。")}</p></div><div class="rowline">${dd("UPLOAD", 112, 97, 100)}${dd("TRACKS", 112, 97, 100)}</div></div>` + CANDS.map((c) => `<div class="cand"><div class="cand-head"><h3>${c.key} · ${L(...c.name)}</h3>${c.rec ? `<span class="pick">${L("Recommended", "建议")}</span>` : ""}<p>${L(...c.note)}</p></div><div class="themes">${panel(c, "dark")}${panel(c, "light")}</div></div>`).join(""));
+
+const VARIANTS = {
+	a: { label: ["A · 2 places", "A · 2 处"], name: ["Rare", "很少"] },
+	b: { label: ["B · 5 places", "B · 5 处"], name: ["Recommended", "建议"] },
+	c: { label: ["C · 9 places", "C · 9 处"], name: ["Generous", "大方"] },
+};
+const ORDER = ["a", "b", "c"];
+const cardsMock = (ticks) => `<div class="cards"><div class="c new">${ticks >= 1 ? dd("TICK", 22, 22) : ""}</div><div class="c">${ticks >= 2 ? dd("TICK", 22, 22, 150) : ""}</div><div class="c"></div></div>`;
+const PLACES = [
+	{ id: "library", en: "Library with nothing in it", zh: "资源库什么都没有", in: "abc", reason: ["Settled by the library behaviour ticket. The window is otherwise blank, so nothing competes.", "资源库行为工单已定。窗口里本来是空的，不抢任何东西。"],
+		scene: (on) => `<div class="win"><div class="win-bar">${L("Library", "资源库")}</div><div class="win-body">${on ? dd("FRAME", 96, 83) : ""}<div class="title">${L("No recordings yet", "还没有录制")}</div><button class="btn primary">${L("Start recording", "开始录制")}</button></div></div>` },
+	{ id: "first", en: "First recording finished", zh: "第一次录制完成", in: "abc", reason: ["Happens once. The new card is selected in the expanded library, so a tick draws on it and the line goes away by itself.", "只发生一次。新卡片已经在展开的资源库里被选中，勾画在卡片上，那句话自己消失。"],
+		scene: (on, v) => `<div class="win"><div class="win-bar">${L("Library", "资源库")}</div><div class="win-body" style="justify-content:flex-start">${on ? `<div class="cards-label">${L("Your recordings stay on this computer.", "录制都留在这台电脑上。")}</div>` : ""}${cardsMock(on ? (v === "c" ? 2 : 1) : 0)}</div></div>` },
+	{ id: "auto", en: "Other empty lists: Automations", zh: "其他空列表：自动化", in: "bc", reason: ["The same case as an empty library, only smaller. This covers the lists that sit outside the editor.", "和资源库空着是同一件事，只是更小。指编辑器之外的列表。"],
+		scene: (on) => `<div class="win"><div class="win-bar">${L("Settings · Automations", "设置 · 自动化")}</div><div class="win-body">${on ? dd("FLOW", 84, 73) : ""}<div class="title">${L("No automations yet", "还没有自动化")}</div><button class="btn">${L("New automation", "新建自动化")}</button></div></div>` },
+	{ id: "hint", en: "First-run hint to the library", zh: "第一次用时指向资源库", in: "bc", reason: ["One arrow, once. The compact window hides the library behind a single button, so it is the one hint that earns its place.", "一个箭头，只出现一次。紧凑窗口把资源库藏在一个按钮后面，这是唯一值得给的提示。"],
+		scene: (on) => `<div class="win"><div class="win-bar">FrameEver</div><div class="win-body" style="align-items:flex-start;justify-content:flex-start"><div class="compact"><div class="modes"><span class="on">${glyph(STUDIO, 16)}${L("Studio", "工作室")}</span><span>${glyph("zap", 16)}${L("Instant", "即时")}</span></div><button class="btn primary block tall">${L("Start recording", "开始录制")}</button></div><button class="btn" style="position:absolute;right:12px;top:12px">${L("Library", "资源库")} ▸</button>${on ? `<div class="hint" style="top:54px;bottom:auto">${dd("UP_ARROW", 26, 34)}<span>${L("Your recordings are here", "录好的内容都在这里")}</span></div>` : ""}</div></div>` },
+	{ id: "export", en: "Export finished", zh: "导出完成", in: "bc", reason: ["The end of a long wait, in a dialog that sits over the canvas and hides it. The tick draws once and holds still.", "等了很久之后的结束，对话框盖住了画布。勾只画一次，然后静止。"],
+		scene: (on) => `<div class="win"><div class="win-bar">${L("Export", "导出")}</div><div class="win-body">${on ? dd("ALL_SET", 72, 62) : `<span style="color:var(--success-text)">${icon("circle-check", "lg")}</span>`}<div class="title">${L("Exported", "已导出")}</div><div>Product demo.mp4 · 64 MB</div><div class="rowline" style="justify-content:center"><button class="btn">${L("Show in folder", "在文件夹中显示")}</button><button class="btn primary">${L("Copy file", "复制文件")}</button></div></div></div>` },
+	{ id: "every", en: "Every finished recording", zh: "每次录制完成", in: "c", reason: ["It stops being a moment by the third time. Variant C adds a tick to each new card; compare the second scene.", "到第三次就不算时刻了。方案 C 给每张新卡片都加勾，看第二个场景。"], noscene: true },
+	{ id: "match", en: "No matching items", zh: "没有匹配的条目", in: "c", reason: ["Someone is in the middle of searching. A drawing slows them down.", "用户正在找东西，插图只会拖慢他们。"],
+		scene: (on) => `<div class="win"><div class="win-bar">${L("Library", "资源库")} · “invoice”</div><div class="win-body">${on ? dd("LENS", 76, 66) : ""}<div class="title">${L("No matching items", "没有匹配的条目")}</div><button class="btn">${L("Clear filters", "清除筛选")}</button></div></div>` },
+	{ id: "about", en: "Settings · About", zh: "设置 · 关于", in: "c", reason: ["Harmless, and nobody would miss it. It only makes the list longer.", "没什么坏处，但也没人会想念，只是把清单变长。"],
+		scene: (on) => `<div class="win"><div class="win-bar">${L("Settings · About", "设置 · 关于")}</div><div class="win-body"><div class="title" style="font-size:var(--text-heading);line-height:var(--line-heading)">FrameEver</div>${on ? dd("UNDERLINE", 110, 12) : ""}<div>1.0.0</div></div></div>` },
+	{ id: "editor", en: "Editor: No clips yet", zh: "编辑器：还没有片段", in: "c", reason: ["Beside the canvas, where the motion rules forbid anything that moves. It is here so you can see why it fails.", "就在画布旁边，动效规则禁止这里有动的东西。放在这里是让你看它为什么不行。"],
+		scene: (on) => `<div class="win"><div class="win-bar">${L("Editor", "编辑器")}</div><div style="flex:1;background:var(--preview);min-height:0"></div><div style="height:96px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:8px;color:var(--muted-foreground)">${on ? dd("TICK", 22, 22) : ""}${on ? dd("UNDERLINE", 70, 10) : ""}<span>${L("No clips yet", "还没有片段")}</span></div></div>` },
+];
+
+let variant = "b";
+let boilMode = "stop";
+const readVariant = () => { const at = state.at.replace("v-", ""); if (ORDER.includes(at)) variant = at; };
+const replay = { at: performance.now() };
+const renderScenes = () => {
+	fill("scenes", PLACES.filter((p) => !p.noscene).map((p) => {
+		const on = p.in.includes(variant);
+		return `<div class="scene"><div class="scene-head"><b>${L(p.en, p.zh)}</b><span class="state ${on ? "on" : ""}">${on ? L("Hand-drawn", "手绘") : L("Plain", "不加")}</span></div>${p.scene(on, variant)}<p class="why">${L(...p.reason)}</p></div>`;
+	}).join(""));
+	replay.at = performance.now();
+};
+const renderTable = () => fill("table", `<table class="places"><tr><th>${L("Place", "位置")}</th><th>A</th><th>B</th><th>C</th><th>${L("Why", "理由")}</th></tr>${PLACES.map((p) => `<tr class="${p.in.includes(variant) ? "hit" : ""}"><td>${L(p.en, p.zh)}</td>${ORDER.map((v) => `<td class="m ${v === variant ? "cur" : ""}">${p.in.includes(v) ? "●" : "–"}</td>`).join("")}<td class="dim">${L(...p.reason)}</td></tr>`).join("")}</table>`);
+const renderBar = () => fill("bar", `<button id="prev" aria-label="Previous">${icon("chevron-left")}</button><b>${L(...VARIANTS[variant].label)} · ${L(...VARIANTS[variant].name)}</b><button id="next" aria-label="Next">${icon("chevron-right")}</button><i></i><button id="boil-stop" class="${boilMode === "stop" ? "on" : ""}">${L("Still once drawn", "画完就停")}</button><button id="boil-on" class="${boilMode === "on" ? "on" : ""}">${L("Keeps boiling", "一直抖动")}</button><i></i><button id="again">${icon("rotate-ccw")}${L("Replay", "重播")}</button>`);
+const setVariant = (next) => { variant = next; state.at = `v-${next}`; history.replaceState(null, "", location.pathname + location.search + (location.hash ? "" : "")); renderScenes(); renderTable(); renderBar(); };
+const cycle = (step) => setVariant(ORDER[(ORDER.indexOf(variant) + step + ORDER.length) % ORDER.length]);
+document.addEventListener("click", (event) => {
+	const id = event.target.closest("button")?.id;
+	if (id === "prev") cycle(-1);
+	if (id === "next") cycle(1);
+	if (id === "again") replay.at = performance.now();
+	if (id === "boil-stop" || id === "boil-on") { boilMode = id === "boil-on" ? "on" : "stop"; renderBar(); }
+});
+document.addEventListener("keydown", (event) => {
+	if (event.target.closest?.("input,textarea,[contenteditable]")) return;
+	if (event.key === "ArrowLeft") cycle(-1);
+	if (event.key === "ArrowRight") cycle(1);
+});
+
+const still = matchMedia("(prefers-reduced-motion: reduce)");
+const easeOut = (t) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 3;
+const beat = (at, delay, dur) => Math.min(1, Math.max(0, (at - delay) / dur));
+const settledAt = (D) => Math.max(...D.strokes.map((s) => s.m[1] + s.m[2]));
+const tick = (now) => {
+	const elapsed = now - replay.at;
+	const seed = String(1 + (Math.floor(now / 150) % 4));
+	for (const svg of document.querySelectorAll("svg[data-dd]")) {
+		const D = DOODLES[svg.dataset.dd];
+		const reduced = still.matches;
+		const at = reduced ? 1e9 : elapsed - Number(svg.dataset.start);
+		const live = !reduced && (boilMode === "on" || at < settledAt(D));
+		const sec = live ? Math.max(0, at) / 1000 : 0;
+		const turb = svg.querySelector("feTurbulence");
+		turb.setAttribute("seed", live ? seed : "1");
+		for (const p of svg.querySelectorAll("path[data-i]")) {
+			const s = D.strokes[Number(p.dataset.i)];
+			const [kind, delay, dur] = s.m;
+			const t = beat(at, delay, dur);
+			let alpha = t <= 0 ? 0 : 1;
+			let grow = 1;
+			if (kind === "fade") alpha = easeOut(t);
+			if (kind === "pop") {
+				alpha = easeOut(t);
+				grow = t < 0.6 ? 0.2 + t / 0.6 : 1.2 - 0.2 * ((t - 0.6) / 0.4);
+			}
+			const bob = s.bob && live ? -4 * (0.5 - 0.5 * Math.cos(Math.PI * 2 * ((sec / 1.9) % 1))) : 0;
+			p.style.opacity = alpha;
+			p.style.transform = `translate(0px, ${bob}px) scale(${grow})`;
+			if (kind === "draw") p.setAttribute("stroke-dashoffset", String(1 - easeOut(t)));
+			if (s.march) p.setAttribute("stroke-dashoffset", String(live ? -((sec / 1.1) % 1) * 6.2 : 0));
+		}
+	}
+	requestAnimationFrame(tick);
+};
+
+shell({ here: "", depth: 1 });
+document.querySelector(".page-bar h1").innerHTML = `FrameEver ${L("hand-drawn touches", "手绘点缀")}`;
+readVariant();
+const copy = {
+	"t-intro": L("Hand-drawn touches and the Instant symbol", "手绘点缀和 Instant 符号"),
+	"l-intro": L("Prototype for the map's hand-drawn ticket, on Klein Field tokens. There are three things to choose, listed here with what I'd pick. Doodle paths and timing follow onboarding_doodles.rs and doodle.rs; the new drawings are mine, drawn by the same rules.", "地图上手绘工单的原型，用的是 Klein Field token。要定三件事，这里列出我的建议。涂鸦的路径和时间照搬 onboarding_doodles.rs 和 doodle.rs，新画的几张按同样的规则。"),
+	"t-symbol": L("1. The Instant symbol", "1. Instant 符号"),
+	"l-symbol": L("Each candidate sits in the same spots in both themes: the mode picker, a library card badge, a menu row, and the large onboarding drawing. The grey row shows what Automations uses under that candidate.", "每个候选都放在同样的位置，深浅色各一份：模式选择、资源库卡片角标、菜单行、引导页的大插图。灰色那行是该方案下 Automations 用的图标。"),
+	"t-places": L("2. Where the touches go", "2. 手绘放在哪里"),
+	"l-places": L("Use the bar at the bottom or the ← → keys to compare three amounts. Each place shows what it looks like under the current choice, and the bar's middle buttons compare motion: still once drawn, or boiling all the time as on the welcome page.", "用底部的条或 ← → 键比较三种分量。每个位置显示当前方案下的样子。条中间的按钮比较动效：画完就停，或者像欢迎页那样一直抖动。"),
+	"t-rules": L("The whole list, and the rules behind it", "完整清单和背后的规则"),
+	"l-rules": L("Every candidate place across the three amounts. Pick by column, or move single places between columns.", "所有候选位置在三种分量下的情况。按列选，也可以单独挪某一处。"),
+};
+for (const [id, html] of Object.entries(copy)) fill(id, html);
+fill("verdict", `<div><span class="k">${L("Instant symbol", "Instant 符号")}</span><b>${L("A: Lucide zap", "A：Lucide zap")}</b>${L("A traced bolt replaces the cloud in onboarding; Automations moves to workflow.", "引导页用手绘描线的闪电换掉云朵；Automations 改用 workflow。")}</div><div><span class="k">${L("How many places", "放几处")}</span><b>${L("B: 5 places", "B：5 处")}</b>${L("Empty lists, the first recording, one first-run hint and export finished.", "空列表、第一次录制、一个首次提示、导出完成。")}</div><div><span class="k">${L("Motion outside onboarding", "引导页以外的动效")}</span><b>${L("Still once drawn", "画完就停")}</b>${L("Each boiling frame repaints the window, so only welcome and onboarding keep boiling.", "每一帧抖动都要重绘窗口，所以只有欢迎页和引导页继续抖动。")}</div>`);
+fill("rule-cards", `<div class="card"><h3>${L("How a touch is drawn", "手绘怎么画")}</h3><ul class="never"><li>${L("It belongs to the moment the app talks to you: nothing here yet, first time, done.", "只用在应用和你说话的时刻：这里还没有东西、第一次、完成了。")}</li><li>${L("One per window at a time, 120 px wide at most outside onboarding.", "一个窗口同时只有一处，引导页以外最宽 120 px。")}</li><li>${L("Foreground and muted lines; link blue for one accent stroke; green only for a tick; red only for the record dot.", "线条用 foreground 和 muted；link 蓝只给一笔点缀；绿只给勾；红只给录制点。")}</li><li>${L("With reduced motion it is drawn complete and still.", "减少动态效果时直接画好，不动。")}</li><li>${L("The copy beside it stays neutral (copy-style.md): only welcome and onboarding are playful.", "旁边的文案保持中性（copy-style.md）：只有欢迎页和引导页可以活泼。")}</li></ul></div><div class="card"><h3>${L("Never", "从不")}</h3><ul class="never"><li>${L("While recording, or around a recording preview or the editor canvas.", "录制中、录制预览和编辑器画布周围。")}</li><li>${L("On errors, warnings or deletion dialogs: those need to be read, not enjoyed.", "错误、警告、删除对话框：这些是要读的，不是看着玩的。")}</li><li>${L("On buttons, icons, rows, tooltips or any control you use repeatedly.", "按钮、图标、列表行、提示气泡，以及任何反复使用的控件。")}</li><li>${L("Inside data: thumbnails, timelines, charts.", "数据里面：缩略图、时间轴、图表。")}</li><li>${L("Handwriting fonts. The text stays Inter and HarmonyOS Sans SC.", "手写字体。文字还是 Inter 和 HarmonyOS Sans SC。")}</li></ul></div>`);
+renderCands();
+renderScenes();
+renderTable();
+renderBar();
+onChange(() => {
+	$("cands") && renderCands();
+	renderScenes();
+});
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
