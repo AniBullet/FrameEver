@@ -45,6 +45,13 @@
 	--badge: oklch(0.15 0 0 / 0.82);
 	--overlay: oklch(0.145 0.004 266 / 0.6);
 	--klein-tint-bar: oklch(0.38 0.18 266.4);
+	--track-zoom: oklch(0.473 0.132 268.5);
+	--track-text: oklch(0.543 0.082 176.5);
+	--track-audio: oklch(0.471 0.125 304.2);
+	--track-input: oklch(0.546 0.103 73.5);
+	--track-style: oklch(0.51 0.116 350.4);
+	--track-mask: oklch(0.509 0.122 26.1);
+	--track-shot: oklch(0.456 0.133 280.3);
 	--background: var(--neutral-2);
 	--foreground: var(--neutral-12);
 	--page: var(--neutral-1);
@@ -191,6 +198,13 @@
 	--badge: oklch(0.15 0 0 / 0.82);
 	--overlay: oklch(0.205 0.006 266 / 0.6);
 	--klein-tint-bar: oklch(0.78 0.105 266.4);
+	--track-zoom: oklch(0.473 0.132 268.5);
+	--track-text: oklch(0.543 0.082 176.5);
+	--track-audio: oklch(0.471 0.125 304.2);
+	--track-input: oklch(0.546 0.103 73.5);
+	--track-style: oklch(0.51 0.116 350.4);
+	--track-mask: oklch(0.509 0.122 26.1);
+	--track-shot: oklch(0.456 0.133 280.3);
 	--background: var(--neutral-2);
 	--foreground: var(--neutral-12);
 	--page: var(--neutral-3);

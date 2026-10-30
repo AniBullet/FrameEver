@@ -6,7 +6,7 @@ window.FE = (() => {
 	const surfaces = [
 		["main-window-library", "Main window and library", "主窗口和资源库", true],
 		["settings", "Settings", "设置", true],
-		["editor", "Editor", "编辑器", false],
+		["editor", "Editor", "编辑器", true],
 		["screenshot-editor", "Screenshot editor", "截图编辑器", false],
 		["recording-controls", "Recording controls", "录制控制条", false],
 		["area-picker", "Area picker and countdown", "区域选择和倒计时", false],
