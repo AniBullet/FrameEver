@@ -68,12 +68,12 @@
 	display: flex;
 	align-items: center;
 	gap: 2px;
-	height: 40px;
+	height: 36px;
 	padding: 0 4px;
 	max-width: 100%;
-	border-radius: var(--radius-lg);
+	border-radius: var(--radius-xl);
 	background: var(--popover);
-	border: 1px solid var(--border-strong);
+	border: 1px solid var(--border);
 	font-size: var(--text-small);
 	transition: border-color var(--duration-fast) var(--ease-effects);
 }
@@ -84,15 +84,15 @@
 
 .rb.edge {
 	border-top: 0;
-	border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+	border-radius: 0 0 var(--radius-xl) var(--radius-xl);
 }
 
 .rb-grip {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 18px;
-	height: 32px;
+	width: 16px;
+	height: 28px;
 	border: 0;
 	padding: 0;
 	background: transparent;
@@ -114,11 +114,11 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 30px;
-	height: 32px;
+	width: 28px;
+	height: 28px;
 	border: 0;
 	padding: 0;
-	border-radius: var(--radius-md);
+	border-radius: var(--radius-full);
 	background: transparent;
 	color: var(--muted-foreground);
 	cursor: pointer;
@@ -150,7 +150,7 @@
 }
 
 .rb-btn.muted {
-	color: var(--danger-text);
+	color: var(--warning-text);
 }
 
 .rb-btn.alert {
@@ -161,14 +161,13 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	gap: 6px;
-	height: 32px;
-	min-width: 32px;
-	padding: 0 8px;
+	width: 28px;
+	height: 28px;
+	padding: 0;
 	border: 0;
-	border-radius: var(--radius-md);
-	background: var(--danger);
-	color: var(--danger-foreground);
+	border-radius: var(--radius-full);
+	background: var(--primary);
+	color: var(--primary-foreground);
 	font-weight: 500;
 	cursor: pointer;
 	flex: none;
@@ -176,7 +175,12 @@
 }
 
 .rb-stop:hover {
-	background: var(--danger-hover);
+	background: var(--primary-hover);
+}
+
+.rb-stop svg.i {
+	width: 11px;
+	height: 11px;
 }
 
 .rb-stop[disabled] {
@@ -235,7 +239,7 @@
 	position: absolute;
 	left: 6px;
 	right: 6px;
-	bottom: 4px;
+	bottom: 2px;
 	height: 2px;
 	border-radius: 1px;
 	background: var(--slider-bar);
@@ -246,24 +250,27 @@
 	display: block;
 	height: 100%;
 	width: 40%;
-	background: var(--success);
+	background: var(--progress-bar);
 }
 
-.rb-ask {
+.ask-card {
+	padding: 12px;
+}
+
+.ask-card b {
+	font-weight: 600;
+}
+
+.ask-card p {
+	margin: 4px 0 12px;
+	color: var(--muted-foreground);
+	line-height: var(--line-small);
+}
+
+.ask-actions {
 	display: flex;
-	align-items: center;
+	justify-content: flex-end;
 	gap: 8px;
-	padding-left: 8px;
-	white-space: nowrap;
-}
-
-.rb-ask span.ask {
-	font-weight: 500;
-}
-
-.rb-ask .btn {
-	height: 30px;
-	padding: 0 10px;
 }
 
 .rb-tab {
@@ -272,7 +279,7 @@
 	gap: 6px;
 	height: 26px;
 	padding: 0 12px;
-	border: 1px solid var(--border-strong);
+	border: 1px solid var(--border);
 	border-top: 0;
 	border-radius: 0 0 var(--radius-md) var(--radius-md);
 	background: var(--popover);
@@ -340,7 +347,7 @@
 	overflow-y: auto;
 	padding: 4px;
 	background: var(--popover);
-	border: 1px solid var(--border-strong);
+	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
 	font-size: var(--text-small);
 }
@@ -418,8 +425,8 @@
 	height: 36px;
 	padding: 0 4px;
 	background: var(--popover);
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-lg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-xl);
 }
 
 .draw-strip .swatch {
@@ -645,7 +652,7 @@
 	z-index: 3;
 	padding: 4px;
 	background: var(--popover);
-	border: 1px solid var(--border-strong);
+	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
 	font-size: var(--text-small);
 }
