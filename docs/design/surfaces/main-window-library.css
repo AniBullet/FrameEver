@@ -1,6 +1,10 @@
-#state-tabs .seg,
-#palette-tabs .seg {
+main > section .seg {
 	flex-wrap: wrap;
+	max-width: 100%;
+}
+
+#delete-grid > div {
+	min-width: 0;
 }
 
 .stage {
@@ -396,8 +400,8 @@
 	border-color: var(--selection);
 }
 
-.tile.fresh .thumb {
-	border-color: var(--ring);
+.tile.fresh {
+	background: var(--accent);
 }
 
 .tile .thumb {
@@ -864,7 +868,7 @@
 	width: min(calc(100% - 24px), 640px);
 	z-index: 31;
 	background: var(--popover);
-	border: 1px solid var(--border-strong);
+	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
 	overflow: hidden;
 }
@@ -896,7 +900,7 @@
 	border: 0;
 	background: transparent;
 	outline: 0;
-	font-size: 14px;
+	font-size: var(--text-body);
 	color: var(--foreground);
 }
 
@@ -1001,7 +1005,8 @@
 
 .static-dialog {
 	background: var(--overlay);
-	padding: 24px 16px;
+	padding: 24px 12px;
+	overflow-x: auto;
 	border-radius: var(--radius-lg);
 	display: flex;
 	justify-content: center;

@@ -8,7 +8,7 @@ window.FE = (() => {
 		["settings", "Settings", "设置", true],
 		["editor", "Editor", "编辑器", true],
 		["screenshot-editor", "Screenshot editor", "截图编辑器", true],
-		["recording-controls", "Recording controls", "录制控制条", false],
+		["recording-controls", "Recording controls", "录制控制条", true],
 		["area-picker", "Area picker and countdown", "区域选择和倒计时", false],
 		["tray", "Tray", "托盘", false],
 		["camera-teleprompter", "Camera and teleprompter", "摄像头和提词器", false],
@@ -22,6 +22,7 @@ window.FE = (() => {
 		if (!icons[name]) throw new Error(`No icon: ${name}`);
 		return `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
 	};
+	const recordGlyph = () => '<span class="rec-glyph" aria-hidden="true"></span>';
 	const pick = (en, zh) => (state.lang === "en" ? en : zh);
 
 	const readHash = () => {
@@ -189,5 +190,5 @@ window.FE = (() => {
 		return 1 - Math.exp(-zeta * omega * t) * (Math.cos(damped * t) + ((zeta * omega) / damped) * Math.sin(damped * t));
 	};
 
-	return { tokens, state, L, icon, pick, shell, seg, hex, oklch, color, value, contrast, spring, onChange: (fn) => listeners.push(fn) };
+	return { tokens, state, L, icon, recordGlyph, pick, shell, seg, hex, oklch, color, value, contrast, spring, onChange: (fn) => listeners.push(fn) };
 })();

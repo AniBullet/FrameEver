@@ -207,14 +207,14 @@ fill("elevation-grid", `<div class="levels"><small>0 · background</small><div c
 <div class="card"><h3>${L("Three border weights", "边框三档")}</h3><div class="scroll"><table><tr><th>token</th><th>${L("Dark", "深色")}</th><th>${L("Light", "浅色")}</th><th>${L("Used for", "用在哪")}</th></tr>${[["border", "Regions, rows, popovers, title bar", "区域、行、弹出层、标题栏"], ["border_strong", "Checkbox, switch off", "复选框、开关关"], ["input", "Inputs, dropdowns", "输入框、下拉框"]].map(([n, en, zh]) => `<tr><td><code>${n}</code></td>${["dark", "light"].map((t) => `<td><span class="swatch"><i style="background:${color(t, n)}"></i><span class="mono">${contrast(t, n, "background").toFixed(2)}:1</span></span></td>`).join("")}<td class="dim">${L(en, zh)}</td></tr>`).join("")}</table></div><p class="note">${L("All lines are 1 px, the focus ring 2 px. A selected tile uses the selection fill and a matching edge, no extra blue frame.", "线宽一律 1 px，焦点环 2 px。选中的图块用 selection 底色加同色边，不额外加蓝框。")}</p></div>`);
 
 const sampleTile = (on, name, meta) => `<div style="width:150px;padding:6px;border-radius:var(--radius-md);${on ? "background:var(--selection)" : ""}" tabindex="0"><span class="thumb"></span><div style="font-size:12px;margin-top:6px;font-weight:500">${name}</div><div style="font-size:11px;color:var(--muted-foreground)">${meta}</div></div>`;
-fill("focus-row", `<button class="btn primary ring" tabindex="-1">${icon("circle")}${L("Start recording", "开始录制")}</button><button class="btn ring" tabindex="-1">${L("Export…", "导出…")}</button><label class="input ring" style="width:200px">${icon("search")}<input tabindex="-1" data-ph-en="Search" data-ph-zh="搜索"></label><button class="switch on ring" tabindex="-1"></button><div style="flex-basis:100%;height:0"></div><button class="btn primary">${icon("circle")}${L("Start recording", "开始录制")}</button><button class="btn">${L("Export…", "导出…")}</button><button class="btn ghost">${icon("folder-open")}${L("Show in folder", "在文件夹中显示")}</button><label class="input" style="width:200px">${icon("search")}<input data-ph-en="Search" data-ph-zh="搜索"></label><button class="switch" onclick="this.classList.toggle('on')"></button>`);
+fill("focus-row", `<button class="btn primary ring" tabindex="-1">${FE.recordGlyph()}${L("Start recording", "开始录制")}</button><button class="btn ring" tabindex="-1">${L("Export…", "导出…")}</button><label class="input ring" style="width:200px">${icon("search")}<input tabindex="-1" data-ph-en="Search" data-ph-zh="搜索"></label><button class="switch on ring" tabindex="-1"></button><div style="flex-basis:100%;height:0"></div><button class="btn primary">${FE.recordGlyph()}${L("Start recording", "开始录制")}</button><button class="btn">${L("Export…", "导出…")}</button><button class="btn ghost">${icon("folder-open")}${L("Show in folder", "在文件夹中显示")}</button><label class="input" style="width:200px">${icon("search")}<input data-ph-en="Search" data-ph-zh="搜索"></label><button class="switch" onclick="this.classList.toggle('on')"></button>`);
 fill("focus-table", `<tr><th>${L("Ring on", "焦点环对")}</th><th>${L("Dark", "深色")}</th><th>${L("Light", "浅色")}</th></tr>${["background", "card", "selection"].map((bg) => `<tr><td><code>${bg}</code></td>${["dark", "light"].map((t) => {
 	const r = contrast(t, "ring", bg);
 	return `<td class="mono">${r.toFixed(2)}:1 ${verdict(r, "ui")}</td>`;
 }).join("")}</tr>`).join("")}`);
 
 const kleinYes = [
-	["Primary action", "主操作", "At most one solid blue button per region: Start recording, Open in editor, Export", "每个区域最多一个实色蓝按钮：开始录制、在编辑器中打开、导出"],
+	["Primary action", "主操作", "At most one solid blue button per region: Start recording, Stop, Open in editor, Export. Start and Stop carry a red mark inside a white ring and navy gap, as the app icon does", "每个区域最多一个实色蓝按钮：开始录制、停止、在编辑器中打开、导出。开始和停止像应用图标一样，用白环和海军蓝间隙托住红色标记"],
 	["On controls", "开启的控件", "Switch, checkbox and radio when on: solid Klein. Segmented controls and the recording mode stay neutral", "开关、复选框、单选的“开”：实色 Klein。分段控件和录制模式用中性灰"],
 	["Focus ring", "焦点环", "ring: klein-11 on dark, klein-9 on light", "ring：深色 klein-11，浅色 klein-9"],
 	["Links and blue text", "链接和蓝字", "link / info; dark uses the lighter klein-11, since #1F3FD8 is about 2.4:1 on dark", "link / info；深色用浅一档的 klein-11，因为 #1F3FD8 在深色上只有约 2.4:1"],
@@ -230,7 +230,7 @@ const kleinNo = [
 	["Idle icons", "闲置的图标", "Icons take the text colour; they change only inside a selected item", "图标跟文字同色，只在选中项里才变色"],
 	["Selected items", "选中的项", "Rows, tiles, nav items and tags use the neutral selection fill", "列表行、图块、导航项、标签用中性的 selection 底色"],
 	["Borders", "边框", "No blue except the focus ring", "除了焦点环，边框不用蓝"],
-	["States", "状态", "Recording, delete and errors are red, warnings amber, success green", "录制、删除、错误用红，警告用琥珀，成功用绿"],
+	["States", "状态", "Recording, muted, delete and errors are red; warnings and paused amber; success and the live microphone level green. Stop is not a danger button", "录制、静音、删除、错误用红；警告和暂停用琥珀；成功和麦克风实时音量用绿。停止不是危险按钮"],
 	["Hover", "悬停", "Non-primary hover is the neutral accent", "非主按钮的悬停用中性的 accent"],
 	["Waveforms and charts", "波形和图表", "Neutral", "用中性色"],
 ];
@@ -246,7 +246,6 @@ fill("motion-table", `<tr><th>token</th><th>${L("Value", "值")}</th><th>${L("Cu
 	["duration-expand", `${d.expand} ms`, "ease-move + ease-fluent-in", "Library sliding in when the main window expands", "主窗口展开时资源库滑入"],
 	["duration-collapse", `${d.collapse} ms`, "ease-fluent-out", "Library fading out before the window shrinks", "主窗口收回前资源库淡出"],
 	["duration-palette-in / out", `${d["palette-in"]} / ${d["palette-out"]} ms`, "ease-fluent-in", "Command palette", "命令面板"],
-	["duration-loop", `${d.loop} ms`, "ease-in-out", "Recording dot breathing (opacity only)", "录制红点的呼吸（只改透明度）"],
 	["ease-effects", e.effects, "", "Decelerate, no overshoot. Colour and opacity", "减速进入，不回弹。颜色和透明度都用它"],
 	["ease-exit", e.exit, "", "Accelerate away (Fluent 2)", "加速离开（Fluent 2）"],
 	["ease-fluent-in", e["fluent-in"], "", "Fluent decelerate", "Fluent 减速"],

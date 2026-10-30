@@ -38,6 +38,7 @@
 	--green-text: oklch(0.78 0.14 155);
 	--white: oklch(0.99 0 0);
 	--recording: oklch(0.65 0.22 29.5);
+	--record-gap: oklch(0.235 0.135 264);
 	--preview: oklch(0.26 0 0);
 	--preview-border: oklch(0.3 0 0);
 	--preview-2: oklch(0.36 0 0);
@@ -139,7 +140,6 @@
 	--duration-mid: 180ms;
 	--duration-exit: 120ms;
 	--duration-move: 380ms;
-	--duration-loop: 1200ms;
 	--duration-expand: 300ms;
 	--duration-collapse: 150ms;
 	--duration-palette-in: 150ms;
@@ -191,6 +191,7 @@
 	--green-text: oklch(0.47 0.116 155);
 	--white: oklch(0.99 0 0);
 	--recording: oklch(0.65 0.22 29.5);
+	--record-gap: oklch(0.235 0.135 264);
 	--preview: oklch(0.9 0 0);
 	--preview-border: oklch(0.86 0 0);
 	--preview-2: oklch(0.97 0 0);

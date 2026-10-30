@@ -299,7 +299,7 @@ main {
 }
 
 .theme-card.on .theme-mini {
-	border-color: var(--ring);
+	border-color: var(--foreground);
 }
 
 .theme-mini i {
@@ -328,8 +328,9 @@ main {
 }
 
 .tier.on {
-	border-color: var(--ring);
-	background: var(--secondary);
+	border-color: var(--selection);
+	background: var(--selection);
+	color: var(--selection-foreground);
 }
 
 .tier b {

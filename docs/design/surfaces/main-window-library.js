@@ -119,7 +119,7 @@ class MainWindow {
 			<div class="device">${icon("video")}<span class="grow">${L("Camera", "摄像头")}</span><em>${L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("mic")}<span class="grow">${L("Microphone", "麦克风")}</span><em>${L("Default", "默认")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("volume-2")}<span class="grow">${L("System audio", "系统声音")}</span><button class="switch on" data-a="toggle"></button></div>
-			<button class="btn primary block tall" data-a="start">${icon("circle", "solid")}${startLabel}</button>
+			<button class="btn primary block tall" data-a="start">${FE.recordGlyph()}${startLabel}</button>
 		</div><div class="rec-foot">${foot}</div></div>`;
 	}
 
