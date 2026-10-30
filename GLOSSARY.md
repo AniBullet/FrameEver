@@ -31,7 +31,7 @@ The video file rendered from a project's edits; the file the user keeps and shar
 _Avoid_: Render, output file
 
 **Compressed copy**:
-A smaller re-encoded version of a recording kept beside the original, so the user can switch between or delete either one.
+A smaller re-encoded version of an Instant recording kept beside the original, so the user can switch between or delete either one.
 _Avoid_: Compressed version, compact file
 
 **Library**:
