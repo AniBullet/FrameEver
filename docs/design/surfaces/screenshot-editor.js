@@ -12,6 +12,10 @@ Object.assign(window.FRAMEEVER_ICONS, {
 	"square-round-corner": '<path d="M21 11a8 8 0 0 0-8-8"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
 	line: '<path d="M21 3 3 21"/>',
 	highlighter: '<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>',
+	flashlight: '<path d="M18 6c0 2-2 2-2 4v10a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V10c0-2-2-2-2-4V2h12z"/><line x1="6" x2="18" y1="6" y2="6"/><line x1="12" x2="12" y1="12" y2="12"/>',
+	"message-square": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+	"image-plus": '<path d="M16 5h6M19 2v6M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/><circle cx="9" cy="9" r="2"/>',
+	"between-vertical-start": '<rect width="7" height="13" x="3" y="8" rx="1"/><path d="m15 2-3 3-3-3"/><rect width="7" height="13" x="14" y="8" rx="1"/>',
 	hash: '<line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/>',
 });
 
@@ -22,16 +26,21 @@ const glyphs = {
 };
 
 const TOOLS = [
-	{ id: "select", icon: "mouse-pointer-2", en: "Select", zh: "选择", k: "V" },
-	{ id: "draw", icon: "pencil", en: "Draw", zh: "画笔", k: "D" },
-	{ id: "marker", icon: "highlighter", en: "Highlighter", zh: "荧光笔", k: "G" },
-	{ id: "line", icon: "line", en: "Line", zh: "直线", k: "I" },
-	{ id: "arrow", icon: "arrow-up-right", en: "Arrow", zh: "箭头", k: "A" },
-	{ id: "rect", icon: "square", en: "Rectangle", zh: "矩形", k: "R" },
-	{ id: "mask", icon: "eye-off", en: "Mask", zh: "遮罩", k: "M" },
-	{ id: "circle", icon: "circle", en: "Circle", zh: "椭圆", k: "C" },
-	{ id: "text", icon: "type", en: "Text", zh: "文字", k: "T" },
-	{ id: "counter", icon: "hash", en: "Step number", zh: "序号", k: "N" },
+	{ id: "select", g: 0, icon: "mouse-pointer-2", en: "Select", zh: "选择", k: "V" },
+	{ id: "draw", g: 1, icon: "pencil", en: "Draw", zh: "画笔", k: "D" },
+	{ id: "marker", g: 1, icon: "highlighter", en: "Highlighter", zh: "荧光笔", k: "G" },
+	{ id: "line", g: 1, icon: "line", en: "Line", zh: "直线", k: "I" },
+	{ id: "arrow", g: 1, icon: "arrow-up-right", en: "Arrow", zh: "箭头", k: "A" },
+	{ id: "rect", g: 1, icon: "square", en: "Rectangle", zh: "矩形", k: "R" },
+	{ id: "circle", g: 1, icon: "circle", en: "Circle", zh: "椭圆", k: "C" },
+	{ id: "text", g: 2, icon: "type", en: "Text", zh: "文字", k: "T" },
+	{ id: "bubble", g: 2, icon: "message-square", en: "Speech bubble", zh: "对话气泡", k: "U" },
+	{ id: "counter", g: 2, icon: "hash", en: "Step number", zh: "序号", k: "N" },
+	{ id: "mask", g: 3, icon: "eye-off", en: "Mask", zh: "遮罩", k: "M" },
+	{ id: "spot", g: 3, icon: "flashlight", en: "Spotlight", zh: "聚光灯", k: "F" },
+	{ id: "magnify", g: 3, icon: "zoom-in", en: "Magnifier", zh: "放大镜", k: "Z" },
+	{ id: "image", g: 4, icon: "image-plus", en: "Image", zh: "图片", k: "K" },
+	{ id: "cut", g: 9, icon: "between-vertical-start", en: "Cut out", zh: "切割", k: "X" },
 ];
 const toolOf = (id) => TOOLS.find((t) => t.id === id);
 
@@ -165,18 +174,23 @@ const annRows = (a) => {
 		rows.push(sg("a.maskI", O(["Blur", "模糊"], ["Pixelate", "像素化"]), a.mask === "blur" ? 0 : 1), sl("a.level", "Intensity", "强度", 1, 32, a.level));
 		return rows;
 	}
-	rows.push({ t: "colors", k: "a.stroke", en: a.t === "text" || a.t === "counter" ? "Color" : "Stroke", zh: "颜色" });
+	if (a.t === "spot") return [sl("a.dim", "Darkness", "暗度", 0, 100, a.dim, "%")];
+	if (a.t === "cut") return [nt("The band closes up when you let go. Annotations move with the image, and undo brings it back.", "松手后这段会合拢，标注跟着图片移动，撤销可以恢复。")];
+	if (a.t === "image") return [sl("a.opPct", "Opacity", "不透明度", 0, 100, Math.round((a.op ?? 1) * 100), "%"), sl("a.radius", "Rounded corners", "圆角", 0, 40, a.radius, " px"), bt("Replace image", "替换图片")];
+	if (a.t === "magnify") return [sl("a.zoom", "Zoom", "放大", 1.5, 4, a.zoom, "×", 0.5), { t: "colors", k: "a.stroke", en: "Border", zh: "边框" }, sl("a.width", "Width", "宽度", 0, 12, a.width, " px")];
+	rows.push({ t: "colors", k: "a.stroke", en: a.t === "text" || a.t === "counter" ? "Color" : a.t === "bubble" ? "Fill" : "Stroke", zh: a.t === "bubble" ? "填充" : "颜色" });
 	if (["draw", "line", "arrow", "rect", "circle"].includes(a.t)) rows.push(sl("a.width", "Width", "宽度", 1, 40, a.width, " px"));
 	if (a.t === "rect" || a.t === "circle") rows.push({ t: "colors", k: "a.fill", en: "Fill", zh: "填充", clear: true });
 	rows.push(sl("a.opPct", "Opacity", "不透明度", 0, 100, Math.round((a.op ?? 1) * 100), "%"));
 	if (a.t === "text" || a.t === "counter") rows.push(sl("a.h", "Size", "大小", 12, 120, a.h, " px"));
+	if (a.t === "bubble") rows.push(sl("a.size", "Text size", "文字大小", 12, 60, a.size, " px"), nt("Drag the tail to point at something.", "拖动尾巴指向目标。"));
 	return rows;
 };
 const kindName = (a) => {
 	const t = toolOf(a.t);
 	return L(t.en, t.zh);
 };
-const layerLabel = (a) => (a.t === "text" ? pick(a.en ?? a.zh, a.zh ?? a.en) : pick(toolOf(a.t).en, toolOf(a.t).zh));
+const layerLabel = (a) => (a.t === "text" || a.t === "bubble" ? pick(a.en ?? a.zh, a.zh ?? a.en) : pick(toolOf(a.t).en, toolOf(a.t).zh));
 
 const layerRows = () => {
 	if (!S.anns.length) return `<div class="layer-empty"><b>${L("No layers yet", "还没有图层")}</b>${L("Use the tools to add annotations.", "用工具添加标注。")}</div>`;
@@ -234,6 +248,25 @@ const annSvg = (a) => {
 			return `<rect ${hit} ${op} x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${a.fill === "transparent" ? "transparent" : a.fill}" stroke="${a.stroke}" stroke-width="${a.width}" rx="4"/>`;
 		case "circle":
 			return `<ellipse ${hit} ${op} cx="${b.x + b.w / 2}" cy="${b.y + b.h / 2}" rx="${b.w / 2}" ry="${b.h / 2}" fill="${a.fill === "transparent" ? "transparent" : a.fill}" stroke="${a.stroke}" stroke-width="${a.width}"/>`;
+		case "spot":
+			return `<path pointer-events="none" fill-rule="evenodd" fill="rgb(0 0 0 / ${(a.dim ?? 55) / 100})" d="M-400 -400H1400V1025H-400Z M${b.x} ${b.y}h${b.w}v${b.h}h${-b.w}Z"/><rect ${hit} x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="transparent"/>`;
+		case "magnify": {
+			const cx = b.x + b.w / 2;
+			const cy = b.y + b.h / 2;
+			return `<g ${hit}><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="#fff"/><g clip-path="url(#clip-${a.id})"><g transform="translate(${cx} ${cy}) scale(${a.zoom}) translate(${-cx} ${-cy})">${SCENE}</g></g><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="none" stroke="${a.stroke}" stroke-width="${a.width}"/></g>`;
+		}
+		case "bubble": {
+			const tx = b.x + b.w * 0.25;
+			const by = b.y + b.h;
+			return `<g ${hit} ${op}><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="10" fill="${a.stroke}"/><polygon points="${tx},${by} ${tx + 26},${by} ${tx - 8},${by + 34}" fill="${a.stroke}"/><text x="${b.x + b.w / 2}" y="${b.y + b.h / 2 + a.size * 0.36}" text-anchor="middle" font-family="Inter,'HarmonyOS Sans SC',sans-serif" font-size="${a.size}" font-weight="500" fill="#fff">${layerLabel(a)}</text></g>`;
+		}
+		case "image":
+			return `<g ${hit} ${op}><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="${a.radius}" fill="#20242E"/><text x="${b.x + b.w / 2}" y="${b.y + b.h / 2 + 7}" text-anchor="middle" font-family="Inter,sans-serif" font-size="20" font-weight="600" fill="#fff">Logo</text></g>`;
+		case "cut": {
+			const wide = b.w >= b.h;
+			const area = wide ? `x="${b.x}" y="0" width="${b.w}" height="625"` : `x="0" y="${b.y}" width="1000" height="${b.h}"`;
+			return `<rect ${hit} ${area} fill="url(#fx-cut)" stroke="var(--ring)" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+		}
 		case "marker":
 			return `<rect ${hit} opacity="${0.4 * (a.op ?? 1)}" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${a.stroke}"/>`;
 		case "line":
@@ -253,16 +286,17 @@ const annSvg = (a) => {
 	}
 };
 const defsSvg = () =>
-	`<defs>${S.anns
-		.filter((a) => a.t === "mask")
+	`<defs><pattern id="fx-cut" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="12" height="12" fill="rgb(0 0 0 / 0.25)"/><rect width="4" height="12" fill="rgb(255 255 255 / 0.6)"/></pattern>${S.anns
+		.filter((a) => a.t === "mask" || a.t === "magnify")
 		.map((a) => {
 			const b = box(a);
 			return `<clipPath id="clip-${a.id}"><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}"/></clipPath>
-			<filter id="fx-blur-${a.id}" x="0" y="0" width="100%" height="100%"><feGaussianBlur stdDeviation="${a.level * 0.9}"/></filter>`;
+			<filter id="fx-blur-${a.id}" x="0" y="0" width="100%" height="100%"><feGaussianBlur stdDeviation="${(a.level ?? 7) * 0.9}"/></filter>`;
 		})
 		.join("")}</defs>`;
 const handlesSvg = () => {
 	const a = selected();
+	if (a?.t === "cut") return "";
 	if (!a || a.t === "text" || a.t === "counter") {
 		if (!a) return "";
 		const w = a.t === "text" ? layerLabel(a).length * a.h * 0.72 : a.h * 1.4;
@@ -303,9 +337,12 @@ const aspects = [["Auto", "自动"], ["Wide 16:9", "宽屏 16:9"], ["Vertical 9:
 const aspectValue = [null, 16 / 9, 9 / 16, 1, 4 / 3, 3 / 4];
 const aspectBtn = () => `<button class="ib ${S.menu === "aspect" ? "on" : ""}" data-act="menu" data-m="aspect" title="${pick("Aspect ratio", "宽高比")}">${icon("proportions")}${L(...aspects[S.aspect])}${icon("chevron-down")}</button>`;
 const cropBtn = () => `<button class="ib" data-act="dialog" data-d="crop" title="${pick("Crop image", "裁剪图片")}">${icon("crop")}${L("Crop", "裁剪")}</button>`;
-const toolBtns = () => `<span class="tools">${TOOLS
-	.map((t) => `<button class="ib ${S.tool === t.id ? "on" : ""}" data-act="tool" data-v="${t.id}" title="${pick(t.en, t.zh)} ${t.k}" aria-label="${pick(t.en, t.zh)}">${icon(t.icon)}</button>`)
-	.join("")}</span>`;
+const toolBtn = (t, label = "") => `<button class="ib ${S.tool === t.id ? "on" : ""}" data-act="tool" data-v="${t.id}" title="${pick(t.en, t.zh)} ${t.k}" aria-label="${pick(t.en, t.zh)}">${icon(t.icon)}${label}</button>`;
+const cutBtn = () => toolBtn(toolOf("cut"), L("Cut out", "切割"));
+const toolBtns = () =>
+	`<span class="tools">${[0, 1, 2, 3, 4]
+		.map((g) => TOOLS.filter((t) => t.g === g).map((t) => toolBtn(t)).join(""))
+		.join('<span class="sep"></span>')}</span>`;
 const zoomCtl = () => `<button class="ib" data-act="zoom" data-v="-10" title="${pick("Zoom out", "缩小")} Ctrl −">${icon("zoom-out")}</button>
 	<input class="zoomer" type="range" min="10" max="300" step="10" value="${S.zoom}" style="--p:${percent(S.zoom, 10, 300)}%" data-range="__zoom" aria-label="${pick("Zoom", "缩放")}">
 	<button class="ib" data-act="zoom" data-v="10" title="${pick("Zoom in", "放大")} Ctrl +">${icon("zoom-in")}</button>
@@ -337,7 +374,7 @@ const panelA = () => {
 };
 const layout = () => `${titlebar()}<div class="ed-body"><div class="col"><div class="row-top">
 	<div class="player">
-		<div class="toolbar center">${aspectBtn()}${cropBtn()}<span class="grow"></span>${toolBtns()}<span class="grow"></span><span style="width:166px"></span></div>
+		<div class="toolbar center">${aspectBtn()}${cropBtn()}${cutBtn()}<span class="grow"></span>${toolBtns()}<span class="grow"></span></div>
 		${stage()}
 		<div class="status">${zoomCtl()}<span class="grow"></span><span>${L("Output", "输出")} ${outputSize()}</span></div>
 	</div>
@@ -561,6 +598,10 @@ const create = (tool, x, y) => {
 	if (tool === "draw") a.raw = [[x, y]];
 	if (tool === "mask") Object.assign(a, { mask: "pixelate", level: 7 });
 	if (tool === "marker") a.stroke = "#F5A524";
+	if (tool === "spot") a.dim = 55;
+	if (tool === "magnify") Object.assign(a, { zoom: 2, stroke: "#FFFFFF", width: 3 });
+	if (tool === "image") a.radius = 8;
+	if (tool === "bubble") Object.assign(a, { stroke: "#F05656", size: 22, en: "Note", zh: "说明" });
 	if (tool === "text") Object.assign(a, { h: 34, stroke: "#F05656", en: "Text", zh: "文字" });
 	if (tool === "counter") Object.assign(a, { h: 30, stroke: "#F05656", n: S.anns.filter((n) => n.t === "counter").length + 1 });
 	return a;
@@ -624,7 +665,7 @@ document.addEventListener("pointerup", () => {
 	if (g.kind === "create") {
 		const a = S.anns.find((n) => n.id === g.id);
 		if (a?.t === "draw") delete a.raw;
-		if (a && ["rect", "circle", "mask", "marker"].includes(a.t) && Math.abs(a.w) < 5 && Math.abs(a.h) < 5) {
+		if (a && ["rect", "circle", "mask", "marker", "spot", "magnify", "image", "bubble", "cut"].includes(a.t) && Math.abs(a.w) < 5 && Math.abs(a.h) < 5) {
 			Object.assign(a, { x: a.x - 60, y: a.y - 40, w: 120, h: 80 });
 		}
 		if (a?.t === "draw" && !a.pts) {
@@ -762,7 +803,7 @@ const renderDocs = () => {
 	for (const [id, text] of Object.entries(heads)) document.getElementById(id).innerHTML = L(text[0], text[1]);
 	table("layout-table", "doc", [
 		[["Title bar", "标题栏"], ["44 high: name, show in Explorer, delete, undo, redo, Save, Copy, window controls", "44 高：名称、在资源管理器中显示、删除、撤销、重做、保存、复制、窗口按钮"]],
-		[["Preview toolbar", "预览工具栏"], ["40 high: aspect ratio and crop on the left, ten tools centred", "40 高：左侧宽高比和裁剪，中间十个工具"]],
+		[["Preview toolbar", "预览工具栏"], ["40 high: aspect ratio, crop and cut out on the left, then 14 tools in five groups: select; drawing; text; cover and focus; image", "40 高：左侧宽高比、裁剪和切割，然后是分五组的 14 个工具：选择；绘制；文字；遮盖和聚焦；图片"]],
 		[["Preview", "预览"], ["Flexible on the preview token, frame fitted inside 20 px of padding", "弹性，使用 preview token，画面在 20 px 边距内适应"]],
 		[["Status bar", "状态栏"], ["36 high: zoom on the left, output size on the right", "36 高：左侧缩放，右侧输出尺寸"]],
 		[["Inspector", "检查器"], ["46 icon rail plus a 340 panel: Background, Screen, Layers", "46 宽图标栏加 340 宽面板：背景、画面、图层"]],
@@ -776,8 +817,13 @@ const renderDocs = () => {
 		[["Text", "文字"], ["Color, opacity, size; double-click edits on the canvas", "颜色、不透明度、大小；双击在画布上编辑"]],
 		[["Mask", "遮罩"], ["Blur or pixelate, intensity; stays inside the image", "模糊或像素化、强度；限制在图片内"]],
 		[["Step number (new)", "序号（新增）"], ["N. Click to place a filled circle with the next unused number; color, opacity, size", "N。点击放置带下一个可用数字的实心圆；颜色、不透明度、大小"]],
+		[["Speech bubble (new)", "对话气泡（新增）"], ["U. Filled box with a tail you drag: fill, opacity, text size; double-click edits the text", "U。带可拖动尾巴的色块：填充、不透明度、文字大小；双击改文字"]],
+		[["Spotlight (new)", "聚光灯（新增）"], ["F. Darkens everything outside the box: darkness", "F。压暗选区以外的内容：暗度"]],
+		[["Magnifier (new)", "放大镜（新增）"], ["Z. Enlarges what is under the box: zoom, border color, width", "Z。放大选区内的内容：放大倍数、边框颜色、宽度"]],
+		[["Image (new)", "图片（新增）"], ["K, drop a file, or Ctrl+V with an image on the clipboard: opacity, rounded corners, replace. The file is copied into the project", "K、拖入文件，或剪贴板有图片时按 Ctrl+V：不透明度、圆角、替换。文件复制进项目"]],
+		[["Cut out (new)", "切割（新增）"], ["X, in the toolbar next to Crop. Drag across to remove a vertical or horizontal band; the image closes up, annotations move with it and undo restores it. The original stays in the project", "X，在工具栏的裁剪旁边。横向或纵向拖过一段将其去掉；图片合拢，标注跟着移动，可以撤销。原图保留在项目里"]],
 		[["Selection", "选中"], ["Ring-colored outline with eight handles; arrows show two end points; Shift constrains", "ring 颜色描边加八个手柄；箭头显示两个端点；Shift 约束"]],
-		[["Shortcuts", "快捷键"], ["V or S select, D draw, G highlighter, I line, A arrow, R rectangle, M mask, C or O circle, T text, N step number, B background, P padding, H shadow, E border, L layers, Del delete, Esc deselect", "V 或 S 选择，D 画笔，G 荧光笔，I 直线，A 箭头，R 矩形，M 遮罩，C 或 O 椭圆，T 文字，N 序号，B 背景，P 内边距，H 阴影，E 描边，L 图层，Del 删除，Esc 取消选中"]],
+		[["Shortcuts", "快捷键"], ["V or S select, D draw, G highlighter, I line, A arrow, R rectangle, C or O circle, T text, U speech bubble, N step number, M mask, F spotlight, Z magnifier, K image, X cut out, B background, P padding, H shadow, E border, L layers, Del delete, Esc deselect", "V 或 S 选择，D 画笔，G 荧光笔，I 直线，A 箭头，R 矩形，C 或 O 椭圆，T 文字，U 对话气泡，N 序号，M 遮罩，F 聚光灯，Z 放大镜，K 图片，X 切割，B 背景，P 内边距，H 阴影，E 描边，L 图层，Del 删除，Esc 取消选中"]],
 	]);
 	const states = [
 		[["Loading", "加载中"], ["The preview says Loading preview and the tools stay disabled until the image is ready.", "预览显示“正在加载预览”，图片就绪前工具不可用。"]],
@@ -813,7 +859,7 @@ const renderDocs = () => {
 		[["Loading preview, load errors, toasts", "加载预览、加载错误、提示"], ["Preview and toast", "预览和提示"]],
 		[["After a screenshot: open, copy, or both", "截图后：打开、复制或两者"], ["Settings · Recording", "设置 · 录制"]],
 		[["Open from the library, tray and deep link", "从资源库、托盘和深链接打开"], ["Unchanged; the library lists screenshots as items", "不变；资源库把截图列为项目"]],
-		[["Step number, line and highlighter tools", "序号、直线和荧光笔工具"], ["New in 1.0. ShareX, Flameshot and Greenshot all have them; each needs a new annotation type", "1.0 新增。ShareX、Flameshot 和 Greenshot 都有；各需要一种新的标注类型"]],
+		[["Step number, line, highlighter, speech bubble, spotlight, magnifier, image, cut out", "序号、直线、荧光笔、对话气泡、聚光灯、放大镜、图片、切割"], ["New in 1.0, taken from ShareX, Flameshot and Greenshot. Each needs a new annotation type; image and cut out also change what a project stores", "1.0 新增，来自 ShareX、Flameshot 和 Greenshot。各需要一种新的标注类型；图片和切割还会改变项目存储的内容"]],
 		[["Ctrl+K command palette", "Ctrl+K 命令面板"], ["New, from the command palette decision", "新增，来自命令面板决定"]],
 		[["Upstream share link, sign in to share, upgrade, upload", "上游的分享链接、登录分享、升级、上传"], ["Removed: FrameEver stays local", "去掉：FrameEver 只在本地使用"]],
 		[["Upstream export fixes and speed-ups", "上游的导出修复和提速"], ["No new controls; ported by hand in their own ticket", "没有新控件；在单独的工单里手动移植"]],

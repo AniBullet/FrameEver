@@ -294,3 +294,7 @@
 .ed.stacked .frame {
 	margin: 0 auto 6px;
 }
+
+.ed.stacked .tools {
+	flex-wrap: wrap;
+}
