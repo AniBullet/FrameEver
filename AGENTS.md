@@ -52,7 +52,7 @@ When asked to "build", "package" or "打包" the app, run `pnpm fe package`.
 - **No code comments of any kind** (`//`, `/* */`, `///`, `//!`, `#`, JSDoc). Code explains itself through names, types and structure; explanations go in docs.
 - Rust: `rustfmt` and the workspace lints below. Modules snake_case, crates kebab-case and named `frameever-*`; environment variables `FRAMEEVER_*`.
 - Scripts (`scripts/*.mjs`, the Claude Desktop pane): tab indent, Biome (`pnpm format`), files kebab-case.
-- UI text: English and Simplified Chinese only. Every `t!` string needs a zh-CN entry; proper nouns (FrameEver, HEVC, Whisper) stay English in the Chinese UI (`docs/i18n.md`).
+- UI text: English and Simplified Chinese only. Every `t!` string needs a zh-CN entry; proper nouns (FrameEver, HEVC, Whisper) stay English in the Chinese UI (`docs/i18n.md`). How copy reads (voice, sentence case, errors, confirmations) is in `docs/copy-style.md`.
 - UI design: flat only, no gradients or glass. Colours and type come from `src/theme.rs`.
 - Use `GLOSSARY.md` terms in code, UI and docs: project, storage folder, export, Studio recording, Instant recording, library.
 - Platforms: keep `#[cfg(target_os = "macos")]` and `cfg(unix)` code even though it is not kept compiling until the macOS work after Windows 1.0.0; delete Linux code wherever it turns up.

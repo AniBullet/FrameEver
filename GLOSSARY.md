@@ -20,6 +20,10 @@ _Avoid_: Studio mode file, raw recording
 A recording captured straight to a single playable video, without an editing step.
 _Avoid_: Quick recording, fast mode
 
+**Studio Sound**:
+FrameEver's voice clean-up for recorded audio: it lowers background noise and evens out loudness. Written as a proper noun in both languages.
+_Avoid_: noise reduction, audio enhancement
+
 **Project**:
 The on-disk folder holding one recording's media tracks, metadata and edit configuration.
 _Avoid_: Recording folder, session
