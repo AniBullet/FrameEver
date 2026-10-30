@@ -421,6 +421,55 @@ main {
 	line-height: 14px;
 }
 
+.rail.top {
+	flex-direction: row;
+	width: 100%;
+	padding: 6px;
+	border-bottom: 1px solid var(--border);
+	overflow-x: auto;
+}
+
+.rail.top.labels button {
+	width: 44px;
+	height: 44px;
+	padding: 0;
+	white-space: nowrap;
+}
+
+.rail.top .hr {
+	flex: none;
+	width: 1px;
+	height: auto;
+	margin: 6px 3px;
+}
+
+.side-l {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	width: 380px;
+	min-height: 0;
+	border-right: 1px solid var(--border);
+}
+
+.side-l .panel.fill {
+	flex: 1;
+	width: 100%;
+}
+
+.panel.slim {
+	width: 270px;
+}
+
+.ed.stacked .side-l {
+	width: 100%;
+	border-right: 0;
+}
+
+.ed.stacked .panel.slim {
+	width: 100%;
+}
+
 .rail .hr {
 	flex: none;
 	height: 1px;

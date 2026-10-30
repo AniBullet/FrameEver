@@ -29,6 +29,7 @@ const VARIANTS = {
 	A: ["Wide timeline", "宽时间轴"],
 	B: ["Tall inspector", "全高检查器"],
 	C: ["One tool at a time", "一次一个工具"],
+	D: ["Three columns", "三栏（剪映式）"],
 };
 const EXPORT = {
 	page: ["Full page", "整页"],
@@ -182,7 +183,7 @@ const TRACKS = [
 ];
 
 const S = {
-	variant: "A", tab: "background", sel: null, view: "edit", exKind: { A: "page", B: "sheet", C: "dialog" }, exStage: "form",
+	variant: "A", tab: "background", sel: null, view: "edit", exKind: { A: "page", B: "sheet", C: "dialog", D: "dialog" }, exStage: "form",
 	menu: null, dialog: null, playing: false, t: 48, split: false, display: null, v: {}, shut: {}, shown: new Set(["video", "zoom", "captions", "text", "audio"]),
 	allTracks: false, zoom: 1, quality: 1, aspect: 0, preset: 0,
 	ex: { dest: 0, format: 0, codec: 0, res: 1, fps: 1, quality: 3, optimize: false, adv: false, cursor: false, bpp: false },
@@ -272,8 +273,9 @@ const listPanel = (tool) => {
 		.join("")}${tool === "zoom" ? `<button class="line-btn" style="margin-top:4px">${L("Add zooms automatically", "自动添加缩放")}</button>` : ""}</div>`;
 };
 
-const panelBody = () => {
-	if (S.sel) {
+const panelBody = (mode) => {
+	if (mode === "sel" && !S.sel) return `<p class="note" style="padding:12px 14px">${L("Select something on the timeline or the preview to adjust it here.", "在时间轴或预览上选中内容，就能在这里调整。")}</p>`;
+	if (S.sel && mode !== "tab") {
 		const def = SEL[S.sel.track] ?? SEL.zoom;
 		return def.g().map(group).join("");
 	}
@@ -281,12 +283,13 @@ const panelBody = () => {
 	if (["zoom", "overlays", "scenes"].includes(S.tab)) return listPanel(S.tab);
 	return groups[S.tab]().map(group).join("");
 };
-const panel = (edge) => {
-	const def = S.sel ? SEL[S.sel.track] ?? SEL.zoom : TABS[S.tab];
-	const head = S.sel
+const panel = (edge, mode) => {
+	const useSel = S.sel && mode !== "tab";
+	const def = useSel ? SEL[S.sel.track] ?? SEL.zoom : mode === "sel" ? { en: "Selection", zh: "选中内容" } : TABS[S.tab];
+	const head = useSel
 		? `<b>${L(def.en, def.zh)}</b><button class="ib" data-act="delete-sel" title="${pick("Delete", "删除")}">${icon("trash")}</button><button class="ib" data-act="deselect">${L("Done", "完成")}</button>`
 		: `<b>${L(def.en, def.zh)}</b>`;
-	return `<div class="panel ${edge}"><div class="panel-head">${head}</div><div class="panel-body" id="panel-body">${panelBody()}</div></div>`;
+	return `<div class="panel ${edge}"><div class="panel-head">${head}</div><div class="panel-body" ${mode === "sel" ? "" : 'id="panel-body"'}>${panelBody(mode)}</div></div>`;
 };
 
 const titlebar = () => `<div class="titlebar">
@@ -403,7 +406,7 @@ const rail = (ids, side, cls) => `<div class="rail ${side} ${cls}">${ids
 	.map((id) => {
 		if (id === "|") return '<span class="hr"></span>';
 		const tab = TABS[id];
-		const on = !S.sel && S.tab === id;
+		const on = (S.variant === "D" || !S.sel) && S.tab === id;
 		return `<button class="${on ? "on" : ""}" data-act="tab" data-v="${id}" title="${pick(tab.en, tab.zh)}">${icon(tab.icon)}${cls === "labels" ? L(tab.en, tab.zh) : ""}</button>`;
 	})
 	.join("")}</div>`;
@@ -427,6 +430,14 @@ const layouts = {
 		${showExSheet() ? exportSheet("border-r") : panel("border-r")}
 		<div class="col"><div class="player">${toolbar()}${stage()}</div>${transport()}${timeline(S.allTracks ? 250 : 164)}</div>
 	</div>`,
+	D: () => `<div class="ed-body"><div class="col">
+		<div class="row-top">
+			<div class="side-l">${rail(sevenTabs, "top", "labels")}${panel("fill", "tab")}</div>
+			<div class="player">${toolbar()}${stage()}</div>
+			${showExSheet() ? exportSheet("border-l") : panel("border-l slim", "sel")}
+		</div>
+		${transport()}${timeline(240)}
+	</div></div>`,
 };
 
 const optGroup = (key, titleEn, titleZh, opts, disabled = []) => `<h5>${L(titleEn, titleZh)}</h5><div class="opts">${opts
@@ -486,7 +497,7 @@ const exportDialog = () => `<div class="scrim"><div class="ex-dialog"><div class
 const menus = {
 	aspect: () => `<div class="pop menu" style="left:8px;top:84px;width:200px">${aspects.map((a, i) => `<button data-act="aspect" data-v="${i}"><span class="grow">${L(a[0], a[1])}</span>${S.aspect === i ? icon("check") : ""}</button>`).join("")}</div>`,
 	presets: () => `<div class="pop menu" style="right:110px;top:44px;width:288px"><button data-act="close"><span class="grow">${L("Default", "默认")}</span>${icon("check")}</button><button data-act="close"><span class="grow">${L("Tutorial look", "教程风格")}</span>${icon("settings")}</button><hr><button data-act="close">${icon("plus")}${L("Create new preset", "新建预设")}</button></div>`,
-	tracks: () => `<div class="pop menu" style="right:96px;bottom:${S.variant === "A" ? 244 : 216}px"><div class="tracks">${TRACKS.filter((t) => t.id !== "video" && t.id !== "zoom")
+	tracks: () => `<div class="pop menu" style="right:96px;bottom:${["A", "D"].includes(S.variant) ? 244 : 216}px"><div class="tracks">${TRACKS.filter((t) => t.id !== "video" && t.id !== "zoom")
 		.map((t) => `<button class="${S.shown.has(t.id) ? "on" : ""}" data-act="toggle-track" data-v="${t.id}">${icon(t.icon)}${L(t.en, t.zh)}</button>`)
 		.join("")}</div></div>`,
 	clip: () => {
@@ -510,7 +521,7 @@ const dialogs = {
 };
 
 const renderCompare = () => {
-	document.getElementById("t-live").innerHTML = L("Three layouts, one editor", "三种布局，同一个编辑器");
+	document.getElementById("t-live").innerHTML = L("Four layouts, one editor", "四种布局，同一个编辑器");
 	document.getElementById("l-live").innerHTML = L(
 		"Every button works: press a track segment to swap the panel, a video clip for speed, Export to see where export lands. Sliders for padding, corners, shadow and camera size move the preview. Use the bar at the bottom to switch.",
 		"按钮都能点：按时间轴上的段落，面板会切换到这个段落；按视频片段看速度菜单；按“导出”看导出放在哪里。内边距、圆角、阴影和摄像头大小的滑块会改变预览。用底部的条切换方案。",
@@ -518,15 +529,15 @@ const renderCompare = () => {
 	document.getElementById("t-compare").innerHTML = L("What differs", "差别在哪");
 	document.getElementById("l-compare").innerHTML = L("At the default 1275 × 800 window. Sizes are what these prototypes use.", "按默认 1275 × 800 窗口计算，尺寸取自这些原型。");
 	const rows = [
-		[["", ""], VARIANTS.A, VARIANTS.B, VARIANTS.C],
-		[["Timeline", "时间轴"], ["Full width, 240 high", "全宽，240 高"], ["867 wide, 210 high", "867 宽，210 高"], ["867 wide, 164 high, one tool's tracks", "867 宽，164 高，只显示当前工具的轨道"]],
-		[["Panel content height", "面板内容高度"], ["About 430, scrolls more", "约 430，滚动较多"], ["About 715, a whole section fits", "约 715，一屏能看完一组"], ["About 715", "约 715"]],
-		[["Preview at 16:9", "16:9 预览"], ["About 725 × 408", "约 725 × 408"], ["About 763 × 429", "约 763 × 429"], ["About 835 × 470", "约 835 × 470"]],
-		[["Finding a setting", "找设置"], ["Icons with tooltips", "图标加提示"], ["Icons with labels", "图标加文字"], ["Tool names, one job at a time", "工具名，一次一件事"]],
-		[["Seeing the whole edit", "看全局"], ["Best: all tracks at once", "最好：所有轨道一起看"], ["Good, fewer rows at once", "好，同屏行数少一点"], ["Weakest: switch to All tracks", "最弱：要切到全部轨道"]],
-		[["Selecting a segment", "选中段落"], ["Panel swaps to it", "面板换成该段落"], ["Panel swaps to it", "面板换成该段落"], ["Panel and timeline switch tool", "面板和时间轴一起切换工具"]],
-		[["Default export", "默认导出"], ["Full page", "整页"], ["Inside the inspector", "检查器内"], ["Dialog", "对话框"]],
-		[["Comes from", "来源"], ["Cap, today's layout", "Cap，现在的布局"], ["Descript, Rive, Figma", "Descript、Rive、Figma"], ["Tella", "Tella"]],
+		[["", ""], VARIANTS.A, VARIANTS.B, VARIANTS.C, VARIANTS.D],
+		[["Timeline", "时间轴"], ["Full width, 240 high", "全宽，240 高"], ["867 wide, 210 high", "867 宽，210 高"], ["867 wide, 164 high, one tool's tracks", "867 宽，164 高，只显示当前工具的轨道"], ["Full width, 240 high", "全宽，240 高"]],
+		[["Panel content height", "面板内容高度"], ["About 430, scrolls more", "约 430，滚动较多"], ["About 715, a whole section fits", "约 715，一屏能看完一组"], ["About 715", "约 715"], ["About 380 left, 430 right", "左约 380，右约 430"]],
+		[["Preview at 16:9", "16:9 预览"], ["About 725 × 408", "约 725 × 408"], ["About 763 × 429", "约 763 × 429"], ["About 835 × 470", "约 835 × 470"], ["About 625 × 352", "约 625 × 352"]],
+		[["Finding a setting", "找设置"], ["Icons with tooltips", "图标加提示"], ["Icons with labels", "图标加文字"], ["Tool names, one job at a time", "工具名，一次一件事"], ["Tabs with labels, top left", "左上角带文字的页签"]],
+		[["Seeing the whole edit", "看全局"], ["Best: all tracks at once", "最好：所有轨道一起看"], ["Good, fewer rows at once", "好，同屏行数少一点"], ["Weakest: switch to All tracks", "最弱：要切到全部轨道"], ["Best: all tracks at once", "最好：所有轨道一起看"]],
+		[["Selecting a segment", "选中段落"], ["Panel swaps to it", "面板换成该段落"], ["Panel swaps to it", "面板换成该段落"], ["Panel and timeline switch tool", "面板和时间轴一起切换工具"], ["Right column fills, left stays", "右栏显示该段落，左栏不变"]],
+		[["Default export", "默认导出"], ["Full page", "整页"], ["Inside the inspector", "检查器内"], ["Dialog", "对话框"], ["Dialog", "对话框"]],
+		[["Comes from", "来源"], ["Cap, today's layout", "Cap，现在的布局"], ["Descript, Rive, Figma", "Descript、Rive、Figma"], ["Tella", "Tella"], ["CapCut, 剪映", "剪映、CapCut"]],
 	];
 	document.getElementById("compare-table").innerHTML = `<table class="compare"><thead><tr>${rows[0].map((c) => `<th>${L(c[0], c[1])}</th>`).join("")}</tr></thead><tbody>${rows
 		.slice(1)
@@ -546,6 +557,7 @@ const renderCompare = () => {
 	document.getElementById("t-refs").innerHTML = L("What was looked at", "参考了什么");
 	document.getElementById("l-refs").innerHTML = L("Primary sources except where marked. No screenshots were viewed, so layouts come from docs and source code. Competitors' snapping and speed displays are mostly undocumented.", "除标注外都是一手来源。没有看截图，布局来自文档和源码。竞品的吸附和速度显示大多没有文档。");
 	const refs = [
+		["剪映 / CapCut", ["Tools top left, player in the middle, a right panel that follows the selection, timeline along the bottom; a Vertical layout puts a full-height viewport on the right. Export is a dialog from the top right. From tutorials, not official docs.", "左上是素材和工具，中间播放器，右侧面板随选中变化，时间线在底部；竖版布局把全高预览放到右侧。导出是右上角打开的对话框。信息来自教程，不是官方文档。"]],
 		["Cap", ["Inspector right, 6 icon tabs, full-page export with measured size. Segment selection swaps the panel.", "检查器在右，6 个图标页，整页导出并显示实测大小。选中段落会切换面板。"]],
 		["Descript", ["Icon rail, properties follow selection; timeline can collapse.", "图标栏，属性跟随选中；时间轴可折叠。"]],
 		["Tella", ["Left tool rail; each tool shows its own timeline. Recently merged zoom, cursor and blur into one panel.", "左侧工具栏，每个工具有自己的时间轴。最近把缩放、光标和模糊并入同一面板。"]],
@@ -613,7 +625,7 @@ const act = (el, event) => {
 	switch (a) {
 		case "tab":
 			S.tab = d.v;
-			S.sel = null;
+			if (S.variant !== "D") S.sel = null;
 			S.view = "edit";
 			break;
 		case "select": {
