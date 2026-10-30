@@ -1015,6 +1015,140 @@ input[type="range"]::-moz-range-thumb {
 	font-weight: 500;
 }
 
+.tl-tools {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+	height: 36px;
+	padding: 0 8px;
+}
+
+.tl-tools .grow {
+	flex: 1;
+}
+
+.ed .tl-tools .ib[disabled] {
+	opacity: 0.4;
+	cursor: default;
+}
+
+.tl-row {
+	height: 26px;
+}
+
+.tl-row.big {
+	height: 58px;
+}
+
+.tl-row.mid {
+	height: 44px;
+}
+
+.seg-b.clip {
+	display: block;
+	padding: 0;
+	background: var(--preview);
+}
+
+.seg-b.clip .strip {
+	position: absolute;
+	inset: 0 0 18px;
+	background-image: var(--filmstrip);
+	background-size: 62px 100%;
+	background-repeat: repeat-x;
+}
+
+.seg-b.clip .strip-wave {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 18px;
+	background: var(--card);
+}
+
+.seg-b.clip .wave {
+	bottom: 1px;
+}
+
+.seg-b.clip b.chip {
+	position: absolute;
+	left: 4px;
+	top: 4px;
+	margin: 0;
+	padding: 1px 5px;
+	border-radius: 3px;
+	background: rgb(0 0 0 / 0.72);
+	color: #fff;
+}
+
+.seg-b.on,
+.seg-b.clip.on {
+	z-index: 1;
+	box-shadow: inset 0 0 0 2px var(--foreground);
+}
+
+.seg-b.on::before,
+.seg-b.on::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	width: 3px;
+	height: 14px;
+	border-radius: 2px;
+	background: var(--foreground);
+	transform: translateY(-50%);
+}
+
+.seg-b.on::before {
+	left: 4px;
+}
+
+.seg-b.on::after {
+	right: 4px;
+}
+
+.tr-mark {
+	position: absolute;
+	top: 50%;
+	z-index: 2;
+	width: 12px;
+	height: 12px;
+	margin: -6px 0 0 -6px;
+	border-radius: 3px;
+	background: var(--foreground);
+	transform: rotate(45deg);
+	pointer-events: none;
+}
+
+.wave {
+	width: 100%;
+}
+
+input.zoomer {
+	flex: none;
+	width: 96px;
+}
+
+.seg-b b {
+	align-self: center;
+	margin-top: 0;
+}
+
+.tl-row.mid .seg-b b {
+	align-self: flex-start;
+	margin-top: 5px;
+}
+
+.seg-b.on {
+	padding: 0 12px;
+}
+
+.seg-b.clip.on {
+	padding: 0;
+}
+
 .playhead {
 	position: absolute;
 	top: 0;

@@ -23,7 +23,7 @@ const glyphs = {
 	close: '<svg viewBox="0 0 10 10"><path d="m0.5 0.5 9 9m0-9-9 9"/></svg>',
 };
 const scene =
-	'<svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="320" height="180" fill="#F2F1EC"/><rect width="60" height="180" fill="#D9D6CB"/><rect x="72" y="16" width="120" height="10" rx="2" fill="#2B3A55"/><rect x="72" y="36" width="210" height="6" rx="2" fill="#A9A79C"/><rect x="72" y="50" width="180" height="6" rx="2" fill="#A9A79C"/><rect x="72" y="72" width="104" height="72" rx="4" fill="#E2725B"/><rect x="186" y="72" width="104" height="72" rx="4" fill="#3E7CB1"/><rect x="10" y="20" width="40" height="6" rx="2" fill="#2B3A55"/><rect x="10" y="36" width="32" height="6" rx="2" fill="#A9A79C"/><rect x="10" y="52" width="36" height="6" rx="2" fill="#A9A79C"/></svg>';
+	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="320" height="180" fill="#F2F1EC"/><rect width="60" height="180" fill="#D9D6CB"/><rect x="72" y="16" width="120" height="10" rx="2" fill="#2B3A55"/><rect x="72" y="36" width="210" height="6" rx="2" fill="#A9A79C"/><rect x="72" y="50" width="180" height="6" rx="2" fill="#A9A79C"/><rect x="72" y="72" width="104" height="72" rx="4" fill="#E2725B"/><rect x="186" y="72" width="104" height="72" rx="4" fill="#3E7CB1"/><rect x="10" y="20" width="40" height="6" rx="2" fill="#2B3A55"/><rect x="10" y="36" width="32" height="6" rx="2" fill="#A9A79C"/><rect x="10" y="52" width="36" height="6" rx="2" fill="#A9A79C"/></svg>';
 
 const VARIANTS = {
 	A: ["Wide timeline", "宽时间轴"],
@@ -185,7 +185,7 @@ const TRACKS = [
 const S = {
 	variant: "A", tab: "background", sel: null, view: "edit", exKind: { A: "page", B: "sheet", C: "dialog", D: "dialog" }, exStage: "form",
 	menu: null, dialog: null, playing: false, t: 48, split: false, display: null, v: {}, shut: {}, shown: new Set(["video", "zoom", "captions", "text", "audio"]),
-	allTracks: false, zoom: 1, quality: 1, aspect: 0, preset: 0,
+	allTracks: false, zoom: 1, trackColor: "type", quality: 1, aspect: 0, preset: 0,
 	ex: { dest: 0, format: 0, codec: 0, res: 1, fps: 1, quality: 3, optimize: false, adv: false, cursor: false, bpp: false },
 };
 const val = (c) => S.v[c.k] ?? c.val;
@@ -337,14 +337,17 @@ const transport = () => `<div class="transport">
 		<button class="play" data-act="play" title="Space">${icon(S.playing ? "pause" : "play")}</button>
 		<button class="ib" data-act="seek" data-v="${TOTAL}" title="${pick("Jump to end", "跳到结尾")}">${icon("skip-forward")}</button>
 	</span>
-	<span class="grow" style="display:flex;justify-content:flex-end;align-items:center;gap:2px">
-		<button class="ib ${S.split ? "on" : ""}" data-act="split" title="S">${icon("scissors")}${S.split ? L("Done splitting", "完成分割") : L("Split", "分割")}</button>
-		<button class="ib ${S.menu === "tracks" ? "on" : ""}" data-act="menu" data-m="tracks">${icon("plus")}${L("Add track", "添加轨道")}</button>
-		<span class="sep"></span>
-		<button class="ib" data-act="tlzoom" data-v="-1" title="Ctrl −">${icon("zoom-out")}</button>
-		<input class="zoomer" type="range" min="1" max="6" step="0.5" value="${S.zoom}" style="--p:${percent(S.zoom, 1, 6)}%" data-range="__zoom" aria-label="${pick("Timeline zoom", "时间轴缩放")}">
-		<button class="ib" data-act="tlzoom" data-v="1" title="Ctrl +">${icon("zoom-in")}</button>
-	</span>
+	<span class="grow"></span>
+</div>`;
+const tlTools = () => `<div class="tl-tools">
+	<button class="ib ${S.split ? "on" : ""}" data-act="split" title="S">${icon("scissors")}${S.split ? L("Done splitting", "完成分割") : L("Split", "分割")}</button>
+	<button class="ib" data-act="delete-sel" title="Delete" ${S.sel ? "" : "disabled"}>${icon("trash")}${L("Delete", "删除")}</button>
+	<span class="sep"></span>
+	<button class="ib ${S.menu === "tracks" ? "on" : ""}" data-act="menu" data-m="tracks">${icon("plus")}${L("Add track", "添加轨道")}</button>
+	<span class="grow"></span>
+	<button class="ib" data-act="tlzoom" data-v="-1" title="Ctrl −">${icon("zoom-out")}</button>
+	<input class="zoomer" type="range" min="1" max="6" step="0.5" value="${S.zoom}" style="--p:${percent(S.zoom, 1, 6)}%" data-range="__zoom" aria-label="${pick("Timeline zoom", "时间轴缩放")}">
+	<button class="ib" data-act="tlzoom" data-v="1" title="Ctrl +">${icon("zoom-in")}</button>
 </div>`;
 
 const wave = (width = 900) => {
@@ -360,11 +363,15 @@ const laneSegs = (t) =>
 		.map((seg, i) => {
 			const on = S.sel && S.sel.track === t.id && S.sel.i === i;
 			const tiny = (seg.e - seg.s) / TOTAL < 0.03;
-			return `<button class="seg-b ${on ? "on" : ""} ${tiny ? "tiny" : ""}" data-act="select" data-track="${t.id}" data-i="${i}" style="left:${(seg.s / TOTAL) * 100}%;width:calc(${((seg.e - seg.s) / TOTAL) * 100}% - 1px)">${
-				t.big ? wave() : ""
-			}<b>${seg.l[0] ? L(seg.l[0], seg.l[1]) : ""}</b></button>`;
+			const fill = S.trackColor === "type" && TRACK_FILL[t.id] ? `background:${TRACK_FILL[t.id]};color:#fff;` : "";
+			const clip = t.id === "video";
+			const body = clip
+				? `<span class="strip"></span><span class="strip-wave">${wave()}</span><b class="chip">${L(seg.l[0], seg.l[1])}</b>`
+				: `${t.id === "audio" ? wave() : ""}<b>${seg.l[0] ? L(seg.l[0], seg.l[1]) : ""}</b>`;
+			return `<button class="seg-b ${on ? "on" : ""} ${tiny ? "tiny" : ""} ${clip ? "clip" : ""}" data-act="select" data-track="${t.id}" data-i="${i}" style="${fill}left:${(seg.s / TOTAL) * 100}%;width:calc(${((seg.e - seg.s) / TOTAL) * 100}% - 1px)">${body}</button>`;
 		})
-		.join("");
+		.join("") + (t.id === "video" ? `<i class="tr-mark" style="left:${(clipSegs[1].s / TOTAL) * 100}%"></i>` : "");
+const TRACK_FILL = { zoom: "#3D55A5", captions: "#2F7F6E", text: "#2F7F6E", audio: "#6B4693", keyboard: "#94661F", style: "#96476F", image: "#94661F", mask: "#A0453F", shot: "#4B4A9E", scene: "#6B4693" };
 const trackList = () => {
 	if (S.variant === "C" && !S.allTracks) {
 		const tool = S.sel ? TRACKS.find((t) => t.id === S.sel.track)?.tool : S.tab;
@@ -377,7 +384,7 @@ const timeline = (height) => {
 	const marks = [];
 	for (let s = 0; s <= TOTAL; s += S.zoom >= 3 ? 10 : 30) marks.push(s);
 	const rows = trackList()
-		.map((t) => `<div class="tl-row ${t.big ? "big" : ""}"><span class="gutter">${icon(t.icon)}${L(t.en, t.zh)}</span><div class="lane" data-act="lane">${laneSegs(t)}</div></div>`)
+		.map((t) => `<div class="tl-row ${t.big ? "big" : ""} ${t.id === "audio" ? "mid" : ""}"><span class="gutter">${icon(t.icon)}${L(t.en, t.zh)}</span><div class="lane" data-act="lane">${laneSegs(t)}</div></div>`)
 		.join("");
 	const scope =
 		S.variant === "C"
@@ -385,7 +392,7 @@ const timeline = (height) => {
 			   <div class="overview">${TRACKS.filter((t) => t.id !== "audio" && t.id !== "video").flatMap((t) => t.segs).map((seg) => `<i style="left:${(seg.s / TOTAL) * 100}%;width:${((seg.e - seg.s) / TOTAL) * 100}%"></i>`).join("")}</div>`
 			: "";
 	return `<div class="timeline ${S.split ? "split" : ""}" style="height:${height}px">
-		${scope}
+		${tlTools()}${scope}
 		<div class="tl-scroll" id="tl-scroll"><div class="tl-inner" id="tl-inner" style="width:${S.zoom * 100}%">
 			<div class="tl-row ruler"><span class="gutter"></span><div class="lane" data-act="lane">${marks.map((s) => `<span class="tick" style="left:${(s / TOTAL) * 100}%">${fmt(s)}</span>`).join("")}</div></div>
 			${rows}
@@ -416,27 +423,27 @@ const showExSheet = () => S.view === "export" && S.exKind[S.variant] === "sheet"
 const layouts = {
 	A: () => `<div class="ed-body"><div class="col">
 		<div class="row-top">
-			<div class="player">${toolbar()}${stage()}</div>
+			<div class="player">${toolbar()}${stage()}${transport()}</div>
 			${showExSheet() ? exportSheet("border-l") : `${rail(sevenTabs, "left", "icons")}${panel("")}`}
 		</div>
-		${transport()}${timeline(240)}
+		<div class="grip"></div>${timeline(260)}
 	</div></div>`,
 	B: () => `<div class="ed-body">
-		<div class="col"><div class="player">${toolbar()}${stage()}</div>${transport()}<div class="grip"></div>${timeline(210)}</div>
+		<div class="col"><div class="player">${toolbar()}${stage()}</div>${transport()}<div class="grip"></div>${timeline(240)}</div>
 		${showExSheet() ? exportSheet("border-l") : `${panel("border-l")}${rail(sevenTabs, "right", "labels")}`}
 	</div>`,
 	C: () => `<div class="ed-body">
 		${rail(["clips", "|", "background", "screen", "camera", "cursor", "|", "audio", "keyboard", "captions", "|", "zoom", "overlays", "scenes"], "left", "labels")}
 		${showExSheet() ? exportSheet("border-r") : panel("border-r")}
-		<div class="col"><div class="player">${toolbar()}${stage()}</div>${transport()}${timeline(S.allTracks ? 250 : 164)}</div>
+		<div class="col"><div class="player">${toolbar()}${stage()}</div>${transport()}${timeline(S.allTracks ? 286 : 200)}</div>
 	</div>`,
 	D: () => `<div class="ed-body"><div class="col">
 		<div class="row-top">
 			<div class="side-l">${rail(sevenTabs, "top", "labels")}${panel("fill", "tab")}</div>
-			<div class="player">${toolbar()}${stage()}</div>
+			<div class="player">${toolbar()}${stage()}${transport()}</div>
 			${showExSheet() ? exportSheet("border-l") : panel("border-l slim", "sel")}
 		</div>
-		${transport()}${timeline(240)}
+		<div class="grip"></div>${timeline(260)}
 	</div></div>`,
 };
 
@@ -506,6 +513,7 @@ const menus = {
 			<div class="t">${L(c.l[0], c.l[1])} · ${fmt(c.e - c.s)}</div>
 			<div class="t">${L("Speed", "速度")}</div><div class="speed">${["0.25x", "0.5x", "1x", "1.5x", "2x", "4x", "8x"].map((s) => `<button class="${c.speed === s ? "on" : ""}" data-act="speed" data-v="${s}">${s}</button>`).join("")}</div>
 			<div class="t">${L("Audio", "音频")}</div><div class="box">${row(sl("clipVol", "Volume", "音量", 0, 200, 100, "%"))}<div class="seg-row">${[["Mute", "静音"], ["Keep pitch", "保持音调"], ["Match speed", "跟随速度"]].map((o, i) => `<button class="${(S.v.clipAud ?? 1) === i ? "on" : ""}" data-act="set" data-k="clipAud" data-v="${i}">${L(o[0], o[1])}</button>`).join("")}</div></div>
+			<div class="t">${L("Transition from previous clip", "与上一片段的转场")}</div><div class="box"><div class="seg-row">${[["None", "无"], ["Cross fade", "交叉淡化"], ["Fade through black", "黑场过渡"]].map((o, i) => `<button class="${(S.v.clipTr ?? 1) === i ? "on" : ""}" data-act="set" data-k="clipTr" data-v="${i}">${L(o[0], o[1])}</button>`).join("")}</div>${row(sl("clipTrD", "Duration", "时长", 0.1, 2, 0.5, " s", 0.05))}</div>
 			<div class="t">${L("Cursor", "光标")}</div><div class="box">${row(tg("clipCur", "Hide cursor", "隐藏光标"))}</div><hr>
 			<button data-act="close">${icon("scissors")}<span class="grow">${L("Split at playhead", "在播放头处分割")}</span><span class="kbd">C</span></button>
 			<button data-act="close">${L("Merge with previous clip", "与上一片段合并")}</button>
@@ -530,9 +538,9 @@ const renderCompare = () => {
 	document.getElementById("l-compare").innerHTML = L("At the default 1275 × 800 window. Sizes are what these prototypes use.", "按默认 1275 × 800 窗口计算，尺寸取自这些原型。");
 	const rows = [
 		[["", ""], VARIANTS.A, VARIANTS.B, VARIANTS.C, VARIANTS.D],
-		[["Timeline", "时间轴"], ["Full width, 240 high", "全宽，240 高"], ["867 wide, 210 high", "867 宽，210 高"], ["867 wide, 164 high, one tool's tracks", "867 宽，164 高，只显示当前工具的轨道"], ["Full width, 240 high", "全宽，240 高"]],
-		[["Panel content height", "面板内容高度"], ["About 430, scrolls more", "约 430，滚动较多"], ["About 715, a whole section fits", "约 715，一屏能看完一组"], ["About 715", "约 715"], ["About 380 left, 430 right", "左约 380，右约 430"]],
-		[["Preview at 16:9", "16:9 预览"], ["About 725 × 408", "约 725 × 408"], ["About 763 × 429", "约 763 × 429"], ["About 835 × 470", "约 835 × 470"], ["About 625 × 352", "约 625 × 352"]],
+		[["Timeline", "时间轴"], ["Full width, 260 high", "全宽，260 高"], ["867 wide, 240 high", "867 宽，240 高"], ["867 wide, 200 high, one tool's tracks", "867 宽，200 高，只显示当前工具的轨道"], ["Full width, 260 high", "全宽，260 高"]],
+		[["Panel content height", "面板内容高度"], ["About 445, scrolls more", "约 445，滚动较多"], ["About 715, a whole section fits", "约 715，一屏能看完一组"], ["About 715", "约 715"], ["About 395 left, 445 right", "左约 395，右约 445"]],
+		[["Preview at 16:9", "16:9 预览"], ["About 674 × 379", "约 674 × 379"], ["About 709 × 399", "约 709 × 399"], ["About 796 × 448", "约 796 × 448"], ["About 625 × 352", "约 625 × 352"]],
 		[["Finding a setting", "找设置"], ["Icons with tooltips", "图标加提示"], ["Icons with labels", "图标加文字"], ["Tool names, one job at a time", "工具名，一次一件事"], ["Tabs with labels, top left", "左上角带文字的页签"]],
 		[["Seeing the whole edit", "看全局"], ["Best: all tracks at once", "最好：所有轨道一起看"], ["Good, fewer rows at once", "好，同屏行数少一点"], ["Weakest: switch to All tracks", "最弱：要切到全部轨道"], ["Best: all tracks at once", "最好：所有轨道一起看"]],
 		[["Selecting a segment", "选中段落"], ["Panel swaps to it", "面板换成该段落"], ["Panel swaps to it", "面板换成该段落"], ["Panel and timeline switch tool", "面板和时间轴一起切换工具"], ["Right column fills, left stays", "右栏显示该段落，左栏不变"]],
@@ -547,16 +555,17 @@ const renderCompare = () => {
 	document.getElementById("l-same").innerHTML = L("These follow from earlier decisions or the current editor's problems.", "这些来自已有决定，或现在编辑器的问题。");
 	const same = [
 		[["Background splits in two", "背景拆成两页"], ["Background keeps the source. A new Screen tab takes padding, corners, shadow, border, notch and color. Frame moves in from the preview toolbar.", "背景只放来源。新的“画面”页放内边距、圆角、阴影、描边、刘海和调色。外框从预览工具栏搬进来。"]],
-		[["Neutral timeline", "中性色时间轴"], ["The 11 coloured tracks go neutral, with a Lucide icon in the gutter. Selected segments get the focus ring; the playhead is white (#48).", "11 种彩色轨道改成中性灰，靠左侧图标区分。选中段落用焦点环，播放头是白色（#48）。"]],
+		[["剪映-style timeline", "剪映式时间轴"], ["A toolbar above the tracks holds split, delete, add track and zoom. Video is tallest with a filmstrip and waveform; audio is medium; text-like tracks are thin. The colour toggle above the window compares type colours with neutral.", "轨道上方的工具栏放分割、删除、添加轨道和缩放。视频轨最高，带画面条和波形；音频居中；文字类轨道最细。窗口上方的开关可以比较按类型着色和中性灰。"]],
 		[["One-line rows", "单行控件"], ["Label, slider and value share one 32 px row. Advanced groups start folded.", "标签、滑块、数值放在同一行，每行 32 px。高级分组默认收起。"]],
 		[["Slimmer window frame", "更薄的窗口框"], ["Title bar 44 instead of 52, and the 8 px gutters and cards go: regions meet at a 1 px divider, which gives back about 50 px of height.", "标题栏从 52 改成 44，去掉 8 px 间隙和卡片，区域之间只留 1 px 分隔线，省出约 50 px 高度。"]],
-		[["Transport on the timeline", "播放条靠近时间轴"], ["Playback, split and timeline zoom sit together on one 44 px bar.", "播放、分割和时间轴缩放放在同一条 44 px 的栏上。"]],
+		[["Transport under the preview", "播放条在预览下方"], ["Play is centred on the preview, on its own 44 px bar with the clock.", "播放按钮和预览居中对齐，和时间码一起放在 44 px 的栏上。"]],
 		[["Dropped on purpose", "有意去掉的"], ["The disabled Captions pill in the header does nothing today, so it goes. The name suffix becomes .ever. Clips moves from a header toggle to the rail.", "标题栏里那个禁用的字幕胶囊现在没有作用，去掉。名称后缀改成 .ever。片段从标题栏开关移到导航栏。"]],
 	];
 	document.getElementById("same-grid").innerHTML = same.map(([h, b]) => `<div class="card"><h3>${L(h[0], h[1])}</h3><p>${L(b[0], b[1])}</p></div>`).join("");
 	document.getElementById("t-refs").innerHTML = L("What was looked at", "参考了什么");
 	document.getElementById("l-refs").innerHTML = L("Primary sources except where marked. No screenshots were viewed, so layouts come from docs and source code. Competitors' snapping and speed displays are mostly undocumented.", "除标注外都是一手来源。没有看截图，布局来自文档和源码。竞品的吸附和速度显示大多没有文档。");
 	const refs = [
+		["OpenCut", ["About 97,000 GitHub stars. Timeline read from the classic web source: video 60, audio 50, text 25, 4 px gaps, a toolbar above the tracks, trim bars on clips. The new GPUI desktop timeline is still an empty stub.", "GitHub 约 9.7 万星。时间轴读自旧版网页源码：视频 60、音频 50、文字 25，间距 4 px，轨道上方有工具栏，片段带修剪手柄。新的 GPUI 桌面版时间轴还是空壳。"]],
 		["剪映 / CapCut", ["Tools top left, player in the middle, a right panel that follows the selection, timeline along the bottom; a Vertical layout puts a full-height viewport on the right. Export is a dialog from the top right. From tutorials, not official docs.", "左上是素材和工具，中间播放器，右侧面板随选中变化，时间线在底部；竖版布局把全高预览放到右侧。导出是右上角打开的对话框。信息来自教程，不是官方文档。"]],
 		["Cap", ["Inspector right, 6 icon tabs, full-page export with measured size. Segment selection swaps the panel.", "检查器在右，6 个图标页，整页导出并显示实测大小。选中段落会切换面板。"]],
 		["Descript", ["Icon rail, properties follow selection; timeline can collapse.", "图标栏，属性跟随选中；时间轴可折叠。"]],
@@ -575,6 +584,8 @@ const renderViewRow = () => {
 	const stateOpts = [["form", "Options", "选项"], ["progress", "Progress", "进度"], ["cancel", "Cancel", "取消"], ["done", "Done", "完成"], ["failed", "Failed", "失败"]];
 	document.getElementById("view-row").innerHTML = `
 		<div class="seg">${[["fit", "Whole window", "整窗"], ["stacked", "Phone detail", "手机细看"]].map(([v, en, zh]) => `<button class="${display() === v ? "on" : ""}" data-pact="display" data-v="${v}">${L(en, zh)}</button>`).join("")}</div>
+		<span class="hint">${L("Track colour", "轨道颜色")}</span>
+		<div class="seg">${[["type", "By type", "按类型"], ["neutral", "Neutral", "中性"]].map(([v, en, zh]) => `<button class="${S.trackColor === v ? "on" : ""}" data-pact="trackcolor" data-v="${v}">${L(en, zh)}</button>`).join("")}</div>
 		<span class="hint">${L("Export", "导出")}</span>
 		<div class="seg">${Object.entries(EXPORT).map(([k, n]) => `<button class="${ex === k ? "on" : ""}" data-pact="exkind" data-v="${k}">${L(n[0], n[1])}</button>`).join("")}</div>
 		${S.view === "export" ? `<div class="seg">${stateOpts.map(([v, en, zh]) => `<button class="${S.exStage === v ? "on" : ""}" data-pact="exst" data-v="${v}">${L(en, zh)}</button>`).join("")}</div>` : ""}`;
@@ -785,6 +796,7 @@ const pact = (el) => {
 	if (d.pact === "prev") shift(-1);
 	if (d.pact === "next") shift(1);
 	if (d.pact === "display") S.display = d.v;
+	if (d.pact === "trackcolor") S.trackColor = d.v;
 	if (d.pact === "exkind") S.exKind[S.variant] = d.v;
 	if (d.pact === "exst") setStage(d.v);
 	render();
@@ -853,6 +865,7 @@ if (query.get("export")) {
 	S.exKind[S.variant] = query.get("export");
 	S.exStage = query.get("stage") ?? "form";
 }
+document.documentElement.style.setProperty("--filmstrip", `url("data:image/svg+xml,${encodeURIComponent(scene)}")`);
 renderCompare();
 onChange(() => {
 	renderCompare();
