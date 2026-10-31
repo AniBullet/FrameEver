@@ -254,16 +254,20 @@ main > section .seg {
 
 .library.in {
 	animation:
-		library-fade var(--expand-time, var(--duration-expand)) var(--ease-fluent-in) both,
-		library-slide var(--expand-time, var(--duration-expand)) var(--ease-move) both;
+		library-fade var(--expand-time, var(--duration-expand))
+		var(--ease-fluent-in) both,
+		library-slide var(--expand-time, var(--duration-expand)) var(--ease-move)
+		both;
 }
 
 .library.calm-in {
-	animation: library-fade var(--expand-time, var(--duration-expand)) var(--ease-fluent-in) both;
+	animation: library-fade var(--expand-time, var(--duration-expand))
+		var(--ease-fluent-in) both;
 }
 
 .library.out {
-	animation: library-fade-out var(--collapse-time, var(--duration-collapse)) var(--ease-fluent-out) both;
+	animation: library-fade-out var(--collapse-time, var(--duration-collapse))
+		var(--ease-fluent-out) both;
 }
 
 @keyframes library-fade {

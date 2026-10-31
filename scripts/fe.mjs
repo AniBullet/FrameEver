@@ -17,7 +17,10 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { describe as describeFinding, privacyCheck } from "./privacy.mjs";
 
-export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const root = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	"..",
+);
 export const gpuiDir = path.join(root, "apps", "desktop-gpui");
 export const testdataDir = path.join(gpuiDir, "target", "testdata");
 const testRecordingsDir = path.join(testdataDir, "storage", "Recordings");
@@ -32,7 +35,12 @@ const HARMONYOS_SANS = {
 		"LICENSE-HarmonyOS-Sans.txt": "HarmonyOS Sans/LICENSE-update.txt",
 	},
 };
-export const chineseFontDir = path.join(gpuiDir, "assets", "fonts", "harmonyos-sans");
+export const chineseFontDir = path.join(
+	gpuiDir,
+	"assets",
+	"fonts",
+	"harmonyos-sans",
+);
 const isWindows = process.platform === "win32";
 
 export const NSIS = {
@@ -63,23 +71,30 @@ export const NSIS = {
 };
 
 const COMMANDS = {
-	setup: "Prepare a fresh machine: JS deps, FFmpeg/ONNX/DXC, patched gpui, HarmonyOS Sans font",
+	setup:
+		"Prepare a fresh machine: JS deps, FFmpeg/ONNX/DXC, patched gpui, HarmonyOS Sans font",
 	dev: "Build and run the app (test data by default). --watch, --lang zh-CN|en, --real",
-	check: "Compile-check the GPUI app, FrameEver Converter and the CLI, tests included",
+	check:
+		"Compile-check the GPUI app, FrameEver Converter and the CLI, tests included",
 	test: "Run GPUI tests (optional filter). --all adds converter, encoder, export, utils, CLI and script tests",
 	lint: "Format check, clippy and translation tests",
 	fmt: "Format the GPUI app and the root crates FrameEver changed",
-	export: "Export the test recording: fe export h264|hevc|av1 [--project <.ever>]",
-	converter: "Run FrameEver Converter against a fresh fake Cap-aniBullet 2.x install. --lang zh-CN|en",
-	package: "Build the Windows installer and FrameEver Converter into dist/. --skip-sidecars, --version <x.y.z>",
+	export:
+		"Export the test recording: fe export h264|hevc|av1 [--project <.ever>]",
+	converter:
+		"Run FrameEver Converter against a fresh fake Cap-aniBullet 2.x install. --lang zh-CN|en",
+	package:
+		"Build the Windows installer and FrameEver Converter into dist/. --skip-sidecars, --version <x.y.z>",
 	release: "Check, tag and push a release: fe release <x.y.z> [--skip-tests]",
 	notes: "Print the CHANGELOG.md section for a version: fe notes <x.y.z>",
 	deps: "Show Rust dependency updates within version ranges and newer versions needing a manual bump. --apply updates both Cargo.lock files",
 	doctor: "Check the environment and say how to fix anything missing",
 	logs: "Print the app log tail: fe logs [--lines 200] [--grep <text>] [--real]",
-	privacy: "Scan what you are about to push for private data (emails, local paths, keys). --staged, --all (every tracked file)",
+	privacy:
+		"Scan what you are about to push for private data (emails, local paths, keys). --staged, --all (every tracked file)",
 	design: "Generate docs/design/tokens.css and tokens.js from tokens.json",
-	icons: "Copy every icon in assets/icons/sources.json from its pinned Lucide or Tabler release",
+	icons:
+		"Copy every icon in assets/icons/sources.json from its pinned Lucide or Tabler release",
 };
 
 export function parseArgs(argv) {
@@ -94,7 +109,10 @@ export function parseArgs(argv) {
 		const [key, inline] = value.slice(2).split("=", 2);
 		if (inline !== undefined) {
 			flags[key] = inline;
-		} else if (argv[index + 1] !== undefined && !argv[index + 1].startsWith("--")) {
+		} else if (
+			argv[index + 1] !== undefined &&
+			!argv[index + 1].startsWith("--")
+		) {
 			flags[key] = argv[index + 1];
 			index += 1;
 		} else {
@@ -142,7 +160,9 @@ export function staleIncrementalDirs(dir, keep = 4) {
 
 function pruneIncremental() {
 	for (const workspace of [gpuiDir, root]) {
-		for (const stale of staleIncrementalDirs(path.join(workspace, "target", "debug", "incremental"))) {
+		for (const stale of staleIncrementalDirs(
+			path.join(workspace, "target", "debug", "incremental"),
+		)) {
 			try {
 				rmSync(stale, { recursive: true, force: true });
 			} catch {}
@@ -193,7 +213,9 @@ export function gitBash() {
 	const git = capture("where", ["git"]);
 	if (git) {
 		for (const line of git.split(/\r?\n/)) {
-			candidates.push(path.join(path.dirname(path.dirname(line.trim())), "bin", "bash.exe"));
+			candidates.push(
+				path.join(path.dirname(path.dirname(line.trim())), "bin", "bash.exe"),
+			);
 		}
 	}
 	candidates.push(
@@ -206,7 +228,8 @@ export function gitBash() {
 }
 
 function requireTool(command, args, name, hint) {
-	const [program, programArgs] = command === "pnpm" ? pnpm(args) : [command, args];
+	const [program, programArgs] =
+		command === "pnpm" ? pnpm(args) : [command, args];
 	const version = capture(program, programArgs);
 	if (!version) fail(`${name} is missing. ${hint}`);
 	console.log(`  ${name}: ${version.split(/\r?\n/)[0]}`);
@@ -216,21 +239,37 @@ function requireTool(command, args, name, hint) {
 function setup({ flags }) {
 	step("Toolchain");
 	const node = Number(process.versions.node.split(".")[0]);
-	if (node < 20) fail(`Node ${process.versions.node} is too old; FrameEver needs Node 20+.`);
+	if (node < 20)
+		fail(`Node ${process.versions.node} is too old; FrameEver needs Node 20+.`);
 	console.log(`  node: ${process.versions.node}`);
 	requireTool("pnpm", ["--version"], "pnpm", "Run: npm install -g pnpm@10.5.2");
-	requireTool("rustup", ["--version"], "rustup", "Install Rust from https://rustup.rs");
-	requireTool("cargo", ["--version"], "cargo", "Install Rust from https://rustup.rs");
+	requireTool(
+		"rustup",
+		["--version"],
+		"rustup",
+		"Install Rust from https://rustup.rs",
+	);
+	requireTool(
+		"cargo",
+		["--version"],
+		"cargo",
+		"Install Rust from https://rustup.rs",
+	);
 	run("rustup", ["toolchain", "install", "stable", "--profile", "minimal"], {
 		allowFailure: true,
 	});
 
-	if (!flags.ci && (!existsSync(path.join(root, "node_modules")) || flags.install)) {
+	if (
+		!flags.ci &&
+		(!existsSync(path.join(root, "node_modules")) || flags.install)
+	) {
 		step("JavaScript dependencies");
 		run(...pnpm(["install", "--frozen-lockfile"]));
 	}
 
-	step("Native dependencies (FFmpeg, ONNX Runtime, DXC) and .cargo/config.toml");
+	step(
+		"Native dependencies (FFmpeg, ONNX Runtime, DXC) and .cargo/config.toml",
+	);
 	run(process.execPath, [path.join("scripts", "setup.js")], {
 		env: { ...process.env, RUST_TARGET_TRIPLE: target },
 	});
@@ -238,7 +277,9 @@ function setup({ flags }) {
 	step("Patched gpui crates (../gpui-pre-patched)");
 	run(gitBash(), [path.join("scripts", "prepare-gpui-dependency.sh")]);
 
-	step("HarmonyOS Sans (Chinese UI font, fetched from Huawei; its license forbids committing it)");
+	step(
+		"HarmonyOS Sans (Chinese UI font, fetched from Huawei; its license forbids committing it)",
+	);
 	fetchChineseFont();
 
 	if (isWindows) {
@@ -255,7 +296,8 @@ function setup({ flags }) {
 }
 
 export function nsisToolsetDir(env = process.env) {
-	const local = env.LOCALAPPDATA ?? path.join(env.USERPROFILE ?? "", "AppData", "Local");
+	const local =
+		env.LOCALAPPDATA ?? path.join(env.USERPROFILE ?? "", "AppData", "Local");
 	return path.join(local, "tauri", "NSIS");
 }
 
@@ -274,13 +316,20 @@ function peCharacteristicsOffset(image) {
 }
 
 export function isLargeAddressAware(image) {
-	return (image.readUInt16LE(peCharacteristicsOffset(image)) & PE_LARGE_ADDRESS_AWARE) !== 0;
+	return (
+		(image.readUInt16LE(peCharacteristicsOffset(image)) &
+			PE_LARGE_ADDRESS_AWARE) !==
+		0
+	);
 }
 
 export function setLargeAddressAware(image) {
 	const patched = Buffer.from(image);
 	const offset = peCharacteristicsOffset(patched);
-	patched.writeUInt16LE(patched.readUInt16LE(offset) | PE_LARGE_ADDRESS_AWARE, offset);
+	patched.writeUInt16LE(
+		patched.readUInt16LE(offset) | PE_LARGE_ADDRESS_AWARE,
+		offset,
+	);
 	return patched;
 }
 
@@ -305,38 +354,55 @@ export function prepareNsis() {
 	const dir = nsisToolsetDir();
 	if (missingNsisFiles(dir).length > 0) {
 		const cache = path.join(root, "target", "native-deps");
-		const archive = downloadVerified(NSIS.url, NSIS.sha1, path.join(cache, `${NSIS.folder}.zip`));
+		const archive = downloadVerified(
+			NSIS.url,
+			NSIS.sha1,
+			path.join(cache, `${NSIS.folder}.zip`),
+		);
 		const parent = path.dirname(dir);
 		mkdirSync(parent, { recursive: true });
 		rmSync(dir, { recursive: true, force: true });
 		rmSync(path.join(parent, NSIS.folder), { recursive: true, force: true });
 		run(systemTar(), ["-xf", archive, "-C", parent]);
 		renameSync(path.join(parent, NSIS.folder), dir);
-		const utils = downloadVerified(NSIS.utilsUrl, NSIS.utilsSha1, path.join(cache, "nsis_tauri_utils.dll"));
+		const utils = downloadVerified(
+			NSIS.utilsUrl,
+			NSIS.utilsSha1,
+			path.join(cache, "nsis_tauri_utils.dll"),
+		);
 		mkdirSync(path.dirname(path.join(dir, NSIS.utils)), { recursive: true });
 		copyFileSync(utils, path.join(dir, NSIS.utils));
 	}
 	const still = missingNsisFiles(dir);
-	if (still.length > 0) fail(`NSIS toolset at ${dir} is missing ${still.join(", ")}`);
+	if (still.length > 0)
+		fail(`NSIS toolset at ${dir} is missing ${still.join(", ")}`);
 	const compiler = path.join(dir, NSIS.compiler);
 	const image = readFileSync(compiler);
 	if (!isLargeAddressAware(image)) {
 		writeFileSync(compiler, setLargeAddressAware(image));
 	}
-	if (!isLargeAddressAware(readFileSync(compiler))) fail(`Could not mark ${compiler} large-address-aware`);
+	if (!isLargeAddressAware(readFileSync(compiler)))
+		fail(`Could not mark ${compiler} large-address-aware`);
 	console.log(`  ${compiler}: large-address-aware`);
 }
 
 function systemTar() {
-	return isWindows ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+	return isWindows
+		? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+		: "tar";
 }
 
 export function missingChineseFont(dir = chineseFontDir) {
-	return Object.keys(HARMONYOS_SANS.members).filter((name) => !existsSync(path.join(dir, name)));
+	return Object.keys(HARMONYOS_SANS.members).filter(
+		(name) => !existsSync(path.join(dir, name)),
+	);
 }
 
 function fetchChineseFont() {
-	rmSync(path.join(gpuiDir, "assets", "fonts", "misans"), { recursive: true, force: true });
+	rmSync(path.join(gpuiDir, "assets", "fonts", "misans"), {
+		recursive: true,
+		force: true,
+	});
 	if (missingChineseFont().length === 0) {
 		console.log("  Already present.");
 		return;
@@ -346,15 +412,27 @@ function fetchChineseFont() {
 		HARMONYOS_SANS.sha1,
 		path.join(root, "target", "native-deps", "HarmonyOS-Sans.zip"),
 	);
-	const staging = path.join(root, "target", "native-deps", "harmonyos-sans-extract");
+	const staging = path.join(
+		root,
+		"target",
+		"native-deps",
+		"harmonyos-sans-extract",
+	);
 	mkdirSync(staging, { recursive: true });
-	run(systemTar(), ["-xf", cache, "-C", staging, ...Object.values(HARMONYOS_SANS.members)]);
+	run(systemTar(), [
+		"-xf",
+		cache,
+		"-C",
+		staging,
+		...Object.values(HARMONYOS_SANS.members),
+	]);
 	mkdirSync(chineseFontDir, { recursive: true });
 	for (const [name, member] of Object.entries(HARMONYOS_SANS.members)) {
 		copyFileSync(path.join(staging, member), path.join(chineseFontDir, name));
 	}
 	const still = missingChineseFont();
-	if (still.length > 0) fail(`HarmonyOS Sans files missing after extraction: ${still.join(", ")}`);
+	if (still.length > 0)
+		fail(`HarmonyOS Sans files missing after extraction: ${still.join(", ")}`);
 }
 
 function writeTestLanguage(lang) {
@@ -365,23 +443,37 @@ function writeTestLanguage(lang) {
 	try {
 		store = JSON.parse(readFileSync(storePath, "utf8"));
 	} catch {}
-	store.general_settings = { ...(store.general_settings ?? {}), language: lang };
+	store.general_settings = {
+		...(store.general_settings ?? {}),
+		language: lang,
+	};
 	writeFileSync(storePath, JSON.stringify(store, null, 2));
 }
 
 function cargoBuildDebug() {
-	return spawnSync("cargo", ["build"], { cwd: gpuiDir, stdio: "inherit" }).status === 0;
+	return (
+		spawnSync("cargo", ["build"], { cwd: gpuiDir, stdio: "inherit" }).status ===
+		0
+	);
 }
 
 function appBinary() {
-	return path.join(gpuiDir, "target", "debug", isWindows ? "frameever-gpui.exe" : "frameever-gpui");
+	return path.join(
+		gpuiDir,
+		"target",
+		"debug",
+		isWindows ? "frameever-gpui.exe" : "frameever-gpui",
+	);
 }
 
 export const devPidFile = path.join(testdataDir, "fe-dev.pid");
 
 export function runCopyPath(binary = appBinary()) {
 	const extension = path.extname(binary);
-	return path.join(path.dirname(binary), `${path.basename(binary, extension)}.fe-run${extension}`);
+	return path.join(
+		path.dirname(binary),
+		`${path.basename(binary, extension)}.fe-run${extension}`,
+	);
 }
 
 function copyForRun() {
@@ -399,8 +491,14 @@ function copyForRun() {
 }
 
 function launchApp(env) {
-	const child = spawn(copyForRun(), [], { cwd: gpuiDir, env, stdio: "inherit" });
-	child.on("error", (error) => console.error(`frameever-gpui: ${error.message}`));
+	const child = spawn(copyForRun(), [], {
+		cwd: gpuiDir,
+		env,
+		stdio: "inherit",
+	});
+	child.on("error", (error) =>
+		console.error(`frameever-gpui: ${error.message}`),
+	);
 	if (child.pid) {
 		mkdirSync(testdataDir, { recursive: true });
 		writeFileSync(devPidFile, String(child.pid));
@@ -429,7 +527,9 @@ export function writeFakeCapAniBullet2(dir) {
 	};
 	write(
 		path.join(env.APPDATA, "so.cap.desktop.anibullet", "store"),
-		JSON.stringify({ general_settings: { recordingQuality: "high", autoCompressInstant: true } }),
+		JSON.stringify({
+			general_settings: { recordingQuality: "high", autoCompressInstant: true },
+		}),
 	);
 	const base = path.join(env.FRAMEEVER_CONVERTER_VIDEOS_DIR, "Cap Recordings");
 	write(
@@ -437,7 +537,10 @@ export function writeFakeCapAniBullet2(dir) {
 		JSON.stringify({ pretty_name: "Studio demo", platform: "Windows" }),
 	);
 	write(path.join(base, "exports", "video", "Instant clip.mp4"), "original");
-	write(path.join(base, "exports", "video", "Instant clip_compressed.mp4"), "compressed");
+	write(
+		path.join(base, "exports", "video", "Instant clip_compressed.mp4"),
+		"compressed",
+	);
 	write(path.join(base, "exports", "screenshot", "Screenshot.png"), "png");
 }
 
@@ -449,12 +552,20 @@ function converter({ flags }) {
 	if (typeof flags.lang === "string") {
 		const store = path.join(env.FRAMEEVER_GPUI_APP_DATA_DIR, "store");
 		mkdirSync(path.dirname(store), { recursive: true });
-		writeFileSync(store, JSON.stringify({ general_settings: { language: flags.lang } }));
+		writeFileSync(
+			store,
+			JSON.stringify({ general_settings: { language: flags.lang } }),
+		);
 	}
 	step("Build FrameEver Converter");
 	run("cargo", ["build", "-p", "frameever-converter-app"], { cwd: gpuiDir });
 	console.log(`  Fake Cap-aniBullet 2.x install and FrameEver data: ${dir}`);
-	const exe = path.join(gpuiDir, "target", "debug", isWindows ? "frameever-converter.exe" : "frameever-converter");
+	const exe = path.join(
+		gpuiDir,
+		"target",
+		"debug",
+		isWindows ? "frameever-converter.exe" : "frameever-converter",
+	);
 	run(exe, [], { env });
 }
 
@@ -486,7 +597,9 @@ function dev({ flags }) {
 		mkdirSync(testRecordingsDir, { recursive: true });
 		if (flags.lang) writeTestLanguage(flags.lang);
 	} else if (flags.lang) {
-		fail("--lang only applies to the test profile; change the language in Settings instead");
+		fail(
+			"--lang only applies to the test profile; change the language in Settings instead",
+		);
 	}
 	const env = {
 		...(isolated ? testProfileEnv() : withFfmpeg()),
@@ -526,7 +639,9 @@ function dev({ flags }) {
 			app = launchApp(env);
 			console.log("\u001b[32m✓ Relaunched\u001b[0m");
 		} else {
-			console.log("\u001b[31m✗ Build failed; the running app was kept\u001b[0m");
+			console.log(
+				"\u001b[31m✗ Build failed; the running app was kept\u001b[0m",
+			);
 		}
 		if (pending) {
 			pending = false;
@@ -554,7 +669,14 @@ function check() {
 	step("FrameEver Converter");
 	run("cargo", ["check", "-p", CONVERTER_APP, "--tests"], { cwd: gpuiDir });
 	step("CLI and converter core");
-	run("cargo", ["check", "-p", "frameever", "-p", "frameever-converter", "--tests"]);
+	run("cargo", [
+		"check",
+		"-p",
+		"frameever",
+		"-p",
+		"frameever-converter",
+		"--tests",
+	]);
 	console.log("\n\u001b[32m✓ Everything compiles\u001b[0m");
 }
 
@@ -567,13 +689,21 @@ function test({ flags, positional }) {
 	});
 	if (flags.all) {
 		step("Encoder, export, utils, converter and CLI tests");
-		run("cargo", ["test", "-p", "frameever-enc-ffmpeg", "--lib"], { env: withFfmpeg() });
+		run("cargo", ["test", "-p", "frameever-enc-ffmpeg", "--lib"], {
+			env: withFfmpeg(),
+		});
 		run("cargo", ["test", "-p", "frameever-utils", "--lib"]);
 		run("cargo", ["test", "-p", "frameever-converter"]);
 		run("cargo", ["test", "-p", CONVERTER_APP], { cwd: gpuiDir });
-		run("cargo", ["test", "-p", "frameever-export", "--lib"], { env: withFfmpeg() });
-		run("cargo", ["test", "-p", "frameever", "--bin", "frameever"], { env: withFfmpeg() });
-		run("cargo", ["test", "-p", "frameever", "--test", "cli"], { env: withFfmpeg() });
+		run("cargo", ["test", "-p", "frameever-export", "--lib"], {
+			env: withFfmpeg(),
+		});
+		run("cargo", ["test", "-p", "frameever", "--bin", "frameever"], {
+			env: withFfmpeg(),
+		});
+		run("cargo", ["test", "-p", "frameever", "--test", "cli"], {
+			env: withFfmpeg(),
+		});
 		step("Patched gpui tests");
 		const patchedCrates = path.join(root, "..", "gpui-pre-patched", "crates");
 		const patchedCore = path.join(patchedCrates, "gpui").replaceAll("\\", "/");
@@ -628,10 +758,19 @@ function lint() {
 	step("Clippy");
 	run("cargo", ["clippy", "--tests"], { cwd: gpuiDir });
 	run("cargo", ["clippy", "-p", CONVERTER_APP, "--tests"], { cwd: gpuiDir });
-	run("cargo", ["clippy", ...ROOT_CRATES.flatMap((crate) => ["-p", crate]), "--tests"]);
+	run("cargo", [
+		"clippy",
+		...ROOT_CRATES.flatMap((crate) => ["-p", crate]),
+		"--tests",
+	]);
 	step("Translations");
-	run("cargo", ["test", "--bin", "frameever-gpui", "i18n::"], { cwd: gpuiDir, env: withFfmpeg() });
-	run("cargo", ["test", "-p", CONVERTER_APP, "--lib", "i18n::"], { cwd: gpuiDir });
+	run("cargo", ["test", "--bin", "frameever-gpui", "i18n::"], {
+		cwd: gpuiDir,
+		env: withFfmpeg(),
+	});
+	run("cargo", ["test", "-p", CONVERTER_APP, "--lib", "i18n::"], {
+		cwd: gpuiDir,
+	});
 	console.log("\n\u001b[32m✓ Lint passed\u001b[0m");
 }
 
@@ -646,17 +785,35 @@ export function firstRecording(dir) {
 
 function exportVideo({ flags, positional }) {
 	const codec = positional[0] ?? "h264";
-	if (!["h264", "hevc", "av1"].includes(codec)) fail("Codec must be h264, hevc or av1");
+	if (!["h264", "hevc", "av1"].includes(codec))
+		fail("Codec must be h264, hevc or av1");
 	const project = flags.project ?? firstRecording(testRecordingsDir);
 	if (!project) {
-		fail("No test recording yet. Run `pnpm fe dev`, record something, then try again.");
+		fail(
+			"No test recording yet. Run `pnpm fe dev`, record something, then try again.",
+		);
 	}
 	const outDir = path.join(testdataDir, "exports");
 	mkdirSync(outDir, { recursive: true });
-	const output = path.join(outDir, `${path.basename(project, ".ever")}-${codec}.mp4`);
+	const output = path.join(
+		outDir,
+		`${path.basename(project, ".ever")}-${codec}.mp4`,
+	);
 	run(
 		"cargo",
-		["run", "-q", "-p", "frameever", "--", "export", project, "-o", output, "--codec", codec],
+		[
+			"run",
+			"-q",
+			"-p",
+			"frameever",
+			"--",
+			"export",
+			project,
+			"-o",
+			output,
+			"--codec",
+			codec,
+		],
 		{ env: withFfmpeg() },
 	);
 	const size = (statSync(output).size / 1024 / 1024).toFixed(1);
@@ -672,7 +829,10 @@ export function missingNativeDeps(base = root) {
 	return required
 		.filter(([dir, extension]) => {
 			const full = path.join(base, dir);
-			return !existsSync(full) || !readdirSync(full).some((name) => name.endsWith(extension));
+			return (
+				!existsSync(full) ||
+				!readdirSync(full).some((name) => name.endsWith(extension))
+			);
 		})
 		.map(([dir]) => dir);
 }
@@ -699,7 +859,9 @@ function packageInstaller({ flags }) {
 	if (!isWindows) fail("Packaging targets Windows; run it on Windows.");
 	const missing = [...missingNativeDeps(), ...missingChineseFont()];
 	if (missing.length > 0) {
-		fail(`Native dependencies are missing (${missing.join(", ")}). Run: pnpm fe setup`);
+		fail(
+			`Native dependencies are missing (${missing.join(", ")}). Run: pnpm fe setup`,
+		);
 	}
 	step("NSIS installer compiler");
 	prepareNsis();
@@ -711,44 +873,80 @@ function packageInstaller({ flags }) {
 	const started = Date.now();
 	if (!flags["skip-sidecars"]) {
 		step("Sidecars (frameever-muxer, frameever-cli)");
-		run(gitBash(), [path.join("scripts", "build-desktop-binaries.sh"), target], {
-			env: {
-				...process.env,
-				CARGO_PROFILE_RELEASE_DEBUG: "0",
-				CARGO_PROFILE_RELEASE_STRIP: "symbols",
+		run(
+			gitBash(),
+			[path.join("scripts", "build-desktop-binaries.sh"), target],
+			{
+				env: {
+					...process.env,
+					CARGO_PROFILE_RELEASE_DEBUG: "0",
+					CARGO_PROFILE_RELEASE_STRIP: "symbols",
+				},
 			},
-		});
+		);
 	}
 
 	step("App and NSIS installer");
 	const signing = Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY);
 	const bundleArgs = ["--bundles", "nsis"];
 	if (!signing) {
-		console.log("  No TAURI_SIGNING_PRIVATE_KEY: building an unsigned installer (no updater .sig).");
+		console.log(
+			"  No TAURI_SIGNING_PRIVATE_KEY: building an unsigned installer (no updater .sig).",
+		);
 		const unsigned = path.join(gpuiDir, "target", "fe-unsigned.conf.json");
 		mkdirSync(path.dirname(unsigned), { recursive: true });
-		writeFileSync(unsigned, JSON.stringify({ bundle: { createUpdaterArtifacts: false } }));
+		writeFileSync(
+			unsigned,
+			JSON.stringify({ bundle: { createUpdaterArtifacts: false } }),
+		);
 		bundleArgs.push("--config", unsigned);
 	}
-	run(process.execPath, [path.join("scripts", "bundle-gpui.mjs"), target, ...bundleArgs], {
-		env: { ...process.env, CI: "false", RUST_TARGET_TRIPLE: target },
-	});
+	run(
+		process.execPath,
+		[path.join("scripts", "bundle-gpui.mjs"), target, ...bundleArgs],
+		{
+			env: { ...process.env, CI: "false", RUST_TARGET_TRIPLE: target },
+		},
+	);
 
-	const nsisDir = path.join(gpuiDir, "target", target, "release", "bundle", "nsis");
-	const installers = readdirSync(nsisDir).filter((name) => name.endsWith("-setup.exe"));
+	const nsisDir = path.join(
+		gpuiDir,
+		"target",
+		target,
+		"release",
+		"bundle",
+		"nsis",
+	);
+	const installers = readdirSync(nsisDir).filter((name) =>
+		name.endsWith("-setup.exe"),
+	);
 	if (installers.length === 0) fail(`No installer in ${nsisDir}`);
 	const newest = installers
 		.map((name) => path.join(nsisDir, name))
 		.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
 	mkdirSync(distDir, { recursive: true });
 	const copied = [newest, `${newest}.sig`].filter((file) => existsSync(file));
-	for (const file of copied) copyFileSync(file, path.join(distDir, path.basename(file)));
+	for (const file of copied)
+		copyFileSync(file, path.join(distDir, path.basename(file)));
 
 	step("FrameEver Converter");
-	run("cargo", ["build", "--release", "-p", CONVERTER_APP, "--target", target], { cwd: gpuiDir });
-	const converterExe = path.join(gpuiDir, "target", target, "release", "frameever-converter.exe");
+	run(
+		"cargo",
+		["build", "--release", "-p", CONVERTER_APP, "--target", target],
+		{ cwd: gpuiDir },
+	);
+	const converterExe = path.join(
+		gpuiDir,
+		"target",
+		target,
+		"release",
+		"frameever-converter.exe",
+	);
 	const converterManifest = path.join(gpuiDir, "converter", "Cargo.toml");
-	const converterAsset = path.join(distDir, converterAssetName(manifestVersion(converterManifest)));
+	const converterAsset = path.join(
+		distDir,
+		converterAssetName(manifestVersion(converterManifest)),
+	);
 	copyFileSync(converterExe, converterAsset);
 
 	const minutes = ((Date.now() - started) / 60000).toFixed(1);
@@ -757,11 +955,15 @@ function packageInstaller({ flags }) {
 		`\n\u001b[32m✓ ${path.join(distDir, path.basename(newest))} (${megabytes(newest)} MB, ${minutes} min)\u001b[0m`,
 	);
 	if (copied.length > 1) console.log("  Updater signature copied next to it.");
-	console.log(`\u001b[32m✓ ${converterAsset} (${megabytes(converterAsset)} MB)\u001b[0m`);
+	console.log(
+		`\u001b[32m✓ ${converterAsset} (${megabytes(converterAsset)} MB)\u001b[0m`,
+	);
 }
 
 function manifestVersion(manifest) {
-	const version = readFileSync(manifest, "utf8").match(/^version = "(.*)"$/m)?.[1];
+	const version = readFileSync(manifest, "utf8").match(
+		/^version = "(.*)"$/m,
+	)?.[1];
 	if (!version) fail(`package.version not found in ${manifest}`);
 	return version;
 }
@@ -770,7 +972,9 @@ export function changelogSection(text, version) {
 	const lines = text.replace(/\r\n/g, "\n").split("\n");
 	const heading = (line) => line.startsWith("## ");
 	const start = lines.findIndex(
-		(line) => heading(line) && line.slice(3).trim().replace(/^\[/, "").startsWith(`${version}]`),
+		(line) =>
+			heading(line) &&
+			line.slice(3).trim().replace(/^\[/, "").startsWith(`${version}]`),
 	);
 	if (start === -1) return null;
 	const rest = lines.slice(start + 1);
@@ -786,7 +990,10 @@ export const UNRELEASED = "未发布";
 
 export function stampReleaseDate(text, version, date) {
 	return text.replace(
-		new RegExp(`^## \\[${version.replace(/\./g, "\\.")}\\] — ${UNRELEASED}[ \\t]*(\\r?)$`, "m"),
+		new RegExp(
+			`^## \\[${version.replace(/\./g, "\\.")}\\] — ${UNRELEASED}[ \\t]*(\\r?)$`,
+			"m",
+		),
 		`## [${version}] — ${date}$1`,
 	);
 }
@@ -798,16 +1005,26 @@ function localDate() {
 }
 
 function releaseNotes(version) {
-	const notes = changelogSection(readFileSync(path.join(root, "CHANGELOG.md"), "utf8"), version);
-	if (!notes) fail(`CHANGELOG.md has no "## [${version}] — <date>" section. Write it first.`);
+	const notes = changelogSection(
+		readFileSync(path.join(root, "CHANGELOG.md"), "utf8"),
+		version,
+	);
+	if (!notes)
+		fail(
+			`CHANGELOG.md has no "## [${version}] — <date>" section. Write it first.`,
+		);
 	return notes;
 }
 
 export function parseCargoUpdate(output) {
 	const lines = output.split(/\r?\n/).map((line) => line.trim());
 	return {
-		changes: lines.filter((line) => /^(Updating|Adding|Removing|Downgrading) \S+ v/.test(line)),
-		behind: lines.filter((line) => /^Unchanged \S+ v\S+ \(available: v/.test(line)),
+		changes: lines.filter((line) =>
+			/^(Updating|Adding|Removing|Downgrading) \S+ v/.test(line),
+		),
+		behind: lines.filter((line) =>
+			/^Unchanged \S+ v\S+ \(available: v/.test(line),
+		),
 	};
 }
 
@@ -818,16 +1035,30 @@ function deps({ flags }) {
 	];
 	for (const workspace of workspaces) {
 		step(workspace.name);
-		const args = flags.apply ? ["update", "--verbose"] : ["update", "--dry-run", "--verbose"];
-		const result = spawnSync("cargo", args, { cwd: workspace.cwd, encoding: "utf8" });
-		if (result.status !== 0) fail(`cargo ${args.join(" ")} failed:\n${result.stderr}`);
-		const { changes, behind } = parseCargoUpdate(`${result.stdout}\n${result.stderr}`);
-		console.log(`  ${changes.length} change(s) within version ranges${flags.apply ? ", applied" : ""}`);
-		console.log(`  ${behind.length} held back (newer major, pre-release pin or MSRV); bump these by hand:`);
+		const args = flags.apply
+			? ["update", "--verbose"]
+			: ["update", "--dry-run", "--verbose"];
+		const result = spawnSync("cargo", args, {
+			cwd: workspace.cwd,
+			encoding: "utf8",
+		});
+		if (result.status !== 0)
+			fail(`cargo ${args.join(" ")} failed:\n${result.stderr}`);
+		const { changes, behind } = parseCargoUpdate(
+			`${result.stdout}\n${result.stderr}`,
+		);
+		console.log(
+			`  ${changes.length} change(s) within version ranges${flags.apply ? ", applied" : ""}`,
+		);
+		console.log(
+			`  ${behind.length} held back (newer major, pre-release pin or MSRV); bump these by hand:`,
+		);
 		for (const line of behind) console.log(`    ${line}`);
 	}
 	if (flags.apply) {
-		console.log("\n  Next: pnpm fe test --all, pnpm fe dev, pnpm fe export hevc, then commit both Cargo.lock files.");
+		console.log(
+			"\n  Next: pnpm fe test --all, pnpm fe dev, pnpm fe export hevc, then commit both Cargo.lock files.",
+		);
 	} else {
 		console.log("\n  Apply the in-range changes with: pnpm fe deps --apply");
 	}
@@ -846,8 +1077,14 @@ async function release({ flags, positional }) {
 	step("Working tree");
 	const dirty = capture("git", ["status", "--porcelain"]);
 	if (dirty) fail(`Commit or stash your changes first:\n${dirty}`);
-	if (capture("git", ["tag", "--list", tag])) fail(`Tag ${tag} already exists locally.`);
-	const remote = capture("git", ["ls-remote", "--tags", "origin", `refs/tags/${tag}`]);
+	if (capture("git", ["tag", "--list", tag]))
+		fail(`Tag ${tag} already exists locally.`);
+	const remote = capture("git", [
+		"ls-remote",
+		"--tags",
+		"origin",
+		`refs/tags/${tag}`,
+	]);
 	if (remote) fail(`Tag ${tag} already exists on origin.`);
 	step("Release notes (CHANGELOG.md)");
 	console.log(releaseNotes(version).replace(/^/gm, "  "));
@@ -862,8 +1099,13 @@ async function release({ flags, positional }) {
 	console.log(
 		`  This dates the CHANGELOG.md entry ${date}, commits it, and pushes ${branch} and tag ${tag} to origin. The release workflow then builds, signs and publishes FrameEver ${version}.`,
 	);
-	const prompt = createInterface({ input: process.stdin, output: process.stdout });
-	const answer = (await prompt.question(`  Release ${tag}? [y/N] `)).trim().toLowerCase();
+	const prompt = createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	});
+	const answer = (await prompt.question(`  Release ${tag}? [y/N] `))
+		.trim()
+		.toLowerCase();
 	prompt.close();
 	if (answer !== "y" && answer !== "yes") {
 		console.log("  Nothing changed.");
@@ -887,14 +1129,17 @@ async function release({ flags, positional }) {
 }
 
 export function realLogsDir(env = process.env) {
-	const local = env.LOCALAPPDATA ?? path.join(env.USERPROFILE ?? "", "AppData", "Local");
+	const local =
+		env.LOCALAPPDATA ?? path.join(env.USERPROFILE ?? "", "AppData", "Local");
 	return path.join(local, "io.github.anibullet.frameever", "logs");
 }
 
 export function latestLog(dir) {
 	if (!existsSync(dir)) return null;
 	const files = readdirSync(dir)
-		.filter((name) => name.startsWith("frameever.log") && !name.endsWith(".jsonl"))
+		.filter(
+			(name) => name.startsWith("frameever.log") && !name.endsWith(".jsonl"),
+		)
 		.map((name) => path.join(dir, name))
 		.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
 	return files[0] ?? null;
@@ -917,15 +1162,31 @@ function logs({ flags }) {
 function doctor() {
 	const checks = [];
 	const add = (name, ok, detail, fix) => checks.push({ name, ok, detail, fix });
-	const version = (command, args) => capture(command, args)?.split(/\r?\n/)[0] ?? null;
+	const version = (command, args) =>
+		capture(command, args)?.split(/\r?\n/)[0] ?? null;
 
 	const node = Number(process.versions.node.split(".")[0]);
-	add("Node 20+", node >= 20, process.versions.node, "Install Node 20 or newer");
+	add(
+		"Node 20+",
+		node >= 20,
+		process.versions.node,
+		"Install Node 20 or newer",
+	);
 	const pnpmVersion = version(...pnpm(["--version"]));
 	add("pnpm", Boolean(pnpmVersion), pnpmVersion, "npm install -g pnpm@10.5.2");
-	add("node_modules", existsSync(path.join(root, "node_modules")), "", "pnpm fe setup --install");
+	add(
+		"node_modules",
+		existsSync(path.join(root, "node_modules")),
+		"",
+		"pnpm fe setup --install",
+	);
 	const toolchains = capture("rustup", ["toolchain", "list"]) ?? "";
-	add("Rust stable", toolchains.includes("stable"), "", "rustup toolchain install stable");
+	add(
+		"Rust stable",
+		toolchains.includes("stable"),
+		"",
+		"rustup toolchain install stable",
+	);
 	add(
 		"Git Bash",
 		(() => {
@@ -946,7 +1207,9 @@ function doctor() {
 		"pnpm fe setup",
 	);
 	const cargoConfig = path.join(root, ".cargo", "config.toml");
-	const config = existsSync(cargoConfig) ? readFileSync(cargoConfig, "utf8") : "";
+	const config = existsSync(cargoConfig)
+		? readFileSync(cargoConfig, "utf8")
+		: "";
 	add(
 		".cargo/config.toml",
 		config.includes("FFMPEG_DIR") && config.includes("LIBCLANG_PATH"),
@@ -954,7 +1217,12 @@ function doctor() {
 		"pnpm fe setup",
 	);
 	const fonts = missingChineseFont();
-	add("HarmonyOS Sans font files", fonts.length === 0, fonts.join(", "), "pnpm fe setup");
+	add(
+		"HarmonyOS Sans font files",
+		fonts.length === 0,
+		fonts.join(", "),
+		"pnpm fe setup",
+	);
 	add(
 		"Patched gpui (../gpui-pre-patched)",
 		existsSync(path.join(root, "..", "gpui-pre-patched", "crates", "gpui")),
@@ -977,9 +1245,13 @@ function doctor() {
 	for (const check of checks) {
 		const mark = check.ok ? "\u001b[32m✓\u001b[0m" : "\u001b[31m✗\u001b[0m";
 		const detail = check.detail ? ` \u001b[2m${check.detail}\u001b[0m` : "";
-		console.log(`${mark} ${check.name}${detail}${check.ok ? "" : `  → ${check.fix}`}`);
+		console.log(
+			`${mark} ${check.name}${detail}${check.ok ? "" : `  → ${check.fix}`}`,
+		);
 	}
-	const broken = checks.filter((check) => !check.ok && check.name !== "Test recording (for fe export)");
+	const broken = checks.filter(
+		(check) => !check.ok && check.name !== "Test recording (for fe export)",
+	);
 	if (broken.length > 0) process.exit(1);
 }
 
@@ -994,8 +1266,17 @@ function readStdin() {
 }
 
 function privacy({ flags }) {
-	const mode = flags.hook ? "hook" : flags.staged ? "staged" : flags.all ? "tree" : "outgoing";
-	const { scope, findings } = privacyCheck({ mode, stdin: mode === "hook" ? readStdin() : "" });
+	const mode = flags.hook
+		? "hook"
+		: flags.staged
+			? "staged"
+			: flags.all
+				? "tree"
+				: "outgoing";
+	const { scope, findings } = privacyCheck({
+		mode,
+		stdin: mode === "hook" ? readStdin() : "",
+	});
 	step(`Privacy check: ${scope}`);
 	if (findings.length === 0) {
 		console.log("\u001b[32m✓ No private data found\u001b[0m");
@@ -1012,7 +1293,9 @@ export const designDir = path.join(root, "docs", "design");
 export function easeMove({ zeta, omega }, steps = 40) {
 	const damped = omega * Math.sqrt(1 - zeta * zeta);
 	const at = (t) =>
-		1 - Math.exp(-zeta * omega * t) * (Math.cos(damped * t) + ((zeta * omega) / damped) * Math.sin(damped * t));
+		1 -
+		Math.exp(-zeta * omega * t) *
+			(Math.cos(damped * t) + ((zeta * omega) / damped) * Math.sin(damped * t));
 	return Array.from({ length: steps + 1 }, (_, index) =>
 		index === steps ? 1 : Number(at(index / steps).toFixed(4)),
 	);
@@ -1030,7 +1313,11 @@ function brandVars(brand) {
 	const vars = [];
 	for (const [family, steps] of Object.entries(brand)) {
 		for (const [step, value] of Object.entries(steps)) {
-			const name = Array.isArray(steps) ? `${family}-${Number(step) + 1}` : family === "fixed" ? step : `${family}-${step}`;
+			const name = Array.isArray(steps)
+				? `${family}-${Number(step) + 1}`
+				: family === "fixed"
+					? step
+					: `${family}-${step}`;
 			vars.push([`--${name}`, oklch(value)]);
 		}
 	}
@@ -1039,7 +1326,9 @@ function brandVars(brand) {
 
 function tokenRef(ref, theme, tokens) {
 	if (!ref.includes(".")) {
-		const known = [...tokens.semantic, ...tokens.componentVars].some((token) => token.name === ref);
+		const known = [...tokens.semantic, ...tokens.componentVars].some(
+			(token) => token.name === ref,
+		);
 		if (!known) throw new Error(`Unknown design token: ${ref}`);
 		return `var(${cssName(ref)})`;
 	}
@@ -1055,7 +1344,10 @@ function themeVars(theme, tokens) {
 	return [
 		...brandVars(tokens.brand[theme]),
 		...[...tokens.semantic, ...tokens.componentVars]
-			.map((token) => [cssName(token.name), tokenRef(token[theme], theme, tokens)])
+			.map((token) => [
+				cssName(token.name),
+				tokenRef(token[theme], theme, tokens),
+			])
 			.filter(([name, value]) => value !== `var(${name})`),
 	];
 }
@@ -1067,14 +1359,26 @@ function sharedVars(tokens) {
 			[`--text-${step.name}`, `${step.size}px`],
 			[`--line-${step.name}`, `${step.line}px`],
 		]),
-		...Object.entries(tokens.space).map(([name, value]) => [`--space-${name}`, `${value}px`]),
-		...Object.entries(tokens.radius).map(([name, value]) => [`--radius-${name}`, `${value}px`]),
+		...Object.entries(tokens.space).map(([name, value]) => [
+			`--space-${name}`,
+			`${value}px`,
+		]),
+		...Object.entries(tokens.radius).map(([name, value]) => [
+			`--radius-${name}`,
+			`${value}px`,
+		]),
 		...Object.entries(tokens.size).map(([name, value]) => [
 			`--${name}`,
 			name === "icon-stroke" ? `${value}` : `${value}px`,
 		]),
-		...Object.entries(motion.duration).map(([name, value]) => [`--duration-${name}`, `${value}ms`]),
-		...Object.entries(motion.ease).map(([name, value]) => [`--ease-${name}`, value]),
+		...Object.entries(motion.duration).map(([name, value]) => [
+			`--duration-${name}`,
+			`${value}ms`,
+		]),
+		...Object.entries(motion.ease).map(([name, value]) => [
+			`--ease-${name}`,
+			value,
+		]),
 		["--ease-move", `linear(${easeMove(motion.move).join(", ")})`],
 	];
 }
@@ -1085,8 +1389,15 @@ function cssRule(selector, vars) {
 
 export function designCss(tokens) {
 	return [
-		cssRule(":root", [["color-scheme", "dark"], ...themeVars("dark", tokens), ...sharedVars(tokens)]),
-		cssRule('[data-theme="light"]', [["color-scheme", "light"], ...themeVars("light", tokens)]),
+		cssRule(":root", [
+			["color-scheme", "dark"],
+			...themeVars("dark", tokens),
+			...sharedVars(tokens),
+		]),
+		cssRule('[data-theme="light"]', [
+			["color-scheme", "light"],
+			...themeVars("light", tokens),
+		]),
 	].join("\n");
 }
 
@@ -1095,35 +1406,68 @@ export function designJs(tokens) {
 }
 
 function design() {
-	const tokens = JSON.parse(readFileSync(path.join(designDir, "tokens.json"), "utf8"));
+	const tokens = JSON.parse(
+		readFileSync(path.join(designDir, "tokens.json"), "utf8"),
+	);
 	writeFileSync(path.join(designDir, "tokens.css"), designCss(tokens));
 	writeFileSync(path.join(designDir, "tokens.js"), designJs(tokens));
-	console.log(`\u001b[32m✓ ${path.join("docs", "design")}: tokens.css, tokens.js\u001b[0m`);
+	console.log(
+		`\u001b[32m✓ ${path.join("docs", "design")}: tokens.css, tokens.js\u001b[0m`,
+	);
 }
 
 export function iconTarball({ package: name, version }) {
 	return `https://registry.npmjs.org/${name}/-/${name.split("/").pop()}-${version}.tgz`;
 }
 
-export function vendoredIcon(svg, { package: name, version, license }, stroke, { filled = false } = {}) {
-	if (!svg.includes('stroke-width="2"')) throw new Error("Expected a 2 px stroke icon");
+export function vendoredIcon(
+	svg,
+	{ package: name, version, license },
+	stroke,
+	{ filled = false } = {},
+) {
+	if (!svg.includes('stroke-width="2"'))
+		throw new Error("Expected a 2 px stroke icon");
 	const stroked = svg.replace('stroke-width="2"', `stroke-width="${stroke}"`);
-	const icon = filled ? stroked.replace('fill="none"', 'fill="currentColor"') : stroked;
-	return icon.startsWith("<!--") ? icon : `<!-- @license ${name} v${version} - ${license} -->\n${icon}`;
+	const icon = filled
+		? stroked.replace('fill="none"', 'fill="currentColor"')
+		: stroked;
+	return icon.startsWith("<!--")
+		? icon
+		: `<!-- @license ${name} v${version} - ${license} -->\n${icon}`;
 }
 
 export function iconFiles({ lucide, lucideFilled, tabler }) {
 	return [
-		...lucide.map((file) => ({ file, release: "lucide", source: file, filled: false })),
-		...Object.entries(lucideFilled).map(([file, source]) => ({ file, release: "lucide", source, filled: true })),
-		...tabler.map((file) => ({ file, release: "tabler", source: file, filled: false })),
+		...lucide.map((file) => ({
+			file,
+			release: "lucide",
+			source: file,
+			filled: false,
+		})),
+		...Object.entries(lucideFilled).map(([file, source]) => ({
+			file,
+			release: "lucide",
+			source,
+			filled: true,
+		})),
+		...tabler.map((file) => ({
+			file,
+			release: "tabler",
+			source: file,
+			filled: false,
+		})),
 	];
 }
 
 function icons() {
 	const dir = path.join(gpuiDir, "assets", "icons");
-	const manifest = JSON.parse(readFileSync(path.join(dir, "sources.json"), "utf8"));
-	const tokens = JSON.parse(readFileSync(path.join(designDir, "tokens.json"), "utf8"));
+	const manifest = JSON.parse(
+		readFileSync(path.join(dir, "sources.json"), "utf8"),
+	);
+	const tokens = JSON.parse(
+		readFileSync(path.join(designDir, "tokens.json"), "utf8"),
+	);
 	const cache = path.join(root, "target", "native-deps", "icons");
 	const unpacked = {};
 	for (const [key, release] of Object.entries(manifest.releases)) {
@@ -1135,19 +1479,42 @@ function icons() {
 		const folder = path.join(cache, `${key}-${release.version}`);
 		rmSync(folder, { recursive: true, force: true });
 		mkdirSync(folder, { recursive: true });
-		run(systemTar(), ["-xf", archive, "-C", folder, `package/${release.folder}`]);
+		run(systemTar(), [
+			"-xf",
+			archive,
+			"-C",
+			folder,
+			`package/${release.folder}`,
+		]);
 		unpacked[key] = path.join(folder, "package", release.folder);
 	}
 	const vendored = iconFiles(manifest);
-	const kept = new Set([...vendored.map(({ file }) => file), ...manifest.custom]);
+	const kept = new Set([
+		...vendored.map(({ file }) => file),
+		...manifest.custom,
+	]);
 	for (const name of readdirSync(dir)) {
-		if (name.endsWith(".svg") && !kept.has(name.slice(0, -".svg".length))) rmSync(path.join(dir, name));
+		if (name.endsWith(".svg") && !kept.has(name.slice(0, -".svg".length)))
+			rmSync(path.join(dir, name));
 	}
 	for (const { file, release, source, filled } of vendored) {
-		const svg = readFileSync(path.join(unpacked[release], `${source}.svg`), "utf8");
-		writeFileSync(path.join(dir, `${file}.svg`), vendoredIcon(svg, manifest.releases[release], tokens.size["icon-stroke"], { filled }));
+		const svg = readFileSync(
+			path.join(unpacked[release], `${source}.svg`),
+			"utf8",
+		);
+		writeFileSync(
+			path.join(dir, `${file}.svg`),
+			vendoredIcon(
+				svg,
+				manifest.releases[release],
+				tokens.size["icon-stroke"],
+				{ filled },
+			),
+		);
 	}
-	console.log(`\u001b[32m✓ ${path.join("assets", "icons")}: ${vendored.length} icons\u001b[0m`);
+	console.log(
+		`\u001b[32m✓ ${path.join("assets", "icons")}: ${vendored.length} icons\u001b[0m`,
+	);
 }
 
 function help() {
@@ -1177,7 +1544,10 @@ const HANDLERS = {
 	icons,
 };
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+	process.argv[1] &&
+	path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
 	const [name, ...rest] = process.argv.slice(2);
 	const handler = HANDLERS[name];
 	if (!handler) {

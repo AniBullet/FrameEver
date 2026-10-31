@@ -63,7 +63,9 @@ function main() {
 	) {
 		console.log(
 			`Skipping Cap GPUI ${profile} build on ${process.platform}${
-				process.env.FRAMEEVER_GPUI_DEV === "0" ? " because FRAMEEVER_GPUI_DEV=0" : ""
+				process.env.FRAMEEVER_GPUI_DEV === "0"
+					? " because FRAMEEVER_GPUI_DEV=0"
+					: ""
 			}.`,
 		);
 		return;

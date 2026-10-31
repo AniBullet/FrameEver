@@ -319,7 +319,11 @@
 	border-radius: 8px;
 	overflow: hidden;
 	color: #000;
-	font: 12px/17px "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+	font:
+		12px / 17px "Segoe UI",
+		"Microsoft YaHei UI",
+		system-ui,
+		sans-serif;
 }
 
 .nsis .cap {

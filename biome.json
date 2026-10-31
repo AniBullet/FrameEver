@@ -8,7 +8,9 @@
 	"files": {
 		"includes": [
 			"**",
-			"!**/.vscode"
+			"!**/.vscode",
+			"!docs/design/tokens.css",
+			"!docs/design/tokens.js"
 		],
 		"ignoreUnknown": false
 	},

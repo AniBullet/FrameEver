@@ -49,32 +49,30 @@ async function updaterArchive(root) {
 const tarBytes = (archive) =>
 	spawnSync("bash", ["-c", 'gzip -dc "$1"', "bash", archive]).stdout;
 
-test(
-	"the updater archive is recompressed with identical contents and signed again",
-	{ skip: !zopfli },
-	async (t) => {
-		const root = await workspace(t);
-		const archive = await updaterArchive(root);
-		const original = tarBytes(archive);
-		const before = (await stat(archive)).size;
-		const signed = [];
-		const result = await recompressUpdaterArchive(archive, {
-			env: { ...process.env, TAURI_SIGNING_PRIVATE_KEY: "key" },
-			run: async (command, args, options) => {
-				if (command !== "bun") return runCommand(command, args, options);
-				assert.deepEqual(args.slice(0, 4), ["run", "tauri", "signer", "sign"]);
-				signed.push(await readFile(args[4]));
-				await writeFile(`${args[4]}.sig`, "zopfli signature");
-				return {};
-			},
-		});
-		assert.ok(result.after < before, `${result.after} >= ${before}`);
-		assert.equal((await stat(archive)).size, result.after);
-		assert.deepEqual(tarBytes(archive), original);
-		assert.deepEqual(signed, [await readFile(archive)]);
-		assert.equal(await readFile(`${archive}.sig`, "utf8"), "zopfli signature");
-	},
-);
+test("the updater archive is recompressed with identical contents and signed again", {
+	skip: !zopfli,
+}, async (t) => {
+	const root = await workspace(t);
+	const archive = await updaterArchive(root);
+	const original = tarBytes(archive);
+	const before = (await stat(archive)).size;
+	const signed = [];
+	const result = await recompressUpdaterArchive(archive, {
+		env: { ...process.env, TAURI_SIGNING_PRIVATE_KEY: "key" },
+		run: async (command, args, options) => {
+			if (command !== "bun") return runCommand(command, args, options);
+			assert.deepEqual(args.slice(0, 4), ["run", "tauri", "signer", "sign"]);
+			signed.push(await readFile(args[4]));
+			await writeFile(`${args[4]}.sig`, "zopfli signature");
+			return {};
+		},
+	});
+	assert.ok(result.after < before, `${result.after} >= ${before}`);
+	assert.equal((await stat(archive)).size, result.after);
+	assert.deepEqual(tarBytes(archive), original);
+	assert.deepEqual(signed, [await readFile(archive)]);
+	assert.equal(await readFile(`${archive}.sig`, "utf8"), "zopfli signature");
+});
 
 test("an updater archive whose contents change is left untouched", async (t) => {
 	const root = await workspace(t);

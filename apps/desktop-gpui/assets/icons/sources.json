@@ -131,11 +131,7 @@
 		"play": "play",
 		"record-fill": "circle"
 	},
-	"tabler": [
-		"blur",
-		"box-padding",
-		"shadow"
-	],
+	"tabler": ["blur", "box-padding", "shadow"],
 	"custom": [
 		"caption-close-windows",
 		"caption-maximize-windows",

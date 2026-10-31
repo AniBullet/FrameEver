@@ -121,10 +121,26 @@
 	border-radius: 2px;
 }
 
-.h.nw { left: -6px; top: -6px; cursor: nwse-resize; }
-.h.ne { right: -6px; top: -6px; cursor: nesw-resize; }
-.h.sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
-.h.se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+.h.nw {
+	left: -6px;
+	top: -6px;
+	cursor: nwse-resize;
+}
+.h.ne {
+	right: -6px;
+	top: -6px;
+	cursor: nesw-resize;
+}
+.h.sw {
+	left: -6px;
+	bottom: -6px;
+	cursor: nesw-resize;
+}
+.h.se {
+	right: -6px;
+	bottom: -6px;
+	cursor: nwse-resize;
+}
 
 .h.n,
 .h.s {
@@ -135,8 +151,12 @@
 	cursor: ns-resize;
 }
 
-.h.n { top: -3px; }
-.h.s { bottom: -3px; }
+.h.n {
+	top: -3px;
+}
+.h.s {
+	bottom: -3px;
+}
 
 .h.e,
 .h.w {
@@ -147,8 +167,12 @@
 	cursor: ew-resize;
 }
 
-.h.w { left: -3px; }
-.h.e { right: -3px; }
+.h.w {
+	left: -3px;
+}
+.h.e {
+	right: -3px;
+}
 
 .thirds {
 	pointer-events: none;

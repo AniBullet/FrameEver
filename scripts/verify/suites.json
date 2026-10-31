@@ -291,7 +291,12 @@
 		{
 			"name": "native-rendering",
 			"about": "native macOS rendering regressions (IOSurface source lifetime in the YUV converter)",
-			"cargo": ["-p", "frameever-rendering", "--test", "iosurface-source-lifetime"],
+			"cargo": [
+				"-p",
+				"frameever-rendering",
+				"--test",
+				"iosurface-source-lifetime"
+			],
 			"binaries": ["frameever-rendering::iosurface-source-lifetime"],
 			"platforms": {
 				"fast": ["macos"],

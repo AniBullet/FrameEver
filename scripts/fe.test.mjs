@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,8 +29,8 @@ import {
 	NSIS,
 	parseArgs,
 	parseCargoUpdate,
-	setLargeAddressAware,
 	SEMVER,
+	setLargeAddressAware,
 	staleIncrementalDirs,
 	stampReleaseDate,
 	stampVersion,
@@ -35,19 +43,33 @@ import {
 
 const sampleTokens = () => ({
 	brand: {
-		dark: { neutral: [[0.1, 0.01, 266]], fixed: { overlay: [0.1, 0.01, 266, 0.6] } },
-		light: { neutral: [[0.9, 0.01, 266]], fixed: { overlay: [0.2, 0.04, 266, 0.6] } },
+		dark: {
+			neutral: [[0.1, 0.01, 266]],
+			fixed: { overlay: [0.1, 0.01, 266, 0.6] },
+		},
+		light: {
+			neutral: [[0.9, 0.01, 266]],
+			fixed: { overlay: [0.2, 0.04, 266, 0.6] },
+		},
 	},
 	semantic: [
 		{ name: "muted_foreground", dark: "neutral.1", light: "neutral.1" },
 		{ name: "overlay", dark: "fixed.overlay", light: "fixed.overlay" },
 	],
-	componentVars: [{ name: "slider_bar", dark: "muted_foreground", light: "fixed.overlay" }],
-	type: { scale: [{ name: "body", size: 13.5, line: 20, weight: 400, tracking: "0" }] },
+	componentVars: [
+		{ name: "slider_bar", dark: "muted_foreground", light: "fixed.overlay" },
+	],
+	type: {
+		scale: [{ name: "body", size: 13.5, line: 20, weight: 400, tracking: "0" }],
+	},
 	space: { "0-5": 2 },
 	radius: { md: 12, full: 999 },
 	size: { row: 34 },
-	motion: { duration: { fast: 120 }, ease: { effects: "cubic-bezier(0.2, 0, 0, 1)" }, move: { zeta: 0.75, omega: 10 } },
+	motion: {
+		duration: { fast: 120 },
+		ease: { effects: "cubic-bezier(0.2, 0, 0, 1)" },
+		move: { zeta: 0.75, omega: 10 },
+	},
 });
 
 test("design tokens become one CSS rule per theme, with semantic names pointing at the ramps", () => {
@@ -88,17 +110,21 @@ test("the movement curve lands on 1 and overshoots by under 3%", () => {
 });
 
 test("the committed design tokens match tokens.json", () => {
-	const read = (name) => readFileSync(path.join(designDir, name), "utf8").replaceAll("\r\n", "\n");
+	const read = (name) =>
+		readFileSync(path.join(designDir, name), "utf8").replaceAll("\r\n", "\n");
 	const tokens = JSON.parse(read("tokens.json"));
 	assert.equal(read("tokens.css"), designCss(tokens), "Run: pnpm fe design");
 	assert.equal(read("tokens.js"), designJs(tokens), "Run: pnpm fe design");
 });
 
 test("flags take a value, an inline value, or stand alone", () => {
-	assert.deepEqual(parseArgs(["hevc", "--project", "a.ever", "--watch", "--lang=zh-CN"]), {
-		positional: ["hevc"],
-		flags: { project: "a.ever", watch: true, lang: "zh-CN" },
-	});
+	assert.deepEqual(
+		parseArgs(["hevc", "--project", "a.ever", "--watch", "--lang=zh-CN"]),
+		{
+			positional: ["hevc"],
+			flags: { project: "a.ever", watch: true, lang: "zh-CN" },
+		},
+	);
 	assert.deepEqual(parseArgs(["--all", "--skip-tests"]).flags, {
 		all: true,
 		"skip-tests": true,
@@ -107,10 +133,16 @@ test("flags take a value, an inline value, or stand alone", () => {
 
 test("FFmpeg goes first on the path, keeping the host's own path key", () => {
 	const env = withFfmpeg({ Path: "C:\\Windows" });
-	assert.equal(Object.keys(env).filter((key) => key.toLowerCase() === "path").length, 1);
+	assert.equal(
+		Object.keys(env).filter((key) => key.toLowerCase() === "path").length,
+		1,
+	);
 	assert.match(env.Path, /target[\\/]ffmpeg[\\/]bin.C:\\Windows$/);
 	const profile = testProfileEnv({ PATH: "/bin" });
-	assert.match(profile.FRAMEEVER_GPUI_APP_DATA_DIR, /target[\\/]testdata[\\/]appdata$/);
+	assert.match(
+		profile.FRAMEEVER_GPUI_APP_DATA_DIR,
+		/target[\\/]testdata[\\/]appdata$/,
+	);
 	assert.match(profile.FRAMEEVER_GPUI_STORAGE_DIR, /testdata[\\/]storage$/);
 });
 
@@ -140,7 +172,10 @@ test("packaging names each missing native dependency folder", () => {
 
 test("the Chinese UI font and its licence must be on disk", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "fe-"));
-	assert.deepEqual(missingChineseFont(dir), ["HarmonyOS_Sans_SC.ttf", "LICENSE-HarmonyOS-Sans.txt"]);
+	assert.deepEqual(missingChineseFont(dir), [
+		"HarmonyOS_Sans_SC.ttf",
+		"LICENSE-HarmonyOS-Sans.txt",
+	]);
 	writeFileSync(path.join(dir, "HarmonyOS_Sans_SC.ttf"), "");
 	assert.deepEqual(missingChineseFont(dir), ["LICENSE-HarmonyOS-Sans.txt"]);
 	writeFileSync(path.join(dir, "LICENSE-HarmonyOS-Sans.txt"), "");
@@ -185,10 +220,14 @@ test("cargo update output splits into applied changes and held-back versions", (
 
 test("the NSIS toolset constants follow the pinned Tauri CLI", () => {
 	const manifest = JSON.parse(
-		readFileSync(new URL("../apps/desktop-gpui/package.json", import.meta.url), "utf8"),
+		readFileSync(
+			new URL("../apps/desktop-gpui/package.json", import.meta.url),
+			"utf8",
+		),
 	);
 	assert.equal(
-		manifest.devDependencies?.["@tauri-apps/cli"] ?? manifest.dependencies?.["@tauri-apps/cli"],
+		manifest.devDependencies?.["@tauri-apps/cli"] ??
+			manifest.dependencies?.["@tauri-apps/cli"],
 		NSIS.tauriCli,
 		"Tauri CLI changed: copy NSIS_URL, NSIS_SHA1, NSIS_TAURI_UTILS_* and NSIS_REQUIRED_FILES from tauri-bundler's nsis/mod.rs into NSIS in scripts/fe.mjs",
 	);
@@ -198,7 +237,15 @@ test("stamping a version rewrites only the package version", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "fe-version-"));
 	const manifest = path.join(dir, "Cargo.toml");
 	const cargo = (version) =>
-		["[package]", 'name = "app"', `version = "${version}"`, "", "[dependencies]", 'serde = { version = "1" }', ""].join("\n");
+		[
+			"[package]",
+			'name = "app"',
+			`version = "${version}"`,
+			"",
+			"[dependencies]",
+			'serde = { version = "1" }',
+			"",
+		].join("\n");
 	writeFileSync(manifest, cargo("1.0.0-dev"));
 	stampVersion("1.2.3", [manifest]);
 	assert.equal(readFileSync(manifest, "utf8"), cargo("1.2.3"));
@@ -254,8 +301,10 @@ test("release notes are the CHANGELOG section for exactly that version", () => {
 });
 
 test("release versions are plain semver with an optional pre-release", () => {
-	for (const good of ["3.0.0", "3.0.0-beta.1", "10.2.3-rc"]) assert.match(good, SEMVER);
-	for (const bad of ["v3.0.0", "3.0", "3.0.0.1", "three"]) assert.doesNotMatch(bad, SEMVER);
+	for (const good of ["3.0.0", "3.0.0-beta.1", "10.2.3-rc"])
+		assert.match(good, SEMVER);
+	for (const bad of ["v3.0.0", "3.0", "3.0.0.1", "three"])
+		assert.doesNotMatch(bad, SEMVER);
 });
 
 test("watch mode runs a copy so a rebuild can replace the binary", async () => {
@@ -281,16 +330,25 @@ test("each crate keeps its newest incremental caches and drops the rest", () => 
 		const time = new Date(Date.now() - age * 60_000);
 		utimesSync(path.join(dir, name), time, time);
 	}
-	assert.deepEqual(staleIncrementalDirs(dir, 2), [path.join(dir, "frameever_gpui-ccc")]);
+	assert.deepEqual(staleIncrementalDirs(dir, 2), [
+		path.join(dir, "frameever_gpui-ccc"),
+	]);
 	rmSync(dir, { recursive: true });
 });
 
 test("the converter download is named after the release version", () => {
-	assert.equal(converterAssetName("1.2.3"), "FrameEver-Converter_1.2.3_x64.exe");
+	assert.equal(
+		converterAssetName("1.2.3"),
+		"FrameEver-Converter_1.2.3_x64.exe",
+	);
 });
 
 test("a release stamps the converter with the same version as the app", () => {
-	assert.ok(versionManifests.some((manifest) => manifest.endsWith(path.join("converter", "Cargo.toml"))));
+	assert.ok(
+		versionManifests.some((manifest) =>
+			manifest.endsWith(path.join("converter", "Cargo.toml")),
+		),
+	);
 });
 
 test("the fake Cap-aniBullet 2.x install has projects, paired videos and a screenshot where 2.x kept them", () => {
@@ -298,7 +356,12 @@ test("the fake Cap-aniBullet 2.x install has projects, paired videos and a scree
 	writeFakeCapAniBullet2(dir);
 	const env = converterEnv(dir, {});
 	const base = path.join(env.FRAMEEVER_CONVERTER_VIDEOS_DIR, "Cap Recordings");
-	const store = JSON.parse(readFileSync(path.join(env.APPDATA, "so.cap.desktop.anibullet", "store"), "utf8"));
+	const store = JSON.parse(
+		readFileSync(
+			path.join(env.APPDATA, "so.cap.desktop.anibullet", "store"),
+			"utf8",
+		),
+	);
 	assert.equal(store.general_settings.recordingQuality, "high");
 	for (const relative of [
 		"recordings/Studio demo.cap/recording-meta.json",
@@ -313,23 +376,46 @@ test("the fake Cap-aniBullet 2.x install has projects, paired videos and a scree
 });
 
 test("a vendored icon keeps its source and takes the design stroke", () => {
-	const lucide = { package: "lucide-static", version: "1.64.0", license: "ISC" };
-	const svg = '<!-- @license lucide-static v1.64.0 - ISC -->\n<svg fill="none" stroke-width="2"><path/></svg>';
+	const lucide = {
+		package: "lucide-static",
+		version: "1.64.0",
+		license: "ISC",
+	};
+	const svg =
+		'<!-- @license lucide-static v1.64.0 - ISC -->\n<svg fill="none" stroke-width="2"><path/></svg>';
 	assert.equal(
 		vendoredIcon(svg, lucide, 1.75),
 		'<!-- @license lucide-static v1.64.0 - ISC -->\n<svg fill="none" stroke-width="1.75"><path/></svg>',
 	);
-	assert.match(vendoredIcon(svg, lucide, 1.75, { filled: true }), /<svg fill="currentColor" stroke-width="1.75">/);
+	assert.match(
+		vendoredIcon(svg, lucide, 1.75, { filled: true }),
+		/<svg fill="currentColor" stroke-width="1.75">/,
+	);
 });
 
 test("a Tabler icon gains the licence line Lucide's files already carry", () => {
-	const tabler = { package: "@tabler/icons", version: "3.50.0", license: "MIT" };
+	const tabler = {
+		package: "@tabler/icons",
+		version: "3.50.0",
+		license: "MIT",
+	};
 	const icon = vendoredIcon('<svg stroke-width="2"/>', tabler, 1.75);
-	assert.equal(icon, '<!-- @license @tabler/icons v3.50.0 - MIT -->\n<svg stroke-width="1.75"/>');
+	assert.equal(
+		icon,
+		'<!-- @license @tabler/icons v3.50.0 - MIT -->\n<svg stroke-width="1.75"/>',
+	);
 });
 
 test("an icon without a 2 px stroke is refused", () => {
-	assert.throws(() => vendoredIcon("<svg/>", { package: "x", version: "1", license: "MIT" }, 1.75), /2 px stroke/);
+	assert.throws(
+		() =>
+			vendoredIcon(
+				"<svg/>",
+				{ package: "x", version: "1", license: "MIT" },
+				1.75,
+			),
+		/2 px stroke/,
+	);
 });
 
 test("icon tarballs come from the release pinned in the manifest", () => {
@@ -340,7 +426,11 @@ test("icon tarballs come from the release pinned in the manifest", () => {
 });
 
 test("the filled variants name their Lucide source", () => {
-	const files = iconFiles({ lucide: ["x"], lucideFilled: { "record-fill": "circle" }, tabler: ["blur"] });
+	const files = iconFiles({
+		lucide: ["x"],
+		lucideFilled: { "record-fill": "circle" },
+		tabler: ["blur"],
+	});
 	assert.deepEqual(files, [
 		{ file: "x", release: "lucide", source: "x", filled: false },
 		{ file: "record-fill", release: "lucide", source: "circle", filled: true },

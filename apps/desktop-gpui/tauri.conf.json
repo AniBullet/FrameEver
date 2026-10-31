@@ -19,10 +19,7 @@
 		"copyright": "FrameEver by aniBullet, based on Cap (AGPL-3.0)",
 		"shortDescription": "Local-first screen recorder and editor",
 		"longDescription": "FrameEver is a local-first screen recorder and editor. Recordings, edits and captions stay on your computer.",
-		"externalBin": [
-			"binaries/frameever-muxer",
-			"binaries/frameever-cli"
-		],
+		"externalBin": ["binaries/frameever-muxer", "binaries/frameever-cli"],
 		"icon": [
 			"icons/32x32.png",
 			"icons/128x128.png",

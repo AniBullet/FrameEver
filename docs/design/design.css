@@ -34,7 +34,8 @@ body {
 }
 
 body {
-	font-family: Inter, "HarmonyOS Sans SC", "Microsoft YaHei UI", system-ui, sans-serif;
+	font-family:
+		Inter, "HarmonyOS Sans SC", "Microsoft YaHei UI", system-ui, sans-serif;
 	font-size: var(--text-body);
 	line-height: var(--line-body);
 	font-feature-settings: "cv11", "ss01";

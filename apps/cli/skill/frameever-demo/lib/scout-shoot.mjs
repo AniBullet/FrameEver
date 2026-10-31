@@ -43,7 +43,8 @@ mkdirSync(outDir, { recursive: true });
 function resolveCap() {
 	const override = process.env.FRAMEEVER_BIN;
 	if (override) return override;
-	const lookup = process.platform === "win32" ? "where frameever" : "command -v frameever";
+	const lookup =
+		process.platform === "win32" ? "where frameever" : "command -v frameever";
 	try {
 		const p = execSync(lookup, { encoding: "utf8" }).trim().split(/\r?\n/)[0];
 		if (p) return p;

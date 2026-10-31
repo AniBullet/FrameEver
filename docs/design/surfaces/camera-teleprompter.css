@@ -99,14 +99,34 @@
 	border-radius: inherit;
 }
 
-.cam-br.nw { border-width: 2px 0 0 2px; border-top-left-radius: 6px; }
-.cam-br.ne { border-width: 2px 2px 0 0; border-top-right-radius: 6px; }
-.cam-br.sw { border-width: 0 0 2px 2px; border-bottom-left-radius: 6px; }
-.cam-br.se { border-width: 0 2px 2px 0; border-bottom-right-radius: 6px; }
-.cam-br.nw::before { border-width: 1px 0 0 1px; }
-.cam-br.ne::before { border-width: 1px 1px 0 0; }
-.cam-br.sw::before { border-width: 0 0 1px 1px; }
-.cam-br.se::before { border-width: 0 1px 1px 0; }
+.cam-br.nw {
+	border-width: 2px 0 0 2px;
+	border-top-left-radius: 6px;
+}
+.cam-br.ne {
+	border-width: 2px 2px 0 0;
+	border-top-right-radius: 6px;
+}
+.cam-br.sw {
+	border-width: 0 0 2px 2px;
+	border-bottom-left-radius: 6px;
+}
+.cam-br.se {
+	border-width: 0 2px 2px 0;
+	border-bottom-right-radius: 6px;
+}
+.cam-br.nw::before {
+	border-width: 1px 0 0 1px;
+}
+.cam-br.ne::before {
+	border-width: 1px 1px 0 0;
+}
+.cam-br.sw::before {
+	border-width: 0 0 1px 1px;
+}
+.cam-br.se::before {
+	border-width: 0 1px 1px 0;
+}
 
 .cam-guide {
 	z-index: 1;
