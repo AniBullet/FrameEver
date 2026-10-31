@@ -13,7 +13,7 @@ window.FE = (() => {
 		["tray", "Tray", "托盘", true],
 		["camera-teleprompter", "Camera and teleprompter", "摄像头和提词器", true],
 		["converter", "FrameEver Converter", "FrameEver Converter", false],
-		["installer", "Installer", "安装器", false],
+		["installer", "Installer", "安装器", true],
 	];
 	const state = { ...defaults, at: "" };
 
