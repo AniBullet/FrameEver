@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Camera and teleprompter · FrameEver design reference</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../design.css">
+<link rel="stylesheet" href="recording-controls.css">
+<link rel="stylesheet" href="area-picker.css">
+<link rel="stylesheet" href="camera-teleprompter.css">
+</head>
+<body>
+<div id="shell"></div>
+<main>
+	<section id="camera"><h2 id="t-cam"></h2><p class="lead" id="l-cam"></p><div class="live-tools" id="cam-tools"></div><div class="stage" id="cam-stage"><div class="desk" id="cam-desk" tabindex="0"><div class="wall-host"></div><div id="cam-ov"></div></div></div><p class="state-line tnum" id="cam-line"></p></section>
+	<section id="camera-states"><h2 id="t-cs"></h2><p class="lead" id="l-cs"></p><div class="mini-grid" id="cam-minis"></div></section>
+	<section id="teleprompter"><h2 id="t-tp"></h2><p class="lead" id="l-tp"></p><div class="live-tools" id="tp-tools"></div><div class="stage" id="tp-stage"><div class="desk" id="tp-desk" tabindex="0"><div class="wall-host"></div><div id="tp-ov"></div></div></div><p class="state-line tnum" id="tp-line"></p></section>
+	<section id="teleprompter-states"><h2 id="t-ts"></h2><p class="lead" id="l-ts"></p><div class="mini-grid" id="tp-minis"></div></section>
+	<section id="capture"><h2 id="t-cap"></h2><p class="lead" id="l-cap"></p><div class="mini-grid" id="cap-minis"></div><div class="inv-wrap" id="cap-table" style="margin-top:16px"></div></section>
+	<section id="shared"><h2 id="t-rules"></h2><p class="lead" id="l-rules"></p><div class="inv-wrap" id="rules"></div></section>
+	<section id="keyboard"><h2 id="t-keys"></h2><p class="lead" id="l-keys"></p><div class="inv-wrap" id="keys"></div></section>
+	<section id="inventory"><h2 id="t-inv"></h2><p class="lead" id="l-inv"></p><div class="inv-wrap" id="inv"></div></section>
+	<section id="additions"><h2 id="t-add"></h2><p class="lead" id="l-add"></p><div class="inv-wrap" id="add"></div></section>
+	<section id="references"><h2 id="t-ref"></h2><p class="lead" id="l-ref"></p><div class="inv-wrap" id="refs"></div></section>
+</main>
+<script src="../tokens.js"></script>
+<script src="../icons.js"></script>
+<script src="../design.js"></script>
+<script src="camera-teleprompter.js"></script>
+</body>
+</html>
