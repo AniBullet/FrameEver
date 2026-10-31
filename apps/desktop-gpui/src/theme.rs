@@ -362,7 +362,6 @@ pub struct Theme {
     pub red_3: Rgba,
     pub red_4: Rgba,
     pub red_9: Rgba,
-    pub red_10: Rgba,
     pub red_11: Rgba,
     pub red_300: Rgba,
 
@@ -538,7 +537,6 @@ impl Theme {
             red_3: semantic.danger_tint,
             red_4: semantic.danger_tint,
             red_9: semantic.danger,
-            red_10: semantic.danger_hover,
             red_11: semantic.danger_text,
             red_300: semantic.recording,
 
