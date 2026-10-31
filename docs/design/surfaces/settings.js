@@ -32,6 +32,7 @@ const v = {
 	compress: false,
 	keepCompressed: false,
 	template: "{recording_mode} {date} {time}",
+	downloads: "ask",
 	channel: "stable",
 	muxer: false,
 	hotkeys: {
@@ -335,14 +336,11 @@ const sections = [
 						zh: "即时录制后",
 						c: "select",
 						opts: [
-							["library", "Show in library", "在资源库中显示"],
+							["library", "Show in library", "显示资源库"],
 							["copy", "Copy file", "复制文件"],
 							["none", "Do nothing", "不做任何操作"],
 						],
-						was: [
-							"Shortcuts · outcome panel (share link, unused)",
-							"快捷键 · 结果面板（分享链接，已无效）",
-						],
+						was: ["Shortcuts · outcome panel", "快捷键 · 结果面板"],
 						kit: "select",
 						fresh: true,
 					},
@@ -678,6 +676,21 @@ const sections = [
 				zh: "更新",
 				rows: [
 					{
+						k: "downloads",
+						en: "Update downloads",
+						zh: "更新下载",
+						den: "Choose whether FrameEver downloads updates automatically.",
+						dzh: "选择 FrameEver 是否自动下载更新。",
+						c: "seg",
+						opts: [
+							["auto", "Auto", "自动"],
+							["ask", "Ask first", "先询问"],
+							["never", "Never", "从不"],
+						],
+						was: ["General · Updates", "通用 · 更新"],
+						kit: "tab::TabBar segmented",
+					},
+					{
 						k: "channel",
 						en: "Update channel",
 						zh: "更新通道",
@@ -835,7 +848,7 @@ const controls = {
 	folder: (row, broken) =>
 		`<div class="path">${icon("folder")}<span>C:\\Users\\you\\Videos\\FrameEver</span></div>${broken ? `<div class="warn">${icon("triangle-alert")}<span>${L("This folder isn't available. New projects go to the default folder until it's back.", "这个文件夹当前不可用。恢复之前，新项目会保存到默认文件夹。")}</span></div>` : ""}<div class="chips"><button class="btn">${L("Change folder", "更改文件夹")}</button><button class="btn ghost">${icon("folder-open")}${L("Show folder", "显示文件夹")}</button></div><div class="hint">${L("Previous folders. Their projects stay in the library.", "以前用过的文件夹，里面的项目仍在资源库中。")}</div><div class="path"><span>D:\\Old recordings</span><button class="btn ghost icon" title="${pick("Remove", "移除")}">${icon("x")}</button></div>`,
 	template: () =>
-		`<div class="input"><input data-range="template" value="${v.template}"></div><div class="hint">${L("Preview", "预览")}: ${pick("Studio", "工作室")} 2026-10-30 14.05</div><div class="chips">${["{recording_mode}", "{target_name}", "{date}", "{time}"].map((token) => `<button class="tag chip-btn" data-token="${token}">${token}</button>`).join("")}</div>`,
+		`<div class="input"><input data-range="template" value="${v.template}"></div><div class="hint">${L("Preview", "预览")}: ${pick("Studio", "工作室")} 2026-10-30 14.05</div><div class="chips">${["{recording_mode}", "{target_name}", "{date}", "{time}", "{random}"].map((token) => `<button class="tag chip-btn" data-token="${token}">${token}</button>`).join("")}</div>`,
 	rules: () => {
 		const rules = [
 			[

@@ -5,6 +5,7 @@ use std::{
 };
 
 pub const MAX_LOG_BYTES: usize = 512 * 1024;
+const MAX_CRASH_LOG_BYTES: usize = 64 * 1024;
 pub const MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 const REQUEST_HEADROOM: usize = 64 * 1024;
 const MAX_METADATA_BYTES: usize = 512 * 1024;
@@ -206,6 +207,15 @@ pub fn collect(dir: &Path, prefix: &str) -> LogBundle {
         .rev()
         .map(|(name, path)| (name, path, normal_budget))
         .collect();
+    for suffix in ["crashes-previous", "crashes", "stderr-previous", "stderr"] {
+        let name = format!("{prefix}.{suffix}");
+        let path = dir.join(&name);
+        if std::fs::symlink_metadata(&path)
+            .is_ok_and(|metadata| metadata.file_type().is_file() && metadata.len() > 0)
+        {
+            selected.push((name, path, MAX_CRASH_LOG_BYTES));
+        }
+    }
     for suffix in ["diagnostic-previous.jsonl", "diagnostic-current.jsonl"] {
         let name = format!("{prefix}.{suffix}");
         let path = dir.join(&name);
@@ -375,6 +385,36 @@ mod tests {
                 .map(|file| file.bytes_read)
                 .sum::<usize>()
                 <= MAX_LOG_BYTES
+        );
+    }
+
+    #[test]
+    fn carries_crash_records_and_captured_stderr_after_the_daily_logs() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("frameever.log.2026-10-22"), "event\n").unwrap();
+        std::fs::write(
+            dir.path().join("frameever.log.crashes"),
+            "native crash: unhandled exception 0xc0000005\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("frameever.log.stderr-previous"),
+            "thread 'main' has overflowed its stack\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("frameever.log.stderr"), "").unwrap();
+        std::fs::write(dir.path().join("frameever.log.crashes-other"), "private").unwrap();
+
+        let bundle = collect(dir.path(), "frameever.log");
+
+        assert!(bundle.text.contains("unhandled exception"));
+        assert!(bundle.text.contains("overflowed its stack"));
+        assert!(!bundle.text.contains("private"));
+        assert!(
+            !bundle
+                .files
+                .iter()
+                .any(|file| file.name == "frameever.log.stderr")
         );
     }
 

@@ -2838,6 +2838,7 @@ dependencies = [
  "cosmic-text",
  "cpal 0.15.3",
  "dirs 7.0.0",
+ "dunce",
  "ffmpeg-next",
  "flume",
  "frameever-audio",

@@ -8,7 +8,7 @@ use crate::{
     i18n::{n, t, tr},
     installer::{self, ArtifactKind, Release},
     session::RecordingSession,
-    store::{GeneralSettings, UpdateChannel},
+    store::{GeneralSettings, UpdateChannel, UpdateDownloadPolicy},
 };
 
 const STABLE_FIRST_CHECK_DELAY: Duration = Duration::from_secs(10);
@@ -22,6 +22,7 @@ const BUSY_MESSAGE: &str =
 pub(crate) enum UpdateStatus {
     #[default]
     Idle,
+    Checking,
     Downloading {
         version: Version,
         fraction: Option<f32>,
@@ -71,6 +72,7 @@ struct UpdateScheduler {
     pending: PendingUpdateRequests,
     manual_in_flight: bool,
     status: UpdateStatus,
+    download_policy: UpdateDownloadPolicy,
     staged: Option<StagedUpdate>,
     download: Option<gpui::Task<()>>,
     download_epoch: u64,
@@ -90,6 +92,40 @@ fn qualifies(
             && !current.pre.is_empty()
             && remote.pre.is_empty()
             && remote != current)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReleaseStep {
+    Skip,
+    Download,
+    Ask,
+}
+
+fn release_step(policy: UpdateDownloadPolicy, manual: bool) -> ReleaseStep {
+    match policy {
+        UpdateDownloadPolicy::Never if !manual => ReleaseStep::Skip,
+        UpdateDownloadPolicy::Auto => ReleaseStep::Download,
+        UpdateDownloadPolicy::Manual | UpdateDownloadPolicy::Never => ReleaseStep::Ask,
+    }
+}
+
+fn first_scheduled_delay(policy: UpdateDownloadPolicy, channel: UpdateChannel) -> Option<Duration> {
+    (policy != UpdateDownloadPolicy::Never).then(|| first_check_delay(channel))
+}
+
+fn delay_after_policy_change(
+    previous: UpdateDownloadPolicy,
+    next: UpdateDownloadPolicy,
+    channel: UpdateChannel,
+    delay: Option<Duration>,
+) -> Option<Duration> {
+    if next == UpdateDownloadPolicy::Never {
+        None
+    } else if previous == UpdateDownloadPolicy::Never {
+        Some(first_check_delay(channel))
+    } else {
+        delay
+    }
 }
 
 /// A check the user asked for answers now; a scheduled one waits for the
@@ -197,7 +233,7 @@ pub(crate) fn check_manually(cx: &mut App) {
             .detach();
             return;
         }
-        UpdateStatus::Idle => {}
+        UpdateStatus::Idle | UpdateStatus::Checking => {}
     }
 
     let scheduler = cx.global_mut::<UpdateScheduler>();
@@ -206,6 +242,14 @@ pub(crate) fn check_manually(cx: &mut App) {
     }
 
     let _ = scheduler.wake.try_send(());
+}
+
+pub(crate) fn update_download_policy_changed(policy: UpdateDownloadPolicy, cx: &mut App) {
+    if !cx.has_global::<UpdateScheduler>() {
+        return;
+    }
+    cx.global_mut::<UpdateScheduler>().download_policy = policy;
+    let _ = cx.global::<UpdateScheduler>().wake.try_send(());
 }
 
 pub(crate) fn update_channel_changed(channel: UpdateChannel, cx: &mut App) {
@@ -222,7 +266,7 @@ pub(crate) fn update_channel_changed(channel: UpdateChannel, cx: &mut App) {
 fn channel_switch_drops_pending_package(status: &UpdateStatus) -> bool {
     matches!(
         status,
-        UpdateStatus::Downloading { .. } | UpdateStatus::Ready { .. }
+        UpdateStatus::Checking | UpdateStatus::Downloading { .. } | UpdateStatus::Ready { .. }
     )
 }
 
@@ -269,6 +313,7 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
         pending: PendingUpdateRequests::default(),
         manual_in_flight: false,
         status: UpdateStatus::Idle,
+        download_policy: GeneralSettings::load().update_download_policy,
         staged: None,
         download: None,
         download_epoch: 0,
@@ -279,7 +324,8 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
             .background_executor()
             .spawn(async { GeneralSettings::load().update_channel })
             .await;
-        let mut delay = (!cfg!(debug_assertions)).then(|| first_check_delay(channel));
+        let mut policy = cx.update(|cx| cx.global::<UpdateScheduler>().download_policy);
+        let mut delay = first_scheduled_delay(policy, channel).filter(|_| !cfg!(debug_assertions));
         let mut ignored_version: Option<Version> = None;
 
         loop {
@@ -307,6 +353,12 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
                 std::mem::take(&mut scheduler.pending)
             });
 
+            let latest_policy = cx.update(|cx| cx.global::<UpdateScheduler>().download_policy);
+            if latest_policy != policy {
+                delay = delay_after_policy_change(policy, latest_policy, channel, delay);
+                policy = latest_policy;
+            }
+
             if signaled && request == PendingUpdateRequests::default() {
                 continue;
             }
@@ -314,10 +366,14 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
             if let Some(next_channel) = request.channel {
                 channel = next_channel;
                 ignored_version = None;
-                let _ = cx.update(drop_pending_update_from_previous_channel);
+                cx.update(drop_pending_update_from_previous_channel);
             }
 
             let manual = request.manual;
+            if policy == UpdateDownloadPolicy::Never && !manual {
+                delay = None;
+                continue;
+            }
             if cfg!(debug_assertions) && !manual {
                 delay = None;
                 continue;
@@ -333,6 +389,8 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
                 cx.update(|cx| finish_manual_check(cx, manual));
                 continue;
             }
+
+            cx.update(|cx| set_status(UpdateStatus::Checking, cx));
 
             let result = match cx
                 .update(|cx| gpui_tokio::Tokio::spawn(cx, available_release(channel)))
@@ -352,12 +410,14 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
                 channel_changed || (!manual && scheduler.pending.manual)
             });
             if superseded {
+                cx.update(|cx| set_status(UpdateStatus::Idle, cx));
                 continue;
             }
 
             let release = match result {
                 Ok(Some(release)) => release,
                 Ok(None) => {
+                    cx.update(|cx| set_status(UpdateStatus::Idle, cx));
                     if manual {
                         crate::platform::activate_app();
                         crate::platform::alert_dialog(
@@ -370,6 +430,7 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
                 }
                 Err(error) => {
                     tracing::warn!("update check failed: {error}");
+                    cx.update(|cx| set_status(UpdateStatus::Idle, cx));
                     if manual {
                         crate::platform::activate_app();
                         crate::platform::alert_dialog(
@@ -383,6 +444,7 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
             };
 
             if !manual && ignored_version.as_ref() == Some(&release.version) {
+                cx.update(|cx| set_status(UpdateStatus::Idle, cx));
                 continue;
             }
 
@@ -390,6 +452,9 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
             // check holds it until a recording, export, import or
             // transcription has finished rather than interrupting it.
             let mut superseded = false;
+            if holds_scheduled_prompt(manual, cx.update(work_in_flight)) {
+                cx.update(|cx| set_status(UpdateStatus::Idle, cx));
+            }
             while holds_scheduled_prompt(manual, cx.update(work_in_flight)) {
                 let timer = cx.background_executor().timer(BUSY_RETRY_DELAY);
                 let request = requests.recv_async();
@@ -397,17 +462,32 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
                 if let Either::Right((Err(_), _)) = select(timer, request).await {
                     return;
                 }
-                superseded = cx.update(|cx| {
-                    supersedes_held_prompt(&cx.global::<UpdateScheduler>().pending)
-                });
+                superseded =
+                    cx.update(|cx| supersedes_held_prompt(&cx.global::<UpdateScheduler>().pending));
                 if superseded {
                     break;
                 }
             }
             if superseded {
                 // Run the queued manual check or channel change straight away.
+                cx.update(|cx| set_status(UpdateStatus::Idle, cx));
                 delay = Some(Duration::ZERO);
                 continue;
+            }
+
+            let latest_policy = cx.update(|cx| cx.global::<UpdateScheduler>().download_policy);
+            match release_step(latest_policy, manual) {
+                ReleaseStep::Skip => {
+                    cx.update(|cx| set_status(UpdateStatus::Idle, cx));
+                    delay = next_check_delay(channel);
+                    continue;
+                }
+                ReleaseStep::Download => {
+                    cx.update(|cx| finish_manual_check(cx, manual));
+                    cx.update(|cx| start_download(release, cx));
+                    continue;
+                }
+                ReleaseStep::Ask => cx.update(|cx| set_status(UpdateStatus::Idle, cx)),
             }
 
             crate::platform::activate_app();
@@ -840,6 +920,39 @@ mod tests {
             next_check_delay(UpdateChannel::Nightly),
             Some(Duration::from_secs(2 * 60 * 60))
         );
+    }
+
+    #[test]
+    fn a_release_follows_the_download_policy() {
+        use UpdateDownloadPolicy::{Auto, Manual, Never};
+
+        assert_eq!(release_step(Auto, false), ReleaseStep::Download);
+        assert_eq!(release_step(Auto, true), ReleaseStep::Download);
+        assert_eq!(release_step(Manual, false), ReleaseStep::Ask);
+        assert_eq!(release_step(Manual, true), ReleaseStep::Ask);
+        assert_eq!(release_step(Never, false), ReleaseStep::Skip);
+        assert_eq!(release_step(Never, true), ReleaseStep::Ask);
+    }
+
+    #[test]
+    fn scheduled_checks_stop_on_never_and_resume_when_it_is_left() {
+        use UpdateDownloadPolicy::{Auto, Manual, Never};
+
+        let stable = UpdateChannel::Stable;
+        assert_eq!(first_scheduled_delay(Never, stable), None);
+        assert_eq!(
+            first_scheduled_delay(Manual, stable),
+            Some(first_check_delay(stable))
+        );
+
+        let soon = Some(Duration::from_secs(3));
+        assert_eq!(delay_after_policy_change(Auto, Never, stable, soon), None);
+        assert_eq!(
+            delay_after_policy_change(Never, Manual, stable, None),
+            Some(first_check_delay(stable))
+        );
+        assert_eq!(delay_after_policy_change(Manual, Auto, stable, soon), soon);
+        assert_eq!(delay_after_policy_change(Auto, Manual, stable, None), None);
     }
 
     #[test]

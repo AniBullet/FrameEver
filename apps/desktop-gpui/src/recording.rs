@@ -154,18 +154,9 @@ async fn finalize_studio(
     }
 
     let project_path = completed.project_path.clone();
-    tokio::task::spawn_blocking(move || {
-        let thumbnail_started = std::time::Instant::now();
-        if let Some(display_path) = studio_display_path(&project_path) {
-            write_bundle_thumbnail(&project_path, &display_path);
-        }
-        tracing::info!(
-            elapsed_ms = thumbnail_started.elapsed().as_secs_f64() * 1000.0,
-            "Studio stop thumbnail complete"
-        );
-    })
-    .await
-    .context("studio post-finalize task")?;
+    tokio::task::spawn_blocking(move || write_studio_stop_thumbnail(&project_path))
+        .await
+        .context("studio post-finalize task")?;
 
     Ok(completed.project_path)
 }
@@ -909,6 +900,44 @@ fn studio_display_path(project_path: &std::path::Path) -> Option<PathBuf> {
             .map(|segment| segment.display.path.to_path(project_path))?,
     };
     path.is_file().then_some(path)
+}
+
+static STUDIO_THUMBNAIL_WRITES: Mutex<()> = Mutex::new(());
+
+const STUDIO_THUMBNAIL_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+pub(crate) fn hold_studio_thumbnail_writes() -> Option<std::sync::MutexGuard<'static, ()>> {
+    hold_studio_thumbnail_writes_for(STUDIO_THUMBNAIL_WAIT)
+}
+
+fn hold_studio_thumbnail_writes_for(
+    wait: std::time::Duration,
+) -> Option<std::sync::MutexGuard<'static, ()>> {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        match STUDIO_THUMBNAIL_WRITES.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => return Some(poisoned.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        }
+    }
+}
+
+fn write_studio_stop_thumbnail(project_path: &std::path::Path) {
+    let _writing = STUDIO_THUMBNAIL_WRITES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let started = std::time::Instant::now();
+    if let Some(display_path) = studio_display_path(project_path) {
+        write_bundle_thumbnail(project_path, &display_path);
+    }
+    tracing::info!(
+        elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+        "Studio stop thumbnail complete"
+    );
 }
 
 /// Write `<bundle>/screenshots/display.jpg` -- the file both apps' Recents
@@ -1747,7 +1776,41 @@ fn format_recording_project_name(
         .replace("{target_name}", &target_name);
     let formatted = replace_datetime_template_token(&formatted, "date", "%Y-%m-%d", datetime);
     let formatted = replace_datetime_template_token(&formatted, "time", "%I:%M %p", datetime);
-    replace_datetime_template_token(&formatted, "moment", "%Y-%m-%d %H:%M", datetime)
+    let formatted =
+        replace_datetime_template_token(&formatted, "moment", "%Y-%m-%d %H:%M", datetime);
+    replace_random_template_tokens(&formatted)
+}
+
+fn replace_random_template_tokens(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut remaining = input;
+
+    while let Some(start) = remaining.find("{random") {
+        output.push_str(&remaining[..start]);
+        let candidate = &remaining[start..];
+        let Some(end) = candidate.find('}') else {
+            output.push_str(candidate);
+            return output;
+        };
+        let token = &candidate[..=end];
+        let length = if token == "{random}" {
+            Some(10)
+        } else {
+            token
+                .strip_prefix("{random:")
+                .and_then(|value| value.strip_suffix('}'))
+                .and_then(|value| value.parse::<usize>().ok())
+        };
+        if let Some(length @ 1..=32) = length {
+            let random = crate::store::new_uuid_v4().replace('-', "");
+            output.push_str(&random[..length]);
+        } else {
+            output.push_str(token);
+        }
+        remaining = &candidate[end + 1..];
+    }
+    output.push_str(remaining);
+    output
 }
 
 fn replace_datetime_template_token(
@@ -2382,6 +2445,69 @@ mod capture_stop_contract_tests {
 #[cfg(test)]
 mod studio_finalization_tests {
     use super::*;
+
+    #[test]
+    fn project_names_expand_filename_safe_random_tokens() {
+        let name = replace_random_template_tokens("{random}-{random:16}-{random:0}-{random");
+        let parts: Vec<_> = name.split('-').collect();
+        assert_eq!(parts[0].len(), 10);
+        assert_eq!(parts[1].len(), 16);
+        assert!(
+            parts[..2]
+                .iter()
+                .all(|part| { part.chars().all(|character| character.is_ascii_hexdigit()) })
+        );
+        assert_eq!(parts[2], "{random:0}");
+        assert_eq!(parts[3], "{random");
+        assert_eq!(replace_random_template_tokens("{random:33}"), "{random:33}");
+    }
+
+    #[test]
+    fn deleting_a_recording_waits_for_its_thumbnail_write() {
+        let library = tempfile::tempdir().unwrap();
+        let bundle = library.path().join("Recording.ever");
+        std::fs::create_dir_all(bundle.join("screenshots")).unwrap();
+
+        let writing = hold_studio_thumbnail_writes().unwrap();
+        let delete = std::thread::spawn({
+            let library = library.path().to_path_buf();
+            let bundle = bundle.clone();
+            move || crate::library::delete_recording_directory_in(&[library], &bundle)
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(!delete.is_finished());
+        assert!(bundle.exists());
+        drop(writing);
+
+        assert_eq!(delete.join().unwrap(), Ok(()));
+        assert!(!bundle.exists());
+    }
+
+    #[test]
+    fn a_held_thumbnail_write_turns_a_delete_away_after_the_wait() {
+        let _writing = hold_studio_thumbnail_writes().unwrap();
+        assert!(hold_studio_thumbnail_writes_for(std::time::Duration::from_millis(20)).is_none());
+    }
+
+    #[test]
+    fn a_thumbnail_write_after_a_delete_does_not_recreate_the_bundle() {
+        let library = tempfile::tempdir().unwrap();
+        let bundle = library.path().join("Recording.ever");
+        std::fs::create_dir_all(&bundle).unwrap();
+
+        let deleting = hold_studio_thumbnail_writes().unwrap();
+        let writing = std::thread::spawn({
+            let bundle = bundle.clone();
+            move || write_studio_stop_thumbnail(&bundle)
+        });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(!writing.is_finished());
+        std::fs::remove_dir_all(&bundle).unwrap();
+        drop(deleting);
+
+        writing.join().unwrap();
+        assert!(!bundle.exists());
+    }
 
     fn channel() -> (StudioFinalizationPublisher, StudioFinalization) {
         StudioFinalization::channel(PathBuf::from("project.cap"), 42)

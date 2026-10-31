@@ -36,7 +36,7 @@ use crate::{
     store::{
         self, AppTheme, DEFAULT_PROJECT_NAME_TEMPLATE, GENERAL_SETTINGS, GeneralSettings,
         MainWindowStartBehaviour, PostDeletionBehaviour, RECORDING_START_SAFETY, SettingsEnum,
-        StudioQuality, UpdateChannel, WindowExclusion,
+        StudioQuality, UpdateChannel, UpdateDownloadPolicy, WindowExclusion,
     },
     theme::Theme,
     ui,
@@ -974,7 +974,7 @@ impl SettingsWindow {
             }
             tracing::info!(path = %path.display(), "deleted a recording");
 
-            this.update_in(cx, |this, window, cx| this.refresh_recordings(window, cx))
+            cx.update(|_, cx| cx.defer(crate::app_windows::refresh_library_after_delete))
                 .ok();
         })
         .detach();
@@ -1663,6 +1663,9 @@ impl SettingsWindow {
                 false,
             ),
             crate::updates::UpdateStatus::Idle => (t!("Check for updates").to_string(), false),
+            crate::updates::UpdateStatus::Checking => {
+                (t!("Checking for updates…").to_string(), false)
+            }
             crate::updates::UpdateStatus::Downloading {
                 version,
                 fraction: Some(fraction),
@@ -1948,7 +1951,7 @@ impl SettingsWindow {
         let mut items = Vec::with_capacity(visible);
         for (index, row) in rows.iter().take(visible).enumerate() {
             items.push(
-                self.render_screenshot_row(index, row, index + 1 == visible, cx)
+                self.render_screenshot_row(row, index + 1 == visible, cx)
                     .into_any_element(),
             );
         }
@@ -1998,7 +2001,6 @@ impl SettingsWindow {
 
     fn render_screenshot_row(
         &self,
-        index: usize,
         row: &ScreenshotRow,
         last: bool,
         cx: &mut Context<Self>,
@@ -2050,7 +2052,7 @@ impl SettingsWindow {
             .items_center()
             .gap(px(8.))
             .child(self.row_button(
-                ("screenshot-copy", index),
+                "screenshot-copy",
                 "icons/copy.svg",
                 t!("Copy to clipboard"),
                 false,
@@ -2072,7 +2074,7 @@ impl SettingsWindow {
                 },
             ))
             .child(self.row_button(
-                ("screenshot-save", index),
+                "screenshot-save",
                 "icons/download.svg",
                 t!("Save as"),
                 false,
@@ -2082,15 +2084,15 @@ impl SettingsWindow {
                 },
             ))
             .child(self.row_button(
-                ("screenshot-folder", index),
+                "screenshot-folder",
                 "icons/folder.svg",
                 t!("Open folder"),
                 false,
                 cx,
-                move |_this, _window, _cx| library::reveal_in_folder(&bundle),
+                move |_this, _window, cx| library::reveal_path(&bundle, cx),
             ))
             .child(self.row_button(
-                ("screenshot-delete", index),
+                "screenshot-delete",
                 "icons/trash.svg",
                 t!("Delete"),
                 false,
@@ -2102,7 +2104,7 @@ impl SettingsWindow {
             ));
 
         div()
-            .id(("screenshot-row", index))
+            .id(library::row_id(&item.bundle))
             .flex()
             .flex_row()
             .justify_between()
@@ -2244,7 +2246,7 @@ impl SettingsWindow {
             // `not-last:border-b` counts the *rendered* rows, so the border
             // stops at the last visible one rather than the last matching one.
             items.push(
-                self.render_recording_row(index, row, index + 1 == visible, cx)
+                self.render_recording_row(row, index + 1 == visible, cx)
                     .into_any_element(),
             );
         }
@@ -2297,7 +2299,6 @@ impl SettingsWindow {
     /// w-full`, bordered from every row but the last.
     fn render_recording_row(
         &self,
-        index: usize,
         row: &RecordingRow,
         last: bool,
         cx: &mut Context<Self>,
@@ -2357,7 +2358,7 @@ impl SettingsWindow {
             );
 
         div()
-            .id(("recording-row", index))
+            .id(library::row_id(&item.path))
             .flex()
             .flex_row()
             .justify_between()
@@ -2376,7 +2377,7 @@ impl SettingsWindow {
                 }
             })
             .child(left)
-            .child(self.render_recording_actions(index, item, cx))
+            .child(self.render_recording_actions(item, cx))
             .when(opens_editor, |this| {
                 this.on_click(cx.listener(move |_this, _, _window, cx| {
                     let path = path.clone();
@@ -2495,7 +2496,6 @@ impl SettingsWindow {
     /// Studio rows get Edit; every row gets Open recording bundle and Delete.
     fn render_recording_actions(
         &self,
-        index: usize,
         item: &RecordingItem,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
@@ -2509,7 +2509,7 @@ impl SettingsWindow {
         if mode == RecordingMode::Studio {
             let editor_path = path.clone();
             actions = actions.child(self.row_button(
-                ("recording-edit", index),
+                "recording-edit",
                 "icons/square-pen.svg",
                 t!("Edit"),
                 // `disabled={status === "InProgress"}`
@@ -2526,7 +2526,7 @@ impl SettingsWindow {
             Some(library::VideoVersions::Single { .. }) => {
                 let target = path.clone();
                 actions = actions.child(self.row_button(
-                    ("recording-compress", index),
+                    "recording-compress",
                     "icons/zap.svg",
                     if compressing {
                         t!("Compressing…")
@@ -2543,7 +2543,7 @@ impl SettingsWindow {
                 let delete_path = path.clone();
                 actions = actions
                     .child(self.row_button(
-                        ("recording-use-compressed", index),
+                        "recording-use-compressed",
                         "icons/refresh-cw.svg",
                         t!("Use the compressed version"),
                         false,
@@ -2559,7 +2559,7 @@ impl SettingsWindow {
                         },
                     ))
                     .child(self.row_button(
-                        ("recording-delete-compressed", index),
+                        "recording-delete-compressed",
                         "icons/x.svg",
                         t!("Delete the compressed copy"),
                         false,
@@ -2580,7 +2580,7 @@ impl SettingsWindow {
                 let delete_path = path.clone();
                 actions = actions
                     .child(self.row_button(
-                        ("recording-restore-original", index),
+                        "recording-restore-original",
                         "icons/rotate-ccw.svg",
                         t!("Switch back to the original"),
                         false,
@@ -2596,7 +2596,7 @@ impl SettingsWindow {
                         },
                     ))
                     .child(self.row_button(
-                        ("recording-delete-original", index),
+                        "recording-delete-original",
                         "icons/x.svg",
                         t!("Delete the original to free up space"),
                         false,
@@ -2619,15 +2619,15 @@ impl SettingsWindow {
 
         let folder_path = path.clone();
         actions = actions.child(self.row_button(
-            ("recording-folder", index),
+            "recording-folder",
             "icons/folder.svg",
             t!("Open recording bundle"),
             false,
             cx,
-            move |_this, _window, _cx| library::open_recording_folder(&folder_path, mode),
+            move |_this, _window, cx| library::open_recording_folder(&folder_path, mode, cx),
         ));
         actions.child(self.row_button(
-            ("recording-delete", index),
+            "recording-delete",
             "icons/trash.svg",
             t!("Delete"),
             false,
@@ -3605,6 +3605,11 @@ impl SettingsWindow {
                 t!("\"Display\", \"Window\", or \"Area\""),
             ),
             ("", "{target_name}", t!("Monitor name or window title.")),
+            (
+                t!("Random"),
+                "{random}",
+                t!("10 filename-safe hexadecimal characters; use {random:N} for 1–32."),
+            ),
             (t!("Date & time"), "{date}", t!("the recording's date")),
             ("", "{time}", t!("the recording's time")),
         ];
@@ -3929,6 +3934,7 @@ impl SettingsWindow {
     fn render_updates(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let current = self.settings.update_channel;
+        let current_policy = self.settings.update_download_policy;
         let description = UPDATE_CHANNEL_DESCRIPTIONS
             .iter()
             .find(|(channel, _)| *channel == current)
@@ -3941,6 +3947,45 @@ impl SettingsWindow {
             .gap(px(12.))
             .px(px(16.))
             .py(px(16.))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_between()
+                    .items_start()
+                    .gap(px(16.))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .min_w_0()
+                            .child(div().text_size(px(13.)).child(t!("Update downloads")))
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .line_height(px(16.))
+                                    .text_color(theme.settings_muted())
+                                    .child(t!(
+                                        "Choose whether FrameEver downloads updates automatically."
+                                    )),
+                            ),
+                    )
+                    .child(self.segmented::<UpdateDownloadPolicy>(
+                        "update-download-policy",
+                        current_policy,
+                        cx,
+                        |this, value, cx| {
+                            if this.settings.update_download_policy == value {
+                                return;
+                            }
+                            this.settings.update_download_policy = value;
+                            this.write_enum("updateDownloadPolicy", value, cx);
+                            crate::updates::update_download_policy_changed(value, cx);
+                        },
+                    )),
+            )
+            .child(div().h(px(1.)).bg(theme.settings_border()))
             .child(
                 div()
                     .flex()

@@ -229,6 +229,7 @@ pub struct RecordingSession {
     /// Taken by the phase observer to honour `postStudioRecordingBehaviour`
     /// (`openEditor` by default) the way the Tauri app does.
     pub finished_studio: Option<std::path::PathBuf>,
+    pub finished_instant: Option<std::path::PathBuf>,
     preparing_studio_editor: Option<PreparingStudioEditor>,
     /// `EditorRecordingTarget` (`src-tauri/src/windows.rs:3679-3697`): the
     /// open editor project a "Record a new clip" capture must land back in.
@@ -278,6 +279,7 @@ impl RecordingSession {
             controls_open: false,
             mic_muted: false,
             finished_studio: None,
+            finished_instant: None,
             preparing_studio_editor: None,
             editor_recording_target: None,
             started_at: None,
@@ -937,8 +939,16 @@ impl RecordingSession {
                         if low_storage {
                             this.storage_notice = Some(t!("Recording stopped because storage is low. Your recording was saved.").into());
                         }
-                        if this.mode() == Some(crate::recording::RecordingMode::Studio) && !low_storage {
-                            this.finished_studio = Some(project_dir);
+                        if !low_storage {
+                            match this.mode() {
+                                Some(crate::recording::RecordingMode::Studio) => {
+                                    this.finished_studio = Some(project_dir);
+                                }
+                                Some(crate::recording::RecordingMode::Instant) => {
+                                    this.finished_instant = Some(project_dir);
+                                }
+                                _ => {}
+                            }
                         }
                     }
                     Ok(Err(error)) => {

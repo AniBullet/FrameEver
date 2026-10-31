@@ -402,12 +402,14 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
         if phase == Phase::Idle && last_phase != Phase::Idle {
             close_controls(&session, cx);
             close_target_overlays(cx);
-            let (finished_studio, preparing_editor) = session.update(cx, |session, _| {
-                (
-                    session.finished_studio.take(),
-                    session.take_preparing_studio_editor(),
-                )
-            });
+            let (finished_studio, finished_instant, preparing_editor) =
+                session.update(cx, |session, _| {
+                    (
+                        session.finished_studio.take(),
+                        session.finished_instant.take(),
+                        session.take_preparing_studio_editor(),
+                    )
+                });
             // The in-editor re-record target is consumed first, before
             // `postStudioRecordingBehaviour` is even consulted -- the order
             // `apply_post_studio_editor_behaviour` checks them
@@ -439,20 +441,25 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                     park_idle_camera_preview(cx);
                 }
             } else {
-                // `postStudioRecordingBehaviour` (`openEditor` is the
-                // default): a cleanly-stopped studio recording goes straight
-                // to the editor, main window staying hidden --
-                // `editor_closed` brings it back once the last editor goes
-                // away. `doNothing` leaves it in the library with Cap out of
-                // the way. Every other path (instant, failures, `showOverlay`
-                // until an overlay exists) reshows the main window as before.
-                let behaviour =
-                    crate::store::GeneralSettings::load().post_studio_recording_behaviour;
+                let settings = crate::store::GeneralSettings::load();
+                let behaviour = settings.post_studio_recording_behaviour;
+                let after_instant = settings.post_instant_recording_behaviour;
+                if let Some(project) = &finished_instant
+                    && after_instant == crate::store::PostInstantBehaviour::CopyFile
+                {
+                    copy_instant_recording(project, cx);
+                }
+                let hides_after_instant =
+                    finished_instant.is_some() && after_instant.keeps_main_window_hidden();
                 match (finished_studio, behaviour) {
                     (Some(project_dir), crate::store::PostStudioBehaviour::OpenEditor) => {
                         open_editor(project_dir, cx)
                     }
                     (Some(_), crate::store::PostStudioBehaviour::DoNothing) => {
+                        park_idle_camera_preview(cx);
+                        crate::menus::schedule_dock_sync(cx);
+                    }
+                    (None, _) if hides_after_instant => {
                         park_idle_camera_preview(cx);
                         crate::menus::schedule_dock_sync(cx);
                     }
@@ -5533,6 +5540,13 @@ pub fn screenshot_editor_closed(bundle: &Path, cx: &mut App) {
     }
 }
 
+fn copy_instant_recording(project: &Path, cx: &mut App) {
+    let output = crate::library::instant_output_path(project);
+    if let Err(error) = platform::copy_file_to_clipboard(&output, cx) {
+        tracing::error!(path = %output.display(), "copying the Instant recording failed: {error}");
+    }
+}
+
 pub fn refresh_library_after_delete(cx: &mut App) {
     let main = cx.global::<AppWindows>().main;
     let settings = cx.global::<AppWindows>().settings;
@@ -5543,6 +5557,7 @@ pub fn refresh_library_after_delete(cx: &mut App) {
             .update(cx, |view, window, cx| view.refresh_recordings(window, cx))
             .ok();
     }
+    crate::tray::refresh_previous(cx);
 }
 
 fn close_controls(session: &Entity<RecordingSession>, cx: &mut App) {

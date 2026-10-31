@@ -309,20 +309,11 @@ impl AutomationHost for CliAutomationHost {
             .ok_or_else(|| format!("Preset '{name}' not found"))?;
 
         let config_value = preset.get("config").ok_or("Preset has no config")?;
-        let mut config: frameever_project::ProjectConfiguration =
+        let config: frameever_project::ProjectConfiguration =
             serde_json::from_value(config_value.clone())
                 .map_err(|e| format!("Failed to parse preset config: {e}"))?;
 
-        if config.timeline.is_none() {
-            config.timeline = frameever_project::ProjectConfiguration::load(project_path)
-                .ok()
-                .and_then(|c| c.timeline);
-        }
-
-        config
-            .write(project_path)
-            .map_err(|e| format!("Failed to write project config: {e}"))?;
-        Ok(())
+        apply_project_preset(project_path, config)
     }
 
     async fn delete_local_files(&self, ctx: &TriggerContext) -> Result<(), String> {
@@ -491,10 +482,56 @@ pub fn list(format: crate::OutputFormat) -> Result<(), String> {
     }
 }
 
+fn apply_project_preset(
+    project_path: &Path,
+    preset: frameever_project::ProjectConfiguration,
+) -> Result<(), String> {
+    let current = match frameever_project::ProjectConfiguration::load(project_path) {
+        Ok(current) => current,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
+        Err(error) => return Err(format!("Failed to load project config: {error}")),
+    };
+    current
+        .with_preset(preset)
+        .write(project_path)
+        .map_err(|error| format!("Failed to write project config: {error}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use frameever_automation::{Action, AutomationRule, MatchMode};
+
+    #[test]
+    fn a_preset_keeps_the_caption_source_of_the_project() {
+        let project = tempfile::tempdir().unwrap();
+        let current: frameever_project::ProjectConfiguration =
+            serde_json::from_value(serde_json::json!({
+                "timeline": {
+                    "segments": [{ "start": 0.0, "end": 10.0, "timescale": 1.0 }],
+                    "zoomSegments": [],
+                    "captionSegments": [{ "id": "spoken", "start": 2.0, "end": 3.0, "text": "Current recording" }]
+                },
+                "captions": {
+                    "segments": [{ "id": "spoken", "start": 2.0, "end": 3.0, "text": "Current recording" }],
+                    "settings": { "enabled": true, "size": 24 }
+                }
+            }))
+            .unwrap();
+        current.write(project.path()).unwrap();
+        let preset: frameever_project::ProjectConfiguration =
+            serde_json::from_value(serde_json::json!({
+                "captions": { "segments": [], "settings": { "enabled": true, "size": 40 } }
+            }))
+            .unwrap();
+
+        apply_project_preset(project.path(), preset).unwrap();
+
+        let saved = frameever_project::ProjectConfiguration::load(project.path()).unwrap();
+        let captions = saved.captions.unwrap();
+        assert_eq!(captions.segments[0].text, "Current recording");
+        assert_eq!(captions.settings.size, 40);
+    }
 
     #[test]
     fn run_command_env_has_only_frameever_names() {

@@ -705,6 +705,7 @@ fn settings_snapshot() -> Value {
             .map(|path| redact_home_paths(&path.to_string_lossy()))
             .collect::<Vec<_>>(),
         "updateChannel": settings.update_channel.as_json(),
+        "updateDownloadPolicy": settings.update_download_policy.as_json(),
         "instanceId": instance_id,
         "enableTelemetry": settings.enable_telemetry,
         "editorPreviewQuality": settings.editor_preview_quality.as_json(),

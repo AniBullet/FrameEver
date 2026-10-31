@@ -620,6 +620,15 @@ settings_enum! {
 }
 
 settings_enum! {
+    PostInstantBehaviour {
+        ShowLibrary = "showLibrary", t!("Show in library");
+        CopyFile = "copyFile", t!("Copy file");
+        DoNothing = "doNothing", t!("Do nothing");
+    }
+    default = ShowLibrary
+}
+
+settings_enum! {
     /// `PostStudioRecordingBehaviour`.
     PostStudioBehaviour {
         OpenEditor = "openEditor", t!("Open editor");
@@ -667,6 +676,15 @@ settings_enum! {
         Nightly = "nightly", t!("Pre-release");
     }
     default = Stable
+}
+
+settings_enum! {
+    UpdateDownloadPolicy {
+        Auto = "auto", t!("Auto");
+        Manual = "manual", t!("Ask first");
+        Never = "never", t!("Never");
+    }
+    default = Manual
 }
 
 settings_enum! {
@@ -830,7 +848,7 @@ pub struct GeneralSettings {
     pub hide_dock_icon: bool,
     pub enable_notifications: bool,
     pub instant_mode_max_resolution: u32,
-    pub disable_auto_open_links: bool,
+    pub post_instant_recording_behaviour: PostInstantBehaviour,
     pub studio_recording_quality: StudioQuality,
     pub recording_countdown: Option<u32>,
     pub main_window_recording_start_behaviour: MainWindowStartBehaviour,
@@ -851,6 +869,7 @@ pub struct GeneralSettings {
     pub default_project_name_template: Option<String>,
     pub excluded_windows: Vec<WindowExclusion>,
     pub update_channel: UpdateChannel,
+    pub update_download_policy: UpdateDownloadPolicy,
     pub enable_telemetry: bool,
     pub editor_preview_quality: EditorPreviewQuality,
     /// The Experimental page's two toggles. Both default false the way the
@@ -1141,6 +1160,12 @@ impl Default for GeneralSettings {
     }
 }
 
+impl PostInstantBehaviour {
+    pub fn keeps_main_window_hidden(self) -> bool {
+        self != Self::ShowLibrary
+    }
+}
+
 impl GeneralSettings {
     pub fn load() -> Self {
         let store = read_store(&tauri_store_path()).unwrap_or_default();
@@ -1164,7 +1189,7 @@ impl GeneralSettings {
             hide_dock_icon: bool_at(general, "hideDockIcon", false),
             enable_notifications: bool_at(general, "enableNotifications", true),
             instant_mode_max_resolution: u32_at(general, "instantModeMaxResolution", 1920),
-            disable_auto_open_links: bool_at(general, "disableAutoOpenLinks", false),
+            post_instant_recording_behaviour: enum_at(general, "postInstantRecordingBehaviour"),
             studio_recording_quality: enum_at(general, "studioRecordingQuality"),
             recording_countdown: opt_u32_at(general, "recordingCountdown"),
             main_window_recording_start_behaviour: enum_at(
@@ -1209,6 +1234,7 @@ impl GeneralSettings {
                 })
                 .unwrap_or_else(default_excluded_windows),
             update_channel: enum_at(general, "updateChannel"),
+            update_download_policy: enum_at(general, "updateDownloadPolicy"),
             enable_telemetry: bool_at(general, "enableTelemetry", true),
             editor_preview_quality: enum_at(general, "editorPreviewQuality"),
             enable_native_camera_preview: bool_at(general, "enableNativeCameraPreview", false),
@@ -1698,6 +1724,36 @@ pub fn preset_names() -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod post_instant_tests {
+    use super::*;
+
+    #[test]
+    fn only_show_in_library_brings_the_main_window_back() {
+        assert!(!PostInstantBehaviour::ShowLibrary.keeps_main_window_hidden());
+        assert!(PostInstantBehaviour::CopyFile.keeps_main_window_hidden());
+        assert!(PostInstantBehaviour::DoNothing.keeps_main_window_hidden());
+    }
+
+    #[test]
+    fn the_outcome_reads_back_from_the_store_and_defaults_to_the_library() {
+        assert_eq!(
+            PostInstantBehaviour::default(),
+            PostInstantBehaviour::ShowLibrary
+        );
+        for value in PostInstantBehaviour::ALL {
+            assert_eq!(
+                PostInstantBehaviour::from_json(value.as_json()),
+                Some(*value)
+            );
+        }
+        assert_eq!(
+            UpdateDownloadPolicy::default(),
+            UpdateDownloadPolicy::Manual
+        );
+    }
 }
 
 #[cfg(test)]

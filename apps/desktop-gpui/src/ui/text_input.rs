@@ -139,8 +139,12 @@ pub const KEY_CONTEXT: &str = "TextInput";
 /// matched *before* the IME composes the character, so binding `a` would mean
 /// the letter `a` could never be typed.
 pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys(bindings());
+}
+
+fn bindings() -> Vec<KeyBinding> {
     let ctx = Some(KEY_CONTEXT);
-    cx.bind_keys([
+    let mut bindings = vec![
         KeyBinding::new("backspace", Backspace, ctx),
         KeyBinding::new("delete", DeleteForward, ctx),
         KeyBinding::new("alt-backspace", DeleteWordLeft, ctx),
@@ -181,7 +185,33 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("enter", Confirm, ctx),
         KeyBinding::new("escape", Cancel, ctx),
         KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, ctx),
-    ]);
+    ];
+    if cfg!(not(target_os = "macos")) {
+        bindings.extend(ctrl_bindings(ctx));
+    }
+    bindings
+}
+
+fn ctrl_bindings(ctx: Option<&str>) -> [KeyBinding; 17] {
+    [
+        KeyBinding::new("ctrl-a", SelectAll, ctx),
+        KeyBinding::new("ctrl-c", Copy, ctx),
+        KeyBinding::new("ctrl-x", Cut, ctx),
+        KeyBinding::new("ctrl-v", Paste, ctx),
+        KeyBinding::new("ctrl-z", Undo, ctx),
+        KeyBinding::new("ctrl-shift-z", Redo, ctx),
+        KeyBinding::new("ctrl-y", Redo, ctx),
+        KeyBinding::new("ctrl-left", MoveWordLeft, ctx),
+        KeyBinding::new("ctrl-right", MoveWordRight, ctx),
+        KeyBinding::new("ctrl-shift-left", SelectWordLeft, ctx),
+        KeyBinding::new("ctrl-shift-right", SelectWordRight, ctx),
+        KeyBinding::new("ctrl-backspace", DeleteWordLeft, ctx),
+        KeyBinding::new("ctrl-delete", DeleteWordRight, ctx),
+        KeyBinding::new("ctrl-home", MoveToStart, ctx),
+        KeyBinding::new("ctrl-end", MoveToEnd, ctx),
+        KeyBinding::new("ctrl-shift-home", SelectToStart, ctx),
+        KeyBinding::new("ctrl-shift-end", SelectToEnd, ctx),
+    ]
 }
 
 // -- The focus gate for bare printable keys -----------------------------------
@@ -2375,6 +2405,15 @@ impl Element for TextBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_editing_chords_are_bound_with_ctrl() {
+        for binding in ctrl_bindings(Some(KEY_CONTEXT)) {
+            assert_eq!(binding.keystrokes().len(), 1);
+            assert!(binding.keystrokes()[0].modifiers().control);
+        }
+        assert!(bindings().len() > ctrl_bindings(None).len());
+    }
 
     // -- Word navigation ------------------------------------------------------
 

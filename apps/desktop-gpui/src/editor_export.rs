@@ -2042,9 +2042,9 @@ impl EditorWindow {
                                 ui::ButtonSize::Md,
                             )
                             .label(t!("Open File"))
-                            .on_click(move |_, _, _| {
+                            .on_click(move |_, _, cx| {
                                 if let Some(path) = &path {
-                                    library::open_path(path);
+                                    library::open_with_system(path, cx);
                                 }
                             }),
                         )

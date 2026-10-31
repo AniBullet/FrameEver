@@ -7,6 +7,7 @@ mod app_sounds;
 mod app_windows;
 mod assets;
 mod auto_compress;
+mod blur_recovery;
 mod brand;
 #[cfg(target_os = "macos")]
 mod camera_bench;
@@ -17,6 +18,7 @@ mod camera_blur_portable;
 mod camera_loading;
 mod camera_window;
 mod controls_window;
+mod crash_capture;
 mod deeplink;
 mod dev_restore;
 mod devices;
@@ -62,6 +64,7 @@ mod picker_benchmark;
 mod picker_ui_benchmark;
 mod platform;
 mod presets;
+mod project_save;
 mod recording;
 mod screenshot;
 mod screenshot_annotations;
@@ -141,6 +144,12 @@ fn resolve_auto_screenshot_editor(target: &str) -> Option<std::path::PathBuf> {
         .into_iter()
         .find(|item| item.kind == library::MediaKind::Screenshot)
         .map(|item| item.bundle)
+}
+
+#[cfg(target_os = "windows")]
+fn end_windows_session() {
+    crate::store::clear_handoff_marker();
+    crash_capture::mark_clean_exit();
 }
 
 /// stdout, plus a rolling daily file the Feedback page can upload.
@@ -253,8 +262,11 @@ fn app_runtime() -> tokio::runtime::Runtime {
 
 fn main() {
     let _log_guard = init_logging();
+    crash_capture::install(&diagnostics::logs_dir());
 
     single_instance::acquire();
+    let previous_session = crash_capture::begin_session(&diagnostics::logs_dir());
+    blur_recovery::configure(previous_session);
     i18n::init(store::GeneralSettings::load().language.as_deref());
     if cfg!(debug_assertions) {
         store::mark_handoff_session();
@@ -376,6 +388,10 @@ fn main() {
             })
             .detach();
         }
+        cx.on_app_quit(|_| async {
+            crash_capture::mark_clean_exit();
+        })
+        .detach();
 
         app_windows::init(window_handle, session, cx);
         #[cfg(target_os = "macos")]
@@ -532,8 +548,7 @@ fn main() {
             if let Err(error) = platform::install_main_window_frame_policy(&native) {
                 tracing::warn!(%error, "could not install Main window frame policy");
             }
-            if let Err(error) =
-                platform::install_session_end_handler(&native, crate::store::clear_handoff_marker)
+            if let Err(error) = platform::install_session_end_handler(&native, end_windows_session)
             {
                 tracing::warn!(%error, "could not install the Windows session end handler");
             }

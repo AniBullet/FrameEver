@@ -155,6 +155,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 futures-util = "0.3"
 dirs = "7"
+dunce = "1"
 whisper-rs = "0.16.0"
 
 [build-dependencies]
@@ -184,6 +185,11 @@ windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Globalization",
     "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_IO",
+    "Win32_System_Kernel",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",

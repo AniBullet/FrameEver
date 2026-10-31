@@ -31,7 +31,7 @@ use frameever_utils::storage::{
     ExportRecord, ProjectKind, Storage, StorageSettings, is_project, last_export_folder,
     last_export_folder_entry,
 };
-use gpui::RenderImage;
+use gpui::{App, ElementId, RenderImage};
 
 use crate::i18n::t;
 
@@ -563,6 +563,9 @@ pub fn delete_recording_directory_in(dirs: &[PathBuf], path: &Path) -> Result<()
     };
 
     if let Some(canonical_path) = canonical_path {
+        let _thumbnails = crate::recording::hold_studio_thumbnail_writes().ok_or_else(|| {
+            t!("Couldn't delete the recording because its thumbnail is still being written. Try again in a moment.").to_string()
+        })?;
         std::fs::remove_dir_all(canonical_path)
             .map_err(|error| t!("Failed to delete recording: {error}", error = error))?;
     }
@@ -582,7 +585,9 @@ pub(crate) async fn delete_recording(project: PathBuf) -> Result<(), String> {
     if !project.exists() {
         return Ok(());
     }
-    delete_recording_directory(&project)
+    tokio::task::spawn_blocking(move || delete_recording_directory(&project))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// `openRecordingFolder` (`utils/recording.ts:53-70`).
@@ -590,13 +595,42 @@ pub(crate) async fn delete_recording(project: PathBuf) -> Result<(), String> {
 /// An instant recording opens its `content` directory --
 /// `commands.openFilePath` is `open <dir>` on macOS -- and anything else, or a
 /// bundle with no `content` directory, is revealed in the file manager.
-pub fn open_recording_folder(path: &Path, mode: RecordingMode) {
+pub fn open_recording_folder(path: &Path, mode: RecordingMode, cx: &App) {
     let content = path.join("content");
     if mode == RecordingMode::Instant && content.is_dir() {
-        open_path(&content);
+        open_with_system(&content, cx);
     } else {
-        reveal_in_folder(path);
+        reveal_path(path, cx);
     }
+}
+
+pub fn instant_output_path(project: &Path) -> PathBuf {
+    project.join("content").join("output.mp4")
+}
+
+pub fn row_id(project: &Path) -> ElementId {
+    ElementId::Path(project.into())
+}
+
+pub fn is_screenshot_project(project: &Path) -> bool {
+    is_project(project) && screenshot_png(project).is_some()
+}
+
+fn screenshot_png(bundle: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(bundle).ok().and_then(|entries| {
+        entries
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("png"))
+    })
+}
+
+pub fn reveal_path(path: &Path, cx: &App) {
+    cx.reveal_path(dunce::simplified(path));
+}
+
+pub fn open_with_system(path: &Path, cx: &App) {
+    cx.open_with_system(dunce::simplified(path));
 }
 
 pub fn open_path(path: &Path) {
@@ -608,7 +642,12 @@ pub fn open_path(path: &Path) {
         #[cfg(target_os = "windows")]
         {
             std::process::Command::new("cmd")
-                .args(["/C", "start", "", &path.to_string_lossy()])
+                .args([
+                    "/C",
+                    "start",
+                    "",
+                    &dunce::simplified(path).to_string_lossy(),
+                ])
                 .spawn()
         }
     };
@@ -629,7 +668,7 @@ pub fn reveal_in_folder(path: &Path) {
         #[cfg(target_os = "windows")]
         {
             std::process::Command::new("explorer")
-                .arg(format!("/select,{}", path.display()))
+                .arg(format!("/select,{}", dunce::simplified(path).display()))
                 .spawn()
         }
     };
@@ -676,12 +715,7 @@ pub fn list_screenshots_in(dir: &Path) -> Vec<ScreenshotItem> {
         let Ok(meta) = RecordingMeta::load_for_project(&bundle) else {
             continue;
         };
-        let Some(png) = std::fs::read_dir(&bundle).ok().and_then(|entries| {
-            entries
-                .flatten()
-                .map(|entry| entry.path())
-                .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("png"))
-        }) else {
+        let Some(png) = screenshot_png(&bundle) else {
             continue;
         };
 
@@ -2109,6 +2143,36 @@ mod tests {
         assert!(find_incomplete_recordings_in(dirs, None).is_empty());
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_row_follows_its_project_and_never_its_position() {
+        let first = Path::new("recordings/same-name.ever");
+        let second = Path::new("archive/same-name.ever");
+        assert_eq!(row_id(first), row_id(first));
+        assert_ne!(row_id(first), row_id(second));
+    }
+
+    #[test]
+    fn shell_paths_lose_the_verbatim_prefix() {
+        assert_eq!(
+            dunce::simplified(Path::new(r"\\?\C:\Videos\FrameEver")),
+            Path::new(r"C:\Videos\FrameEver")
+        );
+    }
+
+    #[test]
+    fn a_screenshot_project_is_told_from_a_recording() {
+        let root = tempfile::tempdir().unwrap();
+        let screenshot = root.path().join("Shot.ever");
+        std::fs::create_dir_all(&screenshot).unwrap();
+        std::fs::write(screenshot.join("original.png"), b"png").unwrap();
+        let recording = root.path().join("Take.ever");
+        std::fs::create_dir_all(recording.join("content")).unwrap();
+
+        assert!(is_screenshot_project(&screenshot));
+        assert!(!is_screenshot_project(&recording));
+        assert!(!is_screenshot_project(&root.path().join("Missing.ever")));
     }
 
     /// The three `delete_recording_directory` guards, one test each.

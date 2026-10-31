@@ -324,6 +324,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("the recording's date", "录制日期"),
     ("the recording's time", "录制时间"),
     ("Available placeholders", "可用占位符"),
+    ("Random", "随机"),
+    (
+        "10 filename-safe hexadecimal characters; use {random:N} for 1–32.",
+        "10 个可用于文件名的十六进制字符；用 {random:N} 指定 1–32 个。",
+    ),
     ("Default project name", "默认项目名称"),
     (
         "Template used for new recordings and exported files.",
@@ -354,6 +359,14 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "通过远程桌面或串流软件使用时，帧刻的窗口会留在录制画面里。",
     ),
     ("Update channel", "更新通道"),
+    ("Update downloads", "更新下载"),
+    (
+        "Choose whether FrameEver downloads updates automatically.",
+        "选择 FrameEver 是否自动下载更新。",
+    ),
+    ("Ask first", "先询问"),
+    ("Never", "从不"),
+    ("Checking for updates…", "正在检查更新…"),
     (
         "Which release channel updates come from.",
         "更新来自哪个发布通道。",
@@ -378,10 +391,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Edit right away", "立即编辑"),
     ("Show FrameEver", "显示帧刻"),
     ("Back to the recorder", "回到录制器"),
-    ("Open link", "打开链接"),
-    ("In your browser", "在浏览器中"),
-    ("Copy link only", "仅复制链接"),
-    ("Nothing opens", "不打开任何内容"),
+    ("Show in library", "显示资源库"),
+    ("Back to FrameEver", "回到 FrameEver"),
+    ("Copy file", "复制文件"),
+    ("Ready to paste", "可直接粘贴"),
     ("Screenshot an area", "截取区域"),
     ("Screenshot a window", "截取窗口"),
     ("Screenshot the display", "截取显示器"),
@@ -408,13 +421,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("take a screenshot of it", "对其截图"),
     (", then open the editor when you stop", "，停止后打开编辑器"),
     (
-        ", then copy its share link when you stop",
-        "，停止后复制分享链接",
+        ", then show it in the library when you stop",
+        "，停止后在资源库中显示",
     ),
-    (
-        ", then copy and open its share link when you stop",
-        "，停止后复制并打开分享链接",
-    ),
+    (", then copy the file when you stop", "，停止后复制文件"),
     ("select an area and {screenshot}", "选择区域并{screenshot}"),
     (
         "capture the window under your pointer and {screenshot}",
@@ -484,7 +494,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("After a Studio recording", "工作室录制后"),
     ("When you stop", "停止录制时"),
     ("After an Instant recording", "快速录制后"),
-    ("The share link is always copied", "分享链接总会被复制"),
+    (
+        "The recording is always saved to the library",
+        "录制总会保存到资源库",
+    ),
     (
         "Shortcuts work from any app. Click one to change it.",
         "快捷键在任何应用中都可使用。点击即可修改。",

@@ -260,9 +260,6 @@ fn apply_progress(update: ImportProgress, cx: &mut App) {
     repaint_main_window(cx);
 }
 
-/// The refresh seam a finished import rides: the Recents carousel and the
-/// settings Recordings page (`refresh_library_after_delete`), the open library
-/// panel, and the tray's Previous submenu.
 fn refresh_libraries(cx: &mut App) {
     if !cx.has_global::<crate::app_windows::AppWindows>() {
         return;
@@ -271,7 +268,6 @@ fn refresh_libraries(cx: &mut App) {
     let main = cx.global::<crate::app_windows::AppWindows>().main;
     main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
         .ok();
-    crate::tray::refresh_previous(cx);
 }
 
 /// The main window is rarely the active window while an import ticks, and an

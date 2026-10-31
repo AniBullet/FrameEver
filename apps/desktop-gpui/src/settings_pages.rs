@@ -681,22 +681,29 @@ const STUDIO_OUTCOMES: [(store::PostStudioBehaviour, OutcomeOption); 3] = [
     ),
 ];
 
-/// `disableAutoOpenLinks`, phrased as what an Instant recording does.
-const INSTANT_OUTCOMES: [(bool, OutcomeOption); 2] = [
+const INSTANT_OUTCOMES: [(store::PostInstantBehaviour, OutcomeOption); 3] = [
     (
-        false,
+        store::PostInstantBehaviour::ShowLibrary,
         OutcomeOption {
-            icon: "icons/globe.svg",
-            label: n!("Open link"),
-            hint: n!("In your browser"),
+            icon: "icons/app-window.svg",
+            label: n!("Show in library"),
+            hint: n!("Back to FrameEver"),
         },
     ),
     (
-        true,
+        store::PostInstantBehaviour::CopyFile,
         OutcomeOption {
-            icon: "icons/link.svg",
-            label: n!("Copy link only"),
-            hint: n!("Nothing opens"),
+            icon: "icons/copy.svg",
+            label: n!("Copy file"),
+            hint: n!("Ready to paste"),
+        },
+    ),
+    (
+        store::PostInstantBehaviour::DoNothing,
+        OutcomeOption {
+            icon: "icons/folder-down.svg",
+            label: n!("Do nothing"),
+            hint: n!("Saved to library"),
         },
     ),
 ];
@@ -752,10 +759,12 @@ fn shortcut_effect(
         store::PostStudioBehaviour::OpenEditor => t!(", then open the editor when you stop"),
         store::PostStudioBehaviour::ShowOverlay | store::PostStudioBehaviour::DoNothing => "",
     };
-    let instant_stop = if settings.disable_auto_open_links {
-        t!(", then copy its share link when you stop")
-    } else {
-        t!(", then copy and open its share link when you stop")
+    let instant_stop = match settings.post_instant_recording_behaviour {
+        store::PostInstantBehaviour::ShowLibrary => {
+            t!(", then show it in the library when you stop")
+        }
+        store::PostInstantBehaviour::CopyFile => t!(", then copy the file when you stop"),
+        store::PostInstantBehaviour::DoNothing => "",
     };
     match action {
         "screenshotArea" => t!("select an area and {screenshot}", screenshot = screenshot),
@@ -1196,17 +1205,20 @@ impl SettingsWindow {
             self.render_outcome_panel(
                 "outcome-instant",
                 t!("After an Instant recording"),
-                t!("The share link is always copied"),
+                t!("The recording is always saved to the library"),
                 &INSTANT_OUTCOMES
                     .iter()
-                    .map(|(disabled, option)| {
-                        (*option, *disabled == self.settings.disable_auto_open_links)
+                    .map(|(value, option)| {
+                        (
+                            *option,
+                            *value == self.settings.post_instant_recording_behaviour,
+                        )
                     })
                     .collect::<Vec<_>>(),
                 |this, index, cx| {
-                    if let Some((disabled, _)) = INSTANT_OUTCOMES.get(index) {
-                        this.settings.disable_auto_open_links = *disabled;
-                        this.write_bool("disableAutoOpenLinks", *disabled, cx);
+                    if let Some((value, _)) = INSTANT_OUTCOMES.get(index) {
+                        this.settings.post_instant_recording_behaviour = *value;
+                        this.write_enum("postInstantRecordingBehaviour", *value, cx);
                     }
                 },
                 cx,
@@ -2642,7 +2654,10 @@ impl SettingsWindow {
                 .spawn(async move { diagnostics::export_logs(&path).map(|()| path) })
                 .await;
             match result {
-                Ok(path) => crate::library::reveal_in_folder(&path),
+                Ok(path) => {
+                    cx.update(|_, cx| crate::library::reveal_path(&path, cx))
+                        .ok();
+                }
                 Err(error) => crate::platform::alert_dialog(t!("Could not export logs"), &error),
             }
         })
@@ -3017,7 +3032,7 @@ impl SettingsWindow {
                             ui::ButtonSize::Md,
                         )
                         .label(t!("Show File"))
-                        .on_click(move |_, _, _| crate::library::reveal_in_folder(&path)),
+                        .on_click(move |_, _, cx| crate::library::reveal_path(&path, cx)),
                     );
                 }
                 buttons = buttons.child(
@@ -3135,7 +3150,9 @@ impl SettingsWindow {
                     ui::ButtonSize::Md,
                 )
                 .label(t!("Open Logs Folder"))
-                .on_click(|_, _, _| crate::library::open_path(&diagnostics::logs_dir())),
+                .on_click(|_, _, cx| {
+                    crate::library::open_with_system(&diagnostics::logs_dir(), cx)
+                }),
             );
 
         let report_issue = div().child(
@@ -5732,8 +5749,8 @@ mod tests {
             store::PostScreenshotBehaviour::Save,
         ] {
             settings.post_screenshot_behaviour = screenshot;
-            for open_links_disabled in [false, true] {
-                settings.disable_auto_open_links = open_links_disabled;
+            for (instant, _) in INSTANT_OUTCOMES {
+                settings.post_instant_recording_behaviour = instant;
                 for studio in [
                     store::PostStudioBehaviour::OpenEditor,
                     store::PostStudioBehaviour::ShowOverlay,
@@ -5779,12 +5796,13 @@ mod tests {
                 1
             );
         }
-        for disabled in [false, true] {
+        for value in [
+            store::PostInstantBehaviour::ShowLibrary,
+            store::PostInstantBehaviour::CopyFile,
+            store::PostInstantBehaviour::DoNothing,
+        ] {
             assert_eq!(
-                INSTANT_OUTCOMES
-                    .iter()
-                    .filter(|(v, _)| *v == disabled)
-                    .count(),
+                INSTANT_OUTCOMES.iter().filter(|(v, _)| *v == value).count(),
                 1
             );
         }
@@ -5809,11 +5827,13 @@ mod tests {
         );
         settings.post_studio_recording_behaviour = store::PostStudioBehaviour::ShowOverlay;
         assert!(!shortcut_effect("startStudioRecording", &settings, studio).contains("editor"));
-        settings.disable_auto_open_links = true;
+        settings.post_instant_recording_behaviour = store::PostInstantBehaviour::CopyFile;
         assert!(
             shortcut_effect("startInstantRecording", &settings, studio)
-                .ends_with("copy its share link when you stop")
+                .ends_with("copy the file when you stop")
         );
+        settings.post_instant_recording_behaviour = store::PostInstantBehaviour::DoNothing;
+        assert!(!shortcut_effect("startInstantRecording", &settings, studio).contains("stop"));
         assert_eq!(
             shortcut_effect(
                 "openRecordingPickerWindow",

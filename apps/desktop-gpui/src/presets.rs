@@ -124,7 +124,7 @@ impl PresetsStore {
 /// presentation defaults the recorder applies (`recording.rs`
 /// `apply_screen_recording_presentation_defaults`): 10% padding, 7.5%
 /// rounding and the default screen-movement spring.
-pub fn default_project_config() -> ProjectConfiguration {
+pub fn default_project_config(current: &ProjectConfiguration) -> ProjectConfiguration {
     let mut config = ProjectConfiguration::default();
     if config.background.padding <= f64::EPSILON {
         config.background.padding = 10.0;
@@ -133,34 +133,29 @@ pub fn default_project_config() -> ProjectConfiguration {
         config.background.rounding = 7.5;
     }
     config.screen_movement_spring = frameever_project::ScreenMovementSpring::default();
-    config
+    current.with_preset(config)
 }
 
-/// What a preset stores: the whole project config with `timeline: null` and
-/// `clips: []` -- presets style a project, they never carry its cuts
-/// (`createPresets.ts:31-35`).
 pub fn preset_config(project: &ProjectConfiguration) -> Value {
     let mut value = serde_json::to_value(project).unwrap_or(Value::Null);
     if let Some(map) = value.as_object_mut() {
         map.insert("timeline".into(), Value::Null);
         map.insert("clips".into(), Value::Array(Vec::new()));
         map.remove("overlayOrder");
+        if let Some(captions) = map.get_mut("captions").and_then(Value::as_object_mut) {
+            captions.insert("segments".into(), Value::Array(Vec::new()));
+            captions.remove("sourceTimed");
+        }
     }
     value
 }
 
-/// `applyPreset`'s merge (`PresetsDropdown.tsx`): the preset's config with the
-/// *current* timeline and clips kept in place. `None` when the stored JSON no
-/// longer deserializes.
 pub fn apply_preset(
     config: &Value,
     current: &ProjectConfiguration,
 ) -> Option<ProjectConfiguration> {
-    let mut next: ProjectConfiguration = serde_json::from_value(config.clone()).ok()?;
-    next.timeline = current.timeline.clone();
-    next.overlay_order = current.overlay_order.clone();
-    next.clips = current.clips.clone();
-    Some(next)
+    let next = serde_json::from_value(config.clone()).ok()?;
+    Some(current.with_preset(next))
 }
 
 #[cfg(test)]
@@ -229,6 +224,46 @@ mod tests {
         let config = preset_config(&ProjectConfiguration::default());
         assert_eq!(config["timeline"], Value::Null);
         assert_eq!(config["clips"], json!([]));
+    }
+
+    fn captioned_project(text: &str) -> ProjectConfiguration {
+        serde_json::from_value(json!({
+            "textSizeVersion": 1,
+            "textAnimVersion": 1,
+            "timeline": {
+                "segments": [{ "start": 0.0, "end": 10.0, "timescale": 1.0 }],
+                "zoomSegments": [],
+                "captionSegments": [{ "id": "spoken", "start": 2.0, "end": 3.0, "text": text }]
+            },
+            "captions": {
+                "segments": [{ "id": "spoken", "start": 2.0, "end": 3.0, "text": text }],
+                "settings": { "enabled": true, "size": 32 }
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_preset_carries_caption_styling_and_never_caption_text() {
+        let saved = preset_config(&captioned_project("From another recording"));
+        assert_eq!(saved["captions"]["segments"], json!([]));
+        assert_eq!(saved["captions"]["settings"]["size"], json!(32));
+    }
+
+    #[test]
+    fn applying_a_preset_keeps_the_captions_and_text_versions_of_the_project() {
+        let saved = preset_config(&captioned_project("From another recording"));
+        let current = captioned_project("Current recording");
+
+        let applied = apply_preset(&saved, &current).expect("preset deserializes");
+        let captions = applied.captions.as_ref().expect("captions stay");
+        assert_eq!(captions.segments[0].text, "Current recording");
+        assert_eq!(applied.text_size_version, current.text_size_version);
+        assert_eq!(applied.text_anim_version, current.text_anim_version);
+
+        let reset = default_project_config(&current);
+        let captions = reset.captions.as_ref().expect("captions stay");
+        assert_eq!(captions.segments[0].text, "Current recording");
     }
 
     #[test]

@@ -329,6 +329,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "无法检查录制路径：{error}",
     ),
     (
+        "Couldn't delete the recording because its thumbnail is still being written. Try again in a moment.",
+        "无法删除录制，缩略图还在写入。请稍后再试。",
+    ),
+    (
         "Failed to delete recording: {error}",
         "无法删除录制：{error}",
     ),

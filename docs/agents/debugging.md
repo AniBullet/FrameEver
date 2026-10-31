@@ -37,6 +37,7 @@ Test cadence: while iterating run `pnpm fe test <filter>` (an app-only edit rebu
 | Fake 2.x install for `fe converter` | `apps/desktop-gpui/target/testdata/converter/` |
 | App log (test profile) | `apps/desktop-gpui/target/testdata/logs/frameever.log.<date>` |
 | App log (installed app) | `%LOCALAPPDATA%\io.github.anibullet.frameever\logs\` |
+| Crash records, in the same folder | `frameever.log.crashes` (panics, unhandled exceptions, stack overflows), `frameever.log.stderr` (with `-previous` beside it), `frameever.session` (left behind means the last run did not quit cleanly) |
 | Installer output | `dist/` |
 | Translations | `apps/desktop-gpui/src/i18n/zh_cn/*.rs`, rules in `docs/i18n.md` |
 | Brand constants | `crates/utils/src/brand.rs` |
