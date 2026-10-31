@@ -174,22 +174,18 @@ pub const MINIMAP_MAX_WIDTH: f32 = 78.;
 // Colours
 // ---------------------------------------------------------------------------
 
-/// The single source of truth for track colour is eleven CSS custom properties
-/// with one definition each -- not per-appearance values -- so they are literal
-/// in both themes exactly as they are there
-/// (Tauri `src/styles/theme.css`).
 pub mod track_color {
-    pub const CLIP: u32 = 0x3b82f6;
-    pub const ZOOM: u32 = 0x64748b;
-    pub const CAPTION: u32 = 0x0ea5e9;
-    pub const KEYBOARD: u32 = 0xf97316;
-    pub const STYLE: u32 = 0xec4899;
-    pub const IMAGE: u32 = 0xf59e0b;
-    pub const TEXT: u32 = 0x14b8a6;
-    pub const MASK: u32 = 0xef4444;
-    pub const SCENE: u32 = 0x8b5cf6;
-    pub const AUDIO: u32 = 0x22c55e;
-    pub const THREE_D: u32 = 0x6366f1;
+    pub const CLIP: u32 = 0x8a8a8a;
+    pub const ZOOM: u32 = 0x3d55a5;
+    pub const CAPTION: u32 = 0x2f7f6e;
+    pub const KEYBOARD: u32 = 0x94661e;
+    pub const STYLE: u32 = 0x96476f;
+    pub const IMAGE: u32 = 0x94661e;
+    pub const TEXT: u32 = 0x2f7f6e;
+    pub const MASK: u32 = 0xa0453f;
+    pub const SCENE: u32 = 0x6b4693;
+    pub const AUDIO: u32 = 0x6b4693;
+    pub const THREE_D: u32 = 0x4b4a9e;
 }
 
 /// A muted clip keeps the clip lane's shape but drops its hue, so it reads as
@@ -833,8 +829,8 @@ pub fn waveform_sample_count(canvas_width: f64) -> usize {
 
 /// Both waveforms are the lane's own colour at 55 %: over a tinted segment a
 /// white or orange fill (`TL/ClipTrack.tsx:293-302`) has nothing to sit on.
-pub fn waveform_color(color: Hsla) -> Hsla {
-    with_alpha(color, 0.55)
+pub fn waveform_color(theme: &Theme) -> Hsla {
+    Hsla::from(theme.component.waveform)
 }
 
 // ---------------------------------------------------------------------------
@@ -2273,14 +2269,14 @@ fn render_track_content(
                 .items_center()
                 .justify_center()
                 .rounded(px(6.))
-                .bg(with_alpha(Hsla::from(gpui::rgb(0xef4444)), 0.12));
+                .bg(with_alpha(Hsla::from(theme.danger), 0.12));
             if width >= 26. {
                 gap = gap.child(
                     div()
                         .px(px(6.))
                         .py(px(2.))
                         .rounded(px(6.))
-                        .bg(Hsla::from(gpui::rgb(0xef4444)))
+                        .bg(Hsla::from(theme.danger))
                         .text_size(px(10.))
                         .line_height(px(12.))
                         .font_weight(FontWeight::MEDIUM)
@@ -2665,7 +2661,7 @@ fn render_segment(
                 view,
                 width,
                 height,
-                color,
+                waveform_color(theme),
             ));
         }
         fill = fill.child(render_clip_markings(
@@ -2737,10 +2733,10 @@ fn render_segment(
                 dot.left(px(CAMERA3D_POSE_DOT_INSET))
             };
             fill = fill.child(if end == camera3d_editing_end {
-                dot.bg(Hsla::from(theme.editor.accent))
+                dot.bg(Hsla::from(theme.foreground))
             } else {
                 dot.border(px(1.5))
-                    .border_color(Hsla::from(theme.editor.accent))
+                    .border_color(Hsla::from(theme.foreground))
             });
         }
     }
@@ -2780,7 +2776,7 @@ fn render_segment(
                     if selected || (split_mode && hovered) {
                         border
                             .border(px(1.5))
-                            .border_color(Hsla::from(theme.editor.accent))
+                            .border_color(Hsla::from(theme.foreground))
                     } else {
                         border.border_1().border_color(seg_border(
                             theme,
@@ -2894,7 +2890,6 @@ fn render_clip_markings(
         return div();
     };
     let via = with_alpha(color, 0.14);
-    let transparent = with_alpha(color, 0.);
 
     let mut root = div();
     for x in clip_marking_xs(
@@ -2920,26 +2915,8 @@ fn render_clip_markings(
                 .h(px(marking_height))
                 .flex()
                 .flex_col()
-                .child(
-                    div()
-                        .w_full()
-                        .h(px(marking_height / 2.))
-                        .bg(gpui::linear_gradient(
-                            180.,
-                            gpui::linear_color_stop(transparent, 0.),
-                            gpui::linear_color_stop(via, 1.),
-                        )),
-                )
-                .child(
-                    div()
-                        .w_full()
-                        .h(px(marking_height / 2.))
-                        .bg(gpui::linear_gradient(
-                            180.,
-                            gpui::linear_color_stop(via, 0.),
-                            gpui::linear_color_stop(transparent, 1.),
-                        )),
-                ),
+                .child(div().w_full().h(px(marking_height / 2.)).bg(via))
+                .child(div().w_full().h(px(marking_height / 2.)).bg(via)),
         );
     }
     root
@@ -3221,7 +3198,7 @@ fn render_waveform(
     let transform = view.transform;
     let full_width = width.max(1.) as f64;
     let wave_height = height.min(WAVEFORM_MAX_HEIGHT);
-    let wave_color = waveform_color(color);
+    let wave_color = color;
     let paths = model.waveform_paths.clone();
 
     gpui::canvas(
@@ -5149,10 +5126,6 @@ pub(crate) fn render_preparing_timeline(
     }
     let mut veil = theme.editor.card;
     veil.a = 0.88;
-    let mut edge = theme.editor.card;
-    edge.a = 0.35;
-    let mut clear = theme.editor.card;
-    clear.a = 0.0;
     div()
         .size_full()
         .min_h_0()
@@ -5194,18 +5167,7 @@ pub(crate) fn render_preparing_timeline(
                         .bottom_0()
                         .left(px(TRACK_GUTTER + frontier))
                         .right_0()
-                        .bg(gpui::linear_gradient(
-                            90.,
-                            gpui::linear_color_stop(edge, 0.),
-                            gpui::linear_color_stop(veil, 1.),
-                        ))
-                        .child(div().absolute().left_0().top_0().bottom_0().w(px(20.)).bg(
-                            gpui::linear_gradient(
-                                90.,
-                                gpui::linear_color_stop(clear, 0.),
-                                gpui::linear_color_stop(veil, 1.),
-                            ),
-                        ))
+                        .bg(veil)
                 })),
         )
         .child(render_playhead(

@@ -69,7 +69,7 @@ impl EditorButton {
             icon_size: px(16.),
             right_icon_size: px(10.),
             width: None,
-            height: px(28.),
+            height: px(crate::theme::CONTROL_HEIGHT),
             padding_x: px(7.),
             text_size: px(13.),
             variant: EditorButtonVariant::Primary,

@@ -959,7 +959,7 @@ impl EditorWindow {
                         .flex_row()
                         .items_center()
                         .gap(px(6.))
-                        .h(px(28.))
+                        .h(px(crate::theme::CONTROL_HEIGHT))
                         .pl(px(8.))
                         .pr(px(10.))
                         .rounded(px(8.))
@@ -1077,7 +1077,6 @@ impl EditorWindow {
                     .h(px(box_h))
                     .rounded(px(10.))
                     .overflow_hidden()
-                    .shadow(crate::theme::preview_shadow())
                     .child(img(image).object_fit(gpui::ObjectFit::Contain).size_full())
                     .into_any_element()
             }
@@ -1165,7 +1164,6 @@ impl EditorWindow {
                         .flex_row()
                         .rounded(px(10.))
                         .bg(Hsla::from(editor.card))
-                        .shadow(editor.card_shadow())
                         .child(export_stat(
                             &theme,
                             t!("Duration"),
@@ -1296,7 +1294,7 @@ impl EditorWindow {
         let (bg, hover_bg, text) = if primary {
             (
                 Hsla::from(editor.accent),
-                Hsla::from(editor.accent_2),
+                Hsla::from(editor.accent_hover),
                 gpui::white(),
             )
         } else {
@@ -1322,15 +1320,6 @@ impl EditorWindow {
             .text_size(px(13.))
             .font_weight(FontWeight::MEDIUM)
             .text_color(text)
-            .when(primary, |this| {
-                this.shadow(vec![gpui::BoxShadow {
-                    color: gpui::hsla(0., 0., 1., 0.18),
-                    offset: gpui::point(px(0.), px(1.)),
-                    blur_radius: px(0.),
-                    spread_radius: px(0.),
-                    inset: true,
-                }])
-            })
             .when(busy, |this| this.opacity(0.5))
             .when(!busy, |this| {
                 this.cursor_pointer()
@@ -1795,7 +1784,6 @@ impl EditorWindow {
                                             Hsla::from(editor.thumb),
                                             Some(gpui::hsla(0., 0., 0., 0.12)),
                                         )
-                                        .thumb_shadow()
                                         .on_drag_start(cx.listener(
                                             |this, event: &MouseDownEvent, _window, cx| {
                                                 this.export_bpp_mouse_down(event, cx);

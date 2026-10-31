@@ -39,9 +39,7 @@ use crate::{
     editor_sidebar::{SliderKey, collapsible, dashed_divider},
     editor_window::EditorWindow,
     i18n::{n, t, tc, tr},
-    store,
-    theme::Theme,
-    transcription, ui,
+    store, transcription, ui,
 };
 
 // ---------------------------------------------------------------------------
@@ -1444,7 +1442,6 @@ impl EditorWindow {
                     "camera-position-{item_x}-{item_y}"
                 )))
                 .absolute()
-                // `size-6 rounded-md`, `bg-blue-9` selected, `bg-gray-5` not.
                 .size(px(24.))
                 .flex_none()
                 .rounded(px(6.))
@@ -1452,7 +1449,7 @@ impl EditorWindow {
                 .justify_center()
                 .items_center()
                 .bg(if checked {
-                    Hsla::from(theme.blue_9)
+                    Hsla::from(theme.primary)
                 } else {
                     Hsla::from(theme.gray_5)
                 })
@@ -1647,7 +1644,7 @@ impl EditorWindow {
         ];
         let enabled = self.project.audio.improve;
         let enabled_by_default = self.sidebar.audio_enhancement_default;
-        let accent = Hsla::from(theme.editor.accent);
+        let accent = Hsla::from(theme.foreground);
         let line = Hsla::from(theme.editor.line);
 
         div()
@@ -1671,7 +1668,7 @@ impl EditorWindow {
                             .size(px(30.))
                             .rounded(px(9.))
                             .bg(if enabled {
-                                Theme::with_alpha(theme.editor.accent, 0.12)
+                                Hsla::from(theme.selection)
                             } else {
                                 Hsla::from(theme.editor.ctl)
                             })
@@ -2326,7 +2323,7 @@ impl EditorWindow {
                     ui::Button::plain(
                         &theme,
                         "keyboard-generate",
-                        ui::ButtonVariant::Primary,
+                        ui::ButtonVariant::Gray,
                         ui::ButtonSize::Md,
                     )
                     .label(if self.generating_keyboard {
@@ -2493,7 +2490,7 @@ impl EditorWindow {
         let has_audio = self
             .summary()
             .is_some_and(|summary| summary.has_microphone || summary.has_system_audio);
-        let error_color = Hsla::from(gpui::rgb(0xef4444));
+        let error_color = Hsla::from(theme.danger_text);
 
         // The `KSelect.Trigger` with label, description and size
         // (`CaptionsTab.tsx:824-860`); the info tooltip carries the engine
@@ -2566,7 +2563,7 @@ impl EditorWindow {
                     ui::Button::plain(
                         &theme,
                         "caption-generate",
-                        ui::ButtonVariant::Primary,
+                        ui::ButtonVariant::Gray,
                         ui::ButtonSize::Md,
                     )
                     .label(if generating {
@@ -2647,7 +2644,7 @@ impl EditorWindow {
             let download_button = ui::Button::plain(
                 &theme,
                 "caption-download",
-                ui::ButtonVariant::Primary,
+                ui::ButtonVariant::Gray,
                 ui::ButtonSize::Md,
             )
             .full_width()
@@ -2681,7 +2678,7 @@ impl EditorWindow {
                                 div()
                                     .h_full()
                                     .rounded_full()
-                                    .bg(Hsla::from(theme.blue_9))
+                                    .bg(Hsla::from(theme.primary))
                                     .w(relative(download_percent as f32 / 100.)),
                             ),
                     )
@@ -2962,14 +2959,13 @@ impl EditorWindow {
                     .bg(self.panel_bg())
                     .border_1()
                     .border_color(if selected {
-                        Hsla::from(theme.blue_9)
+                        Hsla::from(theme.foreground)
                     } else {
                         Hsla::from(theme.gray_3)
                     })
-                    // `ring-1 ring-blue-9`, painted behind an opaque card.
                     .when(selected, |this| {
                         this.shadow(vec![gpui::BoxShadow {
-                            color: Hsla::from(theme.blue_9),
+                            color: Hsla::from(theme.foreground),
                             offset: gpui::point(px(0.), px(0.)),
                             blur_radius: px(0.),
                             spread_radius: px(1.),
@@ -3021,12 +3017,7 @@ impl EditorWindow {
             .flex()
             .items_center()
             .justify_center()
-            // `background: linear-gradient(135deg, #4b4f57, #232427)`
-            .bg(gpui::linear_gradient(
-                135.,
-                gpui::linear_color_stop(gpui::rgb(0x4b4f57), 0.),
-                gpui::linear_color_stop(gpui::rgb(0x232427), 1.),
-            ))
+            .bg(self.theme.preview)
             .child(
                 div()
                     .flex()

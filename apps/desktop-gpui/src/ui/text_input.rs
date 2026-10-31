@@ -1604,7 +1604,7 @@ impl TextInput {
             state: state.clone(),
             id: id.into(),
             icon: None,
-            height: Some(px(32.)),
+            height: Some(px(crate::theme::CONTROL_HEIGHT)),
             padding_x: px(8.),
             padding_y: px(0.),
             radius: px(8.),
@@ -1639,7 +1639,7 @@ impl TextInput {
         Self {
             bg: Some(theme.settings_fill()),
             border: Some(theme.settings_border()),
-            focus_border: Some(Theme::with_alpha(gpui::rgb(Theme::SETTINGS_ACCENT), 0.8)),
+            focus_border: Some(Hsla::from(theme.ring)),
             text: theme.settings_text(),
             muted: theme.settings_muted(),
             caret_color: theme.settings_text(),
@@ -1653,7 +1653,7 @@ impl TextInput {
     /// remaps.
     pub fn search(theme: &Theme, id: impl Into<ElementId>, state: &Entity<TextInputState>) -> Self {
         Self {
-            height: Some(px(36.)),
+            height: Some(px(crate::theme::CONTROL_HEIGHT)),
             radius: px(6.),
             gap: px(4.),
             bg: Some(theme.body_fill(2)),
@@ -1675,7 +1675,7 @@ impl TextInput {
             text_size: px(13.),
             bg: Some(Hsla::from(theme.editor.ctl)),
             border: None,
-            focus_border: Some(Hsla::from(theme.editor.accent)),
+            focus_border: Some(Hsla::from(theme.ring)),
             text: Hsla::from(theme.editor.text_1),
             muted: Hsla::from(theme.editor.text_3),
             icon_color: Hsla::from(theme.editor.text_3),
@@ -1793,12 +1793,8 @@ impl TextInput {
     }
 }
 
-/// The selection wash. `--macos-settings-accent` resolves to the user's system
-/// accent in the shipping app and gpui exposes no query for it, so this is the
-/// same macOS blue the toggles already deviate to, at the 30 % a focused
-/// `<input>`'s selection paints at.
 fn selection_tint() -> Hsla {
-    Theme::with_alpha(gpui::rgb(Theme::SETTINGS_ACCENT), 0.30)
+    gpui::hsla(0., 0., 0.5, 0.35)
 }
 
 // -- Rendering ----------------------------------------------------------------

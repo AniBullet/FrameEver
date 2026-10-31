@@ -38,7 +38,7 @@ const GAP: f32 = 12.;
 const SV_WIDTH: f32 = PANEL_WIDTH - PAD * 2.;
 const SV_HEIGHT: f32 = 160.;
 const HUE_HEIGHT: f32 = 14.;
-const ROW_HEIGHT: f32 = 32.;
+const ROW_HEIGHT: f32 = crate::theme::CONTROL_HEIGHT;
 const THUMB: f32 = 14.;
 
 /// The saturation/value field's rectangle, relative to the panel's top-left.
@@ -273,7 +273,6 @@ impl RenderOnce for ColorPicker {
             .border_1()
             .border_color(Hsla::from(theme.editor.line))
             .bg(Hsla::from(theme.editor.card))
-            .shadow(theme.editor.pop_shadow())
             // A press on the panel body must not fall through to the
             // caller's click-away backdrop underneath.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -304,8 +303,7 @@ impl RenderOnce for ColorPicker {
                             .rounded_full()
                             .border_2()
                             .border_color(gpui::white())
-                            .bg(rgb_hsla(rgb))
-                            .shadow_sm(),
+                            .bg(rgb_hsla(rgb)),
                     )
                     .when_some_mouse_down(on_sv_down),
             )
@@ -340,8 +338,7 @@ impl RenderOnce for ColorPicker {
                             .rounded_full()
                             .border_2()
                             .border_color(gpui::white())
-                            .bg(rgb_hsla(hue_rgb))
-                            .shadow_sm(),
+                            .bg(rgb_hsla(hue_rgb)),
                     )
                     .when_some_mouse_down(on_hue_down),
             )

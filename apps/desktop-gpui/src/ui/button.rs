@@ -9,7 +9,7 @@ use gpui::{
 };
 
 use super::menu::OpenHandler;
-use crate::theme::Theme;
+use crate::theme::{CONTROL_HEIGHT, Theme};
 
 /// The click handler every component takes. `cx.listener(..)` produces exactly
 /// this shape for any window type, so components stay window-agnostic without
@@ -23,7 +23,6 @@ pub type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static
 pub enum ButtonVariant {
     /// `bg-gray-12 text-gray-1`, `disabled:bg-gray-6 disabled:text-gray-9`.
     Primary,
-    /// `bg-blue-600 text-white border border-blue-800`.
     Blue,
     /// `bg-red-500 text-white hover:bg-red-600`.
     Destructive,
@@ -71,13 +70,10 @@ impl ButtonSize {
         }
     }
 
-    /// `md` is `py-2` rather than a fixed height, which is why this is optional.
     fn height(self) -> Option<Pixels> {
         match self {
             ButtonSize::Xs => Some(px(20.)),
-            ButtonSize::Sm => Some(px(28.)),
-            ButtonSize::Md => None,
-            ButtonSize::Lg => Some(px(36.)),
+            ButtonSize::Sm | ButtonSize::Md | ButtonSize::Lg => Some(px(CONTROL_HEIGHT)),
         }
     }
 
@@ -212,7 +208,7 @@ impl Button {
                 hover_border: None,
             },
             _ => ButtonPaint {
-                bg: Some(gpui::rgb(Theme::SETTINGS_ACCENT).into()),
+                bg: Some(theme.primary.into()),
                 hover_bg: None,
                 text: gpui::white(),
                 hover_text: None,
@@ -339,42 +335,40 @@ impl Button {
 fn radix_paint(theme: &Theme, variant: ButtonVariant) -> ButtonPaint {
     match variant {
         ButtonVariant::Primary => ButtonPaint {
-            bg: Some(theme.gray(12)),
-            hover_bg: None,
-            text: theme.gray(1),
+            bg: Some(theme.primary.into()),
+            hover_bg: Some(theme.primary_hover.into()),
+            text: theme.primary_foreground.into(),
             hover_text: None,
             border: None,
             hover_border: None,
         },
-        // `bg-blue-600 ... hover:bg-blue-700`: Tailwind's blue, not Radix's --
-        // the two scales differ and the class is `blue-600`, not `blue-9`.
         ButtonVariant::Blue => ButtonPaint {
-            bg: Some(gpui::rgb(0x2563eb).into()),
-            hover_bg: Some(gpui::rgb(0x1d4ed8).into()),
-            text: gpui::white(),
+            bg: Some(theme.primary.into()),
+            hover_bg: Some(theme.primary_hover.into()),
+            text: theme.primary_foreground.into(),
             hover_text: None,
-            border: Some(gpui::rgb(0x1e40af).into()),
+            border: None,
             hover_border: None,
         },
         ButtonVariant::Destructive => ButtonPaint {
-            bg: Some(gpui::rgb(0xef4444).into()),
-            hover_bg: Some(gpui::rgb(0xdc2626).into()),
-            text: gpui::white(),
+            bg: Some(theme.danger.into()),
+            hover_bg: Some(theme.danger_hover.into()),
+            text: theme.danger_foreground.into(),
             hover_text: None,
             border: None,
             hover_border: None,
         },
         ButtonVariant::Outline => ButtonPaint {
             bg: None,
-            hover_bg: Some(theme.gray(12)),
+            hover_bg: Some(theme.accent.into()),
             text: theme.gray(12),
-            hover_text: Some(theme.gray(1)),
-            border: Some(theme.gray(4)),
-            hover_border: Some(theme.gray(12)),
+            hover_text: None,
+            border: Some(theme.input.into()),
+            hover_border: None,
         },
         ButtonVariant::White => ButtonPaint {
-            bg: Some(theme.gray(1)),
-            hover_bg: Some(theme.gray(3)),
+            bg: Some(theme.secondary.into()),
+            hover_bg: Some(theme.secondary_hover.into()),
             text: theme.gray(12),
             hover_text: None,
             border: Some(theme.gray(6)),
@@ -382,24 +376,24 @@ fn radix_paint(theme: &Theme, variant: ButtonVariant) -> ButtonPaint {
         },
         ButtonVariant::Ghost => ButtonPaint {
             bg: None,
-            hover_bg: Some(gpui::hsla(0., 0., 1., 0.2)),
+            hover_bg: Some(theme.accent.into()),
             text: theme.gray(12),
-            hover_text: Some(gpui::white()),
+            hover_text: None,
             border: None,
             hover_border: None,
         },
         ButtonVariant::Gray => ButtonPaint {
-            bg: Some(theme.gray(5)),
-            hover_bg: Some(theme.gray(7)),
+            bg: Some(theme.secondary.into()),
+            hover_bg: Some(theme.secondary_hover.into()),
             text: theme.gray(12),
             hover_text: None,
             border: None,
             hover_border: None,
         },
         ButtonVariant::Dark => ButtonPaint {
-            bg: Some(theme.gray(12)),
-            hover_bg: Some(theme.gray(11)),
-            text: theme.gray(1),
+            bg: Some(theme.secondary.into()),
+            hover_bg: Some(theme.secondary_hover.into()),
+            text: theme.gray(12),
             hover_text: None,
             border: None,
             hover_border: None,

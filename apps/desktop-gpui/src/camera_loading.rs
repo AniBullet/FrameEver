@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use gpui::{
     Bounds, BoxShadow, ContentMask, Corners, Hsla, IntoElement, Pixels, Styled, Window, canvas,
-    fill, hsla, linear_color_stop, linear_gradient, point, px, size,
+    fill, hsla, point, px, size,
 };
 
 use script_outline::LOADING;
@@ -135,10 +135,6 @@ fn sweep_center(elapsed: f32) -> Option<f32> {
     })
 }
 
-fn sweep_alpha(position: f32, center: f32) -> f32 {
-    ease_in_out(1. - (position - center).abs() / SWEEP_HALF_WIDTH)
-}
-
 fn paint_script(area: Bounds<Pixels>, elapsed: f32, opacity: f32, window: &mut Window) {
     if opacity <= 0. {
         return;
@@ -156,39 +152,20 @@ fn paint_script(area: Bounds<Pixels>, elapsed: f32, opacity: f32, window: &mut W
     };
     let left = f32::from(path.bounds.left());
     let width = f32::from(path.bounds.size.width).max(1.);
-    let band = |position: f32| -> Hsla {
-        hsla(
-            0.,
-            0.,
-            1.,
-            SCRIPT_PEAK_ALPHA * opacity * sweep_alpha(position, center),
-        )
-    };
-    for (from, to) in [
-        (center - SWEEP_HALF_WIDTH, center),
-        (center, center + SWEEP_HALF_WIDTH),
-    ] {
-        let (start, end) = (from.max(0.), to.min(1.));
-        if end <= start {
-            continue;
-        }
-        let mask = Bounds {
-            origin: point(px(left + start * width), path.bounds.top()),
-            size: size(px((end - start) * width), path.bounds.size.height),
-        };
-        // Path gradients are measured against the path's bounds clipped to the
-        // content mask, so each half's stops span its own mask, 0 to 1.
-        window.with_content_mask(Some(ContentMask { bounds: mask }), |window| {
-            window.paint_path(
-                path.clone(),
-                linear_gradient(
-                    90.,
-                    linear_color_stop(band(start), 0.),
-                    linear_color_stop(band(end), 1.),
-                ),
-            );
-        });
+    let (start, end) = (
+        (center - SWEEP_HALF_WIDTH).max(0.),
+        (center + SWEEP_HALF_WIDTH).min(1.),
+    );
+    if end <= start {
+        return;
     }
+    let mask = Bounds {
+        origin: point(px(left + start * width), path.bounds.top()),
+        size: size(px((end - start) * width), path.bounds.size.height),
+    };
+    window.with_content_mask(Some(ContentMask { bounds: mask }), |window| {
+        window.paint_path(path.clone(), hsla(0., 0., 1., SCRIPT_PEAK_ALPHA * opacity));
+    });
 }
 
 /// Drop shadows are not clipped to a rounded mask, so the disc and its blur
@@ -224,12 +201,7 @@ fn paint_feathered(
     };
     let drift = (seconds * 0.35).sin_cos();
     let layers = [
-        disc(
-            0.6,
-            (0., 0.),
-            0.065,
-            hsla(240. / 360., 0.06, 0.06, 0.88 * opacity),
-        ),
+        disc(0.6, (0., 0.), 0.065, hsla(0., 0., 0.06, 0.88 * opacity)),
         disc(
             0.3,
             (drift.1 * 0.05, drift.0 * 0.04 - 0.05),
@@ -261,17 +233,7 @@ fn paint_glass(
     }
     let extent = scale.unwrap_or(width.min(height));
 
-    window.paint_quad(
-        fill(
-            shape,
-            linear_gradient(
-                170. + 10. * (seconds * 0.2).sin(),
-                linear_color_stop(hsla(0., 0., 0.12, opacity), 0.),
-                linear_color_stop(hsla(0., 0., 0.03, opacity), 1.),
-            ),
-        )
-        .corner_radii(corners),
-    );
+    window.paint_quad(fill(shape, hsla(0., 0., 0.08, opacity)).corner_radii(corners));
 
     let clouds = CLOUDS.map(|cloud| {
         let angle = cloud.phase + seconds * cloud.speed;

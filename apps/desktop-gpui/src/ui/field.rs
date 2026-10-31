@@ -29,7 +29,7 @@ use crate::theme::Theme;
 /// The label column every inline row shares, so a column of sliders starts at
 /// the same x.
 const INLINE_LABEL_WIDTH: f32 = 96.;
-const INLINE_ROW_HEIGHT: f32 = 34.;
+const INLINE_ROW_HEIGHT: f32 = crate::theme::ROW_HEIGHT;
 const INLINE_VALUE_WIDTH: f32 = 36.;
 
 fn tabular_numerals() -> FontFeatures {
@@ -280,7 +280,6 @@ impl RenderOnce for Field {
 #[derive(IntoElement)]
 pub struct Subfield {
     name: SharedString,
-    /// `required` draws a `text-blue-500` asterisk after the name.
     required: bool,
     children: Vec<AnyElement>,
     gap: Option<Pixels>,
@@ -296,7 +295,7 @@ impl Subfield {
             children: Vec::new(),
             gap: None,
             text: Hsla::from(theme.editor.text_1),
-            accent: Hsla::from(theme.editor.accent),
+            accent: Hsla::from(theme.link),
         }
     }
 

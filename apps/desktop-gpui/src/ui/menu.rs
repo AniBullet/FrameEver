@@ -157,7 +157,6 @@ pub struct Menu {
     min_width: Pixels,
     max_height: Pixels,
     radius: Pixels,
-    shadow: Vec<gpui::BoxShadow>,
     bg: Hsla,
     border: Hsla,
     hover: Hsla,
@@ -176,11 +175,7 @@ impl Menu {
         items: Vec<MenuItem>,
         state: &MenuState,
     ) -> Self {
-        let bg = if theme.is_dark() {
-            Hsla::from(gpui::rgb(0x2a2a2c))
-        } else {
-            gpui::white()
-        };
+        let bg = Hsla::from(theme.popover);
         Self {
             id: id.into(),
             items,
@@ -190,13 +185,6 @@ impl Menu {
             min_width: px(180.),
             max_height: px(320.),
             radius: px(10.),
-            shadow: vec![gpui::BoxShadow {
-                color: gpui::hsla(0., 0., 0., 0.18),
-                offset: gpui::point(px(0.), px(6.)),
-                blur_radius: px(18.),
-                spread_radius: px(0.),
-                inset: false,
-            }],
             bg,
             border: theme.settings_border(),
             hover: theme.settings_hover(),
@@ -232,7 +220,6 @@ impl Menu {
     ) -> Self {
         Self {
             radius: px(12.),
-            shadow: theme.editor.pop_shadow(),
             bg: Hsla::from(theme.editor.card),
             border: Hsla::from(theme.editor.line),
             hover: Hsla::from(theme.editor.ctl_hover),
@@ -321,7 +308,6 @@ impl RenderOnce for Menu {
             min_width,
             max_height,
             radius,
-            shadow,
             bg,
             border,
             hover,
@@ -379,7 +365,6 @@ impl RenderOnce for Menu {
                             .overflow_y_scroll()
                             .p(px(4.))
                             .rounded(radius)
-                            .shadow(shadow)
                             .border_1()
                             .border_color(border)
                             .bg(bg)
@@ -394,8 +379,8 @@ impl RenderOnce for Menu {
                                     .flex_shrink_0()
                                     .items_center()
                                     .gap(px(6.))
-                                    .h(px(24.))
-                                    .px(px(6.))
+                                    .h(px(crate::theme::ROW_HEIGHT))
+                                    .px(px(10.))
                                     .rounded(px(4.))
                                     .when(highlighted == Some(index), |this| this.bg(hover))
                                     .hover(move |style| style.bg(hover))

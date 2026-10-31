@@ -137,7 +137,7 @@ Tauri `src/...` or Tauri `ui-solid/...` mean that file in commit `e94ffd0e5`.
 | Settings and state | `settings_window.rs`, `settings_pages.rs`, `store.rs`, `presets.rs`, `diagnostics.rs` |
 | Other windows | `onboarding_window.rs`, `teleprompter_window.rs`, `permissions_ui.rs`, `permission_guide.rs` |
 | Updates | `updates.rs`, `installer.rs`, `http.rs` |
-| Shared UI | `ui/` (components), `theme.rs` (colours and type), `i18n/` (Chinese tables, `docs/i18n.md`) |
+| Shared UI | `ui/` (components), `theme.rs` and `theme/tokens.rs` (Klein Field colours and sizes), `i18n/` (Chinese tables, `docs/i18n.md`) |
 | Platform glue | `platform.rs` and `platform/` |
 | Dev-only | `dev_restore.rs` (the `--watch` relaunch), `snapshot.rs`, the `*_bench.rs` modules |
 

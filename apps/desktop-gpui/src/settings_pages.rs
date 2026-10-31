@@ -24,7 +24,7 @@ use frameever_cli_install as cli_install;
 use gpui::{
     AppContext as _, Context, Entity, FontWeight, Hsla, InteractiveElement, IntoElement,
     MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div,
-    prelude::FluentBuilder, px, rgb, svg,
+    prelude::FluentBuilder, px, svg,
 };
 use serde_json::{Map, Value};
 
@@ -1537,7 +1537,7 @@ impl SettingsWindow {
             .items_center()
             .justify_center()
             .gap(px(3.))
-            .h(px(30.))
+            .h(px(crate::theme::CONTROL_HEIGHT))
             .min_w(px(132.))
             .px(px(5.))
             .rounded(px(8.))
@@ -2115,7 +2115,7 @@ impl SettingsWindow {
             )
             .child(self.button(
                 "hints-add",
-                (ui::ButtonVariant::Primary, Some("icons/plus.svg")),
+                (ui::ButtonVariant::Gray, Some("icons/plus.svg")),
                 t!("Add"),
                 add_disabled,
                 cx,
@@ -2421,7 +2421,7 @@ impl SettingsWindow {
                         .max_w(px(380.))
                         .text_size(px(14.))
                         .text_center()
-                        .text_color(rgb(0xf87171))
+                        .text_color(self.theme.danger_text)
                         .child(SharedString::from(error.clone())),
                 );
             }
@@ -3076,16 +3076,8 @@ impl SettingsWindow {
         // amber for `warn`; `inconclusive` and "no sync test at all" are not
         // failures, so they stay in the muted grey.
         let (label, fill, text): (&str, Hsla, Hsla) = match verdict {
-            Some("pass") => (
-                t!("PASS"),
-                gpui::rgb(0x22c55e).into(),
-                gpui::rgb(0x4ade80).into(),
-            ),
-            Some("warn") => (
-                t!("WARN"),
-                gpui::rgb(0xf59e0b).into(),
-                gpui::rgb(0xfbbf24).into(),
-            ),
+            Some("pass") => (t!("PASS"), theme.success.into(), theme.success_text.into()),
+            Some("warn") => (t!("WARN"), theme.warning.into(), theme.warning_text.into()),
             Some("fail") => (t!("FAIL"), theme.red_9.into(), theme.red_9.into()),
             Some("inconclusive") => (
                 t!("INCONCLUSIVE"),
@@ -3222,14 +3214,14 @@ impl SettingsWindow {
                                         .text_size(px(12.))
                                         .bg(Theme::with_alpha(
                                             if capture_supported {
-                                                gpui::rgb(0x22c55e)
+                                                theme.success
                                             } else {
                                                 theme.red_9
                                             },
                                             0.2,
                                         ))
                                         .text_color(Hsla::from(if capture_supported {
-                                            gpui::rgb(0x4ade80)
+                                            theme.success_text
                                         } else {
                                             theme.red_9
                                         }))
@@ -3407,10 +3399,10 @@ impl SettingsWindow {
                                         .px(px(8.))
                                         .py(px(4.))
                                         .rounded(px(6.))
-                                        .bg(Hsla::from(theme.blue_9))
+                                        .bg(Hsla::from(theme.secondary))
                                         .text_size(px(12.))
                                         .font_weight(FontWeight::BOLD)
-                                        .text_color(gpui::white())
+                                        .text_color(theme.foreground)
                                         .child(t!("NEW")),
                                 ),
                             )
@@ -5017,8 +5009,8 @@ impl SettingsWindow {
                     .cursor_pointer()
                     .hover(|style| {
                         style
-                            .text_color(Hsla::from(rgb(0xef4444)))
-                            .bg(Theme::with_alpha(rgb(0xef4444), 0.1))
+                            .text_color(self.theme.danger_text)
+                            .bg(theme.danger_tint)
                     })
                     .child(
                         svg()

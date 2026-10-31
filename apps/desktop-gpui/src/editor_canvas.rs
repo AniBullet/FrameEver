@@ -1424,7 +1424,7 @@ impl EditorWindow {
             }
         }
         for guide in &self.snap_guides {
-            let color = gpui::rgb(0xFF3B6B);
+            let color = self.theme.recording;
             layer = layer.child(match guide.axis {
                 GuideAxis::V => div()
                     .absolute()
@@ -1487,9 +1487,9 @@ impl EditorWindow {
         let box_id = id.clone();
 
         let border = if selected {
-            Hsla::from(theme.blue_9)
+            Hsla::from(theme.foreground)
         } else if hovered || dragging {
-            Hsla::from(theme.blue_6)
+            Hsla::from(theme.border_strong)
         } else {
             gpui::transparent_black()
         };
@@ -1539,7 +1539,7 @@ impl EditorWindow {
                     .px(px(6.))
                     .py(px(2.))
                     .rounded(px(4.))
-                    .bg(Hsla::from(theme.blue_9))
+                    .bg(Hsla::from(theme.badge))
                     .text_size(px(11.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(gpui::white())
@@ -1640,7 +1640,7 @@ impl EditorWindow {
                                 .border_1()
                                 .border_color(gpui::white())
                                 .bg(if resizable {
-                                    Hsla::from(theme.blue_9)
+                                    Hsla::from(theme.foreground)
                                 } else {
                                     with_alpha(theme.gray_8, 0.6)
                                 }),
@@ -2281,7 +2281,7 @@ impl EditorWindow {
         let size = (f64::from(canvas.0), f64::from(canvas.1));
         let corners = image_corners(rect, size, rotation);
         let show = self.canvas_selection == Some(element) || self.hovered_canvas == Some(element);
-        let color = Hsla::from(self.theme.blue_9);
+        let color = Hsla::from(self.theme.foreground);
         let mut layer = div()
             .id(element.element_id())
             .absolute()

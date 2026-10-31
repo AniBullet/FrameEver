@@ -1,19 +1,3 @@
-//! `RadioCards` -- the "radio button as a full-width bordered card" idiom the
-//! cursor settings use twice (`ConfigSidebar.tsx:835-861` for Cursor Type,
-//! `:919-945` for Cursor Movement Style) and the screenshot editor's background
-//! popover uses again.
-//!
-//! It is one shape with two instances in the Solid app and no shared component,
-//! which is exactly the kind of thing this library exists to hold: a card
-//! (`rounded-lg border border-gray-3`, selected `border-blue-8 bg-blue-3/40`)
-//! containing a `size-4` radio dot (`border-gray-7`, selected `border-blue-9
-//! bg-blue-9`) and a title/description block.
-//!
-//! Kobalte's `RadioGroup` also gives it a roving-tabindex keyboard contract
-//! (arrows move *and* select, Space commits). This rev has no focus ring or key
-//! handling on it -- the same gap `SegmentedControl` has -- so it is
-//! pointer-driven only.
-
 use gpui::{
     App, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, svg,
@@ -63,24 +47,22 @@ pub struct RadioCards {
 }
 
 impl RadioCards {
-    /// The editor surface. `data-checked:bg-blue-3/40` is `blue-3` at 40%.
     pub fn plain(
         theme: &Theme,
         id: impl Into<ElementId>,
         items: Vec<RadioCard>,
         selected: Option<usize>,
     ) -> Self {
-        let mut selected_bg = Hsla::from(theme.blue_3);
-        selected_bg.a = 0.4;
+        let selected_bg = Hsla::from(theme.selection);
         Self {
             id: id.into(),
             items,
             selected,
             border: Hsla::from(theme.gray_3),
-            selected_border: Hsla::from(theme.blue_8),
+            selected_border: Hsla::from(theme.border_strong),
             selected_bg,
             dot_border: Hsla::from(theme.gray_7),
-            dot_fill: Hsla::from(theme.blue_9),
+            dot_fill: Hsla::from(theme.primary),
             title: Hsla::from(theme.gray_12),
             description: Hsla::from(theme.gray_11),
             on_select: None,
@@ -156,7 +138,7 @@ impl RenderOnce for RadioCards {
                                             svg()
                                                 .path("icons/check.svg")
                                                 .size(px(12.))
-                                                .text_color(Hsla::from(gpui::rgb(0xffffff))),
+                                                .text_color(gpui::white()),
                                         )
                                     }),
                             )

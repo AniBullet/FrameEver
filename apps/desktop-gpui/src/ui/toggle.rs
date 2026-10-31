@@ -49,7 +49,6 @@ pub struct Toggle {
     size: ToggleSize,
     /// `bg-gray-6`, or whatever the surface remaps it to.
     off_fill: Hsla,
-    /// `data-checked:bg-blue-500`, or `--macos-settings-accent`.
     on_fill: Hsla,
     /// `bg-white` -- the thumb is white on every surface.
     thumb: Hsla,
@@ -64,7 +63,7 @@ impl Toggle {
             id: id.into(),
             checked,
             size: ToggleSize::Sm,
-            off_fill: Hsla::from(theme.editor.ctl_active),
+            off_fill: Hsla::from(theme.component.switch),
             on_fill: Hsla::from(theme.editor.accent),
             thumb: gpui::white(),
             disabled: false,
@@ -79,14 +78,7 @@ impl Toggle {
     pub fn settings(theme: &Theme, id: impl Into<ElementId>, checked: bool) -> Self {
         Self {
             size: ToggleSize::Sm,
-            // The material's control fill is near-white in light mode, so an
-            // off toggle read as a blank pill on the white settings cards.
-            off_fill: if theme.is_dark() {
-                gpui::hsla(0., 0., 1., 0.16)
-            } else {
-                gpui::hsla(0., 0., 0., 0.13)
-            },
-            on_fill: gpui::rgb(Theme::SETTINGS_ACCENT).into(),
+            on_fill: Hsla::from(theme.primary),
             ..Self::plain(theme, id, checked)
         }
     }
@@ -96,8 +88,7 @@ impl Toggle {
     pub fn glass(theme: &Theme, id: impl Into<ElementId>, checked: bool) -> Self {
         Self {
             size: ToggleSize::Sm,
-            off_fill: Theme::with_alpha(theme.gray_12, 0.10),
-            on_fill: gpui::rgb(Theme::SETTINGS_ACCENT).into(),
+            on_fill: Hsla::from(theme.primary),
             ..Self::plain(theme, id, checked)
         }
     }

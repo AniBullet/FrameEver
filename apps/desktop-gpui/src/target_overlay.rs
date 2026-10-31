@@ -28,8 +28,7 @@ use gpui::{
     Animation, AnimationExt as _, App, AppContext as _, Context, Entity, FontWeight, Global, Hsla,
     ImageFormat, InteractiveElement as _, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent,
     ParentElement as _, Pixels, Point, Render, SharedString, StatefulInteractiveElement as _,
-    Styled, Window, div, img, linear_color_stop, linear_gradient, prelude::FluentBuilder as _, px,
-    rgb, svg,
+    Styled, Window, div, img, prelude::FluentBuilder as _, px, svg,
 };
 use scap_targets::{
     DisplayId, WindowId,
@@ -1170,7 +1169,7 @@ impl OverlayWindow {
                 row.child(
                     crate::ui::MicrophoneLevel::snapshot(
                         self.select.read(cx).microphone_fill,
-                        theme.blue_9.into(),
+                        theme.success.into(),
                     )
                     .absolute()
                     .top_0()
@@ -1221,7 +1220,7 @@ impl OverlayWindow {
                     .bg(if blocked {
                         Hsla::from(theme.amber_3)
                     } else if enabled {
-                        Hsla::from(theme.blue_9)
+                        Hsla::from(theme.primary)
                     } else {
                         Hsla::from(theme.gray_5)
                     })
@@ -1338,8 +1337,6 @@ impl OverlayWindow {
         cx.notify();
     }
 
-    /// `data-[over='true']:bg-blue-600/40` over `bg-black/60`, centered
-    /// monitor art, name, resolution.
     fn render_display_variant(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let over = self.is_active_display(cx);
         let resolution = self.physical_size.map(|(width, height)| {
@@ -1354,15 +1351,13 @@ impl OverlayWindow {
             .flex_col()
             .items_center()
             .justify_center()
-            // `<div class="absolute inset-0 bg-black/60 -z-10" />`, then the
-            // root's own `bg-blue-600/40` on top of it when hovered.
             .child(div().absolute().inset_0().bg(gpui::hsla(0., 0., 0., 0.6)))
             .when(over, |this| {
                 this.child(
                     div()
                         .absolute()
                         .inset_0()
-                        .bg(Theme::with_alpha(rgb(Theme::TARGET_HIGHLIGHT), 0.4)),
+                        .bg(Theme::with_alpha(self.theme.fixed_white, 0.16)),
                 )
             })
             .child(
@@ -1401,11 +1396,6 @@ impl OverlayWindow {
             )
     }
 
-    /// `bg-black/70` everywhere, `bg-blue-600/40` over the hovered window's
-    /// rectangle with the app's icon, name and size stacked in it.
-    ///
-    /// Like the TSX, the whole variant only draws on the display the cursor is
-    /// on -- the other overlays stay empty and transparent.
     fn render_window_variant(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let select = self.select.read(cx);
         let active = select
@@ -1448,7 +1438,7 @@ impl OverlayWindow {
                     .flex_col()
                     .justify_center()
                     .items_center()
-                    .bg(Theme::with_alpha(rgb(Theme::TARGET_HIGHLIGHT), 0.4))
+                    .bg(Theme::with_alpha(self.theme.fixed_white, 0.16))
                     .child(
                         div()
                             .flex()
@@ -1771,7 +1761,7 @@ impl OverlayWindow {
         self.snap_guides
             .iter()
             .map(|guide| {
-                let color = gpui::rgb(0xFF3B6B);
+                let color = self.theme.recording;
                 match guide.axis {
                     GuideAxis::V => div()
                         .absolute()
@@ -1807,11 +1797,7 @@ impl OverlayWindow {
             .top(px(26.))
             .border_1()
             .border_color(gpui::hsla(0., 0., 1., 0.82))
-            .bg(linear_gradient(
-                135.,
-                linear_color_stop(gpui::hsla(0.55, 1., 0.72, 0.4), 0.),
-                linear_color_stop(gpui::hsla(0.62, 1., 0.59, 0.2), 1.),
-            ))
+            .bg(gpui::hsla(0., 0., 1., 0.2))
             .with_animation("area-selection-hint-box", animation(), |this, progress| {
                 let progress = selection_drag_progress(progress);
                 this.w(px(10. + 58. * progress)).h(px(8. + 44. * progress))
@@ -2011,10 +1997,6 @@ impl OverlayWindow {
             })
     }
 
-    /// `LIQUID_GLASS_SURFACE_CLASS`: `rounded-2xl border border-gray-12/10
-    /// bg-gray-1/82 shadow-xl shadow-black/20 dark:border-white/10
-    /// dark:bg-gray-2/82`. The `backdrop-blur-xl` is dropped -- this gpui rev
-    /// has no per-element backdrop blur (same gap the recording overlay has).
     fn glass_surface(&self) -> gpui::Div {
         let theme = self.theme;
         div()
@@ -2030,17 +2012,8 @@ impl OverlayWindow {
             } else {
                 Theme::with_alpha(theme.gray_1, 0.82)
             })
-            .shadow(vec![gpui::BoxShadow {
-                color: gpui::hsla(0., 0., 0., 0.2),
-                offset: gpui::point(px(0.), px(8.)),
-                blur_radius: px(10.),
-                spread_radius: px(-6.),
-                inset: false,
-            }])
     }
 
-    /// `RecordingControls`: the close button, the gradient start pill with its
-    /// mode line and caret, and the pre-recording settings button.
     fn render_controls_cluster(
         &self,
         target: Option<ScreenCaptureTarget>,
@@ -2160,9 +2133,6 @@ impl OverlayWindow {
             }))
     }
 
-    /// The start affordance: `h-11 rounded-full bg-linear-to-r from-blue-10 to
-    /// blue-11` (`blue-9`/`blue-10` in the dark theme), mode icon, two-line
-    /// label, and the mode caret on a divided trailing block.
     fn render_start_button(
         &self,
         target: Option<ScreenCaptureTarget>,
@@ -2171,11 +2141,6 @@ impl OverlayWindow {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = self.theme;
-        let (from, to) = if theme.is_dark() {
-            (theme.blue_9, theme.blue_10)
-        } else {
-            (theme.blue_10, theme.blue_11)
-        };
         let label = match mode {
             Mode::Screenshot => t!("Take Screenshot"),
             _ => t!("Start Recording"),
@@ -2203,14 +2168,7 @@ impl OverlayWindow {
             .h(px(44.))
             .rounded_full()
             .text_color(gpui::white())
-            // `bg-linear-to-r from-blue-10 via-blue-10 to-blue-11`: the via
-            // stop sits at 50% with the from colour, so the ramp only starts
-            // halfway.
-            .bg(linear_gradient(
-                90.,
-                linear_color_stop(Hsla::from(from), 0.5),
-                linear_color_stop(Hsla::from(to), 1.0),
-            ))
+            .bg(theme.primary)
             .child(
                 div()
                     .id("overlay-start-action")

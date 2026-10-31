@@ -493,7 +493,7 @@ const TRANSPARENT: &str = "transparent";
 /// at the zoom in force.
 const HANDLE_SCREEN_SIZE: f64 = 10.;
 /// The selection blue -- `#3b82f6`, hardcoded in the source rather than themed.
-const SELECTION_BLUE: u32 = 0x3b82f6;
+const SELECTION_OUTLINE: u32 = 0xffffff;
 /// A creation smaller than this in both axes is discarded on mouse-up
 /// (`:498`), and a mask thinner than this on either axis is deleted by the
 /// clamp effect (`:118`).
@@ -505,9 +505,7 @@ const TEXT_DEFAULT_WIDTH: f64 = 150.;
 /// (`Preview.tsx:634`).
 const MASK_DEFAULT_LEVEL: f64 = 7.;
 const MASK_FALLBACK_LEVEL: f64 = 16.;
-/// The layers list's row pitch: a `size-6` chip inside `py-1.5`
-/// (`LayersPanel.tsx:262`).
-const LAYER_ROW_HEIGHT: f32 = 36.;
+const LAYER_ROW_HEIGHT: f32 = crate::theme::ROW_HEIGHT;
 /// The font the renderer resolves `sans-serif` to (`layers/mod.rs:42`), so the
 /// preview and the export agree on what a text annotation looks like.
 pub(crate) const TEXT_FONT: &str = "Helvetica";
@@ -2624,7 +2622,8 @@ impl ScreenshotEditorWindow {
             .text_size(px(12.))
             .font_weight(FontWeight::MEDIUM)
             .when(active, |this| {
-                this.bg(theme.blue_9).text_color(gpui::white())
+                this.bg(theme.selection)
+                    .text_color(theme.selection_foreground)
             })
             .when(!active, |this| {
                 this.bg(theme.gray_3)
@@ -2686,7 +2685,7 @@ impl ScreenshotEditorWindow {
         )
         .row_width(width)
         .track(px(4.), theme.gray_4.into())
-        .fill(theme.blue_9.into())
+        .fill(theme.primary.into())
         .thumb(px(14.), gpui::white(), Some(theme.gray_6.into()))
         .on_drag_start(
             cx.listener(move |this, event: &MouseDownEvent, window, cx| {
@@ -2920,7 +2919,11 @@ impl ScreenshotEditorWindow {
                             .overflow_hidden()
                             .cursor_pointer()
                             .border_1()
-                            .border_color(if selected { theme.blue_9 } else { theme.gray_4 })
+                            .border_color(if selected {
+                                theme.foreground
+                            } else {
+                                theme.gray_4
+                            })
                             .when(selected, |this| this.border_2())
                             .children(checker_quarters(20.))
                             .tooltip(move |_window, cx| {
@@ -3011,13 +3014,6 @@ impl ScreenshotEditorWindow {
                         } else {
                             theme.gray_1
                         })
-                        .shadow(vec![gpui::BoxShadow {
-                            color: Theme::with_alpha(gpui::rgb(0x000000), 0.18),
-                            offset: gpui::point(px(0.), px(8.)),
-                            blur_radius: px(24.),
-                            spread_radius: px(0.),
-                            inset: false,
-                        }])
                         .child(
                             // `RgbInput` (`ColorPicker.tsx:47-102`).
                             div()
@@ -3162,7 +3158,7 @@ impl ScreenshotEditorWindow {
                         .path("icons/layers.svg")
                         .size(px(32.))
                         .mb(px(8.))
-                        .text_color(theme.gray_7),
+                        .text_color(theme.gray_10),
                 )
                 .child(
                     div()
@@ -3174,7 +3170,7 @@ impl ScreenshotEditorWindow {
                     div()
                         .mt(px(4.))
                         .text_size(px(10.))
-                        .text_color(theme.gray_8)
+                        .text_color(theme.gray_10)
                         .child(t!("Use the tools above to add annotations")),
                 )
                 .into_any_element();
@@ -3236,7 +3232,7 @@ impl ScreenshotEditorWindow {
                     .top(px(target as f32 * LAYER_ROW_HEIGHT - 1.))
                     .h(px(2.))
                     .rounded_full()
-                    .bg(theme.blue_9)
+                    .bg(theme.foreground)
             }))
             .into_any_element()
     }
@@ -3268,7 +3264,7 @@ impl ScreenshotEditorWindow {
             .rounded(px(6.))
             .cursor_pointer()
             .when(dragging, |this| this.opacity(0.5).bg(theme.gray_3))
-            .when(selected && !dragging, |this| this.bg(theme.blue_3))
+            .when(selected && !dragging, |this| this.bg(theme.selection))
             .when(!selected && !dragging, |this| {
                 this.hover(|style| style.bg(theme.gray_3))
             })
@@ -3280,7 +3276,7 @@ impl ScreenshotEditorWindow {
                     .justify_center()
                     .flex_shrink_0()
                     .cursor(CursorStyle::OpenHand)
-                    .text_color(theme.gray_8)
+                    .text_color(theme.gray_10)
                     .hover(|style| style.text_color(theme.gray_11))
                     .child(svg().path("icons/grip-vertical.svg").size(px(14.)))
                     .on_mouse_down(
@@ -3299,13 +3295,17 @@ impl ScreenshotEditorWindow {
                     .size(px(24.))
                     .flex_shrink_0()
                     .rounded(px(4.))
-                    .bg(if selected { theme.blue_5 } else { theme.gray_3 })
+                    .bg(if selected {
+                        theme.selection
+                    } else {
+                        theme.gray_3
+                    })
                     .child(
                         svg()
                             .path(annotation_icon(annotation.annotation_type))
                             .size(px(14.))
                             .text_color(if selected {
-                                theme.blue_11
+                                theme.selection_foreground
                             } else {
                                 theme.gray_11
                             }),
@@ -3318,7 +3318,7 @@ impl ScreenshotEditorWindow {
                     .truncate()
                     .text_size(px(12.))
                     .text_color(if selected {
-                        theme.blue_12
+                        theme.selection_foreground
                     } else {
                         theme.gray_12
                     })
@@ -3596,14 +3596,14 @@ fn paint_layer(paint: &LayerPaint, bounds: Bounds<Pixels>, window: &mut Window, 
             push_rounded_rect(&mut fill, rect, 4.);
             paint_fill(
                 fill,
-                Theme::with_alpha(gpui::rgb(SELECTION_BLUE), 0.05),
+                Theme::with_alpha(gpui::rgb(SELECTION_OUTLINE), 0.05),
                 window,
             );
             let mut stroke = PathBuilder::stroke(px(2.));
             push_rounded_rect(&mut stroke, rect, 4.);
             paint_fill(
                 stroke,
-                Theme::with_alpha(gpui::rgb(SELECTION_BLUE), 0.4),
+                Theme::with_alpha(gpui::rgb(SELECTION_OUTLINE), 0.4),
                 window,
             );
         }
@@ -3862,12 +3862,12 @@ fn paint_selection(
         push_rounded_rect(&mut fill, rect, 4.);
         paint_fill(
             fill,
-            Theme::with_alpha(gpui::rgb(SELECTION_BLUE), 0.1),
+            Theme::with_alpha(gpui::rgb(SELECTION_OUTLINE), 0.1),
             window,
         );
         let mut stroke = PathBuilder::stroke(px(2.));
         push_rounded_rect(&mut stroke, rect, 4.);
-        paint_fill(stroke, gpui::rgb(SELECTION_BLUE).into(), window);
+        paint_fill(stroke, gpui::rgb(SELECTION_OUTLINE).into(), window);
     }
 
     let radius = HANDLE_SCREEN_SIZE as f32 / 2.;
@@ -3878,7 +3878,7 @@ fn paint_selection(
         paint_fill(
             fill,
             if is_text {
-                gpui::rgb(SELECTION_BLUE).into()
+                gpui::rgb(SELECTION_OUTLINE).into()
             } else {
                 gpui::white()
             },
@@ -3891,7 +3891,7 @@ fn paint_selection(
             if is_text {
                 gpui::white()
             } else {
-                gpui::rgb(SELECTION_BLUE).into()
+                gpui::rgb(SELECTION_OUTLINE).into()
             },
             window,
         );

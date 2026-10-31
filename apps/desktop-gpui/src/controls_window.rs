@@ -214,11 +214,6 @@ impl ControlsWindow {
             )
     }
 
-    /// The mic indicator: icon plus the live level track underneath
-    /// (`createAudioInputLevel` in the bar: -60..0 dB linear, blue-9 fill on a
-    /// gray-10 track). In instant mode with a live mic it doubles as the mute
-    /// button -- studio deliberately does not expose mute, since the mic is an
-    /// editable track and muted spans would bake zeros in.
     fn render_microphone(&self, scale: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let session = self.session.read(cx);
@@ -282,7 +277,7 @@ impl ControlsWindow {
                                 .top_0()
                                 .bottom_0()
                                 .w(gpui::relative(level as f32))
-                                .bg(theme.blue_9),
+                                .bg(theme.success),
                         ),
                 )
             })
@@ -358,13 +353,6 @@ impl ControlsWindow {
             .border_1()
             .border_color(theme.gray_5)
             .when(paused, |this| this.border_color(theme.amber_6))
-            .shadow(vec![gpui::BoxShadow {
-                color: gpui::hsla(0., 0., 0., 0.1),
-                offset: gpui::point(px(0.), px(1.)),
-                blur_radius: px(3.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .child(
                 div()
                     .flex()

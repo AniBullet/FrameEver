@@ -993,6 +993,7 @@ impl ScreenshotEditorWindow {
     }
 
     pub fn new(bundle: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        crate::theme::bind_window(window, cx);
         let close_bundle = bundle.clone();
         window.on_window_should_close(cx, move |_window, cx| {
             let bundle = close_bundle.clone();
@@ -2811,8 +2812,8 @@ impl ScreenshotEditorWindow {
                         .cursor_pointer()
                         .text_size(px(12.))
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme.blue_11)
-                        .hover(|style| style.text_color(theme.blue_9))
+                        .text_color(theme.link)
+                        .hover(|style| style.text_color(theme.foreground))
                         .child(t!("Done"))
                         .on_click(cx.listener(|this, _, _window, cx| {
                             cx.stop_propagation();
@@ -2850,7 +2851,7 @@ impl ScreenshotEditorWindow {
         .when(width.is_none(), |this| this.flex())
         .when_some(width, |this, width| this.row_width(width))
         .track(px(4.), theme.gray_4.into())
-        .fill(theme.blue_9.into())
+        .fill(theme.primary.into())
         .thumb(px(14.), gpui::white(), Some(theme.gray_6.into()))
         .on_drag_start(
             cx.listener(move |this, event: &MouseDownEvent, window, cx| {
@@ -3685,13 +3686,6 @@ impl ScreenshotEditorWindow {
                         .border_1()
                         .border_color(theme.gray_3)
                         .bg(theme.gray_1)
-                        .shadow(vec![gpui::BoxShadow {
-                            color: Theme::with_alpha(gpui::rgb(0x000000), 0.18),
-                            offset: gpui::point(px(0.), px(10.)),
-                            blur_radius: px(30.),
-                            spread_radius: px(0.),
-                            inset: false,
-                        }])
                         .child(body),
                 )
                 .into_any_element(),
@@ -3912,13 +3906,6 @@ impl ScreenshotEditorWindow {
             } else {
                 theme.gray_1
             })
-            .shadow(vec![gpui::BoxShadow {
-                color: Theme::with_alpha(gpui::rgb(0x000000), 0.05),
-                offset: gpui::point(px(0.), px(1.)),
-                blur_radius: px(2.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
             .child(kbd_tooltip(
                 &theme,
                 n!("Zoom Out"),
@@ -3974,13 +3961,6 @@ impl ScreenshotEditorWindow {
                         .border_1()
                         .border_color(theme.gray_200_legacy)
                         .bg(theme.gray_1)
-                        .shadow(vec![gpui::BoxShadow {
-                            color: Theme::with_alpha(gpui::rgb(0x000000), 0.12),
-                            offset: gpui::point(px(0.), px(4.)),
-                            blur_radius: px(14.),
-                            spread_radius: px(0.),
-                            inset: false,
-                        }])
                         .text_size(px(16.))
                         .text_color(match toast.kind {
                             ToastKind::Loading => theme.gray_11,
@@ -3991,7 +3971,7 @@ impl ScreenshotEditorWindow {
                                 .path("icons/check.svg")
                                 .size(px(16.))
                                 .flex_shrink_0()
-                                .text_color(gpui::rgb(0x22c55e))
+                                .text_color(theme.success_text)
                                 .into_any_element(),
                             ToastKind::Error => svg()
                                 .path("icons/x.svg")
@@ -4263,8 +4243,6 @@ fn kbd_tooltip(
         .tooltip(move |_window, cx| ui::Tooltip::new(&theme, tr(label)).keys(keys).view(cx))
 }
 
-/// `AnnotationTools.tsx`'s `size-8 rounded-lg` button: `bg-blue-3 text-blue-11`
-/// when it is the active tool, a `hover:bg-gray-3` wash otherwise.
 fn tool_button(
     theme: &Theme,
     id: impl Into<gpui::ElementId>,
@@ -4286,10 +4264,10 @@ fn tool_button(
         .flex_shrink_0()
         .rounded(px(8.))
         .cursor_pointer()
-        .when(active, |this| this.bg(theme.blue_3))
+        .when(active, |this| this.bg(theme.selection))
         .when(!active, |this| this.hover(|style| style.bg(theme.gray_3)))
         .child(svg().path(icon).size(px(16.)).text_color(if active {
-            theme.blue_11
+            theme.selection_foreground
         } else {
             theme.gray_11
         }))

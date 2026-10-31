@@ -9,8 +9,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, rgb,
-    rgba,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 
 use super::OnboardingWindow;
@@ -41,28 +40,15 @@ pub struct Paper {
 
 impl Paper {
     pub fn new(theme: &Theme) -> Self {
-        if theme.is_dark() {
-            Self {
-                bg: rgb(0x18181b).into(),
-                card: rgba(0xffffff0d).into(),
-                ink: rgb(0xf2f2f3).into(),
-                soft: rgb(0x8e8e96).into(),
-                accent: rgb(0x4d8dff).into(),
-                red: rgb(0xff6369).into(),
-                green: rgb(0x3dd68c).into(),
-                track: rgb(0x3a3a40).into(),
-            }
-        } else {
-            Self {
-                bg: rgb(0xfbfaf7).into(),
-                card: rgba(0xffffffa6).into(),
-                ink: rgb(0x20242c).into(),
-                soft: rgb(0x8b8f98).into(),
-                accent: rgb(0x4785ff).into(),
-                red: rgb(0xe5484d).into(),
-                green: rgb(0x2f9e69).into(),
-                track: rgb(0xdcdcd4).into(),
-            }
+        Self {
+            bg: theme.background.into(),
+            card: theme.card.into(),
+            ink: theme.foreground.into(),
+            soft: theme.muted_foreground.into(),
+            accent: theme.link.into(),
+            red: theme.danger_text.into(),
+            green: theme.success_text.into(),
+            track: theme.border.into(),
         }
     }
 

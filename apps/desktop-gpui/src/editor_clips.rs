@@ -398,25 +398,12 @@ impl Drop for ClipsState {
     }
 }
 
-/// `hover:bg-red-3 hover:text-red-11` (`ClipsSidebar.tsx:953`): the theme
-/// carries only the red steps the settings pages use, so these two are the
-/// stock Radix values `theme.css` leaves untouched.
 fn red_3(theme: &Theme) -> Hsla {
-    if theme.is_dark() {
-        gpui::rgb(0x3b1219)
-    } else {
-        gpui::rgb(0xfeebec)
-    }
-    .into()
+    theme.danger_tint.into()
 }
 
 fn red_11(theme: &Theme) -> Hsla {
-    if theme.is_dark() {
-        gpui::rgb(0xff9592)
-    } else {
-        gpui::rgb(0xce2c31)
-    }
-    .into()
+    theme.danger_text.into()
 }
 
 /// `bg-gray-2 dark:bg-gray-3` -- the card and the drag ghost (`:877, 1228`).
@@ -753,7 +740,6 @@ impl EditorWindow {
                     .border_1()
                     .border_color(self.card_line())
                     .bg(self.panel_bg())
-                    .shadow(self.theme.editor.card_shadow())
                     .child(self.render_clips_back_header(cx))
                     .child(self.render_clips_body(cx)),
             )
@@ -1071,7 +1057,7 @@ impl EditorWindow {
                     .top(px(-4.))
                     .h(px(2.))
                     .rounded_full()
-                    .bg(Hsla::from(theme.blue_9))
+                    .bg(Hsla::from(theme.foreground))
             }))
             .children(show_bottom_bar.then(|| {
                 div()
@@ -1081,7 +1067,7 @@ impl EditorWindow {
                     .bottom(px(-4.))
                     .h(px(2.))
                     .rounded_full()
-                    .bg(Hsla::from(theme.blue_9))
+                    .bg(Hsla::from(theme.foreground))
             }))
             .child(
                 // The card (`:873-879`).
@@ -1503,7 +1489,6 @@ impl EditorWindow {
                 .rounded(px(8.))
                 .border_1()
                 .border_color(Hsla::from(theme.gray_6))
-                .shadow_lg()
                 .bg(card_bg(&theme))
                 .text_size(px(14.))
                 .font_weight(FontWeight::MEDIUM)

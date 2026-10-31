@@ -34,31 +34,12 @@ impl Card {
         )
     }
 
-    /// `LIQUID_GLASS_SURFACE_CLASS`: `rounded-2xl border border-gray-12/10
-    /// bg-gray-1/82 shadow-xl shadow-black/20 dark:border-white/10
-    /// dark:bg-gray-2/82`. The `backdrop-blur-xl` is dropped -- this gpui rev
-    /// has no per-element backdrop blur.
     pub fn liquid_glass(theme: &Theme) -> Div {
         div()
             .rounded(px(16.))
             .border_1()
-            .border_color(if theme.is_dark() {
-                gpui::hsla(0., 0., 1., 0.1)
-            } else {
-                Theme::with_alpha(theme.gray_12, 0.1)
-            })
-            .bg(if theme.is_dark() {
-                Theme::with_alpha(theme.gray_2, 0.82)
-            } else {
-                Theme::with_alpha(theme.gray_1, 0.82)
-            })
-            .shadow(vec![gpui::BoxShadow {
-                color: gpui::hsla(0., 0., 0., 0.2),
-                offset: gpui::point(px(0.), px(8.)),
-                blur_radius: px(10.),
-                spread_radius: px(-6.),
-                inset: false,
-            }])
+            .border_color(theme.border)
+            .bg(theme.popover)
     }
 
     /// The teleprompter footer's pill: `h-8 rounded-full border border-gray-12/6
@@ -69,7 +50,7 @@ impl Card {
             .flex_row()
             .items_center()
             .gap(px(6.))
-            .h(px(32.))
+            .h(px(crate::theme::CONTROL_HEIGHT))
             .rounded_full()
             .border_1()
             .border_color(Theme::with_alpha(theme.gray_12, 0.06))
@@ -86,9 +67,6 @@ impl Card {
 pub struct Popover;
 
 impl Popover {
-    /// The teleprompter's settings popover: `w-48 rounded-2xl border
-    /// border-gray-12/8 bg-gray-1/80 p-2 shadow-xl`. The `backdrop-blur-2xl` is
-    /// the wash only -- no blur hook in this gpui rev.
     pub fn glass(theme: &Theme, width: Pixels) -> Div {
         div()
             .absolute()
@@ -96,9 +74,8 @@ impl Popover {
             .p(px(8.))
             .rounded(px(16.))
             .border_1()
-            .border_color(Theme::with_alpha(theme.gray_12, 0.08))
-            .bg(Theme::with_alpha(theme.gray_1, 0.8))
-            .shadow_lg()
+            .border_color(theme.border)
+            .bg(theme.popover)
     }
 
     /// `PopperContent` on the plain palette: `rounded-xl border border-gray-3
@@ -110,9 +87,8 @@ impl Popover {
             .flex_col()
             .rounded(px(12.))
             .border_1()
-            .border_color(theme.gray(3))
-            .bg(theme.gray(1))
-            .shadow_lg()
+            .border_color(theme.border)
+            .bg(theme.popover)
     }
 }
 
@@ -212,11 +188,10 @@ impl Section {
             children,
             pro: false,
             muted: theme.settings_muted(),
-            accent: Hsla::from(theme.blue_9),
+            accent: Hsla::from(theme.secondary),
         }
     }
 
-    /// The `Pro` badge: `bg-blue-9 text-white uppercase`.
     pub fn pro(mut self) -> Self {
         self.pro = true;
         self
@@ -267,9 +242,6 @@ impl RenderOnce for Section {
                                             .child(title),
                                     )
                                     .when(pro, |this| {
-                                        // `text-[10px] font-medium uppercase
-                                        //  tracking-wide px-1.5 py-0.5
-                                        //  rounded-md bg-blue-9 text-white`
                                         this.child(
                                             div()
                                                 .px(px(6.))
@@ -278,7 +250,7 @@ impl RenderOnce for Section {
                                                 .bg(accent)
                                                 .text_size(px(10.))
                                                 .font_weight(FontWeight::MEDIUM)
-                                                .text_color(gpui::white())
+                                                .text_color(muted)
                                                 .child("PRO"),
                                         )
                                     }),

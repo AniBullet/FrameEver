@@ -1,6 +1,6 @@
 use gpui::{
     Div, InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, div,
-    prelude::FluentBuilder, px, rgb, rgba, svg,
+    prelude::FluentBuilder, px, rgba, svg,
 };
 
 use crate::theme::Theme;
@@ -16,10 +16,8 @@ pub fn windows_caption_controls(
     let hover = rgba(if dark { 0xffffff0d } else { 0x0000000d });
     let pressed = rgba(if dark { 0xe9e9e908 } else { 0x00000008 });
     let button = |id: &'static str, icon: &'static str, height: f32, enabled: bool| {
-        let foreground = Theme::with_alpha(
-            rgb(if dark { 0xffffff } else { 0x12161f }),
-            if active && enabled { 0.8 } else { 0.4 },
-        );
+        let foreground =
+            Theme::with_alpha(theme.foreground, if active && enabled { 0.8 } else { 0.4 });
 
         div()
             .id(id)
@@ -38,14 +36,14 @@ pub fn windows_caption_controls(
                 button
                     .hover(move |style| {
                         style.bg(if id == "caption-close" {
-                            rgb(0xc42b1c)
+                            theme.danger
                         } else {
                             hover
                         })
                     })
                     .active(move |style| {
                         style.bg(if id == "caption-close" {
-                            rgba(0xc42b1ce6)
+                            theme.danger_hover
                         } else {
                             pressed
                         })

@@ -3,8 +3,8 @@ use std::time::Duration;
 use gpui::{
     Animation, AnimationExt, AnyElement, Context, Div, FocusHandle, FontWeight, Hsla,
     InteractiveElement, IntoElement, KeyDownEvent, ObjectFit, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, StyledImage, Window, div, img, linear_color_stop,
-    linear_gradient, prelude::FluentBuilder, px, relative, rgb, rgba, svg,
+    StatefulInteractiveElement, Styled, StyledImage, Window, div, img, prelude::FluentBuilder, px,
+    relative, rgb, rgba, svg,
 };
 
 use crate::{
@@ -708,19 +708,11 @@ impl OnboardingWindow {
     }
 
     fn success_palette(&self) -> (Hsla, Hsla, Hsla) {
-        if self.theme.is_dark() {
-            (
-                Theme::with_alpha(gpui::rgb(0x46a758), 0.16),
-                Theme::with_alpha(gpui::rgb(0x46a758), 0.38),
-                gpui::rgb(0x63d489).into(),
-            )
-        } else {
-            (
-                gpui::rgb(0xebf9ef).into(),
-                gpui::rgb(0xc9ebd5).into(),
-                gpui::rgb(0x18794e).into(),
-            )
-        }
+        (
+            self.theme.success_tint.into(),
+            self.theme.success.into(),
+            self.theme.success_text.into(),
+        )
     }
 }
 
@@ -1168,7 +1160,7 @@ impl OnboardingWindow {
                                     .rounded_full()
                                     .border_2()
                                     .border_color(if active == index {
-                                        theme.blue_9
+                                        theme.foreground
                                     } else {
                                         theme.gray_5
                                     })
@@ -1479,12 +1471,12 @@ impl OnboardingWindow {
                             .rounded_full()
                             .border_1()
                             .border_color(if index == active {
-                                theme.blue_5
+                                theme.border_strong
                             } else {
                                 theme.gray_4
                             })
                             .bg(if index == active {
-                                Hsla::from(theme.blue_3)
+                                Hsla::from(theme.selection)
                             } else {
                                 theme.body_fill(1)
                             })
@@ -1492,7 +1484,7 @@ impl OnboardingWindow {
                                 format!("{}", index + 1),
                                 9.,
                                 if index == active {
-                                    theme.blue_11
+                                    theme.selection_foreground
                                 } else {
                                     theme.gray_9
                                 },
@@ -1501,7 +1493,7 @@ impl OnboardingWindow {
                                 label,
                                 10.,
                                 if index == active {
-                                    theme.blue_11
+                                    theme.selection_foreground
                                 } else {
                                     theme.gray_10
                                 },
@@ -1553,11 +1545,7 @@ impl OnboardingWindow {
                     .rounded_full()
                     .flex()
                     .overflow_hidden()
-                    .bg(linear_gradient(
-                        90.,
-                        linear_color_stop(theme.blue_10, 0.),
-                        linear_color_stop(theme.blue_11, 1.),
-                    ))
+                    .bg(theme.primary)
                     .child(
                         div()
                             .flex_1()
@@ -1632,7 +1620,7 @@ impl OnboardingWindow {
                                 el.child(div().size(px(8.)).rounded_full().bg(theme.gray_8))
                             })
                             .when(!stopped, |el| {
-                                el.child(glyph("icons/stop-circle.svg", 20., rgb(0xf87171)))
+                                el.child(glyph("icons/stop-circle.svg", 20., theme.danger_text))
                             })
                             .child(copy(
                                 if stopped { t!("Stopped").into() } else { time },
@@ -1640,7 +1628,7 @@ impl OnboardingWindow {
                                 if stopped {
                                     Hsla::from(theme.gray_10)
                                 } else {
-                                    rgb(0xf87171).into()
+                                    theme.danger_text.into()
                                 },
                             )),
                     )
@@ -1667,7 +1655,7 @@ impl OnboardingWindow {
                                             .rounded_full()
                                             .bg(theme.gray_10)
                                             .child(
-                                                div().w(relative(0.6)).h_full().bg(theme.blue_9),
+                                                div().w(relative(0.6)).h_full().bg(theme.primary),
                                             ),
                                     ),
                             )
@@ -1870,8 +1858,10 @@ impl OnboardingWindow {
                             .px(px(10.))
                             .py(px(4.))
                             .rounded(px(6.))
-                            .bg(theme.blue_9)
-                            .when(phase >= 8, |el| el.border_2().border_color(theme.blue_5)),
+                            .bg(theme.primary)
+                            .when(phase >= 8, |el| {
+                                el.border_2().border_color(theme.foreground)
+                            }),
                     ),
             )
             .child(
@@ -1886,11 +1876,7 @@ impl OnboardingWindow {
                                 .size_full()
                                 .p(px(10.))
                                 .rounded(px(8.))
-                                .bg(linear_gradient(
-                                    135.,
-                                    linear_color_stop(rgb(0x667eea), 0.),
-                                    linear_color_stop(rgb(0x764ba2), 1.),
-                                ))
+                                .bg(theme.preview)
                                 .child(self.demo_document().w_full().h(px(80.))),
                         ),
                     )
@@ -1977,7 +1963,7 @@ impl OnboardingWindow {
                                                         .h_full()
                                                         .w(relative(progress as f32 / 100.))
                                                         .rounded_full()
-                                                        .bg(theme.blue_9),
+                                                        .bg(theme.primary),
                                                 ),
                                         )
                                         .child(copy(format!("{progress}%"), 12., theme.gray_10)),
@@ -2039,7 +2025,7 @@ impl OnboardingWindow {
                 .w(relative(0.84))
                 .h(relative(0.78))
                 .border_2()
-                .border_color(theme.blue_9)
+                .border_color(theme.foreground)
                 .bg(rgba(0xffffff12))
                 .when(phase >= 4, |el| {
                     el.children(
@@ -2051,7 +2037,7 @@ impl OnboardingWindow {
                                     .rounded(px(1.))
                                     .bg(gpui::white())
                                     .border_1()
-                                    .border_color(theme.blue_9)
+                                    .border_color(theme.foreground)
                                     .when(right, |el| el.right(px(-3.)))
                                     .when(!right, |el| el.left(px(-3.)))
                                     .when(bottom, |el| el.bottom(px(-3.)))
@@ -2157,7 +2143,7 @@ impl OnboardingWindow {
                                     .px(px(6.))
                                     .py(px(4.))
                                     .rounded(px(4.))
-                                    .bg(theme.blue_9),
+                                    .bg(theme.primary),
                             ),
                     ),
             )
@@ -2169,13 +2155,7 @@ impl OnboardingWindow {
                         .w_full()
                         .overflow_hidden()
                         .rounded(px(4.))
-                        .when(phase >= 7, |el| {
-                            el.bg(linear_gradient(
-                                135.,
-                                linear_color_stop(rgb(0x667eea), 0.),
-                                linear_color_stop(rgb(0x764ba2), 1.),
-                            ))
-                        })
+                        .when(phase >= 7, |el| el.bg(theme.preview))
                         .child(
                             self.demo_document()
                                 .absolute()

@@ -112,7 +112,6 @@ impl Render for Tooltip {
             .text_size(px(12.))
             .text_color(text)
             .font_weight(FontWeight::MEDIUM)
-            .shadow_lg()
             .child(self.label.clone())
             .children(
                 keys.into_iter()

@@ -287,7 +287,7 @@ pub fn render_thumbnail_slot(
     use gpui::prelude::FluentBuilder as _;
     use gpui::{
         Hsla, IntoElement as _, ParentElement as _, Styled as _, StyledImage as _, div, hsla, img,
-        linear_color_stop, linear_gradient, px, svg,
+        px, svg,
     };
 
     let black = |alpha: f32| hsla(0., 0., 0., alpha);
@@ -363,11 +363,7 @@ pub fn render_thumbnail_slot(
                 .left_0()
                 .right_0()
                 .h(px(40.))
-                .bg(linear_gradient(
-                    0.,
-                    linear_color_stop(black(0.4), 0.),
-                    linear_color_stop(black(0.), 1.),
-                )),
+                .bg(black(0.4)),
         )
 }
 

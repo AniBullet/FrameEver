@@ -944,7 +944,7 @@ impl EditorWindow {
             .border_1()
             .border_color(Hsla::from(theme.editor.line))
             .cursor_pointer()
-            .selection_ring(Hsla::from(theme.editor.card), theme.editor.accent, selected)
+            .selection_ring(Hsla::from(theme.editor.card), theme.foreground, selected)
             .when(!selected, |this| this.hover(|this| this.opacity(0.8)))
             .child(palette(&config, px(6.)))
             .tooltip(move |_window, cx| ui::Tooltip::new(&theme, name.clone()).view(cx))
@@ -970,7 +970,6 @@ impl EditorWindow {
                         .rounded_full()
                         .bg(Hsla::from(theme.gray_12))
                         .text_color(Hsla::from(theme.gray_1))
-                        .shadow_sm()
                         .cursor_pointer()
                         .hover(|this| this.bg(Hsla::from(theme.red_11)))
                         .tooltip(move |_window, cx| ui::Tooltip::new(&theme, t!("Delete")).view(cx))
@@ -1026,11 +1025,10 @@ impl EditorWindow {
                     .size(px(size))
                     .rounded_full()
                     .p(px(2.))
-                    .shadow_sm()
                     .cursor_pointer()
                     .map(|this| {
                         if is_selected {
-                            this.bg(Hsla::from(theme.blue_9)).child(
+                            this.bg(Hsla::from(theme.foreground)).child(
                                 div()
                                     .size_full()
                                     .rounded_full()

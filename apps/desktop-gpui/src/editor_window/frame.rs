@@ -399,7 +399,6 @@ impl EditorWindow {
             .border_1()
             .border_color(gpui::Hsla::from(theme.editor.line))
             .bg(gpui::Hsla::from(theme.editor.card))
-            .shadow(theme.editor.pop_shadow())
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
@@ -477,13 +476,13 @@ impl EditorWindow {
                                     .flex_shrink_0()
                                     .rounded(px(10.))
                                     .bg(if selected {
-                                        theme.blue_9.into()
+                                        theme.selection.into()
                                     } else {
                                         theme.gray(3)
                                     })
                                     .child(svg().path(icon).size(px(16.)).text_color(
                                         if selected {
-                                            gpui::white()
+                                            theme.gray(12)
                                         } else {
                                             theme.gray(11)
                                         },
@@ -515,7 +514,7 @@ impl EditorWindow {
                                         .path("icons/circle-check.svg")
                                         .size(px(16.))
                                         .flex_shrink_0()
-                                        .text_color(theme.blue_9),
+                                        .text_color(theme.foreground),
                                 )
                             })
                             .on_click(cx.listener(move |this, _, window, cx| {

@@ -27,7 +27,7 @@ The bar at the top sets theme (dark by default), language and scale (100, 150, 2
 1. Change `tokens.json`.
 2. Run `pnpm fe design`.
 3. Check `index.html`: the contrast table recomputes from the tokens and must stay free of failures.
-4. Change the code afterwards. `theme.rs` gets a test against `tokens.json` during implementation, so a drift fails in CI.
+4. Change `apps/desktop-gpui/src/theme/tokens.rs` in the same commit. Its tests compare the brand, semantic and component layers, sizes and radii with `tokens.json`, and check the contrast pairs, so a drift fails in CI.
 
 ## Landing a surface
 

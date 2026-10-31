@@ -2390,7 +2390,6 @@ impl EditorWindow {
                         .max_w(px(CROP_DIALOG_MAX_WIDTH))
                         .rounded(px(20.))
                         .bg(Hsla::from(editor.card))
-                        .shadow(editor.pop_shadow())
                         .overflow_hidden()
                         .text_color(Hsla::from(editor.text_1))
                         .child(self.render_crop_header(cx))
@@ -2658,10 +2657,10 @@ impl EditorWindow {
             .font_weight(FontWeight::MEDIUM)
             .cursor_pointer()
             .when(selected, |chip| {
-                chip.bg(Hsla::from(crate::theme::rgba_alpha(editor.accent, 0.12)))
+                chip.bg(Hsla::from(editor.ctl_active))
                     .border_1()
-                    .border_color(Hsla::from(editor.accent))
-                    .text_color(Hsla::from(editor.accent))
+                    .border_color(Hsla::from(editor.line_strong))
+                    .text_color(Hsla::from(editor.text_1))
             })
             .when(!selected, |chip| {
                 chip.bg(Hsla::from(editor.ctl))
@@ -2765,7 +2764,7 @@ impl EditorWindow {
                     .absolute()
                     .inset(px(1.))
                     .border_1()
-                    .border_color(gpui::rgb(0x111827)),
+                    .border_color(gpui::rgb(0x111111)),
             )
             .cursor(drag_cursor.unwrap_or(CursorStyle::OpenHand))
             .children(dragging.then(|| editor_thirds_grid(bounds)))
@@ -3030,16 +3029,8 @@ impl EditorWindow {
             .into_any_element()
     }
 
-    /// The accent-gradient primary, the same one the header's Export uses.
     fn render_crop_save_button(&self, enabled: bool, cx: &mut Context<Self>) -> AnyElement {
         let editor = self.theme.editor;
-        let gradient = |top: gpui::Rgba, bottom: gpui::Rgba| {
-            gpui::linear_gradient(
-                180.,
-                gpui::linear_color_stop(top, 0.),
-                gpui::linear_color_stop(bottom, 1.),
-            )
-        };
         div()
             .id("crop-save")
             .relative()
@@ -3047,11 +3038,11 @@ impl EditorWindow {
             .items_center()
             .justify_center()
             .px(px(14.))
-            .h(px(30.))
+            .h(px(crate::theme::CONTROL_HEIGHT))
             .flex_none()
             .overflow_hidden()
             .rounded(px(8.))
-            .bg(gradient(editor.accent_2, editor.accent))
+            .bg(editor.accent)
             .text_size(px(13.))
             .font_weight(FontWeight::MEDIUM)
             .text_color(gpui::white())
@@ -3059,18 +3050,8 @@ impl EditorWindow {
             .when(enabled, |button| {
                 button
                     .cursor_pointer()
-                    .hover(move |style| {
-                        style.bg(gradient(
-                            crate::theme::mix(editor.accent_2, gpui::rgb(0xffffff), 0.10),
-                            crate::theme::mix(editor.accent, gpui::rgb(0xffffff), 0.10),
-                        ))
-                    })
-                    .active(move |style| {
-                        style.bg(gradient(
-                            crate::theme::mix(editor.accent_2, gpui::rgb(0x000000), 0.06),
-                            crate::theme::mix(editor.accent, gpui::rgb(0x000000), 0.06),
-                        ))
-                    })
+                    .hover(move |style| style.bg(editor.accent_hover))
+                    .active(move |style| style.bg(editor.accent_active))
                     .on_click(cx.listener(|this, _, window, cx| this.save_crop(window, cx)))
             })
             .child(
@@ -3291,7 +3272,7 @@ fn editor_hit_test(point: Vec2, bounds: CropBounds) -> CropHit {
 }
 
 fn editor_handle_glyph(handle: Handle, bounds: CropBounds) -> gpui::Div {
-    let outline = gpui::rgb(0x111827);
+    let outline = gpui::rgb(0x111111);
     if handle.is_corner {
         return div().absolute().inset_0().children(
             corner_glyph(handle, bounds, false)
@@ -3339,7 +3320,7 @@ fn editor_thirds_grid(bounds: CropBounds) -> gpui::Div {
                         .absolute()
                         .inset_0()
                         .h(px(1.))
-                        .bg(gpui::rgba(0x111827cc)),
+                        .bg(gpui::rgba(0x111111cc)),
                 ),
         );
         grid = grid.child(
@@ -3355,7 +3336,7 @@ fn editor_thirds_grid(bounds: CropBounds) -> gpui::Div {
                         .absolute()
                         .inset_0()
                         .w(px(1.))
-                        .bg(gpui::rgba(0x111827cc)),
+                        .bg(gpui::rgba(0x111111cc)),
                 ),
         );
     }
@@ -3381,7 +3362,7 @@ fn editor_alignment_guides(guides: CropGuides, w: f32, h: f32) -> gpui::Div {
                             .top(px(if horizontal { 1. } else { 0. }))
                             .w(px(if horizontal { w } else { 1. }))
                             .h(px(if horizontal { 1. } else { h }))
-                            .bg(gpui::rgb(0xd946ef)),
+                            .bg(gpui::rgb(0xffffff)),
                     ),
             );
         }

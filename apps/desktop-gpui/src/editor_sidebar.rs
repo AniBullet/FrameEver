@@ -2483,7 +2483,6 @@ impl EditorWindow {
                     .bg(self.panel_bg())
                     .border_1()
                     .border_color(self.card_line())
-                    .shadow(theme.editor.card_shadow())
                     .child(rail)
                     .children(self.sidebar.image_import_error.as_ref().map(|error| {
                         div()
@@ -2785,12 +2784,14 @@ impl EditorWindow {
                             .h(px(192.))
                             .rounded(px(8.))
                             .border_1()
-                            .when(selected, |this| this.border_color(Hsla::from(theme.blue_9)))
+                            .when(selected, |this| {
+                                this.border_color(Hsla::from(theme.foreground))
+                            })
                             .when(!selected, |this| {
                                 this.border_color(Hsla::from(theme.editor.line_strong))
                                     .cursor_pointer()
                                     .hover(|this| {
-                                        this.border_color(Hsla::from(theme.editor.accent))
+                                        this.border_color(Hsla::from(theme.border_strong))
                                     })
                             })
                             .children(preview.map(|image| {
@@ -2914,7 +2915,7 @@ impl EditorWindow {
                             .h(px(WALLPAPER_TILE_HEIGHT + 2. * (RING_WIDTH + RING_GAP)))
                             .rounded(px(8.))
                             .cursor_pointer()
-                            .selection_ring(self.panel_bg(), theme.editor.accent, selected)
+                            .selection_ring(self.panel_bg(), theme.foreground, selected)
                             .child(
                                 div()
                                     .size_full()
@@ -3068,7 +3069,7 @@ impl EditorWindow {
                             .size(px(32.))
                             .rounded(px(8.))
                             .cursor_pointer()
-                            .selection_ring(self.panel_bg(), theme.editor.accent, selected)
+                            .selection_ring(self.panel_bg(), theme.foreground, selected)
                             .child(
                                 div()
                                     .size_full()
@@ -3136,7 +3137,7 @@ impl EditorWindow {
                     .border_color(preview_border_color(value))
                     .cursor_pointer()
                     .when(open, |this| {
-                        this.border_2().border_color(Hsla::from(theme.blue_9))
+                        this.border_2().border_color(Hsla::from(theme.foreground))
                     })
                     .on_click(
                         cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
@@ -3343,7 +3344,7 @@ impl EditorWindow {
                                 .cursor_pointer()
                                 .selection_ring(
                                     self.panel_bg(),
-                                    theme.editor.accent,
+                                    theme.foreground,
                                     preset == Some(index),
                                 )
                                 .child(div().size_full().rounded(px(6.)).bg(linear_gradient(
@@ -3751,7 +3752,6 @@ impl EditorWindow {
                     Hsla::from(theme.editor.thumb),
                     Some(gpui::hsla(0., 0., 0., 0.12)),
                 )
-                .thumb_shadow()
                 .when(!disabled, |this| {
                     this.on_drag_start(cx.listener(
                         move |this, event: &MouseDownEvent, window, cx| {

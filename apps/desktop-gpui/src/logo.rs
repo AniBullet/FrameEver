@@ -30,11 +30,7 @@ fn frame(height: f32) -> Div {
 }
 
 pub fn logo(theme: &Theme, height: f32) -> Div {
-    let wordmark = if theme.is_dark() {
-        rgb(0xF4F4F0)
-    } else {
-        rgb(0x1A1B24)
-    };
+    let wordmark = theme.foreground;
     frame(height)
         .child(layer("icons/logo-tile.svg", rgb(PLATE).into(), height))
         .child(layer(

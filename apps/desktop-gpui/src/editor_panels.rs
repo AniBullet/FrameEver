@@ -1568,11 +1568,11 @@ const CAMERA3D_ROW_VALUE: f32 = 42.;
 /// the recording rather than for the chrome, so it stays light in both
 /// appearances -- these are the mock's own values.
 fn camera3d_thumb_bg(dark: bool) -> Hsla {
-    Hsla::from(gpui::rgb(if dark { 0x26262b } else { 0xdcdce2 }))
+    Hsla::from(gpui::rgb(if dark { 0x282828 } else { 0xdedede }))
 }
 const CAMERA3D_PLATE: u32 = 0xffffff;
-const CAMERA3D_PLATE_DARK: u32 = 0xf2f2f4;
-const CAMERA3D_PLATE_LINE: u32 = 0xb8b8c2;
+const CAMERA3D_PLATE_DARK: u32 = 0xf2f2f2;
+const CAMERA3D_PLATE_LINE: u32 = 0xbcbcbc;
 /// What the Depth blur toggle seeds when it is switched on.
 const CAMERA3D_DEFAULT_BLUR_STRENGTH: f64 = 18.;
 const CAMERA3D_DEFAULT_BLUR_FALLOFF: f64 = 0.7;
@@ -4417,10 +4417,10 @@ impl EditorWindow {
                                     .rounded(px(6.))
                                     .border_2()
                                     .border_color(crate::editor_sidebar::with_alpha(
-                                        theme.blue_9,
+                                        theme.foreground,
                                         0.6,
                                     ))
-                                    .bg(crate::editor_sidebar::with_alpha(theme.blue_9, 0.1)),
+                                    .bg(crate::editor_sidebar::with_alpha(theme.foreground, 0.1)),
                             )
                             .child(
                                 div()
@@ -4584,7 +4584,7 @@ impl EditorWindow {
                     .bg(Hsla::from(theme.editor.ctl))
                     .border(gpui::transparent_black())
                     .text_color(Hsla::from(theme.editor.text_1))
-                    .caret_color(Hsla::from(theme.editor.accent)),
+                    .caret_color(Hsla::from(theme.foreground)),
                 ),
             );
         }
@@ -4862,19 +4862,14 @@ impl EditorWindow {
                 .rounded(px(10.))
                 .px(px(8.))
                 .pb(px(12.))
-                .bg(gpui::linear_gradient(
-                    160.,
-                    gpui::linear_color_stop(gpui::rgb(0x1e1f26), 0.),
-                    gpui::linear_color_stop(gpui::rgb(0x2c2d36), 1.),
-                ))
+                .bg(theme.preview)
                 .border_1()
                 .border_color(Hsla::from(theme.editor.line))
                 .when(!selected, |this| {
                     this.hover(|style| style.border_color(Hsla::from(theme.editor.line_strong)))
                 })
                 .when(selected, |this| {
-                    this.border_2()
-                        .border_color(Hsla::from(theme.editor.accent))
+                    this.border_2().border_color(Hsla::from(theme.foreground))
                 })
                 .child(sample)
                 .child(
@@ -4973,7 +4968,7 @@ impl EditorWindow {
                 .bg(Hsla::from(theme.editor.ctl))
                 .border(gpui::transparent_black())
                 .text_color(Hsla::from(theme.editor.text_1))
-                .caret_color(Hsla::from(theme.editor.accent))
+                .caret_color(Hsla::from(theme.foreground))
                 .placeholder_color(Hsla::from(theme.editor.text_3)),
             )
             .into_any_element()
@@ -4995,15 +4990,15 @@ impl EditorWindow {
             .flex_none()
             .items_center()
             .justify_center()
-            .h(px(28.))
+            .h(px(crate::theme::CONTROL_HEIGHT))
             .px(px(10.))
             .rounded(px(7.))
             .text_size(px(12.))
             .font_weight(FontWeight::MEDIUM)
             .when(italic, |this| this.italic())
             .when(selected, |this| {
-                this.bg(with_alpha(theme.editor.accent, 0.12))
-                    .text_color(Hsla::from(theme.editor.accent))
+                this.bg(Hsla::from(theme.selection))
+                    .text_color(Hsla::from(theme.selection_foreground))
             })
             .when(!selected, |this| {
                 this.bg(Hsla::from(theme.editor.ctl))
@@ -5033,7 +5028,7 @@ impl EditorWindow {
                     segment.animation_in
                 }
             });
-        let accent = Hsla::from(theme.editor.accent);
+        let accent = Hsla::from(theme.selection_foreground);
 
         let tile = |slot: usize,
                     animation: TextAnimation,
@@ -5058,12 +5053,12 @@ impl EditorWindow {
                 .rounded(px(9.))
                 .border_1()
                 .border_color(if selected {
-                    with_alpha(theme.editor.accent, 0.4)
+                    Hsla::from(theme.border_strong)
                 } else {
                     gpui::transparent_black()
                 })
                 .bg(if selected {
-                    with_alpha(theme.editor.accent, 0.12)
+                    Hsla::from(theme.selection)
                 } else {
                     Hsla::from(theme.editor.ctl)
                 })
@@ -6063,13 +6058,11 @@ impl EditorWindow {
                             .rounded(px(8.))
                             .border_1()
                             .border_color(if checked {
-                                Hsla::from(theme.blue_8)
+                                Hsla::from(theme.border_strong)
                             } else {
                                 Hsla::from(theme.gray_3)
                             })
-                            .when(checked, |this| {
-                                this.bg(crate::editor_sidebar::with_alpha(theme.blue_3, 0.4))
-                            })
+                            .when(checked, |this| this.bg(Hsla::from(theme.selection)))
                             .child(
                                 div()
                                     .flex()
@@ -6086,12 +6079,12 @@ impl EditorWindow {
                                             .rounded_full()
                                             .border_1()
                                             .border_color(if checked {
-                                                Hsla::from(theme.blue_9)
+                                                Hsla::from(theme.primary)
                                             } else {
                                                 Hsla::from(theme.gray_7)
                                             })
                                             .when(checked, |this| {
-                                                this.bg(Hsla::from(theme.blue_9))
+                                                this.bg(Hsla::from(theme.primary))
                                             }),
                                     )
                                     .child(label),
@@ -6424,7 +6417,7 @@ impl EditorWindow {
                     .bg(camera3d_thumb_bg(theme.is_dark()))
                     .border_2()
                     .border_color(if selected {
-                        Hsla::from(theme.editor.accent)
+                        Hsla::from(theme.foreground)
                     } else {
                         gpui::transparent_black()
                     })
@@ -6659,7 +6652,7 @@ impl EditorWindow {
                     .mt(px(-6.))
                     .size(px(12.))
                     .rounded_full()
-                    .bg(Hsla::from(theme.editor.accent))
+                    .bg(Hsla::from(theme.foreground))
                     .border_2()
                     .border_color(camera3d_thumb_bg(theme.is_dark())),
             )
@@ -6827,7 +6820,7 @@ impl EditorWindow {
                     .bg(camera3d_thumb_bg(theme.is_dark()))
                     .border_2()
                     .border_color(if editing {
-                        Hsla::from(theme.editor.accent)
+                        Hsla::from(theme.foreground)
                     } else {
                         gpui::transparent_black()
                     })
@@ -6856,7 +6849,7 @@ impl EditorWindow {
                                 .size(px(5.))
                                 .flex_none()
                                 .rounded_full()
-                                .bg(Hsla::from(theme.editor.accent)),
+                                .bg(Hsla::from(theme.foreground)),
                         )
                     })
                     .child(div().min_w_0().truncate().child(caption)),
@@ -7034,8 +7027,8 @@ impl EditorWindow {
                     .text_size(px(12.))
                     .font_weight(FontWeight::MEDIUM)
                     .when(active, |this| {
-                        this.bg(Hsla::from(theme.editor.accent))
-                            .text_color(gpui::white())
+                        this.bg(Hsla::from(theme.selection))
+                            .text_color(theme.selection_foreground)
                     })
                     .when(!active, |this| {
                         this.bg(Hsla::from(theme.editor.ctl))

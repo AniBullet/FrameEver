@@ -25,8 +25,7 @@ use std::{
 use gpui::{
     AppContext as _, Bounds, Context, Entity, FocusHandle, FontWeight, Hsla, InteractiveElement,
     IntoElement, ParentElement, Pixels, Point, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, linear_color_stop, linear_gradient, point,
-    prelude::FluentBuilder, px, svg,
+    StatefulInteractiveElement, Styled, Window, div, point, prelude::FluentBuilder, px, svg,
 };
 
 use crate::{
@@ -732,41 +731,7 @@ impl TeleprompterWindow {
                     )
                     .child(div().h(px(spacer)).flex_shrink_0()),
             )
-            // The `mask-image` vignette, as two gradient layers: gpui has no
-            // mask hook, so instead of fading the glyphs' alpha to 0.4 this
-            // fades the window's own colour over them across the same 34% /
-            // 66% stops (README deviation -- over Liquid Glass the wash tints
-            // the backdrop rather than the text).
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .right_0()
-                    .h(gpui::relative(0.34))
-                    .bg(linear_gradient(
-                        180.,
-                        linear_color_stop(Theme::with_alpha(theme.gray_1, 0.6), 0.),
-                        linear_color_stop(Theme::with_alpha(theme.gray_1, 0.), 1.),
-                    )),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .bottom_0()
-                    .left_0()
-                    .right_0()
-                    .h(gpui::relative(0.34))
-                    .bg(linear_gradient(
-                        0.,
-                        linear_color_stop(Theme::with_alpha(theme.gray_1, 0.6), 0.),
-                        linear_color_stop(Theme::with_alpha(theme.gray_1, 0.), 1.),
-                    )),
-            )
             .when(state.show_cue_markers, |this| {
-                // `pointer-events-none absolute inset-x-3 top-1/2 z-20 flex
-                //  -translate-y-1/2 items-center justify-between
-                //  text-blue-10/75`, `size-4` chevrons pointing inward.
                 this.child(
                     div()
                         .absolute()
@@ -782,13 +747,13 @@ impl TeleprompterWindow {
                             svg()
                                 .path("icons/chevron-right.svg")
                                 .size(px(16.))
-                                .text_color(Theme::with_alpha(theme.blue_10, 0.75)),
+                                .text_color(Theme::with_alpha(theme.muted_foreground, 0.75)),
                         )
                         .child(
                             svg()
                                 .path("icons/chevron-left.svg")
                                 .size(px(16.))
-                                .text_color(Theme::with_alpha(theme.blue_10, 0.75)),
+                                .text_color(Theme::with_alpha(theme.muted_foreground, 0.75)),
                         ),
                 )
             })
@@ -857,7 +822,7 @@ impl TeleprompterWindow {
                         "speed",
                         Slider::Speed,
                         (self.state.words_per_minute as f32 - WPM_MIN) / (WPM_MAX - WPM_MIN),
-                        Hsla::from(theme.blue_9),
+                        Hsla::from(theme.primary),
                         cx,
                     ))
                     .child(
@@ -1011,8 +976,6 @@ impl TeleprompterWindow {
         )
     }
 
-    /// `absolute bottom-12 right-2 z-30 w-48 rounded-2xl border
-    /// border-gray-12/8 bg-gray-1/80 p-2 shadow-xl`.
     fn render_settings_popover(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         if !self.settings_open {
             return None;

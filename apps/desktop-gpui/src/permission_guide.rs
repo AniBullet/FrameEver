@@ -343,7 +343,6 @@ impl Render for PermissionGuide {
                     .border(px(1.5))
                     .border_color(paper.track)
                     .bg(paper.bg)
-                    .shadow_lg()
                     .child(
                         div()
                             .id("permission-guide-icon")

@@ -79,7 +79,7 @@ impl Select {
         Self {
             padding_x: px(10.),
             padding_y: px(0.),
-            height: Some(px(30.)),
+            height: Some(px(crate::theme::CONTROL_HEIGHT)),
             radius: px(7.),
             text_size: px(13.),
             // `KSelect.Value` is `text-sm ... font-normal`, which opts out of

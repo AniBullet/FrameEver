@@ -24,7 +24,7 @@ use gpui::{
     AppContext as _, Bounds, Context, Entity, FocusHandle, FontWeight, Hsla, InteractiveElement,
     IntoElement, MouseButton, ParentElement, Pixels, Point, Render, RenderImage, ScrollAnchor,
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, div, img,
-    prelude::FluentBuilder, px, rgb, svg,
+    prelude::FluentBuilder, px, svg,
 };
 use serde_json::Value;
 
@@ -1627,19 +1627,13 @@ impl SettingsWindow {
                     .flex()
                     .flex_row()
                     .items_center()
-                    // `.cap-settings-nav-item { height: 32px; padding: 6px;
-                    //  border-radius: 8px }`, `gap-1.5 text-[13px]`.
-                    .h(px(30.))
+                    .h(px(crate::theme::ROW_HEIGHT))
                     .px(px(6.))
                     .gap(px(8.))
                     .rounded(px(8.))
                     .text_size(px(13.))
                     .when(selected, |this| {
-                        this.bg(Theme::with_alpha(
-                            rgb(Theme::SETTINGS_ACCENT),
-                            if theme.is_dark() { 0.22 } else { 0.12 },
-                        ))
-                        .font_weight(FontWeight::MEDIUM)
+                        this.bg(theme.selection).font_weight(FontWeight::MEDIUM)
                     })
                     .when(!selected, |this| {
                         this.hover(|style| style.bg(theme.settings_hover()))
@@ -1650,7 +1644,7 @@ impl SettingsWindow {
                             .size(px(16.))
                             .flex_shrink_0()
                             .text_color(if selected {
-                                rgb(Theme::SETTINGS_ACCENT).into()
+                                theme.selection_foreground.into()
                             } else {
                                 theme.settings_muted()
                             }),
@@ -1732,9 +1726,7 @@ impl SettingsWindow {
                         link.cursor_pointer()
                             .hover(|style| style.text_color(theme.settings_text()))
                     })
-                    .when(update_ready, |link| {
-                        link.text_color(rgb(Theme::SETTINGS_ACCENT))
-                    })
+                    .when(update_ready, |link| link.text_color(theme.link))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         if !configured {
                             return;
@@ -2436,9 +2428,8 @@ impl SettingsWindow {
             .items_center()
             .gap(px(4.))
             .child(
-                // `bg-blue-100` for instant, `bg-gray-4` for studio.
                 pill(match item.mode {
-                    RecordingMode::Instant => Hsla::from(theme.blue_100),
+                    RecordingMode::Instant => Hsla::from(theme.secondary),
                     RecordingMode::Studio => theme.settings_fill(),
                 })
                 .child(glyph(item.mode.icon()))
@@ -2451,7 +2442,7 @@ impl SettingsWindow {
             })
             .when(item.status.is_in_progress(), |this| {
                 this.child(
-                    pill(Hsla::from(theme.blue_500))
+                    pill(Hsla::from(theme.secondary))
                         .child(glyph("icons/record-fill.svg"))
                         .child(t!("Recording in progress")),
                 )
@@ -2481,7 +2472,7 @@ impl SettingsWindow {
                         ),
                     };
                     this.child(
-                        pill(Hsla::from(theme.blue_100))
+                        pill(Hsla::from(theme.secondary))
                             .child(glyph("icons/zap.svg"))
                             .child(label),
                     )
@@ -2746,7 +2737,7 @@ impl SettingsWindow {
                             .overflow_hidden()
                             .border_2()
                             .border_color(if selected {
-                                theme.blue_9.into()
+                                theme.foreground.into()
                             } else {
                                 Hsla::from(theme.gray_4)
                             })
@@ -2998,7 +2989,7 @@ impl SettingsWindow {
 
     fn radio_dot(&self, checked: bool) -> gpui::Div {
         let theme = self.theme;
-        let accent: Hsla = rgb(Theme::SETTINGS_ACCENT).into();
+        let accent: Hsla = theme.primary.into();
         div()
             .size(px(16.))
             .flex_none()
@@ -3021,13 +3012,6 @@ impl SettingsWindow {
                     } else {
                         gpui::white()
                     })
-                    .shadow(vec![gpui::BoxShadow {
-                        color: gpui::hsla(0., 0., 0., 0.12),
-                        offset: gpui::point(px(0.), px(0.5)),
-                        blur_radius: px(1.),
-                        spread_radius: px(0.),
-                        inset: false,
-                    }])
             })
     }
 
@@ -4243,8 +4227,6 @@ impl SettingsWindow {
         }
     }
 
-    /// `<Slider minValue={1} maxValue={4.5} step={0.1}>`: a `h-[0.3rem]`
-    /// `bg-gray-4` track with a `bg-blue-9` fill and a `size-4` thumb.
     fn render_zoom_slider(&self, value: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let fraction = ((value - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)).clamp(0., 1.);
@@ -4252,7 +4234,7 @@ impl SettingsWindow {
         ui::Slider::new("zoom-slider", fraction, self.slider_track.clone())
             .flex()
             .track(px(5.), theme.settings_fill())
-            .fill(Hsla::from(theme.blue_9))
+            .fill(Hsla::from(theme.primary))
             .thumb(
                 px(16.),
                 if theme.is_dark() {

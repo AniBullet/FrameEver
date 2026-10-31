@@ -558,17 +558,14 @@ impl EditorWindow {
                         // behind the whole element.
                         .bg(self.panel_bg())
                         .border_1()
-                        // `border-blue-9 ring-1 ring-blue-9`, which on a 1px
-                        // border reads as a 2px edge.
                         .border_color(if selected {
-                            Hsla::from(theme.blue_9)
+                            Hsla::from(theme.foreground)
                         } else {
                             Hsla::from(theme.gray_3)
                         })
                         .when(selected, |this| {
-                            // `ring-1 ring-blue-9`: a 1px spread with no blur.
                             this.shadow(vec![gpui::BoxShadow {
-                                color: Hsla::from(theme.blue_9),
+                                color: Hsla::from(theme.foreground),
                                 offset: gpui::point(px(0.), px(0.)),
                                 blur_radius: px(0.),
                                 spread_radius: px(1.),

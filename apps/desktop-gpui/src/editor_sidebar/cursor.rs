@@ -129,13 +129,6 @@ fn circle_art() -> AnyElement {
         .bg(white(0.15))
         .border_1()
         .border_color(black(0.38))
-        .shadow(vec![gpui::BoxShadow {
-            color: black(0.16),
-            offset: gpui::point(px(0.), px(0.)),
-            blur_radius: px(5.),
-            spread_radius: px(0.),
-            inset: false,
-        }])
         .child(
             div()
                 .size_full()
@@ -225,8 +218,8 @@ impl EditorWindow {
             .map(|this| {
                 if selected {
                     this.border_2()
-                        .border_color(Hsla::from(theme.blue_8))
-                        .bg(with_alpha(theme.blue_3, 0.4))
+                        .border_color(Hsla::from(theme.foreground))
+                        .bg(Hsla::from(theme.selection))
                 } else {
                     this.border_1()
                         .border_color(Hsla::from(theme.gray_3))

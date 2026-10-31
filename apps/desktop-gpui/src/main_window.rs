@@ -194,65 +194,17 @@ fn glass_selected(theme: Theme) -> Hsla {
     glass_tint(theme, 0.08, 0.1)
 }
 
-fn shadow(color: Hsla, y: f32, blur: f32, spread: f32, inset: bool) -> gpui::BoxShadow {
-    gpui::BoxShadow {
-        color,
-        offset: gpui::point(px(0.), px(y)),
-        blur_radius: px(blur),
-        spread_radius: px(spread),
-        inset,
-    }
-}
-
-/// Drawn in gpui rather than with an `NSGlassEffectView` per button, which
-/// would have to track gpui's layout under the Metal layer. Two shadows, one
-/// unblurred, keep it cheap on a window that repaints with the mic meter.
 fn glass_button<E: Styled>(element: E, theme: Theme, selected: bool) -> E {
-    let dark = theme.is_dark();
-    let (top, bottom, rim) = match (selected, dark) {
-        (false, false) => (
-            gpui::hsla(0., 0., 1., 0.7),
-            gpui::hsla(0., 0., 1., 0.58),
-            gpui::hsla(0., 0., 0., 0.08),
-        ),
-        (false, true) => (
-            gpui::hsla(0., 0., 1., 0.085),
-            gpui::hsla(0., 0., 1., 0.06),
-            gpui::hsla(0., 0., 1., 0.07),
-        ),
-        (true, false) => (
-            Theme::with_alpha(theme.blue_3, 0.9),
-            Theme::with_alpha(theme.blue_3, 0.75),
-            Theme::with_alpha(theme.blue_8, 0.4),
-        ),
-        (true, true) => (
-            Theme::with_alpha(theme.blue_9, 0.24),
-            Theme::with_alpha(theme.blue_9, 0.18),
-            Theme::with_alpha(theme.blue_9, 0.3),
-        ),
-    };
-    let (highlight, lift) = if dark {
-        (gpui::hsla(0., 0., 1., 0.07), gpui::hsla(0., 0., 0., 0.2))
+    element.bg(if selected {
+        theme.selection
     } else {
-        (gpui::hsla(0., 0., 1., 0.8), gpui::hsla(0., 0., 0., 0.04))
-    };
-    element
-        .bg(gpui::linear_gradient(
-            180.,
-            gpui::linear_color_stop(top, 0.),
-            gpui::linear_color_stop(bottom, 1.),
-        ))
-        .border_1()
-        .border_color(rim)
-        .shadow(vec![
-            shadow(highlight, 1., 0., 0., true),
-            shadow(lift, 1., 2., 0., false),
-        ])
+        theme.secondary
+    })
 }
 
 fn capture_hover_fill(theme: Theme, selected: bool) -> Hsla {
     if selected {
-        Theme::with_alpha(theme.blue_9, 0.06)
+        Hsla::from(theme.secondary_hover)
     } else {
         glass_tint(theme, 0.04, 0.05)
     }
@@ -260,7 +212,7 @@ fn capture_hover_fill(theme: Theme, selected: bool) -> Hsla {
 
 fn capture_press_fill(theme: Theme, selected: bool) -> Hsla {
     if selected {
-        Theme::with_alpha(theme.blue_9, 0.12)
+        Hsla::from(theme.selection)
     } else {
         glass_tint(theme, 0.07, 0.09)
     }
@@ -328,7 +280,6 @@ impl gpui::RenderOnce for ModeHoverCard {
             .border_color(theme.gray_3)
             .bg(theme.gray_12)
             .text_color(theme.gray_1)
-            .shadow_lg()
             .child(
                 div()
                     .text_size(px(12.))
@@ -2618,7 +2569,7 @@ impl Render for MainWindow {
             && self.microphone.is_some()
             && self.session.read(cx).phase == Phase::Idle;
         self.microphone_level.update(cx, |meter, cx| {
-            meter.configure(meter_active, theme.blue_9.into(), cx);
+            meter.configure(meter_active, theme.success.into(), cx);
         });
 
         div()
@@ -2736,9 +2687,9 @@ impl MainWindow {
                                     .size(px(16.))
                                     .rounded(px(4.))
                                     .border_1()
-                                    .border_color(if checked { theme.blue_9 } else { theme.gray_7 })
-                                    .bg(if checked { theme.blue_9 } else { theme.gray_2 })
-                                    .when(checked, |this| this.child(svg().path("icons/check.svg").size(px(14.)).text_color(rgb(0xffffff)))),
+                                    .border_color(if checked { theme.primary } else { theme.gray_7 })
+                                    .bg(if checked { theme.primary } else { theme.gray_2 })
+                                    .when(checked, |this| this.child(svg().path("icons/check.svg").size(px(14.)).text_color(theme.primary_foreground))),
                             )
                             .child(div().text_size(px(12.)).text_color(theme.gray_11).child(t!("Don't show again")))
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -2815,7 +2766,6 @@ impl MainWindow {
                     .border_1()
                     .border_color(theme.body_border(6))
                     .bg(theme.gray_1)
-                    .shadow_lg()
                     .p(px(16.))
                     .flex()
                     .flex_col()
@@ -2917,7 +2867,6 @@ impl MainWindow {
             .border_color(theme.red_4)
             .bg(theme.red_2)
             .p(px(10.))
-            .shadow_md()
             .child(
                 div()
                     .flex()
@@ -2971,7 +2920,7 @@ impl MainWindow {
                                 ui::Button::plain(
                                     &theme,
                                     "recover-incomplete-recording",
-                                    ui::ButtonVariant::Primary,
+                                    ui::ButtonVariant::Gray,
                                     ui::ButtonSize::Xs,
                                 )
                                 .label(if pending { "..." } else { t!("Recover") })
@@ -3037,9 +2986,10 @@ impl MainWindow {
     ) -> impl IntoElement {
         let dark = self.theme.is_dark();
         let foreground = Theme::with_alpha(
-            rgb(if dark { 0xffffff } else { 0x12161f }),
+            self.theme.foreground,
             if window.is_window_active() { 0.8 } else { 0.4 },
         );
+        let theme = self.theme;
         let hover = gpui::rgba(if dark { 0xffffff0d } else { 0x0000000d });
         let pressed = gpui::rgba(if dark { 0xe9e9e908 } else { 0x00000008 });
         let button = |id: &'static str, icon: &'static str, height: f32| {
@@ -3056,14 +3006,14 @@ impl MainWindow {
                 .cursor_default()
                 .hover(move |style| {
                     style.bg(if id == "caption-close" {
-                        rgb(0xc42b1c)
+                        theme.danger
                     } else {
                         hover
                     })
                 })
                 .active(move |style| {
                     style.bg(if id == "caption-close" {
-                        gpui::rgba(0xc42b1ce6)
+                        theme.danger_hover
                     } else {
                         pressed
                     })
@@ -4126,7 +4076,7 @@ impl MainWindow {
         let converting = entry.stage == crate::import::ImportStage::Converting;
         let ring = {
             let ring =
-                ui::CircularProgress::new(px(36.), px(3.), theme.gray(4), theme.blue_9.into());
+                ui::CircularProgress::new(px(36.), px(3.), theme.gray(4), theme.primary.into());
             if converting {
                 ring.progress(entry.progress as f32)
                     .label(theme.gray_12.into(), px(9.))
@@ -5257,7 +5207,7 @@ impl MainWindow {
             .rounded(px(8.))
             .border_1()
             .border_color(if selected {
-                Hsla::from(theme.blue_8)
+                Hsla::from(theme.border_strong)
             } else {
                 gpui::transparent_black()
             })
@@ -5323,7 +5273,7 @@ impl MainWindow {
                     .rounded(px(12.))
                     .border_2()
                     .border_color(if selected {
-                        Hsla::from(theme.blue_9)
+                        Hsla::from(theme.foreground)
                     } else if theme.is_dark() {
                         theme.body_border(5)
                     } else {
@@ -5342,7 +5292,7 @@ impl MainWindow {
                             .size(px(20.))
                             .flex_shrink_0()
                             .text_color(if selected {
-                                theme.blue_11
+                                theme.selection_foreground
                             } else {
                                 theme.gray_12
                             }),
@@ -5363,7 +5313,7 @@ impl MainWindow {
                                     // there (`ui-solid/vite.js:31-33`).
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(if selected {
-                                        theme.blue_11
+                                        theme.selection_foreground
                                     } else {
                                         theme.gray_12
                                     })
@@ -5447,7 +5397,7 @@ impl MainWindow {
                     ui::Button::body(
                         &theme,
                         SharedString::from(format!("{noun}-access")),
-                        ui::ButtonVariant::Primary,
+                        ui::ButtonVariant::Gray,
                         ui::ButtonSize::Xs,
                     )
                     .label(label)
@@ -5470,13 +5420,6 @@ impl MainWindow {
             .into_any_element()
     }
 
-    /// `CameraListItem` / `MicrophoneListItem`: `px-3 py-2.5`, `rounded-lg`,
-    /// 14px label over an optional 11px detail line indented `pl-7`.
-    ///
-    /// Selection is `bg-blue-500` with white text -- note that is the custom
-    /// `--blue-500`, not `blue-9` used by the pills; the two are different
-    /// colours.
-    // Mirrors the web list-item's prop list; a struct would rename, not reduce.
     #[allow(clippy::too_many_arguments)]
     fn render_device_list_row(
         &self,
@@ -5492,7 +5435,7 @@ impl MainWindow {
         on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
-        let accent = Hsla::from(theme.blue_500);
+        let accent = Hsla::from(theme.success);
 
         div()
             .id(id)
@@ -5503,7 +5446,7 @@ impl MainWindow {
             .gap(px(10.))
             .px(px(10.))
             .py(px(7.))
-            .min_h(px(40.))
+            .min_h(px(crate::theme::ROW_HEIGHT))
             .w_full()
             .rounded(px(10.))
             .cursor_pointer()
@@ -5709,9 +5652,6 @@ impl MainWindow {
         )
     }
 
-    /// `Mode.tsx`: `p-1.5 gap-2 rounded-full border border-gray-5 bg-gray-3`,
-    /// 28px round buttons (`size-7`). Selected gets `bg-gray-7` plus a 2px
-    /// `blue-500` ring offset 1px against `gray-1`.
     fn render_mode_pill(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let selected_mode = self.effective_mode(cx);
@@ -5739,9 +5679,8 @@ impl MainWindow {
                     theme.body_fill(3)
                 })
                 .when(selected, |this| {
-                    // `ring-2 ring-blue-500 ring-offset-1 ring-offset-gray-1`.
                     this.border_2()
-                        .border_color(theme.blue_500)
+                        .border_color(theme.foreground)
                         .shadow(vec![gpui::BoxShadow {
                             color: theme.ring_offset(),
                             offset: gpui::point(px(0.), px(0.)),
@@ -5892,7 +5831,7 @@ impl MainWindow {
                             .bottom(px(10.))
                             .w(px(1.))
                             .bg(if selected {
-                                Theme::with_alpha(theme.blue_9, 0.25)
+                                Theme::with_alpha(theme.foreground, 0.25)
                             } else {
                                 glass_tint(theme, 0.08, 0.1)
                             }),
@@ -5903,7 +5842,7 @@ impl MainWindow {
                             .path("icons/chevron-down.svg")
                             .size(px(14.))
                             .text_color(if selected {
-                                theme.blue_10
+                                theme.foreground
                             } else {
                                 theme.gray_10
                             }),
@@ -5951,12 +5890,12 @@ impl MainWindow {
         let theme = self.theme;
         let selected = self.target == Some(target);
         let icon_color = if selected {
-            theme.blue_10
+            theme.foreground
         } else {
             theme.gray_10
         };
         let label_color = if selected {
-            theme.blue_11
+            theme.foreground
         } else {
             theme.gray_12
         };
@@ -6285,7 +6224,11 @@ enum PillState {
 impl PillState {
     fn render(self, theme: Theme) -> impl IntoElement {
         let (bg, fg, text) = match self {
-            Self::On => (Hsla::from(theme.blue_9), gpui::white(), t!("On")),
+            Self::On => (
+                Hsla::from(theme.secondary),
+                Hsla::from(theme.foreground),
+                t!("On"),
+            ),
             Self::Off => (theme.body_fill(5), Hsla::from(theme.gray_11), t!("Off")),
             Self::Disconnected => (
                 theme.body_fill(5),

@@ -1,17 +1,13 @@
-//! Colour tokens, transcribed from the web app's resolved values.
-//!
-//! The Tauri UI gets these from Radix Colors via Tailwind v4 `@theme` aliases,
-//! with a handful of dark-mode entries overridden in
-//! Tauri `src/styles/theme.css` (`:root.dark`, which outranks Radix's own
-//! `.dark`). The overridden ones are marked below -- they are *not* stock Radix,
-//! so regenerating this from a Radix crate would silently change the palette.
+use gpui::{App, Context, Global, Hsla, Rgba, Window, WindowAppearance, rgb, rgba};
 
-use gpui::{
-    App, BoxShadow, Context, Global, Hsla, Rgba, Window, WindowAppearance, point, px, rgb, rgba,
-};
+use std::sync::LazyLock;
 
 use crate::platform::{self, ForcedAppearance, MaterialKind};
 use crate::store::AppTheme;
+
+mod tokens;
+
+pub use tokens::{CONTROL_HEIGHT, Component, ROW_HEIGHT, Semantic};
 
 pub fn ui_font() -> &'static str {
     match crate::i18n::current() {
@@ -340,22 +336,14 @@ impl MaterialTokens {
     }
 }
 
-/// Every colour the main window draws with, already resolved for one appearance.
-///
-/// The scales are transcribed whole rather than trimmed to today's callers.
-/// Half a Radix scale is worse than none: the next person needing `red-9` for
-/// the Stop Recording button or `blue-5` for a pressed tile would otherwise
-/// have to go back to the CSS and re-derive which entries were overridden.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct Theme {
     pub appearance: Appearance,
-
-    /// The native window material behind the shell, already resolved for this
-    /// appearance. `None` -- non-mac, or the install failed -- keeps the
-    /// opaque `gray-1` shell, which is what the web app falls back to when
-    /// `applyMacOSWindowMaterial` never runs.
     pub material: Option<MaterialTokens>,
+    pub semantic: Semantic,
+    pub component: Component,
+    pub fixed_white: Rgba,
+    pub badge: Rgba,
 
     pub gray_1: Rgba,
     pub gray_2: Rgba,
@@ -370,72 +358,35 @@ pub struct Theme {
     pub gray_11: Rgba,
     pub gray_12: Rgba,
 
-    pub blue_3: Rgba,
-    pub blue_4: Rgba,
-    pub blue_5: Rgba,
-    pub blue_6: Rgba,
-    pub blue_8: Rgba,
-    pub blue_9: Rgba,
-    pub blue_10: Rgba,
-    pub blue_11: Rgba,
-    /// The screenshot editor's layers panel selected-row label
-    /// (`text-blue-12`). Stock Radix -- `theme.css` overrides no blue-12.
-    pub blue_12: Rgba,
-
     pub red_2: Rgba,
-    /// The layers panel's delete-hover wash (`hover:bg-red-3`). Stock Radix.
     pub red_3: Rgba,
     pub red_4: Rgba,
     pub red_9: Rgba,
     pub red_10: Rgba,
-    /// The layers panel's delete-hover glyph (`hover:text-red-11`). Stock
-    /// Radix.
     pub red_11: Rgba,
+    pub red_300: Rgba,
 
-    /// The settings page's one non-gray, non-blue accent: the "recommended Cap
-    /// windows are not excluded" warning is `border-amber-6 bg-amber-3/30
-    /// text-amber-11`. Stock Radix -- `theme.css` overrides no amber step.
     pub amber_3: Rgba,
     pub amber_6: Rgba,
     pub amber_11: Rgba,
 
-    /// `--blue-100`: the settings Recordings page's Instant badge
-    /// (`bg-blue-100`). Part of the same legacy ramp as `--blue-500`, and like
-    /// it not a Radix step -- `theme.css:77` / `:144`.
-    pub blue_100: Rgba,
-
-    /// `--blue-500`: the device-list selection fill and the Mode pill's ring.
-    /// Distinct from `blue-9`; the two are not interchangeable.
-    pub blue_500: Rgba,
-
-    /// `--red-300`, the recording bar's stop button. Same value in both themes.
-    pub red_300: Rgba,
-
-    /// The **legacy** gray scale (`--gray-50 … --gray-500`, `theme.css:36-45`
-    /// and `:97-107`), which coexists with Radix's 1-12 and is *not*
-    /// numerically aligned with it -- legacy `gray-500` is the darkest text
-    /// colour, Radix `gray-1` the lightest surface. Only the three steps the
-    /// config sidebar actually uses are carried: the background section's
-    /// dashed dividers are `border-gray-300`, and every selected swatch in it
-    /// (wallpaper, colour preset, gradient preset) is `ring-2 ring-gray-500
-    /// ring-offset-2 ring-offset-gray-200`. E5b adds `gray-400`, the
-    /// `PositionPad` knob's ring (`ConfigSidebar.tsx:6283`) and the manual-zoom
-    /// dot's (`:5843`).
     pub gray_200_legacy: Rgba,
-    pub gray_300_legacy: Rgba,
     pub gray_400_legacy: Rgba,
     pub gray_500_legacy: Rgba,
 
-    /// `--text-primary`, the root text colour. Slightly translucent by design.
     pub text_primary: Rgba,
 
-    /// The editor's layered surface system (`--ed-*` in `theme.css`).
     pub editor: EditorPalette,
 }
 
-/// Editor surfaces, transcribed from the `--ed-*` custom properties in
-/// Tauri `src/styles/theme.css`. A layered, low-contrast system
-/// (window < card < control) with one accent; change both files together.
+impl std::ops::Deref for Theme {
+    type Target = Semantic;
+
+    fn deref(&self) -> &Semantic {
+        &self.semantic
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EditorPalette {
     pub window: Rgba,
@@ -451,82 +402,41 @@ pub struct EditorPalette {
     pub ctl_hover: Rgba,
     pub ctl_active: Rgba,
     pub accent: Rgba,
-    pub accent_2: Rgba,
+    pub accent_hover: Rgba,
+    pub accent_active: Rgba,
     pub playhead: Rgba,
     pub thumb: Rgba,
-    /// `--ed-seg-tint`: how much of a track colour a segment fill carries.
     pub seg_tint: f32,
-    /// `--ed-seg-line`: the segment border's alpha.
     pub seg_line: f32,
-    /// `--ed-seg-label-base` / `--ed-seg-label-mix`: segment text is the
-    /// track colour pulled this far toward black (light) or white (dark).
     pub seg_label_base: Rgba,
     pub seg_label_mix: f32,
-    /// `--ed-card-shadow` / `--ed-pop-shadow`: how black each surface's drop
-    /// shadow is. A card lifts barely at all on white and much more on the dark
-    /// window, where the hairline alone is invisible.
-    pub card_shadow_alpha: f32,
-    pub pop_shadow_alpha: f32,
-    pub pop_shadow_offset: f32,
-    pub pop_shadow_blur: f32,
 }
 
 impl EditorPalette {
-    pub fn light() -> Self {
+    fn new(appearance: Appearance, semantic: &Semantic, component: &Component) -> Self {
+        let dark = appearance == Appearance::Dark;
         Self {
-            window: rgb(0xf1f1f3),
-            card: rgb(0xffffff),
-            card_2: rgb(0xf6f6f7),
-            stage: rgb(0xe9e9ec),
-            line: rgba(0x00000013),
-            line_strong: rgba(0x0000001f),
-            text_1: rgb(0x1c1c1e),
-            text_2: rgb(0x6e6e75),
-            text_3: rgb(0xa0a0a8),
-            ctl: rgba(0x0000000b),
-            ctl_hover: rgba(0x00000013),
-            ctl_active: rgba(0x0000001c),
-            accent: rgb(0x007aff),
-            accent_2: rgb(0x2b8cff),
-            playhead: rgb(0xff3b30),
-            thumb: rgb(0xffffff),
-            seg_tint: 0.13,
-            seg_line: 0.34,
-            seg_label_base: rgb(0x000000),
-            seg_label_mix: 0.58,
-            card_shadow_alpha: 0.04,
-            pop_shadow_alpha: 0.25,
-            pop_shadow_offset: 12.,
-            pop_shadow_blur: 32.,
-        }
-    }
-
-    pub fn dark() -> Self {
-        Self {
-            window: rgb(0x131315),
-            card: rgb(0x1b1b1e),
-            card_2: rgb(0x202024),
-            stage: rgb(0x121214),
-            line: rgba(0xffffff14),
-            line_strong: rgba(0xffffff21),
-            text_1: rgb(0xf4f4f5),
-            text_2: rgb(0x9a9aa3),
-            text_3: rgb(0x62626a),
-            ctl: rgba(0xffffff0f),
-            ctl_hover: rgba(0xffffff17),
-            ctl_active: rgba(0xffffff21),
-            accent: rgb(0x0a84ff),
-            accent_2: rgb(0x3d9bff),
-            playhead: rgb(0xff453a),
-            thumb: rgb(0xe8e8ea),
-            seg_tint: 0.20,
-            seg_line: 0.42,
-            seg_label_base: rgb(0xffffff),
-            seg_label_mix: 0.55,
-            card_shadow_alpha: 0.30,
-            pop_shadow_alpha: 0.60,
-            pop_shadow_offset: 16.,
-            pop_shadow_blur: 40.,
+            window: semantic.background,
+            card: semantic.card,
+            card_2: semantic.secondary,
+            stage: semantic.preview,
+            line: semantic.border,
+            line_strong: semantic.border_strong,
+            text_1: semantic.foreground,
+            text_2: semantic.muted_foreground,
+            text_3: semantic.muted_foreground,
+            ctl: semantic.secondary,
+            ctl_hover: semantic.secondary_hover,
+            ctl_active: semantic.secondary_active,
+            accent: semantic.primary,
+            accent_hover: semantic.primary_hover,
+            accent_active: semantic.primary_active,
+            playhead: component.playhead,
+            thumb: component.slider_thumb,
+            seg_tint: if dark { 0.20 } else { 0.13 },
+            seg_line: if dark { 0.42 } else { 0.34 },
+            seg_label_base: if dark { rgb(0xffffff) } else { rgb(0x000000) },
+            seg_label_mix: if dark { 0.55 } else { 0.58 },
         }
     }
 
@@ -570,72 +480,6 @@ impl EditorPalette {
     pub fn seg_handle(&self, color: Rgba) -> Rgba {
         mix(self.seg_label_base, color, 0.70)
     }
-
-    /// `--ed-card-shadow`: `0 1px 2px` under every editor card.
-    pub fn card_shadow(&self) -> Vec<BoxShadow> {
-        vec![BoxShadow {
-            color: gpui::hsla(0., 0., 0., self.card_shadow_alpha),
-            offset: point(px(0.), px(1.)),
-            blur_radius: px(2.),
-            spread_radius: px(0.),
-            inset: false,
-        }]
-    }
-
-    /// `--ed-pop-shadow`: the lift under a menu, popover or dialog.
-    pub fn pop_shadow(&self) -> Vec<BoxShadow> {
-        vec![BoxShadow {
-            color: gpui::hsla(0., 0., 0., self.pop_shadow_alpha),
-            offset: point(px(0.), px(self.pop_shadow_offset)),
-            blur_radius: px(self.pop_shadow_blur),
-            spread_radius: px(-12.),
-            inset: false,
-        }]
-    }
-}
-
-/// The drop shadow under the stage's letterboxed preview. The stage is nearly
-/// black in both themes, so this one does not vary with the appearance.
-pub fn preview_shadow() -> Vec<BoxShadow> {
-    vec![BoxShadow {
-        color: gpui::hsla(0., 0., 0., 0.35),
-        offset: point(px(0.), px(12.)),
-        blur_radius: px(32.),
-        spread_radius: px(-8.),
-        inset: false,
-    }]
-}
-
-/// The lift under a selected segmented-control pill on the light editor
-/// surface (`shadow-[0_1px_2px_rgba(0,0,0,.12),0_0_0_.5px_rgba(0,0,0,.06)]`).
-pub fn raised_pill_shadow() -> Vec<BoxShadow> {
-    vec![
-        BoxShadow {
-            color: gpui::hsla(0., 0., 0., 0.12),
-            offset: point(px(0.), px(1.)),
-            blur_radius: px(2.),
-            spread_radius: px(0.),
-            inset: false,
-        },
-        BoxShadow {
-            color: gpui::hsla(0., 0., 0., 0.06),
-            offset: point(px(0.), px(0.)),
-            blur_radius: px(0.),
-            spread_radius: px(0.5),
-            inset: false,
-        },
-    ]
-}
-
-/// The drop shadow under a slider knob.
-pub fn thumb_shadow() -> Vec<BoxShadow> {
-    vec![BoxShadow {
-        color: gpui::hsla(0., 0., 0., 0.25),
-        offset: point(px(0.), px(1.)),
-        blur_radius: px(3.),
-        spread_radius: px(0.),
-        inset: false,
-    }]
 }
 
 /// `color-mix(in srgb, b <t>, a)`: straight sRGB interpolation, which is what
@@ -656,9 +500,57 @@ pub fn rgba_alpha(color: Rgba, alpha: f32) -> Rgba {
 
 impl Theme {
     pub fn new(appearance: Appearance) -> Self {
+        static DARK: LazyLock<Theme> = LazyLock::new(|| Theme::build(Appearance::Dark));
+        static LIGHT: LazyLock<Theme> = LazyLock::new(|| Theme::build(Appearance::Light));
         match appearance {
-            Appearance::Light => Self::light(),
-            Appearance::Dark => Self::dark(),
+            Appearance::Dark => *DARK,
+            Appearance::Light => *LIGHT,
+        }
+    }
+
+    fn build(appearance: Appearance) -> Self {
+        let semantic = Semantic::new(appearance);
+        let component = Component::new(appearance);
+        let brand = tokens::Brand::of(appearance);
+        Self {
+            appearance,
+            material: None,
+            semantic,
+            component,
+            fixed_white: brand.fixed.white.to_rgba(),
+            badge: brand.fixed.badge.to_rgba(),
+            editor: EditorPalette::new(appearance, &semantic, &component),
+
+            gray_1: semantic.background,
+            gray_2: semantic.card,
+            gray_3: semantic.secondary,
+            gray_4: semantic.secondary_hover,
+            gray_5: semantic.border,
+            gray_6: semantic.secondary_active,
+            gray_7: semantic.border_strong,
+            gray_8: semantic.border_strong,
+            gray_9: semantic.muted_foreground,
+            gray_10: semantic.muted_foreground,
+            gray_11: semantic.muted_foreground,
+            gray_12: semantic.foreground,
+
+            red_2: semantic.danger_tint,
+            red_3: semantic.danger_tint,
+            red_4: semantic.danger_tint,
+            red_9: semantic.danger,
+            red_10: semantic.danger_hover,
+            red_11: semantic.danger_text,
+            red_300: semantic.recording,
+
+            amber_3: brand.amber.tint.to_rgba(),
+            amber_6: semantic.warning,
+            amber_11: semantic.warning_text,
+
+            gray_200_legacy: semantic.card,
+            gray_400_legacy: semantic.muted_foreground,
+            gray_500_legacy: semantic.foreground,
+
+            text_primary: semantic.foreground,
         }
     }
 
@@ -692,114 +584,11 @@ impl Theme {
     }
 
     pub fn light() -> Self {
-        Self {
-            appearance: Appearance::Light,
-            material: None,
-            editor: EditorPalette::light(),
-
-            gray_1: rgb(0xfcfcfc),
-            gray_2: rgb(0xf9f9f9),
-            gray_3: rgb(0xf0f0f0),
-            gray_4: rgb(0xe8e8e8),
-            gray_5: rgb(0xe0e0e0),
-            gray_6: rgb(0xd9d9d9),
-            gray_7: rgb(0xcecece),
-            gray_8: rgb(0xbbbbbb),
-            gray_9: rgb(0x8d8d8d),
-            gray_10: rgb(0x838383),
-            gray_11: rgb(0x646464),
-            gray_12: rgb(0x202020),
-
-            blue_3: rgb(0xe6f4fe),
-            blue_4: rgb(0xd5efff),
-            blue_5: rgb(0xc2e5ff),
-            blue_6: rgb(0xacd8fc),
-            blue_8: rgb(0x5eb1ef),
-            blue_9: rgb(0x0090ff),
-            blue_10: rgb(0x0588f0),
-            blue_11: rgb(0x0d74ce),
-            blue_12: rgb(0x113264),
-
-            red_2: rgb(0xfff7f7),
-            red_3: rgb(0xfeebec),
-            red_4: rgb(0xffdbdc),
-            red_9: rgb(0xe5484d),
-            red_10: rgb(0xdc3e42),
-            red_11: rgb(0xce2c31),
-
-            amber_3: rgb(0xfff7c2),
-            amber_6: rgb(0xf3d673),
-            amber_11: rgb(0xab6400),
-
-            blue_100: rgb(0xadc9ff),
-            blue_500: rgb(0x3666c5),
-            red_300: rgb(0xff4766),
-
-            // `theme.css:38-44`.
-            gray_200_legacy: rgb(0xe4e6ed),
-            gray_300_legacy: rgb(0xc7ccda),
-            // `--gray-400: #868e9f` (`theme.css:42`).
-            gray_400_legacy: rgb(0x868e9f),
-            gray_500_legacy: rgb(0x161b26),
-
-            text_primary: rgba(0x12161ff2),
-        }
+        Self::new(Appearance::Light)
     }
 
     pub fn dark() -> Self {
-        Self {
-            appearance: Appearance::Dark,
-            material: None,
-            editor: EditorPalette::dark(),
-
-            // gray 1-6 and 11 are the theme.css overrides, not stock Radix.
-            gray_1: rgb(0x111111),
-            gray_2: rgb(0x1c1c1c),
-            gray_3: rgb(0x282828),
-            gray_4: rgb(0x323232),
-            gray_5: rgb(0x3a3a3a),
-            gray_6: rgb(0x444444),
-            gray_7: rgb(0x484848),
-            gray_8: rgb(0x606060),
-            gray_9: rgb(0x6e6e6e),
-            gray_10: rgb(0x7b7b7b),
-            gray_11: rgb(0xa1a1a1),
-            gray_12: rgb(0xeeeeee),
-
-            blue_3: rgb(0x0d2847),
-            blue_4: rgb(0x003362),
-            blue_5: rgb(0x004074),
-            blue_6: rgb(0x104d87),
-            blue_8: rgb(0x2870bd),
-            blue_9: rgb(0x0090ff),
-            blue_10: rgb(0x3b9eff),
-            blue_11: rgb(0x70b8ff),
-            blue_12: rgb(0xc2e6ff),
-
-            red_2: rgb(0x201314),
-            red_3: rgb(0x3b1219),
-            red_4: rgb(0x500f1c),
-            red_9: rgb(0xe5484d),
-            red_10: rgb(0xec5d5e),
-            red_11: rgb(0xff9592),
-
-            amber_3: rgb(0x302008),
-            amber_6: rgb(0x5c3d05),
-            amber_11: rgb(0xffca16),
-
-            blue_100: rgb(0x243352),
-            blue_500: rgb(0x0a84ff),
-            red_300: rgb(0xff4766),
-
-            // `theme.css:101-107`.
-            gray_200_legacy: rgb(0x282828),
-            gray_300_legacy: rgb(0x323232),
-            // `--gray-400: #a1a1a1` (`theme.css:105`).
-            gray_400_legacy: rgb(0xa1a1a1),
-            gray_500_legacy: rgb(0xffffff),
-
-            text_primary: rgba(0xfffffff2),
-        }
+        Self::new(Appearance::Dark)
     }
 
     /// Resolve the panel material for this theme's appearance.
@@ -857,7 +646,7 @@ impl Theme {
     pub fn header_bg(&self) -> Hsla {
         match self.material {
             Some(material) => material.header.into(),
-            None => self.gray_2.into(),
+            None => self.background.into(),
         }
     }
 
@@ -970,7 +759,7 @@ impl Theme {
     pub fn settings_sidebar_bg(&self) -> Hsla {
         match self.material {
             Some(material) => material.sidebar.into(),
-            None => self.gray_2.into(),
+            None => self.sidebar.into(),
         }
     }
 
@@ -1017,7 +806,7 @@ impl Theme {
     pub fn settings_selection(&self) -> Hsla {
         match self.material {
             Some(material) => material.selection.into(),
-            None => self.gray_5.into(),
+            None => self.selection.into(),
         }
     }
 
@@ -1026,7 +815,7 @@ impl Theme {
     pub fn settings_border(&self) -> Hsla {
         match self.material {
             Some(material) => material.border.into(),
-            None => self.gray_3.into(),
+            None => self.border.into(),
         }
     }
 
@@ -1038,7 +827,7 @@ impl Theme {
     pub fn settings_divider(&self) -> Hsla {
         match self.material {
             Some(material) if material.kind == MaterialKind::LiquidGlass => material.border.into(),
-            _ => self.gray_3.into(),
+            _ => self.border.into(),
         }
     }
 
@@ -1119,16 +908,8 @@ impl Theme {
         self.appearance == Appearance::Dark
     }
 
-    /// The selected-tile fill. Dark mode uses `blue-3/30` rather than solid
-    /// `blue-3`, so it reads as a tint over `gray-1` instead of a slab.
     pub fn tile_selected_bg(&self) -> Hsla {
-        if self.is_dark() {
-            let mut color: Hsla = self.blue_3.into();
-            color.a = 0.3;
-            color
-        } else {
-            self.blue_3.into()
-        }
+        self.selection.into()
     }
 
     /// A colour at an alpha, for Tailwind's `/N` overlay fills
@@ -1138,19 +919,6 @@ impl Theme {
         color.a = alpha;
         color
     }
-
-    /// Tailwind v4's stock `blue-600` -- the target-select overlay's highlight
-    /// wash (`bg-blue-600/40`). Not a Radix step and not one of the app's own
-    /// `--blue-*` overrides: the overlay reaches straight for the Tailwind
-    /// palette there.
-    pub const TARGET_HIGHLIGHT: u32 = 0x155dfc;
-
-    /// `--macos-settings-accent: AccentColor` -- the selected sidebar icon and
-    /// the checked toggle. `AccentColor` is the system-wide accent the user
-    /// picked in System Settings; gpui exposes no query for it, so this is
-    /// macOS's default blue. A user on a non-blue accent sees blue here and
-    /// their own colour in the Tauri app (README deviation).
-    pub const SETTINGS_ACCENT: u32 = 0x007aff;
 
     /// The TSX has a `#DCDCDC` unfocused state, but it hangs off an
     /// `onFocusChanged` the non-activating main panel never delivers -- the
@@ -1162,9 +930,6 @@ impl Theme {
 mod tests {
     use super::*;
 
-    /// With no material the palette must be byte-for-byte what it was before
-    /// the material existed: the shell is opaque `gray-1`, and every body fill
-    /// is its plain Radix step.
     #[test]
     fn theme_preference_resolves_like_tauri() {
         assert_eq!(
@@ -1186,11 +951,11 @@ mod tests {
     }
 
     #[test]
-    fn no_material_keeps_the_radix_palette() {
+    fn no_material_paints_the_klein_field_tokens() {
         for theme in [Theme::light(), Theme::dark()] {
             assert_eq!(theme.shell_bg(), Hsla::from(theme.gray_1));
             assert_eq!(theme.shell_border(), None);
-            assert_eq!(theme.header_bg(), Hsla::from(theme.gray_2));
+            assert_eq!(theme.header_bg(), Hsla::from(theme.background));
             assert_eq!(theme.header_border(), Hsla::from(theme.gray_5));
             assert_eq!(theme.body_text(), Hsla::from(theme.text_primary));
             assert_eq!(theme.ring_offset(), Hsla::from(theme.gray_1));
@@ -1299,22 +1064,19 @@ mod tests {
         assert_eq!(dark.settings_content_bg().a, 1.);
     }
 
-    /// Vibrancy keeps the `:root` radius and the pre-Tahoe surface set, and
-    /// the sidebar/content divider falls back to the shell's own
-    /// `divide-x divide-gray-3`.
     #[test]
     fn vibrancy_settings_surfaces() {
         for appearance in [Appearance::Light, Appearance::Dark] {
             let theme = Theme::new(appearance).with_material(Some(MaterialKind::Vibrancy));
             assert_eq!(theme.settings_window_radius(), 16.);
-            assert_eq!(theme.settings_divider(), theme.gray(3));
+            assert_eq!(theme.settings_divider(), Hsla::from(theme.border));
         }
         // No material at all: the Tailwind classes, unremapped.
         let bare = Theme::light();
-        assert_eq!(bare.settings_sidebar_bg(), bare.gray(2));
+        assert_eq!(bare.settings_sidebar_bg(), Hsla::from(bare.sidebar));
         assert_eq!(bare.settings_card_bg(), bare.gray(2));
         assert_eq!(bare.settings_fill(), bare.gray(3));
-        assert_eq!(bare.settings_selection(), bare.gray(5));
+        assert_eq!(bare.settings_selection(), Hsla::from(bare.selection));
         assert_eq!(bare.settings_text(), bare.gray(12));
         assert_eq!(bare.settings_muted(), bare.gray(10));
         assert_eq!(bare.settings_window_radius(), 16.);

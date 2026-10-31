@@ -82,8 +82,6 @@ pub struct Slider {
     fill_row: bool,
     track_height: Pixels,
     track_bg: Hsla,
-    /// `bg-blue-9`, when the slider draws a filled portion at all. The
-    /// teleprompter's pills do not.
     fill: Option<Hsla>,
     thumb: Option<ThumbStyle>,
     on_drag_start: Option<DragStartHandler>,
@@ -94,7 +92,6 @@ struct ThumbStyle {
     size: Pixels,
     fill: Hsla,
     border: Option<Hsla>,
-    shadow: Vec<gpui::BoxShadow>,
     /// The thumb's `top`. Defaults to centring it over the track; the settings
     /// zoom slider sits one pixel high of centre and that is transcribed, not
     /// corrected.
@@ -143,7 +140,6 @@ impl Slider {
         self
     }
 
-    /// `absolute h-full rounded-full bg-blue-9`.
     pub fn fill(mut self, color: Hsla) -> Self {
         self.fill = Some(color);
         self
@@ -156,18 +152,8 @@ impl Slider {
             size,
             fill,
             border,
-            shadow: Vec::new(),
             top,
         });
-        self
-    }
-
-    /// A knob that has to read on a light track needs the lift the CSS one
-    /// gets from `0 1px 3px rgba(0,0,0,.25)`.
-    pub fn thumb_shadow(mut self) -> Self {
-        if let Some(thumb) = self.thumb.as_mut() {
-            thumb.shadow = crate::theme::thumb_shadow();
-        }
         self
     }
 
@@ -277,7 +263,6 @@ impl RenderOnce for Slider {
                             .size(thumb.size)
                             .rounded_full()
                             .bg(thumb.fill)
-                            .shadow(thumb.shadow.clone())
                             .when_some(thumb.border, |this, border| {
                                 this.border_1().border_color(border)
                             })

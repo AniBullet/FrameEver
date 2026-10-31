@@ -115,7 +115,7 @@ impl ModeSelectWindow {
             .border_2()
             .overflow_hidden()
             .border_color(if selected {
-                Hsla::from(theme.blue_9)
+                Hsla::from(theme.foreground)
             } else if dark {
                 // `border-gray-4 dark:border-gray-5`
                 Hsla::from(theme.gray_5)
@@ -123,23 +123,12 @@ impl ModeSelectWindow {
                 Hsla::from(theme.gray_4)
             })
             .bg(if selected {
-                // `bg-blue-3 dark:bg-blue-3/30`
                 theme.tile_selected_bg()
             } else if dark {
                 // `bg-gray-2 dark:bg-gray-3`
                 Hsla::from(theme.gray_3)
             } else {
                 Hsla::from(theme.gray_2)
-            })
-            .when(selected, |this| {
-                // `shadow-lg shadow-blue-9/10`
-                this.shadow(vec![gpui::BoxShadow {
-                    color: Theme::with_alpha(theme.blue_9, 0.1),
-                    offset: gpui::point(px(0.), px(10.)),
-                    blur_radius: px(15.),
-                    spread_radius: px(-3.),
-                    inset: false,
-                }])
             })
             .when(!selected, |this| {
                 // `hover:border-gray-6 dark:hover:border-gray-6
@@ -153,8 +142,6 @@ impl ModeSelectWindow {
                 })
             })
             .when(selected, |this| {
-                // `absolute top-2.5 right-2.5 size-5 rounded-full bg-blue-9`
-                // with a `size-3` white check.
                 this.child(
                     div()
                         .absolute()
@@ -165,12 +152,12 @@ impl ModeSelectWindow {
                         .justify_center()
                         .size(px(20.))
                         .rounded_full()
-                        .bg(Hsla::from(theme.blue_9))
+                        .bg(Hsla::from(theme.foreground))
                         .child(
                             svg()
                                 .path("icons/check.svg")
                                 .size(px(12.))
-                                .text_color(gpui::white()),
+                                .text_color(theme.background),
                         ),
                 )
             })
@@ -213,7 +200,7 @@ impl ModeSelectWindow {
                             .text_size(px(16.))
                             .font_weight(FontWeight::BOLD)
                             .text_color(if selected {
-                                Hsla::from(theme.blue_11)
+                                Hsla::from(theme.selection_foreground)
                             } else {
                                 Hsla::from(theme.gray_12)
                             })

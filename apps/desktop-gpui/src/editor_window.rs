@@ -624,9 +624,6 @@ struct PreviewFrameView {
     frame_rect: crate::editor_canvas::CanvasRect,
     stats: Option<Arc<PumpStats>>,
     frame_sequence: u64,
-    /// The stage's lift under the preview. A canvas paints raw quads, so the
-    /// shadow cannot come from a style and is carried here instead.
-    shadow: Vec<gpui::BoxShadow>,
 }
 
 impl PreviewFrameView {
@@ -637,7 +634,6 @@ impl PreviewFrameView {
             frame_rect,
             stats: None,
             frame_sequence: 0,
-            shadow: crate::theme::preview_shadow(),
         }
     }
 
@@ -666,7 +662,6 @@ impl Render for PreviewFrameView {
         let frame_rect = self.frame_rect.clone();
         let painted = self.stats.clone();
         let frame_sequence = self.frame_sequence;
-        let shadow = self.shadow.clone();
 
         gpui::canvas(
             |bounds, _window, _cx| bounds,
@@ -692,7 +687,6 @@ impl Render for PreviewFrameView {
                     frame: fitted,
                 }));
                 let radius = px(PREVIEW_RADIUS);
-                window.paint_drop_shadows(fitted, gpui::Corners::all(radius), &shadow);
                 window.paint_quad(gpui::fill(fitted, gpui::black()).corner_radii(radius));
                 frame.paint(fitted, radius, window);
                 window.paint_quad(gpui::quad(
@@ -1795,7 +1789,7 @@ fn clip_menu_toggle_row(
                 .size(px(14.))
                 .flex_none()
                 .text_color(Hsla::from(if checked {
-                    theme.editor.accent
+                    theme.foreground
                 } else {
                     theme.editor.text_2
                 })),
@@ -1835,11 +1829,8 @@ fn clip_menu_row(
     enabled: bool,
     danger: bool,
 ) -> gpui::Stateful<gpui::Div> {
-    let red = Hsla::from(gpui::rgb(0xf87171));
-    let red_wash = Hsla {
-        a: 0.10,
-        ..Hsla::from(gpui::rgb(0xef4444))
-    };
+    let red = Hsla::from(theme.danger_text);
+    let red_wash = Hsla::from(theme.danger_tint);
     let text = if !enabled {
         Hsla::from(theme.editor.text_3)
     } else if danger {
@@ -8226,7 +8217,6 @@ impl EditorWindow {
             .border_color(Hsla::from(theme.editor.line))
             .bg(Hsla::from(theme.editor.card))
             .p(px(6.))
-            .shadow(theme.editor.pop_shadow())
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|_, _, _, cx| cx.stop_propagation()),
@@ -8543,7 +8533,6 @@ impl EditorWindow {
                         .border_1()
                         .border_color(Hsla::from(theme.editor.line))
                         .bg(Hsla::from(theme.editor.card))
-                        .shadow(theme.editor.pop_shadow())
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(
                             div().flex().flex_row().gap(px(4.)).p(px(6.)).children(
@@ -8564,7 +8553,7 @@ impl EditorWindow {
                             div()
                                 .flex()
                                 .items_center()
-                                .h(px(30.))
+                                .h(px(crate::theme::ROW_HEIGHT))
                                 .px(px(12.))
                                 .border_t_1()
                                 .border_color(Hsla::from(theme.editor.line))
@@ -8665,12 +8654,12 @@ impl EditorWindow {
                         this.child(
                             badge(div())
                                 .w(px(14.))
-                                .bg(Hsla::from(theme.editor.accent))
+                                .bg(Hsla::from(theme.foreground))
                                 .child(
                                     svg()
                                         .path("icons/check.svg")
                                         .size(px(8.))
-                                        .text_color(gpui::white()),
+                                        .text_color(theme.background),
                                 ),
                         )
                     })
@@ -8812,7 +8801,6 @@ impl EditorWindow {
                         .border_1()
                         .border_color(Hsla::from(theme.editor.line))
                         .bg(Hsla::from(theme.editor.card))
-                        .shadow(theme.editor.pop_shadow())
                         .overflow_hidden()
                         .child(
                             div()
@@ -9006,7 +8994,6 @@ impl EditorWindow {
             .border_1()
             .border_color(Hsla::from(theme.editor.line))
             .bg(Hsla::from(theme.editor.card))
-            .shadow(theme.editor.pop_shadow())
             .child(
                 menu_row("preset-apply".into(), t!("Apply"), false).on_click(cx.listener(
                     move |this, _, window, cx| match row {
@@ -9164,7 +9151,6 @@ impl EditorWindow {
                         .border_1()
                         .border_color(Hsla::from(theme.editor.line))
                         .bg(Hsla::from(theme.editor.card))
-                        .shadow(theme.editor.pop_shadow())
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(
                             div()
@@ -9501,17 +9487,8 @@ impl EditorWindow {
             .disabled(true)
     }
 
-    /// The Export button: the one primary control in the editor, a vertical
-    /// `accent-2 -> accent` gradient with a 1px top highlight.
     fn render_export_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let editor = self.theme.editor;
-        let gradient = |top: gpui::Rgba, bottom: gpui::Rgba| {
-            gpui::linear_gradient(
-                180.,
-                gpui::linear_color_stop(top, 0.),
-                gpui::linear_color_stop(bottom, 1.),
-            )
-        };
         div()
             .id("editor-export")
             .relative()
@@ -9522,25 +9499,15 @@ impl EditorWindow {
             .gap(px(6.))
             .pl(px(12.))
             .pr(px(14.))
-            .h(px(30.))
+            .h(px(crate::theme::CONTROL_HEIGHT))
             .flex_none()
             .overflow_hidden()
             .rounded(px(8.))
             .when(self.project_ready(), |button| button.cursor_pointer())
             .when(!self.project_ready(), |button| button.opacity(0.5))
-            .bg(gradient(editor.accent_2, editor.accent))
-            .hover(move |style| {
-                style.bg(gradient(
-                    crate::theme::mix(editor.accent_2, gpui::rgb(0xffffff), 0.10),
-                    crate::theme::mix(editor.accent, gpui::rgb(0xffffff), 0.10),
-                ))
-            })
-            .active(move |style| {
-                style.bg(gradient(
-                    crate::theme::mix(editor.accent_2, gpui::rgb(0x000000), 0.06),
-                    crate::theme::mix(editor.accent, gpui::rgb(0x000000), 0.06),
-                ))
-            })
+            .bg(editor.accent)
+            .hover(move |style| style.bg(editor.accent_hover))
+            .active(move |style| style.bg(editor.accent_active))
             .text_size(px(13.))
             .font_weight(FontWeight::MEDIUM)
             .text_color(gpui::white())
@@ -9628,12 +9595,11 @@ impl EditorWindow {
                         .items_center()
                         .gap(px(8.))
                         .px(px(12.))
-                        .h(px(30.))
+                        .h(px(crate::theme::CONTROL_HEIGHT))
                         .rounded(px(9.))
                         .bg(Hsla::from(theme.editor.card_2))
                         .border_1()
                         .border_color(Hsla::from(theme.editor.line_strong))
-                        .shadow(theme.editor.pop_shadow())
                         .text_size(px(12.))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(Hsla::from(theme.editor.text_1))
@@ -10153,7 +10119,7 @@ impl EditorWindow {
                                     &theme,
                                     "transport-split",
                                     if self.split_mode {
-                                        ui::ButtonVariant::Primary
+                                        ui::ButtonVariant::Outline
                                     } else {
                                         ui::ButtonVariant::Gray
                                     },
@@ -10198,7 +10164,6 @@ impl EditorWindow {
                             Hsla::from(editor.thumb),
                             Some(gpui::hsla(0., 0., 0., 0.12)),
                         )
-                        .thumb_shadow()
                         .on_drag_start(cx.listener(
                             |this, event: &MouseDownEvent, window, cx| {
                                 this.zoom_slider_drag = true;
@@ -10698,7 +10663,7 @@ impl EditorWindow {
                             .when(!before, |this| this.bottom(px(1.)))
                             .h(px(2.))
                             .rounded_full()
-                            .bg(Hsla::from(theme.editor.accent))
+                            .bg(Hsla::from(theme.foreground))
                     }))
                     // The reorder grip takes the gutter tile's place while
                     // the row is hovered, so the two never overlap.
@@ -10798,7 +10763,7 @@ impl EditorWindow {
                                         ui::Button::plain(
                                             &theme,
                                             "zoom-generate-button",
-                                            ui::ButtonVariant::Primary,
+                                            ui::ButtonVariant::Gray,
                                             ui::ButtonSize::Sm,
                                         )
                                         .label(if generating {
@@ -10875,7 +10840,7 @@ impl EditorWindow {
                                     ui::Button::plain(
                                         &theme,
                                         "camera3d-auto-scene",
-                                        ui::ButtonVariant::Primary,
+                                        ui::ButtonVariant::Gray,
                                         ui::ButtonSize::Sm,
                                     )
                                     .label(t!("Auto scene"))
@@ -11053,9 +11018,8 @@ impl EditorWindow {
                     .pl(px(4.))
                     .rounded(px(8.))
                     .border_1()
-                    .border_color(Hsla::from(theme.editor.accent))
+                    .border_color(Hsla::from(theme.ring))
                     .bg(Hsla::from(theme.editor.card))
-                    .shadow_lg()
                     .cursor(gpui::CursorStyle::ClosedHand)
                     .child(
                         svg()
@@ -11082,7 +11046,7 @@ impl EditorWindow {
 }
 
 fn render_split_preview(theme: &Theme, x: f32, snapped: bool, splitting: bool) -> impl IntoElement {
-    let color = Hsla::from(theme.editor.accent);
+    let color = Hsla::from(theme.foreground);
     div()
         .absolute()
         .left(px(TIMELINE_PADDING + TRACK_GUTTER + x))
@@ -11461,7 +11425,6 @@ impl Render for EditorWindow {
                                             .border_1()
                                             .border_color(self.card_line())
                                             .bg(self.panel_bg())
-                                            .shadow(theme.editor.card_shadow())
                                             .overflow_hidden()
                                             .child(self.render_player(cx)),
                                     )
@@ -11495,7 +11458,6 @@ impl Render for EditorWindow {
                                             .border_1()
                                             .border_color(self.card_line())
                                             .bg(self.panel_bg())
-                                            .shadow(theme.editor.card_shadow())
                                             .overflow_hidden()
                                             .child(self.timeline_view.clone().cached(
                                                 StyleRefinement::default().w_full().h_full(),
