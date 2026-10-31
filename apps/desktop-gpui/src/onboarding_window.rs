@@ -118,7 +118,7 @@ const MODES: [ModeDetail; 3] = [
         description: n!(
             "Records straight to a video file on your computer. Stop recording and it is ready to play — no editing step."
         ),
-        icon: "icons/instant.svg",
+        icon: "icons/zap.svg",
         features: [
             n!("Ready-to-play video file"),
             n!("Microphone & system audio"),
@@ -133,7 +133,7 @@ const MODES: [ModeDetail; 3] = [
         description: n!(
             "Record in full quality locally, then use the built-in editor to add backgrounds, padding, cursor effects, and more."
         ),
-        icon: "icons/film-cut.svg",
+        icon: "icons/clapperboard.svg",
         features: [
             n!("Full quality local recording"),
             n!("Built-in editor & effects"),
@@ -148,7 +148,7 @@ const MODES: [ModeDetail; 3] = [
         description: n!(
             "Take screenshots with a single hotkey, add annotations and beautiful backgrounds, then copy or save instantly."
         ),
-        icon: "icons/screenshot.svg",
+        icon: "icons/image.svg",
         features: [
             n!("Instant hotkey capture"),
             n!("Annotation & drawing tools"),
@@ -1577,7 +1577,7 @@ impl OnboardingWindow {
                             .border_l_1()
                             .border_color(rgba(0xffffff33))
                             .bg(rgba(0xffffff0d))
-                            .child(glyph("icons/caret-down.svg", 16., gpui::white())),
+                            .child(glyph("icons/chevron-down.svg", 16., gpui::white())),
                     ),
             )
             .child(cursor)
@@ -1620,7 +1620,7 @@ impl OnboardingWindow {
                                 el.child(div().size(px(8.)).rounded_full().bg(theme.gray_8))
                             })
                             .when(!stopped, |el| {
-                                el.child(glyph("icons/stop-circle.svg", 20., theme.danger_text))
+                                el.child(glyph("icons/circle-stop.svg", 20., theme.danger_text))
                             })
                             .child(copy(
                                 if stopped { t!("Stopped").into() } else { time },
@@ -1644,7 +1644,7 @@ impl OnboardingWindow {
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .child(glyph("icons/microphone.svg", 20., theme.gray_12))
+                                    .child(glyph("icons/mic.svg", 20., theme.gray_12))
                                     .child(
                                         div()
                                             .absolute()
@@ -1661,8 +1661,8 @@ impl OnboardingWindow {
                             )
                             .children(
                                 [
-                                    "icons/pause-circle.svg",
-                                    "icons/restart.svg",
+                                    "icons/circle-pause.svg",
+                                    "icons/rotate-ccw.svg",
                                     "icons/trash.svg",
                                     "icons/settings.svg",
                                 ]
@@ -1688,7 +1688,7 @@ impl OnboardingWindow {
                     .border_l_1()
                     .border_color(theme.gray_5)
                     .opacity(if stopped { 0.45 } else { 1. })
-                    .child(glyph("icons/more-vertical.svg", 20., theme.gray_10)),
+                    .child(glyph("icons/ellipsis-vertical.svg", 20., theme.gray_10)),
             )
     }
 
@@ -1720,7 +1720,7 @@ impl OnboardingWindow {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(glyph("icons/check.svg", 12., self.success_palette().2)),
+                            .child(glyph("icons/check.svg", 14., self.success_palette().2)),
                     )
                     .child(copy(t!("Video saved!"), 12., theme.gray_12)),
             )
@@ -2109,7 +2109,7 @@ impl OnboardingWindow {
                     .child(
                         div().flex().gap(px(4.)).children(
                             [
-                                "icons/cursor.svg",
+                                "icons/mouse-pointer-2.svg",
                                 "icons/square.svg",
                                 "icons/circle.svg",
                                 "icons/move-right.svg",

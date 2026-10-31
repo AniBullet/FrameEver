@@ -147,20 +147,16 @@ impl Page {
         }
     }
 
-    /// The `icon` field. Cap's own icon set where the TSX uses `IconCap*`,
-    /// Lucide's where it uses `IconLucide*` -- except Screenshots, whose
-    /// `IconLucideImage` is served by the Cap picture glyph already embedded
-    /// for the main window's screenshots button.
     fn icon(self) -> &'static str {
         match self {
             Self::General => "icons/settings.svg",
             Self::Experimental => "icons/settings-2.svg",
-            Self::Shortcuts => "icons/hotkeys.svg",
+            Self::Shortcuts => "icons/command.svg",
             Self::Cli => "icons/terminal.svg",
             Self::Quality => "icons/gauge.svg",
             Self::Recordings => "icons/square-play.svg",
             Self::Screenshots => "icons/image.svg",
-            Self::Automations => "icons/zap.svg",
+            Self::Automations => "icons/workflow.svg",
             Self::Transcription => "icons/captions.svg",
             Self::Feedback => "icons/message-square-plus.svg",
             Self::Changelog => "icons/bell.svg",
@@ -1757,9 +1753,9 @@ impl SettingsWindow {
                         "https://lucide.dev/license",
                     ),
                     (
-                        "settings-phosphor-credit",
-                        t!("Icons: Phosphor (MIT)"),
-                        "https://phosphoricons.com",
+                        "settings-tabler-credit",
+                        t!("Icons: Tabler (MIT)"),
+                        "https://github.com/tabler/tabler-icons/blob/main/LICENSE",
                     ),
                 ]
                 .map(|(id, label, url)| {
@@ -2187,7 +2183,7 @@ impl SettingsWindow {
                     .children(tab.icon().map(|icon| {
                         svg()
                             .path(icon)
-                            .size(px(12.))
+                            .size(px(14.))
                             .flex_shrink_0()
                             .text_color(theme.settings_text())
                     }))
@@ -2413,11 +2409,10 @@ impl SettingsWindow {
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme.settings_text())
         };
-        // `size-2.5` on every badge glyph.
         let glyph = |icon: &'static str| {
             svg()
                 .path(icon)
-                .size(px(10.))
+                .size(px(14.))
                 .flex_shrink_0()
                 .text_color(theme.settings_text())
         };
@@ -2484,7 +2479,7 @@ impl SettingsWindow {
                     // the error string.
                     pill(Hsla::from(theme.red_9))
                         .id("recording-failed")
-                        .child(glyph("icons/warning-bold.svg"))
+                        .child(glyph("icons/triangle-alert.svg"))
                         .child(t!("Recording failed"))
                         .tooltip(move |_window, cx| {
                             ui::Tooltip::new(&theme, error.clone())
@@ -2515,7 +2510,7 @@ impl SettingsWindow {
             let editor_path = path.clone();
             actions = actions.child(self.row_button(
                 ("recording-edit", index),
-                "icons/edit.svg",
+                "icons/square-pen.svg",
                 t!("Edit"),
                 // `disabled={status === "InProgress"}`
                 in_progress,
@@ -3827,7 +3822,7 @@ impl SettingsWindow {
                                     .child(
                                         svg()
                                             .path("icons/x.svg")
-                                            .size(px(12.))
+                                            .size(px(14.))
                                             .text_color(theme.settings_muted()),
                                     )
                                     .hover(|style| style.bg(theme.settings_selection()))
@@ -4516,8 +4511,8 @@ mod tests {
         let labels: Vec<&str> = RecordingsTab::ALL.iter().map(|tab| tab.label()).collect();
         assert_eq!(labels, ["Show all", "Instant", "Studio"]);
         assert_eq!(RecordingsTab::All.icon(), None, "Show all has no glyph");
-        assert_eq!(RecordingsTab::Studio.icon(), Some("icons/film-cut.svg"));
-        assert_eq!(RecordingsTab::Instant.icon(), Some("icons/instant.svg"));
+        assert_eq!(RecordingsTab::Studio.icon(), Some("icons/clapperboard.svg"));
+        assert_eq!(RecordingsTab::Instant.icon(), Some("icons/zap.svg"));
     }
 
     #[test]

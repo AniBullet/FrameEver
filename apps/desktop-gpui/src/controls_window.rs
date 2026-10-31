@@ -233,7 +233,7 @@ impl ControlsWindow {
         let icon = if !self.has_microphone || muted {
             "icons/mic-off.svg"
         } else {
-            "icons/microphone.svg"
+            "icons/mic.svg"
         };
         let icon_color: gpui::Hsla = if muted {
             theme.red_9.into()
@@ -380,9 +380,9 @@ impl ControlsWindow {
                                 self.action_button(
                                     "pause",
                                     if paused {
-                                        "icons/play-circle.svg"
+                                        "icons/circle-play.svg"
                                     } else {
-                                        "icons/pause-circle.svg"
+                                        "icons/circle-pause.svg"
                                     },
                                     busy,
                                 )
@@ -405,7 +405,7 @@ impl ControlsWindow {
                                 }),
                             )
                             .child(
-                                self.action_button("restart", "icons/restart.svg", busy)
+                                self.action_button("restart", "icons/rotate-ccw.svg", busy)
                                     .when(!busy, |this| {
                                         this.on_click(cx.listener(|this, _, window, cx| {
                                             this.confirm_action(
@@ -447,7 +447,7 @@ impl ControlsWindow {
                     })
                     .child(
                         svg()
-                            .path("icons/more-vertical.svg")
+                            .path("icons/ellipsis-vertical.svg")
                             .size(px(16.))
                             .text_color(theme.gray_10),
                     ),

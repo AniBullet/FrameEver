@@ -39,181 +39,134 @@ const CHINESE_UI_FONT: &[(&str, &[u8])] = assets!("fonts": "harmonyos-sans/Harmo
 
 static CHINESE_UI_FONT_LOADED: AtomicBool = AtomicBool::new(false);
 
-/// Mostly Cap's own icon set, lifted from Tauri `ui-solid/icons`. gpui
-/// rasterises an SVG and keeps only its alpha, tinting the result with the
-/// element's text colour, so these must be single-colour glyphs -- a full-colour
-/// illustration would come out as a filled silhouette.
 const ICONS: &[(&str, &[u8])] = assets!("icons":
-    "app-window-mac.svg",
     "app-window.svg",
+    "app-window-mac.svg",
+    "arrow-left.svg",
+    "arrow-left-right.svg",
+    "arrow-left-to-line.svg",
+    "arrow-right-to-line.svg",
+    "arrow-up-right.svg",
     "ban.svg",
-    "globe.svg",
-    "area.svg",
-    "arrows.svg",
-    "audio-on.svg",
     "bell.svg",
-    "camera.svg",
-    "caret-down.svg",
-    "captions.svg",
+    "blur.svg",
+    "box-padding.svg",
     "caption-close-windows.svg",
     "caption-maximize-windows.svg",
     "caption-minimize-windows.svg",
     "caption-restore-windows.svg",
-    "circle.svg",
+    "captions.svg",
     "check.svg",
-    "clapperboard.svg",
     "chevron-down.svg",
-    "crop.svg",
-    "cursor.svg",
     "chevron-left.svg",
     "chevron-right.svg",
-    "circle-help.svg",
+    "chevron-up.svg",
+    "circle.svg",
+    "circle-check.svg",
+    "circle-pause.svg",
+    "circle-play.svg",
     "circle-plus.svg",
+    "circle-question-mark.svg",
+    "circle-stop.svg",
     "circle-x.svg",
-    "enlarge.svg",
+    "clapperboard.svg",
+    "cloud-upload.svg",
+    "columns-2.svg",
+    "command.svg",
+    "copy.svg",
+    "crop.svg",
+    "download.svg",
+    "eighth-notes.svg",
+    "ellipsis.svg",
+    "ellipsis-vertical.svg",
     "eye-off.svg",
-    "film-cut.svg",
-    "flip-horizontal-2.svg",
+    "film.svg",
     "folder.svg",
+    "folder-down.svg",
+    "folder-open.svg",
     "gauge.svg",
-    "gear.svg",
-    // The config sidebar's field glyphs. Four are Cap's own
-    // (Tauri `ui-solid/icons/{padding,corners,shadow,bg-blur}.svg`); the
-    // rest of the background section's are Lucide, drawn here from the same
-    // 24x24 originals `~icons/lucide/*` resolves to -- laptop (MacBook notch).
-    // `shuffle` is the gradient editor's own inline randomise glyph
-    // (`GradientEditor.tsx:237-253`), which is Lucide `shuffle` with its paths
-    // spelled out in the TSX.
-    "padding.svg",
-    "corners.svg",
-    "shadow.svg",
-    "bg-blur.svg",
-    "laptop.svg",
-    "shuffle.svg",
-    "hotkeys.svg",
+    "gem.svg",
+    "globe.svg",
+    "grip-vertical.svg",
     "image.svg",
+    "import.svg",
     "info.svg",
-    "instant.svg",
     "keyboard.svg",
+    "laptop.svg",
     "layers.svg",
-    "layout.svg",
+    "link.svg",
     "logo-clip-bottom.svg",
     "logo-clip-top.svg",
+    "logo-record.svg",
     "logo-record-dot.svg",
     "logo-record-gap.svg",
-    "logo-record.svg",
     "logo-tile.svg",
     "logo-wordmark.svg",
-    "message-bubble.svg",
+    "maximize.svg",
+    "maximize-2.svg",
     "message-square-plus.svg",
+    "mic.svg",
     "mic-off.svg",
-    "microphone.svg",
     "minus.svg",
     "monitor.svg",
-    "more-vertical.svg",
-    "move-left.svg",
-    "next.svg",
-    // The timeline's track glyphs. `trackIcons` (`TL/index.tsx:70-80`) and
-    // `getSceneIcon` (`TL/SceneTrack.tsx:80-96`) are Lucide, and the app has
-    // no Cap equivalent for most of them, so these are the Lucide 24x24
-    // originals: type, box-select (an alias of square-dashed since Lucide
-    // 0.5xx), music, video, rotate-3d, monitor, columns-2, panel-right.
-    "box-select.svg",
-    "columns-2.svg",
-    "monitor-outline.svg",
-    "music.svg",
-    "panel-right.svg",
-    "rotate-3d.svg",
-    "type.svg",
-    "video.svg",
-    "pause.svg",
-    "pause-circle.svg",
-    "person-standing.svg",
-    "play.svg",
-    "play-circle.svg",
-    "plus.svg",
-    "presets.svg",
-    "prev.svg",
-    "rectangle-horizontal.svg",
-    "redo.svg",
-    "restart.svg",
-    "scissors.svg",
-    "square.svg",
-    "square-play.svg",
-    "terminal.svg",
-    "trash.svg",
-    "triangle-alert.svg",
-    "scan-text.svg",
-    "screen.svg",
-    "screenshot.svg",
-    "stop-circle.svg",
-    "search.svg",
-    "settings.svg",
-    "settings-2.svg",
-    "undo.svg",
-    "upload-arrow.svg",
-    "window.svg",
-    "x.svg",
-    // E5b's field glyphs: the rest of the sidebar's Lucide set, drawn from the
-    // same 24x24 originals `~icons/lucide/*` resolves to.
-    "align-center.svg",
-    "align-left.svg",
-    "align-right.svg",
-    "arrow-left-right.svg",
-    "download.svg",
-    "flip-vertical-2.svg",
-    "maximize.svg",
     "mouse-pointer-2.svg",
     "mouse-pointer-ban.svg",
     "move.svg",
+    "move-left.svg",
     "move-right.svg",
     "palette.svg",
+    "panel-right.svg",
+    "pause.svg",
+    "pencil.svg",
+    "person-standing.svg",
+    "play.svg",
+    "plus.svg",
     "ratio.svg",
+    "record-fill.svg",
+    "rectangle-horizontal.svg",
+    "redo-2.svg",
     "refresh-cw.svg",
+    "rotate-3d.svg",
     "rotate-ccw.svg",
-    "volume-x.svg",
-    "gem.svg",
+    "save.svg",
+    "scan.svg",
+    "scan-text.svg",
+    "scissors.svg",
+    "search.svg",
+    "settings.svg",
+    "settings-2.svg",
+    "shadow.svg",
+    "shuffle.svg",
+    "skip-back.svg",
+    "skip-forward.svg",
     "sliders-horizontal.svg",
+    "square.svg",
+    "square-dashed.svg",
+    "square-pen.svg",
+    "square-play.svg",
+    "square-round-corner.svg",
+    "terminal.svg",
+    "text-align-center.svg",
+    "text-align-end.svg",
+    "text-align-start.svg",
+    "traffic-close.svg",
+    "trash.svg",
+    "triangle-alert.svg",
+    "triangles-centerline-dashed-horizontal.svg",
+    "triangles-centerline-dashed-vertical.svg",
+    "type.svg",
+    "undo-2.svg",
+    "upload.svg",
+    "video.svg",
+    "volume-2.svg",
+    "volume-x.svg",
+    "wand-sparkles.svg",
+    "webcam.svg",
+    "workflow.svg",
+    "x.svg",
     "zap.svg",
     "zoom-in.svg",
     "zoom-out.svg",
-    // The settings Recordings page. `link` is Cap's own
-    // (Tauri `ui-solid/icons/link.svg`, which is Lucide's glyph); `import`
-    // and `edit` are the Lucide 24x24 originals `~icons/lucide/*` resolves to;
-    // `record-fill` and `warning-bold` are Phosphor's 256x256 originals, which
-    // is what `IconPhRecordFill` / `IconPhWarningBold` are in `recordings.tsx`.
-    "link.svg",
-    "import.svg",
-    "edit.svg",
-    "copy.svg",
-    "record-fill.svg",
-    "warning-bold.svg",
-    // The main window's hand-drawn traffic lights: the x and expand glyphs
-    // `CaptionControlsMacOS.tsx` inlines, shown while the group is hovered.
-    "traffic-close.svg",
-    // The remaining settings pages (`settings_pages.rs`). `circle-check` is
-    // Cap's own (Tauri `ui-solid/icons/circle-check.svg`, hotkeys.tsx's
-    // IconCapCircleCheck); the rest are the Lucide 24x24 originals the pages'
-    // `~icons/lucide/*` imports resolve to, except `google-drive`, which is
-    // integrations/index.tsx's inline multi-colour logo flattened to one fill
-    // (gpui's `svg()` keeps only the alpha).
-    "circle-check.svg",
-    // The screenshot editor's annotation toolbar, layers panel and header
-    // (`AnnotationTools.tsx`, `LayersPanel.tsx`, `Header.tsx`). Lucide 24x24
-    // originals, matching the `~icons/lucide/*` imports over there.
-    "pencil.svg",
-    "arrow-up-right.svg",
-    "more-horizontal.svg",
-    "save.svg",
-    "grip-vertical.svg",
-    "chevron-up.svg",
-    "arrow-left.svg",
-    "arrow-left-to-line.svg",
-    "arrow-right-to-line.svg",
-    "film.svg",
-    "folder-open.svg",
-    "folder-down.svg",
-    "cloud-upload.svg",
 );
 
 /// Full-colour art, which `svg()` cannot draw -- it keeps only the alpha. The
@@ -223,6 +176,7 @@ const IMAGES: &[(&str, &[u8])] = assets!("images":
     "auto.jpg",
     "light.jpg",
     "dark.jpg",
+    "monitor-illustration.svg",
 );
 
 const ONBOARDING: &[(&str, &[u8])] = &[
@@ -454,8 +408,8 @@ mod tests {
                 ],
             ),
             (
-                "LICENSE-phosphor.txt",
-                &["MIT License", "Copyright (c) 2023 Phosphor Icons"],
+                "LICENSE-tabler.txt",
+                &["MIT License", "Copyright (c) 2020-2026 Paweł Kuna"],
             ),
         ];
         for (file, required) in notices {
@@ -477,6 +431,142 @@ mod tests {
         assert_eq!(
             config["bundle"]["resources"]["assets/fonts/harmonyos-sans/LICENSE-*.txt"],
             "licenses/fonts/"
+        );
+    }
+
+    #[test]
+    fn the_phosphor_notice_is_gone_and_about_credits_both_icon_families() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        assert!(!manifest.join("assets/icons/LICENSE-phosphor.txt").exists());
+
+        let about = include_str!("settings_window.rs");
+        assert!(about.contains("Icons: Lucide (ISC)"));
+        assert!(about.contains("Icons: Tabler (MIT)"));
+        assert!(!about.contains("Phosphor"));
+    }
+
+    fn icon_sources() -> serde_json::Value {
+        serde_json::from_str(include_str!("../assets/icons/sources.json")).unwrap()
+    }
+
+    fn names(value: &serde_json::Value) -> Vec<String> {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|name| name.as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    fn vendored_icons() -> Vec<(String, &'static str)> {
+        let sources = icon_sources();
+        let lucide = names(&sources["lucide"])
+            .into_iter()
+            .chain(sources["lucideFilled"].as_object().unwrap().keys().cloned());
+        lucide
+            .map(|name| (name, "lucide"))
+            .chain(
+                names(&sources["tabler"])
+                    .into_iter()
+                    .map(|name| (name, "tabler")),
+            )
+            .collect()
+    }
+
+    #[test]
+    fn every_icon_file_is_listed_in_the_sources() {
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter_map(|name| name.strip_suffix(".svg").map(str::to_owned))
+            .collect();
+        on_disk.sort();
+
+        let mut listed: Vec<String> = vendored_icons()
+            .into_iter()
+            .map(|(name, _)| name)
+            .chain(names(&icon_sources()["custom"]))
+            .collect();
+        listed.sort();
+
+        assert_eq!(on_disk, listed);
+    }
+
+    #[test]
+    fn every_vendored_icon_comes_from_its_pinned_release_at_the_design_stroke() {
+        let sources = icon_sources();
+        for (name, family) in vendored_icons() {
+            let release = &sources["releases"][family];
+            let stamp = format!(
+                "@license {} v{} - {}",
+                release["package"].as_str().unwrap(),
+                release["version"].as_str().unwrap(),
+                release["license"].as_str().unwrap(),
+            );
+            let path = format!("icons/{name}.svg");
+            let bytes = Assets.load(&path).unwrap();
+            let bytes = bytes.unwrap_or_else(|| panic!("{path} is not embedded"));
+            let svg = std::str::from_utf8(&bytes).unwrap();
+            assert!(svg.starts_with(&format!("<!-- {stamp} -->")), "{path}");
+            assert!(svg.contains(r#"viewBox="0 0 24 24""#), "{path}");
+            assert!(svg.contains(r#"stroke-width="1.75""#), "{path}");
+        }
+    }
+
+    #[test]
+    fn every_icon_rasterises_to_visible_pixels() {
+        let options = resvg::usvg::Options::default();
+        for (path, bytes) in ICONS {
+            let tree = resvg::usvg::Tree::from_data(bytes, &options)
+                .unwrap_or_else(|error| panic!("{path}: {error}"));
+            let mut pixmap = resvg::tiny_skia::Pixmap::new(48, 48).unwrap();
+            let scale = 48. / tree.size().width().max(tree.size().height());
+            resvg::render(
+                &tree,
+                resvg::tiny_skia::Transform::from_scale(scale, scale),
+                &mut pixmap.as_mut(),
+            );
+            assert!(
+                pixmap.pixels().iter().any(|pixel| pixel.alpha() > 0),
+                "{path} draws nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn the_custom_icons_are_the_brand_and_window_chrome_only() {
+        let custom = names(&icon_sources()["custom"]);
+        assert_eq!(custom.len(), 12);
+        for name in custom {
+            let path = format!("icons/{name}.svg");
+            let bytes = Assets.load(&path).unwrap().unwrap();
+            let svg = std::str::from_utf8(&bytes).unwrap();
+            assert!(!svg.contains("@license"), "{path}");
+        }
+        assert!(
+            Assets
+                .load("images/monitor-illustration.svg")
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn the_modes_and_automations_use_their_decided_icons() {
+        assert!(include_str!("main_window.rs").contains(r#"Self::Instant => "icons/zap.svg""#));
+        assert!(
+            include_str!("main_window.rs").contains(r#"Self::Studio => "icons/clapperboard.svg""#)
+        );
+        assert!(
+            include_str!("main_window.rs").contains(r#"Self::Screenshot => "icons/image.svg""#)
+        );
+        assert!(
+            include_str!("target_overlay.rs").contains(r#"Mode::Screenshot => "icons/image.svg""#)
+        );
+        assert!(
+            include_str!("settings_window.rs")
+                .contains(r#"Self::Automations => "icons/workflow.svg""#)
         );
     }
 
@@ -525,7 +615,7 @@ mod tests {
     #[test]
     fn fonts_and_icons_resolve() {
         assert!(Assets.load("fonts/Geist.ttf").unwrap().is_some());
-        assert!(Assets.load("icons/camera.svg").unwrap().is_some());
+        assert!(Assets.load("icons/webcam.svg").unwrap().is_some());
         assert!(Assets.load("icons/nope.svg").unwrap().is_none());
         assert!(Assets.load("images/auto.jpg").unwrap().is_some());
         assert_eq!(Assets.list("fonts").unwrap().len(), FONTS.len());

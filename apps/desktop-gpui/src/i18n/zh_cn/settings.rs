@@ -153,7 +153,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "中文字体：华为 HarmonyOS Sans",
     ),
     ("Icons: Lucide (ISC)", "图标：Lucide（ISC）"),
-    ("Icons: Phosphor (MIT)", "图标：Phosphor（MIT）"),
+    ("Icons: Tabler (MIT)", "图标：Tabler（MIT）"),
     ("Import", "导入"),
     ("No recordings found", "没有找到录制文件"),
     (

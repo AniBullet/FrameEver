@@ -130,17 +130,9 @@ impl Mode {
 
     pub fn icon(self) -> &'static str {
         match self {
-            Self::Instant => "icons/instant.svg",
-            Self::Studio => "icons/film-cut.svg",
-            Self::Screenshot => "icons/screenshot.svg",
-        }
-    }
-
-    /// `size-4` for instant, `size-[0.9rem]` for the other two.
-    fn icon_size(self) -> f32 {
-        match self {
-            Self::Instant => 16.,
-            Self::Studio | Self::Screenshot => 14.4,
+            Self::Instant => "icons/zap.svg",
+            Self::Studio => "icons/clapperboard.svg",
+            Self::Screenshot => "icons/image.svg",
         }
     }
 
@@ -311,7 +303,7 @@ impl gpui::RenderOnce for ModeHoverCard {
                         .child(
                             svg()
                                 .path("icons/settings.svg")
-                                .size(px(12.))
+                                .size(px(14.))
                                 .text_color(theme.gray_4)
                                 .group_hover("mode-quality-settings", |style| {
                                     style.text_color(theme.gray_1)
@@ -347,10 +339,10 @@ impl TargetType {
 
     fn icon(self) -> &'static str {
         match self {
-            Self::Display => "icons/screen.svg",
-            Self::Window => "icons/window.svg",
-            Self::Area => "icons/area.svg",
-            Self::CameraOnly => "icons/camera.svg",
+            Self::Display => "icons/monitor.svg",
+            Self::Window => "icons/app-window.svg",
+            Self::Area => "icons/scan.svg",
+            Self::CameraOnly => "icons/webcam.svg",
         }
     }
 }
@@ -572,8 +564,8 @@ impl DeviceMenu {
 
     fn icon(self) -> &'static str {
         match self {
-            Self::Camera => "icons/camera.svg",
-            Self::Microphone => "icons/microphone.svg",
+            Self::Camera => "icons/webcam.svg",
+            Self::Microphone => "icons/mic.svg",
         }
     }
 
@@ -2786,7 +2778,7 @@ impl MainWindow {
                                     .size(px(36.))
                                     .rounded_full()
                                     .bg(badge_bg)
-                                    .child(svg().path(icon).size(px(18.)).text_color(badge_fg)),
+                                    .child(svg().path(icon).size(px(20.)).text_color(badge_fg)),
                             )
                             .child(
                                 div()
@@ -2815,7 +2807,7 @@ impl MainWindow {
                             .child(
                                 svg()
                                     .path("icons/x.svg")
-                                    .size(px(12.))
+                                    .size(px(14.))
                                     .text_color(theme.gray_10),
                             )
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -3162,7 +3154,7 @@ impl MainWindow {
             .mx(px(8.))
             .min_w_0()
             .child(
-                icon_button("help", "icons/circle-help.svg", 16.).on_click(cx.listener(
+                icon_button("help", "icons/circle-question-mark.svg", 16.).on_click(cx.listener(
                     |_, _, _window, cx| {
                         cx.defer(app_windows::open_onboarding);
                     },
@@ -3207,7 +3199,7 @@ impl MainWindow {
                         }),
                     ))
                     .child(
-                        icon_button("recordings", "icons/play-circle.svg", 16.).on_click(
+                        icon_button("recordings", "icons/circle-play.svg", 16.).on_click(
                             cx.listener(|this, _, window, cx| {
                                 this.open_panel(
                                     Panel::Library(LibraryKind::Recordings),
@@ -3541,7 +3533,7 @@ impl MainWindow {
                             .child(
                                 svg()
                                     .path("icons/move-left.svg")
-                                    .size(px(12.))
+                                    .size(px(14.))
                                     .text_color(theme.gray_11),
                             )
                             .child(
@@ -4218,7 +4210,7 @@ impl MainWindow {
             let editor = path.clone();
             row = row.child(self.library_action(
                 ("lib-rec-edit", index),
-                "icons/edit.svg",
+                "icons/square-pen.svg",
                 cx.listener(move |_, _, _window, cx| {
                     let editor = editor.clone();
                     cx.defer(move |cx| app_windows::open_editor(editor, cx));
@@ -5050,7 +5042,7 @@ impl MainWindow {
             .child(
                 svg()
                     .path("icons/settings-2.svg")
-                    .size(px(15.))
+                    .size(px(16.))
                     .text_color(theme.gray_10),
             )
             .on_click(
@@ -5111,7 +5103,7 @@ impl MainWindow {
                         self.render_target_card(
                             SharedString::from(format!("display-{}", display.id)),
                             self.thumbnails.display(&display.id),
-                            "icons/screen.svg",
+                            "icons/monitor.svg",
                             display.label.clone(),
                             None,
                             display.describe_refresh_rate(),
@@ -5144,7 +5136,7 @@ impl MainWindow {
                         self.render_target_card(
                             SharedString::from(format!("window-{}", window.id)),
                             self.thumbnails.window(&window.id),
-                            "icons/window.svg",
+                            "icons/app-window.svg",
                             window.label.clone(),
                             Some(window.app.clone()),
                             window.describe_metadata(),
@@ -5711,7 +5703,7 @@ impl MainWindow {
                 .child(
                     svg()
                         .path(mode.icon())
-                        .size(px(mode.icon_size()))
+                        .size(px(16.))
                         .text_color(theme.gray_12),
                 )
                 .hover(|style| style.bg(theme.body_hover_fill(7)))
@@ -5749,8 +5741,8 @@ impl MainWindow {
                     })
                     .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
                     .absolute()
-                    .left(px(-6.))
-                    .top(px(-8.))
+                    .left(px(-8.))
+                    .top(px(-10.))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -5760,7 +5752,7 @@ impl MainWindow {
                     .child(
                         svg()
                             .path("icons/info.svg")
-                            .size(px(10.))
+                            .size(px(14.))
                             .text_color(theme.gray_12),
                     )
                     .hover(|style| style.opacity(0.5))
@@ -5977,7 +5969,7 @@ impl MainWindow {
                 div().flex().flex_col().child(
                     self.render_device_row(
                         "camera-row",
-                        "icons/camera.svg",
+                        "icons/webcam.svg",
                         self.camera
                             .as_ref()
                             .map(|camera| camera.label.clone())
@@ -6016,7 +6008,7 @@ impl MainWindow {
                 div().flex().flex_col().child(
                     self.render_device_row(
                         "microphone-row",
-                        "icons/microphone.svg",
+                        "icons/mic.svg",
                         self.microphone
                             .as_ref()
                             .map(|mic| mic.name.clone())
@@ -6055,7 +6047,7 @@ impl MainWindow {
                 div().flex().flex_col().child(
                     self.render_device_row(
                         "system-audio-row",
-                        "icons/screen.svg",
+                        "icons/monitor.svg",
                         if self.system_audio {
                             t!("Record System Audio").into()
                         } else {

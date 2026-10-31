@@ -326,8 +326,8 @@ const paintAnns = () => {
 const titleActions = () => `<button class="ib save-btn" data-act="save" title="Ctrl+S">${icon("download")}${L("Save", "保存")}</button>
 	<button class="export-btn copy-btn" data-act="copy" title="Ctrl+C">${L("Copy", "复制")}</button>`;
 const captions = () => `<span class="caption">${glyphs.minimize}</span><span class="caption">${glyphs.maximize}</span><span class="caption">${glyphs.close}</span>`;
-const history = () => `<button class="ib" data-act="undo" title="${pick("Undo", "撤销")} Ctrl+Z" ${S.past.length ? "" : "disabled"}>${icon("undo")}</button>
-	<button class="ib" data-act="redo" title="${pick("Redo", "重做")} Ctrl+Y" ${S.future.length ? "" : "disabled"}>${icon("redo")}</button>`;
+const history = () => `<button class="ib" data-act="undo" title="${pick("Undo", "撤销")} Ctrl+Z" ${S.past.length ? "" : "disabled"}>${icon("undo-2")}</button>
+	<button class="ib" data-act="redo" title="${pick("Redo", "重做")} Ctrl+Y" ${S.future.length ? "" : "disabled"}>${icon("redo-2")}</button>`;
 const nameBlock = () => `<span class="name">Monthly report<em>.ever</em></span>
 	<button class="ib" data-act="noop" title="${pick("Show in Explorer", "在资源管理器中显示")}">${icon("folder")}</button>
 	<button class="ib" data-act="dialog" data-d="delete" title="${pick("Delete screenshot", "删除截图")}">${icon("trash")}</button>`;

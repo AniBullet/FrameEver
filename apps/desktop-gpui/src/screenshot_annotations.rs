@@ -3338,7 +3338,7 @@ impl ScreenshotEditorWindow {
                     .text_color(theme.gray_9)
                     .group_hover("screenshot-layer-row", |style| style.opacity(1.))
                     .hover(|style| style.bg(theme.red_3).text_color(theme.red_11))
-                    .child(svg().path("icons/x.svg").size(px(12.)))
+                    .child(svg().path("icons/x.svg").size(px(14.)))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
                         this.delete_annotation(&delete_id, window, cx);

@@ -375,7 +375,7 @@ fn header_button(
         .child(
             svg()
                 .path(icon)
-                .size(px(12.))
+                .size(px(14.))
                 .flex_shrink_0()
                 .text_color(foreground),
         )
@@ -412,7 +412,7 @@ fn icon_button(
         .child(
             svg()
                 .path(icon)
-                .size(px(12.))
+                .size(px(14.))
                 .text_color(Hsla::from(theme.editor.text_2)),
         )
 }
@@ -976,7 +976,7 @@ impl EditorWindow {
                         .child(
                             svg()
                                 .path("icons/x.svg")
-                                .size(px(12.))
+                                .size(px(14.))
                                 .text_color(Hsla::from(theme.gray_1)),
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {

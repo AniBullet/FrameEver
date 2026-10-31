@@ -79,6 +79,7 @@ const COMMANDS = {
 	logs: "Print the app log tail: fe logs [--lines 200] [--grep <text>] [--real]",
 	privacy: "Scan what you are about to push for private data (emails, local paths, keys). --staged, --all (every tracked file)",
 	design: "Generate docs/design/tokens.css and tokens.js from tokens.json",
+	icons: "Copy every icon in assets/icons/sources.json from its pinned Lucide or Tabler release",
 };
 
 export function parseArgs(argv) {
@@ -1100,6 +1101,55 @@ function design() {
 	console.log(`\u001b[32m✓ ${path.join("docs", "design")}: tokens.css, tokens.js\u001b[0m`);
 }
 
+export function iconTarball({ package: name, version }) {
+	return `https://registry.npmjs.org/${name}/-/${name.split("/").pop()}-${version}.tgz`;
+}
+
+export function vendoredIcon(svg, { package: name, version, license }, stroke, { filled = false } = {}) {
+	if (!svg.includes('stroke-width="2"')) throw new Error("Expected a 2 px stroke icon");
+	const stroked = svg.replace('stroke-width="2"', `stroke-width="${stroke}"`);
+	const icon = filled ? stroked.replace('fill="none"', 'fill="currentColor"') : stroked;
+	return icon.startsWith("<!--") ? icon : `<!-- @license ${name} v${version} - ${license} -->\n${icon}`;
+}
+
+export function iconFiles({ lucide, lucideFilled, tabler }) {
+	return [
+		...lucide.map((file) => ({ file, release: "lucide", source: file, filled: false })),
+		...Object.entries(lucideFilled).map(([file, source]) => ({ file, release: "lucide", source, filled: true })),
+		...tabler.map((file) => ({ file, release: "tabler", source: file, filled: false })),
+	];
+}
+
+function icons() {
+	const dir = path.join(gpuiDir, "assets", "icons");
+	const manifest = JSON.parse(readFileSync(path.join(dir, "sources.json"), "utf8"));
+	const tokens = JSON.parse(readFileSync(path.join(designDir, "tokens.json"), "utf8"));
+	const cache = path.join(root, "target", "native-deps", "icons");
+	const unpacked = {};
+	for (const [key, release] of Object.entries(manifest.releases)) {
+		const archive = downloadVerified(
+			iconTarball(release),
+			release.sha1,
+			path.join(cache, `${key}-${release.version}.tgz`),
+		);
+		const folder = path.join(cache, `${key}-${release.version}`);
+		rmSync(folder, { recursive: true, force: true });
+		mkdirSync(folder, { recursive: true });
+		run(systemTar(), ["-xf", archive, "-C", folder, `package/${release.folder}`]);
+		unpacked[key] = path.join(folder, "package", release.folder);
+	}
+	const vendored = iconFiles(manifest);
+	const kept = new Set([...vendored.map(({ file }) => file), ...manifest.custom]);
+	for (const name of readdirSync(dir)) {
+		if (name.endsWith(".svg") && !kept.has(name.slice(0, -".svg".length))) rmSync(path.join(dir, name));
+	}
+	for (const { file, release, source, filled } of vendored) {
+		const svg = readFileSync(path.join(unpacked[release], `${source}.svg`), "utf8");
+		writeFileSync(path.join(dir, `${file}.svg`), vendoredIcon(svg, manifest.releases[release], tokens.size["icon-stroke"], { filled }));
+	}
+	console.log(`\u001b[32m✓ ${path.join("assets", "icons")}: ${vendored.length} icons\u001b[0m`);
+}
+
 function help() {
 	console.log("Usage: pnpm fe <command> [options]\n");
 	for (const [name, description] of Object.entries(COMMANDS)) {
@@ -1124,6 +1174,7 @@ const HANDLERS = {
 	logs,
 	privacy,
 	design,
+	icons,
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -188,8 +188,8 @@ impl RecordingMode {
     /// `IconCapInstant` / `IconCapFilmCut`, the badge and tab glyphs.
     pub fn icon(self) -> &'static str {
         match self {
-            Self::Studio => "icons/film-cut.svg",
-            Self::Instant => "icons/instant.svg",
+            Self::Studio => "icons/clapperboard.svg",
+            Self::Instant => "icons/zap.svg",
         }
     }
 }

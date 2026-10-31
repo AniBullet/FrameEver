@@ -655,7 +655,7 @@ impl TeleprompterWindow {
                     .child(
                         svg()
                             .path("icons/eye-off.svg")
-                            .size(px(12.))
+                            .size(px(14.))
                             .flex_shrink_0()
                             .text_color(Hsla::from(theme.gray_9)),
                     )
@@ -999,7 +999,7 @@ impl TeleprompterWindow {
                 ))
                 .child(self.render_setting_toggle(
                     "mirror",
-                    "icons/flip-horizontal-2.svg",
+                    "icons/triangles-centerline-dashed-horizontal.svg",
                     t!("Mirror text"),
                     self.state.mirror,
                     cx.listener(|this, _, window, cx| {

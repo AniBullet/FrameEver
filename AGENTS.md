@@ -24,7 +24,7 @@ Two Cargo workspaces, both on Rust stable (`rust-toolchain.toml`):
   - `crates/converter`: FrameEver Converter's core.
 - GPUI workspace `apps/desktop-gpui` (members: the app, `kernels`, `converter`, `gpui_tokio`). It has its own `Cargo.lock`, and `pnpm fe setup` prepares the patched gpui crates it builds against in `../gpui-pre-patched`.
   - `src/`: the app. `src/i18n/` holds the Chinese tables (`docs/i18n.md`). `kernels/` holds pixel and sample loops built at `opt-level = 3`.
-  - `assets/`: fonts, icons, sounds, editor music and backgrounds.
+  - `assets/`: fonts, icons, sounds, editor music and backgrounds. `assets/icons/sources.json` pins the Lucide and Tabler releases and lists every icon.
   - `packaging/` and `tauri.conf.json`: installer packaging only. The Tauri CLI is used as the NSIS bundler; nothing links the Tauri runtime.
 - `scripts/`: `fe.mjs` (the `pnpm fe` entry point), packaging, privacy scan and benchmarks.
 - `docs/`: `adr/` (decisions), `agents/` (agent guides), `upstream-sync/` (handoff, roadmap and history), `i18n.md`, `brand/`, `design/` (the design reference page and token source; its `README.md` has the rules).
@@ -45,6 +45,7 @@ Everything goes through `pnpm fe <command>` (`scripts/fe.mjs`; `pnpm fe` lists t
 | `pnpm fe converter [--lang zh-CN]` | Run FrameEver Converter against a fresh fake 2.x install |
 | `pnpm fe package` | Build the installer and FrameEver Converter into `dist/` |
 | `pnpm fe design` | Generate `docs/design/tokens.css` and `tokens.js` from `tokens.json` |
+| `pnpm fe icons` | Copy every icon in `assets/icons/sources.json` from its pinned Lucide or Tabler release |
 
 When asked to "build", "package" or "打包" the app, run `pnpm fe package`.
 
@@ -55,6 +56,7 @@ When asked to "build", "package" or "打包" the app, run `pnpm fe package`.
 - Scripts (`scripts/*.mjs`, the Claude Desktop pane): tab indent, Biome (`pnpm format`), files kebab-case.
 - UI text: English and Simplified Chinese only. Every `t!` string needs a zh-CN entry; proper nouns (FrameEver, HEVC, Whisper) stay English in the Chinese UI (`docs/i18n.md`). How copy reads (voice, sentence case, errors, confirmations) is in `docs/copy-style.md`.
 - UI design: flat only, no gradients or glass. Colours come from `src/theme/tokens.rs`, the Rust copy of `docs/design/tokens.json`; new code uses the semantic names (`theme.primary`, `theme.foreground`), and solid Klein blue only where `docs/design/index.html` lists it.
+- Icons: Lucide at the release pinned in `assets/icons/sources.json`, Tabler only for what Lucide lacks. Add one by listing it there, running `pnpm fe icons` and adding it to `ICONS` in `src/assets.rs`. Draw them at 14, 16 or 20 px (12 px for filled glyphs); 24 px and up for empty states.
 - Use `GLOSSARY.md` terms in code, UI and docs: project, storage folder, export, Studio recording, Instant recording, library.
 - Platforms: keep `#[cfg(target_os = "macos")]` and `cfg(unix)` code even though it is not kept compiling until the macOS work after Windows 1.0.0; delete Linux code wherever it turns up.
 

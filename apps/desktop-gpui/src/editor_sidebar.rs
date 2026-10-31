@@ -258,11 +258,11 @@ impl SidebarTab {
     pub fn icon(self) -> &'static str {
         match self {
             Self::Background => "icons/image.svg",
-            Self::Camera => "icons/camera.svg",
-            Self::Audio => "icons/audio-on.svg",
-            Self::Cursor => "icons/cursor.svg",
+            Self::Camera => "icons/webcam.svg",
+            Self::Audio => "icons/volume-2.svg",
+            Self::Cursor => "icons/mouse-pointer-2.svg",
             Self::Keyboard => "icons/keyboard.svg",
-            Self::Captions => "icons/message-bubble.svg",
+            Self::Captions => "icons/captions.svg",
         }
     }
 
@@ -2742,7 +2742,7 @@ impl EditorWindow {
                 .bg(Hsla::from(theme.editor.ctl))
                 .child(
                     svg()
-                        .path("icons/monitor-outline.svg")
+                        .path("icons/monitor.svg")
                         .size(px(24.))
                         .text_color(Hsla::from(theme.editor.text_2)),
                 )
@@ -2754,7 +2754,7 @@ impl EditorWindow {
                 )
                 .child(
                     ui::EditorButton::plain(&theme, "import-desktop")
-                        .left_icon("icons/monitor-outline.svg")
+                        .left_icon("icons/monitor.svg")
                         .icon_size(px(16.))
                         .label(label)
                         .disabled(importing)
@@ -2811,7 +2811,7 @@ impl EditorWindow {
                     .child(
                         div().flex().justify_end().child(
                             ui::EditorButton::plain(&theme, "reimport-desktop")
-                                .left_icon("icons/monitor-outline.svg")
+                                .left_icon("icons/monitor.svg")
                                 .icon_size(px(16.))
                                 .label(if importing {
                                     t!("Importing...")
@@ -3822,7 +3822,7 @@ pub(crate) fn disclosure_row(
                 } else {
                     "icons/chevron-right.svg"
                 })
-                .size(px(12.))
+                .size(px(14.))
                 .flex_shrink_0()
                 .text_color(Hsla::from(theme.editor.text_3))
                 .group_hover(group, move |style| style.text_color(hover)),
@@ -3872,7 +3872,7 @@ pub(crate) fn section_action(
         .children(icon.map(|icon| {
             svg()
                 .path(icon)
-                .size(px(12.))
+                .size(px(14.))
                 .flex_shrink_0()
                 .text_color(foreground)
                 .group_hover(group, move |style| style.text_color(hover))
@@ -4321,9 +4321,9 @@ impl StyleGroup {
 
     pub(crate) fn icon(self) -> &'static str {
         match self {
-            Self::Background => "icons/monitor-outline.svg",
-            Self::Camera => "icons/camera.svg",
-            Self::Cursor => "icons/cursor.svg",
+            Self::Background => "icons/monitor.svg",
+            Self::Camera => "icons/webcam.svg",
+            Self::Cursor => "icons/mouse-pointer-2.svg",
         }
     }
 }

@@ -72,7 +72,7 @@ const popover = (s) => {
 	return `<div class="pop" role="dialog" aria-label="${pick("Recording options", "录制选项")}">
 		<div class="pop-head tnum">${icon(s.mode === "studio" ? "clapperboard" : "zap", "sm")}<span>${mode} · ${L("Display", "显示器")} · 2560 × 1440 · ${L("60 FPS", "60 帧/秒")}</span></div><hr>
 		${device("mic", "mic", "Microphone", "麦克风", MICS[s.mic], !s.startedMic, MICS, s, s.mic)}
-		${device("cam", "video", "Camera", "摄像头", CAMS[s.cam], !s.startedCam, CAMS, s, s.cam)}
+		${device("cam", "webcam", "Camera", "摄像头", CAMS[s.cam], !s.startedCam, CAMS, s, s.cam)}
 		<button class="pop-row" data-a="preview" ${s.startedCam ? "" : "disabled"}>${icon("maximize", "sm")}<span class="grow">${L("Show camera preview", "显示摄像头预览")}</span><span class="switch ${s.preview && s.startedCam ? "on" : ""}"></span></button><hr>
 		<button class="pop-row" data-a="hide">${icon("eye-off", "sm")}<span class="grow">${L("Hide controls", "隐藏控制条")}</span>${keys("Ctrl", "Shift", "H")}</button>
 	</div>`;
@@ -81,7 +81,7 @@ const popover = (s) => {
 const drawStrip = (s) => `<div class="draw-strip" role="toolbar" aria-label="${pick("Drawing tools", "画笔工具")}">
 	${[["pencil", "Pen", "画笔"], ["highlighter", "Highlighter", "荧光笔"], ["arrow-up-right", "Arrow", "箭头"]].map(([n, en, zh]) => btn("tool", icon(n, "sm"), pick(en, zh), s.tool === n ? "on" : "", `data-v="${n}"`)).join("")}
 	${sep()}${["var(--primary)", "var(--danger)", "var(--warning)"].map((c, i) => `<button class="swatch ${s.colour === i ? "on" : ""}" style="background:${c}" data-a="colour" data-v="${i}" aria-label="${pick("Colour", "颜色")} ${i + 1}"></button>`).join("")}
-	${sep()}${btn("undo-ink", icon("undo", "sm"), pick("Undo", "撤销"))}${btn("clear-ink", icon("eraser", "sm"), pick("Clear", "清除"))}</div>`;
+	${sep()}${btn("undo-ink", icon("undo-2", "sm"), pick("Undo", "撤销"))}${btn("clear-ink", icon("eraser", "sm"), pick("Clear", "清除"))}</div>`;
 
 const issues = {
 	mic: ["warn", "Microphone disconnected. Recording silence until it's back.", "麦克风已断开。在它恢复之前录入的是静音。"],
@@ -183,8 +183,8 @@ const renderOptions = () => {
 		<div class="titlebar"><span class="mark"></span><span>FrameEver</span></div>
 		<div class="rec-main">
 			<div class="seg block" data-seg="opt-mode">${[["studio", "clapperboard", "Studio", "工作室"], ["instant", "zap", "Instant", "即时"], ["screenshot", "image", "Screenshot", "截图"]].map(([id, ic, en, zh]) => `<button class="${mode === id ? "on" : ""}" data-v="${id}">${icon(ic, "sm")}${L(en, zh)}</button>`).join("")}</div>
-			<div class="targets">${[["monitor", "Display", "显示器"], ["app-window", "Window", "窗口"], ["box-select", "Area", "区域"]].map(([ic, en, zh], i) => `<button class="${i === 0 ? "on" : ""}">${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}</div>
-			<div class="device">${icon("video")}<span class="grow">${L("Camera", "摄像头")}</span><em>${L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div>
+			<div class="targets">${[["monitor", "Display", "显示器"], ["app-window", "Window", "窗口"], ["scan", "Area", "区域"]].map(([ic, en, zh], i) => `<button class="${i === 0 ? "on" : ""}">${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}</div>
+			<div class="device">${icon("webcam")}<span class="grow">${L("Camera", "摄像头")}</span><em>${L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("mic")}<span class="grow">${L("Microphone", "麦克风")}</span><em>${L("Default", "默认")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("volume-2")}<span class="grow">${L("System audio", "系统声音")}</span><span class="switch on"></span></div>
 			<button class="btn primary block tall">${FE.recordGlyph()}${start}</button>

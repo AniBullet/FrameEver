@@ -1179,9 +1179,9 @@ impl OverlayWindow {
             .child(
                 svg()
                     .path(if camera {
-                        "icons/camera.svg"
+                        "icons/webcam.svg"
                     } else {
-                        "icons/microphone.svg"
+                        "icons/mic.svg"
                     })
                     .size(px(16.))
                     .flex_shrink_0()
@@ -1371,7 +1371,7 @@ impl OverlayWindow {
                     // `svg()` would flatten it to a silhouette), and its
                     // 125x84 viewBox keeps its aspect inside the 80px box.
                     .child(
-                        img("icons/monitor.svg")
+                        img("images/monitor-illustration.svg")
                             .w(px(80.))
                             .h(px(80. * 84. / 125.))
                             .mb(px(12.)),
@@ -1508,7 +1508,7 @@ impl OverlayWindow {
                         .bg(gpui::black())
                         .text_size(px(14.))
                         .text_color(self.theme.gray_11)
-                        .child(svg().path("icons/camera.svg").size(px(32.)))
+                        .child(svg().path("icons/webcam.svg").size(px(32.)))
                         .child(t!("Please select a camera")),
                 )
                 .into_any_element()
@@ -1866,7 +1866,7 @@ impl OverlayWindow {
                             .w(px(152.))
                             .h(px(104.))
                             .mb(px(24.))
-                            .child(img("icons/monitor.svg").size_full())
+                            .child(img("images/monitor-illustration.svg").size_full())
                             .child(
                                 div()
                                     .absolute()
@@ -2058,7 +2058,7 @@ impl OverlayWindow {
                                 .bg(theme.gray_6)
                                 .child(
                                     svg()
-                                        .path("icons/gear.svg")
+                                        .path("icons/settings.svg")
                                         .size(px(20.))
                                         .text_color(theme.gray_12),
                                 )
@@ -2124,7 +2124,7 @@ impl OverlayWindow {
                     // `invert dark:invert-0` on a black glyph: white on the
                     // light theme's dark circle, black on the dark theme's
                     // light one.
-                    .size(px(12.))
+                    .size(px(14.))
                     .text_color(theme.gray_1),
             )
             .on_click(cx.listener(|this, _, _window, cx| {
@@ -2146,9 +2146,9 @@ impl OverlayWindow {
             _ => t!("Start Recording"),
         };
         let icon = match mode {
-            Mode::Instant => "icons/instant.svg",
-            Mode::Studio => "icons/film-cut.svg",
-            Mode::Screenshot => "icons/camera.svg",
+            Mode::Instant => "icons/zap.svg",
+            Mode::Studio => "icons/clapperboard.svg",
+            Mode::Screenshot => "icons/image.svg",
         };
         let mode_label = match mode {
             Mode::Instant => t!("Instant Mode — Record straight to a video file"),
@@ -2279,9 +2279,8 @@ impl OverlayWindow {
                     })
                     .child(
                         svg()
-                            .path("icons/caret-down.svg")
-                            .w(px(10.))
-                            .h(px(6.))
+                            .path("icons/chevron-down.svg")
+                            .size(px(14.))
                             .text_color(gpui::white()),
                     ),
             )

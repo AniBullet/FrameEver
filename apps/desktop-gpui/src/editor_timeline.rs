@@ -881,8 +881,8 @@ impl TrackKind {
             Self::Caption => "icons/captions.svg",
             Self::Keyboard => "icons/keyboard.svg",
             Self::Text => "icons/type.svg",
-            Self::Mask => "icons/box-select.svg",
-            Self::Audio => "icons/music.svg",
+            Self::Mask => "icons/square-dashed.svg",
+            Self::Audio => "icons/eighth-notes.svg",
             Self::Zoom => "icons/search.svg",
             Self::ThreeD => "icons/rotate-3d.svg",
             Self::Scene => "icons/video.svg",
@@ -1670,7 +1670,7 @@ fn scene_icon(mode: SceneMode) -> &'static str {
         SceneMode::HideCamera => "icons/eye-off.svg",
         SceneMode::SplitScreen => "icons/columns-2.svg",
         SceneMode::Floating => "icons/panel-right.svg",
-        SceneMode::Default => "icons/monitor-outline.svg",
+        SceneMode::Default => "icons/monitor.svg",
     }
 }
 
@@ -1793,7 +1793,7 @@ pub fn track_chip(theme: &Theme, kind: TrackKind) -> impl IntoElement {
                 .child(
                     svg()
                         .path(kind.icon())
-                        .size(px(12.))
+                        .size(px(14.))
                         .flex_none()
                         .text_color(tile_fg(theme, color)),
                 ),
@@ -2446,7 +2446,7 @@ fn render_camera3d_ghost(
                     this.child(
                         svg()
                             .path("icons/plus.svg")
-                            .size(px(12.))
+                            .size(px(14.))
                             .flex_none()
                             .text_color(seg_label(theme, color)),
                     )
@@ -3378,10 +3378,10 @@ fn label_body(
             .child(label_primary(theme, color).child(name.clone()))
             .into_any_element(),
         (SegmentDetail::Style { .. }, LabelTier::Glyph) => {
-            label_glyph(theme, color, "icons/palette.svg", 12.)
+            label_glyph(theme, color, "icons/palette.svg", 14.)
         }
         (SegmentDetail::Image { .. }, LabelTier::Glyph) => {
-            label_glyph(theme, color, "icons/image.svg", 12.)
+            label_glyph(theme, color, "icons/image.svg", 14.)
         }
 
         // -- Clip (`TL/ClipTrack.tsx:1255-1279`) --------------------------
@@ -3423,7 +3423,7 @@ fn label_body(
                 this.child(
                     svg()
                         .path("icons/volume-x.svg")
-                        .size(px(12.))
+                        .size(px(14.))
                         .flex_none()
                         .text_color(seg_label(theme, color)),
                 )
@@ -3432,7 +3432,7 @@ fn label_body(
                 this.child(
                     svg()
                         .path("icons/mouse-pointer-ban.svg")
-                        .size(px(12.))
+                        .size(px(14.))
                         .flex_none()
                         .text_color(seg_label(theme, color)),
                 )
@@ -3470,7 +3470,7 @@ fn label_body(
             .child(label_primary(theme, color).child(format!("{amount:.1}x")))
             .into_any_element(),
         (SegmentDetail::Zoom { .. }, LabelTier::Glyph) => {
-            label_glyph(theme, color, "icons/search.svg", 12.)
+            label_glyph(theme, color, "icons/search.svg", 14.)
         }
 
         // -- Scene (`TL/SceneTrack.tsx:543-566`) --------------------------
@@ -3482,7 +3482,7 @@ fn label_body(
             .child(label_primary(theme, color).child(scene_label(*mode)))
             .into_any_element(),
         (SegmentDetail::Scene { mode }, LabelTier::Glyph) => {
-            label_glyph(theme, color, scene_icon(*mode), 12.)
+            label_glyph(theme, color, scene_icon(*mode), 14.)
         }
 
         // -- 3D: the look's own name, then how long it runs ---------------
@@ -3500,7 +3500,7 @@ fn label_body(
             )
             .into_any_element(),
         (SegmentDetail::ThreeD { .. }, LabelTier::Glyph) => {
-            label_glyph(theme, color, "icons/rotate-3d.svg", 12.)
+            label_glyph(theme, color, "icons/rotate-3d.svg", 14.)
         }
 
         // -- Text (`TL/TextTrack.tsx:428-481`) ----------------------------
@@ -3533,7 +3533,7 @@ fn label_body(
                 this.child(
                     svg()
                         .path("icons/pause.svg")
-                        .size(px(10.))
+                        .size(px(12.))
                         .flex_none()
                         .text_color(seg_muted(theme, color)),
                 )
@@ -3543,7 +3543,7 @@ fn label_body(
             if !*fullscreen {
                 return None;
             }
-            label_glyph(theme, color, "icons/pause.svg", 10.)
+            label_glyph(theme, color, "icons/pause.svg", 12.)
         }
 
         // -- Mask (`TL/MaskTrack.tsx:481-495`) ----------------------------
@@ -3613,7 +3613,7 @@ fn clip_badge(
         .child(
             svg()
                 .path(icon)
-                .size(px(10.))
+                .size(px(14.))
                 .flex_none()
                 .text_color(seg_label(theme, color)),
         )

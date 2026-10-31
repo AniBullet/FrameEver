@@ -90,7 +90,7 @@ impl Select {
             border: None,
             text: Hsla::from(theme.editor.text_1),
             chevron: Hsla::from(theme.editor.text_3),
-            chevron_size: px(12.),
+            chevron_size: px(14.),
             gap: px(8.),
             ..Self::settings(theme, id, label)
         }

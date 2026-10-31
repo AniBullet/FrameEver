@@ -72,7 +72,7 @@ const TABS = {
 	clips: { icon: "film", en: "Clips", zh: "片段" },
 	background: { icon: "image", en: "Background", zh: "背景" },
 	screen: { icon: "monitor", en: "Screen", zh: "画面" },
-	camera: { icon: "video", en: "Camera", zh: "摄像头" },
+	camera: { icon: "webcam", en: "Camera", zh: "摄像头" },
 	audio: { icon: "volume-2", en: "Audio", zh: "音频" },
 	cursor: { icon: "mouse-pointer-2", en: "Cursor", zh: "光标" },
 	keyboard: { icon: "keyboard", en: "Keyboard", zh: "按键" },
@@ -162,7 +162,7 @@ const TRACKS = [
 	{ id: "zoom", icon: "zoom-in", en: "Zoom", zh: "缩放", tool: "zoom", segs: [{ s: 18, e: 34, l: ["1.8×", "1.8×"] }, { s: 96, e: 120, l: ["2.0×", "2.0×"] }] },
 	{ id: "captions", icon: "captions", en: "Captions", zh: "字幕", tool: "captions", segs: words.map((s) => ({ s, e: s + 12, l: ["", ""] })) },
 	{ id: "text", icon: "type", en: "Text", zh: "文字", tool: "overlays", segs: [{ s: 4, e: 14, l: ["Product demo", "Product demo"] }] },
-	{ id: "audio", icon: "music", en: "Audio", zh: "音频", tool: "audio", segs: [{ s: 0, e: 222, l: ["Lofi Beats", "Lofi Beats"] }] },
+	{ id: "audio", icon: "eighth-notes", en: "Audio", zh: "音频", tool: "audio", segs: [{ s: 0, e: 222, l: ["Lofi Beats", "Lofi Beats"] }] },
 	{ id: "keyboard", icon: "keyboard", en: "Keyboard", zh: "按键", tool: "keyboard", segs: [{ s: 40, e: 44, l: ["", ""] }, { s: 90, e: 94, l: ["", ""] }] },
 	{ id: "style", icon: "sliders-horizontal", en: "Style", zh: "样式", tool: "scenes", segs: [{ s: 60, e: 100, l: ["Style 1", "样式 1"] }] },
 	{ id: "image", icon: "image", en: "Image", zh: "图片", tool: "overlays", segs: [{ s: 0, e: 30, l: ["Logo", "Logo"] }] },
@@ -222,7 +222,7 @@ const row = (c) => {
 		case "orbit":
 			return `<div class="f full"><span>${L("Drag to orbit", "拖动环绕")}</span><div class="ctl"><div class="tile" style="width:100%;min-height:96px">${icon("box", "lg")}</div></div></div>`;
 		case "list":
-			return `<div class="listing">${c.items.map((o) => `<button>${icon("music")}${o[0]}</button>`).join("")}</div>`;
+			return `<div class="listing">${c.items.map((o) => `<button>${icon("eighth-notes")}${o[0]}</button>`).join("")}</div>`;
 		case "swatches": {
 			const hues = ["#FFFFFF", "#1F3FD8", "#1E1F24", "#4B7F6B", "#E2725B", "#E0B04C", "#5B4B8A", "#3E7CB1", "#C98FA7", "#2B3A55", "#F2F1EC", "#264D47"];
 			const n = Math.min(c.n, 12);
@@ -274,8 +274,8 @@ const titlebar = () => `<div class="titlebar">
 	<button class="ib" title="${pick("Show in Explorer", "在资源管理器中显示")}">${icon("folder")}</button>
 	<button class="ib" data-act="dialog" data-d="delete" title="${pick("Delete recording", "删除录制")}">${icon("trash")}</button>
 	<span class="grow"></span>
-	<button class="ib" title="${pick("Undo", "撤销")} Ctrl+Z">${icon("undo")}</button>
-	<button class="ib" title="${pick("Redo", "重做")} Ctrl+Y">${icon("redo")}</button>
+	<button class="ib" title="${pick("Undo", "撤销")} Ctrl+Z">${icon("undo-2")}</button>
+	<button class="ib" title="${pick("Redo", "重做")} Ctrl+Y">${icon("redo-2")}</button>
 	<span class="sep"></span>
 	<button class="ib ${S.menu === "presets" ? "on" : ""}" data-act="menu" data-m="presets">${icon("bookmark")}${L("Presets", "预设")}${icon("chevron-down")}</button>
 	<button class="export-btn" data-act="export">${L("Export", "导出")}</button>

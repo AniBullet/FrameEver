@@ -137,7 +137,7 @@ impl SegmentedControl {
             item_padding_y: px(0.),
             item_height: Some(px(crate::theme::CONTROL_HEIGHT - 6.)),
             item_gap: px(4.),
-            icon_size: px(11.),
+            icon_size: px(14.),
             selected_bg: Some(theme.secondary.into()),
             selected_text: theme.settings_text(),
             idle_text: theme.settings_muted(),

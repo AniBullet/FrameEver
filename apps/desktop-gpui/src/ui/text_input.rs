@@ -1882,7 +1882,7 @@ impl RenderOnce for TextInput {
             .children(self.icon.map(|icon| {
                 svg()
                     .path(icon)
-                    .size(px(12.))
+                    .size(px(14.))
                     .flex_shrink_0()
                     .text_color(self.icon_color)
             }))

@@ -156,7 +156,7 @@ impl ModeSelectWindow {
                         .child(
                             svg()
                                 .path("icons/check.svg")
-                                .size(px(12.))
+                                .size(px(14.))
                                 .text_color(theme.background),
                         ),
                 )

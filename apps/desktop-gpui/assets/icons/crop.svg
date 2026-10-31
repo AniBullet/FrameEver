@@ -1,3 +1,16 @@
-<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M2.5 5H13.3333C14.2538 5 15 5.74619 15 6.66667V17.5M5 2.5V13.3333C5 14.2538 5.74619 15 6.66667 15H17.5" stroke="currentColor" stroke-width="1.66667" stroke-linecap="round" stroke-linejoin="round"/>
+<!-- @license lucide-static v1.64.0 - ISC -->
+<svg
+  class="lucide lucide-crop"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.75"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+  <path d="M18 22V8a2 2 0 0 0-2-2H2" />
 </svg>

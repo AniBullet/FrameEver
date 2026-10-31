@@ -12,6 +12,8 @@ import {
 	designJs,
 	easeMove,
 	firstRecording,
+	iconFiles,
+	iconTarball,
 	isLargeAddressAware,
 	missingChineseFont,
 	missingNativeDeps,
@@ -25,6 +27,7 @@ import {
 	stampReleaseDate,
 	stampVersion,
 	testProfileEnv,
+	vendoredIcon,
 	versionManifests,
 	withFfmpeg,
 	writeFakeCapAniBullet2,
@@ -307,4 +310,40 @@ test("the fake Cap-aniBullet 2.x install has projects, paired videos and a scree
 	}
 	assert.equal(env.FRAMEEVER_GPUI_APP_DATA_DIR, path.join(dir, "FrameEver"));
 	rmSync(dir, { recursive: true, force: true });
+});
+
+test("a vendored icon keeps its source and takes the design stroke", () => {
+	const lucide = { package: "lucide-static", version: "1.64.0", license: "ISC" };
+	const svg = '<!-- @license lucide-static v1.64.0 - ISC -->\n<svg fill="none" stroke-width="2"><path/></svg>';
+	assert.equal(
+		vendoredIcon(svg, lucide, 1.75),
+		'<!-- @license lucide-static v1.64.0 - ISC -->\n<svg fill="none" stroke-width="1.75"><path/></svg>',
+	);
+	assert.match(vendoredIcon(svg, lucide, 1.75, { filled: true }), /<svg fill="currentColor" stroke-width="1.75">/);
+});
+
+test("a Tabler icon gains the licence line Lucide's files already carry", () => {
+	const tabler = { package: "@tabler/icons", version: "3.50.0", license: "MIT" };
+	const icon = vendoredIcon('<svg stroke-width="2"/>', tabler, 1.75);
+	assert.equal(icon, '<!-- @license @tabler/icons v3.50.0 - MIT -->\n<svg stroke-width="1.75"/>');
+});
+
+test("an icon without a 2 px stroke is refused", () => {
+	assert.throws(() => vendoredIcon("<svg/>", { package: "x", version: "1", license: "MIT" }, 1.75), /2 px stroke/);
+});
+
+test("icon tarballs come from the release pinned in the manifest", () => {
+	assert.equal(
+		iconTarball({ package: "@tabler/icons", version: "3.50.0" }),
+		"https://registry.npmjs.org/@tabler/icons/-/icons-3.50.0.tgz",
+	);
+});
+
+test("the filled variants name their Lucide source", () => {
+	const files = iconFiles({ lucide: ["x"], lucideFilled: { "record-fill": "circle" }, tabler: ["blur"] });
+	assert.deepEqual(files, [
+		{ file: "x", release: "lucide", source: "x", filled: false },
+		{ file: "record-fill", release: "lucide", source: "circle", filled: true },
+		{ file: "blur", release: "tabler", source: "blur", filled: false },
+	]);
 });

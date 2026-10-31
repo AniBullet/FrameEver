@@ -55,7 +55,7 @@ pub enum ButtonSize {
 impl ButtonSize {
     fn text_size(self) -> Pixels {
         match self {
-            ButtonSize::Xs => px(12.),
+            ButtonSize::Xs => px(14.),
             ButtonSize::Sm => px(12.),
             ButtonSize::Md => px(13.),
             ButtonSize::Lg => px(14.),

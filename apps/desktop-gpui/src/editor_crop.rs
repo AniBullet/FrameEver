@@ -2423,7 +2423,7 @@ impl EditorWindow {
             .child(
                 ui::EditorButton::plain(&theme, "crop-close")
                     .left_icon("icons/x.svg")
-                    .icon_size(px(12.))
+                    .icon_size(px(14.))
                     .width(px(28.))
                     .tooltip(&theme, t!("Close"))
                     .on_click(

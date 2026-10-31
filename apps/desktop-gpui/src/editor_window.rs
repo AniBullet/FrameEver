@@ -8114,7 +8114,7 @@ impl EditorWindow {
                     .child(
                         svg()
                             .path("icons/settings.svg")
-                            .size(px(12.))
+                            .size(px(14.))
                             .text_color(Hsla::from(self.theme.editor.text_2)),
                     ),
             );
@@ -8658,7 +8658,7 @@ impl EditorWindow {
                                 .child(
                                     svg()
                                         .path("icons/check.svg")
-                                        .size(px(8.))
+                                        .size(px(14.))
                                         .text_color(theme.background),
                                 ),
                         )
@@ -8918,7 +8918,7 @@ impl EditorWindow {
                     .hover(|this| this.bg(Hsla::from(theme.editor.ctl_active)))
                     .child(
                         svg()
-                            .path("icons/gear.svg")
+                            .path("icons/settings.svg")
                             .size(px(16.))
                             .text_color(Hsla::from(theme.editor.text_2)),
                     )
@@ -9413,12 +9413,12 @@ impl EditorWindow {
                     .gap(px(2.))
                     .flex_none()
                     .when(cfg!(target_os = "windows"), |group| group.occlude())
-                    .child(self.history_button("editor-undo", "icons/undo.svg", true, cx))
-                    .child(self.history_button("editor-redo", "icons/redo.svg", false, cx))
+                    .child(self.history_button("editor-undo", "icons/undo-2.svg", true, cx))
+                    .child(self.history_button("editor-redo", "icons/redo-2.svg", false, cx))
                     .child(self.header_divider())
                     .child(
                         ui::EditorButton::plain(&theme, "presets")
-                            .left_icon("icons/presets.svg")
+                            .left_icon("icons/wand-sparkles.svg")
                             .when(!compact, |button| button.label(t!("Presets")))
                             .tooltip(&theme, t!("Presets"))
                             .disabled(!self.project_ready())
@@ -9524,8 +9524,8 @@ impl EditorWindow {
             )
             .child(
                 svg()
-                    .path("icons/upload-arrow.svg")
-                    .size(px(15.))
+                    .path("icons/upload.svg")
+                    .size(px(16.))
                     .flex_shrink_0()
                     .text_color(gpui::white()),
             )
@@ -9606,7 +9606,7 @@ impl EditorWindow {
                         .child(
                             svg()
                                 .path("icons/info.svg")
-                                .size(px(13.))
+                                .size(px(14.))
                                 .flex_none()
                                 .text_color(Hsla::from(theme.editor.text_3)),
                         )
@@ -9649,7 +9649,7 @@ impl EditorWindow {
                                     .child(
                                         svg()
                                             .path(tab.icon())
-                                            .size(px(15.))
+                                            .size(px(16.))
                                             .text_color(Hsla::from(theme.editor.text_2)),
                                     )
                             }),
@@ -9705,7 +9705,7 @@ impl EditorWindow {
             .child(
                 ui::EditorButton::plain(&theme, "aspect-ratio")
                     .text(&theme)
-                    .left_icon("icons/layout.svg")
+                    .left_icon("icons/ratio.svg")
                     .when(!narrow, |button| {
                         button.label(Self::aspect_ratio_label(
                             self.preparing_seed
@@ -10054,7 +10054,7 @@ impl EditorWindow {
                             .when(!live, |this| this.opacity(0.5))
                             .child(skip(
                                 "transport-prev",
-                                "icons/prev.svg",
+                                "icons/skip-back.svg",
                                 Box::new(
                                     cx.listener(|this, _, _window, cx| this.jump_to_start(cx)),
                                 ),
@@ -10072,7 +10072,7 @@ impl EditorWindow {
                                     .child(
                                         ui::IconButton::new("transport-play", icon)
                                             .size(px(32.))
-                                            .icon_size(px(12.))
+                                            .icon_size(px(14.))
                                             .color(Hsla::from(editor.card))
                                             .filled(Hsla::from(editor.text_1), None)
                                             .disabled(!live)
@@ -10088,7 +10088,7 @@ impl EditorWindow {
                             )
                             .child(skip(
                                 "transport-next",
-                                "icons/next.svg",
+                                "icons/skip-forward.svg",
                                 Box::new(cx.listener(|this, _, _window, cx| this.jump_to_end(cx))),
                             )),
                     ),
@@ -10438,7 +10438,7 @@ impl EditorWindow {
                             } else {
                                 "icons/plus.svg"
                             })
-                            .size(px(12.))
+                            .size(px(14.))
                             .flex_none()
                             .text_color(Hsla::from(theme.editor.card)),
                     )
@@ -10788,7 +10788,7 @@ impl EditorWindow {
                                     .child(
                                         ui::IconButton::new("zoom-generate-dismiss", "icons/x.svg")
                                             .size(px(20.))
-                                            .icon_size(px(12.))
+                                            .icon_size(px(14.))
                                             .color(Hsla::from(theme.editor.text_3))
                                             .hover_bg(Hsla::from(theme.editor.ctl_hover))
                                             .disabled(generating)
@@ -10867,7 +10867,7 @@ impl EditorWindow {
                                 .child(
                                     ui::IconButton::new("camera3d-picker-close", "icons/x.svg")
                                         .size(px(22.))
-                                        .icon_size(px(12.))
+                                        .icon_size(px(14.))
                                         .color(Hsla::from(theme.editor.text_3))
                                         .hover_bg(Hsla::from(theme.editor.ctl_hover))
                                         .on_click(cx.listener(|this, _, _, cx| {
@@ -10958,7 +10958,7 @@ impl EditorWindow {
                                             }
                                         }),
                                     )
-                                    .child(svg().path("icons/trash.svg").size(px(13.)).text_color(
+                                    .child(svg().path("icons/trash.svg").size(px(14.)).text_color(
                                         if hovered {
                                             Hsla::from(theme.red_11)
                                         } else {
@@ -11069,7 +11069,7 @@ fn render_split_preview(theme: &Theme, x: f32, snapped: bool, splitting: bool) -
                     .child(
                         svg()
                             .path("icons/scissors.svg")
-                            .size(px(12.))
+                            .size(px(14.))
                             .text_color(gpui::white()),
                     ),
             )

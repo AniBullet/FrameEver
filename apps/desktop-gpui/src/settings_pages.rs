@@ -623,7 +623,7 @@ const SCREENSHOT_OUTCOMES: [(store::PostScreenshotBehaviour, OutcomeOption); 4] 
     (
         store::PostScreenshotBehaviour::OpenEditor,
         OutcomeOption {
-            icon: "icons/edit.svg",
+            icon: "icons/square-pen.svg",
             label: n!("Open editor"),
             hint: n!("Annotate first"),
         },
@@ -658,7 +658,7 @@ const STUDIO_OUTCOMES: [(store::PostStudioBehaviour, OutcomeOption); 3] = [
     (
         store::PostStudioBehaviour::OpenEditor,
         OutcomeOption {
-            icon: "icons/edit.svg",
+            icon: "icons/square-pen.svg",
             label: n!("Open editor"),
             hint: n!("Edit right away"),
         },
@@ -1442,7 +1442,7 @@ impl SettingsWindow {
             .child(
                 svg()
                     .path("icons/x.svg")
-                    .size(px(12.))
+                    .size(px(14.))
                     .text_color(theme.settings_muted()),
             )
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -1500,7 +1500,7 @@ impl SettingsWindow {
                                         .path(path)
                                         .flex_shrink_0()
                                         .mt(px(2.))
-                                        .size(px(12.))
+                                        .size(px(14.))
                                         .text_color(color),
                                 )
                             })
@@ -2186,7 +2186,7 @@ impl SettingsWindow {
                         .child(
                             svg()
                                 .path("icons/x.svg")
-                                .size(px(12.))
+                                .size(px(14.))
                                 .text_color(theme.settings_muted()),
                         )
                         .on_click(cx.listener(move |this, _, _window, cx| {
@@ -3596,7 +3596,7 @@ fn trigger_icon(trigger: Trigger) -> &'static str {
         Trigger::ScreenshotTaken => "icons/image.svg",
         Trigger::StudioRecordingFinished => "icons/clapperboard.svg",
         Trigger::InstantRecordingFinished => "icons/zap.svg",
-        Trigger::RecordingStarted => "icons/play-circle.svg",
+        Trigger::RecordingStarted => "icons/circle-play.svg",
         Trigger::UploadCompleted => "icons/cloud-upload.svg",
         Trigger::VideoImported => "icons/import.svg",
         Trigger::RecordingDeleted => "icons/trash.svg",
@@ -4600,7 +4600,7 @@ impl SettingsWindow {
                     .child(
                         svg()
                             .path(template.icon)
-                            .size(px(18.))
+                            .size(px(20.))
                             .text_color(theme.settings_muted()),
                     ),
             )
@@ -4663,7 +4663,7 @@ impl SettingsWindow {
                     .child(
                         svg()
                             .path(trigger_icon(rule.trigger))
-                            .size(px(18.))
+                            .size(px(20.))
                             .text_color(theme.settings_muted()),
                     ),
             )

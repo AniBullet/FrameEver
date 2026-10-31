@@ -128,9 +128,9 @@ pub const TEXT_LAYOUTS: [(TextLayout, &str); 2] = [
 
 /// `TEXT_ALIGN_OPTIONS` (`:3596-3600`).
 pub const TEXT_ALIGNS: [(TextAlign, &str); 3] = [
-    (TextAlign::Left, "icons/align-left.svg"),
-    (TextAlign::Center, "icons/align-center.svg"),
-    (TextAlign::Right, "icons/align-right.svg"),
+    (TextAlign::Left, "icons/text-align-start.svg"),
+    (TextAlign::Center, "icons/text-align-center.svg"),
+    (TextAlign::Right, "icons/text-align-end.svg"),
 ];
 
 // ---------------------------------------------------------------------------
@@ -842,7 +842,7 @@ pub const SCENE_MODES: [(SceneMode, &str, &str, &str); 5] = [
     (
         SceneMode::Default,
         n!("Default"),
-        "icons/monitor-outline.svg",
+        "icons/monitor.svg",
         n!("Shows both screen and camera"),
     ),
     (
@@ -4249,7 +4249,7 @@ impl EditorWindow {
                                     .child(
                                         svg()
                                             .path("icons/x.svg")
-                                            .size(px(12.))
+                                            .size(px(14.))
                                             .text_color(Hsla::from(theme.gray_11)),
                                     )
                                     .on_click(cx.listener(move |this, _, _window, cx| {
@@ -4429,7 +4429,7 @@ impl EditorWindow {
                                     .top(gpui::relative(0.36))
                                     .child(
                                         svg()
-                                            .path("icons/cursor.svg")
+                                            .path("icons/mouse-pointer-2.svg")
                                             .size(px(14.))
                                             .text_color(Hsla::from(theme.gray_12)),
                                     ),
@@ -6428,8 +6428,8 @@ impl EditorWindow {
                                 .absolute()
                                 .right(px(4.))
                                 .bottom(px(4.))
-                                .px(px(3.))
-                                .h(px(13.))
+                                .px(px(2.))
+                                .h(px(14.))
                                 .flex()
                                 .items_center()
                                 .rounded(px(4.))
@@ -6437,7 +6437,7 @@ impl EditorWindow {
                                 .child(
                                     svg()
                                         .path("icons/move-right.svg")
-                                        .size(px(9.))
+                                        .size(px(14.))
                                         .text_color(Hsla::from(theme.editor.text_2)),
                                 ),
                         )
@@ -6760,7 +6760,7 @@ impl EditorWindow {
         let theme = self.theme;
         let mut button = ui::EditorButton::plain(&theme, id)
             .left_icon(icon)
-            .icon_size(px(13.))
+            .icon_size(px(14.))
             .height(px(24.))
             .padding_x(px(7.))
             .pressed(active)
@@ -7105,7 +7105,7 @@ impl EditorWindow {
             .child(
                 ui::EditorButton::plain(&theme, "camera3d-play-shot")
                     .left_icon("icons/play.svg")
-                    .icon_size(px(12.))
+                    .icon_size(px(14.))
                     .label(t!("Play shot"))
                     .text_size(px(12.))
                     .tooltip(&theme, t!("Play this shot"))
@@ -7117,7 +7117,7 @@ impl EditorWindow {
                 ui::EditorButton::plain(&theme, "camera3d-delete")
                     .danger(&theme)
                     .left_icon("icons/trash.svg")
-                    .icon_size(px(13.))
+                    .icon_size(px(14.))
                     .label(t!("Delete"))
                     .text_size(px(12.))
                     .tooltip(&theme, t!("Delete this shot"))
@@ -7150,7 +7150,7 @@ impl EditorWindow {
                     .child(
                         self.camera3d_action(
                             "camera3d-flip-h",
-                            "icons/flip-horizontal-2.svg",
+                            "icons/triangles-centerline-dashed-horizontal.svg",
                             None,
                             t!("Flip horizontally"),
                             false,
@@ -7164,7 +7164,7 @@ impl EditorWindow {
                     .child(
                         self.camera3d_action(
                             "camera3d-flip-v",
-                            "icons/flip-vertical-2.svg",
+                            "icons/triangles-centerline-dashed-vertical.svg",
                             None,
                             t!("Flip vertically"),
                             false,
@@ -7398,7 +7398,7 @@ impl EditorWindow {
                             } else {
                                 "icons/chevron-right.svg"
                             })
-                            .size(px(13.))
+                            .size(px(14.))
                             .flex_none()
                             .text_color(Hsla::from(theme.editor.text_3)),
                     )

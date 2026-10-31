@@ -2074,7 +2074,7 @@ impl CameraWindow {
                     .child(
                         svg()
                             .path(icon)
-                            .size(px(22. * scale))
+                            .size(px(20. * scale))
                             .text_color(if pressed {
                                 theme.gray_12.into()
                             } else {
@@ -2145,7 +2145,7 @@ impl CameraWindow {
                     ))
                     .child(self.toolbar_button(
                         "size",
-                        "icons/enlarge.svg",
+                        "icons/maximize-2.svg",
                         self.state.size >= CAMERA_PRESET_LARGE,
                         scale,
                         None,
@@ -2182,7 +2182,7 @@ impl CameraWindow {
                     // never mirrored by either app.
                     .child(self.toolbar_button(
                         "mirror",
-                        "icons/arrows.svg",
+                        "icons/triangles-centerline-dashed-horizontal.svg",
                         self.state.mirrored && !mirror_failed,
                         scale,
                         mirror_failed.then_some("!"),

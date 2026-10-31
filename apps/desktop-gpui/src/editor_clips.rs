@@ -1215,7 +1215,7 @@ impl EditorWindow {
                                             .bg(Hsla::from(theme.gray_5))
                                             .text_color(Hsla::from(theme.gray_12))
                                     })
-                                    .child(svg().path("icons/edit.svg").size(px(14.)))
+                                    .child(svg().path("icons/square-pen.svg").size(px(14.)))
                                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                         cx.stop_propagation();
                                     })

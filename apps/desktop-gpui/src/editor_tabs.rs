@@ -1672,7 +1672,7 @@ impl EditorWindow {
                             } else {
                                 Hsla::from(theme.editor.ctl)
                             })
-                            .child(svg().path("icons/microphone.svg").size(px(16.)).text_color(
+                            .child(svg().path("icons/mic.svg").size(px(16.)).text_color(
                                 if enabled {
                                     accent
                                 } else {

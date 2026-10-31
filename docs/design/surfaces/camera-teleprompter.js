@@ -34,7 +34,7 @@ const issues = {
 const issueLayer = (st) => {
 	if (!st.issue) return "";
 	const [cls, title, msg] = issues[st.issue];
-	if (cls) return `<div class="cam-issue quiet">${icon("video", "lg")}</div>`;
+	if (cls) return `<div class="cam-issue quiet">${icon("webcam", "lg")}</div>`;
 	return `<div class="cam-issue"><b>${L(...title)}</b><span>${L(...msg)}</span></div>`;
 };
 
@@ -44,7 +44,7 @@ const barButtons = (st, n) => {
 	const list = [
 		`<button class="rb-btn" data-a="shape" title="${pick("Shape  S", "形状  S")}" aria-label="${pick("Shape", "形状")}">${icon(shapeIcon)}</button>`,
 		`<button class="rb-btn ${st.size >= 400 ? "on" : ""}" data-a="size" title="${pick("Size  +", "大小  +")}" aria-label="${pick("Size", "大小")}">${icon("maximize-2")}</button>`,
-		`<button class="rb-btn ${st.mirror ? "on" : ""}" data-a="mirror" title="${pick("Mirror  M", "镜像  M")}" aria-label="${pick("Mirror", "镜像")}">${icon("flip-horizontal-2")}</button>`,
+		`<button class="rb-btn ${st.mirror ? "on" : ""}" data-a="mirror" title="${pick("Mirror  M", "镜像  M")}" aria-label="${pick("Mirror", "镜像")}">${icon("triangles-centerline-dashed-horizontal")}</button>`,
 		`<button class="rb-btn ${st.blur ? "on" : ""}" data-a="blur" title="${pick("Background blur  B", "背景模糊  B")}" aria-label="${pick("Background blur", "背景模糊")}">${icon("person-standing")}${blurDots}</button>`,
 	].slice(0, n - 1);
 	return `${list.join("")}<span class="rb-sep"></span><button class="rb-btn" data-a="close" title="${pick("Turn camera off  Del", "关闭摄像头  Del")}" aria-label="${pick("Turn camera off", "关闭摄像头")}">${icon("x")}</button>`;

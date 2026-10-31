@@ -137,7 +137,7 @@ impl RenderOnce for RadioCards {
                                         this.bg(dot_fill).child(
                                             svg()
                                                 .path("icons/check.svg")
-                                                .size(px(12.))
+                                                .size(px(14.))
                                                 .text_color(gpui::white()),
                                         )
                                     }),

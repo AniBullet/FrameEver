@@ -551,8 +551,8 @@ impl Popover {
     fn icon(self) -> &'static str {
         match self {
             Self::Background => "icons/image.svg",
-            Self::Padding => "icons/padding.svg",
-            Self::Rounding => "icons/corners.svg",
+            Self::Padding => "icons/box-padding.svg",
+            Self::Rounding => "icons/square-round-corner.svg",
             Self::Shadow => "icons/shadow.svg",
             Self::Border => "icons/square.svg",
         }
@@ -2511,7 +2511,7 @@ impl ScreenshotEditorWindow {
                     Anchor::Aspect,
                     ui::EditorButton::plain(&theme, "screenshot-aspect")
                         .width(px(80.))
-                        .left_icon("icons/layout.svg")
+                        .left_icon("icons/ratio.svg")
                         .icon_size(px(16.))
                         .label(self.aspect_label())
                         .right_icon("icons/chevron-down.svg")
@@ -2652,7 +2652,7 @@ impl ScreenshotEditorWindow {
                         self.anchored(
                             Anchor::More,
                             ui::EditorButton::plain(&theme, "screenshot-more")
-                                .left_icon("icons/more-horizontal.svg")
+                                .left_icon("icons/ellipsis.svg")
                                 .icon_size(px(16.))
                                 .disabled(exporting)
                                 .pressed(
@@ -3398,7 +3398,7 @@ impl ScreenshotEditorWindow {
             )
             .child(
                 ui::Field::plain(&theme, t!("Background Blur"))
-                    .icon("icons/bg-blur.svg")
+                    .icon("icons/blur.svg")
                     .icon_size(px(16.))
                     .child(self.slider_row(t!("Blur"), StyleSlider::Blur, "%", cx)),
             )
@@ -3569,7 +3569,7 @@ impl ScreenshotEditorWindow {
             .gap(px(16.))
             .child(
                 ui::Field::plain(&theme, t!("Width"))
-                    .icon("icons/enlarge.svg")
+                    .icon("icons/maximize-2.svg")
                     .icon_size(px(16.))
                     .child(self.slider(StyleSlider::BorderWidth, None, cx)),
             )

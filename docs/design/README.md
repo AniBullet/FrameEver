@@ -10,7 +10,7 @@ The single visual source of truth for FrameEver's UI. Open `index.html` by doubl
 | `tokens.css`, `tokens.js` | Generated from `tokens.json` by `pnpm fe design`. Never edit them by hand; a script test fails when they drift |
 | `design.css` | Component styles shared by every page |
 | `design.js` | The page shell (navigation and toggles), token helpers and the hand-drawn doodles (`FE.doodle`) |
-| `icons.js` | The Lucide glyphs these pages use |
+| `icons.js` | The Lucide glyphs these pages use, named as in `apps/desktop-gpui/assets/icons/sources.json` where the app draws them |
 | `index.html` | Tokens and components |
 | `surfaces/<surface>.html` | One page per surface, with its own `.css` and `.js` when it needs them |
 

@@ -43,6 +43,7 @@ pnpm fe setup
 | `pnpm fe fmt` | 格式化代码 |
 | `pnpm fe export h264\|hevc\|av1` | 用最新的测试录制导出视频到 `target/testdata/exports/` |
 | `pnpm fe design` | 从 `docs/design/tokens.json` 生成 `tokens.css` 和 `tokens.js`；设计参考页直接双击 `docs/design/index.html` 打开 |
+| `pnpm fe icons` | 按 `apps/desktop-gpui/assets/icons/sources.json` 从固定版本的 Lucide 和 Tabler 重新拷贝全部图标 |
 | `pnpm fe converter [--lang zh-CN]` | 在 `target/testdata/converter/` 里造一个假的 Cap-aniBullet 2.x 安装，然后打开 FrameEver Converter 转换它；每次运行都重新造 |
 
 测试节奏：改代码时用 `pnpm fe test <过滤词>`，只改应用代码约 20 秒；`pnpm fe check` 只在想看编译错误又不想跑测试时用，`test` 本身会编译同样的代码。`pnpm fe test --all` 和 `pnpm fe lint` 提交前跑一次就够。改共享 crate（`frameever-project`、`-rendering`、`-recording`、`-editor`、`-export`）会连带重编上层，约 30–45 秒；crate 改名或升级依赖会全部重编。`dev`、`check`、`test`、`lint` 每次会自动只保留每个 crate 最新的 4 份增量缓存，删除更旧的。

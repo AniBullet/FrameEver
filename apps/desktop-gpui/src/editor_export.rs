@@ -1139,7 +1139,7 @@ impl EditorWindow {
                             .child(
                                 svg()
                                     .path("icons/info.svg")
-                                    .size(px(13.))
+                                    .size(px(14.))
                                     .text_color(Hsla::from(editor.text_3)),
                             ),
                     ),
@@ -1339,7 +1339,7 @@ impl EditorWindow {
 
     fn export_destination_field(&self, ui: &ExportUi, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        self.export_section(t!("Destination"), "icons/upload-arrow.svg")
+        self.export_section(t!("Destination"), "icons/upload.svg")
             .child(
                 ui::SegmentedControl::editor(
                     &theme,
@@ -1430,7 +1430,7 @@ impl EditorWindow {
                 "About half the size at the same quality. Fast on recent graphics cards, slower otherwise; older devices may not play it."
             ),
         };
-        self.export_section(t!("Video codec"), "icons/film-cut.svg")
+        self.export_section(t!("Video codec"), "icons/film.svg")
             .child(
                 ui::SegmentedControl::editor(
                     &theme,
@@ -1479,7 +1479,7 @@ impl EditorWindow {
     ) -> impl IntoElement {
         let theme = self.theme;
         let resolutions = resolutions.to_vec();
-        self.export_section(t!("Resolution"), "icons/monitor-outline.svg")
+        self.export_section(t!("Resolution"), "icons/monitor.svg")
             .child(
                 ui::SegmentedControl::editor(
                     &theme,
