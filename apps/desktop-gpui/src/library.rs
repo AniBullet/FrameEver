@@ -731,6 +731,11 @@ pub fn list_screenshots_in(dir: &Path) -> Vec<ScreenshotItem> {
     out
 }
 
+pub fn project_count() -> usize {
+    let storage = storage();
+    storage.projects(ProjectKind::Recording).len() + storage.projects(ProjectKind::Screenshot).len()
+}
+
 pub fn list_screenshots() -> Vec<ScreenshotItem> {
     let mut items: Vec<_> = storage()
         .known_dirs(ProjectKind::Screenshot)

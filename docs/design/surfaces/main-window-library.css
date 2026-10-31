@@ -168,10 +168,33 @@ main > section .seg {
 	padding: 12px;
 }
 
+.mode-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.mode-row .seg {
+	flex: 1;
+	min-width: 0;
+}
+
 .targets {
 	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
+	grid-template-columns: repeat(4, minmax(0, 1fr));
 	gap: 6px;
+}
+
+.targets button {
+	position: relative;
+}
+
+.targets .choose {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	display: grid;
+	place-items: center;
 }
 
 .targets button {

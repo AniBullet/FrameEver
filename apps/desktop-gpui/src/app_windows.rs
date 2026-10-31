@@ -463,6 +463,7 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                         park_idle_camera_preview(cx);
                         crate::menus::schedule_dock_sync(cx);
                     }
+                    _ if finished_instant.is_some() => show_library(cx),
                     _ => show_main_window(cx),
                 }
             }
@@ -687,6 +688,36 @@ pub(crate) fn show_main_window_after_capture_pause(cx: &mut App) {
     .detach();
 }
 
+pub fn show_library(cx: &mut App) {
+    let main = cx.global::<AppWindows>().main;
+    let compact = main.read(cx).is_ok_and(|view| view.is_compact());
+    if compact && !crate::store::should_show_onboarding() {
+        main.update(cx, |view, window, cx| view.expand_then_show(window, cx))
+            .ok();
+    } else {
+        show_main_window(cx);
+    }
+}
+
+pub fn show_compact_main(cx: &mut App) {
+    let main = cx.global::<AppWindows>().main;
+    main.update(cx, |view, window, cx| view.return_to_compact(window, cx))
+        .ok();
+    show_main_window(cx);
+}
+
+pub fn hide_compact_beside_settings(cx: &mut App) {
+    if cx.global::<AppWindows>().settings.is_some() {
+        hide_compact_main(cx);
+    }
+}
+
+fn collapse_main_behind_hide(cx: &mut App) {
+    let main = cx.global::<AppWindows>().main;
+    main.update(cx, |view, window, cx| view.collapse_behind_hide(window, cx))
+        .ok();
+}
+
 /// Re-assert the main window's borderless style mask after an operation that
 /// can provoke the macOS 26 mutation (`platform::restore_borderless_style`:
 /// AppKit adds `NSMiniaturizableWindowMask` on its own, materializing native
@@ -736,6 +767,13 @@ pub fn hide_main_window(cx: &mut App) {
     .detach();
 }
 
+fn hide_compact_main(cx: &mut App) {
+    let main = cx.global::<AppWindows>().main;
+    if main.read(cx).is_ok_and(|view| view.is_compact()) {
+        hide_main_and_park_camera_preview(cx);
+    }
+}
+
 fn hide_main_and_park_camera_preview(cx: &mut App) {
     hide_main_window(cx);
     park_idle_camera_preview(cx);
@@ -783,6 +821,7 @@ pub fn request_close_main(cx: &mut App) {
         .ok();
     }
     hide_main_window(cx);
+    collapse_main_behind_hide(cx);
 
     // `state.is_recording_active_or_pending()`: everything but Idle.
     if RecordingSession::global(cx).read(cx).phase != Phase::Idle {
@@ -937,7 +976,7 @@ pub fn open_settings(page: Page, cx: &mut App) {
             }
         })
         .detach();
-        hide_main_and_park_camera_preview(cx);
+        hide_compact_main(cx);
         return;
     }
 
@@ -1054,7 +1093,7 @@ pub fn open_settings(page: Page, cx: &mut App) {
     })
     .detach();
 
-    hide_main_and_park_camera_preview(cx);
+    hide_compact_main(cx);
 }
 
 /// Close the settings window from our side (Cmd-W). The close button goes
@@ -1695,7 +1734,7 @@ pub fn open_editor_recording_main(editor_path: PathBuf, cx: &mut App) {
     })
     .ok();
     hide_editor_window(&key, cx);
-    show_main_window(cx);
+    show_compact_main(cx);
 }
 
 fn open_overlays_core(request: OverlayRequest, cx: &mut App) -> bool {

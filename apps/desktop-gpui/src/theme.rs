@@ -726,17 +726,6 @@ impl Theme {
         }
     }
 
-    /// `ring-offset-gray-1`, the 1px gap between the selected Mode button and
-    /// its blue ring. Liquid Glass makes it transparent
-    /// (`--tw-ring-offset-color: transparent`) so the ring is not sitting on a
-    /// solid disc floating over the material.
-    pub fn ring_offset(&self) -> Hsla {
-        match self.material {
-            Some(material) if material.remaps_body() => gpui::transparent_black(),
-            _ => self.gray_1.into(),
-        }
-    }
-
     // ---- The settings window's surfaces -------------------------------
     //
     // Same tokens, a different set of elements. Every rule quoted below is
@@ -957,7 +946,6 @@ mod tests {
             assert_eq!(theme.header_bg(), Hsla::from(theme.background));
             assert_eq!(theme.header_border(), Hsla::from(theme.gray_5));
             assert_eq!(theme.body_text(), Hsla::from(theme.text_primary));
-            assert_eq!(theme.ring_offset(), Hsla::from(theme.gray_1));
             for step in 1..=12 {
                 assert_eq!(theme.body_fill(step), theme.gray(step));
                 assert_eq!(theme.body_hover_fill(step), theme.gray(step));
@@ -1001,8 +989,6 @@ mod tests {
             assert_eq!(theme.header_bg().a, 0.);
             assert_eq!(theme.header_border(), gpui::transparent_black());
             assert_eq!(theme.body_text(), Hsla::from(material.text));
-            // `.ring-offset-gray-1 { --tw-ring-offset-color: transparent }`
-            assert_eq!(theme.ring_offset(), gpui::transparent_black());
 
             // `.bg-gray-2, .bg-gray-3 -> control-fill`, `.bg-gray-4 ->
             // control-hover`, `.bg-gray-5 -> control-active`.

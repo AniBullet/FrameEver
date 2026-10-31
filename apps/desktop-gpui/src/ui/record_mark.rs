@@ -7,7 +7,7 @@ const RING_WIDTH: f32 = 1.5;
 const SQUARE_SIZE: f32 = 8.;
 const SQUARE_RADIUS: f32 = 2.;
 
-pub fn stop_mark(theme: &Theme) -> Div {
+fn ring(theme: &Theme) -> Div {
     div()
         .flex()
         .flex_none()
@@ -18,10 +18,22 @@ pub fn stop_mark(theme: &Theme) -> Div {
         .border(px(RING_WIDTH))
         .border_color(theme.primary_foreground)
         .bg(theme.record_gap)
-        .child(
-            div()
-                .size(px(SQUARE_SIZE))
-                .rounded(px(SQUARE_RADIUS))
-                .bg(theme.recording),
-        )
+}
+
+pub fn record_mark(theme: &Theme) -> Div {
+    ring(theme).child(
+        div()
+            .size(px(SQUARE_SIZE))
+            .rounded_full()
+            .bg(theme.recording),
+    )
+}
+
+pub fn stop_mark(theme: &Theme) -> Div {
+    ring(theme).child(
+        div()
+            .size(px(SQUARE_SIZE))
+            .rounded(px(SQUARE_RADIUS))
+            .bg(theme.recording),
+    )
 }

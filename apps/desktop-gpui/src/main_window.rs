@@ -6,13 +6,16 @@
 //! quoted next to the values they turn into, because `pl-3` and `gap-2.5` are
 //! considerably easier to check against the original than `12.` and `10.`.
 
+pub mod shell;
+mod surfaces;
+
 use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::{
     AppContext as _, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
     Render, SharedString, StatefulInteractiveElement, Styled, Window, div, img,
     prelude::FluentBuilder, px, rgb, svg,
 };
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, rc::Rc, time::Instant};
 
 use crate::{
     MAIN_WINDOW_WIDTH, app_windows, devices,
@@ -29,13 +32,26 @@ use crate::{
     theme::Theme,
     ui,
 };
-use gpui::{Entity, Task};
+use gpui::{Entity, FocusHandle, Task};
+use shell::{Effect, EscLayers, EscStep, Event, Shell, Stage};
 
 /// `h-9` on `.cap-window-header`.
 const HEADER_HEIGHT: f32 = 36.;
 
-/// `h-[42px]` in deviceRowStyles.ts.
-const DEVICE_ROW_HEIGHT: f32 = 42.;
+const DEVICE_ROW_HEIGHT: f32 = 34.;
+const FRAME_SNAP_DELAY: std::time::Duration = std::time::Duration::from_millis(16);
+const MEMORY_SAVE_DELAY: std::time::Duration = std::time::Duration::from_millis(400);
+
+gpui::actions!(main_window, [ToggleLibrary, FocusNext, FocusPrevious]);
+
+pub fn bind_keys(cx: &mut gpui::App) {
+    let context = Some("MainWindow");
+    cx.bind_keys([
+        gpui::KeyBinding::new("ctrl-l", ToggleLibrary, context),
+        gpui::KeyBinding::new("tab", FocusNext, context),
+        gpui::KeyBinding::new("shift-tab", FocusPrevious, context),
+    ]);
+}
 
 fn remembered_camera(id: &recording::DeviceOrModelID, cameras: &[CameraOption]) -> CameraOption {
     cameras
@@ -186,14 +202,6 @@ fn glass_selected(theme: Theme) -> Hsla {
     glass_tint(theme, 0.08, 0.1)
 }
 
-fn glass_button<E: Styled>(element: E, theme: Theme, selected: bool) -> E {
-    element.bg(if selected {
-        theme.selection
-    } else {
-        theme.secondary
-    })
-}
-
 fn capture_hover_fill(theme: Theme, selected: bool) -> Hsla {
     if selected {
         Hsla::from(theme.secondary_hover)
@@ -334,6 +342,22 @@ impl TargetType {
             Self::Window => t!("Window"),
             Self::Area => t!("Area"),
             Self::CameraOnly => t!("Camera Only"),
+        }
+    }
+
+    fn tile_id(self) -> &'static str {
+        match self {
+            Self::Display => "target-display",
+            Self::Window => "target-window",
+            Self::Area => "target-area",
+            Self::CameraOnly => "target-camera",
+        }
+    }
+
+    fn tile_label(self) -> &'static str {
+        match self {
+            Self::CameraOnly => t!("Camera"),
+            _ => self.label(),
         }
     }
 
@@ -593,8 +617,6 @@ pub enum Panel {
     Target(TargetType),
     /// What the three recording modes do.
     ModeInfo,
-    /// The header recordings / screenshots library.
-    Library(LibraryKind),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -784,6 +806,18 @@ pub struct MainWindow {
     input_enumeration_gate: devices::InputEnumerationGate,
     /// `scheduleTargetListPrewarm` (`new-main/index.tsx:1897-1965`).
     prewarm_task: Option<gpui::Task<()>>,
+    shell: Shell,
+    focus_handle: FocusHandle,
+    transition_started: Instant,
+    arrow_shown_at: Instant,
+    fade_task: Option<Task<()>>,
+    memory_save_task: Option<Task<()>>,
+    project_count_task: Option<Task<()>>,
+    library_kind: LibraryKind,
+    library_columns: usize,
+    project_count: Option<usize>,
+    start_target: Option<TargetType>,
+    show_after_snap: bool,
 }
 
 impl MainWindow {
@@ -794,10 +828,6 @@ impl MainWindow {
     ) -> Self {
         crate::theme::bind_window(window, cx);
         window.on_window_should_close(cx, |_, cx| {
-            // The custom Windows X hides to the tray; native close requests must still quit.
-            #[cfg(target_os = "windows")]
-            cx.defer(crate::menus::quit);
-            #[cfg(not(target_os = "windows"))]
             cx.defer(app_windows::request_close_main);
             false
         });
@@ -814,6 +844,12 @@ impl MainWindow {
             cx.notify();
         })
         .detach();
+        cx.observe_window_bounds(window, |this, window, cx| {
+            this.shell_event(Event::Track, window, cx);
+        })
+        .detach();
+        let focus_handle = cx.focus_handle();
+        window.focus(&focus_handle, cx);
         let theme = Theme::for_window(window, cx, true);
         let mut previous_phase = Phase::Idle;
         cx.observe_in(&session, window, move |this, session, window, cx| {
@@ -823,6 +859,7 @@ impl MainWindow {
                 this.clear_mode_hover();
             }
             if phase == Phase::Idle && previous_phase != Phase::Idle {
+                this.refresh_project_count(window, cx);
                 this.scan_incomplete_recordings(window, cx, std::time::Duration::ZERO);
                 if let Some(notice) = session.read(cx).storage_notice.clone() {
                     let main = cx.global::<app_windows::AppWindows>().main;
@@ -972,6 +1009,18 @@ impl MainWindow {
             search: String::new(),
             search_input,
             _search_events: search_events,
+            shell: Shell::launch(crate::store::load().main_window),
+            focus_handle,
+            transition_started: Instant::now(),
+            arrow_shown_at: Instant::now(),
+            fade_task: None,
+            memory_save_task: None,
+            project_count_task: None,
+            library_kind: LibraryKind::Recordings,
+            library_columns: 2,
+            project_count: None,
+            start_target: None,
+            show_after_snap: false,
             enumerating: true,
             session,
             checking_storage: false,
@@ -2557,7 +2606,19 @@ impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_appearance(window, cx);
         let theme = self.theme;
-        let meter_active = self.panel.is_none()
+        self.library_columns = shell::library_columns(
+            f32::from(window.viewport_size().width) - surfaces::CONTENT_PADDING * 2.,
+        );
+        if window.focused(cx).is_none() {
+            cx.defer_in(window, |this, window, cx| {
+                window.focus(&this.focus_handle, cx);
+            });
+        }
+        if self.shell.is_fading() {
+            window.request_animation_frame();
+        }
+        let meter_active = self.shell.is_compact()
+            && self.panel.is_none()
             && self.microphone.is_some()
             && self.session.read(cx).phase == Phase::Idle;
         self.microphone_level.update(cx, |meter, cx| {
@@ -2565,6 +2626,13 @@ impl Render for MainWindow {
         });
 
         div()
+            .track_focus(&self.focus_handle)
+            .key_context("MainWindow")
+            .on_action(cx.listener(|this, _: &ToggleLibrary, window, cx| {
+                this.toggle_library(window, cx);
+            }))
+            .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
+            .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
             .size_full()
             .relative()
             .flex()
@@ -2613,7 +2681,7 @@ impl Render for MainWindow {
                 this.child(self.render_idle_error(error, cx))
             })
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
-                if event.keystroke.key == "escape" && this.dismiss_main(cx) {
+                if event.keystroke.key == "escape" && this.dismiss_main(false, cx) {
                     cx.stop_propagation();
                 }
             }))
@@ -2849,11 +2917,19 @@ impl MainWindow {
             )
         };
 
+        let on_compact_home = self.shell.is_compact() && self.panel.is_none();
+
         div()
+            .id("recovery-toast")
             .absolute()
-            .bottom(px(12.))
+            .bottom(px(if on_compact_home {
+                surfaces::ABOVE_START
+            } else {
+                12.
+            }))
             .left(px(12.))
             .right(px(12.))
+            .occlude()
             .rounded(px(8.))
             .border_1()
             .border_color(theme.red_4)
@@ -2962,10 +3038,26 @@ impl MainWindow {
             .when(!cfg!(target_os = "windows"), |header| {
                 header.child(self.render_traffic_lights(cx))
             })
-            .child(self.render_header_actions(cx));
+            .map(|header| {
+                if self.shell.shows_library() {
+                    header.child(self.render_library_title(cx).into_any_element())
+                } else {
+                    header.child(self.render_compact_title(cx).into_any_element())
+                }
+            });
 
         #[cfg(target_os = "windows")]
-        let header = header.child(self.render_windows_caption_controls(_window, cx));
+        let header = if self.shell.shows_library() {
+            header.child(ui::windows_caption_controls(
+                self.theme,
+                _window.is_window_active(),
+                _window.is_maximized(),
+                true,
+                true,
+            ))
+        } else {
+            header.child(self.render_windows_caption_controls(_window, cx))
+        };
 
         header
     }
@@ -2985,10 +3077,7 @@ impl MainWindow {
         let hover = gpui::rgba(if dark { 0xffffff0d } else { 0x0000000d });
         let pressed = gpui::rgba(if dark { 0xe9e9e908 } else { 0x00000008 });
         let button = |id: &'static str, icon: &'static str, height: f32| {
-            div()
-                .id(id)
-                .group(id)
-                .tab_index(0)
+            surfaces::focus_ring(div().id(id).group(id).tab_index(0), theme)
                 .w(px(46.))
                 .h_full()
                 .flex_shrink_0()
@@ -3104,138 +3193,6 @@ impl MainWindow {
             )
     }
 
-    /// The teleported header content: a help button, a drag spacer, then the
-    /// right-hand cluster. 20px hit targets (`size-5`) 4px apart (`gap-1`),
-    /// 8px from the window edges (`mx-2`).
-    fn render_header_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-
-        // `IconButton::header`: a 20px hit box with no fill, `text-gray-11`
-        // going to `text-gray-12` on hover.
-        let icon_button = |id: &'static str, path: &'static str, size: f32| {
-            let label = match id {
-                "help" => t!("Help & Tour"),
-                "settings" => t!("Settings"),
-                "screenshots" => t!("Screenshots"),
-                "recordings" => t!("Recordings"),
-                "teleprompter" => t!("Teleprompter"),
-                "changelog" => t!("Changelog"),
-                _ => unreachable!(),
-            };
-            div()
-                .id(id)
-                .group(id)
-                .when(cfg!(target_os = "windows"), |this| this.occlude())
-                .tab_index(0)
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(px(20.))
-                .flex_shrink_0()
-                .rounded_full()
-                .text_color(theme.gray_11)
-                .hover(|style| style.text_color(theme.gray_12))
-                .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
-                .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
-                .child(
-                    svg()
-                        .path(path)
-                        .size(px(size))
-                        .text_color(theme.gray_11)
-                        .group_hover(id, |style| style.text_color(theme.gray_12)),
-                )
-        };
-
-        let actions = div()
-            .flex()
-            .flex_1()
-            .items_center()
-            .gap(px(4.))
-            .mx(px(8.))
-            .min_w_0()
-            .child(
-                icon_button("help", "icons/circle-question-mark.svg", 16.).on_click(cx.listener(
-                    |_, _, _window, cx| {
-                        cx.defer(app_windows::open_onboarding);
-                    },
-                )),
-            )
-            // Keep drag handlers off the header root: starting native dragging
-            // on a button's mouse-down consumes its later click.
-            .child(div().id("drag-region").flex_1().min_w_0().h_full().when(
-                !cfg!(target_os = "windows"),
-                |region| {
-                    region.on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
-                        window.start_window_move();
-                    })
-                },
-            ))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(4.))
-                    .flex_shrink_0()
-                    .child(icon_button("settings", "icons/settings.svg", 16.).on_click(
-                        cx.listener(|_, _, _window, cx| {
-                            // `await commands.showWindow({ Settings: {
-                            //  page: "general" } }); getCurrentWindow()
-                            //  .hide()` -- both halves live in
-                            // `open_settings`. Deferred because opening a
-                            // window inside this update would double-lease
-                            // the view (the `sync_overlays` rule).
-                            cx.defer(|cx: &mut gpui::App| {
-                                app_windows::open_settings(
-                                    crate::settings_window::Page::General,
-                                    cx,
-                                )
-                            });
-                        }),
-                    ))
-                    .child(icon_button("screenshots", "icons/image.svg", 16.).on_click(
-                        cx.listener(|this, _, window, cx| {
-                            this.open_panel(Panel::Library(LibraryKind::Screenshots), window, cx);
-                        }),
-                    ))
-                    .child(
-                        icon_button("recordings", "icons/circle-play.svg", 16.).on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.open_panel(
-                                    Panel::Library(LibraryKind::Recordings),
-                                    window,
-                                    cx,
-                                );
-                            }),
-                        ),
-                    )
-                    .child(
-                        icon_button("teleprompter", "icons/scan-text.svg", 16.).on_click(
-                            cx.listener(|_, _, _window, cx| {
-                                // `onClick={() => void openTeleprompter()}` on
-                                // the header's `IconLucideScanText` button.
-                                // Deferred for the same reason the gear is.
-                                cx.defer(app_windows::open_teleprompter);
-                            }),
-                        ),
-                    )
-                    .child(
-                        icon_button("changelog", "icons/bell.svg", 16.).on_click(cx.listener(
-                            |_, _, _window, cx| {
-                                cx.defer(|cx: &mut gpui::App| {
-                                    app_windows::open_settings(Page::Changelog, cx)
-                                });
-                            },
-                        )),
-                    ),
-            );
-
-        #[cfg(target_os = "windows")]
-        let actions = actions.h_full();
-
-        actions
-    }
-
     fn idle_error(&self, cx: &gpui::App) -> Option<String> {
         let session = self.session.read(cx);
         session
@@ -3333,41 +3290,6 @@ impl MainWindow {
             body,
             cx,
         )
-    }
-
-    /// Page root: `px-[13px] gap-2 pb-[8px]`.
-    fn render_body(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let root = div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h_0()
-            .px(px(13.))
-            .pb(px(8.))
-            .gap(px(8.))
-            // `.cap-window-body { color: var(--macos-settings-text) }` under
-            // panel glass; `--text-primary` otherwise.
-            .text_color(self.theme.body_text());
-
-        // The logo/mode row is hidden while a picker is open -- the panel takes
-        // the full body, exactly as `!activeMenu() && ...` does in index.tsx.
-        match self.panel {
-            Some(panel) => root.child(self.render_panel(panel, cx)),
-            None => root.child(self.render_logo_row(cx)).child(
-                div()
-                    .id("home-scroll")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .pb(px(4.))
-                    .gap(px(8.))
-                    .overflow_y_scroll()
-                    .child(self.render_targets(cx))
-                    .child(self.render_base_controls(cx)),
-            ),
-        }
     }
 
     fn render_recording_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -3487,7 +3409,6 @@ impl MainWindow {
                 .text_color(theme.gray_11)
                 .child(t!("Recording Modes"))
                 .into_any_element(),
-            Panel::Library(kind) => self.render_library_header(kind, cx).into_any_element(),
             Panel::Device(_) if self.device_format_target.is_some() => div()
                 .flex_1()
                 .min_w_0()
@@ -3574,9 +3495,6 @@ impl MainWindow {
                                     self.render_target_grid(target, cx).into_any_element()
                                 }
                                 Panel::ModeInfo => self.render_mode_info(cx).into_any_element(),
-                                Panel::Library(kind) => {
-                                    self.render_library_grid(kind, cx).into_any_element()
-                                }
                             }),
                     ),
             )
@@ -3617,30 +3535,185 @@ impl MainWindow {
         }
     }
 
-    fn dismiss_main(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.microphone_warning.is_some() {
-            self.dismiss_microphone_warning(cx);
-        } else if self.idle_error(cx).is_some() {
-            self.dismiss_idle_error(cx);
-        } else if self.mode_hover.visible.is_some() {
-            self.clear_mode_hover();
-            cx.notify();
-        } else if self.panel.is_some() {
-            if self.search.is_empty() {
-                self.back_panel(cx);
-            } else {
-                self.clear_search(cx);
-            }
-        } else if self.session.read(cx).editor_recording_target().is_some() {
-            self.cancel_deep_link_start();
-            cx.defer(app_windows::abort_editor_recording_flow);
-        } else {
+    fn dismiss_main(&mut self, search_focused: bool, cx: &mut Context<Self>) -> bool {
+        let layers = EscLayers {
+            warning: self.microphone_warning.is_some(),
+            error: self.idle_error(cx).is_some(),
+            mode_hover: self.mode_hover.visible.is_some(),
+            search_text: !self.search.is_empty(),
+            search_focused,
+            panel: self.panel.is_some(),
+            clip_flow: self.session.read(cx).editor_recording_target().is_some(),
+        };
+        let Some(step) = self.shell.escape(layers) else {
             return false;
+        };
+        match step {
+            EscStep::DismissWarning => self.dismiss_microphone_warning(cx),
+            EscStep::DismissError => self.dismiss_idle_error(cx),
+            EscStep::ClearModeHover => {
+                self.clear_mode_hover();
+                cx.notify();
+            }
+            EscStep::ClearSearch => self.clear_search(cx),
+            EscStep::BlurSearch => {
+                let main = cx.global::<app_windows::AppWindows>().main;
+                cx.defer(move |cx| {
+                    main.update(cx, |this, window, cx| window.focus(&this.focus_handle, cx))
+                        .ok();
+                });
+            }
+            EscStep::BackPanel => self.back_panel(cx),
+            EscStep::AbortClipFlow => {
+                self.cancel_deep_link_start();
+                cx.defer(app_windows::abort_editor_recording_flow);
+            }
         }
         true
     }
 
+    pub fn is_compact(&self) -> bool {
+        self.shell.is_compact()
+    }
+
+    pub fn expand_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.panel.is_some() {
+            self.close_panel(cx);
+        }
+        self.shell_event(Event::Expand, window, cx);
+    }
+
+    fn collapse_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.shell_event(Event::Collapse, window, cx);
+    }
+
+    fn toggle_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let session = self.session.read(cx);
+        if session.phase == Phase::Idle && session.editor_recording_target().is_none() {
+            if self.panel.is_some() {
+                self.close_panel(cx);
+            }
+            self.shell_event(Event::Toggle, window, cx);
+        }
+    }
+
+    pub fn collapse_behind_hide(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.shell_event(Event::HideToTray, window, cx);
+    }
+
+    pub fn return_to_compact(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.shell_event(Event::ReturnToCompact, window, cx);
+    }
+
+    pub fn expand_then_show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_after_snap = true;
+        self.expand_library(window, cx);
+    }
+
+    fn shell_event(&mut self, event: Event, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(native) = crate::platform::native_window(window) else {
+            return;
+        };
+        let Some(screen) = crate::platform::main_window_screen(&native) else {
+            if event != Event::Track {
+                cx.spawn_in(window, async move |this, cx| {
+                    if crate::platform::restore_minimized_main_window(&native) {
+                        this.update_in(cx, |this, window, cx| {
+                            this.shell_event(event, window, cx);
+                        })
+                        .ok();
+                    }
+                })
+                .detach();
+            }
+            return;
+        };
+        let before = self.shell.stage();
+        for effect in self.shell.handle(event, screen) {
+            match effect {
+                Effect::Snap { placement, hide } => {
+                    cx.spawn_in(window, async move |this, cx| {
+                        cx.background_executor().timer(FRAME_SNAP_DELAY).await;
+                        crate::platform::place_main_window(&native, placement, hide);
+                        this.update_in(cx, |this, window, cx| {
+                            this.shell_event(Event::FrameSnapped, window, cx);
+                        })
+                        .ok();
+                    })
+                    .detach();
+                }
+                Effect::Fade(duration) => {
+                    self.transition_started = Instant::now();
+                    self.fade_task = Some(cx.spawn_in(window, async move |this, cx| {
+                        cx.background_executor().timer(duration).await;
+                        this.update_in(cx, |this, window, cx| {
+                            this.shell_event(Event::FadeFinished, window, cx);
+                        })
+                        .ok();
+                    }));
+                }
+                Effect::Persist => self.save_shell_memory(cx),
+            }
+        }
+        match (before, self.shell.stage()) {
+            (Stage::OpeningFrame, Stage::LibraryArriving) => {
+                window.focus(&self.focus_handle, cx);
+                self.refresh_library(self.library_kind, window, cx);
+                if std::mem::take(&mut self.show_after_snap) {
+                    cx.defer(app_windows::show_main_window);
+                }
+            }
+            (Stage::ClosingFrame, Stage::Compact) => {
+                self.clear_search(cx);
+                self.library = None;
+                self.library_task = None;
+                window.focus(&self.focus_handle, cx);
+                self.refresh_project_count(window, cx);
+                cx.defer(app_windows::hide_compact_beside_settings);
+            }
+            _ => {}
+        }
+        if before != self.shell.stage() {
+            cx.notify();
+        }
+    }
+
+    fn save_shell_memory(&mut self, cx: &mut Context<Self>) {
+        let memory = self.shell.memory().clone();
+        self.memory_save_task = Some(cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(MEMORY_SAVE_DELAY).await;
+            cx.background_spawn(async move {
+                crate::store::update(|state| state.main_window = memory);
+            })
+            .await;
+        }));
+    }
+
+    fn set_library_kind(&mut self, kind: LibraryKind, window: &mut Window, cx: &mut Context<Self>) {
+        if self.library_kind != kind {
+            self.library_kind = kind;
+            self.library = None;
+            self.refresh_library(kind, window, cx);
+            cx.notify();
+        }
+    }
+
+    pub fn refresh_project_count(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.project_count_task = Some(cx.spawn_in(window, async move |this, cx| {
+            let count = cx
+                .background_executor()
+                .spawn(async { library::project_count() })
+                .await;
+            this.update(cx, |this, cx| {
+                this.project_count = Some(count);
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
     pub fn open_panel(&mut self, panel: Panel, window: &mut Window, cx: &mut Context<Self>) {
+        self.collapse_library(window, cx);
         self.input_poll_task = None;
         self.input_poll_generation = self.input_poll_generation.wrapping_add(1);
         self.clear_mode_hover();
@@ -3651,17 +3724,9 @@ impl MainWindow {
         self.search.clear();
         self.search_input
             .update(cx, |input, cx| input.set_text("", cx));
-        if matches!(
-            panel,
-            Panel::Device(_) | Panel::Target(_) | Panel::Library(_)
-        ) {
+        if matches!(panel, Panel::Device(_) | Panel::Target(_)) {
             let focus = self.search_input.read(cx).focus_handle();
             window.focus(&focus, cx);
-        }
-        if let Panel::Library(kind) = panel {
-            self.refresh_library(kind, window, cx);
-        } else {
-            self.library_task = None;
         }
         // Opening a target picker re-reads the list immediately and then keeps
         // it fresh -- until this, the grid showed whatever `start_enumeration`
@@ -3729,8 +3794,8 @@ impl MainWindow {
     /// refresh seam: a finished import has to land in the panel the user is
     /// probably watching it from.
     pub fn refresh_open_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(Panel::Library(kind)) = self.panel {
-            self.refresh_library(kind, window, cx);
+        if self.shell.shows_library() {
+            self.refresh_library(self.library_kind, window, cx);
         }
         cx.notify();
     }
@@ -4000,12 +4065,13 @@ impl MainWindow {
                 .into_any_element(),
         );
 
-        grid.children(cards.chunks_mut(2).map(|pair| {
+        let columns = self.library_columns;
+        grid.children(cards.chunks_mut(columns).map(|pair| {
             let mut row = div().flex().flex_row().gap(px(8.)).w_full().items_stretch();
             for card in pair.iter_mut() {
                 row = row.child(std::mem::replace(card, div().into_any_element()));
             }
-            if pair.len() == 1 {
+            for _ in pair.len()..columns {
                 row = row.child(div().flex_1());
             }
             row
@@ -4365,6 +4431,7 @@ impl MainWindow {
             .child(
                 div()
                     .id("library-card-open")
+                    .tab_index(0)
                     .cursor_pointer()
                     .child(
                         div()
@@ -4539,7 +4606,7 @@ impl MainWindow {
                 cx.notify();
             }
             ui::TextInputEvent::Cancelled => {
-                self.dismiss_main(cx);
+                self.dismiss_main(true, cx);
             }
             _ => {}
         }
@@ -5506,73 +5573,6 @@ impl MainWindow {
             .on_click(on_click)
     }
 
-    fn render_logo_row(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let recording_clip = self.session.read(cx).editor_recording_target().is_some();
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .mt(px(4.))
-            .flex_shrink_0()
-            .child(
-                // `flex items-center space-x-1` around the logo and its badge.
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(4.))
-                    .when(!recording_clip, |this| this.child(self.render_logo()))
-                    .when(recording_clip, |this| {
-                        this.child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(4.))
-                                .child(div().text_size(px(13.)).child(t!("Record a new clip")))
-                                .child(
-                                    div()
-                                        .text_size(px(10.))
-                                        .text_color(self.theme.gray_11)
-                                        .child(t!("Add to your current project")),
-                                ),
-                        )
-                    }),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap(px(4.))
-                    .child(self.render_mode_pill(cx))
-                    .child(
-                        div()
-                            .text_size(px(9.))
-                            .line_height(px(11.))
-                            .text_color(self.theme.gray_11)
-                            .child(t!(
-                                "{mode} Mode",
-                                mode = self.effective_mode(cx).panel_title()
-                            )),
-                    ),
-            )
-    }
-
-    /// This goes through `img()`, not `svg()`. The two take different paths in
-    /// gpui: `svg()` keeps only the alpha and tints it with one colour, which
-    /// would flatten the badge, the three blue rings and the wordmark into a
-    /// single silhouette, whereas `img()` rasterises through resvg and keeps
-    /// the colour. `img()` also renders at `SMOOTH_SVG_SCALE_FACTOR` (2x), so
-    /// the 103px-wide source becomes a 206px raster -- more than the 168 device
-    /// pixels an 84px lockup needs on a 2x display.
-    ///
-    /// The app ships two files rather than recolouring one, so this picks the
-    /// same way it does.
-    fn render_logo(&self) -> impl IntoElement {
-        crate::logo::logo(&self.theme, 28.)
-    }
-
     fn clear_mode_hover(&mut self) {
         self.mode_hover_task = None;
         self.mode_hover = ModeHoverState::default();
@@ -5640,298 +5640,6 @@ impl MainWindow {
         )
     }
 
-    fn render_mode_pill(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let selected_mode = self.effective_mode(cx);
-        let locked = self.session.read(cx).editor_recording_target().is_some();
-
-        let button = |mode: Mode, id: &'static str, index: usize| {
-            let selected = mode == selected_mode;
-            let bounds = self.mode_hover_bounds[index].clone();
-            div()
-                .id(SharedString::from(id))
-                .tab_index(0)
-                .relative()
-                .on_hover(cx.listener(move |this, hovered, _, cx| {
-                    this.update_mode_hover(mode, false, *hovered, cx);
-                }))
-                .when(locked && !selected, |this| this.opacity(0.5))
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(px(28.))
-                .rounded_full()
-                .bg(if selected {
-                    Hsla::from(theme.gray_7)
-                } else {
-                    theme.body_fill(3)
-                })
-                .when(selected, |this| {
-                    this.border_2()
-                        .border_color(theme.foreground)
-                        .shadow(vec![gpui::BoxShadow {
-                            color: theme.ring_offset(),
-                            offset: gpui::point(px(0.), px(0.)),
-                            blur_radius: px(0.),
-                            spread_radius: px(1.),
-                            inset: false,
-                        }])
-                })
-                .child(
-                    gpui::canvas(move |value, _, _| bounds.set(Some(value)), |_, _, _, _| {})
-                        .absolute()
-                        .size_full(),
-                )
-                .child(
-                    svg()
-                        .path(mode.icon())
-                        .size(px(16.))
-                        .text_color(theme.gray_12),
-                )
-                .hover(|style| style.bg(theme.body_hover_fill(7)))
-                .on_click(cx.listener(move |this, _, _window, cx| {
-                    if this.session.read(cx).editor_recording_target().is_some() {
-                        return;
-                    }
-                    this.set_mode(mode, cx);
-                    cx.defer(app_windows::refresh_target_overlays);
-                }))
-        };
-
-        div()
-            .relative()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(8.))
-            .p(px(6.))
-            .rounded_full()
-            .border_1()
-            .border_color(theme.body_border(5))
-            .bg(theme.body_fill(3))
-            .child(button(Mode::Instant, "mode-instant", 0))
-            .child(button(Mode::Studio, "mode-studio", 1))
-            .child(button(Mode::Screenshot, "mode-screenshot", 2))
-            // `absolute -left-1.5 -top-2 p-1 rounded-full bg-gray-5`, hanging
-            // off the pill's top-left corner.
-            .child(
-                div()
-                    .id("mode-info")
-                    .tab_index(0)
-                    .tooltip(move |_, cx| {
-                        ui::Tooltip::new(&theme, t!("Recording mode info")).view(cx)
-                    })
-                    .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
-                    .absolute()
-                    .left(px(-8.))
-                    .top(px(-10.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .p(px(4.))
-                    .rounded_full()
-                    .bg(theme.body_fill(5))
-                    .child(
-                        svg()
-                            .path("icons/info.svg")
-                            .size(px(14.))
-                            .text_color(theme.gray_12),
-                    )
-                    .hover(|style| style.opacity(0.5))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        // What shipping new-main actually does: it passes
-                        // `onInfoClick` into `Mode.tsx`, so the dot opens the
-                        // in-window info panel -- `showWindow("ModeSelect")` is
-                        // `Mode.tsx`'s *fallback*, and nothing in the shipping
-                        // frontend reaches it. The standalone window exists
-                        // here for parity (`FRAMEEVER_GPUI_AUTO_MODE_SELECT` opens
-                        // it), but the dot mirrors the observed behavior.
-                        this.open_panel(Panel::ModeInfo, window, cx);
-                    })),
-            )
-    }
-
-    fn render_targets(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(8.))
-            .w_full()
-            .flex_shrink_0()
-            .child(
-                div()
-                    .px(px(4.))
-                    .text_size(px(10.))
-                    .line_height(px(14.))
-                    .text_color(self.theme.gray_11)
-                    .child(t!("Choose a capture source")),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap(px(8.))
-                    .items_stretch()
-                    .w_full()
-                    .child(self.render_split_target(TargetType::Display, cx))
-                    .child(self.render_split_target(TargetType::Window, cx)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap(px(8.))
-                    .items_stretch()
-                    .w_full()
-                    .child(self.render_target_tile(TargetType::Area, cx))
-                    .child(self.render_target_tile(TargetType::CameraOnly, cx)),
-            )
-    }
-
-    /// Display and Window are split controls: the tile plus a 28px
-    /// (`w-7`) chevron button, sharing one rounded border.
-    fn render_split_target(&self, target: TargetType, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let selected = self.target == Some(target);
-        let dropdown_id = SharedString::from(format!("{}-dropdown", target.label()));
-
-        div()
-            .flex()
-            .flex_1()
-            .overflow_hidden()
-            .rounded(px(10.))
-            .map(|this| glass_button(this, theme, selected))
-            .child(self.target_button_inner(target, true, cx))
-            .child(
-                div()
-                    .id(dropdown_id.clone())
-                    .flex()
-                    .w(px(28.))
-                    .rounded_r(px(9.))
-                    .flex_shrink_0()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        div()
-                            .absolute()
-                            .left_0()
-                            .top(px(10.))
-                            .bottom(px(10.))
-                            .w(px(1.))
-                            .bg(if selected {
-                                Theme::with_alpha(theme.foreground, 0.25)
-                            } else {
-                                glass_tint(theme, 0.08, 0.1)
-                            }),
-                    )
-                    .relative()
-                    .child(
-                        svg()
-                            .path("icons/chevron-down.svg")
-                            .size(px(14.))
-                            .text_color(if selected {
-                                theme.foreground
-                            } else {
-                                theme.gray_10
-                            }),
-                    )
-                    .hover(move |style| style.bg(capture_hover_fill(theme, selected)))
-                    .active(move |style| style.bg(capture_press_fill(theme, selected)))
-                    .tooltip(move |_, cx| {
-                        ui::Tooltip::new(
-                            &theme,
-                            match target {
-                                TargetType::Display => t!("Choose a display"),
-                                TargetType::Window => t!("Choose a window"),
-                                _ => unreachable!(),
-                            },
-                        )
-                        .view(cx)
-                    })
-                    .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_panel(Panel::Target(target), window, cx);
-                    })),
-            )
-    }
-
-    /// Area and Camera Only are plain tiles with their own border.
-    fn render_target_tile(&self, target: TargetType, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let selected = self.target == Some(target);
-
-        div()
-            .flex()
-            .flex_1()
-            .overflow_hidden()
-            .rounded(px(10.))
-            .map(|this| glass_button(this, theme, selected))
-            .child(self.target_button_inner(target, false, cx))
-    }
-
-    fn target_button_inner(
-        &self,
-        target: TargetType,
-        split: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = self.theme;
-        let selected = self.target == Some(target);
-        let icon_color = if selected {
-            theme.foreground
-        } else {
-            theme.gray_10
-        };
-        let label_color = if selected {
-            theme.foreground
-        } else {
-            theme.gray_12
-        };
-
-        let icon = svg()
-            .path(target.icon())
-            .size(px(20.))
-            .flex_shrink_0()
-            .text_color(icon_color);
-
-        let base = div()
-            .id(SharedString::from(target.label()))
-            .flex()
-            .flex_1()
-            .py(px(8.))
-            .when(split, |this| this.rounded_l(px(9.)))
-            .when(!split, |this| this.rounded(px(9.)))
-            .hover(move |style| style.bg(capture_hover_fill(theme, selected)))
-            .active(move |style| style.bg(capture_press_fill(theme, selected)))
-            .on_click(cx.listener(move |this, _, _window, cx| {
-                // `toggleTargetMode`: clicking the armed tile again is a
-                // cancel, which takes the overlays down with it.
-                this.target = if this.target == Some(target) {
-                    None
-                } else {
-                    Some(target)
-                };
-                this.sync_overlays(cx);
-                cx.notify();
-            }));
-
-        base.flex_col()
-            .items_center()
-            .justify_end()
-            .gap(px(4.))
-            // `pl-5` on the split controls when compact, to keep the icon
-            // optically centred against the chevron on the right.
-            .when(split, |this| this.pl(px(20.)))
-            .child(icon)
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .line_height(px(16.))
-                    .text_color(label_color)
-                    .child(target.label()),
-            )
-    }
-
     /// `BaseControls`: camera, microphone, system audio.
     fn render_base_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
@@ -5939,14 +5647,6 @@ impl MainWindow {
             .flex_col()
             .gap(px(8.))
             .w_full()
-            .child(
-                div()
-                    .px(px(4.))
-                    .text_size(px(10.))
-                    .line_height(px(14.))
-                    .text_color(self.theme.gray_11)
-                    .child(t!("Choose your camera and microphone")),
-            )
             .child(
                 div().flex().flex_col().child(
                     self.render_device_row(
@@ -6069,6 +5769,7 @@ impl MainWindow {
 
         div()
             .id(SharedString::from(id))
+            .tab_index(0)
             .relative()
             .flex()
             .flex_row()
@@ -6078,8 +5779,11 @@ impl MainWindow {
             .pr(px(6.))
             .w_full()
             .h(px(DEVICE_ROW_HEIGHT))
-            .rounded(px(10.))
-            .map(|this| glass_button(this, theme, false))
+            .rounded(px(6.))
+            .bg(theme.card)
+            .border_1()
+            .border_color(theme.border)
+            .focus_visible(move |style| style.border_color(theme.ring))
             .cursor_default()
             .overflow_hidden()
             .child(
@@ -6115,7 +5819,7 @@ impl MainWindow {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(px(14.))
+                    .text_size(px(13.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme.gray_12)
                     .truncate()
@@ -6124,6 +5828,7 @@ impl MainWindow {
             .child(
                 div()
                     .id(SharedString::from(format!("{id}-toggle")))
+                    .when(menu.is_some(), |this| this.tab_index(0))
                     .child(pill.render(theme))
                     .on_click(cx.listener(move |this, _, _window, cx| {
                         let Some(menu) = menu else {

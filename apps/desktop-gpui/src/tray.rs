@@ -64,8 +64,7 @@ pub enum TrayItem {
     RecordArea,
     TakeScreenshot,
     ImportMedia,
-    ViewAllRecordings,
-    ViewAllScreenshots,
+    OpenLibrary,
     OpenSettings,
     RequestPermissions,
     Quit,
@@ -320,14 +319,7 @@ pub fn build_menu(mode: Mode, previous: &[PreviousItem], version: &str) -> Vec<E
     entries.push(previous_submenu(previous));
     entries.push(Entry::Separator);
 
-    entries.push(Entry::item(
-        t!("View all recordings"),
-        TrayItem::ViewAllRecordings,
-    ));
-    entries.push(Entry::item(
-        t!("View all screenshots"),
-        TrayItem::ViewAllScreenshots,
-    ));
+    entries.push(Entry::item(t!("Open library"), TrayItem::OpenLibrary));
     entries.push(Entry::item(t!("Settings"), TrayItem::OpenSettings));
 
     entries.push(Entry::Separator);
@@ -363,7 +355,7 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
     tracing::info!(?item, "tray item activated");
     match item {
         TrayItem::OpenCap => {
-            app_windows::show_main_window(cx);
+            app_windows::show_compact_main(cx);
             // The status item is clickable while the app is inactive; an
             // Accessory app that just went Regular still needs activating for
             // the window (and the menu bar) to come forward.
@@ -387,12 +379,8 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
         // `TrayItem::ImportVideo` (`src-tauri/src/tray.rs:839-911`): one
         // picker over both media filters, routed by extension.
         TrayItem::ImportMedia => crate::import::pick_and_import_media(cx),
-        TrayItem::ViewAllRecordings => {
-            app_windows::open_settings(Page::Recordings, cx);
-            cx.activate(true);
-        }
-        TrayItem::ViewAllScreenshots => {
-            app_windows::open_settings(Page::Screenshots, cx);
+        TrayItem::OpenLibrary => {
+            app_windows::show_library(cx);
             cx.activate(true);
         }
         TrayItem::OpenSettings => {
@@ -588,8 +576,7 @@ fn harness_item(spec: &str, cx: &App) -> Option<TrayItem> {
         "record_window" => TrayItem::RecordWindow,
         "record_area" => TrayItem::RecordArea,
         "import_media" => TrayItem::ImportMedia,
-        "recordings" => TrayItem::ViewAllRecordings,
-        "screenshots" => TrayItem::ViewAllScreenshots,
+        "library" => TrayItem::OpenLibrary,
         "settings" => TrayItem::OpenSettings,
         "quit" => TrayItem::Quit,
         "mode_studio" => TrayItem::ModeStudio,
@@ -1324,8 +1311,7 @@ mod tests {
                 "Select Mode",
                 "Previous",
                 "-",
-                "View all recordings",
-                "View all screenshots",
+                "Open library",
                 "Settings",
                 "-",
                 "FrameEver v0.1.0",

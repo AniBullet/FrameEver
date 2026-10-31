@@ -363,6 +363,7 @@ class MainWindow {
 	titlebar() {
 		const { expanded } = this.s;
 		return `<div class="titlebar">${expanded ? `<button class="btn ghost back" data-a="collapse" title="${pick("Back to recording", "回到录制")}  Ctrl+L">${icon("chevron-left", "sm")}${L("Record", "录制")}</button>` : `<span class="mark"></span><span>FrameEver</span>`}<span class="spacer"></span>
+			${expanded ? "" : `<button class="caption" title="${pick("Teleprompter", "提词器")}">${icon("scan-text", "sm")}</button><button class="caption" title="${pick("Help & Tour", "帮助和引导")}">${icon("circle-question-mark", "sm")}</button>`}
 			${expanded ? `<button class="caption" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings", "sm")}</button>` : ""}
 			<button class="caption" title="${pick("Minimize", "最小化")}">${captionGlyph.minimize}</button>
 			${expanded ? `<button class="caption" title="${pick("Maximize", "最大化")}">${captionGlyph.maximize}</button>` : ""}
@@ -379,16 +380,17 @@ class MainWindow {
 			["display", "monitor", "Display", "显示器"],
 			["window", "app-window", "Window", "窗口"],
 			["area", "scan", "Area", "区域"],
+			["camera", "webcam", "Camera", "摄像头"],
 		];
 		const foot = `<button class="btn ghost icon" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings")}</button>${firstRun ? `<span class="grow first-hint">${L("Your recordings are here", "录好的内容都在这里")}<span class="hint-arrow">${this.doodle("UP_ARROW", 26)}</span></span>` : `<span class="grow tnum">${L(`${items.length} items`, `${items.length} 项`)}</span>`}<button class="btn ghost" data-a="expand">${L("Library", "资源库")}${unseen ? `<span class="badge klein">${unseen}</span>` : ""}${icon("chevron-right")}</button>`;
 		return `<div class="rec"><div class="rec-main">
-			<div class="seg block">${Object.entries(KIND)
+			<div class="mode-row"><div class="seg block">${Object.entries(KIND)
 				.map(
 					([id, k]) =>
 						`<button class="${mode === id ? "on" : ""}" data-a="mode" data-v="${id}">${icon(k.icon, "sm")}${L(...k.name)}</button>`,
 				)
-				.join("")}</div>
-			<div class="targets">${targets.map(([id, ic, en, zh]) => `<button class="${target === id ? "on" : ""}" data-a="target" data-v="${id}">${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}</div>
+				.join("")}</div><button class="btn ghost icon" title="${pick("Recording mode info", "录制模式说明")}">${icon("info", "sm")}</button></div>
+			<div class="targets">${targets.map(([id, ic, en, zh]) => `<button class="${target === id ? "on" : ""}" data-a="target" data-v="${id}">${id === "display" || id === "window" ? `<span class="choose">${icon("chevron-down", "sm")}</span>` : ""}${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}</div>
 			<div class="device">${icon("webcam")}<span class="grow">${L("Camera", "摄像头")}</span><em>${L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("mic")}<span class="grow">${L("Microphone", "麦克风")}</span><em>${L("Default", "默认")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("volume-2")}<span class="grow">${L("System audio", "系统声音")}</span><button class="switch on" data-a="toggle"></button></div>

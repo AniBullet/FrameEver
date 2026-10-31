@@ -19,6 +19,7 @@ use super::{ForcedAppearance, MaterialKind, PanelBehavior};
 
 mod capture_exclusion;
 mod hidden_frame;
+mod main_frame;
 mod reduce_motion;
 mod session_end;
 mod url_scheme;
@@ -124,6 +125,12 @@ pub fn apply_app_icon(native: &NativeWindow) {
 pub fn install_main_window_frame_policy(native: &NativeWindow) -> std::io::Result<()> {
     hidden_frame::install(native.hwnd())
 }
+
+pub use main_frame::{
+    install as install_main_window_limits, launch_screen as main_window_launch_screen,
+    place as place_main_window, restore_minimized as restore_minimized_main_window,
+    screen as main_window_screen,
+};
 
 pub fn follow_system_reduce_motion(cx: &mut gpui::App) {
     reduce_motion::follow(cx);

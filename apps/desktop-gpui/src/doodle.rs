@@ -646,7 +646,16 @@ pub fn doodle(
     width: f32,
     height: f32,
 ) -> impl IntoElement {
-    element(doodle, Life::Boil, palette, shown_at, still, width, height)
+    element(
+        doodle,
+        Life::Boil,
+        palette,
+        shown_at,
+        still,
+        width,
+        height,
+        false,
+    )
 }
 
 #[allow(dead_code)]
@@ -658,9 +667,39 @@ pub fn doodle_once(
     width: f32,
 ) -> impl IntoElement {
     let (width, height) = touch_size(doodle, width);
-    element(doodle, Life::Once, palette, shown_at, still, width, height)
+    element(
+        doodle,
+        Life::Once,
+        palette,
+        shown_at,
+        still,
+        width,
+        height,
+        false,
+    )
 }
 
+pub fn doodle_once_turned(
+    doodle: &'static Doodle,
+    palette: Palette,
+    shown_at: Instant,
+    still: bool,
+    width: f32,
+) -> impl IntoElement {
+    let (width, height) = touch_size(doodle, width);
+    element(
+        doodle,
+        Life::Once,
+        palette,
+        shown_at,
+        still,
+        height,
+        width,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn element(
     doodle: &'static Doodle,
     life: Life,
@@ -669,6 +708,7 @@ fn element(
     still: bool,
     width: f32,
     height: f32,
+    turned: bool,
 ) -> impl IntoElement {
     canvas(
         |_, _, _| {},
@@ -679,7 +719,7 @@ fn element(
             };
             let elapsed = shown_at.elapsed().as_secs_f32() * 1000.;
             let shown = pose(doodle, life, calm, elapsed, boil_frame());
-            paint(doodle, palette, bounds, shown, window);
+            paint(doodle, palette, bounds, shown, turned, window);
             match shown.repaint {
                 Repaint::None => {}
                 Repaint::NextFrame => window.request_animation_frame(),
@@ -696,10 +736,15 @@ fn paint(
     palette: Palette,
     bounds: Bounds<Pixels>,
     shown: Pose,
+    turned: bool,
     window: &mut Window,
 ) {
     let prepared = prepared(doodle);
-    let (view_w, view_h) = doodle.view;
+    let (view_w, view_h) = if turned {
+        (doodle.view.1, doodle.view.0)
+    } else {
+        doodle.view
+    };
     let scale = (f32::from(bounds.size.width) / view_w).min(f32::from(bounds.size.height) / view_h);
     let origin_x =
         f32::from(bounds.origin.x) + (f32::from(bounds.size.width) - view_w * scale) / 2.;
@@ -748,6 +793,7 @@ fn paint(
             let (cx, cy) = shape.centre;
             let x = cx + (x - cx) * grow;
             let y = cy + (y - cy) * grow + bob;
+            let (x, y) = if turned { (view_w - y, x) } else { (x, y) };
             point(px(origin_x + x * scale), px(origin_y + y * scale))
         };
 

@@ -266,6 +266,7 @@ mod tests {
     /// scan the same list.
     const ICON_SOURCES: &[&str] = &[
         include_str!("main_window.rs"),
+        include_str!("main_window/surfaces.rs"),
         include_str!("logo.rs"),
         // Not a window: the Recents card's per-kind pill and fallback glyphs
         // are named on `MediaKind`, next to the `Recents.tsx` lines they come

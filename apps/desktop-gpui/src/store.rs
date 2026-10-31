@@ -102,6 +102,20 @@ pub struct PersistedState {
     pub screenshot_crop_snap_to_ratio: Option<bool>,
     #[serde(default)]
     pub editor_window: Option<EditorWindowMemory>,
+    #[serde(default)]
+    pub main_window: MainWindowMemory,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct MainWindowMemory {
+    #[serde(default)]
+    pub compact_position: Option<(f64, f64)>,
+    #[serde(default)]
+    pub expanded_size: Option<(f64, f64)>,
+    #[serde(default)]
+    pub expanded_maximized: bool,
+    #[serde(default)]
+    pub library_opened: bool,
 }
 
 /// Where the editor window last sat on each display, keyed by display UUID.

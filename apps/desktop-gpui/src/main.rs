@@ -93,7 +93,7 @@ use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
 use crate::{assets::Assets, main_window::MainWindow, session::RecordingSession};
 
 const MAIN_WINDOW_WIDTH: f32 = 330.;
-const MAIN_WINDOW_HEIGHT: f32 = 435.;
+const MAIN_WINDOW_HEIGHT: f32 = 386.;
 
 /// The corner radius the native material is clipped to. `radius = 16` for
 /// material `"panel"` on both visual systems in
@@ -314,6 +314,7 @@ fn main() {
         // binding consumes the keystroke before any `on_key_down` listener on
         // the path runs (`gpui/src/window.rs:5280-5296`).
         ui::bind_text_input_keys(cx);
+        main_window::bind_keys(cx);
         crate::theme::init(cx);
         platform::follow_system_reduce_motion(cx);
 
@@ -324,10 +325,10 @@ fn main() {
 
         let dev_restore = dev_restore::load();
         let main_size = size(px(MAIN_WINDOW_WIDTH), px(MAIN_WINDOW_HEIGHT));
-        let bounds = dev_restore
+        let restored_bounds = dev_restore
             .as_ref()
-            .and_then(|restore| restore.main_window_bounds(main_size, cx))
-            .unwrap_or_else(|| Bounds::centered(None, main_size, cx));
+            .and_then(|restore| restore.main_window_bounds(main_size, cx));
+        let bounds = restored_bounds.unwrap_or_else(|| Bounds::centered(None, main_size, cx));
         // A first run always lands in onboarding, and these two flags are a
         // store read rather than the gate's TCC queries -- so the main window
         // starts hidden instead of flashing up before onboarding replaces it.
@@ -365,10 +366,10 @@ fn main() {
                     } else {
                         gpui::WindowBackgroundAppearance::Transparent
                     },
-                    is_resizable: false,
+                    is_resizable: cfg!(target_os = "windows"),
                     is_minimizable: cfg!(target_os = "windows"),
                     focus: !first_run,
-                    show: !first_run,
+                    show: !first_run && !cfg!(target_os = "windows"),
                     ..Default::default()
                 },
                 {
@@ -506,6 +507,7 @@ fn main() {
                 );
                 view.start_enumeration(window, cx);
                 view.start_recovery_check(window, cx);
+                view.refresh_project_count(window, cx);
                 // The AppKit work below must not run inside this update:
                 // inserting a subview and mutating the content view's layer
                 // synchronously re-enters gpui's own window callbacks, which
@@ -545,6 +547,22 @@ fn main() {
                 return;
             };
             platform::apply_app_icon(&native);
+            platform::install_main_window_limits(&native);
+            let mut memory = crate::store::load().main_window;
+            if restored_bounds.is_some() {
+                memory.compact_position = platform::main_window_screen(&native)
+                    .map(|screen| (screen.frame.x, screen.frame.y));
+            }
+            if let Some(screen) = platform::main_window_launch_screen(memory.compact_position) {
+                platform::place_main_window(
+                    &native,
+                    main_window::shell::launch_placement(&memory, screen),
+                    false,
+                );
+            }
+            if !first_run {
+                platform::show_native(&native);
+            }
             if let Err(error) = platform::install_main_window_frame_policy(&native) {
                 tracing::warn!(%error, "could not install Main window frame policy");
             }

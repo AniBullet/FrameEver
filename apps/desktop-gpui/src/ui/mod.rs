@@ -102,7 +102,7 @@ pub use progress::CircularProgress;
 #[allow(unused_imports)]
 pub use radio_cards::{RadioCard, RadioCards};
 #[allow(unused_imports)]
-pub use record_mark::stop_mark;
+pub use record_mark::{record_mark, stop_mark};
 #[allow(unused_imports)]
 pub use segmented::{SegmentOption, SegmentedControl, option_at};
 #[allow(unused_imports)]

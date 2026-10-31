@@ -896,6 +896,21 @@ mod mac {
         unsafe { (*view).window() }
     }
 
+    pub fn main_window_screen(_native: &NativeWindow) -> Option<crate::main_window::shell::Screen> {
+        None
+    }
+
+    pub fn restore_minimized_main_window(_native: &NativeWindow) -> bool {
+        false
+    }
+
+    pub fn place_main_window(
+        _native: &NativeWindow,
+        _placement: crate::main_window::shell::Placement,
+        _hide: bool,
+    ) {
+    }
+
     pub fn apply_panel_behavior(window: &Window, behavior: PanelBehavior) {
         // Every Cap window comes through here right after opening, which makes
         // it the one reliable place to repair the display link (see
