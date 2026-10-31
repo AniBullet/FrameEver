@@ -3560,7 +3560,14 @@ fn paint_layer(paint: &LayerPaint, bounds: Bounds<Pixels>, window: &mut Window, 
                 px(overlay.rect.height as f32 * scale),
             ),
         };
-        let _ = window.paint_image(region, Corners::default(), overlay.image.clone(), 0, false);
+        let _ = window.paint_image(
+            region,
+            region,
+            Corners::default(),
+            overlay.image.clone(),
+            0,
+            false,
+        );
     }
 
     for annotation in &paint.annotations {

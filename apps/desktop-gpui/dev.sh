@@ -10,13 +10,13 @@ STATE_FILE="$PWD/target/dev-restore.json"
 BIN="$PWD/target/debug/frameever-gpui"
 BUILD=cargo
 
-WATCH_PATHS=(src kernels/src kernels/Cargo.toml assets Cargo.toml)
+WATCH_PATHS=(src kernels/src kernels/Cargo.toml gpui_tokio/src assets Cargo.toml)
 [ -d resources ] && WATCH_PATHS+=(resources)
 for crate in camera scap-targets recording timestamp utils project rendering editor export; do
 	[ -d "../../crates/$crate/src" ] && WATCH_PATHS+=("../../crates/$crate/src")
 done
-for crate in gpui gpui_platform gpui_tokio; do
-	[ -d "../../../zed-cap/crates/$crate/src" ] && WATCH_PATHS+=("../../../zed-cap/crates/$crate/src")
+for crate in gpui gpui_windows; do
+	[ -d "../../../gpui-pre-patched/crates/$crate/src" ] && WATCH_PATHS+=("../../../gpui-pre-patched/crates/$crate/src")
 done
 
 fingerprint() {

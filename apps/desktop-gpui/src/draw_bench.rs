@@ -9,7 +9,7 @@ pub(crate) fn timed_draw(handle: AnyWindowHandle, cx: &mut App) -> Option<Durati
     handle
         .update(cx, |_, window, cx| {
             let started = Instant::now();
-            window.draw(cx).clear();
+            window.draw(cx).clear(cx);
             started.elapsed()
         })
         .ok()

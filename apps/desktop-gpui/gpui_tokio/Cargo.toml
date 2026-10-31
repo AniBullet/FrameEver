@@ -1,0 +1,17 @@
+[package]
+name = "frameever-gpui-tokio"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "gpui_tokio"
+path = "src/gpui_tokio.rs"
+doctest = false
+
+[dependencies]
+anyhow = "1"
+gpui = { package = "gpui-pre", version = "=0.3.10" }
+gpui_util = { package = "gpui-pre-util", version = "=0.3.10" }
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }

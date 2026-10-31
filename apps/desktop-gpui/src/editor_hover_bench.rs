@@ -139,6 +139,6 @@ fn report(label: &str, samples: &mut [f64]) {
 /// the typed handle would lease the root entity that `draw()` re-renders.
 fn draw_editor_window(handle: WindowHandle<EditorWindow>, cx: &mut App) -> Option<()> {
     gpui::AnyWindowHandle::from(handle)
-        .update(cx, |_, window, cx| window.draw(cx).clear())
+        .update(cx, |_, window, cx| window.draw(cx).clear(cx))
         .ok()
 }

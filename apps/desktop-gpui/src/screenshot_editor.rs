@@ -1817,7 +1817,7 @@ impl ScreenshotEditorWindow {
     /// ([`wheel_pan`], [`ctrl_wheel_zoom_step`]).
     fn preview_wheel(
         &mut self,
-        event: &gpui::ScrollWheelEvent,
+        event: &gpui::ScrollEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -3798,11 +3798,9 @@ impl ScreenshotEditorWindow {
                             this.preview_mouse_down(event, window, cx);
                         }),
                     )
-                    .on_scroll_wheel(cx.listener(
-                        |this, event: &gpui::ScrollWheelEvent, window, cx| {
-                            this.preview_wheel(event, window, cx);
-                        },
-                    ))
+                    .on_scroll(cx.listener(|this, event: &gpui::ScrollEvent, window, cx| {
+                        this.preview_wheel(event, window, cx);
+                    }))
                     .on_pinch(cx.listener(|this, event: &gpui::PinchEvent, window, cx| {
                         this.preview_pinch(event, window, cx);
                     }))
@@ -4377,7 +4375,14 @@ fn paint_checkerboard(window: &mut Window, bounds: Bounds<Pixels>, tile: Arc<Ren
                     origin,
                     size: gpui::size(px(size), px(size)),
                 };
-                let _ = window.paint_image(cell, gpui::Corners::default(), tile.clone(), 0, false);
+                let _ = window.paint_image(
+                    cell,
+                    cell,
+                    gpui::Corners::default(),
+                    tile.clone(),
+                    0,
+                    false,
+                );
             }
         }
     });

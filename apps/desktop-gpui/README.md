@@ -66,7 +66,7 @@ run by hand.
 ### Why it is a separate workspace
 
 `Cargo.toml` declares its own `[workspace]` with its own `Cargo.lock`. gpui
-comes from a patched checkout in `../../../zed-cap` (prepared by
+comes from the pinned `gpui-pre` crates, patched in `../../../gpui-pre-patched` (prepared by
 `pnpm fe setup`), and gpui's tree pulls its own revisions of wgpu and the font
 stacks that the root workspace's crates do not want. Keeping the two apart
 keeps the root lock and the `cargo hakari` workspace-hack untouched by gpui.

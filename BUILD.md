@@ -24,7 +24,7 @@ pnpm fe            # 列出全部命令
 pnpm fe setup
 ```
 
-它会依次：检查工具链；安装 JS 依赖；下载 FFmpeg、ONNX Runtime、DXC 到 `target/`；生成 `.cargo/config.toml`；把打过补丁的 gpui 准备到仓库同级的 `../zed-cap`；从华为官网下载中文界面字体 HarmonyOS Sans（约 22 MB 的官方压缩包，校验 SHA1 后只取简体中文可变字体和许可文本，放进 `apps/desktop-gpui/assets/fonts/harmonyos-sans/`）。它的许可不允许单独再分发字体文件，所以不进仓库，只嵌入安装包，许可文本随安装包放在 `licenses/fonts/`；准备打包安装程序用的 NSIS（安装包由 Tauri 命令行工具生成，应用本身不含 Tauri；下载地址和 SHA1 与 Tauri 2.11.2 完全一致，放在 `%LOCALAPPDATA%\tauri\NSIS`），并给它的编译器 `Bin\makensis.exe` 打开大地址支持（见下方常见问题）。重复运行是安全的，已下载的内容会直接复用。
+它会依次：检查工具链；安装 JS 依赖；下载 FFmpeg、ONNX Runtime、DXC 到 `target/`；生成 `.cargo/config.toml`；把打过补丁的 gpui 准备到仓库同级的 `../gpui-pre-patched`；从华为官网下载中文界面字体 HarmonyOS Sans（约 22 MB 的官方压缩包，校验 SHA1 后只取简体中文可变字体和许可文本，放进 `apps/desktop-gpui/assets/fonts/harmonyos-sans/`）。它的许可不允许单独再分发字体文件，所以不进仓库，只嵌入安装包，许可文本随安装包放在 `licenses/fonts/`；准备打包安装程序用的 NSIS（安装包由 Tauri 命令行工具生成，应用本身不含 Tauri；下载地址和 SHA1 与 Tauri 2.11.2 完全一致，放在 `%LOCALAPPDATA%\tauri\NSIS`），并给它的编译器 `Bin\makensis.exe` 打开大地址支持（见下方常见问题）。重复运行是安全的，已下载的内容会直接复用。
 
 之后随时可以用 `pnpm fe doctor` 检查环境，缺什么会直接说怎么修。
 

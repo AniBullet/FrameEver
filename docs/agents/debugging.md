@@ -13,7 +13,7 @@ Everything goes through one entry point, `pnpm fe <command>` (`scripts/fe.mjs`).
 | Command | Use it to |
 |---|---|
 | `pnpm fe doctor` | Check the environment first when anything fails to build or start; each ✗ line says the fix |
-| `pnpm fe setup` | Fix a ✗ from doctor (fetches FFmpeg, ONNX Runtime, DXC, writes `.cargo/config.toml`, prepares `../zed-cap`) |
+| `pnpm fe setup` | Fix a ✗ from doctor (fetches FFmpeg, ONNX Runtime, DXC, writes `.cargo/config.toml`, prepares `../gpui-pre-patched`) |
 | `pnpm fe dev [--lang zh-CN] [--watch]` | Build and run the app on the test profile |
 | `pnpm fe logs [--grep <text>] [--lines N]` | Read the app log after a run (`--real` reads the installed app's log) |
 | `pnpm fe check` | Compile the GPUI app, FrameEver Converter and the CLI with tests |

@@ -5,7 +5,7 @@
 # wgpu-hal, tao) that only exist for the Tauri app.
 [workspace]
 resolver = "2"
-members = [".", "kernels", "converter"]
+members = [".", "kernels", "converter", "gpui_tokio"]
 
 [package]
 name = "frameever-desktop-gpui"
@@ -27,15 +27,13 @@ path = "../../crates/recording/examples/studio-finalization-benchmark.rs"
 frameever-audio = { path = "../../crates/audio" }
 frameever-cli-install = { path = "../../crates/cli-install" }
 frameever-gpui-kernels = { path = "kernels" }
-# gpui — the wingleeio/zed fork Comet ships. The pinned rev carries f596cde
-# ("destination alpha on transparent windows: Porter-Duff OVER, not additive"),
-# which our transparent rounded main-window shell depends on.
-gpui = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d" }
-gpui_platform = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d", features = [
+gpui = { package = "gpui-pre", version = "=0.3.10" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features = [
     "font-kit",
     "runtime_shaders",
 ] }
-gpui_tokio = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d" }
+gpui_tokio = { package = "frameever-gpui-tokio", path = "gpui_tokio" }
+gpui-kit = "=0.8.1"
 
 # Device enumeration reuses the same crates the Tauri app records with, so the
 # device identities here are byte-identical to the ones frameever-recording expects.
@@ -235,13 +233,9 @@ cidre = { git = "https://github.com/CapSoftware/cidre", rev = "bf84b67079a8", fe
 parakeet-rs = "0.3.4"
 hound = "3.5"
 
-# Local checkout of the pinned wingleeio/zed rev plus one commit: paint_surface
-# accepts 32BGRA CVPixelBuffers, which the editor preview's zero-copy path
-# hands it (see frameever-rendering's RgbaToBgraSurfaceConverter).
-[patch."https://github.com/wingleeio/zed"]
-gpui = { path = "../../../zed-cap/crates/gpui" }
-gpui_platform = { path = "../../../zed-cap/crates/gpui_platform" }
-gpui_tokio = { path = "../../../zed-cap/crates/gpui_tokio" }
+[patch.crates-io]
+gpui-pre = { path = "../../../gpui-pre-patched/crates/gpui" }
+gpui-pre-windows = { path = "../../../gpui-pre-patched/crates/gpui_windows" }
 
 [profile.dev]
 # gpui is unusably slow when its dependencies are unoptimized; zed/comet both

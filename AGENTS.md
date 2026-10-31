@@ -22,7 +22,7 @@ Two Cargo workspaces, both on Rust stable (`rust-toolchain.toml`):
   - `crates/scap-*`, `crates/camera*`, `crates/audio`, `crates/cursor-*`: screen, camera, audio and cursor capture.
   - `crates/utils`: brand constants (`brand.rs`) and `storage`, the one place that knows the app data folder, the settings file, the storage folder and what counts as a project.
   - `crates/converter`: FrameEver Converter's core.
-- GPUI workspace `apps/desktop-gpui` (members: the app, `kernels`, `converter`). It has its own `Cargo.lock`, and `pnpm fe setup` prepares the patched gpui checkout it builds against in `../zed-cap`.
+- GPUI workspace `apps/desktop-gpui` (members: the app, `kernels`, `converter`, `gpui_tokio`). It has its own `Cargo.lock`, and `pnpm fe setup` prepares the patched gpui crates it builds against in `../gpui-pre-patched`.
   - `src/`: the app. `src/i18n/` holds the Chinese tables (`docs/i18n.md`). `kernels/` holds pixel and sample loops built at `opt-level = 3`.
   - `assets/`: fonts, icons, sounds, editor music and backgrounds.
   - `packaging/` and `tauri.conf.json`: installer packaging only. The Tauri CLI is used as the NSIS bundler; nothing links the Tauri runtime.

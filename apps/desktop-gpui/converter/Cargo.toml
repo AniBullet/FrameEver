@@ -13,8 +13,8 @@ path = "src/main.rs"
 [dependencies]
 frameever-converter = { path = "../../../crates/converter" }
 frameever-utils = { path = "../../../crates/utils" }
-gpui = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d" }
-gpui_platform = { git = "https://github.com/wingleeio/zed", rev = "5d1f83d9f27a19bec1fb241dc33b42238af9cf8d", features = [
+gpui = { package = "gpui-pre", version = "=0.3.10" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features = [
     "font-kit",
     "runtime_shaders",
 ] }

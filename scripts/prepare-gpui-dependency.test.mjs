@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	copyFileSync,
 	existsSync,
@@ -14,6 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { gitBash } from "./fe.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const patchDirectory = "apps/desktop-gpui/patches";
@@ -78,220 +80,116 @@ test("GPUI patches remain applicable after a Windows-style Git checkout", (t) =>
 	}
 });
 
-test("dependency verification handles overlapping patches without changing the checkout", async (t) => {
-	const fixture = mkdtempSync(path.join(tmpdir(), "cap-gpui-patch-stack-"));
+function prepareFixture(t) {
+	const fixture = mkdtempSync(path.join(tmpdir(), "frameever-gpui-prepare-"));
 	t.after(() => rmSync(fixture, { recursive: true, force: true }));
-	const emptyConfig = path.join(fixture, "empty.gitconfig");
-	writeFileSync(emptyConfig, "");
-	const env = {
-		...Object.fromEntries(
-			Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-		),
-		GIT_CONFIG_NOSYSTEM: "1",
-		GIT_CONFIG_GLOBAL: emptyConfig,
-		GIT_ATTR_NOSYSTEM: "1",
-	};
-	const run = (cwd, command, args) => {
-		const result = spawnSync(command, args, {
-			cwd,
-			env,
-			encoding: "utf8",
-			timeout: 30_000,
-		});
-		assert.ifError(result.error);
-		return result;
-	};
-	const git = (cwd, ...args) => {
-		const result = run(cwd, "git", args);
-		assert.equal(result.status, 0, result.stderr);
-		return result.stdout;
-	};
-	const upstream = path.join(fixture, "upstream");
-	const cap = path.join(fixture, "Cap checkout");
-	const zed = path.join(fixture, "zed-cap");
-	mkdirSync(upstream);
-	mkdirSync(path.join(cap, "scripts"), { recursive: true });
-	mkdirSync(path.join(cap, patchDirectory), { recursive: true });
-	git(upstream, "init", "--quiet");
-	git(upstream, "config", "user.name", "Fixture");
-	git(upstream, "config", "user.email", "fixture@example.invalid");
-	const commit = () => {
-		git(upstream, "add", "--all");
-		git(upstream, "commit", "--quiet", "-m", "Fixture state");
-	};
-	writeFileSync(path.join(upstream, "renderer.rs"), "base\n");
-	writeFileSync(path.join(upstream, "windows.rs"), "base\n");
-	writeFileSync(path.join(upstream, "frames.rs"), "base\n");
-	commit();
-	const base = git(upstream, "rev-parse", "HEAD").trim();
-	const patch = (name) => {
-		git(upstream, "add", "--all");
-		writeFileSync(
-			path.join(cap, patchDirectory, name),
-			git(upstream, "diff", "--cached", "--binary"),
-		);
-		commit();
-	};
-	writeFileSync(path.join(upstream, "renderer.rs"), "shared renderer\n");
-	writeFileSync(path.join(upstream, "temporary.rs"), "intermediate\n");
-	patch("zed-gpui.patch");
-	writeFileSync(path.join(upstream, "windows.rs"), "Windows renderer\n");
-	patch("zed-windows.patch");
-	writeFileSync(path.join(upstream, "renderer.rs"), "Linux renderer\n");
-	rmSync(path.join(upstream, "temporary.rs"));
-	patch("zed-linux.patch");
-	writeFileSync(path.join(upstream, "frames.rs"), "paced frames\n");
-	patch("zed-idle-frames.patch");
-	const script = path.join(cap, "scripts/prepare-gpui-dependency.sh");
+	const repository = path.join(fixture, "frameever");
+	const patches = path.join(repository, patchDirectory);
+	mkdirSync(patches, { recursive: true });
+	mkdirSync(path.join(repository, "scripts"));
+	copyFileSync(
+		path.join(repositoryRoot, "scripts", "prepare-gpui-dependency.sh"),
+		path.join(repository, "scripts", "prepare-gpui-dependency.sh"),
+	);
+
+	const mirror = path.join(fixture, "mirror", "fake-gpui");
+	const source = path.join(fixture, "source", "fake-gpui-1.0.0");
+	mkdirSync(mirror, { recursive: true });
+	mkdirSync(path.join(source, "src"), { recursive: true });
+	writeFileSync(path.join(source, "src", "lib.rs"), "pub fn original() {}\n");
+	const archive = path.join(mirror, "fake-gpui-1.0.0.crate");
+	const tar = spawnSync(
+		"tar",
+		["-czf", "../mirror/fake-gpui/fake-gpui-1.0.0.crate", "fake-gpui-1.0.0"],
+		{ cwd: path.dirname(source), encoding: "utf8" },
+	);
+	assert.equal(tar.status, 0, tar.stderr);
+
+	const checksum = createHash("sha256")
+		.update(readFileSync(archive))
+		.digest("hex");
+	const pins = path.join(patches, "gpui-pre.pins");
+	const pin = (value) => writeFileSync(pins, `fake-gpui 1.0.0 ${value} gpui\n`);
+	pin(checksum);
 	writeFileSync(
-		script,
-		readFileSync(
-			path.join(repositoryRoot, "scripts/prepare-gpui-dependency.sh"),
-			"utf8",
-		)
-			.replace("5d1f83d9f27a19bec1fb241dc33b42238af9cf8d", base)
-			.replace("https://github.com/wingleeio/zed.git", upstream),
+		path.join(patches, "gpui-pre-windows.patch"),
+		[
+			"diff --git a/crates/gpui/src/lib.rs b/crates/gpui/src/lib.rs",
+			"--- a/crates/gpui/src/lib.rs",
+			"+++ b/crates/gpui/src/lib.rs",
+			"@@ -1 +1 @@",
+			"-pub fn original() {}",
+			"+pub fn patched() {}",
+			"",
+		].join("\n"),
 	);
 
-	await t.test("fresh preparation validates the complete ordered stack", () => {
-		const result = run(cap, "bash", [script]);
-		assert.equal(result.status, 0, result.stderr);
-		assert.equal(
-			readFileSync(path.join(zed, "renderer.rs"), "utf8"),
-			"Linux renderer\n",
+	const target = path.join(fixture, "gpui-pre-patched");
+	const prepare = () =>
+		spawnSync(
+			gitBash(),
+			[
+				path
+					.join(repository, "scripts", "prepare-gpui-dependency.sh")
+					.replaceAll("\\", "/"),
+			],
+			{
+				encoding: "utf8",
+				env: {
+					...process.env,
+					FRAMEEVER_CRATES_URL: `file:///${path.join(fixture, "mirror").replaceAll("\\", "/")}`,
+				},
+			},
 		);
-		assert.equal(existsSync(path.join(zed, "temporary.rs")), false);
-		assert.equal(
-			readFileSync(path.join(zed, "frames.rs"), "utf8"),
-			"paced frames\n",
-		);
-	});
+	return { patches, pin, prepare, target };
+}
 
-	writeFileSync(path.join(zed, "unrelated.txt"), "preserve staged work\n");
-	git(zed, "add", "unrelated.txt");
-	writeFileSync(path.join(zed, "unrelated.txt"), "preserve unstaged work\n");
-	const fingerprint = () => ({
-		index: readFileSync(path.join(zed, ".git/index")),
-		renderer: readFileSync(path.join(zed, "renderer.rs")),
-		unrelated: readFileSync(path.join(zed, "unrelated.txt")),
-		status: git(zed, "status", "--porcelain"),
-		head: git(zed, "rev-parse", "HEAD"),
-	});
-
-	await t.test(
-		"repeat verification preserves source, index, and unrelated work",
-		() => {
-			const before = fingerprint();
-			for (let repeat = 0; repeat < 2; repeat++) {
-				const result = run(cap, "bash", [script]);
-				assert.equal(result.status, 0, result.stderr);
-				assert.deepEqual(fingerprint(), before);
-			}
-		},
+test("prepare unpacks the pinned crates and applies the patch", (t) => {
+	const { prepare, target } = prepareFixture(t);
+	const result = prepare();
+	assert.equal(result.status, 0, result.stderr);
+	assert.match(
+		readFileSync(path.join(target, "crates", "gpui", "src", "lib.rs"), "utf8"),
+		/patched/,
 	);
+});
 
-	await t.test(
-		"a missing final patch fails without repairing or overwriting files",
-		() => {
-			git(
-				zed,
-				"apply",
-				"--reverse",
-				path.join(cap, patchDirectory, "zed-linux.patch"),
-			);
-			const before = fingerprint();
-			const result = run(cap, "bash", [script]);
-			assert.equal(result.status, 1);
-			assert.match(result.stderr, /does not contain Cap's pinned GPUI patch/);
-			assert.deepEqual(fingerprint(), before);
-			assert.equal(existsSync(path.join(zed, "temporary.rs")), true);
-		},
+test("prepare leaves a current folder alone and rebuilds a stale one", (t) => {
+	const { patches, prepare, target } = prepareFixture(t);
+	assert.equal(prepare().status, 0);
+	const marker = path.join(target, "marker");
+	writeFileSync(marker, "");
+	assert.equal(prepare().status, 0);
+	assert.ok(existsSync(marker));
+
+	const patch = path.join(patches, "gpui-pre-windows.patch");
+	writeFileSync(
+		patch,
+		readFileSync(patch, "utf8").replace("patched", "repatched"),
 	);
-
-	git(zed, "apply", path.join(cap, patchDirectory, "zed-linux.patch"));
-	git(cap, "init", "--quiet");
-	git(cap, "config", "user.name", "Fixture");
-	git(cap, "config", "user.email", "fixture@example.invalid");
-	git(cap, "add", "--all");
-	git(cap, "commit", "--quiet", "-m", "Pin first patch stack");
-	const windowsPatch = path.join(cap, patchDirectory, "zed-windows.patch");
-	const pinWindowsRenderer = (contents) => {
-		writeFileSync(
-			windowsPatch,
-			readFileSync(windowsPatch, "utf8").replace(
-				/^\+Windows renderer.*$/m,
-				`+${contents}`,
-			),
-		);
-		git(cap, "commit", "--quiet", "--all", "-m", "Update Windows patch");
-	};
-
-	await t.test(
-		"a checkout carrying an earlier committed stack moves to the current one",
-		() => {
-			pinWindowsRenderer("Windows renderer v2");
-			const before = fingerprint();
-			const result = run(cap, "bash", [script]);
-			assert.equal(result.status, 0, result.stderr);
-			assert.match(result.stderr, /Updated .* to the current ones/);
-			assert.equal(
-				readFileSync(path.join(zed, "windows.rs"), "utf8"),
-				"Windows renderer v2\n",
-			);
-			assert.equal(
-				readFileSync(path.join(zed, "renderer.rs"), "utf8"),
-				"Linux renderer\n",
-			);
-			assert.equal(existsSync(path.join(zed, "temporary.rs")), false);
-			const after = fingerprint();
-			assert.deepEqual(after.unrelated, before.unrelated);
-			assert.equal(after.head, before.head);
-		},
+	const result = prepare();
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(existsSync(marker), false);
+	assert.match(
+		readFileSync(path.join(target, "crates", "gpui", "src", "lib.rs"), "utf8"),
+		/repatched/,
 	);
+});
 
-	await t.test(
-		"a checkout prepared before a patch was added gains the new patch",
-		() => {
-			const addedPatch = path.join(
-				cap,
-				patchDirectory,
-				"zed-idle-frames.patch",
-			);
-			const addedPatchBytes = readFileSync(addedPatch);
-			git(zed, "apply", "--reverse", addedPatch);
-			git(cap, "rm", "--quiet", addedPatch);
-			git(cap, "commit", "--quiet", "-m", "Stack without the added patch");
-			writeFileSync(addedPatch, addedPatchBytes);
-			git(cap, "add", addedPatch);
-			git(cap, "commit", "--quiet", "-m", "Add a patch");
-			const before = fingerprint();
-			const result = run(cap, "bash", [script]);
-			assert.equal(result.status, 0, result.stderr);
-			assert.match(result.stderr, /Updated .* to the current ones/);
-			assert.equal(
-				readFileSync(path.join(zed, "frames.rs"), "utf8"),
-				"paced frames\n",
-			);
-			const after = fingerprint();
-			assert.deepEqual(after.unrelated, before.unrelated);
-			assert.equal(after.head, before.head);
-		},
-	);
+test("prepare refuses a crate that does not match its pin", (t) => {
+	const { pin, prepare, target } = prepareFixture(t);
+	pin("0".repeat(64));
+	const result = prepare();
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /pinned checksum/);
+	assert.equal(existsSync(target), false);
+});
 
-	await t.test(
-		"local edits to a patched file are never overwritten by an update",
-		() => {
-			writeFileSync(path.join(zed, "windows.rs"), "local experiment\n");
-			pinWindowsRenderer("Windows renderer v3");
-			const before = fingerprint();
-			const result = run(cap, "bash", [script]);
-			assert.equal(result.status, 1);
-			assert.match(result.stderr, /does not contain Cap's pinned GPUI patch/);
-			assert.deepEqual(fingerprint(), before);
-			assert.equal(
-				readFileSync(path.join(zed, "windows.rs"), "utf8"),
-				"local experiment\n",
-			);
-		},
-	);
+test("prepare refuses a folder it did not create", (t) => {
+	const { prepare, target } = prepareFixture(t);
+	mkdirSync(target);
+	writeFileSync(path.join(target, "keep"), "");
+	const result = prepare();
+	assert.notEqual(result.status, 0);
+	assert.ok(existsSync(path.join(target, "keep")));
 });

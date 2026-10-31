@@ -234,7 +234,7 @@ function setup({ flags }) {
 		env: { ...process.env, RUST_TARGET_TRIPLE: target },
 	});
 
-	step("Patched gpui checkout (../zed-cap)");
+	step("Patched gpui crates (../gpui-pre-patched)");
 	run(gitBash(), [path.join("scripts", "prepare-gpui-dependency.sh")]);
 
 	step("HarmonyOS Sans (Chinese UI font, fetched from Huawei; its license forbids committing it)");
@@ -573,11 +573,29 @@ function test({ flags, positional }) {
 		run("cargo", ["test", "-p", "frameever-export", "--lib"], { env: withFfmpeg() });
 		run("cargo", ["test", "-p", "frameever", "--bin", "frameever"], { env: withFfmpeg() });
 		run("cargo", ["test", "-p", "frameever", "--test", "cli"], { env: withFfmpeg() });
+		step("Patched gpui tests");
+		const patchedCrates = path.join(root, "..", "gpui-pre-patched", "crates");
+		const patchedCore = path.join(patchedCrates, "gpui").replaceAll("\\", "/");
+		run(
+			"cargo",
+			[
+				"test",
+				"--lib",
+				"--features",
+				"test-support",
+				"--target-dir",
+				path.join(gpuiDir, "target", "gpui-windows"),
+				"--config",
+				`patch.crates-io.gpui-pre.path="${patchedCore}"`,
+			],
+			{ cwd: path.join(patchedCrates, "gpui_windows") },
+		);
 		step("Packaging script tests");
 		run(process.execPath, [
 			"--test",
 			"scripts/bundle-gpui.test.mjs",
 			"scripts/fe.test.mjs",
+			"scripts/prepare-gpui-dependency.test.mjs",
 			"scripts/privacy.test.mjs",
 		]);
 	}
@@ -937,8 +955,8 @@ function doctor() {
 	const fonts = missingChineseFont();
 	add("HarmonyOS Sans font files", fonts.length === 0, fonts.join(", "), "pnpm fe setup");
 	add(
-		"Patched gpui (../zed-cap)",
-		existsSync(path.join(root, "..", "zed-cap", "crates", "gpui")),
+		"Patched gpui (../gpui-pre-patched)",
+		existsSync(path.join(root, "..", "gpui-pre-patched", "crates", "gpui")),
 		"",
 		"pnpm fe setup",
 	);

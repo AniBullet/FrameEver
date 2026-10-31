@@ -1,2 +1,3 @@
 /apps/desktop-gpui/patches/*.patch text eol=lf
 /.githooks/* text eol=lf
+/apps/desktop-gpui/patches/*.pins text eol=lf

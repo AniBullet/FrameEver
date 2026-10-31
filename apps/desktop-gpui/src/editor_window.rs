@@ -599,7 +599,7 @@ impl EditorPreviewFrame {
         let corners = gpui::Corners::all(radius);
         match self {
             Self::Image(image) => {
-                let _ = window.paint_image(bounds, corners, Arc::clone(image), 0, false);
+                let _ = window.paint_image(bounds, bounds, corners, Arc::clone(image), 0, false);
             }
             #[cfg(target_os = "macos")]
             Self::Surface(surface) => {
@@ -3710,7 +3710,7 @@ impl EditorWindow {
     /// source's arithmetic touches it.
     fn timeline_wheel(
         &mut self,
-        event: &gpui::ScrollWheelEvent,
+        event: &gpui::ScrollEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -10347,11 +10347,9 @@ impl EditorWindow {
                     }))
                     // `onWheel` (`:1189-1207`) and the pinch the webview
                     // would have delivered as `ctrl+wheel`.
-                    .on_scroll_wheel(cx.listener(
-                        |this, event: &gpui::ScrollWheelEvent, window, cx| {
-                            this.timeline_wheel(event, window, cx);
-                        },
-                    ))
+                    .on_scroll(cx.listener(|this, event: &gpui::ScrollEvent, window, cx| {
+                        this.timeline_wheel(event, window, cx);
+                    }))
                     .on_pinch(cx.listener(|this, event: &gpui::PinchEvent, window, cx| {
                         this.timeline_pinch(event, window, cx);
                     }))
@@ -11024,19 +11022,17 @@ impl EditorWindow {
                     .overflow_y_scroll()
                     .track_scroll(&self.timeline_scroll)
                     .pr(px(SCROLL_BODY_PADDING_RIGHT))
-                    .on_scroll_wheel(cx.listener(
-                        |_this, event: &gpui::ScrollWheelEvent, window, cx| {
-                            let pixels = event.delta.pixel_delta(window.line_height());
-                            let delta_x = f32::from(pixels.x).abs();
-                            let delta_y = f32::from(pixels.y).abs();
-                            if !event.modifiers.control
-                                && !event.modifiers.shift
-                                && delta_x <= delta_y * 0.5
-                            {
-                                cx.stop_propagation();
-                            }
-                        },
-                    ))
+                    .on_scroll(cx.listener(|_this, event: &gpui::ScrollEvent, window, cx| {
+                        let pixels = event.delta.pixel_delta(window.line_height());
+                        let delta_x = f32::from(pixels.x).abs();
+                        let delta_y = f32::from(pixels.y).abs();
+                        if !event.modifiers.control
+                            && !event.modifiers.shift
+                            && delta_x <= delta_y * 0.5
+                        {
+                            cx.stop_propagation();
+                        }
+                    }))
                     .child(rows),
             )
             .children(reorder_ghost.map(|reorder| {
@@ -11669,7 +11665,7 @@ impl Render for EditorWindow {
                         .occlude()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
-                        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                        .on_scroll(|_, _, cx| cx.stop_propagation())
                 }),
             )
             .children(self.with_style_controls(|this| this.render_sidebar_menu(cx)))
