@@ -1965,7 +1965,7 @@ impl EditorWindow {
                     div()
                         .max_w(px(360.))
                         .text_size(px(12.))
-                        .text_color(Hsla::from(theme.red_9))
+                        .text_color(Hsla::from(theme.red_11))
                         .text_center()
                         .child(error),
                 )

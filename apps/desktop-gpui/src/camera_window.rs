@@ -1489,22 +1489,14 @@ impl CameraWindow {
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        // `document.documentElement.classList.toggle("dark", true)`
-        // (`camera.tsx:128`): the bubble is always dark, whatever the app
-        // theme preference says.
-        #[cfg(target_os = "windows")]
-        platform::apply_window_theme(
-            window,
-            platform::ForcedAppearance::Dark,
-            cx.foreground_executor(),
-        );
+        crate::theme::bind_window(window, cx);
         #[cfg(target_os = "macos")]
         platform::apply_window_theme_deferred(
             window,
-            platform::ForcedAppearance::Dark,
+            crate::theme::forced_appearance(crate::theme::current_preference(cx)),
             cx.foreground_executor(),
         );
-        let theme = Theme::dark();
+        let theme = Theme::for_window(window, cx, false);
         let state = store::load().camera_window.unwrap_or_default();
         #[cfg(not(target_os = "macos"))]
         Feeds::global(cx).update(cx, |feeds, _| {
@@ -2443,7 +2435,14 @@ impl CameraWindow {
 }
 
 impl Render for CameraWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.theme.refresh(window, cx, false) {
+            let theme = self.theme;
+            self.preview.update(cx, |preview, cx| {
+                preview.theme = theme;
+                cx.notify();
+            });
+        }
         let resizing = self.resizing.is_some();
 
         div()

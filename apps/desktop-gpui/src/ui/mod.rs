@@ -52,6 +52,7 @@ mod number_field;
 mod position_pad;
 mod progress;
 mod radio_cards;
+mod record_mark;
 mod segmented;
 mod select;
 mod selection_header;
@@ -100,6 +101,8 @@ pub use position_pad::{PAD_HEIGHT, PositionPad, pad_position};
 pub use progress::CircularProgress;
 #[allow(unused_imports)]
 pub use radio_cards::{RadioCard, RadioCards};
+#[allow(unused_imports)]
+pub use record_mark::stop_mark;
 #[allow(unused_imports)]
 pub use segmented::{SegmentOption, SegmentedControl, option_at};
 #[allow(unused_imports)]

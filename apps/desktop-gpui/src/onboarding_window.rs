@@ -915,7 +915,7 @@ impl OnboardingWindow {
                 .line_height(px(21.)),
             );
 
-        let accent = paper.accent;
+        let theme = self.theme;
         let button = div()
             .id("onboarding-get-started")
             .tab_index(0)
@@ -923,15 +923,15 @@ impl OnboardingWindow {
             .h(px(46.))
             .px(px(30.))
             .rounded(px(12.))
-            .bg(accent)
-            .hover(move |el| el.bg(accent.opacity(0.88)))
+            .bg(theme.primary)
+            .hover(move |el| el.bg(theme.primary_hover))
             .active(|el| el.opacity(0.92))
             .flex()
             .items_center()
             .justify_center()
             .on_click(cx.listener(|this, _, window, cx| this.continue_from_welcome(window, cx)))
             .child(
-                copy(t!("Get started"), 15., gpui::white())
+                copy(t!("Get started"), 15., theme.primary_foreground)
                     .font_weight(FontWeight::SEMIBOLD)
                     .line_height(px(20.)),
             );
@@ -980,7 +980,7 @@ impl OnboardingWindow {
                 button_opacity,
             ))
             .when_some(self.error.clone(), |el, error| {
-                el.child(copy(error, 12., paper.red).mt(px(12.)))
+                el.child(copy(error, 12., self.theme.danger_text).mt(px(12.)))
             });
         let mute = div()
             .id("onboarding-mute")
@@ -1438,7 +1438,7 @@ impl OnboardingWindow {
                     ),
             )
             .when_some(self.error.clone(), |el, error| {
-                el.child(copy(error, 12., paper.red))
+                el.child(copy(error, 12., self.theme.danger_text))
             })
             .into_any_element()
     }

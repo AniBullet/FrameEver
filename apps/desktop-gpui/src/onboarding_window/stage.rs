@@ -42,11 +42,15 @@ impl Paper {
     pub fn new(theme: &Theme) -> Self {
         Self {
             bg: theme.background.into(),
-            card: theme.card.into(),
+            card: if theme.is_dark() {
+                theme.card.into()
+            } else {
+                theme.popover.into()
+            },
             ink: theme.foreground.into(),
             soft: theme.muted_foreground.into(),
             accent: theme.link.into(),
-            red: theme.danger_text.into(),
+            red: theme.recording.into(),
             green: theme.success_text.into(),
             track: theme.border.into(),
         }

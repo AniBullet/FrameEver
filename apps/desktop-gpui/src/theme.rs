@@ -69,7 +69,7 @@ pub fn resolve_appearance(preference: AppTheme, system: Appearance) -> Appearanc
     }
 }
 
-fn forced_appearance(preference: AppTheme) -> ForcedAppearance {
+pub(crate) fn forced_appearance(preference: AppTheme) -> ForcedAppearance {
     match preference {
         AppTheme::System => ForcedAppearance::System,
         AppTheme::Light => ForcedAppearance::Light,

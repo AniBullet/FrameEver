@@ -8973,7 +8973,7 @@ impl EditorWindow {
                 .hover(move |this| this.bg(Hsla::from(theme.editor.ctl_hover)))
                 .text_size(px(13.))
                 .text_color(if danger {
-                    Hsla::from(theme.red_9)
+                    Hsla::from(theme.red_11)
                 } else {
                     Hsla::from(theme.editor.text_1)
                 })
@@ -9858,7 +9858,7 @@ impl EditorWindow {
                 svg()
                     .path("icons/triangle-alert.svg")
                     .size(px(32.))
-                    .text_color(Hsla::from(theme.red_9)),
+                    .text_color(Hsla::from(theme.red_11)),
             )
             .child(
                 div()
@@ -10930,7 +10930,7 @@ impl EditorWindow {
                                     .rounded(px(6.))
                                     .bg(Hsla::from(theme.editor.ctl_active))
                                     .text_color(if hovered {
-                                        Hsla::from(theme.red_9)
+                                        Hsla::from(theme.red_11)
                                     } else {
                                         Hsla::from(theme.editor.text_3)
                                     })
@@ -10960,7 +10960,7 @@ impl EditorWindow {
                                     )
                                     .child(svg().path("icons/trash.svg").size(px(13.)).text_color(
                                         if hovered {
-                                            Hsla::from(theme.red_9)
+                                            Hsla::from(theme.red_11)
                                         } else {
                                             Hsla::from(theme.editor.text_3)
                                         },

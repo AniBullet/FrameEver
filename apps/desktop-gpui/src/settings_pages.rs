@@ -1684,7 +1684,7 @@ impl SettingsWindow {
                     div()
                         .text_size(px(12.))
                         .line_height(px(18.))
-                        .text_color(Hsla::from(theme.red_9))
+                        .text_color(Hsla::from(theme.red_11))
                         .child(t!("Couldn't load CLI status: {error}", error = error)),
                 )
                 .child(div().child(self.button(
@@ -1863,7 +1863,7 @@ impl SettingsWindow {
                         .bg(Theme::with_alpha(theme.red_9, 0.1))
                         .text_size(px(12.))
                         .line_height(px(18.))
-                        .text_color(Hsla::from(theme.red_9))
+                        .text_color(Hsla::from(theme.red_11))
                         .child(conflict),
                 )
             })
@@ -1873,7 +1873,7 @@ impl SettingsWindow {
                 this.child(
                     div()
                         .text_size(px(12.))
-                        .text_color(Hsla::from(theme.red_9))
+                        .text_color(Hsla::from(theme.red_11))
                         .child(error),
                 )
             })
@@ -3001,7 +3001,7 @@ impl SettingsWindow {
                         div()
                             .text_size(px(12.))
                             .line_height(px(18.))
-                            .text_color(Hsla::from(theme.red_9))
+                            .text_color(Hsla::from(theme.red_11))
                             .child(error.clone()),
                     );
                 }
@@ -3038,7 +3038,7 @@ impl SettingsWindow {
                         div()
                             .text_size(px(13.))
                             .line_height(px(19.))
-                            .text_color(Hsla::from(theme.red_9))
+                            .text_color(Hsla::from(theme.red_11))
                             .child(error.clone()),
                     )
                     .child(
@@ -3078,7 +3078,7 @@ impl SettingsWindow {
         let (label, fill, text): (&str, Hsla, Hsla) = match verdict {
             Some("pass") => (t!("PASS"), theme.success.into(), theme.success_text.into()),
             Some("warn") => (t!("WARN"), theme.warning.into(), theme.warning_text.into()),
-            Some("fail") => (t!("FAIL"), theme.red_9.into(), theme.red_9.into()),
+            Some("fail") => (t!("FAIL"), theme.red_9.into(), theme.red_11.into()),
             Some("inconclusive") => (
                 t!("INCONCLUSIVE"),
                 theme.settings_muted(),
@@ -3216,14 +3216,14 @@ impl SettingsWindow {
                                             if capture_supported {
                                                 theme.success
                                             } else {
-                                                theme.red_9
+                                                theme.red_11
                                             },
                                             0.2,
                                         ))
                                         .text_color(Hsla::from(if capture_supported {
                                             theme.success_text
                                         } else {
-                                            theme.red_9
+                                            theme.red_11
                                         }))
                                         .child(t!(
                                             "Screen Capture: {support}",

@@ -721,7 +721,7 @@ const renderDocs = () => {
 		"t-layout": ["Layout", "布局"],
 		"l-layout": ["Sizes at the default 1275 × 800 window.", "默认 1275 × 800 窗口下的尺寸。"],
 		"t-timeline": ["Timeline", "时间轴"],
-		"l-timeline": ["Modelled on 剪映 and OpenCut: tools above the tracks, height by importance, a colour per segment type. The playhead stays white.", "参考剪映和 OpenCut：工具在轨道上方，高度按重要程度分配，每类段落一种颜色。播放头保持白色。"],
+		"l-timeline": ["Modelled on 剪映 and OpenCut: tools above the tracks, height by importance, a colour per segment type. The playhead takes foreground: white on dark, near-black on light.", "参考剪映和 OpenCut：工具在轨道上方，高度按重要程度分配，每类段落一种颜色。播放头保持白色。"],
 		"t-states": ["Other states", "其他状态"],
 		"l-states": ["What the window shows outside normal editing.", "正常编辑之外，窗口显示什么。"],
 		"t-inv": ["Where everything went", "每项功能的位置"],

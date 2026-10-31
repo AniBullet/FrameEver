@@ -188,21 +188,25 @@ impl ControlsWindow {
             .rounded(px(8.))
             .py(px(4.))
             .px(px(6.))
-            .text_color(theme.red_300)
+            .text_color(theme.foreground)
             .when(can_stop, |this| {
-                this.hover(|style| style.bg(Theme::with_alpha(theme.red_300, 0.08)))
-                    .active(|style| style.bg(Theme::with_alpha(theme.red_300, 0.12)))
+                this.hover(|style| style.bg(theme.accent))
+                    .active(|style| style.bg(theme.secondary_active))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.session.update(cx, |session, cx| session.stop(cx));
                     }))
             })
             .when(!can_stop, |this| this.opacity(0.6))
             .child(
-                svg()
-                    .path("icons/stop-circle.svg")
-                    .size(px(20.))
-                    .flex_shrink_0()
-                    .text_color(theme.red_300),
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .size(px(28.))
+                    .rounded_full()
+                    .bg(theme.primary)
+                    .child(crate::ui::stop_mark(&theme)),
             )
             .child(
                 div()
@@ -491,7 +495,7 @@ impl Render for ControlsWindow {
                                 .path("icons/triangle-alert.svg")
                                 .size(px(20.))
                                 .flex_shrink_0()
-                                .text_color(self.theme.red_9),
+                                .text_color(self.theme.red_11),
                         )
                         .child(recording_issue_text(issue)),
                 )

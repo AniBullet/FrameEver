@@ -2700,7 +2700,7 @@ impl MainWindow {
                                 cx.notify();
                             })),
                     )
-                    .when_some(error, |this, error| this.child(div().text_size(px(11.)).text_color(theme.red_9).child(error)))
+                    .when_some(error, |this, error| this.child(div().text_size(px(11.)).text_color(theme.red_11).child(error)))
                     .child(
                         div()
                             .flex()
@@ -3378,15 +3378,12 @@ impl MainWindow {
         }
     }
 
-    /// The recording takeover, from index.tsx 3510-3529: an absolute overlay
-    /// (`bg-gray-1/80 backdrop-blur-xs` -- the blur is skipped here, this gpui
-    /// rev has no per-element backdrop blur hook) with the Stop button pinned
-    /// to the bottom (`px-6 pb-8`, `h-11 rounded-xl bg-red-9`).
     fn render_recording_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let phase = self.session.read(cx).phase;
         let stopping = phase == Phase::Stopping;
         let starting = phase == Phase::Starting;
+        let cancelling = starting;
         let countdown = self.session.read(cx).countdown_remaining();
         let can_stop = !stopping && (!starting || countdown.is_some());
 
@@ -3421,7 +3418,7 @@ impl MainWindow {
                         .flex_shrink_0()
                         .mb(px(8.))
                         .text_size(px(11.))
-                        .text_color(theme.red_9)
+                        .text_color(theme.red_11)
                         .text_center()
                         .child(error),
                 )
@@ -3437,24 +3434,41 @@ impl MainWindow {
                     .justify_center()
                     .gap(px(8.))
                     .rounded(px(12.))
-                    .bg(theme.red_9)
+                    .bg(if cancelling {
+                        theme.secondary
+                    } else {
+                        theme.primary
+                    })
                     .text_size(px(14.))
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(gpui::white())
+                    .text_color(if cancelling {
+                        theme.foreground
+                    } else {
+                        theme.primary_foreground
+                    })
                     // `disabled:opacity-60` while pending.
                     .when(!can_stop, |this| this.opacity(0.6))
                     .when(can_stop, |this| {
-                        this.hover(|style| style.bg(theme.red_10))
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.session.update(cx, |session, cx| session.stop(cx));
-                            }))
+                        this.hover(move |style| {
+                            style.bg(if cancelling {
+                                theme.secondary_hover
+                            } else {
+                                theme.primary_hover
+                            })
+                        })
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.session.update(cx, |session, cx| session.stop(cx));
+                        }))
                     })
-                    .child(
+                    .child(if cancelling {
                         svg()
-                            .path("icons/stop-circle.svg")
+                            .path("icons/x.svg")
                             .size(px(16.))
-                            .text_color(gpui::white()),
-                    )
+                            .text_color(theme.foreground)
+                            .into_any_element()
+                    } else {
+                        ui::stop_mark(&theme).into_any_element()
+                    })
                     .child(match phase {
                         Phase::Starting if countdown.is_some() => t!("Cancel Recording"),
                         Phase::Starting => t!("Starting..."),
