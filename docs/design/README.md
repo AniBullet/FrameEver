@@ -14,6 +14,8 @@ The single visual source of truth for FrameEver's UI. Open `index.html` by doubl
 | `index.html` | Tokens and components |
 | `surfaces/<surface>.html` | One page per surface, with its own `.css` and `.js` when it needs them |
 
+The "设计页" row in the "FrameEver 开发" pane opens each page in your default browser; add a surface there when it lands.
+
 Inter comes from `apps/desktop-gpui/assets/fonts/`. HarmonyOS Sans is read from the same folder after `pnpm fe setup`; its licence forbids committing it, so a machine without it falls back to a system font and the page says so.
 
 ## Toggles

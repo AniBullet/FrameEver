@@ -1,7 +1,7 @@
 {
   "name": "frameever-dev",
-  "version": "0.3.0",
-  "description": "FrameEver dev pane: grouped buttons for pnpm fe (run, check, export, deps, release notes, package)",
+  "version": "0.3.1",
+  "description": "FrameEver dev pane: grouped buttons for pnpm fe (run, check, export, deps, release notes, package) and links to the design pages",
   "author": { "name": "aniBullet" },
   "types": "./types/index.d.ts"
 }

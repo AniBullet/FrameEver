@@ -78,6 +78,18 @@ const FOLDERS = [
   { key: 'open-dist', label: '安装包', path: 'dist' },
 ]
 
+const DESIGN_PAGES = [
+  { key: 'design-index', label: '总览', path: 'docs\\design\\index.html' },
+  { key: 'design-main', label: '主窗口和资源库', path: 'docs\\design\\surfaces\\main-window-library.html' },
+  { key: 'design-settings', label: '设置', path: 'docs\\design\\surfaces\\settings.html' },
+  { key: 'design-editor', label: '编辑器', path: 'docs\\design\\surfaces\\editor.html' },
+  { key: 'design-screenshot', label: '截图编辑器', path: 'docs\\design\\surfaces\\screenshot-editor.html' },
+  { key: 'design-recording', label: '录制控制条', path: 'docs\\design\\surfaces\\recording-controls.html' },
+  { key: 'design-area', label: '区域选择和倒计时', path: 'docs\\design\\surfaces\\area-picker.html' },
+  { key: 'design-tray', label: '托盘', path: 'docs\\design\\surfaces\\tray.html' },
+  { key: 'design-camera', label: '摄像头和提词器', path: 'docs\\design\\surfaces\\camera-teleprompter.html' },
+]
+
 const LANGUAGES: { value: AppLanguage; label: string }[] = [
   { value: 'zh-CN', label: '中文' },
   { value: 'en', label: 'English' },
@@ -245,6 +257,19 @@ export const register: Register = on => {
                 ))
               : []),
           ]),
+        )}
+        {row(
+          '设计页',
+          DESIGN_PAGES.map(page => (
+            <Button
+              key={page.key}
+              label={page.label}
+              dimColor
+              onPress={async () => {
+                await $.process.run(['explorer', `${root}\\${page.path}`]).catch(() => undefined)
+              }}
+            />
+          )),
         )}
         {row(
           '打开文件夹',
