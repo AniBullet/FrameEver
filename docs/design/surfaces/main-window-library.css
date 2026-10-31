@@ -400,8 +400,20 @@ main > section .seg {
 	border-color: var(--selection);
 }
 
-.tile.fresh {
+.tile.fresh:not(.on) {
 	background: var(--accent);
+}
+
+.tick-mark {
+	position: absolute;
+	left: 4px;
+	bottom: 4px;
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border-radius: var(--radius-xs);
+	background: var(--popover);
 }
 
 .tile .thumb {
@@ -498,6 +510,31 @@ main > section .seg {
 	top: 0;
 	background: var(--background);
 	z-index: 2;
+}
+
+.col {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	width: fit-content;
+	height: 24px;
+	margin-left: -6px;
+	padding: 0 6px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+
+.col:hover {
+	background: var(--accent);
+	color: var(--foreground);
+}
+
+.col.on {
+	color: var(--foreground);
 }
 
 .table-row {
@@ -769,11 +806,30 @@ main > section .seg {
 	text-align: center;
 }
 
-.empty-mark {
-	width: 96px;
-	height: 72px;
-	border: 2px dashed var(--border-strong);
-	border-radius: var(--radius-md);
+.empty .keys {
+	display: inline-flex;
+	gap: 4px;
+}
+
+.first-line {
+	padding: 10px 0 2px;
+	color: var(--foreground);
+}
+
+.first-hint {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.hint-arrow {
+	display: grid;
+	place-items: center;
+	flex: none;
+	width: 34px;
+	height: 26px;
+	transform: rotate(90deg);
 }
 
 .scrim {

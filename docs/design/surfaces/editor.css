@@ -1420,6 +1420,17 @@ input.zoomer {
 	width: 42%;
 }
 
+.lane-empty {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+
 .done-bar {
 	width: 240px;
 	height: 6px;

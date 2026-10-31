@@ -10,6 +10,7 @@ window.FRAMEEVER_ICONS = {
 	"lock-open": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 9.9-1\"/>",
 	"app-window": "<g><rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\"/><path d=\"M10 4v4M2 8h20M6 4v4\"/></g>",
 	"arrow-down-wide-narrow": "<path d=\"m3 16 4 4 4-4M7 20V4M11 4h10M11 8h7M11 12h4\"/>",
+	"arrow-up-wide-narrow": "<path d=\"m3 8 4-4 4 4\"/><path d=\"M7 4v16\"/><path d=\"M11 12h10\"/><path d=\"M11 16h7\"/><path d=\"M11 20h4\"/>",
 	"arrow-up-right": "<path d=\"M7 7h10v10\"/><path d=\"M7 17 17 7\"/>",
 	"box-select": "<path d=\"M5 3a2 2 0 0 0-2 2m16-2a2 2 0 0 1 2 2m0 14a2 2 0 0 1-2 2M5 21a2 2 0 0 1-2-2M9 3h1M9 21h1m4-18h1m-1 18h1M3 9v1m18-1v1M3 14v1m18-1v1\"/>",
 	"check": "<path d=\"M20 6 9 17l-5-5\"/>",

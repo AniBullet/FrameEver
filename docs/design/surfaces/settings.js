@@ -189,7 +189,12 @@ const sections = [
 	},
 ];
 
-const ui = { page: "general", search: "", popup: null, listening: null, conflict: null, needMod: false, ruleOpen: 0, flash: null, stateTab: "update", updateState: "ready" };
+const ui = { drawn: new Set(), page: "general", search: "", popup: null, listening: null, conflict: null, needMod: false, ruleOpen: 0, flash: null, stateTab: "update", updateState: "ready" };
+const drawOnce = (name, width) => {
+	const still = ui.drawn.has(name);
+	ui.drawn.add(name);
+	return FE.doodle(name, { width, still });
+};
 const rowOf = (key) => {
 	for (const section of sections) {
 		for (const group of section.groups) {
@@ -237,7 +242,7 @@ const controls = {
 		];
 		return `<div class="group-card">${rules.map(([name, when, then], index) => `<div class="rule"><button class="btn ghost icon" data-rule="${index}">${icon(ui.ruleOpen === index ? "chevron-down" : "chevron-right")}</button><div class="grow"><b style="font-weight:500">${L(...name)}</b><small>${L(...when)} → ${L(...then)}</small></div><button class="btn ghost">${L("Test", "测试")}</button><button class="switch on" style="border:0"></button></div>${ui.ruleOpen === index ? `<div class="rule-editor"><div class="rule-line"><span>${L("When", "当")}</span><button class="pick-select"><span>${L("Recording finished", "录制完成")}</span>${icon("chevron-down")}</button></div><div class="rule-line"><span>${L("If", "如果")}</span><button class="pick-select"><span>${L("Duration", "时长")}</span>${icon("chevron-down")}</button><div class="input" style="width:90px"><input value="10 min"></div><button class="btn ghost">${icon("plus")}${L("Condition", "条件")}</button></div><div class="rule-line"><span>${L("Then", "那么")}</span><button class="pick-select"><span>${L("Export", "导出")}</span>${icon("chevron-down")}</button><button class="btn ghost">${icon("plus")}${L("Action", "操作")}</button></div></div>` : ""}`).join("")}</div><div class="chips" style="margin-top:10px"><button class="btn primary">${icon("plus")}${L("Add rule", "添加规则")}</button><button class="btn ghost">${L("From template", "从模板添加")}</button></div>`;
 	},
-	version: () => {
+	version: (row, still) => {
 		const state = ui.updateState;
 		const right = {
 			idle: `<button class="btn">${L("Check for updates", "检查更新")}</button>`,
@@ -247,7 +252,7 @@ const controls = {
 			ready: `<button class="btn primary">${L("Restart to update", "重启以更新")}</button>`,
 			failed: `<span class="hint">${L("Couldn't check for updates.", "无法检查更新。")}</span><button class="btn">${L("Try again", "再试一次")}</button>`,
 		}[state];
-		return `<div class="group-card about-head"><div class="logo">F</div><div class="grow"><b style="font-weight:600">FrameEver · 帧刻</b><div class="hint">${L("Version", "版本")} 1.0.0</div></div>${right}</div>`;
+		return `<div class="group-card about-head"><div class="logo">F</div><div class="grow"><b style="font-weight:600">FrameEver · 帧刻</b>${still ? FE.doodle("UNDERLINE", { width: 110, still }) : drawOnce("UNDERLINE", 110)}<div class="hint">${L("Version", "版本")} 1.0.0</div></div>${right}</div>`;
 	},
 	changelog: () => `<div class="group-card"><div class="log-entry" style="border-top:0"><b>1.0.0</b> · ${L("First release of FrameEver.", "帧刻的第一个版本。")}</div><div class="log-entry"><button class="btn ghost">${L("All versions", "全部版本")}${icon("chevron-right")}</button></div></div>`,
 	credits: () => `<div class="hint">${L("Based on Cap (AGPL-3.0). Icons: Lucide (ISC), Tabler (MIT). Chinese font: HarmonyOS Sans by Huawei.", "基于 Cap（AGPL-3.0）。图标：Lucide（ISC）、Tabler（MIT）。中文字体：华为 HarmonyOS Sans。")}</div>`,
@@ -278,7 +283,7 @@ const matches = () => {
 };
 const resultList = () => {
 	const hits = matches();
-	if (hits.length === 0) return `<div class="empty">${L(`Nothing matches "${ui.search}"`, `没有匹配“${ui.search}”的设置`)}</div>`;
+	if (hits.length === 0) return `<div class="empty">${drawOnce("LENS", 76)}${L(`Nothing matches "${ui.search}"`, `没有匹配“${ui.search}”的设置`)}</div>`;
 	return `<div class="group-card">${hits.map(({ row, section, group }) => `<button class="result" data-jump="${row.k}"><span><b style="font-weight:500">${L(row.en, row.zh)}</b>${row.den ? `<small>${L(row.den, row.dzh)}</small>` : ""}</span><span class="where">${L(section.en, section.zh)}${group.en && group.en !== row.en ? ` › ${L(group.en, group.zh)}` : ""}</span></button>`).join("")}</div>`;
 };
 
@@ -410,6 +415,7 @@ const stateTabs = [
 	["update", "Update states", "更新状态"],
 	["folder", "Folder unavailable", "文件夹不可用"],
 	["nomatch", "No search results", "没有搜索结果"],
+	["norules", "No automations", "没有自动化"],
 ];
 const updateStates = [["idle", "Idle", "空闲"], ["checking", "Checking", "检查中"], ["latest", "Up to date", "已是最新"], ["downloading", "Downloading", "下载中"], ["ready", "Ready", "可重启"], ["failed", "Failed", "失败"]];
 const handleState = (target) => {
@@ -422,9 +428,10 @@ const handleState = (target) => {
 const renderStates = () => {
 	document.getElementById("state-tabs").innerHTML = stateTabs.map(([key, en, zh]) => `<button class="btn ${ui.stateTab === key ? "primary" : ""}" data-tab="${key}">${L(en, zh)}</button>`).join("");
 	const body = {
-		update: () => `<div class="win short" style="padding:14px"><div class="chips" style="margin-bottom:12px">${updateStates.map(([key, en, zh]) => `<button class="btn ${ui.updateState === key ? "primary" : "ghost"}" data-ustate="${key}">${L(en, zh)}</button>`).join("")}</div>${controls.version()}<p class="hint" style="margin:10px 0 0">${L("Ready also puts a count on About in the sidebar. Variant A shows it; the others show a badge on the matching row.", "就绪时侧栏“关于”上出现数字，方案 A 如此；其他方案在对应行显示徽标。")}</p></div>`,
+		update: () => `<div class="win short" style="padding:14px"><div class="chips" style="margin-bottom:12px">${updateStates.map(([key, en, zh]) => `<button class="btn ${ui.updateState === key ? "primary" : "ghost"}" data-ustate="${key}">${L(en, zh)}</button>`).join("")}</div>${controls.version(null, true)}<p class="hint" style="margin:10px 0 0">${L("Ready also puts a count on About in the sidebar. Variant A shows it; the others show a badge on the matching row.", "就绪时侧栏“关于”上出现数字，方案 A 如此；其他方案在对应行显示徽标。")}</p></div>`,
 		folder: () => `<div class="win short" style="padding:14px"><div class="group-card"><div class="row stack">${controls.folder(null, true)}</div></div></div>`,
-		nomatch: () => `<div class="win short" style="padding:14px"><div class="empty">${L('Nothing matches "wxyz"', "没有匹配“wxyz”的设置")}</div></div>`,
+		nomatch: () => `<div class="win short" style="padding:14px"><div class="empty">${FE.doodle("LENS", { width: 76 })}${L('Nothing matches "wxyz"', "没有匹配“wxyz”的设置")}</div></div>`,
+		norules: () => `<div class="win short" style="padding:14px"><div class="empty">${FE.doodle("FLOW", { width: 84 })}<div>${L("Rules you add appear here.", "你添加的规则会显示在这里。")}</div><button class="btn primary">${icon("plus")}${L("Add rule", "添加规则")}</button></div></div>`,
 	}[ui.stateTab]();
 	document.getElementById("state-stage").innerHTML = body;
 };

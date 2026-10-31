@@ -1,4 +1,4 @@
-const { L, icon, pick, shell, onChange, tokens } = FE;
+const { L, icon, doodle, pick, shell, onChange, tokens } = FE;
 
 const KIND = {
 	studio: { icon: "clapperboard", name: ["Studio", "工作室"], tab: ["Studio", "工作室"] },
@@ -43,21 +43,23 @@ const statusFilters = [
 	["compressed", "Has a compressed copy", "有压缩副本", (i) => Boolean(i.compressed)],
 	["compressedOnly", "Compressed copy only", "只剩压缩副本", (i) => Boolean(i.compressedOnly)],
 ];
-const sorts = [
-	["date", "Date", "日期"],
-	["name", "Name", "名称"],
-	["size", "Size", "大小"],
-	["duration", "Duration", "时长"],
-];
 const seconds = (item) => {
 	if (!item.dur) return 0;
 	const [m, s] = item.dur.split(":").map(Number);
 	return m * 60 + s;
 };
+const sorts = [
+	{ id: "date", name: ["Date", "日期"], first: -1, down: ["Newest first", "最新在前"], up: ["Oldest first", "最早在前"], order: (a, b) => b.id - a.id },
+	{ id: "name", name: ["Name", "名称"], first: 1, down: ["Z to A", "Z 到 A"], up: ["A to Z", "A 到 Z"], order: (a, b) => a.name.localeCompare(b.name) },
+	{ id: "size", name: ["Size", "大小"], first: -1, down: ["Largest first", "最大在前"], up: ["Smallest first", "最小在前"], order: (a, b) => a.mb - b.mb },
+	{ id: "duration", name: ["Duration", "时长"], first: -1, down: ["Longest first", "最长在前"], up: ["Shortest first", "最短在前"], order: (a, b) => seconds(a) - seconds(b) },
+];
+const sortBy = (id) => sorts.find((sort) => sort.id === id);
+const columns = [["name", "Name", "名称"], [null, "Type", "类型"], ["duration", "Duration", "时长"], ["size", "Size", "大小"], ["date", "Date", "日期"]];
 const defaults = () => ({
-	expanded: false, mode: "studio", target: "display", view: "grid", type: "all", query: "", status: [], sort: "date", tile: 150,
+	expanded: false, mode: "studio", target: "display", view: "grid", type: "all", query: "", status: [], sort: "date", dir: -1, tile: 150,
 	selected: [], anchor: null, preview: false, palette: null, dialog: null, toast: null, menu: null, context: null, recording: false,
-	items: ITEMS, unseen: 0, playing: false, anim: null,
+	items: ITEMS, unseen: 0, playing: false, anim: null, firstRun: false, firstLine: false,
 });
 
 class MainWindow {
@@ -65,6 +67,7 @@ class MainWindow {
 		this.host = host;
 		this.timing = timing;
 		this.s = { ...defaults(), ...initial };
+		this.drawn = new Set();
 		host.addEventListener("click", (e) => this.click(e));
 		host.addEventListener("dblclick", (e) => this.dblclick(e));
 		host.addEventListener("contextmenu", (e) => this.contextMenu(e));
@@ -79,8 +82,14 @@ class MainWindow {
 		this.render();
 	}
 
+	doodle(name, width, key = name) {
+		const still = this.drawn.has(key);
+		this.drawn.add(key);
+		return doodle(name, { width, still });
+	}
+
 	visible() {
-		const { items, type, query, status, sort } = this.s;
+		const { items, type, query, status, sort, dir } = this.s;
 		const needle = query.trim().toLowerCase();
 		const filters = statusFilters.filter(([id]) => status.includes(id));
 		const list = items.filter((item) => {
@@ -88,10 +97,8 @@ class MainWindow {
 			if (needle && !`${item.name} ${item.exports.map((x) => x.file).join(" ")}`.toLowerCase().includes(needle)) return false;
 			return filters.length === 0 || filters.some(([, , , test]) => test(item));
 		});
-		if (sort === "name") return [...list].sort((a, b) => a.name.localeCompare(b.name));
-		if (sort === "size") return [...list].sort((a, b) => b.mb - a.mb);
-		if (sort === "duration") return [...list].sort((a, b) => seconds(b) - seconds(a));
-		return list;
+		const { order } = sortBy(sort);
+		return [...list].sort((a, b) => dir * order(a, b));
 	}
 
 	selectedItems() {
@@ -108,11 +115,11 @@ class MainWindow {
 	}
 
 	recording() {
-		const { mode, target, items, unseen } = this.s;
+		const { mode, target, items, unseen, firstRun } = this.s;
 		const shot = mode === "screenshot";
 		const startLabel = shot ? L("Take screenshot", "截图") : L("Start recording", "开始录制");
 		const targets = [["display", "monitor", "Display", "显示器"], ["window", "app-window", "Window", "窗口"], ["area", "box-select", "Area", "区域"]];
-		const foot = `<button class="btn ghost icon" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings")}</button><span class="grow tnum">${L(`${items.length} items`, `${items.length} 项`)}</span><button class="btn ghost" data-a="expand">${L("Library", "资源库")}${unseen ? `<span class="badge klein">${unseen}</span>` : ""}${icon("chevron-right")}</button>`;
+		const foot = `<button class="btn ghost icon" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings")}</button>${firstRun ? `<span class="grow first-hint">${L("Your recordings are here", "录好的内容都在这里")}<span class="hint-arrow">${this.doodle("UP_ARROW", 26)}</span></span>` : `<span class="grow tnum">${L(`${items.length} items`, `${items.length} 项`)}</span>`}<button class="btn ghost" data-a="expand">${L("Library", "资源库")}${unseen ? `<span class="badge klein">${unseen}</span>` : ""}${icon("chevron-right")}</button>`;
 		return `<div class="rec"><div class="rec-main">
 			<div class="seg block">${Object.entries(KIND).map(([id, k]) => `<button class="${mode === id ? "on" : ""}" data-a="mode" data-v="${id}">${icon(k.icon, "sm")}${L(...k.name)}</button>`).join("")}</div>
 			<div class="targets">${targets.map(([id, ic, en, zh]) => `<button class="${target === id ? "on" : ""}" data-a="target" data-v="${id}">${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}</div>
@@ -124,17 +131,19 @@ class MainWindow {
 	}
 
 	toolbar() {
-		const { type, query, status, sort, view, menu, items } = this.s;
+		const { type, query, status, sort, dir, view, menu, items } = this.s;
 		const count = (kind) => (kind === "all" ? items.length : items.filter((i) => i.kind === kind).length);
 		const tabs = [["all", "All", "全部"], ...Object.entries(KIND).map(([id, k]) => [id, ...k.tab])];
 		const statusMenu = menu === "status" ? `<div class="menu">${statusFilters.map(([id, en, zh, test]) => `<button data-a="status" data-v="${id}"><span class="check ${status.includes(id) ? "on" : ""}">${icon("check", "sm")}</span><span class="grow">${L(en, zh)}</span><span class="tnum">${items.filter(test).length}</span></button>`).join("")}</div>` : "";
-		const sortMenu = menu === "sort" ? `<div class="menu">${sorts.map(([id, en, zh]) => `<button data-a="sort" data-v="${id}"><span class="grow">${L(en, zh)}</span>${sort === id ? icon("check", "sm") : ""}</button>`).join("")}</div>` : "";
+		const sorted = sortBy(sort);
+		const directions = [[sorted.first, sorted.first === 1 ? sorted.up : sorted.down], [-sorted.first, sorted.first === 1 ? sorted.down : sorted.up]];
+		const sortMenu = menu === "sort" ? `<div class="menu">${sorts.map((s) => `<button data-a="sort" data-v="${s.id}"><span class="grow">${L(...s.name)}</span>${sort === s.id ? icon("check", "sm") : ""}</button>`).join("")}<hr>${directions.map(([value, label]) => `<button data-a="dir" data-v="${value}"><span class="grow">${L(...label)}</span>${dir === value ? icon("check", "sm") : ""}</button>`).join("")}</div>` : "";
 		return `<div class="toolbar">
 			<div class="seg">${tabs.map(([id, en, zh]) => `<button class="${type === id ? "on" : ""}" data-a="type" data-v="${id}">${L(en, zh)} <em class="tnum">${count(id)}</em></button>`).join("")}</div>
 			<div class="pop-anchor"><button class="btn ghost" data-a="menu" data-v="status">${icon("list-filter")}${L("Status", "状态")}${status.length ? `<span class="badge klein">${status.length}</span>` : ""}</button>${statusMenu}</div>
 			<span class="spacer"></span>
 			<label class="input">${icon("search")}<input data-keep="search" value="${query}" placeholder="${pick("Search", "搜索")}" data-ph-en="Search" data-ph-zh="搜索"></label>
-			<div class="pop-anchor end"><button class="btn ghost icon" data-a="menu" data-v="sort" title="${pick("Sort", "排序")}">${icon("arrow-down-wide-narrow")}</button>${sortMenu}</div>
+			<div class="pop-anchor end"><button class="btn ghost icon" data-a="menu" data-v="sort" title="${pick("Sort", "排序")}">${icon(dir === 1 ? "arrow-up-wide-narrow" : "arrow-down-wide-narrow")}</button>${sortMenu}</div>
 			<div class="seg"><button class="${view === "grid" ? "on" : ""}" data-a="view" data-v="grid" title="${pick("Grid", "网格")}  Ctrl+1">${icon("layout-grid", "sm")}</button><button class="${view === "list" ? "on" : ""}" data-a="view" data-v="list" title="${pick("List", "列表")}  Ctrl+2">${icon("list", "sm")}</button></div>
 		</div>`;
 	}
@@ -149,7 +158,7 @@ class MainWindow {
 		const on = this.s.selected.includes(item.id);
 		const k = KIND[item.kind];
 		return `<div class="tile ${on ? "on" : ""} ${item.fresh ? "fresh" : ""}" data-a="item" data-id="${item.id}">
-			<span class="thumb">${art(item.art)}<span class="corner tl">${icon(k.icon, "sm")}</span>${item.exports.length ? `<span class="corner tr" title="${pick("Exported", "已导出")}">${icon("check", "sm")}</span>` : ""}${item.dur ? `<span class="corner br tnum">${item.dur}</span>` : ""}${item.kind === "screenshot" ? "" : '<span class="scrub"></span>'}</span>
+			<span class="thumb">${art(item.art)}<span class="corner tl">${icon(k.icon, "sm")}</span>${item.exports.length ? `<span class="corner tr" title="${pick("Exported", "已导出")}">${icon("check", "sm")}</span>` : ""}${item.dur ? `<span class="corner br tnum">${item.dur}</span>` : ""}${item.kind === "screenshot" ? "" : '<span class="scrub"></span>'}${item.fresh ? `<span class="tick-mark">${this.doodle("TICK", 20, `tick-${item.id}`)}</span>` : ""}</span>
 			<span class="name">${item.name}</span>
 			<span class="meta tnum">${L(`${k.name[0]} · ${item.size}`, `${k.name[1]} · ${item.size}`)}</span>
 		</div>`;
@@ -161,15 +170,18 @@ class MainWindow {
 	}
 
 	items() {
-		const { view, sort, items, query, status, type } = this.s;
+		const { view, sort, dir, items, query, status, type, firstLine } = this.s;
 		const list = this.visible();
-		if (items.length === 0) return `<div class="empty"><span class="empty-mark"></span><div>${L("Recordings you make appear here.", "你录制的内容会显示在这里。")}</div><button class="btn primary" data-a="start">${L("Start recording", "开始录制")}</button></div>`;
-		if (list.length === 0 && (query || status.length || type !== "all")) return `<div class="empty"><div>${L("No matching items", "没有匹配的条目")}</div><button class="btn" data-a="clear-filters">${L("Clear filters", "清除筛选")}</button></div>`;
+		if (items.length === 0) return `<div class="empty">${this.doodle("FRAME", 96)}<div>${L("Recordings you make appear here.", "你录制的内容会显示在这里。")}</div><button class="btn primary" data-a="start">${L("Start recording", "开始录制")}</button><span class="keys">${kbd("Ctrl", "Shift", "R")}</span></div>`;
+		if (list.length === 0 && (query || status.length || type !== "all")) return `<div class="empty">${this.doodle("LENS", 76)}<div>${L("No matching items", "没有匹配的条目")}</div><button class="btn" data-a="clear-filters">${L("Clear filters", "清除筛选")}</button></div>`;
 		if (view === "list") {
-			return `<div class="table"><div class="table-head"><span>${L("Name", "名称")}</span><span>${L("Type", "类型")}</span><span>${L("Duration", "时长")}</span><span>${L("Size", "大小")}</span><span>${L("Date", "日期")}</span></div>${list.map((item) => this.row(item)).join("")}</div>`;
+			const head = columns.map(([id, en, zh]) => (id ? `<button class="col ${sort === id ? "on" : ""}" data-a="column" data-v="${id}">${L(en, zh)}${sort === id ? icon(dir === 1 ? "chevron-up" : "chevron-down", "sm") : ""}</button>` : `<span>${L(en, zh)}</span>`)).join("");
+			return `<div class="table"><div class="table-head">${head}</div>${list.map((item) => this.row(item)).join("")}</div>`;
 		}
-		if (sort !== "date") return `<div class="group-title"></div><div class="grid">${list.map((item) => this.tile(item)).join("")}</div>`;
-		return Object.keys(GROUP)
+		const line = firstLine ? `<div class="first-line">${L("Your recordings stay on this computer.", "录制都留在这台电脑上。")}</div>` : "";
+		if (sort !== "date") return `${line}<div class="group-title"></div><div class="grid">${list.map((item) => this.tile(item)).join("")}</div>`;
+		const groups = Object.keys(GROUP);
+		return line + (dir === 1 ? groups.reverse() : groups)
 			.filter((g) => list.some((item) => item.group === g))
 			.map((g) => `<div class="group-title">${L(...GROUP[g])}</div><div class="grid">${list.filter((item) => item.group === g).map((item) => this.tile(item)).join("")}</div>`)
 			.join("");
@@ -182,7 +194,7 @@ class MainWindow {
 		const size = total >= 1000 ? `${(total / 1000).toFixed(1)} GB` : `${Math.round(total)} MB`;
 		const pct = ((tile - 120) / 160) * 100;
 		const slider = view === "grid" && items.length ? `<div class="slider" data-a="tile" title="Ctrl + ${pick("scroll", "滚轮")}"><i></i><b style="width:${pct}%"></b><u style="left:${pct}%"></u></div>` : "";
-		return `<div class="status-bar tnum"><span>${L(`${list.length} items · ${size}`, `${list.length} 项 · ${size}`)}</span><span class="spacer"></span>${slider}</div>`;
+		return `<div class="status-bar tnum"><span>${L(`${list.length} ${list.length === 1 ? "item" : "items"} · ${size}`, `${list.length} 项 · ${size}`)}</span><span class="spacer"></span>${slider}</div>`;
 	}
 
 	detail() {
@@ -382,7 +394,7 @@ class MainWindow {
 	}
 
 	expand() {
-		this.set({ expanded: true, unseen: 0, anim: this.timing.calm ? "calm-in" : "in", palette: null });
+		this.set({ expanded: true, unseen: 0, firstRun: false, anim: this.timing.calm ? "calm-in" : "in", palette: null });
 	}
 
 	collapse() {
@@ -444,7 +456,9 @@ class MainWindow {
 				const { status } = this.s;
 				return this.set({ status: status.includes(v) ? status.filter((x) => x !== v) : [...status, v] });
 			}
-			case "sort": return this.set({ sort: v, menu: null });
+			case "sort": return this.set({ sort: v, dir: sortBy(v).first, menu: null });
+			case "dir": return this.set({ dir: Number(v), menu: null });
+			case "column": return this.set({ sort: v, dir: this.s.sort === v ? -this.s.dir : sortBy(v).first, ...close });
 			case "clear-filters": return this.set({ status: [], query: "", type: "all", ...close });
 			case "clear-selection": return this.set({ selected: [], ...close });
 			case "item": return this.choose(Number(el.dataset.id), e);
@@ -578,7 +592,7 @@ class MainWindow {
 			e.preventDefault();
 			return this.set({ selected: this.visible().map((item) => item.id) });
 		}
-		if (e.key === " ") {
+		if (e.key === " " && e.target.tagName !== "BUTTON") {
 			e.preventDefault();
 			if (s.selected.length) this.set({ preview: !s.preview });
 		}
@@ -618,7 +632,8 @@ const deleteDialog = (item, count, choice, live) => {
 
 const titles = {
 	live: ["Try it", "试一试", "One window, working. It starts compact and only records. Library turns the same window into the library, and “Record” at the top left goes back. Click, Ctrl- and Shift-click tiles; arrows, Enter, Space, Delete, Ctrl+K, Ctrl+L, Ctrl+1/2, Ctrl+F and Esc all work once the window has focus.", "一个能用的窗口。启动时是紧凑态，只负责录制；点“资源库”，同一个窗口变成资源库；左上角的“录制”回来。单击、Ctrl 或 Shift 点击图块；窗口获得焦点后，方向键、Enter、Space、Delete、Ctrl+K、Ctrl+L、Ctrl+1/2、Ctrl+F 和 Esc 都可以用。"],
-	states: ["Library states", "资源库的各种状态", "Each tab opens the expanded window in one state, and each is still interactive. Compressed copies apply to Instant only; exports show inside their project, never as their own tile.", "每个标签打开展开态的一种状态，都可以继续操作。压缩副本只用于 Instant 录制；导出显示在所属项目里，不单独成卡片。"],
+	states: ["Library states", "资源库的各种状态", "Each tab opens the expanded window in one state, and each is still interactive. Compressed copies apply to Instant only; exports show inside their project, never as their own tile. Sort by date, name, size or duration, either way round, from the sort menu. In the list, click a column to sort by it and again to reverse it; type has the tabs instead. A new sort starts newest, A to Z, largest or longest first, and the sort survives a restart. Only date sorting groups by date.", "每个标签打开展开态的一种状态，都可以继续操作。压缩副本只用于 Instant 录制；导出显示在所属项目里，不单独成卡片。排序菜单可按日期、名称、大小或时长排序，升序降序都行。列表里点列头按这一列排序，再点一次反过来；类型用上面的分段筛选，不排序。换排序依据时默认最新、A 到 Z、最大或最长在前，排序跨启动记住。只有按日期排序时才分组。"],
+	hand: ["Hand-drawn touches", "手绘点缀", "Each is drawn once, then holds still, and only one shows in a window. The arrow sits in the compact window's footer beside the Library button, in place of the item count, until the library is first opened. The first recording adds one line, which goes away by itself. Every new recording gets a tick on its card while the card is highlighted. The empty library and no matches are in Library states; settings and the editor have their own on their pages.", "每处只画一次，然后静止，一个窗口同时只有一处。箭头放在紧凑窗口底部、“资源库”按钮旁边，占掉条目数量的位置，第一次打开资源库后消失。第一次录制完成多一句话，它会自己消失。每次录制完成，新卡片高亮时画一个勾。资源库为空和无匹配在“资源库状态”里；设置和编辑器的在各自页面上。"],
 	transition: ["Expanding and collapsing", "展开和收回", "The window frame never animates: it snaps once and only the content moves (Fluent's container transform). The top-left corner stays put and the library fills the whole window. Near a screen edge the whole window is pushed back inside the work area with a 12 px margin.", "窗口外框不做动画，只跳一次，动的是内容（Fluent 的容器变形）。左上角不动，资源库占满整个窗口；超出工作区时整体推回，四边留 12 px。"],
 	palette: ["Command palette", "命令面板", "Ctrl+K in the main window, editor and screenshot editor. It finds commands, settings and projects, filtered by context. Prefixes become a chip in the input; Backspace removes it. No blur behind it, and it never expands the compact window.", "主窗口、编辑器、截图编辑器里按 Ctrl+K 打开。查找命令、设置和项目，按上下文过滤。前缀输入后变成输入框里的标签块，退格删除。背后不模糊，紧凑态不触发展开。"],
 	delete: ["Delete and undo", "删除和撤销", "Deletes go to the Recycle Bin and show Undo for 8 seconds. Exports are never touched. Delete opens the dialog; Shift+Delete skips it. Only Instant recordings with a compressed copy get the three-way choice.", "删除都进回收站，Toast 带“撤销”，留 8 秒。导出文件永远保留。Delete 打开弹框，Shift+Delete 跳过弹框。只有带压缩副本的 Instant 录制才有三选一。"],
@@ -630,7 +645,7 @@ for (const [key, [en, zh, leadEn, leadZh]] of Object.entries(titles)) {
 }
 
 shell({ here: "main-window-library", depth: 1, sections: [
-	["live", "Try it", "试一试"], ["states", "Library states", "资源库状态"], ["transition", "Expand and collapse", "展开和收回"], ["palette", "Command palette", "命令面板"], ["delete", "Delete", "删除"], ["keys", "Keyboard", "键盘"],
+	["live", "Try it", "试一试"], ["states", "Library states", "资源库状态"], ["hand", "Hand-drawn", "手绘"], ["transition", "Expand and collapse", "展开和收回"], ["palette", "Command palette", "命令面板"], ["delete", "Delete", "删除"], ["keys", "Keyboard", "键盘"],
 ] });
 
 const live = new MainWindow(document.getElementById("live-stage"), { unseen: 2 });
@@ -654,6 +669,7 @@ const presets = {
 	instant: { selected: [2], anchor: 2 },
 	none: {},
 	batch: { selected: [1, 2, 5, 7], anchor: 7 },
+	sort: { sort: "name", dir: 1, menu: "sort" },
 	list: { view: "list", selected: [4], anchor: 4 },
 	filtered: { status: ["exported"], selected: [1], anchor: 1 },
 	none_match: { query: "zzz" },
@@ -668,8 +684,24 @@ const showState = (key) => {
 	stateHost.append(host);
 	stateWindow = new MainWindow(host, { expanded: true, ...presets[key] });
 };
-tabRow("state-tabs", [["project", "Studio selected", "选中工作室项目"], ["instant", "Instant with a copy", "带压缩副本的即时录制"], ["none", "Nothing selected", "无选中"], ["batch", "Several selected", "批量"], ["list", "List", "列表"], ["filtered", "Filtered", "筛选"], ["none_match", "No matches", "无匹配"], ["empty", "Empty", "空状态"], ["preview", "Space preview", "空格预览"]], showState);
+tabRow("state-tabs", [["project", "Studio selected", "选中工作室项目"], ["instant", "Instant with a copy", "带压缩副本的即时录制"], ["none", "Nothing selected", "无选中"], ["batch", "Several selected", "批量"], ["sort", "Sort menu", "排序菜单"], ["list", "List", "列表"], ["filtered", "Filtered", "筛选"], ["none_match", "No matches", "无匹配"], ["empty", "Empty", "空状态"], ["preview", "Space preview", "空格预览"]], showState);
 showState("project");
+
+const fresh = { ...ITEMS[0], fresh: true, exports: [] };
+const handPresets = {
+	hint: { firstRun: true, items: [] },
+	first: { expanded: true, firstLine: true, items: [fresh], selected: [1], anchor: 1 },
+	every: { expanded: true, items: [fresh, ...ITEMS.slice(1)], selected: [1], anchor: 1 },
+};
+const handHost = document.getElementById("hand-stage");
+const showHand = (key) => {
+	handHost.replaceChildren();
+	const host = document.createElement("div");
+	handHost.append(host);
+	new MainWindow(host, handPresets[key]);
+};
+tabRow("hand-tabs", [["hint", "First run", "第一次使用"], ["first", "First recording", "第一次录制完成"], ["every", "Every recording", "每次录制完成"]], showHand);
+showHand("hint");
 
 document.getElementById("transition-steps").innerHTML = [
 	["Hide content", "先藏内容", "The library isn't drawn yet.", "资源库先不画。"],

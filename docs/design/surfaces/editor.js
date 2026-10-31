@@ -172,7 +172,7 @@ const TRACKS = [
 ];
 
 const S = {
-	variant: "A", tab: "background", sel: null, view: "edit", exStage: "form",
+	variant: "A", tab: "background", sel: null, view: "edit", exStage: "form", exDrawn: false, noClips: false,
 	menu: null, dialog: null, playing: false, t: 48, split: false, display: null, v: {}, shut: {}, shown: new Set(["video", "zoom", "captions", "text", "audio"]),
 	zoom: 1, quality: 1, aspect: 0, preset: 0,
 	ex: { dest: 0, format: 0, codec: 0, res: 1, fps: 1, quality: 3, optimize: false, adv: false, cursor: false, bpp: false },
@@ -336,7 +336,7 @@ const wave = (width = 900) => {
 	return `<svg class="wave" viewBox="0 0 ${width} 16" preserveAspectRatio="none" aria-hidden="true">${bars.join("")}</svg>`;
 };
 const laneSegs = (t) =>
-	t.segs
+	t.id === "video" && S.noClips ? `<div class="lane-empty">${FE.doodle("TICK", { width: 22, still: true })}${L("No clips yet", "还没有片段")}</div>` : t.segs
 		.map((seg, i) => {
 			const on = S.sel && S.sel.track === t.id && S.sel.i === i;
 			const tiny = (seg.e - seg.s) / TOTAL < 0.03;
@@ -419,13 +419,15 @@ const stats = (two) => {
 	</div>`;
 };
 const exportStateBody = () => {
+	const still = S.exDrawn;
+	S.exDrawn = S.exStage === "done";
 	switch (S.exStage) {
 		case "progress":
 			return `<div class="ex-state"><h4>${L("Rendering video", "正在渲染视频")}</h4><div class="progress"><i id="ex-bar" style="width:${S.exPct ?? 34}%"></i></div><p class="tnum">3,204 / 13,320 ${L("frames", "帧")}</p><div class="acts"><button class="ex-sec" data-act="exst" data-v="cancel">${L("Cancel", "取消")}</button></div></div>`;
 		case "cancel":
 			return `<div class="ex-state"><h4>${L("Cancel export?", "取消导出？")}</h4><p>${L("The frames rendered so far are discarded.", "已渲染的帧会被丢弃。")}</p><div class="acts"><button class="ex-sec" data-act="exst" data-v="progress">${L("Keep exporting", "继续导出")}</button><button class="btn danger" data-act="exst" data-v="form">${L("Cancel export", "取消导出")}</button></div></div>`;
 		case "done":
-			return `<div class="ex-state"><span class="done-bar"></span><h4>${L("Export complete", "导出完成")}</h4><p>Product demo.mp4 · 64 MB</p><div class="acts"><button class="ex-sec" data-act="close-export">${L("Back to editor", "返回编辑器")}</button><button class="ex-cta" style="flex:none;padding:0 14px">${L("Open file", "打开文件")}</button></div></div>`;
+			return `<div class="ex-state"><span class="done-bar"></span>${FE.doodle("ALL_SET", { width: 72, still })}<h4>${L("Export complete", "导出完成")}</h4><p>Product demo.mp4 · 64 MB</p><div class="acts"><button class="ex-sec" data-act="close-export">${L("Back to editor", "返回编辑器")}</button><button class="ex-cta" style="flex:none;padding:0 14px">${L("Open file", "打开文件")}</button></div></div>`;
 		case "failed":
 			return `<div class="ex-state">${icon("triangle-alert", "big bad")}<h4>${L("Couldn't finish the export", "导出没有完成")}</h4><p>${L("The disk is full. Free up some space, then export again.", "磁盘已满。腾出一些空间后再导出。")}</p><div class="acts"><button class="ex-sec">${L("Details", "详情")}</button><button class="ex-cta" style="flex:none;padding:0 14px" data-act="exst" data-v="form">${L("Back to export", "返回导出")}</button></div></div>`;
 		default:
@@ -469,6 +471,7 @@ const renderViewRow = () => {
 	const stateOpts = [["form", "Options", "选项"], ["progress", "Progress", "进度"], ["cancel", "Cancel", "取消"], ["done", "Done", "完成"], ["failed", "Failed", "失败"]];
 	document.getElementById("view-row").innerHTML = `
 		<div class="seg">${[["fit", "Whole window", "整窗"], ["stacked", "Phone detail", "手机细看"]].map(([v, en, zh]) => `<button class="${display() === v ? "on" : ""}" data-pact="display" data-v="${v}">${L(en, zh)}</button>`).join("")}</div>
+		${S.view === "export" ? "" : `<div class="seg">${[[false, "With clips", "有片段"], [true, "No clips yet", "还没有片段"]].map(([v, en, zh]) => `<button class="${S.noClips === v ? "on" : ""}" data-pact="clips" data-v="${v}">${L(en, zh)}</button>`).join("")}</div>`}
 		${S.view === "export" ? `<div class="seg">${stateOpts.map(([v, en, zh]) => `<button class="${S.exStage === v ? "on" : ""}" data-pact="exst" data-v="${v}">${L(en, zh)}</button>`).join("")}</div>` : ""}`;
 };
 const fit = () => {
@@ -655,6 +658,7 @@ const pact = (el) => {
 	const d = el.dataset;
 	if (d.pact === "display") S.display = d.v;
 	if (d.pact === "exst") setStage(d.v);
+	if (d.pact === "clips") S.noClips = d.v === "true";
 	render();
 };
 

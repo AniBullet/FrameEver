@@ -696,6 +696,74 @@ td.dim {
 	color: var(--danger-text);
 }
 
+.doodle {
+	display: block;
+	overflow: visible;
+	flex: none;
+}
+
+.doodle path {
+	animation: var(--time) cubic-bezier(0.33, 1, 0.68, 1) var(--delay) both;
+	transform-box: fill-box;
+	transform-origin: center;
+}
+
+.doodle .draw {
+	stroke-dasharray: 1 2;
+	animation-name: doodle-draw;
+}
+
+.doodle .fade {
+	animation-name: doodle-fade;
+}
+
+.doodle .pop {
+	animation-name: doodle-pop;
+}
+
+.doodle.still path {
+	animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.doodle path {
+		animation: none;
+	}
+}
+
+@keyframes doodle-draw {
+	from {
+		stroke-dashoffset: 1;
+		opacity: 0;
+	}
+	1% {
+		opacity: 1;
+	}
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+
+@keyframes doodle-fade {
+	from {
+		opacity: 0;
+	}
+}
+
+@keyframes doodle-pop {
+	from {
+		opacity: 0;
+		transform: scale(0.2);
+	}
+	60% {
+		opacity: 1;
+		transform: scale(1.2);
+	}
+	to {
+		transform: scale(1);
+	}
+}
+
 .menu hr {
 	border: 0;
 	border-top: 1px solid var(--border);

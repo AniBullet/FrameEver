@@ -9,7 +9,7 @@ The single visual source of truth for FrameEver's UI. Open `index.html` by doubl
 | `tokens.json` | The one source for every token: brand ramps, semantic and component layers, type, space, radius, size, motion |
 | `tokens.css`, `tokens.js` | Generated from `tokens.json` by `pnpm fe design`. Never edit them by hand; a script test fails when they drift |
 | `design.css` | Component styles shared by every page |
-| `design.js` | The page shell (navigation and toggles) and token helpers |
+| `design.js` | The page shell (navigation and toggles), token helpers and the hand-drawn doodles (`FE.doodle`) |
 | `icons.js` | The Lucide glyphs these pages use |
 | `index.html` | Tokens and components |
 | `surfaces/<surface>.html` | One page per surface, with its own `.css` and `.js` when it needs them |

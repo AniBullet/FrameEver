@@ -677,6 +677,10 @@ main {
 }
 
 .empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
 	padding: 40px 0;
 	text-align: center;
 	color: var(--muted-foreground);
