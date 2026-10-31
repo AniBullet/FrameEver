@@ -89,6 +89,7 @@ const DESIGN_PAGES = [
   { key: 'design-tray', label: '托盘', path: 'docs\\design\\surfaces\\tray.html' },
   { key: 'design-camera', label: '摄像头和提词器', path: 'docs\\design\\surfaces\\camera-teleprompter.html' },
   { key: 'design-installer', label: '安装器', path: 'docs\\design\\surfaces\\installer.html' },
+  { key: 'design-converter', label: 'Converter', path: 'docs\\design\\surfaces\\converter.html' },
 ]
 
 const LANGUAGES: { value: AppLanguage; label: string }[] = [

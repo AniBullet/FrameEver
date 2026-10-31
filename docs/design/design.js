@@ -12,7 +12,7 @@ window.FE = (() => {
 		["area-picker", "Area picker and countdown", "区域选择和倒计时", true],
 		["tray", "Tray", "托盘", true],
 		["camera-teleprompter", "Camera and teleprompter", "摄像头和提词器", true],
-		["converter", "FrameEver Converter", "FrameEver Converter", false],
+		["converter", "FrameEver Converter", "FrameEver Converter", true],
 		["installer", "Installer", "安装器", true],
 	];
 	const state = { ...defaults, at: "" };

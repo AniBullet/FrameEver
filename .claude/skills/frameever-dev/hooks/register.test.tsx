@@ -39,6 +39,7 @@ test('the pane draws every group of buttons on every surface', async ($, on) => 
       'design-index',
       'design-tray',
       'design-installer',
+      'design-converter',
     ]) {
       expect(await ui.find({ type: 'Button', key })).toBeTruthy()
     }
