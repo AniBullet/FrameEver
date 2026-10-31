@@ -1,0 +1,267 @@
+.tools {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 16px;
+	margin-bottom: 12px;
+}
+
+.tool {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: var(--text-small);
+	color: var(--muted-foreground);
+}
+
+.tool .seg {
+	flex-wrap: wrap;
+}
+
+.stage {
+	position: relative;
+	height: 580px;
+	overflow: hidden;
+	border-radius: var(--radius-lg);
+}
+
+.stage.win-dark {
+	background: #4a4a4a;
+}
+
+.stage.win-light {
+	background: #c9c9c9;
+}
+
+.taskbar {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 48px;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 10px;
+	padding: 0 12px;
+	font: 12px "Segoe UI", system-ui, sans-serif;
+}
+
+.win-dark .taskbar {
+	background: #1f1f1f;
+	color: #fff;
+}
+
+.win-light .taskbar {
+	background: #f3f3f3;
+	color: #1b1b1b;
+}
+
+.taskbar button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	cursor: pointer;
+}
+
+.win-dark .taskbar button:hover {
+	background: #383838;
+}
+
+.win-light .taskbar button:hover {
+	background: #e4e4e4;
+}
+
+.clock {
+	text-align: right;
+	line-height: 16px;
+}
+
+.anchor {
+	position: absolute;
+	right: 12px;
+	bottom: 60px;
+	display: flex;
+	align-items: flex-end;
+	gap: 4px;
+	max-width: calc(100% - 24px);
+}
+
+.tm {
+	width: 280px;
+}
+
+.tm .bold {
+	font-weight: 600;
+}
+
+.tm .status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: var(--row);
+	padding: 0 10px;
+	font-weight: 500;
+}
+
+.tm .pad {
+	padding: 4px 6px;
+}
+
+.tm .pad .seg {
+	display: flex;
+	width: 100%;
+}
+
+.tm .pad .seg button {
+	flex: 1;
+	justify-content: center;
+	width: auto;
+	height: 28px;
+}
+
+.tm .chev {
+	margin-left: auto;
+	color: var(--muted-foreground);
+}
+
+.tm .ver {
+	margin-left: auto;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+
+.tm .bar {
+	padding: 0 10px 8px;
+}
+
+.dot {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--recording);
+}
+
+.dot.amber {
+	background: var(--warning);
+}
+
+.thumb {
+	flex: none;
+	width: 40px;
+	height: 24px;
+	border-radius: var(--radius-xs);
+	background: var(--preview);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--muted-foreground);
+}
+
+.clicks {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.state-line {
+	min-height: 20px;
+	margin: 8px 0 0;
+	color: var(--muted-foreground);
+}
+
+.icon-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 12px;
+}
+
+.icon-card {
+	padding: 12px;
+	border-radius: var(--radius-lg);
+	background: var(--card);
+}
+
+.icon-card h3 {
+	margin: 0 0 8px;
+	font-size: var(--text-body);
+	font-weight: 600;
+}
+
+.icon-card p {
+	margin: 8px 0 0;
+	font-size: var(--text-small);
+	color: var(--muted-foreground);
+}
+
+.icon-bar {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 10px;
+	margin-bottom: 4px;
+	border-radius: var(--radius-xs);
+}
+
+.icon-bar.dark {
+	background: #1f1f1f;
+}
+
+.icon-bar.light {
+	background: #f3f3f3;
+}
+
+.inv-wrap {
+	overflow-x: auto;
+	border-radius: var(--radius-lg);
+	background: var(--card);
+}
+
+.inv {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--text-small);
+}
+
+.inv th,
+.inv td {
+	padding: 8px 12px;
+	text-align: left;
+	vertical-align: top;
+}
+
+.inv tr + tr th,
+.inv tr + tr td {
+	border-top: 1px solid var(--border);
+}
+
+.inv thead th {
+	font-weight: 600;
+	color: var(--muted-foreground);
+}
+
+.inv a {
+	color: var(--link);
+}
+
+@media (max-width: 640px) {
+	.anchor {
+		flex-direction: column-reverse;
+		align-items: flex-end;
+	}
+
+	.anchor.sub-open > :last-child {
+		display: none;
+	}
+}
+
+.tm button.hover {
+	background: var(--accent);
+}
