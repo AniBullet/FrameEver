@@ -250,7 +250,7 @@ impl OnboardingWindow {
             poll: None,
             verify: None,
             refresh: None,
-            animated: window.is_window_active(),
+            animated: animates(window, cx),
             welcome,
             welcome_exiting: false,
             welcome_exit: None,
@@ -273,8 +273,8 @@ impl OnboardingWindow {
             step_at: std::time::Instant::now(),
         };
         cx.observe_window_activation(window, |this: &mut Self, window, cx| {
-            this.animated = window.is_window_active();
-            if this.animated {
+            this.animated = animates(window, cx);
+            if window.is_window_active() {
                 if this.permissions_visible() {
                     this.refresh_permissions(window, cx);
                 }
@@ -447,8 +447,13 @@ impl OnboardingWindow {
         self.step_delay = WELCOME_REVEAL_DELAY;
         self.transition_direction = 1.;
         cx.notify();
+        let exit = if cx.reduce_motion() {
+            Duration::ZERO
+        } else {
+            WELCOME_EXIT
+        };
         self.welcome_exit = Some(cx.spawn_in(window, async move |this, cx| {
-            cx.background_executor().timer(WELCOME_EXIT).await;
+            cx.background_executor().timer(exit).await;
             this.update_in(cx, |this, window, cx| {
                 this.welcome = false;
                 this.welcome_exiting = false;
@@ -551,7 +556,7 @@ impl OnboardingWindow {
 
     fn arm_demo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.welcome
-            || !window.is_window_active()
+            || !animates(window, cx)
             || self.demo_task.is_some()
             || self.chosen_mode.is_some()
         {
@@ -571,7 +576,7 @@ impl OnboardingWindow {
                     previous = at;
                     let current = this
                         .update_in(cx, |this, window, cx| {
-                            if this.welcome || this.step != step || !window.is_window_active() {
+                            if this.welcome || this.step != step || !animates(window, cx) {
                                 this.demo_task = None;
                                 return false;
                             }
@@ -589,7 +594,7 @@ impl OnboardingWindow {
                     .await;
                 let current = this
                     .update_in(cx, |this, window, cx| {
-                        if this.welcome || this.step != step || !window.is_window_active() {
+                        if this.welcome || this.step != step || !animates(window, cx) {
                             this.demo_task = None;
                             return false;
                         }
@@ -744,6 +749,10 @@ fn copy(text: impl Into<SharedString>, size: f32, color: impl Into<Hsla>) -> Div
 
 fn glyph(path: &'static str, size: f32, color: impl Into<Hsla>) -> gpui::Svg {
     svg().path(path).size(px(size)).text_color(color.into())
+}
+
+fn animates(window: &Window, cx: &gpui::App) -> bool {
+    window.is_window_active() && !cx.reduce_motion()
 }
 
 fn ease(value: f32) -> f32 {
@@ -2271,6 +2280,20 @@ impl OnboardingWindow {
 impl Render for OnboardingWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.theme = Theme::for_window(window, cx, true);
+        let animated = animates(window, cx);
+        if animated != self.animated {
+            self.animated = animated;
+            if animated {
+                self.arm_demo(window, cx);
+            } else {
+                self.demo_task = None;
+            }
+        }
+        if cx.reduce_motion()
+            && let Some((timings, _)) = self.step.demo_timing()
+        {
+            self.demo_phase = timings.len();
+        }
         if self.permissions_visible() {
             self.sync_stage(window, cx);
         }

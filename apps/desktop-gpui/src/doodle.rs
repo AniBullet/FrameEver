@@ -18,11 +18,16 @@ use gpui::{
 };
 use lyon_tessellation::{LineCap, LineJoin, StrokeOptions};
 
+use crate::theme::Theme;
+
 const BOIL_FRAME_MS: u128 = 150;
 const BOIL_VARIANTS: usize = 4;
 const BOIL_AMPLITUDE: f32 = 1.25;
 const BOIL_WAVELENGTH: f32 = 20.;
 const FLATTEN_STEP: f32 = 1.5;
+const SETTLE_MARGIN_MS: f32 = 50.;
+const COMPLETE: f32 = f32::MAX;
+const TOUCH_MAX_WIDTH: f32 = 120.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ink {
@@ -164,6 +169,17 @@ pub struct Palette {
 }
 
 impl Palette {
+    pub fn new(theme: &Theme) -> Self {
+        Self {
+            ink: theme.foreground.into(),
+            soft: theme.muted_foreground.into(),
+            accent: theme.link.into(),
+            red: theme.recording.into(),
+            green: theme.success_text.into(),
+            track: theme.border.into(),
+        }
+    }
+
     fn color(&self, ink: Ink) -> Hsla {
         match ink {
             Ink::Line => self.ink,
@@ -555,11 +571,99 @@ fn schedule_boil_frame(window: &mut Window, cx: &mut App) {
         .detach();
 }
 
-/// Paint a doodle into a `width x height` box, its entrance timed from
-/// `shown_at`. `still` freezes the boil and skips the entrance (reduced
-/// motion, or a window in the background).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Life {
+    Boil,
+    Once,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Calm {
+    window_still: bool,
+    reduce_motion: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Repaint {
+    None,
+    NextFrame,
+    NextBoil,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Pose {
+    elapsed: f32,
+    variant: usize,
+    idle_motion: bool,
+    repaint: Repaint,
+}
+
+fn pose(doodle: &Doodle, life: Life, calm: Calm, elapsed: f32, boil_variant: usize) -> Pose {
+    if calm.window_still || calm.reduce_motion {
+        return Pose {
+            elapsed: COMPLETE,
+            variant: 0,
+            idle_motion: false,
+            repaint: Repaint::None,
+        };
+    }
+    let entering = elapsed < doodle.settled_at() as f32 + SETTLE_MARGIN_MS;
+    match life {
+        Life::Once => Pose {
+            elapsed,
+            variant: 0,
+            idle_motion: false,
+            repaint: if entering {
+                Repaint::NextFrame
+            } else {
+                Repaint::None
+            },
+        },
+        Life::Boil => Pose {
+            elapsed,
+            variant: boil_variant,
+            idle_motion: true,
+            repaint: if entering || doodle.perpetual() {
+                Repaint::NextFrame
+            } else {
+                Repaint::NextBoil
+            },
+        },
+    }
+}
+
+fn touch_size(doodle: &Doodle, width: f32) -> (f32, f32) {
+    let width = width.min(TOUCH_MAX_WIDTH);
+    let (view_width, view_height) = doodle.view;
+    (width, width * view_height / view_width)
+}
+
 pub fn doodle(
     doodle: &'static Doodle,
+    palette: Palette,
+    shown_at: Instant,
+    still: bool,
+    width: f32,
+    height: f32,
+) -> impl IntoElement {
+    element(doodle, Life::Boil, palette, shown_at, still, width, height)
+}
+
+#[allow(dead_code)]
+pub fn doodle_once(
+    doodle: &'static Doodle,
+    palette: Palette,
+    shown_at: Instant,
+    still: bool,
+    width: f32,
+) -> impl IntoElement {
+    let (width, height) = touch_size(doodle, width);
+    element(doodle, Life::Once, palette, shown_at, still, width, height)
+}
+
+fn element(
+    doodle: &'static Doodle,
+    life: Life,
     palette: Palette,
     shown_at: Instant,
     still: bool,
@@ -569,20 +673,17 @@ pub fn doodle(
     canvas(
         |_, _, _| {},
         move |bounds: Bounds<Pixels>, _, window: &mut Window, cx: &mut App| {
-            let elapsed = if still {
-                f32::MAX
-            } else {
-                shown_at.elapsed().as_secs_f32() * 1000.
+            let calm = Calm {
+                window_still: still,
+                reduce_motion: cx.reduce_motion(),
             };
-            let frame = if still { 0 } else { boil_frame() };
-            paint(doodle, palette, bounds, elapsed, frame, window);
-            if still {
-                return;
-            }
-            if elapsed < doodle.settled_at() as f32 + 50. || doodle.perpetual() {
-                window.request_animation_frame();
-            } else {
-                schedule_boil_frame(window, cx);
+            let elapsed = shown_at.elapsed().as_secs_f32() * 1000.;
+            let shown = pose(doodle, life, calm, elapsed, boil_frame());
+            paint(doodle, palette, bounds, shown, window);
+            match shown.repaint {
+                Repaint::None => {}
+                Repaint::NextFrame => window.request_animation_frame(),
+                Repaint::NextBoil => schedule_boil_frame(window, cx),
             }
         },
     )
@@ -594,8 +695,7 @@ fn paint(
     doodle: &'static Doodle,
     palette: Palette,
     bounds: Bounds<Pixels>,
-    elapsed: f32,
-    frame: usize,
+    shown: Pose,
     window: &mut Window,
 ) {
     let prepared = prepared(doodle);
@@ -605,10 +705,10 @@ fn paint(
         f32::from(bounds.origin.x) + (f32::from(bounds.size.width) - view_w * scale) / 2.;
     let origin_y =
         f32::from(bounds.origin.y) + (f32::from(bounds.size.height) - view_h * scale) / 2.;
-    let seconds = elapsed / 1000.;
+    let seconds = shown.elapsed / 1000.;
 
     for (stroke, shape) in doodle.strokes.iter().zip(&prepared.strokes) {
-        let t = progress(stroke.motion, elapsed);
+        let t = progress(stroke.motion, shown.elapsed);
         if t <= 0. {
             continue;
         }
@@ -628,11 +728,11 @@ fn paint(
             }
             Motion::Still => {}
         }
-        if stroke.pulse && elapsed.is_finite() && elapsed < f32::MAX / 2. {
+        if stroke.pulse && shown.idle_motion {
             let cycle = (seconds / 1.2).fract();
             alpha *= 0.65 + 0.35 * (std::f32::consts::TAU * cycle).cos();
         }
-        let bob = if stroke.bob && elapsed < f32::MAX / 2. {
+        let bob = if stroke.bob && shown.idle_motion {
             let cycle = (seconds / 1.9).fract();
             -4. * (0.5 - 0.5 * (std::f32::consts::TAU * cycle).cos())
         } else {
@@ -668,12 +768,16 @@ fn paint(
             if spent >= budget {
                 break;
             }
-            let points = &subpath.variants[frame];
+            let points = &subpath.variants[shown.variant];
             let length = subpath.cumulative.last().copied().unwrap_or(0.);
             let allowed = (budget - spent).min(length);
             spent += length;
             let segments: Vec<Polyline> = if stroke.march && !stroke.fill {
-                let phase = (seconds / 1.1).fract() * 6.2;
+                let phase = if shown.idle_motion {
+                    (seconds / 1.1).fract() * 6.2
+                } else {
+                    0.
+                };
                 dashes(points, &subpath.cumulative, allowed, 2., 4.2, phase)
             } else {
                 vec![trim(points, &subpath.cumulative, allowed)]
@@ -771,6 +875,87 @@ fn slice(points: &[(f32, f32)], cumulative: &[f32], from: f32, to: f32) -> Polyl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static DRAWN: Doodle = Doodle {
+        view: (120., 104.),
+        strokes: &[Stroke::ink("M 0 0 L 10 0").draw(100, 400)],
+    };
+
+    static BOBBING: Doodle = Doodle {
+        view: (120., 104.),
+        strokes: &[Stroke::ink("M 0 0 L 10 0").draw(100, 400).bobbing()],
+    };
+
+    fn calm() -> Calm {
+        Calm {
+            window_still: false,
+            reduce_motion: false,
+        }
+    }
+
+    #[test]
+    fn a_boiling_doodle_keeps_boiling_after_its_entrance() {
+        let entering = pose(&DRAWN, Life::Boil, calm(), 200., 3);
+        assert_eq!(entering.repaint, Repaint::NextFrame);
+        assert_eq!(entering.variant, 3);
+
+        let settled = pose(&DRAWN, Life::Boil, calm(), 2_000., 2);
+        assert_eq!(settled.repaint, Repaint::NextBoil);
+        assert_eq!(settled.variant, 2);
+    }
+
+    #[test]
+    fn a_perpetual_doodle_never_stops_while_it_boils() {
+        let settled = pose(&BOBBING, Life::Boil, calm(), 60_000., 1);
+        assert_eq!(settled.repaint, Repaint::NextFrame);
+        assert!(settled.idle_motion);
+    }
+
+    #[test]
+    fn a_touch_draws_once_then_holds_still() {
+        let drawing = pose(&BOBBING, Life::Once, calm(), 200., 3);
+        assert_eq!(drawing.repaint, Repaint::NextFrame);
+        assert_eq!(drawing.variant, 0);
+        assert!(!drawing.idle_motion);
+        assert_eq!(drawing.elapsed, 200.);
+
+        let settled = pose(&BOBBING, Life::Once, calm(), 2_000., 3);
+        assert_eq!(settled.repaint, Repaint::None);
+        assert_eq!(settled.variant, 0);
+        assert!(!settled.idle_motion);
+    }
+
+    #[test]
+    fn reduced_motion_shows_every_doodle_complete_and_still() {
+        let reduced = Calm {
+            window_still: false,
+            reduce_motion: true,
+        };
+        for life in [Life::Boil, Life::Once] {
+            let shown = pose(&BOBBING, life, reduced, 0., 3);
+            assert_eq!(shown.repaint, Repaint::None);
+            assert_eq!(shown.variant, 0);
+            assert!(!shown.idle_motion);
+            assert_eq!(progress(BOBBING.strokes[0].motion, shown.elapsed), 1.);
+        }
+    }
+
+    #[test]
+    fn a_window_in_the_background_freezes_the_same_way() {
+        let background = Calm {
+            window_still: true,
+            reduce_motion: false,
+        };
+        let shown = pose(&BOBBING, Life::Boil, background, 0., 3);
+        assert_eq!(shown.repaint, Repaint::None);
+        assert_eq!(progress(BOBBING.strokes[0].motion, shown.elapsed), 1.);
+    }
+
+    #[test]
+    fn a_touch_is_at_most_120_wide_and_keeps_its_shape() {
+        assert_eq!(touch_size(&DRAWN, 240.), (120., 104.));
+        assert_eq!(touch_size(&DRAWN, 60.), (60., 52.));
+    }
 
     #[test]
     fn parses_lines_curves_and_implicit_repeats() {

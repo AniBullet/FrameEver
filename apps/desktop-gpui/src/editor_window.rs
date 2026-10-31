@@ -5113,7 +5113,8 @@ impl EditorWindow {
             return;
         }
         self.note_edit("trim", Some(TrackKind::Clip));
-        if from.len() != self.timeline.clips.len()
+        if cx.reduce_motion()
+            || from.len() != self.timeline.clips.len()
             || from
                 .iter()
                 .zip(&self.timeline.clips)

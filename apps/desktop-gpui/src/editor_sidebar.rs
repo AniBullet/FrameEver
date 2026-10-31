@@ -3479,6 +3479,7 @@ impl EditorWindow {
                         cx,
                     ))
                     .into_any_element(),
+                cx.reduce_motion(),
             ))
     }
 
@@ -3557,6 +3558,7 @@ impl EditorWindow {
                         cx,
                     ))
                     .into_any_element(),
+                cx.reduce_motion(),
             ))
     }
 
@@ -3608,6 +3610,7 @@ impl EditorWindow {
                                 cx,
                             ))
                             .into_any_element(),
+                        cx.reduce_motion(),
                     )),
             )
     }
@@ -3886,7 +3889,14 @@ pub(crate) fn section_action(
 /// shut, so the reveal has something to collapse into -- the settings window's
 /// rule, and the same reason: an unmounted panel would leave the parent's `gap`
 /// as a hole under the trigger.
-pub(crate) fn collapsible(state: &CollapsibleState, content: AnyElement) -> AnyElement {
+pub(crate) fn collapsible(
+    state: &CollapsibleState,
+    content: AnyElement,
+    reduce_motion: bool,
+) -> AnyElement {
+    if reduce_motion {
+        state.settle();
+    }
     if !(state.is_open() || state.is_animating()) {
         return div().into_any_element();
     }

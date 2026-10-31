@@ -401,6 +401,7 @@ impl EditorWindow {
                         cx,
                     ))
                     .into_any_element(),
+                cx.reduce_motion(),
             ))
             .into_any_element()
     }

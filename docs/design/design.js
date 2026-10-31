@@ -118,11 +118,35 @@ window.FE = (() => {
 				stroke("M 74 68 L 98 92", "link", 5, "draw", 650, 300),
 			],
 		},
+		BOLT: {
+			view: [120, 104],
+			strokes: [
+				stroke(
+					"M 26 60 L 68 12 L 61 44 L 94 44 L 52 92 L 59 60 Z",
+					"foreground",
+					4,
+					"draw",
+					60,
+					800,
+				),
+				stroke(
+					"M 86 66 L 100 66 M 78 78 L 94 78",
+					"link",
+					3.5,
+					"fade",
+					700,
+					350,
+					{ bob: true },
+				),
+			],
+		},
 		UP_ARROW: {
 			view: [34, 44],
 			strokes: [
 				stroke("M 12 40 C 6 30 8 16 22 6", "link", 3, "draw", 200, 450),
-				stroke("M 12 6 L 23 5 L 22 16", "link", 3, "draw", 600, 250),
+				stroke("M 12 6 L 23 5 L 22 16", "link", 3, "draw", 600, 250, {
+					bob: true,
+				}),
 			],
 		},
 		UNDERLINE: {

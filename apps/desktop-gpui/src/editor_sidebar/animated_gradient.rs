@@ -1248,6 +1248,7 @@ impl EditorWindow {
                     .child(tabs)
                     .child(div().flex().flex_col().gap(px(4.)).children(rows))
                     .into_any_element(),
+                cx.reduce_motion(),
             ))
             .into_any_element()
     }

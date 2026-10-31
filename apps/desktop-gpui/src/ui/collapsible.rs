@@ -105,6 +105,10 @@ impl CollapsibleState {
         self.transition.get().is_some()
     }
 
+    pub fn settle(&self) {
+        self.transition.set(None);
+    }
+
     /// The height to give the container this frame, and whether another frame
     /// is needed. `None` means "unconstrained": either fully open with no
     /// measurement yet, or fully open with the animation finished, where
@@ -264,6 +268,19 @@ mod tests {
         let (height, more) = state.height_for(start + Duration::from_millis(220));
         assert!(!more, "the transition has finished");
         assert_eq!(height, None, "and hands the panel back its natural height");
+    }
+
+    #[test]
+    fn settling_lands_a_transition_at_its_end() {
+        let state = CollapsibleState::new(false);
+        measured(&state, 200.);
+        state.toggle();
+        assert!(state.is_animating());
+
+        state.settle();
+
+        assert!(!state.is_animating());
+        assert_eq!(state.height_for(Instant::now()), (None, false));
     }
 
     #[test]

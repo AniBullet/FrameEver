@@ -40,6 +40,7 @@ pub struct Paper {
 
 impl Paper {
     pub fn new(theme: &Theme) -> Self {
+        let palette = Palette::new(theme);
         Self {
             bg: theme.background.into(),
             card: if theme.is_dark() {
@@ -47,12 +48,12 @@ impl Paper {
             } else {
                 theme.popover.into()
             },
-            ink: theme.foreground.into(),
-            soft: theme.muted_foreground.into(),
-            accent: theme.link.into(),
-            red: theme.recording.into(),
-            green: theme.success_text.into(),
-            track: theme.border.into(),
+            ink: palette.ink,
+            soft: palette.soft,
+            accent: palette.accent,
+            red: palette.red,
+            green: palette.green,
+            track: palette.track,
         }
     }
 

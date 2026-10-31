@@ -4446,6 +4446,7 @@ impl EditorWindow {
                             }),
                     )
                     .into_any_element(),
+                cx.reduce_motion(),
             ))
             .into_any_element()
     }
@@ -7356,6 +7357,7 @@ impl EditorWindow {
                                 ),
                         )
                         .into_any_element(),
+                    cx.reduce_motion(),
                 ));
         }
 
@@ -7481,6 +7483,7 @@ impl EditorWindow {
                         ),
                     )
                     .into_any_element(),
+                cx.reduce_motion(),
             ));
 
         div()

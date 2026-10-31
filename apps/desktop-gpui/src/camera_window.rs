@@ -1111,7 +1111,7 @@ impl Render for CameraPreviewView {
         if (self.retained_invalidated
             || self
                 .reveal_started
-                .is_some_and(|started| started.elapsed() >= Duration::from_millis(180)))
+                .is_some_and(|started| started.elapsed() >= crate::theme::motion::MID))
             && let Some(image) = self.retained.take()
         {
             let _ = window.drop_image(image);
@@ -1231,11 +1231,14 @@ impl Render for CameraPreviewView {
                     .object_fit(gpui::ObjectFit::Cover),
             );
             container = if self.reveal_started.is_some() {
-                container.child(overlay.with_animation(
-                    "camera-preview-reveal",
-                    Animation::new(Duration::from_millis(180)),
-                    |element, progress| element.opacity(1. - progress),
-                ))
+                container.child(
+                    overlay.with_animation(
+                        "camera-preview-reveal",
+                        Animation::new(crate::theme::motion::MID)
+                            .with_easing(crate::theme::motion::EASE_EFFECTS.curve()),
+                        |element, progress| element.opacity(1. - progress),
+                    ),
+                )
             } else {
                 container.child(overlay)
             };

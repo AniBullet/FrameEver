@@ -3543,7 +3543,11 @@ impl ScreenshotEditorWindow {
                                 this.animate_collapsibles(window, cx);
                             })),
                     )
-                    .child(editor_sidebar::collapsible(&self.shadow_advanced, body)),
+                    .child(editor_sidebar::collapsible(
+                        &self.shadow_advanced,
+                        body,
+                        cx.reduce_motion(),
+                    )),
             )
             .into_any_element()
     }
@@ -3627,7 +3631,11 @@ impl ScreenshotEditorWindow {
                         ),
                     ),
             )
-            .child(editor_sidebar::collapsible(&self.border_body, body))
+            .child(editor_sidebar::collapsible(
+                &self.border_body,
+                body,
+                cx.reduce_motion(),
+            ))
             .into_any_element()
     }
 

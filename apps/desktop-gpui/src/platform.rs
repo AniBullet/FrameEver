@@ -169,8 +169,8 @@ pub use mac::*;
 pub fn follow_system_reduce_motion(cx: &mut gpui::App) {
     #[cfg(target_os = "macos")]
     mac::follow_system_reduce_motion(cx);
-    #[cfg(not(target_os = "macos"))]
-    let _ = cx;
+    #[cfg(target_os = "windows")]
+    windows::follow_system_reduce_motion(cx);
 }
 
 #[cfg(target_os = "macos")]

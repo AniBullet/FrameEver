@@ -272,7 +272,168 @@ pub static SNAP: Doodle = Doodle {
 pub static TICK: Doodle = Doodle {
     view: (24., 24.),
     strokes: &[Stroke::ink("M 4 13 L 9.5 18 L 20 6")
-        .with_ink(Ink::Accent)
+        .with_ink(Ink::Green)
         .width(3.)
-        .draw(0, 300)],
+        .draw(200, 300)],
 };
+
+#[allow(dead_code)]
+pub static FRAME: Doodle = Doodle {
+    view: (120., 104.),
+    strokes: &[
+        Stroke::ink(
+            "M 24 14 L 96 14 Q 104 14 104 22 L 104 74 Q 104 82 96 82 L 24 82 Q 16 82 16 74 L 16 22 Q 16 14 24 14 Z",
+        )
+        .with_ink(Ink::Accent)
+        .width(2.5)
+        .marching()
+        .fade(100, 400),
+        Stroke::ink("M 60 37 C 66 37 71 42 71 48 C 71 54 66 59 60 59 C 54 59 49 54 49 48 C 49 42 54 37 60 37 Z")
+            .with_ink(Ink::Red)
+            .filled()
+            .pop(450, 450),
+    ],
+};
+
+#[allow(dead_code)]
+pub static FLOW: Doodle = Doodle {
+    view: (120., 104.),
+    strokes: &[
+        Stroke::ink("M 20 20 L 50 20 Q 56 20 56 26 L 56 44 Q 56 50 50 50 L 20 50 Q 14 50 14 44 L 14 26 Q 14 20 20 20 Z")
+            .width(3.5)
+            .draw(60, 550),
+        Stroke::ink("M 72 56 L 100 56 Q 106 56 106 62 L 106 80 Q 106 86 100 86 L 72 86 Q 66 86 66 80 L 66 62 Q 66 56 72 56 Z")
+            .width(3.5)
+            .draw(420, 550),
+        Stroke::ink("M 34 52 C 34 72 44 72 62 71")
+            .with_ink(Ink::Accent)
+            .width(3.)
+            .draw(800, 350),
+    ],
+};
+
+#[allow(dead_code)]
+pub static LENS: Doodle = Doodle {
+    view: (120., 104.),
+    strokes: &[
+        Stroke::ink("M 52 16 C 68 16 82 30 82 46 C 82 62 68 76 52 76 C 36 76 22 62 22 46 C 22 30 36 16 52 16 Z")
+            .draw(60, 700),
+        Stroke::ink("M 74 68 L 98 92")
+            .with_ink(Ink::Accent)
+            .width(5.)
+            .draw(650, 300),
+    ],
+};
+
+#[allow(dead_code)]
+pub static BOLT: Doodle = Doodle {
+    view: (120., 104.),
+    strokes: &[
+        Stroke::ink("M 26 60 L 68 12 L 61 44 L 94 44 L 52 92 L 59 60 Z").draw(60, 800),
+        Stroke::ink("M 86 66 L 100 66 M 78 78 L 94 78")
+            .with_ink(Ink::Accent)
+            .width(3.5)
+            .fade(700, 350)
+            .bobbing(),
+    ],
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::doodle::Motion;
+
+    const DESIGN: &str = include_str!("../../../docs/design/design.js");
+
+    fn call_args(text: &str) -> Vec<String> {
+        let mut args = Vec::new();
+        let mut current = String::new();
+        let (mut depth, mut quoted) = (0, false);
+        for c in text.chars() {
+            match c {
+                '"' => quoted = !quoted,
+                '{' if !quoted => depth += 1,
+                '}' if !quoted => depth -= 1,
+                ')' if !quoted && depth == 0 => break,
+                ',' if !quoted && depth == 0 => {
+                    args.push(std::mem::take(&mut current));
+                    continue;
+                }
+                _ => {}
+            }
+            current.push(c);
+        }
+        args.push(current);
+        args.iter()
+            .map(|arg| arg.trim().trim_matches('"').to_string())
+            .filter(|arg| !arg.is_empty())
+            .collect()
+    }
+
+    fn design_section(name: &str) -> &'static str {
+        let start = DESIGN
+            .find(&format!("\t\t{name}: {{"))
+            .unwrap_or_else(|| panic!("{name} is not in design.js"));
+        let rest = &DESIGN[start..];
+        let end = rest
+            .find("\n\t\t},")
+            .unwrap_or_else(|| panic!("{name} never closes"));
+        &rest[..end]
+    }
+
+    fn design_ink(name: &str) -> Ink {
+        match name {
+            "foreground" => Ink::Line,
+            "muted-foreground" => Ink::Soft,
+            "link" => Ink::Accent,
+            "recording" => Ink::Red,
+            "success-text" => Ink::Green,
+            other => panic!("no ink for {other}"),
+        }
+    }
+
+    #[test]
+    fn hand_drawn_touches_match_the_design_page() {
+        let touches: [(&str, &Doodle); 8] = [
+            ("FRAME", &FRAME),
+            ("TICK", &TICK),
+            ("ALL_SET", &ALL_SET),
+            ("FLOW", &FLOW),
+            ("LENS", &LENS),
+            ("UP_ARROW", &UP_ARROW),
+            ("UNDERLINE", &UNDERLINE),
+            ("BOLT", &BOLT),
+        ];
+        for (name, doodle) in touches {
+            let section = design_section(name);
+            let view = format!("view: [{}, {}]", doodle.view.0, doodle.view.1);
+            assert!(section.contains(&view), "{name} view");
+            let calls: Vec<_> = section.split("stroke(").skip(1).collect();
+            assert_eq!(calls.len(), doodle.strokes.len(), "{name} strokes");
+            for (call, stroke) in calls.iter().zip(doodle.strokes) {
+                let args = call_args(call);
+                let extra = args.get(6).map_or("", String::as_str);
+                let (delay, duration) = (args[4].parse().unwrap(), args[5].parse().unwrap());
+                assert_eq!(args[0], stroke.d, "{name} path");
+                assert_eq!(design_ink(&args[1]), stroke.ink, "{name} ink");
+                assert_eq!(extra.contains("fill"), stroke.fill, "{name} fill");
+                assert_eq!(extra.contains("dash"), stroke.march, "{name} dashes");
+                assert_eq!(extra.contains("bob"), stroke.bob, "{name} bob");
+                if !stroke.fill {
+                    assert_eq!(
+                        args[2].parse::<f32>().unwrap(),
+                        stroke.width,
+                        "{name} width"
+                    );
+                }
+                let motion = match args[3].as_str() {
+                    "draw" => Motion::Draw { delay, duration },
+                    "fade" => Motion::Fade { delay, duration },
+                    "pop" => Motion::Pop { delay, duration },
+                    other => panic!("no motion for {other}"),
+                };
+                assert_eq!(motion, stroke.motion, "{name} motion");
+            }
+        }
+    }
+}

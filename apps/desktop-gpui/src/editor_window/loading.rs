@@ -5,7 +5,7 @@ use gpui::{
     relative,
 };
 
-use crate::theme::Theme;
+use crate::theme::{Theme, motion};
 
 fn block(theme: &Theme, width: f32, height: f32) -> Div {
     div()
@@ -150,12 +150,12 @@ pub(super) fn reveal(
                 .child(placeholder)
                 .with_animation(
                     id,
-                    Animation::new(Duration::from_millis(180)),
+                    Animation::new(motion::MID).with_easing(motion::EASE_EFFECTS.curve()),
                     |element, progress| {
                         if progress >= 1. {
                             div()
                         } else {
-                            element.opacity((1. - progress).powi(3))
+                            element.opacity(1. - progress)
                         }
                     },
                 ),

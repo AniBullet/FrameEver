@@ -556,7 +556,7 @@ impl ScreenshotEditorWindow {
                         let Some(dialog) = this.crop.as_mut() else {
                             return false;
                         };
-                        let animating = dialog.state.tick_anim(Instant::now());
+                        let animating = dialog.state.tick_anim(Instant::now(), cx.reduce_motion());
                         let nudging = !dialog.state.keys.keys.is_empty();
                         if nudging {
                             this.crop_dialog_nudge_step(cx);

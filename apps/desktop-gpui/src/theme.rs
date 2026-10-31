@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use crate::platform::{self, ForcedAppearance, MaterialKind};
 use crate::store::AppTheme;
 
+pub mod motion;
 mod tokens;
 
 pub use tokens::{CONTROL_HEIGHT, Component, ROW_HEIGHT, Semantic};

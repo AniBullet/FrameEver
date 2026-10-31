@@ -1214,11 +1214,15 @@ impl CropState {
     }
 
     /// Advance the animation. Returns whether another frame is wanted.
-    pub fn tick_anim(&mut self, now: Instant) -> bool {
+    pub fn tick_anim(&mut self, now: Instant, reduce_motion: bool) -> bool {
         let Some(anim) = self.anim else {
             return false;
         };
-        let (bounds, done) = anim.at(now);
+        let (bounds, done) = if reduce_motion {
+            (anim.to, true)
+        } else {
+            anim.at(now)
+        };
         self.display_raw = bounds;
         if done {
             self.anim = None;
@@ -2099,7 +2103,7 @@ impl EditorWindow {
                         let Some(state) = this.crop.as_mut() else {
                             return false;
                         };
-                        let animating = state.tick_anim(Instant::now());
+                        let animating = state.tick_anim(Instant::now(), cx.reduce_motion());
                         let nudging = !state.keys.keys.is_empty();
                         if nudging {
                             this.nudge_step(cx);
@@ -3375,6 +3379,23 @@ mod tests {
     use super::*;
 
     // -- The coordinate spaces ----------------------------------------------
+
+    #[test]
+    fn reduced_motion_lands_a_crop_animation_at_once() {
+        let initial = CropBounds::new(0., 0., 400., 300.);
+        let mut state = CropState::new((800, 600), (800., 600.), initial);
+        let before = state.display_raw;
+        let target = CropBounds::new(100., 100., 200., 150.);
+        state.set_raw_and_animate(target, ORIGIN_CENTER, CropAnim::DEFAULT);
+        let started = state.anim.expect("a move starts an animation").started;
+
+        assert!(state.tick_anim(started, false));
+        assert_eq!(state.display_raw, before);
+
+        assert!(!state.tick_anim(started, true));
+        assert_eq!(state.display_raw, state.raw);
+        assert!(state.anim.is_none());
+    }
 
     #[test]
     fn crop_box_leaves_room_for_handles_controls_and_preview() {

@@ -3666,6 +3666,9 @@ impl SettingsWindow {
             .when(
                 self.placeholders.is_open() || self.placeholders.is_animating(),
                 |this| {
+                    if cx.reduce_motion() {
+                        self.placeholders.settle();
+                    }
                     let (height, _) = self.placeholders.height_for(std::time::Instant::now());
                     this.child(
                         ui::Collapsible::new(height, self.placeholders.measure_cell()).content(

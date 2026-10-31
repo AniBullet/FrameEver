@@ -666,6 +666,7 @@ impl EditorWindow {
                                 .into_any_element()
                             }))
                             .into_any_element(),
+                        cx.reduce_motion(),
                     )),
             )
             .into_any_element()
