@@ -36,13 +36,16 @@ use gpui::{App, ElementId, RenderImage};
 
 use crate::i18n::t;
 
+pub mod compress_queue;
+pub mod recycle;
 mod versions;
 pub mod view;
 pub mod watch;
 pub use frameever_utils::storage::remove_export;
+pub use recycle::Deleted;
 pub use versions::{
-    VideoVersions, compress as compress_video, compressed_only, delete_compressed, delete_original,
-    restore_original, use_compressed, video_versions,
+    Version, VideoVersions, compress as compress_video, compressed_only, delete_compressed,
+    delete_original, restore_original, use_compressed, video_versions,
 };
 
 /// `RECENT_MEDIA_LIMIT` in `new-main/index.tsx:129`.
@@ -787,7 +790,7 @@ fn recover_incomplete_recording_in(
 /// This keeps symlink escapes outside the allow-list while accepting Windows
 /// editor paths whose canonical form has a `\\?\` prefix. A missing strict child
 /// of an allowed root remains a no-op success.
-pub fn delete_recording_directory_in(dirs: &[PathBuf], path: &Path) -> Result<(), String> {
+fn deletable_project(dirs: &[PathBuf], path: &Path) -> Result<Option<PathBuf>, String> {
     if path
         .components()
         .any(|component| matches!(component, std::path::Component::ParentDir))
@@ -828,15 +831,39 @@ pub fn delete_recording_directory_in(dirs: &[PathBuf], path: &Path) -> Result<()
         return Err(t!("Path is not inside a recordings directory").to_string());
     };
 
-    if let Some(canonical_path) = canonical_path {
-        let _thumbnails = crate::recording::hold_studio_thumbnail_writes().ok_or_else(|| {
-            t!("Couldn't delete the recording because its thumbnail is still being written. Try again in a moment.").to_string()
-        })?;
+    Ok(canonical_path)
+}
+
+fn hold_thumbnail_writes() -> Result<impl Drop, String> {
+    crate::recording::hold_studio_thumbnail_writes().ok_or_else(|| {
+        t!("Couldn't delete the recording because its thumbnail is still being written. Try again in a moment.").to_string()
+    })
+}
+
+pub fn delete_recording_directory_in(dirs: &[PathBuf], path: &Path) -> Result<(), String> {
+    if let Some(canonical_path) = deletable_project(dirs, path)? {
+        let _thumbnails = hold_thumbnail_writes()?;
         std::fs::remove_dir_all(canonical_path)
             .map_err(|error| t!("Failed to delete recording: {error}", error = error))?;
     }
 
     Ok(())
+}
+
+pub fn recycle_project_in(dirs: &[PathBuf], path: &Path) -> Result<Option<Deleted>, String> {
+    let Some(canonical_path) = deletable_project(dirs, path)? else {
+        return Ok(None);
+    };
+    let _thumbnails = hold_thumbnail_writes()?;
+    let project = dunce::simplified(&canonical_path).to_path_buf();
+    recycle::recycle(&project)?;
+    Ok(Some(Deleted::Project(project)))
+}
+
+pub fn recycle_project(path: &Path) -> Result<Option<Deleted>, String> {
+    let mut dirs = known_recordings_dirs();
+    dirs.extend(storage().known_dirs(ProjectKind::Screenshot));
+    recycle_project_in(&dirs, path)
 }
 
 /// `delete_recording_directory` against the real library.

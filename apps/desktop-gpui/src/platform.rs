@@ -1671,6 +1671,22 @@ mod mac {
         }
     }
 
+    pub fn copy_files_to_clipboard(
+        paths: &[std::path::PathBuf],
+        cx: &gpui::App,
+    ) -> Result<(), String> {
+        paths
+            .first()
+            .map_or(Ok(()), |path| copy_file_to_clipboard(path, cx))
+    }
+
+    pub fn reveal_items(items: &[std::path::PathBuf]) -> Result<(), String> {
+        if let Some(item) = items.first() {
+            crate::library::reveal_in_folder(item);
+        }
+        Ok(())
+    }
+
     pub fn copy_file_to_clipboard(path: &std::path::Path, _cx: &gpui::App) -> Result<(), String> {
         use objc2::rc::autoreleasepool;
         use objc2::runtime::Bool;

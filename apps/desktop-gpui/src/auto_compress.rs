@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use crate::i18n::t;
+use crate::{
+    i18n::t,
+    library::{compress_queue::QueueSummary, view::format_size},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NoticeAction {
@@ -61,6 +64,46 @@ pub fn compress_and_report(
         actions: Vec::new(),
         project_path: project_path.to_path_buf(),
     });
+}
+
+pub fn queue_notice(summary: &QueueSummary) -> Option<CompressionNotice> {
+    let total = summary.total();
+    if let Some((project_path, _)) = summary.failed.first() {
+        let (title, detail) = if total == 1 {
+            (
+                t!("Couldn't compress the recording").to_string(),
+                t!("Check the folder has space and try again.").to_string(),
+            )
+        } else {
+            (
+                t!(
+                    "Couldn't compress {failed} of {total} recordings",
+                    failed = summary.failed.len(),
+                    total = total
+                ),
+                t!("Check the folder has space and try again.").to_string(),
+            )
+        };
+        return Some(CompressionNotice {
+            title,
+            recording: recording_name(project_path),
+            detail,
+            actions: vec![NoticeAction::OpenLogs, NoticeAction::RevealRecording],
+            project_path: project_path.clone(),
+        });
+    }
+    let project_path = summary.finished.first()?;
+    Some(CompressionNotice {
+        title: t!("Compression finished").to_string(),
+        recording: if total == 1 {
+            recording_name(project_path)
+        } else {
+            t!("{count} recordings", count = total)
+        },
+        detail: t!("Saved {size}", size = format_size(summary.saved)),
+        actions: Vec::new(),
+        project_path: project_path.clone(),
+    })
 }
 
 fn recording_name(project_path: &Path) -> String {
@@ -221,6 +264,61 @@ mod tests {
             100
         );
         assert!(!bundle.path().join("content/output_compressed.mp4").exists());
+    }
+
+    #[test]
+    fn a_queue_that_finished_says_how_much_it_saved_in_one_notice() {
+        let summary = QueueSummary {
+            finished: vec![PathBuf::from("a.ever"), PathBuf::from("b.ever")],
+            failed: Vec::new(),
+            saved: 3 * 1024 * 1024,
+        };
+        let notice = queue_notice(&summary).unwrap();
+        assert_eq!(notice.title, "Compression finished");
+        assert_eq!(notice.recording, "2 recordings");
+        assert_eq!(
+            notice.detail,
+            format!("Saved {}", format_size(summary.saved))
+        );
+        assert!(notice.actions.is_empty());
+    }
+
+    #[test]
+    fn a_queue_with_failures_counts_them_once_and_opens_the_first_one() {
+        let summary = QueueSummary {
+            finished: vec![PathBuf::from("a.ever")],
+            failed: vec![
+                (PathBuf::from("b.ever"), "disk full".to_string()),
+                (PathBuf::from("c.ever"), "disk full".to_string()),
+            ],
+            saved: 10,
+        };
+        let notice = queue_notice(&summary).unwrap();
+        assert_eq!(notice.title, "Couldn't compress 2 of 3 recordings");
+        assert_eq!(notice.recording, "b");
+        assert_eq!(notice.detail, "Check the folder has space and try again.");
+        assert_eq!(notice.project_path, PathBuf::from("b.ever"));
+        assert_eq!(
+            notice.actions,
+            vec![NoticeAction::OpenLogs, NoticeAction::RevealRecording]
+        );
+    }
+
+    #[test]
+    fn one_failed_recording_says_what_to_do_next() {
+        let summary = QueueSummary {
+            finished: Vec::new(),
+            failed: vec![(PathBuf::from("b.ever"), "disk full".to_string())],
+            saved: 0,
+        };
+        let notice = queue_notice(&summary).unwrap();
+        assert_eq!(notice.title, "Couldn't compress the recording");
+        assert_eq!(notice.detail, "Check the folder has space and try again.");
+    }
+
+    #[test]
+    fn a_queue_emptied_by_deletes_says_nothing() {
+        assert_eq!(queue_notice(&QueueSummary::default()), None);
     }
 
     #[test]

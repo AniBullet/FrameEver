@@ -67,9 +67,16 @@ gpui::actions!(
         LibraryOpen,
         LibraryRename,
         LibraryDelete,
+        LibraryDeleteNow,
+        LibraryUndo,
         LibraryCopy,
         LibrarySelectAll,
-        LibraryMenu
+        LibraryMenu,
+        DialogUp,
+        DialogDown,
+        DialogNext,
+        DialogPrevious,
+        DialogEnter
     ]
 );
 
@@ -98,9 +105,19 @@ pub fn bind_keys(cx: &mut gpui::App) {
         gpui::KeyBinding::new("enter", LibraryOpen, items),
         gpui::KeyBinding::new("f2", LibraryRename, items),
         gpui::KeyBinding::new("delete", LibraryDelete, items),
+        gpui::KeyBinding::new("shift-delete", LibraryDeleteNow, items),
+        gpui::KeyBinding::new("ctrl-z", LibraryUndo, items),
         gpui::KeyBinding::new("ctrl-c", LibraryCopy, items),
         gpui::KeyBinding::new("ctrl-a", LibrarySelectAll, items),
         gpui::KeyBinding::new("shift-f10", LibraryMenu, items),
+    ]);
+    let dialog = Some("LibraryDialog");
+    cx.bind_keys([
+        gpui::KeyBinding::new("up", DialogUp, dialog),
+        gpui::KeyBinding::new("down", DialogDown, dialog),
+        gpui::KeyBinding::new("tab", DialogNext, dialog),
+        gpui::KeyBinding::new("shift-tab", DialogPrevious, dialog),
+        gpui::KeyBinding::new("enter", DialogEnter, dialog),
     ]);
 }
 
@@ -2662,6 +2679,27 @@ impl Render for MainWindow {
             .on_action(cx.listener(|this, _: &LibraryDelete, window, cx| {
                 this.delete_library_selection(window, cx);
             }))
+            .on_action(cx.listener(|this, _: &LibraryDeleteNow, window, cx| {
+                this.delete_library_now(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryUndo, window, cx| {
+                this.undo_library_delete(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogUp, _, cx| {
+                this.step_library_dialog(false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogDown, _, cx| {
+                this.step_library_dialog(true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogNext, _, cx| {
+                this.tab_library_dialog(true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogPrevious, _, cx| {
+                this.tab_library_dialog(false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogEnter, window, cx| {
+                this.enter_library_delete(window, cx);
+            }))
             .on_action(cx.listener(|this, _: &LibraryCopy, _, cx| {
                 this.copy_library_file(cx);
             }))
@@ -2724,6 +2762,10 @@ impl Render for MainWindow {
                 this.child(self.render_library_slider_layer(cx))
             })
             .children(self.render_library_marquee(cx))
+            .when(self.shell.shows_library(), |this| {
+                this.children(self.render_library_undo(cx))
+                    .children(self.render_library_dialog(cx))
+            })
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" && this.dismiss_main(false, cx) {
                     cx.stop_propagation();
@@ -3580,6 +3622,7 @@ impl MainWindow {
 
     fn dismiss_main(&mut self, search_focused: bool, cx: &mut Context<Self>) -> bool {
         let layers = EscLayers {
+            library_dialog: self.library.dialog_open(),
             warning: self.microphone_warning.is_some(),
             error: self.idle_error(cx).is_some(),
             mode_hover: self.mode_hover.visible.is_some(),
@@ -3594,6 +3637,7 @@ impl MainWindow {
             return false;
         };
         match step {
+            EscStep::CloseLibraryDialog => self.close_library_dialog(cx),
             EscStep::DismissWarning => self.dismiss_microphone_warning(cx),
             EscStep::DismissError => self.dismiss_idle_error(cx),
             EscStep::ClearModeHover => {

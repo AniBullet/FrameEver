@@ -1,4 +1,5 @@
 mod context;
+mod delete;
 mod detail;
 
 use std::{
@@ -24,6 +25,7 @@ use crate::{
     i18n::t,
     library::{
         self, MediaKind,
+        compress_queue::{CompressQueue, JobState},
         view::{
             self, Clock, DateGroup, DayLabel, Entry, LibraryView, Row, Selection, SortDirection,
             SortKey, StatusFilter, Step, Surface, TILE_GAP, Tab, ViewMode, ViewState,
@@ -43,6 +45,7 @@ const WATCH_DEBOUNCE: Duration = Duration::from_millis(300);
 const SAVE_DELAY: Duration = Duration::from_millis(400);
 const REOPEN_GUARD: Duration = Duration::from_millis(600);
 const DETAIL_WIDTH: f32 = 340.;
+const JOB_BAR: f32 = 3.;
 const LIST_ROW: f32 = 34.;
 const LIST_GAP: f32 = 8.;
 const LIST_COLUMNS: [(Option<SortKey>, f32); 4] = [
@@ -135,6 +138,8 @@ pub(super) struct LibraryPage {
     drawn: Rc<RefCell<HashMap<PathBuf, Bounds<Pixels>>>>,
     context: Option<context::ContextMenu>,
     detail: detail::DetailState,
+    delete: delete::DeleteState,
+    compress: CompressQueue,
     last_click: Option<PathBuf>,
 }
 
@@ -175,6 +180,8 @@ impl LibraryPage {
             drawn: Rc::default(),
             context: None,
             detail: detail::DetailState::new(name_input),
+            delete: delete::DeleteState::default(),
+            compress: CompressQueue::default(),
             last_click: None,
         }
     }
@@ -191,11 +198,30 @@ impl LibraryPage {
         !self.selection.is_empty()
     }
 
+    pub(super) fn dialog_open(&self) -> bool {
+        self.delete.dialog_open()
+    }
+
     fn entry(&self, path: &Path) -> Option<&Entry> {
         self.entries
             .as_ref()?
             .iter()
             .find(|entry| entry.path == path)
+    }
+
+    fn selected_entries(&self) -> Vec<&Entry> {
+        self.selection
+            .items()
+            .iter()
+            .filter_map(|path| self.entry(path))
+            .collect()
+    }
+
+    fn hide_entries<'a>(&mut self, paths: impl Iterator<Item = &'a PathBuf>) {
+        let paths: Vec<&PathBuf> = paths.collect();
+        if let Some(entries) = &mut self.entries {
+            entries.retain(|entry| !paths.contains(&&entry.path));
+        }
     }
 
     fn lead_entry(&self) -> Option<&Entry> {
@@ -207,11 +233,18 @@ impl LibraryPage {
     }
 
     fn panel_width(&self) -> f32 {
-        if self.selection.single().is_some() {
-            DETAIL_WIDTH
-        } else {
+        if self.selection.is_empty() {
             0.
+        } else {
+            DETAIL_WIDTH
         }
+    }
+}
+
+fn job_label(job: JobState) -> &'static str {
+    match job {
+        JobState::Waiting => t!("Waiting"),
+        JobState::Running { .. } => t!("Compressing…"),
     }
 }
 
@@ -1778,13 +1811,18 @@ impl MainWindow {
         let theme = self.theme;
         let selected = self.library.selection.contains(&entry.path);
         let clock = Clock::now();
+        let job = self.library.compress.state(&entry.path);
         let cells: [SharedString; 4] = [
-            kind_label(entry.kind).into(),
+            job.map_or(kind_label(entry.kind), job_label).into(),
             entry
                 .duration
                 .map_or_else(|| "—".to_string(), view::format_clock)
                 .into(),
-            view::format_size(entry.size).into(),
+            match job {
+                Some(JobState::Running { percent }) => format!("{percent}%"),
+                _ => view::format_size(entry.size),
+            }
+            .into(),
             day_label(&clock, entry.created_millis),
         ];
         let row = div()
@@ -1864,6 +1902,13 @@ impl MainWindow {
         );
         if entry.clip_count > 1 {
             meta = format!("{meta} · {}", t!("{count} clips", count = entry.clip_count));
+        }
+        let job = self.library.compress.state(&entry.path);
+        if let Some(job) = job {
+            meta = match job {
+                JobState::Waiting => job_label(job).to_string(),
+                JobState::Running { percent } => t!("Compressing… {percent}%", percent = percent),
+            };
         }
         let selected = self.library.selection.contains(&entry.path);
         let tile = self.selection_look(
@@ -1953,6 +1998,27 @@ impl MainWindow {
                                     false,
                                     20.,
                                 )),
+                        )
+                    })
+                    .when_some(job, |this, job| {
+                        let percent = match job {
+                            JobState::Waiting => 0,
+                            JobState::Running { percent } => percent,
+                        };
+                        this.child(
+                            div()
+                                .absolute()
+                                .left_0()
+                                .right_0()
+                                .bottom_0()
+                                .h(px(JOB_BAR))
+                                .bg(theme.muted)
+                                .child(
+                                    div()
+                                        .h_full()
+                                        .w(gpui::relative(percent as f32 / 100.))
+                                        .bg(theme.primary),
+                                ),
                         )
                     }),
             )

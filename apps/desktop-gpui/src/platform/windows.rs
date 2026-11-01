@@ -716,16 +716,25 @@ fn save_file_dialog(
     dialog.save_file()
 }
 
-pub fn copy_file_to_clipboard(path: &Path, _cx: &gpui::App) -> Result<(), String> {
+pub fn copy_file_to_clipboard(path: &Path, cx: &gpui::App) -> Result<(), String> {
+    copy_files_to_clipboard(&[path.to_path_buf()], cx)
+}
+
+pub fn copy_files_to_clipboard(paths: &[PathBuf], _cx: &gpui::App) -> Result<(), String> {
     use clipboard_rs::{Clipboard, ClipboardContext};
 
-    let path = super::clipboard_file_path(path)?;
-    let path = path
-        .to_str()
-        .ok_or(t!("The clipboard file path is not valid Unicode"))?;
+    let paths = paths
+        .iter()
+        .map(|path| {
+            let path = super::clipboard_file_path(path)?;
+            path.to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| t!("The clipboard file path is not valid Unicode").to_string())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     ClipboardContext::new()
         .map_err(|error| t!("Clipboard unavailable: {error}", error = error))?
-        .set_files(vec![path.to_owned()])
+        .set_files(paths)
         .map_err(|error| {
             t!(
                 "Could not copy the file to the clipboard: {error}",
@@ -833,4 +842,83 @@ pub fn system_settings_frontmost() -> bool {
 
 pub fn window_is_closable(_window: &Window) -> bool {
     false
+}
+
+fn shell_item(
+    path: &Path,
+) -> Result<*mut windows_sys::Win32::UI::Shell::Common::ITEMIDLIST, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::SHParseDisplayName;
+
+    let wide: Vec<u16> = dunce::simplified(path)
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut item = std::ptr::null_mut();
+    let result = unsafe {
+        SHParseDisplayName(
+            wide.as_ptr(),
+            std::ptr::null_mut(),
+            &mut item,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if result < 0 {
+        return Err(format!("SHParseDisplayName failed with {result:#x}"));
+    }
+    Ok(item)
+}
+
+fn reveal_in_one_folder(folder: &Path, items: &[&Path]) -> Result<(), String> {
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::{ILFindLastID, SHOpenFolderAndSelectItems};
+
+    let folder = shell_item(folder)?;
+    let items: Vec<_> = items
+        .iter()
+        .filter_map(|item| shell_item(item).ok())
+        .collect();
+    let children: Vec<_> = items
+        .iter()
+        .map(|item| unsafe { ILFindLastID(*item) }.cast_const())
+        .collect();
+    let result =
+        unsafe { SHOpenFolderAndSelectItems(folder, children.len() as u32, children.as_ptr(), 0) };
+    for item in items {
+        unsafe { CoTaskMemFree(item.cast()) };
+    }
+    unsafe { CoTaskMemFree(folder.cast()) };
+    if result < 0 {
+        return Err(format!(
+            "SHOpenFolderAndSelectItems failed with {result:#x}"
+        ));
+    }
+    Ok(())
+}
+
+pub fn reveal_items(items: &[PathBuf]) -> Result<(), String> {
+    use windows_sys::Win32::System::Com::{
+        COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize,
+    };
+
+    let mut folders: Vec<(&Path, Vec<&Path>)> = Vec::new();
+    for item in items {
+        let Some(parent) = item.parent() else {
+            continue;
+        };
+        match folders.iter_mut().find(|(folder, _)| *folder == parent) {
+            Some((_, children)) => children.push(item),
+            None => folders.push((parent, vec![item])),
+        }
+    }
+    let started = unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+    let result = folders
+        .iter()
+        .try_for_each(|(folder, children)| reveal_in_one_folder(folder, children));
+    if started >= 0 {
+        unsafe { CoUninitialize() };
+    }
+    result
 }

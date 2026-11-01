@@ -1,16 +1,19 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, StyledImage as _, Task, Window, div, img,
+    AnyElement, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage as _, Task, Window, div, img,
     prelude::FluentBuilder, px, svg,
 };
 
 use super::{
-    Clock, DETAIL_WIDTH, MainWindow, app_windows, day_label, focus_ring, kind_icon, kind_label,
-    library, open_entry, t, ui, view,
+    Clock, DETAIL_WIDTH, JobState, MainWindow, app_windows, day_label, focus_ring, kind_icon,
+    kind_label, library, open_entry, t, ui, view,
 };
-use crate::library::{MediaKind, ProjectDetails, ProjectTracks, VideoVersions, view::Entry};
+use crate::library::{
+    MediaKind, ProjectDetails, ProjectTracks, VideoVersions, compress_queue::QueueSummary,
+    view::Entry,
+};
 
 pub(super) struct DetailState {
     name_input: Entity<ui::TextInputState>,
@@ -19,7 +22,6 @@ pub(super) struct DetailState {
     details: ProjectDetails,
     task: Option<Task<()>>,
     pub(super) stale: bool,
-    compressing: Option<(PathBuf, u64)>,
 }
 
 impl DetailState {
@@ -31,7 +33,6 @@ impl DetailState {
             details: ProjectDetails::default(),
             task: None,
             stale: false,
-            compressing: None,
         }
     }
 
@@ -39,13 +40,6 @@ impl DetailState {
         self.project = None;
         self.details = ProjectDetails::default();
         self.task = None;
-    }
-
-    fn compressing(&self, project: &Path) -> Option<u64> {
-        self.compressing
-            .as_ref()
-            .filter(|(held, _)| held == project)
-            .map(|(_, percent)| *percent)
     }
 }
 
@@ -86,9 +80,22 @@ fn alert_copy_failed(error: String, cx: &mut gpui::App) {
     .detach();
 }
 
-fn copy_file(file: &Path, cx: &mut gpui::App) {
-    if let Err(error) = crate::platform::copy_file_to_clipboard(file, cx) {
+fn copy_files(files: &[PathBuf], cx: &mut gpui::App) {
+    if let Err(error) = crate::platform::copy_files_to_clipboard(files, cx) {
         alert_copy_failed(error, cx);
+    }
+}
+
+fn report_compression(summary: &QueueSummary) {
+    if crate::store::GeneralSettings::load().enable_notifications {
+        if let Some(notice) = crate::auto_compress::queue_notice(summary) {
+            crate::auto_compress::show(notice);
+        }
+    } else if !summary.failed.is_empty() {
+        crate::platform::alert_dialog(
+            t!("Couldn't compress the recording"),
+            t!("Check the folder has space and try again."),
+        );
     }
 }
 
@@ -170,7 +177,7 @@ impl MainWindow {
         }
     }
 
-    fn focus_library_items(&self, cx: &mut Context<Self>) {
+    pub(super) fn focus_library_items(&self, cx: &mut Context<Self>) {
         let focus = self.library.items_focus.clone();
         let main = cx.global::<app_windows::AppWindows>().main;
         cx.defer(move |cx| {
@@ -224,6 +231,17 @@ impl MainWindow {
     }
 
     pub(super) fn reveal_library_selection(&self, cx: &mut Context<Self>) {
+        if self.library.selection.items().len() > 1 {
+            let items = self.library.selection.items().to_vec();
+            cx.background_executor()
+                .spawn(async move {
+                    if let Err(error) = crate::platform::reveal_items(&items) {
+                        tracing::warn!("showing the items in File Explorer failed: {error}");
+                    }
+                })
+                .detach();
+            return;
+        }
         let Some(entry) = self.library.lead_entry() else {
             return;
         };
@@ -239,16 +257,28 @@ impl MainWindow {
     }
 
     pub(in crate::main_window) fn copy_library_file(&self, cx: &mut Context<Self>) {
-        let Some(file) = self
-            .library
-            .selection
-            .single()
-            .and_then(|path| self.library.entry(path))
-            .and_then(library::file_to_copy)
-        else {
-            return;
-        };
-        copy_file(&file, cx);
+        let files = self.library_files_to_copy();
+        if !files.is_empty() {
+            copy_files(&files, cx);
+        }
+    }
+
+    pub(super) fn library_files_to_copy(&self) -> Vec<PathBuf> {
+        self.library
+            .selected_entries()
+            .into_iter()
+            .filter_map(library::file_to_copy)
+            .collect()
+    }
+
+    pub(super) fn library_compressible(&self) -> Vec<PathBuf> {
+        self.library
+            .selected_entries()
+            .into_iter()
+            .filter(|entry| entry.compressible)
+            .filter(|entry| self.library.compress.state(&entry.path).is_none())
+            .map(|entry| entry.path.clone())
+            .collect()
     }
 
     pub(super) fn export_library_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -317,14 +347,16 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(path) = self.library.selection.single().map(Path::to_path_buf) else {
+        let projects = self.library_compressible();
+        self.library.compress.add(projects);
+        cx.notify();
+        self.run_library_compression(window, cx);
+    }
+
+    fn run_library_compression(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.library.compress.start_next() else {
             return;
         };
-        if self.library.detail.compressing.is_some() {
-            return;
-        }
-        self.library.detail.compressing = Some((path.clone(), 0));
-        cx.notify();
         let (progress_tx, progress_rx) = flume::unbounded::<u64>();
         cx.spawn_in(window, async move |this, cx| {
             let bundle = path.clone();
@@ -332,10 +364,11 @@ impl MainWindow {
                 library::compress_video(&bundle, |done, total| {
                     progress_tx.send(done * 100 / total.max(1)).is_ok()
                 })
+                .map(|_| library::video_versions(&bundle).map_or(0, VideoVersions::saved))
             });
             while let Ok(percent) = progress_rx.recv_async().await {
                 let open = this.update(cx, |this, cx| {
-                    this.library.detail.compressing = Some((path.clone(), percent.min(100)));
+                    this.library.compress.progress(percent);
                     cx.notify();
                 });
                 if open.is_err() {
@@ -345,14 +378,17 @@ impl MainWindow {
             let result = job.await;
             if let Err(error) = &result {
                 tracing::error!(path = %path.display(), "compressing the recording failed: {error}");
-                crate::platform::alert_dialog(
-                    t!("Couldn't compress the recording"),
-                    t!("Check the folder has space and try again."),
-                );
             }
             this.update_in(cx, |this, window, cx| {
-                this.library.detail.compressing = None;
+                if let Some(summary) = this.library.compress.finish(result) {
+                    cx.background_executor()
+                        .spawn(async move {
+                            report_compression(&summary);
+                        })
+                        .detach();
+                }
                 this.refresh_library(window, cx);
+                this.run_library_compression(window, cx);
             })
             .ok();
         })
@@ -404,66 +440,6 @@ impl MainWindow {
                 tracing::error!("removing the export record failed: {error}");
             }
             this.update_in(cx, |this, window, cx| this.refresh_library(window, cx))
-                .ok();
-        })
-        .detach();
-    }
-
-    pub(in crate::main_window) fn delete_library_selection(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let items: Vec<(PathBuf, MediaKind)> = self
-            .library
-            .selection
-            .items()
-            .iter()
-            .filter_map(|path| self.library.entry(path))
-            .map(|entry| (entry.path.clone(), entry.kind))
-            .collect();
-        let question: SharedString = match items.as_slice() {
-            [] => return,
-            [(_, MediaKind::Screenshot)] => t!("Delete this screenshot?").into(),
-            [_] => t!("Delete this recording?").into(),
-            many => t!("Delete {count} items?", count = many.len())
-                .to_string()
-                .into(),
-        };
-        cx.spawn_in(window, async move |_, cx| {
-            if !crate::platform::confirm_dialog(
-                "FrameEver",
-                &question,
-                t!("Delete"),
-                t!("Cancel"),
-                false,
-            ) {
-                return;
-            }
-            for (path, kind) in items {
-                let deleted = if kind == MediaKind::Screenshot {
-                    let bundle = path.clone();
-                    cx.background_executor()
-                        .spawn(async move { library::delete_screenshot(&bundle) })
-                        .await
-                } else {
-                    let Ok(task) = cx.update(|_, cx| {
-                        gpui_tokio::Tokio::spawn(cx, library::delete_recording(path.clone()))
-                    }) else {
-                        return;
-                    };
-                    task.await.unwrap_or_else(|error| Err(error.to_string()))
-                };
-                if let Err(error) = deleted {
-                    tracing::error!(path = %path.display(), "deleting the project failed: {error}");
-                    crate::platform::alert_dialog(
-                        t!("Couldn't delete this item"),
-                        t!("Its files may be in use. Try again."),
-                    );
-                    break;
-                }
-            }
-            cx.update(|_, cx| cx.defer(app_windows::refresh_library_everywhere))
                 .ok();
         })
         .detach();
@@ -553,14 +529,15 @@ impl MainWindow {
                 )
             }
             (None, MediaKind::Instant) => {
-                let compressing = self.library.detail.compressing(&entry.path);
-                let label: SharedString = match compressing {
-                    Some(percent) => t!("Compressing… {percent}%", percent = percent)
-                        .to_string()
-                        .into(),
+                let job = self.library.compress.state(&entry.path);
+                let label: SharedString = match job {
+                    Some(JobState::Running { percent }) => {
+                        t!("Compressing… {percent}%", percent = percent).into()
+                    }
+                    Some(JobState::Waiting) => t!("Waiting").into(),
                     None => t!("Compress").into(),
                 };
-                let idle = entry.compressible && self.library.detail.compressing.is_none();
+                let idle = entry.compressible && job.is_none();
                 row.child(export(self, true, cx)).child(
                     self.detail_button("library-detail-compress", label, false, !idle)
                         .when(idle, |this| {
@@ -776,7 +753,7 @@ impl MainWindow {
                         "icons/copy.svg",
                         t!("Copy"),
                     )
-                    .on_click(move |_, _, cx| copy_file(&copy, cx))
+                    .on_click(move |_, _, cx| copy_files(std::slice::from_ref(&copy), cx))
                     .into_any_element(),
                 ]
             } else {
@@ -878,11 +855,11 @@ impl MainWindow {
             })
     }
 
-    pub(super) fn render_library_detail(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement + use<>> {
+    pub(super) fn render_library_detail(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let theme = self.theme;
+        if self.library.selection.items().len() > 1 {
+            return Some(self.render_library_batch(cx).into_any_element());
+        }
         let entry = self.library.single_entry()?.clone();
         let copyable = library::file_to_copy(&entry).is_some();
         let name = ui::TextInput::bare(
@@ -958,8 +935,192 @@ impl MainWindow {
                                     this.delete_library_selection(window, cx);
                                 })),
                         ),
-                ),
+                )
+                .into_any_element(),
         )
+    }
+
+    fn batch_button(
+        &self,
+        id: &'static str,
+        icon: &'static str,
+        label: impl Into<SharedString>,
+        disabled: bool,
+    ) -> gpui::Stateful<gpui::Div> {
+        let theme = self.theme;
+        focus_ring(
+            div()
+                .id(id)
+                .when(!disabled, |this| {
+                    this.tab_index(0)
+                        .cursor_pointer()
+                        .hover(move |style| style.bg(theme.accent))
+                })
+                .when(disabled, |this| this.opacity(0.5))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .h(px(crate::theme::CONTROL_HEIGHT))
+                .px(px(10.))
+                .rounded(px(6.))
+                .bg(theme.secondary)
+                .text_size(px(13.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme.foreground)
+                .child(
+                    svg()
+                        .path(icon)
+                        .size(px(16.))
+                        .flex_shrink_0()
+                        .text_color(theme.muted_foreground),
+                )
+                .child(div().min_w_0().truncate().child(label.into())),
+            theme,
+        )
+    }
+
+    fn render_library_batch(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = self.theme;
+        let entries = self.library.selected_entries();
+        let size: u64 = entries.iter().map(|entry| entry.size).sum();
+        let kinds: Vec<(MediaKind, usize)> =
+            [MediaKind::Studio, MediaKind::Instant, MediaKind::Screenshot]
+                .into_iter()
+                .map(|kind| {
+                    let count = entries.iter().filter(|entry| entry.kind == kind).count();
+                    (kind, count)
+                })
+                .filter(|(_, count)| *count > 0)
+                .collect();
+        let compressible = self.library_compressible().len();
+        let copyable = !self.library_files_to_copy().is_empty();
+        div()
+            .flex()
+            .flex_col()
+            .flex_shrink_0()
+            .w(px(DETAIL_WIDTH))
+            .min_h_0()
+            .border_l_1()
+            .border_color(theme.border)
+            .child(
+                div()
+                    .id("library-batch")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .gap(px(12.))
+                    .p(px(12.))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_size(px(15.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(t!("{count} selected", count = entries.len())),
+                            )
+                            .child(
+                                div()
+                                    .mt(px(2.))
+                                    .text_size(px(12.))
+                                    .text_color(theme.muted_foreground)
+                                    .child(view::format_size(size)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.))
+                            .children(kinds.into_iter().map(|(kind, count)| {
+                                div()
+                                    .flex()
+                                    .justify_between()
+                                    .text_size(px(12.))
+                                    .child(
+                                        div()
+                                            .text_color(theme.muted_foreground)
+                                            .child(kind_label(kind)),
+                                    )
+                                    .child(count.to_string())
+                            })),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(6.))
+                            .child(
+                                self.batch_button(
+                                    "library-batch-compress",
+                                    "icons/download.svg",
+                                    t!("Compress {count}", count = compressible),
+                                    compressible == 0,
+                                )
+                                .when(compressible > 0, |this| {
+                                    this.on_click(cx.listener(|this, _, window, cx| {
+                                        this.compress_library_selection(window, cx);
+                                    }))
+                                }),
+                            )
+                            .child(
+                                self.batch_button(
+                                    "library-batch-reveal",
+                                    "icons/folder-open.svg",
+                                    t!("Show in folder"),
+                                    false,
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.reveal_library_selection(cx);
+                                    },
+                                )),
+                            )
+                            .child(
+                                self.batch_button(
+                                    "library-batch-copy",
+                                    "icons/copy.svg",
+                                    t!("Copy files"),
+                                    !copyable,
+                                )
+                                .when(copyable, |this| {
+                                    this.on_click(cx.listener(|this, _, _, cx| {
+                                        this.copy_library_file(cx);
+                                    }))
+                                }),
+                            )
+                            .child(
+                                self.batch_button(
+                                    "library-batch-delete",
+                                    "icons/trash.svg",
+                                    t!("Delete…"),
+                                    false,
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| {
+                                        this.delete_library_selection(window, cx);
+                                    },
+                                )),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_shrink_0()
+                    .p(px(8.))
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .child(
+                        self.foot_button("library-batch-clear", t!("Clear selection"), false)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.clear_library_selection(cx);
+                            })),
+                    ),
+            )
     }
 }
 

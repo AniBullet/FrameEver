@@ -453,16 +453,18 @@ class MainWindow {
 	tile(item) {
 		const on = this.s.selected.includes(item.id);
 		const k = KIND[item.kind];
+		const job = this.s.jobs?.[item.id];
 		return `<div class="tile ${on ? "on" : ""} ${item.fresh ? "fresh" : ""}" data-a="item" data-id="${item.id}">
-			<span class="thumb">${art(item.art)}<span class="corner tl">${icon(k.icon, "sm")}</span>${item.exports.length ? `<span class="corner tr" title="${pick("Exported", "已导出")}">${icon("check", "sm")}</span>` : ""}${item.dur ? `<span class="corner br tnum">${item.dur}</span>` : ""}${item.kind === "screenshot" ? "" : '<span class="scrub"></span>'}${item.fresh ? `<span class="tick-mark">${this.doodle("TICK", 20, `tick-${item.id}`)}</span>` : ""}</span>
+			<span class="thumb">${art(item.art)}<span class="corner tl">${icon(k.icon, "sm")}</span>${item.exports.length ? `<span class="corner tr" title="${pick("Exported", "已导出")}">${icon("check", "sm")}</span>` : ""}${item.dur ? `<span class="corner br tnum">${item.dur}</span>` : ""}${item.kind === "screenshot" ? "" : '<span class="scrub"></span>'}${item.fresh ? `<span class="tick-mark">${this.doodle("TICK", 20, `tick-${item.id}`)}</span>` : ""}${job === undefined ? "" : `<span class="job-bar"><b style="width:${job}%"></b></span>`}</span>
 			<span class="name">${item.name}</span>
-			<span class="meta tnum">${L(`${k.name[0]} · ${item.size}`, `${k.name[1]} · ${item.size}`)}</span>
+			<span class="meta tnum">${job === undefined ? L(`${k.name[0]} · ${item.size}`, `${k.name[1]} · ${item.size}`) : job === 0 ? L("Waiting", "等待中") : L(`Compressing… ${job}%`, `正在压缩… ${job}%`)}</span>
 		</div>`;
 	}
 
 	row(item) {
 		const k = KIND[item.kind];
-		return `<div class="table-row ${this.s.selected.includes(item.id) ? "on" : ""}" data-a="item" data-id="${item.id}"><span class="name">${icon(k.icon)}<span class="text">${item.name}</span>${item.exports.length ? icon("check", "sm") : ""}</span><span class="dim">${L(...k.name)}</span><span class="dim tnum">${item.dur ?? "—"}</span><span class="dim tnum">${item.size}</span><span class="dim tnum">${L(...DAY[item.group])}</span></div>`;
+		const job = this.s.jobs?.[item.id];
+		return `<div class="table-row ${this.s.selected.includes(item.id) ? "on" : ""}" data-a="item" data-id="${item.id}"><span class="name">${icon(k.icon)}<span class="text">${item.name}</span>${item.exports.length ? icon("check", "sm") : ""}</span><span class="dim">${job === undefined ? L(...k.name) : job === 0 ? L("Waiting", "等待中") : L("Compressing…", "正在压缩…")}</span><span class="dim tnum">${item.dur ?? "—"}</span><span class="dim tnum">${job ? `${job}%` : item.size}</span><span class="dim tnum">${L(...DAY[item.group])}</span></div>`;
 	}
 
 	items() {
@@ -1206,8 +1208,8 @@ const titles = {
 	delete: [
 		"Delete and undo",
 		"删除和撤销",
-		"Deletes go to the Recycle Bin and show Undo for 8 seconds. Exports are never touched. Delete opens the dialog; Shift+Delete skips it. Only Instant recordings with a compressed copy get the three-way choice.",
-		"删除都进回收站，Toast 带“撤销”，留 8 秒。导出文件永远保留。Delete 打开弹框，Shift+Delete 跳过弹框。只有带压缩副本的 Instant 录制才有三选一。",
+		"Deletes go to the Recycle Bin and show Undo for 8 seconds, also on Ctrl+Z. Exports are never touched. Delete opens the dialog; Shift+Delete skips it. Only Instant recordings with a compressed copy get the three-way choice.",
+		"删除都进回收站，Toast 带“撤销”，留 8 秒，也可以按 Ctrl+Z。导出文件永远保留。Delete 打开弹框，Shift+Delete 跳过弹框。只有带压缩副本的 Instant 录制才有三选一。",
 	],
 	keys: [
 		"Keyboard",
@@ -1261,6 +1263,7 @@ const presets = {
 	sort: { sort: "name", dir: 1, menu: "sort" },
 	list: { view: "list", selected: [4], anchor: 4 },
 	filtered: { status: ["exported"], selected: [1], anchor: 1 },
+	queue: { jobs: { 5: 42, 9: 0 } },
 	none_match: { query: "zzz" },
 	empty: { items: [] },
 	preview: { selected: [1], anchor: 1, preview: true },
@@ -1280,6 +1283,7 @@ tabRow(
 		["instant", "Instant with a copy", "带压缩副本的即时录制"],
 		["none", "Nothing selected", "无选中"],
 		["batch", "Several selected", "批量"],
+		["queue", "Compressing", "压缩队列"],
 		["sort", "Sort menu", "排序菜单"],
 		["list", "List", "列表"],
 		["filtered", "Filtered", "筛选"],

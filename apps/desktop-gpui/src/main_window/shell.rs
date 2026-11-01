@@ -71,6 +71,7 @@ pub enum Effect {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EscLayers {
+    pub library_dialog: bool,
     pub warning: bool,
     pub error: bool,
     pub mode_hover: bool,
@@ -84,6 +85,7 @@ pub struct EscLayers {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EscStep {
+    CloseLibraryDialog,
     DismissWarning,
     DismissError,
     ClearModeHover,
@@ -182,6 +184,9 @@ impl Shell {
     }
 
     pub fn escape(&self, layers: EscLayers) -> Option<EscStep> {
+        if layers.library_dialog {
+            return Some(EscStep::CloseLibraryDialog);
+        }
         if layers.warning {
             return Some(EscStep::DismissWarning);
         }
@@ -825,6 +830,15 @@ mod tests {
 
         assert_eq!(
             shell.escape(EscLayers {
+                library_dialog: true,
+                error: true,
+                library_menu: true,
+                ..Default::default()
+            }),
+            Some(EscStep::CloseLibraryDialog)
+        );
+        assert_eq!(
+            shell.escape(EscLayers {
                 error: true,
                 search_text: true,
                 search_focused: true,
@@ -877,6 +891,7 @@ mod tests {
     fn esc_in_compact_goes_warning_error_hover_search_panel_clip_and_then_nothing() {
         let shell = shell();
         let all = EscLayers {
+            library_dialog: false,
             warning: true,
             error: true,
             mode_hover: true,

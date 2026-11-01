@@ -486,6 +486,21 @@ main > section .seg {
 	bottom: 4px;
 }
 
+.job-bar {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 3px;
+	background: var(--muted);
+}
+
+.job-bar b {
+	display: block;
+	height: 100%;
+	background: var(--primary);
+}
+
 .scrub {
 	position: absolute;
 	left: 0;

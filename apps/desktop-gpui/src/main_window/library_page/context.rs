@@ -23,6 +23,7 @@ pub(super) enum Command {
     Compress,
     Rename,
     CopyFile,
+    CopyFiles,
     Reveal,
     Delete,
     SortBy,
@@ -55,7 +56,7 @@ pub(super) struct ItemActions {
 pub(super) enum Target {
     Blank,
     One(ItemActions),
-    Many,
+    Many { compressible: bool, copyable: bool },
 }
 
 impl Target {
@@ -77,7 +78,20 @@ pub(super) fn commands(target: Target) -> Vec<Option<Command>> {
             None,
             Some(Command::OpenStorage),
         ],
-        Target::Many => vec![Some(Command::Reveal), None, Some(Command::Delete)],
+        Target::Many {
+            compressible,
+            copyable,
+        } => {
+            let mut rows = Vec::new();
+            if compressible {
+                rows.push(Some(Command::Compress));
+            }
+            if copyable {
+                rows.push(Some(Command::CopyFiles));
+            }
+            rows.extend([Some(Command::Reveal), None, Some(Command::Delete)]);
+            rows
+        }
         Target::One(actions) => {
             let mut rows = Vec::new();
             if actions.opens {
@@ -171,7 +185,10 @@ impl MainWindow {
     ) {
         self.change_selection(cx, |selection, _| selection.context_click(path));
         let target = if self.library.selection.items().len() > 1 {
-            Target::Many
+            Target::Many {
+                compressible: !self.library_compressible().is_empty(),
+                copyable: !self.library_files_to_copy().is_empty(),
+            }
         } else {
             self.library.entry(path).map_or(Target::Blank, Target::of)
         };
@@ -286,7 +303,7 @@ impl MainWindow {
             Command::Export => self.export_library_selection(window, cx),
             Command::Compress => self.compress_library_selection(window, cx),
             Command::Rename => self.rename_library_selection(window, cx),
-            Command::CopyFile => self.copy_library_file(cx),
+            Command::CopyFile | Command::CopyFiles => self.copy_library_file(cx),
             Command::Reveal => self.reveal_library_selection(cx),
             Command::Delete => self.delete_library_selection(window, cx),
             Command::Refresh => self.refresh_library(window, cx),
@@ -309,6 +326,7 @@ impl MainWindow {
             Command::Compress => t!("Compress"),
             Command::Rename => t!("Rename"),
             Command::CopyFile => t!("Copy file"),
+            Command::CopyFiles => t!("Copy files"),
             Command::Reveal => t!("Show in folder"),
             Command::Delete => t!("Delete…"),
             Command::SortBy => t!("Sort by"),
@@ -326,7 +344,7 @@ impl MainWindow {
         match command {
             Command::Open => Some("Enter"),
             Command::Rename => Some("F2"),
-            Command::CopyFile => Some("Ctrl+C"),
+            Command::CopyFile | Command::CopyFiles => Some("Ctrl+C"),
             Command::Delete => Some("Del"),
             _ => None,
         }
@@ -522,7 +540,25 @@ mod tests {
 
     #[test]
     fn several_items_and_blank_space_have_their_own_menus() {
-        assert_eq!(listed(Target::Many), [Command::Reveal, Command::Delete]);
+        assert_eq!(
+            listed(Target::Many {
+                compressible: false,
+                copyable: false,
+            }),
+            [Command::Reveal, Command::Delete]
+        );
+        assert_eq!(
+            listed(Target::Many {
+                compressible: true,
+                copyable: true,
+            }),
+            [
+                Command::Compress,
+                Command::CopyFiles,
+                Command::Reveal,
+                Command::Delete
+            ]
+        );
         assert_eq!(
             listed(Target::Blank),
             [

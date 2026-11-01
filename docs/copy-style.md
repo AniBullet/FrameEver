@@ -62,13 +62,13 @@ Every error says what happened and what to do next.
 
 ## Confirmations
 
-- Confirm only what can't be undone. Deletes in the library go to the Recycle Bin and show an Undo message instead of a dialog.
+- Confirm only what can't be undone. Deletes in the library go to the Recycle Bin and show an Undo message; the Delete key's dialog names what goes and Shift+Delete skips it.
 - Title: the question, naming the object. Body: the consequence. Buttons: the specific verb and Cancel.
 - Never "Are you sure…".
 
 | Before | After |
 |---|---|
-| Are you sure you want to delete this recording? | Deleted "Demo 3" [Undo] (no dialog) |
+| Are you sure you want to delete this recording? | Deleted "Demo 3" [Undo] |
 | Delete the original video? The compressed version stays, but the original can't be restored. | Title: Delete the original video? Body: The compressed copy stays. This can't be undone. Buttons: Delete original · Cancel |
 
 ## Empty states
