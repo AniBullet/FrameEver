@@ -97,6 +97,8 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "keyboard.svg",
     "laptop.svg",
     "layers.svg",
+    "layout-grid.svg",
+    "list.svg",
     "logo-clip-bottom.svg",
     "logo-clip-top.svg",
     "logo-record.svg",

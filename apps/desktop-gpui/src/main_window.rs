@@ -23,7 +23,10 @@ use crate::{
     devices::{CameraOption, DeviceSnapshot, DisplayOption, MicrophoneOption, WindowOption},
     feeds::{self, Feeds},
     i18n::t,
-    library,
+    library::{
+        self,
+        view::{Step, ViewMode},
+    },
     media_access::MediaAccess,
     permissions::OSPermission,
     recording,
@@ -50,7 +53,23 @@ gpui::actions!(
         FocusPrevious,
         FocusLibrarySearch,
         LargerTiles,
-        SmallerTiles
+        SmallerTiles,
+        LibraryGrid,
+        LibraryList,
+        LibraryLeft,
+        LibraryRight,
+        LibraryUp,
+        LibraryDown,
+        LibraryExtendLeft,
+        LibraryExtendRight,
+        LibraryExtendUp,
+        LibraryExtendDown,
+        LibraryOpen,
+        LibraryRename,
+        LibraryDelete,
+        LibraryCopy,
+        LibrarySelectAll,
+        LibraryMenu
     ]
 );
 
@@ -61,8 +80,27 @@ pub fn bind_keys(cx: &mut gpui::App) {
         gpui::KeyBinding::new("ctrl-f", FocusLibrarySearch, context),
         gpui::KeyBinding::new("ctrl-=", LargerTiles, context),
         gpui::KeyBinding::new("ctrl--", SmallerTiles, context),
+        gpui::KeyBinding::new("ctrl-1", LibraryGrid, context),
+        gpui::KeyBinding::new("ctrl-2", LibraryList, context),
         gpui::KeyBinding::new("tab", FocusNext, context),
         gpui::KeyBinding::new("shift-tab", FocusPrevious, context),
+    ]);
+    let items = Some("LibraryItems");
+    cx.bind_keys([
+        gpui::KeyBinding::new("left", LibraryLeft, items),
+        gpui::KeyBinding::new("right", LibraryRight, items),
+        gpui::KeyBinding::new("up", LibraryUp, items),
+        gpui::KeyBinding::new("down", LibraryDown, items),
+        gpui::KeyBinding::new("shift-left", LibraryExtendLeft, items),
+        gpui::KeyBinding::new("shift-right", LibraryExtendRight, items),
+        gpui::KeyBinding::new("shift-up", LibraryExtendUp, items),
+        gpui::KeyBinding::new("shift-down", LibraryExtendDown, items),
+        gpui::KeyBinding::new("enter", LibraryOpen, items),
+        gpui::KeyBinding::new("f2", LibraryRename, items),
+        gpui::KeyBinding::new("delete", LibraryDelete, items),
+        gpui::KeyBinding::new("ctrl-c", LibraryCopy, items),
+        gpui::KeyBinding::new("ctrl-a", LibrarySelectAll, items),
+        gpui::KeyBinding::new("shift-f10", LibraryMenu, items),
     ]);
 }
 
@@ -711,6 +749,7 @@ pub struct MainWindow {
     /// the clipboard; this window owns what Escape means.
     search_input: Entity<ui::TextInputState>,
     _search_events: gpui::Subscription,
+    _library_name_events: gpui::Subscription,
     /// True until the background enumeration has reported back, so the panel can
     /// say "Loading..." rather than "No cameras found".
     enumerating: bool,
@@ -890,6 +929,8 @@ impl MainWindow {
         // blur listener inside `TextInputState` needs a `&mut Window` anyway.
         let search_input = cx.new(|cx| ui::TextInputState::single_line(window, cx));
         let search_events = cx.subscribe(&search_input, Self::on_search_event);
+        let library_name = cx.new(|cx| ui::TextInputState::single_line(window, cx));
+        let library_name_events = cx.subscribe(&library_name, Self::on_library_name_event);
 
         let media = MediaAccess::global(cx);
         let mut media_allowed = (
@@ -948,6 +989,7 @@ impl MainWindow {
             search: String::new(),
             search_input,
             _search_events: search_events,
+            _library_name_events: library_name_events,
             shell: Shell::launch(crate::store::load().main_window),
             focus_handle,
             transition_started: Instant::now(),
@@ -964,7 +1006,7 @@ impl MainWindow {
             deep_link_start: None,
             microphone_warning: None,
             copied_error: None,
-            library: library_page::LibraryPage::new(),
+            library: library_page::LibraryPage::new(library_name, cx.focus_handle()),
             incomplete_recording: None,
             recovery_error: None,
             recovery_pending: false,
@@ -2543,11 +2585,16 @@ impl Render for MainWindow {
         self.sync_appearance(window, cx);
         let theme = self.theme;
         if self.shell.shows_library() {
-            self.sync_library_layout(f32::from(window.viewport_size().width), cx);
+            self.sync_library_layout(window, cx);
         }
         if window.focused(cx).is_none() {
             cx.defer_in(window, |this, window, cx| {
-                window.focus(&this.focus_handle, cx);
+                let focus = if this.shell.shows_library() {
+                    this.library.items_focus().clone()
+                } else {
+                    this.focus_handle.clone()
+                };
+                window.focus(&focus, cx);
             });
         }
         if self.shell.is_fading() {
@@ -2575,6 +2622,54 @@ impl Render for MainWindow {
             }))
             .on_action(cx.listener(|this, _: &SmallerTiles, _, cx| {
                 this.step_library_tiles(-1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryGrid, _, cx| {
+                this.show_library_as(ViewMode::Grid, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryList, _, cx| {
+                this.show_library_as(ViewMode::List, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryLeft, _, cx| {
+                this.step_library(Step::Left, false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryRight, _, cx| {
+                this.step_library(Step::Right, false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryUp, _, cx| {
+                this.step_library(Step::Up, false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryDown, _, cx| {
+                this.step_library(Step::Down, false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryExtendLeft, _, cx| {
+                this.step_library(Step::Left, true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryExtendRight, _, cx| {
+                this.step_library(Step::Right, true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryExtendUp, _, cx| {
+                this.step_library(Step::Up, true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryExtendDown, _, cx| {
+                this.step_library(Step::Down, true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryOpen, window, cx| {
+                this.enter_library(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryRename, window, cx| {
+                this.rename_library_selection(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryDelete, window, cx| {
+                this.delete_library_selection(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryCopy, _, cx| {
+                this.copy_library_file(cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibrarySelectAll, _, cx| {
+                this.select_all_library(cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryMenu, window, cx| {
+                this.open_library_menu_from_keys(window, cx);
             }))
             .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
             .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
@@ -2628,6 +2723,7 @@ impl Render for MainWindow {
             .when(self.library.slider_dragging, |this| {
                 this.child(self.render_library_slider_layer(cx))
             })
+            .children(self.render_library_marquee(cx))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" && this.dismiss_main(false, cx) {
                     cx.stop_propagation();
@@ -3492,6 +3588,7 @@ impl MainWindow {
             panel: self.panel.is_some(),
             clip_flow: self.session.read(cx).editor_recording_target().is_some(),
             library_menu: self.library.menu_open(),
+            library_selection: self.library.has_selection(),
         };
         let Some(step) = self.shell.escape(layers) else {
             return false;
@@ -3505,14 +3602,11 @@ impl MainWindow {
             }
             EscStep::ClearSearch => self.clear_search(cx),
             EscStep::BlurSearch => {
-                let main = cx.global::<app_windows::AppWindows>().main;
-                cx.defer(move |cx| {
-                    main.update(cx, |this, window, cx| window.focus(&this.focus_handle, cx))
-                        .ok();
-                });
+                self.focus_after_search(cx);
             }
             EscStep::BackPanel => self.back_panel(cx),
             EscStep::CloseLibraryMenu => self.close_library_menu(cx),
+            EscStep::ClearLibrarySelection => self.clear_library_selection(cx),
             EscStep::AbortClipFlow => {
                 self.cancel_deep_link_start();
                 cx.defer(app_windows::abort_editor_recording_flow);
@@ -3606,7 +3700,6 @@ impl MainWindow {
         }
         match (before, self.shell.stage()) {
             (Stage::OpeningFrame, Stage::LibraryArriving) => {
-                window.focus(&self.focus_handle, cx);
                 self.open_library_page(window, cx);
                 if std::mem::take(&mut self.show_after_snap) {
                     cx.defer(app_windows::show_main_window);
@@ -3790,74 +3883,6 @@ impl MainWindow {
                             .child(entry.message.clone()),
                     ),
             )
-    }
-
-    fn delete_library_recording(
-        &mut self,
-        path: std::path::PathBuf,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.spawn_in(window, async move |_, cx| {
-            if !crate::platform::confirm_dialog(
-                "FrameEver",
-                t!("Are you sure you want to delete this recording?"),
-                t!("Yes"),
-                t!("No"),
-                false,
-            ) {
-                return;
-            }
-            let Ok(task) = cx.update(|_, cx| {
-                gpui_tokio::Tokio::spawn(cx, crate::library::delete_recording(path.clone()))
-            }) else {
-                return;
-            };
-            let deleted = task.await.unwrap_or_else(|error| Err(error.to_string()));
-            if let Err(error) = deleted {
-                tracing::error!(path = %path.display(), "deleting the recording failed: {error}");
-                crate::platform::alert_dialog(t!("Couldn't delete the recording"), &error);
-                return;
-            }
-            cx.update(|_, cx| cx.defer(app_windows::refresh_library_after_delete))
-                .ok();
-        })
-        .detach();
-    }
-
-    fn delete_library_screenshot(
-        &mut self,
-        bundle: std::path::PathBuf,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.spawn_in(window, async move |this, cx| {
-            if !crate::platform::confirm_dialog(
-                "FrameEver",
-                t!("Are you sure you want to delete this screenshot?"),
-                t!("Yes"),
-                t!("No"),
-                false,
-            ) {
-                return;
-            }
-            let deleted = cx
-                .background_executor()
-                .spawn({
-                    let bundle = bundle.clone();
-                    async move { library::delete_screenshot(&bundle) }
-                })
-                .await;
-            if let Err(error) = deleted {
-                tracing::error!(path = %bundle.display(), "deleting the screenshot failed: {error}");
-                return;
-            }
-            this.update_in(cx, |this, window, cx| {
-                this.refresh_library(window, cx);
-            })
-            .ok();
-        })
-        .detach();
     }
 
     fn save_screenshot(

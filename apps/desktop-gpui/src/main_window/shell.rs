@@ -79,6 +79,7 @@ pub struct EscLayers {
     pub panel: bool,
     pub clip_flow: bool,
     pub library_menu: bool,
+    pub library_selection: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +92,7 @@ pub enum EscStep {
     BackPanel,
     AbortClipFlow,
     CloseLibraryMenu,
+    ClearLibrarySelection,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -193,6 +195,8 @@ impl Shell {
                 Some(EscStep::ClearSearch)
             } else if layers.search_focused {
                 Some(EscStep::BlurSearch)
+            } else if layers.library_selection {
+                Some(EscStep::ClearLibrarySelection)
             } else {
                 None
             };
@@ -851,6 +855,21 @@ mod tests {
             }),
             Some(EscStep::CloseLibraryMenu)
         );
+        assert_eq!(
+            shell.escape(EscLayers {
+                search_focused: true,
+                library_selection: true,
+                ..Default::default()
+            }),
+            Some(EscStep::BlurSearch)
+        );
+        assert_eq!(
+            shell.escape(EscLayers {
+                library_selection: true,
+                ..Default::default()
+            }),
+            Some(EscStep::ClearLibrarySelection)
+        );
         assert_eq!(shell.escape(EscLayers::default()), None);
     }
 
@@ -866,6 +885,7 @@ mod tests {
             panel: true,
             clip_flow: true,
             library_menu: false,
+            library_selection: false,
         };
         assert_eq!(shell.escape(all), Some(EscStep::DismissWarning));
         let all = EscLayers {

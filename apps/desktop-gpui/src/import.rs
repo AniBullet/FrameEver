@@ -264,7 +264,7 @@ fn refresh_libraries(cx: &mut App) {
     if !cx.has_global::<crate::app_windows::AppWindows>() {
         return;
     }
-    crate::app_windows::refresh_library_after_delete(cx);
+    crate::app_windows::refresh_library_everywhere(cx);
     let main = cx.global::<crate::app_windows::AppWindows>().main;
     main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
         .ok();

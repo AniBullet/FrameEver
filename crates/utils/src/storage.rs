@@ -261,7 +261,7 @@ pub fn record_export(project: &Path, record: &ExportRecord) -> std::io::Result<(
     write_project_file(project, &document)
 }
 
-pub fn exports(project: &Path) -> Vec<ExportRecord> {
+pub fn export_records(project: &Path) -> Vec<ExportRecord> {
     let document = read_project_file(project);
     document
         .get(EXPORTS_KEY)
@@ -269,8 +269,26 @@ pub fn exports(project: &Path) -> Vec<ExportRecord> {
         .into_iter()
         .flatten()
         .filter_map(|entry| serde_json::from_value::<ExportRecord>(entry.clone()).ok())
+        .collect()
+}
+
+pub fn exports(project: &Path) -> Vec<ExportRecord> {
+    export_records(project)
+        .into_iter()
         .filter(|record| record.path.is_file())
         .collect()
+}
+
+pub fn remove_export(project: &Path, path: &Path) -> std::io::Result<()> {
+    let mut document = read_project_file_for_update(project)?;
+    let Some(serde_json::Value::Array(records)) = document.get_mut(EXPORTS_KEY) else {
+        return Ok(());
+    };
+    records.retain(|entry| {
+        serde_json::from_value::<ExportRecord>(entry.clone())
+            .map_or(true, |record| record.path != path)
+    });
+    write_project_file(project, &document)
 }
 
 pub fn format_version(project: &Path) -> Option<u64> {
@@ -724,6 +742,40 @@ mod tests {
 
         assert_eq!(exports(&project), vec![first, third]);
         assert!(exports(&tree.dir("Unexported.ever")).is_empty());
+    }
+
+    #[test]
+    fn a_moved_export_stays_on_record_until_it_is_removed() {
+        let tree = Tree::new();
+        let project = create_project(&tree.path("Recordings"), "Demo").unwrap();
+        tree.dir("Exports");
+        let kept = export_record(tree.path("Exports/Demo.mp4"), "mp4", None, 1);
+        let moved = export_record(tree.path("Exports/Demo.gif"), "gif", None, 2);
+        for record in [&kept, &moved] {
+            std::fs::write(&record.path, b"video").unwrap();
+            record_export(&project, record).unwrap();
+        }
+        std::fs::remove_file(&moved.path).unwrap();
+
+        assert_eq!(export_records(&project), vec![kept.clone(), moved.clone()]);
+
+        remove_export(&project, &moved.path).unwrap();
+
+        assert_eq!(export_records(&project), vec![kept]);
+        assert_eq!(format_version(&project), Some(1));
+    }
+
+    #[test]
+    fn removing_an_export_leaves_a_damaged_frameever_file_alone() {
+        let tree = Tree::new();
+        let project = tree.dir("Damaged.ever");
+        std::fs::write(project.join("frameever.json"), b"{ not json").unwrap();
+
+        assert!(remove_export(&project, &tree.path("Demo.mp4")).is_err());
+        assert_eq!(
+            std::fs::read(project.join("frameever.json")).unwrap(),
+            b"{ not json"
+        );
     }
 
     #[test]

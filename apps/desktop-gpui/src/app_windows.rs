@@ -3502,6 +3502,22 @@ pub fn open_editor(project_path: PathBuf, cx: &mut App) {
     }
 }
 
+pub fn open_editor_at_export(project_path: PathBuf, cx: &mut App) {
+    open_editor(project_path.clone(), cx);
+    let key = editor_key(&project_path);
+    let handle = cx
+        .global::<AppWindows>()
+        .editors
+        .iter()
+        .find(|(path, _)| path == &key)
+        .map(|(_, handle)| *handle);
+    if let Some(handle) = handle
+        && let Err(error) = handle.update(cx, |view, window, cx| view.open_export(window, cx))
+    {
+        tracing::warn!("Could not open the export page: {error}");
+    }
+}
+
 const CONVERTER_TITLE: &str = n!("Project from an older app");
 const CONVERTER_MESSAGE: &str = n!(
     "This is a Cap or Cap-aniBullet project. FrameEver opens only .ever projects. Bring it in with FrameEver Converter, available on the FrameEver Releases page."
@@ -4733,7 +4749,7 @@ pub fn editor_closed(project_path: &Path, window_id: gpui::WindowId, cx: &mut Ap
         cx.spawn(async move |cx| {
             if refresh.await.unwrap_or(false) {
                 cx.update(|cx| {
-                    refresh_library_after_delete(cx);
+                    refresh_library_everywhere(cx);
                     let main = cx.global::<AppWindows>().main;
                     main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
                         .ok();
@@ -4911,7 +4927,7 @@ pub(crate) fn request_editor_deletion(
         }.unwrap_or_else(|error| Err(t!("Recording deletion failed: {error}", error = error)));
         cx.update(|cx| {
             cx.global_mut::<AppWindows>().deleting_editors.remove(&key);
-            refresh_library_after_delete(cx);
+            refresh_library_everywhere(cx);
         });
         if let Err(error) = result {
             tracing::error!(path = %key.display(), %error, "recording deletion failed");
@@ -5593,7 +5609,7 @@ fn copy_instant_recording(project: &Path, cx: &mut App) {
     }
 }
 
-pub fn refresh_library_after_delete(cx: &mut App) {
+pub fn refresh_library_everywhere(cx: &mut App) {
     let main = cx.global::<AppWindows>().main;
     let settings = cx.global::<AppWindows>().settings;
     main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))

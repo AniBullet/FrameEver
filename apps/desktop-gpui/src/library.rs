@@ -39,6 +39,7 @@ use crate::i18n::t;
 mod versions;
 pub mod view;
 pub mod watch;
+pub use frameever_utils::storage::remove_export;
 pub use versions::{
     VideoVersions, compress as compress_video, compressed_only, delete_compressed, delete_original,
     restore_original, use_compressed, video_versions,
@@ -441,16 +442,122 @@ fn recording_duration(item: &RecordingItem) -> Option<f64> {
     (total > 0.).then_some(total)
 }
 
-fn export_file_names(project: &Path) -> Vec<String> {
-    frameever_utils::storage::exports(project)
+fn export_files(project: &Path) -> Vec<view::ExportFile> {
+    frameever_utils::storage::export_records(project)
         .into_iter()
         .filter_map(|record| {
-            record
-                .path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
+            let name = record.path.file_name()?.to_string_lossy().into_owned();
+            let size = size_of_file(&record.path);
+            Some(view::ExportFile {
+                name,
+                size,
+                exported_millis: record.exported_at as f64 * 1000.,
+                path: record.path,
+            })
         })
         .collect()
+}
+
+fn size_of_file(path: &Path) -> Option<u64> {
+    std::fs::metadata(path)
+        .ok()
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+}
+
+pub fn rename_project(project: &Path, name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("a project needs a name".to_string());
+    }
+    let mut meta = RecordingMeta::load_for_project(project).map_err(|error| error.to_string())?;
+    meta.pretty_name = name.to_string();
+    meta.save_for_project()
+        .map_err(|error| format!("{error:?}"))?;
+    Ok(meta.pretty_name)
+}
+
+pub fn file_to_copy(entry: &view::Entry) -> Option<PathBuf> {
+    match entry.kind {
+        MediaKind::Screenshot => entry.screenshot.clone(),
+        MediaKind::Instant => Some(instant_output_path(&entry.path)),
+        MediaKind::Studio => entry.latest_export().map(|export| export.path.clone()),
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProjectTracks {
+    pub camera: bool,
+    pub microphone: bool,
+    pub system_audio: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProjectDetails {
+    pub resolution: Option<(u32, u32)>,
+    pub fps: Option<u32>,
+    pub tracks: Option<ProjectTracks>,
+    pub versions: Option<VideoVersions>,
+}
+
+fn studio_tracks(studio: &StudioRecordingMeta) -> ProjectTracks {
+    match studio {
+        StudioRecordingMeta::SingleSegment { segment } => ProjectTracks {
+            camera: segment.camera.is_some(),
+            microphone: segment.audio.is_some(),
+            system_audio: false,
+        },
+        StudioRecordingMeta::MultipleSegments { inner } => ProjectTracks {
+            camera: inner
+                .segments
+                .iter()
+                .any(|segment| segment.camera.is_some()),
+            microphone: inner.segments.iter().any(|segment| segment.mic.is_some()),
+            system_audio: inner
+                .segments
+                .iter()
+                .any(|segment| segment.system_audio.is_some()),
+        },
+    }
+}
+
+fn video_shape(path: &Path) -> Option<((u32, u32), Option<u32>)> {
+    let input = ffmpeg::format::input(path).ok()?;
+    let stream = input.streams().best(ffmpeg::media::Type::Video)?;
+    let rate = stream.avg_frame_rate();
+    let fps =
+        (rate.denominator() != 0 && rate.numerator() > 0).then(|| (f64::from(rate).round()) as u32);
+    let video = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
+        .ok()?
+        .decoder()
+        .video()
+        .ok()?;
+    Some(((video.width(), video.height()), fps))
+}
+
+pub fn project_details(entry: &view::Entry) -> ProjectDetails {
+    if let Some(png) = &entry.screenshot {
+        return ProjectDetails {
+            resolution: image::image_dimensions(png).ok(),
+            ..ProjectDetails::default()
+        };
+    }
+    let Ok(meta) = RecordingMeta::load_for_project(&entry.path) else {
+        return ProjectDetails::default();
+    };
+    let shape = project_media(&entry.path, &meta)
+        .first()
+        .and_then(|path| video_shape(path));
+    let (tracks, versions) = match &meta.inner {
+        RecordingMetaInner::Studio(studio) => (Some(studio_tracks(studio)), None),
+        RecordingMetaInner::Instant(_) => (None, video_versions(&entry.path)),
+    };
+    ProjectDetails {
+        resolution: shape.map(|(resolution, _)| resolution),
+        fps: shape.and_then(|(_, fps)| fps),
+        tracks,
+        versions,
+    }
 }
 
 fn recording_entry(item: RecordingItem) -> view::Entry {
@@ -463,7 +570,10 @@ fn recording_entry(item: RecordingItem) -> view::Entry {
         }
         _ => view::Compression::None,
     };
+    let compressible = compression == view::Compression::None
+        && matches!(item.versions, Some(VideoVersions::Single { .. }));
     view::Entry {
+        compressible,
         kind: match item.mode {
             RecordingMode::Studio => MediaKind::Studio,
             RecordingMode::Instant => MediaKind::Instant,
@@ -471,7 +581,7 @@ fn recording_entry(item: RecordingItem) -> view::Entry {
         size: folder_size(&item.path),
         duration: recording_duration(&item),
         created_millis: item.sort_time_millis,
-        export_files: export_file_names(&item.path),
+        exports: export_files(&item.path),
         compression,
         clip_count: item.clip_count,
         opens_editor: item.opens_editor(),
@@ -489,8 +599,9 @@ fn screenshot_entry(item: ScreenshotItem) -> view::Entry {
         size: folder_size(&item.bundle),
         duration: None,
         created_millis: item.sort_time_millis,
-        export_files: export_file_names(&item.bundle),
+        exports: export_files(&item.bundle),
         compression: view::Compression::None,
+        compressible: false,
         clip_count: 1,
         opens_editor: true,
         thumbnail_version: item.thumbnail.as_deref().and_then(source_mtime_nanos),
@@ -1467,7 +1578,9 @@ mod tests {
         assert_eq!(demo.kind, MediaKind::Studio);
         assert_eq!(demo.clip_count, 2);
         assert!(demo.size >= 1000);
-        assert_eq!(demo.export_files, ["Launch final.mp4"]);
+        assert_eq!(demo.exports[0].name, "Launch final.mp4");
+        assert_eq!(demo.exports[0].size, Some(5));
+        assert_eq!(demo.exports[0].exported_millis, 1000.);
         assert_eq!(demo.compression, view::Compression::None);
         assert_eq!(demo.duration, None);
         assert_eq!(demo.screenshot, None);
@@ -1476,6 +1589,122 @@ mod tests {
         assert_eq!(shot.kind, MediaKind::Screenshot);
         assert!(shot.screenshot.is_some());
         assert!(shot.opens_editor);
+    }
+
+    #[test]
+    fn a_moved_export_shows_as_not_found_and_can_be_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let studio = write_studio_bundle(dir.path(), "Demo", 1);
+        let export = dir.path().join("Moved.mp4");
+        std::fs::write(&export, b"video").unwrap();
+        frameever_utils::storage::record_export(
+            &studio,
+            &ExportRecord {
+                path: export.clone(),
+                format: "mp4".into(),
+                codec: None,
+                exported_at: 1,
+            },
+        )
+        .unwrap();
+        std::fs::remove_file(&export).unwrap();
+
+        let entry = &entries_in(&[dir.path().to_path_buf()], &[])[0];
+        assert_eq!(entry.exports.len(), 1);
+        assert!(!entry.exports[0].found());
+        assert!(!entry.exported());
+
+        remove_export(&studio, &export).unwrap();
+        assert!(
+            entries_in(&[dir.path().to_path_buf()], &[])[0]
+                .exports
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn renaming_changes_the_shown_name_and_keeps_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let studio = write_studio_bundle(dir.path(), "Demo", 1);
+
+        assert_eq!(
+            rename_project(&studio, "  Launch take 2 ").as_deref(),
+            Ok("Launch take 2")
+        );
+
+        let entry = &entries_in(&[dir.path().to_path_buf()], &[])[0];
+        assert_eq!(entry.name, "Launch take 2");
+        assert_eq!(entry.path, studio);
+    }
+
+    #[test]
+    fn a_project_cannot_be_renamed_to_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let studio = write_studio_bundle(dir.path(), "Demo", 1);
+
+        assert!(rename_project(&studio, "   ").is_err());
+        assert_eq!(entries_in(&[dir.path().to_path_buf()], &[])[0].name, "Demo");
+    }
+
+    #[test]
+    fn the_copied_file_is_the_png_the_current_video_or_the_latest_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("Demo.ever");
+        let base = view::Entry {
+            path: project.clone(),
+            kind: MediaKind::Studio,
+            name: "Demo".into(),
+            size: 0,
+            duration: None,
+            created_millis: 0.,
+            exports: Vec::new(),
+            compression: view::Compression::None,
+            compressible: false,
+            clip_count: 1,
+            thumbnail: None,
+            thumbnail_version: None,
+            screenshot: None,
+            opens_editor: true,
+        };
+        assert_eq!(file_to_copy(&base), None);
+
+        let exported = view::Entry {
+            exports: vec![view::ExportFile {
+                path: PathBuf::from("final.mp4"),
+                name: "final.mp4".into(),
+                exported_millis: 1.,
+                size: Some(1),
+            }],
+            ..base.clone()
+        };
+        assert_eq!(file_to_copy(&exported), Some(PathBuf::from("final.mp4")));
+
+        let instant = view::Entry {
+            kind: MediaKind::Instant,
+            ..base.clone()
+        };
+        assert_eq!(file_to_copy(&instant), Some(instant_output_path(&project)));
+
+        let shot = view::Entry {
+            kind: MediaKind::Screenshot,
+            screenshot: Some(PathBuf::from("Shot.png")),
+            ..base
+        };
+        assert_eq!(file_to_copy(&shot), Some(PathBuf::from("Shot.png")));
+    }
+
+    #[test]
+    fn project_details_list_tracks_and_a_project_without_media_has_no_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let studio = write_studio_bundle(dir.path(), "Demo", 1);
+        let entry = &entries_in(&[dir.path().to_path_buf()], &[])[0];
+
+        let details = project_details(entry);
+
+        assert_eq!(details.resolution, None);
+        assert_eq!(details.tracks, Some(ProjectTracks::default()));
+        assert_eq!(details.versions, None);
+        assert_eq!(entry.path, studio);
     }
 
     #[test]

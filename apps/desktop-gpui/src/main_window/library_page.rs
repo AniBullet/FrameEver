@@ -1,15 +1,21 @@
+mod context;
+mod detail;
+
 use std::{
+    cell::RefCell,
     collections::{HashMap, VecDeque},
-    path::PathBuf,
+    path::{Path, PathBuf},
+    rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use gpui::{
-    AnyElement, AppContext as _, Context, FontWeight, InteractiveElement, IntoElement,
-    ListAlignment, ListOffset, ListState, ParentElement, RenderImage, SharedString,
+    AnyElement, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle, FontWeight,
+    InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState, MouseButton,
+    MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, RenderImage, SharedString,
     StatefulInteractiveElement, Styled, StyledImage as _, Task, Window, deferred, div, img, list,
-    prelude::FluentBuilder, px, svg,
+    prelude::FluentBuilder, px, svg, transparent_black,
 };
 
 use super::{MainWindow, app_windows, surfaces::focus_ring};
@@ -19,8 +25,8 @@ use crate::{
     library::{
         self, MediaKind,
         view::{
-            self, Clock, DateGroup, Entry, LibraryView, Row, SortDirection, SortKey, StatusFilter,
-            Surface, TILE_GAP, Tab, ViewState,
+            self, Clock, DateGroup, DayLabel, Entry, LibraryView, Row, Selection, SortDirection,
+            SortKey, StatusFilter, Step, Surface, TILE_GAP, Tab, ViewMode, ViewState,
         },
         watch::LibraryWatcher,
     },
@@ -36,7 +42,15 @@ const FRESH_HOLD: Duration = Duration::from_secs(6);
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(300);
 const SAVE_DELAY: Duration = Duration::from_millis(400);
 const REOPEN_GUARD: Duration = Duration::from_millis(600);
-const TILE_GROUP: &str = "library-tile";
+const DETAIL_WIDTH: f32 = 340.;
+const LIST_ROW: f32 = 34.;
+const LIST_GAP: f32 = 8.;
+const LIST_COLUMNS: [(Option<SortKey>, f32); 4] = [
+    (None, 84.),
+    (Some(SortKey::Duration), 70.),
+    (Some(SortKey::Size), 74.),
+    (Some(SortKey::Date), 88.),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LibraryMenu {
@@ -63,6 +77,27 @@ struct Thumbnails {
 struct ThumbnailJob {
     source: PathBuf,
     version: Option<u128>,
+}
+
+struct Marquee {
+    origin: Point<Pixels>,
+    corner: Point<Pixels>,
+    base: Vec<PathBuf>,
+}
+
+impl Marquee {
+    fn area(&self) -> Bounds<Pixels> {
+        Bounds::from_corners(
+            Point::new(
+                self.origin.x.min(self.corner.x),
+                self.origin.y.min(self.corner.y),
+            ),
+            Point::new(
+                self.origin.x.max(self.corner.x),
+                self.origin.y.max(self.corner.y),
+            ),
+        )
+    }
 }
 
 pub(super) struct LibraryPage {
@@ -92,10 +127,19 @@ pub(super) struct LibraryPage {
     fresh_task: Option<Task<()>>,
     pub(super) unseen: Vec<PathBuf>,
     first_line: bool,
+    selection: Selection,
+    order: Vec<PathBuf>,
+    items_focus: FocusHandle,
+    reveal_lead: bool,
+    marquee: Option<Marquee>,
+    drawn: Rc<RefCell<HashMap<PathBuf, Bounds<Pixels>>>>,
+    context: Option<context::ContextMenu>,
+    detail: detail::DetailState,
+    last_click: Option<PathBuf>,
 }
 
 impl LibraryPage {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(name_input: Entity<ui::TextInputState>, items_focus: FocusHandle) -> Self {
         Self {
             entries: None,
             state: crate::store::load().library,
@@ -123,11 +167,51 @@ impl LibraryPage {
             fresh_task: None,
             unseen: Vec::new(),
             first_line: false,
+            selection: Selection::default(),
+            order: Vec::new(),
+            items_focus: items_focus.tab_index(0).tab_stop(true),
+            reveal_lead: false,
+            marquee: None,
+            drawn: Rc::default(),
+            context: None,
+            detail: detail::DetailState::new(name_input),
+            last_click: None,
         }
     }
 
     pub(super) fn menu_open(&self) -> bool {
-        self.menu.is_some()
+        self.menu.is_some() || self.context.is_some()
+    }
+
+    pub(super) fn items_focus(&self) -> &FocusHandle {
+        &self.items_focus
+    }
+
+    pub(super) fn has_selection(&self) -> bool {
+        !self.selection.is_empty()
+    }
+
+    fn entry(&self, path: &Path) -> Option<&Entry> {
+        self.entries
+            .as_ref()?
+            .iter()
+            .find(|entry| entry.path == path)
+    }
+
+    fn lead_entry(&self) -> Option<&Entry> {
+        self.entry(self.selection.lead()?)
+    }
+
+    fn single_entry(&self) -> Option<&Entry> {
+        self.entry(self.selection.single()?)
+    }
+
+    fn panel_width(&self) -> f32 {
+        if self.selection.single().is_some() {
+            DETAIL_WIDTH
+        } else {
+            0.
+        }
     }
 }
 
@@ -168,6 +252,21 @@ fn direction_label(sort: SortKey, direction: SortDirection) -> &'static str {
         (SortKey::Size, SortDirection::Ascending) => t!("Smallest first"),
         (SortKey::Duration, SortDirection::Descending) => t!("Longest first"),
         (SortKey::Duration, SortDirection::Ascending) => t!("Shortest first"),
+    }
+}
+
+fn column_label(sort: Option<SortKey>) -> &'static str {
+    match sort {
+        Some(sort) => sort_label(sort),
+        None => t!("Type"),
+    }
+}
+
+fn day_label(clock: &Clock, millis: f64) -> SharedString {
+    match clock.day_of(millis) {
+        DayLabel::Today => t!("Today").into(),
+        DayLabel::Yesterday => t!("Yesterday").into(),
+        DayLabel::Date(date) => date.format("%Y-%m-%d").to_string().into(),
     }
 }
 
@@ -260,6 +359,7 @@ impl MainWindow {
             .detach();
         }
         self.library.entries = Some(entries);
+        self.library.detail.stale = true;
         self.rebuild_library(cx);
         if self.shell.shows_library() && dirs != self.library.watched {
             self.watch_library(dirs, window, cx);
@@ -297,7 +397,15 @@ impl MainWindow {
             &page.fresh,
             &Clock::now(),
         );
-        let rows = view::rows(&page.view, page.columns, page.first_line, &page.imports);
+        page.order = page.view.order(entries);
+        page.selection.retain(&page.order);
+        let rows = view::rows(
+            &page.view,
+            page.state.view,
+            page.columns,
+            page.first_line,
+            &page.imports,
+        );
         let surface = page.view.surface(!page.imports.is_empty());
         if page.surface != Some(surface) {
             page.surface = Some(surface);
@@ -314,10 +422,12 @@ impl MainWindow {
             });
             page.rows = rows;
         }
+        self.sync_library_detail(cx);
         cx.notify();
     }
 
-    pub(super) fn sync_library_layout(&mut self, width: f32, cx: &mut Context<Self>) {
+    pub(super) fn sync_library_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let width = f32::from(window.viewport_size().width) - self.library.panel_width();
         let columns = view::columns(width - PADDING * 2., self.library.state.tile_size);
         let tab = self.library.state.tab;
         let imports: Vec<usize> = crate::import::imports_snapshot(cx)
@@ -335,9 +445,228 @@ impl MainWindow {
             self.library.imports = imports;
             self.rebuild_library(cx);
         }
+        if std::mem::take(&mut self.library.reveal_lead) {
+            let page = &self.library;
+            let row = page
+                .selection
+                .lead()
+                .and_then(|lead| {
+                    page.entries
+                        .as_ref()?
+                        .iter()
+                        .position(|entry| entry.path == lead)
+                })
+                .and_then(|item| view::row_of(&page.rows, item));
+            if let Some(row) = row {
+                page.list.scroll_to_reveal_item(row);
+            }
+        }
+        if let Some(entry) = self.library.single_entry().cloned() {
+            self.library_thumbnail(&entry, window, cx);
+        }
+    }
+
+    fn change_selection(
+        &mut self,
+        cx: &mut Context<Self>,
+        change: impl FnOnce(&mut Selection, &[PathBuf]),
+    ) {
+        let page = &mut self.library;
+        change(&mut page.selection, &page.order);
+        self.sync_library_detail(cx);
+        cx.notify();
+    }
+
+    pub(super) fn clear_library_selection(&mut self, cx: &mut Context<Self>) {
+        self.change_selection(cx, |selection, _| selection.clear());
+    }
+
+    pub(super) fn select_all_library(&mut self, cx: &mut Context<Self>) {
+        self.change_selection(cx, |selection, order| selection.select_all(order));
+    }
+
+    pub(super) fn show_library_as(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
+        if self.shell.shows_library() {
+            self.change_library_view(cx, |state| state.view = mode);
+            self.library.reveal_lead = true;
+        }
+    }
+
+    pub(super) fn step_library(&mut self, step: Step, extend: bool, cx: &mut Context<Self>) {
+        if self.library.context.is_some() {
+            self.step_library_context(step, cx);
+            return;
+        }
+        let page = &self.library;
+        let Some(entries) = &page.entries else {
+            return;
+        };
+        let from = page
+            .selection
+            .lead()
+            .and_then(|lead| entries.iter().position(|entry| entry.path == lead));
+        let Some(path) = view::step_from(&page.rows, from, step)
+            .and_then(|item| entries.get(item))
+            .map(|entry| entry.path.clone())
+        else {
+            return;
+        };
+        self.library.reveal_lead = true;
+        self.change_selection(cx, |selection, order| {
+            if extend {
+                selection.extend_to(&path, order);
+            } else {
+                selection.click(&path);
+            }
+        });
+    }
+
+    pub(super) fn enter_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.library.context.is_some() {
+            self.run_highlighted_context(window, cx);
+        } else if let Some(entry) = self.library.lead_entry().cloned() {
+            open_entry(&entry, cx);
+        } else {
+            cx.propagate();
+        }
+    }
+
+    pub(super) fn focus_after_search(&self, cx: &mut Context<Self>) {
+        let main = cx.global::<app_windows::AppWindows>().main;
+        let in_library = self.shell.shows_library();
+        cx.defer(move |cx| {
+            main.update(cx, |this, window, cx| {
+                let focus = if in_library {
+                    &this.library.items_focus
+                } else {
+                    &this.focus_handle
+                };
+                window.focus(focus, cx);
+            })
+            .ok();
+        });
+    }
+
+    fn click_library_item(&mut self, path: &Path, event: &ClickEvent, cx: &mut Context<Self>) {
+        let modifiers = event.modifiers();
+        let first = self.library.last_click.replace(path.to_path_buf());
+        if event.click_count() >= 2 && !modifiers.control && !modifiers.shift {
+            let target = first.as_deref().unwrap_or(path);
+            if let Some(entry) = self.library.entry(target).cloned() {
+                open_entry(&entry, cx);
+            }
+            return;
+        }
+        self.change_selection(cx, |selection, order| {
+            if modifiers.shift {
+                selection.extend_to(path, order);
+            } else if modifiers.control {
+                selection.toggle(path);
+            } else {
+                selection.click(path);
+            }
+        });
+    }
+
+    fn library_item_events(
+        &self,
+        item: gpui::Stateful<gpui::Div>,
+        path: &Path,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let (click, menu) = (path.to_path_buf(), path.to_path_buf());
+        item.on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, window, cx| {
+                cx.stop_propagation();
+                window.focus(&this.library.items_focus, cx);
+            }),
+        )
+        .on_mouse_down(
+            MouseButton::Right,
+            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                window.focus(&this.library.items_focus, cx);
+                this.open_library_item_menu(&menu, event.position, cx);
+            }),
+        )
+        .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+            this.click_library_item(&click, event, cx);
+        }))
+    }
+
+    fn begin_library_marquee(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
+        let base = if event.modifiers.control {
+            self.library.selection.items().to_vec()
+        } else {
+            Vec::new()
+        };
+        if !event.modifiers.control {
+            self.clear_library_selection(cx);
+        }
+        self.library.marquee = Some(Marquee {
+            origin: event.position,
+            corner: event.position,
+            base,
+        });
+        cx.notify();
+    }
+
+    fn drag_library_marquee(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        let page = &mut self.library;
+        let Some(marquee) = &mut page.marquee else {
+            return;
+        };
+        marquee.corner = event.position;
+        let area = marquee.area();
+        let base = marquee.base.clone();
+        let hits: Vec<PathBuf> = {
+            let drawn = page.drawn.borrow();
+            page.order
+                .iter()
+                .filter(|path| drawn.get(*path).is_some_and(|tile| tile.intersects(&area)))
+                .cloned()
+                .collect()
+        };
+        self.change_selection(cx, |selection, order| {
+            selection.marquee(&base, &hits, order);
+        });
+    }
+
+    pub(super) fn render_library_marquee(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
+        let theme = self.theme;
+        let area = self.library.marquee.as_ref()?.area();
+        Some(
+            ui::Slider::drag_layer(
+                "library-marquee",
+                cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                    this.drag_library_marquee(event, cx);
+                }),
+                cx.listener(|this, _: &gpui::MouseUpEvent, _, cx| {
+                    this.library.marquee = None;
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(area.origin.x)
+                    .top(area.origin.y)
+                    .w(area.size.width)
+                    .h(area.size.height)
+                    .rounded(px(2.))
+                    .border_1()
+                    .border_color(theme.ring)
+                    .bg(theme.selection.opacity(0.4)),
+            ),
+        )
     }
 
     pub(super) fn open_library_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.library.items_focus, cx);
         let unseen = std::mem::take(&mut self.library.unseen);
         if !unseen.is_empty() {
             self.show_fresh(unseen, window, cx);
@@ -355,6 +684,13 @@ impl MainWindow {
         page.fresh.clear();
         page.fresh_task = None;
         page.first_line = false;
+        page.last_click = None;
+        page.selection.clear();
+        page.order.clear();
+        page.marquee = None;
+        page.context = None;
+        page.detail.clear();
+        page.drawn.borrow_mut().clear();
         page.rows.clear();
         page.list.reset(0);
         page.view = LibraryView::default();
@@ -444,6 +780,9 @@ impl MainWindow {
     }
 
     pub(super) fn close_library_menu(&mut self, cx: &mut Context<Self>) {
+        if self.library.context.take().is_some() {
+            cx.notify();
+        }
         if let Some(menu) = self.library.menu.take() {
             self.library.menu_closed = Some((menu, Instant::now()));
             cx.notify();
@@ -592,8 +931,26 @@ impl MainWindow {
             .text_color(theme.foreground)
             .child(self.render_library_toolbar(cx))
             .children(self.render_library_filters(cx))
-            .child(self.render_library_items(cx))
-            .child(self.render_library_status(cx))
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .when(self.shows_list_head(), |this| {
+                                this.child(self.render_list_head(cx))
+                            })
+                            .child(self.render_library_items(cx))
+                            .child(self.render_library_status(cx)),
+                    )
+                    .children(self.render_library_detail(cx)),
+            )
+            .children(self.render_library_context(cx))
     }
 
     fn ghost_button(&self, id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
@@ -714,6 +1071,60 @@ impl MainWindow {
                     .child(sort)
                     .when(self.library.menu == Some(LibraryMenu::Sort), |this| {
                         this.child(self.render_sort_menu(cx))
+                    }),
+            )
+            .child(self.render_view_switch(cx))
+    }
+
+    fn render_view_switch(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let current = self.library.state.view;
+        let options: [(ViewMode, &'static str, &'static str, &'static str); 2] = [
+            (
+                ViewMode::Grid,
+                "icons/layout-grid.svg",
+                t!("Grid"),
+                "Ctrl+1",
+            ),
+            (ViewMode::List, "icons/list.svg", t!("List"), "Ctrl+2"),
+        ];
+        div()
+            .flex()
+            .flex_shrink_0()
+            .p(px(2.))
+            .gap(px(2.))
+            .rounded(px(6.))
+            .bg(theme.muted)
+            .children(
+                options
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, (mode, icon, label, keys))| {
+                        let selected = mode == current;
+                        focus_ring(
+                            div()
+                                .id(("library-view", index))
+                                .tab_index(0)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .size(px(crate::theme::CONTROL_HEIGHT - 6.))
+                                .rounded(px(5.))
+                                .when(selected, |this| this.bg(theme.secondary))
+                                .tooltip(move |_, cx| {
+                                    ui::Tooltip::new(&theme, format!("{label}  {keys}")).view(cx)
+                                })
+                                .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+                                .child(svg().path(icon).size(px(14.)).text_color(if selected {
+                                    theme.foreground
+                                } else {
+                                    theme.muted_foreground
+                                })),
+                            theme,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.show_library_as(mode, cx);
+                        }))
                     }),
             )
     }
@@ -995,22 +1406,112 @@ impl MainWindow {
         )
     }
 
-    fn render_library_items(&self, cx: &mut Context<Self>) -> AnyElement {
-        let body = div()
-            .id("library-items")
-            .relative()
+    fn shows_list_head(&self) -> bool {
+        let page = &self.library;
+        page.state.view == ViewMode::List
+            && page.entries.is_some()
+            && page.surface == Some(Surface::Items)
+    }
+
+    fn render_list_head(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let state = &self.library.state;
+        let (sort, direction) = (state.sort, state.direction);
+        let column = |key: Option<SortKey>, this: &Self, cx: &mut Context<Self>| {
+            let Some(key) = key else {
+                return div()
+                    .id("library-column-type")
+                    .child(column_label(None))
+                    .into_any_element();
+            };
+            let on = key == sort;
+            let chevron = match direction {
+                SortDirection::Ascending => "icons/chevron-up.svg",
+                SortDirection::Descending => "icons/chevron-down.svg",
+            };
+            focus_ring(
+                div()
+                    .id(("library-column", key as usize))
+                    .tab_index(0)
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .rounded(px(4.))
+                    .when(on, |this| this.text_color(theme.foreground))
+                    .hover(move |style| style.text_color(theme.foreground))
+                    .child(column_label(Some(key)))
+                    .when(on, |this| {
+                        this.child(
+                            svg()
+                                .path(chevron)
+                                .size(px(14.))
+                                .text_color(theme.foreground),
+                        )
+                    }),
+                this.theme,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.change_library_view(cx, |state| state.sort_by_column(key));
+            }))
+            .into_any_element()
+        };
+        let name = column(Some(SortKey::Name), self, cx);
+        div()
             .flex()
-            .flex_col()
-            .flex_1()
-            .min_h_0()
-            .on_scroll(cx.listener(|this, event: &gpui::ScrollEvent, _, cx| {
-                if event.modifiers.control {
-                    let delta = event.delta.pixel_delta(px(20.));
-                    if delta.y != px(0.) {
-                        this.step_library_tiles(if delta.y > px(0.) { 1 } else { -1 }, cx);
-                    }
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(LIST_GAP))
+            .h(px(LIST_ROW))
+            .mx(px(PADDING))
+            .px(px(LIST_GAP))
+            .text_size(px(12.))
+            .text_color(theme.muted_foreground)
+            .child(div().flex_1().min_w_0().child(name))
+            .children(LIST_COLUMNS.into_iter().map(|(key, width)| {
+                div()
+                    .flex_shrink_0()
+                    .w(px(width))
+                    .child(column(key, self, cx))
+            }))
+    }
+
+    fn render_library_items(&self, cx: &mut Context<Self>) -> AnyElement {
+        self.library.drawn.borrow_mut().clear();
+        let in_list = self.library.state.view == ViewMode::List;
+        let body = focus_ring(
+            div()
+                .id("library-items")
+                .key_context("LibraryItems")
+                .track_focus(&self.library.items_focus)
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0(),
+            self.theme,
+        )
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                this.close_library_menu(cx);
+                this.begin_library_marquee(event, cx);
+            }),
+        )
+        .on_mouse_down(
+            MouseButton::Right,
+            cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                window.focus(&this.library.items_focus, cx);
+                this.open_library_blank_menu(event.position, cx);
+            }),
+        )
+        .on_scroll(cx.listener(|this, event: &gpui::ScrollEvent, _, cx| {
+            if event.modifiers.control {
+                let delta = event.delta.pixel_delta(px(20.));
+                if delta.y != px(0.) {
+                    this.step_library_tiles(if delta.y > px(0.) { 1 } else { -1 }, cx);
                 }
-            }));
+            }
+        }));
         if self.library.entries.is_none() {
             return body.child(self.render_library_loading()).into_any_element();
         }
@@ -1035,7 +1536,7 @@ impl MainWindow {
                     .flex_1()
                     .size_full(),
                 )
-                .children(sticky.map(|group| {
+                .children(sticky.filter(|_| !in_list).map(|group| {
                     div()
                         .absolute()
                         .top_0()
@@ -1179,41 +1680,170 @@ impl MainWindow {
                             .map(|entry| self.render_import_card(*index, entry).into_any_element())
                     })
                     .collect();
-                self.library_row(cards)
+                self.library_row(cards, Vec::new())
             }
             Row::Tiles(items) => {
                 let tile_width = self.library_tile_width(window);
+                let mut paths = Vec::new();
                 let cards = items
                     .iter()
                     .filter_map(|index| {
                         let entry = self.library.entries.as_ref()?.get(*index)?.clone();
+                        paths.push(entry.path.clone());
                         Some(self.render_library_tile(&entry, tile_width, window, cx))
                     })
                     .collect();
-                self.library_row(cards)
+                self.library_row(cards, paths)
+            }
+            Row::Item(index) => {
+                let Some(entry) = self
+                    .library
+                    .entries
+                    .as_ref()
+                    .and_then(|entries| entries.get(index))
+                    .cloned()
+                else {
+                    return div().into_any_element();
+                };
+                let path = entry.path.clone();
+                self.record_drawn(div().px(px(PADDING)), vec![path])
+                    .child(self.render_library_list_row(&entry, window, cx))
+                    .into_any_element()
             }
         }
     }
 
     fn library_tile_width(&self, window: &Window) -> f32 {
         let columns = self.library.columns.max(1) as f32;
-        let content = f32::from(window.viewport_size().width) - PADDING * 2.;
+        let content =
+            f32::from(window.viewport_size().width) - self.library.panel_width() - PADDING * 2.;
         (content - TILE_GAP * (columns - 1.)) / columns
     }
 
-    fn library_row(&self, mut cards: Vec<AnyElement>) -> AnyElement {
+    fn record_drawn(&self, row: gpui::Div, paths: Vec<PathBuf>) -> gpui::Div {
+        let drawn = self.library.drawn.clone();
+        row.on_children_prepainted(move |bounds, _, _| {
+            let mut drawn = drawn.borrow_mut();
+            for (path, bounds) in paths.iter().zip(bounds) {
+                drawn.insert(path.clone(), bounds);
+            }
+        })
+    }
+
+    fn library_row(&self, mut cards: Vec<AnyElement>, paths: Vec<PathBuf>) -> AnyElement {
         let columns = self.library.columns.max(1);
         while cards.len() < columns {
             cards.push(div().flex_1().min_w_0().into_any_element());
         }
-        div()
+        self.record_drawn(
+            div()
+                .flex()
+                .w_full()
+                .gap(px(TILE_GAP))
+                .px(px(PADDING))
+                .pb(px(TILE_GAP)),
+            paths,
+        )
+        .children(cards)
+        .into_any_element()
+    }
+
+    fn selection_look(
+        &self,
+        item: gpui::Stateful<gpui::Div>,
+        path: &Path,
+        window: &Window,
+    ) -> gpui::Stateful<gpui::Div> {
+        let theme = self.theme;
+        let selected = self.library.selection.contains(path);
+        let lead = self.library.selection.lead() == Some(path)
+            && self.library.items_focus.is_focused(window);
+        item.border_1()
+            .border_color(transparent_black())
+            .when(selected, |this| {
+                this.bg(theme.selection).border_color(theme.selection)
+            })
+            .when(!selected, |this| {
+                this.hover(move |style| style.bg(theme.accent))
+            })
+            .when(lead, |this| this.border_color(theme.ring))
+    }
+
+    fn render_library_list_row(
+        &self,
+        entry: &Entry,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let theme = self.theme;
+        let selected = self.library.selection.contains(&entry.path);
+        let clock = Clock::now();
+        let cells: [SharedString; 4] = [
+            kind_label(entry.kind).into(),
+            entry
+                .duration
+                .map_or_else(|| "—".to_string(), view::format_clock)
+                .into(),
+            view::format_size(entry.size).into(),
+            day_label(&clock, entry.created_millis),
+        ];
+        let row = div()
+            .id(library::row_id(&entry.path))
             .flex()
-            .w_full()
-            .gap(px(TILE_GAP))
-            .px(px(PADDING))
-            .pb(px(TILE_GAP))
-            .children(cards)
-            .into_any_element()
+            .items_center()
+            .gap(px(LIST_GAP))
+            .h(px(LIST_ROW))
+            .px(px(LIST_GAP))
+            .rounded(px(6.))
+            .cursor_pointer()
+            .text_size(px(13.))
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .gap(px(8.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if selected {
+                        theme.selection_foreground
+                    } else {
+                        theme.foreground
+                    })
+                    .child(
+                        svg()
+                            .path(kind_icon(entry.kind))
+                            .size(px(16.))
+                            .flex_shrink_0()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(div().min_w_0().truncate().child(entry.name.clone()))
+                    .when(entry.exported(), |this| {
+                        this.child(
+                            svg()
+                                .path("icons/check.svg")
+                                .size(px(14.))
+                                .flex_shrink_0()
+                                .text_color(theme.muted_foreground),
+                        )
+                    }),
+            )
+            .children(
+                LIST_COLUMNS
+                    .into_iter()
+                    .zip(cells)
+                    .map(|((_, width), cell)| {
+                        div()
+                            .flex_shrink_0()
+                            .w(px(width))
+                            .truncate()
+                            .text_size(px(12.))
+                            .text_color(theme.muted_foreground)
+                            .child(cell)
+                    }),
+            );
+        let row = self.selection_look(row, &entry.path, window);
+        self.library_item_events(row, &entry.path, cx)
     }
 
     fn render_library_tile(
@@ -1235,14 +1865,10 @@ impl MainWindow {
         if entry.clip_count > 1 {
             meta = format!("{meta} · {}", t!("{count} clips", count = entry.clip_count));
         }
-        let open = entry.clone();
-        let actions = self.render_tile_actions(entry, cx);
-
-        focus_ring(
+        let selected = self.library.selection.contains(&entry.path);
+        let tile = self.selection_look(
             div()
                 .id(library::row_id(&entry.path))
-                .group(TILE_GROUP)
-                .tab_index(0)
                 .flex()
                 .flex_col()
                 .flex_1()
@@ -1250,209 +1876,109 @@ impl MainWindow {
                 .p(px(TILE_PADDING))
                 .rounded(px(6.))
                 .cursor_pointer()
-                .when(fresh, |this| this.bg(theme.accent))
-                .hover(move |style| style.bg(theme.accent)),
-            theme,
-        )
-        .child(
-            div()
-                .relative()
-                .w_full()
-                .h(px(thumb_height))
-                .rounded(px(6.))
-                .overflow_hidden()
-                .bg(theme.muted)
-                .child(match image {
-                    Some(image) => img(image)
-                        .size_full()
-                        .object_fit(gpui::ObjectFit::Cover)
-                        .into_any_element(),
-                    None => div()
-                        .flex()
-                        .size_full()
-                        .items_center()
-                        .justify_center()
-                        .child(
+                .when(fresh && !selected, |this| this.bg(theme.accent)),
+            &entry.path,
+            window,
+        );
+
+        self.library_item_events(tile, &entry.path, cx)
+            .child(
+                div()
+                    .relative()
+                    .w_full()
+                    .h(px(thumb_height))
+                    .rounded(px(6.))
+                    .overflow_hidden()
+                    .bg(theme.muted)
+                    .child(match image {
+                        Some(image) => img(image)
+                            .size_full()
+                            .object_fit(gpui::ObjectFit::Cover)
+                            .into_any_element(),
+                        None => div()
+                            .flex()
+                            .size_full()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                svg()
+                                    .path(kind_icon(entry.kind))
+                                    .size(px(24.))
+                                    .text_color(theme.muted_foreground),
+                            )
+                            .into_any_element(),
+                    })
+                    .child(
+                        tile_corner(&theme).top(px(4.)).left(px(4.)).child(
                             svg()
                                 .path(kind_icon(entry.kind))
-                                .size(px(24.))
-                                .text_color(theme.muted_foreground),
-                        )
-                        .into_any_element(),
-                })
-                .child(
-                    tile_corner(&theme).top(px(4.)).left(px(4.)).child(
-                        svg()
-                            .path(kind_icon(entry.kind))
-                            .size(px(14.))
-                            .text_color(gpui::white()),
-                    ),
-                )
-                .when(!entry.export_files.is_empty(), |this| {
-                    this.child(
-                        tile_corner(&theme).top(px(4.)).right(px(4.)).child(
-                            svg()
-                                .path("icons/check.svg")
                                 .size(px(14.))
                                 .text_color(gpui::white()),
                         ),
                     )
-                })
-                .when_some(entry.duration, |this, duration| {
-                    this.child(
-                        tile_corner(&theme)
-                            .bottom(px(4.))
-                            .right(px(4.))
-                            .child(view::format_clock(duration)),
-                    )
-                })
-                .when(fresh, |this| {
-                    this.child(
-                        div()
-                            .absolute()
-                            .left(px(4.))
-                            .bottom(px(4.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .size(px(24.))
-                            .rounded(px(3.))
-                            .bg(theme.popover)
-                            .child(doodle::doodle_once(
-                                &onboarding_doodles::TICK,
-                                doodle::Palette::new(&theme),
-                                self.library.fresh_shown_at,
-                                false,
-                                20.,
-                            )),
-                    )
-                })
-                .child(actions),
-        )
-        .child(
-            div()
-                .mt(px(6.))
-                .w_full()
-                .truncate()
-                .text_size(px(13.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.foreground)
-                .child(entry.name.clone()),
-        )
-        .child(
-            div()
-                .w_full()
-                .truncate()
-                .text_size(px(12.))
-                .text_color(theme.muted_foreground)
-                .child(meta),
-        )
-        .on_click(move |_, _, cx| open_entry(&open, cx))
-        .into_any_element()
-    }
-
-    fn tile_action(
-        &self,
-        id: &'static str,
-        icon: &'static str,
-        label: &'static str,
-        on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-    ) -> impl IntoElement {
-        let theme = self.theme;
-        div()
-            .id(id)
-            .tab_index(0)
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(px(22.))
-            .rounded(px(4.))
-            .bg(theme.badge)
-            .opacity(0.)
-            .group_hover(TILE_GROUP, |style| style.opacity(1.))
-            .focus_visible(|style| style.opacity(1.))
-            .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
-            .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
-            .child(svg().path(icon).size(px(14.)).text_color(gpui::white()))
-            .on_click(move |event, window, cx| {
-                cx.stop_propagation();
-                on_click(event, window, cx);
-            })
-    }
-
-    fn render_tile_actions(&self, entry: &Entry, cx: &mut Context<Self>) -> gpui::Div {
-        let row = div()
-            .absolute()
-            .left(px(4.))
-            .top(px(26.))
-            .flex()
-            .gap(px(2.));
-        match &entry.screenshot {
-            Some(png) => {
-                let (copy, save, name) = (png.clone(), png.clone(), entry.name.clone());
-                let (reveal, delete) = (entry.path.clone(), entry.path.clone());
-                row.child(self.tile_action(
-                    "tile-copy",
-                    "icons/copy.svg",
-                    t!("Copy image"),
-                    move |_, _, cx| {
-                        if let Err(error) = crate::platform::copy_image_to_clipboard(&copy, cx) {
-                            tracing::warn!("copying screenshot failed: {error}");
-                            cx.spawn(async move |_| {
-                                crate::platform::alert_dialog(
-                                    t!("Could not copy screenshot"),
-                                    &error,
-                                );
-                            })
-                            .detach();
-                        }
-                    },
-                ))
-                .child(self.tile_action(
-                    "tile-save",
-                    "icons/download.svg",
-                    t!("Save"),
-                    cx.listener(move |this, _, window, cx| {
-                        this.save_screenshot(save.clone(), name.clone(), window, cx);
+                    .when(entry.exported(), |this| {
+                        this.child(
+                            tile_corner(&theme).top(px(4.)).right(px(4.)).child(
+                                svg()
+                                    .path("icons/check.svg")
+                                    .size(px(14.))
+                                    .text_color(gpui::white()),
+                            ),
+                        )
+                    })
+                    .when_some(entry.duration, |this, duration| {
+                        this.child(
+                            tile_corner(&theme)
+                                .bottom(px(4.))
+                                .right(px(4.))
+                                .child(view::format_clock(duration)),
+                        )
+                    })
+                    .when(fresh, |this| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .left(px(4.))
+                                .bottom(px(4.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .size(px(24.))
+                                .rounded(px(3.))
+                                .bg(theme.popover)
+                                .child(doodle::doodle_once(
+                                    &onboarding_doodles::TICK,
+                                    doodle::Palette::new(&theme),
+                                    self.library.fresh_shown_at,
+                                    false,
+                                    20.,
+                                )),
+                        )
                     }),
-                ))
-                .child(self.tile_action(
-                    "tile-reveal",
-                    "icons/folder.svg",
-                    t!("Show in folder"),
-                    move |_, _, cx| library::reveal_path(&reveal, cx),
-                ))
-                .child(self.tile_action(
-                    "tile-delete",
-                    "icons/trash.svg",
-                    t!("Delete"),
-                    cx.listener(move |this, _, window, cx| {
-                        this.delete_library_screenshot(delete.clone(), window, cx);
-                    }),
-                ))
-            }
-            None => {
-                let (reveal, delete) = (entry.path.clone(), entry.path.clone());
-                let mode = match entry.kind {
-                    MediaKind::Instant => library::RecordingMode::Instant,
-                    _ => library::RecordingMode::Studio,
-                };
-                row.child(self.tile_action(
-                    "tile-reveal",
-                    "icons/folder.svg",
-                    t!("Show in folder"),
-                    move |_, _, cx| library::open_recording_folder(&reveal, mode, cx),
-                ))
-                .child(self.tile_action(
-                    "tile-delete",
-                    "icons/trash.svg",
-                    t!("Delete"),
-                    cx.listener(move |this, _, window, cx| {
-                        this.delete_library_recording(delete.clone(), window, cx);
-                    }),
-                ))
-            }
-        }
+            )
+            .child(
+                div()
+                    .mt(px(6.))
+                    .w_full()
+                    .truncate()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if selected {
+                        theme.selection_foreground
+                    } else {
+                        theme.foreground
+                    })
+                    .child(entry.name.clone()),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .truncate()
+                    .text_size(px(12.))
+                    .text_color(theme.muted_foreground)
+                    .child(meta),
+            )
+            .into_any_element()
     }
 
     fn render_library_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1476,7 +2002,7 @@ impl MainWindow {
             .text_color(theme.muted_foreground)
             .child(shown_label(page.view.shown, page.view.shown_size))
             .child(div().flex_1())
-            .when(has_items, |this| {
+            .when(has_items && page.state.view == ViewMode::Grid, |this| {
                 this.child(
                     ui::Slider::new("library-tile-size", page.state.tile_fraction(), track)
                         .row_width(px(110.))

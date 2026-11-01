@@ -56,10 +56,8 @@ impl StatusFilter {
 
     fn matches(self, entry: &Entry) -> bool {
         match self {
-            Self::Exported => !entry.export_files.is_empty(),
-            Self::NotExported => {
-                entry.kind != MediaKind::Screenshot && entry.export_files.is_empty()
-            }
+            Self::Exported => entry.exported(),
+            Self::NotExported => entry.kind != MediaKind::Screenshot && !entry.exported(),
             Self::CompressedCopy => entry.compression != Compression::None,
             Self::CompressedOnly => entry.compression == Compression::CompressedOnly,
         }
@@ -74,6 +72,15 @@ pub enum SortKey {
     Name,
     Size,
     Duration,
+}
+
+impl SortDirection {
+    pub fn reversed(self) -> Self {
+        match self {
+            Self::Ascending => Self::Descending,
+            Self::Descending => Self::Ascending,
+        }
+    }
 }
 
 impl SortKey {
@@ -156,6 +163,14 @@ impl ViewState {
         self.direction = sort.first_direction();
     }
 
+    pub fn sort_by_column(&mut self, sort: SortKey) {
+        if self.sort == sort {
+            self.direction = self.direction.reversed();
+        } else {
+            self.set_sort(sort);
+        }
+    }
+
     pub fn set_tile_size(&mut self, size: f32) {
         self.tile_size = size.clamp(TILE_MIN, TILE_MAX);
     }
@@ -174,6 +189,20 @@ pub enum Compression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ExportFile {
+    pub path: PathBuf,
+    pub name: String,
+    pub exported_millis: f64,
+    pub size: Option<u64>,
+}
+
+impl ExportFile {
+    pub fn found(&self) -> bool {
+        self.size.is_some()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub path: PathBuf,
     pub kind: MediaKind,
@@ -181,13 +210,27 @@ pub struct Entry {
     pub size: u64,
     pub duration: Option<f64>,
     pub created_millis: f64,
-    pub export_files: Vec<String>,
+    pub exports: Vec<ExportFile>,
     pub compression: Compression,
+    pub compressible: bool,
     pub clip_count: u32,
     pub thumbnail: Option<PathBuf>,
     pub thumbnail_version: Option<u128>,
     pub screenshot: Option<PathBuf>,
     pub opens_editor: bool,
+}
+
+impl Entry {
+    pub fn exported(&self) -> bool {
+        self.exports.iter().any(ExportFile::found)
+    }
+
+    pub fn latest_export(&self) -> Option<&ExportFile> {
+        self.exports
+            .iter()
+            .filter(|export| export.found())
+            .max_by(|a, b| a.exported_millis.total_cmp(&b.exported_millis))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,6 +239,13 @@ pub enum DateGroup {
     Yesterday,
     ThisWeek,
     Month { year: i32, month: u32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DayLabel {
+    Today,
+    Yesterday,
+    Date(NaiveDate),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -216,6 +266,23 @@ impl Clock {
     fn date_of(&self, millis: f64) -> NaiveDate {
         DateTime::from_timestamp_millis(millis as i64).map_or(self.today, |time| {
             time.with_timezone(&self.offset).date_naive()
+        })
+    }
+
+    pub fn day_of(&self, millis: f64) -> DayLabel {
+        let date = self.date_of(millis);
+        if date == self.today {
+            DayLabel::Today
+        } else if self.today.checked_sub_days(Days::new(1)) == Some(date) {
+            DayLabel::Yesterday
+        } else {
+            DayLabel::Date(date)
+        }
+    }
+
+    pub fn time_of(&self, millis: f64) -> String {
+        DateTime::from_timestamp_millis(millis as i64).map_or_else(String::new, |time| {
+            time.with_timezone(&self.offset).format("%H:%M").to_string()
         })
     }
 
@@ -289,6 +356,15 @@ impl LibraryView {
             .position(|held| *held == status)
             .map_or(0, |index| self.status_counts[index])
     }
+
+    pub fn order(&self, entries: &[Entry]) -> Vec<PathBuf> {
+        self.sections
+            .iter()
+            .flat_map(|section| &section.items)
+            .filter_map(|index| entries.get(*index))
+            .map(|entry| entry.path.clone())
+            .collect()
+    }
 }
 
 pub fn build(
@@ -348,9 +424,9 @@ fn matches_search(entry: &Entry, needle: &str) -> bool {
     needle.is_empty()
         || entry.name.to_lowercase().contains(needle)
         || entry
-            .export_files
+            .exports
             .iter()
-            .any(|file| file.to_lowercase().contains(needle))
+            .any(|export| export.name.to_lowercase().contains(needle))
 }
 
 fn compare(a: &Entry, b: &Entry, sort: SortKey) -> Ordering {
@@ -375,9 +451,26 @@ pub enum Row {
     Header(DateGroup),
     Imports(Vec<usize>),
     Tiles(Vec<usize>),
+    Item(usize),
 }
 
-pub fn rows(view: &LibraryView, columns: usize, first_line: bool, imports: &[usize]) -> Vec<Row> {
+impl Row {
+    fn items(&self) -> &[usize] {
+        match self {
+            Self::Tiles(items) => items,
+            Self::Item(item) => std::slice::from_ref(item),
+            _ => &[],
+        }
+    }
+}
+
+pub fn rows(
+    view: &LibraryView,
+    mode: ViewMode,
+    columns: usize,
+    first_line: bool,
+    imports: &[usize],
+) -> Vec<Row> {
     let columns = columns.max(1);
     let mut rows = Vec::new();
     if first_line {
@@ -390,14 +483,156 @@ pub fn rows(view: &LibraryView, columns: usize, first_line: bool, imports: &[usi
     );
     for section in &view.sections {
         rows.extend(section.group.map(Row::Header));
-        rows.extend(
-            section
-                .items
-                .chunks(columns)
-                .map(|chunk| Row::Tiles(chunk.to_vec())),
-        );
+        match mode {
+            ViewMode::Grid => rows.extend(
+                section
+                    .items
+                    .chunks(columns)
+                    .map(|chunk| Row::Tiles(chunk.to_vec())),
+            ),
+            ViewMode::List => rows.extend(section.items.iter().copied().map(Row::Item)),
+        }
     }
     rows
+}
+
+pub fn row_of(rows: &[Row], item: usize) -> Option<usize> {
+    rows.iter().position(|row| row.items().contains(&item))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+pub fn step_from(rows: &[Row], from: Option<usize>, step: Step) -> Option<usize> {
+    let lines: Vec<&[usize]> = rows
+        .iter()
+        .map(Row::items)
+        .filter(|items| !items.is_empty())
+        .collect();
+    let flat: Vec<usize> = lines
+        .iter()
+        .flat_map(|items| items.iter().copied())
+        .collect();
+    let Some(from) = from.filter(|from| flat.contains(from)) else {
+        return flat.first().copied();
+    };
+    let line = lines.iter().position(|items| items.contains(&from))?;
+    let column = lines[line].iter().position(|item| *item == from)?;
+    let beside = |line: usize| lines[line][column.min(lines[line].len() - 1)];
+    let at = flat.iter().position(|item| *item == from)?;
+    Some(match step {
+        Step::Left => flat[at.saturating_sub(1)],
+        Step::Right => flat[(at + 1).min(flat.len() - 1)],
+        Step::Up => beside(line.saturating_sub(1)),
+        Step::Down => beside((line + 1).min(lines.len() - 1)),
+    })
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Selection {
+    items: Vec<PathBuf>,
+    anchor: Option<PathBuf>,
+    lead: Option<PathBuf>,
+}
+
+impl Selection {
+    pub fn items(&self) -> &[PathBuf] {
+        &self.items
+    }
+
+    pub fn lead(&self) -> Option<&Path> {
+        self.lead.as_deref()
+    }
+
+    pub fn single(&self) -> Option<&Path> {
+        match self.items.as_slice() {
+            [only] => Some(only),
+            _ => None,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    pub fn contains(&self, path: &Path) -> bool {
+        self.items.iter().any(|held| held == path)
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn click(&mut self, path: &Path) {
+        self.items = vec![path.to_path_buf()];
+        self.anchor = Some(path.to_path_buf());
+        self.lead = Some(path.to_path_buf());
+    }
+
+    pub fn toggle(&mut self, path: &Path) {
+        self.anchor = Some(path.to_path_buf());
+        if self.contains(path) {
+            self.items.retain(|held| held != path);
+            self.lead = self.items.last().cloned();
+        } else {
+            self.items.push(path.to_path_buf());
+            self.lead = Some(path.to_path_buf());
+        }
+    }
+
+    pub fn extend_to(&mut self, path: &Path, order: &[PathBuf]) {
+        let anchor = self.anchor.clone().unwrap_or_else(|| path.to_path_buf());
+        let at = |target: &Path| order.iter().position(|held| held == target);
+        let (Some(start), Some(end)) = (at(&anchor), at(path)) else {
+            return self.click(path);
+        };
+        self.items = order[start.min(end)..=start.max(end)].to_vec();
+        self.anchor = Some(anchor);
+        self.lead = Some(path.to_path_buf());
+    }
+
+    pub fn context_click(&mut self, path: &Path) {
+        if self.contains(path) {
+            self.lead = Some(path.to_path_buf());
+        } else {
+            self.click(path);
+        }
+    }
+
+    pub fn select_all(&mut self, order: &[PathBuf]) {
+        self.items = order.to_vec();
+        self.anchor = order.first().cloned();
+        self.lead = order.last().cloned();
+    }
+
+    pub fn marquee(&mut self, base: &[PathBuf], hits: &[PathBuf], order: &[PathBuf]) {
+        self.items = order
+            .iter()
+            .filter(|path| base.contains(path) || hits.contains(path))
+            .cloned()
+            .collect();
+        self.anchor = hits
+            .first()
+            .cloned()
+            .or_else(|| self.items.first().cloned());
+        self.lead = hits.last().cloned().or_else(|| self.items.last().cloned());
+    }
+
+    pub fn retain(&mut self, order: &[PathBuf]) {
+        self.items.retain(|held| order.contains(held));
+        let kept = |path: &Option<PathBuf>| path.as_ref().is_some_and(|held| order.contains(held));
+        if !kept(&self.anchor) {
+            self.anchor = self.items.first().cloned();
+        }
+        if !kept(&self.lead) {
+            self.lead = self.items.last().cloned();
+        }
+    }
 }
 
 pub fn header_above(rows: &[Row], row: usize) -> Option<DateGroup> {
@@ -468,8 +703,9 @@ mod tests {
             size: 0,
             duration: None,
             created_millis,
-            export_files: Vec::new(),
+            exports: Vec::new(),
             compression: Compression::None,
+            compressible: false,
             clip_count: 1,
             thumbnail: None,
             thumbnail_version: None,
@@ -486,12 +722,21 @@ mod tests {
             .collect()
     }
 
+    fn export(name: &str, exported_millis: f64, size: Option<u64>) -> ExportFile {
+        ExportFile {
+            path: PathBuf::from(name),
+            name: name.to_string(),
+            exported_millis,
+            size,
+        }
+    }
+
     fn library() -> Vec<Entry> {
         vec![
             Entry {
                 size: 300,
                 duration: Some(100.),
-                export_files: vec!["Launch final.mp4".into()],
+                exports: vec![export("Launch final.mp4", 1., Some(10))],
                 ..entry("demo", MediaKind::Studio, noon_on(5, 11))
             },
             Entry {
@@ -757,7 +1002,7 @@ mod tests {
         let entries = library();
         let view = build(&entries[..2], &ViewState::default(), "", &[], &clock());
         assert_eq!(
-            rows(&view, 2, false, &[]),
+            rows(&view, ViewMode::Grid, 2, false, &[]),
             [
                 Row::Header(DateGroup::Today),
                 Row::Tiles(vec![0]),
@@ -770,7 +1015,7 @@ mod tests {
         state.set_sort(SortKey::Name);
         let view = build(&entries, &state, "", &[], &clock());
         assert_eq!(
-            rows(&view, 3, true, &[7]),
+            rows(&view, ViewMode::Grid, 3, true, &[7]),
             [
                 Row::FirstLine,
                 Row::Imports(vec![7]),
@@ -792,6 +1037,242 @@ mod tests {
         assert_eq!(header_above(&table, 2), Some(DateGroup::Today));
         assert_eq!(header_above(&table, 4), Some(DateGroup::Yesterday));
         assert_eq!(header_above(&[Row::Tiles(vec![0])], 0), None);
+    }
+
+    fn paths(names: &[&str]) -> Vec<PathBuf> {
+        names.iter().map(|name| PathBuf::from(*name)).collect()
+    }
+
+    fn held(selection: &Selection) -> Vec<&str> {
+        selection
+            .items()
+            .iter()
+            .filter_map(|path| path.to_str())
+            .collect()
+    }
+
+    #[test]
+    fn clicking_a_column_sorts_by_it_and_a_second_click_reverses_it() {
+        let mut state = ViewState::default();
+        state.sort_by_column(SortKey::Name);
+        assert_eq!(
+            (state.sort, state.direction),
+            (SortKey::Name, SortDirection::Ascending)
+        );
+        state.sort_by_column(SortKey::Name);
+        assert_eq!(
+            (state.sort, state.direction),
+            (SortKey::Name, SortDirection::Descending)
+        );
+        state.sort_by_column(SortKey::Size);
+        assert_eq!(
+            (state.sort, state.direction),
+            (SortKey::Size, SortDirection::Descending)
+        );
+        state.sort_by_column(SortKey::Size);
+        assert_eq!(state.direction, SortDirection::Ascending);
+    }
+
+    #[test]
+    fn the_list_has_one_row_per_item_and_no_headers() {
+        let entries = library();
+        let state = ViewState {
+            view: ViewMode::List,
+            ..ViewState::default()
+        };
+        let view = build(&entries, &state, "", &[], &clock());
+        assert_eq!(
+            rows(&view, ViewMode::List, 3, false, &[]),
+            [Row::Item(0), Row::Item(1), Row::Item(2), Row::Item(3)]
+        );
+    }
+
+    #[test]
+    fn a_click_replaces_the_selection_and_ctrl_toggles_one_item() {
+        let mut selection = Selection::default();
+        selection.click(Path::new("a"));
+        selection.click(Path::new("b"));
+        assert_eq!(held(&selection), ["b"]);
+        assert_eq!(selection.single(), Some(Path::new("b")));
+
+        selection.toggle(Path::new("d"));
+        assert_eq!(held(&selection), ["b", "d"]);
+        assert_eq!(selection.single(), None);
+
+        selection.toggle(Path::new("b"));
+        assert_eq!(held(&selection), ["d"]);
+    }
+
+    #[test]
+    fn taking_the_lead_out_with_ctrl_hands_the_lead_to_what_remains() {
+        let mut selection = Selection::default();
+        selection.click(Path::new("a"));
+        selection.toggle(Path::new("b"));
+        selection.toggle(Path::new("b"));
+        assert_eq!(selection.single(), Some(Path::new("a")));
+        assert_eq!(selection.lead(), Some(Path::new("a")));
+    }
+
+    #[test]
+    fn shift_selects_from_the_anchor_in_shown_order_and_can_shrink_back() {
+        let order = paths(&["a", "b", "c", "d", "e"]);
+        let mut selection = Selection::default();
+        selection.click(Path::new("b"));
+        selection.extend_to(Path::new("d"), &order);
+        assert_eq!(held(&selection), ["b", "c", "d"]);
+        selection.extend_to(Path::new("a"), &order);
+        assert_eq!(held(&selection), ["a", "b"]);
+        assert_eq!(selection.lead(), Some(Path::new("a")));
+    }
+
+    #[test]
+    fn shift_with_nothing_selected_selects_just_that_item() {
+        let order = paths(&["a", "b"]);
+        let mut selection = Selection::default();
+        selection.extend_to(Path::new("b"), &order);
+        assert_eq!(held(&selection), ["b"]);
+    }
+
+    #[test]
+    fn a_ctrl_click_moves_the_anchor_for_the_next_shift_click() {
+        let order = paths(&["a", "b", "c", "d"]);
+        let mut selection = Selection::default();
+        selection.click(Path::new("a"));
+        selection.toggle(Path::new("c"));
+        selection.extend_to(Path::new("d"), &order);
+        assert_eq!(held(&selection), ["c", "d"]);
+    }
+
+    #[test]
+    fn a_right_click_keeps_a_selection_it_lands_inside_and_replaces_one_it_misses() {
+        let order = paths(&["a", "b", "c"]);
+        let mut selection = Selection::default();
+        selection.select_all(&order);
+        selection.context_click(Path::new("b"));
+        assert_eq!(held(&selection), ["a", "b", "c"]);
+        selection.click(Path::new("a"));
+        selection.context_click(Path::new("c"));
+        assert_eq!(held(&selection), ["c"]);
+    }
+
+    #[test]
+    fn a_marquee_adds_to_what_ctrl_held_and_replaces_otherwise() {
+        let order = paths(&["a", "b", "c", "d"]);
+        let hits = paths(&["c", "d"]);
+        let mut selection = Selection::default();
+        selection.marquee(&[], &hits, &order);
+        assert_eq!(held(&selection), ["c", "d"]);
+        selection.marquee(&paths(&["a"]), &hits, &order);
+        assert_eq!(held(&selection), ["a", "c", "d"]);
+        selection.marquee(&paths(&["a"]), &[], &order);
+        assert_eq!(held(&selection), ["a"]);
+    }
+
+    #[test]
+    fn items_that_leave_the_shown_list_leave_the_selection() {
+        let mut selection = Selection::default();
+        selection.select_all(&paths(&["a", "b", "c"]));
+        selection.retain(&paths(&["a", "b"]));
+        assert_eq!(held(&selection), ["a", "b"]);
+        assert_eq!(selection.lead(), Some(Path::new("b")));
+        selection.retain(&[]);
+        assert!(selection.is_empty());
+        assert_eq!(selection.lead(), None);
+    }
+
+    #[test]
+    fn selection_order_follows_what_is_shown() {
+        let entries = library();
+        let mut state = ViewState::default();
+        state.set_sort(SortKey::Name);
+        let view = build(&entries, &state, "", &[], &clock());
+        assert_eq!(
+            view.order(&entries),
+            paths(&["Archive.ever", "Bug.ever", "demo.ever", "shot.ever"])
+        );
+    }
+
+    #[test]
+    fn arrows_walk_the_grid_by_row_and_column_across_date_groups() {
+        let table = [
+            Row::Header(DateGroup::Today),
+            Row::Tiles(vec![0, 1, 2]),
+            Row::Tiles(vec![3]),
+            Row::Header(DateGroup::Yesterday),
+            Row::Tiles(vec![4, 5, 6]),
+        ];
+        assert_eq!(step_from(&table, None, Step::Down), Some(0));
+        assert_eq!(step_from(&table, Some(1), Step::Right), Some(2));
+        assert_eq!(step_from(&table, Some(2), Step::Right), Some(3));
+        assert_eq!(step_from(&table, Some(3), Step::Left), Some(2));
+        assert_eq!(step_from(&table, Some(2), Step::Down), Some(3));
+        assert_eq!(step_from(&table, Some(3), Step::Down), Some(4));
+        assert_eq!(step_from(&table, Some(5), Step::Up), Some(3));
+        assert_eq!(step_from(&table, Some(1), Step::Up), Some(1));
+        assert_eq!(step_from(&table, Some(6), Step::Down), Some(6));
+        assert_eq!(step_from(&table, Some(6), Step::Right), Some(6));
+        assert_eq!(step_from(&table, Some(0), Step::Left), Some(0));
+    }
+
+    #[test]
+    fn arrows_walk_the_list_one_row_at_a_time_and_skip_imports() {
+        let table = [
+            Row::FirstLine,
+            Row::Imports(vec![9]),
+            Row::Item(0),
+            Row::Item(1),
+        ];
+        assert_eq!(step_from(&table, Some(0), Step::Down), Some(1));
+        assert_eq!(step_from(&table, Some(1), Step::Up), Some(0));
+        assert_eq!(step_from(&table, Some(0), Step::Up), Some(0));
+        assert_eq!(row_of(&table, 1), Some(3));
+        assert_eq!(row_of(&table, 9), None);
+    }
+
+    #[test]
+    fn an_item_that_is_gone_starts_the_arrows_from_the_top() {
+        assert_eq!(step_from(&[Row::Item(4)], Some(1), Step::Down), Some(4));
+        assert_eq!(step_from(&[], None, Step::Down), None);
+    }
+
+    #[test]
+    fn a_moved_export_stays_searchable_but_no_longer_counts_as_exported() {
+        let entries = vec![Entry {
+            exports: vec![export("Moved.mp4", 1., None)],
+            ..entry("demo", MediaKind::Studio, noon_on(5, 11))
+        }];
+        let mut state = ViewState::default();
+        let view = build(&entries, &state, "moved", &[], &clock());
+        assert_eq!(view.shown, 1);
+        assert_eq!(view.status_count(StatusFilter::Exported), 0);
+        assert_eq!(view.status_count(StatusFilter::NotExported), 1);
+        state.toggle_status(StatusFilter::Exported);
+        assert_eq!(build(&entries, &state, "", &[], &clock()).shown, 0);
+    }
+
+    #[test]
+    fn the_latest_export_skips_files_that_are_gone() {
+        let project = Entry {
+            exports: vec![
+                export("old.mp4", 1., Some(5)),
+                export("new.mp4", 3., None),
+                export("mid.mp4", 2., Some(5)),
+            ],
+            ..entry("demo", MediaKind::Studio, noon_on(5, 11))
+        };
+        assert_eq!(project.latest_export().unwrap().name, "mid.mp4");
+    }
+
+    #[test]
+    fn days_read_as_today_yesterday_or_a_date_and_times_are_local() {
+        let clock = clock();
+        assert_eq!(clock.day_of(noon_on(5, 11)), DayLabel::Today);
+        assert_eq!(clock.day_of(noon_on(4, 11)), DayLabel::Yesterday);
+        assert_eq!(
+            clock.day_of(noon_on(3, 11)),
+            DayLabel::Date(NaiveDate::from_ymd_opt(2026, 11, 3).unwrap())
+        );
+        assert_eq!(clock.time_of(noon_on(5, 11)), "12:00");
     }
 
     #[test]
