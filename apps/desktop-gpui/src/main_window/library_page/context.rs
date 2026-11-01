@@ -7,8 +7,7 @@ use gpui::{
 };
 
 use super::{
-    MainWindow, SortDirection, SortKey, Step, ViewMode, column_label, direction_label, library,
-    open_entry, t,
+    MainWindow, SortDirection, SortKey, Step, ViewMode, column_label, direction_label, library, t,
 };
 use crate::{i18n::tc, library::MediaKind, library::view::Entry};
 
@@ -297,7 +296,7 @@ impl MainWindow {
         match command {
             Command::Open => {
                 if let Some(entry) = self.library.lead_entry().cloned() {
-                    open_entry(&entry, cx);
+                    self.open_library_entry(&entry, cx);
                 }
             }
             Command::Export => self.export_library_selection(window, cx),

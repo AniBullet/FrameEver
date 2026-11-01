@@ -850,6 +850,9 @@ impl MainWindow {
         cx.observe_in(&session, window, move |this, session, window, cx| {
             let phase = session.read(cx).phase;
             if phase != Phase::Idle {
+                this.pause_library_preview(cx);
+            }
+            if phase != Phase::Idle {
                 this.cancel_deep_link_start();
                 this.clear_mode_hover();
             }
@@ -2760,6 +2763,9 @@ impl Render for MainWindow {
             })
             .when(self.library.slider_dragging, |this| {
                 this.child(self.render_library_slider_layer(cx))
+            })
+            .when(self.library_preview_dragging(), |this| {
+                this.child(self.render_library_preview_layer(cx))
             })
             .children(self.render_library_marquee(cx))
             .when(self.shell.shows_library(), |this| {

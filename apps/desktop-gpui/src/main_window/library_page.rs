@@ -1,6 +1,7 @@
 mod context;
 mod delete;
 mod detail;
+mod preview;
 
 use std::{
     cell::RefCell,
@@ -497,6 +498,9 @@ impl MainWindow {
         if let Some(entry) = self.library.single_entry().cloned() {
             self.library_thumbnail(&entry, window, cx);
         }
+        let preview = &mut self.library.detail.preview;
+        preview.drop_retired(window);
+        preview.sync_bounds(preview::bounds_at(window.scale_factor()));
     }
 
     fn change_selection(
@@ -558,10 +562,15 @@ impl MainWindow {
         if self.library.context.is_some() {
             self.run_highlighted_context(window, cx);
         } else if let Some(entry) = self.library.lead_entry().cloned() {
-            open_entry(&entry, cx);
+            self.open_library_entry(&entry, cx);
         } else {
             cx.propagate();
         }
+    }
+
+    pub(super) fn open_library_entry(&mut self, entry: &Entry, cx: &mut Context<Self>) {
+        self.pause_library_preview(cx);
+        open_entry(entry, cx);
     }
 
     pub(super) fn focus_after_search(&self, cx: &mut Context<Self>) {
@@ -586,7 +595,7 @@ impl MainWindow {
         if event.click_count() >= 2 && !modifiers.control && !modifiers.shift {
             let target = first.as_deref().unwrap_or(path);
             if let Some(entry) = self.library.entry(target).cloned() {
-                open_entry(&entry, cx);
+                self.open_library_entry(&entry, cx);
             }
             return;
         }
@@ -723,6 +732,7 @@ impl MainWindow {
         page.marquee = None;
         page.context = None;
         page.detail.clear();
+        page.detail.preview.drop_retired(window);
         page.drawn.borrow_mut().clear();
         page.rows.clear();
         page.list.reset(0);

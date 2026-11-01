@@ -614,6 +614,13 @@ fn main() {
         #[cfg(debug_assertions)]
         snapshot::arm_from_env(cx);
 
+        if cfg!(debug_assertions)
+            && let Ok(spec) = std::env::var("FRAMEEVER_GPUI_AUTO_LIBRARY_PLAY")
+            && !spec.is_empty()
+        {
+            app_windows::auto_library_play(spec, cx);
+        }
+
         // `FRAMEEVER_GPUI_AUTO_MODE_SELECT=1`: open the 580x340 mode picker the way
         // the mode dot does, main window hidden included. A mode name instead
         // of `1` also clicks that card.

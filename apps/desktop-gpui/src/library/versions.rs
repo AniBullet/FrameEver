@@ -85,6 +85,7 @@ pub fn compress(bundle: &Path, progress: impl FnMut(u64, u64) -> bool) -> Result
 }
 
 fn swap(bundle: &Path, current_to: &str, next_from: &str) -> std::io::Result<()> {
+    super::player::release(bundle);
     let output = bundle.join(OUTPUT);
     let parked = bundle.join(current_to);
     std::fs::rename(&output, &parked)?;
@@ -104,6 +105,7 @@ pub fn restore_original(bundle: &Path) -> std::io::Result<()> {
 }
 
 pub fn delete_compressed(bundle: &Path) -> std::io::Result<()> {
+    super::player::release(bundle);
     if matches!(
         video_versions(bundle),
         Some(VideoVersions::UsingCompressed { .. })
@@ -114,6 +116,7 @@ pub fn delete_compressed(bundle: &Path) -> std::io::Result<()> {
 }
 
 pub fn delete_original(bundle: &Path) -> std::io::Result<()> {
+    super::player::release(bundle);
     if matches!(
         video_versions(bundle),
         Some(VideoVersions::CompressedCopy { .. })
@@ -176,6 +179,7 @@ pub fn delete_version_with(
     version: Version,
     delete: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<DeletedVersion, String> {
+    super::player::release(bundle);
     let was_using_compressed = using_compressed(bundle);
     settle_on(bundle, version == Version::Original).map_err(|error| error.to_string())?;
     if let Err(error) = delete(&bundle.join(version_file(version))) {

@@ -619,5 +619,18 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Tracks", "轨道"),
     ("Type", "类型"),
     ("Unedited", "未编辑"),
+    ("Play", "播放"),
+    ("Pause", "暂停"),
+    ("Unmute", "取消静音"),
+    ("Couldn't play this video", "无法播放此视频"),
+    ("Try again", "再试一次"),
+    (
+        "The file may have been moved or deleted. Check its folder.",
+        "文件可能已被移动或删除。检查它所在的文件夹。",
+    ),
+    (
+        "The file may be damaged. Try opening it in another player.",
+        "文件可能已损坏。换个播放器打开试试。",
+    ),
     ("Version", "版本"),
 ];

@@ -646,6 +646,30 @@ main > section .seg {
 	gap: 6px;
 }
 
+.play-failed {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	aspect-ratio: 16 / 9;
+	padding: 0 16px;
+	border-radius: 6px;
+	background: var(--muted);
+	font-size: var(--text-small);
+	color: var(--muted-foreground);
+	text-align: center;
+}
+
+.play-failed b {
+	font-weight: 500;
+	color: var(--foreground);
+}
+
+.play-failed .btn {
+	margin-top: 6px;
+}
+
 .player-bar {
 	display: flex;
 	align-items: center;

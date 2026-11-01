@@ -2,13 +2,13 @@ use std::path::{Path, PathBuf};
 
 use gpui::{
     AnyElement, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage as _, Task, Window, div, img,
-    prelude::FluentBuilder, px, svg,
+    SharedString, StatefulInteractiveElement, Styled, Task, Window, div, prelude::FluentBuilder,
+    px, svg,
 };
 
 use super::{
-    Clock, DETAIL_WIDTH, JobState, MainWindow, app_windows, day_label, focus_ring, kind_icon,
-    kind_label, library, open_entry, t, ui, view,
+    Clock, DETAIL_WIDTH, JobState, MainWindow, app_windows, day_label, focus_ring, kind_label,
+    library, preview, t, ui, view,
 };
 use crate::library::{
     MediaKind, ProjectDetails, ProjectTracks, VideoVersions, compress_queue::QueueSummary,
@@ -19,9 +19,11 @@ pub(super) struct DetailState {
     name_input: Entity<ui::TextInputState>,
     project: Option<PathBuf>,
     shown_name: String,
+    latest_export: Option<PathBuf>,
     details: ProjectDetails,
     task: Option<Task<()>>,
     pub(super) stale: bool,
+    pub(super) preview: preview::PreviewState,
 }
 
 impl DetailState {
@@ -30,16 +32,20 @@ impl DetailState {
             name_input,
             project: None,
             shown_name: String::new(),
+            latest_export: None,
             details: ProjectDetails::default(),
             task: None,
             stale: false,
+            preview: preview::PreviewState::default(),
         }
     }
 
     pub(super) fn clear(&mut self) {
         self.project = None;
+        self.latest_export = None;
         self.details = ProjectDetails::default();
         self.task = None;
+        self.preview.stop();
     }
 }
 
@@ -108,6 +114,11 @@ impl MainWindow {
         let detail = &mut self.library.detail;
         let new_project = detail.project.as_ref() != Some(&entry.path);
         let untouched = detail.name_input.read(cx).text() == detail.shown_name;
+        let latest_export = entry.latest_export().map(|export| export.path.clone());
+        if new_project || latest_export != detail.latest_export {
+            detail.preview.stop();
+            detail.latest_export = latest_export;
+        }
         if new_project {
             detail.project = Some(entry.path.clone());
             detail.details = ProjectDetails::default();
@@ -404,6 +415,7 @@ impl MainWindow {
         let Some(path) = self.library.selection.single().map(Path::to_path_buf) else {
             return;
         };
+        self.library.detail.preview.stop();
         cx.spawn_in(window, async move |this, cx| {
             let changed = cx
                 .background_executor()
@@ -445,7 +457,7 @@ impl MainWindow {
         .detach();
     }
 
-    fn detail_button(
+    pub(super) fn detail_button(
         &self,
         id: &'static str,
         label: impl Into<SharedString>,
@@ -514,7 +526,9 @@ impl MainWindow {
                 !entry.opens_editor,
             )
             .when(entry.opens_editor, |this| {
-                this.on_click(move |_, _, cx| open_entry(&open, cx))
+                this.on_click(cx.listener(move |this, _, _, cx| {
+                    this.open_library_entry(&open, cx);
+                }))
             });
         match (&entry.screenshot, entry.kind) {
             (Some(png), _) => {
@@ -810,51 +824,6 @@ impl MainWindow {
         )
     }
 
-    fn render_detail_still(&self, entry: &Entry) -> impl IntoElement {
-        let theme = self.theme;
-        let image = entry
-            .thumbnail
-            .as_ref()
-            .and_then(|source| self.library.thumbnails.images.get(source))
-            .map(|held| held.image.clone());
-        let width = DETAIL_WIDTH - 25.;
-        let unedited = entry.kind == MediaKind::Studio && !entry.exported();
-        div()
-            .relative()
-            .w_full()
-            .h(px(width * 9. / 16.))
-            .flex_shrink_0()
-            .rounded(px(6.))
-            .overflow_hidden()
-            .bg(theme.muted)
-            .child(match image {
-                Some(image) => img(image)
-                    .size_full()
-                    .object_fit(gpui::ObjectFit::Contain)
-                    .into_any_element(),
-                None => div()
-                    .flex()
-                    .size_full()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        svg()
-                            .path(kind_icon(entry.kind))
-                            .size(px(24.))
-                            .text_color(theme.muted_foreground),
-                    )
-                    .into_any_element(),
-            })
-            .when(unedited, |this| {
-                this.child(
-                    super::tile_corner(&theme)
-                        .top(px(4.))
-                        .left(px(4.))
-                        .child(t!("Unedited")),
-                )
-            })
-    }
-
     pub(super) fn render_library_detail(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let theme = self.theme;
         if self.library.selection.items().len() > 1 {
@@ -891,7 +860,7 @@ impl MainWindow {
                         .overflow_y_scroll()
                         .gap(px(12.))
                         .p(px(12.))
-                        .child(self.render_detail_still(&entry))
+                        .child(self.render_library_preview(&entry, cx))
                         .child(
                             div()
                                 .mx(px(-6.))

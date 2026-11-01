@@ -37,6 +37,7 @@ use gpui::{App, ElementId, RenderImage};
 use crate::i18n::t;
 
 pub mod compress_queue;
+pub mod player;
 pub mod recycle;
 mod versions;
 pub mod view;
@@ -841,6 +842,7 @@ fn hold_thumbnail_writes() -> Result<impl Drop, String> {
 }
 
 pub fn delete_recording_directory_in(dirs: &[PathBuf], path: &Path) -> Result<(), String> {
+    player::release(path);
     if let Some(canonical_path) = deletable_project(dirs, path)? {
         let _thumbnails = hold_thumbnail_writes()?;
         std::fs::remove_dir_all(canonical_path)
@@ -851,6 +853,7 @@ pub fn delete_recording_directory_in(dirs: &[PathBuf], path: &Path) -> Result<()
 }
 
 pub fn recycle_project_in(dirs: &[PathBuf], path: &Path) -> Result<Option<Deleted>, String> {
+    player::release(path);
     let Some(canonical_path) = deletable_project(dirs, path)? else {
         return Ok(None);
     };

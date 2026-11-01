@@ -563,7 +563,7 @@ class MainWindow {
 			? `<div><div class="subhead">${L("Exports", "导出")}</div>${item.exports.map((x) => `<div class="export-row ${x.gone ? "gone" : ""}"><span class="grow"><b>${x.file}</b><small class="tnum">${x.gone ? L("Not found", "找不到") : L(`${x.time[0]} · ${x.size}`, `${x.time[1]} · ${x.size}`)}</small></span><span class="row-actions">${x.gone ? `<button class="btn ghost sq" title="${pick("Remove from list", "从列表移除")}">${icon("x", "sm")}</button>` : `<button class="btn ghost sq" title="${pick("Show in folder", "在文件夹中显示")}">${icon("folder-open", "sm")}</button><button class="btn ghost sq" title="${pick("Copy", "复制")}">${icon("copy", "sm")}</button>`}</span></div>`).join("")}</div>`
 			: "";
 		return `<aside class="detail"><div class="detail-scroll">
-			<div class="player"><span class="thumb" data-a="preview">${art(item.art)}${unedited ? `<span class="corner tl">${L("Unedited", "未编辑")}</span>` : ""}</span>${video ? `<div class="player-bar tnum"><button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play", "sm")}</button><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><span>0:53 / ${item.dur}</span><button class="play-btn">${icon("volume-2", "sm")}</button></div>` : ""}</div>
+			<div class="player">${this.s.playFailed ? `<div class="play-failed"><b>${L("Couldn't play this video", "无法播放此视频")}</b><span>${L("The file may be damaged. Try opening it in another player.", "文件可能已损坏。换个播放器打开试试。")}</span><button class="btn">${L("Try again", "再试一次")}</button></div>` : `<span class="thumb" data-a="preview">${art(item.art)}${unedited ? `<span class="corner tl">${L("Unedited", "未编辑")}</span>` : ""}</span>`}${video ? `<div class="player-bar tnum"><button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play", "sm")}</button><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><span>0:53 / ${item.dur}</span><button class="play-btn">${icon("volume-2", "sm")}</button></div>` : ""}</div>
 			<input class="name-edit" value="${item.name}" aria-label="${pick("Name", "名称")}">
 			<div class="actions">${primary.map(([, en, zh], i) => `<button class="btn ${i === 0 ? "primary" : ""}">${L(en, zh)}</button>`).join("")}</div>
 			<dl class="info tnum">${info.map(([label, val]) => `<dt>${L(...label)}</dt><dd>${val}</dd>`).join("")}</dl>
@@ -1267,6 +1267,7 @@ const presets = {
 	none_match: { query: "zzz" },
 	empty: { items: [] },
 	preview: { selected: [1], anchor: 1, preview: true },
+	failed: { selected: [1], anchor: 1, playFailed: true },
 };
 const stateHost = document.getElementById("states-stage");
 let stateWindow;
@@ -1290,6 +1291,7 @@ tabRow(
 		["none_match", "No matches", "无匹配"],
 		["empty", "Empty", "空状态"],
 		["preview", "Space preview", "空格预览"],
+		["failed", "Won't play", "无法播放"],
 	],
 	showState,
 );

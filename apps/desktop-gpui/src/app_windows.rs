@@ -5609,6 +5609,14 @@ fn copy_instant_recording(project: &Path, cx: &mut App) {
     }
 }
 
+pub fn auto_library_play(spec: String, cx: &mut App) {
+    let main = cx.global::<AppWindows>().main;
+    main.update(cx, |view, window, cx| {
+        view.auto_library_play(spec, window, cx);
+    })
+    .ok();
+}
+
 pub fn refresh_library_everywhere(cx: &mut App) {
     let main = cx.global::<AppWindows>().main;
     let settings = cx.global::<AppWindows>().settings;
