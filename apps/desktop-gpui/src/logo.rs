@@ -61,6 +61,30 @@ pub fn logo(theme: &Theme, height: f32) -> Div {
         .child(layer("icons/logo-wordmark.svg", wordmark.into(), height))
 }
 
+pub fn app_icon(size: f32) -> Div {
+    div()
+        .relative()
+        .flex_shrink_0()
+        .size(px(size))
+        .child(layer("icons/logo-tile.svg", rgb(PLATE).into(), size))
+        .child(layer("icons/logo-clip-top.svg", rgb(CLIP_TOP).into(), size))
+        .child(layer(
+            "icons/logo-clip-bottom.svg",
+            rgb(CLIP_BOTTOM).into(),
+            size,
+        ))
+        .child(layer(
+            "icons/logo-record.svg",
+            rgb(RECORD_RING).into(),
+            size,
+        ))
+        .child(layer(
+            "icons/logo-record-dot.svg",
+            rgb(RECORD_DOT).into(),
+            size,
+        ))
+}
+
 pub fn logo_mono(color: Hsla, height: f32) -> Div {
     frame(height)
         .child(layer("icons/logo-clip-top.svg", color, height))

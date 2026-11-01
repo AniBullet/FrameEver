@@ -502,8 +502,7 @@
 .titlebar .mark {
 	width: 16px;
 	height: 16px;
-	border-radius: var(--radius-xs);
-	background: var(--primary);
+	background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='10.8' fill='%231F3FD8'/%3E%3Crect x='9' y='25' width='30' height='7' rx='3.5' fill='%23FFFDED'/%3E%3Crect x='9' y='34' width='17' height='7' rx='3.5' fill='%2387BFFF'/%3E%3Ccircle cx='30.5' cy='13.5' r='9.5' fill='%23FFFFFF'/%3E%3Ccircle cx='30.5' cy='13.5' r='6.08' fill='%23FF3B30'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .rec-main {

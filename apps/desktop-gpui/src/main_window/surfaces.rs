@@ -83,23 +83,7 @@ impl MainWindow {
             .gap(px(4.))
             .pl(px(10.))
             .pr(px(4.))
-            .child(
-                div()
-                    .relative()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .size(px(16.))
-                    .flex_shrink_0()
-                    .rounded(px(4.))
-                    .bg(theme.primary)
-                    .child(
-                        div()
-                            .size(px(6.))
-                            .rounded_full()
-                            .bg(theme.primary_foreground),
-                    ),
-            )
+            .child(crate::logo::app_icon(16.))
             .child(
                 div()
                     .pl(px(4.))
