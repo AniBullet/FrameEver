@@ -421,11 +421,16 @@ class MainWindow {
 			menu === "sort"
 				? `<div class="menu">${sorts.map((s) => `<button data-a="sort" data-v="${s.id}"><span class="grow">${L(...s.name)}</span>${sort === s.id ? icon("check", "sm") : ""}</button>`).join("")}<hr>${directions.map(([value, label]) => `<button data-a="dir" data-v="${value}"><span class="grow">${L(...label)}</span>${dir === value ? icon("check", "sm") : ""}</button>`).join("")}</div>`
 				: "";
+		const importMenu =
+			menu === "import"
+				? `<div class="menu"><button data-a="import">${L("Import video", "导入视频")}</button><button data-a="import">${L("Import image", "导入图片")}</button></div>`
+				: "";
 		return `<div class="toolbar">
 			<div class="seg">${tabs.map(([id, en, zh]) => `<button class="${type === id ? "on" : ""}" data-a="type" data-v="${id}">${L(en, zh)} <em class="tnum">${count(id)}</em></button>`).join("")}</div>
 			<div class="pop-anchor"><button class="btn ghost" data-a="menu" data-v="status">${icon("list-filter")}${L("Status", "状态")}${status.length ? `<span class="badge klein">${status.length}</span>` : ""}</button>${statusMenu}</div>
 			<span class="spacer"></span>
 			<label class="input">${icon("search")}<input data-keep="search" value="${query}" placeholder="${pick("Search", "搜索")}" data-ph-en="Search" data-ph-zh="搜索"></label>
+			<div class="pop-anchor end"><button class="btn ghost icon" data-a="menu" data-v="import" title="${pick("Import", "导入")}">${icon("import")}</button>${importMenu}</div>
 			<div class="pop-anchor end"><button class="btn ghost icon" data-a="menu" data-v="sort" title="${pick("Sort", "排序")}">${icon(dir === 1 ? "arrow-up-wide-narrow" : "arrow-down-wide-narrow")}</button>${sortMenu}</div>
 			<div class="seg"><button class="${view === "grid" ? "on" : ""}" data-a="view" data-v="grid" title="${pick("Grid", "网格")}  Ctrl+1">${icon("layout-grid", "sm")}</button><button class="${view === "list" ? "on" : ""}" data-a="view" data-v="list" title="${pick("List", "列表")}  Ctrl+2">${icon("list", "sm")}</button></div>
 		</div>`;
@@ -464,7 +469,7 @@ class MainWindow {
 		const { view, sort, dir, items, query, status, type, firstLine } = this.s;
 		const list = this.visible();
 		if (items.length === 0)
-			return `<div class="empty">${this.doodle("FRAME", 96)}<div>${L("Recordings you make appear here.", "你录制的内容会显示在这里。")}</div><button class="btn primary" data-a="start">${L("Start recording", "开始录制")}</button><span class="keys">${kbd("Ctrl", "Shift", "R")}</span></div>`;
+			return `<div class="empty">${this.doodle("FRAME", 96)}<div>${L("Recordings you make appear here.", "你录制的内容会显示在这里。")}</div><button class="btn primary" data-a="start">${L("Start recording", "开始录制")}</button></div>`;
 		if (list.length === 0 && (query || status.length || type !== "all"))
 			return `<div class="empty">${this.doodle("LENS", 76)}<div>${L("No matching items", "没有匹配的条目")}</div><button class="btn" data-a="clear-filters">${L("Clear filters", "清除筛选")}</button></div>`;
 		if (view === "list") {

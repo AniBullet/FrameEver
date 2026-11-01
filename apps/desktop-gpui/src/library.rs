@@ -17,8 +17,9 @@
 //! state.
 
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock, Mutex},
     time::UNIX_EPOCH,
 };
 
@@ -36,17 +37,15 @@ use gpui::{App, ElementId, RenderImage};
 use crate::i18n::t;
 
 mod versions;
+pub mod view;
+pub mod watch;
 pub use versions::{
-    VideoVersions, compress as compress_video, delete_compressed, delete_original,
+    VideoVersions, compress as compress_video, compressed_only, delete_compressed, delete_original,
     restore_original, use_compressed, video_versions,
 };
 
 /// `RECENT_MEDIA_LIMIT` in `new-main/index.tsx:129`.
 pub const RECENT_MEDIA_LIMIT: usize = 9;
-
-/// Main-window recordings/screenshots panels slice to this many
-/// (`new-main/index.tsx:2377-2393`).
-pub const LIBRARY_PANEL_LIMIT: usize = 20;
 
 /// Which of the three card shapes `RecentCard` draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,6 +240,7 @@ pub struct RecordingItem {
     pub thumbnail: Option<PathBuf>,
     pub thumbnail_version: Option<u128>,
     pub versions: Option<VideoVersions>,
+    pub media: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -305,6 +305,7 @@ fn recording_item(path: PathBuf, meta: RecordingMeta, sort_time_millis: f64) -> 
         }
     };
 
+    let media = project_media(&path, &meta);
     let preview = path.join("screenshots/preview.jpg");
     let thumbnail = if preview.is_file() {
         preview
@@ -315,6 +316,7 @@ fn recording_item(path: PathBuf, meta: RecordingMeta, sort_time_millis: f64) -> 
         .then(|| video_versions(&path))
         .flatten();
     RecordingItem {
+        media,
         versions,
         mode,
         status,
@@ -369,10 +371,163 @@ pub fn list_recordings() -> Vec<RecordingItem> {
     list_recordings_in(&known_recordings_dirs())
 }
 
-pub fn list_recordings_limited(limit: usize) -> Vec<RecordingItem> {
-    recording_items_in(&known_recordings_dirs())
-        .take(limit)
+fn project_media(path: &Path, meta: &RecordingMeta) -> Vec<PathBuf> {
+    match &meta.inner {
+        RecordingMetaInner::Studio(studio) => match &**studio {
+            StudioRecordingMeta::SingleSegment { segment } => {
+                vec![segment.display.path.to_path(path)]
+            }
+            StudioRecordingMeta::MultipleSegments { inner } => inner
+                .segments
+                .iter()
+                .map(|segment| segment.display.path.to_path(path))
+                .collect(),
+        },
+        RecordingMetaInner::Instant(_) => vec![instant_output_path(path)],
+    }
+}
+
+fn folder_size(path: &Path) -> u64 {
+    let mut total = 0;
+    let mut pending = vec![path.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            if metadata.is_dir() {
+                pending.push(entry.path());
+            } else {
+                total += metadata.len();
+            }
+        }
+    }
+    total
+}
+
+const MICROSECONDS_PER_SECOND: f64 = 1_000_000.;
+
+static MEDIA_DURATIONS: LazyLock<Mutex<HashMap<PathBuf, (u128, f64)>>> =
+    LazyLock::new(Default::default);
+
+fn media_duration(path: &Path) -> Option<f64> {
+    let version = source_mtime_nanos(path)?;
+    if let Ok(cache) = MEDIA_DURATIONS.lock()
+        && let Some((held, seconds)) = cache.get(path)
+        && *held == version
+    {
+        return Some(*seconds);
+    }
+    let input = ffmpeg::format::input(path).ok()?;
+    let seconds = input.duration() as f64 / MICROSECONDS_PER_SECOND;
+    if let Ok(mut cache) = MEDIA_DURATIONS.lock() {
+        cache.insert(path.to_path_buf(), (version, seconds));
+    }
+    Some(seconds)
+}
+
+fn recording_duration(item: &RecordingItem) -> Option<f64> {
+    if !item.status.is_complete() {
+        return None;
+    }
+    let total: f64 = item
+        .media
+        .iter()
+        .filter_map(|path| media_duration(path))
+        .sum();
+    (total > 0.).then_some(total)
+}
+
+fn export_file_names(project: &Path) -> Vec<String> {
+    frameever_utils::storage::exports(project)
+        .into_iter()
+        .filter_map(|record| {
+            record
+                .path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
         .collect()
+}
+
+fn recording_entry(item: RecordingItem) -> view::Entry {
+    let compression = match item.versions {
+        Some(VideoVersions::CompressedCopy { .. } | VideoVersions::UsingCompressed { .. }) => {
+            view::Compression::CompressedCopy
+        }
+        _ if item.mode == RecordingMode::Instant && compressed_only(&item.path) => {
+            view::Compression::CompressedOnly
+        }
+        _ => view::Compression::None,
+    };
+    view::Entry {
+        kind: match item.mode {
+            RecordingMode::Studio => MediaKind::Studio,
+            RecordingMode::Instant => MediaKind::Instant,
+        },
+        size: folder_size(&item.path),
+        duration: recording_duration(&item),
+        created_millis: item.sort_time_millis,
+        export_files: export_file_names(&item.path),
+        compression,
+        clip_count: item.clip_count,
+        opens_editor: item.opens_editor(),
+        screenshot: None,
+        name: item.pretty_name,
+        thumbnail: item.thumbnail,
+        thumbnail_version: item.thumbnail_version,
+        path: item.path,
+    }
+}
+
+fn screenshot_entry(item: ScreenshotItem) -> view::Entry {
+    view::Entry {
+        kind: MediaKind::Screenshot,
+        size: folder_size(&item.bundle),
+        duration: None,
+        created_millis: item.sort_time_millis,
+        export_files: export_file_names(&item.bundle),
+        compression: view::Compression::None,
+        clip_count: 1,
+        opens_editor: true,
+        thumbnail_version: item.thumbnail.as_deref().and_then(source_mtime_nanos),
+        thumbnail: item.thumbnail,
+        screenshot: Some(item.path),
+        name: item.pretty_name,
+        path: item.bundle,
+    }
+}
+
+pub fn entries_in(recording_dirs: &[PathBuf], screenshot_dirs: &[PathBuf]) -> Vec<view::Entry> {
+    let recordings = list_recordings_in(recording_dirs)
+        .into_iter()
+        .map(recording_entry);
+    let screenshots = screenshot_dirs
+        .iter()
+        .flat_map(|dir| list_screenshots_in(dir))
+        .map(screenshot_entry);
+    recordings.chain(screenshots).collect()
+}
+
+pub fn list_entries() -> Vec<view::Entry> {
+    let storage = storage();
+    entries_in(
+        &storage.known_dirs(ProjectKind::Recording),
+        &storage.known_dirs(ProjectKind::Screenshot),
+    )
+}
+
+pub fn watched_dirs() -> Vec<PathBuf> {
+    let storage = storage();
+    let mut dirs = storage.known_dirs(ProjectKind::Recording);
+    dirs.extend(storage.known_dirs(ProjectKind::Screenshot));
+    dirs.retain(|dir| dir.is_dir());
+    dirs.sort();
+    dirs.dedup();
+    dirs
 }
 
 pub fn find_incomplete_recordings_in(
@@ -1278,6 +1433,59 @@ pub fn bundle_thumbnail_path(project_dir: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_whole_library_scan_reads_kinds_sizes_and_exports() {
+        let dir = tempfile::tempdir().unwrap();
+        let recordings = dir.path().join("Recordings");
+        let screenshots = dir.path().join("Screenshots");
+        std::fs::create_dir_all(&recordings).unwrap();
+        std::fs::create_dir_all(&screenshots).unwrap();
+
+        let studio = write_studio_bundle(&recordings, "Demo", 2);
+        std::fs::write(studio.join("payload.bin"), vec![0_u8; 1000]).unwrap();
+        let export = dir.path().join("Launch final.mp4");
+        std::fs::write(&export, b"video").unwrap();
+        frameever_utils::storage::record_export(
+            &studio,
+            &ExportRecord {
+                path: export,
+                format: "mp4".into(),
+                codec: Some("h264".into()),
+                exported_at: 1,
+            },
+        )
+        .unwrap();
+
+        let shot = write_studio_bundle(&screenshots, "Shot", 1);
+        std::fs::write(shot.join("Shot.png"), b"png").unwrap();
+
+        let entries = entries_in(&[recordings], &[screenshots]);
+        assert_eq!(entries.len(), 2);
+
+        let demo = entries.iter().find(|entry| entry.name == "Demo").unwrap();
+        assert_eq!(demo.kind, MediaKind::Studio);
+        assert_eq!(demo.clip_count, 2);
+        assert!(demo.size >= 1000);
+        assert_eq!(demo.export_files, ["Launch final.mp4"]);
+        assert_eq!(demo.compression, view::Compression::None);
+        assert_eq!(demo.duration, None);
+        assert_eq!(demo.screenshot, None);
+
+        let shot = entries.iter().find(|entry| entry.name == "Shot").unwrap();
+        assert_eq!(shot.kind, MediaKind::Screenshot);
+        assert!(shot.screenshot.is_some());
+        assert!(shot.opens_editor);
+    }
+
+    #[test]
+    fn a_file_ffmpeg_cannot_read_has_no_duration() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("broken.mp4");
+        std::fs::write(&file, b"not a video").unwrap();
+        assert_eq!(media_duration(&file), None);
+        assert_eq!(media_duration(&dir.path().join("missing.mp4")), None);
+    }
 
     #[test]
     fn decode_jobs_stop_once_nobody_takes_the_results() {

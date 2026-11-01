@@ -4457,6 +4457,7 @@ mod tests {
             sort_time_millis: 0.,
             thumbnail: None,
             versions: None,
+            media: Vec::new(),
         }
     }
 

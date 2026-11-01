@@ -833,11 +833,6 @@ main > section .seg {
 	text-align: center;
 }
 
-.empty .keys {
-	display: inline-flex;
-	gap: 4px;
-}
-
 .first-line {
 	padding: 10px 0 2px;
 	color: var(--foreground);

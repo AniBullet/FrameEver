@@ -6,14 +6,15 @@
 //! quoted next to the values they turn into, because `pl-3` and `gap-2.5` are
 //! considerably easier to check against the original than `12.` and `10.`.
 
+mod library_page;
 pub mod shell;
 mod surfaces;
 
 use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::{
     AppContext as _, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Render, SharedString, StatefulInteractiveElement, Styled, Window, div, img,
-    prelude::FluentBuilder, px, rgb, svg,
+    Render, SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder,
+    px, rgb, svg,
 };
 use std::{cell::Cell, rc::Rc, time::Instant};
 
@@ -22,12 +23,11 @@ use crate::{
     devices::{CameraOption, DeviceSnapshot, DisplayOption, MicrophoneOption, WindowOption},
     feeds::{self, Feeds},
     i18n::t,
-    library::{self, RecordingItem, ScreenshotItem},
+    library,
     media_access::MediaAccess,
     permissions::OSPermission,
     recording,
     session::{Phase, RecordingSession},
-    settings_window::Page,
     target_thumbnails,
     theme::Theme,
     ui,
@@ -42,12 +42,25 @@ const DEVICE_ROW_HEIGHT: f32 = 34.;
 const FRAME_SNAP_DELAY: std::time::Duration = std::time::Duration::from_millis(16);
 const MEMORY_SAVE_DELAY: std::time::Duration = std::time::Duration::from_millis(400);
 
-gpui::actions!(main_window, [ToggleLibrary, FocusNext, FocusPrevious]);
+gpui::actions!(
+    main_window,
+    [
+        ToggleLibrary,
+        FocusNext,
+        FocusPrevious,
+        FocusLibrarySearch,
+        LargerTiles,
+        SmallerTiles
+    ]
+);
 
 pub fn bind_keys(cx: &mut gpui::App) {
     let context = Some("MainWindow");
     cx.bind_keys([
         gpui::KeyBinding::new("ctrl-l", ToggleLibrary, context),
+        gpui::KeyBinding::new("ctrl-f", FocusLibrarySearch, context),
+        gpui::KeyBinding::new("ctrl-=", LargerTiles, context),
+        gpui::KeyBinding::new("ctrl--", SmallerTiles, context),
         gpui::KeyBinding::new("tab", FocusNext, context),
         gpui::KeyBinding::new("shift-tab", FocusPrevious, context),
     ]);
@@ -619,78 +632,6 @@ pub enum Panel {
     ModeInfo,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LibraryKind {
-    Recordings,
-    Screenshots,
-}
-
-impl LibraryKind {
-    fn settings_page(self) -> Page {
-        match self {
-            Self::Recordings => Page::Recordings,
-            Self::Screenshots => Page::Screenshots,
-        }
-    }
-
-    fn import_label(self) -> &'static str {
-        match self {
-            Self::Recordings => t!("Import"),
-            Self::Screenshots => t!("Import image"),
-        }
-    }
-
-    fn empty_title(self) -> &'static str {
-        match self {
-            Self::Recordings => t!("No recordings yet"),
-            Self::Screenshots => t!("No screenshots yet"),
-        }
-    }
-
-    fn empty_description(self) -> &'static str {
-        match self {
-            Self::Recordings => {
-                t!("Your screen recordings will appear here. Start recording to get started!")
-            }
-            Self::Screenshots => {
-                t!("Your screenshots will appear here. Take a screenshot to get started!")
-            }
-        }
-    }
-
-    fn empty_icon(self) -> &'static str {
-        match self {
-            Self::Recordings => "icons/square-play.svg",
-            Self::Screenshots => "icons/image.svg",
-        }
-    }
-
-    fn view_all_label(self) -> &'static str {
-        match self {
-            Self::Recordings => t!("View All Recordings"),
-            Self::Screenshots => t!("View All Screenshots"),
-        }
-    }
-
-    fn no_match(self) -> &'static str {
-        match self {
-            Self::Recordings => t!("No matching recordings"),
-            Self::Screenshots => t!("No matching screenshots"),
-        }
-    }
-}
-
-enum LibraryItems {
-    Recordings(Vec<LibraryRow<RecordingItem>>),
-    Screenshots(Vec<LibraryRow<ScreenshotItem>>),
-}
-
-struct LibraryRow<T> {
-    item: T,
-    thumbnail: Option<std::sync::Arc<gpui::RenderImage>>,
-    thumbnail_stale: bool,
-}
-
 #[derive(Clone)]
 pub(crate) struct RecordingStartPermit(std::rc::Rc<std::cell::Cell<bool>>);
 
@@ -780,10 +721,7 @@ pub struct MainWindow {
     deep_link_start: Option<RecordingStartPermit>,
     microphone_warning: Option<MicrophoneWarning>,
     copied_error: Option<String>,
-    /// Header recordings / screenshots panel. Scanned only while that panel
-    /// is open so a large library is not walked on every home paint.
-    library: Option<LibraryItems>,
-    library_task: Option<gpui::Task<()>>,
+    library: library_page::LibraryPage,
     incomplete_recording: Option<library::IncompleteRecordingItem>,
     recovery_error: Option<String>,
     recovery_pending: bool,
@@ -813,8 +751,6 @@ pub struct MainWindow {
     fade_task: Option<Task<()>>,
     memory_save_task: Option<Task<()>>,
     project_count_task: Option<Task<()>>,
-    library_kind: LibraryKind,
-    library_columns: usize,
     project_count: Option<usize>,
     start_target: Option<TargetType>,
     show_after_snap: bool,
@@ -836,6 +772,9 @@ impl MainWindow {
                 this.clear_mode_hover();
             } else {
                 MediaAccess::global(cx).update(cx, |access, cx| access.refresh(cx));
+                if this.shell.shows_library() {
+                    this.refresh_library(window, cx);
+                }
             }
             #[cfg(target_os = "windows")]
             if window.is_window_active() && !this.devices.displays.is_empty() {
@@ -1016,8 +955,6 @@ impl MainWindow {
             fade_task: None,
             memory_save_task: None,
             project_count_task: None,
-            library_kind: LibraryKind::Recordings,
-            library_columns: 2,
             project_count: None,
             start_target: None,
             show_after_snap: false,
@@ -1027,8 +964,7 @@ impl MainWindow {
             deep_link_start: None,
             microphone_warning: None,
             copied_error: None,
-            library: None,
-            library_task: None,
+            library: library_page::LibraryPage::new(),
             incomplete_recording: None,
             recovery_error: None,
             recovery_pending: false,
@@ -2606,9 +2542,9 @@ impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_appearance(window, cx);
         let theme = self.theme;
-        self.library_columns = shell::library_columns(
-            f32::from(window.viewport_size().width) - surfaces::CONTENT_PADDING * 2.,
-        );
+        if self.shell.shows_library() {
+            self.sync_library_layout(f32::from(window.viewport_size().width), cx);
+        }
         if window.focused(cx).is_none() {
             cx.defer_in(window, |this, window, cx| {
                 window.focus(&this.focus_handle, cx);
@@ -2630,6 +2566,15 @@ impl Render for MainWindow {
             .key_context("MainWindow")
             .on_action(cx.listener(|this, _: &ToggleLibrary, window, cx| {
                 this.toggle_library(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusLibrarySearch, window, cx| {
+                this.focus_library_search(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LargerTiles, _, cx| {
+                this.step_library_tiles(1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SmallerTiles, _, cx| {
+                this.step_library_tiles(-1, cx);
             }))
             .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
             .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
@@ -2679,6 +2624,9 @@ impl Render for MainWindow {
             // gone by then and the bar closed itself.
             .when_some(self.idle_error(cx), |this, error| {
                 this.child(self.render_idle_error(error, cx))
+            })
+            .when(self.library.slider_dragging, |this| {
+                this.child(self.render_library_slider_layer(cx))
             })
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" && this.dismiss_main(false, cx) {
@@ -3510,7 +3458,6 @@ impl MainWindow {
         self.search.clear();
         self.search_input
             .update(cx, |input, cx| input.set_text("", cx));
-        self.library_task = None;
         // `enabled: displayMenuOpen()` / `windowMenuOpen()` -- nothing polls
         // and nothing captures while no picker is on screen. A sweep already in
         // flight is left to land, the way a TanStack refetch is.
@@ -3544,6 +3491,7 @@ impl MainWindow {
             search_focused,
             panel: self.panel.is_some(),
             clip_flow: self.session.read(cx).editor_recording_target().is_some(),
+            library_menu: self.library.menu_open(),
         };
         let Some(step) = self.shell.escape(layers) else {
             return false;
@@ -3564,6 +3512,7 @@ impl MainWindow {
                 });
             }
             EscStep::BackPanel => self.back_panel(cx),
+            EscStep::CloseLibraryMenu => self.close_library_menu(cx),
             EscStep::AbortClipFlow => {
                 self.cancel_deep_link_start();
                 cx.defer(app_windows::abort_editor_recording_flow);
@@ -3658,15 +3607,14 @@ impl MainWindow {
         match (before, self.shell.stage()) {
             (Stage::OpeningFrame, Stage::LibraryArriving) => {
                 window.focus(&self.focus_handle, cx);
-                self.refresh_library(self.library_kind, window, cx);
+                self.open_library_page(window, cx);
                 if std::mem::take(&mut self.show_after_snap) {
                     cx.defer(app_windows::show_main_window);
                 }
             }
             (Stage::ClosingFrame, Stage::Compact) => {
                 self.clear_search(cx);
-                self.library = None;
-                self.library_task = None;
+                self.close_library_page(window);
                 window.focus(&self.focus_handle, cx);
                 self.refresh_project_count(window, cx);
                 cx.defer(app_windows::hide_compact_beside_settings);
@@ -3687,15 +3635,6 @@ impl MainWindow {
             })
             .await;
         }));
-    }
-
-    fn set_library_kind(&mut self, kind: LibraryKind, window: &mut Window, cx: &mut Context<Self>) {
-        if self.library_kind != kind {
-            self.library_kind = kind;
-            self.library = None;
-            self.refresh_library(kind, window, cx);
-            cx.notify();
-        }
     }
 
     pub fn refresh_project_count(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -3758,376 +3697,14 @@ impl MainWindow {
         ))
     }
 
-    fn render_library_header(&self, kind: LibraryKind, cx: &mut Context<Self>) -> gpui::Div {
-        let theme = self.theme;
-        div()
-            .flex()
-            .flex_1()
-            .min_w_0()
-            .gap(px(8.))
-            .items_center()
-            .child(self.render_search_field(cx))
-            .child(
-                ui::Button::plain(
-                    &theme,
-                    "library-import",
-                    ui::ButtonVariant::Gray,
-                    ui::ButtonSize::Sm,
-                )
-                .label(kind.import_label())
-                .icon("icons/import.svg")
-                .height(px(36.))
-                .on_click(cx.listener(move |_, _, _window, cx| {
-                    // `importVideoFromPicker` / `importImageFromPicker`
-                    // (`utils/importMedia.ts:58-86`). Deferred out of the
-                    // listener because the picker task must start with a
-                    // clean App borrow, like every other panel opener.
-                    cx.defer(move |cx| match kind {
-                        LibraryKind::Recordings => crate::import::pick_and_import_video(cx),
-                        LibraryKind::Screenshots => crate::import::pick_and_import_image(cx),
-                    });
-                })),
-            )
-    }
-
     /// Re-scan whichever library panel is open -- the import pipeline's
     /// refresh seam: a finished import has to land in the panel the user is
     /// probably watching it from.
     pub fn refresh_open_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.shell.shows_library() {
-            self.refresh_library(self.library_kind, window, cx);
+            self.refresh_library(window, cx);
         }
         cx.notify();
-    }
-
-    fn refresh_library(&mut self, kind: LibraryKind, window: &mut Window, cx: &mut Context<Self>) {
-        self.library_task = Some(cx.spawn_in(window, async move |this, cx| {
-            let (recordings, screenshots) = cx
-                .background_executor()
-                .spawn(async move {
-                    match kind {
-                        LibraryKind::Recordings => {
-                            let items =
-                                library::list_recordings_limited(library::LIBRARY_PANEL_LIMIT);
-                            (Some(items), None)
-                        }
-                        LibraryKind::Screenshots => {
-                            let mut items = library::list_screenshots();
-                            items.truncate(library::LIBRARY_PANEL_LIMIT);
-                            (None, Some(items))
-                        }
-                    }
-                })
-                .await;
-
-            let thumbnails = match this.update_in(cx, |this, window, cx| {
-                this.set_library(kind, recordings, screenshots, window, cx)
-            }) {
-                Ok(thumbnails) => thumbnails,
-                Err(_) => return,
-            };
-
-            let (_decodes, results) = library::spawn_decode_pool(
-                cx.background_executor(),
-                thumbnails,
-                |(index, path)| library::decode_thumbnail(&path).map(|image| (index, path, image)),
-            );
-            while let Ok(first) = results.recv_async().await {
-                let mut batch = vec![first];
-                batch.extend(results.try_iter());
-                if this
-                    .update_in(cx, |this, window, cx| {
-                        for (index, path, image) in batch {
-                            this.set_library_thumbnail(kind, index, path, image, window, cx);
-                        }
-                    })
-                    .is_err()
-                {
-                    return;
-                }
-            }
-        }));
-    }
-
-    fn set_library(
-        &mut self,
-        kind: LibraryKind,
-        recordings: Option<Vec<RecordingItem>>,
-        screenshots: Option<Vec<ScreenshotItem>>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Vec<(usize, std::path::PathBuf)> {
-        let mut cached_recordings: std::collections::HashMap<_, _> =
-            match (kind, self.library.take()) {
-                (LibraryKind::Recordings, Some(LibraryItems::Recordings(rows))) => rows
-                    .into_iter()
-                    .map(|row| (row.item.path.clone(), row))
-                    .collect(),
-                (_, previous) => {
-                    self.library = previous;
-                    self.drop_library_images(window);
-                    std::collections::HashMap::new()
-                }
-            };
-        let mut pending = Vec::new();
-        self.library = Some(match kind {
-            LibraryKind::Recordings => LibraryItems::Recordings(
-                recordings
-                    .unwrap_or_default()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, item)| {
-                        let previous = cached_recordings.remove(&item.path);
-                        let changed = previous.as_ref().is_none_or(|row| {
-                            row.item.thumbnail != item.thumbnail
-                                || row.item.thumbnail_version != item.thumbnail_version
-                                || row.thumbnail_stale
-                                || row.thumbnail.is_none()
-                        });
-                        if changed && let Some(path) = item.thumbnail.clone() {
-                            pending.push((index, path));
-                        }
-                        LibraryRow {
-                            item,
-                            thumbnail: previous.and_then(|row| row.thumbnail),
-                            thumbnail_stale: changed,
-                        }
-                    })
-                    .collect(),
-            ),
-            LibraryKind::Screenshots => LibraryItems::Screenshots(
-                screenshots
-                    .unwrap_or_default()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, item)| {
-                        if let Some(path) = item.thumbnail.clone() {
-                            pending.push((index, path));
-                        }
-                        LibraryRow {
-                            item,
-                            thumbnail: None,
-                            thumbnail_stale: false,
-                        }
-                    })
-                    .collect(),
-            ),
-        });
-        for (_, row) in cached_recordings {
-            if let Some(image) = row.thumbnail {
-                let _ = window.drop_image(image);
-            }
-        }
-        cx.notify();
-        window.refresh();
-        pending
-    }
-
-    fn set_library_thumbnail(
-        &mut self,
-        kind: LibraryKind,
-        index: usize,
-        path: std::path::PathBuf,
-        image: std::sync::Arc<gpui::RenderImage>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let replaced = match (&mut self.library, kind) {
-            (Some(LibraryItems::Recordings(rows)), LibraryKind::Recordings) => rows
-                .get_mut(index)
-                .filter(|row| row.item.thumbnail.as_deref() == Some(path.as_path()))
-                .and_then(|row| {
-                    row.thumbnail_stale = false;
-                    row.thumbnail.replace(image)
-                }),
-            (Some(LibraryItems::Screenshots(rows)), LibraryKind::Screenshots) => rows
-                .get_mut(index)
-                .filter(|row| row.item.thumbnail.as_deref() == Some(path.as_path()))
-                .and_then(|row| row.thumbnail.replace(image)),
-            _ => None,
-        };
-        if let Some(old) = replaced {
-            let _ = window.drop_image(old);
-        }
-        cx.notify();
-        window.refresh();
-    }
-
-    fn drop_library_images(&mut self, window: &mut Window) {
-        match self.library.take() {
-            Some(LibraryItems::Recordings(rows)) => {
-                for row in rows {
-                    if let Some(image) = row.thumbnail {
-                        let _ = window.drop_image(image);
-                    }
-                }
-            }
-            Some(LibraryItems::Screenshots(rows)) => {
-                for row in rows {
-                    if let Some(image) = row.thumbnail {
-                        let _ = window.drop_image(image);
-                    }
-                }
-            }
-            None => {}
-        }
-    }
-
-    fn render_library_grid(&self, kind: LibraryKind, cx: &mut Context<Self>) -> gpui::Div {
-        let theme = self.theme;
-        let grid = div().flex().flex_col().gap(px(8.)).w_full();
-
-        if self.library.is_none() {
-            let mut skeletons = Vec::new();
-            for _ in 0..4 {
-                skeletons.push(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .h(px(128.))
-                        .rounded(px(8.))
-                        .bg(theme.body_fill(3))
-                        .into_any_element(),
-                );
-            }
-            return grid.children(skeletons.chunks_mut(2).map(|pair| {
-                let mut row = div().flex().flex_row().gap(px(8.)).w_full();
-                for card in pair.iter_mut() {
-                    row = row.child(std::mem::replace(card, div().into_any_element()));
-                }
-                if pair.len() == 1 {
-                    row = row.child(div().flex_1());
-                }
-                row
-            }));
-        }
-
-        let mut cards: Vec<gpui::AnyElement> = Vec::new();
-        // Running imports lead the grid they will land in, the way an
-        // in-progress recording leads the Tauri recordings list.
-        for (index, entry) in crate::import::imports_snapshot(cx).iter().enumerate() {
-            let wanted = match kind {
-                LibraryKind::Recordings => entry.kind == crate::import::ImportKind::Video,
-                LibraryKind::Screenshots => entry.kind == crate::import::ImportKind::Image,
-            };
-            if wanted {
-                cards.push(self.render_import_card(index, entry).into_any_element());
-            }
-        }
-        match (kind, &self.library) {
-            (LibraryKind::Recordings, Some(LibraryItems::Recordings(rows))) => {
-                for row in rows {
-                    if !self.matches_search(&row.item.pretty_name) {
-                        continue;
-                    }
-                    cards.push(self.render_recording_card(row, cx).into_any_element());
-                }
-            }
-            (LibraryKind::Screenshots, Some(LibraryItems::Screenshots(rows))) => {
-                for row in rows {
-                    if !self.matches_search(&row.item.pretty_name) {
-                        continue;
-                    }
-                    cards.push(self.render_screenshot_card(row, cx).into_any_element());
-                }
-            }
-            _ => {}
-        }
-
-        if cards.is_empty() {
-            return grid.child(self.render_library_empty(kind, cx));
-        }
-
-        let view_all = kind.view_all_label();
-        let page = kind.settings_page();
-        cards.push(
-            div()
-                .id("library-view-all")
-                .flex()
-                .flex_1()
-                .min_w_0()
-                .h(px(76.))
-                .items_center()
-                .justify_center()
-                .rounded(px(8.))
-                .border_1()
-                .border_color(theme.body_border(5))
-                .bg(theme.body_fill(3))
-                .text_size(px(12.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.gray_12)
-                .cursor_pointer()
-                .hover(|style| style.bg(theme.body_hover_fill(4)))
-                .child(view_all)
-                .on_click(cx.listener(move |_, _, _window, cx| {
-                    cx.defer(move |cx| app_windows::open_settings(page, cx));
-                }))
-                .into_any_element(),
-        );
-
-        let columns = self.library_columns;
-        grid.children(cards.chunks_mut(columns).map(|pair| {
-            let mut row = div().flex().flex_row().gap(px(8.)).w_full().items_stretch();
-            for card in pair.iter_mut() {
-                row = row.child(std::mem::replace(card, div().into_any_element()));
-            }
-            for _ in pair.len()..columns {
-                row = row.child(div().flex_1());
-            }
-            row
-        }))
-    }
-
-    fn render_library_empty(&self, kind: LibraryKind, cx: &mut Context<Self>) -> gpui::Div {
-        let theme = self.theme;
-        let searching = !self.search.is_empty();
-        let page = kind.settings_page();
-        div()
-            .flex()
-            .flex_col()
-            .w_full()
-            .items_center()
-            .justify_center()
-            .gap(px(8.))
-            .py(px(32.))
-            .child(
-                svg()
-                    .path(kind.empty_icon())
-                    .size(px(20.))
-                    .text_color(theme.gray_10),
-            )
-            .child(
-                div()
-                    .text_size(px(14.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.gray_12)
-                    .child(if searching {
-                        kind.no_match()
-                    } else {
-                        kind.empty_title()
-                    }),
-            )
-            .when(!searching, |this| {
-                this.child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(theme.gray_11)
-                        .text_center()
-                        .child(kind.empty_description()),
-                )
-                .child(
-                    ui::Button::plain(
-                        &theme,
-                        "library-view-all-empty",
-                        ui::ButtonVariant::Gray,
-                        ui::ButtonSize::Sm,
-                    )
-                    .label(kind.view_all_label())
-                    .on_click(cx.listener(move |_, _, _window, cx| {
-                        cx.defer(move |cx| app_windows::open_settings(page, cx));
-                    })),
-                )
-            })
     }
 
     /// The importing card: `ImportProgress.tsx`'s ring drawn in the library
@@ -4215,280 +3792,6 @@ impl MainWindow {
             )
     }
 
-    fn render_recording_card(
-        &self,
-        row: &LibraryRow<RecordingItem>,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = self.theme;
-        let item = &row.item;
-        let path = item.path.clone();
-        let studio = item.mode == library::RecordingMode::Studio;
-        let mode = item.mode;
-        let opens_editor = item.opens_editor();
-        let subtitle = item.mode.label().to_string();
-        let actions = self.render_recording_card_actions(item, cx);
-
-        self.library_card(
-            library::row_id(&item.path),
-            row.thumbnail.clone(),
-            "icons/square-play.svg",
-            item.pretty_name.clone(),
-            Some(subtitle),
-            item.clip_count,
-            cx.listener(move |_, _, _window, cx| {
-                if studio && opens_editor {
-                    let path = path.clone();
-                    cx.defer(move |cx| app_windows::open_editor(path, cx));
-                } else if !studio {
-                    library::open_recording_folder(&path, mode, cx);
-                }
-            }),
-            actions,
-            theme,
-        )
-    }
-
-    fn render_recording_card_actions(
-        &self,
-        item: &RecordingItem,
-        cx: &mut Context<Self>,
-    ) -> gpui::Div {
-        let path = item.path.clone();
-        let mode = item.mode;
-        let mut row = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .px(px(8.))
-            .pb(px(6.))
-            .gap(px(4.));
-        if item.opens_editor() {
-            let editor = path.clone();
-            row = row.child(self.library_action(
-                "lib-rec-edit",
-                "icons/square-pen.svg",
-                cx.listener(move |_, _, _window, cx| {
-                    let editor = editor.clone();
-                    cx.defer(move |cx| app_windows::open_editor(editor, cx));
-                }),
-            ));
-        }
-        let folder = path.clone();
-        row = row.child(self.library_action(
-            "lib-rec-folder",
-            "icons/folder.svg",
-            move |_, _, cx| library::open_recording_folder(&folder, mode, cx),
-        ));
-        row.child(self.library_action(
-            "lib-rec-delete",
-            "icons/trash.svg",
-            cx.listener(move |this, _, window, cx| {
-                this.delete_library_recording(path.clone(), window, cx);
-            }),
-        ))
-    }
-
-    fn render_screenshot_card(
-        &self,
-        row: &LibraryRow<ScreenshotItem>,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = self.theme;
-        let item = &row.item;
-        let png = item.path.clone();
-        let actions = self.render_screenshot_card_actions(item, cx);
-        self.library_card(
-            library::row_id(&item.bundle),
-            row.thumbnail.clone(),
-            "icons/image.svg",
-            item.pretty_name.clone(),
-            None,
-            0,
-            move |_, _, cx| {
-                let png = png.clone();
-                cx.defer(move |cx| app_windows::open_screenshot_editor(png, cx));
-            },
-            actions,
-            theme,
-        )
-    }
-
-    fn render_screenshot_card_actions(
-        &self,
-        item: &ScreenshotItem,
-        cx: &mut Context<Self>,
-    ) -> gpui::Div {
-        let png = item.path.clone();
-        let name = item.pretty_name.clone();
-        let bundle = item.bundle.clone();
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .px(px(8.))
-            .pb(px(6.))
-            .gap(px(4.))
-            .child(self.library_action("lib-ss-copy", "icons/copy.svg", {
-                let png = png.clone();
-                move |_, _, cx| {
-                    if let Err(error) = crate::platform::copy_image_to_clipboard(&png, cx) {
-                        tracing::warn!("copying screenshot failed: {error}");
-                        cx.spawn(async move |_| {
-                            crate::platform::alert_dialog(t!("Could not copy screenshot"), &error);
-                        })
-                        .detach();
-                    }
-                }
-            }))
-            .child(self.library_action(
-                "lib-ss-save",
-                "icons/download.svg",
-                cx.listener(move |this, _, window, cx| {
-                    this.save_screenshot(png.clone(), name.clone(), window, cx);
-                }),
-            ))
-            .child(self.library_action("lib-ss-open", "icons/folder.svg", {
-                let bundle = bundle.clone();
-                move |_, _, cx| library::reveal_path(&bundle, cx)
-            }))
-            .child(self.library_action(
-                "lib-ss-delete",
-                "icons/trash.svg",
-                cx.listener(move |this, _, window, cx| {
-                    this.delete_library_screenshot(bundle.clone(), window, cx);
-                }),
-            ))
-    }
-
-    fn library_action(
-        &self,
-        id: impl Into<gpui::ElementId>,
-        icon: &'static str,
-        on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-    ) -> impl IntoElement {
-        let theme = self.theme;
-        div()
-            .id(id)
-            .flex_1()
-            .flex()
-            .items_center()
-            .justify_center()
-            .p(px(4.))
-            .rounded(px(4.))
-            .text_color(theme.gray_11)
-            .cursor_pointer()
-            .hover(|style| style.bg(theme.body_hover_fill(5)).text_color(theme.gray_12))
-            .child(svg().path(icon).size(px(14.)).text_color(theme.gray_11))
-            .on_click(on_click)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn library_card(
-        &self,
-        id: impl Into<gpui::ElementId>,
-        thumbnail: Option<std::sync::Arc<gpui::RenderImage>>,
-        fallback: &'static str,
-        label: String,
-        subtitle: Option<String>,
-        clip_count: u32,
-        on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-        actions: impl IntoElement,
-        theme: Theme,
-    ) -> impl IntoElement {
-        let thumb = match thumbnail {
-            Some(image) => {
-                use gpui::StyledImage as _;
-                img(image)
-                    .size_full()
-                    .rounded_t(px(8.))
-                    .object_fit(gpui::ObjectFit::Cover)
-                    .into_any_element()
-            }
-            None => div()
-                .rounded_t(px(8.))
-                .flex()
-                .size_full()
-                .items_center()
-                .justify_center()
-                .bg(theme.body_fill(4))
-                .child(svg().path(fallback).size(px(24.)).text_color(theme.gray_9))
-                .into_any_element(),
-        };
-
-        div()
-            .id(id)
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .overflow_hidden()
-            .rounded(px(8.))
-            .bg(theme.body_fill(3))
-            .hover(|style| style.bg(theme.body_hover_fill(4)))
-            .child(
-                div()
-                    .id("library-card-open")
-                    .tab_index(0)
-                    .cursor_pointer()
-                    .child(
-                        div()
-                            .relative()
-                            .w_full()
-                            .h(px(76.))
-                            .rounded_t(px(8.))
-                            .overflow_hidden()
-                            .bg(theme.body_fill(4))
-                            .child(thumb)
-                            .when(clip_count > 1, |this| {
-                                this.child(
-                                    div()
-                                        .absolute()
-                                        .left(px(4.))
-                                        .top(px(4.))
-                                        .rounded_full()
-                                        .bg(black_alpha(0.55))
-                                        .px(px(6.))
-                                        .py(px(2.))
-                                        .text_size(px(10.))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(gpui::white())
-                                        .child(t!("{count} clips", count = clip_count)),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .w_full()
-                            .min_w_0()
-                            .px(px(8.))
-                            .py(px(6.))
-                            .text_size(px(11.))
-                            .child(
-                                div()
-                                    .w_full()
-                                    .truncate()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme.gray_12)
-                                    .child(label),
-                            )
-                            .children(subtitle.map(|subtitle| {
-                                div()
-                                    .w_full()
-                                    .truncate()
-                                    .text_color(theme.gray_11)
-                                    .child(subtitle)
-                            })),
-                    )
-                    .on_click(on_click),
-            )
-            .child(actions)
-    }
-
     fn delete_library_recording(
         &mut self,
         path: std::path::PathBuf,
@@ -4550,7 +3853,7 @@ impl MainWindow {
                 return;
             }
             this.update_in(cx, |this, window, cx| {
-                this.refresh_library(LibraryKind::Screenshots, window, cx);
+                this.refresh_library(window, cx);
             })
             .ok();
         })
@@ -4603,6 +3906,7 @@ impl MainWindow {
         match event {
             ui::TextInputEvent::Changed => {
                 self.search = input.read(cx).text().to_string();
+                self.rebuild_library(cx);
                 cx.notify();
             }
             ui::TextInputEvent::Cancelled => {
@@ -4616,6 +3920,7 @@ impl MainWindow {
         self.search.clear();
         self.search_input
             .update(cx, |input, cx| input.set_text("", cx));
+        self.rebuild_library(cx);
         cx.notify();
     }
 

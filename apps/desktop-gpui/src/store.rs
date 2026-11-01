@@ -104,6 +104,10 @@ pub struct PersistedState {
     pub editor_window: Option<EditorWindowMemory>,
     #[serde(default)]
     pub main_window: MainWindowMemory,
+    #[serde(default)]
+    pub library: crate::library::view::ViewState,
+    #[serde(default)]
+    pub library_first_line_shown: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

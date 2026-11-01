@@ -78,6 +78,7 @@ pub struct EscLayers {
     pub search_focused: bool,
     pub panel: bool,
     pub clip_flow: bool,
+    pub library_menu: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +90,7 @@ pub enum EscStep {
     BlurSearch,
     BackPanel,
     AbortClipFlow,
+    CloseLibraryMenu,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -185,7 +187,9 @@ impl Shell {
             return Some(EscStep::DismissError);
         }
         if self.shows_library() {
-            return if layers.search_text {
+            return if layers.library_menu {
+                Some(EscStep::CloseLibraryMenu)
+            } else if layers.search_text {
                 Some(EscStep::ClearSearch)
             } else if layers.search_focused {
                 Some(EscStep::BlurSearch)
@@ -414,11 +418,6 @@ pub fn launch_placement(memory: &MainWindowMemory, screen: Screen) -> Placement 
         .filter(inside_this_display)
         .unwrap_or(centred);
     compact_placement(position, screen)
-}
-
-pub fn library_columns(content_width: f32) -> usize {
-    const CARD_WIDTH: f32 = 280.;
-    ((content_width / CARD_WIDTH).floor() as usize).max(2)
 }
 
 #[cfg(test)]
@@ -844,6 +843,14 @@ mod tests {
             }),
             Some(EscStep::BlurSearch)
         );
+        assert_eq!(
+            shell.escape(EscLayers {
+                library_menu: true,
+                search_text: true,
+                ..Default::default()
+            }),
+            Some(EscStep::CloseLibraryMenu)
+        );
         assert_eq!(shell.escape(EscLayers::default()), None);
     }
 
@@ -858,6 +865,7 @@ mod tests {
             search_focused: true,
             panel: true,
             clip_flow: true,
+            library_menu: false,
         };
         assert_eq!(shell.escape(all), Some(EscStep::DismissWarning));
         let all = EscLayers {
@@ -908,12 +916,5 @@ mod tests {
         shell.handle(Event::Collapse, at(placement));
         assert_eq!(shell.library_fade(Duration::ZERO, false), (1., 0.));
         assert_eq!(shell.library_fade(motion::COLLAPSE, true), (0., 0.));
-    }
-
-    #[test]
-    fn library_columns_never_drop_below_two_and_grow_with_the_window() {
-        assert_eq!(library_columns(300.), 2);
-        assert_eq!(library_columns(1176.), 4);
-        assert_eq!(library_columns(2500.), 8);
     }
 }

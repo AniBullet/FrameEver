@@ -42,6 +42,9 @@ static CHINESE_UI_FONT_LOADED: AtomicBool = AtomicBool::new(false);
 const ICONS: &[(&str, &[u8])] = assets!("icons":
     "app-window.svg",
     "app-window-mac.svg",
+    "arrow-down-wide-narrow.svg",
+    "arrow-up-wide-narrow.svg",
+    "list-filter.svg",
     "arrow-left.svg",
     "arrow-left-right.svg",
     "arrow-left-to-line.svg",
@@ -309,6 +312,7 @@ mod tests {
         include_str!("screenshot_annotations.rs"),
         // The crop overlay's own ratio glyph.
         include_str!("screenshot_crop.rs"),
+        include_str!("main_window/library_page.rs"),
         // `ui::SelectionHeader` names the check and the trash itself.
         include_str!("ui/selection_header.rs"),
         include_str!("ui/radio_cards.rs"),

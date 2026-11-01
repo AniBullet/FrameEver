@@ -4,11 +4,11 @@ use gpui::{
     transparent_black,
 };
 
-use super::{LibraryKind, MainWindow, Mode, Panel, TargetType, app_windows, shell::Stage};
+use super::{MainWindow, Mode, Panel, TargetType, app_windows, library_page, shell::Stage};
 use crate::{doodle, i18n::t, onboarding_doodles, settings_window::Page, theme::Theme, ui};
 
 const CONTENT_GAP: f32 = 10.;
-pub(super) const CONTENT_PADDING: f32 = 12.;
+const CONTENT_PADDING: f32 = 12.;
 const SEGMENT_HEIGHT: f32 = 28.;
 const TARGET_HEIGHT: f32 = 58.;
 const START_HEIGHT: f32 = 40.;
@@ -448,11 +448,13 @@ impl MainWindow {
                 }),
             theme,
         )
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.target = Some(this.start_target.unwrap_or(TargetType::Display));
-            this.sync_overlays(cx);
-            cx.notify();
-        }))
+        .on_click(cx.listener(|this, _, _, cx| this.start_from_chosen_target(cx)))
+    }
+
+    pub(super) fn start_from_chosen_target(&mut self, cx: &mut Context<Self>) {
+        self.target = Some(self.start_target.unwrap_or(TargetType::Display));
+        self.sync_overlays(cx);
+        cx.notify();
     }
 
     fn render_compact_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -475,6 +477,12 @@ impl MainWindow {
                 .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Library  Ctrl+L")).view(cx))
                 .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
                 .child(t!("Library"))
+                .when(!self.library.unseen.is_empty(), |this| {
+                    this.child(library_page::library_badge(
+                        &theme,
+                        self.library.unseen.len(),
+                    ))
+                })
                 .child(
                     svg()
                         .path("icons/chevron-right.svg")
@@ -524,63 +532,5 @@ impl MainWindow {
                 ARROW_WIDTH,
             ))
             .into_any_element()
-    }
-
-    fn render_library_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let (opacity, slide) = self
-            .shell
-            .library_fade(self.transition_started.elapsed(), cx.reduce_motion());
-        let kind = self.library_kind;
-        let view = cx.entity();
-        let kinds = ui::SegmentedControl::settings(
-            &theme,
-            "library-kind",
-            vec![
-                ui::SegmentOption::new(t!("Recordings"), kind == LibraryKind::Recordings),
-                ui::SegmentOption::new(t!("Screenshots"), kind == LibraryKind::Screenshots),
-            ],
-        )
-        .on_select(move |index, window, cx| {
-            let kind = if *index == 0 {
-                LibraryKind::Recordings
-            } else {
-                LibraryKind::Screenshots
-            };
-            view.update(cx, |this, cx| this.set_library_kind(kind, window, cx));
-        });
-
-        div()
-            .relative()
-            .left(px(slide))
-            .opacity(opacity)
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h_0()
-            .w_full()
-            .gap(px(12.))
-            .p(px(CONTENT_PADDING))
-            .bg(theme.background)
-            .text_color(theme.foreground)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .flex_shrink_0()
-                    .child(kinds)
-                    .child(self.render_library_header(kind, cx)),
-            )
-            .child(
-                div()
-                    .id("library-scroll")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(self.render_library_grid(kind, cx)),
-            )
     }
 }

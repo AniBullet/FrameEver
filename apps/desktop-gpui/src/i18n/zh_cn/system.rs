@@ -184,7 +184,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     (
         "This instant recording is not waiting to be saved.",
-        "这段快速录制不在等待保存。",
+        "这段即时录制不在等待保存。",
     ),
     (
         "The recovered recording has no video track.",
@@ -237,11 +237,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("No logs were found in {path}", "在 {path} 中没有找到日志"),
     ("Studio", "工作室"),
-    ("Instant", "快速"),
+    ("Instant", "即时"),
     ("Both", "两者"),
     ("A diagnostic is already running.", "已有诊断正在运行。"),
     ("studio", "工作室"),
-    ("instant", "快速"),
+    ("instant", "即时"),
     ("Preparing the {mode} test...", "正在准备{mode}测试…"),
     ("Preparing the test...", "正在准备测试…"),
     ("Recording the {mode} test...", "正在录制{mode}测试…"),
@@ -300,11 +300,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     (
         "Could not lock the instant recording for recovery: {error}",
-        "无法锁定这段快速录制以进行恢复：{error}",
+        "无法锁定这段即时录制以进行恢复：{error}",
     ),
     (
         "Could not save the instant recording: {error}",
-        "无法保存这段快速录制：{error}",
+        "无法保存这段即时录制：{error}",
     ),
     (
         "Only incomplete studio recordings can be recovered",

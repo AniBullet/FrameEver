@@ -451,6 +451,13 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                 }
                 let hides_after_instant =
                     finished_instant.is_some() && after_instant.keeps_main_window_hidden();
+                if let Some(project) = finished_studio.clone().or_else(|| finished_instant.clone())
+                {
+                    main.update(cx, |view, window, cx| {
+                        view.note_new_recording(project, window, cx);
+                    })
+                    .ok();
+                }
                 match (finished_studio, behaviour) {
                     (Some(project_dir), crate::store::PostStudioBehaviour::OpenEditor) => {
                         open_editor(project_dir, cx)

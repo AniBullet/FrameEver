@@ -4,6 +4,7 @@ const OUTPUT: &str = "content/output.mp4";
 const COMPRESSED: &str = "content/output_compressed.mp4";
 const ORIGINAL: &str = "content/output_original.mp4";
 const COMPRESSING: &str = "content/output_compressing.mp4";
+const ORIGINAL_DELETED: &str = "content/original_deleted";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoVersions {
@@ -104,7 +105,12 @@ pub fn delete_original(bundle: &Path) -> std::io::Result<()> {
     ) {
         use_compressed(bundle)?;
     }
-    std::fs::remove_file(bundle.join(ORIGINAL))
+    std::fs::remove_file(bundle.join(ORIGINAL))?;
+    std::fs::write(bundle.join(ORIGINAL_DELETED), b"")
+}
+
+pub fn compressed_only(bundle: &Path) -> bool {
+    bundle.join(ORIGINAL_DELETED).is_file()
 }
 
 #[cfg(test)]
@@ -161,6 +167,15 @@ mod tests {
             video_versions(dir.path()),
             Some(VideoVersions::Single { size: 5 })
         );
+    }
+
+    #[test]
+    fn deleting_the_original_leaves_a_project_known_as_compressed_only() {
+        let dir = bundle(b"original-video");
+        std::fs::write(dir.path().join(COMPRESSED), b"small").unwrap();
+        assert!(!compressed_only(dir.path()));
+        delete_original(dir.path()).unwrap();
+        assert!(compressed_only(dir.path()));
     }
 
     #[test]

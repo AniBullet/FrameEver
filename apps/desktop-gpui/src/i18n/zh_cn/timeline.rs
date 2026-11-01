@@ -260,7 +260,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     (
         "Instant mode recordings cannot be edited",
-        "快速模式的录制无法编辑",
+        "即时模式的录制无法编辑",
     ),
     (
         "Finish or recover this recording before importing a clip",
@@ -318,7 +318,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     (
         "Instant recordings can't be imported into a project yet",
-        "暂时还不能把快速模式的录制导入项目",
+        "暂时还不能把即时模式的录制导入项目",
     ),
     (
         "Source FrameEver project is still recording",
@@ -411,7 +411,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Keep exporting", "继续导出"),
     (
         "Use Instant Mode for your next recording if you want a ready-to-play file the moment you stop.",
-        "如果希望停止录制就得到可直接播放的文件，下次请使用快速模式。",
+        "如果希望停止录制就得到可直接播放的文件，下次请使用即时模式。",
     ),
     ("Retry Copy", "重新复制"),
     ("Open File", "打开文件"),

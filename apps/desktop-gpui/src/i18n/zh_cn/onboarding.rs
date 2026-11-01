@@ -1,5 +1,5 @@
 pub static ENTRIES: &[(&str, &str)] = &[
-    ("Instant Mode", "快速模式"),
+    ("Instant Mode", "即时模式"),
     ("Record & save in seconds", "录完即存，几秒搞定"),
     (
         "Records straight to a video file on your computer. Stop recording and it is ready to play — no editing step.",
@@ -36,11 +36,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     (
         "What's the difference between Instant and Studio?",
-        "快速模式和工作室模式有什么区别？",
+        "即时模式和工作室模式有什么区别？",
     ),
     (
         "Instant mode records straight to a ready-to-play video file. Studio mode records each source separately in full quality, letting you edit with backgrounds, effects, and more before exporting.",
-        "快速模式直接录成可播放的视频文件。工作室模式以完整画质分别录制每个来源，导出前可以添加背景、特效等进行编辑。",
+        "即时模式直接录成可播放的视频文件。工作室模式以完整画质分别录制每个来源，导出前可以添加背景、特效等进行编辑。",
     ),
     ("Where are my recordings stored?", "录制文件存在哪里？"),
     (
