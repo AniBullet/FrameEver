@@ -157,3 +157,7 @@ On 2026-10-25 the checkout was renamed to `D:\_Scripts\GitHub\frameever` (lower 
 - Never take screenshots of the owner's screen.
 - Pure flat design, no gradients or glass. Proper nouns are not translated in the Chinese UI.
 - Merging ticket PRs is delegated to the agent after review; pushes are privacy-checked first.
+
+### Cloud leftovers (AniBullet/FrameEver#109, 2026-11-03)
+
+The unused `crates/api`, telemetry setting and diagnostics field, upload/webhook actions and upload-completed trigger are removed. Both settings models drop retired cloud actions on load; a rule that contained an upload also loses its local-delete action with a warning naming the rule id, so saving and reloading cannot turn a guarded cleanup into unconditional deletion. Upload-completed rules are removed. Standalone local-delete rules keep their behavior. `UploadLock` remains the project lock. The CLI regression test exercises legacy settings through a serialize/reload and runs the rule against throwaway media. Standards and spec review fixes removed the orphaned upload icon and nine retired translation entries. The filtered GPUI store tests passed (31, one ignored), as did all four translation tests. The integrated #108–#110 tree passed one shared `pnpm fe test --all` and one `pnpm fe lint` run with code frozen: the 51 CLI unit tests included the legacy upload cleanup regression, and all 49 CLI black-box tests passed. Release traffic and offline validation remain #112's work.

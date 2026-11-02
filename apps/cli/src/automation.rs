@@ -174,23 +174,6 @@ impl AutomationHost for CliAutomationHost {
         Ok(())
     }
 
-    async fn upload(
-        &self,
-        _ctx: &TriggerContext,
-        _organization_id: Option<&str>,
-        _copy_link: bool,
-        _open_in_browser: bool,
-    ) -> Result<(), String> {
-        Err("Uploading is not supported; recordings stay on this computer".to_string())
-    }
-
-    fn upload_is_verified(
-        &self,
-        _ctx: &TriggerContext,
-    ) -> impl std::future::Future<Output = Result<bool, String>> + Send {
-        std::future::ready(Ok(false))
-    }
-
     async fn reveal_in_file_manager(&self, ctx: &TriggerContext) -> Result<(), String> {
         let path = ctx
             .image_path
@@ -260,17 +243,6 @@ impl AutomationHost for CliAutomationHost {
             ));
         }
         Ok(())
-    }
-
-    async fn webhook(
-        &self,
-        _ctx: &TriggerContext,
-        _url: &str,
-        _method: &str,
-        _headers: &HashMap<String, String>,
-        _body_template: Option<&str>,
-    ) -> Result<(), String> {
-        Err("Webhooks are not supported; recordings stay on this computer".to_string())
     }
 
     async fn recognize_text_to_clipboard(&self, _ctx: &TriggerContext) -> Result<(), String> {
@@ -500,7 +472,6 @@ fn apply_project_preset(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frameever_automation::{Action, AutomationRule, MatchMode};
 
     #[test]
     fn a_preset_keeps_the_caption_source_of_the_project() {
@@ -553,56 +524,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cli_upload_cleanup_retains_media_without_a_verified_receipt() {
-        for trigger in [Trigger::UploadCompleted, Trigger::InstantRecordingFinished] {
+    async fn legacy_upload_cleanup_retains_media_after_settings_roundtrip() {
+        for old_trigger in ["uploadCompleted", "instantRecordingFinished"] {
             let temp = tempfile::tempdir().unwrap();
             let project_path = temp.path().join("owned.ever");
             std::fs::create_dir(&project_path).unwrap();
             let media = project_path.join("retained-media.mp4");
             std::fs::write(&media, b"owned recording must survive").unwrap();
-            let mut actions = Vec::new();
-            if trigger == Trigger::InstantRecordingFinished {
-                actions.push(Action::Upload {
-                    organization_id: None,
-                    copy_link: false,
-                    open_in_browser: false,
-                });
+            let mut actions = vec![serde_json::json!({"type":"deleteLocalFiles"})];
+            if old_trigger == "instantRecordingFinished" {
+                actions.insert(0, serde_json::json!({"type":"upload"}));
             }
-            actions.push(Action::DeleteLocalFiles);
-            let store = AutomationsStore {
-                version: 1,
-                rules: vec![AutomationRule {
-                    id: "owned-cleanup".to_string(),
-                    name: "Upload cleanup".to_string(),
-                    enabled: true,
-                    trigger,
-                    match_mode: MatchMode::All,
-                    conditions: vec![],
-                    actions,
-                }],
-            };
-            let ctx = TriggerContext::new()
-                .with_project_path(project_path)
-                .with_share_link("https://cap.test/s/owned".to_string())
-                .with_share_id("owned".to_string());
-            let results =
-                frameever_automation::run(&CliAutomationHost, &store, &trigger, &ctx).await;
-            let deletion = results[0].action_results.last().unwrap();
-            assert!(!deletion.success);
+            let legacy = serde_json::json!({"automations":{"version":1,"rules":[{
+                "id":"owned-cleanup","name":"Upload cleanup","trigger":old_trigger,"actions":actions
+            }]}});
+            let store = frameever_automation::load_store_from_json(&legacy).unwrap();
+            let reloaded: AutomationsStore =
+                serde_json::from_value(serde_json::to_value(store).unwrap()).unwrap();
+            let ctx = TriggerContext::new().with_project_path(project_path);
+            let results = frameever_automation::run(
+                &CliAutomationHost,
+                &reloaded,
+                &Trigger::InstantRecordingFinished,
+                &ctx,
+            )
+            .await;
             assert!(
-                deletion
-                    .error
-                    .as_deref()
-                    .unwrap()
-                    .contains("local recording retained")
+                results
+                    .iter()
+                    .all(|result| result.action_results.is_empty())
             );
             assert_eq!(
                 std::fs::read(&media).unwrap(),
                 b"owned recording must survive"
             );
-            if trigger == Trigger::InstantRecordingFinished {
-                assert!(!results[0].action_results[0].success);
-            }
         }
     }
 }
