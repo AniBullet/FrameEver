@@ -1,9 +1,13 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    cell::Cell,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use gpui::{
-    Context, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels,
-    RenderImage, SharedString, StatefulInteractiveElement, Styled, StyledImage as _, Task, Window,
-    div, img, prelude::FluentBuilder, px, svg,
+    AnyElement, Context, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
+    Pixels, RenderImage, SharedString, StatefulInteractiveElement, Styled, StyledImage as _, Task,
+    Window, div, img, prelude::FluentBuilder, px, svg,
 };
 
 use super::{DETAIL_WIDTH, MainWindow, focus_ring, t, ui, view};
@@ -20,22 +24,31 @@ const SKIP_SECONDS: f64 = 5.;
 const ICON_SIZE: f32 = 14.;
 const FILLED_ICON_SIZE: f32 = 12.;
 
+#[derive(Debug, Clone, Copy, Default)]
+struct Drawn {
+    seen: u64,
+    count: u64,
+    at: Option<Instant>,
+    longest_gap: Duration,
+}
+
 #[derive(Default)]
 pub(super) struct PreviewState {
     player: Option<Player>,
     pump: Option<Task<()>>,
-    playing: bool,
+    pub(super) playing: bool,
     muted: bool,
     position: f64,
     duration: Option<f64>,
     frame: Option<Arc<RenderImage>>,
-    retired: Vec<Arc<RenderImage>>,
+    pub(super) retired: Vec<Arc<RenderImage>>,
     failed: Option<PlayError>,
     track: ui::SliderTrack,
     dragging: bool,
     resume_after_drag: bool,
     bounds: (u32, u32),
     presented: u64,
+    drawn: Cell<Drawn>,
 }
 
 pub(super) fn bounds_at(scale: f32) -> (u32, u32) {
@@ -82,6 +95,20 @@ impl PreviewState {
         self.dragging
     }
 
+    pub(super) fn note_drawn(&self, now: Instant) {
+        let mut drawn = self.drawn.get();
+        if drawn.seen == self.presented {
+            return;
+        }
+        drawn.seen = self.presented;
+        drawn.count += 1;
+        if let Some(at) = drawn.at {
+            drawn.longest_gap = drawn.longest_gap.max(now.saturating_duration_since(at));
+        }
+        drawn.at = Some(now);
+        self.drawn.set(drawn);
+    }
+
     pub(super) fn stop(&mut self) {
         if let Some(player) = self.player.take() {
             let stats = player.stats();
@@ -94,6 +121,7 @@ impl PreviewState {
         }
         self.pump = None;
         self.presented = 0;
+        self.drawn.take();
         self.playing = false;
         self.position = 0.;
         self.duration = None;
@@ -261,7 +289,21 @@ impl MainWindow {
         cx.notify();
     }
 
-    fn toggle_library_mute(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn skip_library_preview(
+        &mut self,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(entry) = self.library.single_entry() else {
+            return;
+        };
+        let duration = self.library_preview_length(entry);
+        let target = skip_target(self.library.detail.preview.position, duration, forward);
+        self.seek_library_preview(target, window, cx);
+    }
+
+    pub(super) fn toggle_library_mute(&mut self, cx: &mut Context<Self>) {
         let preview = &mut self.library.detail.preview;
         preview.muted = !preview.muted;
         if let Some(player) = &preview.player {
@@ -270,7 +312,7 @@ impl MainWindow {
         cx.notify();
     }
 
-    fn library_preview_length(&self, entry: &Entry) -> f64 {
+    pub(super) fn library_preview_length(&self, entry: &Entry) -> f64 {
         self.library
             .detail
             .preview
@@ -301,6 +343,9 @@ impl MainWindow {
         if std::mem::take(&mut preview.resume_after_drag) {
             self.toggle_library_preview(window, cx);
         }
+        if self.library_overlay_open() {
+            window.focus(&self.library.overlay_focus, cx);
+        }
         cx.notify();
     }
 
@@ -310,6 +355,11 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if event.keystroke.key == "space" && self.library_overlay_open() {
+            cx.stop_propagation();
+            self.close_library_overlay(window, cx);
+            return;
+        }
         let Some(entry) = self.library.single_entry() else {
             return;
         };
@@ -328,9 +378,10 @@ impl MainWindow {
 
     pub fn auto_library_play(&mut self, spec: String, window: &mut Window, cx: &mut Context<Self>) {
         self.expand_library(window, cx);
-        let (seconds, name) = spec.split_once(':').unwrap_or((spec.as_str(), ""));
-        let seconds = seconds.parse().unwrap_or(5.);
-        let name = name.to_string();
+        let mut parts = spec.splitn(3, ':');
+        let seconds = parts.next().and_then(|s| s.parse().ok()).unwrap_or(5.);
+        let name = parts.next().unwrap_or_default().to_string();
+        let stage = parts.next().unwrap_or_default().to_string();
         cx.spawn_in(window, async move |this, cx| {
             let tick = std::time::Duration::from_millis(100);
             loop {
@@ -347,12 +398,29 @@ impl MainWindow {
                         .path
                         .clone();
                     this.change_selection(cx, |selection, _| selection.click(&path));
+                    if stage == "scrub" {
+                        cx.spawn_in(window, async move |this, cx| {
+                            super::scrub::sweep_library_tile(this, path, seconds, cx).await;
+                        })
+                        .detach();
+                        return Some((Instant::now(), window.bounds()));
+                    }
                     this.library.detail.preview.muted = true;
-                    this.toggle_library_preview(window, cx);
-                    Some(Instant::now())
+                    let before = window.bounds();
+                    if stage.is_empty() {
+                        this.toggle_library_preview(window, cx);
+                    } else {
+                        this.open_library_overlay(&path, window, cx);
+                    }
+                    if stage == "full" {
+                        this.toggle_library_full_screen(window, cx);
+                    }
+                    Some((Instant::now(), before))
                 });
                 let Ok(started) = started else { return };
-                let Some(started) = started else { continue };
+                let Some((started, before)) = started else {
+                    continue;
+                };
                 cx.background_executor()
                     .timer(std::time::Duration::from_secs_f64(seconds))
                     .await;
@@ -360,11 +428,15 @@ impl MainWindow {
                     let preview = &this.library.detail.preview;
                     if let Some(player) = &preview.player {
                         let stats = player.stats();
+                        let drawn = preview.drawn.get();
                         tracing::info!(
                             seconds = started.elapsed().as_secs_f64(),
                             shown = stats.shown,
                             skipped = stats.skipped,
                             presented = preview.presented,
+                            drawn = drawn.count,
+                            longest_gap_ms = drawn.longest_gap.as_secs_f64() * 1000.,
+                            bounds = ?preview.bounds,
                             position = preview.position,
                             "library preview playback"
                         );
@@ -372,18 +444,36 @@ impl MainWindow {
                     this.pause_library_preview(cx);
                 })
                 .ok();
+                if stage == "full" {
+                    this.update_in(cx, |this, window, cx| {
+                        this.close_library_overlay(window, cx);
+                    })
+                    .ok();
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_secs(1))
+                        .await;
+                    this.update_in(cx, |_, window, _| {
+                        tracing::info!(
+                            restored = window.bounds() == before,
+                            full_screen = window.is_fullscreen(),
+                            "library whole screen left"
+                        );
+                    })
+                    .ok();
+                }
                 return;
             }
         })
         .detach();
     }
 
-    fn preview_button(
+    pub(super) fn preview_button(
         &self,
         id: &'static str,
         icon: &'static str,
         icon_size: f32,
         label: &'static str,
+        keys: &'static [&'static str],
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
         focus_ring(
@@ -397,7 +487,11 @@ impl MainWindow {
                 .size(px(BUTTON_SIZE))
                 .rounded(px(4.))
                 .hover(move |style| style.bg(theme.accent))
-                .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
+                .tooltip(move |_, cx| {
+                    ui::Tooltip::new(&theme, label)
+                        .keys(keys.iter().copied())
+                        .view(cx)
+                })
                 .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
                 .child(
                     svg()
@@ -409,7 +503,12 @@ impl MainWindow {
         )
     }
 
-    fn render_preview_stage(&self, entry: &Entry, cx: &mut Context<Self>) -> gpui::Div {
+    pub(super) fn preview_picture(
+        &self,
+        entry: &Entry,
+        still: Option<Arc<RenderImage>>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.theme;
         let preview = &self.library.detail.preview;
         let poster = entry
@@ -417,9 +516,8 @@ impl MainWindow {
             .as_ref()
             .and_then(|source| self.library.thumbnails.images.get(source))
             .map(|held| held.image.clone());
-        let image = preview.frame.clone().or(poster);
-        let unedited = entry.kind == MediaKind::Studio && !entry.exported();
-        let body = if let Some(error) = preview.failed {
+        let image = still.or_else(|| preview.frame.clone()).or(poster);
+        if let Some(error) = preview.failed {
             div()
                 .flex()
                 .flex_col()
@@ -469,8 +567,21 @@ impl MainWindow {
                         .text_color(theme.muted_foreground),
                 )
                 .into_any_element()
-        };
+        }
+    }
+
+    fn render_preview_stage(
+        &self,
+        entry: &Entry,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let theme = self.theme;
+        let preview = &self.library.detail.preview;
+        let unedited = entry.kind == MediaKind::Studio && !entry.exported();
+        let opens = preview.failed.is_none();
+        let path = entry.path.clone();
         div()
+            .id("library-preview-stage")
             .relative()
             .w_full()
             .h(px(STAGE_HEIGHT))
@@ -478,7 +589,13 @@ impl MainWindow {
             .rounded(px(6.))
             .overflow_hidden()
             .bg(theme.muted)
-            .child(body)
+            .when(opens, |this| {
+                this.cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_library_overlay(&path, window, cx);
+                    }))
+            })
+            .child(self.preview_picture(entry, None, cx))
             .when(unedited && preview.failed.is_none(), |this| {
                 this.child(
                     super::tile_corner(&theme)
@@ -489,20 +606,50 @@ impl MainWindow {
             })
     }
 
-    fn render_preview_bar(&self, entry: &Entry, cx: &mut Context<Self>) -> gpui::Div {
-        let theme = self.theme;
-        let preview = &self.library.detail.preview;
-        let duration = self.library_preview_length(entry);
-        let (play_icon, play_label) = if preview.playing {
+    pub(super) fn preview_play_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (icon, label) = if self.library.detail.preview.playing {
             ("icons/pause.svg", t!("Pause"))
         } else {
             ("icons/play.svg", t!("Play"))
         };
-        let (mute_icon, mute_label) = if preview.muted {
+        let keys: &'static [&'static str] = if self.library_overlay_open() {
+            &["K"]
+        } else {
+            &[]
+        };
+        self.preview_button("library-preview-play", icon, FILLED_ICON_SIZE, label, keys)
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.toggle_library_preview(window, cx);
+            }))
+    }
+
+    pub(super) fn preview_mute_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (icon, label) = if self.library.detail.preview.muted {
             ("icons/volume-x.svg", t!("Unmute"))
         } else {
             ("icons/volume-2.svg", t!("Mute"))
         };
+        let keys: &'static [&'static str] = if self.library_overlay_open() {
+            &["M"]
+        } else {
+            &[]
+        };
+        self.preview_button("library-preview-mute", icon, ICON_SIZE, label, keys)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_library_mute(cx);
+            }))
+    }
+
+    pub(super) fn preview_time(&self, duration: f64) -> impl IntoElement {
+        let position = self.library.detail.preview.position;
+        div()
+            .flex_shrink_0()
+            .child(SharedString::from(time_label(position, duration)))
+    }
+
+    pub(super) fn preview_seek(&self, duration: f64, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let preview = &self.library.detail.preview;
         let slider = ui::Slider::new(
             "library-preview-slider",
             seek_fraction(preview.position, duration),
@@ -521,46 +668,32 @@ impl MainWindow {
                 this.drag_library_preview(event.position.x, window, cx);
             }),
         );
+        focus_ring(
+            div()
+                .id("library-preview-seek")
+                .tab_index(0)
+                .flex()
+                .flex_1()
+                .min_w_0()
+                .rounded(px(4.))
+                .on_key_down(cx.listener(Self::on_library_seek_key))
+                .child(slider),
+            theme,
+        )
+    }
+
+    fn render_preview_bar(&self, entry: &Entry, cx: &mut Context<Self>) -> gpui::Div {
+        let duration = self.library_preview_length(entry);
         div()
             .flex()
             .items_center()
             .gap(px(8.))
             .text_size(px(12.))
-            .text_color(theme.muted_foreground)
-            .child(
-                self.preview_button(
-                    "library-preview-play",
-                    play_icon,
-                    FILLED_ICON_SIZE,
-                    play_label,
-                )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.toggle_library_preview(window, cx);
-                })),
-            )
-            .child(focus_ring(
-                div()
-                    .id("library-preview-seek")
-                    .tab_index(0)
-                    .flex()
-                    .flex_1()
-                    .min_w_0()
-                    .rounded(px(4.))
-                    .on_key_down(cx.listener(Self::on_library_seek_key))
-                    .child(slider),
-                theme,
-            ))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .child(SharedString::from(time_label(preview.position, duration))),
-            )
-            .child(
-                self.preview_button("library-preview-mute", mute_icon, ICON_SIZE, mute_label)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_library_mute(cx);
-                    })),
-            )
+            .text_color(self.theme.muted_foreground)
+            .child(self.preview_play_button(cx))
+            .child(self.preview_seek(duration, cx))
+            .child(self.preview_time(duration))
+            .child(self.preview_mute_button(cx))
     }
 
     pub(super) fn render_library_preview(

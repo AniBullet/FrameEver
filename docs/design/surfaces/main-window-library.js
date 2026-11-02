@@ -601,9 +601,14 @@ class MainWindow {
 		if (!this.s.preview || !item) return "";
 		const k = KIND[item.kind];
 		const video = item.kind !== "screenshot";
-		return `<div class="preview"><div class="preview-top"><span class="grow"><b>${item.name}</b><span class="dim tnum">${L(...k.name)}${item.dur ? ` · ${item.dur}` : ""} · ${item.size}</span></span><button class="btn">${L("Open in editor", "在编辑器中打开")}</button><button class="btn">${L("Export", "导出")}</button><button class="btn">${L("Show in folder", "在文件夹中显示")}</button><button class="btn ghost icon" data-a="close-preview" title="Esc">${icon("x")}</button></div>
-			<div class="preview-media"><button class="btn ghost icon" data-a="step" data-v="-1">${icon("chevron-left")}</button><span class="thumb">${art(item.art)}</span><button class="btn ghost icon" data-a="step" data-v="1">${icon("chevron-right")}</button></div>
-			<div class="preview-foot tnum">${video ? `<button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play")}</button><span>0:53 / ${item.dur}</span><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><button class="play-btn">${icon("volume-2")}</button>` : `<span style="flex:1"></span>`}<button class="play-btn" title="F">${icon("maximize")}</button></div></div>`;
+		const whole = this.s.whole;
+		const top = `<div class="preview-top"><span class="grow"><b>${item.name}</b><span class="dim tnum">${L(...k.name)}${item.dur ? ` · ${item.dur}` : ""} · ${item.size}</span></span><button class="btn">${L("Open in editor", "在编辑器中打开")}</button><button class="btn">${L("Export", "导出")}</button><button class="btn">${L("Show in folder", "在文件夹中显示")}</button><button class="btn ghost icon" data-a="close-preview" title="Esc">${icon("x")}</button></div>`;
+		const media = whole
+			? `<span class="thumb">${art(item.art)}</span>`
+			: `<button class="btn ghost icon" data-a="step" data-v="-1">${icon("chevron-left")}</button><span class="thumb">${art(item.art)}</span><button class="btn ghost icon" data-a="step" data-v="1">${icon("chevron-right")}</button>`;
+		return `<div class="preview${whole ? " whole" : ""}">${whole ? "" : top}
+			<div class="preview-media">${media}</div>
+			<div class="preview-foot tnum">${video ? `<button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play")}</button><span>0:53 / ${item.dur}</span><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><button class="play-btn">${icon("volume-2")}</button>` : `<span style="flex:1"></span>`}<button class="play-btn" data-a="whole" title="F">${icon(whole ? "minimize" : "maximize")}</button></div></div>`;
 	}
 
 	commands() {
@@ -952,7 +957,9 @@ class MainWindow {
 			case "preview":
 				return this.set({ preview: true, ...close });
 			case "close-preview":
-				return this.set({ preview: false });
+				return this.set({ preview: false, whole: false });
+			case "whole":
+				return this.set({ whole: !this.s.whole });
 			case "step":
 				return this.step(Number(v));
 			case "play":
@@ -1107,6 +1114,7 @@ class MainWindow {
 		}
 		if (e.key === "Escape") {
 			if (s.dialog) return this.set({ dialog: null });
+			if (s.whole) return this.set({ whole: false });
 			if (s.preview) return this.set({ preview: false });
 			if (s.query) return this.set({ query: "" });
 			if (typing) return e.target.blur();
@@ -1119,12 +1127,15 @@ class MainWindow {
 		}
 		if (e.key === " " && e.target.tagName !== "BUTTON") {
 			e.preventDefault();
-			if (s.selected.length) this.set({ preview: !s.preview });
+			if (s.selected.length)
+				this.set({ preview: !s.preview, whole: false });
 		}
 		if (s.preview && e.key === "ArrowLeft") return this.step(-1);
 		if (s.preview && e.key === "ArrowRight") return this.step(1);
 		if (s.preview && e.key.toLowerCase() === "k")
 			return this.set({ playing: !s.playing });
+		if (s.preview && e.key.toLowerCase() === "f")
+			return this.set({ whole: !s.whole });
 		if (s.preview) return;
 		if (["ArrowRight", "ArrowDown"].includes(e.key)) {
 			e.preventDefault();
@@ -1267,6 +1278,7 @@ const presets = {
 	none_match: { query: "zzz" },
 	empty: { items: [] },
 	preview: { selected: [1], anchor: 1, preview: true },
+	whole: { selected: [1], anchor: 1, preview: true, whole: true },
 	failed: { selected: [1], anchor: 1, playFailed: true },
 };
 const stateHost = document.getElementById("states-stage");
@@ -1291,6 +1303,7 @@ tabRow(
 		["none_match", "No matches", "无匹配"],
 		["empty", "Empty", "空状态"],
 		["preview", "Space preview", "空格预览"],
+		["whole", "Whole screen", "整屏"],
 		["failed", "Won't play", "无法播放"],
 	],
 	showState,

@@ -508,6 +508,15 @@ pub enum Step {
     Down,
 }
 
+pub fn neighbour<'a>(order: &'a [PathBuf], from: &Path, forward: bool) -> Option<&'a PathBuf> {
+    let at = order.iter().position(|path| path == from)?;
+    if forward {
+        order.get(at + 1)
+    } else {
+        order.get(at.checked_sub(1)?)
+    }
+}
+
 pub fn step_from(rows: &[Row], from: Option<usize>, step: Step) -> Option<usize> {
     let lines: Vec<&[usize]> = rows
         .iter()
@@ -757,6 +766,16 @@ mod tests {
                 ..entry("Archive", MediaKind::Instant, noon_on(12, 10))
             },
         ]
+    }
+
+    #[test]
+    fn a_neighbour_is_the_next_item_and_stops_at_the_ends() {
+        let order = [PathBuf::from("a"), PathBuf::from("b")];
+        assert_eq!(neighbour(&order, Path::new("a"), true), Some(&order[1]));
+        assert_eq!(neighbour(&order, Path::new("b"), false), Some(&order[0]));
+        assert_eq!(neighbour(&order, Path::new("b"), true), None);
+        assert_eq!(neighbour(&order, Path::new("a"), false), None);
+        assert_eq!(neighbour(&order, Path::new("gone"), true), None);
     }
 
     #[test]

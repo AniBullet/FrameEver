@@ -108,6 +108,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "logo-wordmark.svg",
     "maximize.svg",
     "maximize-2.svg",
+    "minimize.svg",
     "message-square-plus.svg",
     "mic.svg",
     "mic-off.svg",
@@ -272,6 +273,7 @@ mod tests {
     const ICON_SOURCES: &[&str] = &[
         include_str!("main_window.rs"),
         include_str!("main_window/surfaces.rs"),
+        include_str!("main_window/library_page/overlay.rs"),
         include_str!("logo.rs"),
         // Not a window: the Recents card's per-kind pill and fallback glyphs
         // are named on `MediaKind`, next to the `Recents.tsx` lines they come

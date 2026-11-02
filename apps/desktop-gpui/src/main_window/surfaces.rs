@@ -157,7 +157,11 @@ impl MainWindow {
                 div().flex_1().bg(self.theme.background).into_any_element()
             }
             (Stage::LibraryArriving | Stage::Expanded | Stage::LibraryLeaving, _) => {
-                self.render_library_page(cx).into_any_element()
+                if self.library_overlay_covers_page() {
+                    div().flex_1().into_any_element()
+                } else {
+                    self.render_library_page(cx).into_any_element()
+                }
             }
             (Stage::Compact, Some(panel)) => div()
                 .flex()

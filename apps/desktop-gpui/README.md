@@ -349,7 +349,7 @@ hooks, each going through the same handler a click takes. The common ones:
 | `FRAMEEVER_GPUI_AUTO_SEEK=<fraction>` | seeks through the click path before the play hook |
 | `FRAMEEVER_GPUI_AUTO_PLAYBACK_TORTURE=<cycles>` | play → pause → seek cycles |
 | `FRAMEEVER_GPUI_AUTO_SIDEBAR=<tab>[:<scroll>]`, `FRAMEEVER_GPUI_AUTO_SELECT=<track>:<i>` | open a sidebar tab, select timeline segments |
-| `FRAMEEVER_GPUI_AUTO_LIBRARY_PLAY=<seconds>[:<name>]` | expands the library, selects the first video whose name contains `<name>`, plays that long, then pauses and logs the `library preview playback` line |
+| `FRAMEEVER_GPUI_AUTO_LIBRARY_PLAY=<seconds>[:<name>[:overlay\|full\|scrub]]` | expands the library, selects the first video whose name contains `<name>`, plays that long in the panel, the Space preview or the whole screen, then pauses and logs the `library preview playback` line with frames drawn and the longest gap; `scrub` sweeps the pointer across its tile instead and logs `library scrub sweep`; `full` then logs `library whole screen left` |
 | `FRAMEEVER_GPUI_MUTE_AUDIO=1` | swaps the editor's audio output for the headless one |
 
 Each editor load logs one `editor timeline model rows=…` line naming every

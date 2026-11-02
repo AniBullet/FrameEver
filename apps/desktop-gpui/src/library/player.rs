@@ -15,6 +15,7 @@ use super::{MediaKind, instant_output_path, view::Entry};
 
 mod audio;
 mod clock;
+pub mod strip;
 mod timeline;
 mod timer;
 mod video;
@@ -191,6 +192,42 @@ impl Drop for OpenGuard {
     fn drop(&mut self) {
         lock(&OPEN_PLAYERS).retain(|player| player.id != self.id);
         PLAYER_CLOSED.notify_all();
+    }
+}
+
+pub struct Hold {
+    _guard: OpenGuard,
+    commands: flume::Sender<Command>,
+    received: flume::Receiver<Command>,
+}
+
+#[derive(Clone)]
+pub struct HoldStop(flume::Sender<Command>);
+
+impl HoldStop {
+    pub fn stop(&self) {
+        self.0.send(Command::Stop).ok();
+    }
+}
+
+impl Hold {
+    pub fn on(project: &Path) -> Self {
+        let (commands, received) = flume::unbounded();
+        Self {
+            _guard: OpenGuard::new(project, commands.clone()),
+            commands,
+            received,
+        }
+    }
+
+    pub fn stopper(&self) -> HoldStop {
+        HoldStop(self.commands.clone())
+    }
+
+    pub fn stopped(&self) -> bool {
+        self.received
+            .try_iter()
+            .any(|command| matches!(command, Command::Stop))
     }
 }
 

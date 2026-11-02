@@ -526,8 +526,8 @@ impl MainWindow {
                 !entry.opens_editor,
             )
             .when(entry.opens_editor, |this| {
-                this.on_click(cx.listener(move |this, _, _, cx| {
-                    this.open_library_entry(&open, cx);
+                this.on_click(cx.listener(move |this, _, window, cx| {
+                    this.open_library_entry(&open, window, cx);
                 }))
             });
         match (&entry.screenshot, entry.kind) {

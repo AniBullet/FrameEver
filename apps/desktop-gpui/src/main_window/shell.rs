@@ -72,6 +72,8 @@ pub enum Effect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EscLayers {
     pub library_dialog: bool,
+    pub whole_screen: bool,
+    pub preview: bool,
     pub warning: bool,
     pub error: bool,
     pub mode_hover: bool,
@@ -86,6 +88,8 @@ pub struct EscLayers {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EscStep {
     CloseLibraryDialog,
+    LeaveWholeScreen,
+    ClosePreview,
     DismissWarning,
     DismissError,
     ClearModeHover,
@@ -194,7 +198,11 @@ impl Shell {
             return Some(EscStep::DismissError);
         }
         if self.shows_library() {
-            return if layers.library_menu {
+            return if layers.whole_screen {
+                Some(EscStep::LeaveWholeScreen)
+            } else if layers.preview {
+                Some(EscStep::ClosePreview)
+            } else if layers.library_menu {
                 Some(EscStep::CloseLibraryMenu)
             } else if layers.search_text {
                 Some(EscStep::ClearSearch)
@@ -484,6 +492,34 @@ mod tests {
 
     fn shell() -> Shell {
         Shell::launch(MainWindowMemory::default())
+    }
+
+    #[test]
+    fn esc_leaves_whole_screen_then_the_preview_then_the_selection() {
+        let mut shell = shell();
+        expanded(&mut shell, compact_at(100., 80., 1., area(2560., 1400.)));
+        let all = EscLayers {
+            whole_screen: true,
+            preview: true,
+            library_selection: true,
+            ..EscLayers::default()
+        };
+        assert_eq!(shell.escape(all), Some(EscStep::LeaveWholeScreen));
+        let windowed = EscLayers {
+            whole_screen: false,
+            ..all
+        };
+        assert_eq!(shell.escape(windowed), Some(EscStep::ClosePreview));
+        let closed = EscLayers {
+            preview: false,
+            ..windowed
+        };
+        assert_eq!(shell.escape(closed), Some(EscStep::ClearLibrarySelection));
+        let dialog = EscLayers {
+            library_dialog: true,
+            ..all
+        };
+        assert_eq!(shell.escape(dialog), Some(EscStep::CloseLibraryDialog));
     }
 
     #[test]
@@ -892,6 +928,8 @@ mod tests {
         let shell = shell();
         let all = EscLayers {
             library_dialog: false,
+            whole_screen: false,
+            preview: false,
             warning: true,
             error: true,
             mode_hover: true,

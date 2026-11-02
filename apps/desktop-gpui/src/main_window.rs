@@ -65,6 +65,7 @@ gpui::actions!(
         LibraryExtendUp,
         LibraryExtendDown,
         LibraryOpen,
+        LibraryPreview,
         LibraryRename,
         LibraryDelete,
         LibraryDeleteNow,
@@ -103,6 +104,7 @@ pub fn bind_keys(cx: &mut gpui::App) {
         gpui::KeyBinding::new("shift-up", LibraryExtendUp, items),
         gpui::KeyBinding::new("shift-down", LibraryExtendDown, items),
         gpui::KeyBinding::new("enter", LibraryOpen, items),
+        gpui::KeyBinding::new("space", LibraryPreview, items),
         gpui::KeyBinding::new("f2", LibraryRename, items),
         gpui::KeyBinding::new("delete", LibraryDelete, items),
         gpui::KeyBinding::new("shift-delete", LibraryDeleteNow, items),
@@ -840,7 +842,9 @@ impl MainWindow {
         })
         .detach();
         cx.observe_window_bounds(window, |this, window, cx| {
-            this.shell_event(Event::Track, window, cx);
+            if !window.is_fullscreen() {
+                this.shell_event(Event::Track, window, cx);
+            }
         })
         .detach();
         let focus_handle = cx.focus_handle();
@@ -851,6 +855,8 @@ impl MainWindow {
             let phase = session.read(cx).phase;
             if phase != Phase::Idle {
                 this.pause_library_preview(cx);
+                this.clear_library_scrub(cx);
+                this.close_library_overlay(window, cx);
             }
             if phase != Phase::Idle {
                 this.cancel_deep_link_start();
@@ -948,7 +954,7 @@ impl MainWindow {
         // panel) is what lets one focus handle survive a panel change, and the
         // blur listener inside `TextInputState` needs a `&mut Window` anyway.
         let search_input = cx.new(|cx| ui::TextInputState::single_line(window, cx));
-        let search_events = cx.subscribe(&search_input, Self::on_search_event);
+        let search_events = cx.subscribe_in(&search_input, window, Self::on_search_event);
         let library_name = cx.new(|cx| ui::TextInputState::single_line(window, cx));
         let library_name_events = cx.subscribe(&library_name, Self::on_library_name_event);
 
@@ -1026,7 +1032,11 @@ impl MainWindow {
             deep_link_start: None,
             microphone_warning: None,
             copied_error: None,
-            library: library_page::LibraryPage::new(library_name, cx.focus_handle()),
+            library: library_page::LibraryPage::new(
+                library_name,
+                cx.focus_handle(),
+                cx.focus_handle(),
+            ),
             incomplete_recording: None,
             recovery_error: None,
             recovery_pending: false,
@@ -2609,7 +2619,9 @@ impl Render for MainWindow {
         }
         if window.focused(cx).is_none() {
             cx.defer_in(window, |this, window, cx| {
-                let focus = if this.shell.shows_library() {
+                let focus = if this.library_overlay_open() {
+                    this.library.overlay_focus().clone()
+                } else if this.shell.shows_library() {
                     this.library.items_focus().clone()
                 } else {
                     this.focus_handle.clone()
@@ -2676,6 +2688,9 @@ impl Render for MainWindow {
             .on_action(cx.listener(|this, _: &LibraryOpen, window, cx| {
                 this.enter_library(window, cx);
             }))
+            .on_action(cx.listener(|this, _: &LibraryPreview, window, cx| {
+                this.preview_library_lead(window, cx);
+            }))
             .on_action(cx.listener(|this, _: &LibraryRename, window, cx| {
                 this.rename_library_selection(window, cx);
             }))
@@ -2737,6 +2752,12 @@ impl Render for MainWindow {
             .text_color(theme.text_primary)
             .child(self.render_header(window, cx))
             .child(self.render_body(cx))
+            .children(
+                self.shell
+                    .shows_library()
+                    .then(|| self.render_library_overlay(window, cx))
+                    .flatten(),
+            )
             .children(self.render_mode_hover(cx))
             .when(
                 // The controls bar owns the live-recording UI; this overlay is
@@ -2772,8 +2793,8 @@ impl Render for MainWindow {
                 this.children(self.render_library_undo(cx))
                     .children(self.render_library_dialog(cx))
             })
-            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
-                if event.keystroke.key == "escape" && this.dismiss_main(false, cx) {
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key == "escape" && this.dismiss_main(false, window, cx) {
                     cx.stop_propagation();
                 }
             }))
@@ -3626,9 +3647,16 @@ impl MainWindow {
         }
     }
 
-    fn dismiss_main(&mut self, search_focused: bool, cx: &mut Context<Self>) -> bool {
+    fn dismiss_main(
+        &mut self,
+        search_focused: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let layers = EscLayers {
             library_dialog: self.library.dialog_open(),
+            whole_screen: self.library_full_screen(),
+            preview: self.library_overlay_open(),
             warning: self.microphone_warning.is_some(),
             error: self.idle_error(cx).is_some(),
             mode_hover: self.mode_hover.visible.is_some(),
@@ -3644,6 +3672,10 @@ impl MainWindow {
         };
         match step {
             EscStep::CloseLibraryDialog => self.close_library_dialog(cx),
+            EscStep::LeaveWholeScreen => self.toggle_library_full_screen(window, cx),
+            EscStep::ClosePreview => {
+                self.close_library_overlay(window, cx);
+            }
             EscStep::DismissWarning => self.dismiss_microphone_warning(cx),
             EscStep::DismissError => self.dismiss_idle_error(cx),
             EscStep::ClearModeHover => {
@@ -3721,6 +3753,21 @@ impl MainWindow {
             }
             return;
         };
+        let leaving = matches!(
+            event,
+            Event::Toggle | Event::Collapse | Event::HideToTray | Event::ReturnToCompact
+        );
+        if leaving && self.close_library_overlay(window, cx) {
+            cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor().timer(FRAME_SNAP_DELAY).await;
+                this.update_in(cx, |this, window, cx| {
+                    this.shell_event(event, window, cx);
+                })
+                .ok();
+            })
+            .detach();
+            return;
+        }
         let before = self.shell.stage();
         for effect in self.shell.handle(event, screen) {
             match effect {
@@ -3974,8 +4021,9 @@ impl MainWindow {
     /// `TextInputState` emits `Cancelled` instead of deciding.
     fn on_search_event(
         &mut self,
-        input: Entity<ui::TextInputState>,
+        input: &Entity<ui::TextInputState>,
         event: &ui::TextInputEvent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match event {
@@ -3985,7 +4033,7 @@ impl MainWindow {
                 cx.notify();
             }
             ui::TextInputEvent::Cancelled => {
-                self.dismiss_main(true, cx);
+                self.dismiss_main(true, window, cx);
             }
             _ => {}
         }

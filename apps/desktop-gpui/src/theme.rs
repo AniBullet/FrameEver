@@ -344,6 +344,7 @@ pub struct Theme {
     pub semantic: Semantic,
     pub component: Component,
     pub fixed_white: Rgba,
+    pub fixed_preview: Rgba,
     pub badge: Rgba,
 
     pub gray_1: Rgba,
@@ -518,6 +519,7 @@ impl Theme {
             semantic,
             component,
             fixed_white: brand.fixed.white.to_rgba(),
+            fixed_preview: brand.fixed.preview.to_rgba(),
             badge: brand.fixed.badge.to_rgba(),
             editor: EditorPalette::new(appearance, &semantic, &component),
 

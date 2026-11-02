@@ -1,7 +1,9 @@
 mod context;
 mod delete;
 mod detail;
+mod overlay;
 mod preview;
+mod scrub;
 
 use std::{
     cell::RefCell,
@@ -139,13 +141,20 @@ pub(super) struct LibraryPage {
     drawn: Rc<RefCell<HashMap<PathBuf, Bounds<Pixels>>>>,
     context: Option<context::ContextMenu>,
     detail: detail::DetailState,
+    overlay: Option<overlay::Overlay>,
+    overlay_focus: FocusHandle,
+    scrub: scrub::ScrubState,
     delete: delete::DeleteState,
     compress: CompressQueue,
     last_click: Option<PathBuf>,
 }
 
 impl LibraryPage {
-    pub(super) fn new(name_input: Entity<ui::TextInputState>, items_focus: FocusHandle) -> Self {
+    pub(super) fn new(
+        name_input: Entity<ui::TextInputState>,
+        items_focus: FocusHandle,
+        overlay_focus: FocusHandle,
+    ) -> Self {
         Self {
             entries: None,
             state: crate::store::load().library,
@@ -181,6 +190,9 @@ impl LibraryPage {
             drawn: Rc::default(),
             context: None,
             detail: detail::DetailState::new(name_input),
+            overlay: None,
+            overlay_focus,
+            scrub: scrub::ScrubState::default(),
             delete: delete::DeleteState::default(),
             compress: CompressQueue::default(),
             last_click: None,
@@ -193,6 +205,10 @@ impl LibraryPage {
 
     pub(super) fn items_focus(&self) -> &FocusHandle {
         &self.items_focus
+    }
+
+    pub(super) fn overlay_focus(&self) -> &FocusHandle {
+        &self.overlay_focus
     }
 
     pub(super) fn has_selection(&self) -> bool {
@@ -498,9 +514,11 @@ impl MainWindow {
         if let Some(entry) = self.library.single_entry().cloned() {
             self.library_thumbnail(&entry, window, cx);
         }
+        self.settle_library_overlay(window, cx);
+        let bounds = self.library_stage_pixels(window);
         let preview = &mut self.library.detail.preview;
         preview.drop_retired(window);
-        preview.sync_bounds(preview::bounds_at(window.scale_factor()));
+        preview.sync_bounds(bounds);
     }
 
     fn change_selection(
@@ -562,13 +580,22 @@ impl MainWindow {
         if self.library.context.is_some() {
             self.run_highlighted_context(window, cx);
         } else if let Some(entry) = self.library.lead_entry().cloned() {
-            self.open_library_entry(&entry, cx);
+            self.open_library_entry(&entry, window, cx);
         } else {
             cx.propagate();
         }
     }
 
-    pub(super) fn open_library_entry(&mut self, entry: &Entry, cx: &mut Context<Self>) {
+    pub(super) fn open_library_entry(
+        &mut self,
+        entry: &Entry,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if entry.kind == MediaKind::Instant && entry.screenshot.is_none() {
+            self.open_library_overlay(&entry.path, window, cx);
+            return;
+        }
         self.pause_library_preview(cx);
         open_entry(entry, cx);
     }
@@ -589,13 +616,19 @@ impl MainWindow {
         });
     }
 
-    fn click_library_item(&mut self, path: &Path, event: &ClickEvent, cx: &mut Context<Self>) {
+    fn click_library_item(
+        &mut self,
+        path: &Path,
+        event: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let modifiers = event.modifiers();
         let first = self.library.last_click.replace(path.to_path_buf());
         if event.click_count() >= 2 && !modifiers.control && !modifiers.shift {
             let target = first.as_deref().unwrap_or(path);
             if let Some(entry) = self.library.entry(target).cloned() {
-                self.open_library_entry(&entry, cx);
+                self.open_library_entry(&entry, window, cx);
             }
             return;
         }
@@ -632,8 +665,8 @@ impl MainWindow {
                 this.open_library_item_menu(&menu, event.position, cx);
             }),
         )
-        .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-            this.click_library_item(&click, event, cx);
+        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+            this.click_library_item(&click, event, window, cx);
         }))
     }
 
@@ -732,6 +765,10 @@ impl MainWindow {
         page.marquee = None;
         page.context = None;
         page.detail.clear();
+        let overlay = page.overlay.take();
+        self.retire_overlay(overlay);
+        self.drop_library_strips(window);
+        let page = &mut self.library;
         page.detail.preview.drop_retired(window);
         page.drawn.borrow_mut().clear();
         page.rows.clear();
@@ -816,7 +853,7 @@ impl MainWindow {
     }
 
     pub(super) fn focus_library_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.shell.shows_library() {
+        if self.shell.shows_library() && !self.library_overlay_open() {
             let focus = self.search_input.read(cx).focus_handle();
             window.focus(&focus, cx);
         }
@@ -1913,6 +1950,10 @@ impl MainWindow {
         if entry.clip_count > 1 {
             meta = format!("{meta} · {}", t!("{count} clips", count = entry.clip_count));
         }
+        let (scrub_frame, scrub_line) = self
+            .library_scrub_of(entry)
+            .map_or((None, None), |(frame, line)| (frame, Some(line)));
+        let image = scrub_frame.or(image);
         let job = self.library.compress.state(&entry.path);
         if let Some(job) = job {
             meta = match job {
@@ -1936,12 +1977,28 @@ impl MainWindow {
             window,
         );
 
+        let (hovered, left) = (entry.path.clone(), entry.path.clone());
         self.library_item_events(tile, &entry.path, cx)
             .child(
                 div()
+                    .id("library-thumb")
                     .relative()
                     .w_full()
                     .h(px(thumb_height))
+                    .when(entry.kind != MediaKind::Screenshot, |this| {
+                        this.on_mouse_move(cx.listener(
+                            move |this, event: &MouseMoveEvent, window, cx| {
+                                this.scrub_library_tile(&hovered, event.position.x, window, cx);
+                            },
+                        ))
+                        .on_hover(cx.listener(
+                            move |this, hovered: &bool, _, cx| {
+                                if !hovered {
+                                    this.leave_library_tile(&left, cx);
+                                }
+                            },
+                        ))
+                    })
                     .rounded(px(6.))
                     .overflow_hidden()
                     .bg(theme.muted)
@@ -2008,6 +2065,17 @@ impl MainWindow {
                                     false,
                                     20.,
                                 )),
+                        )
+                    })
+                    .when_some(scrub_line.filter(|_| job.is_none()), |this, line| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .left_0()
+                                .bottom_0()
+                                .h(px(2.))
+                                .w(gpui::relative(line))
+                                .bg(theme.fixed_white),
                         )
                     })
                     .when_some(job, |this, job| {
@@ -2162,9 +2230,6 @@ fn open_entry(entry: &Entry, cx: &mut gpui::App) {
         (Some(png), _) => {
             let png = png.clone();
             cx.defer(move |cx| app_windows::open_screenshot_editor(png, cx));
-        }
-        (None, MediaKind::Instant) => {
-            library::open_recording_folder(&path, library::RecordingMode::Instant, cx);
         }
         (None, _) if entry.opens_editor => {
             cx.defer(move |cx| app_windows::open_editor(path, cx));

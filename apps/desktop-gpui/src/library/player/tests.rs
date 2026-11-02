@@ -378,6 +378,84 @@ fn brightness(image: &RenderImage) -> f64 {
 }
 
 #[test]
+fn a_strip_has_every_frame_and_never_grows_past_the_clip() {
+    let fixture = Fixture::new(vec![silent_segment(2.), silent_segment(2.)]);
+    let segments = segments_of(&fixture.entry()).unwrap();
+    let hold = Hold::on(&fixture.dir);
+    let strip::Built::Frames(frames) = strip::build(&segments, &hold) else {
+        panic!("no strip");
+    };
+    assert_eq!(frames.len(), strip::STRIP_FRAMES);
+    assert_eq!(frames[0].size(0).width.0, 320);
+}
+
+#[test]
+fn a_strip_stops_when_the_project_is_released() {
+    let fixture = Fixture::new(vec![silent_segment(1.)]);
+    let segments = segments_of(&fixture.entry()).unwrap();
+    let hold = Hold::on(&fixture.dir);
+    hold.stopper().stop();
+    assert!(matches!(
+        strip::build(&segments, &hold),
+        strip::Built::Stopped
+    ));
+}
+
+#[test]
+fn a_strip_of_a_missing_file_fails() {
+    let segments = vec![Segment::file(PathBuf::from("missing.mp4"))];
+    let hold = Hold::on(Path::new("missing"));
+    assert!(matches!(
+        strip::build(&segments, &hold),
+        strip::Built::Failed
+    ));
+}
+
+#[test]
+fn release_waits_for_a_hold_to_end() {
+    let project = PathBuf::from("held-project");
+    let hold = Hold::on(&project);
+    let worker = std::thread::spawn(move || {
+        while !hold.stopped() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    });
+    release(&project);
+    worker.join().unwrap();
+    assert!(
+        !lock(&OPEN_PLAYERS)
+            .iter()
+            .any(|player| player.project == project_key(&project))
+    );
+}
+
+#[test]
+fn measure_strip_cost() {
+    let Some(file) = std::env::var_os("FRAMEEVER_PLAYER_FILE").map(PathBuf::from) else {
+        return;
+    };
+    let segments = vec![Segment::file(file.clone())];
+    for run in 0..3 {
+        let hold = Hold::on(&file);
+        let started = Instant::now();
+        let strip::Built::Frames(frames) = strip::build(&segments, &hold) else {
+            panic!("no strip");
+        };
+        let elapsed = started.elapsed();
+        let bytes: usize = frames
+            .iter()
+            .map(|frame| frame.as_bytes(0).map_or(0, <[u8]>::len))
+            .sum();
+        println!(
+            "strip {run}: {:.0} ms for {} frames, {:.1} MB",
+            elapsed.as_secs_f64() * 1000.,
+            frames.len(),
+            bytes as f64 / 1_048_576.
+        );
+    }
+}
+
+#[test]
 fn measure_frame_timing_and_audio_sync() {
     let Some(file) = std::env::var_os("FRAMEEVER_PLAYER_FILE").map(PathBuf::from) else {
         return;

@@ -18,6 +18,7 @@ const ROW_HEIGHT: f32 = 32.;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Command {
     Open,
+    Preview,
     Export,
     Compress,
     Rename,
@@ -94,7 +95,12 @@ pub(super) fn commands(target: Target) -> Vec<Option<Command>> {
         Target::One(actions) => {
             let mut rows = Vec::new();
             if actions.opens {
-                rows.extend([Some(Command::Open), None, Some(Command::Export)]);
+                rows.extend([
+                    Some(Command::Open),
+                    Some(Command::Preview),
+                    None,
+                    Some(Command::Export),
+                ]);
                 if actions.compressible {
                     rows.push(Some(Command::Compress));
                 }
@@ -296,9 +302,10 @@ impl MainWindow {
         match command {
             Command::Open => {
                 if let Some(entry) = self.library.lead_entry().cloned() {
-                    self.open_library_entry(&entry, cx);
+                    self.open_library_entry(&entry, window, cx);
                 }
             }
+            Command::Preview => self.preview_library_lead(window, cx),
             Command::Export => self.export_library_selection(window, cx),
             Command::Compress => self.compress_library_selection(window, cx),
             Command::Rename => self.rename_library_selection(window, cx),
@@ -321,6 +328,7 @@ impl MainWindow {
     fn command_label(&self, command: Command) -> &'static str {
         match command {
             Command::Open => t!("Open"),
+            Command::Preview => t!("Preview"),
             Command::Export => t!("Export…"),
             Command::Compress => t!("Compress"),
             Command::Rename => t!("Rename"),
@@ -342,6 +350,7 @@ impl MainWindow {
     fn command_keys(&self, command: Command) -> Option<&'static str> {
         match command {
             Command::Open => Some("Enter"),
+            Command::Preview => Some("Space"),
             Command::Rename => Some("F2"),
             Command::CopyFile | Command::CopyFiles => Some("Ctrl+C"),
             Command::Delete => Some("Del"),
@@ -509,6 +518,7 @@ mod tests {
             rows,
             [
                 Command::Open,
+                Command::Preview,
                 Command::Export,
                 Command::Rename,
                 Command::CopyFile,

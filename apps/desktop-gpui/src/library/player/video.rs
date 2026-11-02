@@ -70,6 +70,14 @@ pub struct VideoReader {
 
 impl VideoReader {
     pub fn open(path: &Path) -> Result<Self, PlayError> {
+        Self::with_threads(path, DECODER_THREADS)
+    }
+
+    pub fn open_light(path: &Path) -> Result<Self, PlayError> {
+        Self::with_threads(path, 1)
+    }
+
+    fn with_threads(path: &Path, threads: usize) -> Result<Self, PlayError> {
         if !path.is_file() {
             return Err(PlayError::Missing);
         }
@@ -89,7 +97,7 @@ impl VideoReader {
             .map_err(unreadable)?;
         context.set_threading(threading::Config {
             kind: threading::Type::Frame,
-            count: DECODER_THREADS,
+            count: threads,
             ..Default::default()
         });
         let decoder = context.decoder().video().map_err(unreadable)?;

@@ -896,12 +896,30 @@ main > section .seg {
 
 .preview {
 	position: absolute;
-	inset: 0;
+	inset: 36px 0 0;
 	z-index: 25;
 	display: flex;
 	flex-direction: column;
 	background: var(--neutral-1);
 	animation: library-fade var(--duration-mid) var(--ease-fluent-in) both;
+}
+
+.preview.whole {
+	inset: 0;
+	background: var(--preview);
+}
+
+.preview.whole .preview-media {
+	padding: 0;
+}
+
+.preview.whole .preview-media .thumb {
+	max-width: none;
+	border-radius: 0;
+}
+
+.preview.whole .preview-foot {
+	background: var(--popover);
 }
 
 .preview-top {

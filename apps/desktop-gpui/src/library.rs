@@ -1425,6 +1425,17 @@ pub fn decode_thumbnail(path: &Path) -> Option<Arc<RenderImage>> {
     thumbnail_rgba(path).map(rgba_to_render_image)
 }
 
+pub fn decode_still(path: &Path, bounds: (u32, u32)) -> Option<Arc<RenderImage>> {
+    let decoded = image::open(path).ok()?;
+    let (width, height) = bounds;
+    let fitted = if decoded.width() > width || decoded.height() > height {
+        decoded.resize(width, height, image::imageops::FilterType::Triangle)
+    } else {
+        decoded
+    };
+    Some(rgba_to_render_image(fitted.into_rgba8()))
+}
+
 /// [`decode_thumbnail`]'s pixels before the BGRA swap, through the same cache.
 pub fn thumbnail_rgba(path: &Path) -> Option<image::RgbaImage> {
     let cache = CacheSlot::for_source(path);
