@@ -282,7 +282,10 @@ impl Export {
                 "Specify the output path either positionally or with --output, not both"
                     .to_string(),
             ),
-            (Some(path), None) | (None, Some(path)) => Ok(Some(path.clone())),
+            (Some(path), None) | (None, Some(path)) => {
+                frameever_export::validate_output_path(path)?;
+                Ok(Some(path.clone()))
+            }
             (None, None) => Ok(None),
         }
     }
@@ -346,6 +349,7 @@ impl Export {
         stdout: &Arc<Mutex<std::io::Stdout>>,
     ) -> Result<(), String> {
         let output = self.resolve_output()?;
+        frameever_export::validate_output_path(&self.project_path)?;
         let settings = self.resolve_settings()?;
 
         ensure_remuxed(self.project_path.clone()).await?;

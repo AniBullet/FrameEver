@@ -1,4 +1,12 @@
 pub static ENTRIES: &[(&str, &str)] = &[
+    (
+        "Export output must be a local file path",
+        "导出位置必须是本地文件路径",
+    ),
+    (
+        "Recording output must be a local file path",
+        "录制位置必须是本地文件路径",
+    ),
     ("Regular", "常规"),
     ("Medium", "中等"),
     ("Semibold", "半粗"),

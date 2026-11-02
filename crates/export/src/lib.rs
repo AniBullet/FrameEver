@@ -6,6 +6,36 @@ pub mod mp4;
 pub mod preview;
 pub mod settings;
 
+pub fn validate_output_path(path: &std::path::Path) -> Result<(), String> {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    let local = if let Some(drive) = bytes
+        .strip_prefix(b"\\\\?\\")
+        .or_else(|| bytes.strip_prefix(b"//?/"))
+    {
+        drive.len() >= 3
+            && drive[0].is_ascii_alphabetic()
+            && drive[1] == b':'
+            && matches!(drive[2], b'/' | b'\\')
+    } else {
+        !bytes.is_empty()
+            && !(bytes.len() >= 2
+                && matches!(bytes[0], b'/' | b'\\')
+                && matches!(bytes[1], b'/' | b'\\'))
+            && match bytes
+                .iter()
+                .position(|byte| matches!(byte, b':' | b'/' | b'\\'))
+            {
+                Some(index) if bytes[index] == b':' => index == 1 && bytes[0].is_ascii_alphabetic(),
+                _ => true,
+            }
+    };
+    if local {
+        Ok(())
+    } else {
+        Err("Export output must be a local file path".to_string())
+    }
+}
+
 use frameever_editor::{ExportAudioPreparation, ExportAudioRenderer, SegmentMedia};
 use frameever_project::{
     BackgroundSource, ProjectConfiguration, RecordingMeta, StudioRecordingMeta,
