@@ -706,7 +706,7 @@ fn parse_forwarding_endpoint(contents: &str) -> Option<ForwardingEndpoint> {
 fn is_forwardable_deep_link(url: &str) -> bool {
     !url.is_empty()
         && url.len() <= MAX_FORWARDED_DEEP_LINK_BYTES
-        && reqwest::Url::parse(url).is_ok_and(|parsed| parsed.scheme() == crate::brand::URL_SCHEME)
+        && url::Url::parse(url).is_ok_and(|parsed| parsed.scheme() == crate::brand::URL_SCHEME)
 }
 
 #[cfg(any(windows, target_os = "macos", test))]
@@ -896,7 +896,7 @@ mod tests {
             }
         });
         let url =
-            reqwest::Url::parse_with_params("frameever://action", &[("value", action.to_string())])
+            url::Url::parse_with_params("frameever://action", &[("value", action.to_string())])
                 .unwrap();
 
         assert!(is_forwardable_deep_link(url.as_str()));
@@ -909,7 +909,7 @@ mod tests {
             #[cfg(any(windows, target_os = "macos"))]
             ForwardedRequest::Reopen => panic!("A project action must remain a deep link"),
         };
-        let authenticated = reqwest::Url::parse(&authenticated).unwrap();
+        let authenticated = url::Url::parse(&authenticated).unwrap();
         assert!(matches!(
             crate::deeplink::DeepLinkAction::try_from(&authenticated),
             Ok(crate::deeplink::DeepLinkAction::OpenEditor { project_path })

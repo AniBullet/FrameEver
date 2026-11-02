@@ -77,6 +77,8 @@ unexpected_cfgs = "allow"
 unused_must_use = "deny"
 
 [workspace.lints.clippy]
+disallowed_methods = "deny"
+disallowed_types = "deny"
 dbg_macro = "deny"
 let_underscore_future = "deny"
 unchecked_duration_subtraction = "deny"
