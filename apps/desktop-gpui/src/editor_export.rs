@@ -2220,6 +2220,12 @@ async fn run_export(
     if cancel.load(Ordering::Relaxed) {
         return Err("Export cancelled".into());
     }
+    frameever_export::validate_output_path(&project_path)
+        .map_err(|_| t!("Export output must be a local file path").to_string())?;
+    if let Some(path) = &save_path {
+        frameever_export::validate_output_path(path)
+            .map_err(|_| t!("Export output must be a local file path").to_string())?;
+    }
     let mut builder = ExporterBase::builder(project_path).with_force_ffmpeg_decoder(force);
     if cursor_only {
         builder = builder.with_config(make_cursor_only_project(project));
@@ -2309,6 +2315,52 @@ mod tests {
         Arc,
         atomic::{AtomicBool, Ordering},
     };
+
+    #[test]
+    fn export_output_paths_refuse_protocols_and_network_shares() {
+        for path in [
+            "rtmp://example.com/live",
+            "http://example.com/output.mp4",
+            "https://example.com/output.mp4",
+            "udp:example.com:1234",
+            "concat:one.mp4|two.mp4",
+            "file:output.mp4",
+            "pipe:1",
+            r"\\server\share\output.mp4",
+            "//server/share/output.mp4",
+            r"/\server\share\output.mp4",
+            r"\/server/share/output.mp4",
+            r"\\?\UNC\server\share\output.mp4",
+            r"\\.\pipe\output.mp4",
+        ] {
+            assert!(
+                frameever_export::validate_output_path(std::path::Path::new(path)).is_err(),
+                "accepted non-local export output: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn export_output_paths_keep_local_relative_and_drive_paths() {
+        for path in [
+            "output.mp4",
+            "exports/output.mp4",
+            "./http:output.mp4",
+            "/tmp/output.mp4",
+            r"C:\Exports\output.mp4",
+            "D:/Exports/output.mp4",
+            "C:output.mp4",
+            r"\\?\C:\Exports\output.mp4",
+            "//?/C:/Exports/output.mp4",
+            r"\\?\C:\",
+            "//?/C:/",
+        ] {
+            assert!(
+                frameever_export::validate_output_path(std::path::Path::new(path)).is_ok(),
+                "rejected local export output: {path}"
+            );
+        }
+    }
 
     fn clipboard_export() -> ExportUi {
         ExportUi::from_preferences(ExportPrefs {

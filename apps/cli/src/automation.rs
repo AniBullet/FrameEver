@@ -112,10 +112,12 @@ impl AutomationHost for CliAutomationHost {
             .project_path
             .as_ref()
             .ok_or("No project path available for export")?;
+        frameever_export::validate_output_path(project_path)?;
 
         let output_path = match destination {
             ExportDestination::ProjectFolder => None,
             ExportDestination::CustomPath { dir } => {
+                frameever_export::validate_output_path(std::path::Path::new(dir))?;
                 let ext = match profile.format {
                     ExportFormat::Mp4 => "mp4",
                     ExportFormat::Gif => "gif",
