@@ -9,7 +9,7 @@ use frameever_project::XY;
 pub struct AutomationsStore {
     #[serde(default)]
     pub version: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_rules")]
     pub rules: Vec<AutomationRule>,
 }
 
@@ -27,6 +27,46 @@ pub struct AutomationRule {
     pub conditions: Vec<Condition>,
     #[serde(default)]
     pub actions: Vec<Action>,
+}
+
+fn deserialize_rules<'de, D>(deserializer: D) -> Result<Vec<AutomationRule>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let rules = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    let mut migrated = Vec::with_capacity(rules.len());
+    for mut rule in rules {
+        let id = rule
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        if rule.get("trigger").and_then(serde_json::Value::as_str) == Some("uploadCompleted") {
+            tracing::warn!(rule_id = %id, "Removed retired upload-completed rule; local deletion refused");
+            continue;
+        }
+        if let Some(actions) = rule
+            .get_mut("actions")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            let had_upload = actions.iter().any(|action| {
+                action.get("type").and_then(serde_json::Value::as_str) == Some("upload")
+            });
+            let had_deletion = actions.iter().any(|action| {
+                action.get("type").and_then(serde_json::Value::as_str) == Some("deleteLocalFiles")
+            });
+            actions.retain(|action| {
+                let kind = action.get("type").and_then(serde_json::Value::as_str);
+                !matches!(kind, Some("upload" | "webhook"))
+                    && !(had_upload && kind == Some("deleteLocalFiles"))
+            });
+            if had_upload && had_deletion {
+                tracing::warn!(rule_id = %id, "Removed local deletion from retired upload rule; local recording retained");
+            }
+        }
+        migrated.push(serde_json::from_value(rule).map_err(serde::de::Error::custom)?);
+    }
+    Ok(migrated)
 }
 
 fn default_true() -> bool {
@@ -48,7 +88,6 @@ pub enum Trigger {
     StudioRecordingFinished,
     InstantRecordingFinished,
     RecordingStarted,
-    UploadCompleted,
     VideoImported,
     RecordingDeleted,
 }
@@ -97,15 +136,6 @@ pub enum Action {
         #[serde(default)]
         destination: ExportDestination,
     },
-    #[serde(rename_all = "camelCase")]
-    Upload {
-        #[serde(default)]
-        organization_id: Option<String>,
-        #[serde(default = "default_true")]
-        copy_link: bool,
-        #[serde(default)]
-        open_in_browser: bool,
-    },
     RevealInFileManager,
     OpenFile,
     #[serde(rename_all = "camelCase")]
@@ -119,16 +149,6 @@ pub enum Action {
         env: HashMap<String, String>,
         #[serde(default)]
         use_shell: bool,
-    },
-    #[serde(rename_all = "camelCase")]
-    Webhook {
-        url: String,
-        #[serde(default = "default_post")]
-        method: String,
-        #[serde(default)]
-        headers: HashMap<String, String>,
-        #[serde(default)]
-        body_template: Option<String>,
     },
     RecognizeTextToClipboard,
     #[serde(rename_all = "camelCase")]
@@ -144,10 +164,6 @@ pub enum Action {
         name: String,
     },
     DeleteLocalFiles,
-}
-
-fn default_post() -> String {
-    "POST".to_string()
 }
 
 fn default_notify_title() -> String {

@@ -888,7 +888,6 @@ pub struct GeneralSettings {
     pub excluded_windows: Vec<WindowExclusion>,
     pub update_channel: UpdateChannel,
     pub update_download_policy: UpdateDownloadPolicy,
-    pub enable_telemetry: bool,
     pub editor_preview_quality: EditorPreviewQuality,
     /// The Experimental page's two toggles. Both default false the way the
     /// page shows them (`!!settings.enableNativeCameraPreview` /
@@ -1253,7 +1252,6 @@ impl GeneralSettings {
                 .unwrap_or_else(default_excluded_windows),
             update_channel: enum_at(general, "updateChannel"),
             update_download_policy: enum_at(general, "updateDownloadPolicy"),
-            enable_telemetry: bool_at(general, "enableTelemetry", true),
             editor_preview_quality: enum_at(general, "editorPreviewQuality"),
             enable_native_camera_preview: bool_at(general, "enableNativeCameraPreview", false),
             out_of_process_muxer: bool_at(general, "outOfProcessMuxer", false),
@@ -1494,7 +1492,7 @@ pub const AUTOMATIONS: &str = "automations";
 pub struct AutomationsStore {
     #[serde(default)]
     pub version: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_rules")]
     pub rules: Vec<AutomationRule>,
 }
 
@@ -1512,6 +1510,46 @@ pub struct AutomationRule {
     pub conditions: Vec<Condition>,
     #[serde(default)]
     pub actions: Vec<Action>,
+}
+
+fn deserialize_rules<'de, D>(deserializer: D) -> Result<Vec<AutomationRule>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let rules = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    let mut migrated = Vec::with_capacity(rules.len());
+    for mut rule in rules {
+        let id = rule
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        if rule.get("trigger").and_then(serde_json::Value::as_str) == Some("uploadCompleted") {
+            tracing::warn!(rule_id = %id, "Removed retired upload-completed rule; local deletion refused");
+            continue;
+        }
+        if let Some(actions) = rule
+            .get_mut("actions")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            let had_upload = actions.iter().any(|action| {
+                action.get("type").and_then(serde_json::Value::as_str) == Some("upload")
+            });
+            let had_deletion = actions.iter().any(|action| {
+                action.get("type").and_then(serde_json::Value::as_str) == Some("deleteLocalFiles")
+            });
+            actions.retain(|action| {
+                let kind = action.get("type").and_then(serde_json::Value::as_str);
+                !matches!(kind, Some("upload" | "webhook"))
+                    && !(had_upload && kind == Some("deleteLocalFiles"))
+            });
+            if had_upload && had_deletion {
+                tracing::warn!(rule_id = %id, "Removed local deletion from retired upload rule; local recording retained");
+            }
+        }
+        migrated.push(serde_json::from_value(rule).map_err(serde::de::Error::custom)?);
+    }
+    Ok(migrated)
 }
 
 fn default_true() -> bool {
@@ -1533,7 +1571,6 @@ pub enum Trigger {
     StudioRecordingFinished,
     InstantRecordingFinished,
     RecordingStarted,
-    UploadCompleted,
     VideoImported,
     RecordingDeleted,
 }
@@ -1582,15 +1619,6 @@ pub enum Action {
         #[serde(default)]
         destination: ExportDestination,
     },
-    #[serde(rename_all = "camelCase")]
-    Upload {
-        #[serde(default)]
-        organization_id: Option<String>,
-        #[serde(default = "default_true")]
-        copy_link: bool,
-        #[serde(default)]
-        open_in_browser: bool,
-    },
     RevealInFileManager,
     OpenFile,
     #[serde(rename_all = "camelCase")]
@@ -1604,16 +1632,6 @@ pub enum Action {
         env: std::collections::HashMap<String, String>,
         #[serde(default)]
         use_shell: bool,
-    },
-    #[serde(rename_all = "camelCase")]
-    Webhook {
-        url: String,
-        #[serde(default = "default_post")]
-        method: String,
-        #[serde(default)]
-        headers: std::collections::HashMap<String, String>,
-        #[serde(default)]
-        body_template: Option<String>,
     },
     RecognizeTextToClipboard,
     #[serde(rename_all = "camelCase")]
@@ -1629,10 +1647,6 @@ pub enum Action {
         name: String,
     },
     DeleteLocalFiles,
-}
-
-fn default_post() -> String {
-    "POST".to_string()
 }
 
 fn default_notify_title() -> String {
@@ -2457,10 +2471,10 @@ mod tests {
         assert_eq!(GeneralSettings::load(), GeneralSettings::default());
         assert!(super::set_store_setting(
             GENERAL_SETTINGS,
-            "enableTelemetry",
-            Value::Bool(false)
+            "maxFps",
+            serde_json::json!(60)
         ));
-        assert!(!GeneralSettings::load().enable_telemetry);
+        assert_eq!(GeneralSettings::load().max_fps, 60);
     }
 
     #[test]
@@ -2581,6 +2595,28 @@ mod tests {
         assert_eq!(after["hotkeys"]["hotkeys"]["someFutureAction"]["extra"], 1);
     }
 
+    #[test]
+    fn legacy_cloud_actions_are_dropped_without_losing_local_rules() {
+        let legacy = serde_json::json!({"version":1,"rules":[
+            {"id":"legacy","name":"Legacy","trigger":"instantRecordingFinished","actions":[
+                {"type":"upload"},{"type":"deleteLocalFiles"},{"type":"webhook","url":"https://example.test"},{"type":"notify"}
+            ]},
+            {"id":"old-trigger","name":"Old trigger","trigger":"uploadCompleted","actions":[{"type":"deleteLocalFiles"}]},
+            {"id":"local","name":"Local","trigger":"screenshotTaken","actions":[{"type":"deleteLocalFiles"}]}
+        ]});
+        let store: AutomationsStore = serde_json::from_value(legacy).unwrap();
+        assert_eq!(store.rules.len(), 2);
+        assert_eq!(store.rules[0].actions.len(), 1);
+        assert!(matches!(store.rules[0].actions[0], Action::Notify { .. }));
+        assert!(matches!(
+            store.rules[1].actions[0],
+            Action::DeleteLocalFiles
+        ));
+        let reloaded: AutomationsStore =
+            serde_json::from_value(serde_json::to_value(&store).unwrap()).unwrap();
+        assert_eq!(store, reloaded);
+    }
+
     /// The automations model against the JSON `crates/automation/src/types.rs`
     /// serializes: camelCase everywhere, `type`-tagged conditions/actions, and
     /// the whole key written wholesale.
@@ -2627,9 +2663,9 @@ mod tests {
 
         let after = store.read();
         let actions = &after["automations"]["rules"][0]["actions"];
-        assert_eq!(actions[3]["type"], "saveToLocation");
-        assert_eq!(actions[3]["dir"], "/tmp/shots");
-        assert_eq!(actions[3]["filenameTemplate"], Value::Null);
+        assert_eq!(actions[2]["type"], "saveToLocation");
+        assert_eq!(actions[2]["dir"], "/tmp/shots");
+        assert_eq!(actions[2]["filenameTemplate"], Value::Null);
         assert_eq!(actions[1]["profile"]["resolutionBase"]["x"], 1920);
         // The rest of the store is untouched by the wholesale key write.
         assert_eq!(after["auth"]["user_id"], "u_1");

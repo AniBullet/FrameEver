@@ -3483,7 +3483,6 @@ enum ActionType {
     CopyToClipboard,
     SaveToLocation,
     Export,
-    Upload,
     RevealInFileManager,
     OpenFile,
     RecognizeTextToClipboard,
@@ -3492,7 +3491,6 @@ enum ActionType {
     SkipEditor,
     ApplyPreset,
     RunCommand,
-    Webhook,
     DeleteLocalFiles,
 }
 
@@ -3575,7 +3573,6 @@ fn trigger_label(trigger: Trigger) -> &'static str {
         Trigger::StudioRecordingFinished => t!("On studio recording finished"),
         Trigger::InstantRecordingFinished => t!("On instant recording finished"),
         Trigger::RecordingStarted => t!("On recording started"),
-        Trigger::UploadCompleted => t!("On upload completed"),
         Trigger::VideoImported => t!("On video imported"),
         Trigger::RecordingDeleted => t!("On recording deleted"),
     }
@@ -3588,7 +3585,6 @@ fn trigger_phrase(trigger: Trigger) -> &'static str {
         Trigger::StudioRecordingFinished => t!("Studio recording ends"),
         Trigger::InstantRecordingFinished => t!("Instant recording ends"),
         Trigger::RecordingStarted => t!("Recording starts"),
-        Trigger::UploadCompleted => t!("Upload completes"),
         Trigger::VideoImported => t!("Video imported"),
         Trigger::RecordingDeleted => t!("Recording deleted"),
     }
@@ -3601,7 +3597,6 @@ fn trigger_noun(trigger: Trigger) -> &'static str {
         Trigger::StudioRecordingFinished => t!("Studio recording"),
         Trigger::InstantRecordingFinished => t!("Instant recording"),
         Trigger::RecordingStarted => t!("Recording start"),
-        Trigger::UploadCompleted => t!("Upload"),
         Trigger::VideoImported => t!("Import"),
         Trigger::RecordingDeleted => t!("Deletion"),
     }
@@ -3614,7 +3609,6 @@ fn trigger_icon(trigger: Trigger) -> &'static str {
         Trigger::StudioRecordingFinished => "icons/clapperboard.svg",
         Trigger::InstantRecordingFinished => "icons/zap.svg",
         Trigger::RecordingStarted => "icons/circle-play.svg",
-        Trigger::UploadCompleted => "icons/cloud-upload.svg",
         Trigger::VideoImported => "icons/import.svg",
         Trigger::RecordingDeleted => "icons/trash.svg",
     }
@@ -3626,11 +3620,9 @@ fn action_label(kind: ActionType) -> &'static str {
         ActionType::CopyToClipboard => t!("Copy to clipboard"),
         ActionType::SaveToLocation => t!("Save to location"),
         ActionType::Export => t!("Export with profile"),
-        ActionType::Upload => t!("Upload + copy link"),
         ActionType::RevealInFileManager => t!("Reveal in file manager"),
         ActionType::OpenFile => t!("Open file"),
         ActionType::RunCommand => t!("Run command"),
-        ActionType::Webhook => t!("Send webhook"),
         ActionType::RecognizeTextToClipboard => t!("Recognize text (OCR) to clipboard"),
         ActionType::Notify => t!("Show notification"),
         ActionType::OpenEditor => t!("Open editor"),
@@ -3646,7 +3638,6 @@ fn action_short(kind: ActionType) -> &'static str {
         ActionType::CopyToClipboard => t!("Copy to clipboard"),
         ActionType::SaveToLocation => t!("Save to folder"),
         ActionType::Export => t!("Export"),
-        ActionType::Upload => t!("Upload & copy link"),
         ActionType::RevealInFileManager => t!("Reveal in file manager"),
         ActionType::OpenFile => t!("Open file"),
         ActionType::RecognizeTextToClipboard => t!("Copy text (OCR)"),
@@ -3655,7 +3646,6 @@ fn action_short(kind: ActionType) -> &'static str {
         ActionType::SkipEditor => t!("Skip editor"),
         ActionType::ApplyPreset => t!("Apply preset"),
         ActionType::RunCommand => t!("Run command"),
-        ActionType::Webhook => t!("Send webhook"),
         ActionType::DeleteLocalFiles => t!("Delete local files"),
     }
 }
@@ -3666,7 +3656,6 @@ fn action_noun(kind: ActionType) -> &'static str {
         ActionType::CopyToClipboard => t!("Clipboard"),
         ActionType::SaveToLocation => t!("Folder"),
         ActionType::Export => t!("Export"),
-        ActionType::Upload => t!("Upload"),
         ActionType::RevealInFileManager => t!("Reveal"),
         ActionType::OpenFile => t!("Open"),
         ActionType::RecognizeTextToClipboard => t!("Text"),
@@ -3675,7 +3664,6 @@ fn action_noun(kind: ActionType) -> &'static str {
         ActionType::SkipEditor => t!("Skip editor"),
         ActionType::ApplyPreset => t!("Preset"),
         ActionType::RunCommand => t!("Command"),
-        ActionType::Webhook => t!("Webhook"),
         ActionType::DeleteLocalFiles => t!("Delete"),
     }
 }
@@ -3697,11 +3685,9 @@ fn action_type_of(action: &Action) -> ActionType {
         Action::CopyToClipboard { .. } => ActionType::CopyToClipboard,
         Action::SaveToLocation { .. } => ActionType::SaveToLocation,
         Action::Export { .. } => ActionType::Export,
-        Action::Upload { .. } => ActionType::Upload,
         Action::RevealInFileManager => ActionType::RevealInFileManager,
         Action::OpenFile => ActionType::OpenFile,
         Action::RunCommand { .. } => ActionType::RunCommand,
-        Action::Webhook { .. } => ActionType::Webhook,
         Action::RecognizeTextToClipboard => ActionType::RecognizeTextToClipboard,
         Action::Notify { .. } => ActionType::Notify,
         Action::OpenEditor => ActionType::OpenEditor,
@@ -3742,11 +3728,6 @@ fn default_action(kind: ActionType) -> Action {
             },
             destination: ExportDestination::ProjectFolder,
         },
-        ActionType::Upload => Action::Upload {
-            organization_id: None,
-            copy_link: true,
-            open_in_browser: false,
-        },
         ActionType::RevealInFileManager => Action::RevealInFileManager,
         ActionType::OpenFile => Action::OpenFile,
         ActionType::RunCommand => Action::RunCommand {
@@ -3755,12 +3736,6 @@ fn default_action(kind: ActionType) -> Action {
             cwd: None,
             env: HashMap::new(),
             use_shell: false,
-        },
-        ActionType::Webhook => Action::Webhook {
-            url: String::new(),
-            method: "POST".to_string(),
-            headers: HashMap::new(),
-            body_template: None,
         },
         ActionType::RecognizeTextToClipboard => Action::RecognizeTextToClipboard,
         ActionType::Notify => Action::Notify {
@@ -3829,7 +3804,6 @@ fn trigger_context(trigger: Trigger) -> &'static [TriggerContextField] {
         Trigger::StudioRecordingFinished => &[RecordingMode, Duration, ProjectPath],
         Trigger::InstantRecordingFinished => &[RecordingMode, ProjectPath, ShareLink],
         Trigger::RecordingStarted => &[],
-        Trigger::UploadCompleted => &[ProjectPath, ShareLink],
         Trigger::VideoImported => &[ProjectPath],
         Trigger::RecordingDeleted => &[ProjectPath],
     }
@@ -3866,9 +3840,7 @@ fn action_applies_to_trigger(kind: ActionType, trigger: Trigger) -> bool {
         ActionType::Export | ActionType::ApplyPreset | ActionType::DeleteLocalFiles => {
             &[ProjectPath]
         }
-        ActionType::RevealInFileManager | ActionType::OpenEditor | ActionType::Upload => {
-            &[FilePath, ProjectPath]
-        }
+        ActionType::RevealInFileManager | ActionType::OpenEditor => &[FilePath, ProjectPath],
         _ => return true,
     };
     let provided = trigger_context(trigger);
@@ -3880,16 +3852,8 @@ fn action_is_dangerous(kind: ActionType) -> bool {
     kind == ActionType::RunCommand
 }
 
-fn trigger_is_removed(trigger: Trigger) -> bool {
-    trigger == Trigger::UploadCompleted
-}
-
 fn condition_is_removed(kind: ConditionType) -> bool {
     kind == ConditionType::OrganizationIs
-}
-
-fn action_is_removed(kind: ActionType) -> bool {
-    matches!(kind, ActionType::Upload | ActionType::Webhook)
 }
 
 /// `ruleSummary`.
@@ -4868,18 +4832,7 @@ impl SettingsWindow {
                     cx,
                 )
                 .stretch_label(),
-            )
-            .when(trigger_is_removed(trigger), |this| {
-                this.child(
-                    div()
-                        .px(px(4.))
-                        .text_size(px(11.))
-                        .text_color(Hsla::from(theme.amber_11))
-                        .child(t!(
-                            "Uploads were removed, so this rule never runs. Choose another trigger."
-                        )),
-                )
-            });
+            );
 
         // -- Conditions -----------------------------------------------------
         let mut conditions_header = div()
@@ -5329,11 +5282,7 @@ impl SettingsWindow {
             .child(header)
             .children(params)
             .map(|this| {
-                let notice = if action_is_removed(kind) {
-                    Some(t!(
-                        "Uploads and webhooks were removed, so this action is skipped. Remove it or choose another action."
-                    ))
-                } else if !applies {
+                let notice = if !applies {
                     Some(t!("This action has no effect for the selected trigger."))
                 } else {
                     None
@@ -6027,7 +5976,7 @@ mod tests {
         ));
         assert!(!action_applies_to_trigger(
             ActionType::SkipEditor,
-            Trigger::UploadCompleted
+            Trigger::RecordingStarted
         ));
         // notify/runCommand/webhook always apply.
         assert!(action_applies_to_trigger(
@@ -6038,13 +5987,8 @@ mod tests {
 
     #[test]
     fn pickers_never_offer_removed_cloud_items() {
-        assert!(!ALL_TRIGGERS.into_iter().any(trigger_is_removed));
         assert!(!ALL_CONDITION_TYPES.into_iter().any(condition_is_removed));
-        assert!(!ALL_ACTION_TYPES.into_iter().any(action_is_removed));
-        assert!(trigger_is_removed(Trigger::UploadCompleted));
         assert!(condition_is_removed(ConditionType::OrganizationIs));
-        assert!(action_is_removed(ActionType::Upload));
-        assert!(action_is_removed(ActionType::Webhook));
     }
 
     /// `ruleSummary` / `autoRuleName` / `ruleDisplayName`.
