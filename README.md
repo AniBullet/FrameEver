@@ -62,6 +62,18 @@ FrameEver 只在以下情况联网，且不会发送你录制的任何内容：
 - 首次使用 AI 字幕时下载识别模型
 - 你主动点击的链接，在浏览器里打开
 
+## 网络
+
+应用内置的网络请求只用 HTTPS GET，限于以下主机：
+
+- `github.com`：检查和下载更新、下载字幕识别模型。
+- `api.github.com`：查询本仓库的发布版本。
+- `release-assets.githubusercontent.com`、`objects.githubusercontent.com`：接收 GitHub 重定向后的更新和模型下载。
+
+请求会发送资源地址和 User-Agent，以及建立连接所需的 DNS、TLS、HTTP 协议流量和 IP 地址等连接元数据；不带请求正文，也不发送录制、截图、项目、字幕、窗口标题、文件路径或日志。
+
+`RunCommand` 自动化规则运行的是你自己编写的命令，其联网行为由这些命令决定。存储文件夹不支持放在云盘中；备份由你自行管理，需要云盘备份时，把导出文件复制过去。
+
 ## 和 Cap 原版的区别
 
 | | Cap 原版 | FrameEver |
