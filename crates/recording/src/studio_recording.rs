@@ -2621,6 +2621,8 @@ async fn create_segment_pipeline(
             start_time.system_time(),
             base_inputs.capture_system_audio,
             #[cfg(windows)]
+            capture_target.window(),
+            #[cfg(windows)]
             d3d_device,
             #[cfg(target_os = "macos")]
             base_inputs

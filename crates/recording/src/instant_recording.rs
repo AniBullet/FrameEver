@@ -779,6 +779,8 @@ async fn build_instant_recording_actor(
                 timestamps.system_time(),
                 inputs.capture_system_audio,
                 #[cfg(windows)]
+                inputs.capture_target.window(),
+                #[cfg(windows)]
                 d3d_device,
                 #[cfg(target_os = "macos")]
                 inputs
