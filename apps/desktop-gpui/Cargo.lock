@@ -2858,6 +2858,7 @@ dependencies = [
  "frameever-timestamp",
  "frameever-utils",
  "frameever-verify",
+ "frameever-video-decode",
  "futures-util",
  "global-hotkey",
  "gpui-kit",

@@ -166,6 +166,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "time", "test-util", "ne
 frameever-verify = { path = "../../crates/verify" }
 tempfile = "3"
 
+[target.'cfg(windows)'.dev-dependencies]
+frameever-video-decode = { path = "../../crates/video-decode" }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

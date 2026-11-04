@@ -51,6 +51,8 @@ mod library;
 mod logo;
 mod main_window;
 mod media_access;
+#[cfg(all(test, target_os = "windows"))]
+mod media_foundation_tests;
 mod menus;
 mod mode_select_window;
 mod onboarding_audio;
