@@ -3720,6 +3720,25 @@ pub(crate) fn prewarm_shared_wgpu_device(cx: &App) {
     .detach();
 }
 
+const LAUNCH_FONT_WARMUP_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
+
+pub(crate) fn schedule_launch_font_warmup(cx: &App) {
+    gpui_tokio::Tokio::spawn(cx, async {
+        tokio::time::sleep(LAUNCH_FONT_WARMUP_DELAY).await;
+        let started = std::time::Instant::now();
+        if tokio::task::spawn_blocking(frameever_rendering::prewarm_fonts)
+            .await
+            .is_ok()
+        {
+            tracing::info!(
+                fonts_ms = started.elapsed().as_secs_f64() * 1000.0,
+                "launch font warmup finished"
+            );
+        }
+    })
+    .detach();
+}
+
 fn editor_audio_output() -> Arc<frameever_editor::AudioOutput> {
     if std::env::var("FRAMEEVER_GPUI_MUTE_AUDIO").is_ok_and(|value| value == "1") {
         Arc::new(frameever_editor::AudioOutput::new_headless(Box::new(

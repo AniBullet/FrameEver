@@ -1563,9 +1563,6 @@ impl Render for SettingsWindow {
             // the drag layer the zoom slider needs while the button is held.
             .children(self.render_menu(cx))
             .children(self.render_slider_drag_layer(cx))
-            // Over everything, including the menus: the Experimental page's
-            // hand-back takes the whole window while it counts down.
-            .children(self.render_switch_overlay(cx))
     }
 }
 

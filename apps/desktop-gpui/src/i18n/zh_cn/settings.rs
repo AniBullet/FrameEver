@@ -569,58 +569,13 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("1 item", "1 项"),
     ("{count} items", "{count} 项"),
     ("Active hints", "生效中的提示"),
-    (
-        "Switching back to the classic app.",
-        "正在切换回经典版应用。",
-    ),
-    (
-        "Your recordings and settings stay exactly where they are.",
-        "你的录制文件和设置都会原样保留。",
-    ),
     ("Reliability", "可靠性"),
     ("Out-of-process muxer", "独立进程封装器"),
     (
         "Run the fragmented-MP4 muxer in an isolated subprocess so muxer crashes can't take down your recording. Requires the bundled frameever-muxer binary.",
         "在独立子进程中运行分段 MP4 封装器，这样封装器崩溃也不会中断录制。需要内置的 frameever-muxer 程序。",
     ),
-    ("Developer", "开发者"),
-    ("Only shown in development builds.", "仅在开发版本中显示。"),
-    ("Use native app", "使用原生应用"),
-    (
-        "Turn off to close this app and reopen the classic Tauri app in the dev harness. Recordings and settings are shared.",
-        "关闭后将退出此应用，并在开发环境中重新打开经典版 Tauri 应用。录制文件和设置是共享的。",
-    ),
-    ("Opening the classic app", "正在打开经典版应用"),
-    (
-        "This window will close when the classic app is ready.",
-        "经典版应用就绪后，此窗口会关闭。",
-    ),
     ("Close", "关闭"),
-    (
-        "Finish your recording, export, import, or transcription task before switching to the classic app.",
-        "请先完成录制、导出、导入或转写任务，再切换到经典版应用。",
-    ),
-    (
-        "Couldn't find the classic app to switch back to.",
-        "找不到可切换回去的经典版应用。",
-    ),
-    (
-        "Couldn't save your app preference. FrameEver is still open.",
-        "无法保存应用偏好，帧刻仍保持打开。",
-    ),
-    (
-        "Couldn't open the classic app: {error}",
-        "无法打开经典版应用：{error}",
-    ),
-    (
-        "Couldn't check whether the classic app opened: {error}",
-        "无法确认经典版应用是否已打开：{error}",
-    ),
-    (
-        "The classic app hasn't opened. Check the dev terminal for build errors, then try again.",
-        "经典版应用没有打开。请在开发终端中检查构建错误，然后重试。",
-    ),
-    ("Couldn't open the classic app.", "无法打开经典版应用。"),
     ("Could not export logs", "无法导出日志"),
     (
         "Stop the current recording before running a diagnostic.",

@@ -171,17 +171,19 @@ pub fn cover_crop_geometry(orig_w: u32, orig_h: u32, size: u32) -> (u32, u32, u3
 
 /// `load_thumbnail_data`, ending in a PNG rather than raw RGBA -- muda hands
 /// its icon to AppKit as a PNG too (`PlatformIcon::to_nsimage`), so this is the
-/// same conversion one step earlier. A JPEG source starts from the Recents card
-/// thumbnail cache instead of the native-resolution original. That cache is
-/// itself JPEG and drops alpha, so anything else (a transparent screenshot PNG)
-/// still decodes directly.
+/// same conversion one step earlier. An opaque source (a recording's JPEG, an
+/// RGB screenshot PNG) starts from the Recents card thumbnail cache instead of
+/// the native-resolution original. That cache is itself JPEG and drops alpha,
+/// so a source that can carry alpha still decodes directly.
 fn load_thumbnail_png(path: &Path) -> Option<Vec<u8>> {
-    use image::{GenericImageView, ImageEncoder, ImageFormat, RgbaImage, imageops::FilterType};
+    use image::{GenericImageView, ImageEncoder, RgbaImage, imageops::FilterType};
 
-    let img = if ImageFormat::from_path(path).ok() == Some(ImageFormat::Jpeg) {
-        image::DynamicImage::ImageRgba8(library::thumbnail_rgba(path)?)
-    } else {
-        image::load_from_memory(&std::fs::read(path).ok()?).ok()?
+    let cached = (!source_may_have_alpha(path))
+        .then(|| library::thumbnail_rgba(path))
+        .flatten();
+    let img = match cached {
+        Some(rgba) => image::DynamicImage::ImageRgba8(rgba),
+        None => image::load_from_memory(&std::fs::read(path).ok()?).ok()?,
     };
     let (orig_w, orig_h) = img.dimensions();
     if orig_w == 0 || orig_h == 0 {
@@ -207,6 +209,22 @@ fn load_thumbnail_png(path: &Path) -> Option<Vec<u8>> {
         .write_image(result.as_raw(), size, size, image::ExtendedColorType::Rgba8)
         .ok()?;
     Some(png)
+}
+
+fn source_may_have_alpha(path: &Path) -> bool {
+    use image::{ImageDecoder, ImageFormat, ImageReader};
+
+    let Ok(reader) = ImageReader::open(path).and_then(ImageReader::with_guessed_format) else {
+        return true;
+    };
+    match reader.format() {
+        Some(ImageFormat::Jpeg) => false,
+        Some(ImageFormat::Png) => reader
+            .into_decoder()
+            .ok()
+            .is_none_or(|decoder| decoder.color_type().has_alpha()),
+        _ => true,
+    }
 }
 
 /// `load_all_previous_items` + the background thumbnail pass, in one call.
@@ -1218,6 +1236,7 @@ mod tests {
             let icon = image::load_from_memory(&load_thumbnail_png(&png).unwrap())
                 .unwrap()
                 .into_rgba8();
+            assert_eq!(icon.dimensions(), (THUMBNAIL_SIZE, THUMBNAIL_SIZE));
             assert!(
                 icon.get_pixel(2, 16)[3] < 8,
                 "{scan} scan lost the transparent half"
@@ -1227,6 +1246,49 @@ mod tests {
                 "{scan} scan lost the opaque half"
             );
         }
+        let cache = library::thumbnail_cache_file(&png).unwrap();
+        assert!(
+            !cache.exists(),
+            "a transparent PNG never goes through the alpha-dropping cache"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn previous_thumbnails_reuse_the_cache_for_an_opaque_png() {
+        let root = temp_root("opaque-png");
+        std::fs::create_dir_all(&root).unwrap();
+        let png = root.join("screenshot.png");
+        image::RgbImage::from_pixel(1280, 720, image::Rgb([20, 120, 220]))
+            .save_with_format(&png, image::ImageFormat::Png)
+            .unwrap();
+        let cache = library::thumbnail_cache_file(&png).unwrap();
+        std::fs::remove_file(&cache).ok();
+
+        let cold = image::load_from_memory(&load_thumbnail_png(&png).unwrap())
+            .unwrap()
+            .into_rgba8();
+        assert_eq!(cold.dimensions(), (THUMBNAIL_SIZE, THUMBNAIL_SIZE));
+        assert_eq!(cold.get_pixel(0, 0)[3], 255);
+        assert!(cache.exists(), "the first scan fills the shared cache");
+
+        let marker = image::Rgb([200, 30, 90]);
+        image::RgbImage::from_pixel(398, 224, marker)
+            .save_with_format(&cache, image::ImageFormat::Jpeg)
+            .unwrap();
+        let warm = image::load_from_memory(&load_thumbnail_png(&png).unwrap())
+            .unwrap()
+            .into_rgba8();
+        assert!(
+            warm.pixels().all(|pixel| pixel.0[..3]
+                .iter()
+                .zip(marker.0)
+                .all(|(a, b)| a.abs_diff(b) <= 3)
+                && pixel.0[3] == 255),
+            "the warm icon is built from the cached thumbnail, not the original"
+        );
+
+        std::fs::remove_file(&cache).ok();
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1267,6 +1329,46 @@ mod tests {
             "{{\"items\":{MAX_PREVIOUS_ITEMS},\"source\":\"3024x1964 jpeg\",\"cold_scan_median_ms\":{:.1},\"warm_scan_median_ms\":{:.1}}}",
             cold[2], warm[2]
         );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    #[ignore]
+    fn benchmark_previous_screenshot_thumbnails() {
+        use std::time::Instant;
+
+        let root = temp_root("bench-png");
+        std::fs::create_dir_all(&root).unwrap();
+        let screenshots: Vec<_> = (0..MAX_PREVIOUS_ITEMS)
+            .map(|index| {
+                let png = root.join(format!("{index}.png"));
+                image::RgbImage::from_fn(3840, 2160, |x, y| {
+                    image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x + y) % 239) as u8])
+                })
+                .save_with_format(&png, image::ImageFormat::Png)
+                .unwrap();
+                png
+            })
+            .collect();
+        let scan = || {
+            let start = Instant::now();
+            for screenshot in &screenshots {
+                assert!(load_thumbnail_png(screenshot).is_some());
+            }
+            start.elapsed().as_secs_f64() * 1000.0
+        };
+        scan();
+        let mut warm: Vec<f64> = (0..5).map(|_| scan()).collect();
+        warm.sort_by(f64::total_cmp);
+        println!(
+            "{{\"items\":{MAX_PREVIOUS_ITEMS},\"source\":\"3840x2160 rgb png\",\"warm_scan_median_ms\":{:.1}}}",
+            warm[2]
+        );
+        for screenshot in &screenshots {
+            if let Some(cache) = library::thumbnail_cache_file(screenshot) {
+                std::fs::remove_file(cache).ok();
+            }
+        }
         std::fs::remove_dir_all(&root).ok();
     }
 
