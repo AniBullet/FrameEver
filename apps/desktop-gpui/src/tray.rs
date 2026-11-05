@@ -169,12 +169,6 @@ pub fn cover_crop_geometry(orig_w: u32, orig_h: u32, size: u32) -> (u32, u32, u3
     )
 }
 
-/// `load_thumbnail_data`, ending in a PNG rather than raw RGBA -- muda hands
-/// its icon to AppKit as a PNG too (`PlatformIcon::to_nsimage`), so this is the
-/// same conversion one step earlier. An opaque source (a recording's JPEG, an
-/// RGB screenshot PNG) starts from the Recents card thumbnail cache instead of
-/// the native-resolution original. That cache is itself JPEG and drops alpha,
-/// so a source that can carry alpha still decodes directly.
 fn load_thumbnail_png(path: &Path) -> Option<Vec<u8>> {
     use image::{GenericImageView, ImageEncoder, RgbaImage, imageops::FilterType};
 
@@ -1279,6 +1273,7 @@ mod tests {
         let warm = image::load_from_memory(&load_thumbnail_png(&png).unwrap())
             .unwrap()
             .into_rgba8();
+        assert_eq!(warm.dimensions(), (THUMBNAIL_SIZE, THUMBNAIL_SIZE));
         assert!(
             warm.pixels().all(|pixel| pixel.0[..3]
                 .iter()

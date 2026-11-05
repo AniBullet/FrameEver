@@ -493,8 +493,6 @@ impl RecordingSession {
         self.countdown_remaining = Some(countdown);
         cx.notify();
 
-        // The pipeline warms up during the final countdown second so capture is
-        // live when the cue ends; without a countdown it warms up before the cue.
         if countdown <= 1 {
             self.prime_engine(config.clone(), generation, cx);
         }

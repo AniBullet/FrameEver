@@ -1436,12 +1436,12 @@ pub fn decode_still(path: &Path, bounds: (u32, u32)) -> Option<Arc<RenderImage>>
     Some(rgba_to_render_image(fitted.into_rgba8()))
 }
 
-/// [`decode_thumbnail`]'s pixels before the BGRA swap, through the same cache.
 #[cfg(test)]
 pub fn thumbnail_cache_file(source: &Path) -> Option<PathBuf> {
     CacheSlot::for_source(source).map(|slot| slot.file())
 }
 
+/// [`decode_thumbnail`]'s pixels before the BGRA swap, through the same cache.
 pub fn thumbnail_rgba(path: &Path) -> Option<image::RgbaImage> {
     let cache = CacheSlot::for_source(path);
     if let Some(rgba) = cache.as_ref().and_then(CacheSlot::load_rgba) {

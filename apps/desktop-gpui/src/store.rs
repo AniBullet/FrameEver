@@ -1746,6 +1746,55 @@ mod post_instant_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_frameever_window_rules_count_as_own() {
+        let title = |title: &str| WindowExclusion {
+            window_title: Some(title.to_string()),
+            ..Default::default()
+        };
+        assert!(title("FrameEver").is_own_window());
+        assert!(title("FrameEver Camera").is_own_window());
+        assert!(!title("Notes").is_own_window());
+        assert!(
+            !WindowExclusion {
+                owner_name: Some("FrameEver".to_string()),
+                window_title: Some("FrameEver Camera".to_string()),
+                ..Default::default()
+            }
+            .is_own_window()
+        );
+        assert!(
+            !WindowExclusion {
+                bundle_identifier: Some("com.example.chat".to_string()),
+                ..Default::default()
+            }
+            .is_own_window()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_drops_other_apps_window_rules_on_load() {
+        let _store = TempStore::new(
+            "other-app-exclusions",
+            Some(
+                r#"{"general_settings":{"excludedWindows":[
+                    {"windowTitle":"FrameEver"},
+                    {"windowTitle":"Notes"},
+                    {"ownerName":"Chrome"},
+                    {"ownerName":"FrameEver","windowTitle":"FrameEver Camera"},
+                    {"windowTitle":"FrameEver Recording Controls"}
+                ]}}"#,
+            ),
+        );
+        let titles = GeneralSettings::load()
+            .excluded_windows
+            .iter()
+            .map(|rule| rule.primary_label().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(titles, ["FrameEver", "FrameEver Recording Controls"]);
+    }
+
     use super::*;
 
     struct TempStore {
