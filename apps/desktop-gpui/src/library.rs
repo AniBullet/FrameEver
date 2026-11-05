@@ -267,20 +267,8 @@ impl RecordingItem {
     }
 }
 
-/// `RecordingMetaWithMetadata::new` (`lib.rs:3888-3925`).
-fn recording_item(path: PathBuf, meta: RecordingMeta, sort_time_millis: f64) -> RecordingItem {
-    let mode = match &meta.inner {
-        RecordingMetaInner::Studio(_) => RecordingMode::Studio,
-        RecordingMetaInner::Instant(_) => RecordingMode::Instant,
-    };
-    let clip_count = match &meta.inner {
-        RecordingMetaInner::Studio(studio) => match &**studio {
-            StudioRecordingMeta::MultipleSegments { inner } => inner.segments.len() as u32,
-            StudioRecordingMeta::SingleSegment { .. } => 1,
-        },
-        RecordingMetaInner::Instant(_) => 1,
-    };
-    let status = match &meta.inner {
+fn recording_status(meta: &RecordingMeta) -> RecordingStatus {
+    match &meta.inner {
         RecordingMetaInner::Studio(studio) => match &**studio {
             // A `MultipleSegments` meta with no `status` key at all is
             // Complete -- `.unwrap_or(StudioRecordingStatus::Complete)`.
@@ -308,7 +296,23 @@ fn recording_item(path: PathBuf, meta: RecordingMeta, sort_time_millis: f64) -> 
         RecordingMetaInner::Instant(InstantRecordingMeta::Complete { .. }) => {
             RecordingStatus::Complete
         }
+    }
+}
+
+/// `RecordingMetaWithMetadata::new` (`lib.rs:3888-3925`).
+fn recording_item(path: PathBuf, meta: RecordingMeta, sort_time_millis: f64) -> RecordingItem {
+    let mode = match &meta.inner {
+        RecordingMetaInner::Studio(_) => RecordingMode::Studio,
+        RecordingMetaInner::Instant(_) => RecordingMode::Instant,
     };
+    let clip_count = match &meta.inner {
+        RecordingMetaInner::Studio(studio) => match &**studio {
+            StudioRecordingMeta::MultipleSegments { inner } => inner.segments.len() as u32,
+            StudioRecordingMeta::SingleSegment { .. } => 1,
+        },
+        RecordingMetaInner::Instant(_) => 1,
+    };
+    let status = recording_status(&meta);
 
     let media = project_media(&path, &meta);
     let preview = path.join("screenshots/preview.jpg");
@@ -349,21 +353,22 @@ pub fn list_recordings_in(dirs: &[PathBuf]) -> Vec<RecordingItem> {
     recording_items_in(dirs).collect()
 }
 
+fn project_paths_in(dirs: &[PathBuf]) -> Vec<PathBuf> {
+    dirs.iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flat_map(|entries| entries.flatten().map(|entry| entry.path()))
+        .filter(|path| is_project(path))
+        .collect()
+}
+
 fn recording_items_in(dirs: &[PathBuf]) -> impl Iterator<Item = RecordingItem> {
-    let mut paths = Vec::new();
-    for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !is_project(&path) {
-                continue;
-            }
+    let mut paths: Vec<_> = project_paths_in(dirs)
+        .into_iter()
+        .map(|path| {
             let sort_time_millis = media_sort_time_millis(&path);
-            paths.push((path, sort_time_millis));
-        }
-    }
+            (path, sort_time_millis)
+        })
+        .collect();
     paths.sort_by(|(_, a), (_, b)| b.total_cmp(a));
     paths.into_iter().filter_map(|(path, sort_time_millis)| {
         let meta = RecordingMeta::load_for_project(&path).ok()?;
@@ -645,19 +650,52 @@ pub fn watched_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+struct InterruptedRecording {
+    path: PathBuf,
+    mode: RecordingMode,
+    pretty_name: String,
+    sort_time_millis: f64,
+}
+
+fn interrupted_recordings_in(
+    dirs: &[PathBuf],
+    active_recording: Option<&Path>,
+) -> Vec<InterruptedRecording> {
+    let mut interrupted: Vec<_> = project_paths_in(dirs)
+        .into_iter()
+        .filter(|path| active_recording != Some(path.as_path()))
+        .filter_map(|path| {
+            let meta = RecordingMeta::load_for_project(&path).ok()?;
+            if !matches!(
+                recording_status(&meta),
+                RecordingStatus::InProgress | RecordingStatus::NeedsRemux
+            ) {
+                return None;
+            }
+            let sort_time_millis = media_sort_time_millis(&path);
+            is_recording_after_recovery_cutoff(&meta.pretty_name, sort_time_millis).then(|| {
+                InterruptedRecording {
+                    mode: match &meta.inner {
+                        RecordingMetaInner::Studio(_) => RecordingMode::Studio,
+                        RecordingMetaInner::Instant(_) => RecordingMode::Instant,
+                    },
+                    pretty_name: meta.pretty_name,
+                    sort_time_millis,
+                    path,
+                }
+            })
+        })
+        .collect();
+    interrupted.sort_by(|a, b| b.sort_time_millis.total_cmp(&a.sort_time_millis));
+    interrupted
+}
+
 pub fn find_incomplete_recordings_in(
     dirs: &[PathBuf],
     active_recording: Option<&Path>,
 ) -> Vec<IncompleteRecordingItem> {
-    list_recordings_in(dirs)
+    interrupted_recordings_in(dirs, active_recording)
         .into_iter()
-        .filter(|item| {
-            matches!(
-                item.status,
-                RecordingStatus::InProgress | RecordingStatus::NeedsRemux
-            ) && active_recording != Some(item.path.as_path())
-                && is_recording_after_recovery_cutoff(&item.pretty_name, item.sort_time_millis)
-        })
         .filter_map(|item| {
             if item.mode == RecordingMode::Instant {
                 let display = item.path.join("content/display");
@@ -998,33 +1036,40 @@ pub struct ScreenshotItem {
 /// `list_screenshots` (`lib.rs:4055-4091`): `*.ever` directories only, and the
 /// sort key is the PNG's timestamp rather than the directory's.
 pub fn list_screenshots_in(dir: &Path) -> Vec<ScreenshotItem> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
+    screenshot_items_in(std::slice::from_ref(&dir.to_path_buf())).collect()
+}
 
-    let mut out = Vec::new();
-    for entry in entries.flatten() {
-        let bundle = entry.path();
-        if !is_project(&bundle) {
+fn screenshot_items_in(dirs: &[PathBuf]) -> impl Iterator<Item = ScreenshotItem> {
+    let mut candidates = Vec::new();
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
+        };
+        for entry in entries.flatten() {
+            let bundle = entry.path();
+            if !is_project(&bundle) {
+                continue;
+            }
+            let Some(png) = screenshot_png(&bundle) else {
+                continue;
+            };
+            let sort_time_millis = media_sort_time_millis(&png);
+            candidates.push((bundle, png, sort_time_millis));
         }
-        let Ok(meta) = RecordingMeta::load_for_project(&bundle) else {
-            continue;
-        };
-        let Some(png) = screenshot_png(&bundle) else {
-            continue;
-        };
-
-        out.push(ScreenshotItem {
-            path: png.clone(),
-            pretty_name: meta.pretty_name,
-            sort_time_millis: media_sort_time_millis(&png),
-            thumbnail: Some(png),
-            bundle,
-        });
     }
-    out.sort_by(|a, b| b.sort_time_millis.total_cmp(&a.sort_time_millis));
-    out
+    candidates.sort_by(|(_, _, a), (_, _, b)| b.total_cmp(a));
+    candidates
+        .into_iter()
+        .filter_map(|(bundle, png, sort_time_millis)| {
+            let meta = RecordingMeta::load_for_project(&bundle).ok()?;
+            Some(ScreenshotItem {
+                path: png.clone(),
+                pretty_name: meta.pretty_name,
+                sort_time_millis,
+                thumbnail: Some(png),
+                bundle,
+            })
+        })
 }
 
 pub fn project_count() -> usize {
@@ -1086,8 +1131,8 @@ pub fn delete_screenshot(path: &Path) -> Result<(), String> {
 
 fn scan_screenshots(dirs: &[PathBuf], out: &mut Vec<RecentItem>) {
     out.extend(
-        dirs.iter()
-            .flat_map(|dir| list_screenshots_in(dir))
+        screenshot_items_in(dirs)
+            .take(RECENT_MEDIA_LIMIT)
             .map(|item| RecentItem {
                 kind: MediaKind::Screenshot,
                 bundle: item.bundle,
@@ -2616,6 +2661,186 @@ mod tests {
         assert!(active.exists());
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bounded_screenshots_fill_from_valid_bundles_across_directories() {
+        let root = temp_dir("bounded-screenshots");
+        let first = root.join("first");
+        let second = root.join("second");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        write_screenshot_bundle(&first, "oldest");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        write_screenshot_bundle(&second, "middle");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        write_bundle(&first, "corrupt-meta", "{ not json ");
+        std::fs::write(first.join("corrupt-meta.ever/shot.png"), b"png").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        write_screenshot_bundle(&second, "newest");
+        std::fs::create_dir_all(first.join("no-png.ever")).unwrap();
+        let dirs = [first, second, root.join("missing-directory")];
+
+        let full: Vec<_> = dirs
+            .iter()
+            .flat_map(|dir| list_screenshots_in(dir))
+            .collect();
+        assert_eq!(full.len(), 3);
+        let bounded: Vec<_> = screenshot_items_in(&dirs).take(2).collect();
+        assert_eq!(bounded[0].pretty_name, "newest");
+        assert_eq!(bounded[1].pretty_name, "middle");
+        assert!(screenshot_items_in(&dirs).take(0).next().is_none());
+        assert_eq!(screenshot_items_in(&dirs).take(20).count(), 3);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recovery_lists_the_newest_incomplete_recording_first() {
+        let _ = ffmpeg::init();
+        let root = temp_dir("recovery-order");
+        std::fs::create_dir_all(&root).unwrap();
+        for name in ["older", "newer"] {
+            write_incomplete_bundle(
+                &root,
+                name,
+                "FrameEver 2026-02-02 at 10.00.00",
+                "InProgress",
+                true,
+            );
+            write_studio_bundle(&root, &format!("complete-{name}"), 1);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let found = find_incomplete_recordings_in(std::slice::from_ref(&root), None);
+
+        let names: Vec<_> = found
+            .iter()
+            .map(|item| {
+                item.project_path
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(names, ["newer.ever", "older.ever"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn write_benchmark_library(
+        root: &Path,
+        recordings: usize,
+        screenshots: usize,
+    ) -> (PathBuf, PathBuf) {
+        let recordings_dir = root.join("recordings");
+        let screenshots_dir = root.join("screenshots");
+        std::fs::create_dir_all(&recordings_dir).unwrap();
+        std::fs::create_dir_all(&screenshots_dir).unwrap();
+        for index in 0..recordings {
+            let name = format!("rec-{index:04}");
+            let pretty = format!("FrameEver 2026-03-{:02} at 10.00.00", index % 28 + 1);
+            let bundle = if index % 3 == 0 {
+                let bundle = write_bundle(
+                    &recordings_dir,
+                    &name,
+                    &format!(
+                        r#"{{"pretty_name":"{pretty}","sharing":null,"fps":30,"sample_rate":48000}}"#
+                    ),
+                );
+                let output = instant_output_path(&bundle);
+                std::fs::create_dir_all(output.parent().unwrap()).unwrap();
+                std::fs::write(output, vec![0u8; 4096]).unwrap();
+                bundle
+            } else {
+                let bundle = write_studio_bundle(&recordings_dir, &name, 3);
+                for segment in 0..3 {
+                    let display = bundle.join(format!("content/segments/segment-{segment}"));
+                    std::fs::create_dir_all(&display).unwrap();
+                    std::fs::write(display.join("display.mp4"), vec![0u8; 4096]).unwrap();
+                }
+                bundle
+            };
+            let thumbnail = bundle_thumbnail_path(&bundle);
+            std::fs::create_dir_all(thumbnail.parent().unwrap()).unwrap();
+            std::fs::write(thumbnail, vec![0u8; 2048]).unwrap();
+        }
+        for index in 0..5 {
+            write_incomplete_bundle(
+                &recordings_dir,
+                &format!("incomplete-{index}"),
+                "FrameEver 2026-04-01 at 10.00.00",
+                "InProgress",
+                true,
+            );
+        }
+        for index in 0..screenshots {
+            let bundle = write_screenshot_bundle(&screenshots_dir, &format!("shot-{index:04}"));
+            std::fs::write(bundle.join("shot.png"), vec![0u8; 8192]).unwrap();
+        }
+        (recordings_dir, screenshots_dir)
+    }
+
+    fn benchmark_median_ms(mut scan: impl FnMut()) -> f64 {
+        for _ in 0..3 {
+            scan();
+        }
+        let mut samples: Vec<f64> = (0..15)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                scan();
+                started.elapsed().as_secs_f64() * 1000.0
+            })
+            .collect();
+        samples.sort_by(f64::total_cmp);
+        samples[samples.len() / 2]
+    }
+
+    fn benchmark_library_size(variable: &str, default: usize) -> usize {
+        std::env::var(variable)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(default)
+    }
+
+    #[test]
+    #[ignore = "manual benchmark; generates its own library, FRAMEEVER_GPUI_LIBRARY_BENCH_SCREENSHOTS sets the size"]
+    fn screenshot_recents_benchmark() {
+        let _ = ffmpeg::init();
+        let root = temp_dir("bench-screenshot-recents");
+        let count = benchmark_library_size("FRAMEEVER_GPUI_LIBRARY_BENCH_SCREENSHOTS", 1000);
+        let (recordings, screenshots) = write_benchmark_library(&root, 0, count);
+        let median = benchmark_median_ms(|| {
+            let items = recent_media_in(
+                std::slice::from_ref(&recordings),
+                std::slice::from_ref(&screenshots),
+            );
+            assert_eq!(items.len(), RECENT_MEDIA_LIMIT);
+        });
+        println!(
+            "{}",
+            serde_json::json!({"screenshots": count, "recents_median_ms": median})
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    #[ignore = "manual benchmark; generates its own library, FRAMEEVER_GPUI_LIBRARY_BENCH_RECORDINGS sets the size"]
+    fn recovery_scan_benchmark() {
+        let _ = ffmpeg::init();
+        let root = temp_dir("bench-recovery-scan");
+        let count = benchmark_library_size("FRAMEEVER_GPUI_LIBRARY_BENCH_RECORDINGS", 1000);
+        let (recordings, _) = write_benchmark_library(&root, count, 0);
+        let median = benchmark_median_ms(|| {
+            let found = find_incomplete_recordings_in(std::slice::from_ref(&recordings), None);
+            assert_eq!(found.len(), 5);
+        });
+        println!(
+            "{}",
+            serde_json::json!({"recordings": count, "recovery_median_ms": median})
+        );
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
