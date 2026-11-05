@@ -166,6 +166,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "time", "test-util", "ne
 # audio markers for the fake transcriber.
 frameever-verify = { path = "../../crates/verify" }
 tempfile = "3"
+gpui = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 frameever-video-decode = { path = "../../crates/video-decode" }
