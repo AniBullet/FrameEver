@@ -47,6 +47,7 @@ mod http;
 mod i18n;
 mod import;
 mod installer;
+mod jpeg_thumbnail;
 mod library;
 mod logo;
 mod main_window;

@@ -1441,6 +1441,15 @@ pub fn thumbnail_cache_file(source: &Path) -> Option<PathBuf> {
     CacheSlot::for_source(source).map(|slot| slot.file())
 }
 
+fn decode_whole_image(
+    bytes: &[u8],
+    format: image::ImageFormat,
+) -> Option<(image::DynamicImage, u32, u32)> {
+    let decoded = image::load_from_memory_with_format(bytes, format).ok()?;
+    let (width, height) = (decoded.width(), decoded.height());
+    Some((decoded, width, height))
+}
+
 /// [`decode_thumbnail`]'s pixels before the BGRA swap, through the same cache.
 pub fn thumbnail_rgba(path: &Path) -> Option<image::RgbaImage> {
     let cache = CacheSlot::for_source(path);
@@ -1452,14 +1461,22 @@ pub fn thumbnail_rgba(path: &Path) -> Option<image::RgbaImage> {
     // Sniff rather than trust the extension: `list_screenshots` finds the
     // preview by extension scan, and a bundle could hold a mislabelled file.
     let format = image::guess_format(&bytes).ok()?;
-    let decoded = image::load_from_memory_with_format(&bytes, format).ok()?;
-
-    let (width, height) = (decoded.width().max(1), decoded.height().max(1));
-    let scale = (THUMBNAIL_WIDTH as f32 / width as f32)
-        .max(THUMBNAIL_HEIGHT as f32 / height as f32)
-        .min(1.0);
-    let target_width = ((width as f32 * scale).round() as u32).max(1);
-    let target_height = ((height as f32 * scale).round() as u32).max(1);
+    let (decoded, width, height) = if format == image::ImageFormat::Jpeg {
+        crate::jpeg_thumbnail::decode_jpeg_thumbnail(&bytes, |width, height| {
+            let (_, target_width, target_height) = crate::jpeg_thumbnail::cover_target(
+                width,
+                height,
+                THUMBNAIL_WIDTH,
+                THUMBNAIL_HEIGHT,
+            );
+            (target_width, target_height)
+        })
+        .or_else(|| decode_whole_image(&bytes, format))?
+    } else {
+        decode_whole_image(&bytes, format)?
+    };
+    let (scale, target_width, target_height) =
+        crate::jpeg_thumbnail::cover_target(width, height, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
     // Box sampling for the big ratios (one pass over a multi-megapixel
     // source, and at 8x down every output pixel averages a whole block);
     // Triangle when the sizes are close, where box would alias and costs
@@ -1499,16 +1516,30 @@ pub fn thumbnail_rgba(path: &Path) -> Option<image::RgbaImage> {
 /// -- it is `ffmpeg-next` (already built here, for the recorder) plus the
 /// `image` crate (already here, for camera frames) -- so it is transcribed
 /// rather than deferred.
-///
-/// Faithful in the parts that matter to the output: decode packets until the
-/// *first* video frame comes out, scale to RGB24 at the source's own size
-/// (`size: None` at both call sites, so a native-resolution JPEG, not a
-/// thumbnail), save as JPEG. Blocking; callers hand it to `spawn_blocking`.
 pub fn create_screenshot(
     input: &Path,
     output: &Path,
     size: Option<(u32, u32)>,
 ) -> Result<(), String> {
+    let frame = first_video_frame(input)?;
+    let size = size.unwrap_or((frame.width(), frame.height()));
+    let jpeg = match encode_mjpeg(&frame, size) {
+        Some(jpeg) => jpeg,
+        None => encode_rgb_jpeg(&frame, size)?,
+    };
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let staged = output.with_extension(format!("jpg.tmp-{}", crate::store::new_uuid_v4()));
+    std::fs::write(&staged, jpeg)
+        .and_then(|()| std::fs::rename(&staged, output))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&staged);
+            e.to_string()
+        })
+}
+
+fn first_video_frame(input: &Path) -> Result<ffmpeg::frame::Video, String> {
     let mut ictx = ffmpeg::format::input(input).map_err(|e| e.to_string())?;
     let input_stream = ictx
         .streams()
@@ -1522,65 +1553,114 @@ pub fn create_screenshot(
         .video()
         .map_err(|e| e.to_string())?;
 
-    let mut scaler = ffmpeg::software::scaling::context::Context::get(
-        decoder.format(),
-        decoder.width(),
-        decoder.height(),
-        ffmpeg::format::Pixel::RGB24,
-        size.map_or(decoder.width(), |s| s.0),
-        size.map_or(decoder.height(), |s| s.1),
-        ffmpeg::software::scaling::flag::Flags::BILINEAR,
-    )
-    .map_err(|e| e.to_string())?;
-
     let mut frame = ffmpeg::frame::Video::empty();
     for (stream, packet) in ictx.packets() {
         if stream.index() != video_stream_index {
             continue;
         }
         decoder.send_packet(&packet).map_err(|e| e.to_string())?;
-        if decoder.receive_frame(&mut frame).is_err() {
-            continue;
+        if decoder.receive_frame(&mut frame).is_ok() {
+            return Ok(frame);
         }
-
-        let mut rgb_frame = ffmpeg::frame::Video::empty();
-        scaler
-            .run(&frame, &mut rgb_frame)
-            .map_err(|e| e.to_string())?;
-
-        // The scaler's rows are padded to its own stride; the image buffer is
-        // tight, so the copy is row by row.
-        let width = rgb_frame.width() as usize;
-        let height = rgb_frame.height() as usize;
-        let src_stride = rgb_frame.stride(0);
-        let dst_stride = width * 3;
-        let buffer = frameever_gpui_kernels::frame::copy_rows(
-            rgb_frame.data(0),
-            dst_stride,
-            src_stride,
-            height,
-            false,
-        )
-        .ok_or("Failed to create image from frame data")?;
-
-        let image = image::RgbImage::from_raw(width as u32, height as u32, buffer)
-            .ok_or("Failed to create image from frame data")?;
-        if let Some(parent) = output.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let staged = output.with_extension(format!("jpg.tmp-{}", crate::store::new_uuid_v4()));
-        frameever_gpui_kernels::codec::save_rgb_image(&image, &staged, image::ImageFormat::Jpeg)
-            .map_err(|e| {
-                let _ = std::fs::remove_file(&staged);
-                e.to_string()
-            })?;
-        return std::fs::rename(&staged, output).map_err(|e| {
-            let _ = std::fs::remove_file(&staged);
-            e.to_string()
-        });
     }
 
     Err("Failed to create screenshot".to_string())
+}
+
+fn encode_mjpeg(frame: &ffmpeg::frame::Video, (width, height): (u32, u32)) -> Option<Vec<u8>> {
+    const QSCALE: i32 = 4;
+    let format = ffmpeg::format::Pixel::YUV444P;
+    let codec = ffmpeg::codec::encoder::find(ffmpeg::codec::Id::MJPEG)?;
+    let mut scaler = ffmpeg::software::scaling::context::Context::get(
+        frame.format(),
+        frame.width(),
+        frame.height(),
+        format,
+        width,
+        height,
+        ffmpeg::software::scaling::flag::Flags::BILINEAR,
+    )
+    .ok()?;
+    write_full_range(&mut scaler)?;
+    let mut yuv = ffmpeg::frame::Video::empty();
+    scaler.run(frame, &mut yuv).ok()?;
+
+    let mut encoder = ffmpeg::codec::context::Context::new_with_codec(codec)
+        .encoder()
+        .video()
+        .ok()?;
+    encoder.set_width(width);
+    encoder.set_height(height);
+    encoder.set_format(format);
+    encoder.set_color_range(ffmpeg::color::Range::JPEG);
+    encoder.set_time_base((1, 1));
+    encoder.set_flags(ffmpeg::codec::Flags::QSCALE);
+    encoder.set_global_quality(QSCALE * ffmpeg::ffi::FF_QP2LAMBDA);
+    encoder.set_qmin(QSCALE);
+    encoder.set_qmax(QSCALE);
+    let mut encoder = encoder.open().ok()?;
+
+    yuv.set_pts(Some(0));
+    encoder.send_frame(&yuv).ok()?;
+    encoder.send_eof().ok()?;
+    let mut packet = ffmpeg::Packet::empty();
+    encoder.receive_packet(&mut packet).ok()?;
+    packet.data().map(<[u8]>::to_vec)
+}
+
+fn write_full_range(scaler: &mut ffmpeg::software::scaling::context::Context) -> Option<()> {
+    let mut inv_table = std::ptr::null_mut();
+    let mut table = std::ptr::null_mut();
+    let (mut src_range, mut dst_range) = (0, 0);
+    let (mut brightness, mut contrast, mut saturation) = (0, 0, 0);
+    unsafe {
+        let context = scaler.as_mut_ptr();
+        let read = ffmpeg::ffi::sws_getColorspaceDetails(
+            context,
+            &mut inv_table,
+            &mut src_range,
+            &mut table,
+            &mut dst_range,
+            &mut brightness,
+            &mut contrast,
+            &mut saturation,
+        );
+        (read >= 0
+            && ffmpeg::ffi::sws_setColorspaceDetails(
+                context, inv_table, src_range, table, 1, brightness, contrast, saturation,
+            ) >= 0)
+            .then_some(())
+    }
+}
+
+fn encode_rgb_jpeg(
+    frame: &ffmpeg::frame::Video,
+    (width, height): (u32, u32),
+) -> Result<Vec<u8>, String> {
+    let mut rgb_frame = ffmpeg::frame::Video::empty();
+    ffmpeg::software::scaling::context::Context::get(
+        frame.format(),
+        frame.width(),
+        frame.height(),
+        ffmpeg::format::Pixel::RGB24,
+        width,
+        height,
+        ffmpeg::software::scaling::flag::Flags::BILINEAR,
+    )
+    .map_err(|e| e.to_string())?
+    .run(frame, &mut rgb_frame)
+    .map_err(|e| e.to_string())?;
+
+    let buffer = frameever_gpui_kernels::frame::copy_rows(
+        rgb_frame.data(0),
+        width as usize * 3,
+        rgb_frame.stride(0),
+        height as usize,
+        false,
+    )
+    .ok_or("Failed to create image from frame data")?;
+    frameever_gpui_kernels::codec::encode_jpeg_rgb(&buffer, width, height, 75)
+        .map_err(|e| e.to_string())
 }
 
 pub fn bundle_thumbnail_path(project_dir: &Path) -> PathBuf {
@@ -1820,6 +1900,144 @@ mod tests {
         // The scan finds the preview by extension, not by name.
         std::fs::write(bundle.join("shot.png"), b"not really a png").unwrap();
         bundle
+    }
+
+    fn psnr(jpeg: &[u8], screen: &image::RgbImage) -> f64 {
+        let decoded = image::load_from_memory(jpeg).unwrap().into_rgb8();
+        assert_eq!(decoded.dimensions(), screen.dimensions());
+        let squared: f64 = decoded
+            .as_raw()
+            .iter()
+            .zip(screen.as_raw())
+            .map(|(&a, &b)| (f64::from(a) - f64::from(b)).powi(2))
+            .sum();
+        10.0 * (255.0_f64.powi(2) * screen.as_raw().len() as f64 / squared).log10()
+    }
+
+    fn recorded_frame(screen: &image::RgbImage) -> ffmpeg::frame::Video {
+        let (width, height) = screen.dimensions();
+        let mut rgb = ffmpeg::frame::Video::new(ffmpeg::format::Pixel::RGB24, width, height);
+        let stride = rgb.stride(0);
+        for (row, pixels) in rgb
+            .data_mut(0)
+            .chunks_mut(stride)
+            .zip(screen.as_raw().chunks(width as usize * 3))
+        {
+            row[..pixels.len()].copy_from_slice(pixels);
+        }
+        let mut frame = ffmpeg::frame::Video::empty();
+        ffmpeg::software::scaling::context::Context::get(
+            ffmpeg::format::Pixel::RGB24,
+            width,
+            height,
+            ffmpeg::format::Pixel::YUV420P,
+            width,
+            height,
+            ffmpeg::software::scaling::flag::Flags::BILINEAR,
+        )
+        .unwrap()
+        .run(&rgb, &mut frame)
+        .unwrap();
+        frame
+    }
+
+    #[test]
+    fn screenshot_is_written_with_the_mjpeg_encoder() {
+        ffmpeg::init().unwrap();
+        let root = temp_dir("mjpeg-screenshot");
+        let source = root.join("display.mp4");
+        std::fs::write(
+            &source,
+            include_bytes!("../../../crates/video-decode/tests/fixtures/h264-no-reordering.mp4"),
+        )
+        .unwrap();
+        let output = bundle_thumbnail_path(&root);
+
+        create_screenshot(&source, &output, None).unwrap();
+
+        let frame = first_video_frame(&source).unwrap();
+        let written = std::fs::read(&output).unwrap();
+        let size = (frame.width(), frame.height());
+        assert_eq!(written, encode_mjpeg(&frame, size).unwrap());
+        let decoded = image::load_from_memory_with_format(&written, image::ImageFormat::Jpeg);
+        assert_eq!(decoded.unwrap().to_rgb8().dimensions(), size);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn mjpeg_screenshot_is_at_least_as_close_to_the_screen() {
+        ffmpeg::init().unwrap();
+        let screen = image::RgbImage::from_fn(640, 360, |x, y| {
+            let text = (x / 2 + y / 3) % 7 == 0 && y % 24 < 14;
+            match (x / 160, text) {
+                (0, _) => image::Rgb([61, 106, 242]),
+                (_, true) => image::Rgb([212, 212, 212]),
+                (3, false) => image::Rgb([(x - 480) as u8, 53, (y / 2) as u8 + 60]),
+                _ => image::Rgb([30, 31, 34]),
+            }
+        });
+        let frame = recorded_frame(&screen);
+        let size = screen.dimensions();
+
+        let mjpeg = psnr(&encode_mjpeg(&frame, size).unwrap(), &screen);
+        let rgb = psnr(&encode_rgb_jpeg(&frame, size).unwrap(), &screen);
+
+        assert!(mjpeg >= rgb, "mjpeg {mjpeg:.2} dB, rgb {rgb:.2} dB");
+    }
+
+    fn median_ms(mut runs: Vec<f64>) -> f64 {
+        runs.sort_by(f64::total_cmp);
+        runs[runs.len() / 2]
+    }
+
+    #[test]
+    #[ignore = "needs FRAMEEVER_SCREENSHOT_BENCH_VIDEO"]
+    fn benchmark_create_screenshot() {
+        ffmpeg::init().unwrap();
+        let video = PathBuf::from(std::env::var("FRAMEEVER_SCREENSHOT_BENCH_VIDEO").unwrap());
+        let root = temp_dir("bench-screenshot");
+        let output = bundle_thumbnail_path(&root);
+        let runs: Vec<f64> = (0..11)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                create_screenshot(&video, &output, None).unwrap();
+                started.elapsed().as_secs_f64() * 1e3
+            })
+            .collect();
+        let decoded = image::open(&output).unwrap();
+        println!(
+            "{{\"create_screenshot_median_ms\":{:.1},\"jpeg_bytes\":{},\"size\":\"{}x{}\"}}",
+            median_ms(runs),
+            std::fs::metadata(&output).unwrap().len(),
+            decoded.width(),
+            decoded.height()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "needs FRAMEEVER_THUMBNAIL_BENCH_JPEG"]
+    fn benchmark_thumbnail_rgba_jpeg() {
+        let source = PathBuf::from(std::env::var("FRAMEEVER_THUMBNAIL_BENCH_JPEG").unwrap());
+        let cache = thumbnail_cache_file(&source).unwrap();
+        let runs: Vec<f64> = (0..11)
+            .map(|_| {
+                std::fs::remove_file(&cache).ok();
+                let started = std::time::Instant::now();
+                let thumbnail = thumbnail_rgba(&source).unwrap();
+                let elapsed = started.elapsed().as_secs_f64() * 1e3;
+                assert!(thumbnail.width() >= THUMBNAIL_WIDTH);
+                elapsed
+            })
+            .collect();
+        let thumbnail = thumbnail_rgba(&source).unwrap();
+        println!(
+            "{{\"thumbnail_rgba_cold_median_ms\":{:.1},\"output\":\"{}x{}\"}}",
+            median_ms(runs),
+            thumbnail.width(),
+            thumbnail.height()
+        );
+        std::fs::remove_file(&cache).ok();
     }
 
     fn temp_dir(tag: &str) -> PathBuf {
