@@ -1452,7 +1452,8 @@ fn previous_grapheme(text: &str, offset: usize) -> usize {
     let offset = text.ceil_char_boundary(offset);
     GraphemeCursor::new(offset, text.len(), true)
         .prev_boundary(text, 0)
-        .expect("the complete string supplies all grapheme context")
+        .ok()
+        .flatten()
         .unwrap_or(0)
 }
 
@@ -1460,7 +1461,8 @@ fn next_grapheme(text: &str, offset: usize) -> usize {
     let offset = text.floor_char_boundary(offset);
     GraphemeCursor::new(offset, text.len(), true)
         .next_boundary(text, 0)
-        .expect("the complete string supplies all grapheme context")
+        .ok()
+        .flatten()
         .unwrap_or(text.len())
 }
 
@@ -2189,10 +2191,7 @@ impl TextBody {
             });
         }
 
-        let width = rows
-            .iter()
-            .map(|row| row.width)
-            .fold(px(0.), |a, b| if b > a { b } else { a });
+        let width = rows.iter().map(|row| row.width).fold(px(0.), Pixels::max);
         let size = size(width, self.line_height * rows.len() as f32);
         let intrinsic_size = intrinsic_text_size(&lines, self.line_height);
         *self.layout.borrow_mut() = Some(InputLayout {
@@ -2222,7 +2221,7 @@ fn intrinsic_text_size(lines: &[WrappedLine], line_height: Pixels) -> Size<Pixel
             let layout = &line.unwrapped_layout;
             layout.width - layout.x_for_index(0)
         })
-        .fold(px(0.), |a, b| if b > a { b } else { a });
+        .fold(px(0.), Pixels::max);
     size(width, line_height * lines.len().max(1) as f32)
 }
 

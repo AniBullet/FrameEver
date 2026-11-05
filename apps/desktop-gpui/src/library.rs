@@ -267,6 +267,13 @@ impl RecordingItem {
     }
 }
 
+fn recording_mode(meta: &RecordingMeta) -> RecordingMode {
+    match &meta.inner {
+        RecordingMetaInner::Studio(_) => RecordingMode::Studio,
+        RecordingMetaInner::Instant(_) => RecordingMode::Instant,
+    }
+}
+
 fn recording_status(meta: &RecordingMeta) -> RecordingStatus {
     match &meta.inner {
         RecordingMetaInner::Studio(studio) => match &**studio {
@@ -301,10 +308,7 @@ fn recording_status(meta: &RecordingMeta) -> RecordingStatus {
 
 /// `RecordingMetaWithMetadata::new` (`lib.rs:3888-3925`).
 fn recording_item(path: PathBuf, meta: RecordingMeta, sort_time_millis: f64) -> RecordingItem {
-    let mode = match &meta.inner {
-        RecordingMetaInner::Studio(_) => RecordingMode::Studio,
-        RecordingMetaInner::Instant(_) => RecordingMode::Instant,
-    };
+    let mode = recording_mode(&meta);
     let clip_count = match &meta.inner {
         RecordingMetaInner::Studio(studio) => match &**studio {
             StudioRecordingMeta::MultipleSegments { inner } => inner.segments.len() as u32,
@@ -675,10 +679,7 @@ fn interrupted_recordings_in(
             let sort_time_millis = media_sort_time_millis(&path);
             is_recording_after_recovery_cutoff(&meta.pretty_name, sort_time_millis).then(|| {
                 InterruptedRecording {
-                    mode: match &meta.inner {
-                        RecordingMetaInner::Studio(_) => RecordingMode::Studio,
-                        RecordingMetaInner::Instant(_) => RecordingMode::Instant,
-                    },
+                    mode: recording_mode(&meta),
                     pretty_name: meta.pretty_name,
                     sort_time_millis,
                     path,
