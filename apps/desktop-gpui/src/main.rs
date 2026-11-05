@@ -84,6 +84,7 @@ mod snapshot;
 mod store;
 mod target_overlay;
 mod target_thumbnails;
+mod teleprompter;
 mod teleprompter_window;
 mod theme;
 mod transcription;

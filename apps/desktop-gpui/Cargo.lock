@@ -2899,6 +2899,7 @@ dependencies = [
  "tracing-subscriber",
  "trash",
  "tray-icon",
+ "unicode-script",
  "unicode-segmentation",
  "url",
  "wgpu",

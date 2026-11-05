@@ -103,6 +103,7 @@ smallvec = "1"
 # press. gpui's own input example uses the same crate and it is already in this
 # lockfile through gpui, so this makes an existing build unit direct.
 unicode-segmentation = "1"
+unicode-script = "0.5.8"
 # spawn_blocking for finalize; the runtime itself comes from gpui_tokio.
 tokio = { version = "1", features = ["rt", "time"] }
 # The same crate `tauri_plugin_global_shortcut` wraps, at the Tauri app's pin:

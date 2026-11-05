@@ -80,6 +80,8 @@ These are denied in the workspace `Cargo.toml` and fail CI:
 
 ## Testing
 
+- For ticket work, inspect relevant local upstream source/history and authoritative primary references before choosing an implementation. Upstream is a read-only reference (ADR-0007), not a constraint: prefer a better solution when the ticket, design and measured results support it. Record the sources and reasoning in the handoff.
+- Agents choose routine test seams and implementation details within the ticket's scope; ask the owner when a product decision or missing requirement changes that scope.
 - Work test-first. Rust tests sit beside the code (`#[cfg(test)]`) or in a crate's `tests/`; script tests are `scripts/*.test.mjs` (`node --test`).
 - While iterating run `pnpm fe test <filter>`; before committing run `pnpm fe test --all` and `pnpm fe lint` once.
 - Prove a fix by reproducing it first and checking it with a test or a measured result. Anything visible is checked by the owner in the running app: never take screenshots of the owner's screen.

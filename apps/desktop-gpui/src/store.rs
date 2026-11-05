@@ -1285,6 +1285,7 @@ pub struct TeleprompterState {
     pub script: String,
     pub font_size: f32,
     pub words_per_minute: u32,
+    pub characters_per_minute: u32,
     pub line_height: f32,
     pub show_cue_markers: bool,
     pub mirror: bool,
@@ -1296,6 +1297,7 @@ impl TeleprompterState {
     pub const SCRIPT: &'static str = "script";
     pub const FONT_SIZE: &'static str = "fontSize";
     pub const WORDS_PER_MINUTE: &'static str = "wordsPerMinute";
+    pub const CHARACTERS_PER_MINUTE: &'static str = "charactersPerMinute";
     pub const LINE_HEIGHT: &'static str = "lineHeight";
     pub const SHOW_CUE_MARKERS: &'static str = "showCueMarkers";
     pub const MIRROR: &'static str = "mirror";
@@ -1307,10 +1309,17 @@ impl TeleprompterState {
 
     fn from_section(map: &Map<String, Value>) -> Self {
         let defaults = Self::default();
+        let script = opt_string_at(map, Self::SCRIPT).unwrap_or(defaults.script);
+        let chinese_speed = if crate::teleprompter::is_chinese_script(&script) {
+            u32_at(map, Self::WORDS_PER_MINUTE, defaults.characters_per_minute)
+        } else {
+            defaults.characters_per_minute
+        };
         Self {
-            script: opt_string_at(map, Self::SCRIPT).unwrap_or(defaults.script),
+            script,
             font_size: f32_at(map, Self::FONT_SIZE, defaults.font_size),
             words_per_minute: u32_at(map, Self::WORDS_PER_MINUTE, defaults.words_per_minute),
+            characters_per_minute: u32_at(map, Self::CHARACTERS_PER_MINUTE, chinese_speed),
             line_height: f32_at(map, Self::LINE_HEIGHT, defaults.line_height),
             show_cue_markers: bool_at(map, Self::SHOW_CUE_MARKERS, defaults.show_cue_markers),
             mirror: bool_at(map, Self::MIRROR, defaults.mirror),
@@ -1322,13 +1331,34 @@ impl TeleprompterState {
         }
     }
 
-    /// One field as the JSON the Tauri app would have written, so the debounced
-    /// flush can write exactly the keys that changed.
+    pub fn uses_chinese_speed(&self) -> bool {
+        crate::teleprompter::is_chinese_script(&self.script)
+    }
+
+    pub fn reading_speed(&self) -> u32 {
+        if self.uses_chinese_speed() {
+            self.characters_per_minute
+        } else {
+            self.words_per_minute
+        }
+    }
+
+    pub fn set_reading_speed(&mut self, value: u32) -> &'static str {
+        if self.uses_chinese_speed() {
+            self.characters_per_minute = value;
+            Self::CHARACTERS_PER_MINUTE
+        } else {
+            self.words_per_minute = value;
+            Self::WORDS_PER_MINUTE
+        }
+    }
+
     pub fn value_for(&self, key: &str) -> Value {
         match key {
             Self::SCRIPT => Value::from(self.script.clone()),
             Self::FONT_SIZE => Value::from(self.font_size),
             Self::WORDS_PER_MINUTE => Value::from(self.words_per_minute),
+            Self::CHARACTERS_PER_MINUTE => Value::from(self.characters_per_minute),
             Self::LINE_HEIGHT => Value::from(self.line_height),
             Self::SHOW_CUE_MARKERS => Value::Bool(self.show_cue_markers),
             Self::MIRROR => Value::Bool(self.mirror),
@@ -1344,6 +1374,7 @@ impl Default for TeleprompterState {
             script: String::new(),
             font_size: 30.,
             words_per_minute: 150,
+            characters_per_minute: 260,
             line_height: 1.5,
             show_cue_markers: true,
             mirror: false,
@@ -2460,6 +2491,110 @@ mod tests {
         assert_eq!(reloaded.script, "hello there");
         assert_eq!(reloaded.font_size, 34.);
         assert!(reloaded.show_cue_markers);
+    }
+
+    #[test]
+    fn the_teleprompter_remembers_chinese_speed_separately() {
+        let _store = TempStore::new(
+            "teleprompter-chinese-speed",
+            Some(r#"{"teleprompter":{"script":"你好 FrameEver","wordsPerMinute":185}}"#),
+        );
+        let loaded = TeleprompterState::load();
+        assert_eq!(loaded.words_per_minute, 185);
+        assert_eq!(loaded.value_for("charactersPerMinute"), 260);
+        assert!(super::set_store_setting(
+            TELEPROMPTER,
+            "charactersPerMinute",
+            serde_json::json!(420)
+        ));
+        let reloaded = TeleprompterState::load();
+        assert_eq!(reloaded.value_for("charactersPerMinute"), 420);
+        assert_eq!(reloaded.words_per_minute, 185);
+    }
+
+    #[test]
+    fn the_teleprompter_keeps_both_speeds_when_switching_scripts() {
+        let _store = TempStore::new(
+            "teleprompter-script-speeds",
+            Some(r#"{"teleprompter":{"script":"这是中文稿"}}"#),
+        );
+        let mut state = TeleprompterState::load();
+        assert!(state.uses_chinese_speed());
+        assert_eq!(state.reading_speed(), 260);
+        let key = state.set_reading_speed(420);
+        assert_eq!(key, TeleprompterState::CHARACTERS_PER_MINUTE);
+        assert!(super::set_store_setting(
+            TELEPROMPTER,
+            key,
+            state.value_for(key)
+        ));
+
+        state.script = "Hello world".into();
+        assert!(!state.uses_chinese_speed());
+        assert_eq!(state.reading_speed(), 150);
+        let key = state.set_reading_speed(185);
+        assert_eq!(key, TeleprompterState::WORDS_PER_MINUTE);
+        for key in [TeleprompterState::SCRIPT, key] {
+            assert!(super::set_store_setting(
+                TELEPROMPTER,
+                key,
+                state.value_for(key)
+            ));
+        }
+        state = TeleprompterState::load();
+        assert_eq!(state.reading_speed(), 185);
+        assert_eq!(state.characters_per_minute, 420);
+
+        state.script = "这是中文稿".into();
+        assert!(super::set_store_setting(
+            TELEPROMPTER,
+            TeleprompterState::SCRIPT,
+            state.value_for(TeleprompterState::SCRIPT)
+        ));
+        assert_eq!(TeleprompterState::load().reading_speed(), 420);
+    }
+
+    #[test]
+    fn the_teleprompter_retains_a_saved_legacy_chinese_speed() {
+        let _store = TempStore::new(
+            "teleprompter-legacy-chinese-speed",
+            Some(r#"{"teleprompter":{"script":"这是中文稿","wordsPerMinute":175}}"#),
+        );
+        let mut state = TeleprompterState::load();
+        assert_eq!(state.reading_speed(), 175);
+        state.script = "English script".into();
+        for key in [
+            TeleprompterState::SCRIPT,
+            TeleprompterState::CHARACTERS_PER_MINUTE,
+        ] {
+            assert!(super::set_store_setting(
+                TELEPROMPTER,
+                key,
+                state.value_for(key)
+            ));
+        }
+        state = TeleprompterState::load();
+        state.script = "这是中文稿".into();
+        assert_eq!(state.reading_speed(), 175);
+    }
+
+    #[test]
+    fn the_teleprompter_uses_the_designs_chinese_script_threshold() {
+        for (script, chinese) in [
+            ("Hello中文world", false),
+            ("中文", true),
+            ("中文稿你好 FrameEver", false),
+            ("中文稿你好呀 FrameEver", true),
+            ("𠮷", true),
+            ("。！？", false),
+            ("", false),
+        ] {
+            let state = TeleprompterState {
+                script: script.into(),
+                ..Default::default()
+            };
+            assert_eq!(state.uses_chinese_speed(), chinese, "{script}");
+        }
     }
 
     /// An absent store is an empty one -- a fresh install must not be a write

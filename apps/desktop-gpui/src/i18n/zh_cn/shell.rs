@@ -267,7 +267,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "This window is hidden from FrameEver recordings",
         "此窗口不会出现在帧刻的录制画面中",
     ),
-    ("{count} wpm", "{count} 字/分"),
+    ("{count} wpm", "{count} 词/分"),
+    ("{count} chars/min", "{count} 字/分"),
     ("Cue markers", "提示标记"),
     ("Mirror text", "镜像文字"),
     (

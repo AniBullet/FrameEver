@@ -333,13 +333,25 @@ const scripts = {
 };
 const sentences = (text) =>
 	text.match(/[^.。!?！？,，]+[.。!?！？,，]?\s*/g) ?? [];
-const han = /[㐀-鿿]/g;
+const isHanCharacter = (character) =>
+	/\p{Script=Han}/u.test(character) && /\p{Alphabetic}/u.test(character);
 const countWords = (text) => {
-	const hanCount = (text.match(han) ?? []).length;
-	const rest = text.replace(han, " ").trim();
-	return hanCount + (rest ? rest.split(/\s+/).length : 0);
+	const characters = Array.from(text);
+	const hanCount = characters.filter(isHanCharacter).length;
+	if (!hanCount) return text.trim() ? text.trim().split(/\s+/).length : 0;
+	const rest = characters
+		.map((character) => (isHanCharacter(character) ? " " : character))
+		.join("");
+	return (
+		hanCount +
+		rest.split(/\s+/).filter((word) => /[\p{Letter}\p{Number}]/u.test(word))
+			.length
+	);
 };
-const isHan = (text) => (text.match(han) ?? []).length > text.length / 3;
+const isHan = (text) => {
+	const characters = Array.from(text);
+	return characters.filter(isHanCharacter).length > characters.length / 3;
+};
 
 const t = {
 	x: 310,
@@ -1122,8 +1134,8 @@ const copy = () => {
 					"中文按字数算速度，显示“字/分”。默认 260，英文保持 150 词/分",
 				],
 				[
-					"Today's count splits on spaces, so a Chinese script counts as one word and, going by the code, finishes in a second",
-					"现在按空格分词，一段中文只算一个词，从代码看一秒就滚完",
+					"Count Han characters plus spaced words; punctuation alone adds no reading time",
+					"汉字逐字计数，混排词按空白分隔，单独的标点不增加阅读时长",
 				],
 			],
 			[
