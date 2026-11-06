@@ -324,6 +324,7 @@ mod tests {
         // per-permission row glyphs are named on `OSPermission::icon`.
         include_str!("onboarding_window.rs"),
         include_str!("permissions.rs"),
+        include_str!("tray.rs"),
     ];
 
     /// Every icon a window asks for must be in the table. gpui draws

@@ -153,6 +153,12 @@ fn decode_menu_icon(bytes: &[u8]) -> anyhow::Result<menu::Icon> {
     Ok(menu::Icon::from_rgba(image.into_raw(), width, height)?)
 }
 
+fn decode_icon_or_warn(bytes: &[u8]) -> Option<menu::Icon> {
+    decode_menu_icon(bytes)
+        .inspect_err(|error| tracing::warn!("failed to load a Windows tray menu icon: {error:#}"))
+        .ok()
+}
+
 fn menu_text(title: &str) -> String {
     title.replace('&', "&&")
 }
@@ -178,25 +184,21 @@ fn build_native_item(
             item,
             enabled,
             icon,
+            accelerator,
         } => {
-            let icon = icon
-                .as_deref()
-                .and_then(|bytes| match decode_menu_icon(bytes) {
-                    Ok(icon) => Some(icon),
-                    Err(error) => {
-                        tracing::warn!("failed to load a Windows tray thumbnail: {error:#}");
-                        None
-                    }
-                });
+            let accelerator = accelerator.map(|accelerator| {
+                menu::accelerator::Accelerator::new(accelerator.modifiers, accelerator.code)
+            });
+            let icon = icon.as_deref().and_then(decode_icon_or_warn);
             let enabled = *enabled && item.is_some();
             let native_item: Box<dyn IsMenuItem> = match icon {
                 Some(icon) => Box::new(IconMenuItem::new(
                     menu_text(title),
                     enabled,
                     Some(icon),
-                    None,
+                    accelerator,
                 )),
-                None => Box::new(MenuItem::new(menu_text(title), enabled, None)),
+                None => Box::new(MenuItem::new(menu_text(title), enabled, accelerator)),
             };
             if enabled && let Some(item) = item {
                 let _ = actions.insert(native_item.id().clone(), item.clone());
@@ -207,8 +209,12 @@ fn build_native_item(
             title,
             enabled,
             items,
+            icon,
         } => {
             let submenu = Submenu::new(menu_text(title), *enabled);
+            if let Some(icon) = icon.as_deref().and_then(decode_icon_or_warn) {
+                submenu.set_icon(Some(icon));
+            }
             for entry in items {
                 let item = build_native_item(entry, actions)?;
                 submenu.append(item.as_ref())?;

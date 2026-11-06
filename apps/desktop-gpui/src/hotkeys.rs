@@ -180,6 +180,7 @@ pub fn pause(cx: &mut App) {
     hotkeys.paused = true;
     hotkeys.release_idle_manager();
     tracing::info!("global hotkeys paused while a shortcut is recorded");
+    crate::tray::refresh_menu(cx);
 }
 
 /// End a [`pause`] and register the store's bindings again. Returns whether
@@ -191,6 +192,14 @@ pub fn resume(cx: &mut App) -> bool {
     cx.global_mut::<Hotkeys>().paused = false;
     reload(cx);
     true
+}
+
+pub(crate) fn accelerator(action: HotkeyAction, cx: &App) -> Option<HotKey> {
+    cx.try_global::<Hotkeys>()?
+        .bindings
+        .iter()
+        .find(|(_, bound)| *bound == action)
+        .map(|(hotkey, _)| *hotkey)
 }
 
 pub fn unavailable_actions(cx: &App) -> Vec<&'static str> {
@@ -279,6 +288,7 @@ fn register_from_store(cx: &mut App) {
     }
     hotkeys.release_idle_manager();
     tracing::info!(count = hotkeys.bindings.len(), "global hotkeys registered");
+    crate::tray::refresh_menu(cx);
 }
 
 /// `FRAMEEVER_GPUI_AUTO_HOTKEY=<store key>`: run an action's dispatch arm without
@@ -318,7 +328,7 @@ fn actions_for(bindings: &[(HotKey, HotkeyAction)], id: u32) -> Vec<HotkeyAction
 /// `handle_hotkey` (`hotkeys.rs:228-337` over there), against this app's
 /// counterparts. Session methods are no-ops in the wrong phase, matching the
 /// Tauri commands' own early returns.
-fn dispatch(action: HotkeyAction, cx: &mut App) {
+pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
     tracing::info!(?action, "global hotkey");
     match action {
         HotkeyAction::StartStudioRecording => start_from_hotkey(Mode::Studio, cx),
