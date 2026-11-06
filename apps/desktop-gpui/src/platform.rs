@@ -150,6 +150,25 @@ fn confirmation_accepted(result: rfd::MessageDialogResult, accept: &str) -> bool
     }
 }
 
+#[cfg(test)]
+pub(crate) mod test_dialogs {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    thread_local! {
+        static CONFIRM: RefCell<Option<Rc<dyn Fn() -> bool>>> = const { RefCell::new(None) };
+    }
+
+    pub(crate) fn answer_confirm_with(answer: impl Fn() -> bool + 'static) {
+        CONFIRM.with(|slot| *slot.borrow_mut() = Some(Rc::new(answer)));
+    }
+
+    pub(crate) fn confirm() -> Option<bool> {
+        let answer = CONFIRM.with(|slot| slot.borrow().clone());
+        answer.map(|answer| answer())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct PanelBehavior {
     pub level: isize,
@@ -1805,6 +1824,11 @@ mod mac {
     ) -> bool {
         use objc2::{class, msg_send, msg_send_id};
         use objc2_foundation::NSString;
+
+        #[cfg(test)]
+        if let Some(answer) = super::test_dialogs::confirm() {
+            return answer;
+        }
 
         /// `NSAlertStyle`: `Warning = 0`, `Informational = 1`. `NSUInteger`,
         /// not `NSInteger` -- objc2's message-send verification rejects the

@@ -642,6 +642,10 @@ pub fn confirm_dialog(
     cancel: &str,
     warning: bool,
 ) -> bool {
+    #[cfg(test)]
+    if let Some(answer) = super::test_dialogs::confirm() {
+        return answer;
+    }
     let level = if warning {
         rfd::MessageLevel::Warning
     } else {

@@ -2287,10 +2287,7 @@ impl EditorWindow {
         let style_target = self.sidebar.style_target;
         let style_fingerprint = self.style_target_fingerprint();
         self.sidebar.picker_task = Some(cx.spawn_in(window, async move |this, cx| {
-            let picked = cx
-                .update(|_, _| crate::platform::open_image_panel(&BACKGROUND_IMAGE_EXTENSIONS))
-                .ok()
-                .flatten();
+            let picked = crate::platform::open_image_panel(&BACKGROUND_IMAGE_EXTENSIONS);
 
             let stored = match picked {
                 Some(source) => {

@@ -823,6 +823,15 @@ pub struct MainWindow {
     show_after_snap: bool,
 }
 
+fn discard_still_valid(
+    confirmed: bool,
+    phase: Phase,
+    current: Option<&std::path::Path>,
+    target: &std::path::Path,
+) -> bool {
+    confirmed && phase == Phase::Idle && current == Some(target)
+}
+
 impl MainWindow {
     pub fn new(
         session: Entity<RecordingSession>,
@@ -1623,17 +1632,6 @@ impl MainWindow {
         let Some(recording) = self.incomplete_recording.clone() else {
             return;
         };
-        if !recover
-            && !crate::platform::confirm_dialog(
-                "FrameEver",
-                t!("Are you sure you want to delete this recording?"),
-                t!("Yes"),
-                t!("No"),
-                false,
-            )
-        {
-            return;
-        }
 
         self.recovery_pending = true;
         self.recovery_error = None;
@@ -1641,6 +1639,37 @@ impl MainWindow {
         window.refresh();
 
         self.recovery_action_task = Some(cx.spawn_in(window, async move |this, cx| {
+            if !recover {
+                let confirmed = crate::platform::confirm_dialog(
+                    "FrameEver",
+                    t!("Are you sure you want to delete this recording?"),
+                    t!("Yes"),
+                    t!("No"),
+                    false,
+                );
+                let target = recording.project_path.clone();
+                let proceed = this
+                    .update_in(cx, |this, window, cx| {
+                        let proceed = discard_still_valid(
+                            confirmed,
+                            this.session.read(cx).phase,
+                            this.incomplete_recording
+                                .as_ref()
+                                .map(|current| current.project_path.as_path()),
+                            &target,
+                        );
+                        if !proceed {
+                            this.recovery_pending = false;
+                            cx.notify();
+                            window.refresh();
+                        }
+                        proceed
+                    })
+                    .unwrap_or(false);
+                if !proceed {
+                    return;
+                }
+            }
             let result = if recover {
                 cx.background_executor().spawn(async move {
                     library::recover_incomplete_recording(&recording.project_path)
@@ -5821,5 +5850,106 @@ mod recording_error_panel_tests {
             ));
             assert_eq!(current.as_deref(), Some("Capture cleanup is unconfirmed"));
         }
+    }
+
+    #[test]
+    fn discard_applies_only_while_the_confirmed_recording_is_still_current() {
+        let target = std::path::Path::new("a.ever");
+        let other = std::path::Path::new("b.ever");
+        assert!(discard_still_valid(true, Phase::Idle, Some(target), target));
+        assert!(!discard_still_valid(
+            false,
+            Phase::Idle,
+            Some(target),
+            target
+        ));
+        assert!(!discard_still_valid(
+            true,
+            Phase::Starting,
+            Some(target),
+            target
+        ));
+        assert!(!discard_still_valid(true, Phase::Idle, None, target));
+        assert!(!discard_still_valid(true, Phase::Idle, Some(other), target));
+    }
+}
+
+#[cfg(test)]
+mod recovery_dialog_tests {
+    use super::*;
+
+    fn recording(path: &str) -> library::IncompleteRecordingItem {
+        library::IncompleteRecordingItem {
+            project_path: std::path::PathBuf::from(path),
+            pretty_name: "Recording".to_owned(),
+            segment_count: 1,
+            estimated_duration_secs: 1.0,
+        }
+    }
+
+    fn open_main(
+        cx: &mut gpui::TestAppContext,
+    ) -> (Entity<MainWindow>, &mut gpui::VisualTestContext) {
+        let session = cx.update(|cx| {
+            crate::feeds::Feeds::init(cx);
+            crate::media_access::MediaAccess::init(cx);
+            crate::target_overlay::TargetSelect::init(cx);
+            RecordingSession::init(cx)
+        });
+        cx.add_window_view(move |window, cx| MainWindow::new(session, window, cx))
+    }
+
+    #[gpui::test]
+    fn discard_dialog_runs_with_no_app_borrow_and_cancel_keeps_the_recording(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (main, cx) = open_main(cx);
+        main.update(cx, |main, _| {
+            main.incomplete_recording = Some(recording("kept.ever"));
+        });
+        let app = cx.to_async();
+        crate::platform::test_dialogs::answer_confirm_with(move || {
+            app.update(|_| ());
+            false
+        });
+
+        main.update_in(cx, |main, window, cx| {
+            main.process_incomplete_recording(false, window, cx);
+            assert!(main.recovery_pending);
+        });
+        cx.run_until_parked();
+
+        main.read_with(cx, |main, _| {
+            assert!(!main.recovery_pending);
+            assert!(main.incomplete_recording.is_some());
+        });
+    }
+
+    #[gpui::test]
+    fn discard_is_dropped_when_the_recording_changed_while_the_dialog_was_open(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (main, cx) = open_main(cx);
+        main.update(cx, |main, _| {
+            main.incomplete_recording = Some(recording("gone.ever"));
+        });
+        let app = cx.to_async();
+        let entity = main.clone();
+        crate::platform::test_dialogs::answer_confirm_with(move || {
+            app.update(|cx| {
+                entity.update(cx, |main, _| main.incomplete_recording = None);
+            });
+            true
+        });
+
+        main.update_in(cx, |main, window, cx| {
+            main.process_incomplete_recording(false, window, cx);
+        });
+        cx.run_until_parked();
+
+        main.read_with(cx, |main, _| {
+            assert!(!main.recovery_pending);
+            assert!(main.incomplete_recording.is_none());
+        });
     }
 }
