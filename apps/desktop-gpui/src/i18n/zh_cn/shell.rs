@@ -412,6 +412,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "无法启动所选摄像头。请换一个摄像头，或重新连接它。",
     ),
     ("Camera unavailable", "摄像头不可用"),
+    ("Camera disconnected", "摄像头已断开"),
+    (
+        "Recording continues without it.",
+        "录制继续，只是没有摄像头画面。",
+    ),
     ("Mirror unavailable", "无法镜像"),
     ("Your camera preview is not mirrored.", "摄像头预览未镜像。"),
     ("Background blur unavailable", "无法虚化背景"),
