@@ -493,9 +493,13 @@ pub fn rename_project(project: &Path, name: &str) -> Result<String, String> {
 pub fn file_to_copy(entry: &view::Entry) -> Option<PathBuf> {
     match entry.kind {
         MediaKind::Screenshot => entry.screenshot.clone(),
-        MediaKind::Instant => Some(instant_output_path(&entry.path)),
+        MediaKind::Instant => Some(instant_output_path(&entry.path)).filter(|path| path.is_file()),
         MediaKind::Studio => entry.latest_export().map(|export| export.path.clone()),
     }
+}
+
+pub fn files_to_share<'a>(entries: impl IntoIterator<Item = &'a view::Entry>) -> Vec<PathBuf> {
+    entries.into_iter().filter_map(file_to_copy).collect()
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1819,50 +1823,67 @@ mod tests {
     }
 
     #[test]
-    fn the_copied_file_is_the_png_the_current_video_or_the_latest_export() {
+    fn the_shared_file_is_the_png_the_current_video_or_the_latest_export() {
         let dir = tempfile::tempdir().unwrap();
-        let project = dir.path().join("Demo.ever");
-        let base = view::Entry {
-            path: project.clone(),
-            kind: MediaKind::Studio,
-            name: "Demo".into(),
-            size: 0,
-            duration: None,
-            created_millis: 0.,
-            exports: Vec::new(),
-            compression: view::Compression::None,
-            compressible: false,
-            clip_count: 1,
-            thumbnail: None,
-            thumbnail_version: None,
-            screenshot: None,
-            opens_editor: true,
-        };
-        assert_eq!(file_to_copy(&base), None);
+        let recordings = dir.path().join("Recordings");
+        let screenshots = dir.path().join("Screenshots");
+        let exports = dir.path().join("Exports");
+        for folder in [&recordings, &screenshots, &exports] {
+            std::fs::create_dir_all(folder).unwrap();
+        }
 
-        let exported = view::Entry {
-            exports: vec![view::ExportFile {
-                path: PathBuf::from("final.mp4"),
-                name: "final.mp4".into(),
-                exported_millis: 1.,
-                size: Some(1),
-            }],
-            ..base.clone()
-        };
-        assert_eq!(file_to_copy(&exported), Some(PathBuf::from("final.mp4")));
+        let unexported = write_studio_bundle(&recordings, "Unexported", 1);
+        let exported = write_studio_bundle(&recordings, "Exported", 1);
+        let older = exports.join("Exported v1.mp4");
+        let newer = exports.join("Exported v2.mp4");
+        let moved = exports.join("Exported v3.mp4");
+        std::fs::write(&older, b"v1").unwrap();
+        std::fs::write(&newer, b"v2").unwrap();
+        for (path, exported_at) in [(&older, 1), (&newer, 2), (&moved, 3)] {
+            frameever_utils::storage::record_export(
+                &exported,
+                &ExportRecord {
+                    path: path.clone(),
+                    format: "mp4".into(),
+                    codec: None,
+                    exported_at,
+                },
+            )
+            .unwrap();
+        }
 
-        let instant = view::Entry {
-            kind: MediaKind::Instant,
-            ..base.clone()
+        let instant_meta = |name: &str| {
+            format!(r#"{{"pretty_name":"{name}","sharing":null,"fps":30,"sample_rate":48000}}"#)
         };
-        assert_eq!(file_to_copy(&instant), Some(instant_output_path(&project)));
+        let instant = write_bundle(&recordings, "Instant", &instant_meta("Instant"));
+        std::fs::create_dir_all(instant.join("content")).unwrap();
+        std::fs::write(instant_output_path(&instant), b"current").unwrap();
+        let lost = write_bundle(&recordings, "Lost", &instant_meta("Lost"));
 
-        let shot = view::Entry {
-            kind: MediaKind::Screenshot,
-            screenshot: Some(PathBuf::from("Shot.png")),
-            ..base
-        };
-        assert_eq!(file_to_copy(&shot), Some(PathBuf::from("Shot.png")));
+        let shot = write_screenshot_bundle(&screenshots, "Shot");
+
+        let entries = entries_in(&[recordings], &[screenshots]);
+        let named = |name: &str| entries.iter().find(|entry| entry.name == name).unwrap();
+        let shared = |names: &[&str]| files_to_share(names.iter().map(|name| named(name)));
+
+        assert_eq!(shared(&["Unexported"]), Vec::<PathBuf>::new());
+        assert_eq!(shared(&["Exported"]), vec![newer.clone()]);
+        assert_eq!(
+            shared(&["Instant"]),
+            vec![instant.join("content").join("output.mp4")]
+        );
+        assert_eq!(shared(&["Lost"]), Vec::<PathBuf>::new());
+        assert_eq!(shared(&["Shot"]), vec![shot.join("shot.png")]);
+        assert_eq!(
+            shared(&["Shot", "Unexported", "Exported", "Lost", "Instant"]),
+            vec![
+                shot.join("shot.png"),
+                newer,
+                instant.join("content").join("output.mp4")
+            ]
+        );
+        assert!(!unexported.join("content").exists());
+        assert!(!lost.join("content").exists());
     }
 
     #[test]

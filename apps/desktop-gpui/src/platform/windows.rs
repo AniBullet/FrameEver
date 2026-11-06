@@ -18,6 +18,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use super::{ForcedAppearance, MaterialKind, PanelBehavior};
 
 mod capture_exclusion;
+mod file_drag;
 mod hidden_frame;
 mod main_frame;
 mod reduce_motion;
@@ -126,6 +127,7 @@ pub fn install_main_window_frame_policy(native: &NativeWindow) -> std::io::Resul
     hidden_frame::install(native.hwnd())
 }
 
+pub use file_drag::drag_files_out;
 pub use main_frame::{
     install as install_main_window_limits, launch_screen as main_window_launch_screen,
     place as place_main_window, restore_minimized as restore_minimized_main_window,

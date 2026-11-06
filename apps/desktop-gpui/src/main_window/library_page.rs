@@ -1,6 +1,7 @@
 mod context;
 mod delete;
 mod detail;
+mod drag_out;
 mod overlay;
 mod preview;
 mod scrub;
@@ -650,24 +651,25 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let (click, menu) = (path.to_path_buf(), path.to_path_buf());
-        item.on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|this, _, window, cx| {
-                cx.stop_propagation();
-                window.focus(&this.library.items_focus, cx);
-            }),
-        )
-        .on_mouse_down(
-            MouseButton::Right,
-            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                cx.stop_propagation();
-                window.focus(&this.library.items_focus, cx);
-                this.open_library_item_menu(&menu, event.position, cx);
-            }),
-        )
-        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
-            this.click_library_item(&click, event, window, cx);
-        }))
+        self.library_item_drag(item, path, cx)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    window.focus(&this.library.items_focus, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    window.focus(&this.library.items_focus, cx);
+                    this.open_library_item_menu(&menu, event.position, cx);
+                }),
+            )
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                this.click_library_item(&click, event, window, cx);
+            }))
     }
 
     fn begin_library_marquee(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {

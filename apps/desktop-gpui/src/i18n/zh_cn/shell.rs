@@ -581,6 +581,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Waiting", "等待中"),
     ("Compress {count}", "压缩 {count} 项"),
     ("Copy files", "复制文件"),
+    (
+        "Export this project first to drag it out",
+        "先导出这个项目才能拖出",
+    ),
     ("Clear selection", "取消选择"),
     ("{count} recordings", "{count} 条录制"),
     ("Saved {size}", "节省了 {size}"),
