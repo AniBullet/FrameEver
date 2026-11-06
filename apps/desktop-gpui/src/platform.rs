@@ -135,10 +135,22 @@ fn clipboard_file_path(path: &std::path::Path) -> Result<std::path::PathBuf, Str
     Ok(path)
 }
 
-pub fn copy_image_to_clipboard(path: &std::path::Path, cx: &gpui::App) -> Result<(), String> {
-    let bytes = std::fs::read(path)
-        .map_err(|error| t!("Could not read the clipboard image: {error}", error = error))?;
-    copy_image_bytes_to_clipboard(&bytes, cx)
+pub fn copy_image_to_clipboard(
+    path: std::path::PathBuf,
+    cx: &gpui::App,
+) -> gpui::Task<Result<(), String>> {
+    cx.spawn(async move |cx| {
+        let image = cx
+            .background_executor()
+            .spawn(async move {
+                let bytes = std::fs::read(&path).map_err(|error| {
+                    t!("Could not read the clipboard image: {error}", error = error)
+                })?;
+                prepare_clipboard_image(bytes)
+            })
+            .await?;
+        cx.update(|cx| write_clipboard_image(image, cx))
+    })
 }
 
 #[cfg(any(not(target_os = "macos"), test))]
@@ -1738,7 +1750,13 @@ mod mac {
         })
     }
 
-    pub fn copy_image_bytes_to_clipboard(bytes: &[u8], _cx: &gpui::App) -> Result<(), String> {
+    pub struct ClipboardImage(Vec<u8>);
+
+    pub fn prepare_clipboard_image(bytes: Vec<u8>) -> Result<ClipboardImage, String> {
+        Ok(ClipboardImage(bytes))
+    }
+
+    pub fn write_clipboard_image(image: ClipboardImage, _cx: &gpui::App) -> Result<(), String> {
         use objc2::rc::autoreleasepool;
         use objc2::runtime::Bool;
         use objc2::{class, msg_send};
@@ -1749,7 +1767,7 @@ mod mac {
             if pasteboard.is_null() {
                 return Err("Clipboard unavailable".into());
             }
-            let data = NSData::with_bytes(bytes);
+            let data = NSData::with_bytes(&image.0);
             let image: *mut AnyObject = msg_send![class!(NSImage), alloc];
             let image: *mut AnyObject = msg_send![image, initWithData: &*data];
             let image = Id::from_raw(image).ok_or("Failed to load image")?;
