@@ -202,6 +202,13 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_UI_Shell",
+] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Native window treatment (panel levels, Spaces) gpui does not expose. Same

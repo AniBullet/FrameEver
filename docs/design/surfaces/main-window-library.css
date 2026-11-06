@@ -1154,3 +1154,14 @@ main > section .seg {
 	flex-wrap: wrap;
 	justify-content: flex-end;
 }
+
+.drag-notice {
+	display: inline-block;
+	margin-top: 6px;
+	padding: 6px 10px;
+	border-radius: var(--radius-sm);
+	background: var(--popover);
+	border: 1px solid var(--border);
+	color: var(--foreground);
+	font-size: 12px;
+}

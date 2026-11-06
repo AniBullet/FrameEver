@@ -275,11 +275,7 @@ impl MainWindow {
     }
 
     pub(super) fn library_files_to_copy(&self) -> Vec<PathBuf> {
-        self.library
-            .selected_entries()
-            .into_iter()
-            .filter_map(library::file_to_copy)
-            .collect()
+        library::files_to_share(self.library.selected_entries())
     }
 
     pub(super) fn library_compressible(&self) -> Vec<PathBuf> {

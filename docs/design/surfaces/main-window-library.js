@@ -1532,12 +1532,13 @@ document.getElementById("keys-grid").innerHTML =
 		["Delete…", "删除…", "Del"],
 		["Delete without asking", "直接删除", "Shift Del"],
 		["Copy file", "复制文件", "Ctrl C"],
+		["Drag the same file out", "拖出同样的文件", "Drag"],
 		["Select all", "全选", "Ctrl A"],
 		["Search", "搜索", "Ctrl F"],
 		["Thumbnail size", "缩略图大小", "Ctrl =", "Ctrl -"],
 		["Grid, list", "网格、列表", "Ctrl 1", "Ctrl 2"],
 		["Back out one level", "逐层退出", "Esc"],
-	])}</div><div class="card"><h3>${L("Window", "窗口")}</h3>${keyRows([
+	])}<div class="label" style="margin-top:12px">${L("Dragging a Studio project with no export", "拖动没有导出的工作室项目")}</div><div class="drag-notice">${L("Export this project first to drag it out", "先导出这个项目才能拖出")}</div></div><div class="card"><h3>${L("Window", "窗口")}</h3>${keyRows([
 		["Command palette", "命令面板", "Ctrl K"],
 		["Library, back to recording", "资源库、回到录制", "Ctrl L"],
 	])}<h3 style="margin-top:16px">${L("Preview", "预览")}</h3>${keyRows([
