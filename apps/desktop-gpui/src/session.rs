@@ -261,6 +261,7 @@ pub struct RecordingSession {
     paused_accum: Duration,
     paused_since: Option<Instant>,
     storage_monitor: Option<Task<()>>,
+    camera_monitor: Option<Task<()>>,
     failure_monitor: Option<Task<()>>,
     recording_generation: u64,
     countdown_remaining: Option<u32>,
@@ -303,6 +304,7 @@ impl RecordingSession {
             paused_accum: Duration::ZERO,
             paused_since: None,
             storage_monitor: None,
+            camera_monitor: None,
             failure_monitor: None,
             recording_generation: 0,
             countdown_remaining: None,
@@ -673,6 +675,7 @@ impl RecordingSession {
             crate::app_windows::prewarm_shared_wgpu_device(cx);
         }
         self.monitor_storage(project_dir, cx);
+        self.monitor_camera(cx);
         self.monitor_recording_failure(done, cx);
         cx.notify();
     }
@@ -723,6 +726,60 @@ impl RecordingSession {
             })
             .ok();
         }));
+    }
+
+    fn monitor_camera(&mut self, cx: &mut Context<Self>) {
+        self.camera_monitor = None;
+        let Some(camera) = self
+            .last_config
+            .as_ref()
+            .and_then(|config| config.camera.clone())
+        else {
+            return;
+        };
+        let generation = self.recording_generation;
+        let task = cx.spawn(async move |this, cx| {
+            let mut marked_lost = false;
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let is_current = this
+                    .update(cx, |this, _| {
+                        matches!(this.phase, Phase::Recording { .. })
+                            && this.recording_generation == generation
+                    })
+                    .unwrap_or(false);
+                if !is_current {
+                    if marked_lost {
+                        this.update(cx, |_, cx| {
+                            crate::feeds::Feeds::global(cx)
+                                .update(cx, |feeds, cx| feeds.set_camera_disconnected(false, cx));
+                        })
+                        .ok();
+                    }
+                    return;
+                }
+                let id = camera.clone();
+                let connected = cx
+                    .background_executor()
+                    .spawn(async move { crate::devices::camera_connected(&id) })
+                    .await;
+                let Some(lost) = camera_link_change(marked_lost, connected) else {
+                    continue;
+                };
+                marked_lost = lost;
+                if lost {
+                    tracing::warn!("camera disconnected during the recording; recording continues");
+                } else {
+                    tracing::info!("camera reconnected during the recording");
+                }
+                this.update(cx, |_, cx| {
+                    crate::feeds::Feeds::global(cx)
+                        .update(cx, |feeds, cx| feeds.set_camera_disconnected(lost, cx));
+                })
+                .ok();
+            }
+        });
+        self.camera_monitor = Some(task);
     }
 
     fn monitor_storage(&mut self, project_dir: std::path::PathBuf, cx: &mut Context<Self>) {
@@ -1242,6 +1299,23 @@ impl RecordingSession {
 
 fn recording_failure_is_current(phase: Phase, current: u64, completed: u64) -> bool {
     current == completed && matches!(phase, Phase::Recording { .. })
+}
+
+fn camera_link_change(marked_lost: bool, connected: bool) -> Option<bool> {
+    (marked_lost == connected).then_some(!connected)
+}
+
+#[cfg(test)]
+mod camera_watch_tests {
+    use super::*;
+
+    #[test]
+    fn an_unplugged_camera_is_marked_once_and_cleared_when_it_returns() {
+        assert_eq!(camera_link_change(false, false), Some(true));
+        assert_eq!(camera_link_change(true, false), None);
+        assert_eq!(camera_link_change(true, true), Some(false));
+        assert_eq!(camera_link_change(false, true), None);
+    }
 }
 
 #[cfg(test)]
