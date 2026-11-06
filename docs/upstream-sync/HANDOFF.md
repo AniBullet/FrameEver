@@ -130,6 +130,10 @@ Measured on the owner's machine in a debug build (3440 × 1440, 100 Hz), by `FRA
 
 Whole screen sits on `fixed_preview`, which is dark only in the dark theme, so the light theme letterboxes in light gray; #30 asked for a dark base and no token is dark in both. A focus lost to a control that left the tree returns to the overlay rather than the undrawn page. Leaving whole screen restored the exact window bounds in a dev build. The overlay's picture, the keys, the mouse path and the look were not exercised by hand: simulated input doesn't reach the window. The owner checks those, the light theme, 125 to 200%, and whether a stray key closes the overlay.
 
+### Tray: left click only and a visible recording icon (AniBullet/FrameEver#81, 2026-11-03)
+
+`tray/windows.rs` stops a recording on the left button only, so right and middle clicks do nothing while recording until #82 brings the menu back. Windows' recording icon is now `assets/tray/tray-recording-icon.png`, the ring and red square on the plate from `docs/design/surfaces/tray.html`, drawn by `render_tray_recording_icon` in `packaging/brand/render_brand.py`. `tray-stop-icon.png` stays for the macOS status item. A test composites the icon at 16, 20, 24 and 32 px over a dark and a light taskbar and requires a quarter of its pixels at 3:1 contrast or better. The clicks and the icon on a real taskbar were not tried in a running app; the owner checks these.
+
 ### Platform plan (ADR-0008)
 
 1. Now until Windows 1.0.0: Windows is the only platform built, tested and released. macOS code stays in the tree but is not kept compiling; do not delete it, and do not spend time on it. Remove Linux code wherever it is found (#4 and #5 removed it from the crates, the app, the CLI and the packaging scripts).

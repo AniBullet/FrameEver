@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use gpui::{App, Global};
 use tray_icon::{
-    Icon, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
+    Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
     menu::{
         self, IconMenuItem, IsMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem,
         Submenu,
@@ -15,7 +15,7 @@ use super::{
 use crate::{i18n::t, main_window::Mode};
 
 const TRAY_ID: &str = "cap-gpui-tray";
-const STOP_ICON: &[u8] = include_bytes!("../../assets/tray/tray-stop-icon.png");
+const RECORDING_ICON: &[u8] = include_bytes!("../../assets/tray/tray-recording-icon.png");
 
 enum Event {
     Menu(MenuId),
@@ -115,6 +115,7 @@ fn activates_tray(event: &TrayIconEvent) -> bool {
         event,
         TrayIconEvent::Click {
             id,
+            button: MouseButton::Left,
             button_state: MouseButtonState::Up,
             ..
         } if id.as_ref() == TRAY_ID
@@ -134,12 +135,16 @@ fn app_tray_icon() -> anyhow::Result<Icon> {
     Ok(Icon::from_resource(1, Some((size, size)))?)
 }
 
-fn decode_tray_icon(bytes: &[u8]) -> anyhow::Result<Icon> {
-    let size = tray_icon_size();
+fn tray_icon_rgba(bytes: &[u8], size: u32) -> anyhow::Result<Vec<u8>> {
     let image = image::load_from_memory(bytes)?
         .resize_exact(size, size, image::imageops::FilterType::Lanczos3)
         .into_rgba8();
-    Ok(Icon::from_rgba(image.into_raw(), size, size)?)
+    Ok(image.into_raw())
+}
+
+fn decode_tray_icon(bytes: &[u8]) -> anyhow::Result<Icon> {
+    let size = tray_icon_size();
+    Ok(Icon::from_rgba(tray_icon_rgba(bytes, size)?, size, size)?)
 }
 
 fn decode_menu_icon(bytes: &[u8]) -> anyhow::Result<menu::Icon> {
@@ -226,7 +231,7 @@ pub fn set_recording(recording: bool, cx: &mut App) {
             .set_menu(Some(Box::new(tray.native_menu.menu.clone())));
     }
     let icon = if recording {
-        decode_tray_icon(STOP_ICON)
+        decode_tray_icon(RECORDING_ICON)
     } else {
         app_tray_icon()
     };
@@ -316,7 +321,7 @@ pub fn refresh_menu(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tray_icon::{MouseButton, Rect};
+    use tray_icon::Rect;
 
     #[test]
     fn menu_titles_preserve_literal_ampersands() {
@@ -327,28 +332,94 @@ mod tests {
         assert_eq!(menu_text("Studio"), "Studio");
     }
 
-    #[test]
-    fn recording_stop_uses_one_click_event_for_this_tray() {
-        for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
-            let event = |id: &str, button_state| TrayIconEvent::Click {
-                id: id.into(),
-                position: Default::default(),
-                rect: Rect::default(),
-                button,
-                button_state,
-            };
-            assert!(activates_tray(&event(TRAY_ID, MouseButtonState::Up)));
-            assert!(!activates_tray(&event(TRAY_ID, MouseButtonState::Down)));
-            assert!(!activates_tray(&event(
-                "another-tray",
-                MouseButtonState::Up
-            )));
+    fn click(id: &str, button: MouseButton, button_state: MouseButtonState) -> TrayIconEvent {
+        TrayIconEvent::Click {
+            id: id.into(),
+            position: Default::default(),
+            rect: Rect::default(),
+            button,
+            button_state,
         }
+    }
+
+    #[test]
+    fn recording_stop_uses_one_left_click_event_for_this_tray() {
+        assert!(activates_tray(&click(
+            TRAY_ID,
+            MouseButton::Left,
+            MouseButtonState::Up
+        )));
+        assert!(!activates_tray(&click(
+            TRAY_ID,
+            MouseButton::Left,
+            MouseButtonState::Down
+        )));
+        assert!(!activates_tray(&click(
+            "another-tray",
+            MouseButton::Left,
+            MouseButtonState::Up
+        )));
         assert!(!activates_tray(&TrayIconEvent::DoubleClick {
             id: TRAY_ID.into(),
             position: Default::default(),
             rect: Rect::default(),
             button: MouseButton::Left,
         }));
+    }
+
+    #[test]
+    fn right_and_middle_clicks_do_not_stop_a_recording() {
+        for button in [MouseButton::Right, MouseButton::Middle] {
+            for state in [MouseButtonState::Down, MouseButtonState::Up] {
+                assert!(!activates_tray(&click(TRAY_ID, button, state)));
+            }
+        }
+    }
+
+    fn relative_luminance(rgb: [f32; 3]) -> f32 {
+        let [r, g, b] = rgb.map(|channel| {
+            if channel <= 0.04045 {
+                channel / 12.92
+            } else {
+                ((channel + 0.055) / 1.055).powf(2.4)
+            }
+        });
+        0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    fn contrast(a: [f32; 3], b: [f32; 3]) -> f32 {
+        let (a, b) = (relative_luminance(a), relative_luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    fn over(pixel: &[u8], background: [f32; 3]) -> [f32; 3] {
+        let alpha = f32::from(pixel[3]) / 255.;
+        [0, 1, 2].map(|channel| {
+            f32::from(pixel[channel]) / 255. * alpha + background[channel] * (1. - alpha)
+        })
+    }
+
+    #[test]
+    fn recording_icon_stands_out_on_dark_and_light_taskbars() {
+        const DARK_TASKBAR: [f32; 3] = [0.11, 0.11, 0.11];
+        const LIGHT_TASKBAR: [f32; 3] = [0.95, 0.95, 0.95];
+        const SMALL_ICON_SIZES: [u32; 4] = [16, 20, 24, 32];
+        const LEGIBLE_CONTRAST: f32 = 3.;
+        const MINIMUM_LEGIBLE_SHARE: f32 = 0.25;
+
+        for size in SMALL_ICON_SIZES {
+            let pixels = tray_icon_rgba(RECORDING_ICON, size).unwrap();
+            for taskbar in [DARK_TASKBAR, LIGHT_TASKBAR] {
+                let visible = pixels
+                    .chunks_exact(4)
+                    .filter(|pixel| contrast(over(pixel, taskbar), taskbar) >= LEGIBLE_CONTRAST)
+                    .count();
+                let share = visible as f32 / (size * size) as f32;
+                assert!(
+                    share >= MINIMUM_LEGIBLE_SHARE,
+                    "{size} px on {taskbar:?}: only {share} of the pixels stand out"
+                );
+            }
+        }
     }
 }

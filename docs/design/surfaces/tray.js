@@ -613,8 +613,8 @@ const copy = () => {
 			[
 				["Stop by clicking the icon", "点图标停止"],
 				[
-					"Ours and upstream: any mouse button stops",
-					"我们和上游：任何鼠标键都会停止",
+					"Upstream: any mouse button stops; ours: left click only, right click does nothing",
+					"上游：任何鼠标键都会停止；我们：只有左键，右键没反应",
 				],
 				[
 					"Left click only; right click opens the menu",
