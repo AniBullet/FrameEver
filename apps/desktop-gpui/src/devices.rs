@@ -697,6 +697,69 @@ impl CameraOption {
     }
 }
 
+pub fn camera_connected(id: &frameever_recording::feeds::camera::DeviceOrModelID) -> bool {
+    let cameras: Vec<_> = frameever_camera::list_cameras().collect();
+    camera_listed(
+        id,
+        cameras
+            .iter()
+            .map(|camera| (camera.device_id(), camera.model_id())),
+    )
+}
+
+fn camera_listed<'a>(
+    id: &frameever_recording::feeds::camera::DeviceOrModelID,
+    mut cameras: impl Iterator<Item = (&'a str, Option<&'a frameever_camera::ModelID>)>,
+) -> bool {
+    use frameever_recording::feeds::camera::DeviceOrModelID;
+    cameras.any(|(device_id, model_id)| match id {
+        DeviceOrModelID::DeviceID(wanted) => device_id == wanted,
+        DeviceOrModelID::ModelID(wanted) => model_id == Some(wanted),
+    })
+}
+
+#[cfg(test)]
+mod camera_presence_tests {
+    use super::*;
+    use frameever_recording::feeds::camera::DeviceOrModelID;
+
+    fn model(value: &str) -> frameever_camera::ModelID {
+        frameever_camera::ModelID::try_from(value.to_string()).unwrap()
+    }
+
+    #[test]
+    fn a_selected_camera_is_found_by_device_or_model() {
+        let c920 = model("046d:082d");
+        let listed = [("usb-1", Some(&c920)), ("virtual", None)];
+        assert!(camera_listed(
+            &DeviceOrModelID::DeviceID("virtual".into()),
+            listed.iter().copied()
+        ));
+        assert!(camera_listed(
+            &DeviceOrModelID::ModelID(model("046d:082d")),
+            listed.iter().copied()
+        ));
+    }
+
+    #[test]
+    fn an_unplugged_camera_is_not_listed() {
+        let other = model("1234:0001");
+        let listed = [("usb-2", Some(&other))];
+        assert!(!camera_listed(
+            &DeviceOrModelID::DeviceID("usb-1".into()),
+            listed.iter().copied()
+        ));
+        assert!(!camera_listed(
+            &DeviceOrModelID::ModelID(model("046d:082d")),
+            listed.iter().copied()
+        ));
+        assert!(!camera_listed(
+            &DeviceOrModelID::DeviceID("usb-1".into()),
+            std::iter::empty()
+        ));
+    }
+}
+
 pub fn camera_formats(device_id: &str) -> Result<Vec<CameraFormat>, String> {
     let camera = frameever_camera::list_cameras()
         .find(|camera| camera.device_id() == device_id)
