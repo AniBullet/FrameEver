@@ -536,9 +536,13 @@ impl MainWindow {
                 row.child(open_button).child(
                     self.detail_button("library-detail-copy-image", t!("Copy image"), false, false)
                         .on_click(move |_, _, cx| {
-                            if let Err(error) = crate::platform::copy_image_to_clipboard(&png, cx) {
-                                alert_copy_failed(error, cx);
-                            }
+                            let copied = crate::platform::copy_image_to_clipboard(png.clone(), cx);
+                            cx.spawn(async move |cx| {
+                                if let Err(error) = copied.await {
+                                    cx.update(|cx| alert_copy_failed(error, cx));
+                                }
+                            })
+                            .detach();
                         }),
                 )
             }
