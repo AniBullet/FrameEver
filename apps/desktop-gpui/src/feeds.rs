@@ -297,6 +297,7 @@ pub struct Feeds {
     mic_level: Entity<MicLevel>,
     mic_level_shown: Arc<std::sync::atomic::AtomicU64>,
     pub camera_error: Option<String>,
+    camera_disconnected: bool,
     camera_preview_parked: bool,
     /// Bumped on every camera/mic selection change; async completions from a
     /// previous selection see a stale epoch and drop their result.
@@ -352,6 +353,27 @@ impl Feeds {
         self.camera_input_pending
     }
 
+    pub fn camera_disconnected(&self) -> bool {
+        self.camera_disconnected
+    }
+
+    pub fn set_camera_disconnected(&mut self, disconnected: bool, cx: &mut Context<Self>) {
+        if self.camera_disconnected == disconnected {
+            return;
+        }
+        self.camera_disconnected = disconnected;
+        cx.notify();
+        if disconnected || self.camera_preview_parked {
+            return;
+        }
+        if let Some(selection) = self.camera.clone() {
+            self.camera_epoch += 1;
+            self.camera_input_epoch
+                .store(self.camera_epoch, Ordering::Release);
+            self.start_camera_preview(selection, cx);
+        }
+    }
+
     pub fn init(cx: &mut App) -> Entity<Self> {
         let mic_level = cx.new(|_| MicLevel { db: -96.0 });
         let feeds = cx.new(|_| Self {
@@ -376,6 +398,7 @@ impl Feeds {
             mic_level,
             mic_level_shown: Arc::new(std::sync::atomic::AtomicU64::new((-96.0f64).to_bits())),
             camera_error: None,
+            camera_disconnected: false,
             camera_preview_parked: false,
             camera_epoch: 0,
             mic_epoch: 0,
@@ -497,6 +520,7 @@ impl Feeds {
         self.camera_input_pending = false;
         self.camera_preview_not_before = None;
         self.camera_error = None;
+        self.camera_disconnected = false;
         cx.notify();
 
         match selection {

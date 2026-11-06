@@ -749,15 +749,23 @@ pub fn copy_files_to_clipboard(paths: &[PathBuf], _cx: &gpui::App) -> Result<(),
         })
 }
 
-pub fn copy_image_bytes_to_clipboard(bytes: &[u8], _cx: &gpui::App) -> Result<(), String> {
-    use clipboard_rs::common::RustImage;
-    use clipboard_rs::{Clipboard, ClipboardContext, RustImageData};
+pub struct ClipboardImage(clipboard_rs::RustImageData);
 
-    let image = RustImageData::from_bytes(bytes)
-        .map_err(|error| t!("Could not load the clipboard image: {error}", error = error))?;
+pub fn prepare_clipboard_image(bytes: Vec<u8>) -> Result<ClipboardImage, String> {
+    use clipboard_rs::RustImageData;
+    use clipboard_rs::common::RustImage;
+
+    RustImageData::from_bytes(&bytes)
+        .map(ClipboardImage)
+        .map_err(|error| t!("Could not load the clipboard image: {error}", error = error))
+}
+
+pub fn write_clipboard_image(image: ClipboardImage, _cx: &gpui::App) -> Result<(), String> {
+    use clipboard_rs::{Clipboard, ClipboardContext};
+
     ClipboardContext::new()
         .map_err(|error| t!("Clipboard unavailable: {error}", error = error))?
-        .set_image(image)
+        .set_image(image.0)
         .map_err(|error| {
             t!(
                 "Could not copy the image to the clipboard: {error}",

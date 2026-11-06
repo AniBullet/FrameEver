@@ -3235,6 +3235,16 @@ impl EditorWindow {
         self.seek_to_time(0.0, cx);
     }
 
+    fn step_playhead(&mut self, frames: i32, cx: &mut Context<Self>) {
+        let target = stepped_playhead(self.playhead, self.total_duration(), frames);
+        if self.preparing_transport_active() && self.preparing_controls_ready() {
+            self.preparing_command(Some(target), Some(false));
+            return;
+        }
+        self.stop_playback(cx);
+        self.seek_to_time(target, cx);
+    }
+
     /// The next button (`Player.tsx:395-405`): stop, playhead to the end.
     pub fn jump_to_end(&mut self, cx: &mut Context<Self>) {
         if self.preparing_transport_active() && self.preparing_controls_ready() {
@@ -3402,6 +3412,22 @@ impl EditorWindow {
                 window.refresh();
                 return;
             }
+        }
+
+        let menu_open = self.crop.is_some()
+            || self.sidebar.menu.is_some()
+            || self.toolbar_menu.is_some()
+            || self.presets_menu.is_some();
+        if let Some(frames) = playhead_step_frames(
+            &event.keystroke,
+            ui::text_input_has_focus(window, cx),
+            self.canvas_selection.is_some(),
+            menu_open,
+        ) {
+            cx.stop_propagation();
+            self.step_playhead(frames, cx);
+            window.refresh();
+            return;
         }
 
         if event.is_held {
@@ -11123,6 +11149,37 @@ fn is_playback_shortcut(
     keystroke.key == "space" && !keystroke.modifiers.modified() && !text_input_focused && !menu_open
 }
 
+fn playhead_step_frames(
+    keystroke: &gpui::Keystroke,
+    text_input_focused: bool,
+    canvas_selected: bool,
+    menu_open: bool,
+) -> Option<i32> {
+    let modifiers = &keystroke.modifiers;
+    if text_input_focused
+        || canvas_selected
+        || menu_open
+        || modifiers.platform
+        || modifiers.control
+        || modifiers.alt
+        || modifiers.function
+    {
+        return None;
+    }
+    let frames = if modifiers.shift { 10 } else { 1 };
+    match keystroke.key.as_str() {
+        "left" => Some(-frames),
+        "right" => Some(frames),
+        _ => None,
+    }
+}
+
+fn stepped_playhead(playhead: f64, total: f64, frames: i32) -> f64 {
+    let fps = f64::from(EDITOR_PREVIEW_FPS);
+    let frame = (playhead * fps).round() + f64::from(frames);
+    (frame / fps).clamp(0.0, total.max(0.0))
+}
+
 impl Render for EditorWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_appearance(window, cx);
@@ -11143,6 +11200,7 @@ impl Render for EditorWindow {
         });
         self.prepare_frame_fields(window, cx);
         self.sync_crop_container(window);
+        self.sidebar.release_retired_images(window);
         let theme = self.theme;
         // The timeline's own bounds are what `secsPerPixel` divides by, and
         // this window is resizable, so read them off the viewport rather than
@@ -12466,6 +12524,52 @@ mod tests {
             let keystroke = gpui::Keystroke::parse(key).unwrap();
             assert!(!is_playback_shortcut(&keystroke, false, false), "{key}");
         }
+    }
+
+    #[test]
+    fn arrows_step_the_playhead_only_when_nothing_else_takes_them() {
+        let key = |text: &'static str| gpui::Keystroke::parse(text).unwrap();
+        assert_eq!(
+            playhead_step_frames(&key("left"), false, false, false),
+            Some(-1)
+        );
+        assert_eq!(
+            playhead_step_frames(&key("right"), false, false, false),
+            Some(1)
+        );
+        assert_eq!(
+            playhead_step_frames(&key("shift-left"), false, false, false),
+            Some(-10)
+        );
+        assert_eq!(
+            playhead_step_frames(&key("shift-right"), false, false, false),
+            Some(10)
+        );
+        assert_eq!(
+            playhead_step_frames(&key("right"), false, true, false),
+            None
+        );
+        assert_eq!(
+            playhead_step_frames(&key("right"), true, false, false),
+            None
+        );
+        assert_eq!(playhead_step_frames(&key("left"), false, false, true), None);
+        for text in ["up", "down", "cmd-right", "ctrl-left", "alt-right", "space"] {
+            assert_eq!(
+                playhead_step_frames(&key(text), false, false, false),
+                None,
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_playhead_step_moves_whole_frames_and_stays_on_the_timeline() {
+        assert_eq!(stepped_playhead(1.0, 10.0, 1), 61.0 / 60.0);
+        assert_eq!(stepped_playhead(1.0, 10.0, -10), 50.0 / 60.0);
+        assert_eq!(stepped_playhead(1.004, 10.0, 1), 61.0 / 60.0);
+        assert_eq!(stepped_playhead(0.0, 10.0, -1), 0.0);
+        assert_eq!(stepped_playhead(9.99, 10.0, 10), 10.0);
     }
 
     /// `default_editor_preview_resolution()` is asserted to be 1248x702 in the

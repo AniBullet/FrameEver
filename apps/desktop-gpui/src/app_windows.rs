@@ -2785,7 +2785,7 @@ pub fn open_camera_window(cx: &mut App) {
         })
         .or_else(scap_targets::Display::get_containing_cursor)
         .unwrap_or_else(scap_targets::Display::primary);
-    let (x, y) = camera_window::opening_position(&display);
+    let (x, y) = camera_window::opening_position(&display, (width, height));
     let display_id = gpui_display_id(Some(&display), cx);
 
     let inline = camera_preview_is_inline(cx);
@@ -5388,10 +5388,14 @@ pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
         .ok();
 
     let behaviour = crate::store::GeneralSettings::load().post_screenshot_behaviour;
-    if behaviour.copies()
-        && let Err(error) = platform::copy_image_to_clipboard(&png, cx)
-    {
-        tracing::error!("copying the screenshot to the clipboard failed: {error}");
+    if behaviour.copies() {
+        let copied = platform::copy_image_to_clipboard(png.clone(), cx);
+        cx.spawn(async move |_| {
+            if let Err(error) = copied.await {
+                tracing::error!("copying the screenshot to the clipboard failed: {error}");
+            }
+        })
+        .detach();
     }
 
     if behaviour.opens_editor() {
