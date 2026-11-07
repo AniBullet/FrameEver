@@ -135,10 +135,39 @@ fn clipboard_file_path(path: &std::path::Path) -> Result<std::path::PathBuf, Str
     Ok(path)
 }
 
-pub fn copy_image_to_clipboard(path: &std::path::Path, cx: &gpui::App) -> Result<(), String> {
-    let bytes = std::fs::read(path)
-        .map_err(|error| t!("Could not read the clipboard image: {error}", error = error))?;
-    copy_image_bytes_to_clipboard(&bytes, cx)
+pub fn copy_image_to_clipboard(
+    path: std::path::PathBuf,
+    alert: Option<(&'static str, &'static str)>,
+    cx: &gpui::App,
+) {
+    let copied = read_image_into_clipboard(path, cx);
+    cx.spawn(async move |_| {
+        if let Err(error) = copied.await {
+            tracing::warn!("copying the image to the clipboard failed: {error}");
+            if let Some((title, message)) = alert {
+                alert_dialog(title, message);
+            }
+        }
+    })
+    .detach();
+}
+
+fn read_image_into_clipboard(
+    path: std::path::PathBuf,
+    cx: &gpui::App,
+) -> gpui::Task<Result<(), String>> {
+    cx.spawn(async move |cx| {
+        let image = cx
+            .background_executor()
+            .spawn(async move {
+                let bytes = std::fs::read(&path).map_err(|error| {
+                    t!("Could not read the clipboard image: {error}", error = error)
+                })?;
+                prepare_clipboard_image(bytes)
+            })
+            .await?;
+        cx.update(|cx| write_clipboard_image(image, cx))
+    })
 }
 
 #[cfg(any(not(target_os = "macos"), test))]
@@ -147,6 +176,25 @@ fn confirmation_accepted(result: rfd::MessageDialogResult, accept: &str) -> bool
         rfd::MessageDialogResult::Ok => true,
         rfd::MessageDialogResult::Custom(label) => label == accept,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_dialogs {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    thread_local! {
+        static CONFIRM: RefCell<Option<Rc<dyn Fn() -> bool>>> = const { RefCell::new(None) };
+    }
+
+    pub(crate) fn answer_confirm_with(answer: impl Fn() -> bool + 'static) {
+        CONFIRM.with(|slot| *slot.borrow_mut() = Some(Rc::new(answer)));
+    }
+
+    pub(crate) fn confirm() -> Option<bool> {
+        let answer = CONFIRM.with(|slot| slot.borrow().clone());
+        answer.map(|answer| answer())
     }
 }
 
@@ -1719,7 +1767,13 @@ mod mac {
         })
     }
 
-    pub fn copy_image_bytes_to_clipboard(bytes: &[u8], _cx: &gpui::App) -> Result<(), String> {
+    pub struct ClipboardImage(Vec<u8>);
+
+    pub fn prepare_clipboard_image(bytes: Vec<u8>) -> Result<ClipboardImage, String> {
+        Ok(ClipboardImage(bytes))
+    }
+
+    pub fn write_clipboard_image(image: ClipboardImage, _cx: &gpui::App) -> Result<(), String> {
         use objc2::rc::autoreleasepool;
         use objc2::runtime::Bool;
         use objc2::{class, msg_send};
@@ -1730,7 +1784,7 @@ mod mac {
             if pasteboard.is_null() {
                 return Err("Clipboard unavailable".into());
             }
-            let data = NSData::with_bytes(bytes);
+            let data = NSData::with_bytes(&image.0);
             let image: *mut AnyObject = msg_send![class!(NSImage), alloc];
             let image: *mut AnyObject = msg_send![image, initWithData: &*data];
             let image = Id::from_raw(image).ok_or("Failed to load image")?;
@@ -1805,6 +1859,11 @@ mod mac {
     ) -> bool {
         use objc2::{class, msg_send, msg_send_id};
         use objc2_foundation::NSString;
+
+        #[cfg(test)]
+        if let Some(answer) = super::test_dialogs::confirm() {
+            return answer;
+        }
 
         /// `NSAlertStyle`: `Warning = 0`, `Informational = 1`. `NSUInteger`,
         /// not `NSInteger` -- objc2's message-send verification rejects the

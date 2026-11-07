@@ -3235,6 +3235,16 @@ impl EditorWindow {
         self.seek_to_time(0.0, cx);
     }
 
+    fn step_playhead(&mut self, frames: i32, cx: &mut Context<Self>) {
+        let target = stepped_playhead(self.playhead, self.total_duration(), frames);
+        if self.preparing_transport_active() && self.preparing_controls_ready() {
+            self.preparing_command(Some(target), Some(false));
+            return;
+        }
+        self.stop_playback(cx);
+        self.seek_to_time(target, cx);
+    }
+
     /// The next button (`Player.tsx:395-405`): stop, playhead to the end.
     pub fn jump_to_end(&mut self, cx: &mut Context<Self>) {
         if self.preparing_transport_active() && self.preparing_controls_ready() {
@@ -3402,6 +3412,23 @@ impl EditorWindow {
                 window.refresh();
                 return;
             }
+        }
+
+        let arrow_owners = ArrowKeyOwners {
+            text_input: ui::text_input_has_focus(window, cx),
+            canvas_selection: self.canvas_selection.is_some(),
+            menu: self.crop.is_some()
+                || self.sidebar.menu.is_some()
+                || self.toolbar_menu.is_some()
+                || self.presets_menu.is_some(),
+            frame_controls: self.frame_controls.is_open(),
+            lane_reorder: self.lane_reorder.is_some(),
+        };
+        if let Some(frames) = playhead_step_frames(&event.keystroke, arrow_owners) {
+            cx.stop_propagation();
+            self.step_playhead(frames, cx);
+            window.refresh();
+            return;
         }
 
         if event.is_held {
@@ -3808,6 +3835,10 @@ impl EditorWindow {
         self.view.preview_time = None;
         self.emit_preview_frame();
         self.invalidate_hover_chrome(cx);
+    }
+
+    pub(crate) fn invalidate_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.sidebar_view.update(cx, |_, cx| cx.notify());
     }
 
     /// Pointer-hover state that only the timeline, the transport and the
@@ -11119,6 +11150,49 @@ fn is_playback_shortcut(
     keystroke.key == "space" && !keystroke.modifiers.modified() && !text_input_focused && !menu_open
 }
 
+#[derive(Clone, Copy, Default)]
+struct ArrowKeyOwners {
+    text_input: bool,
+    canvas_selection: bool,
+    menu: bool,
+    frame_controls: bool,
+    lane_reorder: bool,
+}
+
+impl ArrowKeyOwners {
+    fn any(self) -> bool {
+        self.text_input
+            || self.canvas_selection
+            || self.menu
+            || self.frame_controls
+            || self.lane_reorder
+    }
+}
+
+fn playhead_step_frames(keystroke: &gpui::Keystroke, owners: ArrowKeyOwners) -> Option<i32> {
+    let modifiers = &keystroke.modifiers;
+    if owners.any()
+        || modifiers.platform
+        || modifiers.control
+        || modifiers.alt
+        || modifiers.function
+    {
+        return None;
+    }
+    let frames = if modifiers.shift { 10 } else { 1 };
+    match keystroke.key.as_str() {
+        "left" => Some(-frames),
+        "right" => Some(frames),
+        _ => None,
+    }
+}
+
+fn stepped_playhead(playhead: f64, total: f64, frames: i32) -> f64 {
+    let fps = f64::from(EDITOR_PREVIEW_FPS);
+    let frame = (playhead * fps).round() + f64::from(frames);
+    (frame / fps).clamp(0.0, total.max(0.0))
+}
+
 impl Render for EditorWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_appearance(window, cx);
@@ -11139,6 +11213,7 @@ impl Render for EditorWindow {
         });
         self.prepare_frame_fields(window, cx);
         self.sync_crop_container(window);
+        self.sidebar.release_retired_images(window);
         let theme = self.theme;
         // The timeline's own bounds are what `secsPerPixel` divides by, and
         // this window is resizable, so read them off the viewport rather than
@@ -12464,6 +12539,50 @@ mod tests {
         }
     }
 
+    #[test]
+    fn arrows_step_the_playhead_only_when_nothing_else_takes_them() {
+        let key = |text: &'static str| gpui::Keystroke::parse(text).unwrap();
+        let free = ArrowKeyOwners::default();
+        assert_eq!(playhead_step_frames(&key("left"), free), Some(-1));
+        assert_eq!(playhead_step_frames(&key("right"), free), Some(1));
+        assert_eq!(playhead_step_frames(&key("shift-left"), free), Some(-10));
+        assert_eq!(playhead_step_frames(&key("shift-right"), free), Some(10));
+        for owners in [
+            ArrowKeyOwners {
+                text_input: true,
+                ..free
+            },
+            ArrowKeyOwners {
+                canvas_selection: true,
+                ..free
+            },
+            ArrowKeyOwners { menu: true, ..free },
+            ArrowKeyOwners {
+                frame_controls: true,
+                ..free
+            },
+            ArrowKeyOwners {
+                lane_reorder: true,
+                ..free
+            },
+        ] {
+            assert_eq!(playhead_step_frames(&key("left"), owners), None);
+            assert_eq!(playhead_step_frames(&key("right"), owners), None);
+        }
+        for text in ["up", "down", "cmd-right", "ctrl-left", "alt-right", "space"] {
+            assert_eq!(playhead_step_frames(&key(text), free), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_playhead_step_moves_whole_frames_and_stays_on_the_timeline() {
+        assert_eq!(stepped_playhead(1.0, 10.0, 1), 61.0 / 60.0);
+        assert_eq!(stepped_playhead(1.0, 10.0, -10), 50.0 / 60.0);
+        assert_eq!(stepped_playhead(1.004, 10.0, 1), 61.0 / 60.0);
+        assert_eq!(stepped_playhead(0.0, 10.0, -1), 0.0);
+        assert_eq!(stepped_playhead(9.99, 10.0, 10), 10.0);
+    }
+
     /// `default_editor_preview_resolution()` is asserted to be 1248x702 in the
     /// Tauri app itself (`lib.rs:192-194`); the render size of a display
     /// recording follows from it.
@@ -12740,5 +12859,227 @@ mod tests {
         // BGRA out: the red and blue channels are swapped, no 99 anywhere.
         assert_eq!(&bytes[0..4], &[30, 20, 10, 255]);
         assert!(!bytes.contains(&99));
+    }
+
+    fn timeline_with_captions(captions: Vec<serde_json::Value>) -> TimelineConfiguration {
+        TimelineConfiguration {
+            style_segments: Vec::new(),
+            image_segments: Vec::new(),
+            segments: Vec::new(),
+            transitions: Vec::new(),
+            zoom_segments: Vec::new(),
+            scene_segments: Vec::new(),
+            mask_segments: Vec::new(),
+            text_segments: Vec::new(),
+            caption_segments: captions
+                .into_iter()
+                .map(|value| serde_json::from_value(value).unwrap())
+                .collect(),
+            keyboard_segments: vec![
+                serde_json::from_value(serde_json::json!({
+                    "id": "keys",
+                    "start": 0.5,
+                    "end": 2.0,
+                    "displayText": "Cmd K",
+                }))
+                .unwrap(),
+            ],
+            audio_segments: Vec::new(),
+            camera3d_segments: Vec::new(),
+        }
+    }
+
+    #[gpui::test]
+    fn caption_download_tick_rebuilds_only_the_sidebar(cx: &mut gpui::TestAppContext) {
+        use std::cell::Cell;
+
+        let project = tempfile::tempdir().unwrap();
+        let project_path = project.path().to_path_buf();
+        let (editor, cx) = cx
+            .add_window_view(move |window, cx| EditorWindow::new(project_path.clone(), window, cx));
+        editor.update_in(cx, |editor, window, cx| {
+            editor.set_error("captions".into(), window, cx);
+        });
+        let sidebar = editor.read_with(cx, |editor, _| editor.sidebar_view.clone());
+        let editor_notifies = Rc::new(Cell::new(0));
+        let sidebar_notifies = Rc::new(Cell::new(0));
+        let _subscriptions = cx.update(|_, cx| {
+            let editor_count = editor_notifies.clone();
+            let sidebar_count = sidebar_notifies.clone();
+            [
+                cx.observe(&editor, move |_, _| {
+                    editor_count.set(editor_count.get() + 1)
+                }),
+                cx.observe(&sidebar, move |_, _| {
+                    sidebar_count.set(sidebar_count.get() + 1)
+                }),
+            ]
+        });
+        cx.run_until_parked();
+        editor_notifies.set(0);
+        sidebar_notifies.set(0);
+
+        editor.update(cx, |editor, cx| editor.repaint_caption_download(cx));
+
+        assert_eq!(editor_notifies.get(), 0);
+        assert_eq!(sidebar_notifies.get(), 1);
+    }
+
+    #[gpui::test]
+    #[ignore = "benchmark"]
+    fn caption_download_ticks_rebuild_count_benchmark(cx: &mut gpui::TestAppContext) {
+        use std::cell::Cell;
+
+        const TICKS: usize = 100;
+        let project = tempfile::tempdir().unwrap();
+        let project_path = project.path().to_path_buf();
+        let (editor, cx) = cx
+            .add_window_view(move |window, cx| EditorWindow::new(project_path.clone(), window, cx));
+        editor.update_in(cx, |editor, window, cx| {
+            editor.set_error("captions".into(), window, cx);
+        });
+        let views = editor.read_with(cx, |editor, _| {
+            [
+                editor.header.clone(),
+                editor.toolbar.clone(),
+                editor.transport_controls.clone(),
+                editor.sidebar_view.clone(),
+                editor.timeline_view.clone(),
+            ]
+        });
+        let rebuilds = Rc::new(Cell::new(0usize));
+        let _subscriptions = cx.update(|_, cx| {
+            let mut subscriptions = Vec::new();
+            for view in &views {
+                let count = rebuilds.clone();
+                subscriptions.push(cx.observe(view, move |_, _| count.set(count.get() + 1)));
+            }
+            subscriptions
+        });
+        cx.run_until_parked();
+        rebuilds.set(0);
+
+        for _ in 0..TICKS {
+            editor.update(cx, |editor, cx| editor.repaint_caption_download(cx));
+            cx.run_until_parked();
+        }
+        println!(
+            "caption download: {} section view rebuilds for {TICKS} ticks",
+            rebuilds.get()
+        );
+    }
+
+    #[gpui::test]
+    fn field_sync_rewrites_only_unfocused_fields_whose_value_moved(cx: &mut gpui::TestAppContext) {
+        use crate::{editor_panels::FieldKey, editor_tabs::OffsetKind};
+
+        fn text(
+            editor: &Entity<EditorWindow>,
+            key: FieldKey,
+            cx: &mut gpui::VisualTestContext,
+        ) -> String {
+            editor.read_with(cx, |editor, cx| {
+                editor.field(key).unwrap().read(cx).text().to_string()
+            })
+        }
+
+        let project = tempfile::tempdir().unwrap();
+        let project_path = project.path().to_path_buf();
+        let (editor, cx) = cx
+            .add_window_view(move |window, cx| EditorWindow::new(project_path.clone(), window, cx));
+        let keys = [
+            FieldKey::CaptionText(0),
+            FieldKey::CaptionStart(0),
+            FieldKey::CaptionEnd(0),
+            FieldKey::CaptionText(1),
+            FieldKey::KeyboardText(0),
+            FieldKey::KeyboardEnd(0),
+            FieldKey::SyncOffset(0, OffsetKind::Mic),
+        ];
+        editor.update_in(cx, |editor, window, cx| {
+            editor.set_error("fields".into(), window, cx);
+            editor.project.timeline = Some(timeline_with_captions(vec![serde_json::json!({
+                "id": "caption",
+                "start": 1.25,
+                "end": 3.5,
+                "text": "Hello",
+            })]));
+            for key in keys {
+                editor.ensure_field(key, window, cx);
+            }
+            editor.sync_fields(window, cx);
+        });
+        let texts = keys.map(|key| text(&editor, key, cx));
+        assert_eq!(texts, ["Hello", "1.25", "3.50", "", "Cmd K", "2.00", "0"]);
+
+        let caption = editor.read_with(cx, |editor, _| {
+            editor.field(FieldKey::CaptionText(0)).unwrap().clone()
+        });
+        caption.update(cx, |input, cx| input.select_all_text(cx));
+        editor.update_in(cx, |editor, window, cx| editor.sync_fields(window, cx));
+        assert_eq!(caption.read_with(cx, |input, _| input.selection()), 0..5);
+
+        let start_focus = editor.read_with(cx, |editor, cx| {
+            editor
+                .field(FieldKey::CaptionStart(0))
+                .unwrap()
+                .read(cx)
+                .focus_handle()
+        });
+        editor.update_in(cx, |editor, window, cx| {
+            window.focus(&start_focus, cx);
+            let segment = &mut editor.project.timeline.as_mut().unwrap().caption_segments[0];
+            segment.start = 2.;
+            segment.text = "Bye".into();
+            editor.sync_fields(window, cx);
+        });
+        assert_eq!(text(&editor, FieldKey::CaptionText(0), cx), "Bye");
+        assert_eq!(caption.read_with(cx, |input, _| input.selection()), 3..3);
+        assert_eq!(text(&editor, FieldKey::CaptionStart(0), cx), "1.25");
+    }
+
+    #[gpui::test]
+    #[ignore = "benchmark"]
+    fn field_sync_benchmark(cx: &mut gpui::TestAppContext) {
+        use crate::editor_panels::FieldKey;
+
+        const CAPTIONS: usize = 300;
+        const PASSES: usize = 200;
+        let project = tempfile::tempdir().unwrap();
+        let project_path = project.path().to_path_buf();
+        let (editor, cx) = cx
+            .add_window_view(move |window, cx| EditorWindow::new(project_path.clone(), window, cx));
+        editor.update_in(cx, |editor, window, cx| {
+            editor.set_error("fields".into(), window, cx);
+            let captions = (0..CAPTIONS)
+                .map(|index| {
+                    serde_json::json!({
+                        "id": format!("caption-{index}"),
+                        "start": index as f64,
+                        "end": index as f64 + 0.9,
+                        "text": "A caption line of ordinary length with some words in it",
+                    })
+                })
+                .collect();
+            editor.project.timeline = Some(timeline_with_captions(captions));
+            for index in 0..CAPTIONS {
+                editor.ensure_field(FieldKey::CaptionText(index), window, cx);
+                editor.ensure_field(FieldKey::CaptionStart(index), window, cx);
+                editor.ensure_field(FieldKey::CaptionEnd(index), window, cx);
+            }
+            editor.sync_fields(window, cx);
+        });
+        let started = std::time::Instant::now();
+        editor.update_in(cx, |editor, window, cx| {
+            for _ in 0..PASSES {
+                editor.sync_fields(window, cx);
+            }
+        });
+        let elapsed = started.elapsed();
+        println!(
+            "field sync: {} fields, {:.1} us per pass",
+            CAPTIONS * 3,
+            elapsed.as_secs_f64() * 1e6 / PASSES as f64
+        );
     }
 }

@@ -535,10 +535,10 @@ const copy = () => {
 			[
 				["Screenshot display, window, area", "截取显示器、窗口、区域"],
 				[
-					"Ours arms the target; upstream has separate items that take the screenshot",
-					"我们是选好目标；上游有单独的项目直接截图",
+					"Separate items, ported from upstream: display takes it at once, window and area open the picker",
+					"单独的项目，从上游移植：显示器直接截图，窗口和区域打开选择器",
 				],
-				["Port upstream's items", "移植上游的项目"],
+				["Kept", "保留"],
 			],
 			[
 				["Take a screenshot", "截图"],
@@ -602,19 +602,22 @@ const copy = () => {
 			],
 			[
 				["Shortcuts on rows", "行上的快捷键"],
-				["Upstream only", "仅上游"],
+				[
+					"Ported: the native menu's shortcut text, only when one is set",
+					"已移植：原生菜单的快捷键文字，只在设置了快捷键时显示",
+				],
 				["Port, as chips", "移植，显示成按键样式"],
 			],
 			[
 				["Row icons", "行图标"],
-				["Upstream only", "仅上游"],
+				["Ported, with our Lucide icons", "已移植，用我们的 Lucide 图标"],
 				["Port, using our Lucide set", "移植，用我们的 Lucide 图标"],
 			],
 			[
 				["Stop by clicking the icon", "点图标停止"],
 				[
-					"Ours and upstream: any mouse button stops",
-					"我们和上游：任何鼠标键都会停止",
+					"Upstream: any mouse button stops; ours: left click only, right click does nothing",
+					"上游：任何鼠标键都会停止；我们：只有左键，右键没反应",
 				],
 				[
 					"Left click only; right click opens the menu",

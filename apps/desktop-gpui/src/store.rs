@@ -202,81 +202,6 @@ fn bundled_resource_dirs_for(
     directories
 }
 
-/// The Tauri dev harness's hand-off marker (`gpui_app.rs` over there): it
-/// survives the whole session and is removed only on a clean quit, so a marker
-/// left behind reads as a crash and routes the next `bun run dev:desktop` back
-/// to the classic app.
-pub fn handoff_marker_path() -> PathBuf {
-    app_data_dir().join("cap-gpui.handoff")
-}
-
-pub fn mark_handoff_session() {
-    if let Err(error) = mark_handoff_session_at(&handoff_marker_path()) {
-        tracing::warn!("writing the hand-off marker: {error}");
-    }
-}
-
-fn mark_handoff_session_at(path: &Path) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let staged = path.with_extension(format!("handoff-{}", std::process::id()));
-    std::fs::write(&staged, std::process::id().to_string())?;
-    std::fs::rename(&staged, path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&staged);
-    })
-}
-
-pub fn clear_handoff_marker() {
-    clear_handoff_marker_at(&handoff_marker_path());
-}
-
-fn clear_handoff_marker_at(path: &Path) {
-    match std::fs::remove_file(path) {
-        Ok(()) => tracing::info!("cleared the hand-off marker"),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => tracing::warn!("clearing the hand-off marker: {error}"),
-    }
-}
-
-/// A dev-checkout switch-back has no `Cap.app` to `open`: the classic app only
-/// runs inside its `tauri dev` harness, which exited with the hand-off. This
-/// sentinel asks whatever supervises the dev session (`scripts/dev-desktop.mjs`
-/// watches for it) to start that harness again; with no supervisor listening it
-/// is inert, and the flag written alongside it still routes the next
-/// `bun run dev:desktop` to the classic app.
-pub fn classic_reopen_path() -> PathBuf {
-    app_data_dir().join("cap-classic.reopen")
-}
-
-pub fn request_classic_reopen() -> std::io::Result<()> {
-    let path = classic_reopen_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, std::process::id().to_string())
-}
-
-pub fn classic_pending_path() -> PathBuf {
-    app_data_dir().join("cap-classic.pending")
-}
-
-pub fn mark_classic_pending() -> std::io::Result<()> {
-    let path = classic_pending_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, std::process::id().to_string())
-}
-
-pub fn clear_classic_pending() {
-    if let Err(error) = std::fs::remove_file(classic_pending_path())
-        && error.kind() != std::io::ErrorKind::NotFound
-    {
-        tracing::warn!(%error, "couldn't clear classic handoff readiness");
-    }
-}
-
 fn state_path() -> PathBuf {
     app_data_dir().join("gpui-state.json")
 }
@@ -329,6 +254,11 @@ thread_local! {
 }
 
 #[cfg(test)]
+thread_local! {
+    static TEST_STORE_FILE_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
 pub(crate) fn set_test_tauri_store_path(path: Option<PathBuf>) {
     TEST_TAURI_STORE_PATH.with(|current| *current.borrow_mut() = path);
 }
@@ -355,6 +285,8 @@ static STORE_UPDATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// *not*: it is returned as `None` so no write path can silently replace
 /// someone's settings with a fresh object.
 fn read_store(path: &std::path::Path) -> Option<Map<String, Value>> {
+    #[cfg(test)]
+    TEST_STORE_FILE_READS.with(|reads| reads.set(reads.get() + 1));
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(Map::new()),
@@ -376,24 +308,106 @@ fn read_store(path: &std::path::Path) -> Option<Map<String, Value>> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StoreFileStamp {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    inode: (u64, u64),
+    #[cfg(unix)]
+    changed: (i64, i64),
+}
+
+const STORE_MTIME_SETTLE: std::time::Duration = std::time::Duration::from_secs(3);
+
+impl StoreFileStamp {
+    fn of(metadata: &std::fs::Metadata) -> Self {
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+
+        Self {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+            #[cfg(unix)]
+            inode: (metadata.dev(), metadata.ino()),
+            #[cfg(unix)]
+            changed: (metadata.ctime(), metadata.ctime_nsec()),
+        }
+    }
+
+    fn settled_before(&self, read_at: std::time::SystemTime) -> bool {
+        self.modified
+            .and_then(|modified| modified.checked_add(STORE_MTIME_SETTLE))
+            .is_some_and(|settled| settled < read_at)
+    }
+}
+
+struct CachedStore {
+    stamp: StoreFileStamp,
+    read_at: std::time::SystemTime,
+    store: std::sync::Arc<Map<String, Value>>,
+}
+
+static STORE_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<PathBuf, CachedStore>>,
+> = std::sync::LazyLock::new(Default::default);
+
+fn store_cache() -> std::sync::MutexGuard<'static, std::collections::HashMap<PathBuf, CachedStore>>
+{
+    STORE_CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn cached_store(path: &Path) -> Option<std::sync::Arc<Map<String, Value>>> {
+    let read_at = std::time::SystemTime::now();
+    let stamp = match std::fs::metadata(path) {
+        Ok(metadata) => StoreFileStamp::of(&metadata),
+        Err(_) => {
+            store_cache().remove(path);
+            return read_store(path).map(std::sync::Arc::new);
+        }
+    };
+
+    if let Some(cached) = store_cache().get(path)
+        && cached.stamp == stamp
+        && cached.stamp.settled_before(cached.read_at)
+    {
+        return Some(cached.store.clone());
+    }
+
+    let Some(store) = read_store(path).map(std::sync::Arc::new) else {
+        store_cache().remove(path);
+        return None;
+    };
+    store_cache().insert(
+        path.to_path_buf(),
+        CachedStore {
+            stamp,
+            read_at,
+            store: store.clone(),
+        },
+    );
+    Some(store)
+}
+
 /// One section of the store (`general_settings`, `recording_start_safety`,
 /// ...) as raw JSON. Empty when absent or the wrong shape.
 pub fn store_section(section: &str) -> Map<String, Value> {
-    read_store(&tauri_store_path())
-        .and_then(|mut store| store.remove(section))
-        .and_then(|value| match value {
-            Value::Object(map) => Some(map),
+    cached_store(&tauri_store_path())
+        .and_then(|store| match store.get(section) {
+            Some(Value::Object(map)) => Some(map.clone()),
             _ => None,
         })
         .unwrap_or_default()
 }
 
 pub fn notification_sounds_enabled() -> bool {
-    read_store(&tauri_store_path())
-        .and_then(|mut store| store.remove(GENERAL_SETTINGS))
-        .and_then(|settings| {
-            settings
-                .as_object()
+    cached_store(&tauri_store_path())
+        .and_then(|store| {
+            store
+                .get(GENERAL_SETTINGS)
+                .and_then(Value::as_object)
                 .map(|settings| bool_at(settings, "enableNotifications", true))
         })
         .unwrap_or(false)
@@ -453,7 +467,12 @@ fn update_store(mutate: impl FnOnce(&mut Map<String, Value>) -> bool) -> bool {
     let Some(mut store) = read_store(&path) else {
         return false;
     };
-    mutate(&mut store) && write_store(&path, &Value::Object(store))
+    if !mutate(&mut store) {
+        return false;
+    }
+    let written = write_store(&path, &Value::Object(store));
+    store_cache().remove(&path);
+    written
 }
 
 /// Pretty JSON, two-space indent, no trailing newline -- byte-shape identical
@@ -888,7 +907,6 @@ pub struct GeneralSettings {
     pub excluded_windows: Vec<WindowExclusion>,
     pub update_channel: UpdateChannel,
     pub update_download_policy: UpdateDownloadPolicy,
-    pub enable_telemetry: bool,
     pub editor_preview_quality: EditorPreviewQuality,
     /// The Experimental page's two toggles. Both default false the way the
     /// page shows them (`!!settings.enableNativeCameraPreview` /
@@ -1186,7 +1204,7 @@ impl PostInstantBehaviour {
 
 impl GeneralSettings {
     pub fn load() -> Self {
-        let store = read_store(&tauri_store_path()).unwrap_or_default();
+        let store = cached_store(&tauri_store_path()).unwrap_or_default();
         let empty = Map::new();
         let section = |name: &str| store.get(name).and_then(Value::as_object).unwrap_or(&empty);
         Self::from_sections(
@@ -1253,7 +1271,6 @@ impl GeneralSettings {
                 .unwrap_or_else(default_excluded_windows),
             update_channel: enum_at(general, "updateChannel"),
             update_download_policy: enum_at(general, "updateDownloadPolicy"),
-            enable_telemetry: bool_at(general, "enableTelemetry", true),
             editor_preview_quality: enum_at(general, "editorPreviewQuality"),
             enable_native_camera_preview: bool_at(general, "enableNativeCameraPreview", false),
             out_of_process_muxer: bool_at(general, "outOfProcessMuxer", false),
@@ -1287,6 +1304,7 @@ pub struct TeleprompterState {
     pub script: String,
     pub font_size: f32,
     pub words_per_minute: u32,
+    pub characters_per_minute: u32,
     pub line_height: f32,
     pub show_cue_markers: bool,
     pub mirror: bool,
@@ -1298,6 +1316,7 @@ impl TeleprompterState {
     pub const SCRIPT: &'static str = "script";
     pub const FONT_SIZE: &'static str = "fontSize";
     pub const WORDS_PER_MINUTE: &'static str = "wordsPerMinute";
+    pub const CHARACTERS_PER_MINUTE: &'static str = "charactersPerMinute";
     pub const LINE_HEIGHT: &'static str = "lineHeight";
     pub const SHOW_CUE_MARKERS: &'static str = "showCueMarkers";
     pub const MIRROR: &'static str = "mirror";
@@ -1309,10 +1328,17 @@ impl TeleprompterState {
 
     fn from_section(map: &Map<String, Value>) -> Self {
         let defaults = Self::default();
+        let script = opt_string_at(map, Self::SCRIPT).unwrap_or(defaults.script);
+        let chinese_speed = if crate::teleprompter::is_chinese_script(&script) {
+            u32_at(map, Self::WORDS_PER_MINUTE, defaults.characters_per_minute)
+        } else {
+            defaults.characters_per_minute
+        };
         Self {
-            script: opt_string_at(map, Self::SCRIPT).unwrap_or(defaults.script),
+            script,
             font_size: f32_at(map, Self::FONT_SIZE, defaults.font_size),
             words_per_minute: u32_at(map, Self::WORDS_PER_MINUTE, defaults.words_per_minute),
+            characters_per_minute: u32_at(map, Self::CHARACTERS_PER_MINUTE, chinese_speed),
             line_height: f32_at(map, Self::LINE_HEIGHT, defaults.line_height),
             show_cue_markers: bool_at(map, Self::SHOW_CUE_MARKERS, defaults.show_cue_markers),
             mirror: bool_at(map, Self::MIRROR, defaults.mirror),
@@ -1324,13 +1350,34 @@ impl TeleprompterState {
         }
     }
 
-    /// One field as the JSON the Tauri app would have written, so the debounced
-    /// flush can write exactly the keys that changed.
+    pub fn uses_chinese_speed(&self) -> bool {
+        crate::teleprompter::is_chinese_script(&self.script)
+    }
+
+    pub fn reading_speed(&self) -> u32 {
+        if self.uses_chinese_speed() {
+            self.characters_per_minute
+        } else {
+            self.words_per_minute
+        }
+    }
+
+    pub fn set_reading_speed(&mut self, value: u32) -> &'static str {
+        if self.uses_chinese_speed() {
+            self.characters_per_minute = value;
+            Self::CHARACTERS_PER_MINUTE
+        } else {
+            self.words_per_minute = value;
+            Self::WORDS_PER_MINUTE
+        }
+    }
+
     pub fn value_for(&self, key: &str) -> Value {
         match key {
             Self::SCRIPT => Value::from(self.script.clone()),
             Self::FONT_SIZE => Value::from(self.font_size),
             Self::WORDS_PER_MINUTE => Value::from(self.words_per_minute),
+            Self::CHARACTERS_PER_MINUTE => Value::from(self.characters_per_minute),
             Self::LINE_HEIGHT => Value::from(self.line_height),
             Self::SHOW_CUE_MARKERS => Value::Bool(self.show_cue_markers),
             Self::MIRROR => Value::Bool(self.mirror),
@@ -1346,6 +1393,7 @@ impl Default for TeleprompterState {
             script: String::new(),
             font_size: 30.,
             words_per_minute: 150,
+            characters_per_minute: 260,
             line_height: 1.5,
             show_cue_markers: true,
             mirror: false,
@@ -1494,7 +1542,7 @@ pub const AUTOMATIONS: &str = "automations";
 pub struct AutomationsStore {
     #[serde(default)]
     pub version: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_rules")]
     pub rules: Vec<AutomationRule>,
 }
 
@@ -1512,6 +1560,46 @@ pub struct AutomationRule {
     pub conditions: Vec<Condition>,
     #[serde(default)]
     pub actions: Vec<Action>,
+}
+
+fn deserialize_rules<'de, D>(deserializer: D) -> Result<Vec<AutomationRule>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let rules = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    let mut migrated = Vec::with_capacity(rules.len());
+    for mut rule in rules {
+        let id = rule
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        if rule.get("trigger").and_then(serde_json::Value::as_str) == Some("uploadCompleted") {
+            tracing::warn!(rule_id = %id, "Removed retired upload-completed rule; local deletion refused");
+            continue;
+        }
+        if let Some(actions) = rule
+            .get_mut("actions")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            let had_upload = actions.iter().any(|action| {
+                action.get("type").and_then(serde_json::Value::as_str) == Some("upload")
+            });
+            let had_deletion = actions.iter().any(|action| {
+                action.get("type").and_then(serde_json::Value::as_str) == Some("deleteLocalFiles")
+            });
+            actions.retain(|action| {
+                let kind = action.get("type").and_then(serde_json::Value::as_str);
+                !matches!(kind, Some("upload" | "webhook"))
+                    && !(had_upload && kind == Some("deleteLocalFiles"))
+            });
+            if had_upload && had_deletion {
+                tracing::warn!(rule_id = %id, "Removed local deletion from retired upload rule; local recording retained");
+            }
+        }
+        migrated.push(serde_json::from_value(rule).map_err(serde::de::Error::custom)?);
+    }
+    Ok(migrated)
 }
 
 fn default_true() -> bool {
@@ -1533,7 +1621,6 @@ pub enum Trigger {
     StudioRecordingFinished,
     InstantRecordingFinished,
     RecordingStarted,
-    UploadCompleted,
     VideoImported,
     RecordingDeleted,
 }
@@ -1582,15 +1669,6 @@ pub enum Action {
         #[serde(default)]
         destination: ExportDestination,
     },
-    #[serde(rename_all = "camelCase")]
-    Upload {
-        #[serde(default)]
-        organization_id: Option<String>,
-        #[serde(default = "default_true")]
-        copy_link: bool,
-        #[serde(default)]
-        open_in_browser: bool,
-    },
     RevealInFileManager,
     OpenFile,
     #[serde(rename_all = "camelCase")]
@@ -1604,16 +1682,6 @@ pub enum Action {
         env: std::collections::HashMap<String, String>,
         #[serde(default)]
         use_shell: bool,
-    },
-    #[serde(rename_all = "camelCase")]
-    Webhook {
-        url: String,
-        #[serde(default = "default_post")]
-        method: String,
-        #[serde(default)]
-        headers: std::collections::HashMap<String, String>,
-        #[serde(default)]
-        body_template: Option<String>,
     },
     RecognizeTextToClipboard,
     #[serde(rename_all = "camelCase")]
@@ -1629,10 +1697,6 @@ pub enum Action {
         name: String,
     },
     DeleteLocalFiles,
-}
-
-fn default_post() -> String {
-    "POST".to_string()
 }
 
 fn default_notify_title() -> String {
@@ -1701,7 +1765,7 @@ pub enum ExportDestination {
 /// overwrite-on-next-save semantics as the Tauri app.
 pub fn automations() -> AutomationsStore {
     let Some(value) =
-        read_store(&tauri_store_path()).and_then(|mut store| store.remove(AUTOMATIONS))
+        cached_store(&tauri_store_path()).and_then(|store| store.get(AUTOMATIONS).cloned())
     else {
         return AutomationsStore::default();
     };
@@ -1776,23 +1840,6 @@ mod post_instant_tests {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn the_handoff_marker_holds_this_pid_until_a_clean_quit_clears_it() {
-        let directory =
-            std::env::temp_dir().join(format!("cap-gpui-handoff-{}", super::new_uuid_v4()));
-        let marker = directory.join("cap-gpui.handoff");
-        super::mark_handoff_session_at(&marker).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&marker).unwrap(),
-            std::process::id().to_string()
-        );
-        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
-        super::clear_handoff_marker_at(&marker);
-        assert!(!marker.exists());
-        super::clear_handoff_marker_at(&marker);
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
     #[test]
     fn only_frameever_window_rules_count_as_own() {
         let title = |title: &str| WindowExclusion {
@@ -1949,6 +1996,189 @@ mod tests {
                 current[4]
             );
         }
+    }
+
+    fn backdate(path: &Path, modified: std::time::SystemTime) {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+    }
+
+    fn seconds_ago(seconds: u64) -> std::time::SystemTime {
+        std::time::SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(seconds))
+            .unwrap()
+    }
+
+    fn store_file_reads() -> usize {
+        TEST_STORE_FILE_READS.with(std::cell::Cell::get)
+    }
+
+    #[test]
+    fn repeated_reads_parse_the_store_once_until_the_file_changes() {
+        let store = TempStore::new(
+            "cache-render-reads",
+            Some(r#"{"general_settings":{"recordingCountdown":3}}"#),
+        );
+        backdate(&store.path, seconds_ago(60));
+        let before = store_file_reads();
+        for _ in 0..100 {
+            assert_eq!(GeneralSettings::load().recording_countdown, Some(3));
+            assert_eq!(store_section(GENERAL_SETTINGS).len(), 1);
+        }
+        assert_eq!(store_file_reads() - before, 1);
+
+        std::fs::write(
+            &store.path,
+            r#"{"general_settings":{"recordingCountdown":5}}"#,
+        )
+        .unwrap();
+        backdate(&store.path, seconds_ago(30));
+        assert_eq!(GeneralSettings::load().recording_countdown, Some(5));
+        assert_eq!(GeneralSettings::load().recording_countdown, Some(5));
+        assert_eq!(store_file_reads() - before, 2);
+    }
+
+    #[test]
+    fn a_same_length_rewrite_within_the_cached_mtime_tick_is_still_read() {
+        let store = TempStore::new(
+            "cache-racy-rewrite",
+            Some(r#"{"general_settings":{"hasCompletedStartup":true}}"#),
+        );
+        assert!(has_completed_startup());
+        let modified = std::fs::metadata(&store.path).unwrap().modified().unwrap();
+        std::fs::write(
+            &store.path,
+            r#"{"general_settings":{"hasCompletedStartup":null}}"#,
+        )
+        .unwrap();
+        backdate(&store.path, modified);
+        assert!(!has_completed_startup());
+    }
+
+    #[test]
+    fn a_store_that_stops_parsing_or_disappears_is_not_served_from_the_cache() {
+        let store = TempStore::new(
+            "cache-broken",
+            Some(r#"{"general_settings":{"hasCompletedStartup":true}}"#),
+        );
+        backdate(&store.path, seconds_ago(60));
+        assert!(has_completed_startup());
+        std::fs::write(&store.path, "{ not json").unwrap();
+        backdate(&store.path, seconds_ago(30));
+        assert!(!has_completed_startup());
+        assert!(!set_has_completed_onboarding(true));
+        std::fs::remove_file(&store.path).unwrap();
+        assert!(!has_completed_startup());
+        assert!(store_section(GENERAL_SETTINGS).is_empty());
+    }
+
+    #[test]
+    fn every_store_writer_is_visible_to_the_next_cached_read() {
+        let store = TempStore::new("cache-writers", Some("{}"));
+        let settle = || {
+            backdate(&store.path, seconds_ago(60));
+            store_section(GENERAL_SETTINGS);
+        };
+
+        settle();
+        assert!(set_store_setting(
+            GENERAL_SETTINGS,
+            "hasCompletedStartup",
+            Value::Bool(true)
+        ));
+        assert!(has_completed_startup());
+        assert_eq!(GeneralSettings::load(), load_general_settings_separately());
+
+        settle();
+        assert!(set_has_completed_onboarding(true));
+        assert!(has_completed_onboarding());
+
+        settle();
+        assert!(set_store_value(
+            "presets",
+            serde_json::json!({"presets": [{"name": "Mine", "config": {}}], "default": 0})
+        ));
+        assert_eq!(preset_names(), vec!["Mine".to_string()]);
+
+        settle();
+        assert!(set_recording_mode_slug("studio"));
+        assert_eq!(recording_mode_slug().as_deref(), Some("studio"));
+
+        settle();
+        let mut hotkeys = Map::new();
+        hotkeys.insert("startStudioRecording".into(), serde_json::json!({}));
+        assert!(set_hotkeys_raw(&hotkeys));
+        assert_eq!(hotkeys_raw(), hotkeys);
+
+        settle();
+        let rules = AutomationsStore {
+            version: 7,
+            ..AutomationsStore::default()
+        };
+        assert!(set_automations(&rules));
+        assert_eq!(automations().version, 7);
+
+        settle();
+        assert!(set_store_setting(
+            GENERAL_SETTINGS,
+            "enableNotifications",
+            Value::Bool(false)
+        ));
+        assert!(!notification_sounds_enabled());
+    }
+
+    #[test]
+    #[ignore]
+    fn benchmark_cached_store_section_reads() {
+        use std::{hint::black_box, time::Instant};
+
+        let config =
+            crate::presets::preset_config(&frameever_project::ProjectConfiguration::default());
+        let contents = serde_json::to_string_pretty(&serde_json::json!({
+            "general_settings": {"theme": "dark", "maxFps": 60, "hasCompletedStartup": true},
+            "recording_start_safety": {"confirmBeforeRecordingWithoutMicrophone": false},
+            "audio_enhancement": {"enabledByDefault": true},
+            "presets": {"presets": [{"name": "Preset", "config": config}], "default": null},
+            "teleprompter": {"script": "A recording script. ".repeat(60)}
+        }))
+        .unwrap();
+        let store = TempStore::new("cache-benchmark", Some(&contents));
+        backdate(&store.path, seconds_ago(60));
+        let uncached = || {
+            read_store(&tauri_store_path())
+                .and_then(|mut store| store.remove(GENERAL_SETTINGS))
+                .and_then(|value| match value {
+                    Value::Object(map) => Some(map),
+                    _ => None,
+                })
+                .unwrap_or_default()
+        };
+        assert_eq!(uncached(), store_section(GENERAL_SETTINGS));
+        let measure = |read: &dyn Fn() -> Map<String, Value>| {
+            let start = Instant::now();
+            for _ in 0..1000 {
+                black_box(read());
+            }
+            start.elapsed().as_secs_f64() * 1_000_000.0 / 1000.0
+        };
+        let mut uncached_runs = Vec::new();
+        let mut section_runs = Vec::new();
+        for _ in 0..9 {
+            uncached_runs.push(measure(&uncached));
+            section_runs.push(measure(&|| store_section(GENERAL_SETTINGS)));
+        }
+        uncached_runs.sort_by(f64::total_cmp);
+        section_runs.sort_by(f64::total_cmp);
+        eprintln!(
+            "store_bytes={} uncached_median_us={:.3} store_section_median_us={:.3}",
+            contents.len(),
+            uncached_runs[4],
+            section_runs[4]
+        );
     }
 
     #[test]
@@ -2448,6 +2678,110 @@ mod tests {
         assert!(reloaded.show_cue_markers);
     }
 
+    #[test]
+    fn the_teleprompter_remembers_chinese_speed_separately() {
+        let _store = TempStore::new(
+            "teleprompter-chinese-speed",
+            Some(r#"{"teleprompter":{"script":"你好 FrameEver","wordsPerMinute":185}}"#),
+        );
+        let loaded = TeleprompterState::load();
+        assert_eq!(loaded.words_per_minute, 185);
+        assert_eq!(loaded.value_for("charactersPerMinute"), 260);
+        assert!(super::set_store_setting(
+            TELEPROMPTER,
+            "charactersPerMinute",
+            serde_json::json!(420)
+        ));
+        let reloaded = TeleprompterState::load();
+        assert_eq!(reloaded.value_for("charactersPerMinute"), 420);
+        assert_eq!(reloaded.words_per_minute, 185);
+    }
+
+    #[test]
+    fn the_teleprompter_keeps_both_speeds_when_switching_scripts() {
+        let _store = TempStore::new(
+            "teleprompter-script-speeds",
+            Some(r#"{"teleprompter":{"script":"这是中文稿"}}"#),
+        );
+        let mut state = TeleprompterState::load();
+        assert!(state.uses_chinese_speed());
+        assert_eq!(state.reading_speed(), 260);
+        let key = state.set_reading_speed(420);
+        assert_eq!(key, TeleprompterState::CHARACTERS_PER_MINUTE);
+        assert!(super::set_store_setting(
+            TELEPROMPTER,
+            key,
+            state.value_for(key)
+        ));
+
+        state.script = "Hello world".into();
+        assert!(!state.uses_chinese_speed());
+        assert_eq!(state.reading_speed(), 150);
+        let key = state.set_reading_speed(185);
+        assert_eq!(key, TeleprompterState::WORDS_PER_MINUTE);
+        for key in [TeleprompterState::SCRIPT, key] {
+            assert!(super::set_store_setting(
+                TELEPROMPTER,
+                key,
+                state.value_for(key)
+            ));
+        }
+        state = TeleprompterState::load();
+        assert_eq!(state.reading_speed(), 185);
+        assert_eq!(state.characters_per_minute, 420);
+
+        state.script = "这是中文稿".into();
+        assert!(super::set_store_setting(
+            TELEPROMPTER,
+            TeleprompterState::SCRIPT,
+            state.value_for(TeleprompterState::SCRIPT)
+        ));
+        assert_eq!(TeleprompterState::load().reading_speed(), 420);
+    }
+
+    #[test]
+    fn the_teleprompter_retains_a_saved_legacy_chinese_speed() {
+        let _store = TempStore::new(
+            "teleprompter-legacy-chinese-speed",
+            Some(r#"{"teleprompter":{"script":"这是中文稿","wordsPerMinute":175}}"#),
+        );
+        let mut state = TeleprompterState::load();
+        assert_eq!(state.reading_speed(), 175);
+        state.script = "English script".into();
+        for key in [
+            TeleprompterState::SCRIPT,
+            TeleprompterState::CHARACTERS_PER_MINUTE,
+        ] {
+            assert!(super::set_store_setting(
+                TELEPROMPTER,
+                key,
+                state.value_for(key)
+            ));
+        }
+        state = TeleprompterState::load();
+        state.script = "这是中文稿".into();
+        assert_eq!(state.reading_speed(), 175);
+    }
+
+    #[test]
+    fn the_teleprompter_uses_the_designs_chinese_script_threshold() {
+        for (script, chinese) in [
+            ("Hello中文world", false),
+            ("中文", true),
+            ("中文稿你好 FrameEver", false),
+            ("中文稿你好呀 FrameEver", true),
+            ("𠮷", true),
+            ("。！？", false),
+            ("", false),
+        ] {
+            let state = TeleprompterState {
+                script: script.into(),
+                ..Default::default()
+            };
+            assert_eq!(state.uses_chinese_speed(), chinese, "{script}");
+        }
+    }
+
     /// An absent store is an empty one -- a fresh install must not be a write
     /// failure, and the file appears on the first change.
     #[test]
@@ -2457,10 +2791,10 @@ mod tests {
         assert_eq!(GeneralSettings::load(), GeneralSettings::default());
         assert!(super::set_store_setting(
             GENERAL_SETTINGS,
-            "enableTelemetry",
-            Value::Bool(false)
+            "maxFps",
+            serde_json::json!(60)
         ));
-        assert!(!GeneralSettings::load().enable_telemetry);
+        assert_eq!(GeneralSettings::load().max_fps, 60);
     }
 
     #[test]
@@ -2581,6 +2915,28 @@ mod tests {
         assert_eq!(after["hotkeys"]["hotkeys"]["someFutureAction"]["extra"], 1);
     }
 
+    #[test]
+    fn legacy_cloud_actions_are_dropped_without_losing_local_rules() {
+        let legacy = serde_json::json!({"version":1,"rules":[
+            {"id":"legacy","name":"Legacy","trigger":"instantRecordingFinished","actions":[
+                {"type":"upload"},{"type":"deleteLocalFiles"},{"type":"webhook","url":"https://example.test"},{"type":"notify"}
+            ]},
+            {"id":"old-trigger","name":"Old trigger","trigger":"uploadCompleted","actions":[{"type":"deleteLocalFiles"}]},
+            {"id":"local","name":"Local","trigger":"screenshotTaken","actions":[{"type":"deleteLocalFiles"}]}
+        ]});
+        let store: AutomationsStore = serde_json::from_value(legacy).unwrap();
+        assert_eq!(store.rules.len(), 2);
+        assert_eq!(store.rules[0].actions.len(), 1);
+        assert!(matches!(store.rules[0].actions[0], Action::Notify { .. }));
+        assert!(matches!(
+            store.rules[1].actions[0],
+            Action::DeleteLocalFiles
+        ));
+        let reloaded: AutomationsStore =
+            serde_json::from_value(serde_json::to_value(&store).unwrap()).unwrap();
+        assert_eq!(store, reloaded);
+    }
+
     /// The automations model against the JSON `crates/automation/src/types.rs`
     /// serializes: camelCase everywhere, `type`-tagged conditions/actions, and
     /// the whole key written wholesale.
@@ -2627,9 +2983,9 @@ mod tests {
 
         let after = store.read();
         let actions = &after["automations"]["rules"][0]["actions"];
-        assert_eq!(actions[3]["type"], "saveToLocation");
-        assert_eq!(actions[3]["dir"], "/tmp/shots");
-        assert_eq!(actions[3]["filenameTemplate"], Value::Null);
+        assert_eq!(actions[2]["type"], "saveToLocation");
+        assert_eq!(actions[2]["dir"], "/tmp/shots");
+        assert_eq!(actions[2]["filenameTemplate"], Value::Null);
         assert_eq!(actions[1]["profile"]["resolutionBase"]["x"], 1920);
         // The rest of the store is untouched by the wholesale key write.
         assert_eq!(after["auth"]["user_id"], "u_1");

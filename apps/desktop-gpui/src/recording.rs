@@ -1706,6 +1706,8 @@ fn create_project_dir(
     recording_mode: RecordingMode,
 ) -> anyhow::Result<PathBuf> {
     let base = recordings_dir();
+    frameever_export::validate_output_path(&base)
+        .map_err(|_| anyhow!(t!("Recording output must be a local file path")))?;
     std::fs::create_dir_all(&base)
         .with_context(|| format!("creating recordings dir {}", base.display()))?;
 

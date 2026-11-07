@@ -103,6 +103,7 @@ smallvec = "1"
 # press. gpui's own input example uses the same crate and it is already in this
 # lockfile through gpui, so this makes an existing build unit direct.
 unicode-segmentation = "1"
+unicode-script = "0.5.8"
 # spawn_blocking for finalize; the runtime itself comes from gpui_tokio.
 tokio = { version = "1", features = ["rt", "time"] }
 # The same crate `tauri_plugin_global_shortcut` wraps, at the Tauri app's pin:
@@ -137,19 +138,11 @@ sha2 = "0.11"
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-# The rolling file log the Feedback page uploads. Same crate and rolling
-# strategy the Tauri app uses, under a different filename prefix so the two
-# apps never write into one file (`src/diagnostics.rs`).
 tracing-appender = "0.2"
 
-# Web-backed settings pages (feedback, changelog, license) and transcription
-# model downloads. rustls so no build picks up an OpenSSL system dep.
-# `multipart` is the log/diagnostic-report upload (`src/diagnostics.rs`):
-# `/api/desktop/logs` takes a multipart form, the same one the Tauri app posts.
 bytes = "1"
+url = "2"
 reqwest = { version = "0.13", default-features = false, features = [
-    "json",
-    "multipart",
     "stream",
     "rustls-no-provider",
 ] }
@@ -173,6 +166,10 @@ tokio = { version = "1", features = ["rt-multi-thread", "time", "test-util", "ne
 # audio markers for the fake transcriber.
 frameever-verify = { path = "../../crates/verify" }
 tempfile = "3"
+gpui = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+frameever-video-decode = { path = "../../crates/video-decode" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -204,6 +201,13 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
+] }
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_UI_Shell",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

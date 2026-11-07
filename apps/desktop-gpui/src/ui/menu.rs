@@ -13,12 +13,18 @@
 use std::{cell::Cell, rc::Rc};
 
 use gpui::{
-    Anchor, App, Bounds, ClickEvent, ElementId, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Point, RenderOnce, SharedString, Size, StatefulInteractiveElement,
-    Styled, Window, div, point, prelude::FluentBuilder, px, svg,
+    Anchor, App, Bounds, ClickEvent, ElementId, Hsla, InteractiveElement, IntoElement, MouseButton,
+    MouseUpEvent, ParentElement, Pixels, Point, RenderOnce, ScrollHandle, SharedString, Size,
+    StatefulInteractiveElement, Styled, TextStyle, WhiteSpace, Window, div, point,
+    prelude::FluentBuilder, px, svg,
 };
 
 use crate::theme::Theme;
+
+const MENU_ROW_HEIGHT: f32 = crate::theme::ROW_HEIGHT;
+const MENU_PADDING: f32 = 4.;
+const MENU_BORDER: f32 = 1.;
+const MENU_CHROME_HEIGHT: f32 = 2. * (MENU_PADDING + MENU_BORDER);
 
 pub(crate) type OpenHandler = Box<dyn Fn(&Bounds<Pixels>, &mut Window, &mut App) + 'static>;
 
@@ -281,7 +287,7 @@ fn anchored_placement(
     let margin = px(12.);
     let below = (viewport.height - margin - trigger.bottom() - gap).max(px(0.));
     let above = (trigger.top() - gap - margin).max(px(0.));
-    let height = (px(item_count as f32 * 24. + 10.)).min(max_height);
+    let height = px(item_count as f32 * MENU_ROW_HEIGHT + MENU_CHROME_HEIGHT).min(max_height);
     if height <= below || below >= above {
         (
             trigger.bottom_left() + point(px(0.), gap),
@@ -295,6 +301,101 @@ fn anchored_placement(
             max_height.min(above),
         )
     }
+}
+
+fn menu_row(
+    prefix: &SharedString,
+    index: usize,
+    item: MenuItem,
+    highlighted: Option<usize>,
+    hover: Hsla,
+    text: Hsla,
+    handler: Option<Rc<SelectHandler>>,
+) -> gpui::Stateful<gpui::Div> {
+    #[cfg(test)]
+    BUILT_ROWS.with(|rows| rows.set(rows.get() + 1));
+    div()
+        .id(SharedString::from(format!("{prefix}-item-{index}")))
+        .flex()
+        .flex_row()
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(6.))
+        .h(px(MENU_ROW_HEIGHT))
+        .px(px(10.))
+        .rounded(px(4.))
+        .when(highlighted == Some(index), |this| this.bg(hover))
+        .hover(move |style| style.bg(hover))
+        .child(
+            div().w(px(12.)).flex_shrink_0().children(
+                item.checked
+                    .then(|| svg().path("icons/check.svg").size(px(14.)).text_color(text)),
+            ),
+        )
+        .child(div().flex_1().min_w_0().truncate().child(item.label))
+        .when_some(handler, |this, handler| {
+            this.on_click(move |_, window, cx| handler(&index, window, cx))
+        })
+}
+
+#[cfg(test)]
+thread_local! {
+    static BUILT_ROWS: Cell<usize> = const { Cell::new(0) };
+}
+
+#[derive(Default)]
+struct MenuLayoutState {
+    scroll: ScrollHandle,
+    pressed: Rc<Cell<bool>>,
+    labels: Vec<SharedString>,
+    style: Option<TextStyle>,
+    widest: usize,
+}
+
+impl MenuLayoutState {
+    fn widest(&mut self, items: &[MenuItem], style: TextStyle, window: &Window) -> usize {
+        if self.style.as_ref() != Some(&style)
+            || self.labels.len() != items.len()
+            || self
+                .labels
+                .iter()
+                .zip(items)
+                .any(|(label, item)| label != &item.label)
+        {
+            let mut widest = 0;
+            let mut width = px(0.);
+            for (index, item) in items.iter().enumerate() {
+                let runs = [style.to_run(item.label.len())];
+                if let Ok(lines) = window.text_system().shape_text(
+                    item.label.clone(),
+                    px(12.),
+                    &runs,
+                    None,
+                    style.line_clamp,
+                ) {
+                    for line in lines {
+                        let line_width = line.size(px(MENU_ROW_HEIGHT)).width.ceil();
+                        if line_width > width {
+                            width = line_width;
+                            widest = index;
+                        }
+                    }
+                }
+            }
+            self.labels = items.iter().map(|item| item.label.clone()).collect();
+            self.style = Some(style);
+            self.widest = widest;
+        }
+        self.widest
+    }
+}
+
+fn visible_rows(scroll_top: Pixels, max_height: Pixels, item_count: usize) -> (usize, usize) {
+    let start = ((f32::from(scroll_top) / MENU_ROW_HEIGHT).floor() as usize).saturating_sub(1);
+    let end = ((f32::from(scroll_top + max_height) / MENU_ROW_HEIGHT).ceil() as usize)
+        .saturating_add(1)
+        .min(item_count);
+    (start.min(end), end)
 }
 
 impl RenderOnce for Menu {
@@ -330,6 +431,116 @@ impl RenderOnce for Menu {
                 anchored_placement(bounds, items.len(), max_height, viewport)
             });
 
+        let mut style = window.text_style();
+        style.font_size = px(12.).into();
+        style.color = text;
+        style.white_space = WhiteSpace::Nowrap;
+        let line_height = window.pixel_snap(
+            style
+                .line_height
+                .to_pixels(px(12.).into(), window.rem_size()),
+        );
+        let virtualized = !items.is_empty()
+            && max_height > px(MENU_CHROME_HEIGHT)
+            && px(items.len() as f32 * MENU_ROW_HEIGHT + MENU_CHROME_HEIGHT) > max_height
+            && line_height > px(0.)
+            && line_height <= px(MENU_ROW_HEIGHT)
+            && items.iter().all(|item| !item.label.contains('\n'));
+        let (widest, scroll, pressed) = window.with_element_namespace(id.clone(), |window| {
+            window.with_global_id("menu-layout".into(), |global_id, window| {
+                window.with_element_state(global_id, |state: Option<MenuLayoutState>, window| {
+                    let mut state = state.unwrap_or_default();
+                    let widest = (virtualized && !state.pressed.get())
+                        .then(|| state.widest(&items, style, window));
+                    ((widest, state.scroll.clone(), state.pressed.clone()), state)
+                })
+            })
+        });
+        let pressed_on_down = pressed.clone();
+        let end_press = move |_: &MouseUpEvent, window: &mut Window, _: &mut App| {
+            if pressed.replace(false) {
+                window.refresh();
+            }
+        };
+        let panel = div()
+            .id(id)
+            .occlude()
+            .flex()
+            .flex_col()
+            .min_w(min_width.min(max_width))
+            .max_w(max_width)
+            .max_h(max_height)
+            .overflow_y_scroll()
+            .track_scroll(&scroll)
+            .on_mouse_down(MouseButton::Left, move |_, window, _| {
+                pressed_on_down.set(true);
+                window.refresh();
+            })
+            .on_mouse_up(MouseButton::Left, end_press.clone())
+            .on_mouse_up_out(MouseButton::Left, end_press)
+            .p(px(MENU_PADDING))
+            .rounded(radius)
+            .border(px(MENU_BORDER))
+            .border_color(border)
+            .bg(bg)
+            .text_color(text)
+            .text_size(px(12.));
+        let panel = if let Some(widest) = widest {
+            let scroll_top = (-scroll.offset().y).clamp(
+                px(0.),
+                (px(items.len() as f32 * MENU_ROW_HEIGHT) - (max_height - px(MENU_CHROME_HEIGHT)))
+                    .max(px(0.)),
+            );
+            let (start, end) = visible_rows(scroll_top, max_height, items.len());
+            let width_prefix: SharedString = format!("{prefix}-width-row").into();
+            panel
+                .child(
+                    div()
+                        .id(SharedString::from(format!("{prefix}-intrinsic")))
+                        .h(px(0.))
+                        .flex_shrink_0()
+                        .overflow_hidden()
+                        .child(menu_row(
+                            &width_prefix,
+                            widest,
+                            items[widest].clone(),
+                            highlighted,
+                            hover,
+                            text,
+                            handler.clone(),
+                        )),
+                )
+                .child(div().h(px(start as f32 * MENU_ROW_HEIGHT)).flex_shrink_0())
+                .children((start..end).map(|index| {
+                    menu_row(
+                        &prefix,
+                        index,
+                        items[index].clone(),
+                        highlighted,
+                        hover,
+                        text,
+                        handler.clone(),
+                    )
+                }))
+                .child(
+                    div()
+                        .h(px((items.len() - end) as f32 * MENU_ROW_HEIGHT))
+                        .flex_shrink_0(),
+                )
+        } else {
+            panel.children(items.into_iter().enumerate().map(|(index, item)| {
+                menu_row(
+                    &prefix,
+                    index,
+                    item,
+                    highlighted,
+                    hover,
+                    text,
+                    handler.clone(),
+                )
+            }))
+        };
+
         div()
             .absolute()
             .top_0()
@@ -353,53 +564,7 @@ impl RenderOnce for Menu {
                     .position(origin)
                     .anchor(anchor)
                     .snap_to_window_with_margin(px(12.))
-                    .child(
-                        div()
-                            .id(id)
-                            .occlude()
-                            .flex()
-                            .flex_col()
-                            .min_w(min_width.min(max_width))
-                            .max_w(max_width)
-                            .max_h(max_height)
-                            .overflow_y_scroll()
-                            .p(px(4.))
-                            .rounded(radius)
-                            .border_1()
-                            .border_color(border)
-                            .bg(bg)
-                            .text_color(text)
-                            .text_size(px(12.))
-                            .children(items.into_iter().enumerate().map(|(index, item)| {
-                                let handler = handler.clone();
-                                div()
-                                    .id(SharedString::from(format!("{prefix}-item-{index}")))
-                                    .flex()
-                                    .flex_row()
-                                    .flex_shrink_0()
-                                    .items_center()
-                                    .gap(px(6.))
-                                    .h(px(crate::theme::ROW_HEIGHT))
-                                    .px(px(10.))
-                                    .rounded(px(4.))
-                                    .when(highlighted == Some(index), |this| this.bg(hover))
-                                    .hover(move |style| style.bg(hover))
-                                    .child(div().w(px(12.)).flex_shrink_0().children(
-                                        item.checked.then(|| {
-                                            svg()
-                                                .path("icons/check.svg")
-                                                .size(px(14.))
-                                                .text_color(text)
-                                        }),
-                                    ))
-                                    .child(div().flex_1().min_w_0().truncate().child(item.label))
-                                    .when_some(handler, |this, handler| {
-                                        this.on_click(move |_, window, cx| {
-                                            handler(&index, window, cx)
-                                        })
-                                    })
-                            })),
-                    ),
+                    .child(panel),
             )
     }
 }
@@ -545,5 +710,280 @@ mod tests {
         assert_eq!(menu.on_key("a"), MenuKey::Ignored);
         assert_eq!(menu.on_key("tab"), MenuKey::Ignored);
         assert_eq!(menu.highlighted, Some(0));
+    }
+}
+
+#[cfg(test)]
+mod virtual_menu_tests {
+    use super::*;
+    use gpui::{
+        AvailableSpace, FontFallbacks, FontFeatures, FontStyle, FontWeight, Modifiers, MouseButton,
+        ScrollDelta, ScrollEvent, TestAppContext, TextStyle, TouchPhase, VisualTestContext,
+        WhiteSpace, WindowHandle, size,
+    };
+
+    const ORIGIN: Point<Pixels> = Point {
+        x: px(100.),
+        y: px(100.),
+    };
+
+    struct MenuHost {
+        item_count: usize,
+        selected: Option<usize>,
+    }
+
+    impl MenuHost {
+        fn new(item_count: usize) -> Self {
+            Self {
+                item_count,
+                selected: None,
+            }
+        }
+    }
+
+    impl gpui::Render for MenuHost {
+        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let items = (0..self.item_count)
+                .map(|index| MenuItem::new(format!("Choice {index}"), false))
+                .collect::<Vec<_>>();
+            let state = MenuState::new(ORIGIN, &items);
+            gpui::div().size_full().relative().child(
+                Menu::editor(&Theme::light(), "host-menu", items, &state).on_select(cx.listener(
+                    |this, index, _, cx| {
+                        this.selected = Some(*index);
+                        cx.notify();
+                    },
+                )),
+            )
+        }
+    }
+
+    fn open_host(cx: &mut TestAppContext, item_count: usize) -> WindowHandle<MenuHost> {
+        cx.open_window(size(px(1000.), px(700.)), move |_, _| {
+            MenuHost::new(item_count)
+        })
+    }
+
+    fn draw_host(cx: &mut TestAppContext, window: WindowHandle<MenuHost>) {
+        VisualTestContext::from_window(window.into(), cx).update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+    }
+
+    fn built_rows() -> usize {
+        BUILT_ROWS.with(Cell::get)
+    }
+
+    fn fourth_row_center() -> Point<Pixels> {
+        point(
+            px(140.),
+            ORIGIN.y
+                + px(MENU_PADDING + MENU_BORDER)
+                + px(3. * MENU_ROW_HEIGHT + MENU_ROW_HEIGHT / 2.),
+        )
+    }
+
+    fn scroll_host(
+        cx: &mut TestAppContext,
+        window: WindowHandle<MenuHost>,
+        position: Point<Pixels>,
+        delta: f32,
+    ) {
+        VisualTestContext::from_window(window.into(), cx).simulate_event(ScrollEvent {
+            position,
+            delta: ScrollDelta::Pixels(point(px(0.), px(delta))),
+            modifiers: Modifiers::none(),
+            touch_phase: TouchPhase::Moved,
+            source: gpui::ScrollSource::Pointer,
+        });
+        for _ in 0..3 {
+            draw_host(cx, window);
+        }
+    }
+
+    #[gpui::test]
+    fn a_long_menu_builds_only_the_rows_near_the_viewport(cx: &mut TestAppContext) {
+        let window = open_host(cx, 500);
+        let before = built_rows();
+        draw_host(cx, window);
+        let built = built_rows() - before;
+        assert!(built > 0 && built < 30, "built {built} rows");
+    }
+
+    #[gpui::test]
+    fn a_short_menu_builds_every_row(cx: &mut TestAppContext) {
+        let window = open_host(cx, 6);
+        let before = built_rows();
+        draw_host(cx, window);
+        assert_eq!(built_rows() - before, 6);
+    }
+
+    #[gpui::test]
+    fn scrolling_a_long_menu_moves_the_built_rows(cx: &mut TestAppContext) {
+        let window = open_host(cx, 500);
+        draw_host(cx, window);
+        scroll_host(cx, window, fourth_row_center(), -3_400.);
+        VisualTestContext::from_window(window.into(), cx)
+            .simulate_click(fourth_row_center(), Modifiers::none());
+        let selected = window
+            .read_with(cx, |host, _| host.selected)
+            .unwrap()
+            .expect("a row under the pointer was clicked");
+        assert!((95..110).contains(&selected), "selected {selected}");
+    }
+
+    #[gpui::test]
+    fn a_menu_click_survives_scrolling_away_and_back_while_held(cx: &mut TestAppContext) {
+        let window = open_host(cx, 200);
+        draw_host(cx, window);
+        {
+            let mut visual = VisualTestContext::from_window(window.into(), cx);
+            visual.simulate_mouse_move(fourth_row_center(), None, Modifiers::none());
+            visual.simulate_mouse_down(fourth_row_center(), MouseButton::Left, Modifiers::none());
+        }
+        draw_host(cx, window);
+        scroll_host(cx, window, fourth_row_center(), -100_000.);
+        scroll_host(cx, window, fourth_row_center(), 100_000.);
+        assert_eq!(window.read_with(cx, |host, _| host.selected).unwrap(), None);
+        VisualTestContext::from_window(window.into(), cx).simulate_mouse_up(
+            fourth_row_center(),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        assert_eq!(
+            window.read_with(cx, |host, _| host.selected).unwrap(),
+            Some(3)
+        );
+    }
+
+    #[gpui::test]
+    fn releasing_a_held_menu_click_outside_cancels_it_without_breaking_the_next_click(
+        cx: &mut TestAppContext,
+    ) {
+        let window = open_host(cx, 200);
+        draw_host(cx, window);
+        {
+            let mut visual = VisualTestContext::from_window(window.into(), cx);
+            visual.simulate_mouse_move(fourth_row_center(), None, Modifiers::none());
+            visual.simulate_mouse_down(fourth_row_center(), MouseButton::Left, Modifiers::none());
+        }
+        draw_host(cx, window);
+        scroll_host(cx, window, fourth_row_center(), -100_000.);
+        VisualTestContext::from_window(window.into(), cx).simulate_mouse_up(
+            point(px(20.), px(20.)),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        draw_host(cx, window);
+        assert_eq!(window.read_with(cx, |host, _| host.selected).unwrap(), None);
+        VisualTestContext::from_window(window.into(), cx).simulate_mouse_move(
+            fourth_row_center(),
+            None,
+            Modifiers::none(),
+        );
+        scroll_host(cx, window, fourth_row_center(), 100_000.);
+        VisualTestContext::from_window(window.into(), cx)
+            .simulate_click(fourth_row_center(), Modifiers::none());
+        assert_eq!(
+            window.read_with(cx, |host, _| host.selected).unwrap(),
+            Some(3)
+        );
+    }
+
+    #[gpui::test]
+    fn menu_width_uses_the_widest_actual_row(cx: &mut TestAppContext) {
+        let window = cx.open_window(size(px(800.), px(600.)), |_, _| gpui::Empty);
+        let mut visual = VisualTestContext::from_window(window.into(), cx);
+        visual.draw(
+            point(px(0.), px(0.)),
+            size(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
+            |window, cx| {
+                let items = [
+                    "",
+                    "Small",
+                    "Device\tTab\tName",
+                    "日本語のフォント",
+                    "اسم جهاز בעברית",
+                    "e\u{301} and ligatures ffi",
+                    "short\nA much wider second line of the label",
+                ]
+                .into_iter()
+                .map(|label| MenuItem::new(label, false))
+                .collect::<Vec<_>>();
+                let mut cache = MenuLayoutState::default();
+                for line_clamp in [None, Some(1), Some(2)] {
+                    let style = TextStyle {
+                        font_family: "Menu test family".into(),
+                        font_features: FontFeatures::disable_ligatures(),
+                        font_fallbacks: Some(FontFallbacks::from_fonts(vec![
+                            "CJK fallback".into(),
+                            "RTL fallback".into(),
+                        ])),
+                        font_weight: FontWeight::BOLD,
+                        font_style: FontStyle::Italic,
+                        font_size: px(12.).into(),
+                        white_space: WhiteSpace::Nowrap,
+                        line_clamp,
+                        ..TextStyle::default()
+                    };
+                    let widest = cache.widest(&items, style.clone(), window);
+                    let widths = items
+                        .iter()
+                        .map(|item| {
+                            let mut row = menu_row(
+                                &"width".into(),
+                                0,
+                                item.clone(),
+                                None,
+                                Hsla::default(),
+                                style.color,
+                                None,
+                            )
+                            .font(style.font())
+                            .line_height(style.line_height)
+                            .text_size(px(12.))
+                            .text_color(style.color)
+                            .into_any_element();
+                            row.layout_as_root(
+                                size(AvailableSpace::MaxContent, AvailableSpace::MinContent),
+                                window,
+                                cx,
+                            )
+                            .width
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(widths[widest], widths.iter().copied().max().unwrap());
+                }
+                gpui::div()
+            },
+        );
+    }
+
+    #[gpui::test]
+    #[ignore]
+    fn benchmark_long_menu_frame(cx: &mut TestAppContext) {
+        use std::time::Instant;
+
+        let window = open_host(cx, 500);
+        for _ in 0..5 {
+            draw_host(cx, window);
+        }
+        let rows_before = built_rows();
+        let mut medians = Vec::new();
+        for _ in 0..9 {
+            let start = Instant::now();
+            for _ in 0..40 {
+                draw_host(cx, window);
+            }
+            medians.push(start.elapsed().as_secs_f64() * 1000.0 / 40.0);
+        }
+        medians.sort_by(f64::total_cmp);
+        eprintln!(
+            "items=500 frame_median_ms={:.3} frame_min_ms={:.3} rows_built_per_frame={}",
+            medians[4],
+            medians[0],
+            (built_rows() - rows_before) / 360
+        );
     }
 }

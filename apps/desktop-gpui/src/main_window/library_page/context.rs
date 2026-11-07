@@ -64,7 +64,7 @@ impl Target {
         Self::One(ItemActions {
             opens: entry.opens_editor || entry.kind == MediaKind::Instant,
             compressible: entry.compressible,
-            copyable: library::file_to_copy(entry).is_some(),
+            copyable: library::file_to_share(entry).is_some(),
         })
     }
 }
@@ -192,7 +192,7 @@ impl MainWindow {
         let target = if self.library.selection.items().len() > 1 {
             Target::Many {
                 compressible: !self.library_compressible().is_empty(),
-                copyable: !self.library_files_to_copy().is_empty(),
+                copyable: !self.library_files_to_share().is_empty(),
             }
         } else {
             self.library.entry(path).map_or(Target::Blank, Target::of)
@@ -529,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn a_studio_project_with_no_export_has_no_file_to_copy() {
+    fn a_studio_project_with_no_export_has_no_file_to_share() {
         assert!(!listed(one(true, false, false)).contains(&Command::CopyFile));
     }
 

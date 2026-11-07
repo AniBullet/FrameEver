@@ -169,12 +169,6 @@ pub(crate) struct PagesState {
     /// `cap` sidecar was found and the run will be environment-only.
     selftest_binary: Option<Option<PathBuf>>,
 
-    // Experimental (experimental.tsx). The Developer section's hand-back takes the
-    // whole settings window over, so its clock and the ticker that repaints the
-    // sequence live here and the overlay renders from the window root.
-    switch_back: Option<SwitchBack>,
-    switch_back_ticker: Option<gpui::Task<()>>,
-
     // Automations (automations.tsx)
     automations: AutomationsStore,
     automations_loaded: bool,
@@ -228,8 +222,6 @@ impl PagesState {
             diagnostic_cancel: None,
             diagnostic_cancelling: false,
             selftest_binary: None,
-            switch_back: None,
-            switch_back_ticker: None,
             automations: AutomationsStore::default(),
             automations_loaded: false,
             automations_save_failed: false,
@@ -2226,67 +2218,6 @@ impl SettingsWindow {
 // Experimental (experimental.tsx)
 // ---------------------------------------------------------------------------
 
-pub(crate) enum SwitchBack {
-    Running(std::time::Instant),
-    WaitingForClassic,
-    Failed(String),
-}
-
-/// A cold dev build can genuinely take this long; past it, assume the build
-/// failed and hand the user back their app with a pointer at the terminal.
-const CLASSIC_WAIT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
-
-const SWITCH_SENTENCES: &[&str] = &[
-    n!("Switching back to the classic app."),
-    n!("Your recordings and settings stay exactly where they are."),
-];
-const SWITCH_SENTENCE_MS: u64 = 2000;
-const SWITCH_FADE_MS: f32 = 400.;
-const SWITCH_COUNTDOWN_FROM: u32 = 5;
-const SWITCH_TAKEOVER_MS: u64 = SWITCH_COUNTDOWN_FROM as u64 * 1000;
-
-/// The overlay's whole appearance at one instant: which sentence, how opaque,
-/// and the number.
-fn takeover_frame(elapsed_ms: f32) -> (usize, f32, u32) {
-    let last = SWITCH_SENTENCES.len() - 1;
-    let index = ((elapsed_ms / SWITCH_SENTENCE_MS as f32) as usize).min(last);
-    let within = elapsed_ms - index as f32 * SWITCH_SENTENCE_MS as f32;
-    let fade_in = (within / SWITCH_FADE_MS).clamp(0., 1.);
-    // The last line holds rather than fading out; blanking the column while the
-    // countdown finishes would read as a stall.
-    let alpha = if index == last {
-        fade_in
-    } else {
-        fade_in.min(((SWITCH_SENTENCE_MS as f32 - within) / SWITCH_FADE_MS).clamp(0., 1.))
-    };
-    // Five on the first frame down to one in the last second; the switch fires
-    // rather than ever showing zero.
-    let left = SWITCH_TAKEOVER_MS as f32 - elapsed_ms;
-    let remaining = (left / 1000.)
-        .ceil()
-        .clamp(1., SWITCH_COUNTDOWN_FROM as f32) as u32;
-    (index, alpha, remaining)
-}
-
-/// Cap ships as this app alone, so the classic Tauri app only exists inside
-/// the `tauri dev` harness: a debug cargo build can hand the session back to
-/// it through the dev-session supervisor (`store::request_classic_reopen`),
-/// and nothing else has a classic app to switch to.
-fn dev_supervisor_available_for(exe: Option<&std::path::Path>, debug_build: bool) -> bool {
-    debug_build
-        && exe.is_some_and(|exe| {
-            exe.components()
-                .any(|component| component.as_os_str() == "target")
-        })
-}
-
-fn dev_supervisor_available() -> bool {
-    dev_supervisor_available_for(
-        std::env::current_exe().ok().as_deref(),
-        cfg!(debug_assertions),
-    )
-}
-
 impl SettingsWindow {
     pub(crate) fn render_experimental(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         // No "Native camera preview" toggle here: in this app the native
@@ -2294,7 +2225,7 @@ impl SettingsWindow {
         // experimental switch has nothing to switch. The store key
         // (`enableNativeCameraPreview`) stays readable in `store.rs` and is
         // left untouched in the shared store -- the Tauri app still uses it.
-        let mut sections = vec![
+        vec![
             self.section(
                 t!("Reliability"),
                 None,
@@ -2326,287 +2257,7 @@ impl SettingsWindow {
                 ],
             )
             .into_any_element(),
-        ];
-        if dev_supervisor_available() {
-            sections.push(
-                self.section(
-                    t!("Developer"),
-                    Some(t!("Only shown in development builds.")),
-                    None,
-                    vec![self.rows(vec![self.classic_app_row(cx)]).into_any_element()],
-                )
-                .into_any_element(),
-            );
-        }
-        sections
-    }
-
-    /// The dev harness's way back to the classic app: being in this app is what
-    /// the toggle means, and turning it off reopens the classic app under
-    /// `tauri dev`.
-    fn classic_app_row(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let checked = !matches!(self.pages.switch_back, Some(SwitchBack::Running(_)));
-        self.setting_row(
-            t!("Use native app"),
-            Some(t!(
-                "Turn off to close this app and reopen the classic Tauri app in the dev harness. \
-                 Recordings and settings are shared."
-            )),
-            self.toggle("enable-gpui-app", checked, cx, |this, cx| {
-                match this.pages.switch_back {
-                    Some(SwitchBack::Running(_)) => this.cancel_switch_back(cx),
-                    // Committed: the classic app is already being brought up.
-                    Some(SwitchBack::WaitingForClassic) => {}
-                    _ => this.start_switch_back(cx),
-                }
-            })
-            .into_any_element(),
-        )
-    }
-
-    /// The full-window takeover, painted from `SettingsWindow::render` so it
-    /// covers the sidebar and the menus too.
-    pub(crate) fn render_switch_overlay(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let switch = self.pages.switch_back.as_ref()?;
-        let white = gpui::white();
-        let mut column = div()
-            .absolute()
-            .inset_0()
-            .when(cfg!(target_os = "windows"), |overlay| overlay.top(px(36.)))
-            // Nothing behind the takeover is clickable while it runs.
-            .occlude()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap(px(28.))
-            .bg(gpui::hsla(0., 0., 0., 0.92));
-
-        match switch {
-            SwitchBack::Running(started) => {
-                let (index, alpha, remaining) =
-                    takeover_frame(started.elapsed().as_secs_f32() * 1000.);
-                column = column
-                    .child(
-                        div()
-                            .text_size(px(72.))
-                            .line_height(px(76.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(white)
-                            .child(SharedString::from(remaining.to_string())),
-                    )
-                    .child(
-                        div()
-                            .h(px(40.))
-                            .max_w(px(380.))
-                            .flex()
-                            .items_center()
-                            .text_size(px(15.))
-                            .text_center()
-                            .text_color(gpui::hsla(0., 0., 1., alpha))
-                            .child(tr(SWITCH_SENTENCES[index])),
-                    );
-            }
-            SwitchBack::WaitingForClassic => {
-                column = column
-                    .child(
-                        div()
-                            .max_w(px(380.))
-                            .text_size(px(17.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_center()
-                            .text_color(white)
-                            .child(t!("Opening the classic app")),
-                    )
-                    .child(
-                        div()
-                            .max_w(px(380.))
-                            .text_size(px(14.))
-                            .text_center()
-                            .text_color(gpui::hsla(0., 0., 1., 0.7))
-                            .child(t!("This window will close when the classic app is ready.")),
-                    );
-            }
-            SwitchBack::Failed(error) => {
-                column = column.child(
-                    div()
-                        .max_w(px(380.))
-                        .text_size(px(14.))
-                        .text_center()
-                        .text_color(self.theme.danger_text)
-                        .child(SharedString::from(error.clone())),
-                );
-            }
-        }
-
-        // Committed states have nothing to cancel.
-        if matches!(switch, SwitchBack::WaitingForClassic) {
-            return Some(column.into_any_element());
-        }
-
-        Some(
-            column
-                .child(
-                    div()
-                        .id("switch-back-cancel")
-                        .flex()
-                        .items_center()
-                        .px(px(16.))
-                        .h(px(32.))
-                        .rounded(px(8.))
-                        .border_1()
-                        .border_color(gpui::hsla(0., 0., 1., 0.25))
-                        .text_size(px(13.))
-                        .text_color(white)
-                        .cursor_pointer()
-                        .hover(|style| style.bg(gpui::hsla(0., 0., 1., 0.12)))
-                        .on_click(cx.listener(|this, _, _window, cx| this.cancel_switch_back(cx)))
-                        .child(if matches!(switch, SwitchBack::Failed(_)) {
-                            t!("Close")
-                        } else {
-                            t!("Cancel")
-                        }),
-                )
-                .into_any_element(),
-        )
-    }
-
-    fn start_switch_back(&mut self, cx: &mut Context<Self>) {
-        if self.switch_back_blocked(cx) {
-            return;
-        }
-
-        self.pages.switch_back = Some(SwitchBack::Running(std::time::Instant::now()));
-        // gpui only renders on invalidation, so the fades and the countdown
-        // need a pulse to run at all -- the `toggle_placeholders` shape.
-        // Assigning over the previous task drops it, which is how Cancel and a
-        // restart stop the one already in flight.
-        self.pages.switch_back_ticker = Some(cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(16))
-                    .await;
-                let running = this
-                    .update(cx, |this, cx| {
-                        let started = match &this.pages.switch_back {
-                            Some(SwitchBack::Running(started)) => *started,
-                            _ => return false,
-                        };
-                        if started.elapsed() >= Duration::from_millis(SWITCH_TAKEOVER_MS) {
-                            this.finish_switch_back(cx);
-                            return false;
-                        }
-                        cx.notify();
-                        true
-                    })
-                    .unwrap_or(false);
-                if !running {
-                    return;
-                }
-            }
-        }));
-        cx.notify();
-    }
-
-    fn cancel_switch_back(&mut self, cx: &mut Context<Self>) {
-        self.pages.switch_back = None;
-        self.pages.switch_back_ticker = None;
-        cx.notify();
-    }
-
-    fn switch_back_blocked(&mut self, cx: &mut Context<Self>) -> bool {
-        if !crate::session::RecordingSession::work_in_flight(cx) {
-            return false;
-        }
-
-        self.pages.switch_back = Some(SwitchBack::Failed(
-            t!("Finish your recording, export, import, or transcription task before switching to the classic app.")
-                .to_string(),
-        ));
-        cx.notify();
-        true
-    }
-
-    /// Hand the session (`enableGpuiApp`) to the classic dev app, ask the dev
-    /// supervisor to start it, then quit once it is visible.
-    fn finish_switch_back(&mut self, cx: &mut Context<Self>) {
-        if self.switch_back_blocked(cx) {
-            return;
-        }
-        if !dev_supervisor_available() {
-            self.pages.switch_back = Some(SwitchBack::Failed(
-                t!("Couldn't find the classic app to switch back to.").to_string(),
-            ));
-            cx.notify();
-            return;
-        }
-        if let Err(error) = crate::app_windows::flush_pending_editor_saves(cx) {
-            self.pages.switch_back = Some(SwitchBack::Failed(error));
-            cx.notify();
-            return;
-        }
-
-        if !store::set_store_setting(GENERAL_SETTINGS, "enableGpuiApp", Value::Bool(false)) {
-            self.pages.switch_back = Some(SwitchBack::Failed(
-                t!("Couldn't save your app preference. FrameEver is still open.").to_string(),
-            ));
-            cx.notify();
-            return;
-        }
-        let pending = store::mark_classic_pending();
-        self.pages.switch_back = Some(SwitchBack::WaitingForClassic);
-        self.pages.switch_back_ticker = None;
-        cx.notify();
-
-        // The handoff must finish even if its settings window closes.
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { pending.and_then(|()| store::request_classic_reopen()) })
-                .await;
-            let mut failure = result
-                .err()
-                .map(|error| t!("Couldn't open the classic app: {error}", error = error));
-            let started = std::time::Instant::now();
-            while failure.is_none() {
-                match store::classic_pending_path().try_exists() {
-                    Ok(false) => {
-                        tracing::info!("classic app is visible; quitting GPUI");
-                        cx.update(crate::menus::quit);
-                        return;
-                    }
-                    Ok(true) => {}
-                    Err(error) => {
-                        failure = Some(t!(
-                            "Couldn't check whether the classic app opened: {error}",
-                            error = error
-                        ));
-                        break;
-                    }
-                }
-                if started.elapsed() >= CLASSIC_WAIT_TIMEOUT {
-                    failure = Some(
-                        t!("The classic app hasn't opened. Check the dev terminal for build errors, then try again.")
-                            .to_string(),
-                    );
-                    break;
-                }
-                cx.background_executor()
-                    .timer(Duration::from_millis(250))
-                    .await;
-            }
-            let message =
-                failure.unwrap_or_else(|| t!("Couldn't open the classic app.").to_string());
-            tracing::error!("{message}");
-            store::clear_classic_pending();
-            store::set_store_setting(GENERAL_SETTINGS, "enableGpuiApp", Value::Bool(true));
-            this.update(cx, |this, cx| {
-                this.pages.switch_back = Some(SwitchBack::Failed(message));
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+        ]
     }
 }
 
@@ -3483,7 +3134,6 @@ enum ActionType {
     CopyToClipboard,
     SaveToLocation,
     Export,
-    Upload,
     RevealInFileManager,
     OpenFile,
     RecognizeTextToClipboard,
@@ -3492,7 +3142,6 @@ enum ActionType {
     SkipEditor,
     ApplyPreset,
     RunCommand,
-    Webhook,
     DeleteLocalFiles,
 }
 
@@ -3575,7 +3224,6 @@ fn trigger_label(trigger: Trigger) -> &'static str {
         Trigger::StudioRecordingFinished => t!("On studio recording finished"),
         Trigger::InstantRecordingFinished => t!("On instant recording finished"),
         Trigger::RecordingStarted => t!("On recording started"),
-        Trigger::UploadCompleted => t!("On upload completed"),
         Trigger::VideoImported => t!("On video imported"),
         Trigger::RecordingDeleted => t!("On recording deleted"),
     }
@@ -3588,7 +3236,6 @@ fn trigger_phrase(trigger: Trigger) -> &'static str {
         Trigger::StudioRecordingFinished => t!("Studio recording ends"),
         Trigger::InstantRecordingFinished => t!("Instant recording ends"),
         Trigger::RecordingStarted => t!("Recording starts"),
-        Trigger::UploadCompleted => t!("Upload completes"),
         Trigger::VideoImported => t!("Video imported"),
         Trigger::RecordingDeleted => t!("Recording deleted"),
     }
@@ -3601,7 +3248,6 @@ fn trigger_noun(trigger: Trigger) -> &'static str {
         Trigger::StudioRecordingFinished => t!("Studio recording"),
         Trigger::InstantRecordingFinished => t!("Instant recording"),
         Trigger::RecordingStarted => t!("Recording start"),
-        Trigger::UploadCompleted => t!("Upload"),
         Trigger::VideoImported => t!("Import"),
         Trigger::RecordingDeleted => t!("Deletion"),
     }
@@ -3614,7 +3260,6 @@ fn trigger_icon(trigger: Trigger) -> &'static str {
         Trigger::StudioRecordingFinished => "icons/clapperboard.svg",
         Trigger::InstantRecordingFinished => "icons/zap.svg",
         Trigger::RecordingStarted => "icons/circle-play.svg",
-        Trigger::UploadCompleted => "icons/cloud-upload.svg",
         Trigger::VideoImported => "icons/import.svg",
         Trigger::RecordingDeleted => "icons/trash.svg",
     }
@@ -3626,11 +3271,9 @@ fn action_label(kind: ActionType) -> &'static str {
         ActionType::CopyToClipboard => t!("Copy to clipboard"),
         ActionType::SaveToLocation => t!("Save to location"),
         ActionType::Export => t!("Export with profile"),
-        ActionType::Upload => t!("Upload + copy link"),
         ActionType::RevealInFileManager => t!("Reveal in file manager"),
         ActionType::OpenFile => t!("Open file"),
         ActionType::RunCommand => t!("Run command"),
-        ActionType::Webhook => t!("Send webhook"),
         ActionType::RecognizeTextToClipboard => t!("Recognize text (OCR) to clipboard"),
         ActionType::Notify => t!("Show notification"),
         ActionType::OpenEditor => t!("Open editor"),
@@ -3646,7 +3289,6 @@ fn action_short(kind: ActionType) -> &'static str {
         ActionType::CopyToClipboard => t!("Copy to clipboard"),
         ActionType::SaveToLocation => t!("Save to folder"),
         ActionType::Export => t!("Export"),
-        ActionType::Upload => t!("Upload & copy link"),
         ActionType::RevealInFileManager => t!("Reveal in file manager"),
         ActionType::OpenFile => t!("Open file"),
         ActionType::RecognizeTextToClipboard => t!("Copy text (OCR)"),
@@ -3655,7 +3297,6 @@ fn action_short(kind: ActionType) -> &'static str {
         ActionType::SkipEditor => t!("Skip editor"),
         ActionType::ApplyPreset => t!("Apply preset"),
         ActionType::RunCommand => t!("Run command"),
-        ActionType::Webhook => t!("Send webhook"),
         ActionType::DeleteLocalFiles => t!("Delete local files"),
     }
 }
@@ -3666,7 +3307,6 @@ fn action_noun(kind: ActionType) -> &'static str {
         ActionType::CopyToClipboard => t!("Clipboard"),
         ActionType::SaveToLocation => t!("Folder"),
         ActionType::Export => t!("Export"),
-        ActionType::Upload => t!("Upload"),
         ActionType::RevealInFileManager => t!("Reveal"),
         ActionType::OpenFile => t!("Open"),
         ActionType::RecognizeTextToClipboard => t!("Text"),
@@ -3675,7 +3315,6 @@ fn action_noun(kind: ActionType) -> &'static str {
         ActionType::SkipEditor => t!("Skip editor"),
         ActionType::ApplyPreset => t!("Preset"),
         ActionType::RunCommand => t!("Command"),
-        ActionType::Webhook => t!("Webhook"),
         ActionType::DeleteLocalFiles => t!("Delete"),
     }
 }
@@ -3697,11 +3336,9 @@ fn action_type_of(action: &Action) -> ActionType {
         Action::CopyToClipboard { .. } => ActionType::CopyToClipboard,
         Action::SaveToLocation { .. } => ActionType::SaveToLocation,
         Action::Export { .. } => ActionType::Export,
-        Action::Upload { .. } => ActionType::Upload,
         Action::RevealInFileManager => ActionType::RevealInFileManager,
         Action::OpenFile => ActionType::OpenFile,
         Action::RunCommand { .. } => ActionType::RunCommand,
-        Action::Webhook { .. } => ActionType::Webhook,
         Action::RecognizeTextToClipboard => ActionType::RecognizeTextToClipboard,
         Action::Notify { .. } => ActionType::Notify,
         Action::OpenEditor => ActionType::OpenEditor,
@@ -3742,11 +3379,6 @@ fn default_action(kind: ActionType) -> Action {
             },
             destination: ExportDestination::ProjectFolder,
         },
-        ActionType::Upload => Action::Upload {
-            organization_id: None,
-            copy_link: true,
-            open_in_browser: false,
-        },
         ActionType::RevealInFileManager => Action::RevealInFileManager,
         ActionType::OpenFile => Action::OpenFile,
         ActionType::RunCommand => Action::RunCommand {
@@ -3755,12 +3387,6 @@ fn default_action(kind: ActionType) -> Action {
             cwd: None,
             env: HashMap::new(),
             use_shell: false,
-        },
-        ActionType::Webhook => Action::Webhook {
-            url: String::new(),
-            method: "POST".to_string(),
-            headers: HashMap::new(),
-            body_template: None,
         },
         ActionType::RecognizeTextToClipboard => Action::RecognizeTextToClipboard,
         ActionType::Notify => Action::Notify {
@@ -3829,7 +3455,6 @@ fn trigger_context(trigger: Trigger) -> &'static [TriggerContextField] {
         Trigger::StudioRecordingFinished => &[RecordingMode, Duration, ProjectPath],
         Trigger::InstantRecordingFinished => &[RecordingMode, ProjectPath, ShareLink],
         Trigger::RecordingStarted => &[],
-        Trigger::UploadCompleted => &[ProjectPath, ShareLink],
         Trigger::VideoImported => &[ProjectPath],
         Trigger::RecordingDeleted => &[ProjectPath],
     }
@@ -3866,9 +3491,7 @@ fn action_applies_to_trigger(kind: ActionType, trigger: Trigger) -> bool {
         ActionType::Export | ActionType::ApplyPreset | ActionType::DeleteLocalFiles => {
             &[ProjectPath]
         }
-        ActionType::RevealInFileManager | ActionType::OpenEditor | ActionType::Upload => {
-            &[FilePath, ProjectPath]
-        }
+        ActionType::RevealInFileManager | ActionType::OpenEditor => &[FilePath, ProjectPath],
         _ => return true,
     };
     let provided = trigger_context(trigger);
@@ -3880,16 +3503,8 @@ fn action_is_dangerous(kind: ActionType) -> bool {
     kind == ActionType::RunCommand
 }
 
-fn trigger_is_removed(trigger: Trigger) -> bool {
-    trigger == Trigger::UploadCompleted
-}
-
 fn condition_is_removed(kind: ConditionType) -> bool {
     kind == ConditionType::OrganizationIs
-}
-
-fn action_is_removed(kind: ActionType) -> bool {
-    matches!(kind, ActionType::Upload | ActionType::Webhook)
 }
 
 /// `ruleSummary`.
@@ -4868,18 +4483,7 @@ impl SettingsWindow {
                     cx,
                 )
                 .stretch_label(),
-            )
-            .when(trigger_is_removed(trigger), |this| {
-                this.child(
-                    div()
-                        .px(px(4.))
-                        .text_size(px(11.))
-                        .text_color(Hsla::from(theme.amber_11))
-                        .child(t!(
-                            "Uploads were removed, so this rule never runs. Choose another trigger."
-                        )),
-                )
-            });
+            );
 
         // -- Conditions -----------------------------------------------------
         let mut conditions_header = div()
@@ -5329,11 +4933,7 @@ impl SettingsWindow {
             .child(header)
             .children(params)
             .map(|this| {
-                let notice = if action_is_removed(kind) {
-                    Some(t!(
-                        "Uploads and webhooks were removed, so this action is skipped. Remove it or choose another action."
-                    ))
-                } else if !applies {
+                let notice = if !applies {
                     Some(t!("This action has no effect for the selected trigger."))
                 } else {
                     None
@@ -5948,43 +5548,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn only_debug_cargo_builds_can_switch_back_to_the_dev_harness() {
-        let cargo_build = std::path::Path::new(
-            "/Users/x/FrameEver/apps/desktop-gpui/target/debug/frameever-gpui",
-        );
-        let installed_app =
-            std::path::Path::new("/Applications/FrameEver.app/Contents/MacOS/FrameEver");
-
-        assert!(dev_supervisor_available_for(Some(cargo_build), true));
-        assert!(!dev_supervisor_available_for(Some(cargo_build), false));
-        assert!(!dev_supervisor_available_for(Some(installed_app), true));
-        assert!(!dev_supervisor_available_for(Some(installed_app), false));
-        assert!(!dev_supervisor_available_for(None, true));
-    }
-
-    /// The takeover's whole timeline, read off its one clock.
-    #[test]
-    fn the_takeover_counts_down_while_the_lines_fade() {
-        // The number is up from the first frame and never reaches zero.
-        assert_eq!(takeover_frame(0.).2, SWITCH_COUNTDOWN_FROM);
-        assert_eq!(takeover_frame(1000.).2, SWITCH_COUNTDOWN_FROM - 1);
-        assert_eq!(takeover_frame(SWITCH_TAKEOVER_MS as f32 - 1.).2, 1);
-        assert_eq!(takeover_frame(SWITCH_TAKEOVER_MS as f32).2, 1);
-
-        // First line, faded in over its lead, and out again as its slot ends.
-        let (index, alpha, _) = takeover_frame(0.);
-        assert_eq!(index, 0);
-        assert_eq!(alpha, 0.);
-        assert_eq!(takeover_frame(SWITCH_FADE_MS).1, 1.);
-        assert_eq!(takeover_frame(SWITCH_SENTENCE_MS as f32 - 1.).1.round(), 0.);
-
-        // The last line holds rather than blanking while the number finishes.
-        let (index, alpha, _) = takeover_frame(SWITCH_TAKEOVER_MS as f32 - 1.);
-        assert_eq!(index, SWITCH_SENTENCES.len() - 1);
-        assert_eq!(alpha, 1.);
-    }
-
     /// `conditionAppliesToTrigger` / `actionAppliesToTrigger` against the
     /// tables in `utils/automations.ts`.
     #[test]
@@ -6027,7 +5590,7 @@ mod tests {
         ));
         assert!(!action_applies_to_trigger(
             ActionType::SkipEditor,
-            Trigger::UploadCompleted
+            Trigger::RecordingStarted
         ));
         // notify/runCommand/webhook always apply.
         assert!(action_applies_to_trigger(
@@ -6038,13 +5601,8 @@ mod tests {
 
     #[test]
     fn pickers_never_offer_removed_cloud_items() {
-        assert!(!ALL_TRIGGERS.into_iter().any(trigger_is_removed));
         assert!(!ALL_CONDITION_TYPES.into_iter().any(condition_is_removed));
-        assert!(!ALL_ACTION_TYPES.into_iter().any(action_is_removed));
-        assert!(trigger_is_removed(Trigger::UploadCompleted));
         assert!(condition_is_removed(ConditionType::OrganizationIs));
-        assert!(action_is_removed(ActionType::Upload));
-        assert!(action_is_removed(ActionType::Webhook));
     }
 
     /// `ruleSummary` / `autoRuleName` / `ruleDisplayName`.

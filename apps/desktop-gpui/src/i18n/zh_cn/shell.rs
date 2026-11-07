@@ -267,7 +267,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "This window is hidden from FrameEver recordings",
         "此窗口不会出现在帧刻的录制画面中",
     ),
-    ("{count} wpm", "{count} 字/分"),
+    ("{count} wpm", "{count} 词/分"),
+    ("{count} chars/min", "{count} 字/分"),
     ("Cue markers", "提示标记"),
     ("Mirror text", "镜像文字"),
     (
@@ -411,6 +412,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "无法启动所选摄像头。请换一个摄像头，或重新连接它。",
     ),
     ("Camera unavailable", "摄像头不可用"),
+    ("Camera disconnected", "摄像头已断开"),
+    (
+        "Recording continues without it.",
+        "录制继续，只是没有摄像头画面。",
+    ),
     ("Mirror unavailable", "无法镜像"),
     ("Your camera preview is not mirrored.", "摄像头预览未镜像。"),
     ("Background blur unavailable", "无法虚化背景"),
@@ -575,6 +581,18 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Waiting", "等待中"),
     ("Compress {count}", "压缩 {count} 项"),
     ("Copy files", "复制文件"),
+    (
+        "Export this project first to drag it out",
+        "先导出这个项目才能拖出",
+    ),
+    (
+        "Its file is missing, so it can't be dragged",
+        "找不到它的文件，无法拖出",
+    ),
+    (
+        "Left out {count} with no file to drag",
+        "已略过 {count} 项没有可拖出文件的项目",
+    ),
     ("Clear selection", "取消选择"),
     ("{count} recordings", "{count} 条录制"),
     ("Saved {size}", "节省了 {size}"),

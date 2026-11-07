@@ -33,6 +33,7 @@ use crate::{
     platform,
     session::{Phase, RecordingSession},
     store::{self, TeleprompterState},
+    teleprompter::count_words,
     theme::Theme,
     ui,
 };
@@ -93,11 +94,6 @@ const PLAYBACK_TICK: Duration = Duration::from_millis(16);
 const MAX_TICK_SECONDS: f32 = 0.05;
 
 // -- teleprompter-utils.ts --------------------------------------------------
-
-/// `countWords`: whitespace-separated, empty when the script is blank.
-pub fn count_words(text: &str) -> usize {
-    text.split_whitespace().count()
-}
 
 /// `clamp(value, minimum, maximum)`.
 pub fn clamp(value: f32, minimum: f32, maximum: f32) -> f32 {
@@ -369,6 +365,7 @@ impl TeleprompterWindow {
             self.stop_playback();
         }
         self.touch(TeleprompterState::SCRIPT, window, cx);
+        self.touch(TeleprompterState::CHARACTERS_PER_MINUTE, window, cx);
         cx.notify();
     }
 
@@ -480,7 +477,7 @@ impl TeleprompterWindow {
         let speed = calculate_playback_speed(
             maximum,
             count_words(&self.state.script),
-            self.state.words_per_minute,
+            self.state.reading_speed(),
         );
         self.position = advance_playback_position(self.position, maximum, speed, elapsed);
         self.apply_scroll();
@@ -524,10 +521,11 @@ impl TeleprompterWindow {
 
         match slider {
             Slider::Speed => {
-                let value = stepped(fraction, WPM_MIN, WPM_MAX, WPM_STEP) as u32;
-                if value != self.state.words_per_minute {
-                    self.state.words_per_minute = value;
-                    self.touch(TeleprompterState::WORDS_PER_MINUTE, window, cx);
+                let value =
+                    stepped(fraction, WPM_MIN, self.maximum_reading_speed(), WPM_STEP) as u32;
+                if value != self.state.reading_speed() {
+                    let key = self.state.set_reading_speed(value);
+                    self.touch(key, window, cx);
                     cx.notify();
                 }
             }
@@ -759,7 +757,14 @@ impl TeleprompterWindow {
             })
     }
 
-    /// `flex h-11 shrink-0 items-center px-3 pb-2`.
+    fn maximum_reading_speed(&self) -> f32 {
+        if self.state.uses_chinese_speed() {
+            420.
+        } else {
+            WPM_MAX
+        }
+    }
+
     fn render_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let playing = self.playback_state.requested;
@@ -821,18 +826,27 @@ impl TeleprompterWindow {
                     .child(self.render_range(
                         "speed",
                         Slider::Speed,
-                        (self.state.words_per_minute as f32 - WPM_MIN) / (WPM_MAX - WPM_MIN),
+                        (self.state.reading_speed() as f32 - WPM_MIN)
+                            / (self.maximum_reading_speed() - WPM_MIN),
                         Hsla::from(theme.primary),
                         cx,
                     ))
                     .child(
                         // `w-12 text-right text-[10px] tabular-nums text-gray-9`
                         div()
-                            .w(px(48.))
+                            .w(px(if self.state.uses_chinese_speed() {
+                                72.
+                            } else {
+                                48.
+                            }))
                             .text_right()
                             .text_size(px(10.))
                             .text_color(Hsla::from(theme.gray_9))
-                            .child(t!("{count} wpm", count = self.state.words_per_minute)),
+                            .child(if self.state.uses_chinese_speed() {
+                                t!("{count} chars/min", count = self.state.reading_speed())
+                            } else {
+                                t!("{count} wpm", count = self.state.reading_speed())
+                            }),
                     ),
             )
             .child(
@@ -1124,6 +1138,26 @@ mod tests {
     fn counts_words_in_pasted_scripts() {
         assert_eq!(count_words("  One   two\nthree "), 3);
         assert_eq!(count_words(" "), 0);
+    }
+
+    #[test]
+    fn chinese_script_scrolls_for_a_minute_at_260_characters_per_minute() {
+        let state = TeleprompterState {
+            script: "字".repeat(260),
+            ..Default::default()
+        };
+        let speed =
+            calculate_playback_speed(600., count_words(&state.script), state.reading_speed());
+        assert_eq!(600. / speed, 60.);
+    }
+
+    #[test]
+    fn mixed_scripts_count_han_characters_and_spaced_words() {
+        assert_eq!(count_words("你好，FrameEver world！"), 4);
+        assert_eq!(count_words("Hello中文world"), 4);
+        assert_eq!(count_words("中文，。！？ ……"), 2);
+        assert_eq!(count_words("  One   two\nthree don't re-record "), 5);
+        assert_eq!(count_words("𠮷禰\u{e0100} café"), 3);
     }
 
     #[test]

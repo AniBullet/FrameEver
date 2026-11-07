@@ -2,6 +2,7 @@
 //!
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod app_sounds;
 mod app_windows;
@@ -46,10 +47,13 @@ mod http;
 mod i18n;
 mod import;
 mod installer;
+mod jpeg_thumbnail;
 mod library;
 mod logo;
 mod main_window;
 mod media_access;
+#[cfg(all(test, target_os = "windows"))]
+mod media_foundation_tests;
 mod menus;
 mod mode_select_window;
 mod onboarding_audio;
@@ -81,6 +85,7 @@ mod snapshot;
 mod store;
 mod target_overlay;
 mod target_thumbnails;
+mod teleprompter;
 mod teleprompter_window;
 mod theme;
 mod transcription;
@@ -148,7 +153,6 @@ fn resolve_auto_screenshot_editor(target: &str) -> Option<std::path::PathBuf> {
 
 #[cfg(target_os = "windows")]
 fn end_windows_session() {
-    crate::store::clear_handoff_marker();
     crash_capture::mark_clean_exit();
 }
 
@@ -268,9 +272,6 @@ fn main() {
     let previous_session = crash_capture::begin_session(&diagnostics::logs_dir());
     blur_recovery::configure(previous_session);
     i18n::init(store::GeneralSettings::load().language.as_deref());
-    if cfg!(debug_assertions) {
-        store::mark_handoff_session();
-    }
 
     #[cfg(target_os = "macos")]
     platform::install_appkit_exception_guards();
@@ -383,12 +384,6 @@ fn main() {
             return;
         };
 
-        if cfg!(debug_assertions) {
-            cx.on_app_quit(|_| async {
-                crate::store::clear_handoff_marker();
-            })
-            .detach();
-        }
         cx.on_app_quit(|_| async {
             crash_capture::mark_clean_exit();
         })
@@ -412,6 +407,7 @@ fn main() {
             }
         }
         updates::schedule_startup_check(cx);
+        app_windows::schedule_launch_font_warmup(cx);
 
         // The app menu (and with it ⌘W/⌘M/⌘Q) and the status-bar item. Both
         // reach into the window registry, so they come after it -- and the menu

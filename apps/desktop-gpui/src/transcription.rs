@@ -409,12 +409,6 @@ pub fn finish_generation(project_path: &Path, error: Option<String>) {
 /// `MODEL_DOWNLOAD_REQUEST_TIMEOUT` (`captions.rs:2247`).
 const MODEL_DOWNLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
-static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    crate::http::client_builder()
-        .build()
-        .expect("the HTTP client builds with the bundled TLS settings")
-});
-
 /// `download_whisper_model_to_path` (`captions.rs:2105-2196`), restricted to
 /// the two Whisper entries the catalogue offers.
 async fn download_whisper_model(model: &str) -> Result<(), String> {
@@ -458,14 +452,11 @@ async fn write_whisper_parts(
     let part_count = model_parts.len() as f64;
 
     for (idx, url) in model_parts.iter().enumerate() {
-        let response = HTTP
-            .get(*url)
-            .timeout(MODEL_DOWNLOAD_REQUEST_TIMEOUT)
-            .send()
+        let response = crate::http::get(url, MODEL_DOWNLOAD_REQUEST_TIMEOUT)
             .await
             .map_err(|e| format!("Failed to download model: {e}"))?;
 
-        if !response.status().is_success() {
+        if !(200..300).contains(&response.status()) {
             return Err(format!(
                 "Failed to download model: HTTP {}",
                 response.status()
@@ -511,15 +502,10 @@ async fn write_whisper_parts(
 async fn total_content_length(urls: &[&str]) -> u64 {
     let mut total: u64 = 0;
     for url in urls {
-        let Ok(resp) = HTTP
-            .head(*url)
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await
-        else {
+        let Ok(resp) = crate::http::get(url, Duration::from_secs(30)).await else {
             return 0;
         };
-        if !resp.status().is_success() {
+        if !(200..300).contains(&resp.status()) {
             return 0;
         }
         match resp.content_length() {
@@ -643,14 +629,11 @@ async fn parakeet_model_file_sizes(
     for (filename, urls) in model_files {
         let mut file_size = 0_u64;
         for url in *urls {
-            let resp = HTTP
-                .head(*url)
-                .timeout(Duration::from_secs(30))
-                .send()
+            let resp = crate::http::get(url, Duration::from_secs(30))
                 .await
                 .map_err(|e| format!("Failed to get size for {filename}: {e}"))?;
 
-            if !resp.status().is_success() {
+            if !(200..300).contains(&resp.status()) {
                 return Err(format!(
                     "Failed to get size for {filename}: HTTP {}",
                     resp.status()
@@ -747,14 +730,11 @@ async fn download_parakeet_model(model: &str) -> Result<(), String> {
             for url in *urls {
                 tracing::info!("Downloading {filename} part from {url}");
 
-                let response = HTTP
-                    .get(*url)
-                    .timeout(MODEL_DOWNLOAD_REQUEST_TIMEOUT)
-                    .send()
+                let response = crate::http::get(url, MODEL_DOWNLOAD_REQUEST_TIMEOUT)
                     .await
                     .map_err(|e| format!("Failed to download {filename}: {e}"))?;
 
-                if !response.status().is_success() {
+                if !(200..300).contains(&response.status()) {
                     return Err(format!(
                         "Failed to download {filename}: HTTP {}",
                         response.status()

@@ -308,6 +308,8 @@ impl<TCaptureFormat: ScreenCaptureFormat> Clone for ScreenCaptureConfig<TCapture
 #[derive(Clone, Debug)]
 pub struct Config {
     display: DisplayId,
+    #[cfg(windows)]
+    window: Option<WindowId>,
     crop_bounds: Option<CropBounds>,
     fps: u32,
     show_cursor: bool,
@@ -399,6 +401,7 @@ impl<TCaptureFormat: ScreenCaptureFormat> ScreenCaptureConfig<TCaptureFormat> {
         max_capture_size: Option<(u32, u32)>,
         start_time: SystemTime,
         system_audio: bool,
+        #[cfg(windows)] window: Option<WindowId>,
         #[cfg(windows)] d3d_device: ::windows::Win32::Graphics::Direct3D11::ID3D11Device,
         #[cfg(target_os = "macos")] shareable_content: SendableShareableContent,
         #[cfg(target_os = "macos")] excluded_windows: Vec<WindowId>,
@@ -450,6 +453,8 @@ impl<TCaptureFormat: ScreenCaptureFormat> ScreenCaptureConfig<TCaptureFormat> {
         Ok(Self {
             config: Config {
                 display: display.id(),
+                #[cfg(windows)]
+                window,
                 crop_bounds,
                 fps,
                 show_cursor,

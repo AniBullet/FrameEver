@@ -79,6 +79,22 @@ enum CountdownAdvance {
     Start,
 }
 
+async fn play_cue_when_primed<F, Fut>(
+    primed: Option<tokio::sync::watch::Receiver<bool>>,
+    gate: frameever_recording::RecordingStartGate,
+    play: F,
+) where
+    F: FnOnce(frameever_recording::RecordingStartGate) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    if let Some(mut primed) = primed
+        && primed.wait_for(|primed| *primed).await.is_err()
+    {
+        return;
+    }
+    play(gate).await;
+}
+
 fn countdown_advance(
     phase: Phase,
     current_generation: u64,
@@ -245,6 +261,7 @@ pub struct RecordingSession {
     paused_accum: Duration,
     paused_since: Option<Instant>,
     storage_monitor: Option<Task<()>>,
+    camera_monitor: Option<Task<()>>,
     failure_monitor: Option<Task<()>>,
     recording_generation: u64,
     countdown_remaining: Option<u32>,
@@ -254,6 +271,7 @@ pub struct RecordingSession {
     /// A capture pipeline that finished warming up while the countdown or the
     /// start cue was still running; activated the moment the cue ends.
     primed: Option<ActiveRecording>,
+    primed_ready: Option<tokio::sync::watch::Sender<bool>>,
     /// Teardown of a cancelled primed start still releasing its devices; the
     /// next start waits for it before locking the mic and camera again.
     discarding: Option<Task<Result<(), tokio::task::JoinError>>>,
@@ -286,6 +304,7 @@ impl RecordingSession {
             paused_accum: Duration::ZERO,
             paused_since: None,
             storage_monitor: None,
+            camera_monitor: None,
             failure_monitor: None,
             recording_generation: 0,
             countdown_remaining: None,
@@ -293,6 +312,7 @@ impl RecordingSession {
             start_gate: None,
             start_cue: None,
             primed: None,
+            primed_ready: None,
             discarding: None,
             pause_control: PauseControlState::default(),
             pause_control_error: None,
@@ -443,7 +463,7 @@ impl RecordingSession {
             cx.notify();
             return;
         }
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         self.failure_monitor = None;
         self.recording_generation = self.recording_generation.wrapping_add(1);
         self.preparing_studio_editor = None;
@@ -459,6 +479,7 @@ impl RecordingSession {
         self.start_gate = Some(start_gate);
         self.start_cue = Some(crate::app_sounds::prime_recording_start_sound());
         self.discard_primed(cx);
+        self.primed_ready = Some(tokio::sync::watch::channel(false).0);
         self.pause_control.invalidate();
         self.pause_control.uncertain = false;
         self.pause_control_error = None;
@@ -474,8 +495,6 @@ impl RecordingSession {
         self.countdown_remaining = Some(countdown);
         cx.notify();
 
-        // The pipeline warms up during the final countdown second so capture is
-        // live when the cue ends; without a countdown it warms up under the cue.
         if countdown <= 1 {
             self.prime_engine(config.clone(), generation, cx);
         }
@@ -538,19 +557,20 @@ impl RecordingSession {
     ) -> std::pin::Pin<Box<dyn Future<Output = ()>>> {
         let gate = self.start_gate.clone().unwrap_or_default();
         let cue = self.start_cue.take();
+        let primed = self.primed_ready.as_ref().map(|ready| ready.subscribe());
         let (abort, registration) = futures_util::future::AbortHandle::new_pair();
         self.countdown_cue_abort = Some(abort);
         let task = gpui_tokio::Tokio::spawn(
             cx,
             futures_util::future::Abortable::new(
-                async move {
+                play_cue_when_primed(primed, gate, move |gate| async move {
                     match cue {
                         Some(cue) => crate::app_sounds::play_recording_start_sound(cue, gate).await,
                         None => {
                             gate.arm();
                         }
                     }
-                },
+                }),
                 registration,
             ),
         );
@@ -600,6 +620,9 @@ impl RecordingSession {
                     Ok(Ok(active)) => {
                         if this.countdown_remaining.is_some() {
                             this.primed = Some(active);
+                            if let Some(ready) = &this.primed_ready {
+                                ready.send_replace(true);
+                            }
                         } else {
                             this.activate(active, cx);
                         }
@@ -652,6 +675,7 @@ impl RecordingSession {
             crate::app_windows::prewarm_shared_wgpu_device(cx);
         }
         self.monitor_storage(project_dir, cx);
+        self.monitor_camera(cx);
         self.monitor_recording_failure(done, cx);
         cx.notify();
     }
@@ -702,6 +726,58 @@ impl RecordingSession {
             })
             .ok();
         }));
+    }
+
+    fn monitor_camera(&mut self, cx: &mut Context<Self>) {
+        self.camera_monitor = None;
+        let Some(camera) = self
+            .last_config
+            .as_ref()
+            .and_then(|config| config.camera.clone())
+        else {
+            return;
+        };
+        let generation = self.recording_generation;
+        let task = cx.spawn(async move |this, cx| {
+            let mut marked_lost = false;
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let is_current = this
+                    .update(cx, |this, _| {
+                        matches!(this.phase, Phase::Recording { .. })
+                            && this.recording_generation == generation
+                    })
+                    .unwrap_or(false);
+                if !is_current {
+                    if marked_lost {
+                        cx.update(|cx| set_camera_disconnected(false, cx));
+                    }
+                    return;
+                }
+                let id = camera.clone();
+                let connected = cx
+                    .background_executor()
+                    .spawn(async move { crate::devices::camera_connected(&id) })
+                    .await;
+                let Some(lost) = camera_link_change(marked_lost, connected) else {
+                    continue;
+                };
+                marked_lost = lost;
+                if lost {
+                    tracing::warn!("camera disconnected during the recording; recording continues");
+                } else {
+                    tracing::info!("camera reconnected during the recording");
+                }
+                cx.update(|cx| set_camera_disconnected(lost, cx));
+            }
+        });
+        self.camera_monitor = Some(task);
+    }
+
+    fn stop_recording_monitors(&mut self, cx: &mut Context<Self>) {
+        self.storage_monitor = None;
+        self.camera_monitor = None;
+        set_camera_disconnected(false, cx);
     }
 
     fn monitor_storage(&mut self, project_dir: std::path::PathBuf, cx: &mut Context<Self>) {
@@ -786,7 +862,7 @@ impl RecordingSession {
         if !matches!(self.phase, Phase::Recording { .. }) {
             return;
         }
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         #[cfg(not(windows))]
         {
             self.failure_monitor = None;
@@ -1061,7 +1137,7 @@ impl RecordingSession {
             self.discard_studio_after_stop(None, cx);
             return;
         }
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         let Some(active) = self.active.take() else {
             return;
         };
@@ -1095,7 +1171,7 @@ impl RecordingSession {
             self.discard_studio_after_stop(Some(config), cx);
             return;
         }
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         let Some(active) = self.active.take() else {
             return;
         };
@@ -1135,7 +1211,7 @@ impl RecordingSession {
         let directory = active.project_dir.clone();
         let generation = self.recording_generation;
         let phase = self.phase;
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         self.phase = Phase::Stopping;
         cx.notify();
         let task = gpui_tokio::Tokio::spawn(cx, future);
@@ -1199,13 +1275,14 @@ impl RecordingSession {
     fn finish(&mut self, cx: &mut Context<Self>) {
         self.abort_start_cue();
         self.discard_primed(cx);
+        self.primed_ready = None;
         self.start_gate = None;
         self.failure_monitor = None;
         self.pause_control.invalidate();
         self.pause_control.uncertain = false;
         self.pause_control_error = None;
         self.pipeline_failed = false;
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         self.countdown_remaining = None;
         self.phase = Phase::Idle;
         self.mic_muted = false;
@@ -1222,9 +1299,69 @@ fn recording_failure_is_current(phase: Phase, current: u64, completed: u64) -> b
     current == completed && matches!(phase, Phase::Recording { .. })
 }
 
+fn set_camera_disconnected(disconnected: bool, cx: &mut App) {
+    crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
+        feeds.set_camera_disconnected(disconnected, cx)
+    });
+}
+
+fn camera_link_change(marked_lost: bool, connected: bool) -> Option<bool> {
+    (marked_lost == connected).then_some(!connected)
+}
+
+#[cfg(test)]
+mod camera_watch_tests {
+    use super::*;
+
+    #[test]
+    fn an_unplugged_camera_is_marked_once_and_cleared_when_it_returns() {
+        assert_eq!(camera_link_change(false, false), Some(true));
+        assert_eq!(camera_link_change(true, false), None);
+        assert_eq!(camera_link_change(true, true), Some(false));
+        assert_eq!(camera_link_change(false, true), None);
+    }
+}
+
 #[cfg(test)]
 mod countdown_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn start_cue_waits_for_the_primed_pipeline() {
+        let (ready, primed) = tokio::sync::watch::channel(false);
+        let played = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let gate = frameever_recording::RecordingStartGate::new();
+        let cue = tokio::spawn({
+            let played = played.clone();
+            play_cue_when_primed(Some(primed), gate.clone(), move |gate| async move {
+                played.store(true, std::sync::atomic::Ordering::SeqCst);
+                gate.arm();
+            })
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!played.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(!gate.is_armed());
+        ready.send_replace(true);
+        cue.await.unwrap();
+        assert!(played.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(gate.is_armed());
+    }
+
+    #[tokio::test]
+    async fn start_cue_stays_silent_when_the_start_is_dropped_before_it_primes() {
+        let (ready, primed) = tokio::sync::watch::channel(false);
+        let gate = frameever_recording::RecordingStartGate::new();
+        let cue = tokio::spawn(play_cue_when_primed(
+            Some(primed),
+            gate.clone(),
+            |_| async {
+                panic!("the cue played for a start that never primed");
+            },
+        ));
+        drop(ready);
+        cue.await.unwrap();
+        assert!(!gate.is_armed());
+    }
 
     #[test]
     fn countdown_ticks_until_the_final_step_before_start() {

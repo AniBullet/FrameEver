@@ -1563,9 +1563,6 @@ impl Render for SettingsWindow {
             // the drag layer the zoom slider needs while the button is held.
             .children(self.render_menu(cx))
             .children(self.render_slider_drag_layer(cx))
-            // Over everything, including the menus: the Experimental page's
-            // hand-back takes the whole window while it counts down.
-            .children(self.render_switch_overlay(cx))
     }
 }
 
@@ -2060,16 +2057,14 @@ impl SettingsWindow {
                 {
                     let png = png.clone();
                     move |_this, _window, cx| {
-                        if let Err(error) = crate::platform::copy_image_to_clipboard(&png, cx) {
-                            tracing::warn!("copying screenshot failed: {error}");
-                            cx.spawn(async move |_, _| {
-                                crate::platform::alert_dialog(
-                                    t!("Could not copy screenshot"),
-                                    &error,
-                                );
-                            })
-                            .detach();
-                        }
+                        crate::platform::copy_image_to_clipboard(
+                            png.clone(),
+                            Some((
+                                t!("Could not copy screenshot"),
+                                t!("It may have been moved. Try again."),
+                            )),
+                            cx,
+                        );
                     }
                 },
             ))

@@ -2785,7 +2785,7 @@ pub fn open_camera_window(cx: &mut App) {
         })
         .or_else(scap_targets::Display::get_containing_cursor)
         .unwrap_or_else(scap_targets::Display::primary);
-    let (x, y) = camera_window::opening_position(&display);
+    let (x, y) = camera_window::opening_position(&display, (width, height));
     let display_id = gpui_display_id(Some(&display), cx);
 
     let inline = camera_preview_is_inline(cx);
@@ -3716,6 +3716,25 @@ pub(crate) async fn shared_wgpu_device() -> Option<frameever_rendering::SharedWg
 pub(crate) fn prewarm_shared_wgpu_device(cx: &App) {
     gpui_tokio::Tokio::spawn(cx, async {
         let _ = shared_wgpu_device().await;
+    })
+    .detach();
+}
+
+const LAUNCH_FONT_WARMUP_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
+
+pub(crate) fn schedule_launch_font_warmup(cx: &App) {
+    gpui_tokio::Tokio::spawn(cx, async {
+        tokio::time::sleep(LAUNCH_FONT_WARMUP_DELAY).await;
+        let started = std::time::Instant::now();
+        if tokio::task::spawn_blocking(frameever_rendering::prewarm_fonts)
+            .await
+            .is_ok()
+        {
+            tracing::info!(
+                fonts_ms = started.elapsed().as_secs_f64() * 1000.0,
+                "launch font warmup finished"
+            );
+        }
     })
     .detach();
 }
@@ -5190,23 +5209,6 @@ pub fn arm_target_mode(kind: crate::main_window::TargetType, cx: &mut App) {
         .ok();
 }
 
-/// Repaint the bar between its once-a-second ticks -- the mic meter updates at
-/// up to ~20Hz and the bar is never the active window.
-pub fn refresh_controls_window(cx: &mut App) {
-    let level_db = crate::feeds::Feeds::global(cx).read(cx).mic_level_db;
-    if let Some(handle) = cx.global::<AppWindows>().controls {
-        handle
-            .update(cx, |controls, window, cx| {
-                if !controls.level_bar_moves(level_db, window.scale_factor()) {
-                    return;
-                }
-                cx.notify();
-                window.refresh();
-            })
-            .ok();
-    }
-}
-
 fn camera_window_number(cx: &mut App) -> Option<isize> {
     let handle = cx.global::<AppWindows>().camera?;
     handle
@@ -5386,10 +5388,8 @@ pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
         .ok();
 
     let behaviour = crate::store::GeneralSettings::load().post_screenshot_behaviour;
-    if behaviour.copies()
-        && let Err(error) = platform::copy_image_to_clipboard(&png, cx)
-    {
-        tracing::error!("copying the screenshot to the clipboard failed: {error}");
+    if behaviour.copies() {
+        platform::copy_image_to_clipboard(png.clone(), None, cx);
     }
 
     if behaviour.opens_editor() {

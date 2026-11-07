@@ -115,7 +115,7 @@ pub fn issue_report_url() -> String {
 Attach an exported log or diagnostic report if it helps. Review it first; it stays private until you attach it.",
         env!("CARGO_PKG_VERSION")
     );
-    let mut url = reqwest::Url::parse(&format!(
+    let mut url = url::Url::parse(&format!(
         "https://github.com/{}/issues/new",
         crate::brand::RELEASES_REPO
     ))
@@ -707,7 +707,6 @@ fn settings_snapshot() -> Value {
         "updateChannel": settings.update_channel.as_json(),
         "updateDownloadPolicy": settings.update_download_policy.as_json(),
         "instanceId": instance_id,
-        "enableTelemetry": settings.enable_telemetry,
         "editorPreviewQuality": settings.editor_preview_quality.as_json(),
         "captureKeyboardEvents": settings.capture_keyboard_events,
     })
@@ -866,7 +865,7 @@ mod tests {
 
     #[test]
     fn the_issue_link_carries_only_a_template_and_the_app_version() {
-        let url = reqwest::Url::parse(&issue_report_url()).unwrap();
+        let url = url::Url::parse(&issue_report_url()).unwrap();
         assert_eq!(url.host_str(), Some("github.com"));
         assert_eq!(url.path(), "/AniBullet/FrameEver/issues/new");
         let pairs: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();

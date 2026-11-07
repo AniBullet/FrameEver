@@ -930,11 +930,7 @@ pub struct ScreenshotEditorWindow {
     exporting: bool,
     export_status: ExportStatus,
     /// The latest GPU frame, already BGRA in gpui's atlas format.
-    frame: Option<Arc<RenderImage>>,
-    /// The same frame as tight RGBA. `Preview.tsx` reads the preview canvas
-    /// back to blur/pixelate mask regions (`:537-687`); the mask overlay
-    /// resamples this instead of the atlas image.
-    pub(crate) frame_rgba: Option<Arc<Vec<u8>>>,
+    pub(crate) frame: Option<Arc<RenderImage>>,
     pub(crate) mask_frame_revision: u64,
     pub(crate) frame_size: (f32, f32),
     /// `originalImageSize` -- the source PNG's dimensions, which the crop
@@ -1021,7 +1017,6 @@ impl ScreenshotEditorWindow {
             exporting: false,
             export_status: ExportStatus::Idle,
             frame: None,
-            frame_rgba: None,
             mask_frame_revision: 0,
             frame_size: (1., 1.),
             image_size: None,
@@ -1125,7 +1120,7 @@ impl ScreenshotEditorWindow {
         if self.bg_tab == BgTab::Wallpaper {
             self.ensure_wallpapers(cx);
         }
-        self.ensure_background_image(cx);
+        self.ensure_background_image(window, cx);
         if let Ok(dest) = std::env::var("FRAMEEVER_GPUI_AUTO_SCREENSHOT_EXPORT")
             && !dest.trim().is_empty()
         {
@@ -1144,7 +1139,6 @@ impl ScreenshotEditorWindow {
     pub fn frame_arrived(
         &mut self,
         image: Arc<RenderImage>,
-        rgba: Arc<Vec<u8>>,
         size: (u32, u32),
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1152,7 +1146,6 @@ impl ScreenshotEditorWindow {
         let next = (size.0.max(1) as f32, size.1.max(1) as f32);
         self.rescale_annotations_for(next);
         self.frame_size = next;
-        self.frame_rgba = Some(rgba);
         self.mask_frame_revision = self
             .mask_frame_revision
             .checked_add(1)
@@ -1289,7 +1282,7 @@ impl ScreenshotEditorWindow {
         {
             self.selected_annotation = None;
         }
-        self.ensure_background_image(cx);
+        self.ensure_background_image(window, cx);
         self.publish();
         self.schedule_save(window, cx);
         self.refresh_mask_overlays(window, cx);
@@ -1523,9 +1516,11 @@ impl ScreenshotEditorWindow {
 
     /// The Image tab's `h-48` preview. Decoded off-thread and cached by path,
     /// so switching tabs does not re-read the file.
-    fn ensure_background_image(&mut self, cx: &mut Context<Self>) {
+    fn ensure_background_image(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let BackgroundSource::Image { path: Some(path) } = &self.project.background.source else {
-            self.bg_image = None;
+            if let Some((_, previous)) = self.bg_image.take() {
+                let _ = window.drop_image(previous);
+            }
             return;
         };
         if self
@@ -1536,7 +1531,7 @@ impl ScreenshotEditorWindow {
             return;
         }
         let path = path.clone();
-        self.bg_image_task = Some(cx.spawn(async move |this, cx| {
+        self.bg_image_task = Some(cx.spawn_in(window, async move |this, cx| {
             let decoded = cx
                 .background_executor()
                 .spawn({
@@ -1544,8 +1539,11 @@ impl ScreenshotEditorWindow {
                     async move { decode_preview_image(Path::new(&path)) }
                 })
                 .await;
-            this.update(cx, |this, cx| {
-                this.bg_image = decoded.map(|image| (path, image));
+            this.update_in(cx, |this, window, cx| {
+                let next = decoded.map(|image| (path, image));
+                if let Some((_, previous)) = std::mem::replace(&mut this.bg_image, next) {
+                    let _ = window.drop_image(previous);
+                }
                 cx.notify();
             })
             .ok();
@@ -1568,7 +1566,7 @@ impl ScreenshotEditorWindow {
                     window,
                     cx,
                 );
-                this.ensure_background_image(cx);
+                this.ensure_background_image(window, cx);
             })
             .ok();
         })
@@ -2000,8 +1998,14 @@ impl ScreenshotEditorWindow {
             match result {
                 Ok(bytes) => match destination {
                     ExportDestination::Clipboard => {
+                        let image = cx
+                            .background_executor()
+                            .spawn(async move { crate::platform::prepare_clipboard_image(bytes) })
+                            .await;
                         this.update_in(cx, |this, window, cx| {
-                            match crate::platform::copy_image_bytes_to_clipboard(&bytes, cx) {
+                            match image
+                                .and_then(|image| crate::platform::write_clipboard_image(image, cx))
+                            {
                                 Ok(()) => {
                                     this.toast_success(
                                         t!("Screenshot copied to clipboard!"),
@@ -3014,7 +3018,7 @@ impl ScreenshotEditorWindow {
             window,
             cx,
         );
-        self.ensure_background_image(cx);
+        self.ensure_background_image(window, cx);
     }
 
     fn render_wallpaper_tab(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -3214,7 +3218,7 @@ impl ScreenshotEditorWindow {
                             window,
                             cx,
                         );
-                        this.ensure_background_image(cx);
+                        this.ensure_background_image(window, cx);
                     })),
             )
             .into_any_element()
@@ -4456,26 +4460,8 @@ fn render_input_key(project: &mut ProjectConfiguration) -> Option<Vec<u8>> {
     Some(key)
 }
 
-/// One rendered frame, in both the forms the window needs: tight RGBA (what a
-/// mask overlay resamples) and the BGRA copy gpui's atlas takes. The rows are
-/// copied once and the swap runs over a clone, so the padded GPU buffer is
-/// walked a single time.
-fn frame_buffers(frame: &RenderedFrame) -> Option<(Arc<Vec<u8>>, Arc<RenderImage>)> {
-    let rgba = frameever_gpui_kernels::frame::unpad_rows(
-        &frame.data,
-        frame.width as usize * 4,
-        frame.padded_bytes_per_row as usize,
-        frame.height as usize,
-    )?;
-    let mut bgra = rgba.clone();
-    frameever_gpui_kernels::frame::swap_red_blue(&mut bgra);
-    let buffer = image::RgbaImage::from_raw(frame.width, frame.height, bgra)?;
-    Some((
-        Arc::new(rgba),
-        Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(
-            buffer
-        )])),
-    ))
+fn latest_frame<T>(frame: T, frames: &flume::Receiver<T>) -> T {
+    frames.drain().last().unwrap_or(frame)
 }
 
 /// Read the bundle, start the still renderer on tokio, pump frames back --
@@ -4546,13 +4532,14 @@ pub fn load_screenshot_project(
             return;
         }
 
-        while let Ok((frame, revision)) = frame_rx.recv_async().await {
+        while let Ok(frame) = frame_rx.recv_async().await {
+            let (frame, revision) = latest_frame(frame, &frame_rx);
             let size = (frame.width, frame.height);
-            let buffers = cx
+            let image = cx
                 .background_executor()
-                .spawn(async move { frame_buffers(&frame) })
+                .spawn(async move { crate::editor_window::frame_image(&frame) })
                 .await;
-            let Some((rgba, image)) = buffers else {
+            let Some(image) = image else {
                 tracing::warn!("a rendered screenshot frame could not be converted for display");
                 continue;
             };
@@ -4564,7 +4551,7 @@ pub fn load_screenshot_project(
             );
             if handle
                 .update(cx, |view, window, cx| {
-                    view.frame_arrived(image, rgba, size, window, cx)
+                    view.frame_arrived(image, size, window, cx)
                 })
                 .is_err()
             {
@@ -4597,6 +4584,56 @@ mod tests {
     #[test]
     fn the_checkerboard_tile_repeats_without_a_seam() {
         assert_eq!(CHECKER_TILE % (CHECKER_CELL * 2), 0);
+    }
+
+    #[test]
+    fn the_displayed_frame_matches_unpadding_then_swapping_a_copy() {
+        for (width, height) in [(1u32, 1u32), (3, 5), (7, 2), (33, 9), (1001, 3)] {
+            let row_bytes = width * 4;
+            for stride in [row_bytes, row_bytes + 4, row_bytes.next_multiple_of(256)] {
+                let frame = RenderedFrame {
+                    data: Arc::new(
+                        (0..stride as usize * height as usize)
+                            .map(|index| (index * 7 + index / 251) as u8)
+                            .collect(),
+                    ),
+                    width,
+                    height,
+                    padded_bytes_per_row: stride,
+                    frame_number: 0,
+                    target_time_ns: 0,
+                };
+                let rgba = frameever_gpui_kernels::frame::unpad_rows(
+                    &frame.data,
+                    row_bytes as usize,
+                    stride as usize,
+                    height as usize,
+                )
+                .unwrap();
+                let mut bgra = rgba.clone();
+                frameever_gpui_kernels::frame::swap_red_blue(&mut bgra);
+
+                let image = crate::editor_window::frame_image(&frame).unwrap();
+                assert_eq!(
+                    image.size(0),
+                    gpui::size(
+                        gpui::DevicePixels::from(width),
+                        gpui::DevicePixels::from(height)
+                    )
+                );
+                assert_eq!(image.as_bytes(0).unwrap(), bgra.as_slice());
+            }
+        }
+    }
+
+    #[test]
+    fn only_the_newest_queued_frame_is_converted() {
+        let (frame_tx, frame_rx) = flume::bounded(2);
+        assert_eq!(latest_frame(1, &frame_rx), 1);
+        frame_tx.send(2).unwrap();
+        frame_tx.send(3).unwrap();
+        assert_eq!(latest_frame(1, &frame_rx), 3);
+        assert!(frame_rx.is_empty());
     }
 
     /// `PaddingPopover`'s guard (`context.tsx:30-42`).
@@ -4894,7 +4931,7 @@ mod tests {
         ));
         setup_rx.recv_async().await.unwrap().unwrap();
         let (first, _) = frame_rx.recv_async().await.unwrap();
-        assert!(frame_buffers(&first).is_some());
+        assert!(crate::editor_window::frame_image(&first).is_some());
 
         let renders = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let render_ms = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -4906,10 +4943,12 @@ mod tests {
                 (renders.clone(), render_ms.clone(), sent_at.clone());
             tokio::spawn(async move {
                 while let Ok((frame, revision)) = frame_rx.recv_async().await {
-                    let buffers = tokio::task::spawn_blocking(move || frame_buffers(&frame))
-                        .await
-                        .unwrap();
-                    assert!(buffers.is_some());
+                    let image = tokio::task::spawn_blocking(move || {
+                        crate::editor_window::frame_image(&frame)
+                    })
+                    .await
+                    .unwrap();
+                    assert!(image.is_some());
                     if let Some(sent) = sent_at.lock().unwrap().remove(&revision) {
                         render_ms
                             .lock()

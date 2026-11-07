@@ -26,6 +26,12 @@ RECORD_GAP_RADIUS = RECORD_RADIUS * 0.8
 RECORD_DOT_RADIUS = RECORD_RADIUS * 0.64
 RECORD_DOT_RADIUS_SMALL = RECORD_RADIUS * 0.66
 GAP_MIN_SIZE = 24
+TRAY_RING_CENTRE = 24
+TRAY_RING_RADIUS = 15
+TRAY_RING_WIDTH = 5
+TRAY_SQUARE_BOX = (16, 16, 32, 32)
+TRAY_SQUARE_RADIUS = 2.5
+TRAY_RECORDING_SOURCE_SIZE = 128
 
 ICO_SIZES = [16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 128, 256]
 SUPERSAMPLE = 8
@@ -120,6 +126,25 @@ def render_icon(size):
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((0, 0, canvas - 1, canvas - 1), radius=PLATE_RADIUS * unit, fill=rgb(PLATE))
     draw_marks(draw, unit, size)
+    return image.resize((size, size), Image.LANCZOS)
+
+
+def render_tray_recording_icon(size):
+    canvas = size * SUPERSAMPLE
+    unit = canvas / GRID
+    image = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((0, 0, canvas - 1, canvas - 1), radius=PLATE_RADIUS * unit, fill=rgb(PLATE))
+    outer = (TRAY_RING_RADIUS + TRAY_RING_WIDTH / 2) * unit
+    centre = TRAY_RING_CENTRE * unit
+    draw.ellipse(
+        (centre - outer, centre - outer, centre + outer, centre + outer),
+        outline=rgb(RECORD_RING),
+        width=round(TRAY_RING_WIDTH * unit),
+    )
+    draw.rounded_rectangle(
+        tuple(value * unit for value in TRAY_SQUARE_BOX), radius=TRAY_SQUARE_RADIUS * unit, fill=rgb(RECORD_DOT)
+    )
     return image.resize((size, size), Image.LANCZOS)
 
 
@@ -222,6 +247,7 @@ def main(app_dir):
         render_icon(size).save(app / "icons" / name)
     render_icon(1024).save(app / "packaging" / "brand" / "icon-source.png")
     render_icon(512).save(app / "assets" / "dock-icon.png")
+    render_tray_recording_icon(TRAY_RECORDING_SOURCE_SIZE).save(app / "assets" / "tray" / "tray-recording-icon.png")
     write_svgs(app)
     write_installer_images(app)
 

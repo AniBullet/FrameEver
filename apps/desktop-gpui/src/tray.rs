@@ -17,10 +17,12 @@
 
 use std::path::{Path, PathBuf};
 
+use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use gpui::{App, Global};
 
 use crate::{
     app_windows,
+    hotkeys::{self, HotkeyAction},
     i18n::t,
     library::{self, MediaKind},
     main_window::{Mode, TargetType},
@@ -34,6 +36,54 @@ const MAX_PREVIOUS_ITEMS: usize = 6;
 const MAX_TITLE_LENGTH: usize = 30;
 /// `THUMBNAIL_SIZE`.
 const THUMBNAIL_SIZE: u32 = 32;
+const ROW_ICON_SIZE: u32 = 32;
+
+fn svg_icon_png(source: &[u8], size: u32) -> Option<Vec<u8>> {
+    let tree = resvg::usvg::Tree::from_data(source, &resvg::usvg::Options::default()).ok()?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(size, size)?;
+    let bounds = tree.size();
+    let scale = (size as f32 / bounds.width()).min(size as f32 / bounds.height());
+    let transform = resvg::tiny_skia::Transform::from_translate(
+        (size as f32 - bounds.width() * scale) / 2.0,
+        (size as f32 - bounds.height() * scale) / 2.0,
+    )
+    .pre_scale(scale, scale);
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    pixmap.encode_png().ok()
+}
+
+const ROW_ICONS: [&str; 7] = [
+    DISPLAY_ICON,
+    WINDOW_ICON,
+    AREA_ICON,
+    SCREENSHOT_ICON,
+    IMPORT_ICON,
+    SETTINGS_ICON,
+    PREVIOUS_ICON,
+];
+const DISPLAY_ICON: &str = "icons/monitor.svg";
+const WINDOW_ICON: &str = "icons/app-window.svg";
+const AREA_ICON: &str = "icons/scan.svg";
+const SCREENSHOT_ICON: &str = "icons/image.svg";
+const IMPORT_ICON: &str = "icons/download.svg";
+const SETTINGS_ICON: &str = "icons/settings.svg";
+const PREVIOUS_ICON: &str = "icons/film.svg";
+
+fn menu_icon(path: &str) -> Option<Vec<u8>> {
+    use gpui::AssetSource as _;
+    use std::{collections::HashMap, sync::LazyLock};
+
+    static ICONS: LazyLock<HashMap<&str, Vec<u8>>> = LazyLock::new(|| {
+        ROW_ICONS
+            .into_iter()
+            .filter_map(|path| {
+                let source = crate::assets::Assets.load(path).ok()??;
+                Some((path, svg_icon_png(&source, ROW_ICON_SIZE)?))
+            })
+            .collect()
+    });
+    ICONS.get(path).cloned()
+}
 
 /// `get_mode_icon(mode)`. Template images (`icon_as_template(true)`), so macOS
 /// tints them for the current menu-bar appearance.
@@ -63,6 +113,9 @@ pub enum TrayItem {
     RecordWindow,
     RecordArea,
     TakeScreenshot,
+    ScreenshotDisplay,
+    ScreenshotWindow,
+    ScreenshotArea,
     ImportMedia,
     OpenLibrary,
     OpenSettings,
@@ -72,6 +125,21 @@ pub enum TrayItem {
     ModeStudio,
     ModeInstant,
     ModeScreenshot,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Accelerator {
+    pub modifiers: Modifiers,
+    pub code: Code,
+}
+
+impl From<HotKey> for Accelerator {
+    fn from(hotkey: HotKey) -> Self {
+        Self {
+            modifiers: hotkey.mods,
+            code: hotkey.key,
+        }
+    }
 }
 
 /// One row of the menu.
@@ -84,11 +152,13 @@ pub enum Entry {
         enabled: bool,
         /// A 32x32 PNG, already cover-cropped. `IconMenuItem`'s image.
         icon: Option<Vec<u8>>,
+        accelerator: Option<Accelerator>,
     },
     Submenu {
         title: String,
         enabled: bool,
         items: Vec<Entry>,
+        icon: Option<Vec<u8>>,
     },
 }
 
@@ -99,6 +169,17 @@ impl Entry {
             item: Some(item),
             enabled: true,
             icon: None,
+            accelerator: None,
+        }
+    }
+
+    fn icon_item(title: impl Into<String>, item: TrayItem, icon: &str) -> Self {
+        Self::Item {
+            title: title.into(),
+            item: Some(item),
+            enabled: true,
+            icon: menu_icon(icon),
+            accelerator: None,
         }
     }
 
@@ -110,6 +191,7 @@ impl Entry {
             item: None,
             enabled: false,
             icon: None,
+            accelerator: None,
         }
     }
 }
@@ -169,19 +251,15 @@ pub fn cover_crop_geometry(orig_w: u32, orig_h: u32, size: u32) -> (u32, u32, u3
     )
 }
 
-/// `load_thumbnail_data`, ending in a PNG rather than raw RGBA -- muda hands
-/// its icon to AppKit as a PNG too (`PlatformIcon::to_nsimage`), so this is the
-/// same conversion one step earlier. A JPEG source starts from the Recents card
-/// thumbnail cache instead of the native-resolution original. That cache is
-/// itself JPEG and drops alpha, so anything else (a transparent screenshot PNG)
-/// still decodes directly.
 fn load_thumbnail_png(path: &Path) -> Option<Vec<u8>> {
-    use image::{GenericImageView, ImageEncoder, ImageFormat, RgbaImage, imageops::FilterType};
+    use image::{GenericImageView, ImageEncoder, RgbaImage, imageops::FilterType};
 
-    let img = if ImageFormat::from_path(path).ok() == Some(ImageFormat::Jpeg) {
-        image::DynamicImage::ImageRgba8(library::thumbnail_rgba(path)?)
-    } else {
-        image::load_from_memory(&std::fs::read(path).ok()?).ok()?
+    let cached = (!source_may_have_alpha(path))
+        .then(|| library::thumbnail_rgba(path))
+        .flatten();
+    let img = match cached {
+        Some(rgba) => image::DynamicImage::ImageRgba8(rgba),
+        None => image::load_from_memory(&std::fs::read(path).ok()?).ok()?,
     };
     let (orig_w, orig_h) = img.dimensions();
     if orig_w == 0 || orig_h == 0 {
@@ -207,6 +285,22 @@ fn load_thumbnail_png(path: &Path) -> Option<Vec<u8>> {
         .write_image(result.as_raw(), size, size, image::ExtendedColorType::Rgba8)
         .ok()?;
     Some(png)
+}
+
+fn source_may_have_alpha(path: &Path) -> bool {
+    use image::{ImageDecoder, ImageFormat, ImageReader};
+
+    let Ok(reader) = ImageReader::open(path).and_then(ImageReader::with_guessed_format) else {
+        return true;
+    };
+    match reader.format() {
+        Some(ImageFormat::Jpeg) => false,
+        Some(ImageFormat::Png) => reader
+            .into_decoder()
+            .ok()
+            .is_none_or(|decoder| decoder.color_type().has_alpha()),
+        _ => true,
+    }
 }
 
 /// `load_all_previous_items` + the background thumbnail pass, in one call.
@@ -241,12 +335,14 @@ fn previous_submenu(previous: &[PreviousItem]) -> Entry {
         return Entry::Submenu {
             title: t!("Previous").into(),
             enabled: false,
+            icon: menu_icon(PREVIOUS_ICON),
             items: vec![Entry::disabled(t!("No recent items"))],
         };
     }
     Entry::Submenu {
         title: t!("Previous").into(),
         enabled: true,
+        icon: menu_icon(PREVIOUS_ICON),
         items: previous
             .iter()
             .map(|item| Entry::Item {
@@ -258,6 +354,7 @@ fn previous_submenu(previous: &[PreviousItem]) -> Entry {
                 item: Some(TrayItem::PreviousItem(item.path.clone())),
                 enabled: true,
                 icon: item.thumbnail.clone(),
+                accelerator: None,
             })
             .collect(),
     }
@@ -283,6 +380,7 @@ fn mode_submenu(mode: Mode) -> Entry {
     Entry::Submenu {
         title: t!("Select Mode").into(),
         enabled: true,
+        icon: None,
         items: vec![
             label(Mode::Studio, t!("Studio")),
             label(Mode::Instant, t!("Instant")),
@@ -296,23 +394,49 @@ pub fn build_menu(mode: Mode, previous: &[PreviousItem], version: &str) -> Vec<E
     let mut entries = vec![Entry::item(t!("Open Main Window"), TrayItem::OpenCap)];
 
     if mode == Mode::Screenshot {
-        entries.push(Entry::item(
+        entries.push(Entry::icon_item(
             t!("Screenshot Display"),
-            TrayItem::RecordDisplay,
+            TrayItem::ScreenshotDisplay,
+            DISPLAY_ICON,
         ));
-        entries.push(Entry::item(t!("Screenshot Window"), TrayItem::RecordWindow));
-        entries.push(Entry::item(t!("Screenshot Area"), TrayItem::RecordArea));
+        entries.push(Entry::icon_item(
+            t!("Screenshot Window"),
+            TrayItem::ScreenshotWindow,
+            WINDOW_ICON,
+        ));
+        entries.push(Entry::icon_item(
+            t!("Screenshot Area"),
+            TrayItem::ScreenshotArea,
+            AREA_ICON,
+        ));
     } else {
-        entries.push(Entry::item(t!("Record Display"), TrayItem::RecordDisplay));
-        entries.push(Entry::item(t!("Record Window"), TrayItem::RecordWindow));
-        entries.push(Entry::item(t!("Record Area"), TrayItem::RecordArea));
-        entries.push(Entry::item(
+        entries.push(Entry::icon_item(
+            t!("Record Display"),
+            TrayItem::RecordDisplay,
+            DISPLAY_ICON,
+        ));
+        entries.push(Entry::icon_item(
+            t!("Record Window"),
+            TrayItem::RecordWindow,
+            WINDOW_ICON,
+        ));
+        entries.push(Entry::icon_item(
+            t!("Record Area"),
+            TrayItem::RecordArea,
+            AREA_ICON,
+        ));
+        entries.push(Entry::icon_item(
             t!("Take a Screenshot"),
             TrayItem::TakeScreenshot,
+            SCREENSHOT_ICON,
         ));
     }
 
-    entries.push(Entry::item(t!("Import Media..."), TrayItem::ImportMedia));
+    entries.push(Entry::icon_item(
+        t!("Import Media..."),
+        TrayItem::ImportMedia,
+        IMPORT_ICON,
+    ));
 
     entries.push(Entry::Separator);
     entries.push(mode_submenu(mode));
@@ -320,7 +444,11 @@ pub fn build_menu(mode: Mode, previous: &[PreviousItem], version: &str) -> Vec<E
     entries.push(Entry::Separator);
 
     entries.push(Entry::item(t!("Open library"), TrayItem::OpenLibrary));
-    entries.push(Entry::item(t!("Settings"), TrayItem::OpenSettings));
+    entries.push(Entry::icon_item(
+        t!("Settings"),
+        TrayItem::OpenSettings,
+        SETTINGS_ICON,
+    ));
 
     entries.push(Entry::Separator);
     entries.push(Entry::disabled(format!("FrameEver v{version}")));
@@ -338,11 +466,43 @@ pub fn build_onboarding_menu(version: &str) -> Vec<Entry> {
     ]
 }
 
+fn hotkey_action(item: &TrayItem) -> Option<HotkeyAction> {
+    match item {
+        TrayItem::RecordDisplay => Some(HotkeyAction::OpenRecordingPickerDisplay),
+        TrayItem::RecordWindow => Some(HotkeyAction::OpenRecordingPickerWindow),
+        TrayItem::RecordArea => Some(HotkeyAction::OpenRecordingPickerArea),
+        TrayItem::TakeScreenshot | TrayItem::ScreenshotDisplay => {
+            Some(HotkeyAction::ScreenshotDisplay)
+        }
+        TrayItem::ScreenshotWindow => Some(HotkeyAction::ScreenshotWindow),
+        TrayItem::ScreenshotArea => Some(HotkeyAction::ScreenshotArea),
+        _ => None,
+    }
+}
+
+fn decorate_accelerators(entries: &mut [Entry], bound: &dyn Fn(HotkeyAction) -> Option<HotKey>) {
+    for entry in entries {
+        match entry {
+            Entry::Item {
+                item: Some(item),
+                accelerator,
+                ..
+            } => {
+                *accelerator = hotkey_action(item).and_then(bound).map(Accelerator::from);
+            }
+            Entry::Submenu { items, .. } => decorate_accelerators(items, bound),
+            _ => {}
+        }
+    }
+}
+
 fn current_menu_entries(cx: &App, mode: Mode, previous: &[PreviousItem]) -> Vec<Entry> {
     if crate::app_windows::onboarding_is_open(cx) && !crate::permissions::necessary_granted() {
         return build_onboarding_menu(crate::menus::app_version());
     }
-    build_menu(mode, previous, crate::menus::app_version())
+    let mut entries = build_menu(mode, previous, crate::menus::app_version());
+    decorate_accelerators(&mut entries, &|action| hotkeys::accelerator(action, cx));
+    entries
 }
 
 // ---------------------------------------------------------------------------
@@ -361,20 +521,19 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
             // the window (and the menu bar) to come forward.
             cx.activate(true);
         }
-        TrayItem::RecordDisplay => app_windows::arm_target_mode(TargetType::Display, cx),
-        TrayItem::RecordWindow => app_windows::arm_target_mode(TargetType::Window, cx),
-        TrayItem::RecordArea => app_windows::arm_target_mode(TargetType::Area, cx),
-        TrayItem::TakeScreenshot => {
-            // `TrayItem::TakeScreenshot` captures the display under the
-            // cursor, primary as the fallback (`tray.rs:816` over there).
-            let display = scap_targets::Display::get_containing_cursor()
-                .unwrap_or_else(scap_targets::Display::primary);
-            crate::screenshot::take_screenshot(
-                frameever_recording::sources::screen_capture::ScreenCaptureTarget::Display {
-                    id: display.id(),
-                },
-                cx,
-            );
+        TrayItem::ScreenshotWindow => {
+            set_mode(Mode::Screenshot, cx);
+            app_windows::arm_target_mode(TargetType::Window, cx);
+        }
+        TrayItem::RecordDisplay
+        | TrayItem::RecordWindow
+        | TrayItem::RecordArea
+        | TrayItem::TakeScreenshot
+        | TrayItem::ScreenshotDisplay
+        | TrayItem::ScreenshotArea => {
+            if let Some(action) = hotkey_action(&item) {
+                hotkeys::dispatch(action, cx);
+            }
         }
         // `TrayItem::ImportVideo` (`src-tauri/src/tray.rs:839-911`): one
         // picker over both media filters, routed by extension.
@@ -499,6 +658,7 @@ pub fn describe_menu(entries: &[Entry]) -> String {
                     title,
                     enabled,
                     items,
+                    ..
                 } => {
                     out.push_str(&format!(
                         "{pad}{title}{}\n",
@@ -575,6 +735,10 @@ fn harness_item(spec: &str, cx: &App) -> Option<TrayItem> {
         "record_display" => TrayItem::RecordDisplay,
         "record_window" => TrayItem::RecordWindow,
         "record_area" => TrayItem::RecordArea,
+        "take_screenshot" => TrayItem::TakeScreenshot,
+        "screenshot_display" => TrayItem::ScreenshotDisplay,
+        "screenshot_window" => TrayItem::ScreenshotWindow,
+        "screenshot_area" => TrayItem::ScreenshotArea,
         "import_media" => TrayItem::ImportMedia,
         "library" => TrayItem::OpenLibrary,
         "settings" => TrayItem::OpenSettings,
@@ -917,6 +1081,7 @@ mod mac {
                     item,
                     enabled,
                     icon,
+                    ..
                 } => {
                     let menu_item = new_menu_item(title, sel!(capTrayItem:));
                     let _: () = msg_send![&*menu_item, setTarget: target];
@@ -937,6 +1102,7 @@ mod mac {
                     title,
                     enabled,
                     items,
+                    ..
                 } => {
                     let menu_item = new_menu_item(title, sel!(capTrayItem:));
                     let submenu = build_ns_menu(items, target, actions);
@@ -1218,6 +1384,7 @@ mod tests {
             let icon = image::load_from_memory(&load_thumbnail_png(&png).unwrap())
                 .unwrap()
                 .into_rgba8();
+            assert_eq!(icon.dimensions(), (THUMBNAIL_SIZE, THUMBNAIL_SIZE));
             assert!(
                 icon.get_pixel(2, 16)[3] < 8,
                 "{scan} scan lost the transparent half"
@@ -1227,6 +1394,50 @@ mod tests {
                 "{scan} scan lost the opaque half"
             );
         }
+        let cache = library::thumbnail_cache_file(&png).unwrap();
+        assert!(
+            !cache.exists(),
+            "a transparent PNG never goes through the alpha-dropping cache"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn previous_thumbnails_reuse_the_cache_for_an_opaque_png() {
+        let root = temp_root("opaque-png");
+        std::fs::create_dir_all(&root).unwrap();
+        let png = root.join("screenshot.png");
+        image::RgbImage::from_pixel(1280, 720, image::Rgb([20, 120, 220]))
+            .save_with_format(&png, image::ImageFormat::Png)
+            .unwrap();
+        let cache = library::thumbnail_cache_file(&png).unwrap();
+        std::fs::remove_file(&cache).ok();
+
+        let cold = image::load_from_memory(&load_thumbnail_png(&png).unwrap())
+            .unwrap()
+            .into_rgba8();
+        assert_eq!(cold.dimensions(), (THUMBNAIL_SIZE, THUMBNAIL_SIZE));
+        assert_eq!(cold.get_pixel(0, 0)[3], 255);
+        assert!(cache.exists(), "the first scan fills the shared cache");
+
+        let marker = image::Rgb([200, 30, 90]);
+        image::RgbImage::from_pixel(398, 224, marker)
+            .save_with_format(&cache, image::ImageFormat::Jpeg)
+            .unwrap();
+        let warm = image::load_from_memory(&load_thumbnail_png(&png).unwrap())
+            .unwrap()
+            .into_rgba8();
+        assert_eq!(warm.dimensions(), (THUMBNAIL_SIZE, THUMBNAIL_SIZE));
+        assert!(
+            warm.pixels().all(|pixel| pixel.0[..3]
+                .iter()
+                .zip(marker.0)
+                .all(|(a, b)| a.abs_diff(b) <= 3)
+                && pixel.0[3] == 255),
+            "the warm icon is built from the cached thumbnail, not the original"
+        );
+
+        std::fs::remove_file(&cache).ok();
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1267,6 +1478,46 @@ mod tests {
             "{{\"items\":{MAX_PREVIOUS_ITEMS},\"source\":\"3024x1964 jpeg\",\"cold_scan_median_ms\":{:.1},\"warm_scan_median_ms\":{:.1}}}",
             cold[2], warm[2]
         );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    #[ignore]
+    fn benchmark_previous_screenshot_thumbnails() {
+        use std::time::Instant;
+
+        let root = temp_root("bench-png");
+        std::fs::create_dir_all(&root).unwrap();
+        let screenshots: Vec<_> = (0..MAX_PREVIOUS_ITEMS)
+            .map(|index| {
+                let png = root.join(format!("{index}.png"));
+                image::RgbImage::from_fn(3840, 2160, |x, y| {
+                    image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x + y) % 239) as u8])
+                })
+                .save_with_format(&png, image::ImageFormat::Png)
+                .unwrap();
+                png
+            })
+            .collect();
+        let scan = || {
+            let start = Instant::now();
+            for screenshot in &screenshots {
+                assert!(load_thumbnail_png(screenshot).is_some());
+            }
+            start.elapsed().as_secs_f64() * 1000.0
+        };
+        scan();
+        let mut warm: Vec<f64> = (0..5).map(|_| scan()).collect();
+        warm.sort_by(f64::total_cmp);
+        println!(
+            "{{\"items\":{MAX_PREVIOUS_ITEMS},\"source\":\"3840x2160 rgb png\",\"warm_scan_median_ms\":{:.1}}}",
+            warm[2]
+        );
+        for screenshot in &screenshots {
+            if let Some(cache) = library::thumbnail_cache_file(screenshot) {
+                std::fs::remove_file(cache).ok();
+            }
+        }
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1340,6 +1591,207 @@ mod tests {
         assert!(!titles.iter().any(|title| title == "Take a Screenshot"));
     }
 
+    fn capture_rows(mode: Mode) -> Vec<(String, TrayItem)> {
+        build_menu(mode, &[], "0.1.0")
+            .into_iter()
+            .filter_map(|entry| match entry {
+                Entry::Item {
+                    title,
+                    item: Some(item),
+                    ..
+                } if matches!(
+                    item,
+                    TrayItem::RecordDisplay
+                        | TrayItem::RecordWindow
+                        | TrayItem::RecordArea
+                        | TrayItem::ScreenshotDisplay
+                        | TrayItem::ScreenshotWindow
+                        | TrayItem::ScreenshotArea
+                ) =>
+                {
+                    Some((title, item))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn capture_rows_have_one_entry_per_action() {
+        assert_eq!(
+            capture_rows(Mode::Studio),
+            vec![
+                ("Record Display".to_string(), TrayItem::RecordDisplay),
+                ("Record Window".to_string(), TrayItem::RecordWindow),
+                ("Record Area".to_string(), TrayItem::RecordArea),
+            ]
+        );
+        assert_eq!(
+            capture_rows(Mode::Screenshot),
+            vec![
+                (
+                    "Screenshot Display".to_string(),
+                    TrayItem::ScreenshotDisplay
+                ),
+                ("Screenshot Window".to_string(), TrayItem::ScreenshotWindow),
+                ("Screenshot Area".to_string(), TrayItem::ScreenshotArea),
+            ]
+        );
+    }
+
+    #[test]
+    fn screenshot_mode_drops_take_a_screenshot_and_recording_mode_keeps_it() {
+        let has = |mode| {
+            build_menu(mode, &[], "0.1.0").iter().any(|entry| {
+                matches!(
+                    entry,
+                    Entry::Item {
+                        item: Some(TrayItem::TakeScreenshot),
+                        ..
+                    }
+                )
+            })
+        };
+        assert!(has(Mode::Studio));
+        assert!(has(Mode::Instant));
+        assert!(!has(Mode::Screenshot));
+    }
+
+    #[test]
+    fn capture_rows_look_up_their_own_hotkey() {
+        for (item, action) in [
+            (
+                TrayItem::RecordDisplay,
+                HotkeyAction::OpenRecordingPickerDisplay,
+            ),
+            (
+                TrayItem::RecordWindow,
+                HotkeyAction::OpenRecordingPickerWindow,
+            ),
+            (TrayItem::RecordArea, HotkeyAction::OpenRecordingPickerArea),
+            (TrayItem::TakeScreenshot, HotkeyAction::ScreenshotDisplay),
+            (TrayItem::ScreenshotDisplay, HotkeyAction::ScreenshotDisplay),
+            (TrayItem::ScreenshotWindow, HotkeyAction::ScreenshotWindow),
+            (TrayItem::ScreenshotArea, HotkeyAction::ScreenshotArea),
+        ] {
+            assert_eq!(hotkey_action(&item), Some(action), "{item:?}");
+        }
+        assert_eq!(hotkey_action(&TrayItem::OpenSettings), None);
+        assert_eq!(hotkey_action(&TrayItem::Quit), None);
+    }
+
+    fn accelerators(entries: &[Entry]) -> Vec<(String, Accelerator)> {
+        entries
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Item {
+                    title,
+                    accelerator: Some(accelerator),
+                    ..
+                } => Some((title.clone(), *accelerator)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_row_shows_its_shortcut_only_when_one_is_set() {
+        use global_hotkey::hotkey::{Code, HotKey, Modifiers};
+
+        let ctrl_shift = Modifiers::CONTROL | Modifiers::SHIFT;
+        let area = Accelerator {
+            modifiers: ctrl_shift,
+            code: Code::Digit4,
+        };
+        let mut menu = build_menu(Mode::Studio, &[], "0.1.0");
+        decorate_accelerators(&mut menu, &|action| {
+            (action == HotkeyAction::OpenRecordingPickerArea)
+                .then(|| HotKey::new(Some(ctrl_shift), Code::Digit4))
+        });
+        assert_eq!(accelerators(&menu), vec![("Record Area".to_string(), area)]);
+
+        let screenshot = Accelerator {
+            modifiers: ctrl_shift,
+            code: Code::Digit2,
+        };
+        decorate_accelerators(&mut menu, &|action| {
+            (action == HotkeyAction::ScreenshotDisplay)
+                .then(|| HotKey::new(Some(ctrl_shift), Code::Digit2))
+        });
+        assert_eq!(
+            accelerators(&menu),
+            vec![("Take a Screenshot".to_string(), screenshot)],
+            "a changed shortcut replaces the old one and a removed one disappears"
+        );
+
+        decorate_accelerators(&mut menu, &|_| None);
+        assert!(accelerators(&menu).is_empty());
+    }
+
+    fn row_icons(entries: &[Entry]) -> Vec<(String, Vec<u8>)> {
+        entries
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Item {
+                    title,
+                    icon: Some(icon),
+                    ..
+                }
+                | Entry::Submenu {
+                    title,
+                    icon: Some(icon),
+                    ..
+                } => Some((title.clone(), icon.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn action_rows_carry_their_lucide_icons() {
+        let studio = row_icons(&build_menu(Mode::Studio, &[], "0.1.0"));
+        assert_eq!(
+            studio
+                .iter()
+                .map(|(title, _)| title.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "Record Display",
+                "Record Window",
+                "Record Area",
+                "Take a Screenshot",
+                "Import Media...",
+                "Previous",
+                "Settings",
+            ]
+        );
+        let screenshot = row_icons(&build_menu(Mode::Screenshot, &[], "0.1.0"));
+        assert_eq!(
+            screenshot[..3]
+                .iter()
+                .map(|(title, _)| title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Screenshot Display", "Screenshot Window", "Screenshot Area"]
+        );
+        assert_eq!(studio[0].1, screenshot[0].1);
+
+        for (title, png) in &studio {
+            let image = image::load_from_memory(png).unwrap().into_rgba8();
+            assert_eq!(
+                image.dimensions(),
+                (ROW_ICON_SIZE, ROW_ICON_SIZE),
+                "{title}"
+            );
+            let inked = image.pixels().filter(|pixel| pixel[3] > 128).count();
+            assert!(
+                inked > 20 && inked < (ROW_ICON_SIZE * ROW_ICON_SIZE / 2) as usize,
+                "{title} should draw a stroked glyph, drew {inked} pixels"
+            );
+        }
+        let distinct: std::collections::HashSet<_> = studio.iter().map(|(_, png)| png).collect();
+        assert_eq!(distinct.len(), studio.len(), "every row has its own glyph");
+    }
+
     #[test]
     fn the_current_mode_is_ticked() {
         for (mode, expected) in [
@@ -1369,6 +1821,7 @@ mod tests {
             title,
             enabled,
             items,
+            ..
         } = previous_submenu(&[])
         else {
             panic!("Previous is a submenu");

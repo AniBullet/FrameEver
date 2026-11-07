@@ -1,47 +1,3 @@
-//! The camera preview bubble -- `camera.tsx` + `CameraPreviewChrome.tsx`,
-//! natively.
-//!
-//! Layout parity: a transparent always-dark window (`camera.tsx:128` forces
-//! the dark class), 56px toolbar strip on top (chrome appears on hover),
-//! preview container below it clipped to the shape (round / square / full),
-//! four corner resize handles with the bracket visuals below the toolbar,
-//! drag-anywhere to move the window. Frames arrive as CoreVideo pixel buffers
-//! from the app-scoped [`CameraFeed`]; VideoToolbox converts them to BGRA
-//! IOSurfaces (and flips them in hardware when mirrored) and gpui paints
-//! those directly via `paint_surface_fitted` (cover-fit + rounded clip on the
-//! primitive) -- no CPU pixel copies and no sprite-atlas uploads on the frame
-//! path. With background blur on, the converted surface takes a detour
-//! through the [`crate::camera_blur`] worker -- the same
-//! `frameever_camera_effects::BlurProcessor` the recording's project config points
-//! the editor at -- and the blurred surface is painted instead.
-//!
-//! Invalidation mirrors the editor window: each frame notifies only the
-//! [`CameraPreviewView`] child entity, while the toolbar chrome lives in a
-//! [`CameraToolbarView`] mounted `.cached()`, re-rendered only when the parent
-//! notifies (hover, resize, state mutations). A per-frame `window.refresh()`
-//! would bust every cache and relayout the whole window at camera rate
-//! (`FRAMEEVER_GPUI_AUTO_CAMERA_BENCH`, 8 interleaved A/B pairs: median p50 draw
-//! 319us -> 222us; the remainder is gpui's fixed per-draw cost, which a
-//! clean-draw floor measurement puts at ~150us on this window either way).
-//! Verified live on a real C920: 29.9fps delivered, 29.9fps painted with no
-//! per-frame refresh.
-//!
-//! Window placement is the Tauri decision (`windows.rs:2278-2345`): the saved
-//! per-monitor position when it is still on that monitor, else the saved
-//! global position, else bottom-right of the main window's display; moves are
-//! debounced into the shared store's `cameraWindowPosition` keys
-//! (`lib.rs:4621-4634`), so the two apps remember one bubble position.
-//!
-//! Known deviations (also in the README): no 150ms opacity/translate
-//! transitions on the toolbar and resize brackets (no animation pass in this
-//! port), no `backdrop-blur-xs` behind the issue overlay (no per-element
-//! backdrop blur hook in this gpui rev), no "Camera disconnected" overlay on
-//! recording input loss (the Tauri `recordingEvent` InputLost seam has no
-//! counterpart in this app yet), no `cursor-move` on the drag surface (gpui
-//! has no 4-way move cursor; the resize handles do get their diagonal resize
-//! cursors), and chrome state persists to `gpui-state.json` rather than
-//! `localStorage`.
-
 use std::sync::{
     Arc,
     atomic::{AtomicU32, AtomicU64, Ordering},
@@ -149,11 +105,80 @@ mod inline_preview_tests {
     }
 }
 
+#[cfg(test)]
+mod toolbar_fit_tests {
+    use super::*;
+
+    fn fits(scale: f32, buttons: usize, width: f32) -> bool {
+        toolbar_width(scale, buttons) + TOOLBAR_INSET <= width
+    }
+
+    #[test]
+    fn the_smallest_bubble_drops_blur_and_keeps_its_bar_inside() {
+        let state = CameraWindowState {
+            size: CAMERA_MIN_SIZE,
+            ..Default::default()
+        };
+        let width = window_size(&state, None).0;
+        let scale = toolbar_scale(&state);
+        assert_eq!(scale, 0.7);
+        assert_eq!(toolbar_buttons(scale, width), 4);
+        assert!(fits(scale, 4, width));
+    }
+
+    #[test]
+    fn a_default_bubble_keeps_every_button() {
+        let state = CameraWindowState::default();
+        assert_eq!(
+            toolbar_buttons(toolbar_scale(&state), window_size(&state, None).0),
+            5
+        );
+        assert_eq!(toolbar_buttons(0.7, 300.), 5);
+    }
+
+    #[test]
+    fn blur_goes_before_mirror() {
+        assert_eq!(toolbar_buttons(0.7, 150.), 4);
+        assert_eq!(toolbar_buttons(1., 150.), 3);
+        assert_eq!(toolbar_buttons(1., 190.), 4);
+    }
+
+    #[test]
+    fn a_narrow_preview_drops_buttons_without_shrinking_them() {
+        for width in [81., 100., 120., 144., 160., 200.] {
+            let buttons = toolbar_buttons(1., width);
+            assert!(buttons == 3 || fits(1., buttons, width), "{width}");
+            assert!(buttons == 5 || !fits(1., buttons + 1, width), "{width}");
+        }
+        assert_eq!(toolbar_buttons(1., 81.), 3);
+        assert_eq!(toolbar_width(1., 3), 130.);
+    }
+}
+
 /// 0..1 across the 150..600 size range -- drives the toolbar scale and the
 /// issue overlay's text metrics, like `cameraToolbarScale` /
 /// `cameraOverlayTextMetrics`.
 fn normalized_size(state: &CameraWindowState) -> f32 {
     (clamp_size(state.size) - CAMERA_MIN_SIZE) / (CAMERA_MAX_SIZE - CAMERA_MIN_SIZE)
+}
+
+const TOOLBAR_BUTTON_FOOTPRINT: f32 = 42.;
+const TOOLBAR_STRIP_PADDING: f32 = 4.;
+const TOOLBAR_INSET: f32 = 10.;
+
+fn toolbar_scale(state: &CameraWindowState) -> f32 {
+    0.7 + normalized_size(state) * 0.3
+}
+
+fn toolbar_width(scale: f32, buttons: usize) -> f32 {
+    (TOOLBAR_BUTTON_FOOTPRINT * buttons as f32 + TOOLBAR_STRIP_PADDING) * scale
+}
+
+fn toolbar_buttons(scale: f32, width: f32) -> usize {
+    [5, 4]
+        .into_iter()
+        .find(|&buttons| toolbar_width(scale, buttons) + TOOLBAR_INSET <= width)
+        .unwrap_or(3)
 }
 
 /// The visible bubble's corner radius. The shipped Tauri experience is the
@@ -652,6 +677,58 @@ fn camera_issue(error: &str) -> (&'static str, &'static str) {
     (t!("Camera unavailable"), message)
 }
 
+fn preview_issue(
+    disconnected: bool,
+    camera_error: Option<&str>,
+    effect_issue: Option<(&'static str, &'static str)>,
+    awaiting_access: bool,
+) -> Option<(&'static str, &'static str)> {
+    if disconnected {
+        return Some((
+            t!("Camera disconnected"),
+            t!("Recording continues without it."),
+        ));
+    }
+    camera_error
+        .map(camera_issue)
+        .or(effect_issue)
+        .or(awaiting_access.then_some((
+            t!("Waiting for camera access"),
+            t!("Choose Allow in the macOS prompt."),
+        )))
+}
+
+#[cfg(test)]
+mod preview_issue_tests {
+    use super::*;
+
+    #[test]
+    fn a_camera_lost_during_a_recording_says_the_recording_continues() {
+        let lost = (
+            t!("Camera disconnected"),
+            t!("Recording continues without it."),
+        );
+        assert_eq!(preview_issue(true, None, None, false), Some(lost));
+        assert_eq!(
+            preview_issue(true, Some("CameraTimeout"), None, true),
+            Some(lost)
+        );
+    }
+
+    #[test]
+    fn without_a_disconnect_the_other_messages_keep_their_order() {
+        assert_eq!(preview_issue(false, None, None, false), None);
+        assert_eq!(
+            preview_issue(false, Some("CameraTimeout"), None, true),
+            Some(camera_issue("CameraTimeout"))
+        );
+        assert_eq!(
+            preview_issue(false, None, None, true).map(|(title, _)| title),
+            Some(t!("Waiting for camera access"))
+        );
+    }
+}
+
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 struct PreviewEffectFailures {
@@ -929,6 +1006,7 @@ struct CameraPreviewView {
     /// ~20Hz whenever a microphone is selected, and each of those would
     /// repaint the whole preview for a message that did not change.
     camera_error: Option<String>,
+    camera_disconnected: bool,
     effect_issue: Option<(&'static str, &'static str)>,
     awaiting_access: bool,
     _feeds_subscription: Subscription,
@@ -945,6 +1023,7 @@ impl CameraPreviewView {
     ) -> Self {
         let feeds = Feeds::global(cx);
         let camera_error = feeds.read(cx).camera_error.clone();
+        let camera_disconnected = feeds.read(cx).camera_disconnected();
         let camera = feeds.read(cx).camera.clone();
         let state = store::load().camera_window.unwrap_or_default();
         let retained = cx
@@ -994,6 +1073,10 @@ impl CameraPreviewView {
             let feeds = feeds.read(cx);
             let error = feeds.camera_error.clone();
             let camera = feeds.camera.clone();
+            if this.camera_disconnected != feeds.camera_disconnected() {
+                this.camera_disconnected = feeds.camera_disconnected();
+                cx.notify();
+            }
             if this.camera_error != error || this.camera != camera {
                 if error.is_some() || this.camera != camera {
                     this.retained_invalidated = true;
@@ -1029,6 +1112,7 @@ impl CameraPreviewView {
             camera,
             paints,
             camera_error,
+            camera_disconnected,
             effect_issue: None,
             awaiting_access,
             _feeds_subscription: feeds_subscription,
@@ -1122,8 +1206,10 @@ impl Render for CameraPreviewView {
 
         let showing_frame = self.latest_frame.is_some() || self.retained.is_some();
         let awaiting_access = self.awaiting_access && !showing_frame && self.camera_error.is_none();
-        let has_issue =
-            self.camera_error.is_some() || self.effect_issue.is_some() || awaiting_access;
+        let has_issue = self.camera_disconnected
+            || self.camera_error.is_some()
+            || self.effect_issue.is_some()
+            || awaiting_access;
 
         let loading = if !showing_frame {
             self.loading_fade_started = None;
@@ -1258,16 +1344,12 @@ impl Render for CameraPreviewView {
             .camera_error
             .as_deref()
             .is_some_and(|error| error.contains("access is unavailable"));
-        if let Some((title, message)) = self
-            .camera_error
-            .as_deref()
-            .map(camera_issue)
-            .or(self.effect_issue)
-            .or(awaiting_access.then_some((
-                t!("Waiting for camera access"),
-                t!("Choose Allow in the macOS prompt."),
-            )))
-        {
+        if let Some((title, message)) = preview_issue(
+            self.camera_disconnected,
+            self.camera_error.as_deref(),
+            self.effect_issue,
+            awaiting_access,
+        ) {
             let metrics = overlay_metrics(self.size);
             container = container.child(
                 div()
@@ -1853,7 +1935,15 @@ impl CameraWindow {
     }
 
     fn toolbar_scale(&self) -> f32 {
-        0.7 + normalized_size(&self.state) * 0.3
+        toolbar_scale(&self.state)
+    }
+
+    fn toolbar_buttons(&self) -> usize {
+        let width = self.picker_size.map_or_else(
+            || window_size(&self.state, self.frame_aspect()).0,
+            |(width, _)| width,
+        );
+        toolbar_buttons(self.toolbar_scale(), width)
     }
 
     /// Pushes the chrome inputs the preview renders with (its own notify is
@@ -2105,6 +2195,7 @@ impl CameraWindow {
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let scale = self.toolbar_scale();
+        let buttons = self.toolbar_buttons();
         #[cfg(target_os = "macos")]
         let (mirror_failed, blur_failed) = (self.effect_failures.mirror, self.effect_failures.blur);
         #[cfg(not(target_os = "macos"))]
@@ -2183,36 +2274,40 @@ impl CameraWindow {
                     // Preview-only, like both Tauri paths (the WGSL UV flip /
                     // the legacy `scaleX(-1)`); the recorded camera track is
                     // never mirrored by either app.
-                    .child(self.toolbar_button(
-                        "mirror",
-                        "icons/triangles-centerline-dashed-horizontal.svg",
-                        self.state.mirrored && !mirror_failed,
-                        scale,
-                        mirror_failed.then_some("!"),
-                        cx,
-                        |this, window, cx| {
-                            this.mutate_state(window, cx, |state| {
-                                state.mirrored = !state.mirrored;
-                            })
-                        },
-                    ))
-                    .child(self.toolbar_button(
-                        "blur",
-                        "icons/person-standing.svg",
-                        self.state.background_blur != BlurMode::Off && !blur_failed,
-                        scale,
-                        if blur_failed {
-                            Some("!")
-                        } else {
-                            self.state.background_blur.label()
-                        },
-                        cx,
-                        |this, window, cx| {
-                            this.mutate_state(window, cx, |state| {
-                                state.background_blur = state.background_blur.cycle();
-                            })
-                        },
-                    )),
+                    .when(buttons >= 4, |this| {
+                        this.child(self.toolbar_button(
+                            "mirror",
+                            "icons/triangles-centerline-dashed-horizontal.svg",
+                            self.state.mirrored && !mirror_failed,
+                            scale,
+                            mirror_failed.then_some("!"),
+                            cx,
+                            |this, window, cx| {
+                                this.mutate_state(window, cx, |state| {
+                                    state.mirrored = !state.mirrored;
+                                })
+                            },
+                        ))
+                    })
+                    .when(buttons >= 5, |this| {
+                        this.child(self.toolbar_button(
+                            "blur",
+                            "icons/person-standing.svg",
+                            self.state.background_blur != BlurMode::Off && !blur_failed,
+                            scale,
+                            if blur_failed {
+                                Some("!")
+                            } else {
+                                self.state.background_blur.label()
+                            },
+                            cx,
+                            |this, window, cx| {
+                                this.mutate_state(window, cx, |state| {
+                                    state.background_blur = state.background_blur.cycle();
+                                })
+                            },
+                        ))
+                    }),
             )
     }
 
@@ -2606,20 +2701,120 @@ fn saved_position(preferred: &scap_targets::Display) -> Option<(f64, f64)> {
 /// Tauri default slot -- bottom-right of the preferred monitor measured with
 /// `DEFAULT_WINDOW_SIZE = 230.0 * 2.0` (`windows.rs:2160, 2340-2344`; the
 /// constant, not the actual window size, is what the shipping app subtracts).
-pub fn opening_position(preferred: &scap_targets::Display) -> (f32, f32) {
-    if let Some((x, y)) = saved_position(preferred) {
+pub fn opening_position(preferred: &scap_targets::Display, window_size: (f32, f32)) -> (f32, f32) {
+    let saved = saved_position(preferred);
+    if let Some((x, y)) = saved {
         tracing::info!(x, y, "camera window restored to its saved position");
-        return (x as f32, y as f32);
     }
+    let bounds = saved
+        .and_then(|(x, y)| display_for_point(x, y))
+        .and_then(|display| display.raw_handle().logical_bounds())
+        .or_else(|| preferred.raw_handle().logical_bounds());
+    opening_position_in_bounds(saved, bounds, window_size)
+}
+
+fn opening_position_in_bounds(
+    saved: Option<(f64, f64)>,
+    bounds: Option<scap_targets::bounds::LogicalBounds>,
+    window_size: (f32, f32),
+) -> (f32, f32) {
+    let Some(bounds) = bounds else {
+        let (x, y) = saved.unwrap_or((100., 100.));
+        return (x as f32, y as f32);
+    };
     const TAURI_DEFAULT_WINDOW_SIZE: f64 = 230.0 * 2.0;
-    match preferred.raw_handle().logical_bounds() {
-        Some(bounds) => (
-            (bounds.position().x() + bounds.size().width() - TAURI_DEFAULT_WINDOW_SIZE - 100.)
-                as f32,
-            (bounds.position().y() + bounds.size().height() - TAURI_DEFAULT_WINDOW_SIZE - 100.)
-                as f32,
-        ),
-        None => (100., 100.),
+    let (dx, dy) = (bounds.position().x(), bounds.position().y());
+    let (dw, dh) = (bounds.size().width(), bounds.size().height());
+    let (x, y) = saved.unwrap_or((
+        dx + dw - TAURI_DEFAULT_WINDOW_SIZE - 100.,
+        dy + dh - TAURI_DEFAULT_WINDOW_SIZE - 100.,
+    ));
+    (
+        x.clamp(dx, dx + (dw - f64::from(window_size.0)).max(0.)) as f32,
+        y.clamp(dy, dy + (dh - f64::from(window_size.1)).max(0.)) as f32,
+    )
+}
+
+#[cfg(test)]
+mod opening_position_tests {
+    use super::*;
+    use scap_targets::bounds::{LogicalBounds, LogicalPosition, LogicalSize};
+
+    fn display(x: f64, y: f64, width: f64, height: f64) -> Option<LogicalBounds> {
+        Some(LogicalBounds::new(
+            LogicalPosition::new(x, y),
+            LogicalSize::new(width, height),
+        ))
+    }
+
+    #[test]
+    fn restored_wide_preview_fits_after_display_resolution_changes() {
+        let state = CameraWindowState {
+            size: 600.,
+            shape: CameraShape::Full,
+            ..Default::default()
+        };
+        let dimensions = window_size(&state, Some(16. / 9.));
+        let (x, y) = opening_position_in_bounds(
+            Some((1800., 1000.)),
+            display(0., 0., 1920., 1080.),
+            dimensions,
+        );
+        assert!((x + dimensions.0 - 1920.).abs() < 0.001);
+        assert_eq!(y + dimensions.1, 1080.);
+    }
+
+    #[test]
+    fn a_saved_position_off_the_display_opens_on_screen() {
+        assert_eq!(
+            opening_position_in_bounds(
+                Some((5000., -900.)),
+                display(0., 0., 1920., 1080.),
+                (230., 286.)
+            ),
+            (1690., 0.),
+        );
+    }
+
+    #[test]
+    fn fresh_large_preview_fits_on_a_display_with_negative_origin() {
+        assert_eq!(
+            opening_position_in_bounds(None, display(-1280., -800., 1280., 800.), (600., 656.)),
+            (-600., -656.),
+        );
+    }
+
+    #[test]
+    fn oversized_preview_is_anchored_to_the_display_origin() {
+        assert_eq!(
+            opening_position_in_bounds(None, display(-640., 200., 640., 480.), (1066., 656.)),
+            (-640., 200.),
+        );
+    }
+
+    #[test]
+    fn valid_saved_position_and_default_slot_are_preserved() {
+        let bounds = display(1920., 0., 1920., 1080.);
+        assert_eq!(
+            opening_position_in_bounds(Some((2000., 400.)), bounds, (230., 286.)),
+            (2000., 400.),
+        );
+        assert_eq!(
+            opening_position_in_bounds(None, bounds, (230., 286.)),
+            (3280., 520.),
+        );
+    }
+
+    #[test]
+    fn missing_display_geometry_preserves_the_existing_fallback() {
+        assert_eq!(
+            opening_position_in_bounds(None, None, (600., 656.)),
+            (100., 100.),
+        );
+        assert_eq!(
+            opening_position_in_bounds(Some((300., 400.)), None, (600., 656.)),
+            (300., 400.),
+        );
     }
 }
 

@@ -479,6 +479,15 @@ fn run_video_import(source_path: &Path, tx: &flume::Sender<ImportProgress>) {
         pretty_name: &project_name,
     };
 
+    if frameever_export::validate_output_path(&recordings_dir).is_err() {
+        sink.send(
+            ImportStage::Failed,
+            0.0,
+            t!("Recording output must be a local file path"),
+        );
+        return;
+    }
+
     sink.send(ImportStage::Probing, 0.0, t!("Analyzing video file..."));
     match probe_video_can_decode(source_path) {
         Ok(true) => {}

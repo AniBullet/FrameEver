@@ -2022,14 +2022,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "frameever-api"
-version = "0.0.0"
-dependencies = [
- "reqwest",
- "workspace-hack",
-]
-
-[[package]]
 name = "frameever-audio"
 version = "0.1.0"
 dependencies = [

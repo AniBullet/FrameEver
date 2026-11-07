@@ -367,8 +367,7 @@ impl TargetSelect {
 
                 let Ok((icon_wanted, active, changed)) = this.update(cx, |this: &mut Self, cx| {
                     let (display, window) = probe;
-                    let microphone_fill =
-                        crate::ui::MicrophoneLevel::fill(crate::feeds::Feeds::global(cx).read(cx));
+                    let microphone_fill = crate::ui::MicrophoneLevel::capture_fill(cx);
                     let changed = this.cursor_display != display
                         || this.hovered_window != window
                         || this.microphone_fill != microphone_fill;
@@ -1120,7 +1119,8 @@ impl OverlayWindow {
             return div().into_any_element();
         };
         let selected = if camera {
-            view.camera_selection().map(|camera| camera.label.clone())
+            view.camera_selection()
+                .map(|camera| crate::main_window::camera_label(&camera.label))
         } else {
             view.microphone_selection().map(|mic| mic.name.clone())
         };

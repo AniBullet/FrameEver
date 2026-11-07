@@ -37,6 +37,7 @@ use windows::{
             MF_API_VERSION, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
             MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_D3D_MANAGER,
             MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+            MF_SOURCE_READERF_ENDOFSTREAM, MF_SOURCE_READERF_ERROR,
             MFCreateAttributes, MFCreateDXGIDeviceManager, MFCreateMediaType,
             MFCreateSourceReaderFromURL, MFMediaType_Video, MFSTARTUP_NOSOCKET, MFShutdown,
             MFStartup, MFVideoFormat_NV12,
@@ -806,9 +807,6 @@ impl MediaFoundationDecoder {
         let mut timestamp = 0i64;
         let mut sample: Option<IMFSample> = None;
 
-        const MF_SOURCE_READERF_ENDOFSTREAM: u32 = 0x00000001;
-        const MF_SOURCE_READERF_ERROR: u32 = 0x00000002;
-
         // A stream tick (a gap in the stream) comes without a sample; only the end-of-stream
         // flag means no samples follow.
         let sample = loop {
@@ -825,12 +823,12 @@ impl MediaFoundationDecoder {
                     .map_err(|e| format!("ReadSample failed: {e:?}"))?;
             }
 
-            if flags & MF_SOURCE_READERF_ENDOFSTREAM != 0 {
-                return Ok(None);
+            if flags & MF_SOURCE_READERF_ERROR.0 as u32 != 0 {
+                return Err("Stream error".to_string());
             }
 
-            if flags & MF_SOURCE_READERF_ERROR != 0 {
-                return Err("Stream error".to_string());
+            if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
+                return Ok(None);
             }
 
             if let Some(sample) = sample.take() {
@@ -1200,8 +1198,6 @@ mod tests {
     fn pipelined_readback_returns_every_sample_in_order() {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/h264-decoder-lifecycle.mp4");
-        // This file, like the reference recording, ends with a stream error rather than an
-        // end-of-stream flag, so both readers stop at whichever comes first.
         let mut expected = Vec::new();
         let mut decoder = MediaFoundationDecoder::new(&path).unwrap();
         let staging = decoder.readback_free[0].clone();
@@ -1236,6 +1232,7 @@ mod tests {
         assert!(expected.len() > READBACK_DEPTH);
         assert!(read == expected);
         assert_eq!(end, expected_end);
+        assert!(!end);
 
         let first = |decoder: &mut MediaFoundationDecoder| {
             let sample = decoder.read_nv12().unwrap().unwrap();

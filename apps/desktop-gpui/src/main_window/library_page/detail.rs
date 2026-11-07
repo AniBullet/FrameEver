@@ -75,13 +75,18 @@ fn saved_size(original: u64, compressed: u64) -> String {
     view::format_size(original.saturating_sub(compressed))
 }
 
+fn copy_failed_alert() -> (&'static str, &'static str) {
+    (
+        t!("Couldn't copy the file"),
+        t!("It may have been moved. Try again."),
+    )
+}
+
 fn alert_copy_failed(error: String, cx: &mut gpui::App) {
     tracing::warn!("copying the file failed: {error}");
     cx.spawn(async move |_| {
-        crate::platform::alert_dialog(
-            t!("Couldn't copy the file"),
-            t!("It may have been moved. Try again."),
-        );
+        let (title, message) = copy_failed_alert();
+        crate::platform::alert_dialog(title, message);
     })
     .detach();
 }
@@ -268,18 +273,14 @@ impl MainWindow {
     }
 
     pub(in crate::main_window) fn copy_library_file(&self, cx: &mut Context<Self>) {
-        let files = self.library_files_to_copy();
+        let files = self.library_files_to_share();
         if !files.is_empty() {
             copy_files(&files, cx);
         }
     }
 
-    pub(super) fn library_files_to_copy(&self) -> Vec<PathBuf> {
-        self.library
-            .selected_entries()
-            .into_iter()
-            .filter_map(library::file_to_copy)
-            .collect()
+    pub(super) fn library_files_to_share(&self) -> Vec<PathBuf> {
+        library::files_to_share(self.library.selected_entries())
     }
 
     pub(super) fn library_compressible(&self) -> Vec<PathBuf> {
@@ -536,9 +537,11 @@ impl MainWindow {
                 row.child(open_button).child(
                     self.detail_button("library-detail-copy-image", t!("Copy image"), false, false)
                         .on_click(move |_, _, cx| {
-                            if let Err(error) = crate::platform::copy_image_to_clipboard(&png, cx) {
-                                alert_copy_failed(error, cx);
-                            }
+                            crate::platform::copy_image_to_clipboard(
+                                png.clone(),
+                                Some(copy_failed_alert()),
+                                cx,
+                            );
                         }),
                 )
             }
@@ -830,7 +833,7 @@ impl MainWindow {
             return Some(self.render_library_batch(cx).into_any_element());
         }
         let entry = self.library.single_entry()?.clone();
-        let copyable = library::file_to_copy(&entry).is_some();
+        let copyable = library::file_to_share(&entry).is_some();
         let name = ui::TextInput::bare(
             &theme,
             "library-detail-name",
@@ -962,7 +965,7 @@ impl MainWindow {
                 .filter(|(_, count)| *count > 0)
                 .collect();
         let compressible = self.library_compressible().len();
-        let copyable = !self.library_files_to_copy().is_empty();
+        let copyable = !self.library_files_to_share().is_empty();
         div()
             .flex()
             .flex_col()

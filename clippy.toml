@@ -1,0 +1,24 @@
+disallowed-types = [
+    { path = "reqwest::Client", reason = "Use the download-only http module" },
+    { path = "reqwest::ClientBuilder", reason = "Use the download-only http module" },
+    { path = "reqwest::Request", reason = "Use the download-only http module" },
+    { path = "reqwest::RequestBuilder", reason = "Use the download-only http module" },
+    { path = "reqwest::Response", reason = "Use the download-only http module" },
+    { path = "reqwest::blocking::Client", reason = "Use the download-only http module", allow-invalid = true },
+    { path = "reqwest::blocking::ClientBuilder", reason = "Use the download-only http module", allow-invalid = true },
+    { path = "reqwest::blocking::Request", reason = "Use the download-only http module", allow-invalid = true },
+    { path = "reqwest::blocking::RequestBuilder", reason = "Use the download-only http module", allow-invalid = true },
+    { path = "reqwest::blocking::Response", reason = "Use the download-only http module", allow-invalid = true },
+]
+disallowed-methods = [
+    { path = "reqwest::get", reason = "Use the download-only http module" },
+    { path = "reqwest::Client::new", reason = "Use the download-only http module" },
+    { path = "reqwest::Client::builder", reason = "Use the download-only http module" },
+    { path = "reqwest::Client::execute", reason = "Use the download-only http module" },
+    { path = "reqwest::RequestBuilder::send", reason = "Use the download-only http module" },
+    { path = "reqwest::blocking::get", reason = "Use the download-only http module", allow-invalid = true },
+    { path = "reqwest::blocking::Client::new", reason = "Use the download-only http module", allow-invalid = true },
+    { path = "reqwest::blocking::Client::builder", reason = "Use the download-only http module", allow-invalid = true },
+    { path = "reqwest::blocking::Client::execute", reason = "Use the download-only http module", allow-invalid = true },
+    { path = "reqwest::blocking::RequestBuilder::send", reason = "Use the download-only http module", allow-invalid = true },
+]

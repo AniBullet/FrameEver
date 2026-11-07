@@ -126,6 +126,22 @@ impl WindowOption {
             (None, None) => None,
         }
     }
+
+    pub fn same_card(&self, other: &Self) -> bool {
+        let Self {
+            id,
+            label,
+            app,
+            size,
+            position: _,
+            refresh_rate,
+        } = self;
+        *id == other.id
+            && *label == other.label
+            && *app == other.app
+            && *size == other.size
+            && *refresh_rate == other.refresh_rate
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -137,6 +153,25 @@ pub struct DeviceSnapshot {
 }
 
 impl DeviceSnapshot {
+    pub fn install_displays(&mut self, displays: Vec<DisplayOption>) -> bool {
+        if self.displays == displays {
+            return false;
+        }
+        self.displays = displays;
+        true
+    }
+
+    pub fn install_windows(&mut self, windows: Vec<WindowOption>) -> bool {
+        let changed = self.windows.len() != windows.len()
+            || self
+                .windows
+                .iter()
+                .zip(&windows)
+                .any(|(current, next)| !current.same_card(next));
+        self.windows = windows;
+        changed
+    }
+
     pub fn update_camera_formats(
         &mut self,
         queried: &CameraOption,
@@ -230,6 +265,145 @@ impl InputSnapshot {
             _ => return false,
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod target_list_tests {
+    use super::*;
+    use std::str::FromStr;
+
+    fn window(id: &str, label: &str) -> WindowOption {
+        WindowOption {
+            id: WindowId::from_str(id).unwrap(),
+            label: label.into(),
+            app: "FrameEver".into(),
+            size: Some((1920, 1080)),
+            position: Some((0., 0.)),
+            refresh_rate: Some(60.),
+        }
+    }
+
+    fn display(id: &str, label: &str) -> DisplayOption {
+        DisplayOption {
+            id: DisplayId::from_str(id).unwrap(),
+            label: label.into(),
+            refresh_rate: 60.,
+        }
+    }
+
+    #[test]
+    fn unchanged_display_list_does_not_repaint() {
+        let list = vec![display("1", "Built-in"), display("2", "Studio Display")];
+        let mut snapshot = DeviceSnapshot::default();
+        assert!(snapshot.install_displays(list.clone()));
+        assert!(!snapshot.install_displays(list.clone()));
+        assert_eq!(snapshot.displays, list);
+    }
+
+    #[test]
+    fn display_changes_repaint() {
+        let list = vec![display("1", "Built-in"), display("2", "Studio Display")];
+        let mut renamed = list.clone();
+        renamed[1].label = "Sidecar".into();
+        let mut slower = list.clone();
+        slower[0].refresh_rate = 30.;
+        let reordered = vec![list[1].clone(), list[0].clone()];
+        for next in [
+            renamed,
+            slower,
+            reordered,
+            vec![list[0].clone()],
+            Vec::new(),
+        ] {
+            let mut snapshot = DeviceSnapshot {
+                displays: list.clone(),
+                ..Default::default()
+            };
+            assert!(snapshot.install_displays(next.clone()));
+            assert_eq!(snapshot.displays, next);
+        }
+    }
+
+    #[test]
+    fn unchanged_window_list_does_not_repaint() {
+        let list = vec![window("1", "Main"), window("2", "Editor")];
+        let mut snapshot = DeviceSnapshot::default();
+        assert!(snapshot.install_windows(list.clone()));
+        assert!(!snapshot.install_windows(list.clone()));
+        assert_eq!(snapshot.windows, list);
+    }
+
+    #[test]
+    fn moved_window_is_stored_without_a_repaint() {
+        let list = vec![window("1", "Main"), window("2", "Editor")];
+        let mut moved = list.clone();
+        moved[1].position = Some((240., 96.));
+        let mut snapshot = DeviceSnapshot {
+            windows: list,
+            ..Default::default()
+        };
+        assert!(!snapshot.install_windows(moved.clone()));
+        assert_eq!(snapshot.windows, moved);
+    }
+
+    #[test]
+    fn window_card_changes_repaint() {
+        let list = vec![window("1", "Main"), window("2", "Editor")];
+        let mut renamed = list.clone();
+        renamed[0].label = "Untitled".into();
+        let mut other_app = list.clone();
+        other_app[1].app = "Finder".into();
+        let mut resized = list.clone();
+        resized[0].size = Some((1280, 720));
+        let mut sizeless = list.clone();
+        sizeless[0].size = None;
+        let mut slower = list.clone();
+        slower[1].refresh_rate = Some(30.);
+        let reordered = vec![list[1].clone(), list[0].clone()];
+        let mut opened = list.clone();
+        opened.push(window("3", "Settings"));
+        for next in [
+            renamed,
+            other_app,
+            resized,
+            sizeless,
+            slower,
+            reordered,
+            opened,
+            vec![list[0].clone()],
+            Vec::new(),
+        ] {
+            let mut snapshot = DeviceSnapshot {
+                windows: list.clone(),
+                ..Default::default()
+            };
+            assert!(snapshot.install_windows(next.clone()));
+            assert_eq!(snapshot.windows, next);
+        }
+    }
+
+    #[test]
+    #[ignore = "benchmark"]
+    fn bench_picker_repaints_per_hundred_unchanged_polls() {
+        let displays: Vec<_> = (0..2)
+            .map(|index| display(&index.to_string(), "Display"))
+            .collect();
+        let windows: Vec<_> = (0..30)
+            .map(|index| window(&index.to_string(), &format!("Window {index}")))
+            .collect();
+        let mut snapshot = DeviceSnapshot::default();
+        assert!(snapshot.install_displays(displays.clone()));
+        assert!(snapshot.install_windows(windows.clone()));
+
+        let mut repaints = 0;
+        for poll in 0..100 {
+            let mut polled = windows.clone();
+            polled[poll % 30].position = Some((poll as f64, 4.));
+            repaints += usize::from(snapshot.install_displays(displays.clone()));
+            repaints += usize::from(snapshot.install_windows(polled));
+        }
+        println!("picker repaints per 100 unchanged polls (windows drifting): {repaints}");
     }
 }
 
@@ -520,6 +694,69 @@ impl CameraOption {
         self.best_format = formats.first().copied();
         self.formats = formats;
         self
+    }
+}
+
+pub fn camera_connected(id: &frameever_recording::feeds::camera::DeviceOrModelID) -> bool {
+    let cameras: Vec<_> = frameever_camera::list_cameras().collect();
+    camera_listed(
+        id,
+        cameras
+            .iter()
+            .map(|camera| (camera.device_id(), camera.model_id())),
+    )
+}
+
+fn camera_listed<'a>(
+    id: &frameever_recording::feeds::camera::DeviceOrModelID,
+    mut cameras: impl Iterator<Item = (&'a str, Option<&'a frameever_camera::ModelID>)>,
+) -> bool {
+    use frameever_recording::feeds::camera::DeviceOrModelID;
+    cameras.any(|(device_id, model_id)| match id {
+        DeviceOrModelID::DeviceID(wanted) => device_id == wanted,
+        DeviceOrModelID::ModelID(wanted) => model_id == Some(wanted),
+    })
+}
+
+#[cfg(test)]
+mod camera_presence_tests {
+    use super::*;
+    use frameever_recording::feeds::camera::DeviceOrModelID;
+
+    fn model(value: &str) -> frameever_camera::ModelID {
+        frameever_camera::ModelID::try_from(value.to_string()).unwrap()
+    }
+
+    #[test]
+    fn a_selected_camera_is_found_by_device_or_model() {
+        let c920 = model("046d:082d");
+        let listed = [("usb-1", Some(&c920)), ("virtual", None)];
+        assert!(camera_listed(
+            &DeviceOrModelID::DeviceID("virtual".into()),
+            listed.iter().copied()
+        ));
+        assert!(camera_listed(
+            &DeviceOrModelID::ModelID(model("046d:082d")),
+            listed.iter().copied()
+        ));
+    }
+
+    #[test]
+    fn an_unplugged_camera_is_not_listed() {
+        let other = model("1234:0001");
+        let listed = [("usb-2", Some(&other))];
+        assert!(!camera_listed(
+            &DeviceOrModelID::DeviceID("usb-1".into()),
+            listed.iter().copied()
+        ));
+        assert!(!camera_listed(
+            &DeviceOrModelID::ModelID(model("046d:082d")),
+            listed.iter().copied()
+        ));
+        assert!(!camera_listed(
+            &DeviceOrModelID::DeviceID("usb-1".into()),
+            std::iter::empty()
+        ));
     }
 }
 

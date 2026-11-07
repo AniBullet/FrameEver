@@ -14,7 +14,6 @@ use crate::store::UpdateChannel;
 
 use crate::brand::RELEASES_REPO;
 const MANIFEST_ASSET: &str = "latest.json";
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const METADATA_TIMEOUT: Duration = Duration::from_secs(20);
 const CHUNK_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -157,11 +156,8 @@ fn parse_release(
     let Some(artifact) = manifest.platforms.get(platform) else {
         return Ok(None);
     };
-    let url = reqwest::Url::parse(artifact.url.trim())
+    let url = crate::http::validate_url(artifact.url.trim())
         .map_err(|error| format!("Invalid update download URL: {error}"))?;
-    if url.scheme() != "https" {
-        return Err("Update downloads must use HTTPS".to_string());
-    }
     if artifact.signature.trim().is_empty() {
         return Err("The update has no signature".to_string());
     }
@@ -173,32 +169,13 @@ fn parse_release(
     }))
 }
 
-fn client() -> Result<reqwest::Client, String> {
-    crate::http::client_builder()
-        .user_agent(crate::brand::USER_AGENT)
-        .connect_timeout(CONNECT_TIMEOUT)
-        .build()
-        .map_err(|error| error.to_string())
-}
-
 async fn fetch_bytes(url: &str) -> Result<Option<Vec<u8>>, String> {
-    let response = client()?
-        .get(url)
-        .header(reqwest::header::ACCEPT, "application/json")
-        .timeout(METADATA_TIMEOUT)
-        .send()
-        .await
-        .map_err(|error| error.to_string())?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
+    let response = crate::http::get(url, METADATA_TIMEOUT).await?;
+    if response.status() == 404 {
         return Ok(None);
     }
-    let body = response
-        .error_for_status()
-        .map_err(|error| error.to_string())?
-        .bytes()
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(Some(body.to_vec()))
+    let body = response.error_for_status()?.bytes().await?;
+    Ok(Some(body))
 }
 
 pub(crate) async fn fetch_release(
@@ -343,6 +320,7 @@ pub(crate) async fn download(
         kind,
         release,
         &mut progress,
+        crate::http::get(&release.url, Duration::from_secs(60 * 60)),
     )
     .await
 }
@@ -353,6 +331,7 @@ async fn download_into(
     kind: ArtifactKind,
     release: &Release,
     progress: &mut (impl FnMut(u64, Option<u64>) + Send),
+    download: impl std::future::Future<Output = Result<crate::http::Download, String>>,
 ) -> Result<PathBuf, String> {
     let key = trusted_key(encoded_key)?;
     let signature = decode_signature(&release.signature)?;
@@ -367,7 +346,12 @@ async fn download_into(
 
     std::fs::create_dir_all(&version_dir).map_err(|error| error.to_string())?;
     let partial = version_dir.join(format!("{}.partial", kind.file_name()));
-    if let Err(error) = stream_to_file(&partial, &key, &signature, release, progress).await {
+    let result = async {
+        let response = download.await?.error_for_status()?;
+        stream_to_file(&partial, &key, &signature, response, progress).await
+    }
+    .await;
+    if let Err(error) = result {
         let _ = std::fs::remove_file(&partial);
         return Err(error);
     }
@@ -380,18 +364,10 @@ async fn stream_to_file(
     partial: &Path,
     key: &PublicKey,
     signature: &Signature,
-    release: &Release,
+    response: crate::http::Download,
     progress: &mut (impl FnMut(u64, Option<u64>) + Send),
 ) -> Result<(), String> {
     let mut verifier = Verifier::new(key, signature)?;
-    let response = client()?
-        .get(&release.url)
-        .header(reqwest::header::ACCEPT, "application/octet-stream")
-        .send()
-        .await
-        .map_err(|error| error.to_string())?
-        .error_for_status()
-        .map_err(|error| error.to_string())?;
     let total = response.content_length();
     let mut file = std::fs::File::create(partial).map_err(|error| error.to_string())?;
     let mut stream = response.bytes_stream();
@@ -651,29 +627,6 @@ mod tests {
         directory
     }
 
-    fn serve_once(body: &'static [u8]) -> (String, std::thread::JoinHandle<usize>) {
-        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let url = format!("http://{}/artifact", listener.local_addr().unwrap());
-        let server = std::thread::spawn(move || {
-            let mut served = 0;
-            for stream in listener.incoming().take(1) {
-                let mut stream = stream.unwrap();
-                let mut request = [0_u8; 4096];
-                let _ = stream.read(&mut request).unwrap();
-                write!(
-                    stream,
-                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    body.len()
-                )
-                .unwrap();
-                stream.write_all(body).unwrap();
-                served += 1;
-            }
-            served
-        });
-        (url, server)
-    }
-
     fn release(url: String) -> Release {
         Release {
             version: Version::new(9, 9, 9),
@@ -730,6 +683,13 @@ mod tests {
             .is_err()
         );
         assert!(parse_release(br#"{"version":"seven"}"#, "windows-x86_64", &current).is_err());
+    }
+
+    #[test]
+    fn manifests_refuse_download_hosts_outside_the_allowlist() {
+        let body = br#"{"version":"0.7.0","platforms":{"windows-x86_64":{"url":"https://example.com/setup.exe","signature":"c2ln"}}}"#;
+        let error = parse_release(body, "windows-x86_64", &Version::new(0, 6, 1)).unwrap_err();
+        assert!(error.contains("allowed host"));
     }
 
     #[test]
@@ -808,7 +768,8 @@ mod tests {
         let stale = root.join("frameever").join("0.0.1");
         std::fs::create_dir_all(&stale).unwrap();
 
-        let (url, server) = serve_once(b"test");
+        let url =
+            "https://github.com/AniBullet/FrameEver/releases/download/v9.9.9/setup.exe".to_string();
         let mut updates = Vec::new();
         let downloaded = runtime
             .block_on(download_into(
@@ -817,9 +778,9 @@ mod tests {
                 ArtifactKind::NsisInstaller,
                 &release(url),
                 &mut |done, total| updates.push((done, total)),
+                async { Ok(crate::http::Download::from_bytes(b"test")) },
             ))
             .unwrap();
-        assert_eq!(server.join().unwrap(), 1);
         assert_eq!(downloaded, root.join("frameever/9.9.9/FrameEver-setup.exe"));
         assert_eq!(std::fs::read(&downloaded).unwrap(), b"test");
         assert_eq!(updates.first(), Some(&(0, Some(4))));
@@ -832,8 +793,9 @@ mod tests {
                 &root,
                 &encode(TEST_KEY),
                 ArtifactKind::NsisInstaller,
-                &release("http://127.0.0.1:9/unreachable".to_string()),
+                &release("https://github.com/unreachable".to_string()),
                 &mut |_, _| panic!("a verified cached download must not be fetched again"),
+                async { panic!("a verified cached download must not be fetched again") },
             ))
             .unwrap();
         assert_eq!(reused, downloaded);
@@ -864,7 +826,8 @@ mod tests {
             .build()
             .unwrap();
         let root = scratch("tampered");
-        let (url, server) = serve_once(b"tesT");
+        let url =
+            "https://github.com/AniBullet/FrameEver/releases/download/v9.9.9/setup.exe".to_string();
         let error = runtime
             .block_on(download_into(
                 &root,
@@ -872,9 +835,9 @@ mod tests {
                 ArtifactKind::NsisInstaller,
                 &release(url),
                 &mut |_, _| {},
+                async { Ok(crate::http::Download::from_bytes(b"tesT")) },
             ))
             .unwrap_err();
-        assert_eq!(server.join().unwrap(), 1);
         assert!(error.contains("signature verification"));
         let version_dir = root.join("frameever").join("9.9.9");
         assert!(!version_dir.join("FrameEver-setup.exe").exists());

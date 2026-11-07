@@ -16,7 +16,7 @@ use futures::{
     channel::{mpsc, oneshot},
 };
 use scap_ffmpeg::*;
-use scap_targets::{Display, DisplayId};
+use scap_targets::{Display, DisplayId, Window, WindowId};
 use std::{
     sync::{
         Arc, Mutex,
@@ -355,9 +355,10 @@ impl ScreenCaptureConfig<Direct3DCapture> {
     pub async fn to_sources(
         &self,
     ) -> anyhow::Result<(VideoSourceConfig, Option<SystemAudioSourceConfig>)> {
+        let crop_bounds = self.config.crop_bounds.filter(|_| self.config.window.is_none());
         let mut settings = scap_direct3d::Settings {
             pixel_format: Direct3DCapture::PIXEL_FORMAT,
-            crop: self.config.crop_bounds.map(|b| {
+            crop: crop_bounds.map(|b| {
                 let position = b.position();
                 let size = b.size().map(|v| (v / 2.0).floor() * 2.0);
 
@@ -399,6 +400,7 @@ impl ScreenCaptureConfig<Direct3DCapture> {
             VideoSourceConfig {
                 video_info: self.video_info,
                 display_id: self.config.display.clone(),
+                window_id: self.config.window.clone(),
                 settings,
                 d3d_device: self.d3d_device.clone(),
             },
@@ -416,6 +418,7 @@ pub enum VideoSourceError {
 pub struct VideoSourceConfig {
     video_info: VideoInfo,
     display_id: DisplayId,
+    window_id: Option<WindowId>,
     settings: scap_direct3d::Settings,
     pub d3d_device: ID3D11Device,
 }
@@ -487,6 +490,7 @@ struct CaptureClosureEvent {
 
 struct CreateCapturerParams<'a> {
     display_id: &'a DisplayId,
+    window_id: Option<&'a WindowId>,
     settings: &'a scap_direct3d::Settings,
     d3d_device: &'a ID3D11Device,
     video_tx: &'a mpsc::Sender<VideoFrame>,
@@ -511,11 +515,18 @@ fn create_d3d_capturer(
     params: &CreateCapturerParams,
     error_tx: &mpsc::Sender<CaptureClosureEvent>,
 ) -> anyhow::Result<scap_direct3d::Capturer> {
-    let capture_item = Display::from_id(params.display_id)
-        .ok_or_else(|| anyhow!("Display not found for ID: {:?}", params.display_id))?
-        .raw_handle()
-        .try_as_capture_item()
-        .map_err(|e| anyhow!("Failed to create GraphicsCaptureItem: {}", e))?;
+    let capture_item = if let Some(window_id) = params.window_id {
+        Window::from_id(window_id)
+            .ok_or_else(|| anyhow!("Window not found for ID: {window_id:?}"))?
+            .raw_handle()
+            .try_as_capture_item()
+    } else {
+        Display::from_id(params.display_id)
+            .ok_or_else(|| anyhow!("Display not found for ID: {:?}", params.display_id))?
+            .raw_handle()
+            .try_as_capture_item()
+    }
+    .map_err(|e| anyhow!("Failed to create GraphicsCaptureItem: {e}"))?;
 
     scap_direct3d::Capturer::new(
         capture_item,
@@ -661,6 +672,7 @@ impl output_pipeline::VideoSource for VideoSource {
         VideoSourceConfig {
             video_info,
             display_id,
+            window_id,
             settings,
             d3d_device,
         }: Self::Config,
@@ -723,6 +735,7 @@ impl output_pipeline::VideoSource for VideoSource {
                     ($device:expr) => {
                         CreateCapturerParams {
                             display_id: &display_id,
+                            window_id: window_id.as_ref(),
                             settings: &settings,
                             d3d_device: $device,
                             video_tx: &video_tx,

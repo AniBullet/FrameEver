@@ -39,6 +39,32 @@ fn parse_json(output: &Output) -> Value {
 }
 
 #[test]
+fn export_refuses_network_output_before_opening_a_project() {
+    for destination in ["rtmp://example.com/live", "http://example.com/output.mp4"] {
+        for args in [
+            vec!["export", "missing.ever", destination],
+            vec!["export", "missing.ever", "--output", destination],
+        ] {
+            let output = run(&args);
+            assert!(!output.status.success());
+            assert!(stderr(&output).contains("Export output must be a local file path"));
+        }
+    }
+}
+
+#[test]
+fn record_refuses_network_project_paths_before_selecting_a_target() {
+    for destination in [
+        "rtmp://example.com/live.ever",
+        "http://example.com/recording.ever",
+    ] {
+        let output = run(&["record", "--path", destination, "--duration", "1"]);
+        assert!(!output.status.success());
+        assert!(stderr(&output).contains("Recording output must be a local file path"));
+    }
+}
+
+#[test]
 fn help_succeeds_and_lists_commands() {
     let output = run(&["--help"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));

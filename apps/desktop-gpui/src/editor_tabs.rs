@@ -3147,6 +3147,10 @@ impl EditorWindow {
         });
     }
 
+    pub(crate) fn repaint_caption_download(&mut self, cx: &mut Context<Self>) {
+        self.invalidate_sidebar(cx);
+    }
+
     /// Repaints the tab while a download streams -- the stand-in for Tauri's
     /// `DownloadProgress` events plus the 1s status poll
     /// (`CaptionsTab.tsx:550-555`); the hub already carries the numbers.
@@ -3157,7 +3161,10 @@ impl EditorWindow {
                     .timer(Duration::from_millis(150))
                     .await;
                 let active = transcription::download_active();
-                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                if this
+                    .update(cx, |this, cx| this.repaint_caption_download(cx))
+                    .is_err()
+                {
                     break;
                 }
                 if !active {

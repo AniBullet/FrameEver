@@ -18,6 +18,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use super::{ForcedAppearance, MaterialKind, PanelBehavior};
 
 mod capture_exclusion;
+mod file_drag;
 mod hidden_frame;
 mod main_frame;
 mod reduce_motion;
@@ -126,6 +127,7 @@ pub fn install_main_window_frame_policy(native: &NativeWindow) -> std::io::Resul
     hidden_frame::install(native.hwnd())
 }
 
+pub use file_drag::drag_files_out;
 pub use main_frame::{
     install as install_main_window_limits, launch_screen as main_window_launch_screen,
     place as place_main_window, restore_minimized as restore_minimized_main_window,
@@ -642,6 +644,10 @@ pub fn confirm_dialog(
     cancel: &str,
     warning: bool,
 ) -> bool {
+    #[cfg(test)]
+    if let Some(answer) = super::test_dialogs::confirm() {
+        return answer;
+    }
     let level = if warning {
         rfd::MessageLevel::Warning
     } else {
@@ -743,15 +749,23 @@ pub fn copy_files_to_clipboard(paths: &[PathBuf], _cx: &gpui::App) -> Result<(),
         })
 }
 
-pub fn copy_image_bytes_to_clipboard(bytes: &[u8], _cx: &gpui::App) -> Result<(), String> {
-    use clipboard_rs::common::RustImage;
-    use clipboard_rs::{Clipboard, ClipboardContext, RustImageData};
+pub struct ClipboardImage(clipboard_rs::RustImageData);
 
-    let image = RustImageData::from_bytes(bytes)
-        .map_err(|error| t!("Could not load the clipboard image: {error}", error = error))?;
+pub fn prepare_clipboard_image(bytes: Vec<u8>) -> Result<ClipboardImage, String> {
+    use clipboard_rs::RustImageData;
+    use clipboard_rs::common::RustImage;
+
+    RustImageData::from_bytes(&bytes)
+        .map(ClipboardImage)
+        .map_err(|error| t!("Could not load the clipboard image: {error}", error = error))
+}
+
+pub fn write_clipboard_image(image: ClipboardImage, _cx: &gpui::App) -> Result<(), String> {
+    use clipboard_rs::{Clipboard, ClipboardContext};
+
     ClipboardContext::new()
         .map_err(|error| t!("Clipboard unavailable: {error}", error = error))?
-        .set_image(image)
+        .set_image(image.0)
         .map_err(|error| {
             t!(
                 "Could not copy the image to the clipboard: {error}",

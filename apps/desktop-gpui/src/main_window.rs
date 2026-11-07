@@ -140,10 +140,18 @@ fn remembered_camera(id: &recording::DeviceOrModelID, cameras: &[CameraOption]) 
                 recording::DeviceOrModelID::ModelID(model) => Some(model.clone()),
                 recording::DeviceOrModelID::DeviceID(_) => None,
             },
-            label: t!("Camera").to_string(),
+            label: String::new(),
             best_format: None,
             formats: Vec::new(),
         })
+}
+
+pub(crate) fn camera_label(label: &str) -> String {
+    if label.is_empty() {
+        t!("Camera").to_string()
+    } else {
+        label.to_string()
+    }
 }
 
 fn remembered_microphone(name: &str, microphones: &[MicrophoneOption]) -> MicrophoneOption {
@@ -747,6 +755,7 @@ pub struct MainWindow {
     camera_id: Option<recording::DeviceOrModelID>,
     microphone: Option<MicrophoneOption>,
     microphone_level: Entity<ui::MicrophoneLevel>,
+    device_microphone_level: Entity<ui::MicrophoneLevel>,
     pending_device_restore: crate::store::RecordingInputSettings,
     device_restore_suspended: bool,
     device_format_target: Option<DeviceFormatTarget>,
@@ -812,6 +821,15 @@ pub struct MainWindow {
     project_count: Option<usize>,
     start_target: Option<TargetType>,
     show_after_snap: bool,
+}
+
+fn discard_still_valid(
+    confirmed: bool,
+    phase: Phase,
+    current: Option<&std::path::Path>,
+    target: &std::path::Path,
+) -> bool {
+    confirmed && phase == Phase::Idle && current == Some(target)
 }
 
 impl MainWindow {
@@ -899,7 +917,18 @@ impl MainWindow {
         // meter notifies at ~20Hz and would otherwise repaint the home view
         // for a level bar only the microphone picker shows.
         let feeds = Feeds::global(cx);
-        let microphone_level = cx.new(|cx| ui::MicrophoneLevel::new(&feeds, window, cx));
+        let mic_level = feeds.read(cx).mic_level().clone();
+        let microphone_level = cx.new(|cx| {
+            ui::MicrophoneLevel::new(
+                ui::MicrophoneLevelKind::CaptureButton,
+                &mic_level,
+                window,
+                cx,
+            )
+        });
+        let device_microphone_level = cx.new(|cx| {
+            ui::MicrophoneLevel::new(ui::MicrophoneLevelKind::DeviceRow, &mic_level, window, cx)
+        });
         cx.observe(&feeds, |this: &mut Self, feeds, cx| {
             let feeds = feeds.read(cx);
             let camera_id = feeds.camera.as_ref().map(|camera| &camera.id);
@@ -1000,6 +1029,7 @@ impl MainWindow {
             camera_id: None,
             microphone: None,
             microphone_level,
+            device_microphone_level,
             pending_device_restore: crate::store::RecordingInputSettings::load(),
             device_restore_suspended: false,
             device_format_target: None,
@@ -1202,11 +1232,14 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        for image in self.thumbnails.retain_displays(&displays) {
+        let dropped = self.thumbnails.retain_displays(&displays);
+        let changed = self.devices.install_displays(displays) || !dropped.is_empty();
+        for image in dropped {
             let _ = window.drop_image(image);
         }
-        self.devices.displays = displays;
-        cx.notify();
+        if changed {
+            cx.notify();
+        }
     }
 
     fn install_windows(
@@ -1215,11 +1248,14 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        for image in self.thumbnails.retain_windows(&windows) {
+        let dropped = self.thumbnails.retain_windows(&windows);
+        let changed = self.devices.install_windows(windows) || !dropped.is_empty();
+        for image in dropped {
             let _ = window.drop_image(image);
         }
-        self.devices.windows = windows;
-        cx.notify();
+        if changed {
+            cx.notify();
+        }
     }
 
     /// Start one capture sweep, or return `None` because one is already in
@@ -1305,8 +1341,9 @@ impl MainWindow {
                 self.thumbnails.set_window_inflight(true);
 
                 let (events_tx, events) = flume::unbounded();
+                let current = self.thumbnails.captured_windows();
                 let capture = gpui_tokio::Tokio::spawn(cx, async move {
-                    target_thumbnails::capture_windows(events_tx).await;
+                    target_thumbnails::capture_windows(events_tx, current).await;
                 });
 
                 Some(cx.spawn_in(window, async move |this, cx| {
@@ -1526,11 +1563,12 @@ impl MainWindow {
                     id,
                     image,
                     app_icon,
+                    entry,
                 } => {
                     let icon = app_icon.map(|bytes| {
                         std::sync::Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, bytes))
                     });
-                    if let Some(old) = self.thumbnails.insert_window(&id, image, icon) {
+                    if let Some(old) = self.thumbnails.insert_window(&id, image, icon, entry) {
                         let _ = window.drop_image(old);
                     }
                 }
@@ -1594,17 +1632,6 @@ impl MainWindow {
         let Some(recording) = self.incomplete_recording.clone() else {
             return;
         };
-        if !recover
-            && !crate::platform::confirm_dialog(
-                "FrameEver",
-                t!("Are you sure you want to delete this recording?"),
-                t!("Yes"),
-                t!("No"),
-                false,
-            )
-        {
-            return;
-        }
 
         self.recovery_pending = true;
         self.recovery_error = None;
@@ -1612,6 +1639,37 @@ impl MainWindow {
         window.refresh();
 
         self.recovery_action_task = Some(cx.spawn_in(window, async move |this, cx| {
+            if !recover {
+                let confirmed = crate::platform::confirm_dialog(
+                    "FrameEver",
+                    t!("Are you sure you want to delete this recording?"),
+                    t!("Yes"),
+                    t!("No"),
+                    false,
+                );
+                let target = recording.project_path.clone();
+                let proceed = this
+                    .update_in(cx, |this, window, cx| {
+                        let proceed = discard_still_valid(
+                            confirmed,
+                            this.session.read(cx).phase,
+                            this.incomplete_recording
+                                .as_ref()
+                                .map(|current| current.project_path.as_path()),
+                            &target,
+                        );
+                        if !proceed {
+                            this.recovery_pending = false;
+                            cx.notify();
+                            window.refresh();
+                        }
+                        proceed
+                    })
+                    .unwrap_or(false);
+                if !proceed {
+                    return;
+                }
+            }
             let result = if recover {
                 cx.background_executor().spawn(async move {
                     library::recover_incomplete_recording(&recording.project_path)
@@ -2637,7 +2695,26 @@ impl Render for MainWindow {
             && self.microphone.is_some()
             && self.session.read(cx).phase == Phase::Idle;
         self.microphone_level.update(cx, |meter, cx| {
-            meter.configure(meter_active, theme.success.into(), cx);
+            meter.configure(
+                meter_active,
+                theme.success.into(),
+                gpui::transparent_black(),
+                cx,
+            );
+        });
+        let device_meter_active = self.microphone.is_some()
+            && matches!(self.panel, Some(Panel::Device(DeviceMenu::Microphone)));
+        self.device_microphone_level.update(cx, |meter, cx| {
+            meter.configure(
+                device_meter_active,
+                theme.success.into(),
+                if theme.is_dark() {
+                    gpui::hsla(0., 0., 1., 0.1)
+                } else {
+                    gpui::hsla(0., 0., 0., 0.07)
+                },
+                cx,
+            );
         });
 
         div()
@@ -3529,7 +3606,7 @@ impl MainWindow {
                 .text_size(px(12.))
                 .text_color(theme.gray_11)
                 .child(match self.device_format_target.as_ref().unwrap() {
-                    DeviceFormatTarget::Camera(camera) => camera.label.clone(),
+                    DeviceFormatTarget::Camera(camera) => camera_label(&camera.label),
                     DeviceFormatTarget::Microphone(name) => name.clone(),
                 })
                 .into_any_element(),
@@ -4197,9 +4274,7 @@ impl MainWindow {
                                         })
                                     },
                                     selected,
-                                    selected.then(|| {
-                                        feeds::picker_level(Feeds::global(cx).read(cx).mic_level_db)
-                                    }),
+                                    selected.then(|| self.device_microphone_level.clone()),
                                     cx.listener(move |this, _, _window, cx| {
                                         if !this.device_changes_allowed(cx) {
                                             return;
@@ -4911,10 +4986,7 @@ impl MainWindow {
         label: String,
         detail: Option<String>,
         selected: bool,
-        // `MicrophoneListItem`'s live level wash: a white 25% overlay whose
-        // right edge sits at `level * 100%` (1 = silence, the web app's
-        // orientation). Only the selected microphone row gets one.
-        audio_level: Option<f64>,
+        audio_level: Option<Entity<ui::MicrophoneLevel>>,
         on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
@@ -4967,26 +5039,7 @@ impl MainWindow {
                             .child(detail)
                     }))
                     .when_some(audio_level.filter(|_| selected), |this, level| {
-                        this.child(
-                            div()
-                                .mt(px(3.))
-                                .h(px(3.))
-                                .w_full()
-                                .rounded_full()
-                                .overflow_hidden()
-                                .bg(if theme.is_dark() {
-                                    gpui::hsla(0., 0., 1., 0.1)
-                                } else {
-                                    gpui::hsla(0., 0., 0., 0.07)
-                                })
-                                .child(
-                                    div()
-                                        .h_full()
-                                        .rounded_full()
-                                        .bg(accent)
-                                        .w(gpui::relative(1. - level.clamp(0., 1.) as f32)),
-                                ),
-                        )
+                        this.child(level)
                     }),
             )
             .when(selected, |this| {
@@ -5082,7 +5135,7 @@ impl MainWindow {
                         "icons/webcam.svg",
                         self.camera
                             .as_ref()
-                            .map(|camera| camera.label.clone())
+                            .map(|camera| camera_label(&camera.label))
                             .unwrap_or_else(|| t!("No Camera").into()),
                         if self.camera.is_some()
                             && let Some(pill) = self.access_pill(OSPermission::Camera, cx)
@@ -5440,6 +5493,9 @@ mod remembered_device_tests {
         let restored = remembered_camera(&missing, &cameras);
         assert_eq!(restored.device_id, "remembered");
         assert_ne!(restored, cameras[0]);
+        assert_eq!(restored.label, "");
+        assert_eq!(camera_label(&restored.label), t!("Camera").to_string());
+        assert_eq!(camera_label(&cameras[0].label), cameras[0].label);
 
         let microphones = [MicrophoneOption {
             name: "Unrequested microphone".into(),
@@ -5794,5 +5850,106 @@ mod recording_error_panel_tests {
             ));
             assert_eq!(current.as_deref(), Some("Capture cleanup is unconfirmed"));
         }
+    }
+
+    #[test]
+    fn discard_applies_only_while_the_confirmed_recording_is_still_current() {
+        let target = std::path::Path::new("a.ever");
+        let other = std::path::Path::new("b.ever");
+        assert!(discard_still_valid(true, Phase::Idle, Some(target), target));
+        assert!(!discard_still_valid(
+            false,
+            Phase::Idle,
+            Some(target),
+            target
+        ));
+        assert!(!discard_still_valid(
+            true,
+            Phase::Starting,
+            Some(target),
+            target
+        ));
+        assert!(!discard_still_valid(true, Phase::Idle, None, target));
+        assert!(!discard_still_valid(true, Phase::Idle, Some(other), target));
+    }
+}
+
+#[cfg(test)]
+mod recovery_dialog_tests {
+    use super::*;
+
+    fn recording(path: &str) -> library::IncompleteRecordingItem {
+        library::IncompleteRecordingItem {
+            project_path: std::path::PathBuf::from(path),
+            pretty_name: "Recording".to_owned(),
+            segment_count: 1,
+            estimated_duration_secs: 1.0,
+        }
+    }
+
+    fn open_main(
+        cx: &mut gpui::TestAppContext,
+    ) -> (Entity<MainWindow>, &mut gpui::VisualTestContext) {
+        let session = cx.update(|cx| {
+            crate::feeds::Feeds::init(cx);
+            crate::media_access::MediaAccess::init(cx);
+            crate::target_overlay::TargetSelect::init(cx);
+            RecordingSession::init(cx)
+        });
+        cx.add_window_view(move |window, cx| MainWindow::new(session, window, cx))
+    }
+
+    #[gpui::test]
+    fn discard_dialog_runs_with_no_app_borrow_and_cancel_keeps_the_recording(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (main, cx) = open_main(cx);
+        main.update(cx, |main, _| {
+            main.incomplete_recording = Some(recording("kept.ever"));
+        });
+        let app = cx.to_async();
+        crate::platform::test_dialogs::answer_confirm_with(move || {
+            app.update(|_| ());
+            false
+        });
+
+        main.update_in(cx, |main, window, cx| {
+            main.process_incomplete_recording(false, window, cx);
+            assert!(main.recovery_pending);
+        });
+        cx.run_until_parked();
+
+        main.read_with(cx, |main, _| {
+            assert!(!main.recovery_pending);
+            assert!(main.incomplete_recording.is_some());
+        });
+    }
+
+    #[gpui::test]
+    fn discard_is_dropped_when_the_recording_changed_while_the_dialog_was_open(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (main, cx) = open_main(cx);
+        main.update(cx, |main, _| {
+            main.incomplete_recording = Some(recording("gone.ever"));
+        });
+        let app = cx.to_async();
+        let entity = main.clone();
+        crate::platform::test_dialogs::answer_confirm_with(move || {
+            app.update(|cx| {
+                entity.update(cx, |main, _| main.incomplete_recording = None);
+            });
+            true
+        });
+
+        main.update_in(cx, |main, window, cx| {
+            main.process_incomplete_recording(false, window, cx);
+        });
+        cx.run_until_parked();
+
+        main.read_with(cx, |main, _| {
+            assert!(!main.recovery_pending);
+            assert!(main.incomplete_recording.is_none());
+        });
     }
 }

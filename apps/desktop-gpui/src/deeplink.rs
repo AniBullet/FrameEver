@@ -44,8 +44,8 @@ use std::sync::OnceLock;
 use frameever_recording::feeds::camera::DeviceOrModelID;
 use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::App;
-use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 use crate::{
     app_windows,
