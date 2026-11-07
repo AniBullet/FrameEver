@@ -1,23 +1,3 @@
-//! Screenshot export compositing -- `screenshot-editor/screenshotExport.ts`
-//! and the encode half of `useScreenshotExport.ts`, natively.
-//!
-//! The Tauri editor exports in two stages: the GPU renders the *styled*
-//! screenshot (background, padding, shadow -- everything but annotations) at
-//! export resolution, and a `<canvas>` pass then bakes the annotations in
-//! (`renderScreenshotExportCanvas`, `screenshotExport.ts:250-338`). This
-//! module is that canvas pass: scale the frame-space annotations up to the
-//! export frame, re-apply the mask filters at export resolution, draw the
-//! shapes with tiny-skia and the text with cosmic-text, and expand the output
-//! to the union of the image and every annotation's painted extents.
-//!
-//! It also carries the share fingerprint (`screenshotProjectFingerprint`,
-//! `:419-431`) and the per-destination encodings (`exportImage`,
-//! `useScreenshotExport.ts:139-253`): PNG for Save, PNG-over-white for Copy,
-//! and JPEG at 0.9 for Share unless the output actually needs its alpha.
-//!
-//! Everything here is pure CPU work on plain buffers -- the callers run it on
-//! the background executor.
-
 use std::sync::{Mutex, OnceLock};
 
 use frameever_gpui_kernels::{codec, screenshot as pixels};
