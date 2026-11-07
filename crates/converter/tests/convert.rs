@@ -3,7 +3,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use frameever_converter::{OldInstall, Source, Target, convert, destination, find_installs};
+use frameever_converter::{
+    OldInstall, Plan, Progress, Selection, Source, Target, convert, convert_watched, destination,
+    find_installs,
+};
 use frameever_project::{
     InstantRecordingMeta, Platform, RecordingMeta, RecordingMetaInner, SingleSegment,
     StudioRecordingMeta, VideoMeta,
@@ -162,7 +165,7 @@ fn a_default_cap_anibullet_2_install_lands_in_the_storage_folder_with_compressed
         destination(&installs[0], &machine.target()),
         machine.path("Videos/FrameEver")
     );
-    let report = convert(&installs[0], &machine.target());
+    let report = convert(&installs[0], &machine.target(), &Plan::default());
 
     assert!(report.skipped.is_empty(), "{report:?}");
     assert_eq!(report.converted.len(), 4);
@@ -258,7 +261,7 @@ fn a_cap_anibullet_2_custom_folder_becomes_the_storage_folder_and_its_projects_s
         destination(&machine.installs()[0], &machine.target()),
         custom
     );
-    let report = convert(&machine.installs()[0], &machine.target());
+    let report = convert(&machine.installs()[0], &machine.target(), &Plan::default());
 
     assert!(report.skipped.is_empty(), "{report:?}");
     let general = &machine.settings()["general_settings"];
@@ -326,7 +329,7 @@ fn an_official_cap_install_brings_its_projects_screenshots_and_rules_with_framee
     let installs = machine.installs();
     assert_eq!(installs.len(), 1);
     assert_eq!(installs[0].source, Source::Cap);
-    let report = convert(&installs[0], &machine.target());
+    let report = convert(&installs[0], &machine.target(), &Plan::default());
 
     assert!(report.skipped.is_empty(), "{report:?}");
     let storage = machine.storage();
@@ -360,7 +363,7 @@ fn an_official_cap_install_brings_its_projects_screenshots_and_rules_with_framee
         serde_json::json!({ "FRAMEEVER_SHARE_LINK": "x" })
     );
 
-    let again = convert(&installs[0], &machine.target());
+    let again = convert(&installs[0], &machine.target(), &Plan::default());
     assert!(again.converted.is_empty() && again.skipped.is_empty());
     assert_eq!(machine.settings(), settings);
 }
@@ -385,21 +388,22 @@ fn a_locked_file_is_reported_and_left_and_a_second_run_converts_only_what_is_lef
         .share_mode(0)
         .open(&locked)
         .unwrap();
-    let first = convert(&install, &machine.target());
+    let first = convert(&install, &machine.target(), &Plan::default());
     assert!(
         machine
             .path(&format!("{base}/exports/video/Busy_compressed.mp4"))
             .is_file()
     );
-    let second = convert(&install, &machine.target());
+    let second = convert(&install, &machine.target(), &Plan::default());
     drop(lock);
-    let third = convert(&install, &machine.target());
+    let third = convert(&install, &machine.target(), &Plan::default());
 
     assert_eq!(first.converted.len(), 1);
     assert_eq!(
         first.skipped,
         vec![frameever_converter::Skipped {
             source: locked.clone(),
+            kind: ProjectKind::Recording,
             reason: frameever_converter::SkipReason::InUse,
         }]
     );
@@ -437,7 +441,7 @@ fn a_cap_anibullet_2_instant_video_goes_back_into_the_project_it_was_moved_out_o
     machine.write(&format!("{base}/exports/video/Quick.mp4"), b"quick");
     machine.write(&format!("{base}/exports/video/Quick_compressing.mp4"), b"");
 
-    let report = convert(&machine.installs()[0], &machine.target());
+    let report = convert(&machine.installs()[0], &machine.target(), &Plan::default());
 
     assert!(report.skipped.is_empty(), "{report:?}");
     assert_eq!(report.converted.len(), 1);
@@ -466,7 +470,7 @@ fn a_cap_anibullet_2_jpeg_screenshot_becomes_a_png_screenshot_project_with_its_d
     age(&jpeg);
     machine.write("Videos/Cap Recordings/exports/screenshot/notes.txt", b"x");
 
-    let report = convert(&machine.installs()[0], &machine.target());
+    let report = convert(&machine.installs()[0], &machine.target(), &Plan::default());
 
     assert!(report.skipped.is_empty(), "{report:?}");
     let screenshots = listed(&machine.storage(), ProjectKind::Screenshot);
@@ -492,7 +496,7 @@ fn a_picked_folder_converts_the_old_projects_and_loose_exports_in_it_and_leaves_
     let install = OldInstall::picked_folder(&picked);
     assert_eq!(install.source, Source::Folder);
     assert_eq!(install.items().len(), 5);
-    let report = convert(&install, &machine.target());
+    let report = convert(&install, &machine.target(), &Plan::default());
 
     assert!(report.skipped.is_empty(), "{report:?}");
     assert_eq!(report.settings_error, None);
@@ -519,4 +523,183 @@ fn a_picked_screenshots_folder_holds_screenshot_projects() {
 
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].kind(), ProjectKind::Screenshot);
+}
+
+fn three_item_install(machine: &Machine) -> OldInstall {
+    let base = "Videos/Cap Recordings";
+    machine.write(
+        "AppData/Roaming/so.cap.desktop.anibullet/store",
+        br#"{"general_settings":{"language":"zh-CN"}}"#,
+    );
+    studio_project(machine.path(&format!("{base}/recordings/One.cap")), "One");
+    machine.write(&format!("{base}/exports/video/Two.mp4"), b"two");
+    machine.write(&format!("{base}/exports/screenshot/Three.png"), b"three");
+    machine.installs().remove(0)
+}
+
+#[test]
+fn unticked_kinds_and_settings_stay_where_they_were() {
+    let machine = Machine::new();
+    let install = three_item_install(&machine);
+    let shot = machine.path("Videos/Cap Recordings/exports/screenshot/Three.png");
+
+    let report = convert(
+        &install,
+        &machine.target(),
+        &Plan {
+            selection: Selection {
+                recordings: true,
+                screenshots: false,
+                settings: false,
+            },
+            destination: None,
+        },
+    );
+
+    assert_eq!(report.converted.len(), 2, "{report:?}");
+    assert!(shot.is_file());
+    assert!(listed(&machine.storage(), ProjectKind::Screenshot).is_empty());
+    assert!(!machine.target().settings_file.exists());
+}
+
+#[test]
+fn items_are_measured_and_named_for_the_window() {
+    let machine = Machine::new();
+    let install = three_item_install(&machine);
+    let items = install.items();
+    let named: Vec<_> = items.iter().map(|item| item.name()).collect();
+    assert_eq!(named, ["One", "Two", "Three"]);
+    let project = machine.path("Videos/Cap Recordings/recordings/One.cap");
+    let meta_size = std::fs::metadata(project.join("recording-meta.json"))
+        .unwrap()
+        .len();
+    let sizes: Vec<_> = items.iter().map(|item| item.size()).collect();
+    assert_eq!(sizes, [meta_size, 3, 5]);
+}
+
+#[test]
+fn progress_names_each_item_before_it_moves_and_stopping_leaves_the_rest_for_the_next_run() {
+    let machine = Machine::new();
+    let install = three_item_install(&machine);
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let mut seen = Vec::new();
+
+    let report = convert_watched(
+        &install,
+        &machine.target(),
+        &Plan::default(),
+        &stop,
+        |progress: &Progress| {
+            seen.push((progress.done, progress.total, progress.current.clone()));
+            if progress.current.as_deref() == Some("Two") {
+                stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        },
+    );
+
+    assert_eq!(
+        seen,
+        [
+            (0, 3, Some("One".to_string())),
+            (1, 3, Some("Two".to_string())),
+            (2, 3, None),
+        ]
+    );
+    assert!(report.stopped);
+    assert_eq!(report.converted.len(), 2);
+    assert_eq!(report.left, 1);
+    let shot = machine.path("Videos/Cap Recordings/exports/screenshot/Three.png");
+    assert!(shot.is_file());
+    assert!(!machine.path("Videos/FrameEver/Screenshots").exists());
+
+    let rest = convert(&install, &machine.target(), &Plan::default());
+    assert!(!rest.stopped);
+    assert_eq!(rest.left, 0);
+    assert_eq!(rest.converted.len(), 1);
+    assert!(!shot.exists());
+}
+
+#[test]
+fn bytes_left_count_down_to_nothing() {
+    let machine = Machine::new();
+    let install = three_item_install(&machine);
+    let total: u64 = install.items().iter().map(|item| item.size()).sum();
+    let mut left = Vec::new();
+    convert_watched(
+        &install,
+        &machine.target(),
+        &Plan::default(),
+        &std::sync::atomic::AtomicBool::new(false),
+        |progress: &Progress| left.push(progress.bytes_left),
+    );
+    assert_eq!(left.first(), Some(&total));
+    assert_eq!(left.last(), Some(&0));
+}
+
+#[test]
+fn a_changed_destination_becomes_the_storage_folder() {
+    let machine = Machine::new();
+    let install = three_item_install(&machine);
+    let elsewhere = machine.path("E/Elsewhere");
+
+    let report = convert(
+        &install,
+        &machine.target(),
+        &Plan {
+            selection: Selection::default(),
+            destination: Some(elsewhere.clone()),
+        },
+    );
+
+    assert!(report.skipped.is_empty(), "{report:?}");
+    let general = &machine.settings()["general_settings"];
+    assert_eq!(general["storagePath"], elsewhere.to_string_lossy().as_ref());
+    assert_eq!(general["language"], "zh-CN");
+    assert!(elsewhere.join("Recordings/One.ever").is_dir());
+    assert!(elsewhere.join("Screenshots/Three.ever").is_dir());
+}
+
+#[test]
+fn a_custom_cap_anibullet_2_folder_is_still_the_destination_when_settings_stay_behind() {
+    let machine = Machine::new();
+    let custom = machine.path("D/Captures");
+    machine.write(
+        "AppData/Roaming/so.cap.desktop.anibullet/store",
+        serde_json::json!({ "general_settings": { "recordingsSavePath": custom, "language": "zh-CN" } })
+            .to_string()
+            .as_bytes(),
+    );
+    studio_project(custom.join("recordings/Custom.cap"), "Custom");
+    let install = machine.installs().remove(0);
+
+    convert(
+        &install,
+        &machine.target(),
+        &Plan {
+            selection: Selection {
+                settings: false,
+                ..Selection::default()
+            },
+            destination: None,
+        },
+    );
+
+    let general = &machine.settings()["general_settings"];
+    assert_eq!(general["storagePath"], custom.to_string_lossy().as_ref());
+    assert!(general.get("language").is_none());
+    assert!(custom.join("Recordings/Custom.ever").is_dir());
+}
+
+#[test]
+fn an_old_install_counts_its_automation_rules() {
+    let machine = Machine::new();
+    machine.write(
+        "AppData/Roaming/so.cap.desktop/store",
+        br#"{"automations":{"version":1,"rules":[{"id":"a"},{"id":"b"}]}}"#,
+    );
+    assert_eq!(machine.installs()[0].rule_count(), 2);
+    assert_eq!(
+        OldInstall::picked_folder(&machine.path("E")).rule_count(),
+        0
+    );
 }

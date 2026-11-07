@@ -4,6 +4,7 @@ mod transfer;
 use std::{
     collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use frameever_project::{
@@ -38,9 +39,32 @@ pub enum Source {
     Folder,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OldApp {
+    pub name: &'static str,
+    pub process: &'static str,
+}
+
+const CAP_ANIBULLET_2_APP: OldApp = OldApp {
+    name: "Cap-aniBullet 2.x",
+    process: "Cap-aniBullet.exe",
+};
+const CAP_APP: OldApp = OldApp {
+    name: "Cap",
+    process: "Cap.exe",
+};
+
 impl Source {
     pub fn carries_settings(self) -> bool {
         self != Source::Folder
+    }
+
+    pub fn old_apps(self) -> &'static [OldApp] {
+        match self {
+            Source::CapAniBullet2 => &[CAP_ANIBULLET_2_APP],
+            Source::Cap => &[CAP_APP],
+            Source::Folder => &[CAP_ANIBULLET_2_APP, CAP_APP],
+        }
     }
 }
 
@@ -105,6 +129,80 @@ impl Item {
             Self::Screenshot { .. } => ProjectKind::Screenshot,
         }
     }
+
+    pub fn name(&self) -> String {
+        match self {
+            Self::Video { name, .. } => name.clone(),
+            Self::Project { source, .. } | Self::Screenshot { source } => file_stem(source),
+        }
+    }
+
+    pub fn size(&self) -> u64 {
+        match self {
+            Self::Project { source, .. } | Self::Screenshot { source } => size_of(source),
+            Self::Video {
+                original,
+                compressed,
+                emptied_project,
+                ..
+            } => [original, compressed, emptied_project]
+                .into_iter()
+                .flatten()
+                .map(|path| size_of(path))
+                .sum(),
+        }
+    }
+}
+
+fn size_of(path: &Path) -> u64 {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => sorted_entries(path)
+            .iter()
+            .map(|entry| size_of(entry))
+            .sum(),
+        Ok(metadata) => metadata.len(),
+        Err(_) => 0,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Selection {
+    pub recordings: bool,
+    pub screenshots: bool,
+    pub settings: bool,
+}
+
+impl Default for Selection {
+    fn default() -> Self {
+        Self {
+            recordings: true,
+            screenshots: true,
+            settings: true,
+        }
+    }
+}
+
+impl Selection {
+    pub fn takes(&self, kind: ProjectKind) -> bool {
+        match kind {
+            ProjectKind::Recording => self.recordings,
+            ProjectKind::Screenshot => self.screenshots,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Plan {
+    pub selection: Selection,
+    pub destination: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Progress {
+    pub done: usize,
+    pub total: usize,
+    pub current: Option<String>,
+    pub bytes_left: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +220,7 @@ pub enum SkipReason {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skipped {
     pub source: PathBuf,
+    pub kind: ProjectKind,
     pub reason: SkipReason,
 }
 
@@ -130,6 +229,14 @@ pub struct Report {
     pub converted: Vec<Converted>,
     pub skipped: Vec<Skipped>,
     pub settings_error: Option<String>,
+    pub stopped: bool,
+    pub left: usize,
+}
+
+impl Report {
+    pub fn total(&self) -> usize {
+        self.converted.len() + self.skipped.len() + self.left
+    }
 }
 
 pub fn find_installs_on_this_machine() -> Vec<OldInstall> {
@@ -175,7 +282,18 @@ impl OldInstall {
     }
 
     fn settings(&self) -> serde_json::Map<String, serde_json::Value> {
+        if !self.source.carries_settings() {
+            return serde_json::Map::new();
+        }
         settings::read_document(&self.app_data.join(OLD_SETTINGS_FILE)).unwrap_or_default()
+    }
+
+    pub fn has_settings(&self) -> bool {
+        self.source.carries_settings() && self.app_data.join(OLD_SETTINGS_FILE).is_file()
+    }
+
+    pub fn rule_count(&self) -> usize {
+        settings::rule_count(&self.settings())
     }
 
     pub fn items(&self) -> Vec<Item> {
@@ -378,12 +496,42 @@ pub fn destination(install: &OldInstall, target: &Target) -> PathBuf {
     Storage::new(target.default_storage_dir.clone(), storage_settings).storage_dir()
 }
 
-pub fn convert(install: &OldInstall, target: &Target) -> Report {
-    let items = install.items();
+pub fn convert(install: &OldInstall, target: &Target, plan: &Plan) -> Report {
+    convert_watched(install, target, plan, &AtomicBool::new(false), |_| {})
+}
+
+pub fn convert_watched(
+    install: &OldInstall,
+    target: &Target,
+    plan: &Plan,
+    stop: &AtomicBool,
+    mut on_progress: impl FnMut(&Progress),
+) -> Report {
+    let items: Vec<Item> = install
+        .items()
+        .into_iter()
+        .filter(|item| plan.selection.takes(item.kind()))
+        .collect();
+    let chosen = plan
+        .destination
+        .clone()
+        .unwrap_or_else(|| destination(install, target));
+    let known = Storage::new(
+        target.default_storage_dir.clone(),
+        StorageSettings::load(&target.settings_file),
+    )
+    .storage_dir();
+    if known != chosen
+        && let Err(error) = settings::save_storage_folder(&target.settings_file, &chosen)
+    {
+        return Report {
+            settings_error: Some(error),
+            left: items.len(),
+            ..Report::default()
+        };
+    }
     let mut report = Report {
-        settings_error: install
-            .source
-            .carries_settings()
+        settings_error: (plan.selection.settings && install.source.carries_settings())
             .then(|| {
                 settings::carry_over(install.source, &install.settings(), &target.settings_file)
                     .err()
@@ -395,13 +543,38 @@ pub fn convert(install: &OldInstall, target: &Target) -> Report {
         target.default_storage_dir.clone(),
         StorageSettings::load(&target.settings_file),
     );
-    for item in items {
-        let source = item.source().to_path_buf();
-        match convert_item(&storage, &item) {
-            Ok(project) => report.converted.push(Converted { source, project }),
-            Err(reason) => report.skipped.push(Skipped { source, reason }),
+    let total = items.len();
+    let mut bytes_left: u64 = items.iter().map(Item::size).sum();
+    for (done, item) in items.iter().enumerate() {
+        if stop.load(Ordering::SeqCst) {
+            report.stopped = true;
+            report.left = total - done;
+            break;
         }
+        on_progress(&Progress {
+            done,
+            total,
+            current: Some(item.name()),
+            bytes_left,
+        });
+        let size = item.size();
+        let source = item.source().to_path_buf();
+        match convert_item(&storage, item) {
+            Ok(project) => report.converted.push(Converted { source, project }),
+            Err(reason) => report.skipped.push(Skipped {
+                source,
+                kind: item.kind(),
+                reason,
+            }),
+        }
+        bytes_left = bytes_left.saturating_sub(size);
     }
+    on_progress(&Progress {
+        done: total - report.left,
+        total,
+        current: None,
+        bytes_left,
+    });
     report
 }
 

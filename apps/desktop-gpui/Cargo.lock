@@ -2856,6 +2856,7 @@ dependencies = [
  "frameever-utils",
  "gpui-pre",
  "gpui-pre-platform",
+ "lyon_tessellation",
  "serde_json",
  "tauri-winres",
  "tempfile",
