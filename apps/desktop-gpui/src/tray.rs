@@ -27,7 +27,6 @@ use crate::{
     library::{self, MediaKind},
     main_window::{Mode, TargetType},
     menus,
-    settings_window::Page,
 };
 
 /// `MAX_PREVIOUS_ITEMS`.
@@ -543,7 +542,7 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
             cx.activate(true);
         }
         TrayItem::OpenSettings => {
-            app_windows::open_settings(Page::General, cx);
+            app_windows::open_settings(crate::settings_window::last_page(), cx);
             cx.activate(true);
         }
         TrayItem::RequestPermissions => {

@@ -31,7 +31,7 @@ use serde_json::{Map, Value};
 use crate::{
     diagnostics,
     i18n::{n, t, tr},
-    settings_window::{MenuKind, Page, SettingsWindow},
+    settings_window::{MenuKind, Page, SettingsWindow, catalog},
     store::{
         self, Action, AutomationExportCompression, AutomationRecordingMode, AutomationRule,
         AutomationsStore, CaptureTargetKind, ClipboardSource, Condition, ExportDestination,
@@ -151,9 +151,6 @@ pub(crate) struct PagesState {
     hint_save: HintSave,
     hint_save_task: Option<gpui::Task<()>>,
 
-    /// Best-effort local stand-in for `commands.getSystemDiagnostics`.
-    os_version: Option<Option<String>>,
-
     // Diagnostic Report (feedback.tsx's diagnostic section)
     diagnostic: DiagnosticStatus,
     diagnostic_mode: diagnostics::SyncMode,
@@ -215,7 +212,6 @@ impl PagesState {
             hint_draft: String::new(),
             hint_save: HintSave::Idle,
             hint_save_task: None,
-            os_version: None,
             diagnostic: DiagnosticStatus::Idle,
             diagnostic_mode: diagnostics::SyncMode::Both,
             diagnostic_mic: false,
@@ -247,8 +243,11 @@ impl SettingsWindow {
                 self.pages.shortcut_saved = None;
                 self.pages.shortcut_saved_reset = None;
             }
-            Page::Cli => self.cli_refresh(window, cx),
-            Page::Transcription => {
+            Page::Advanced => {
+                self.cli_refresh(window, cx);
+                self.diagnostic_load_selftest(window, cx);
+            }
+            Page::Editing => {
                 self.pages.hints = store::transcription_hints();
                 self.pages.hint_draft.clear();
                 self.pages.hint_save = HintSave::Idle;
@@ -256,7 +255,6 @@ impl SettingsWindow {
                 let input = self.pages.hint_input.clone();
                 input.update(cx, |input, cx| input.set_text("", cx));
             }
-            Page::Feedback => self.feedback_load_os_version(window, cx),
             Page::Automations => {
                 self.pages.automations = store::automations();
                 self.pages.automations_loaded = true;
@@ -587,136 +585,33 @@ impl SettingsWindow {
 // Shortcuts
 // ---------------------------------------------------------------------------
 
-const SCREENSHOT_SHORTCUTS: [&str; 3] = ["screenshotArea", "screenshotWindow", "screenshotDisplay"];
-
-const RECORDING_SHORTCUTS: [&str; 7] = [
-    "startStudioRecording",
-    "startInstantRecording",
-    "openRecordingPickerArea",
-    "openRecordingPickerWindow",
-    "openRecordingPickerDisplay",
-    "openRecordingPicker",
-    "cycleRecordingMode",
-];
-
-const WHILE_RECORDING_SHORTCUTS: [&str; 3] =
-    ["stopRecording", "togglePauseRecording", "restartRecording"];
-
 const SHORTCUT_SAVED_NOTICE: std::time::Duration = std::time::Duration::from_secs(6);
 
-#[derive(Clone, Copy)]
-struct OutcomeOption {
-    icon: &'static str,
-    label: &'static str,
-    hint: &'static str,
+fn shortcut_label(action: &str) -> &'static str {
+    tr(catalog::shortcut_label(action))
 }
 
-const SCREENSHOT_OUTCOMES: [(store::PostScreenshotBehaviour, OutcomeOption); 4] = [
-    (
-        store::PostScreenshotBehaviour::OpenEditor,
-        OutcomeOption {
-            icon: "icons/square-pen.svg",
-            label: n!("Open editor"),
-            hint: n!("Annotate first"),
-        },
-    ),
-    (
-        store::PostScreenshotBehaviour::Copy,
-        OutcomeOption {
-            icon: "icons/copy.svg",
-            label: n!("Copy"),
-            hint: n!("Paste anywhere"),
-        },
-    ),
-    (
-        store::PostScreenshotBehaviour::CopyAndOpenEditor,
-        OutcomeOption {
-            icon: "icons/layers.svg",
-            label: n!("Copy and edit"),
-            hint: n!("Both at once"),
-        },
-    ),
-    (
-        store::PostScreenshotBehaviour::Save,
-        OutcomeOption {
-            icon: "icons/folder-down.svg",
-            label: n!("Do nothing"),
-            hint: n!("Saved to library"),
-        },
-    ),
-];
-
-const STUDIO_OUTCOMES: [(store::PostStudioBehaviour, OutcomeOption); 3] = [
-    (
-        store::PostStudioBehaviour::OpenEditor,
-        OutcomeOption {
-            icon: "icons/square-pen.svg",
-            label: n!("Open editor"),
-            hint: n!("Edit right away"),
-        },
-    ),
-    (
-        store::PostStudioBehaviour::ShowOverlay,
-        OutcomeOption {
-            icon: "icons/app-window.svg",
-            label: n!("Show FrameEver"),
-            hint: n!("Back to the recorder"),
-        },
-    ),
-    (
-        store::PostStudioBehaviour::DoNothing,
-        OutcomeOption {
-            icon: "icons/folder-down.svg",
-            label: n!("Do nothing"),
-            hint: n!("Saved to library"),
-        },
-    ),
-];
-
-const INSTANT_OUTCOMES: [(store::PostInstantBehaviour, OutcomeOption); 3] = [
-    (
-        store::PostInstantBehaviour::ShowLibrary,
-        OutcomeOption {
-            icon: "icons/app-window.svg",
-            label: n!("Show in library"),
-            hint: n!("Back to FrameEver"),
-        },
-    ),
-    (
-        store::PostInstantBehaviour::CopyFile,
-        OutcomeOption {
-            icon: "icons/copy.svg",
-            label: n!("Copy file"),
-            hint: n!("Ready to paste"),
-        },
-    ),
-    (
-        store::PostInstantBehaviour::DoNothing,
-        OutcomeOption {
-            icon: "icons/folder-down.svg",
-            label: n!("Do nothing"),
-            hint: n!("Saved to library"),
-        },
-    ),
-];
-
-fn shortcut_label(action: &str) -> &'static str {
-    match action {
-        "screenshotArea" => t!("Screenshot an area"),
-        "screenshotWindow" => t!("Screenshot a window"),
-        "screenshotDisplay" => t!("Screenshot the display"),
-        "startStudioRecording" => t!("Start Studio recording"),
-        "startInstantRecording" => t!("Start Instant recording"),
-        "openRecordingPickerArea" => t!("Record an area"),
-        "openRecordingPickerWindow" => t!("Record a window"),
-        "openRecordingPickerDisplay" => t!("Record a display"),
-        "openRecordingPicker" => t!("Open recording picker"),
-        "cycleRecordingMode" => t!("Cycle recording mode"),
-        "stopRecording" => t!("Stop recording"),
-        "togglePauseRecording" => t!("Pause or resume"),
-        "restartRecording" => t!("Restart recording"),
-        _ => t!("Shortcut"),
+fn assign_shortcut(
+    hotkeys: &mut Map<String, Value>,
+    action: &'static str,
+    hotkey: &Hotkey,
+) -> Option<&'static str> {
+    let mut moved_from = None;
+    for other in catalog::all_shortcuts() {
+        let taken = hotkeys
+            .get(other)
+            .and_then(store::hotkey_from_value)
+            .is_some_and(|bound| bound == *hotkey);
+        if other != action && taken {
+            hotkeys.remove(other);
+            moved_from.get_or_insert(other);
+        }
     }
+    hotkeys.insert(
+        action.to_string(),
+        serde_json::to_value(hotkey).unwrap_or(Value::Null),
+    );
+    moved_from
 }
 
 fn screenshot_outcome(behaviour: store::PostScreenshotBehaviour) -> &'static str {
@@ -798,7 +693,7 @@ fn shortcut_effect(
 }
 
 fn description_follows_outcome(action: &str) -> bool {
-    SCREENSHOT_SHORTCUTS.contains(&action)
+    catalog::SCREENSHOT_SHORTCUTS.contains(&action)
         || matches!(action, "startStudioRecording" | "startInstantRecording")
 }
 
@@ -1084,20 +979,7 @@ impl SettingsWindow {
             return true;
         }
 
-        let mut moved_from = None;
-        for other in SCREENSHOT_SHORTCUTS
-            .iter()
-            .chain(RECORDING_SHORTCUTS.iter())
-            .chain(WHILE_RECORDING_SHORTCUTS.iter())
-        {
-            if *other != action && self.shortcut_binding(other).as_ref() == Some(&hotkey) {
-                self.pages.hotkeys.remove(*other);
-                moved_from.get_or_insert(*other);
-            }
-        }
-
-        let value = serde_json::to_value(&hotkey).unwrap_or(Value::Null);
-        self.pages.hotkeys.insert(action.to_string(), value);
+        let moved_from = assign_shortcut(&mut self.pages.hotkeys, action, &hotkey);
         self.pages.listening = None;
         self.shortcuts_commit(cx);
         self.pages.shortcut_saved = Some(SavedShortcut { action, moved_from });
@@ -1135,243 +1017,22 @@ impl SettingsWindow {
         cx.notify();
     }
 
-    pub(crate) fn render_shortcuts(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
-        let unavailable = crate::hotkeys::unavailable_actions(cx);
-        let mode = crate::main_window::Mode::from_store();
-        let rows_for = |actions: &[&'static str], cx: &mut Context<Self>| {
-            actions
-                .iter()
-                .map(|action| {
-                    self.render_shortcut_row(action, mode, unavailable.contains(action), cx)
-                })
-                .collect::<Vec<_>>()
-        };
-
-        let mut screenshots = rows_for(&SCREENSHOT_SHORTCUTS, cx);
-        screenshots.push(
-            self.render_outcome_panel(
-                "outcome-screenshot",
-                t!("After a screenshot"),
-                t!("For every screenshot, from a shortcut or from FrameEver"),
-                &SCREENSHOT_OUTCOMES
-                    .iter()
-                    .map(|(value, option)| {
-                        (*option, *value == self.settings.post_screenshot_behaviour)
-                    })
-                    .collect::<Vec<_>>(),
-                |this, index, cx| {
-                    if let Some((value, _)) = SCREENSHOT_OUTCOMES.get(index) {
-                        this.settings.post_screenshot_behaviour = *value;
-                        this.write_enum("postScreenshotBehaviour", *value, cx);
-                    }
-                },
-                cx,
-            ),
-        );
-
-        let mut recording = rows_for(&RECORDING_SHORTCUTS, cx);
-        recording.push(
-            self.render_outcome_panel(
-                "outcome-studio",
-                t!("After a Studio recording"),
-                t!("When you stop"),
-                &STUDIO_OUTCOMES
-                    .iter()
-                    .map(|(value, option)| {
-                        (
-                            *option,
-                            *value == self.settings.post_studio_recording_behaviour,
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-                |this, index, cx| {
-                    if let Some((value, _)) = STUDIO_OUTCOMES.get(index) {
-                        this.settings.post_studio_recording_behaviour = *value;
-                        this.write_enum("postStudioRecordingBehaviour", *value, cx);
-                    }
-                },
-                cx,
-            ),
-        );
-        recording.push(
-            self.render_outcome_panel(
-                "outcome-instant",
-                t!("After an Instant recording"),
-                t!("The recording is always saved to the library"),
-                &INSTANT_OUTCOMES
-                    .iter()
-                    .map(|(value, option)| {
-                        (
-                            *option,
-                            *value == self.settings.post_instant_recording_behaviour,
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-                |this, index, cx| {
-                    if let Some((value, _)) = INSTANT_OUTCOMES.get(index) {
-                        this.settings.post_instant_recording_behaviour = *value;
-                        this.write_enum("postInstantRecordingBehaviour", *value, cx);
-                    }
-                },
-                cx,
-            ),
-        );
-
-        let while_recording = rows_for(&WHILE_RECORDING_SHORTCUTS, cx);
-
-        let listening_any = self.pages.listening.is_some();
-        let card = |id: &'static str, rows: Vec<gpui::AnyElement>, cx: &mut Context<Self>| {
-            self.rows(rows)
-                .id(id)
-                .when(listening_any, |this| {
-                    this.on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, _window, cx| this.shortcuts_cancel(cx)),
-                    )
-                })
-                .into_any_element()
-        };
-
-        vec![
-            self.section(
-                t!("Screenshots"),
-                Some(t!("Shortcuts work from any app. Click one to change it.")),
-                None,
-                vec![card("shortcuts-screenshots", screenshots, cx)],
-            )
-            .into_any_element(),
-            self.section(
-                t!("Recording"),
-                Some(t!("Start a recording without opening FrameEver first.")),
-                None,
-                vec![card("shortcuts-recording", recording, cx)],
-            )
-            .into_any_element(),
-            self.section(
-                t!("While recording"),
-                None,
-                None,
-                vec![card("shortcuts-while-recording", while_recording, cx)],
-            )
-            .into_any_element(),
-        ]
-    }
-
-    fn render_outcome_panel(
+    pub(crate) fn render_shortcut(
         &self,
-        id: &'static str,
-        title: &'static str,
-        hint: &'static str,
-        options: &[(OutcomeOption, bool)],
-        on_select: impl Fn(&mut Self, usize, &mut Context<Self>) + 'static,
+        action: &'static str,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let theme = self.theme;
-        let ink = theme.settings_text();
-        // The card tokens are translucent, so on this tinted panel they read
-        // as gray; the chosen option needs a solid, lighter surface.
-        let raised = if theme.is_dark() {
-            gpui::hsla(0., 0., 1., 0.1)
-        } else {
-            gpui::white()
-        };
-        let on_select = std::rc::Rc::new(on_select);
-
-        let cards =
-            options
-                .iter()
-                .enumerate()
-                .map(|(index, (option, selected))| {
-                    let selected = *selected;
-                    let on_select = on_select.clone();
-                    div()
-                        .id((id, index))
-                        .relative()
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.))
-                        .flex_1()
-                        .min_w_0()
-                        .p(px(10.))
-                        .rounded(px(10.))
-                        .border_1()
-                        .when(selected, |this| this.border_color(ink).bg(raised))
-                        .when(!selected, |this| {
-                            this.border_color(theme.settings_border())
-                                .cursor_pointer()
-                                .hover(|style| style.bg(theme.settings_hover()))
-                        })
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .size(px(28.))
-                                .rounded(px(7.))
-                                .bg(theme.settings_fill())
-                                .child(svg().path(option.icon).size(px(16.)).text_color(
-                                    if selected {
-                                        ink
-                                    } else {
-                                        theme.settings_muted()
-                                    },
-                                )),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(2.))
-                                .child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .font_weight(gpui::FontWeight::MEDIUM)
-                                        .text_color(ink)
-                                        .child(tr(option.label)),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(11.))
-                                        .line_height(px(14.))
-                                        .text_color(theme.settings_muted())
-                                        .child(tr(option.hint)),
-                                ),
-                        )
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .on_click(cx.listener(move |this, _, _window, cx| {
-                            this.shortcuts_cancel(cx);
-                            on_select(this, index, cx);
-                            cx.notify();
-                        }))
-                });
-
+        let unavailable = crate::hotkeys::unavailable_actions(cx).contains(&action);
+        let mode = crate::main_window::Mode::from_store();
+        let listening_any = self.pages.listening.is_some();
         div()
-            .flex()
-            .flex_col()
-            .gap(px(10.))
-            .p(px(12.))
-            .bg(theme.settings_fill())
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(12.))
-                    .child(
-                        div()
-                            .text_size(px(13.))
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .child(title),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme.settings_muted())
-                            .child(hint),
-                    ),
-            )
-            .child(div().flex().flex_row().gap(px(8.)).children(cards))
+            .when(listening_any, |this| {
+                this.on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _window, cx| this.shortcuts_cancel(cx)),
+                )
+            })
+            .child(self.render_shortcut_row(action, mode, unavailable, cx))
             .into_any_element()
     }
 
@@ -1414,7 +1075,7 @@ impl SettingsWindow {
                 );
                 if let Some(from) = saved.moved_from {
                     text.push_str(&t!(
-                        " Removed from {shortcut}.",
+                        " Moved here from \"{shortcut}\", which now has no shortcut.",
                         shortcut = shortcut_label(from)
                     ));
                 }
@@ -1669,7 +1330,7 @@ impl SettingsWindow {
         .detach();
     }
 
-    pub(crate) fn render_cli(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+    pub(crate) fn render_cli(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let theme = self.theme;
 
         let body: gpui::AnyElement = match &self.pages.cli_status {
@@ -1705,17 +1366,7 @@ impl SettingsWindow {
                 .into_any_element(),
         };
 
-        vec![
-            self.section(
-                t!("Command Line"),
-                Some(
-                    t!("Install the FrameEver command for terminals, agents, scripts, and local automation."),
-                ),
-                None,
-                vec![self.card(true).child(body).into_any_element()],
-            )
-            .into_any_element(),
-        ]
+        body
     }
 
     fn render_cli_status(
@@ -2044,45 +1695,77 @@ impl SettingsWindow {
         self.transcription_persist(next, cx);
     }
 
-    pub(crate) fn render_transcription(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+    pub(crate) fn render_remembered_terms(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let theme = self.theme;
         let hints = self.pages.hints.clone();
         let save_label = match self.pages.hint_save {
-            HintSave::Saving => t!("Saving..."),
+            HintSave::Saving => t!("Saving…"),
             HintSave::Saved => t!("Saved"),
             HintSave::Idle => "",
         };
+        let add_disabled = self.pages.hint_draft.trim().is_empty();
 
-        let header = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .gap(px(12.))
-            .child(
+        let chips = div().flex().flex_row().flex_wrap().gap(px(6.)).children(
+            hints.into_iter().enumerate().map(|(index, hint)| {
+                let remove = hint.clone();
                 div()
+                    .id(("hint-chip", index))
+                    .tab_index(0)
+                    .aria_label(t!("Remove"))
                     .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .min_w_0()
-                    .child(div().text_size(px(13.)).child(t!("Remembered terms")))
+                    .flex_row()
+                    .items_center()
+                    .gap(px(4.))
+                    .pl(px(10.))
+                    .pr(px(6.))
+                    .h(px(26.))
+                    .rounded(px(6.))
+                    .bg(theme.settings_fill())
+                    .text_size(px(12.))
+                    .cursor_pointer()
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus_visible(move |style| style.border_color(theme.ring))
+                    .hover(|style| style.bg(theme.settings_hover()))
+                    .child(hint)
                     .child(
-                        div()
-                            .text_size(px(12.))
-                            .line_height(px(16.))
-                            .text_color(theme.settings_muted())
-                            .child(t!(
-                                "Add one term at a time to reduce typos and formatting mistakes."
-                            )),
-                    ),
-            )
+                        svg()
+                            .path("icons/x.svg")
+                            .size(px(14.))
+                            .text_color(theme.settings_muted()),
+                    )
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.transcription_remove_hint(remove.clone(), cx);
+                    }))
+            }),
+        );
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(chips)
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap(px(8.))
-                    .when(!hints.is_empty(), |this| {
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(self.pages_input("hint-input", &self.pages.hint_input)),
+                    )
+                    .child(self.button(
+                        "hints-add",
+                        (ui::ButtonVariant::Gray, Some("icons/plus.svg")),
+                        t!("Add"),
+                        add_disabled,
+                        cx,
+                        |this, _window, cx| this.transcription_add_hint(cx),
+                    ))
+                    .when(!self.pages.hints.is_empty(), |this| {
                         this.child(self.button(
                             "hints-clear",
                             (ui::ButtonVariant::Gray, None),
@@ -2096,168 +1779,14 @@ impl SettingsWindow {
                         ))
                     })
                     .child(
-                        // `min-w-15 text-right text-xs text-gray-11`.
                         div()
-                            .min_w(px(60.))
+                            .min_w(px(48.))
                             .text_size(px(12.))
                             .text_color(theme.settings_muted())
                             .child(save_label),
                     ),
-            );
-
-        let add_disabled = self.pages.hint_draft.trim().is_empty();
-        let input_row = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(8.))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(self.pages_input("hint-input", &self.pages.hint_input)),
             )
-            .child(self.button(
-                "hints-add",
-                (ui::ButtonVariant::Gray, Some("icons/plus.svg")),
-                t!("Add"),
-                add_disabled,
-                cx,
-                |this, _window, cx| this.transcription_add_hint(cx),
-            ));
-
-        let card = self
-            .card(true)
-            .flex()
-            .flex_col()
-            .gap(px(12.))
-            .child(header)
-            .child(input_row)
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .line_height(px(18.))
-                    .text_color(theme.settings_muted())
-                    .child(t!(
-                        "These hints are applied when you generate captions in the editor."
-                    )),
-            );
-
-        let mut sections = vec![
-            self.section(
-                t!("Transcription"),
-                Some(t!(
-                    "Add names, spellings, domains, and capitalization preferences that caption \
-                     generation should keep in mind."
-                )),
-                None,
-                vec![card.into_any_element()],
-            )
-            .into_any_element(),
-        ];
-
-        if !hints.is_empty() {
-            let count = div()
-                .text_size(px(12.))
-                .text_color(theme.settings_muted())
-                .child(if hints.len() == 1 {
-                    t!("1 item").to_string()
-                } else {
-                    t!("{count} items", count = hints.len())
-                })
-                .into_any_element();
-            let chips = div().flex().flex_row().flex_wrap().gap(px(8.)).children(
-                hints.into_iter().enumerate().map(|(index, hint)| {
-                    let remove = hint.clone();
-                    // `px-2.5 py-1 rounded-full text-xs bg-gray-3 border
-                    //  border-gray-4 hover:bg-gray-4`.
-                    div()
-                        .id(("hint-chip", index))
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(6.))
-                        .px(px(10.))
-                        .py(px(4.))
-                        .rounded_full()
-                        .bg(theme.settings_fill())
-                        .border_1()
-                        .border_color(theme.settings_border())
-                        .text_size(px(12.))
-                        .cursor_pointer()
-                        .hover(|style| style.bg(theme.settings_selection()))
-                        .child(hint)
-                        .child(
-                            svg()
-                                .path("icons/x.svg")
-                                .size(px(14.))
-                                .text_color(theme.settings_muted()),
-                        )
-                        .on_click(cx.listener(move |this, _, _window, cx| {
-                            this.transcription_remove_hint(remove.clone(), cx);
-                        }))
-                }),
-            );
-
-            sections.push(
-                self.section(
-                    t!("Active hints"),
-                    None,
-                    Some(count),
-                    vec![self.card(true).child(chips).into_any_element()],
-                )
-                .into_any_element(),
-            );
-        }
-
-        sections
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Experimental (experimental.tsx)
-// ---------------------------------------------------------------------------
-
-impl SettingsWindow {
-    pub(crate) fn render_experimental(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
-        // No "Native camera preview" toggle here: in this app the native
-        // camera path is the only implementation, so the Tauri page's
-        // experimental switch has nothing to switch. The store key
-        // (`enableNativeCameraPreview`) stays readable in `store.rs` and is
-        // left untouched in the shared store -- the Tauri app still uses it.
-        vec![
-            self.section(
-                t!("Reliability"),
-                None,
-                None,
-                vec![
-                    self.rows(vec![
-                        self.setting_row(
-                            t!("Out-of-process muxer"),
-                            Some(t!(
-                                "Run the fragmented-MP4 muxer in an isolated subprocess so muxer \
-                             crashes can't take down your recording. Requires the bundled \
-                             frameever-muxer binary."
-                            )),
-                            self.toggle(
-                                "out-of-process-muxer",
-                                self.settings.out_of_process_muxer,
-                                cx,
-                                |this, cx| {
-                                    this.settings.out_of_process_muxer =
-                                        !this.settings.out_of_process_muxer;
-                                    let value = this.settings.out_of_process_muxer;
-                                    this.write_bool("outOfProcessMuxer", value, cx);
-                                },
-                            )
-                            .into_any_element(),
-                        ),
-                    ])
-                    .into_any_element(),
-                ],
-            )
-            .into_any_element(),
-        ]
+            .into_any_element()
     }
 }
 
@@ -2266,21 +1795,16 @@ impl SettingsWindow {
 // ---------------------------------------------------------------------------
 
 impl SettingsWindow {
-    /// The page's two one-shot probes: the OS string and whether there is a
-    /// `cap` sidecar to run the sync test with. Both stat the filesystem, so
-    /// neither runs on the UI thread and neither is repeated per frame.
-    fn feedback_load_os_version(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pages.os_version.is_some() {
+    pub(crate) fn diagnostic_load_selftest(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pages.selftest_binary.is_some() {
             return;
         }
         cx.spawn_in(window, async move |this, cx| {
-            let version = cx.background_executor().spawn(async { os_version() }).await;
             let selftest = cx
                 .background_executor()
                 .spawn(async { diagnostics::resolve_selftest_binary() })
                 .await;
             this.update_in(cx, |this, window, cx| {
-                this.pages.os_version = Some(version);
                 this.pages.selftest_binary = Some(selftest);
                 cx.notify();
                 window.refresh();
@@ -2517,7 +2041,7 @@ impl SettingsWindow {
         cx.notify();
     }
 
-    fn render_diagnostic(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+    pub(crate) fn render_diagnostic(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let theme = self.theme;
         let running = matches!(self.pages.diagnostic, DiagnosticStatus::Running { .. });
 
@@ -2776,198 +2300,28 @@ impl SettingsWindow {
             .into_any_element()
     }
 
-    pub(crate) fn render_feedback(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
-        let theme = self.theme;
-
-        let open_logs = div()
+    pub(crate) fn render_logs(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        div()
             .flex()
             .flex_row()
             .gap(px(8.))
-            .child(
-                ui::Button::settings(
-                    &theme,
-                    "diagnostics-export-logs",
-                    ui::ButtonVariant::Dark,
-                    ui::ButtonSize::Md,
-                )
-                .label(t!("Export Logs…"))
-                .on_click(cx.listener(|this, _, window, cx| this.export_logs(window, cx))),
-            )
-            .child(
-                ui::Button::settings(
-                    &theme,
-                    "diagnostics-open-logs",
-                    ui::ButtonVariant::Gray,
-                    ui::ButtonSize::Md,
-                )
-                .label(t!("Open Logs Folder"))
-                .on_click(|_, _, cx| {
-                    crate::library::open_with_system(&diagnostics::logs_dir(), cx)
-                }),
-            );
-
-        let report_issue = div().child(
-            ui::Button::settings(
-                &theme,
-                "diagnostics-report-issue",
-                ui::ButtonVariant::Gray,
-                ui::ButtonSize::Md,
-            )
-            .label(t!("Report an Issue on GitHub"))
-            .on_click(|_, _, cx| cx.open_url(&diagnostics::issue_report_url())),
-        );
-
-        let system_info: gpui::AnyElement = match &self.pages.os_version {
-            None => div()
-                .text_size(px(12.))
-                .line_height(px(18.))
-                .text_color(theme.settings_muted())
-                .child(t!("Loading system information..."))
-                .into_any_element(),
-            Some(version) => {
-                let info_block = |label: &'static str, value: String| {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.))
-                        .child(
-                            div()
-                                .text_size(px(13.))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme.settings_muted())
-                                .child(label),
-                        )
-                        .child(
-                            div()
-                                .px(px(8.))
-                                .py(px(6.))
-                                .rounded(px(4.))
-                                .bg(theme.settings_card_bg())
-                                .font_family(MONO_FONT)
-                                .text_size(px(12.))
-                                .text_color(theme.settings_muted())
-                                .child(value),
-                        )
-                };
-                // ScreenCaptureKit / Windows Graphics Capture are both a given
-                // on the OS versions this app runs on.
-                let capture_supported = cfg!(any(target_os = "macos", target_os = "windows"));
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(12.))
-                    .children(
-                        version
-                            .clone()
-                            .map(|version| info_block(t!("Operating System"), version)),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.))
-                            .child(
-                                div()
-                                    .text_size(px(13.))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme.settings_muted())
-                                    .child(t!("Capture Support")),
-                            )
-                            .child(
-                                div().flex().flex_row().child(
-                                    div()
-                                        .px(px(8.))
-                                        .py(px(4.))
-                                        .rounded(px(4.))
-                                        .text_size(px(12.))
-                                        .bg(Theme::with_alpha(
-                                            if capture_supported {
-                                                theme.success
-                                            } else {
-                                                theme.red_11
-                                            },
-                                            0.2,
-                                        ))
-                                        .text_color(Hsla::from(if capture_supported {
-                                            theme.success_text
-                                        } else {
-                                            theme.red_11
-                                        }))
-                                        .child(t!(
-                                            "Screen Capture: {support}",
-                                            support = if capture_supported {
-                                                t!("Supported")
-                                            } else {
-                                                t!("Not Supported")
-                                            }
-                                        )),
-                                ),
-                            ),
-                    )
-                    .child(info_block(
-                        t!("App Version"),
-                        format!("v{}", env!("CARGO_PKG_VERSION")),
-                    ))
-                    .into_any_element()
-            }
-        };
-
-        vec![
-            self.section(
-                t!("Diagnostic Report"),
-                Some(
-                    t!("Records a short flashing/beeping test pattern, measures how far the picture and sound drift apart, and snapshots your displays, cameras, microphones, disk space and recording settings. The report is saved as a file on this computer and is never sent anywhere."),
-                ),
-                None,
-                vec![self.render_diagnostic(cx)],
-            )
-            .into_any_element(),
-            self.section(
-                t!("Logs"),
-                Some(
-                    t!("Logs stay on this computer. Export them to a file or open the folder, review them, and attach them to a bug report yourself."),
-                ),
-                None,
-                vec![open_logs.into_any_element()],
-            )
-            .into_any_element(),
-            self.section(
-                t!("Report an Issue"),
-                Some(
-                    t!("Opens a new GitHub issue in your browser with a template and the app version. Nothing else is filled in, and nothing is sent until you submit it."),
-                ),
-                None,
-                vec![report_issue.into_any_element()],
-            )
-            .into_any_element(),
-            self.section(t!("System Information"), None, None, vec![system_info])
-                .into_any_element(),
-        ]
-    }
-}
-
-/// Best-effort `SystemDiagnostics.macosVersion.displayName`.
-fn os_version() -> Option<String> {
-    #[cfg(target_os = "macos")]
-    {
-        let read = |arg: &str| {
-            std::process::Command::new("sw_vers")
-                .arg(arg)
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-                .filter(|value| !value.is_empty())
-        };
-        let version = read("-productVersion")?;
-        Some(match read("-buildVersion") {
-            Some(build) => format!("macOS {version} ({build})"),
-            None => format!("macOS {version}"),
-        })
-    }
-    #[cfg(target_os = "windows")]
-    {
-        None
+            .child(self.button(
+                "diagnostics-export-logs",
+                (ui::ButtonVariant::Gray, None),
+                t!("Export logs"),
+                false,
+                cx,
+                |this, window, cx| this.export_logs(window, cx),
+            ))
+            .child(self.button(
+                "diagnostics-open-logs",
+                (ui::ButtonVariant::Gray, Some("icons/folder-open.svg")),
+                t!("Open folder"),
+                false,
+                cx,
+                |_, _, cx| crate::library::open_with_system(&diagnostics::logs_dir(), cx),
+            ))
+            .into_any_element()
     }
 }
 
@@ -3042,76 +2396,92 @@ fn markdown_paragraphs(content: &str) -> Vec<MarkdownParagraph> {
 }
 
 impl SettingsWindow {
-    pub(crate) fn render_changelog(&self, _cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+    pub(crate) fn render_changelog(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let theme = self.theme;
         let entries = parse_changelog(CHANGELOG);
-        let last = entries.len().saturating_sub(1);
-        vec![
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(32.))
-                .children(entries.into_iter().enumerate().map(|(index, entry)| {
+        let total = entries.len();
+        let shown = if self.changelog_all() { total } else { 1 };
+        let entries =
+            entries
+                .into_iter()
+                .take(shown)
+                .enumerate()
+                .map(|(index, entry)| {
                     div()
                         .flex()
                         .flex_col()
-                        .when(index != last, |this| {
-                            this.pb(px(32.))
-                                .border_b_2()
-                                .border_color(theme.settings_border())
-                        })
-                        .when(index == 0, |this| {
-                            this.child(
-                                div().flex().flex_row().mb(px(8.)).child(
-                                    div()
-                                        .px(px(8.))
-                                        .py(px(4.))
-                                        .rounded(px(6.))
-                                        .bg(Hsla::from(theme.secondary))
-                                        .text_size(px(12.))
-                                        .font_weight(FontWeight::BOLD)
-                                        .text_color(theme.foreground)
-                                        .child(t!("NEW")),
-                                ),
-                            )
+                        .gap(px(6.))
+                        .p(px(12.))
+                        .when(index > 0, |this| {
+                            this.border_t_1().border_color(theme.settings_border())
                         })
                         .child(
                             div()
-                                .text_size(px(14.))
-                                .font_weight(FontWeight::BOLD)
-                                .mb(px(8.))
-                                .child(t!("Version {version}", version = entry.version)),
+                                .flex()
+                                .flex_row()
+                                .items_baseline()
+                                .gap(px(8.))
+                                .child(
+                                    div()
+                                        .text_size(px(13.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(entry.version.clone()),
+                                )
+                                .when(!entry.date.is_empty(), |this| {
+                                    this.child(
+                                        div()
+                                            .text_size(px(12.))
+                                            .text_color(theme.settings_muted())
+                                            .child(entry.date.clone()),
+                                    )
+                                }),
                         )
-                        .when(!entry.date.is_empty(), |this| {
-                            this.child(
+                        .children(markdown_paragraphs(&entry.content).into_iter().map(
+                            |paragraph| {
                                 div()
                                     .text_size(px(12.))
                                     .line_height(px(18.))
                                     .text_color(theme.settings_muted())
-                                    .mb(px(16.))
-                                    .child(entry.date.clone()),
-                            )
-                        })
-                        .child(
-                            div().flex().flex_col().gap(px(10.)).children(
-                                markdown_paragraphs(&entry.content)
-                                    .into_iter()
-                                    .map(|paragraph| {
-                                        div()
-                                            .text_size(px(13.))
-                                            .line_height(px(20.))
-                                            .text_color(theme.settings_muted())
-                                            .when(paragraph.heading, |this| {
-                                                this.font_weight(FontWeight::BOLD)
-                                                    .text_color(theme.settings_text())
-                                            })
-                                            .child(paragraph.text)
-                                    }),
+                                    .when(paragraph.heading, |this| {
+                                        this.font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(theme.settings_text())
+                                    })
+                                    .child(paragraph.text)
+                            },
+                        ))
+                });
+        self.card(false)
+            .flex()
+            .flex_col()
+            .children(entries)
+            .when(total > 1, |this| {
+                this.child(
+                    div()
+                        .p(px(8.))
+                        .border_t_1()
+                        .border_color(theme.settings_border())
+                        .child(self.button(
+                            "changelog-all",
+                            (
+                                ui::ButtonVariant::Gray,
+                                Some(if self.changelog_all() {
+                                    "icons/chevron-up.svg"
+                                } else {
+                                    "icons/chevron-down.svg"
+                                }),
                             ),
-                        )
-                }))
-                .into_any_element(),
-        ]
+                            if self.changelog_all() {
+                                t!("Latest only")
+                            } else {
+                                t!("All versions")
+                            },
+                            false,
+                            cx,
+                            |this, _, cx| this.toggle_changelog(cx),
+                        )),
+                )
+            })
+            .into_any_element()
     }
 }
 
@@ -4006,7 +3376,7 @@ impl SettingsWindow {
             .map(|(_, input)| input.clone())
     }
 
-    pub(crate) fn render_automations(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+    pub(crate) fn render_automations(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let theme = self.theme;
         let loaded = self.pages.automations_loaded;
 
@@ -4082,25 +3452,27 @@ impl SettingsWindow {
         }
         let templates = div().flex().flex_col().gap(px(10.)).children(template_rows);
 
-        vec![
-            self.section(
-                t!("Automations"),
-                Some(
-                    t!("Rules are shared with the FrameEver CLI. FrameEver saves these rules but does not \
-                     run automations yet."),
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(20.))
+            .child(
+                self.section(
+                    t!("Rules"),
+                    Some(t!(
+                        "Rules are shared with the FrameEver CLI. FrameEver saves them but doesn't run them yet."
+                    )),
+                    None,
+                    rule_content,
                 ),
-                None,
-                rule_content,
             )
-            .into_any_element(),
-            self.section(
+            .child(self.section(
                 t!("Templates"),
                 Some(t!("One click to add a ready-made automation. Tweak anything afterwards.")),
                 None,
                 vec![templates.into_any_element()],
-            )
-            .into_any_element(),
-        ]
+            ))
+            .into_any_element()
     }
 
     /// `<EmptyState>`.
@@ -4111,52 +3483,22 @@ impl SettingsWindow {
                 .flex()
                 .flex_col()
                 .items_center()
-                .gap(px(8.))
-                .py(px(24.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(px(44.))
-                        .mb(px(4.))
-                        .rounded_full()
-                        .bg(theme.settings_fill())
-                        .child(
-                            svg()
-                                .path("icons/zap.svg")
-                                .size(px(20.))
-                                .text_color(theme.settings_muted()),
-                        ),
-                )
-                .child(
-                    div()
-                        .text_size(px(13.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(t!("No automations yet")),
-                )
-                .child(
-                    div()
-                        .max_w(px(320.))
-                        .text_size(px(12.))
-                        .line_height(px(18.))
-                        .text_center()
-                        .text_color(theme.settings_muted())
-                        .child(t!(
-                            "Pick a template below to get started in one click, or build your \
-                             own from scratch."
-                        )),
-                )
-                .child(div().mt(px(4.)).child(self.button(
+                .gap(px(10.))
+                .py(px(16.))
+                .text_size(px(13.))
+                .text_color(theme.settings_muted())
+                .child(self.doodle(&crate::onboarding_doodles::FLOW, 84., cx))
+                .child(t!("Rules you add appear here."))
+                .child(self.button(
                     "automations-scratch",
                     (ui::ButtonVariant::Gray, Some("icons/plus.svg")),
-                    t!("Start from scratch"),
+                    t!("Add rule"),
                     false,
                     cx,
                     |this, window, cx| {
                         this.automation_add_rule(create_empty_rule(), window, cx);
                     },
-                ))),
+                )),
         )
     }
 
@@ -5288,6 +4630,35 @@ mod tests {
     }
 
     #[test]
+    fn a_taken_shortcut_moves_to_the_new_row_and_names_the_old_one() {
+        let ctrl_shift_a = hotkey("KeyA", false, true, false, true);
+        let mut hotkeys = Map::new();
+        hotkeys.insert(
+            "screenshotArea".into(),
+            serde_json::to_value(&ctrl_shift_a).unwrap(),
+        );
+        hotkeys.insert(
+            "stopRecording".into(),
+            serde_json::to_value(hotkey("KeyS", false, true, false, true)).unwrap(),
+        );
+
+        let moved = assign_shortcut(&mut hotkeys, "openRecordingPickerArea", &ctrl_shift_a);
+
+        assert_eq!(moved, Some("screenshotArea"));
+        assert!(!hotkeys.contains_key("screenshotArea"));
+        assert_eq!(
+            hotkeys
+                .get("openRecordingPickerArea")
+                .and_then(store::hotkey_from_value),
+            Some(ctrl_shift_a.clone())
+        );
+        assert!(hotkeys.contains_key("stopRecording"));
+
+        let again = assign_shortcut(&mut hotkeys, "openRecordingPickerArea", &ctrl_shift_a);
+        assert_eq!(again, None);
+    }
+
+    #[test]
     fn shortcuts_need_a_typing_safe_modifier() {
         assert!(shortcut_needs_modifier(&hotkey(
             "KeyA", false, false, false, false
@@ -5317,10 +4688,10 @@ mod tests {
 
     #[test]
     fn every_hotkey_action_appears_once_with_a_label_and_effect() {
-        let shown: Vec<&str> = SCREENSHOT_SHORTCUTS
+        let shown: Vec<&str> = catalog::SCREENSHOT_SHORTCUTS
             .iter()
-            .chain(RECORDING_SHORTCUTS.iter())
-            .chain(WHILE_RECORDING_SHORTCUTS.iter())
+            .chain(catalog::RECORDING_SHORTCUTS.iter())
+            .chain(catalog::WHILE_RECORDING_SHORTCUTS.iter())
             .copied()
             .collect();
         assert_eq!(shown.len(), 13);
@@ -5349,7 +4720,11 @@ mod tests {
             store::PostScreenshotBehaviour::Save,
         ] {
             settings.post_screenshot_behaviour = screenshot;
-            for (instant, _) in INSTANT_OUTCOMES {
+            for instant in [
+                store::PostInstantBehaviour::ShowLibrary,
+                store::PostInstantBehaviour::CopyFile,
+                store::PostInstantBehaviour::DoNothing,
+            ] {
                 settings.post_instant_recording_behaviour = instant;
                 for studio in [
                     store::PostStudioBehaviour::OpenEditor,
@@ -5357,9 +4732,9 @@ mod tests {
                     store::PostStudioBehaviour::DoNothing,
                 ] {
                     settings.post_studio_recording_behaviour = studio;
-                    for action in SCREENSHOT_SHORTCUTS
+                    for action in catalog::SCREENSHOT_SHORTCUTS
                         .iter()
-                        .chain(RECORDING_SHORTCUTS.iter())
+                        .chain(catalog::RECORDING_SHORTCUTS.iter())
                         .filter(|action| description_follows_outcome(action))
                     {
                         let text = capitalized_sentence(&shortcut_effect(
@@ -5376,36 +4751,6 @@ mod tests {
             longest <= 104,
             "longest outcome description is {longest} characters"
         );
-    }
-
-    #[test]
-    fn every_after_capture_value_has_exactly_one_card() {
-        use store::SettingsEnum as _;
-        for value in store::PostScreenshotBehaviour::ALL {
-            assert_eq!(
-                SCREENSHOT_OUTCOMES
-                    .iter()
-                    .filter(|(v, _)| v == value)
-                    .count(),
-                1
-            );
-        }
-        for value in store::PostStudioBehaviour::ALL {
-            assert_eq!(
-                STUDIO_OUTCOMES.iter().filter(|(v, _)| v == value).count(),
-                1
-            );
-        }
-        for value in [
-            store::PostInstantBehaviour::ShowLibrary,
-            store::PostInstantBehaviour::CopyFile,
-            store::PostInstantBehaviour::DoNothing,
-        ] {
-            assert_eq!(
-                INSTANT_OUTCOMES.iter().filter(|(v, _)| *v == value).count(),
-                1
-            );
-        }
     }
 
     #[test]

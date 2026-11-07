@@ -215,6 +215,7 @@ const sections = [
 						c: "select",
 						opts: [
 							["24", "24 FPS", "24 帧/秒"],
+							["25", "25 FPS", "25 帧/秒"],
 							["30", "30 FPS", "30 帧/秒"],
 							["60", "60 FPS", "60 帧/秒"],
 							["120", "120 FPS", "120 帧/秒"],
@@ -326,6 +327,7 @@ const sections = [
 						opts: [
 							["edit", "Open editor", "打开编辑器"],
 							["show", "Show FrameEver", "显示帧刻"],
+							["none", "Do nothing", "不做任何操作"],
 						],
 						was: ["Shortcuts · outcome panel", "快捷键 · 结果面板"],
 						kit: "select",

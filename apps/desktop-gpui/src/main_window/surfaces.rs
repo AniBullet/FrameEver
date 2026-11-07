@@ -5,7 +5,7 @@ use gpui::{
 };
 
 use super::{MainWindow, Mode, Panel, TargetType, app_windows, library_page, shell::Stage};
-use crate::{doodle, i18n::t, onboarding_doodles, settings_window::Page, theme::Theme, ui};
+use crate::{doodle, i18n::t, onboarding_doodles, theme::Theme, ui};
 
 const CONTENT_GAP: f32 = 10.;
 const CONTENT_PADDING: f32 = 12.;
@@ -68,7 +68,9 @@ impl MainWindow {
     fn settings_button(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         self.title_icon("settings", "icons/settings.svg", t!("Settings"))
             .on_click(cx.listener(|_, _, _, cx| {
-                cx.defer(|cx: &mut gpui::App| app_windows::open_settings(Page::General, cx));
+                cx.defer(|cx: &mut gpui::App| {
+                    app_windows::open_settings(crate::settings_window::last_page(), cx)
+                });
             }))
     }
 

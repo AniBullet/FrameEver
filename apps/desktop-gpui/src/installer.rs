@@ -116,10 +116,6 @@ pub(crate) fn updates_configured() -> bool {
     updater_public_key().is_ok()
 }
 
-pub(crate) fn releases_page_url() -> String {
-    format!("https://github.com/{RELEASES_REPO}/releases")
-}
-
 fn stable_manifest_url() -> String {
     format!("https://github.com/{RELEASES_REPO}/releases/latest/download/{MANIFEST_ASSET}")
 }

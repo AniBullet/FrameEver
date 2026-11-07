@@ -316,6 +316,7 @@ fn main() {
         // the path runs (`gpui/src/window.rs:5280-5296`).
         ui::bind_text_input_keys(cx);
         main_window::bind_keys(cx);
+        settings_window::bind_keys(cx);
         crate::theme::init(cx);
         platform::follow_system_reduce_motion(cx);
 
