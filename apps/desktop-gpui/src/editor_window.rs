@@ -10095,15 +10095,6 @@ impl EditorWindow {
             }))
     }
 
-    /// `PreviewCanvas` (`Player.tsx:605-648`): the stage, with the frame
-    /// centred inside it at its letterboxed size.
-    ///
-    /// On macOS the frame stays on the GPU end to end: the renderer blits into
-    /// a BGRA IOSurface-backed CVPixelBuffer and gpui paints it directly via
-    /// `paint_surface` -- the camera preview does the same through
-    /// `paint_surface_fitted`. Elsewhere the picture arrives as a CPU
-    /// `RenderedFrame`, gets un-padded and BGRA-swapped once, and goes through
-    /// the sprite atlas.
     fn toggle_full_screen_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.visual_ready() {
             return;
@@ -10116,6 +10107,15 @@ impl EditorWindow {
         cx.notify();
     }
 
+    /// `PreviewCanvas` (`Player.tsx:605-648`): the stage, with the frame
+    /// centred inside it at its letterboxed size.
+    ///
+    /// On macOS the frame stays on the GPU end to end: the renderer blits into
+    /// a BGRA IOSurface-backed CVPixelBuffer and gpui paints it directly via
+    /// `paint_surface` -- the camera preview does the same through
+    /// `paint_surface_fitted`. Elsewhere the picture arrives as a CPU
+    /// `RenderedFrame`, gets un-padded and BGRA-swapped once, and goes through
+    /// the sprite atlas.
     fn render_preview_canvas(&self, cx: &mut Context<Self>, overlay: bool) -> impl IntoElement {
         let theme = self.theme;
         let body = match (&self.state, self.latest_frame.is_some()) {
