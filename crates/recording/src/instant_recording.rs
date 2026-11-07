@@ -525,6 +525,7 @@ pub struct ActorBuilder {
     camera_feed: Option<Arc<crate::feeds::camera::CameraFeedLock>>,
     max_output_size: Option<u32>,
     max_fps: u32,
+    window_only: bool,
     #[cfg(target_os = "macos")]
     excluded_windows: Vec<scap_targets::WindowId>,
     start_gate: Option<RecordingStartGate>,
@@ -540,6 +541,7 @@ impl ActorBuilder {
             camera_feed: None,
             max_output_size: None,
             max_fps: crate::defaults::DEFAULT_INSTANT_MODE_FPS,
+            window_only: false,
             #[cfg(target_os = "macos")]
             excluded_windows: Vec::new(),
             start_gate: None,
@@ -555,6 +557,11 @@ impl ActorBuilder {
 
     pub fn with_system_audio(mut self, system_audio: bool) -> Self {
         self.system_audio = system_audio;
+        self
+    }
+
+    pub fn with_window_only(mut self, window_only: bool) -> Self {
+        self.window_only = window_only;
         self
     }
 
@@ -595,6 +602,7 @@ impl ActorBuilder {
             self.output_path,
             RecordingBaseInputs {
                 capture_target: self.capture_target,
+                window_only: self.window_only,
                 capture_system_audio: self.system_audio,
                 mic_feed: self.mic_feed,
                 camera_feed: self.camera_feed,
@@ -779,7 +787,11 @@ async fn build_instant_recording_actor(
                 timestamps.system_time(),
                 inputs.capture_system_audio,
                 #[cfg(windows)]
-                inputs.capture_target.window(),
+                instant_capture_window(
+                    &inputs.capture_target,
+                    inputs.window_only,
+                    inputs.camera_feed.is_some(),
+                ),
                 #[cfg(windows)]
                 d3d_device,
                 #[cfg(target_os = "macos")]
@@ -923,8 +935,34 @@ fn clamp_size(input: (u32, u32), max: (u32, u32)) -> (u32, u32) {
     }
 }
 
+#[cfg(windows)]
+fn instant_capture_window(
+    target: &ScreenCaptureTarget,
+    window_only: bool,
+    camera_attached: bool,
+) -> Option<scap_targets::WindowId> {
+    crate::window_only_target(target, window_only).filter(|_| !camera_attached)
+}
+
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn instant_captures_the_window_only_when_asked_and_without_a_camera() {
+        use super::*;
+
+        let id: scap_targets::WindowId = "247".parse().unwrap();
+        let window = ScreenCaptureTarget::Window { id: id.clone() };
+
+        assert_eq!(instant_capture_window(&window, true, false), Some(id));
+        assert_eq!(instant_capture_window(&window, true, true), None);
+        assert_eq!(instant_capture_window(&window, false, false), None);
+        assert_eq!(
+            instant_capture_window(&ScreenCaptureTarget::CameraOnly, true, false),
+            None
+        );
+    }
+
     use super::*;
 
     #[tokio::test]
