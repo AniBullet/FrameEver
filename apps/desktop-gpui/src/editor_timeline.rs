@@ -78,7 +78,7 @@ pub const START_SNAP_PX: f64 = 10.;
 
 /// `px-2` on the timeline slot (`Editor.tsx:781`) -- the card's own left edge
 /// in window coordinates.
-pub const TIMELINE_SLOT_PADDING: f32 = 8.;
+pub const TIMELINE_SLOT_PADDING: f32 = 0.;
 /// `pr-1` on the scroll body (`TL/index.tsx:1326`). The clip track -- which is
 /// what `timelineBounds` measures -- sits inside it, so every `secsPerPixel` in
 /// the timeline is computed over a column four pixels narrower than the ruler's.
@@ -3971,15 +3971,11 @@ mod tests {
 
     // -- Geometry -----------------------------------------------------------
 
-    /// The editor's default width: 1275 minus 16 (slot), 24 (the card's
-    /// hairline and padding), 4 (`pr-1`) and 104 (gutter) = 1127px of track
-    /// content starting at x = 124, with the ruler's own strip four pixels
-    /// wider.
     #[test]
     fn the_content_column_carries_the_scroll_bodys_padding() {
-        assert_eq!(content_width(1275.), 1127.);
-        assert_eq!(ruler_width(1275.), 1131.);
-        assert_eq!(content_left(), 124.);
+        assert_eq!(content_width(1275.), 1143.);
+        assert_eq!(ruler_width(1275.), 1147.);
+        assert_eq!(content_left(), 116.);
     }
 
     #[test]
@@ -3989,10 +3985,10 @@ mod tests {
         let transform = Transform::initial(total);
         let content = content_width(width);
 
-        assert!(time_from_x(124., width, transform, total).abs() < 1e-9);
-        let end = time_from_x(124. + content, width, transform, total);
+        assert!(time_from_x(116., width, transform, total).abs() < 1e-9);
+        let end = time_from_x(116. + content, width, transform, total);
         assert!((end - total).abs() < 1e-6, "{end}");
-        let middle = time_from_x(124. + content / 2., width, transform, total);
+        let middle = time_from_x(116. + content / 2., width, transform, total);
         assert!((middle - total / 2.).abs() < 1e-6, "{middle}");
     }
 
@@ -4001,8 +3997,8 @@ mod tests {
         let width = 1275.;
         let total = 60.0;
         let transform = Transform::initial(total);
-        assert_eq!(time_from_x(124. + 9., width, transform, total), 0.0);
-        assert!(time_from_x(124. + 11., width, transform, total) > 0.0);
+        assert_eq!(time_from_x(116. + 9., width, transform, total), 0.0);
+        assert!(time_from_x(116. + 11., width, transform, total) > 0.0);
         assert_eq!(time_from_x(0., width, transform, total), 0.0);
         assert_eq!(time_from_x(9_000., width, transform, total), total);
     }
@@ -4016,7 +4012,7 @@ mod tests {
             zoom: 10.,
             position: 20.,
         };
-        let time = time_from_x(124. + content_width(width) / 2., width, transform, 600.);
+        let time = time_from_x(116. + content_width(width) / 2., width, transform, 600.);
         assert!((time - 25.0).abs() < 1e-6, "{time}");
     }
 
@@ -4026,13 +4022,13 @@ mod tests {
     fn the_hover_preview_clears_outside_the_content_column() {
         let width = 1275.;
         let transform = Transform::initial(60.);
-        assert_eq!(preview_time_from_x(123., width, transform), None);
+        assert_eq!(preview_time_from_x(115., width, transform), None);
         assert_eq!(
-            preview_time_from_x(124. + content_width(width) + 1., width, transform),
+            preview_time_from_x(116. + content_width(width) + 1., width, transform),
             None
         );
-        assert_eq!(preview_time_from_x(124. + 5., width, transform), Some(0.));
-        let middle = preview_time_from_x(124. + content_width(width) / 2., width, transform);
+        assert_eq!(preview_time_from_x(116. + 5., width, transform), Some(0.));
+        let middle = preview_time_from_x(116. + content_width(width) / 2., width, transform);
         assert!((middle.unwrap() - 30.).abs() < 1e-6);
     }
 

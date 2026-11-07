@@ -1,8 +1,7 @@
 use frameever_project::{FrameConfiguration, FrameStyle, FrameTheme, ProjectConfiguration};
 use gpui::{
-    AppContext as _, Context, Entity, FontWeight, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, StatefulInteractiveElement as _, Styled, Window, div, point,
-    prelude::FluentBuilder, px, svg,
+    AppContext as _, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement as _, Styled, Window, div, prelude::FluentBuilder, px,
 };
 
 use super::EditorWindow;
@@ -44,8 +43,6 @@ const FRAME_STYLES: [(FrameStyle, &str, &str, &str); 5] = [
 
 #[derive(Default)]
 pub(super) struct FrameControls {
-    open: bool,
-    trigger_bounds: ui::SliderTrack,
     fields: Option<[Entity<ui::TextInputState>; 2]>,
     editing: Option<FrameField>,
     style_target: Option<StyleFrameTarget>,
@@ -68,12 +65,6 @@ impl StyleFrameTarget {
     fn matches(&self, project: &ProjectConfiguration) -> bool {
         Self::capture(project, self.index)
             .is_some_and(|target| target.fingerprint == self.fingerprint)
-    }
-}
-
-impl FrameControls {
-    pub(super) fn is_open(&self) -> bool {
-        self.open
     }
 }
 
@@ -173,49 +164,18 @@ fn apply_targeted_frame_change(
     true
 }
 
-fn button_content(style: FrameStyle) -> (&'static str, &'static str) {
-    if style == FrameStyle::None {
-        return (n!("Frame"), "icons/app-window-mac.svg");
-    }
-    FRAME_STYLES
-        .iter()
-        .find(|option| option.0 == style)
-        .map(|option| (option.1, option.3))
-        .unwrap_or((n!("Frame"), "icons/app-window-mac.svg"))
-}
-
 impl EditorWindow {
     fn frame_background(&self) -> &frameever_project::BackgroundConfiguration {
-        let index = if self.frame_controls.open {
-            self.frame_controls
-                .style_target
-                .as_ref()
-                .map(|target| target.index)
-        } else {
-            self.selected_style_index()
-        };
-        index
-            .and_then(|index| {
-                self.project
-                    .timeline
-                    .as_ref()?
-                    .style_segments
-                    .get(index)?
-                    .overrides
-                    .background
-                    .as_ref()
-            })
-            .unwrap_or(&self.project.background)
+        self.style_background()
     }
 
     pub(crate) fn dismiss_frame_controls(&mut self, cx: &mut Context<Self>) {
         self.finish_frame_text_edit(cx);
-        self.frame_controls.open = false;
         self.frame_controls.style_target = None;
     }
 
     fn edit_frame(&mut self, change: FrameChange, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.frame_controls.open {
+        if !self.frame_controls_visible() {
             return;
         }
         if !apply_targeted_frame_change(
@@ -233,57 +193,27 @@ impl EditorWindow {
         self.project_changed(window, cx);
     }
 
+    fn frame_controls_visible(&self) -> bool {
+        self.sidebar.tab == crate::editor_sidebar::SidebarTab::Screen
+            || self
+                .sidebar
+                .style_target
+                .is_some_and(|(_, group)| group == crate::editor_sidebar::StyleGroup::Background)
+    }
+
     fn frame_style(&self) -> FrameStyle {
         FrameConfiguration::active_style(self.frame_background().frame.as_ref())
     }
 
-    pub(super) fn render_frame_button(
-        &self,
-        narrow: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let (label, icon) = button_content(self.frame_style());
-        let bounds = self.frame_controls.trigger_bounds.clone();
-        div()
-            .relative()
-            .flex_none()
-            .child(
-                ui::EditorButton::plain(&self.theme, "frame-settings")
-                    .text(&self.theme)
-                    .left_icon(icon)
-                    .right_icon("icons/chevron-down.svg")
-                    .when(!narrow, |button| button.label(tr(label)))
-                    .tooltip(&self.theme, t!("Add a frame"))
-                    .pressed(self.frame_controls.open)
-                    .disabled(self.instance.is_none())
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        if this.frame_controls.open {
-                            this.close_frame_controls(window, cx);
-                        } else {
-                            this.focus_root(window, cx);
-                            this.toolbar_menu = None;
-                            this.add_track = None;
-                            this.frame_controls.style_target = this
-                                .selected_style_index()
-                                .and_then(|index| StyleFrameTarget::capture(&this.project, index));
-                            this.frame_controls.open = true;
-                            cx.notify();
-                        }
-                    })),
-            )
-            .child(
-                gpui::canvas(move |rect, _, _| bounds.set(Some(rect)), |_, _, _, _| {})
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full(),
-            )
-    }
-
     pub(super) fn prepare_frame_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.frame_controls.open {
+        if !self.frame_controls_visible() {
             return;
         }
+        self.frame_controls.style_target = self.sidebar.style_target.and_then(|(index, group)| {
+            (group == crate::editor_sidebar::StyleGroup::Background)
+                .then(|| StyleFrameTarget::capture(&self.project, index))
+                .flatten()
+        });
         if self.frame_controls.fields.is_none() {
             self.frame_controls.fields = Some([FrameField::Url, FrameField::Title].map(|field| {
                 let input = cx.new(|cx| {
@@ -325,7 +255,7 @@ impl EditorWindow {
     ) {
         match event {
             ui::TextInputEvent::Changed => {
-                if !self.frame_controls.open
+                if !self.frame_controls_visible()
                     || FrameField::for_style(self.frame_style()) != Some(field)
                 {
                     return;
@@ -356,7 +286,6 @@ impl EditorWindow {
 
     pub(super) fn close_frame_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.finish_frame_text_edit(cx);
-        self.frame_controls.open = false;
         self.frame_controls.style_target = None;
         self.focus_root(window, cx);
         cx.notify();
@@ -368,15 +297,7 @@ impl EditorWindow {
         self.edit_frame(change, window, cx);
     }
 
-    pub(super) fn render_frame_controls(
-        &self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        if !self.frame_controls.open {
-            return None;
-        }
-        let bounds = self.frame_controls.trigger_bounds.get()?;
+    pub(crate) fn render_frame_section(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let theme = self.theme;
         let style = self.frame_style();
         let frame_theme = self
@@ -384,145 +305,38 @@ impl EditorWindow {
             .frame
             .as_ref()
             .map_or(FrameTheme::Dark, |frame| frame.theme);
-        let panel = div()
-            .id("frame-popover")
-            .occlude()
+        div()
+            .id("frame-section")
             .flex()
             .flex_col()
-            .w(px(304.).min(window.viewport_size().width - px(24.)))
-            .max_h(
-                (window.viewport_size().height - bounds.bottom() - px(20.))
-                    .min(window.viewport_size().height - px(24.)),
-            )
-            .overflow_y_scroll()
-            .rounded(px(12.))
-            .border_1()
-            .border_color(gpui::Hsla::from(theme.editor.line))
-            .bg(gpui::Hsla::from(theme.editor.card))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .w_full()
             .child(
                 div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .px(px(16.))
-                    .pt(px(14.))
-                    .pb(px(12.))
-                    .border_b_1()
-                    .border_color(theme.gray(3))
-                    .child(
-                        div()
-                            .text_size(px(13.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.gray(12))
-                            .child(t!("Frame")),
-                    )
-                    .child(
-                        div().text_size(px(11.)).text_color(theme.gray(10)).child(
-                            match &self.frame_controls.style_target {
-                                Some(target) if !target.matches(&self.project) => {
-                                    t!("This Style changed. Close and reopen Frame.").to_string()
-                                }
-                                Some(target)
-                                    if self
-                                        .project
-                                        .timeline
-                                        .as_ref()
-                                        .and_then(|timeline| {
-                                            timeline.style_segments.get(target.index)
-                                        })
-                                        .is_some_and(|segment| {
-                                            segment.overrides.background.is_none()
-                                        }) =>
-                                {
-                                    t!(
-                                        "Style {index} only · Editing enables its background override.",
-                                        index = target.index + 1
-                                    )
-                                }
-                                Some(target) => t!(
-                                    "Style {index} only · Global settings stay unchanged.",
-                                    index = target.index + 1
-                                ),
-                                None => {
-                                    t!("Global frame · Applies wherever Style inherits background.")
-                                        .to_string()
-                                }
-                            },
-                        ),
-                    ),
+                    .text_size(px(12.))
+                    .text_color(theme.muted_foreground)
+                    .child(t!("Frame")),
             )
-            .child(div().flex().flex_col().gap(px(2.)).p(px(6.)).children(
-                FRAME_STYLES.into_iter().enumerate().map(
-                    |(index, (value, label, description, icon))| {
-                        let selected = value == style;
-                        div()
-                            .id(("frame-style", index))
-                            .tab_index(0)
-                            .flex()
-                            .items_center()
-                            .gap(px(12.))
-                            .p(px(8.))
-                            .rounded(px(12.))
-                            .cursor_pointer()
-                            .hover(|row| row.bg(theme.gray(3)))
-                            .focus_visible(|row| row.bg(theme.gray(3)))
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .size(px(32.))
-                                    .flex_shrink_0()
-                                    .rounded(px(10.))
-                                    .bg(if selected {
-                                        theme.selection.into()
-                                    } else {
-                                        theme.gray(3)
-                                    })
-                                    .child(svg().path(icon).size(px(16.)).text_color(
-                                        if selected {
-                                            theme.gray(12)
-                                        } else {
-                                            theme.gray(11)
-                                        },
-                                    )),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(
-                                        div()
-                                            .text_size(px(13.))
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(theme.gray(12))
-                                            .child(tr(label)),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(11.))
-                                            .text_color(theme.gray(10))
-                                            .child(tr(description)),
-                                    ),
-                            )
-                            .when(selected, |row| {
-                                row.child(
-                                    svg()
-                                        .path("icons/circle-check.svg")
-                                        .size(px(16.))
-                                        .flex_shrink_0()
-                                        .text_color(theme.foreground),
-                                )
-                            })
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.change_frame(FrameChange::Style(value), window, cx)
-                            }))
-                    },
-                ),
-            ))
+            .child(
+                ui::SegmentedControl::editor(
+                    &theme,
+                    "frame-styles",
+                    FRAME_STYLES
+                        .iter()
+                        .map(|(value, label, _, _)| {
+                            ui::SegmentOption::new(tr(label), *value == style)
+                        })
+                        .collect(),
+                )
+                .stretch()
+                .item_height(px(32.))
+                .item_padding(px(2.), px(0.))
+                .text_size(px(11.))
+                .on_select(cx.listener(|this, index: &usize, window, cx| {
+                    if let Some((style, _, _, _)) = FRAME_STYLES.get(*index) {
+                        this.change_frame(FrameChange::Style(*style), window, cx);
+                    }
+                })),
+            )
             .when(style != FrameStyle::None, |panel| {
                 panel.child(
                     div()
@@ -628,38 +442,8 @@ impl EditorWindow {
                             )
                         })),
                 )
-            });
-        Some(
-            div()
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .child(
-                    div()
-                        .id("frame-backdrop")
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full()
-                        .occlude()
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, window, cx| {
-                                this.close_frame_controls(window, cx);
-                                cx.stop_propagation();
-                            }),
-                        ),
-                )
-                .child(
-                    gpui::anchored()
-                        .anchor(gpui::Anchor::TopLeft)
-                        .position(point(bounds.left(), bounds.bottom() + px(8.)))
-                        .snap_to_window_with_margin(px(12.))
-                        .child(panel),
-                )
-                .into_any_element(),
-        )
+            })
+            .into_any_element()
     }
 }
 
@@ -669,18 +453,11 @@ mod tests {
     use crate::editor_edits::ProjectHistory;
 
     #[test]
-    fn frame_styles_and_button_labels_match_tauri() {
+    fn frame_style_picker_keeps_every_existing_style() {
         assert_eq!(
             FRAME_STYLES.map(|option| option.1),
             ["None", "macOS", "Windows", "Browser", "MacBook"]
         );
-        assert_eq!(
-            button_content(FrameStyle::None),
-            ("Frame", "icons/app-window-mac.svg")
-        );
-        for (style, label, _, icon) in FRAME_STYLES.into_iter().skip(1) {
-            assert_eq!(button_content(style), (label, icon));
-        }
     }
 
     #[test]

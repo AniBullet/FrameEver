@@ -258,6 +258,7 @@ impl EditorWindow {
             .flex_col()
             .items_center()
             .gap(px(6.))
+            .tab_index(0)
             .cursor_pointer()
             .child(self.render_cursor_tile(card, selected, is_recorded))
             .when(card != CursorCard::Default, |this| {
@@ -353,7 +354,7 @@ impl EditorWindow {
             .flex()
             .flex_col()
             .child(
-                ui::Field::inline(&theme, t!("Click Ripple")).value(
+                ui::Field::editor_row(&theme, t!("Click Ripple")).value(
                     ui::Toggle::plain(&theme, "cursor-ripple", enabled)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             let next = !this.style_control_project().cursor.ripple.enabled;

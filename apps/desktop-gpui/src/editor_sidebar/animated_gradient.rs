@@ -363,7 +363,8 @@ fn header_button(
         .when(pressed, |this| this.bg(Hsla::from(theme.editor.ctl_hover)))
         .when(disabled, |this| this.opacity(0.4))
         .when(!disabled, |this| {
-            this.cursor_pointer()
+            this.tab_index(0)
+                .cursor_pointer()
                 .hover(|this| {
                     this.bg(Hsla::from(theme.editor.ctl_hover))
                         .text_color(Hsla::from(theme.editor.text_1))
@@ -401,7 +402,8 @@ fn icon_button(
         .text_color(Hsla::from(theme.editor.text_2))
         .when(disabled, |this| this.opacity(0.3))
         .when(!disabled, |this| {
-            this.cursor_pointer()
+            this.tab_index(0)
+                .cursor_pointer()
                 .hover(|this| {
                     this.bg(Hsla::from(theme.editor.ctl_hover))
                         .text_color(Hsla::from(theme.editor.text_1))
@@ -805,6 +807,7 @@ impl EditorWindow {
             .border_1()
             .border_color(Hsla::from(theme.editor.line_strong))
             .text_color(Hsla::from(theme.editor.text_3))
+            .tab_index(0)
             .cursor_pointer()
             .hover(|this| this.bg(Hsla::from(theme.editor.ctl_hover)))
             .tooltip(move |_window, cx| ui::Tooltip::new(&theme, t!("Randomize")).view(cx))
@@ -861,7 +864,8 @@ impl EditorWindow {
                         .text_color(Hsla::from(theme.gray_12))
                         .when(name_empty, |this| this.opacity(0.4))
                         .when(!name_empty, |this| {
-                            this.cursor_pointer()
+                            this.tab_index(0)
+                                .cursor_pointer()
                                 .hover(|this| this.bg(Hsla::from(theme.gray_4)))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.save_animated_gradient_preset(cx);
@@ -943,6 +947,7 @@ impl EditorWindow {
             .rounded(px(8.))
             .border_1()
             .border_color(Hsla::from(theme.editor.line))
+            .tab_index(0)
             .cursor_pointer()
             .selection_ring(Hsla::from(theme.editor.card), theme.foreground, selected)
             .when(!selected, |this| this.hover(|this| this.opacity(0.8)))
@@ -970,6 +975,7 @@ impl EditorWindow {
                         .rounded_full()
                         .bg(Hsla::from(theme.gray_12))
                         .text_color(Hsla::from(theme.gray_1))
+                        .tab_index(0)
                         .cursor_pointer()
                         .hover(|this| this.bg(Hsla::from(theme.red_11)))
                         .tooltip(move |_window, cx| ui::Tooltip::new(&theme, t!("Delete")).view(cx))
@@ -1025,6 +1031,7 @@ impl EditorWindow {
                     .size(px(size))
                     .rounded_full()
                     .p(px(2.))
+                    .tab_index(0)
                     .cursor_pointer()
                     .map(|this| {
                         if is_selected {
@@ -1150,7 +1157,7 @@ impl EditorWindow {
         let theme = self.theme;
         let control = AnimatedGradientParameter::MotionSpeed.control();
         let value = AnimatedGradientParameter::MotionSpeed.get(config);
-        ui::Field::inline(&theme, t!("Motion"))
+        ui::Field::editor_row(&theme, t!("Motion"))
             .value_text(format_control_value(&control, value))
             .child(self.slider_flex(
                 SliderKey::AnimatedGradient(AnimatedGradientParameter::MotionSpeed),
@@ -1195,7 +1202,7 @@ impl EditorWindow {
             .iter()
             .map(|control| {
                 let value = control.key.get(config);
-                ui::Field::inline(&theme, control_label(control.key))
+                ui::Field::editor_row(&theme, control_label(control.key))
                     .value_text(format_control_value(control, value))
                     .child(self.slider_flex(
                         SliderKey::AnimatedGradient(control.key),

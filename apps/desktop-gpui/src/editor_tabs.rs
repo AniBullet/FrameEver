@@ -1155,14 +1155,14 @@ impl EditorWindow {
     /// `flex flex-col gap-2` pair the caption and keyboard tabs stack every
     /// row in.
     fn labelled(&self, label: &'static str, control: AnyElement) -> AnyElement {
-        ui::Field::stacked(&self.theme, label)
-            .child(control)
+        ui::Field::editor_row(&self.theme, label)
+            .child(div().w(px(160.)).child(control))
             .into_any_element()
     }
 
     /// The same pair on one row, for a control that fits beside its label.
     fn labelled_inline(&self, label: &'static str, control: AnyElement) -> AnyElement {
-        ui::Field::inline(&self.theme, label)
+        ui::Field::editor_row(&self.theme, label)
             .child(div().w(px(180.)).child(control))
             .into_any_element()
     }
@@ -1394,7 +1394,7 @@ impl EditorWindow {
         label: &'static str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        ui::Field::inline(&self.theme, t!("Corner Style"))
+        ui::Field::editor_row(&self.theme, t!("Corner Style"))
             .child(
                 div()
                     .w(px(150.))
@@ -1441,6 +1441,7 @@ impl EditorWindow {
                 .id(SharedString::from(format!(
                     "camera-position-{item_x}-{item_y}"
                 )))
+                .tab_index(0)
                 .absolute()
                 .size(px(24.))
                 .flex_none()
@@ -1571,7 +1572,7 @@ impl EditorWindow {
                         .flex()
                         .flex_col()
                         .gap(px(16.))
-                        .child(ui::Subfield::plain(&theme, t!("Mute Audio")).child(
+                        .child(ui::Field::editor_row(&theme, t!("Mute audio")).child(
                             ui::Toggle::plain(&theme, "audio-mute", audio.mute).on_click(
                                 cx.listener(|this, _, window, cx| {
                                     let next = !this.project.audio.mute;
@@ -1585,7 +1586,7 @@ impl EditorWindow {
                         // Only a two-channel microphone gets the stereo row
                         // (`:709-711`).
                         .children(stereo_mic.then(|| {
-                            ui::Subfield::plain(&theme, t!("Microphone Stereo Mode"))
+                            ui::Field::editor_row(&theme, t!("Microphone stereo"))
                                 .child(div().w(px(160.)).child(self.menu_select(
                                     SidebarMenu::AudioStereo,
                                     "audio-stereo",
@@ -1617,7 +1618,14 @@ impl EditorWindow {
                 )
                 .into_any_element()
             }))
-            .children(self.render_sync_offsets(cx))
+            .children(self.render_sync_offsets(cx).map(|body| {
+                self.folded_group(
+                    crate::editor_sidebar::PanelSection::AudioSync,
+                    t!("Sync"),
+                    body,
+                    cx,
+                )
+            }))
             .into_any_element()
     }
 
@@ -1833,7 +1841,7 @@ impl EditorWindow {
         let hidden = cursor.hide;
 
         let mut body = div().flex().flex_col().gap(px(14.)).child(
-            ui::Field::inline(&theme, t!("Show cursor")).value(
+            ui::Field::editor_row(&theme, t!("Show cursor")).value(
                 ui::Toggle::plain(&theme, "cursor-show", !hidden)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.edit_project("cursor-hide", window, cx, move |p| {
@@ -1867,9 +1875,14 @@ impl EditorWindow {
                 "x100%",
                 cx,
             ))
-            .child(self.render_cursor_ripple(cx))
+            .child(self.folded_group(
+                crate::editor_sidebar::PanelSection::CursorRipple,
+                t!("Click ripple"),
+                self.render_cursor_ripple(cx),
+                cx,
+            ))
             .child(
-                ui::Field::inline(&theme, t!("Hide When Idle")).value(
+                ui::Field::editor_row(&theme, t!("Hide When Idle")).value(
                     ui::Toggle::plain(&theme, "cursor-idle", idle)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.edit_project("cursor-idle", window, cx, move |p| {
@@ -1912,7 +1925,9 @@ impl EditorWindow {
         }
 
         let smooth = !cursor.raw;
-        let mut body = body
+        let movement = div()
+            .flex()
+            .flex_col()
             .child(
                 ui::Field::section(&theme, t!("Cursor Movement Style")).child(
                     ui::RadioCards::plain(
@@ -1952,7 +1967,7 @@ impl EditorWindow {
                     .flex()
                     .flex_col()
                     .child(
-                        ui::Field::inline(&theme, t!("Smooth Movement")).value(
+                        ui::Field::editor_row(&theme, t!("Smooth Movement")).value(
                             ui::Toggle::plain(&theme, "cursor-smooth", smooth)
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.sidebar.cursor_physics_open.set_open(!smooth);
@@ -1994,13 +2009,20 @@ impl EditorWindow {
                             .into_any_element(),
                         cx.reduce_motion(),
                     )),
-            );
+            )
+            .into_any_element();
+        let mut body = body.child(self.folded_group(
+            crate::editor_sidebar::PanelSection::CursorMovement,
+            t!("Movement"),
+            movement,
+            cx,
+        ));
 
         // An explicit family forces the SVG assets, so the toggle would be
         // showing a setting the renderer is already overriding.
         if cursor.cursor_type().family().is_none() {
             body = body.child(
-                ui::Field::inline(&theme, t!("High Quality SVG Cursors")).value(
+                ui::Field::editor_row(&theme, t!("High Quality SVG Cursors")).value(
                     ui::Toggle::plain(&theme, "cursor-svg", cursor.use_svg)
                         .on_click(cx.listener(|this, _, window, cx| {
                             let next = !this.style_control_project().cursor.use_svg;
@@ -2216,7 +2238,7 @@ impl EditorWindow {
                 ),
             )
             .child(
-                ui::Field::inline(&theme, t!("Position")).child(self.menu_select(
+                ui::Field::editor_row(&theme, t!("Position")).child(self.menu_select(
                     SidebarMenu::KeyboardPosition,
                     "keyboard-position",
                     position_label,
@@ -2224,7 +2246,7 @@ impl EditorWindow {
                 )),
             )
             .child(
-                ui::Field::inline(&theme, t!("Font Weight")).child(self.menu_select(
+                ui::Field::editor_row(&theme, t!("Font Weight")).child(self.menu_select(
                     SidebarMenu::KeyboardWeight,
                     "keyboard-weight",
                     weight_label,
@@ -2232,92 +2254,111 @@ impl EditorWindow {
                 )),
             )
             .child(
-                ui::Field::section(&theme, t!("Animation")).child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(12.))
-                        .child(self.labelled_readout(
-                            t!("Fade Duration"),
-                            SliderKey::Keyboard(KeyboardSlider::FadeDuration),
-                            format!("{:.0}ms", settings.fade_duration * 1000.),
-                            cx,
-                        ))
-                        .child(self.labelled_readout(
-                            t!("Linger Duration"),
-                            SliderKey::Keyboard(KeyboardSlider::LingerDuration),
-                            format!("{:.1}s", settings.linger_duration),
-                            cx,
-                        ))
-                        .child(self.labelled_readout(
-                            t!("Grouping Threshold"),
-                            SliderKey::Keyboard(KeyboardSlider::GroupingThreshold),
-                            format!("{:.0}ms", settings.grouping_threshold_ms),
-                            cx,
-                        )),
+                self.folded_group(
+                    crate::editor_sidebar::PanelSection::KeyboardTiming,
+                    t!("Timing"),
+                    (ui::Field::section(&theme, t!("Animation")).child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(12.))
+                            .child(self.labelled_readout(
+                                t!("Fade Duration"),
+                                SliderKey::Keyboard(KeyboardSlider::FadeDuration),
+                                format!("{:.0}ms", settings.fade_duration * 1000.),
+                                cx,
+                            ))
+                            .child(self.labelled_readout(
+                                t!("Linger Duration"),
+                                SliderKey::Keyboard(KeyboardSlider::LingerDuration),
+                                format!("{:.1}s", settings.linger_duration),
+                                cx,
+                            ))
+                            .child(self.labelled_readout(
+                                t!("Grouping Threshold"),
+                                SliderKey::Keyboard(KeyboardSlider::GroupingThreshold),
+                                format!("{:.0}ms", settings.grouping_threshold_ms),
+                                cx,
+                            )),
+                    ))
+                    .into_any_element(),
+                    cx,
                 ),
             )
             .child(
-                ui::Field::section(&theme, t!("Behavior")).child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(12.))
-                        .child(
-                            ui::Subfield::plain(&theme, t!("Show Modifiers")).child(
-                                ui::Toggle::plain(
-                                    &theme,
-                                    "keyboard-modifiers",
-                                    settings.show_modifiers,
-                                )
-                                .on_click(cx.listener(
-                                    |this, _, window, cx| {
-                                        let next = !keyboard_settings(&this.project).show_modifiers;
-                                        this.set_keyboard_setting(
-                                            "keyboard-modifiers",
-                                            window,
-                                            cx,
-                                            move |settings| settings.show_modifiers = next,
-                                        );
-                                    },
-                                )),
+                self.folded_group(
+                    crate::editor_sidebar::PanelSection::KeyboardVisibility,
+                    t!("What's shown"),
+                    (ui::Field::section(&theme, t!("Behavior")).child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(12.))
+                            .child(
+                                ui::Field::editor_row(&theme, t!("Show modifiers")).child(
+                                    ui::Toggle::plain(
+                                        &theme,
+                                        "keyboard-modifiers",
+                                        settings.show_modifiers,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, window, cx| {
+                                            let next =
+                                                !keyboard_settings(&this.project).show_modifiers;
+                                            this.set_keyboard_setting(
+                                                "keyboard-modifiers",
+                                                window,
+                                                cx,
+                                                move |settings| settings.show_modifiers = next,
+                                            );
+                                        },
+                                    )),
+                                ),
+                            )
+                            .child(
+                                ui::Field::editor_row(&theme, t!("Show special keys")).child(
+                                    ui::Toggle::plain(
+                                        &theme,
+                                        "keyboard-special",
+                                        settings.show_special_keys,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, window, cx| {
+                                            let next =
+                                                !keyboard_settings(&this.project).show_special_keys;
+                                            this.set_keyboard_setting(
+                                                "keyboard-special",
+                                                window,
+                                                cx,
+                                                move |settings| settings.show_special_keys = next,
+                                            );
+                                        },
+                                    )),
+                                ),
+                            )
+                            .child(
+                                ui::Subfield::plain(&theme, t!("Uppercase")).child(
+                                    ui::Toggle::plain(
+                                        &theme,
+                                        "keyboard-uppercase",
+                                        settings.uppercase,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, window, cx| {
+                                            let next = !keyboard_settings(&this.project).uppercase;
+                                            this.set_keyboard_setting(
+                                                "keyboard-uppercase",
+                                                window,
+                                                cx,
+                                                move |settings| settings.uppercase = next,
+                                            );
+                                        },
+                                    )),
+                                ),
                             ),
-                        )
-                        .child(
-                            ui::Subfield::plain(&theme, t!("Show Special Keys")).child(
-                                ui::Toggle::plain(
-                                    &theme,
-                                    "keyboard-special",
-                                    settings.show_special_keys,
-                                )
-                                .on_click(cx.listener(
-                                    |this, _, window, cx| {
-                                        let next =
-                                            !keyboard_settings(&this.project).show_special_keys;
-                                        this.set_keyboard_setting(
-                                            "keyboard-special",
-                                            window,
-                                            cx,
-                                            move |settings| settings.show_special_keys = next,
-                                        );
-                                    },
-                                )),
-                            ),
-                        )
-                        .child(
-                            ui::Subfield::plain(&theme, t!("Uppercase")).child(
-                                ui::Toggle::plain(&theme, "keyboard-uppercase", settings.uppercase)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        let next = !keyboard_settings(&this.project).uppercase;
-                                        this.set_keyboard_setting(
-                                            "keyboard-uppercase",
-                                            window,
-                                            cx,
-                                            move |settings| settings.uppercase = next,
-                                        );
-                                    })),
-                            ),
-                        ),
+                    ))
+                    .into_any_element(),
+                    cx,
                 ),
             )
             .child(
@@ -2412,7 +2453,7 @@ impl EditorWindow {
         readout: String,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        ui::Field::inline(&self.theme, label)
+        ui::Field::editor_row(&self.theme, label)
             .value_text(readout)
             .child(self.slider_flex(slider, "", cx))
             .into_any_element()
@@ -2877,7 +2918,7 @@ impl EditorWindow {
                 ),
             )
             .child(
-                ui::Field::inline(&theme, t!("Position")).child(self.menu_select(
+                ui::Field::editor_row(&theme, t!("Position")).child(self.menu_select(
                     SidebarMenu::CaptionPosition,
                     "caption-position",
                     position_label,
@@ -2916,7 +2957,7 @@ impl EditorWindow {
                 ),
             )
             .child(
-                ui::Field::inline(&theme, t!("Font Weight")).child(self.menu_select(
+                ui::Field::editor_row(&theme, t!("Font Weight")).child(self.menu_select(
                     SidebarMenu::CaptionWeight,
                     "caption-weight",
                     weight_label,

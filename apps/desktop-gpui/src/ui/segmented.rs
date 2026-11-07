@@ -324,7 +324,8 @@ impl RenderOnce for SegmentedControl {
                     }))
                     .children(option.label)
                     .when_some(handler.filter(|_| !disabled), |this, handler| {
-                        this.on_click(move |_, window, cx| handler(&index, window, cx))
+                        this.tab_index(0)
+                            .on_click(move |_, window, cx| handler(&index, window, cx))
                     })
             }))
     }

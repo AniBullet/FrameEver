@@ -67,6 +67,7 @@ pub struct Field {
     badge_bg: Hsla,
     badge_text: Hsla,
     disabled: bool,
+    row_height: Pixels,
 }
 
 impl Field {
@@ -88,6 +89,7 @@ impl Field {
             badge_bg: Hsla::from(theme.editor.ctl),
             badge_text: Hsla::from(theme.editor.text_2),
             disabled: false,
+            row_height: px(INLINE_ROW_HEIGHT),
         }
     }
 
@@ -110,6 +112,13 @@ impl Field {
     /// One control on one row: label, control, readout.
     pub fn inline(theme: &Theme, name: impl Into<SharedString>) -> Self {
         Self::new(theme, name, FieldStyle::Inline, px(0.))
+    }
+
+    pub fn editor_row(theme: &Theme, name: impl Into<SharedString>) -> Self {
+        Self {
+            row_height: px(32.),
+            ..Self::inline(theme, name)
+        }
     }
 
     /// `<IconCapImage class="size-4" />` and friends. Some call sites pass no
@@ -180,6 +189,7 @@ impl RenderOnce for Field {
             badge_bg,
             badge_text,
             disabled,
+            row_height,
         } = self;
         let label_color = match (disabled, style) {
             (true, _) => disabled_text,
@@ -192,7 +202,7 @@ impl RenderOnce for Field {
                 .flex()
                 .flex_row()
                 .items_center()
-                .h(px(INLINE_ROW_HEIGHT))
+                .h(row_height)
                 .gap(px(10.))
                 .child(
                     div()

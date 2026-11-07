@@ -67,6 +67,25 @@ pub fn snap_to_step(value: f32, minimum: f32, maximum: f32, step: f32) -> f32 {
     ((f64::from(minimum) + quotient.round() * f64::from(step)) as f32).clamp(minimum, maximum)
 }
 
+pub fn keyboard_slider_value(
+    key: &str,
+    value: f32,
+    minimum: f32,
+    maximum: f32,
+    step: f32,
+) -> Option<f32> {
+    let next = match key {
+        "left" | "down" => value - step,
+        "right" | "up" => value + step,
+        "pageup" => value + step * 10.,
+        "pagedown" => value - step * 10.,
+        "home" => minimum,
+        "end" => maximum,
+        _ => return None,
+    };
+    Some(snap_to_step(next, minimum, maximum, step))
+}
+
 /// The press that begins a drag. Same shape as [`crate::ui::ClickHandler`]:
 /// `cx.listener(..)` builds one directly.
 type DragStartHandler = Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>;
@@ -349,6 +368,31 @@ pub fn value_at(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn editor_layout_keyboard_sliders_follow_steps_and_endpoints() {
+        assert_eq!(
+            super::keyboard_slider_value("right", 3.2, 0., 10., 0.1),
+            Some(3.3)
+        );
+        assert_eq!(
+            super::keyboard_slider_value("left", 0., 0., 10., 0.1),
+            Some(0.)
+        );
+        assert_eq!(
+            super::keyboard_slider_value("pageup", 4., 0., 10., 0.1),
+            Some(5.)
+        );
+        assert_eq!(
+            super::keyboard_slider_value("home", 8., 0., 10., 0.1),
+            Some(0.)
+        );
+        assert_eq!(
+            super::keyboard_slider_value("end", 0., 0., 10., 0.1),
+            Some(10.)
+        );
+        assert_eq!(super::keyboard_slider_value("tab", 4., 0., 10., 0.1), None);
+    }
+
     use super::*;
     use gpui::{point, size};
 

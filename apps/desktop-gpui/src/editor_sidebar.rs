@@ -237,7 +237,9 @@ const UNPLACED_NOTCH: NotchConfiguration = NotchConfiguration {
 /// here either.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarTab {
+    Clips,
     Background,
+    Screen,
     Camera,
     Audio,
     Cursor,
@@ -246,17 +248,21 @@ pub enum SidebarTab {
 }
 
 impl SidebarTab {
-    pub const ALL: [SidebarTab; 6] = [
+    pub const ALL: [SidebarTab; 8] = [
         Self::Background,
+        Self::Screen,
         Self::Camera,
         Self::Audio,
         Self::Cursor,
         Self::Keyboard,
         Self::Captions,
+        Self::Clips,
     ];
 
     pub fn icon(self) -> &'static str {
         match self {
+            Self::Clips => "icons/clapperboard.svg",
+            Self::Screen => "icons/monitor.svg",
             Self::Background => "icons/image.svg",
             Self::Camera => "icons/webcam.svg",
             Self::Audio => "icons/volume-2.svg",
@@ -271,6 +277,8 @@ impl SidebarTab {
     #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
+            Self::Clips => n!("Clips"),
+            Self::Screen => n!("Screen"),
             Self::Background => n!("Background"),
             Self::Camera => n!("Camera"),
             Self::Audio => n!("Audio"),
@@ -667,6 +675,7 @@ pub enum SliderKey {
     Camera(CameraSlider),
     Audio(AudioSlider),
     ClipVolume(usize),
+    ClipTransition(usize),
     Cursor(CursorSlider),
     Caption(CaptionSlider),
     Keyboard(KeyboardSlider),
@@ -971,6 +980,15 @@ pub enum PadKey {
 /// The collapsible sections a segment panel owns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PanelSection {
+    ScreenBorder,
+    ScreenNotch,
+    CursorRipple,
+    ScreenColor,
+    CameraColor,
+    CursorMovement,
+    KeyboardTiming,
+    KeyboardVisibility,
+    AudioSync,
     /// The Depth blur group's per-mode sliders.
     Camera3DBlurTune,
     /// "Timing & advanced".
@@ -1003,9 +1021,16 @@ impl EditorWindow {
         }
         // A tab switch also dismisses whatever the previous tab had open: the
         // `KSelect` menu, and a field's history bracket.
+        self.dismiss_frame_controls(cx);
+        self.close_color_picker(cx);
+        if self.clips.open {
+            self.close_clips(window, cx);
+        }
+        self.sidebar.style_target = None;
         self.sidebar.menu = None;
         self.end_field_edit(cx);
         self.sidebar.tab = tab;
+        self.clips.open = tab == SidebarTab::Clips;
         self.sidebar.scroll.set_offset(gpui::point(px(0.), px(0.)));
         cx.notify();
         window.refresh();
@@ -1169,6 +1194,26 @@ impl EditorWindow {
             SliderKey::Camera(slider) => slider.limits(),
             SliderKey::Audio(slider) => slider.limits(),
             SliderKey::ClipVolume(_) => (0., 200., 1.),
+            SliderKey::ClipTransition(index) => {
+                let max = self
+                    .project
+                    .timeline
+                    .as_ref()
+                    .and_then(|timeline| {
+                        Some(
+                            timeline
+                                .segments
+                                .get(index.checked_sub(1)?)?
+                                .duration()
+                                .min(timeline.segments.get(index)?.duration())
+                                as f32
+                                / 2.,
+                        )
+                    })
+                    .unwrap_or(2.)
+                    .clamp(0.05, 2.);
+                (0.05, max, 0.05)
+            }
             SliderKey::Cursor(slider) => slider.limits(),
             SliderKey::Caption(slider) => slider.limits(),
             SliderKey::Keyboard(slider) => slider.limits(),
@@ -1198,6 +1243,12 @@ impl EditorWindow {
                 .as_ref()
                 .and_then(|timeline| timeline.segments.get(index))
                 .map_or(100., |segment| (segment.volume() * 100.) as f32),
+            SliderKey::ClipTransition(index) => self
+                .project
+                .timeline
+                .as_ref()
+                .and_then(|timeline| timeline.effective_transition(index))
+                .map_or(0.5, |value| value.duration as f32),
             SliderKey::Cursor(slider) => slider.read(&project),
             SliderKey::Caption(slider) => slider.read(&project),
             SliderKey::Keyboard(slider) => slider.read(&project),
@@ -1228,6 +1279,21 @@ impl EditorWindow {
             SliderKey::Audio(slider) => self.apply_audio_slider(slider, value, window, cx),
             SliderKey::ClipVolume(index) => {
                 self.set_clip_volume(index, f64::from(value) / 100., window, cx)
+            }
+            SliderKey::ClipTransition(index) => {
+                self.edit_project("clip-transition-duration", window, cx, |project| {
+                    let Some(timeline) = project.timeline.as_mut() else {
+                        return false;
+                    };
+                    let Some(transition) = timeline.effective_transition(index) else {
+                        return false;
+                    };
+                    crate::editor_clips::set_clip_transition(
+                        timeline,
+                        index,
+                        Some((transition.kind, f64::from(value))),
+                    )
+                });
             }
             SliderKey::Cursor(slider) => self.apply_cursor_slider(slider, value, window, cx),
             SliderKey::Caption(slider) => self.apply_caption_slider(slider, value, window, cx),
@@ -2431,7 +2497,7 @@ impl EditorWindow {
 
 /// The sidebar card's inner content width: 416 minus its 1px borders minus the
 /// panel's `p-4`. Fixed, because the column is `w-104 min-w-104 flex-none`.
-const CONTENT_WIDTH: f32 = 416. - 2. - 32.;
+const CONTENT_WIDTH: f32 = 340. - 2. - 32.;
 /// Six 34px-tall tiles across the pane.
 const WALLPAPER_COLUMNS: f32 = 6.;
 const WALLPAPER_GAP: f32 = 6.;
@@ -2441,89 +2507,164 @@ const GRADIENT_PREVIEW_WIDTH: f32 = CONTENT_WIDTH;
 const GRADIENT_PREVIEW_HEIGHT: f32 = 112.;
 
 impl EditorWindow {
-    pub(crate) fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn render_sidebar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let summary = self.summary();
         let selection = self.sidebar_selection().cloned();
         let selected_tab = self.sidebar.tab;
-
-        // The two data-driven disabled states (`:602-604`, `:610`).
-        let items = SidebarTab::ALL
+        let title = selection
+            .as_ref()
+            .map_or(tr(selected_tab.label()), |selection| {
+                selection.track.label()
+            });
+        let items: Vec<_> = SidebarTab::ALL
             .into_iter()
-            .map(|tab| {
+            .enumerate()
+            .map(|(index, tab)| {
                 let disabled = match tab {
                     SidebarTab::Camera => !summary.is_some_and(|summary| summary.has_camera),
                     SidebarTab::Cursor => !summary.is_some_and(|summary| summary.has_cursor_data),
                     _ => false,
                 };
-                // While a selection panel is up the rail shows no selected
-                // item at all: `KTabs`'s value is forced to `undefined` and
-                // the indicator is hidden (`:586-592, 667-677`).
-                ui::TabRailItem::new(
-                    tab.icon(),
-                    tr(tab.label()),
-                    selection.is_none() && tab == selected_tab,
-                    disabled,
-                )
+                div()
+                    .id(("sidebar-tab-tooltip", index))
+                    .when(tab == SidebarTab::Clips, |this| {
+                        this.mt(px(8.))
+                            .pt(px(8.))
+                            .border_t_1()
+                            .border_color(theme.border)
+                    })
+                    .flex_none()
+                    .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, tr(tab.label())).view(cx))
+                    .child(
+                        ui::IconButton::new(("sidebar-tab", index), tab.icon())
+                            .size(px(32.))
+                            .icon_size(px(16.))
+                            .color(theme.muted_foreground.into())
+                            .disabled(disabled)
+                            .when(
+                                selection.is_none()
+                                    && self.sidebar.style_target.is_none()
+                                    && tab == selected_tab,
+                                |button| {
+                                    button
+                                        .filled(theme.selection.into(), None)
+                                        .color(theme.foreground.into())
+                                },
+                            )
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.select_sidebar_tab(index, window, cx)
+                            })),
+                    )
+                    .into_any_element()
             })
             .collect();
-
-        let rail = ui::TabRail::editor(&theme, "sidebar-tabs", self.panel_bg(), items)
-            .height(px(crate::editor_window::SIDEBAR_TAB_BAR_HEIGHT))
-            .on_select(cx.listener(|this, index: &usize, window, cx| {
-                this.select_sidebar_tab(*index, window, cx);
-            }));
-
+        let body = if self.clips.open {
+            self.render_clips_body(cx).into_any_element()
+        } else if let Some((index, group)) = self.sidebar.style_target {
+            self.render_style_group(index, group, cx)
+        } else if self.audio_picker.is_some() {
+            self.render_audio_library(cx)
+        } else {
+            match selection {
+                Some(selection) => self.render_selection_panel(&selection, cx),
+                None => self.render_tab_body(cx),
+            }
+        };
         div()
             .w(px(crate::editor_window::SIDEBAR_WIDTH))
             .h_full()
             .flex()
-            .flex_col()
+            .flex_row()
             .flex_none()
             .min_h_0()
+            .bg(theme.background)
+            .child(
+                div()
+                    .id("editor-rail")
+                    .bg(theme.sidebar)
+                    .w(px(46.))
+                    .h_full()
+                    .flex_none()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(2.))
+                    .py(px(6.))
+                    .overflow_y_scroll()
+                    .border_r_1()
+                    .border_color(theme.border)
+                    .children(items),
+            )
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .flex_1()
+                    .min_w_0()
                     .min_h_0()
-                    .h_full()
                     .overflow_hidden()
-                    .rounded(px(12.))
-                    .bg(self.panel_bg())
-                    .border_1()
-                    .border_color(self.card_line())
-                    .child(rail)
-                    .children(self.sidebar.image_import_error.as_ref().map(|error| {
+                    .child(
                         div()
-                            .p(px(12.))
-                            .text_size(px(12.))
-                            .text_color(Hsla::from(theme.editor.text_1))
-                            .child(error.clone())
-                    }))
+                            .h(px(40.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .px(px(16.))
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .border_b_1()
+                            .border_color(theme.border)
+                            .child(title),
+                    )
+                    .children(
+                        self.sidebar
+                            .image_import_error
+                            .as_ref()
+                            .map(|error| div().p(px(12.)).child(error.clone())),
+                    )
                     .children(
                         self.sidebar
                             .picking_image
                             .then(|| div().p(px(12.)).child(t!("Importing image…"))),
                     )
-                    .child(if let Some((index, group)) = self.sidebar.style_target {
-                        self.render_style_group(index, group, cx)
-                    } else if self.audio_picker.is_some() {
-                        self.render_audio_library(cx)
-                    } else {
-                        match selection {
-                            Some(selection) => self.render_selection_panel(&selection, cx),
-                            None => self.render_tab_body(cx),
-                        }
-                    }),
+                    .child(body),
             )
     }
 
     /// The scroll region (`:679-692`): `custom-scroll overflow-x-hidden
     /// overflow-y-scroll text-[0.875rem] flex-1 min-h-0`, with the tab panel's
     /// own `flex flex-col gap-6 p-4` inside it.
+    pub(crate) fn folded_group(
+        &self,
+        key: PanelSection,
+        label: &'static str,
+        body: AnyElement,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let state = self.sidebar.section(key);
+        div()
+            .flex()
+            .flex_col()
+            .child(disclosure_row(
+                &self.theme,
+                SharedString::from(format!("editor-group-{key:?}")),
+                label,
+                state.is_open(),
+                cx.listener(move |this, _, window, cx| {
+                    this.sidebar.section(key).toggle();
+                    this.animate_collapsibles(window, cx);
+                }),
+            ))
+            .child(collapsible(&state, body, cx.reduce_motion()))
+            .into_any_element()
+    }
+
     fn render_tab_body(&self, cx: &mut Context<Self>) -> AnyElement {
         let content: AnyElement = match self.sidebar.tab {
+            SidebarTab::Clips => div().into_any_element(),
+            SidebarTab::Screen => self.render_screen_tab(cx).into_any_element(),
             SidebarTab::Background => self.render_background_tab(cx).into_any_element(),
             SidebarTab::Camera => self.render_camera_tab(cx),
             SidebarTab::Audio => self.render_audio_tab(cx),
@@ -2577,6 +2718,25 @@ impl EditorWindow {
     /// `<KTabs.Content value="background" class="flex flex-col gap-6 p-4">`
     /// (`:2185-2974`).
     fn render_background_tab(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(px(14.))
+            .child(self.render_source_field(cx))
+            .child(self.slider_field(
+                t!("Background blur"),
+                SliderKey::Bg(BgSlider::Blur),
+                "%",
+                cx,
+            ));
+        if self.sidebar.style_target.is_some() {
+            body.child(self.render_screen_tab(cx))
+        } else {
+            body
+        }
+    }
+
+    fn render_screen_tab(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let background = &self.project.background;
 
@@ -2584,19 +2744,13 @@ impl EditorWindow {
             .flex()
             .flex_col()
             .gap(px(14.))
-            .child(self.render_source_field(cx))
+            .child(self.render_frame_section(cx))
             .child(dashed_divider(Hsla::from(theme.editor.line)))
             .child(
                 ui::Field::section(&theme, t!("Layout")).child(
                     div()
                         .flex()
                         .flex_col()
-                        .child(self.slider_field(
-                            t!("Background Blur"),
-                            SliderKey::Bg(BgSlider::Blur),
-                            "%",
-                            cx,
-                        ))
                         .child(self.slider_field(
                             t!("Padding"),
                             SliderKey::Bg(BgSlider::Padding),
@@ -2657,9 +2811,19 @@ impl EditorWindow {
                 ),
             )
             .child(dashed_divider(Hsla::from(theme.editor.line)))
-            .child(self.render_border_field(cx))
+            .child(self.folded_group(
+                PanelSection::ScreenBorder,
+                t!("Border"),
+                self.render_border_field(cx).into_any_element(),
+                cx,
+            ))
             .child(dashed_divider(Hsla::from(theme.editor.line)))
-            .child(self.render_notch_field(cx))
+            .child(self.folded_group(
+                PanelSection::ScreenNotch,
+                t!("MacBook notch"),
+                self.render_notch_field(cx).into_any_element(),
+                cx,
+            ))
             .child(dashed_divider(Hsla::from(theme.editor.line)))
             .child(self.render_shadow_field(cx))
             // `<ColorCorrectionSection target="screen" />` (`:2962`).
@@ -2799,6 +2963,7 @@ impl EditorWindow {
                             })
                             .when(!selected, |this| {
                                 this.border_color(Hsla::from(theme.editor.line_strong))
+                                    .tab_index(0)
                                     .cursor_pointer()
                                     .hover(|this| {
                                         this.border_color(Hsla::from(theme.border_strong))
@@ -2898,6 +3063,7 @@ impl EditorWindow {
                                     })
                                     .when(!selected, |this| {
                                         this.text_color(Hsla::from(theme.editor.text_2))
+                                            .tab_index(0)
                                             .cursor_pointer()
                                             .hover(|this| this.bg(Hsla::from(theme.editor.ctl)))
                                     })
@@ -2924,6 +3090,7 @@ impl EditorWindow {
                             .w(px(cell))
                             .h(px(WALLPAPER_TILE_HEIGHT + 2. * (RING_WIDTH + RING_GAP)))
                             .rounded(px(8.))
+                            .tab_index(0)
                             .cursor_pointer()
                             .selection_ring(self.panel_bg(), theme.foreground, selected)
                             .child(
@@ -2983,6 +3150,7 @@ impl EditorWindow {
                 .bg(Hsla::from(theme.editor.ctl))
                 .border_dashed_1(Hsla::from(theme.editor.line_strong))
                 .text_size(px(13.))
+                .tab_index(0)
                 .cursor_pointer()
                 .hover(|this| this.bg(Hsla::from(theme.editor.ctl_hover)))
                 .child(
@@ -3078,6 +3246,7 @@ impl EditorWindow {
                             .id(SharedString::from(format!("bg-color-{index}")))
                             .size(px(32.))
                             .rounded(px(8.))
+                            .tab_index(0)
                             .cursor_pointer()
                             .selection_ring(self.panel_bg(), theme.foreground, selected)
                             .child(
@@ -3145,6 +3314,7 @@ impl EditorWindow {
                     .bg(color_to_hsla(value))
                     .border_1()
                     .border_color(preview_border_color(value))
+                    .tab_index(0)
                     .cursor_pointer()
                     .when(open, |this| {
                         this.border_2().border_color(Hsla::from(theme.foreground))
@@ -3300,6 +3470,7 @@ impl EditorWindow {
                             .bg(Hsla::from(theme.editor.ctl))
                             .border_dashed_1(Hsla::from(theme.editor.line_strong))
                             .text_color(Hsla::from(theme.editor.text_3))
+                            .tab_index(0)
                             .cursor_pointer()
                             .child(
                                 svg()
@@ -3351,6 +3522,7 @@ impl EditorWindow {
                                 .id(SharedString::from(format!("gradient-preset-{index}")))
                                 .size(px(32.))
                                 .rounded(px(8.))
+                                .tab_index(0)
                                 .cursor_pointer()
                                 .selection_ring(
                                     self.panel_bg(),
@@ -3420,7 +3592,7 @@ impl EditorWindow {
             CornerStyle::Rounded => t!("Rounded"),
         };
 
-        ui::Field::inline(&theme, t!("Corner Style")).child(div().w(px(150.)).child(
+        ui::Field::editor_row(&theme, t!("Corner Style")).child(div().w(px(150.)).child(
             self.menu_select(
                 crate::editor_tabs::SidebarMenu::BackgroundCornerStyle,
                 "corner-style",
@@ -3440,7 +3612,7 @@ impl EditorWindow {
             .flex()
             .flex_col()
             .child(
-                ui::Field::inline(&theme, t!("Border")).value(
+                ui::Field::editor_row(&theme, t!("Border")).value(
                     ui::Toggle::plain(&theme, "border-enabled", enabled)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             let next = !enabled;
@@ -3479,7 +3651,7 @@ impl EditorWindow {
                         "px",
                         cx,
                     ))
-                    .child(ui::Field::stacked(&theme, t!("Border Color")).child(
+                    .child(ui::Field::editor_row(&theme, t!("Border Color")).child(
                         self.render_rgb_input("border-color", ColorTarget::BorderColor, color, cx),
                     ))
                     .child(self.slider_field(
@@ -3506,7 +3678,7 @@ impl EditorWindow {
             .flex()
             .flex_col()
             .child(
-                ui::Field::inline(&theme, t!("MacBook notch")).value(
+                ui::Field::editor_row(&theme, t!("MacBook notch")).value(
                     ui::Toggle::plain(&theme, "notch-enabled", enabled)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             let next = !enabled;
@@ -3701,7 +3873,7 @@ impl EditorWindow {
         cx: &mut Context<Self>,
     ) -> ui::Field {
         let value = format_slider_value(self.slider_value(slider), unit);
-        ui::Field::inline(&self.theme, name)
+        ui::Field::editor_row(&self.theme, name)
             .disabled(disabled)
             .value_text(value)
             .child(self.slider_sized_state(slider, unit, true, disabled, cx))
@@ -3726,7 +3898,7 @@ impl EditorWindow {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = self.theme;
-        let (min, max, _) = self.slider_limits(slider);
+        let (min, max, step) = self.slider_limits(slider);
         let value = self.slider_value(slider);
         let fraction = if max > min {
             ((value - min) / (max - min)).clamp(0., 1.)
@@ -3738,6 +3910,26 @@ impl EditorWindow {
 
         div()
             .id(SharedString::from(format!("bg-slider-row-{slider:?}")))
+            .when(!disabled, |row| {
+                row.tab_index(0)
+                    .focus_visible(|style| style.bg(theme.selection))
+                    .on_key_down(cx.listener(
+                        move |this, event: &gpui::KeyDownEvent, window, cx| {
+                            if let Some(value) = ui::keyboard_slider_value(
+                                event.keystroke.key.as_str(),
+                                this.slider_value(slider),
+                                min,
+                                max,
+                                step,
+                            ) {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                this.end_field_edit(cx);
+                                this.apply_slider(slider, value, window, cx);
+                            }
+                        },
+                    ))
+            })
             // The Kobalte root is `relative px-1 h-8 flex items-center`.
             .px(px(4.))
             .h(px(32.))
@@ -3814,6 +4006,7 @@ pub(crate) fn disclosure_row(
 
     div()
         .id(id)
+        .tab_index(0)
         .group(group.clone())
         .flex()
         .flex_row()
@@ -3823,6 +4016,7 @@ pub(crate) fn disclosure_row(
         .text_size(px(12.))
         .font_weight(FontWeight::MEDIUM)
         .text_color(rest)
+        .tab_index(0)
         .cursor_pointer()
         .hover(move |this| this.text_color(hover))
         .child(label.into())
@@ -3863,6 +4057,7 @@ pub(crate) fn section_action(
 
     div()
         .id(id)
+        .tab_index(0)
         .group(group.clone())
         .flex()
         .flex_row()
@@ -3876,6 +4071,7 @@ pub(crate) fn section_action(
         .font_weight(FontWeight::MEDIUM)
         .text_color(foreground)
         .when(active, |this| this.bg(Hsla::from(theme.editor.ctl_hover)))
+        .tab_index(0)
         .cursor_pointer()
         .hover(move |this| {
             this.bg(Hsla::from(theme.editor.ctl_hover))
@@ -4065,6 +4261,23 @@ impl EditorWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn editor_layout_inventory_keeps_clips_background_and_screen_reachable() {
+        assert_eq!(
+            SidebarTab::ALL.map(SidebarTab::label).as_slice(),
+            [
+                "Background",
+                "Screen",
+                "Camera",
+                "Audio",
+                "Cursor",
+                "Keyboard",
+                "Captions",
+                "Clips"
+            ]
+        );
+    }
 
     #[test]
     fn a_new_grain_step_retires_the_old_texture_for_atlas_eviction() {
@@ -4554,6 +4767,7 @@ impl EditorWindow {
                     .child(
                         div()
                             .id("style-back")
+                            .tab_index(0)
                             .cursor_pointer()
                             .text_size(px(12.))
                             .child(

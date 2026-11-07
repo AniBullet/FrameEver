@@ -201,6 +201,68 @@ pub(crate) fn ripple_keyboard_track(
     }
 }
 
+pub(crate) fn set_clip_transition(
+    timeline: &mut TimelineConfiguration,
+    segment_index: usize,
+    transition: Option<(frameever_project::ClipTransitionType, f64)>,
+) -> bool {
+    if segment_index == 0 || segment_index >= timeline.segments.len() {
+        return false;
+    }
+    let old = timeline.effective_transition(segment_index);
+    let next = match transition {
+        Some((kind, duration)) => {
+            let maximum = timeline.segments[segment_index - 1]
+                .duration()
+                .min(timeline.segments[segment_index].duration())
+                / 2.;
+            if !duration.is_finite()
+                || !maximum.is_finite()
+                || maximum < frameever_project::MIN_CLIP_TRANSITION_DURATION
+            {
+                return false;
+            }
+            Some(ClipTransition {
+                segment_index: segment_index as u32,
+                kind,
+                duration: duration.clamp(frameever_project::MIN_CLIP_TRANSITION_DURATION, maximum),
+            })
+        }
+        None => None,
+    };
+    if old.map(|value| (value.kind, value.duration))
+        == next.map(|value| (value.kind, value.duration))
+    {
+        return false;
+    }
+    let old_duration = old.map_or(0., |value| value.duration);
+    let boundary = clip_timeline_offsets(timeline)[segment_index] + old_duration;
+    let boundary = edits::effective_to_output(&timeline.hold_windows(), boundary);
+    let shift = old_duration - next.map_or(0., |value| value.duration);
+    timeline
+        .transitions
+        .retain(|value| value.segment_index as usize != segment_index);
+    if let Some(next) = next {
+        timeline.transitions.push(next);
+        timeline
+            .transitions
+            .sort_by_key(|value| value.segment_index);
+    }
+    if shift.abs() <= f64::EPSILON {
+        return true;
+    }
+    ripple_track(&mut timeline.style_segments, boundary, shift);
+    ripple_track(&mut timeline.image_segments, boundary, shift);
+    ripple_track(&mut timeline.zoom_segments, boundary, shift);
+    ripple_track(&mut timeline.scene_segments, boundary, shift);
+    ripple_track(&mut timeline.mask_segments, boundary, shift);
+    ripple_track(&mut timeline.text_segments, boundary, shift);
+    ripple_track(&mut timeline.caption_segments, boundary, shift);
+    ripple_track(&mut timeline.camera3d_segments, boundary, shift);
+    ripple_keyboard_track(&mut timeline.keyboard_segments, boundary, shift);
+    ripple_track(&mut timeline.audio_segments, boundary, shift);
+    true
+}
 /// Removes the transition on `segment_index`'s leading boundary and ripples
 /// every other track past it by the overlap the transition gave back, so
 /// nothing downstream shifts under the user (`setClipTransition(index, null)`,
@@ -209,40 +271,13 @@ pub(crate) fn drop_clip_transition(
     timeline: &mut TimelineConfiguration,
     segment_index: usize,
 ) -> bool {
-    let Some(effective) = timeline.effective_transition(segment_index) else {
+    if timeline.effective_transition(segment_index).is_none() {
         timeline
             .transitions
             .retain(|candidate| candidate.segment_index as usize != segment_index);
         return false;
-    };
-    let boundary = clip_timeline_offsets(timeline)
-        .get(segment_index)
-        .copied()
-        .unwrap_or(0.)
-        + effective.duration;
-    let boundary = edits::effective_to_output(&timeline.hold_windows(), boundary);
-    timeline
-        .transitions
-        .retain(|candidate| candidate.segment_index as usize != segment_index);
-    ripple_track(&mut timeline.style_segments, boundary, effective.duration);
-    ripple_track(&mut timeline.image_segments, boundary, effective.duration);
-    ripple_track(&mut timeline.zoom_segments, boundary, effective.duration);
-    ripple_track(&mut timeline.scene_segments, boundary, effective.duration);
-    ripple_track(&mut timeline.mask_segments, boundary, effective.duration);
-    ripple_track(&mut timeline.text_segments, boundary, effective.duration);
-    ripple_track(&mut timeline.caption_segments, boundary, effective.duration);
-    ripple_track(
-        &mut timeline.camera3d_segments,
-        boundary,
-        effective.duration,
-    );
-    ripple_keyboard_track(
-        &mut timeline.keyboard_segments,
-        boundary,
-        effective.duration,
-    );
-    ripple_track(&mut timeline.audio_segments, boundary, effective.duration);
-    true
+    }
+    set_clip_transition(timeline, segment_index, None)
 }
 
 /// `moveClip` (`ClipsSidebar.tsx:639-690`): reorder `timeline.segments`,
@@ -430,38 +465,14 @@ impl EditorWindow {
     /// The Clips toggle (`Header.tsx:173-187`): `Button variant={open ?
     /// "white" : "gray"}` at `flex gap-1.5 justify-center h-[40px]`, clearing
     /// the timeline selection on every press.
-    pub(crate) fn render_clips_pill(
-        &self,
-        compact: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        ui::EditorButton::plain(&self.theme, "clips-pill")
-            .left_icon("icons/clapperboard.svg")
-            .when(!compact, |button| button.label(t!("Clips")))
-            .tooltip(&self.theme, t!("Clips"))
-            .pressed(self.clips.open)
-            .disabled(!self.project_ready())
-            .on_click(cx.listener(|this, _, window, cx| this.toggle_clips(window, cx)))
-    }
-
-    pub(crate) fn toggle_clips(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.project_ready() {
-            return;
-        }
-        self.set_selection(None, cx);
-        if self.clips.open {
-            self.close_clips(window, cx);
-        } else {
-            self.clips.open = true;
-        }
-        cx.notify();
-    }
-
     pub(crate) fn close_clips(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.clips.editing.is_some() {
             self.commit_clip_rename(window, cx);
         }
         self.clips.open = false;
+        if self.sidebar.tab == crate::editor_sidebar::SidebarTab::Clips {
+            self.sidebar.tab = crate::editor_sidebar::SidebarTab::Background;
+        }
         self.clips.import_menu = None;
         self.clips.drag = None;
         self.clips.drop_index = None;
@@ -723,63 +734,7 @@ impl EditorWindow {
     /// The whole clips column, drawn in the config sidebar's slot while the
     /// mode is open. Same `ml-2 w-104` wrapper the config sidebar carries, and
     /// the same card.
-    pub(crate) fn render_clips_sidebar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .w(px(crate::editor_window::SIDEBAR_WIDTH))
-            .flex_none()
-            .flex()
-            .min_h_0()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_hidden()
-                    .rounded(px(12.))
-                    .border_1()
-                    .border_color(self.card_line())
-                    .bg(self.panel_bg())
-                    .child(self.render_clips_back_header(cx))
-                    .child(self.render_clips_body(cx)),
-            )
-    }
-
-    /// The back header (`:798-805`): `h-16 px-4 gap-2 border-b border-gray-3
-    /// text-sm font-medium text-gray-12 hover:bg-gray-3`.
-    fn render_clips_back_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        div()
-            .id("clips-back")
-            .flex()
-            .flex_none()
-            .flex_row()
-            .items_center()
-            .gap(px(8.))
-            .px(px(12.))
-            .w_full()
-            .h(px(crate::editor_window::SIDEBAR_TAB_BAR_HEIGHT))
-            .rounded_t(px(11.))
-            .border_b_1()
-            .border_color(Hsla::from(theme.editor.line))
-            .text_size(px(13.))
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(Hsla::from(theme.editor.text_1))
-            .cursor_pointer()
-            .hover(move |style| style.bg(Hsla::from(theme.editor.ctl)))
-            .child(
-                svg()
-                    .path("icons/move-left.svg")
-                    .size(px(16.))
-                    .flex_shrink_0()
-                    .text_color(Hsla::from(theme.editor.text_2)),
-            )
-            .child(t!("Back to editor"))
-            .on_click(cx.listener(|this, _, window, cx| this.close_clips(window, cx)))
-    }
-
-    /// `flex flex-col flex-1 gap-3 p-3 min-h-0` (`:807`).
-    fn render_clips_body(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn render_clips_body(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let recorded_clip_count = self
             .summary()
@@ -1200,7 +1155,34 @@ impl EditorWindow {
                             .gap(px(2.))
                             .child(
                                 div()
+                                    .id(("clip-menu-trigger", index))
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
+                                    .child(
+                                        ui::EditorButton::plain(
+                                            &theme,
+                                            SharedString::from(format!("clip-menu-{index}")),
+                                        )
+                                        .left_icon("icons/settings.svg")
+                                        .tooltip(&theme, t!("Clip options"))
+                                        .on_click(cx.listener(
+                                            move |this, event: &gpui::ClickEvent, window, cx| {
+                                                this.open_clip_menu_at(
+                                                    index,
+                                                    event.position(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            },
+                                        )),
+                                    ),
+                            )
+                            .child(
+                                div()
                                     .id(SharedString::from(format!("clip-edit-{index}")))
+                                    .tab_index(0)
+                                    .focus_visible(|style| style.opacity(1.))
                                     .flex()
                                     .flex_none()
                                     .justify_center()
@@ -1226,6 +1208,8 @@ impl EditorWindow {
                             .children((count > 1).then(|| {
                                 div()
                                     .id(SharedString::from(format!("clip-delete-{index}")))
+                                    .tab_index(0)
+                                    .focus_visible(|style| style.opacity(1.))
                                     .flex()
                                     .flex_none()
                                     .justify_center()
@@ -3871,6 +3855,52 @@ mod tests {
             kind: frameever_project::ClipTransitionType::CrossFade,
             duration,
         }
+    }
+
+    #[test]
+    fn editor_layout_transition_changes_ripple_tracks_and_round_trip() {
+        let mut config = timeline(vec![segment(0, 0., 4.), segment(1, 0., 4.)]);
+        config.style_segments.push(frameever_project::StyleSegment {
+            start: 5.,
+            end: 7.,
+            ..Default::default()
+        });
+        let original = serde_json::to_value(&config).unwrap();
+        assert!(!set_clip_transition(
+            &mut config,
+            0,
+            Some((frameever_project::ClipTransitionType::CrossFade, 0.5))
+        ));
+        assert_eq!(serde_json::to_value(&config).unwrap(), original);
+        assert!(set_clip_transition(
+            &mut config,
+            1,
+            Some((frameever_project::ClipTransitionType::CrossFade, 0.5))
+        ));
+        assert_eq!(
+            (config.style_segments[0].start, config.style_segments[0].end),
+            (4.5, 6.5)
+        );
+        assert!(set_clip_transition(
+            &mut config,
+            1,
+            Some((frameever_project::ClipTransitionType::FadeThroughBlack, 1.))
+        ));
+        assert_eq!(
+            (config.style_segments[0].start, config.style_segments[0].end),
+            (4., 6.)
+        );
+        assert_eq!(
+            config.effective_transition(1).unwrap().kind,
+            frameever_project::ClipTransitionType::FadeThroughBlack
+        );
+        assert!(!set_clip_transition(
+            &mut config,
+            1,
+            Some((frameever_project::ClipTransitionType::FadeThroughBlack, 1.))
+        ));
+        assert!(set_clip_transition(&mut config, 1, None));
+        assert_eq!(serde_json::to_value(&config).unwrap(), original);
     }
 
     #[test]

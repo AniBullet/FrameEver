@@ -618,7 +618,7 @@ impl EditorWindow {
         if target == GradeTarget::Screen {
             let grade_cursor = self.project.color_correction.grade_cursor;
             section = section.child(
-                ui::Field::inline(&theme, t!("Apply to cursor")).value(
+                ui::Field::editor_row(&theme, t!("Apply to cursor")).value(
                     ui::Toggle::plain(&theme, "grade-cursor", grade_cursor)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.edit_project("grade-cursor", window, cx, |project| {
@@ -632,7 +632,7 @@ impl EditorWindow {
         }
 
         // The `KCollapsible` with its own text trigger (`:168-176`).
-        section
+        let content = section
             .child(
                 div()
                     .w_full()
@@ -669,7 +669,16 @@ impl EditorWindow {
                         cx.reduce_motion(),
                     )),
             )
-            .into_any_element()
+            .into_any_element();
+        self.folded_group(
+            match target {
+                GradeTarget::Screen => crate::editor_sidebar::PanelSection::ScreenColor,
+                GradeTarget::Camera => crate::editor_sidebar::PanelSection::CameraColor,
+            },
+            t!("Color correction"),
+            content,
+            cx,
+        )
     }
 }
 

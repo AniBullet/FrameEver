@@ -42,6 +42,7 @@ static CHINESE_UI_FONT_LOADED: AtomicBool = AtomicBool::new(false);
 const ICONS: &[(&str, &[u8])] = assets!("icons":
     "app-window.svg",
     "app-window-mac.svg",
+    "arrow-down.svg",
     "arrow-down-wide-narrow.svg",
     "arrow-up-wide-narrow.svg",
     "list-filter.svg",
@@ -49,6 +50,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "arrow-left-right.svg",
     "arrow-left-to-line.svg",
     "arrow-right-to-line.svg",
+    "arrow-up.svg",
     "arrow-up-right.svg",
     "ban.svg",
     "blur.svg",

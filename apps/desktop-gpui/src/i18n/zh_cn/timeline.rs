@@ -217,24 +217,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Title", "标题"),
     ("Frame", "外框"),
-    ("Add a frame", "添加外框"),
     ("Window title", "窗口标题"),
-    (
-        "This Style changed. Close and reopen Frame.",
-        "这个样式已变化。请关闭后重新打开外框设置。",
-    ),
-    (
-        "Style {index} only · Editing enables its background override.",
-        "仅样式 {index} · 编辑后将启用它的独立背景。",
-    ),
-    (
-        "Style {index} only · Global settings stay unchanged.",
-        "仅样式 {index} · 全局设置保持不变。",
-    ),
-    (
-        "Global frame · Applies wherever Style inherits background.",
-        "全局外框 · 应用于所有沿用全局背景的样式。",
-    ),
     ("Theme", "主题"),
     ("Light", "浅色"),
     ("Dark", "深色"),
@@ -412,13 +395,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Export complete; clipboard copy failed",
         "导出完成，但复制到剪贴板失败",
     ),
-    ("Export failed", "导出失败"),
     ("{rendered} / {total} frames", "{rendered} / {total} 帧"),
     ("Cancel export?", "取消导出？"),
-    (
-        "Are you sure you want to cancel the export?",
-        "确定要取消导出吗？",
-    ),
     ("Cancel export", "取消导出"),
     ("Keep exporting", "继续导出"),
     (
@@ -426,7 +404,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "如果希望停止录制就得到可直接播放的文件，下次请使用即时模式。",
     ),
     ("Retry Copy", "重新复制"),
-    ("Open File", "打开文件"),
     ("Check export resources", "检查导出所需资源"),
     ("Proceed anyway", "仍然继续"),
     ("Go back", "返回"),

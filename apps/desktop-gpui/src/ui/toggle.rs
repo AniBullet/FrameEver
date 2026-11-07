@@ -145,7 +145,8 @@ impl RenderOnce for Toggle {
             .bg(if checked { on_fill } else { off_fill })
             .child(div().size(size.thumb()).rounded_full().bg(thumb))
             .when_some(on_click.filter(|_| !disabled), |this, handler| {
-                this.on_click(move |event, window, cx| handler(event, window, cx))
+                this.tab_index(0)
+                    .on_click(move |event, window, cx| handler(event, window, cx))
             })
     }
 }

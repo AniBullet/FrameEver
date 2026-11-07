@@ -3805,21 +3805,58 @@ impl EditorWindow {
         }
     }
 
+    fn pad_key_down(
+        &mut self,
+        key: PadKey,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (x, y) = self.pad_value(key);
+        let step = if event.keystroke.modifiers.shift {
+            0.1
+        } else {
+            0.01
+        };
+        let (x, y) = match event.keystroke.key.as_str() {
+            "left" => (x - step, y),
+            "right" => (x + step, y),
+            "up" => (x, y - step),
+            "down" => (x, y + step),
+            _ => return,
+        };
+        window.prevent_default();
+        cx.stop_propagation();
+        self.apply_pad(key, x.clamp(0., 1.), y.clamp(0., 1.), window, cx);
+    }
+
     fn render_pad(&self, key: PadKey, cx: &mut Context<Self>) -> AnyElement {
         let (x, y) = self.pad_value(key);
-        ui::PositionPad::plain(
-            &self.theme,
-            SharedString::from(format!("pad-{key:?}")),
-            x,
-            y,
-            self.sidebar.pad(key),
-        )
-        .on_press(
-            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                this.pad_mouse_down(key, event, window, cx);
-            }),
-        )
-        .into_any_element()
+        div()
+            .id(SharedString::from(format!("pad-keys-{key:?}")))
+            .w_full()
+            .tab_index(0)
+            .focus_visible(|style| style.bg(self.theme.selection))
+            .on_key_down(
+                cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                    this.pad_key_down(key, event, window, cx)
+                }),
+            )
+            .child(
+                ui::PositionPad::plain(
+                    &self.theme,
+                    SharedString::from(format!("pad-{key:?}")),
+                    x,
+                    y,
+                    self.sidebar.pad(key),
+                )
+                .on_press(cx.listener(
+                    move |this, event: &MouseDownEvent, window, cx| {
+                        this.pad_mouse_down(key, event, window, cx);
+                    },
+                )),
+            )
+            .into_any_element()
     }
 }
 
@@ -4374,6 +4411,7 @@ impl EditorWindow {
                     .text_size(px(12.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(Hsla::from(theme.gray_11))
+                    .tab_index(0)
                     .cursor_pointer()
                     .child(
                         svg()
@@ -5323,7 +5361,7 @@ impl EditorWindow {
                             self.render_color_input(ColorTarget::TextColor(index), &color, cx),
                         ))
                         .child(
-                            ui::Field::inline(&theme, t!("Gradient")).child(
+                            ui::Field::editor_row(&theme, t!("Gradient")).child(
                                 ui::Toggle::plain(
                                     &theme,
                                     SharedString::from(format!("text-gradient-{index}")),
@@ -5765,8 +5803,8 @@ impl EditorWindow {
                                 .border_1()
                                 .border_color(Hsla::from(theme.editor.line))
                                 .bg(Hsla::from(theme.gray_2))
-                                .cursor_pointer()
                                 .tab_index(0)
+                                .cursor_pointer()
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.open_audio_replace(index, cx);
                                 }))
@@ -6418,6 +6456,7 @@ impl EditorWindow {
             .flex_col()
             .items_center()
             .gap(px(5.))
+            .tab_index(0)
             .cursor_pointer()
             .child(
                 div()
@@ -6537,6 +6576,7 @@ impl EditorWindow {
                         .py(px(8.))
                         .rounded(px(8.))
                         .bg(Hsla::from(theme.editor.ctl))
+                        .tab_index(0)
                         .cursor_pointer()
                         .hover(|style| style.bg(Hsla::from(theme.editor.ctl_hover)))
                         .child(
@@ -6615,6 +6655,12 @@ impl EditorWindow {
         let line = Hsla::from(theme.editor.line_strong);
 
         div()
+            .tab_index(0)
+            .on_key_down(
+                cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                    this.pad_key_down(key, event, window, cx)
+                }),
+            )
             .id(SharedString::from(format!("c3d-orbit-{index}")))
             .relative()
             .size(px(CAMERA3D_ORBIT_PAD))
@@ -6822,6 +6868,7 @@ impl EditorWindow {
             .flex()
             .flex_col()
             .gap(px(5.))
+            .tab_index(0)
             .cursor_pointer()
             .child(
                 div()
@@ -7048,7 +7095,8 @@ impl EditorWindow {
                     })
                     .when(!available, |this| this.opacity(0.35))
                     .when(available && !active, |this| {
-                        this.cursor_pointer()
+                        this.tab_index(0)
+                            .cursor_pointer()
                             .hover(|style| style.bg(Hsla::from(theme.editor.ctl_hover)))
                     })
                     .when(available, |this| {
@@ -7388,6 +7436,7 @@ impl EditorWindow {
                     .rounded(px(10.))
                     .border_1()
                     .border_color(Hsla::from(theme.editor.line))
+                    .tab_index(0)
                     .cursor_pointer()
                     .text_size(px(12.))
                     .font_weight(FontWeight::MEDIUM)
@@ -9005,6 +9054,7 @@ impl EditorWindow {
                     .children(active.then(|| {
                         div()
                             .id(SharedString::from(format!("style-edit-{index}-{group:?}")))
+                            .tab_index(0)
                             .cursor_pointer()
                             .px(px(12.))
                             .py(px(8.))
@@ -9045,6 +9095,7 @@ impl EditorWindow {
             crop = crop.child(
                 div()
                     .id(SharedString::from(format!("style-crop-reset-{index}")))
+                    .tab_index(0)
                     .cursor_pointer()
                     .child(t!("Reset crop"))
                     .on_click(cx.listener(move |this, _, window, cx| {

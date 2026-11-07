@@ -1470,7 +1470,7 @@ const exportStateBody = () => {
 		case "done":
 			return `<div class="ex-state"><span class="done-bar"></span>${FE.doodle("ALL_SET", { width: 72, still })}<h4>${L("Export complete", "导出完成")}</h4><p>Product demo.mp4 · 64 MB</p><div class="acts"><button class="ex-sec" data-act="close-export">${L("Back to editor", "返回编辑器")}</button><button class="ex-cta" style="flex:none;padding:0 14px">${L("Open file", "打开文件")}</button></div></div>`;
 		case "failed":
-			return `<div class="ex-state">${icon("triangle-alert", "big bad")}<h4>${L("Couldn't finish the export", "导出没有完成")}</h4><p>${L("The disk is full. Free up some space, then export again.", "磁盘已满。腾出一些空间后再导出。")}</p><div class="acts"><button class="ex-sec">${L("Details", "详情")}</button><button class="ex-cta" style="flex:none;padding:0 14px" data-act="exst" data-v="form">${L("Back to export", "返回导出")}</button></div></div>`;
+			return `<div class="ex-state">${icon("triangle-alert", "big bad")}<h4>${L("Couldn't finish the export", "导出没有完成")}</h4><p>${L("The disk is full. Free up some space, then export again.", "磁盘已满。腾出一些空间后再导出。")}</p><div class="acts"><button class="ex-sec">${L("Details", "详情")}</button><button class="ex-sec">${L("Export logs", "导出日志")}</button><button class="ex-cta" style="flex:none;padding:0 14px" data-act="exst" data-v="form">${L("Back to export", "返回导出")}</button></div></div>`;
 		default:
 			return "";
 	}
@@ -1516,7 +1516,7 @@ const menus = {
 			<div class="t">${L("Transition from previous clip", "与上一片段的转场")}</div><div class="box"><div class="seg-row">${[
 				["None", "无"],
 				["Cross fade", "交叉淡化"],
-				["Fade through black", "黑场过渡"],
+				["Through black", "黑场过渡"],
 			]
 				.map(
 					(o, i) =>
@@ -1529,6 +1529,8 @@ const menus = {
 			<button data-act="close">${icon("scissors")}<span class="grow">${L("Split at playhead", "在播放头处分割")}</span><span class="kbd">C</span></button>
 			<button data-act="close">${L("Merge with previous clip", "与上一片段合并")}</button>
 			<button data-act="close">${L("Merge with next clip", "与下一片段合并")}</button>
+			<button data-act="close">${icon("arrow-up")}${L("Move clip up", "上移片段")}</button>
+			<button data-act="close">${icon("arrow-down")}${L("Move clip down", "下移片段")}</button>
 			<button data-act="close">${icon("pencil")}${L("Rename clip", "重命名片段")}</button>
 			<button class="danger" data-act="close">${icon("trash")}<span class="grow">${L("Delete clip", "删除片段")}</span><span class="kbd">Del</span></button>
 		</div>`;
@@ -2027,7 +2029,7 @@ const renderDocs = () => {
 				"Zoom, text, caption, keyboard, audio, mask, scene, 3D shot, image, style segments",
 				"缩放、文字、字幕、按键、音频、遮罩、场景、3D 镜头、图片、样式段落",
 			],
-			["Inspector when selected", "选中后在检查器"],
+			["Inspector when selected; Tab to a track, Enter or Left/Right selects an existing segment", "选中后在检查器；Tab 到轨道，Enter 或左右键选择已有段落"],
 		],
 		[
 			["Audio library", "音频库"],
@@ -2038,7 +2040,7 @@ const renderDocs = () => {
 				"Clip speed, volume, mute, pitch, hide cursor, split, merge, rename, delete",
 				"片段速度、音量、静音、音调、隐藏光标、分割、合并、重命名、删除",
 			],
-			["Clip menu", "片段菜单"],
+			["Clip menu (also from Clips › Clip options)", "片段菜单（也可从片段页的片段选项打开）"],
 		],
 		[
 			["Clip transitions: add, change, remove", "片段转场：添加、更改、删除"],
@@ -2082,8 +2084,8 @@ const renderDocs = () => {
 		],
 		[
 			[
-				"Export options, estimates, progress, cancel, finished, failed",
-				"导出选项、估算、进度、取消、完成、失败",
+				"Export options, estimates, progress, cancel, finished, failed (Details and Export logs)",
+				"导出选项、估算、进度、取消、完成、失败（详情和导出日志）",
 			],
 			["Export page", "导出页"],
 		],

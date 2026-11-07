@@ -160,7 +160,8 @@ impl RenderOnce for RadioCards {
                             ),
                     )
                     .when_some(handler.filter(|_| !item.disabled), |this, handler| {
-                        this.on_click(move |_, window, cx| handler(&index, window, cx))
+                        this.tab_index(0)
+                            .on_click(move |_, window, cx| handler(&index, window, cx))
                     })
             }))
     }

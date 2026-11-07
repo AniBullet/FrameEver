@@ -146,8 +146,8 @@ const MIN_PLAYER_HEIGHT: f32 = 320.;
 
 /// The player's two control rows: the actions toolbar across the top of the
 /// card, the transport across the bottom.
-const PLAYER_TOOLBAR_HEIGHT: f32 = 44.;
-const PLAYER_BAR_HEIGHT: f32 = 48.;
+const PLAYER_TOOLBAR_HEIGHT: f32 = 40.;
+const PLAYER_BAR_HEIGHT: f32 = 44.;
 
 /// The resize grip: a hit zone straddling the 8px gap between the player row
 /// and the timeline card, with the pill drawn in the middle of the gap.
@@ -165,14 +165,13 @@ const CLIP_RESIZE_ANIM_DURATION: Duration = Duration::from_millis(180);
 const CLIP_RESIZE_ANIM_TICK: Duration = Duration::from_millis(16);
 
 /// The header row.
-const HEADER_HEIGHT: f32 = 52.;
+const HEADER_HEIGHT: f32 = 44.;
 
 /// `w-104 min-w-104` on the sidebar column (`Editor.tsx:728`). Tailwind v4
 /// arbitrary spacing: 104 x 0.25rem = 26rem = 416px. The column also carries
 /// `ml-2`, i.e. an 8px gutter.
-pub(crate) const SIDEBAR_WIDTH: f32 = 416.;
+pub(crate) const SIDEBAR_WIDTH: f32 = 386.;
 /// The sidebar's tab rail.
-pub(crate) const SIDEBAR_TAB_BAR_HEIGHT: f32 = 46.;
 
 /// `padding = 4` inside `PreviewCanvas` (`Player.tsx:566`).
 const PLAYER_CANVAS_PADDING: f32 = 4.;
@@ -187,7 +186,7 @@ impl EditorVerticalLayout {
     fn new(viewport_height: f32, preferred_timeline_height: f32) -> Self {
         // The header, the 8px gap between the player row and the timeline, and
         // the 8px gutter under the timeline card.
-        let available = (viewport_height - HEADER_HEIGHT - 16.).max(0.);
+        let available = (viewport_height - HEADER_HEIGHT - 8.).max(0.);
         let scale = (available / (MIN_PLAYER_HEIGHT + MIN_TIMELINE_HEIGHT)).min(1.);
         let player_min_height = MIN_PLAYER_HEIGHT * scale;
         // The floor is one visible row, not the reference split: a project with
@@ -231,6 +230,24 @@ fn preset_submenu_origin(
     point(px(x), px(row_top.clamp(POPOVER_WINDOW_INSET, max_y)))
 }
 
+fn traverse_editor_focus(
+    event: &gpui::KeyDownEvent,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) -> bool {
+    if event.keystroke.key != "tab" {
+        return false;
+    }
+    if event.keystroke.modifiers.shift {
+        window.focus_prev(cx);
+    } else {
+        window.focus_next(cx);
+    }
+    window.prevent_default();
+    cx.stop_propagation();
+    true
+}
+
 fn compact_header_controls(viewport_width: f32, windows: bool, captions: bool) -> bool {
     let actions_width = if captions { 416. } else { 304. };
     let caption_controls_width = if windows { 138. } else { 0. };
@@ -238,7 +255,7 @@ fn compact_header_controls(viewport_width: f32, windows: bool, captions: bool) -
 }
 
 fn editor_player_width(viewport_width: f32) -> f32 {
-    (viewport_width - SIDEBAR_WIDTH - 8. - 16. - 2.).max(0.)
+    (viewport_width - SIDEBAR_WIDTH).max(0.)
 }
 
 // ---------------------------------------------------------------------------
@@ -756,13 +773,8 @@ impl Render for EditorSectionView {
                             LoadState::Failed(_)
                         ));
                     }
-                    let sidebar = if editor.clips.open {
-                        editor.render_clips_sidebar(cx).into_any_element()
-                    } else {
-                        editor.with_style_controls(|editor| {
-                            editor.render_sidebar(cx).into_any_element()
-                        })
-                    };
+                    let sidebar = editor
+                        .with_style_controls(|editor| editor.render_sidebar(cx).into_any_element());
                     loading::reveal(
                         "editor-sidebar-ready",
                         sidebar,
@@ -1743,6 +1755,7 @@ fn clip_menu_toggle_row(
         .gap(px(10.))
         .rounded(px(8.))
         .px(px(8.))
+        .tab_index(0)
         .cursor_pointer()
         .hover(|this| this.bg(Hsla::from(theme.editor.ctl_hover)))
         .child(
@@ -1824,7 +1837,9 @@ fn clip_menu_row(
         .text_size(px(12.5))
         .text_color(text)
         .when(enabled, |this| {
-            this.cursor_pointer().hover(move |this| this.bg(hover_bg))
+            this.tab_index(0)
+                .cursor_pointer()
+                .hover(move |this| this.bg(hover_bg))
         })
         .child(
             svg()
@@ -3312,6 +3327,9 @@ impl EditorWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if traverse_editor_focus(event, window, cx) {
+            return;
+        }
         if !self.visual_ready() {
             let key = &event.keystroke;
             let close = (key.key == "w" && (key.modifiers.platform || key.modifiers.control))
@@ -3345,11 +3363,6 @@ impl EditorWindow {
     /// (`:42`) as `is_held` is here.
     fn on_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if !self.visual_ready() {
-            return;
-        }
-        if self.frame_controls.is_open() && event.keystroke.key == "escape" {
-            self.close_frame_controls(window, cx);
-            cx.stop_propagation();
             return;
         }
         // Crop mode first. It takes Escape and the four arrows and lets
@@ -3422,7 +3435,6 @@ impl EditorWindow {
                 || self.sidebar.menu.is_some()
                 || self.toolbar_menu.is_some()
                 || self.presets_menu.is_some(),
-            frame_controls: self.frame_controls.is_open(),
             lane_reorder: self.lane_reorder.is_some(),
         };
         if let Some(frames) = playhead_step_frames(&event.keystroke, arrow_owners) {
@@ -7044,6 +7056,7 @@ impl EditorWindow {
             .clamp_timeline_height(self.preferred_timeline_height(), f32::from(viewport.height));
         let header_bottom = f32::from(viewport.height) - timeline_height
             + TIMELINE_CARD_BORDER
+            + 36.
             + TIMELINE_TOP_PADDING
             + TIMELINE_HEADER_HEIGHT;
         self.add_track_opens += 1;
@@ -7791,13 +7804,14 @@ impl EditorWindow {
 
     /// Opens (or re-anchors) the clip menu at `origin`: the cog's press, or a
     /// right-click anywhere on the clip.
-    fn open_clip_menu_at(
+    pub(crate) fn open_clip_menu_at(
         &mut self,
         index: usize,
         origin: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.set_selection(Some(Selection::single(TrackKind::Clip, index)), cx);
         let focus = self.focus_handle_for_menu();
         window.focus(&focus, cx);
         let menu = clip_menu_placement(index, origin, window.viewport_size());
@@ -8100,6 +8114,7 @@ impl EditorWindow {
                     .flex()
                     .items_center()
                     .justify_center()
+                    .tab_index(0)
                     .cursor_pointer()
                     .border_1()
                     .border_color(Hsla::from(self.theme.editor.line))
@@ -8108,11 +8123,10 @@ impl EditorWindow {
                         this.bg(Hsla::from(self.theme.editor.ctl_active))
                     })
                     .hover(|this| this.bg(Hsla::from(self.theme.editor.ctl_hover)))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                            cx.stop_propagation();
-                            this.open_clip_speed(index, event.position, window, cx);
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(
+                        cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                            this.open_clip_speed(index, event.position(), window, cx);
                         }),
                     )
                     .child(
@@ -8126,7 +8140,11 @@ impl EditorWindow {
         layer.into_any_element()
     }
 
-    fn render_clip_speed_popover(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    fn render_clip_speed_popover(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
         let menu = self.clip_speed?;
         let theme = self.theme;
         let timeline = self.project.timeline.as_ref()?;
@@ -8182,6 +8200,7 @@ impl EditorWindow {
                 .text_size(px(11.5))
                 .text_center()
                 .whitespace_nowrap()
+                .tab_index(0)
                 .cursor_pointer()
                 .bg(if selected {
                     Hsla::from(theme.editor.ctl_active)
@@ -8213,6 +8232,15 @@ impl EditorWindow {
             .absolute()
             .left(menu.left)
             .w(px(CLIP_MENU_WIDTH))
+            .max_h(match menu.anchor {
+                ClipMenuAnchor::Above { bottom } => {
+                    (window.viewport_size().height - bottom - px(12.)).max(px(120.))
+                }
+                ClipMenuAnchor::Below { top } => {
+                    (window.viewport_size().height - top - px(12.)).max(px(120.))
+                }
+            })
+            .overflow_y_scroll()
             .flex()
             .flex_col()
             .gap(px(8.))
@@ -8344,6 +8372,115 @@ impl EditorWindow {
                             },
                         )),
                     ),
+            )
+            .children((index > 0).then(|| {
+                let can_transition = timeline.segments[index - 1]
+                    .duration()
+                    .min(timeline.segments[index].duration())
+                    >= 0.1;
+                let transition = timeline.effective_transition(index);
+                let selected = match transition.map(|transition| transition.kind) {
+                    None => 0,
+                    Some(frameever_project::ClipTransitionType::CrossFade) => 1,
+                    Some(frameever_project::ClipTransitionType::FadeThroughBlack) => 2,
+                };
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(clip_menu_section(&theme, t!("Incoming transition")))
+                    .child(
+                        ui::SegmentedControl::editor(
+                            &theme,
+                            "clip-transition",
+                            [t!("None"), t!("Cross fade"), t!("Through black")]
+                                .into_iter()
+                                .enumerate()
+                                .map(|(i, label)| {
+                                    ui::SegmentOption::new(label, i == selected)
+                                        .disabled(i > 0 && !can_transition)
+                                })
+                                .collect(),
+                        )
+                        .stretch()
+                        .item_height(px(32.))
+                        .item_padding(px(2.), px(0.))
+                        .text_size(px(11.))
+                        .on_select(cx.listener(
+                            move |this, choice: &usize, window, cx| {
+                                let value = match choice {
+                                    1 => Some((
+                                        frameever_project::ClipTransitionType::CrossFade,
+                                        transition.map_or(0.5, |value| value.duration),
+                                    )),
+                                    2 => Some((
+                                        frameever_project::ClipTransitionType::FadeThroughBlack,
+                                        transition.map_or(0.5, |value| value.duration),
+                                    )),
+                                    _ => None,
+                                };
+                                this.edit_project("clip-transition", window, cx, |project| {
+                                    project.timeline.as_mut().is_some_and(|timeline| {
+                                        crate::editor_clips::set_clip_transition(
+                                            timeline, index, value,
+                                        )
+                                    })
+                                });
+                            },
+                        )),
+                    )
+                    .children((!can_transition).then(|| {
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.muted_foreground)
+                            .child(t!("Clip is too short for a transition."))
+                    }))
+                    .children(transition.map(|_| {
+                        self.slider_field(
+                            t!("Duration"),
+                            crate::editor_sidebar::SliderKey::ClipTransition(index),
+                            "secs",
+                            cx,
+                        )
+                        .into_any_element()
+                    }))
+                    .into_any_element()
+            }))
+            .children(
+                [(true, t!("Move clip up")), (false, t!("Move clip down"))]
+                    .into_iter()
+                    .map(|(up, label)| {
+                        let enabled = if up {
+                            index > 0
+                        } else {
+                            index + 1 < timeline.segments.len()
+                        };
+                        clip_menu_row(
+                            &theme,
+                            if up { "clip-up" } else { "clip-down" },
+                            if up {
+                                "icons/arrow-up.svg"
+                            } else {
+                                "icons/arrow-down.svg"
+                            },
+                            label,
+                            ClipMenuTrailing::None,
+                            enabled,
+                            false,
+                        )
+                        .when(enabled, |row| {
+                            row.on_click(cx.listener(move |this, _, window, cx| {
+                                this.clip_speed = None;
+                                let insertion = if up { index - 1 } else { index + 2 };
+                                this.edit_project("clip-reorder", window, cx, |project| {
+                                    project.timeline.as_mut().is_some_and(|timeline| {
+                                        crate::editor_clips::move_clip(timeline, index, insertion)
+                                    })
+                                });
+                            }))
+                        })
+                        .into_any_element()
+                    }),
             )
             .child(divider())
             .child(
@@ -8627,7 +8764,8 @@ impl EditorWindow {
             .rounded(px(8.))
             .when(!available, |this| this.opacity(0.45))
             .when(available, |this| {
-                this.cursor_pointer()
+                this.tab_index(0)
+                    .cursor_pointer()
                     .hover(|this| this.bg(Hsla::from(theme.editor.ctl)))
                     .active(|this| this.bg(Hsla::from(theme.editor.ctl_hover)))
             })
@@ -8834,6 +8972,7 @@ impl EditorWindow {
                                         .h(px(40.))
                                         .px(px(8.))
                                         .rounded(px(8.))
+                                        .tab_index(0)
                                         .cursor_pointer()
                                         .hover(|this| this.bg(Hsla::from(theme.editor.ctl_hover)))
                                         .text_size(px(14.))
@@ -8885,6 +9024,7 @@ impl EditorWindow {
             .h(px(40.))
             .px(px(8.))
             .rounded(px(8.))
+            .tab_index(0)
             .cursor_pointer()
             .hover(|this| this.bg(Hsla::from(theme.editor.ctl_hover)))
             .child(
@@ -8918,6 +9058,7 @@ impl EditorWindow {
                     .size(px(24.))
                     .rounded(px(6.))
                     .flex_none()
+                    .tab_index(0)
                     .cursor_pointer()
                     .hover(|this| this.bg(Hsla::from(theme.editor.ctl_active)))
                     .child(
@@ -8973,6 +9114,7 @@ impl EditorWindow {
                 .h(px(32.))
                 .px(px(8.))
                 .rounded(px(6.))
+                .tab_index(0)
                 .cursor_pointer()
                 .hover(move |this| this.bg(Hsla::from(theme.editor.ctl_hover)))
                 .text_size(px(13.))
@@ -9432,15 +9574,6 @@ impl EditorWindow {
                                 this.open_presets_menu(bounds.bottom_left(), window, cx);
                             })),
                     )
-                    .child(self.render_clips_pill(compact, cx))
-                    // `<Show when={hasTranscript()}>`: the button only exists
-                    // once a transcript with words does.
-                    .children(
-                        has_captions.then(|| {
-                            self.header_pill("icons/captions.svg", t!("Captions"), compact)
-                        }),
-                    )
-                    .child(div().w(px(6.)).flex_none())
                     .child(self.render_export_button(cx))
                     .relative()
                     .children((!self.visual_ready()).then(|| {
@@ -9475,22 +9608,6 @@ impl EditorWindow {
             .bg(Hsla::from(self.theme.editor.line_strong))
     }
 
-    /// The Captions toggle. Inert -- the transcript layout mode does not exist
-    /// yet. Clips has its own live button (`crate::editor_clips`).
-    fn header_pill(
-        &self,
-        icon: &'static str,
-        label: &'static str,
-        compact: bool,
-    ) -> impl IntoElement {
-        let theme = self.theme;
-        ui::EditorButton::plain(&theme, "editor-captions-pill")
-            .left_icon(icon)
-            .when(!compact, |button| button.label(label))
-            .tooltip(&theme, label)
-            .disabled(true)
-    }
-
     fn render_export_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let editor = self.theme.editor;
         div()
@@ -9507,7 +9624,9 @@ impl EditorWindow {
             .flex_none()
             .overflow_hidden()
             .rounded(px(8.))
-            .when(self.project_ready(), |button| button.cursor_pointer())
+            .when(self.project_ready(), |button| {
+                button.tab_index(0).cursor_pointer()
+            })
             .when(!self.project_ready(), |button| button.opacity(0.5))
             .bg(editor.accent)
             .hover(move |style| style.bg(editor.accent_hover))
@@ -9744,7 +9863,6 @@ impl EditorWindow {
                         this.open_crop(window, cx);
                     })),
             )
-            .child(self.render_frame_button(narrow, cx))
             .child(
                 ui::EditorButton::plain(&theme, "snapshot")
                     .text(&theme)
@@ -9809,6 +9927,7 @@ impl EditorWindow {
                             this.bg(selected_bg).text_color(Hsla::from(editor.text_1))
                         } else {
                             this.text_color(Hsla::from(editor.text_2))
+                                .tab_index(0)
                                 .cursor_pointer()
                                 .hover(|style| style.bg(Hsla::from(editor.ctl_hover)))
                         }
@@ -9933,6 +10052,7 @@ impl EditorWindow {
             .size(px(28.))
             .flex_none()
             .rounded(px(7.))
+            .tab_index(0)
             .cursor_pointer()
             .hover(|this| this.bg(Hsla::from(theme.editor.ctl_hover)))
             .active(|this| this.bg(Hsla::from(theme.editor.ctl_active)))
@@ -10007,7 +10127,9 @@ impl EditorWindow {
                 .justify_center()
                 .size(px(24.))
                 .when(live, |this| {
-                    this.cursor_pointer().hover(|style| style.opacity(0.7))
+                    this.tab_index(0)
+                        .cursor_pointer()
+                        .hover(|style| style.opacity(0.7))
                 })
                 .child(
                     svg()
@@ -10114,6 +10236,21 @@ impl EditorWindow {
                             )),
                     ),
             )
+    }
+
+    fn render_timeline_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let editor = theme.editor;
+        let total = self.total_duration();
+        let compact = false;
+        div()
+            .h(px(36.))
+            .w_full()
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_end()
+            .px(px(12.))
             .child(
                 div()
                     .flex()
@@ -10162,6 +10299,35 @@ impl EditorWindow {
                                 )),
                             ),
                     )
+                    .child(
+                        div()
+                            .id("timeline-delete-tooltip")
+                            .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+                            .tooltip(move |_, cx| {
+                                ui::Tooltip::new(&theme, t!("Delete"))
+                                    .keys(["Delete"])
+                                    .view(cx)
+                            })
+                            .child(
+                                ui::IconButton::new("timeline-delete", "icons/trash.svg")
+                                    .size(px(28.))
+                                    .icon_size(px(16.))
+                                    .color(theme.muted_foreground.into())
+                                    .disabled(self.selection().is_none())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.delete_selection(window, cx)
+                                    })),
+                            ),
+                    )
+                    .child(
+                        ui::EditorButton::plain(&theme, "timeline-add-track")
+                            .left_icon("icons/plus.svg")
+                            .label(t!("Add track"))
+                            .disabled(!self.project_ready())
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_add_track(window, cx)),
+                            ),
+                    )
                     .child(self.header_divider())
                     // `IconCapZoomOut` -> `updateZoom(zoom * 1.1,
                     // playbackTime)`; `IconCapZoomIn` -> `zoom / 1.1`
@@ -10171,26 +10337,54 @@ impl EditorWindow {
                     // step={0.001}`. Fully left is fully zoomed *out* -- the
                     // value is `1 - zoom / zoomOutLimit()`.
                     .children((!compact).then(|| {
-                        ui::Slider::new(
-                            "timeline-zoom",
-                            self.view.transform.slider_fraction(total),
-                            self.zoom_slider_track.clone(),
-                        )
-                        .row_width(px(72.))
-                        .row_height(px(20.))
-                        .track(px(3.), Hsla::from(editor.ctl_active))
-                        .fill(Hsla::from(editor.accent))
-                        .thumb(
-                            px(12.),
-                            Hsla::from(editor.thumb),
-                            Some(gpui::hsla(0., 0., 0., 0.12)),
-                        )
-                        .on_drag_start(cx.listener(
-                            |this, event: &MouseDownEvent, window, cx| {
-                                this.zoom_slider_drag = true;
-                                this.apply_zoom_slider(event.position, window, cx);
-                            },
-                        ))
+                        div()
+                            .id("timeline-zoom-keys")
+                            .tab_index(0)
+                            .focus_visible(|style| style.bg(theme.selection))
+                            .on_key_down(cx.listener(
+                                |this, event: &gpui::KeyDownEvent, window, cx| {
+                                    let total = this.total_duration();
+                                    if let Some(value) = ui::keyboard_slider_value(
+                                        event.keystroke.key.as_str(),
+                                        this.view.transform.slider_fraction(total),
+                                        0.,
+                                        1.,
+                                        0.01,
+                                    ) {
+                                        window.prevent_default();
+                                        cx.stop_propagation();
+                                        this.view.transform.apply_slider(
+                                            value,
+                                            this.playhead,
+                                            total,
+                                        );
+                                        this.note_transform("keyboard", Some(this.playhead));
+                                        cx.notify();
+                                    }
+                                },
+                            ))
+                            .child(
+                                ui::Slider::new(
+                                    "timeline-zoom",
+                                    self.view.transform.slider_fraction(total),
+                                    self.zoom_slider_track.clone(),
+                                )
+                                .row_width(px(72.))
+                                .row_height(px(20.))
+                                .track(px(3.), Hsla::from(editor.ctl_active))
+                                .fill(Hsla::from(editor.accent))
+                                .thumb(
+                                    px(12.),
+                                    Hsla::from(editor.thumb),
+                                    Some(gpui::hsla(0., 0., 0., 0.12)),
+                                )
+                                .on_drag_start(cx.listener(
+                                    |this, event: &MouseDownEvent, window, cx| {
+                                        this.zoom_slider_drag = true;
+                                        this.apply_zoom_slider(event.position, window, cx);
+                                    },
+                                )),
+                            )
                     }))
                     .child(self.zoom_button(
                         "transport-zoom-in",
@@ -10200,7 +10394,6 @@ impl EditorWindow {
                     )),
             )
     }
-
     // -- Timeline ------------------------------------------------------------
 
     fn render_timeline(
@@ -10355,7 +10548,8 @@ impl EditorWindow {
                     .when(
                         live && self.total_duration() - self.view.transform.zoom > 0.01,
                         |bar| {
-                            bar.cursor_pointer()
+                            bar.tab_index(0)
+                                .cursor_pointer()
                                 .capture_any_mouse_down(cx.listener(Self::minimap_mouse_down))
                                 .on_mouse_move(cx.listener(|this, _, window, cx| {
                                     if this.minimap_drag.is_none() {
@@ -10445,6 +10639,7 @@ impl EditorWindow {
                     .pl(px(6.))
                     .pr(px(8.))
                     .rounded(px(6.))
+                    .tab_index(0)
                     .cursor_pointer()
                     .bg(Hsla::from(theme.editor.text_1))
                     .hover(|style| style.opacity(0.85))
@@ -10497,6 +10692,53 @@ impl EditorWindow {
     /// carrying the edge-fade mask, with `absolute inset-0 overflow-y-auto
     /// overflow-x-hidden pr-1` inside it and the rows in a `flex flex-col
     /// gap-2 min-h-full`.
+    fn timeline_row_key(
+        &mut self,
+        kind: TrackKind,
+        lane: u32,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.keystroke.modifiers.control
+            || event.keystroke.modifiers.platform
+            || event.keystroke.modifiers.alt
+        {
+            return;
+        }
+        let mut segments: Vec<_> = self
+            .timeline
+            .segments(kind)
+            .iter()
+            .enumerate()
+            .filter(|(_, segment)| segment.lane == lane)
+            .map(|(index, segment)| (index, segment.start))
+            .collect();
+        segments.sort_by(|a, b| a.1.total_cmp(&b.1));
+        if segments.is_empty() {
+            return;
+        }
+        let current = self
+            .selection()
+            .filter(|selection| selection.track == kind)
+            .and_then(|selection| selection.indices.first())
+            .and_then(|index| segments.iter().position(|segment| segment.0 == *index));
+        let position = match event.keystroke.key.as_str() {
+            "enter" => current.unwrap_or(0),
+            "right" => current.map_or(0, |index| (index + 1).min(segments.len() - 1)),
+            "left" => current.unwrap_or(0).saturating_sub(1),
+            "home" => 0,
+            "end" => segments.len() - 1,
+            _ => return,
+        };
+        window.prevent_default();
+        cx.stop_propagation();
+        let (index, start) = segments[position];
+        self.set_selection(Some(Selection::single(kind, index)), cx);
+        self.seek_to_time(start, cx);
+        window.refresh();
+    }
+
     fn render_timeline_body(
         &self,
         viewport_width: f32,
@@ -10616,6 +10858,19 @@ impl EditorWindow {
                     .id(gpui::ElementId::NamedInteger(
                         "timeline-row".into(),
                         (kind as usize as u64) << 16 | row.lane as u64,
+                    ))
+                    .tab_index(0)
+                    .focus_visible(|style| style.border_1().border_color(theme.foreground))
+                    .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+                    .tooltip(move |_, cx| {
+                        ui::Tooltip::new(&theme, t!("Select segment"))
+                            .keys(["Enter", "←", "→"])
+                            .view(cx)
+                    })
+                    .on_key_down(cx.listener(
+                        move |this, event: &gpui::KeyDownEvent, window, cx| {
+                            this.timeline_row_key(kind, lane, event, window, cx)
+                        },
                     ))
                     .relative()
                     // Every track sets `hoveredTrack` on enter and clears it
@@ -10943,7 +11198,8 @@ impl EditorWindow {
                                 }
                             }))
                             .when(row_hovered || hovered, |this| {
-                                this.cursor_pointer()
+                                this.tab_index(0)
+                                    .cursor_pointer()
                                     .tab_index(0)
                                     .flex()
                                     .items_center()
@@ -11182,17 +11438,12 @@ struct ArrowKeyOwners {
     text_input: bool,
     canvas_selection: bool,
     menu: bool,
-    frame_controls: bool,
     lane_reorder: bool,
 }
 
 impl ArrowKeyOwners {
     fn any(self) -> bool {
-        self.text_input
-            || self.canvas_selection
-            || self.menu
-            || self.frame_controls
-            || self.lane_reorder
+        self.text_input || self.canvas_selection || self.menu || self.lane_reorder
     }
 }
 
@@ -11282,6 +11533,9 @@ impl Render for EditorWindow {
                 .bg(self.root_bg())
                 .text_color(Hsla::from(theme.gray_12))
                 .track_focus(&self.focus)
+                .capture_key_down(cx.listener(|_, event: &gpui::KeyDownEvent, window, cx| {
+                    traverse_editor_focus(event, window, cx);
+                }))
                 .child(self.render_export_page(window, cx));
         }
 
@@ -11455,7 +11709,7 @@ impl Render for EditorWindow {
                     .flex_1()
                     .min_h_0()
                     .w_full()
-                    .pb(px(8.))
+                    .pb(px(0.))
                     .overflow_hidden()
                     // No `overflow_hidden` from here down: every card clips its
                     // own children, and an intermediate content mask would cut
@@ -11476,7 +11730,7 @@ impl Render for EditorWindow {
                                     .flex_row()
                                     .flex_1()
                                     .min_h_0()
-                                    .px(px(8.))
+                                    .px(px(0.))
                                     .min_h(px(layout.player_min_height))
                                     // The player card.
                                     .child(
@@ -11486,9 +11740,6 @@ impl Render for EditorWindow {
                                             .flex_1()
                                             .min_w_0()
                                             .min_h_0()
-                                            .rounded(px(12.))
-                                            .border_1()
-                                            .border_color(self.card_line())
                                             .bg(self.panel_bg())
                                             .overflow_hidden()
                                             .child(self.render_player(cx)),
@@ -11497,7 +11748,7 @@ impl Render for EditorWindow {
                                     // sidebar view's: a margin inside a cached
                                     // element is not honoured.
                                     .child(
-                                        div().flex_none().h_full().pl(px(8.)).child(
+                                        div().flex_none().h_full().child(
                                             self.sidebar_view.clone().cached(
                                                 StyleRefinement::default()
                                                     .w(px(SIDEBAR_WIDTH))
@@ -11514,18 +11765,22 @@ impl Render for EditorWindow {
                                     .relative()
                                     .flex_none()
                                     .w_full()
-                                    .px(px(8.))
+                                    .px(px(0.))
                                     .h(px(layout.timeline_height))
                                     .child(
                                         div()
                                             .size_full()
-                                            .rounded(px(12.))
                                             .border_1()
                                             .border_color(self.card_line())
                                             .bg(self.panel_bg())
                                             .overflow_hidden()
-                                            .child(self.timeline_view.clone().cached(
-                                                StyleRefinement::default().w_full().h_full(),
+                                            .flex()
+                                            .flex_col()
+                                            .child(self.render_timeline_toolbar(cx))
+                                            .child(div().flex_1().min_h_0().child(
+                                                self.timeline_view.clone().cached(
+                                                    StyleRefinement::default().w_full().h_full(),
+                                                ),
                                             )),
                                     )
                                     // The grip rides the gap between the two
@@ -11697,9 +11952,8 @@ impl Render for EditorWindow {
             )
             .children(self.with_style_controls(|this| this.render_sidebar_menu(cx)))
             .children(self.render_toolbar_menu(cx))
-            .children(self.render_frame_controls(window, cx))
             .children(self.render_add_track_popover(cx))
-            .children(self.render_clip_speed_popover(cx))
+            .children(self.render_clip_speed_popover(window, cx))
             // The config sidebar's sliders take the same layer, for the same
             // reason -- and its release is what closes the undo bracket, so a
             // drag that ends outside the 32px row still records exactly one
@@ -12336,7 +12590,7 @@ mod tests {
         let layout = EditorVerticalLayout::new(652., DEFAULT_TIMELINE_HEIGHT);
         assert_eq!(layout.player_min_height, MIN_PLAYER_HEIGHT);
         assert_eq!(layout.timeline_height, DEFAULT_TIMELINE_HEIGHT);
-        assert_eq!(editor_player_width(992.), 550.);
+        assert_eq!(editor_player_width(992.), 606.);
     }
 
     #[test]
@@ -12364,7 +12618,7 @@ mod tests {
         let sizes = [1200., 652., 600., 480., 1200.];
         let layouts = sizes.map(|height| EditorVerticalLayout::new(height, preferred));
         assert_eq!(layouts[0].timeline_height, preferred);
-        assert_eq!(layouts[1].timeline_height, 264.);
+        assert_eq!(layouts[1].timeline_height, 280.);
         assert_eq!(layouts[4].timeline_height, preferred);
         for (height, layout) in sizes.into_iter().zip(layouts) {
             assert!(layout.player_min_height > 156.);
@@ -12396,7 +12650,7 @@ mod tests {
         );
         assert_eq!(
             EditorVerticalLayout::new(800., 10000.).timeline_height,
-            412.
+            428.
         );
     }
 
@@ -12419,7 +12673,7 @@ mod tests {
         assert!(!compact_header_controls(992., false, true));
         assert!(compact_header_controls(800., true, false));
         assert!(compact_header_controls(800., false, true));
-        assert_eq!(editor_player_width(800.), 358.);
+        assert_eq!(editor_player_width(800.), 414.);
     }
 
     fn open_sidebar_menu_for_test(
@@ -12584,10 +12838,6 @@ mod tests {
                 ..free
             },
             ArrowKeyOwners { menu: true, ..free },
-            ArrowKeyOwners {
-                frame_controls: true,
-                ..free
-            },
             ArrowKeyOwners {
                 lane_reorder: true,
                 ..free
@@ -12914,6 +13164,48 @@ mod tests {
             audio_segments: Vec::new(),
             camera3d_segments: Vec::new(),
         }
+    }
+
+    #[gpui::test]
+    fn editor_layout_keyboard_navigation_reaches_existing_segments(cx: &mut gpui::TestAppContext) {
+        let project = tempfile::tempdir().unwrap();
+        let path = project.path().to_path_buf();
+        let (editor, cx) =
+            cx.add_window_view(move |window, cx| EditorWindow::new(path.clone(), window, cx));
+        editor.update_in(cx, |editor, window, cx| {
+            editor.set_error("navigation fixture".into(), window, cx);
+            editor.project.timeline = Some(
+                serde_json::from_value(serde_json::json!({
+                    "segments": [], "zoomSegments": [], "styleSegments": [
+                        {"start": 5, "end": 7, "track": 1},
+                        {"start": 1, "end": 2, "track": 0},
+                        {"start": 3, "end": 4, "track": 0}
+                    ]
+                }))
+                .unwrap(),
+            );
+            editor.timeline = timeline::TimelineModel::build(&editor.project, false, false);
+            let before = serde_json::to_value(&editor.project).unwrap();
+            for (lane, key, expected) in [
+                (0, "enter", 1),
+                (0, "right", 2),
+                (0, "left", 1),
+                (0, "end", 2),
+                (1, "enter", 0),
+            ] {
+                let event = gpui::KeyDownEvent {
+                    keystroke: gpui::Keystroke::parse(key).unwrap(),
+                    is_held: false,
+                    prefer_character_input: false,
+                };
+                editor.timeline_row_key(TrackKind::Style, lane, &event, window, cx);
+                assert_eq!(
+                    editor.selection(),
+                    Some(&Selection::single(TrackKind::Style, expected))
+                );
+            }
+            assert_eq!(serde_json::to_value(&editor.project).unwrap(), before);
+        });
     }
 
     #[gpui::test]

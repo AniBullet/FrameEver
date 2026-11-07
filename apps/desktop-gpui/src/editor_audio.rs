@@ -256,7 +256,8 @@ fn render_library_row(
         .border_color(Hsla::from(theme.gray_3))
         .bg(Hsla::from(theme.gray_2))
         .when(!importing, |row| {
-            row.cursor_pointer()
+            row.tab_index(0)
+                .cursor_pointer()
                 .hover(|this| this.bg(Hsla::from(theme.gray_3)))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.add_library_track(id, name, window, cx);

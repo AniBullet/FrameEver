@@ -111,8 +111,8 @@ pub use select::Select;
 pub use selection_header::{SelectionHeader, selection_label, zoom_selection_label};
 #[allow(unused_imports)]
 pub use slider::{
-    Slider, SliderDrag, SliderTrack, fraction_from_x, snap_to_step, value_at as slider_value_at,
-    value_from_fraction,
+    Slider, SliderDrag, SliderTrack, fraction_from_x, keyboard_slider_value, snap_to_step,
+    value_at as slider_value_at, value_from_fraction,
 };
 #[allow(unused_imports)]
 pub use surface::{Card, Popover, Section, SettingRow};
