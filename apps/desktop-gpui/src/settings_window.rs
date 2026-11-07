@@ -2057,17 +2057,14 @@ impl SettingsWindow {
                 {
                     let png = png.clone();
                     move |_this, _window, cx| {
-                        let copied = crate::platform::copy_image_to_clipboard(png.clone(), cx);
-                        cx.spawn(async move |_, _| {
-                            if let Err(error) = copied.await {
-                                tracing::warn!("copying screenshot failed: {error}");
-                                crate::platform::alert_dialog(
-                                    t!("Could not copy screenshot"),
-                                    &error,
-                                );
-                            }
-                        })
-                        .detach();
+                        crate::platform::copy_image_to_clipboard(
+                            png.clone(),
+                            Some((
+                                t!("Could not copy screenshot"),
+                                t!("It may have been moved. Try again."),
+                            )),
+                            cx,
+                        );
                     }
                 },
             ))

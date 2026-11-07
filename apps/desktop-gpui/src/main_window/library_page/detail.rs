@@ -75,13 +75,18 @@ fn saved_size(original: u64, compressed: u64) -> String {
     view::format_size(original.saturating_sub(compressed))
 }
 
+fn copy_failed_alert() -> (&'static str, &'static str) {
+    (
+        t!("Couldn't copy the file"),
+        t!("It may have been moved. Try again."),
+    )
+}
+
 fn alert_copy_failed(error: String, cx: &mut gpui::App) {
     tracing::warn!("copying the file failed: {error}");
     cx.spawn(async move |_| {
-        crate::platform::alert_dialog(
-            t!("Couldn't copy the file"),
-            t!("It may have been moved. Try again."),
-        );
+        let (title, message) = copy_failed_alert();
+        crate::platform::alert_dialog(title, message);
     })
     .detach();
 }
@@ -532,13 +537,11 @@ impl MainWindow {
                 row.child(open_button).child(
                     self.detail_button("library-detail-copy-image", t!("Copy image"), false, false)
                         .on_click(move |_, _, cx| {
-                            let copied = crate::platform::copy_image_to_clipboard(png.clone(), cx);
-                            cx.spawn(async move |cx| {
-                                if let Err(error) = copied.await {
-                                    cx.update(|cx| alert_copy_failed(error, cx));
-                                }
-                            })
-                            .detach();
+                            crate::platform::copy_image_to_clipboard(
+                                png.clone(),
+                                Some(copy_failed_alert()),
+                                cx,
+                            );
                         }),
                 )
             }

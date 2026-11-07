@@ -137,6 +137,23 @@ fn clipboard_file_path(path: &std::path::Path) -> Result<std::path::PathBuf, Str
 
 pub fn copy_image_to_clipboard(
     path: std::path::PathBuf,
+    alert: Option<(&'static str, &'static str)>,
+    cx: &gpui::App,
+) {
+    let copied = read_image_into_clipboard(path, cx);
+    cx.spawn(async move |_| {
+        if let Err(error) = copied.await {
+            tracing::warn!("copying the image to the clipboard failed: {error}");
+            if let Some((title, message)) = alert {
+                alert_dialog(title, message);
+            }
+        }
+    })
+    .detach();
+}
+
+fn read_image_into_clipboard(
+    path: std::path::PathBuf,
     cx: &gpui::App,
 ) -> gpui::Task<Result<(), String>> {
     cx.spawn(async move |cx| {

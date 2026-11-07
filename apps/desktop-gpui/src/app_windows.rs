@@ -5389,13 +5389,7 @@ pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
 
     let behaviour = crate::store::GeneralSettings::load().post_screenshot_behaviour;
     if behaviour.copies() {
-        let copied = platform::copy_image_to_clipboard(png.clone(), cx);
-        cx.spawn(async move |_| {
-            if let Err(error) = copied.await {
-                tracing::error!("copying the screenshot to the clipboard failed: {error}");
-            }
-        })
-        .detach();
+        platform::copy_image_to_clipboard(png.clone(), None, cx);
     }
 
     if behaviour.opens_editor() {
