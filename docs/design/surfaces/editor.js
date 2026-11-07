@@ -1230,6 +1230,7 @@ const toolbar = () => `<div class="toolbar">
 	<button class="ib" data-act="dialog" data-d="crop">${icon("crop")}${L("Crop", "裁剪")}</button>
 	<button class="ib ${S.menu === "snapshot" ? "on" : ""}" data-act="menu" data-m="snapshot" title="${L("Snapshot", "快照")}">${icon("image")}${L("Snapshot", "快照")}${icon("chevron-down")}</button>
 	<span class="grow"></span>
+	<button class="ib" title="${L("Full-screen preview (F)", "全屏预览（F）")}">${icon("maximize")}</button>
 	<span class="lbl">${L("Preview", "预览")}</span>
 	${`<div class="seg">${[
 		["Full", "完整"],
@@ -1861,8 +1862,8 @@ const renderDocs = () => {
 		[
 			["Preview toolbar", "预览工具栏"],
 			[
-				"40 high: aspect ratio, crop, snapshot (saves the frame at the playhead to the library as a screenshot, or copies it), preview quality",
-				"40 高：宽高比、裁剪、快照（把播放头处的帧存进资源库成为截图，或复制它）、预览画质",
+				"40 high: aspect ratio, crop, snapshot (saves the frame at the playhead to the library as a screenshot, or copies it), preview quality, full-screen preview (F, Esc returns; Space plays, arrows step frames)",
+				"40 高：宽高比、裁剪、快照（把播放头处的帧存进资源库成为截图，或复制它）、预览画质、全屏预览（F 进入，Esc 返回；空格播放，方向键逐帧）",
 			],
 		],
 		[

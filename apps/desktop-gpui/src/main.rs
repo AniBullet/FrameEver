@@ -43,6 +43,7 @@ mod editor_tabs;
 mod editor_timeline;
 mod editor_window;
 mod feeds;
+mod foreign_window;
 mod hotkeys;
 mod http;
 mod i18n;
@@ -93,6 +94,7 @@ mod transcription;
 mod tray;
 mod ui;
 mod updates;
+mod window_arrange;
 
 use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
 
