@@ -152,6 +152,16 @@ pub fn copy_image_to_clipboard(
     .detach();
 }
 
+pub fn copy_png_to_clipboard(png: Vec<u8>, cx: &gpui::App) -> gpui::Task<Result<(), String>> {
+    cx.spawn(async move |cx| {
+        let image = cx
+            .background_executor()
+            .spawn(async move { prepare_clipboard_image(png) })
+            .await?;
+        cx.update(|cx| write_clipboard_image(image, cx))
+    })
+}
+
 fn read_image_into_clipboard(
     path: std::path::PathBuf,
     cx: &gpui::App,

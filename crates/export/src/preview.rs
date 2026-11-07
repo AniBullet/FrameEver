@@ -40,6 +40,13 @@ pub struct ExportPreviewResult {
     pub total_frames: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StillFrame {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
 pub async fn render_preview(
     project_path: PathBuf,
     frame_time: f64,
@@ -98,7 +105,7 @@ pub async fn render_preview_with_config(
 /// Everything a preview frame needs, borrowed from whichever owner already
 /// holds the decoders and GPU pipelines.
 struct PreviewSource<'a> {
-    project_config: &'a ProjectConfiguration,
+    project_config: ProjectConfiguration,
     render_constants: &'a RenderVideoConstants,
     segments: Vec<PreviewSegment<'a>>,
     total_duration: f64,
@@ -121,7 +128,7 @@ async fn render_preview_with_base(
         &exporter_base.project_config,
     );
     let source = PreviewSource {
-        project_config: &exporter_base.project_config,
+        project_config: exporter_base.project_config.clone(),
         render_constants: &exporter_base.render_constants,
         segments: exporter_base
             .segments
@@ -136,6 +143,79 @@ async fn render_preview_with_base(
     render_preview_frame(source, frame_time, settings).await
 }
 
+pub async fn render_still_with_config(
+    project_path: PathBuf,
+    project_config: ProjectConfiguration,
+    frame_time: f64,
+    fps: u32,
+    force_ffmpeg_decoder: bool,
+) -> Result<StillFrame, ExportError> {
+    let exporter_base = ExporterBase::builder(project_path)
+        .with_config(project_config)
+        .with_force_ffmpeg_decoder(force_ffmpeg_decoder)
+        .build()
+        .await
+        .map_err(|error| ExportError::Other(format!("Exporter build error: {error}")))?;
+    let total_duration = frameever_rendering::get_duration(
+        &exporter_base.recordings,
+        &exporter_base.recording_meta,
+        &exporter_base.studio_meta,
+        &exporter_base.project_config,
+    );
+    let source = PreviewSource {
+        project_config: exporter_base.project_config.clone(),
+        render_constants: &exporter_base.render_constants,
+        segments: exporter_base
+            .segments
+            .iter()
+            .map(|segment| PreviewSegment {
+                decoders: &segment.decoders,
+                cursor: &segment.cursor,
+            })
+            .collect(),
+        total_duration,
+    };
+    render_still(&source, frame_time, fps).await
+}
+
+pub async fn render_still_with_editor(
+    editor: &EditorInstance,
+    project_config: ProjectConfiguration,
+    frame_time: f64,
+    fps: u32,
+) -> Result<StillFrame, ExportError> {
+    let source = editor_source(editor, project_config, false)?;
+    let _pause_prefetch = EditorPreviewGuard::new(editor);
+    render_still(&source, frame_time, fps).await
+}
+
+async fn render_still(
+    source: &PreviewSource<'_>,
+    frame_time: f64,
+    fps: u32,
+) -> Result<StillFrame, ExportError> {
+    let (width, height) =
+        ProjectUniforms::get_base_size(&source.render_constants.options, &source.project_config);
+    let frame = render_source_frame(source, frame_time, fps, XY::new(width, height), false).await?;
+    still_from_rendered(&frame)
+}
+
+pub fn still_from_rendered(frame: &RenderedFrame) -> Result<StillFrame, ExportError> {
+    let (row_bytes, stride) = checked_layout(frame)?;
+    let rgba = frame
+        .data
+        .chunks(stride)
+        .take(frame.height as usize)
+        .flat_map(|row| &row[..row_bytes])
+        .copied()
+        .collect();
+    Ok(StillFrame {
+        width: frame.width,
+        height: frame.height,
+        rgba,
+    })
+}
+
 /// Render the preview through an open editor's decoders and GPU pipelines
 /// instead of building a fresh exporter (a new wgpu device, every shader, and
 /// a cold decoder per recording segment) for each frame. This is what makes the
@@ -147,12 +227,22 @@ pub async fn render_preview_with_editor(
     frame_time: f64,
     settings: ExportPreviewSettings,
 ) -> Result<ExportPreviewResult, ExportError> {
+    let source = editor_source(editor, project_config, settings.cursor_only)?;
+    let _pause_prefetch = EditorPreviewGuard::new(editor);
+    render_preview_frame(source, frame_time, settings).await
+}
+
+fn editor_source(
+    editor: &EditorInstance,
+    project_config: ProjectConfiguration,
+    cursor_only: bool,
+) -> Result<PreviewSource<'_>, ExportError> {
     let recording_meta = editor.meta();
     let studio_meta = recording_meta
         .studio_meta()
         .ok_or_else(|| ExportError::Other("Cannot preview non-studio recordings".to_string()))?;
     let mut project_config = project_config;
-    if settings.cursor_only {
+    if cursor_only {
         project_config = make_cursor_only_project(project_config);
     }
     synthesize_default_timeline(&mut project_config, &editor.recordings);
@@ -173,9 +263,8 @@ pub async fn render_preview_with_editor(
         &project_config,
     );
 
-    let _pause_prefetch = EditorPreviewGuard::new(editor);
-    let source = PreviewSource {
-        project_config: &project_config,
+    Ok(PreviewSource {
+        project_config,
         render_constants: &editor.render_constants,
         segments: editor
             .segment_medias
@@ -186,8 +275,7 @@ pub async fn render_preview_with_editor(
             })
             .collect(),
         total_duration,
-    };
-    render_preview_frame(source, frame_time, settings).await
+    })
 }
 
 /// Holds the editor's `export_preview_active` flag so its idle prefetch does
@@ -216,160 +304,16 @@ async fn render_preview_frame(
     frame_time: f64,
     settings: ExportPreviewSettings,
 ) -> Result<ExportPreviewResult, ExportError> {
-    let PreviewSource {
-        project_config,
-        render_constants,
-        segments,
-        total_duration,
-    } = source;
-    let transition_mapping = project_config.timeline.as_ref().and_then(|timeline| {
-        if timeline.transitions.is_empty() {
-            return None;
-        }
-        match timeline.get_frame_mapping(frame_time) {
-            Some(TimelineFrameMapping::Transition {
-                outgoing,
-                kind,
-                progress,
-                ..
-            }) => Some((outgoing, kind, progress)),
-            _ => None,
-        }
-    });
-    let Some((segment_time, segment)) = project_config.get_segment_time(frame_time) else {
-        return Err(ExportError::Other(
-            "Frame time is outside video duration".to_string(),
-        ));
-    };
-
-    let segment_media = segments
-        .get(segment.recording_clip as usize)
-        .ok_or_else(|| ExportError::Other("Recording clip is unavailable".to_string()))?;
-    let clip_config = project_config
-        .clips
-        .iter()
-        .find(|v| v.index == segment.recording_clip);
-
     let render_start = std::time::Instant::now();
-
-    let segment_frames = segment_media
-        .decoders
-        .get_frames(
-            segment_time as f32,
-            project_config.requires_camera() && !settings.cursor_only,
-            !settings.cursor_only,
-            clip_config.map(|v| v.offsets).unwrap_or_default(),
-        )
-        .await
-        .ok_or_else(|| ExportError::Other("Failed to decode frame".to_string()))?;
-
-    let frame_number = (frame_time * settings.fps as f64).floor() as u32;
-
-    let mut zoom_timeline = ZoomTransformTimeline::from_project_for_clip(
-        project_config,
-        segment_media.cursor,
-        total_duration,
-        render_constants.options.screen_size,
-        segment.recording_clip,
-    );
-    zoom_timeline.ensure_precomputed_until((frame_number as f32 + 1.0) / settings.fps as f32);
-
-    let uniforms = ProjectUniforms::new(
-        render_constants,
-        project_config,
-        frame_number,
+    let frame = render_source_frame(
+        &source,
+        frame_time,
         settings.fps,
         settings.resolution_base,
-        segment_media.cursor,
-        &segment_frames,
-        total_duration,
-        &zoom_timeline,
-    );
-
-    let mut frame_renderer = FrameRenderer::new(render_constants);
-    let mut layers = RendererLayers::new_with_options(
-        &render_constants.device,
-        &render_constants.queue,
-        render_constants.is_software_adapter,
-    );
-
-    let frame = if let Some((outgoing, kind, progress)) = transition_mapping {
-        let outgoing_media = segments
-            .get(outgoing.segment.recording_clip as usize)
-            .ok_or_else(|| {
-                ExportError::Other("Outgoing recording clip is unavailable".to_string())
-            })?;
-        let outgoing_offsets = project_config
-            .clips
-            .iter()
-            .find(|clip| clip.index == outgoing.segment.recording_clip)
-            .map(|clip| clip.offsets)
-            .unwrap_or_default();
-        let outgoing_decoders = if outgoing.segment.recording_clip == segment.recording_clip {
-            outgoing_media.decoders.transition_side().await
-        } else {
-            outgoing_media.decoders
-        };
-        let outgoing_frames = outgoing_decoders
-            .get_frames(
-                outgoing.source_time as f32,
-                project_config.requires_camera() && !settings.cursor_only,
-                !settings.cursor_only,
-                outgoing_offsets,
-            )
-            .await
-            .ok_or_else(|| ExportError::Other("Failed to decode outgoing frame".to_string()))?;
-        let mut outgoing_zoom = ZoomTransformTimeline::from_project_for_outgoing_clip(
-            project_config,
-            outgoing_media.cursor,
-            total_duration,
-            render_constants.options.screen_size,
-            outgoing.segment.recording_clip,
-        );
-        outgoing_zoom.ensure_precomputed_until((frame_number as f32 + 1.0) / settings.fps as f32);
-        let outgoing_uniforms = ProjectUniforms::new(
-            render_constants,
-            project_config,
-            frame_number,
-            settings.fps,
-            settings.resolution_base,
-            outgoing_media.cursor,
-            &outgoing_frames,
-            total_duration,
-            &outgoing_zoom,
-        );
-
-        frame_renderer
-            .render_transition_immediate(
-                TransitionRenderInput {
-                    segment_frames: outgoing_frames,
-                    uniforms: outgoing_uniforms,
-                    cursor: outgoing_media.cursor,
-                    render_display: !settings.cursor_only,
-                },
-                TransitionRenderInput {
-                    segment_frames,
-                    uniforms,
-                    cursor: segment_media.cursor,
-                    render_display: !settings.cursor_only,
-                },
-                kind,
-                progress as f32,
-                &mut layers,
-            )
-            .await?
-    } else {
-        frame_renderer
-            .render_immediate(
-                segment_frames,
-                uniforms,
-                segment_media.cursor,
-                !settings.cursor_only,
-                &mut layers,
-            )
-            .await?
-    };
-
+        settings.cursor_only,
+    )
+    .await?;
+    let total_duration = source.total_duration;
     let frame_render_time_ms = render_start.elapsed().as_secs_f64() * 1000.0;
     let width = frame.width;
     let height = frame.height;
@@ -403,6 +347,166 @@ async fn render_preview_frame(
     })
 }
 
+async fn render_source_frame(
+    source: &PreviewSource<'_>,
+    frame_time: f64,
+    fps: u32,
+    resolution_base: XY<u32>,
+    cursor_only: bool,
+) -> Result<RenderedFrame, ExportError> {
+    let project_config = &source.project_config;
+    let render_constants = source.render_constants;
+    let segments = &source.segments;
+    let total_duration = source.total_duration;
+    let transition_mapping = project_config.timeline.as_ref().and_then(|timeline| {
+        if timeline.transitions.is_empty() {
+            return None;
+        }
+        match timeline.get_frame_mapping(frame_time) {
+            Some(TimelineFrameMapping::Transition {
+                outgoing,
+                kind,
+                progress,
+                ..
+            }) => Some((outgoing, kind, progress)),
+            _ => None,
+        }
+    });
+    let Some((segment_time, segment)) = project_config.get_segment_time(frame_time) else {
+        return Err(ExportError::Other(
+            "Frame time is outside video duration".to_string(),
+        ));
+    };
+
+    let segment_media = segments
+        .get(segment.recording_clip as usize)
+        .ok_or_else(|| ExportError::Other("Recording clip is unavailable".to_string()))?;
+    let clip_config = project_config
+        .clips
+        .iter()
+        .find(|v| v.index == segment.recording_clip);
+
+    let segment_frames = segment_media
+        .decoders
+        .get_frames(
+            segment_time as f32,
+            project_config.requires_camera() && !cursor_only,
+            !cursor_only,
+            clip_config.map(|v| v.offsets).unwrap_or_default(),
+        )
+        .await
+        .ok_or_else(|| ExportError::Other("Failed to decode frame".to_string()))?;
+
+    let frame_number = (frame_time * fps as f64).floor() as u32;
+
+    let mut zoom_timeline = ZoomTransformTimeline::from_project_for_clip(
+        project_config,
+        segment_media.cursor,
+        total_duration,
+        render_constants.options.screen_size,
+        segment.recording_clip,
+    );
+    zoom_timeline.ensure_precomputed_until((frame_number as f32 + 1.0) / fps as f32);
+
+    let uniforms = ProjectUniforms::new(
+        render_constants,
+        project_config,
+        frame_number,
+        fps,
+        resolution_base,
+        segment_media.cursor,
+        &segment_frames,
+        total_duration,
+        &zoom_timeline,
+    );
+
+    let mut frame_renderer = FrameRenderer::new(render_constants);
+    let mut layers = RendererLayers::new_with_options(
+        &render_constants.device,
+        &render_constants.queue,
+        render_constants.is_software_adapter,
+    );
+
+    if let Some((outgoing, kind, progress)) = transition_mapping {
+        let outgoing_media = segments
+            .get(outgoing.segment.recording_clip as usize)
+            .ok_or_else(|| {
+                ExportError::Other("Outgoing recording clip is unavailable".to_string())
+            })?;
+        let outgoing_offsets = project_config
+            .clips
+            .iter()
+            .find(|clip| clip.index == outgoing.segment.recording_clip)
+            .map(|clip| clip.offsets)
+            .unwrap_or_default();
+        let outgoing_decoders = if outgoing.segment.recording_clip == segment.recording_clip {
+            outgoing_media.decoders.transition_side().await
+        } else {
+            outgoing_media.decoders
+        };
+        let outgoing_frames = outgoing_decoders
+            .get_frames(
+                outgoing.source_time as f32,
+                project_config.requires_camera() && !cursor_only,
+                !cursor_only,
+                outgoing_offsets,
+            )
+            .await
+            .ok_or_else(|| ExportError::Other("Failed to decode outgoing frame".to_string()))?;
+        let mut outgoing_zoom = ZoomTransformTimeline::from_project_for_outgoing_clip(
+            project_config,
+            outgoing_media.cursor,
+            total_duration,
+            render_constants.options.screen_size,
+            outgoing.segment.recording_clip,
+        );
+        outgoing_zoom.ensure_precomputed_until((frame_number as f32 + 1.0) / fps as f32);
+        let outgoing_uniforms = ProjectUniforms::new(
+            render_constants,
+            project_config,
+            frame_number,
+            fps,
+            resolution_base,
+            outgoing_media.cursor,
+            &outgoing_frames,
+            total_duration,
+            &outgoing_zoom,
+        );
+
+        frame_renderer
+            .render_transition_immediate(
+                TransitionRenderInput {
+                    segment_frames: outgoing_frames,
+                    uniforms: outgoing_uniforms,
+                    cursor: outgoing_media.cursor,
+                    render_display: !cursor_only,
+                },
+                TransitionRenderInput {
+                    segment_frames,
+                    uniforms,
+                    cursor: segment_media.cursor,
+                    render_display: !cursor_only,
+                },
+                kind,
+                progress as f32,
+                &mut layers,
+            )
+            .await
+            .map_err(ExportError::from)
+    } else {
+        frame_renderer
+            .render_immediate(
+                segment_frames,
+                uniforms,
+                segment_media.cursor,
+                !cursor_only,
+                &mut layers,
+            )
+            .await
+            .map_err(ExportError::from)
+    }
+}
+
 fn estimate_cursor_only_size_mb(total_pixels: f64, total_frames: f64) -> f64 {
     let bytes_per_frame = total_pixels * 0.4;
     (bytes_per_frame * total_frames) / (1024.0 * 1024.0)
@@ -412,7 +516,7 @@ fn bpp_to_jpeg_quality(bpp: f32) -> u8 {
     ((bpp - 0.04) / (0.3 - 0.04) * (95.0 - 40.0) + 40.0).clamp(40.0, 95.0) as u8
 }
 
-fn encode_preview_jpeg(frame: &RenderedFrame, quality: u8) -> Result<Vec<u8>, ExportError> {
+fn checked_layout(frame: &RenderedFrame) -> Result<(usize, usize), ExportError> {
     let width = usize::try_from(frame.width)
         .map_err(|_| ExportError::Other("Preview frame width is too large".to_string()))?;
     let height = usize::try_from(frame.height)
@@ -440,7 +544,11 @@ fn encode_preview_jpeg(frame: &RenderedFrame, quality: u8) -> Result<Vec<u8>, Ex
             "Preview frame buffer is shorter than its layout".to_string(),
         ));
     }
+    Ok((row_bytes, height_stride))
+}
 
+fn encode_preview_jpeg(frame: &RenderedFrame, quality: u8) -> Result<Vec<u8>, ExportError> {
+    let (_, height_stride) = checked_layout(frame)?;
     let samples = FlatSamples {
         samples: frame.data.as_ref().as_slice(),
         layout: SampleLayout {
@@ -542,6 +650,33 @@ mod tests {
                 "13x9 stride=64 without trailing padding quality={quality}"
             );
         }
+    }
+
+    #[test]
+    fn a_still_keeps_every_pixel_and_drops_the_row_padding() {
+        let padded = RenderedFrame {
+            data: Arc::new(vec![
+                1, 2, 3, 4, 5, 6, 7, 8, 0xee, 0xee, 9, 10, 11, 12, 13, 14, 15, 16,
+            ]),
+            width: 2,
+            height: 2,
+            padded_bytes_per_row: 10,
+            frame_number: 0,
+            target_time_ns: 0,
+        };
+
+        assert_eq!(
+            still_from_rendered(&padded).unwrap(),
+            StillFrame {
+                width: 2,
+                height: 2,
+                rgba: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            }
+        );
+
+        let mut short = padded;
+        short.data = Arc::new(vec![0; 17]);
+        assert!(still_from_rendered(&short).is_err());
     }
 
     #[test]

@@ -1228,6 +1228,7 @@ const aspects = [
 const toolbar = () => `<div class="toolbar">
 	<button class="ib ${S.menu === "aspect" ? "on" : ""}" data-act="menu" data-m="aspect">${icon("proportions")}${L(...aspects[S.aspect])}${icon("chevron-down")}</button>
 	<button class="ib" data-act="dialog" data-d="crop">${icon("crop")}${L("Crop", "裁剪")}</button>
+	<button class="ib ${S.menu === "snapshot" ? "on" : ""}" data-act="menu" data-m="snapshot" title="${L("Export the current frame", "导出当前帧")}">${icon("image")}${L("Snapshot", "快照")}${icon("chevron-down")}</button>
 	<span class="grow"></span>
 	<span class="lbl">${L("Preview", "预览")}</span>
 	${`<div class="seg">${[
@@ -1484,6 +1485,8 @@ const exportPage = () => `<div class="ex-page">
 const menus = {
 	aspect: () =>
 		`<div class="pop menu" style="left:8px;top:84px;width:200px">${aspects.map((a, i) => `<button data-act="aspect" data-v="${i}"><span class="grow">${L(a[0], a[1])}</span>${S.aspect === i ? icon("check") : ""}</button>`).join("")}</div>`,
+	snapshot: () =>
+		`<div class="pop menu" style="left:190px;top:84px;width:200px"><button data-act="close"><span class="grow">${L("Save to library", "保存到资源库")}</span></button><button data-act="close"><span class="grow">${L("Copy to clipboard", "复制到剪贴板")}</span></button></div>`,
 	presets: () =>
 		`<div class="pop menu" style="right:110px;top:44px;width:288px"><button data-act="close"><span class="grow">${L("Default", "默认")}</span>${icon("check")}</button><button data-act="close"><span class="grow">${L("Tutorial look", "教程风格")}</span>${icon("settings")}</button><hr><button data-act="close">${icon("plus")}${L("Create new preset", "新建预设")}</button></div>`,
 	tracks: () =>
@@ -1854,8 +1857,8 @@ const renderDocs = () => {
 		[
 			["Preview toolbar", "预览工具栏"],
 			[
-				"40 high: aspect ratio, crop, preview quality",
-				"40 高：宽高比、裁剪、预览画质",
+				"40 high: aspect ratio, crop, snapshot (saves the frame at the playhead to the library as a screenshot, or copies it), preview quality",
+				"40 高：宽高比、裁剪、快照（把播放头处的帧存进资源库成为截图，或复制它）、预览画质",
 			],
 		],
 		[
