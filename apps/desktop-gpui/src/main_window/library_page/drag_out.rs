@@ -1,13 +1,19 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    AppContext as _, Context, Empty, ExternalDragPayload, FileDragPaths, IntoElement,
-    ParentElement, Pixels, Point, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    div, px,
+    AppContext as _, Context, Empty, IntoElement, ParentElement, Pixels, Point, Render,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
+#[cfg(not(target_os = "windows"))]
+use gpui::{ExternalDragPayload, FileDragPaths};
 
 use super::MainWindow;
-use crate::{i18n::t, platform, theme::Theme};
+use crate::{
+    i18n::t,
+    library::{self, ShareGap},
+    platform,
+    theme::Theme,
+};
 
 pub(super) struct DraggedItem(PathBuf);
 
@@ -41,8 +47,10 @@ impl MainWindow {
         path: &Path,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let (start, offer) = (cx.entity().downgrade(), cx.entity().downgrade());
-        item.on_drag(
+        let start = cx.entity().downgrade();
+        #[cfg(not(target_os = "windows"))]
+        let offer = cx.entity().downgrade();
+        let item = item.on_drag(
             DraggedItem(path.to_path_buf()),
             move |dragged: &DraggedItem, _: Point<Pixels>, window, cx| {
                 let notice = start
@@ -53,17 +61,19 @@ impl MainWindow {
                     .flatten();
                 cx.new(|_| DragNotice(notice))
             },
-        )
-        .external_drag_payload(move |_: &DraggedItem, _, cx| {
+        );
+        #[cfg(not(target_os = "windows"))]
+        let item = item.external_drag_payload(move |_: &DraggedItem, _, cx| {
             let files = offer
-                .update(cx, |this, _| this.library_files_to_copy())
+                .update(cx, |this, _| this.library_files_to_share())
                 .ok()?;
             (!files.is_empty()).then(|| {
                 ExternalDragPayload::Files(FileDragPaths::new(
                     files.into_iter().map(|file| (file, false)),
                 ))
             })
-        })
+        });
+        item
     }
 
     fn start_library_drag(
@@ -73,12 +83,11 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> Option<(SharedString, Theme)> {
         self.change_selection(cx, |selection, _| selection.context_click(path));
-        let files = self.library_files_to_copy();
+        let files = self.library_files_to_share();
+        let notice = library::share_gap(self.library.selected_entries())
+            .map(|gap| (drag_notice_text(gap), self.theme));
         if files.is_empty() {
-            return Some((
-                t!("Export this project first to drag it out").into(),
-                self.theme,
-            ));
+            return notice;
         }
         #[cfg(target_os = "windows")]
         {
@@ -94,6 +103,16 @@ impl MainWindow {
             })
             .detach();
         }
-        None
+        notice
+    }
+}
+
+fn drag_notice_text(gap: ShareGap) -> SharedString {
+    match gap {
+        ShareGap::Unexported => t!("Export this project first to drag it out").into(),
+        ShareGap::MissingFile => t!("Its file is missing, so it can't be dragged").into(),
+        ShareGap::LeftOut(count) => {
+            t!("Left out {count} with no file to drag", count = count).into()
+        }
     }
 }

@@ -1538,7 +1538,7 @@ document.getElementById("keys-grid").innerHTML =
 		["Thumbnail size", "缩略图大小", "Ctrl =", "Ctrl -"],
 		["Grid, list", "网格、列表", "Ctrl 1", "Ctrl 2"],
 		["Back out one level", "逐层退出", "Esc"],
-	])}<div class="label" style="margin-top:12px">${L("Dragging a Studio project with no export", "拖动没有导出的工作室项目")}</div><div class="drag-notice">${L("Export this project first to drag it out", "先导出这个项目才能拖出")}</div></div><div class="card"><h3>${L("Window", "窗口")}</h3>${keyRows([
+	])}<div class="label" style="margin-top:12px">${L("Dragging a Studio project with no export", "拖动没有导出的工作室项目")}</div><div class="drag-notice">${L("Export this project first to drag it out", "先导出这个项目才能拖出")}</div><div class="label" style="margin-top:12px">${L("Dragging a selection with some left out", "拖动部分无法拖出的选择")}</div><div class="drag-notice">${L("Left out 2 with no file to drag", "已略过 2 项没有可拖出文件的项目")}</div><div class="label" style="margin-top:12px">${L("Dragging an Instant recording whose video is missing", "拖动缺少视频的即时录制")}</div><div class="drag-notice">${L("Its file is missing, so it can't be dragged", "找不到它的文件，无法拖出")}</div></div><div class="card"><h3>${L("Window", "窗口")}</h3>${keyRows([
 		["Command palette", "命令面板", "Ctrl K"],
 		["Library, back to recording", "资源库、回到录制", "Ctrl L"],
 	])}<h3 style="margin-top:16px">${L("Preview", "预览")}</h3>${keyRows([

@@ -490,7 +490,7 @@ pub fn rename_project(project: &Path, name: &str) -> Result<String, String> {
     Ok(meta.pretty_name)
 }
 
-pub fn file_to_copy(entry: &view::Entry) -> Option<PathBuf> {
+pub fn file_to_share(entry: &view::Entry) -> Option<PathBuf> {
     match entry.kind {
         MediaKind::Screenshot => entry.screenshot.clone(),
         MediaKind::Instant => Some(instant_output_path(&entry.path)).filter(|path| path.is_file()),
@@ -499,7 +499,29 @@ pub fn file_to_copy(entry: &view::Entry) -> Option<PathBuf> {
 }
 
 pub fn files_to_share<'a>(entries: impl IntoIterator<Item = &'a view::Entry>) -> Vec<PathBuf> {
-    entries.into_iter().filter_map(file_to_copy).collect()
+    entries.into_iter().filter_map(file_to_share).collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShareGap {
+    Unexported,
+    MissingFile,
+    LeftOut(usize),
+}
+
+pub fn share_gap<'a>(entries: impl IntoIterator<Item = &'a view::Entry>) -> Option<ShareGap> {
+    let entries: Vec<&view::Entry> = entries.into_iter().collect();
+    let left_out: Vec<&view::Entry> = entries
+        .iter()
+        .copied()
+        .filter(|entry| file_to_share(entry).is_none())
+        .collect();
+    match (entries.len(), left_out.as_slice()) {
+        (_, []) => None,
+        (1, [entry]) if entry.kind == MediaKind::Studio => Some(ShareGap::Unexported),
+        (1, [_]) => Some(ShareGap::MissingFile),
+        (_, left_out) => Some(ShareGap::LeftOut(left_out.len())),
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1884,6 +1906,16 @@ mod tests {
         );
         assert!(!unexported.join("content").exists());
         assert!(!lost.join("content").exists());
+
+        let gap = |names: &[&str]| share_gap(names.iter().map(|name| named(name)));
+        assert_eq!(gap(&["Shot", "Exported", "Instant"]), None);
+        assert_eq!(gap(&["Unexported"]), Some(ShareGap::Unexported));
+        assert_eq!(gap(&["Lost"]), Some(ShareGap::MissingFile));
+        assert_eq!(
+            gap(&["Shot", "Unexported", "Lost", "Instant"]),
+            Some(ShareGap::LeftOut(2))
+        );
+        assert_eq!(gap(&["Unexported", "Lost"]), Some(ShareGap::LeftOut(2)));
     }
 
     #[test]

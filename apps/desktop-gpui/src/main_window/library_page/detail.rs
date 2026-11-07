@@ -268,13 +268,13 @@ impl MainWindow {
     }
 
     pub(in crate::main_window) fn copy_library_file(&self, cx: &mut Context<Self>) {
-        let files = self.library_files_to_copy();
+        let files = self.library_files_to_share();
         if !files.is_empty() {
             copy_files(&files, cx);
         }
     }
 
-    pub(super) fn library_files_to_copy(&self) -> Vec<PathBuf> {
+    pub(super) fn library_files_to_share(&self) -> Vec<PathBuf> {
         library::files_to_share(self.library.selected_entries())
     }
 
@@ -830,7 +830,7 @@ impl MainWindow {
             return Some(self.render_library_batch(cx).into_any_element());
         }
         let entry = self.library.single_entry()?.clone();
-        let copyable = library::file_to_copy(&entry).is_some();
+        let copyable = library::file_to_share(&entry).is_some();
         let name = ui::TextInput::bare(
             &theme,
             "library-detail-name",
@@ -962,7 +962,7 @@ impl MainWindow {
                 .filter(|(_, count)| *count > 0)
                 .collect();
         let compressible = self.library_compressible().len();
-        let copyable = !self.library_files_to_copy().is_empty();
+        let copyable = !self.library_files_to_share().is_empty();
         div()
             .flex()
             .flex_col()

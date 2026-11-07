@@ -585,6 +585,14 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Export this project first to drag it out",
         "先导出这个项目才能拖出",
     ),
+    (
+        "Its file is missing, so it can't be dragged",
+        "找不到它的文件，无法拖出",
+    ),
+    (
+        "Left out {count} with no file to drag",
+        "已略过 {count} 项没有可拖出文件的项目",
+    ),
     ("Clear selection", "取消选择"),
     ("{count} recordings", "{count} 条录制"),
     ("Saved {size}", "节省了 {size}"),
