@@ -3643,6 +3643,14 @@ impl EditorWindow {
                 cx.stop_propagation();
                 self.split_at_playhead(window, cx);
             }
+            "q" => {
+                cx.stop_propagation();
+                self.delete_clip_side(None, edits::ClipSide::Left, window, cx);
+            }
+            "w" => {
+                cx.stop_propagation();
+                self.delete_clip_side(None, edits::ClipSide::Right, window, cx);
+            }
             "escape" => {
                 cx.stop_propagation();
                 if self.lane_reorder.is_some() {
@@ -8181,6 +8189,39 @@ impl EditorWindow {
         cx.notify();
     }
 
+    fn delete_clip_side(
+        &mut self,
+        index: Option<usize>,
+        side: edits::ClipSide,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.clip_speed = None;
+        let time = self.view.preview_time.unwrap_or(self.playhead);
+        let cut_start = index
+            .or_else(|| {
+                self.timeline
+                    .clips
+                    .iter()
+                    .position(|clip| time > clip.start && time < clip.end)
+            })
+            .and_then(|index| self.timeline.clips.get(index))
+            .map(|clip| clip.start);
+        if self.edit(
+            |timeline| edits::delete_clip_side(timeline, time, index, side),
+            window,
+            cx,
+        ) {
+            if side == edits::ClipSide::Left
+                && let Some(start) = cut_start
+            {
+                self.seek_to_time(start, cx);
+            }
+            self.note_edit("clip-delete-side", Some(TrackKind::Clip));
+        }
+        cx.notify();
+    }
+
     fn render_clip_speed_overlays(
         &self,
         model: &timeline::TimelineModel,
@@ -8300,6 +8341,12 @@ impl EditorWindow {
         let merge_next =
             edits::clip_merge_blocker(&timeline.segments, index, edits::ClipMergeDirection::Next);
         let can_delete = timeline.segments.len() > 1;
+        let side_blockers = [edits::ClipSide::Left, edits::ClipSide::Right].map(|side| {
+            (
+                side,
+                edits::clip_side_blocker(timeline, playhead, Some(index), side),
+            )
+        });
         let rename_input = self
             .clips
             .rename_in_progress()
@@ -8695,6 +8742,32 @@ impl EditorWindow {
                     }),
             )
             .child(divider())
+            .children(side_blockers.into_iter().map(|(side, blocker)| {
+                let (id, label, key) = match side {
+                    edits::ClipSide::Left => {
+                        ("clip-menu-delete-left", t!("Delete before playhead"), "Q")
+                    }
+                    edits::ClipSide::Right => {
+                        ("clip-menu-delete-right", t!("Delete after playhead"), "W")
+                    }
+                };
+                clip_menu_row(
+                    &theme,
+                    id,
+                    "icons/trash.svg",
+                    label,
+                    blocker.map_or(ClipMenuTrailing::Kbd(key), |blocker| {
+                        ClipMenuTrailing::Hint(blocker.hint())
+                    }),
+                    blocker.is_none(),
+                    true,
+                )
+                .when(blocker.is_none(), |this| {
+                    this.on_click(cx.listener(move |this, _, window, cx| {
+                        this.delete_clip_side(Some(index), side, window, cx);
+                    }))
+                })
+            }))
             .child(
                 clip_menu_row(
                     &theme,
