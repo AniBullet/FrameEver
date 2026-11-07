@@ -463,7 +463,7 @@ impl RecordingSession {
             cx.notify();
             return;
         }
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         self.failure_monitor = None;
         self.recording_generation = self.recording_generation.wrapping_add(1);
         self.preparing_studio_editor = None;
@@ -750,11 +750,7 @@ impl RecordingSession {
                     .unwrap_or(false);
                 if !is_current {
                     if marked_lost {
-                        this.update(cx, |_, cx| {
-                            crate::feeds::Feeds::global(cx)
-                                .update(cx, |feeds, cx| feeds.set_camera_disconnected(false, cx));
-                        })
-                        .ok();
+                        cx.update(|cx| set_camera_disconnected(false, cx));
                     }
                     return;
                 }
@@ -772,14 +768,16 @@ impl RecordingSession {
                 } else {
                     tracing::info!("camera reconnected during the recording");
                 }
-                this.update(cx, |_, cx| {
-                    crate::feeds::Feeds::global(cx)
-                        .update(cx, |feeds, cx| feeds.set_camera_disconnected(lost, cx));
-                })
-                .ok();
+                cx.update(|cx| set_camera_disconnected(lost, cx));
             }
         });
         self.camera_monitor = Some(task);
+    }
+
+    fn stop_recording_monitors(&mut self, cx: &mut Context<Self>) {
+        self.storage_monitor = None;
+        self.camera_monitor = None;
+        set_camera_disconnected(false, cx);
     }
 
     fn monitor_storage(&mut self, project_dir: std::path::PathBuf, cx: &mut Context<Self>) {
@@ -864,7 +862,7 @@ impl RecordingSession {
         if !matches!(self.phase, Phase::Recording { .. }) {
             return;
         }
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         #[cfg(not(windows))]
         {
             self.failure_monitor = None;
@@ -1139,7 +1137,7 @@ impl RecordingSession {
             self.discard_studio_after_stop(None, cx);
             return;
         }
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         let Some(active) = self.active.take() else {
             return;
         };
@@ -1173,7 +1171,7 @@ impl RecordingSession {
             self.discard_studio_after_stop(Some(config), cx);
             return;
         }
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         let Some(active) = self.active.take() else {
             return;
         };
@@ -1213,7 +1211,7 @@ impl RecordingSession {
         let directory = active.project_dir.clone();
         let generation = self.recording_generation;
         let phase = self.phase;
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         self.phase = Phase::Stopping;
         cx.notify();
         let task = gpui_tokio::Tokio::spawn(cx, future);
@@ -1284,7 +1282,7 @@ impl RecordingSession {
         self.pause_control.uncertain = false;
         self.pause_control_error = None;
         self.pipeline_failed = false;
-        self.storage_monitor = None;
+        self.stop_recording_monitors(cx);
         self.countdown_remaining = None;
         self.phase = Phase::Idle;
         self.mic_muted = false;
@@ -1299,6 +1297,12 @@ impl RecordingSession {
 
 fn recording_failure_is_current(phase: Phase, current: u64, completed: u64) -> bool {
     current == completed && matches!(phase, Phase::Recording { .. })
+}
+
+fn set_camera_disconnected(disconnected: bool, cx: &mut App) {
+    crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
+        feeds.set_camera_disconnected(disconnected, cx)
+    });
 }
 
 fn camera_link_change(marked_lost: bool, connected: bool) -> Option<bool> {
