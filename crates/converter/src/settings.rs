@@ -68,21 +68,44 @@ pub(crate) fn chosen_storage_folder(
     }
 }
 
-pub(crate) fn carry_over(
-    source: Source,
-    old: &Map<String, Value>,
-    settings_file: &Path,
-) -> Result<(), String> {
-    let mut document = match std::fs::read(settings_file) {
+pub(crate) fn rule_count(old: &Map<String, Value>) -> usize {
+    old.get(AUTOMATIONS)
+        .and_then(|automations| automations.get("rules"))
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len)
+}
+
+fn read_frameever_settings(settings_file: &Path) -> Result<Map<String, Value>, String> {
+    match std::fs::read(settings_file) {
         Ok(bytes) => serde_json::from_slice::<Map<String, Value>>(&bytes).map_err(|error| {
             format!(
                 "FrameEver settings at {} could not be read: {error}",
                 settings_file.display()
             )
-        })?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Map::new(),
-        Err(error) => return Err(error.to_string()),
-    };
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Map::new()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+pub(crate) fn save_storage_folder(settings_file: &Path, folder: &Path) -> Result<(), String> {
+    let mut document = read_frameever_settings(settings_file)?;
+    let mut current = general(&document);
+    let mut storage = StorageSettings::from_general_settings(&current);
+    storage.choose_storage_folder(Some(folder.to_path_buf()));
+    for (key, value) in storage.general_settings_entries() {
+        current.insert(key.into(), value);
+    }
+    document.insert(GENERAL_SETTINGS.into(), Value::Object(current));
+    write_document(settings_file, &document).map_err(|error| error.to_string())
+}
+
+pub(crate) fn carry_over(
+    source: Source,
+    old: &Map<String, Value>,
+    settings_file: &Path,
+) -> Result<(), String> {
+    let mut document = read_frameever_settings(settings_file)?;
 
     let old_general = general(old);
     let mut current = general(&document);

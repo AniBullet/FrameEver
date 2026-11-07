@@ -768,7 +768,7 @@ function lint() {
 		cwd: gpuiDir,
 		env: withFfmpeg(),
 	});
-	run("cargo", ["test", "-p", CONVERTER_APP, "--lib", "i18n::"], {
+	run("cargo", ["test", "-p", CONVERTER_APP, "--test", "i18n"], {
 		cwd: gpuiDir,
 	});
 	console.log("\n\u001b[32m✓ Lint passed\u001b[0m");
