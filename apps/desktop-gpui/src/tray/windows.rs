@@ -77,11 +77,10 @@ pub fn init(cx: &mut App) {
                             handle_item(item, cx);
                         }
                     }
-                    Event::Click => {
-                        if cx.global::<Tray>().recording {
-                            stop_recording(cx);
-                        }
-                    }
+                    Event::Click => match click_item(cx.global::<Tray>().recording) {
+                        None => stop_recording(cx),
+                        Some(item) => handle_item(item, cx),
+                    },
                 }
             });
         }
@@ -109,6 +108,10 @@ fn create_tray(mode: Mode, entries: &[Entry]) -> anyhow::Result<Tray> {
         recording: false,
         previous_generation: 0,
     })
+}
+
+fn click_item(recording: bool) -> Option<TrayItem> {
+    (!recording).then_some(TrayItem::OpenCap)
 }
 
 fn activates_tray(event: &TrayIconEvent) -> bool {
@@ -337,6 +340,12 @@ mod tests {
             "Research && Development"
         );
         assert_eq!(menu_text("Studio"), "Studio");
+    }
+
+    #[test]
+    fn left_click_opens_the_window_unless_it_stops_a_recording() {
+        assert!(matches!(click_item(false), Some(TrayItem::OpenCap)));
+        assert!(click_item(true).is_none());
     }
 
     fn click(id: &str, button: MouseButton, button_state: MouseButtonState) -> TrayIconEvent {
