@@ -51,7 +51,6 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "arrow-right-to-line.svg",
     "arrow-up-right.svg",
     "ban.svg",
-    "bell.svg",
     "blur.svg",
     "box-padding.svg",
     "caption-close-windows.svg",
@@ -74,7 +73,6 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "circle-x.svg",
     "clapperboard.svg",
     "columns-2.svg",
-    "command.svg",
     "copy.svg",
     "crop.svg",
     "download.svg",
@@ -108,7 +106,6 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "maximize.svg",
     "maximize-2.svg",
     "minimize.svg",
-    "message-square-plus.svg",
     "mic.svg",
     "mic-off.svg",
     "minus.svg",
@@ -126,7 +123,6 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "play.svg",
     "plus.svg",
     "ratio.svg",
-    "record-fill.svg",
     "rectangle-horizontal.svg",
     "redo-2.svg",
     "refresh-cw.svg",
@@ -147,9 +143,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "square.svg",
     "square-dashed.svg",
     "square-pen.svg",
-    "square-play.svg",
     "square-round-corner.svg",
-    "terminal.svg",
     "text-align-center.svg",
     "text-align-end.svg",
     "text-align-start.svg",
@@ -282,6 +276,7 @@ mod tests {
         include_str!("camera_window.rs"),
         include_str!("target_overlay.rs"),
         include_str!("settings_window.rs"),
+        include_str!("settings_window/catalog.rs"),
         include_str!("settings_pages.rs"),
         include_str!("mode_select_window.rs"),
         include_str!("teleprompter_window.rs"),
@@ -573,8 +568,8 @@ mod tests {
             include_str!("target_overlay.rs").contains(r#"Mode::Screenshot => "icons/image.svg""#)
         );
         assert!(
-            include_str!("settings_window.rs")
-                .contains(r#"Self::Automations => "icons/workflow.svg""#)
+            include_str!("settings_window/catalog.rs")
+                .contains(r#"Page::Automations => "icons/workflow.svg""#)
         );
     }
 

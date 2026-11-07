@@ -1169,6 +1169,14 @@ const removed = [
 		"—",
 	],
 	[
+		["System information (Feedback)", "系统信息（反馈）"],
+		[
+			"Removed: the version is on About and the diagnostic report records the OS and capture support",
+			"移除：版本在“关于”里，系统和捕获支持写在诊断报告里",
+		],
+		"—",
+	],
+	[
 		["Sidebar version block", "侧栏版本区"],
 		["Moves to About", "移到关于"],
 		"—",
