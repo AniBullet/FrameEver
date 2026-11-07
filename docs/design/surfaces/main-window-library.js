@@ -5,12 +5,25 @@ const KIND = {
 		icon: "clapperboard",
 		name: ["Studio", "工作室"],
 		tab: ["Studio", "工作室"],
+		hint: [
+			"Saves to your computer and opens the editor when you stop. Choose recording quality in settings.",
+			"保存到你的电脑，停止录制后打开编辑器。可在设置中选择录制画质。",
+		],
 	},
-	instant: { icon: "zap", name: ["Instant", "即时"], tab: ["Instant", "即时"] },
+	instant: {
+		icon: "zap",
+		name: ["Instant", "即时"],
+		tab: ["Instant", "即时"],
+		hint: [
+			"No rendering required — the video file is ready the moment you stop.",
+			"无需渲染，停止录制时视频文件就已就绪。",
+		],
+	},
 	screenshot: {
 		icon: "image",
 		name: ["Screenshot", "截图"],
 		tab: ["Screenshots", "截图"],
+		hint: ["Capture and annotate stills.", "截取静态画面并添加标注。"],
 	},
 };
 const GROUP = {
@@ -387,7 +400,7 @@ class MainWindow {
 			<div class="mode-row"><div class="seg block">${Object.entries(KIND)
 				.map(
 					([id, k]) =>
-						`<button class="${mode === id ? "on" : ""}" data-a="mode" data-v="${id}">${icon(k.icon, "sm")}${L(...k.name)}</button>`,
+						`<button class="${mode === id ? "on" : ""}" data-a="mode" data-v="${id}">${icon(k.icon, "sm")}${L(...k.name)}<span class="mode-card"><b>${L(`${k.name[0]} mode`, `${k.name[1]}模式`)}</b><span>${L(...k.hint)}</span>${id === "screenshot" ? "" : `<span class="mode-link">${icon("settings", "sm")}${L("Quality settings", "画质设置")}</span>`}</span></button>`,
 				)
 				.join("")}</div><button class="btn ghost icon" title="${pick("Recording mode info", "录制模式说明")}">${icon("info", "sm")}</button></div>
 			<div class="targets">${targets.map(([id, ic, en, zh]) => `<button class="${target === id ? "on" : ""}" data-a="target" data-v="${id}">${id === "display" || id === "window" ? `<span class="choose">${icon("chevron-down", "sm")}</span>` : ""}${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}</div>

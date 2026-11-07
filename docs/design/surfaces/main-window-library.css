@@ -166,6 +166,70 @@ main > section .seg {
 	min-width: 0;
 }
 
+.mode-row .seg button {
+	position: relative;
+}
+
+.mode-card {
+	position: absolute;
+	top: calc(100% + 6px);
+	left: 50%;
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	width: 196px;
+	padding: 8px 10px;
+	border-radius: var(--radius-sm);
+	background: var(--popover);
+	color: var(--popover-foreground);
+	border: 1px solid var(--border);
+	font-size: var(--text-small);
+	font-weight: 500;
+	text-align: left;
+	white-space: normal;
+	transform: translateX(-50%);
+	visibility: hidden;
+	transition: visibility 0s linear 100ms;
+}
+
+.mode-card span {
+	font-size: var(--text-caption);
+	font-weight: 400;
+	line-height: 15px;
+	color: var(--muted-foreground);
+}
+
+.mode-card .mode-link {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0 -4px;
+	padding: 2px 4px;
+	border-radius: 4px;
+}
+
+.mode-card .mode-link:hover {
+	background: var(--accent);
+	color: var(--foreground);
+}
+
+.mode-row .seg button:hover .mode-card {
+	visibility: visible;
+	transition-delay: 650ms;
+}
+
+.mode-row .seg button:first-child .mode-card {
+	left: 0;
+	transform: none;
+}
+
+.mode-row .seg button:last-child .mode-card {
+	left: auto;
+	right: 0;
+	transform: none;
+}
+
 .targets {
 	display: grid;
 	grid-template-columns: repeat(4, minmax(0, 1fr));

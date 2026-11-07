@@ -13,8 +13,8 @@ mod surfaces;
 use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::{
     AppContext as _, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Render, SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder,
-    px, rgb, svg,
+    Render, SharedString, StatefulInteractiveElement, Styled, Window, canvas, div,
+    prelude::FluentBuilder, px, rgb, svg,
 };
 use std::{cell::Cell, rc::Rc, time::Instant};
 
@@ -296,19 +296,41 @@ fn capture_press_fill(theme: Theme, selected: bool) -> Hsla {
     }
 }
 
+const MODE_HOVER_OPEN_DELAY: std::time::Duration = std::time::Duration::from_millis(650);
+const MODE_HOVER_SKIP_WINDOW: std::time::Duration = std::time::Duration::from_millis(300);
+const MODE_HOVER_CLOSE_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
+const MODE_HOVER_CARD_WIDTH: f32 = 196.;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModeHoverStep {
+    Keep,
+    Settle,
+    Shown,
+    ShowAfter(Mode, std::time::Duration),
+    HideAfter(std::time::Duration),
+}
+
 #[derive(Default)]
 struct ModeHoverState {
     trigger: Option<Mode>,
     card: Option<Mode>,
     visible: Option<Mode>,
+    suppressed: Option<Mode>,
+    closed_at: Option<Instant>,
 }
 
 impl ModeHoverState {
     fn target(&self) -> Option<Mode> {
-        self.trigger.or(self.card)
+        self.trigger
+            .filter(|mode| self.suppressed != Some(*mode))
+            .or(self.card)
     }
 
-    fn update(&mut self, mode: Mode, card: bool, hovered: bool) {
+    fn update(&mut self, mode: Mode, card: bool, hovered: bool, now: Instant) -> ModeHoverStep {
+        let previous = self.target();
+        if !card && !hovered && self.suppressed == Some(mode) {
+            self.suppressed = None;
+        }
         if !card && hovered && self.card != Some(mode) {
             self.card = None;
         }
@@ -322,6 +344,47 @@ impl ModeHoverState {
         } else if *current == Some(mode) {
             *current = None;
         }
+        let target = self.target();
+        if target == previous {
+            return ModeHoverStep::Keep;
+        }
+        let recently_closed = self
+            .closed_at
+            .is_some_and(|closed| now.saturating_duration_since(closed) <= MODE_HOVER_SKIP_WINDOW);
+        match target {
+            None if self.visible.is_some() => ModeHoverStep::HideAfter(MODE_HOVER_CLOSE_DELAY),
+            None => ModeHoverStep::Settle,
+            Some(mode) if self.visible == Some(mode) => ModeHoverStep::Settle,
+            Some(mode) if self.visible.is_some() || recently_closed => {
+                self.visible = Some(mode);
+                ModeHoverStep::Shown
+            }
+            Some(mode) => ModeHoverStep::ShowAfter(mode, MODE_HOVER_OPEN_DELAY),
+        }
+    }
+
+    fn open(&mut self, mode: Mode) -> bool {
+        if self.target() != Some(mode) {
+            return false;
+        }
+        self.visible = Some(mode);
+        true
+    }
+
+    fn close_if_left(&mut self, now: Instant) -> bool {
+        if self.target().is_some() || self.visible.is_none() {
+            return false;
+        }
+        self.visible = None;
+        self.closed_at = Some(now);
+        true
+    }
+
+    fn dismiss(&mut self) {
+        self.suppressed = self.trigger;
+        self.card = None;
+        self.visible = None;
+        self.closed_at = None;
     }
 }
 
@@ -349,15 +412,15 @@ impl gpui::RenderOnce for ModeHoverCard {
         div()
             .flex()
             .flex_col()
-            .gap(px(8.))
-            .w(px(240.))
-            .px(px(12.))
-            .py(px(10.))
-            .rounded(px(8.))
+            .gap(px(4.))
+            .w(px(MODE_HOVER_CARD_WIDTH))
+            .px(px(10.))
+            .py(px(8.))
+            .rounded(px(6.))
             .border_1()
-            .border_color(theme.gray_3)
-            .bg(theme.gray_12)
-            .text_color(theme.gray_1)
+            .border_color(theme.border)
+            .bg(theme.popover)
+            .text_color(theme.popover_foreground)
             .child(
                 div()
                     .text_size(px(12.))
@@ -365,9 +428,10 @@ impl gpui::RenderOnce for ModeHoverCard {
             )
             .child(
                 div()
-                    .text_size(px(10.))
-                    .line_height(px(13.75))
-                    .text_color(theme.gray_4)
+                    .text_size(px(11.))
+                    .line_height(px(15.))
+                    .font_weight(FontWeight::NORMAL)
+                    .text_color(theme.muted_foreground)
                     .child(description),
             )
             .when(mode != Mode::Screenshot, |this| {
@@ -380,19 +444,19 @@ impl gpui::RenderOnce for ModeHoverCard {
                         .items_center()
                         .gap(px(6.))
                         .mx(px(-4.))
-                        .px(px(8.))
-                        .py(px(4.))
-                        .rounded(px(6.))
+                        .px(px(4.))
+                        .py(px(2.))
+                        .rounded(px(4.))
                         .text_size(px(11.))
-                        .text_color(theme.gray_4)
-                        .hover(|style| style.bg(theme.gray_11).text_color(theme.gray_1))
+                        .text_color(theme.muted_foreground)
+                        .hover(|style| style.bg(theme.accent).text_color(theme.foreground))
                         .child(
                             svg()
                                 .path("icons/settings.svg")
                                 .size(px(14.))
-                                .text_color(theme.gray_4)
+                                .text_color(theme.muted_foreground)
                                 .group_hover("mode-quality-settings", |style| {
-                                    style.text_color(theme.gray_1)
+                                    style.text_color(theme.foreground)
                                 }),
                         )
                         .child(t!("Quality settings"))
@@ -749,6 +813,7 @@ pub struct MainWindow {
     mode_hover: ModeHoverState,
     mode_hover_task: Option<Task<()>>,
     mode_hover_bounds: [Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>; 3],
+    mode_hover_card_bounds: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
     target: Option<TargetType>,
     devices: DeviceSnapshot,
     camera: Option<CameraOption>,
@@ -1023,6 +1088,7 @@ impl MainWindow {
             mode_hover: ModeHoverState::default(),
             mode_hover_task: None,
             mode_hover_bounds: std::array::from_fn(|_| Rc::new(Cell::new(None))),
+            mode_hover_card_bounds: Rc::new(Cell::new(None)),
             target: None,
             devices: DeviceSnapshot::default(),
             camera: None,
@@ -2806,6 +2872,9 @@ impl Render for MainWindow {
             }))
             .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
             .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
+            .capture_any_mouse_down(cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                this.dismiss_mode_hover_on_press(event.position, cx);
+            }))
             .size_full()
             .relative()
             .flex()
@@ -5056,34 +5125,58 @@ impl MainWindow {
 
     fn clear_mode_hover(&mut self) {
         self.mode_hover_task = None;
-        self.mode_hover = ModeHoverState::default();
+        self.mode_hover.dismiss();
     }
 
     fn update_mode_hover(&mut self, mode: Mode, card: bool, hovered: bool, cx: &mut Context<Self>) {
-        let previous = self.mode_hover.target();
-        self.mode_hover.update(mode, card, hovered);
-        let target = self.mode_hover.target();
-        if target == previous {
+        match self.mode_hover.update(mode, card, hovered, Instant::now()) {
+            ModeHoverStep::Keep => {}
+            ModeHoverStep::Settle => self.mode_hover_task = None,
+            ModeHoverStep::Shown => {
+                self.mode_hover_task = None;
+                cx.notify();
+            }
+            ModeHoverStep::ShowAfter(mode, delay) => {
+                self.mode_hover_task = Some(cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(delay).await;
+                    let _ = this.update(cx, |this, cx| {
+                        if this.mode_hover.open(mode) {
+                            cx.notify();
+                        }
+                    });
+                }));
+            }
+            ModeHoverStep::HideAfter(delay) => {
+                self.mode_hover_task = Some(cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(delay).await;
+                    let _ = this.update(cx, |this, cx| {
+                        if this.mode_hover.close_if_left(Instant::now()) {
+                            cx.notify();
+                        }
+                    });
+                }));
+            }
+        }
+    }
+
+    fn dismiss_mode_hover_on_press(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.mode_hover.visible.is_some()
+            && self
+                .mode_hover_card_bounds
+                .get()
+                .is_some_and(|bounds| bounds.contains(&position))
+        {
             return;
         }
-        self.mode_hover_task = None;
-        if target == self.mode_hover.visible {
-            return;
-        }
-        if target.is_some() {
-            self.mode_hover.visible = None;
+        let was_visible = self.mode_hover.visible.is_some();
+        self.clear_mode_hover();
+        if was_visible {
             cx.notify();
         }
-        let delay = std::time::Duration::from_millis(if target.is_some() { 120 } else { 80 });
-        self.mode_hover_task = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(delay).await;
-            let _ = this.update(cx, |this, cx| {
-                if this.mode_hover.target() == target {
-                    this.mode_hover.visible = target;
-                    cx.notify();
-                }
-            });
-        }));
     }
 
     fn render_mode_hover(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
@@ -5097,14 +5190,17 @@ impl MainWindow {
             Mode::Screenshot => 2,
         };
         let bounds = self.mode_hover_bounds[index].get()?;
+        let card_bounds = self.mode_hover_card_bounds.clone();
+        card_bounds.set(None);
         Some(
             gpui::anchored()
-                .anchor(gpui::Anchor::TopRight)
-                .position(gpui::point(bounds.right(), bounds.bottom() + px(12.)))
-                .snap_to_window_with_margin(px(12.))
+                .anchor(gpui::Anchor::TopCenter)
+                .position(gpui::point(bounds.center().x, bounds.bottom() + px(6.)))
+                .snap_to_window_with_margin(px(8.))
                 .child(
                     div()
                         .id("mode-hover-card")
+                        .relative()
                         .occlude()
                         .on_hover(cx.listener(move |this, hovered, _, cx| {
                             this.update_mode_hover(mode, true, *hovered, cx);
@@ -5113,6 +5209,14 @@ impl MainWindow {
                             this.clear_mode_hover();
                             cx.notify();
                         }))
+                        .child(
+                            canvas(
+                                move |value, _, _| card_bounds.set(Some(value)),
+                                |_, _, _, _| {},
+                            )
+                            .absolute()
+                            .size_full(),
+                        )
                         .child(ModeHoverCard {
                             mode,
                             theme: self.theme,
@@ -5210,12 +5314,8 @@ impl MainWindow {
                 div().flex().flex_col().child(
                     self.render_device_row(
                         "system-audio-row",
-                        "icons/monitor.svg",
-                        if self.system_audio {
-                            t!("Record System Audio").into()
-                        } else {
-                            t!("No System Audio").into()
-                        },
+                        "icons/volume-2.svg",
+                        String::new(),
                         if self.system_audio {
                             PillState::On
                         } else {
@@ -5224,8 +5324,6 @@ impl MainWindow {
                         None,
                         cx,
                     )
-                    // System audio has no device to choose, so the row is a
-                    // plain toggle rather than a picker.
                     .on_click(cx.listener(|this, _, _window, cx| {
                         if this.device_changes_allowed(cx) {
                             this.set_system_audio(!this.system_audio, cx);
@@ -5235,18 +5333,17 @@ impl MainWindow {
             )
     }
 
-    /// `DEVICE_ROW_CLASS`: 42px tall, `rounded-lg`, `border-gray-6`, `bg-gray-2`,
-    /// `pl-3 pr-1.5 gap-2.5`.
     fn render_device_row(
         &self,
         id: &'static str,
         icon: &'static str,
-        label: String,
+        value: String,
         pill: PillState,
         menu: Option<DeviceMenu>,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
+        let label = menu.map_or(t!("System audio"), DeviceMenu::title);
 
         div()
             .id(SharedString::from(id))
@@ -5255,9 +5352,8 @@ impl MainWindow {
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(10.))
-            .pl(px(12.))
-            .pr(px(6.))
+            .gap(px(8.))
+            .px(px(10.))
             .w_full()
             .h(px(DEVICE_ROW_HEIGHT))
             .rounded(px(6.))
@@ -5294,54 +5390,75 @@ impl MainWindow {
                     .path(icon)
                     .size(px(16.))
                     .flex_shrink_0()
-                    .text_color(theme.gray_11),
+                    .text_color(theme.muted_foreground),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(13.5))
+                    .font_weight(FontWeight::NORMAL)
+                    .text_color(theme.foreground)
+                    .child(label),
             )
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(px(13.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.gray_12)
-                    .truncate()
-                    .child(label),
+                    .flex()
+                    .justify_end()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::NORMAL)
+                    .text_color(theme.muted_foreground)
+                    .child(div().min_w_0().truncate().child(value)),
             )
-            .child(
-                div()
-                    .id(SharedString::from(format!("{id}-toggle")))
-                    .when(menu.is_some(), |this| this.tab_index(0))
-                    .child(pill.render(theme))
-                    .on_click(cx.listener(move |this, _, _window, cx| {
-                        let Some(menu) = menu else {
-                            return;
-                        };
-                        if this.enumerating || !this.device_changes_allowed(cx) {
-                            cx.stop_propagation();
-                            return;
-                        }
-                        let permission = menu.permission();
-                        let selected = match menu {
-                            DeviceMenu::Camera => this.camera.is_some(),
-                            DeviceMenu::Microphone => this.microphone.is_some(),
-                        };
-                        if selected && !MediaAccess::global(cx).read(cx).allowed(permission) {
-                            cx.stop_propagation();
-                            this.ensure_media_access(permission, cx);
-                            return;
-                        }
-                        match menu {
-                            DeviceMenu::Camera if this.camera.is_some() => {
+            .map(|this| match (menu, pill) {
+                (None, pill) => this.child(ui::Toggle::settings(
+                    &theme,
+                    SharedString::from(format!("{id}-switch")),
+                    pill == PillState::On,
+                )),
+                (Some(_), PillState::On | PillState::Off) => this.child(
+                    svg()
+                        .path("icons/chevron-down.svg")
+                        .size(px(14.))
+                        .flex_shrink_0()
+                        .text_color(theme.muted_foreground),
+                ),
+                (Some(menu), pill) => this.child(
+                    div()
+                        .id(SharedString::from(format!("{id}-toggle")))
+                        .flex_shrink_0()
+                        .tab_index(0)
+                        .child(pill.render(theme))
+                        .on_click(cx.listener(move |this, _, _window, cx| {
+                            if this.enumerating || !this.device_changes_allowed(cx) {
                                 cx.stop_propagation();
-                                this.set_camera_selection(None, cx);
+                                return;
                             }
-                            DeviceMenu::Microphone if this.microphone.is_some() => {
+                            let permission = menu.permission();
+                            let selected = match menu {
+                                DeviceMenu::Camera => this.camera.is_some(),
+                                DeviceMenu::Microphone => this.microphone.is_some(),
+                            };
+                            if selected && !MediaAccess::global(cx).read(cx).allowed(permission) {
                                 cx.stop_propagation();
-                                this.set_microphone_selection(None, cx);
+                                this.ensure_media_access(permission, cx);
+                                return;
                             }
-                            _ => {}
-                        }
-                    })),
-            )
+                            match menu {
+                                DeviceMenu::Camera if this.camera.is_some() => {
+                                    cx.stop_propagation();
+                                    this.set_camera_selection(None, cx);
+                                }
+                                DeviceMenu::Microphone if this.microphone.is_some() => {
+                                    cx.stop_propagation();
+                                    this.set_microphone_selection(None, cx);
+                                }
+                                _ => {}
+                            }
+                        })),
+                ),
+            })
             .group(id)
     }
 }
@@ -5740,48 +5857,180 @@ mod recording_start_permit_tests {
 
 #[cfg(test)]
 mod mode_hover_tests {
-    use super::{Mode, ModeHoverState};
+    use std::time::{Duration, Instant};
+
+    use super::{
+        MODE_HOVER_CLOSE_DELAY, MODE_HOVER_OPEN_DELAY, MODE_HOVER_SKIP_WINDOW, Mode,
+        ModeHoverState, ModeHoverStep,
+    };
+
+    fn opened(mode: Mode, now: Instant) -> ModeHoverState {
+        let mut hover = ModeHoverState::default();
+        assert_eq!(
+            hover.update(mode, false, true, now),
+            ModeHoverStep::ShowAfter(mode, MODE_HOVER_OPEN_DELAY)
+        );
+        assert!(hover.open(mode));
+        hover
+    }
+
+    #[test]
+    fn first_hover_waits_for_the_open_delay() {
+        assert!(MODE_HOVER_OPEN_DELAY >= Duration::from_millis(600));
+        let now = Instant::now();
+        let mut hover = ModeHoverState::default();
+        assert_eq!(
+            hover.update(Mode::Studio, false, true, now),
+            ModeHoverStep::ShowAfter(Mode::Studio, MODE_HOVER_OPEN_DELAY)
+        );
+        assert_eq!(hover.visible, None);
+    }
+
+    #[test]
+    fn leaving_before_the_delay_cancels_the_open() {
+        let now = Instant::now();
+        let mut hover = ModeHoverState::default();
+        hover.update(Mode::Studio, false, true, now);
+        assert_eq!(
+            hover.update(Mode::Studio, false, false, now),
+            ModeHoverStep::Settle
+        );
+        assert!(!hover.open(Mode::Studio));
+        assert_eq!(hover.visible, None);
+    }
+
+    #[test]
+    fn moving_to_an_adjacent_mode_while_open_switches_at_once() {
+        let now = Instant::now();
+        let mut hover = opened(Mode::Instant, now);
+        assert_eq!(
+            hover.update(Mode::Instant, false, false, now),
+            ModeHoverStep::HideAfter(MODE_HOVER_CLOSE_DELAY)
+        );
+        assert_eq!(
+            hover.update(Mode::Studio, false, true, now),
+            ModeHoverStep::Shown
+        );
+        assert_eq!(hover.visible, Some(Mode::Studio));
+    }
+
+    #[test]
+    fn reentering_within_the_skip_window_opens_at_once() {
+        let now = Instant::now();
+        let mut hover = opened(Mode::Instant, now);
+        hover.update(Mode::Instant, false, false, now);
+        assert!(hover.close_if_left(now + MODE_HOVER_CLOSE_DELAY));
+        let back = now + MODE_HOVER_CLOSE_DELAY + MODE_HOVER_SKIP_WINDOW;
+        assert_eq!(
+            hover.update(Mode::Screenshot, false, true, back),
+            ModeHoverStep::Shown
+        );
+        assert_eq!(hover.visible, Some(Mode::Screenshot));
+    }
+
+    #[test]
+    fn reentering_after_the_skip_window_waits_again() {
+        let now = Instant::now();
+        let mut hover = opened(Mode::Instant, now);
+        hover.update(Mode::Instant, false, false, now);
+        assert!(hover.close_if_left(now));
+        let later = now + MODE_HOVER_SKIP_WINDOW + Duration::from_millis(1);
+        assert_eq!(
+            hover.update(Mode::Studio, false, true, later),
+            ModeHoverStep::ShowAfter(Mode::Studio, MODE_HOVER_OPEN_DELAY)
+        );
+    }
+
+    #[test]
+    fn a_press_closes_the_card_and_keeps_it_closed_until_the_pointer_leaves() {
+        let now = Instant::now();
+        let mut hover = opened(Mode::Studio, now);
+        hover.dismiss();
+        assert_eq!(hover.visible, None);
+        assert_eq!(hover.target(), None);
+        assert!(!hover.open(Mode::Studio));
+        assert_eq!(
+            hover.update(Mode::Studio, false, false, now),
+            ModeHoverStep::Keep
+        );
+        assert_eq!(
+            hover.update(Mode::Studio, false, true, now),
+            ModeHoverStep::ShowAfter(Mode::Studio, MODE_HOVER_OPEN_DELAY)
+        );
+    }
+
+    #[test]
+    fn a_press_before_the_card_opens_stops_it_opening() {
+        let now = Instant::now();
+        let mut hover = ModeHoverState::default();
+        hover.update(Mode::Instant, false, true, now);
+        hover.dismiss();
+        assert!(!hover.open(Mode::Instant));
+        assert_eq!(hover.visible, None);
+    }
+
+    #[test]
+    fn a_dismissed_card_does_not_reopen_instantly_on_the_next_mode() {
+        let now = Instant::now();
+        let mut hover = opened(Mode::Instant, now);
+        hover.dismiss();
+        assert_eq!(
+            hover.update(Mode::Studio, false, true, now),
+            ModeHoverStep::ShowAfter(Mode::Studio, MODE_HOVER_OPEN_DELAY)
+        );
+    }
+
+    #[test]
+    fn closing_waits_for_the_pointer_to_stay_away() {
+        let now = Instant::now();
+        let mut hover = opened(Mode::Studio, now);
+        hover.update(Mode::Studio, false, false, now);
+        hover.update(Mode::Studio, true, true, now);
+        assert!(!hover.close_if_left(now + MODE_HOVER_CLOSE_DELAY));
+        assert_eq!(hover.visible, Some(Mode::Studio));
+    }
 
     #[test]
     fn moving_between_trigger_and_card_keeps_the_card_open_in_either_event_order() {
         for enter_first in [false, true] {
-            let mut hover = ModeHoverState::default();
-            hover.update(Mode::Studio, false, true);
-            hover.visible = Some(Mode::Studio);
+            let now = Instant::now();
+            let mut hover = opened(Mode::Studio, now);
             if enter_first {
-                hover.update(Mode::Studio, true, true);
-                hover.update(Mode::Studio, false, false);
+                hover.update(Mode::Studio, true, true, now);
+                hover.update(Mode::Studio, false, false, now);
             } else {
-                hover.update(Mode::Studio, false, false);
-                hover.update(Mode::Studio, true, true);
+                hover.update(Mode::Studio, false, false, now);
+                hover.update(Mode::Studio, true, true, now);
             }
             assert_eq!(hover.target(), Some(Mode::Studio));
-            hover.update(Mode::Studio, true, false);
+            hover.update(Mode::Studio, true, false, now);
             assert_eq!(hover.target(), None);
         }
     }
 
     #[test]
     fn late_leave_from_previous_trigger_does_not_dismiss_the_new_mode() {
+        let now = Instant::now();
         let mut hover = ModeHoverState::default();
-        hover.update(Mode::Instant, false, true);
-        hover.update(Mode::Studio, false, true);
-        hover.update(Mode::Instant, false, false);
+        hover.update(Mode::Instant, false, true, now);
+        hover.update(Mode::Studio, false, true, now);
+        hover.update(Mode::Instant, false, false, now);
         assert_eq!(hover.target(), Some(Mode::Studio));
-        hover.update(Mode::Studio, false, false);
+        hover.update(Mode::Studio, false, false, now);
         assert_eq!(hover.target(), None);
     }
 
     #[test]
     fn switching_from_a_card_to_another_mode_does_not_restore_the_removed_card() {
+        let now = Instant::now();
         let mut hover = ModeHoverState::default();
-        hover.update(Mode::Instant, true, true);
+        hover.update(Mode::Instant, true, true, now);
         hover.visible = Some(Mode::Instant);
-        hover.update(Mode::Studio, false, true);
+        hover.update(Mode::Studio, false, true, now);
         assert_eq!(hover.target(), Some(Mode::Studio));
-        hover.update(Mode::Studio, false, false);
+        hover.update(Mode::Studio, false, false, now);
         assert_eq!(hover.target(), None);
-        hover.update(Mode::Instant, true, false);
+        hover.update(Mode::Instant, true, false, now);
         assert_eq!(hover.target(), None);
     }
 }

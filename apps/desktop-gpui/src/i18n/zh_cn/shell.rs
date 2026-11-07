@@ -218,8 +218,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Recording mode info", "录制模式说明"),
     ("Choose a display", "选择显示器"),
     ("Choose a window", "选择窗口"),
-    ("Record System Audio", "录制系统声音"),
-    ("No System Audio", "不录系统声音"),
     ("On", "开"),
     ("Off", "关闭"),
     ("Not connected", "未连接"),
