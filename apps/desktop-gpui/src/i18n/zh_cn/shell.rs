@@ -445,6 +445,18 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Click and drag to select an area", "点击并拖动以选择区域"),
     ("Draw an area", "框选一个区域"),
+    ("Clear area", "清除选区"),
+    ("Fill display", "填满屏幕"),
+    ("Lock area for next time", "锁定区域供下次使用"),
+    ("Unlock area", "解锁区域"),
+    ("Locked", "已锁定"),
+    ("Window size and ratio", "窗口尺寸和比例"),
+    ("Record only this window", "只录这个窗口"),
+    ("Center on screen", "移到屏幕中央"),
+    (
+        "The window is still being resized. Try starting again.",
+        "窗口还在调整大小，请稍后再试一次。",
+    ),
     (
         "Minimum size is {width} x {height}",
         "最小尺寸为 {width} x {height}",

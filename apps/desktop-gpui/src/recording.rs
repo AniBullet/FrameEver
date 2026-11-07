@@ -1491,11 +1491,15 @@ async fn start_attempt(
         excluded
     };
     let mut instant_metadata_lock = None;
+    let window_only = matches!(config.target, ScreenCaptureTarget::Window { .. })
+        && crate::store::GeneralSettings::load().window_capture_style
+            == crate::store::WindowCaptureStyle::FocusedWindow;
     let handle = match config.mode {
         RecordingMode::Studio => {
             let mut builder = defaults.apply_to_studio_builder(
                 studio_recording::Actor::builder(project_dir.clone(), config.target.clone())
-                    .with_system_audio(config.system_audio),
+                    .with_system_audio(config.system_audio)
+                    .with_window_only(window_only),
                 camera_lock.is_some(),
                 None,
             );
@@ -1526,6 +1530,7 @@ async fn start_attempt(
             let mut builder =
                 instant_recording::Actor::builder(project_dir.clone(), config.target.clone())
                     .with_system_audio(config.system_audio)
+                    .with_window_only(window_only)
                     .with_max_output_size(instant_max_resolution);
             if let Some(gate) = config.start_gate.clone() {
                 builder = builder.with_start_gate(gate);

@@ -68,6 +68,8 @@
 		"layout-grid",
 		"list",
 		"list-filter",
+		"lock",
+		"lock-open",
 		"maximize",
 		"maximize-2",
 		"minimize",
