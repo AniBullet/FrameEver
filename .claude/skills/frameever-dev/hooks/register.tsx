@@ -119,6 +119,25 @@ async function append($: EngineInterface, id: string, lines: string[]) {
   })
 }
 
+async function resolveRoot($: EngineInterface) {
+  let dir = root.replace(/[\\/]+$/, '')
+  while (dir) {
+    const found = await $.fs.read(`${dir}\\scripts\\fe.mjs`).then(
+      () => true,
+      () => false,
+    )
+    if (found) {
+      root = dir
+      return
+    }
+    const parent = dir.replace(/[\\/][^\\/]*$/, '')
+    if (parent === dir) {
+      return
+    }
+    dir = parent
+  }
+}
+
 async function stopApp($: EngineInterface) {
   const pid = await $.fs.read(`${root}\\${DEV_PID_FILE}`).catch(() => '')
   if (/^\d+$/.test(pid.trim())) {
@@ -131,6 +150,7 @@ async function runJob($: EngineInterface, job: Job) {
     await update($, selected, () => job.id)
     return
   }
+  await resolveRoot($)
   const version = job.needsVersion ? await nextVersion($) : ''
   const args = job.args(await read($, language), version)
   const startedAt = await $.clock.now()
