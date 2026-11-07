@@ -1533,6 +1533,8 @@ const menus = {
 			<button data-act="close">${icon("arrow-up")}${L("Move clip up", "上移片段")}</button>
 			<button data-act="close">${icon("arrow-down")}${L("Move clip down", "下移片段")}</button>
 			<button data-act="close">${icon("pencil")}${L("Rename clip", "重命名片段")}</button>
+			<button class="danger" data-act="close">${icon("trash")}<span class="grow">${L("Delete before playhead", "删除播放头之前的部分")}</span><span class="kbd">Q</span></button>
+			<button class="danger" data-act="close">${icon("trash")}<span class="grow">${L("Delete after playhead", "删除播放头之后的部分")}</span><span class="kbd">W</span></button>
 			<button class="danger" data-act="close">${icon("trash")}<span class="grow">${L("Delete clip", "删除片段")}</span><span class="kbd">Del</span></button>
 		</div>`;
 	},
@@ -2038,8 +2040,8 @@ const renderDocs = () => {
 		],
 		[
 			[
-				"Clip speed, volume, mute, pitch, hide cursor, split, merge, rename, delete",
-				"片段速度、音量、静音、音调、隐藏光标、分割、合并、重命名、删除",
+				"Clip speed, volume, mute, pitch, hide cursor, split, merge, rename, delete before or after the playhead, delete",
+				"片段速度、音量、静音、音调、隐藏光标、分割、合并、重命名、删除播放头前后部分、删除",
 			],
 			["Clip menu (also from Clips › Clip options)", "片段菜单（也可从片段页的片段选项打开）"],
 		],
