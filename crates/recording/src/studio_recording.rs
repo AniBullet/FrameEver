@@ -1516,6 +1516,7 @@ pub struct ActorBuilder {
     use_oop_muxer: bool,
     max_fps: u32,
     quality: crate::StudioQuality,
+    window_only: bool,
     #[cfg(target_os = "macos")]
     excluded_windows: Vec<scap_targets::WindowId>,
     start_gate: Option<RecordingStartGate>,
@@ -1535,6 +1536,7 @@ impl ActorBuilder {
             use_oop_muxer: false,
             max_fps: 60,
             quality: crate::StudioQuality::Balanced,
+            window_only: false,
             #[cfg(target_os = "macos")]
             excluded_windows: Vec::new(),
             start_gate: None,
@@ -1543,6 +1545,11 @@ impl ActorBuilder {
 
     pub fn with_system_audio(mut self, system_audio: bool) -> Self {
         self.system_audio = system_audio;
+        self
+    }
+
+    pub fn with_window_only(mut self, window_only: bool) -> Self {
+        self.window_only = window_only;
         self
     }
 
@@ -1610,6 +1617,7 @@ impl ActorBuilder {
             self.output_path,
             RecordingBaseInputs {
                 capture_target: self.capture_target,
+                window_only: self.window_only,
                 capture_system_audio: self.system_audio,
                 mic_feed: self.mic_feed,
                 camera_feed: self.camera_feed,
@@ -2621,7 +2629,7 @@ async fn create_segment_pipeline(
             start_time.system_time(),
             base_inputs.capture_system_audio,
             #[cfg(windows)]
-            capture_target.window(),
+            crate::window_only_target(&capture_target, base_inputs.window_only),
             #[cfg(windows)]
             d3d_device,
             #[cfg(target_os = "macos")]
@@ -3151,6 +3159,7 @@ mod tests {
                     root.join("content/cursors"),
                     RecordingBaseInputs {
                         capture_target: screen_capture::ScreenCaptureTarget::CameraOnly,
+                        window_only: false,
                         capture_system_audio: false,
                         mic_feed: None,
                         camera_feed: None,
@@ -3260,6 +3269,7 @@ mod tests {
             path.join("content/cursors"),
             RecordingBaseInputs {
                 capture_target: target.clone(),
+                window_only: false,
                 capture_system_audio: false,
                 mic_feed: None,
                 camera_feed: None,
@@ -3357,6 +3367,7 @@ mod tests {
             path.join("content/cursors"),
             RecordingBaseInputs {
                 capture_target: target.clone(),
+                window_only: false,
                 capture_system_audio: false,
                 mic_feed: None,
                 camera_feed: None,
@@ -3493,6 +3504,7 @@ mod tests {
                 path.join("content/cursors"),
                 RecordingBaseInputs {
                     capture_target: target.clone(),
+                    window_only: false,
                     capture_system_audio: false,
                     mic_feed: None,
                     camera_feed: None,
@@ -4818,6 +4830,7 @@ mod tests {
             recording_dir.join("content/cursors"),
             RecordingBaseInputs {
                 capture_target: screen_capture::ScreenCaptureTarget::CameraOnly,
+                window_only: false,
                 capture_system_audio: false,
                 mic_feed: None,
                 camera_feed: None,
@@ -5062,6 +5075,7 @@ mod windows_cancel_tests {
             PathBuf::new(),
             RecordingBaseInputs {
                 capture_target: screen_capture::ScreenCaptureTarget::CameraOnly,
+                window_only: false,
                 capture_system_audio: false,
                 mic_feed: None,
                 camera_feed: None,

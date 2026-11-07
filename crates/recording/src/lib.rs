@@ -77,9 +77,17 @@ pub struct RecordingOptions {
     pub mode: RecordingMode,
 }
 
+pub fn window_only_target(
+    target: &ScreenCaptureTarget,
+    window_only: bool,
+) -> Option<scap_targets::WindowId> {
+    target.window().filter(|_| window_only)
+}
+
 #[derive(Clone)]
 pub struct RecordingBaseInputs {
     pub capture_target: ScreenCaptureTarget,
+    pub window_only: bool,
     pub capture_system_audio: bool,
     pub mic_feed: Option<Arc<MicrophoneFeedLock>>,
     pub camera_feed: Option<Arc<CameraFeedLock>>,
