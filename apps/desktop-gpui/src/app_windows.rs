@@ -445,7 +445,7 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                 let behaviour = settings.post_studio_recording_behaviour;
                 let after_instant = settings.post_instant_recording_behaviour;
                 if let Some(project) = &finished_instant
-                    && after_instant == crate::store::PostInstantBehaviour::CopyFile
+                    && after_instant.finish().copy_file
                 {
                     copy_instant_recording(project, cx);
                 }
@@ -940,7 +940,7 @@ pub fn open_quality_settings(mode: Mode, cx: &mut App) {
     if mode == Mode::Screenshot {
         return;
     }
-    open_settings(Page::Quality, cx);
+    open_settings(Page::Recording, cx);
     if let Some(handle) = cx.global::<AppWindows>().settings {
         handle
             .update(cx, |view, window, cx| {
@@ -5363,6 +5363,13 @@ pub fn prepare_for_screenshot_capture(cx: &mut App) -> bool {
     true
 }
 
+pub fn screenshot_saved(cx: &mut App) {
+    crate::tray::refresh_previous(cx);
+    let main = cx.global::<AppWindows>().main;
+    main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
+        .ok();
+}
+
 /// A screenshot finished (`Some` PNG path) or failed (`None`): refresh every
 /// surface that lists screenshots -- the `NewScreenshotAdded` listeners in
 /// the Tauri app -- and open the screenshot editor on the new bundle, the
@@ -5377,15 +5384,7 @@ pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
         return;
     };
 
-    crate::tray::refresh_previous(cx);
-    if let Some(settings) = cx.global::<AppWindows>().settings {
-        settings
-            .update(cx, |view, window, cx| view.refresh_screenshots(window, cx))
-            .ok();
-    }
-    let main = cx.global::<AppWindows>().main;
-    main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
-        .ok();
+    screenshot_saved(cx);
 
     let behaviour = crate::store::GeneralSettings::load().post_screenshot_behaviour;
     if behaviour.copies() {
@@ -5558,11 +5557,6 @@ pub fn close_screenshot_editor_after_delete(bundle: &Path, cx: &mut App) {
 
 pub fn refresh_screenshot_surfaces(cx: &mut App) {
     crate::tray::refresh_previous(cx);
-    if let Some(settings) = cx.global::<AppWindows>().settings {
-        settings
-            .update(cx, |view, window, cx| view.refresh_screenshots(window, cx))
-            .ok();
-    }
     let main = cx.global::<AppWindows>().main;
     main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
         .ok();
@@ -5619,14 +5613,8 @@ pub fn auto_library_play(spec: String, cx: &mut App) {
 
 pub fn refresh_library_everywhere(cx: &mut App) {
     let main = cx.global::<AppWindows>().main;
-    let settings = cx.global::<AppWindows>().settings;
     main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
         .ok();
-    if let Some(settings) = settings {
-        settings
-            .update(cx, |view, window, cx| view.refresh_recordings(window, cx))
-            .ok();
-    }
     crate::tray::refresh_previous(cx);
 }
 

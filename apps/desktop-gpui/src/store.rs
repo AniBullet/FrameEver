@@ -1196,9 +1196,22 @@ impl Default for GeneralSettings {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InstantFinish {
+    pub copy_file: bool,
+    pub show_library: bool,
+}
+
 impl PostInstantBehaviour {
+    pub fn finish(self) -> InstantFinish {
+        InstantFinish {
+            copy_file: self == Self::CopyFile,
+            show_library: self == Self::ShowLibrary,
+        }
+    }
+
     pub fn keeps_main_window_hidden(self) -> bool {
-        self != Self::ShowLibrary
+        !self.finish().show_library
     }
 }
 
@@ -1811,6 +1824,17 @@ pub fn preset_names() -> Vec<String> {
 #[cfg(test)]
 mod post_instant_tests {
     use super::*;
+
+    #[test]
+    fn each_instant_outcome_does_only_local_work() {
+        let steps = |behaviour: PostInstantBehaviour| {
+            let finish = behaviour.finish();
+            (finish.copy_file, finish.show_library)
+        };
+        assert_eq!(steps(PostInstantBehaviour::ShowLibrary), (false, true));
+        assert_eq!(steps(PostInstantBehaviour::CopyFile), (true, false));
+        assert_eq!(steps(PostInstantBehaviour::DoNothing), (false, false));
+    }
 
     #[test]
     fn only_show_in_library_brings_the_main_window_back() {

@@ -6,6 +6,9 @@ edition = "2024"
 license = "AGPL-3.0"
 publish = false
 
+[lib]
+test = false
+
 [[bin]]
 name = "frameever-converter"
 path = "src/main.rs"
@@ -18,10 +21,18 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features =
     "font-kit",
     "runtime_shaders",
 ] }
+lyon_tessellation = "1.0"
 serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Globalization"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Registry",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [build-dependencies]
 tauri-winres = "0.3.7"

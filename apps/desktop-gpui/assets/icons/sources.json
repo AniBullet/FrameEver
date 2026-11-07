@@ -26,7 +26,6 @@
 		"arrow-up-right",
 		"arrow-up-wide-narrow",
 		"ban",
-		"bell",
 		"captions",
 		"check",
 		"chevron-down",
@@ -43,7 +42,6 @@
 		"circle-x",
 		"clapperboard",
 		"columns-2",
-		"command",
 		"copy",
 		"crop",
 		"download",
@@ -71,7 +69,6 @@
 		"maximize",
 		"maximize-2",
 		"minimize",
-		"message-square-plus",
 		"mic",
 		"mic-off",
 		"minus",
@@ -106,9 +103,7 @@
 		"square",
 		"square-dashed",
 		"square-pen",
-		"square-play",
 		"square-round-corner",
-		"terminal",
 		"text-align-center",
 		"text-align-end",
 		"text-align-start",
@@ -132,8 +127,7 @@
 	],
 	"lucideFilled": {
 		"pause": "pause",
-		"play": "play",
-		"record-fill": "circle"
+		"play": "play"
 	},
 	"tabler": ["blur", "box-padding", "shadow"],
 	"custom": [

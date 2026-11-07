@@ -45,8 +45,8 @@ pub mod watch;
 pub use frameever_utils::storage::remove_export;
 pub use recycle::Deleted;
 pub use versions::{
-    Version, VideoVersions, compress as compress_video, compressed_only, delete_compressed,
-    delete_original, restore_original, use_compressed, video_versions,
+    Version, VideoVersions, compress as compress_video, compressed_only, delete_original,
+    restore_original, use_compressed, video_versions,
 };
 
 /// `RECENT_MEDIA_LIMIT` in `new-main/index.tsx:129`.
@@ -170,34 +170,6 @@ pub enum RecordingMode {
     Instant,
 }
 
-impl RecordingMode {
-    /// The tab id and the serialized value: `meta.mode === activeTab()`
-    /// compares against `"studio"` / `"instant"`.
-    pub fn slug(self) -> &'static str {
-        match self {
-            Self::Studio => "studio",
-            Self::Instant => "instant",
-        }
-    }
-
-    /// `firstLetterUpperCase()` on the badge -- the mode with its first letter
-    /// capitalized, which for these two values is just the label.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Studio => t!("Studio"),
-            Self::Instant => t!("Instant"),
-        }
-    }
-
-    /// `IconCapInstant` / `IconCapFilmCut`, the badge and tab glyphs.
-    pub fn icon(self) -> &'static str {
-        match self {
-            Self::Studio => "icons/clapperboard.svg",
-            Self::Instant => "icons/zap.svg",
-        }
-    }
-}
-
 /// `StudioRecordingStatus` as the page reads it -- the enum is shared by both
 /// modes in `RecordingMetaWithMetadata` (an instant recording's own
 /// `InProgress` / `Failed` / `Complete` is mapped onto it).
@@ -212,10 +184,6 @@ pub enum RecordingStatus {
 impl RecordingStatus {
     pub fn is_complete(&self) -> bool {
         matches!(self, Self::Complete)
-    }
-
-    pub fn is_in_progress(&self) -> bool {
-        matches!(self, Self::InProgress)
     }
 
     /// The tooltip text on the "Recording failed" badge.
@@ -378,11 +346,6 @@ fn recording_items_in(dirs: &[PathBuf]) -> impl Iterator<Item = RecordingItem> {
         let meta = RecordingMeta::load_for_project(&path).ok()?;
         Some(recording_item(path, meta, sort_time_millis))
     })
-}
-
-/// `list_recordings` against the real library.
-pub fn list_recordings() -> Vec<RecordingItem> {
-    list_recordings_in(&known_recordings_dirs())
 }
 
 fn project_media(path: &Path, meta: &RecordingMeta) -> Vec<PathBuf> {
@@ -1102,16 +1065,6 @@ fn screenshot_items_in(dirs: &[PathBuf]) -> impl Iterator<Item = ScreenshotItem>
 pub fn project_count() -> usize {
     let storage = storage();
     storage.projects(ProjectKind::Recording).len() + storage.projects(ProjectKind::Screenshot).len()
-}
-
-pub fn list_screenshots() -> Vec<ScreenshotItem> {
-    let mut items: Vec<_> = storage()
-        .known_dirs(ProjectKind::Screenshot)
-        .iter()
-        .flat_map(|dir| list_screenshots_in(dir))
-        .collect();
-    items.sort_by(|a, b| b.sort_time_millis.total_cmp(&a.sort_time_millis));
-    items
 }
 
 /// Delete the `.ever` bundle that owns `path` (the PNG or the directory).

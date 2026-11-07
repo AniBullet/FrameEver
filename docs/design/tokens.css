@@ -62,6 +62,7 @@
 	--popover-foreground: var(--neutral-12);
 	--muted: var(--neutral-3);
 	--muted-foreground: var(--neutral-11);
+	--faint-foreground: var(--neutral-9);
 	--secondary: var(--neutral-4);
 	--secondary-hover: var(--neutral-5);
 	--secondary-active: var(--neutral-7);
@@ -88,6 +89,7 @@
 	--warning: var(--amber-solid);
 	--warning-foreground: var(--neutral-1);
 	--warning-text: var(--amber-text);
+	--warning-tint: var(--amber-tint);
 	--success: var(--green-solid);
 	--success-text: var(--green-text);
 	--success-tint: var(--green-tint);
@@ -215,6 +217,7 @@
 	--popover-foreground: var(--neutral-12);
 	--muted: var(--neutral-3);
 	--muted-foreground: var(--neutral-11);
+	--faint-foreground: var(--neutral-9);
 	--secondary: var(--neutral-4);
 	--secondary-hover: var(--neutral-5);
 	--secondary-active: var(--neutral-7);
@@ -241,6 +244,7 @@
 	--warning: var(--amber-solid);
 	--warning-foreground: var(--neutral-12);
 	--warning-text: var(--amber-text);
+	--warning-tint: var(--amber-tint);
 	--success: var(--green-solid);
 	--success-text: var(--green-text);
 	--success-tint: var(--green-tint);

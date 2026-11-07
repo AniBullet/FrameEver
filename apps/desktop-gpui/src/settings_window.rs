@@ -1,187 +1,72 @@
-//! The settings window: sidebar, General page, Tauri-compatible store.
-//!
-//! Transcribed from Tauri `src/routes/(window-chrome)/settings.tsx`
-//! (the shell), `settings/general.tsx` (the page), `settings/Setting.tsx` (the
-//! section/card/row primitives) and the `[data-macos-native-material="settings"]`
-//! block of Tauri `src/styles/theme.css`, which is what actually sizes
-//! this window's chrome -- most of the Tailwind on the elements is overridden
-//! there, so the CSS wins wherever the two disagree and the quoted rule next to
-//! each metric says which one it is.
-//!
-//! Every value the General page writes goes into the same tauri-plugin-store
-//! file the shipping app uses, one key at a time, through
-//! [`crate::store::set_store_setting`].
-
 use std::{
     cell::Cell,
-    path::{Path, PathBuf},
+    path::Path,
     rc::Rc,
-    sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use gpui::{
-    AppContext as _, Bounds, Context, Entity, FocusHandle, FontWeight, Hsla, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, Pixels, Point, Render, RenderImage, ScrollAnchor,
+    AnyElement, AppContext as _, Bounds, Context, Entity, FocusHandle, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Point, Render, ScrollAnchor,
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, div, img,
-    prelude::FluentBuilder, px, svg,
+    prelude::FluentBuilder, px, svg, transparent_black,
 };
 use serde_json::Value;
 
 use crate::{
     devices::WindowOption,
+    doodle::{self, Doodle},
     i18n::{n, t, tr},
-    library::{self, RecordingItem, RecordingMode, ScreenshotItem},
     main_window::Mode,
+    onboarding_doodles,
     store::{
         self, AppTheme, DEFAULT_PROJECT_NAME_TEMPLATE, GENERAL_SETTINGS, GeneralSettings,
-        MainWindowStartBehaviour, PostDeletionBehaviour, RECORDING_START_SAFETY, SettingsEnum,
+        MainWindowStartBehaviour, PostDeletionBehaviour, PostInstantBehaviour,
+        PostScreenshotBehaviour, PostStudioBehaviour, RECORDING_START_SAFETY, SettingsEnum,
         StudioQuality, UpdateChannel, UpdateDownloadPolicy, WindowExclusion,
     },
     theme::Theme,
     ui,
 };
 
-/// `.inner_size(782.0, 775.0)` / `.min_inner_size(780.0, 560.0)` on the
-/// `ShowCapWindow::Settings` builder in `windows.rs`.
-pub const SETTINGS_WIDTH: f32 = 782.;
-pub const SETTINGS_HEIGHT: f32 = 775.;
-pub const SETTINGS_MIN_WIDTH: f32 = 780.;
-pub const SETTINGS_MIN_HEIGHT: f32 = 560.;
+pub mod catalog;
 
-/// `CapWindowId::Settings::traffic_lights_position` -- `Some(Some(
-/// LogicalPosition::new(22.0, 22.0)))`. Unlike the main window these are the
-/// *real* AppKit buttons, repositioned; `(window-chrome).tsx` returns `null`
-/// for its own header on the settings route, so there is nothing hand-drawn to
-/// mirror here. The Tauri inset resolves to a top-left of
-/// `(inset.x, inset.y / 2 + 4)` (see `editor_window::TRAFFIC_LIGHTS` for the
-/// `position_window_controls` derivation), and gpui takes the literal
-/// top-left: (22, 22) -> (22, 15).
+pub use catalog::{Page, Row};
+
+pub const SETTINGS_WIDTH: f32 = 880.;
+pub const SETTINGS_HEIGHT: f32 = 640.;
+pub const SETTINGS_MIN_WIDTH: f32 = 720.;
+pub const SETTINGS_MIN_HEIGHT: f32 = 520.;
+
 pub const TRAFFIC_LIGHTS: Point<Pixels> = Point {
     x: px(22.),
     y: px(15.),
 };
 
-/// AppKit's titled-window shadow uses a 16px contour; a larger content mask
-/// leaves a transparent crescent between the settings window and its shadow.
 pub const SETTINGS_MATERIAL_RADIUS: f64 = 16.;
 
-// -- Sidebar/content metrics, all `:root` custom properties -----------------
+const SIDEBAR_WIDTH: f32 = 216.;
+const TITLE_BAR_HEIGHT: f32 = 36.;
+const CONTENT_PADDING_X: f32 = 24.;
+const FLASH_FOR: Duration = Duration::from_millis(1300);
 
-/// `--macos-settings-sidebar-width: 227px`.
-const SIDEBAR_WIDTH: f32 = 227.;
-/// `--macos-settings-sidebar-padding-x: 10px`.
-const SIDEBAR_PADDING_X: f32 = 10.;
-/// `--macos-settings-content-padding-x: 16px`.
-const CONTENT_PADDING_X: f32 = 16.;
-/// `.cap-settings-window-spacer { height: calc(
-///  var(--macos-settings-window-header-height) -
-///  var(--macos-settings-sidebar-wrapper-padding)) }` -- 52 - 8. The strip the
-/// repositioned traffic lights sit in.
-const SIDEBAR_SPACER: f32 = 44.;
-
-/// The sidebar list, in `settingsItems` order. `href` is the route segment,
-/// which is also what `showWindow({ Settings: { page } })` takes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Page {
-    General,
-    Quality,
-    Shortcuts,
-    Cli,
-    Recordings,
-    Screenshots,
-    Automations,
-    Transcription,
-    Experimental,
-    Feedback,
-    Changelog,
+thread_local! {
+    static LAST_PAGE: Cell<Page> = const { Cell::new(Page::General) };
 }
 
-impl Page {
-    pub const ALL: &'static [Page] = &[
-        Page::General,
-        Page::Quality,
-        Page::Shortcuts,
-        Page::Cli,
-        Page::Recordings,
-        Page::Screenshots,
-        Page::Automations,
-        Page::Transcription,
-        Page::Experimental,
-        Page::Feedback,
-        Page::Changelog,
-    ];
-
-    /// The `name` field. Note "Shortcuts" for the `hotkeys` route -- the label
-    /// and the route disagree in the shipping app.
-    fn label(self) -> &'static str {
-        match self {
-            Self::General => t!("General"),
-            Self::Quality => t!("Recording quality"),
-            Self::Shortcuts => t!("Shortcuts"),
-            Self::Cli => t!("CLI"),
-            Self::Recordings => t!("Recordings"),
-            Self::Screenshots => t!("Screenshots"),
-            Self::Automations => t!("Automations"),
-            Self::Transcription => t!("Transcription"),
-            Self::Experimental => t!("Experimental"),
-            Self::Feedback => t!("Feedback"),
-            Self::Changelog => t!("Changelog"),
-        }
-    }
-
-    /// The `href`, i.e. the `page` argument of `showWindow`.
-    pub fn slug(self) -> &'static str {
-        match self {
-            Self::General => "general",
-            Self::Quality => "quality",
-            Self::Shortcuts => "hotkeys",
-            Self::Cli => "cli",
-            Self::Recordings => "recordings",
-            Self::Screenshots => "screenshots",
-            Self::Automations => "automations",
-            Self::Transcription => "transcription",
-            Self::Experimental => "experimental",
-            Self::Feedback => "feedback",
-            Self::Changelog => "changelog",
-        }
-    }
-
-    fn icon(self) -> &'static str {
-        match self {
-            Self::General => "icons/settings.svg",
-            Self::Experimental => "icons/settings-2.svg",
-            Self::Shortcuts => "icons/command.svg",
-            Self::Cli => "icons/terminal.svg",
-            Self::Quality => "icons/gauge.svg",
-            Self::Recordings => "icons/square-play.svg",
-            Self::Screenshots => "icons/image.svg",
-            Self::Automations => "icons/workflow.svg",
-            Self::Transcription => "icons/captions.svg",
-            Self::Feedback => "icons/message-square-plus.svg",
-            Self::Changelog => "icons/bell.svg",
-        }
-    }
-
-    pub fn from_slug(slug: &str) -> Option<Self> {
-        Self::ALL.iter().copied().find(|page| page.slug() == slug)
-    }
+pub fn last_page() -> Page {
+    LAST_PAGE.with(Cell::get)
 }
 
-/// A popup list standing in for the native `Menu.popup()` the selects use.
-///
-/// The variants from `AutomationTrigger` down belong to the pages in
-/// `settings_pages.rs`, whose option lists and commits live there
-/// (`pages_menu_items` / `pages_choose`); the `usize` payloads are the rule
-/// index and, where present, the condition/action index within it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MenuKind {
     Countdown,
     MainWindowStart,
     PostDeletion,
     MaxFps,
-    /// The excluded-windows card's Add button, whose menu is the live window
-    /// list rather than a fixed option set.
+    AfterScreenshot,
+    AfterStudio,
+    AfterInstant,
     AddWindow,
     AutomationTrigger(usize),
     AutomationMatchMode(usize),
@@ -199,13 +84,9 @@ pub(crate) enum MenuKind {
 
 struct OpenMenu {
     kind: MenuKind,
-    /// Anchor, row count and keyboard highlight. `Menu.popup()` with no
-    /// position argument opens at the pointer, so the origin is the faithful
-    /// anchor; the highlight is what makes arrows and Enter work.
     state: ui::MenuState,
 }
 
-/// `MAX_FPS_OPTIONS` in general.tsx.
 const MAX_FPS_OPTIONS: &[(u32, &str)] = &[
     (24, n!("24 FPS")),
     (25, n!("25 FPS")),
@@ -214,7 +95,6 @@ const MAX_FPS_OPTIONS: &[(u32, &str)] = &[
     (120, n!("120 FPS")),
 ];
 
-/// The Countdown select's options.
 const COUNTDOWN_OPTIONS: &[(u32, &str)] = &[
     (0, n!("Off")),
     (3, n!("3 seconds")),
@@ -226,49 +106,35 @@ const STUDIO_QUALITY_TIERS: &[(StudioQuality, &str, &str)] = &[
     (
         StudioQuality::Balanced,
         n!("Balanced"),
-        n!("Sharp detail at a sensible file size. Right for most recordings."),
+        n!("Sharp at a sensible size. Recommended."),
     ),
     (
         StudioQuality::Compatibility,
         n!("Smaller files"),
-        n!("Saves disk space. Fine detail can soften, most of all on camera."),
+        n!("Saves disk space; fine detail can soften."),
     ),
     (
         StudioQuality::Ultra,
         n!("Maximum detail"),
-        n!("Keeps the most detail for heavy editing. Uses the most disk space."),
+        n!("For heavy editing; uses the most space."),
     ),
 ];
 
-const INSTANT_RESOLUTION_TIERS: &[(u32, &str, &str)] = &[
-    (1280, "720p", n!("Smallest files, fastest to save.")),
-    (1920, "1080p", n!("Sharp text at a practical file size.")),
-    (
-        2560,
-        "1440p",
-        n!("Extra detail for large, high-resolution screens."),
-    ),
-    (3840, "4K", n!("The most detail, with larger files.")),
+const INSTANT_RESOLUTION_TIERS: &[(u32, &str)] = &[
+    (1280, "720p"),
+    (1920, "1080p"),
+    (2560, "1440p"),
+    (3840, "4K"),
 ];
 
-#[derive(Clone, Copy)]
-enum InstantQualityNotice {
-    SaveFailed,
-}
-
-const UPDATE_CHANNEL_DESCRIPTIONS: &[(UpdateChannel, &str)] = &[
-    (
-        UpdateChannel::Stable,
-        n!("Versioned releases (recommended)"),
-    ),
-    (
-        UpdateChannel::Nightly,
-        n!("Pre-release builds published before a stable release. They may be unstable."),
-    ),
+const PROJECT_NAME_TOKENS: &[&str] = &[
+    "{recording_mode}",
+    "{target_name}",
+    "{date}",
+    "{time}",
+    "{random}",
 ];
 
-/// The three theme previews (`~/assets/theme-previews/*.jpg`), keyed the way
-/// `AppearanceSection`'s `previews` map is.
 fn theme_preview(theme: AppTheme) -> &'static str {
     match theme {
         AppTheme::System => "images/auto.jpg",
@@ -277,221 +143,34 @@ fn theme_preview(theme: AppTheme) -> &'static str {
     }
 }
 
-/// Which text field an event came from, so one handler can serve all three.
+fn hides_label(row: Row) -> bool {
+    matches!(
+        row,
+        Row::StorageFolder | Row::NameTemplate | Row::ExcludedWindows | Row::Licences
+    )
+}
+
+fn is_stacked(row: Row) -> bool {
+    matches!(
+        row,
+        Row::StudioQuality
+            | Row::StorageFolder
+            | Row::NameTemplate
+            | Row::ExcludedWindows
+            | Row::Licences
+            | Row::RememberedTerms
+            | Row::Cli
+            | Row::Diagnostic
+    )
+}
+
+fn is_bare(row: Row) -> bool {
+    matches!(row, Row::Rules | Row::Version | Row::Changelog)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Field {
     ProjectName,
-    /// The Recordings page's filter.
-    RecordingsSearch,
-    ScreenshotsSearch,
-}
-
-// ---------------------------------------------------------------------------
-// The Recordings page (`settings/recordings.tsx`)
-// ---------------------------------------------------------------------------
-
-/// `PAGE_SIZE` (`recordings.tsx:64`).
-const RECORDINGS_PAGE_SIZE: usize = 20;
-
-/// `hasActiveRecording`'s poll: `refetchInterval` returns 2000 while anything
-/// in the list is still being written.
-const RECORDINGS_POLL: Duration = Duration::from_millis(2000);
-
-/// `Tabs` (`recordings.tsx:47-62`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RecordingsTab {
-    All,
-    Instant,
-    Studio,
-}
-
-impl RecordingsTab {
-    const ALL: &'static [RecordingsTab] = &[Self::All, Self::Instant, Self::Studio];
-
-    /// The tab's `id`, which for the two mode tabs is the mode's own
-    /// serialized name -- `emptyMessage()` interpolates it directly.
-    fn id(self) -> &'static str {
-        match self.mode() {
-            Some(mode) => mode.slug(),
-            None => "all",
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::All => t!("Show all"),
-            Self::Instant => t!("Instant"),
-            Self::Studio => t!("Studio"),
-        }
-    }
-
-    /// `Show all` has no glyph; the other two carry the mode's own.
-    fn icon(self) -> Option<&'static str> {
-        self.mode().map(RecordingMode::icon)
-    }
-
-    /// What `data.filter(r => r.meta.mode === activeTab())` compares against;
-    /// `None` for the tab that filters nothing.
-    fn mode(self) -> Option<RecordingMode> {
-        match self {
-            Self::All => None,
-            Self::Instant => Some(RecordingMode::Instant),
-            Self::Studio => Some(RecordingMode::Studio),
-        }
-    }
-}
-
-/// One row: the scanned recording, plus its thumbnail once the background
-/// decode lands -- the Recents shape, for the same reason (the bundle's
-/// `display.jpg` is a native-resolution JPEG and must not be decoded on the UI
-/// thread).
-struct RecordingRow {
-    item: RecordingItem,
-    thumbnail: Option<Arc<RenderImage>>,
-    thumbnail_stale: bool,
-}
-
-/// Everything the page owns. The Solid route keeps this in a `createQuery` plus
-/// three signals; the lifetimes are the same, they just live on the window here.
-struct Recordings {
-    /// The scan. `None` until the first one lands -- which the page draws the
-    /// same as an empty library, because `recordings.data && length > 0` is
-    /// false for both and the route has no loading branch.
-    items: Option<Vec<RecordingRow>>,
-    tab: RecordingsTab,
-    /// The filter field. `search()` is mirrored here so the filter math reads a
-    /// plain `String`.
-    search_input: Entity<ui::TextInputState>,
-    search: String,
-    /// `visibleCount`, reset to `PAGE_SIZE` by a tab or search change.
-    visible_count: usize,
-    /// The scan + thumbnail decode task. Dropping it cancels, so a refresh that
-    /// arrives mid-scan replaces the old one rather than racing it.
-    scan: Option<gpui::Task<()>>,
-    /// The 2s poll, armed only while something in the list is still being
-    /// written (`refetchInterval`).
-    tick: Option<gpui::Task<()>>,
-    compressing: std::collections::HashMap<PathBuf, u64>,
-}
-
-impl Recordings {
-    fn new(search_input: Entity<ui::TextInputState>) -> Self {
-        Self {
-            items: None,
-            tab: RecordingsTab::All,
-            search_input,
-            search: String::new(),
-            visible_count: RECORDINGS_PAGE_SIZE,
-            scan: None,
-            tick: None,
-            compressing: std::collections::HashMap::new(),
-        }
-    }
-
-    /// `trimmedSearch()`.
-    fn trimmed_search(&self) -> &str {
-        self.search.trim()
-    }
-
-    /// `filteredRecordings()`: the tab, then the case-insensitive substring.
-    fn filtered(&self) -> Vec<&RecordingRow> {
-        let query = self.trimmed_search().to_lowercase();
-        self.items
-            .iter()
-            .flatten()
-            .filter(|row| matches_recording_filters(&row.item, self.tab, &query))
-            .collect()
-    }
-}
-
-/// One row against the tab and the already-lowercased, already-trimmed query.
-fn matches_recording_filters(item: &RecordingItem, tab: RecordingsTab, query: &str) -> bool {
-    if let Some(mode) = tab.mode()
-        && item.mode != mode
-    {
-        return false;
-    }
-    query.is_empty() || item.pretty_name.to_lowercase().contains(query)
-}
-
-struct ScreenshotRow {
-    item: ScreenshotItem,
-    thumbnail: Option<Arc<RenderImage>>,
-}
-
-struct Screenshots {
-    items: Option<Vec<ScreenshotRow>>,
-    search_input: Entity<ui::TextInputState>,
-    search: String,
-    visible_count: usize,
-    scan: Option<gpui::Task<()>>,
-}
-
-impl Screenshots {
-    fn new(search_input: Entity<ui::TextInputState>) -> Self {
-        Self {
-            items: None,
-            search_input,
-            search: String::new(),
-            visible_count: RECORDINGS_PAGE_SIZE,
-            scan: None,
-        }
-    }
-
-    fn trimmed_search(&self) -> &str {
-        self.search.trim()
-    }
-
-    fn filtered(&self) -> Vec<&ScreenshotRow> {
-        let query = self.trimmed_search().to_lowercase();
-        self.items
-            .iter()
-            .flatten()
-            .filter(|row| query.is_empty() || row.item.pretty_name.to_lowercase().contains(&query))
-            .collect()
-    }
-}
-
-/// `visibleRecordings()`: an active search shows every match, unpaginated.
-fn file_error_message(error: &str) -> String {
-    const SHARING_VIOLATION: &str = "os error 32";
-    const ACCESS_DENIED: &str = "os error 5";
-    if error.contains(SHARING_VIOLATION) || error.contains(ACCESS_DENIED) {
-        t!("The file is open in another program. Close it and try again.").to_string()
-    } else {
-        error.to_string()
-    }
-}
-
-fn visible_recordings_len(total: usize, has_search: bool, visible_count: usize) -> usize {
-    if has_search {
-        total
-    } else {
-        total.min(visible_count)
-    }
-}
-
-/// `hasMoreRecordings()`.
-fn has_more_recordings(total: usize, has_search: bool, visible_count: usize) -> bool {
-    !has_search && total > visible_count
-}
-
-/// `setVisibleCount(count => Math.min(count + PAGE_SIZE, filtered.length))`.
-fn load_more_count(visible_count: usize, total: usize) -> usize {
-    (visible_count + RECORDINGS_PAGE_SIZE).min(total)
-}
-
-/// `emptyMessage()`.
-fn recordings_empty_message(tab: RecordingsTab, trimmed_search: &str) -> String {
-    let message = match (tab, trimmed_search.is_empty()) {
-        (RecordingsTab::All, true) => t!("No recordings"),
-        (RecordingsTab::All, false) => t!("No matching recordings"),
-        (RecordingsTab::Instant, true) => t!("No instant recordings"),
-        (RecordingsTab::Instant, false) => t!("No matching instant recordings"),
-        (RecordingsTab::Studio, true) => t!("No studio recordings"),
-        (RecordingsTab::Studio, false) => t!("No matching studio recordings"),
-    };
-    message.to_string()
 }
 
 pub struct SettingsWindow {
@@ -500,40 +179,25 @@ pub struct SettingsWindow {
     pub(crate) settings: GeneralSettings,
     menu: Option<OpenMenu>,
     page_scroll: ScrollHandle,
-    instant_quality_anchor: ScrollAnchor,
-    studio_quality_anchor: ScrollAnchor,
-    quality_scroll_request: Option<Mode>,
-    instant_quality_notice: Option<InstantQualityNotice>,
+    jump_anchor: ScrollAnchor,
+    jump_pending: bool,
+    flash: Option<Row>,
+    flash_task: Option<gpui::Task<()>>,
+    instant_quality_save_failed: bool,
     studio_quality_save_failed: bool,
-    /// Everything the pages in `settings_pages.rs` own -- their fetch state,
-    /// drafts and text-input entities.
     pub(crate) pages: crate::settings_pages::PagesState,
-    /// Drafts for the two text fields. Both are Save/Update-committed in the
-    /// shipping page too, so the store only sees them on the button.
     project_name: String,
-    /// The real fields. `ui::TextInputState` owns the caret, the selection,
-    /// the clipboard and the field-scoped undo; the drafts above stay because
-    /// Save/Update are the commit, not Return.
     project_name_input: Entity<ui::TextInputState>,
-    _field_events: [gpui::Subscription; 3],
-    /// The Recordings page.
-    recordings: Recordings,
-    screenshots: Screenshots,
-    /// `Collapsible` under the project-name input, with the content's measured
-    /// height so the reveal animates a real layout property.
+    search_input: Entity<ui::TextInputState>,
+    search: String,
+    _field_events: [gpui::Subscription; 2],
     placeholders: ui::CollapsibleState,
-    /// Keeps the collapsible repainting while its height animates. Dropping it
-    /// cancels, so a re-toggle mid-flight replaces the ticker rather than
-    /// racing it -- the main window's resize rule.
     placeholders_task: Option<gpui::Task<()>>,
-    /// The zoom slider's track rect, captured during prepaint -- the row is
-    /// inside a resizable pane, so it cannot be computed.
+    changelog_all: bool,
     slider_track: Rc<Cell<Option<Bounds<Pixels>>>>,
     slider_dragging: bool,
-    /// `commands.listCaptureWindows()`, for the excluded-windows menu.
     windows: Vec<WindowOption>,
-    /// Key handling for Cmd-W lives on the root, which needs a focus handle of
-    /// its own so the window has something focused when nothing else does.
+    opened_at: Instant,
     pub(crate) focus: FocusHandle,
 }
 
@@ -543,88 +207,67 @@ impl SettingsWindow {
         let theme = Theme::for_window(window, cx, true);
         let settings = GeneralSettings::load();
 
-        // The Tauri app's close button and Cmd-W both go through the window's
-        // own close, and `CapWindowId::Settings`'s `Destroyed` arm calls
-        // `restore_main_and_target_select_windows`. Same here: whichever way
-        // the window goes away, the main window comes back.
         window.on_window_should_close(cx, |_window, cx| {
             cx.defer(crate::app_windows::settings_closed);
             true
         });
 
-        // Both fields are built up front so their focus handles outlive a page
-        // change, and because `TextInputState`'s blur listener needs a window.
+        let stored_template = settings
+            .default_project_name_template
+            .clone()
+            .unwrap_or_else(|| DEFAULT_PROJECT_NAME_TEMPLATE.to_string());
         let project_name_input = cx.new(|cx| {
             let mut input = ui::TextInputState::single_line(window, cx);
-            input.set_text(
-                settings
-                    .default_project_name_template
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_PROJECT_NAME_TEMPLATE.to_string()),
-                cx,
-            );
+            input.set_text(stored_template.clone(), cx);
             input
         });
-        let recordings_search = cx.new(|cx| {
+        let search_input = cx.new(|cx| {
             let mut input = ui::TextInputState::single_line(window, cx);
-            // `placeholder="Search"`.
-            input.set_placeholder(t!("Search"));
-            input
-        });
-        let screenshots_search = cx.new(|cx| {
-            let mut input = ui::TextInputState::single_line(window, cx);
-            input.set_placeholder(t!("Search"));
+            input.set_placeholder(t!("Search settings  Ctrl+F"));
             input
         });
         let field_events = [
             cx.subscribe(&project_name_input, |this, input, event, cx| {
                 this.on_field_event(Field::ProjectName, input, event, cx)
             }),
-            cx.subscribe(&recordings_search, |this, input, event, cx| {
-                this.on_field_event(Field::RecordingsSearch, input, event, cx)
-            }),
-            cx.subscribe(&screenshots_search, |this, input, event, cx| {
-                this.on_field_event(Field::ScreenshotsSearch, input, event, cx)
+            cx.subscribe_in(&search_input, window, |this, input, event, window, cx| {
+                this.on_search_event(input, event, window, cx)
             }),
         ];
 
         let pages = crate::settings_pages::PagesState::new(window, cx);
         let page_scroll = ScrollHandle::new();
+        LAST_PAGE.with(|last| last.set(page));
 
         Self {
             theme,
             page,
             pages,
-            project_name: settings
-                .default_project_name_template
-                .clone()
-                .unwrap_or_else(|| DEFAULT_PROJECT_NAME_TEMPLATE.to_string()),
+            project_name: stored_template,
             settings,
             menu: None,
-            instant_quality_anchor: ScrollAnchor::for_handle(page_scroll.clone()),
-            studio_quality_anchor: ScrollAnchor::for_handle(page_scroll.clone()),
+            jump_anchor: ScrollAnchor::for_handle(page_scroll.clone()),
             page_scroll,
-            quality_scroll_request: None,
-            instant_quality_notice: None,
+            jump_pending: false,
+            flash: None,
+            flash_task: None,
+            instant_quality_save_failed: false,
             studio_quality_save_failed: false,
             project_name_input,
+            search_input,
+            search: String::new(),
             _field_events: field_events,
-            recordings: Recordings::new(recordings_search),
-            screenshots: Screenshots::new(screenshots_search),
             placeholders: ui::CollapsibleState::new(false),
             placeholders_task: None,
+            changelog_all: false,
             slider_track: Rc::new(Cell::new(None)),
             slider_dragging: false,
             windows: Vec::new(),
+            opened_at: Instant::now(),
             focus: cx.focus_handle(),
         }
     }
 
-    /// Enumerate capture windows for the excluded-windows menu.
-    ///
-    /// Same reason `MainWindow::start_enumeration` is not called from `new`:
-    /// a task spawned inside `open_window`'s builder closure updates the model
-    /// without ever scheduling a frame.
     pub fn start_enumeration(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         cx.spawn_in(window, async move |this, cx| {
             let windows = cx
@@ -644,23 +287,17 @@ impl SettingsWindow {
         window.focus(&self.focus, cx);
     }
 
-    /// Re-target an already-open window, the way `showWindow({ Settings: {
-    /// page } })` navigates a live one.
     pub fn set_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         if self.page != page {
             self.page_scroll = ScrollHandle::new();
-            self.instant_quality_anchor = ScrollAnchor::for_handle(self.page_scroll.clone());
-            self.studio_quality_anchor = ScrollAnchor::for_handle(self.page_scroll.clone());
+            self.jump_anchor = ScrollAnchor::for_handle(self.page_scroll.clone());
         }
-        self.quality_scroll_request = None;
-        self.instant_quality_notice = None;
+        self.instant_quality_save_failed = false;
         self.studio_quality_save_failed = false;
         self.shortcuts_cancel(cx);
         self.page = page;
+        LAST_PAGE.with(|last| last.set(page));
         self.menu = None;
-        // The store may have changed under us while the window was in the
-        // background (the Tauri app writing, or a recording updating a
-        // window position).
         self.settings = GeneralSettings::load();
         self.page_shown(window, cx);
         cx.notify();
@@ -672,514 +309,97 @@ impl SettingsWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if mode == Mode::Screenshot {
-            return;
+        match mode {
+            Mode::Studio => self.jump_to(Row::StudioQuality, window, cx),
+            Mode::Instant => self.jump_to(Row::InstantResolution, window, cx),
+            Mode::Screenshot => {}
         }
-        if self.page != Page::Quality {
-            self.set_page(Page::Quality, window, cx);
-        }
-        self.quality_scroll_request = Some(mode);
-        cx.notify();
     }
 
-    /// Whatever the newly shown page has to fetch.
-    ///
-    /// The Recordings page's `createQuery` runs on mount and again on every
-    /// remount, which is what navigating to it is. Leaving the page drops the
-    /// scan and the poll -- `@tanstack/solid-query` stops refetching for an
-    /// unmounted observer, and a poll running behind a page nobody is looking
-    /// at is filesystem work for nothing.
-    ///
-    /// Called from the window's own open path rather than from `new` for the
-    /// [`Self::start_enumeration`] reason: a task spawned inside
-    /// `open_window`'s builder closure updates the model without ever
-    /// scheduling a frame.
     pub fn page_shown(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.pages_shown(window, cx);
-        if self.page == Page::Recordings {
-            self.screenshots.scan = None;
-            self.refresh_recordings(window, cx);
-            return;
-        }
-        if self.page == Page::Screenshots {
-            self.recordings.scan = None;
-            self.recordings.tick = None;
-            self.refresh_screenshots(window, cx);
-            return;
-        }
-        self.recordings.scan = None;
-        self.recordings.tick = None;
-        self.screenshots.scan = None;
     }
 
-    /// The `recordings` query: scan the library on the background executor,
-    /// then decode the thumbnails there through [`library::spawn_decode_pool`].
-    ///
-    /// Same two-stage shape as the main window's Recents (`refresh_recents`):
-    /// the list lands first so the rows can paint with their grey placeholder,
-    /// and each thumbnail replaces its own row's as it arrives. A library with
-    /// several hundred bundles is several hundred `read_dir` + JSON parses and
-    /// as many native-resolution JPEG decodes; none of it may happen on the UI
-    /// thread.
-    pub fn refresh_recordings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.page != Page::Recordings {
+    fn jump_to(&mut self, row: Row, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(place) = catalog::place_of(row) else {
             return;
+        };
+        self.clear_search(cx);
+        if self.page != place.page {
+            self.set_page(place.page, window, cx);
         }
-
-        self.recordings.scan = Some(cx.spawn_in(window, async move |this, cx| {
-            let items = cx
-                .background_executor()
-                .spawn(async { library::list_recordings() })
-                .await;
-            tracing::info!(count = items.len(), "scanned the recordings library");
-
-            let Ok(thumbnails) = this.update_in(cx, |this, window, cx| {
-                this.set_recordings(items, window, cx)
-            }) else {
-                return;
-            };
-
-            let (_decodes, results) = library::spawn_decode_pool(
-                cx.background_executor(),
-                thumbnails,
-                |(index, path)| library::decode_thumbnail(&path).map(|image| (index, path, image)),
-            );
-            while let Ok(first) = results.recv_async().await {
-                let mut batch = vec![first];
-                batch.extend(results.try_iter());
-                if this
-                    .update_in(cx, |this, window, cx| {
-                        for (index, path, image) in batch {
-                            let Some(row) = this
-                                .recordings
-                                .items
-                                .as_mut()
-                                .and_then(|rows| rows.get_mut(index))
-                            else {
-                                continue;
-                            };
-                            // A refresh may have landed while this decode was in
-                            // flight, and the row at this index may now be a
-                            // different recording.
-                            if row.item.thumbnail.as_deref() != Some(path.as_path()) {
-                                continue;
-                            }
-                            if let Some(old) = row.thumbnail.replace(image) {
-                                let _ = window.drop_image(old);
-                            }
-                            row.thumbnail_stale = false;
-                        }
-                        cx.notify();
-                        // An unfocused window only repaints when asked.
-                        window.refresh();
-                    })
-                    .is_err()
-                {
-                    return;
-                }
-            }
-
-            this.update_in(cx, |this, window, cx| this.arm_recordings_poll(window, cx))
-                .ok();
-        }));
-    }
-
-    /// Install a scan result, and hand back the thumbnails that still have to
-    /// be decoded.
-    ///
-    /// `reconcile: "path"` on the query is doing real work here: the 2s poll
-    /// re-runs the whole scan, and a row that is still in the library must keep
-    /// the image it already has. Without that every tick blanked all five
-    /// thumbnails and re-decoded them one by one, which is visible as a flicker
-    /// (found on the first fixture run). A row that has gone away releases its
-    /// image from the sprite atlas, the same explicit drop `set_recents` does.
-    ///
-    fn set_recordings(
-        &mut self,
-        items: Vec<RecordingItem>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Vec<(usize, PathBuf)> {
-        let mut cached: std::collections::HashMap<_, _> = self
-            .recordings
-            .items
-            .take()
-            .into_iter()
-            .flatten()
-            .map(|row| (row.item.path.clone(), row))
-            .collect();
-
-        let mut pending = Vec::new();
-        let rows: Vec<RecordingRow> = items
-            .into_iter()
-            .enumerate()
-            .map(|(index, item)| {
-                let previous = cached.remove(&item.path);
-                let changed = previous.as_ref().is_none_or(|row| {
-                    row.item.thumbnail != item.thumbnail
-                        || row.item.thumbnail_version != item.thumbnail_version
-                        || row.thumbnail_stale
-                        || row.thumbnail.is_none()
-                });
-                let thumbnail = previous.and_then(|row| row.thumbnail);
-                if changed && let Some(path) = item.thumbnail.clone() {
-                    pending.push((index, path));
-                }
-                RecordingRow {
-                    item,
-                    thumbnail,
-                    thumbnail_stale: changed,
-                }
-            })
-            .collect();
-
-        for (_, row) in cached {
-            if let Some(image) = row.thumbnail {
-                let _ = window.drop_image(image);
-            }
-        }
-
-        self.recordings.items = Some(rows);
-        cx.notify();
-        // The settings window is not necessarily the active one while a
-        // recording is being written into the library, and an inactive gpui
-        // window does not repaint from a background-driven model update.
-        window.refresh();
-        pending
-    }
-
-    /// `refetchInterval: data.some(hasActiveRecording) ? 2000 : false` -- armed
-    /// at the end of a scan, so a recording that finishes stops the poll and a
-    /// recording that starts restarts it.
-    fn arm_recordings_poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let active = self
-            .recordings
-            .items
-            .iter()
-            .flatten()
-            .any(|row| row.item.is_active());
-        if !active || self.page != Page::Recordings {
-            self.recordings.tick = None;
-            return;
-        }
-        self.recordings.tick = Some(cx.spawn_in(window, async move |this, cx| {
-            cx.background_executor().timer(RECORDINGS_POLL).await;
-            this.update_in(cx, |this, window, cx| this.refresh_recordings(window, cx))
-                .ok();
-        }));
-    }
-
-    /// The row's own delete: `ask(..)`, then the guarded recursive delete, then
-    /// a refetch.
-    ///
-    /// The alert runs in a spawned task rather than in the click handler: it
-    /// spins AppKit's modal run loop, which re-enters gpui's window callbacks
-    /// for as long as it is up, and doing that with the App RefCell held is the
-    /// `place_overlay_panel` failure. gpui's foreground executor is the main
-    /// thread, which is where `NSAlert` has to run, so the task is both the
-    /// right thread and the right borrow state.
-    fn compress_recording(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        if self.recordings.compressing.contains_key(&path) {
-            return;
-        }
-        self.recordings.compressing.insert(path.clone(), 0);
-        cx.notify();
-        let (progress_tx, progress_rx) = flume::unbounded::<u64>();
-        cx.spawn_in(window, async move |this, cx| {
-            let bundle = path.clone();
-            let job = cx.background_executor().spawn(async move {
-                library::compress_video(&bundle, |done, total| {
-                    let _ = progress_tx.send(done * 100 / total.max(1));
-                    true
-                })
-            });
-            while let Ok(percent) = progress_rx.recv_async().await {
-                let still_open = this.update(cx, |this, cx| {
-                    this.recordings.compressing.insert(path.clone(), percent.min(100));
+        self.flash = Some(row);
+        self.jump_pending = true;
+        self.flash_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(FLASH_FOR).await;
+            this.update(cx, |this, cx| {
+                if this.flash == Some(row) {
+                    this.flash = None;
                     cx.notify();
-                });
-                if still_open.is_err() {
-                    break;
                 }
-            }
-            let result = job.await;
-            if let Err(error) = &result {
-                tracing::error!(path = %path.display(), "compressing the recording failed: {error}");
-                crate::platform::alert_dialog(t!("Couldn't compress the recording"), error);
-            }
-            this.update_in(cx, |this, window, cx| {
-                this.recordings.compressing.remove(&path);
-                this.refresh_recordings(window, cx);
             })
             .ok();
-        })
-        .detach();
-    }
-
-    fn change_video_version(
-        &mut self,
-        path: PathBuf,
-        change: fn(&std::path::Path) -> std::io::Result<()>,
-        confirm: Option<&'static str>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.spawn_in(window, async move |this, cx| {
-            if let Some(question) = confirm
-                && !crate::platform::confirm_dialog("FrameEver", question, t!("Delete"), t!("Cancel"), false)
-            {
-                return;
-            }
-            if let Err(error) = change(&path) {
-                tracing::error!(path = %path.display(), "changing the video version failed: {error}");
-                crate::platform::alert_dialog(
-                    t!("Couldn't change the video version"),
-                    &file_error_message(&error.to_string()),
-                );
-            }
-            this.update_in(cx, |this, window, cx| this.refresh_recordings(window, cx))
-                .ok();
-        })
-        .detach();
-    }
-
-    fn delete_recording(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        cx.spawn_in(window, async move |this, cx| {
-            let confirmed = crate::platform::confirm_dialog(
-                "FrameEver",
-                t!("Are you sure you want to delete this recording?"),
-                t!("Yes"),
-                t!("No"),
-                false,
-            );
-            if !confirmed {
-                return;
-            }
-
-            let Ok(task) = cx.update(|_, cx| {
-                gpui_tokio::Tokio::spawn(cx, crate::library::delete_recording(path.clone()))
-            }) else {
-                return;
-            };
-            let deleted = task.await.unwrap_or_else(|error| Err(error.to_string()));
-            if let Err(error) = deleted {
-                tracing::error!(path = %path.display(), "deleting the recording failed: {error}");
-                crate::platform::alert_dialog(
-                    t!("Couldn't delete the recording"),
-                    &file_error_message(&error),
-                );
-                this.update_in(cx, |this, window, cx| this.refresh_recordings(window, cx))
-                    .ok();
-                return;
-            }
-            tracing::info!(path = %path.display(), "deleted a recording");
-
-            cx.update(|_, cx| cx.defer(crate::app_windows::refresh_library_everywhere))
-                .ok();
-        })
-        .detach();
-    }
-
-    pub fn refresh_screenshots(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.page != Page::Screenshots {
-            return;
-        }
-
-        self.screenshots.scan = Some(cx.spawn_in(window, async move |this, cx| {
-            let items = cx
-                .background_executor()
-                .spawn(async { library::list_screenshots() })
-                .await;
-            tracing::info!(count = items.len(), "scanned the screenshots library");
-
-            let Ok(thumbnails) = this.update_in(cx, |this, window, cx| {
-                this.set_screenshots(items, window, cx)
-            }) else {
-                return;
-            };
-
-            let (_decodes, results) = library::spawn_decode_pool(
-                cx.background_executor(),
-                thumbnails,
-                |(index, path)| library::decode_thumbnail(&path).map(|image| (index, path, image)),
-            );
-            while let Ok(first) = results.recv_async().await {
-                let mut batch = vec![first];
-                batch.extend(results.try_iter());
-                if this
-                    .update_in(cx, |this, window, cx| {
-                        for (index, path, image) in batch {
-                            let Some(row) = this
-                                .screenshots
-                                .items
-                                .as_mut()
-                                .and_then(|rows| rows.get_mut(index))
-                            else {
-                                continue;
-                            };
-                            if row.item.thumbnail.as_deref() != Some(path.as_path()) {
-                                continue;
-                            }
-                            if let Some(old) = row.thumbnail.replace(image) {
-                                let _ = window.drop_image(old);
-                            }
-                        }
-                        cx.notify();
-                        window.refresh();
-                    })
-                    .is_err()
-                {
-                    return;
-                }
-            }
         }));
-    }
-
-    fn set_screenshots(
-        &mut self,
-        items: Vec<ScreenshotItem>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Vec<(usize, PathBuf)> {
-        let mut cached: std::collections::HashMap<PathBuf, Arc<RenderImage>> = self
-            .screenshots
-            .items
-            .take()
-            .into_iter()
-            .flatten()
-            .filter_map(|row| row.thumbnail.map(|image| (row.item.path, image)))
-            .collect();
-
-        let mut pending = Vec::new();
-        let rows: Vec<ScreenshotRow> = items
-            .into_iter()
-            .enumerate()
-            .map(|(index, item)| {
-                let thumbnail = cached.remove(&item.path);
-                if thumbnail.is_none()
-                    && let Some(path) = item.thumbnail.clone()
-                {
-                    pending.push((index, path));
-                }
-                ScreenshotRow { item, thumbnail }
-            })
-            .collect();
-
-        for (_, image) in cached {
-            let _ = window.drop_image(image);
-        }
-
-        self.screenshots.items = Some(rows);
         cx.notify();
-        window.refresh();
-        pending
     }
 
-    fn delete_screenshot(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        cx.spawn_in(window, async move |this, cx| {
-            let confirmed = crate::platform::confirm_dialog(
-                "FrameEver",
-                t!("Are you sure you want to delete this screenshot?"),
-                t!("Yes"),
-                t!("No"),
-                false,
-            );
-            if !confirmed {
-                return;
-            }
-
-            let deleted = cx
-                .background_executor()
-                .spawn({
-                    let path = path.clone();
-                    async move { library::delete_screenshot(&path) }
-                })
-                .await;
-            if let Err(error) = deleted {
-                tracing::error!(path = %path.display(), "deleting the screenshot failed: {error}");
-                return;
-            }
-            this.update_in(cx, |this, window, cx| this.refresh_screenshots(window, cx))
-                .ok();
-        })
-        .detach();
-    }
-
-    fn save_screenshot(
-        &mut self,
-        src: PathBuf,
-        name: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.spawn_in(window, async move |this, cx| {
-            let dest =
-                crate::platform::save_file_panel_async(&format!("{name}.png"), &["png"], cx).await;
-            if this.update_in(cx, |_, _, _| ()).is_err() {
-                return;
-            }
-            let Some(dest) = dest else {
-                return;
-            };
-            if let Err(error) = library::copy_file_to_path(&src, &dest) {
-                tracing::error!("saving screenshot failed: {error}");
-            }
-        })
-        .detach();
-    }
-
-    /// The Edit button on a `Failed` studio recording, which asks first.
-    fn open_editor_confirmed(
-        &mut self,
-        path: PathBuf,
-        confirm: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if !confirm {
-            // Deferred: opening a window paints it synchronously, which would
-            // double-lease the app from inside this update.
-            cx.defer(move |cx| crate::app_windows::open_editor(path, cx));
+    fn clear_search(&mut self, cx: &mut Context<Self>) {
+        if self.search.is_empty() {
             return;
         }
-        cx.spawn_in(window, async move |_this, cx| {
-            let confirmed = crate::platform::confirm_dialog(
-                t!("Recording is potentially corrupted"),
-                t!(
-                    "The recording failed so this file may have issues in the editor! If your \
-                 having issues recovering the file please reach out to support!"
-                ),
-                t!("Ok"),
-                t!("Cancel"),
-                true,
-            );
-            if !confirmed {
-                return;
+        self.search.clear();
+        let input = self.search_input.clone();
+        input.update(cx, |input, cx| input.set_text("", cx));
+        cx.notify();
+    }
+
+    fn on_search_event(
+        &mut self,
+        input: &Entity<ui::TextInputState>,
+        event: &ui::TextInputEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            ui::TextInputEvent::Changed => {
+                self.search = input.read(cx).text().to_string();
+                self.menu = None;
+                cx.notify();
             }
-            // Deferred inside the update for the same reason the direct arm
-            // defers: `open_window` paints synchronously.
-            cx.update(|_window, cx| cx.defer(move |cx| crate::app_windows::open_editor(path, cx)))
-                .ok();
-        })
-        .detach();
+            ui::TextInputEvent::Confirmed => {
+                if let Some(first) = catalog::search(&self.search).first() {
+                    let row = first.row;
+                    self.jump_to(row, window, cx);
+                    self.focus_root(window, cx);
+                }
+            }
+            ui::TextInputEvent::Cancelled => self.clear_search(cx),
+            _ => {}
+        }
+    }
+
+    fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = self.search_input.clone();
+        input.update(cx, |input, cx| input.focus_and_select_all(window, cx));
+    }
+
+    pub(crate) fn doodle(&self, art: &'static Doodle, width: f32, cx: &gpui::App) -> AnyElement {
+        doodle::doodle_once(
+            art,
+            doodle::Palette::new(&self.theme),
+            self.opened_at,
+            cx.reduce_motion(),
+            width,
+        )
+        .into_any_element()
     }
 
     fn sync_appearance(&mut self, window: &Window, cx: &gpui::App) {
         self.theme.refresh(window, cx, true);
     }
 
-    // -- Writes ------------------------------------------------------------
-
-    /// `handleChange` in general.tsx: update the in-memory copy, then the
-    /// store. Written synchronously on the main thread -- the store is a few
-    /// kilobytes and the write is a read-modify-write, so pushing it to the
-    /// background executor would let two quick toggles interleave and lose
-    /// one.
     pub(crate) fn write(&mut self, key: &'static str, value: Value, cx: &mut Context<Self>) {
         if !store::set_store_setting(GENERAL_SETTINGS, key, value) {
-            // The store refused (unparseable file); reload so the UI shows
-            // what is actually on disk rather than the change that did not
-            // land.
             self.settings = GeneralSettings::load();
         }
         cx.notify();
@@ -1208,13 +428,12 @@ impl SettingsWindow {
         self.write("excludedWindows", json, cx);
     }
 
-    /// The `Collapsible` under the project-name input.
-    ///
-    /// The height animates over the content's *measured* height, which is what
-    /// Kobalte's `--kb-collapsible-content-height` is, so a ticker has to keep
-    /// the window repainting for the 200ms the keyframe runs -- gpui only
-    /// renders on invalidation. Assigning over the previous task drops it,
-    /// cancelling a toggle still in flight.
+    fn write_storage(&mut self, cx: &mut Context<Self>) {
+        for (key, value) in self.settings.storage.general_settings_entries() {
+            self.write(key, value, cx);
+        }
+    }
+
     fn toggle_placeholders(&mut self, cx: &mut Context<Self>) {
         self.placeholders.toggle();
         self.placeholders_task = Some(cx.spawn(async move |this, cx| {
@@ -1229,14 +448,12 @@ impl SettingsWindow {
                     return;
                 }
                 cx.background_executor()
-                    .timer(std::time::Duration::from_millis(8))
+                    .timer(Duration::from_millis(8))
                     .await;
             }
         }));
         cx.notify();
     }
-
-    // -- Menus -------------------------------------------------------------
 
     pub(crate) fn open_menu(
         &mut self,
@@ -1245,11 +462,6 @@ impl SettingsWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // The menu's arrows / Home / End / Enter / Escape are handled by the
-        // root's `on_key_down`, and a focused text field would consume all of
-        // them first -- its bindings sit deeper in the dispatch path. Opening
-        // a menu therefore takes focus back, which is also what clicking a
-        // `<button>` does to a focused `<input>` in the webview.
         let focus = self.focus.clone();
         window.focus(&focus, cx);
         let items = self.menu_items(kind);
@@ -1260,8 +472,6 @@ impl SettingsWindow {
         cx.notify();
     }
 
-    /// Arrows / Home / End / Enter / Escape on an open menu -- the Kobalte
-    /// `Select` contract. Returns whether the key was consumed.
     fn menu_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(menu) = self.menu.as_mut() else {
             return false;
@@ -1285,7 +495,6 @@ impl SettingsWindow {
         }
     }
 
-    /// One row per option, check-marked when it is the value in force.
     fn menu_items(&self, kind: MenuKind) -> Vec<ui::MenuItem> {
         match kind {
             MenuKind::Countdown => {
@@ -1303,6 +512,9 @@ impl SettingsWindow {
                 enum_items(self.settings.main_window_recording_start_behaviour)
             }
             MenuKind::PostDeletion => enum_items(self.settings.post_deletion_behaviour),
+            MenuKind::AfterScreenshot => enum_items(self.settings.post_screenshot_behaviour),
+            MenuKind::AfterStudio => enum_items(self.settings.post_studio_recording_behaviour),
+            MenuKind::AfterInstant => enum_items(self.settings.post_instant_recording_behaviour),
             MenuKind::AddWindow => self
                 .add_window_options()
                 .into_iter()
@@ -1345,6 +557,24 @@ impl SettingsWindow {
                     self.write_enum("postDeletionBehaviour", *value, cx);
                 }
             }
+            MenuKind::AfterScreenshot => {
+                if let Some(value) = PostScreenshotBehaviour::ALL.get(index) {
+                    self.settings.post_screenshot_behaviour = *value;
+                    self.write_enum("postScreenshotBehaviour", *value, cx);
+                }
+            }
+            MenuKind::AfterStudio => {
+                if let Some(value) = PostStudioBehaviour::ALL.get(index) {
+                    self.settings.post_studio_recording_behaviour = *value;
+                    self.write_enum("postStudioRecordingBehaviour", *value, cx);
+                }
+            }
+            MenuKind::AfterInstant => {
+                if let Some(value) = PostInstantBehaviour::ALL.get(index) {
+                    self.settings.post_instant_recording_behaviour = *value;
+                    self.write_enum("postInstantRecordingBehaviour", *value, cx);
+                }
+            }
             MenuKind::AddWindow => {
                 let Some((_, rule)) = self.add_window_options().into_iter().nth(index) else {
                     return;
@@ -1380,7 +610,6 @@ impl SettingsWindow {
             .collect()
     }
 
-    /// `availableWindows`: everything not already covered by an exclusion.
     fn available_windows(&self) -> Vec<WindowOption> {
         self.windows
             .iter()
@@ -1395,7 +624,6 @@ impl SettingsWindow {
             .collect()
     }
 
-    /// `missingDefaultExclusions`, which drives the amber warning.
     fn missing_default_exclusions(&self) -> Vec<WindowExclusion> {
         store::default_excluded_windows()
             .into_iter()
@@ -1408,6 +636,30 @@ impl SettingsWindow {
             })
             .collect()
     }
+
+    fn on_root_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let keystroke = &event.keystroke;
+        if self.menu_key(&keystroke.key, window, cx) {
+            return;
+        }
+        if self.shortcuts_capture_key(keystroke, cx) {
+            return;
+        }
+        let modifiers = keystroke.modifiers;
+        let command = modifiers.control || modifiers.platform;
+        if command && keystroke.key == "w" {
+            cx.defer(crate::app_windows::close_settings);
+        } else if command && keystroke.key == "f" {
+            self.focus_search(window, cx);
+        } else if keystroke.key == "escape" {
+            self.clear_search(cx);
+        }
+    }
 }
 
 fn enum_items<T: SettingsEnum>(current: T) -> Vec<ui::MenuItem> {
@@ -1417,8 +669,6 @@ fn enum_items<T: SettingsEnum>(current: T) -> Vec<ui::MenuItem> {
         .collect()
 }
 
-/// `getWindowOptionLabel`: `owner • title`, title dropped when it repeats the
-/// owner.
 fn window_option_label(window: &WindowOption) -> String {
     if window.label.is_empty() || window.label == window.app {
         window.app.clone()
@@ -1427,10 +677,7 @@ fn window_option_label(window: &WindowOption) -> String {
     }
 }
 
-/// `matchesExclusion` in general.tsx.
 fn matches_exclusion(exclusion: &WindowExclusion, window: &WindowOption) -> bool {
-    // Nothing here carries a bundle identifier yet (`scap-targets` reports the
-    // owning app's name), so the bundle branch can only ever miss.
     let owner_match = exclusion
         .owner_name
         .as_ref()
@@ -1448,7 +695,6 @@ fn matches_exclusion(exclusion: &WindowExclusion, window: &WindowOption) -> bool
         .is_some_and(|title| *title == window.label)
 }
 
-/// `coversDefaultExclusion`.
 fn covers_default_exclusion(entry: &WindowExclusion, default: &WindowExclusion) -> bool {
     if entry == default {
         return true;
@@ -1465,42 +711,33 @@ fn covers_default_exclusion(entry: &WindowExclusion, default: &WindowExclusion) 
     false
 }
 
+gpui::actions!(settings_window, [FocusNext, FocusPrevious]);
+
+pub fn bind_keys(cx: &mut gpui::App) {
+    let context = Some("SettingsWindow");
+    cx.bind_keys([
+        gpui::KeyBinding::new("tab", FocusNext, context),
+        gpui::KeyBinding::new("shift-tab", FocusPrevious, context),
+    ]);
+}
+
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_appearance(window, cx);
         let theme = self.theme;
-        if self.page == Page::Quality
-            && let Some(mode) = self.quality_scroll_request.take()
-        {
-            match mode {
-                Mode::Instant => self.instant_quality_anchor.scroll_to(window, cx),
-                Mode::Studio => self.studio_quality_anchor.scroll_to(window, cx),
-                Mode::Screenshot => {}
-            }
+        if self.jump_pending {
+            self.jump_pending = false;
+            self.jump_anchor.scroll_to(window, cx);
             window.request_animation_frame();
         }
 
         let shell = div()
             .track_focus(&self.focus)
-            // `(window-chrome).tsx` binds Cmd-W to `getCurrentWindow().close()`
-            // for every chrome window. Escape is not bound there and is not
-            // bound here.
+            .key_context("SettingsWindow")
+            .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
+            .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                let keystroke = &event.keystroke;
-                // An open menu takes arrows, Home/End, Enter and Escape first
-                // -- the Kobalte `Select` contract. Everything else, and every
-                // key at all when no menu is open, falls through.
-                if this.menu_key(&keystroke.key, window, cx) {
-                    return;
-                }
-                // The Shortcuts page's listen mode eats every key while it
-                // is armed (hotkeys.tsx's window keydown listener).
-                if this.shortcuts_capture_key(keystroke, cx) {
-                    return;
-                }
-                if keystroke.modifiers.platform && keystroke.key == "w" {
-                    cx.defer(crate::app_windows::close_settings);
-                }
+                this.on_root_key(event, window, cx);
             }))
             .on_modifiers_changed(cx.listener(
                 |this, event: &gpui::ModifiersChangedEvent, _window, cx| {
@@ -1516,1232 +753,767 @@ impl Render for SettingsWindow {
                     .settings_window_radius()
                     .min(SETTINGS_MATERIAL_RADIUS as f32)))
             })
+            .bg(theme.settings_content_bg())
             .font_family(crate::theme::ui_font())
             .font_weight(FontWeight::NORMAL)
-            .text_color(theme.settings_text());
-
-        #[cfg(target_os = "windows")]
-        let shell = shell
-            .flex_col()
-            .child(
-                div()
-                    .h(px(36.))
-                    .w_full()
-                    .flex_shrink_0()
-                    .flex()
-                    .justify_end()
-                    .bg(theme.header_bg())
-                    .border_b_1()
-                    .border_color(theme.header_border())
-                    .window_control_area(gpui::WindowControlArea::Drag)
-                    .child(ui::windows_caption_controls(
-                        theme,
-                        window.is_window_active(),
-                        window.is_maximized(),
-                        true,
-                        true,
-                    )),
-            )
+            .text_color(theme.settings_text())
+            .child(self.render_sidebar(cx))
             .child(
                 div()
                     .flex()
-                    .flex_row()
+                    .flex_col()
                     .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .child(self.render_sidebar(cx))
+                    .min_w_0()
+                    .h_full()
+                    .child(self.render_title_bar(window))
                     .child(self.render_content(window, cx)),
             );
 
-        #[cfg(not(target_os = "windows"))]
-        let shell = shell
-            .child(self.render_sidebar(cx))
-            .child(self.render_content(window, cx));
-
         shell
-            // Painted last so it lands over the page: the select menus, and
-            // the drag layer the zoom slider needs while the button is held.
             .children(self.render_menu(cx))
             .children(self.render_slider_drag_layer(cx))
     }
 }
 
 impl SettingsWindow {
-    // -- Sidebar -----------------------------------------------------------
+    fn render_title_bar(&self, window: &Window) -> impl IntoElement {
+        let theme = self.theme;
+        let bar = div()
+            .id("settings-title-bar")
+            .h(px(TITLE_BAR_HEIGHT))
+            .w_full()
+            .flex_shrink_0()
+            .flex()
+            .justify_end()
+            .window_control_area(gpui::WindowControlArea::Drag);
+        #[cfg(target_os = "windows")]
+        let bar = bar.child(ui::windows_caption_controls(
+            theme,
+            window.is_window_active(),
+            window.is_maximized(),
+            true,
+            true,
+        ));
+        #[cfg(not(target_os = "windows"))]
+        let bar = {
+            let _ = (theme, window);
+            bar.on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
+                window.start_window_move();
+            })
+        };
+        bar
+    }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
+        let searching = !self.search.trim().is_empty();
+        let update_ready = matches!(
+            crate::updates::status(cx),
+            crate::updates::UpdateStatus::Ready { .. }
+                | crate::updates::UpdateStatus::Installed { .. }
+        );
+
+        let nav = Page::ALL.into_iter().map(|page| {
+            let selected = !searching && page == self.page;
+            div()
+                .id(SharedString::from(format!("settings-nav-{}", page.slug())))
+                .tab_index(0)
+                .flex()
+                .flex_row()
+                .items_center()
+                .h(px(crate::theme::ROW_HEIGHT))
+                .px(px(8.))
+                .gap(px(10.))
+                .rounded(px(8.))
+                .text_size(px(13.))
+                .cursor_pointer()
+                .border_1()
+                .border_color(transparent_black())
+                .focus_visible(move |style| style.border_color(theme.ring))
+                .when(selected, |this| {
+                    this.bg(theme.selection).font_weight(FontWeight::MEDIUM)
+                })
+                .when(!selected, |this| {
+                    this.hover(|style| style.bg(theme.settings_hover()))
+                })
+                .child(
+                    svg()
+                        .path(page.icon())
+                        .size(px(16.))
+                        .flex_shrink_0()
+                        .text_color(if selected {
+                            theme.selection_foreground.into()
+                        } else {
+                            theme.settings_muted()
+                        }),
+                )
+                .child(div().flex_1().min_w_0().truncate().child(tr(page.label())))
+                .when(page == Page::About && update_ready, |this| {
+                    this.child(
+                        div()
+                            .px(px(6.))
+                            .rounded_full()
+                            .bg(theme.primary)
+                            .text_size(px(11.))
+                            .text_color(theme.primary_foreground)
+                            .child("1"),
+                    )
+                })
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.clear_search(cx);
+                    this.set_page(page, window, cx);
+                }))
+                .on_key_down(
+                    cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                        if event.keystroke.modifiers == Default::default()
+                            && matches!(event.keystroke.key.as_str(), "enter" | "space")
+                        {
+                            this.clear_search(cx);
+                            this.set_page(page, window, cx);
+                            cx.stop_propagation();
+                        }
+                    }),
+                )
+        });
 
         div()
             .flex()
             .flex_col()
             .h_full()
-            // `width/min-width/max-width: var(--macos-settings-sidebar-width)`.
             .w(px(SIDEBAR_WIDTH))
             .flex_shrink_0()
             .bg(theme.settings_sidebar_bg())
+            .border_r_1()
+            .border_color(theme.settings_divider())
             .child(
-                // `.cap-settings-window-spacer`, the strip the traffic lights
-                // sit in. `data-tauri-drag-region` on the sidebar makes it a
-                // drag handle; AppKit already drags the top ~28pt of a
-                // transparent titlebar, this covers the rest of the strip.
                 div()
-                    .id("settings-drag")
-                    .h(px(SIDEBAR_SPACER))
-                    .flex_shrink_0()
-                    .w_full()
-                    .on_mouse_down(MouseButton::Left, |_, window, _| {
-                        window.start_window_move();
-                    }),
+                    .px(px(10.))
+                    .pt(px(10.))
+                    .pb(px(8.))
+                    .child(ui::TextInput::search(
+                        &theme,
+                        "settings-search",
+                        &self.search_input,
+                    )),
             )
-            .child(self.render_nav(cx))
-            .child(self.render_account(cx))
-    }
-
-    fn render_nav(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-
-        div()
-            .id("settings-nav")
-            .flex()
-            .flex_col()
-            // `.cap-settings-nav { padding: 0 var(--sidebar-padding-x)
-            //  var(--sidebar-padding-x); overflow-y: auto }`, `space-y-1`.
-            .px(px(SIDEBAR_PADDING_X))
-            .pb(px(SIDEBAR_PADDING_X))
-            .gap(px(2.))
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .children(Page::ALL.iter().copied().map(|page| {
-                let selected = page == self.page;
+            .child(
                 div()
-                    .id(SharedString::from(page.slug()))
+                    .id("settings-nav")
                     .flex()
-                    .flex_row()
-                    .items_center()
-                    .h(px(crate::theme::ROW_HEIGHT))
-                    .px(px(6.))
-                    .gap(px(8.))
-                    .rounded(px(8.))
-                    .text_size(px(13.))
-                    .when(selected, |this| {
-                        this.bg(theme.selection).font_weight(FontWeight::MEDIUM)
-                    })
-                    .when(!selected, |this| {
-                        this.hover(|style| style.bg(theme.settings_hover()))
-                    })
-                    .child(
-                        svg()
-                            .path(page.icon())
-                            .size(px(16.))
-                            .flex_shrink_0()
-                            .text_color(if selected {
-                                theme.selection_foreground.into()
-                            } else {
-                                theme.settings_muted()
-                            }),
-                    )
-                    .child(page.label())
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        // Navigating *is* a remount in the Solid router, so the
-                        // new page's query runs -- `set_page` carries that.
-                        this.set_page(page, window, cx);
-                    }))
-            }))
-    }
-
-    fn render_account(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let configured = crate::installer::updates_configured();
-        let (update_label, update_ready) = match crate::updates::status(cx) {
-            _ if !configured => (
-                t!("Updates are not enabled in this build").to_string(),
-                false,
-            ),
-            crate::updates::UpdateStatus::Idle => (t!("Check for updates").to_string(), false),
-            crate::updates::UpdateStatus::Checking => {
-                (t!("Checking for updates…").to_string(), false)
-            }
-            crate::updates::UpdateStatus::Downloading {
-                version,
-                fraction: Some(fraction),
-            } => (
-                t!(
-                    "Downloading v{version}… {percent}%",
-                    version = version,
-                    percent = (fraction * 100.).round() as u32
-                ),
-                false,
-            ),
-            crate::updates::UpdateStatus::Downloading { version, .. } => {
-                (t!("Downloading v{version}…", version = version), false)
-            }
-            crate::updates::UpdateStatus::Ready { version }
-            | crate::updates::UpdateStatus::Installed { version, .. } => (
-                t!("Restart to update to v{version}", version = version),
-                true,
-            ),
-            crate::updates::UpdateStatus::Installing { version } => {
-                (t!("Installing v{version}…", version = version), false)
-            }
-        };
-
-        div()
-            .flex()
-            .flex_col()
-            .items_start()
-            .gap(px(6.))
-            .pt(px(8.))
-            .px(px(SIDEBAR_PADDING_X))
-            .pb(px(SIDEBAR_PADDING_X))
-            .border_t_1()
-            .border_color(theme.settings_border())
-            .text_size(px(12.))
-            .text_color(theme.settings_muted())
-            .child(
-                div()
-                    .id("settings-version")
-                    .px(px(4.))
-                    .py(px(2.))
-                    .rounded(px(4.))
-                    .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
-            )
-            .child(
-                div()
-                    .id("settings-previous-versions")
-                    .cursor_pointer()
-                    .child(t!("View previous versions"))
-                    .hover(|style| style.text_color(theme.settings_text()))
-                    .on_click(|_, _, cx| cx.open_url(&crate::installer::releases_page_url())),
-            )
-            .child(
-                div()
-                    .id("settings-check-updates")
-                    .when(configured, |link| {
-                        link.cursor_pointer()
-                            .hover(|style| style.text_color(theme.settings_text()))
-                    })
-                    .when(update_ready, |link| link.text_color(theme.link))
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        if !configured {
-                            return;
-                        }
-                        if update_ready {
-                            crate::updates::install_and_relaunch(cx);
-                        } else {
-                            crate::updates::check_manually(cx);
-                        }
-                    }))
-                    .child(update_label),
-            )
-            .children(
-                [
-                    (
-                        "settings-based-on-cap",
-                        t!("Based on Cap (AGPL-3.0)"),
-                        "https://github.com/CapSoftware/Cap",
-                    ),
-                    (
-                        "settings-font-credit",
-                        t!("Chinese font: HarmonyOS Sans by Huawei"),
-                        "https://developer.huawei.com/consumer/cn/design/resource/",
-                    ),
-                    (
-                        "settings-lucide-credit",
-                        t!("Icons: Lucide (ISC)"),
-                        "https://lucide.dev/license",
-                    ),
-                    (
-                        "settings-tabler-credit",
-                        t!("Icons: Tabler (MIT)"),
-                        "https://github.com/tabler/tabler-icons/blob/main/LICENSE",
-                    ),
-                ]
-                .map(|(id, label, url)| {
-                    div()
-                        .id(id)
-                        .cursor_pointer()
-                        .child(label)
-                        .hover(|style| style.text_color(theme.settings_text()))
-                        .on_click(move |_, _, cx| cx.open_url(url))
-                }),
+                    .flex_col()
+                    .px(px(10.))
+                    .pb(px(10.))
+                    .gap(px(2.))
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .children(nav),
             )
     }
 
     fn render_content(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
+        let query = self.search.trim();
+        let (title, subtitle, body): (String, String, Vec<AnyElement>) = if query.is_empty() {
+            let subtitle = if self.page == Page::About {
+                t!(
+                    "Version {version}, updates, licences",
+                    version = env!("CARGO_PKG_VERSION")
+                )
+            } else {
+                tr(self.page.summary()).to_string()
+            };
+            (
+                tr(self.page.label()).to_string(),
+                subtitle,
+                self.render_page(window, cx),
+            )
+        } else {
+            let hits = catalog::search(query);
+            let subtitle = if hits.len() == 1 {
+                t!("1 setting").to_string()
+            } else {
+                t!("{count} settings", count = hits.len())
+            };
+            (
+                t!("Results").to_string(),
+                subtitle,
+                vec![self.render_results(query, &hits, cx)],
+            )
+        };
 
         div()
+            .id("settings-page")
             .flex()
             .flex_col()
             .flex_1()
-            .min_w_0()
-            .h_full()
-            .overflow_hidden()
-            .bg(theme.settings_content_bg())
-            // `divide-x divide-gray-3` on the shell, remapped to
-            // `var(--macos-settings-border)` under Liquid Glass.
-            .border_l_1()
-            .border_color(theme.settings_divider())
+            .min_h_0()
+            .overflow_y_scroll()
+            .track_scroll(&self.page_scroll)
+            .px(px(CONTENT_PADDING_X))
+            .pb(px(28.))
+            .gap(px(20.))
             .child(
                 div()
-                    .id("settings-page")
                     .flex()
                     .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.page_scroll)
-                    // `.cap-settings-page > .px-6 { max-width: none; padding:
-                    //  18px var(--macos-settings-content-padding-x) 28px }`,
-                    //  and `space-y-7` between sections.
-                    .pt(px(18.))
-                    .px(px(CONTENT_PADDING_X))
-                    .pb(px(28.))
-                    .gap(px(28.))
-                    .children(match self.page {
-                        Page::General => self.render_general(window, cx),
-                        Page::Quality => self.render_recording_quality(cx),
-                        Page::Recordings => self.render_recordings(cx),
-                        Page::Screenshots => self.render_screenshots(cx),
-                        Page::Shortcuts => self.render_shortcuts(cx),
-                        Page::Cli => self.render_cli(cx),
-                        Page::Automations => self.render_automations(cx),
-                        Page::Transcription => self.render_transcription(cx),
-                        Page::Experimental => self.render_experimental(cx),
-                        Page::Feedback => self.render_feedback(cx),
-                        Page::Changelog => self.render_changelog(cx),
-                    }),
+                    .gap(px(2.))
+                    .child(
+                        div()
+                            .text_size(px(20.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(theme.settings_muted())
+                            .child(subtitle),
+                    ),
             )
+            .children(body)
     }
 
-    // -- The Recordings page -----------------------------------------------
-
-    /// `settings/recordings.tsx`.
-    ///
-    /// The header is a `<Section>` with an Import button; below it a filter bar
-    /// (three tab pills and the search field) and the bordered list, which is
-    /// replaced wholesale by "No recordings found" when the library is empty.
-    fn render_recordings(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
-        // `variant="gray" size="sm" class="h-[36px] px-3 gap-1.5"` --
-        // `importVideoFromPicker` (`recordings.tsx:192-215`), through this
-        // build's own remux pipeline.
-        let import = self
-            .button(
-                "recordings-import",
-                (ui::ButtonVariant::Gray, Some("icons/import.svg")),
-                t!("Import"),
-                false,
-                cx,
-                |_, _, cx| crate::import::pick_and_import_video(cx),
-            )
-            .height(px(36.))
-            .into_any_element();
-
-        // `when={recordings.data && recordings.data.length > 0}`: an empty
-        // library and a scan still in flight take the same branch, because the
-        // route has no loading state of its own.
-        let empty_library = self
-            .recordings
-            .items
-            .as_ref()
-            .is_none_or(|items| items.is_empty());
-
-        let children = if empty_library {
-            vec![
-                self.recordings_message(t!("No recordings found"))
-                    .into_any_element(),
-            ]
-        } else {
-            vec![
-                self.render_recordings_filters(cx).into_any_element(),
-                self.render_recordings_list(cx).into_any_element(),
-            ]
-        };
-
-        vec![
-            self.section(
-                t!("Recordings"),
-                Some(t!("Manage your recordings and perform actions.")),
-                Some(import),
-                children,
-            )
-            .into_any_element(),
-        ]
-    }
-
-    fn render_screenshots(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
-        // `importImageFromPicker` (`screenshots.tsx:154-177`).
-        let import = self
-            .button(
-                "screenshots-import",
-                (ui::ButtonVariant::Gray, Some("icons/import.svg")),
-                t!("Import image"),
-                false,
-                cx,
-                |_, _, cx| crate::import::pick_and_import_image(cx),
-            )
-            .height(px(36.))
-            .into_any_element();
-
-        let empty_library = self
-            .screenshots
-            .items
-            .as_ref()
-            .is_none_or(|items| items.is_empty());
-
-        let children = if empty_library {
-            vec![
-                self.recordings_message(t!("No screenshots found"))
-                    .into_any_element(),
-            ]
-        } else {
-            vec![
-                self.render_screenshots_filters(cx).into_any_element(),
-                self.render_screenshots_list(cx).into_any_element(),
-            ]
-        };
-
-        vec![
-            self.section(
-                t!("Screenshots"),
-                Some(t!("Manage your screenshots and perform actions.")),
-                Some(import),
-                children,
-            )
-            .into_any_element(),
-        ]
-    }
-
-    fn render_screenshots_filters(&self, _cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let search = div().flex().flex_row().items_center().w(px(260.)).child(
-            ui::TextInput::search(&theme, "screenshots-search", &self.screenshots.search_input)
-                .height(px(36.))
-                .radius(px(8.))
-                .bg(theme.settings_card_bg())
-                .border(theme.settings_border())
-                .text_color(theme.settings_text())
-                .placeholder_color(theme.settings_muted()),
-        );
-
-        div()
-            .flex()
-            .flex_col()
-            .w_full()
-            .gap(px(12.))
-            .pb(px(16.))
-            .border_b_1()
-            .border_color(theme.settings_border())
-            .child(search)
-    }
-
-    fn render_screenshots_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let rows = self.screenshots.filtered();
-        let total = rows.len();
-        let has_search = !self.screenshots.trimmed_search().is_empty();
-        let visible = visible_recordings_len(total, has_search, self.screenshots.visible_count);
-        let more = has_more_recordings(total, has_search, self.screenshots.visible_count);
-
-        let mut items = Vec::with_capacity(visible);
-        for (index, row) in rows.iter().take(visible).enumerate() {
-            items.push(
-                self.render_screenshot_row(row, index + 1 == visible, cx)
-                    .into_any_element(),
-            );
-        }
-
-        div()
-            .flex()
-            .flex_col()
-            .relative()
-            .rounded(px(10.))
-            .border_1()
-            .border_color(theme.settings_border())
-            .bg(theme.settings_card_bg())
-            .overflow_hidden()
-            .when(total == 0, |this| {
-                this.child(self.recordings_message(if has_search {
-                    t!("No matching screenshots")
-                } else {
-                    t!("No screenshots")
-                }))
-            })
-            .child(div().flex().flex_col().w_full().children(items))
-            .when(more, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .justify_center()
-                        .p(px(12.))
-                        .border_t_1()
-                        .border_color(theme.settings_border())
-                        .child(self.button(
-                            "screenshots-load-more",
-                            (ui::ButtonVariant::Gray, None),
-                            t!("Load more"),
-                            false,
-                            cx,
-                            |this, _window, cx| {
-                                let total = this.screenshots.filtered().len();
-                                this.screenshots.visible_count =
-                                    load_more_count(this.screenshots.visible_count, total);
-                                cx.notify();
-                            },
-                        )),
-                )
-            })
-    }
-
-    fn render_screenshot_row(
+    fn render_results(
         &self,
-        row: &ScreenshotRow,
-        last: bool,
+        query: &str,
+        hits: &[catalog::Place],
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    ) -> AnyElement {
         let theme = self.theme;
-        let item = &row.item;
-        let png = item.path.clone();
-        let name = item.pretty_name.clone();
-        let bundle = item.bundle.clone();
-
-        let thumbnail = match row.thumbnail.clone() {
-            Some(image) => {
-                use gpui::StyledImage as _;
-                img(image)
-                    .size(px(48.))
-                    .flex_shrink_0()
-                    .object_fit(gpui::ObjectFit::Cover)
-                    .rounded(px(4.))
-                    .into_any_element()
-            }
-            None => div()
-                .size(px(44.))
-                .mr(px(16.))
-                .flex_shrink_0()
-                .rounded(px(4.))
-                .bg(theme.gray_10)
-                .into_any_element(),
-        };
-
-        let left = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(20.))
-            .flex_1()
-            .min_w_0()
-            .child(thumbnail)
-            .child(
+        if hits.is_empty() {
+            return div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(12.))
+                .py(px(40.))
+                .text_size(px(13.))
+                .text_color(theme.settings_muted())
+                .child(self.doodle(&onboarding_doodles::LENS, 76., cx))
+                .child(t!("Nothing matches \"{query}\"", query = query))
+                .into_any_element();
+        }
+        let rows = hits
+            .iter()
+            .map(|place| {
+                let row = place.row;
+                let where_it_is = if place.group.is_empty() || place.group == row.label() {
+                    tr(place.page.label()).to_string()
+                } else {
+                    format!("{} › {}", tr(place.page.label()), tr(place.group))
+                };
                 div()
-                    .w_full()
-                    .truncate()
-                    .text_size(px(14.))
-                    .child(item.pretty_name.clone()),
-            );
-
-        let actions = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(8.))
-            .child(self.row_button(
-                "screenshot-copy",
-                "icons/copy.svg",
-                t!("Copy to clipboard"),
-                false,
-                cx,
-                {
-                    let png = png.clone();
-                    move |_this, _window, cx| {
-                        crate::platform::copy_image_to_clipboard(
-                            png.clone(),
-                            Some((
-                                t!("Could not copy screenshot"),
-                                t!("It may have been moved. Try again."),
-                            )),
-                            cx,
-                        );
-                    }
-                },
-            ))
-            .child(self.row_button(
-                "screenshot-save",
-                "icons/download.svg",
-                t!("Save as"),
-                false,
-                cx,
-                move |this, window, cx| {
-                    this.save_screenshot(png.clone(), name.clone(), window, cx);
-                },
-            ))
-            .child(self.row_button(
-                "screenshot-folder",
-                "icons/folder.svg",
-                t!("Open folder"),
-                false,
-                cx,
-                move |_this, _window, cx| library::reveal_path(&bundle, cx),
-            ))
-            .child(self.row_button(
-                "screenshot-delete",
-                "icons/trash.svg",
-                t!("Delete"),
-                false,
-                cx,
-                {
-                    let path = item.path.clone();
-                    move |this, window, cx| this.delete_screenshot(path.clone(), window, cx)
-                },
-            ));
-
-        div()
-            .id(library::row_id(&item.bundle))
-            .flex()
-            .flex_row()
-            .justify_between()
-            .items_center()
-            .w_full()
-            .p(px(12.))
-            .when(!last, |this| {
-                this.border_b_1().border_color(theme.settings_border())
-            })
-            .child(left)
-            .child(actions)
-            .on_click({
-                let png = item.path.clone();
-                move |_, _, cx| {
-                    let png = png.clone();
-                    cx.defer(move |cx| crate::app_windows::open_screenshot_editor(png, cx));
-                }
-            })
-    }
-
-    /// Both empty states: `text-center text-(--text-tertiary) absolute flex
-    /// items-center justify-center w-full h-full`. Absolute over the page in
-    /// the TSX; here it is a flow child that fills the space the list would
-    /// have taken, which is what that absolute box resolves to.
-    fn recordings_message(&self, message: impl Into<SharedString>) -> gpui::Div {
-        div()
-            .flex()
-            .flex_1()
-            .min_h(px(200.))
-            .w_full()
-            .items_center()
-            .justify_center()
-            .text_color(self.theme.settings_muted())
-            .child(message.into())
-    }
-
-    /// The filter bar: `flex flex-col gap-3 pb-4 w-full border-b border-gray-2`.
-    fn render_recordings_filters(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let active = self.recordings.tab;
-
-        let tabs = div()
-            // `flex flex-wrap gap-3 items-center`
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .items_center()
-            .gap(px(12.))
-            .children(RecordingsTab::ALL.iter().copied().map(|tab| {
-                let selected = tab == active;
-                div()
-                    .id(SharedString::from(tab.id()))
-                    // `flex gap-1.5 items-center p-2 px-3 border rounded-full`
+                    .id(SharedString::from(format!("settings-result-{}", row.id())))
+                    .tab_index(0)
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap(px(6.))
-                    .py(px(8.))
-                    .px(px(12.))
-                    .rounded_full()
+                    .justify_between()
+                    .gap(px(16.))
+                    .min_h(px(46.))
+                    .p(px(12.))
+                    .cursor_pointer()
                     .border_1()
-                    // `border-gray-5` on both states, remapped to the settings
-                    // border by the material.
-                    .border_color(theme.settings_border())
-                    .map(|this| {
-                        if selected {
-                            // `bg-gray-5 cursor-default`
-                            this.bg(theme.settings_fill()).cursor_default()
-                        } else {
-                            // `bg-transparent hover:bg-gray-3`
-                            this.cursor_pointer()
-                                .hover(|style| style.bg(theme.settings_fill()))
-                        }
-                    })
-                    // `size-3`, and `invert dark:invert-0` -- a dark glyph on
-                    // the light theme and a light one on the dark, which is
-                    // what the page's own text colour already is.
-                    .children(tab.icon().map(|icon| {
-                        svg()
-                            .path(icon)
-                            .size(px(14.))
-                            .flex_shrink_0()
-                            .text_color(theme.settings_text())
-                    }))
-                    // `text-xs text-gray-12`
-                    .child(div().text_size(px(12.)).child(tab.label()))
-                    .on_click(cx.listener(move |this, _, _window, cx| {
-                        this.recordings.tab = tab;
-                        // `createEffect(() => { activeTab(); ...
-                        //  setVisibleCount(PAGE_SIZE) })`
-                        this.recordings.visible_count = RECORDINGS_PAGE_SIZE;
-                        cx.notify();
-                    }))
-            }));
-
-        // `relative w-full max-w-[260px] h-[36px] flex items-center` with the
-        // magnifier absolutely placed at `left-2` and the input padded past it.
-        // `ui::TextInput::search` draws the same glyph as a flow child at the
-        // same offset, so the overlay is not reproduced -- there is nothing for
-        // it to overlay.
-        let search = div().flex().flex_row().items_center().w(px(260.)).child(
-            ui::TextInput::search(&theme, "recordings-search", &self.recordings.search_input)
-                .height(px(36.))
-                // `<Input>` is `rounded-lg bg-gray-2`, and the settings
-                // material paints `.bg-gray-2` as the card surface.
-                .radius(px(8.))
-                .bg(theme.settings_card_bg())
-                .border(theme.settings_border())
-                .text_color(theme.settings_text())
-                .placeholder_color(theme.settings_muted()),
-        );
-
-        div()
-            .flex()
-            .flex_col()
-            .w_full()
-            .gap(px(12.))
-            .pb(px(16.))
-            .border_b_1()
-            .border_color(theme.settings_border())
-            .child(tabs)
-            .child(search)
-    }
-
-    /// The list: `flex relative flex-col flex-1 rounded-xl border bg-gray-2
-    /// border-gray-3`, with the "Load more" footer under it.
-    fn render_recordings_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let rows = self.recordings.filtered();
-        let total = rows.len();
-        let has_search = !self.recordings.trimmed_search().is_empty();
-        let visible = visible_recordings_len(total, has_search, self.recordings.visible_count);
-        let more = has_more_recordings(total, has_search, self.recordings.visible_count);
-
-        // Built up front rather than in a `.children(map(..))`: the closure
-        // would have to hold `cx` across every row, which it cannot.
-        let mut items = Vec::with_capacity(visible);
-        for (index, row) in rows.iter().take(visible).enumerate() {
-            // `not-last:border-b` counts the *rendered* rows, so the border
-            // stops at the last visible one rather than the last matching one.
-            items.push(
-                self.render_recording_row(row, index + 1 == visible, cx)
-                    .into_any_element(),
-            );
-        }
-
-        div()
-            .flex()
-            .flex_col()
-            .relative()
-            // `rounded-xl`, which the settings material takes to 10px.
-            .rounded(px(10.))
-            .border_1()
-            .border_color(theme.settings_border())
-            .bg(theme.settings_card_bg())
-            .overflow_hidden()
-            .when(total == 0, |this| {
-                this.child(self.recordings_message(recordings_empty_message(
-                    self.recordings.tab,
-                    self.recordings.trimmed_search(),
-                )))
-            })
-            .child(div().flex().flex_col().w_full().children(items))
-            .when(more, |this| {
-                this.child(
-                    // `flex justify-center p-3 border-t border-gray-3`
-                    div()
-                        .flex()
-                        .flex_row()
-                        .justify_center()
-                        .p(px(12.))
-                        .border_t_1()
-                        .border_color(theme.settings_border())
-                        .child(self.button(
-                            "recordings-load-more",
-                            (ui::ButtonVariant::Gray, None),
-                            t!("Load more"),
-                            false,
-                            cx,
-                            |this, _window, cx| {
-                                let total = this.recordings.filtered().len();
-                                this.recordings.visible_count =
-                                    load_more_count(this.recordings.visible_count, total);
-                                cx.notify();
-                            },
-                        )),
-                )
-            })
-    }
-
-    /// One `<RecordingItem>`: `flex flex-row justify-between p-3 items-center
-    /// w-full`, bordered from every row but the last.
-    fn render_recording_row(
-        &self,
-        row: &RecordingRow,
-        last: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = self.theme;
-        let item = &row.item;
-        // `studioCompleteCheck()`: the only rows whose body is a button.
-        let opens_editor = item.opens_editor();
-        let path = item.path.clone();
-
-        let thumbnail = match row.thumbnail.clone() {
-            // `object-cover rounded-sm size-12`
-            Some(image) => {
-                use gpui::StyledImage as _;
-                img(image)
-                    .size(px(48.))
-                    .flex_shrink_0()
-                    .object_fit(gpui::ObjectFit::Cover)
-                    .rounded(px(4.))
-                    .into_any_element()
-            }
-            // `<img onError>`'s fallback: `mr-4 rounded-sm bg-gray-10 size-11`.
-            // `bg-gray-10` is not one of the steps the settings material
-            // remaps, so it keeps its Radix value.
-            None => div()
-                .size(px(44.))
-                .mr(px(16.))
-                .flex_shrink_0()
-                .rounded(px(4.))
-                .bg(theme.gray_10)
-                .into_any_element(),
-        };
-
-        let left = div()
-            // `flex gap-5 items-center`
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(20.))
-            .flex_1()
-            .min_w_0()
-            .child(thumbnail)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .min_w_0()
+                    .border_color(transparent_black())
+                    .rounded(px(8.))
+                    .focus_visible(move |style| style.border_color(theme.ring))
+                    .hover(|style| style.bg(theme.settings_hover()))
                     .child(
                         div()
-                            .w_full()
-                            .truncate()
-                            .text_size(px(14.))
-                            .child(item.pretty_name.clone()),
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(2.))
+                            .child(
+                                div()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(tr(row.label())),
+                            )
+                            .children(row.description().map(|description| {
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(theme.settings_muted())
+                                    .child(tr(description))
+                            })),
                     )
-                    .child(self.render_recording_badges(item)),
-            );
-
-        div()
-            .id(library::row_id(&item.path))
-            .flex()
-            .flex_row()
-            .justify_between()
-            .items_center()
-            .w_full()
-            .p(px(12.))
-            .when(!last, |this| {
-                this.border_b_1().border_color(theme.settings_border())
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(px(12.))
+                            .text_color(theme.settings_muted())
+                            .child(where_it_is),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.jump_to(row, window, cx);
+                    }))
+                    .on_key_down(cx.listener(
+                        move |this, event: &gpui::KeyDownEvent, window, cx| {
+                            if event.keystroke.modifiers == Default::default()
+                                && matches!(event.keystroke.key.as_str(), "enter" | "space")
+                            {
+                                this.jump_to(row, window, cx);
+                                cx.stop_propagation();
+                            }
+                        },
+                    ))
+                    .into_any_element()
             })
-            .map(|this| {
-                if opens_editor {
-                    this.cursor_pointer()
-                        .hover(|style| style.bg(theme.settings_fill()))
-                } else {
-                    this.cursor_default()
-                }
-            })
-            .child(left)
-            .child(self.render_recording_actions(item, cx))
-            .when(opens_editor, |this| {
-                this.on_click(cx.listener(move |_this, _, _window, cx| {
-                    let path = path.clone();
-                    tracing::info!(path = %path.display(), "opening a recording in the editor");
-                    // Deferred: opening a window paints it synchronously, and
-                    // doing that inside a click handler would double-lease the
-                    // app.
-                    cx.defer(move |cx| crate::app_windows::open_editor(path, cx));
-                }))
-            })
+            .collect();
+        self.rows(rows).into_any_element()
     }
 
-    /// The badge row: `flex space-x-1`, each pill `px-2 py-0.5 gap-1.5
-    /// font-medium text-[11px] text-gray-12 rounded-full w-fit`.
-    fn render_recording_badges(&self, item: &RecordingItem) -> impl IntoElement {
-        let theme = self.theme;
+    fn render_page(&self, window: &Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        self.page
+            .groups()
+            .iter()
+            .filter_map(|group| self.render_group(group, window, cx))
+            .collect()
+    }
 
-        let pill = |bg: Hsla| {
+    fn render_group(
+        &self,
+        group: &catalog::Group,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let theme = self.theme;
+        let rows: Vec<Row> = group
+            .rows
+            .iter()
+            .copied()
+            .filter(|row| row.is_shown())
+            .collect();
+        if rows.is_empty() {
+            return None;
+        }
+        let bare = rows.iter().all(|row| is_bare(*row));
+        let children: Vec<AnyElement> = rows
+            .iter()
+            .map(|row| self.render_placed_row(*row, window, cx))
+            .collect();
+        Some(
             div()
                 .flex()
-                .flex_row()
-                .items_center()
-                .flex_none()
-                .gap(px(6.))
-                .px(px(8.))
-                .py(px(2.))
-                .rounded_full()
-                .bg(bg)
-                .text_size(px(11.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.settings_text())
-        };
-        let glyph = |icon: &'static str| {
-            svg()
-                .path(icon)
-                .size(px(14.))
-                .flex_shrink_0()
-                .text_color(theme.settings_text())
-        };
-
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(4.))
-            .child(
-                pill(match item.mode {
-                    RecordingMode::Instant => Hsla::from(theme.secondary),
-                    RecordingMode::Studio => theme.settings_fill(),
+                .flex_col()
+                .gap(px(8.))
+                .when(!group.title.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .px(px(4.))
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme.settings_muted())
+                            .child(tr(group.title)),
+                    )
                 })
-                .child(glyph(item.mode.icon()))
-                .child(item.mode.label()),
-            )
-            .when(item.clip_count > 1, |this| {
-                this.child(
-                    pill(theme.settings_fill()).child(t!("{count} clips", count = item.clip_count)),
-                )
-            })
-            .when(item.status.is_in_progress(), |this| {
-                this.child(
-                    pill(Hsla::from(theme.secondary))
-                        .child(glyph("icons/record-fill.svg"))
-                        .child(t!("Recording in progress")),
-                )
-            })
-            .when_some(
-                self.recordings.compressing.get(&item.path).copied(),
-                |this, percent| {
-                    this.child(
-                        pill(theme.settings_fill())
-                            .child(glyph("icons/zap.svg"))
-                            .child(t!("Compressing {percent}%", percent = percent)),
-                    )
-                },
-            )
-            .when_some(
-                item.versions.and_then(|versions| {
-                    versions.saving_percent().map(|percent| (versions, percent))
-                }),
-                |this, (versions, percent)| {
-                    let label = match versions {
-                        library::VideoVersions::UsingCompressed { .. } => {
-                            t!("Compressed · {percent}% smaller", percent = percent)
-                        }
-                        _ => t!(
-                            "Compressed copy ready · {percent}% smaller",
-                            percent = percent
-                        ),
-                    };
-                    this.child(
-                        pill(Hsla::from(theme.secondary))
-                            .child(glyph("icons/zap.svg"))
-                            .child(label),
-                    )
-                },
-            )
-            .when_some(item.status.error().map(str::to_string), |this, error| {
-                this.child(
-                    // The badge is wrapped in a `<CapTooltip>` whose content is
-                    // the error string.
-                    pill(Hsla::from(theme.red_9))
-                        .id("recording-failed")
-                        .child(glyph("icons/triangle-alert.svg"))
-                        .child(t!("Recording failed"))
-                        .tooltip(move |_window, cx| {
-                            ui::Tooltip::new(&theme, error.clone())
-                                .style(ui::TooltipStyle::Light)
-                                .view(cx)
-                        }),
-                )
-            })
-    }
-
-    /// The row's right-hand button group: `flex gap-2 items-center`.
-    ///
-    /// Studio rows get Edit; every row gets Open recording bundle and Delete.
-    fn render_recording_actions(
-        &self,
-        item: &RecordingItem,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let mode = item.mode;
-        let path = item.path.clone();
-        let failed = item.status.error().is_some();
-        let in_progress = item.status.is_in_progress();
-
-        let mut actions = div().flex().flex_row().items_center().gap(px(8.));
-
-        if mode == RecordingMode::Studio {
-            let editor_path = path.clone();
-            actions = actions.child(self.row_button(
-                "recording-edit",
-                "icons/square-pen.svg",
-                t!("Edit"),
-                // `disabled={status === "InProgress"}`
-                in_progress,
-                cx,
-                move |this, window, cx| {
-                    this.open_editor_confirmed(editor_path.clone(), failed, window, cx)
-                },
-            ));
-        }
-
-        let compressing = self.recordings.compressing.contains_key(&path);
-        match item.versions {
-            Some(library::VideoVersions::Single { .. }) => {
-                let target = path.clone();
-                actions = actions.child(self.row_button(
-                    "recording-compress",
-                    "icons/zap.svg",
-                    if compressing {
-                        t!("Compressing…")
+                .map(|this| {
+                    if bare {
+                        this.children(children)
                     } else {
-                        t!("Compress with HEVC (keeps the original)")
-                    },
-                    compressing,
-                    cx,
-                    move |this, window, cx| this.compress_recording(target.clone(), window, cx),
-                ));
-            }
-            Some(library::VideoVersions::CompressedCopy { .. }) => {
-                let use_path = path.clone();
-                let delete_path = path.clone();
-                actions = actions
-                    .child(self.row_button(
-                        "recording-use-compressed",
-                        "icons/refresh-cw.svg",
-                        t!("Use the compressed version"),
-                        false,
-                        cx,
-                        move |this, window, cx| {
-                            this.change_video_version(
-                                use_path.clone(),
-                                library::use_compressed,
-                                None,
-                                window,
-                                cx,
-                            )
-                        },
-                    ))
-                    .child(self.row_button(
-                        "recording-delete-compressed",
-                        "icons/x.svg",
-                        t!("Delete the compressed copy"),
-                        false,
-                        cx,
-                        move |this, window, cx| {
-                            this.change_video_version(
-                                delete_path.clone(),
-                                library::delete_compressed,
-                                Some(t!("Delete the compressed copy of this recording?")),
-                                window,
-                                cx,
-                            )
-                        },
-                    ));
-            }
-            Some(library::VideoVersions::UsingCompressed { .. }) => {
-                let restore_path = path.clone();
-                let delete_path = path.clone();
-                actions = actions
-                    .child(self.row_button(
-                        "recording-restore-original",
-                        "icons/rotate-ccw.svg",
-                        t!("Switch back to the original"),
-                        false,
-                        cx,
-                        move |this, window, cx| {
-                            this.change_video_version(
-                                restore_path.clone(),
-                                library::restore_original,
-                                None,
-                                window,
-                                cx,
-                            )
-                        },
-                    ))
-                    .child(self.row_button(
-                        "recording-delete-original",
-                        "icons/x.svg",
-                        t!("Delete the original to free up space"),
-                        false,
-                        cx,
-                        move |this, window, cx| {
-                            this.change_video_version(
-                                delete_path.clone(),
-                                library::delete_original,
-                                Some(t!(
-                                    "Delete the original video? The compressed version stays, but the original can't be restored."
-                                )),
-                                window,
-                                cx,
-                            )
-                        },
-                    ));
-            }
-            None => {}
-        }
-
-        let folder_path = path.clone();
-        actions = actions.child(self.row_button(
-            "recording-folder",
-            "icons/folder.svg",
-            t!("Open recording bundle"),
-            false,
-            cx,
-            move |_this, _window, cx| library::open_recording_folder(&folder_path, mode, cx),
-        ));
-        actions.child(self.row_button(
-            "recording-delete",
-            "icons/trash.svg",
-            t!("Delete"),
-            false,
-            cx,
-            move |this, window, cx| this.delete_recording(path.clone(), window, cx),
-        ))
+                        this.child(self.rows(children))
+                    }
+                })
+                .into_any_element(),
+        )
     }
 
-    /// `TooltipIconButton`: `p-2.5 opacity-70 hover:opacity-100 rounded-full
-    /// hover:bg-gray-3 dark:hover:bg-gray-5 disabled:pointer-events-none
-    /// disabled:opacity-45`, around a `size-4` glyph -- 36px of hit area.
-    ///
-    /// `onClick` calls `e.stopPropagation()` before the handler, because the
-    /// row around it is itself a button. gpui's equivalent is to stop the
-    /// *mouse-down* propagating: a click listener only fires for an element
-    /// that saw the press, so blocking the press at this element leaves the
-    /// row's click unarmed while this button's own still fires (its
-    /// click-tracking listener is registered after the custom one and therefore
-    /// runs first in the bubble phase).
-    fn row_button(
-        &self,
-        id: impl Into<gpui::ElementId>,
-        icon: &'static str,
-        tooltip: &'static str,
-        disabled: bool,
-        cx: &mut Context<Self>,
-        on_click: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
-    ) -> impl IntoElement {
+    fn render_placed_row(&self, row: Row, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-
-        div()
-            .id(id.into())
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(px(36.))
-            .flex_shrink_0()
-            .rounded_full()
-            .opacity(if disabled { 0.45 } else { 0.7 })
-            .child(
-                svg()
-                    .path(icon)
-                    .size(px(16.))
-                    .text_color(theme.settings_text()),
+        let flashing = self.flash == Some(row);
+        let body = if is_bare(row) || matches!(row, Row::Shortcut(_)) {
+            self.render_row_control(row, window, cx)
+        } else if is_stacked(row) {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .p(px(12.))
+                .when(!hides_label(row), |this| this.child(self.row_label(row)))
+                .child(self.render_row_control(row, window, cx))
+                .into_any_element()
+        } else {
+            ui::SettingRow::settings(
+                &theme,
+                tr(row.label()),
+                row.description().map(tr),
+                self.render_row_control(row, window, cx),
             )
-            .when(!disabled, |this| {
-                this.cursor_pointer()
-                    .hover(|style| style.opacity(1.).bg(theme.settings_fill()))
-                    .tooltip(move |_window, cx| {
-                        ui::Tooltip::new(&theme, tooltip)
-                            .style(ui::TooltipStyle::Light)
-                            .view(cx)
-                    })
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(move |this, _, window, cx| on_click(this, window, cx)))
+            .into_any_element()
+        };
+        let dimmed = row == Row::KeepCompressed && !self.settings.auto_compress_instant;
+        div()
+            .id(SharedString::from(format!("settings-row-{}", row.id())))
+            .rounded(px(12.))
+            .when(flashing, |this| {
+                this.bg(theme.selection)
+                    .anchor_scroll(Some(self.jump_anchor.clone()))
             })
+            .when(dimmed, |this| this.opacity(0.5))
+            .child(body)
+            .into_any_element()
     }
 
-    // -- The General page --------------------------------------------------
-
-    fn render_general(&self, window: &Window, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
-        vec![
-            self.render_appearance(cx).into_any_element(),
-            self.render_language(cx).into_any_element(),
-            self.render_app_section(cx).into_any_element(),
-            self.render_recording(cx).into_any_element(),
-            self.render_storage(cx).into_any_element(),
-            self.render_project_name(window, cx).into_any_element(),
-            self.render_excluded_windows(cx).into_any_element(),
-            self.render_updates(cx).into_any_element(),
-        ]
-    }
-
-    /// `AppearanceSection` -- `theme`.
-    fn render_appearance(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn row_label(&self, row: Row) -> impl IntoElement {
         let theme = self.theme;
-        let current = self.settings.theme;
-
-        let tiles = div()
-            // `grid grid-cols-3 gap-3`
+        div()
             .flex()
-            .flex_row()
-            .gap(px(12.))
-            .children(AppTheme::ALL.iter().copied().map(|option| {
-                let selected = option == current;
+            .flex_col()
+            .gap(px(2.))
+            .child(div().text_size(px(13.)).child(tr(row.label())))
+            .children(row.description().map(|description| {
                 div()
-                    .id(SharedString::from(option.as_json()))
+                    .text_size(px(12.))
+                    .line_height(px(16.))
+                    .text_color(theme.settings_muted())
+                    .child(tr(description))
+            }))
+    }
+
+    fn render_row_control(&self, row: Row, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let settings = &self.settings;
+        match row {
+            Row::Theme => self.render_theme_tiles(cx).into_any_element(),
+            Row::Language => self.render_language(cx),
+            Row::Notifications => self
+                .toggle(
+                    "enable-notifications",
+                    settings.enable_notifications,
+                    cx,
+                    |this, cx| {
+                        this.settings.enable_notifications = !this.settings.enable_notifications;
+                        let value = this.settings.enable_notifications;
+                        this.write_bool("enableNotifications", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::DockIcon => self
+                .toggle(
+                    "hide-dock-icon",
+                    !settings.hide_dock_icon,
+                    cx,
+                    |this, cx| {
+                        this.settings.hide_dock_icon = !this.settings.hide_dock_icon;
+                        let value = this.settings.hide_dock_icon;
+                        this.write_bool("hideDockIcon", value, cx);
+                        cx.defer(|cx: &mut gpui::App| crate::menus::schedule_dock_sync(cx));
+                    },
+                )
+                .into_any_element(),
+            Row::MainWindowStart => self
+                .select(
+                    "main-window-start",
+                    settings.main_window_recording_start_behaviour.label(),
+                    MenuKind::MainWindowStart,
+                    cx,
+                )
+                .into_any_element(),
+            Row::AfterDelete => self
+                .select(
+                    "post-deletion",
+                    settings.post_deletion_behaviour.label(),
+                    MenuKind::PostDeletion,
+                    cx,
+                )
+                .into_any_element(),
+            Row::StudioQuality => self.render_studio_quality(cx),
+            Row::InstantResolution => self.render_instant_resolution(cx),
+            Row::MaxFps => {
+                let label = MAX_FPS_OPTIONS
+                    .iter()
+                    .find(|(value, _)| *value == settings.max_fps)
+                    .map(|(_, label)| tr(label).to_string())
+                    .unwrap_or_else(|| settings.max_fps.to_string());
+                self.select("max-fps", label, MenuKind::MaxFps, cx)
+                    .into_any_element()
+            }
+            Row::Countdown => {
+                let current = settings.recording_countdown.unwrap_or(0);
+                let label = COUNTDOWN_OPTIONS
+                    .iter()
+                    .find(|(value, _)| *value == current)
+                    .map(|(_, label)| tr(label).to_string())
+                    .unwrap_or_else(|| current.to_string());
+                self.select("countdown", label, MenuKind::Countdown, cx)
+                    .into_any_element()
+            }
+            Row::ConfirmMicrophone => self
+                .toggle(
+                    "confirm-without-mic",
+                    settings.confirm_without_microphone,
+                    cx,
+                    |this, cx| {
+                        this.settings.confirm_without_microphone =
+                            !this.settings.confirm_without_microphone;
+                        let value = this.settings.confirm_without_microphone;
+                        if !store::set_store_setting(
+                            RECORDING_START_SAFETY,
+                            "confirmBeforeRecordingWithoutMicrophone",
+                            Value::Bool(value),
+                        ) {
+                            this.settings = GeneralSettings::load();
+                        }
+                        cx.notify();
+                    },
+                )
+                .into_any_element(),
+            Row::SeparateCursor => self
+                .toggle(
+                    "custom-cursor",
+                    settings.custom_cursor_capture,
+                    cx,
+                    |this, cx| {
+                        this.settings.custom_cursor_capture = !this.settings.custom_cursor_capture;
+                        let value = this.settings.custom_cursor_capture;
+                        this.write_bool("custom_cursor_capture2", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::KeyPresses => self
+                .toggle(
+                    "capture-keyboard",
+                    settings.capture_keyboard_events,
+                    cx,
+                    |this, cx| {
+                        this.settings.capture_keyboard_events =
+                            !this.settings.capture_keyboard_events;
+                        let value = this.settings.capture_keyboard_events;
+                        this.write_bool("captureKeyboardEvents", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::CrashRecovery => self
+                .toggle(
+                    "crash-recovery",
+                    settings.crash_recovery_recording,
+                    cx,
+                    |this, cx| {
+                        this.settings.crash_recovery_recording =
+                            !this.settings.crash_recovery_recording;
+                        let value = this.settings.crash_recovery_recording;
+                        this.write_bool("crashRecoveryRecording", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::NotchOverlay => self
+                .toggle(
+                    "notch-overlay",
+                    settings.macbook_notch_overlay,
+                    cx,
+                    |this, cx| {
+                        this.settings.macbook_notch_overlay = !this.settings.macbook_notch_overlay;
+                        let value = this.settings.macbook_notch_overlay;
+                        this.write_bool("macbookNotchOverlay", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::ExcludedWindows => self.render_excluded_windows(cx),
+            Row::AfterScreenshot => self
+                .select(
+                    "after-screenshot",
+                    settings.post_screenshot_behaviour.label(),
+                    MenuKind::AfterScreenshot,
+                    cx,
+                )
+                .into_any_element(),
+            Row::AfterStudio => self
+                .select(
+                    "after-studio",
+                    settings.post_studio_recording_behaviour.label(),
+                    MenuKind::AfterStudio,
+                    cx,
+                )
+                .into_any_element(),
+            Row::AfterInstant => self
+                .select(
+                    "after-instant",
+                    settings.post_instant_recording_behaviour.label(),
+                    MenuKind::AfterInstant,
+                    cx,
+                )
+                .into_any_element(),
+            Row::StudioSound => self
+                .toggle(
+                    "studio-sound-default",
+                    settings.studio_sound_by_default,
+                    cx,
+                    |this, cx| {
+                        let value = !this.settings.studio_sound_by_default;
+                        if store::set_studio_sound_by_default(value) {
+                            this.settings.studio_sound_by_default = value;
+                        }
+                        cx.notify();
+                    },
+                )
+                .into_any_element(),
+            Row::AutoZoom => self
+                .toggle("auto-zoom", settings.auto_zoom_on_clicks, cx, |this, cx| {
+                    this.settings.auto_zoom_on_clicks = !this.settings.auto_zoom_on_clicks;
+                    let value = this.settings.auto_zoom_on_clicks;
+                    this.write_bool("autoZoomOnClicks", value, cx);
+                })
+                .into_any_element(),
+            Row::ZoomAmount => {
+                let zoom = settings.default_zoom_amount.unwrap_or(1.5);
+                div()
                     .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
+                    .flex_row()
                     .items_center()
                     .gap(px(8.))
+                    .w(px(208.))
+                    .child(self.render_zoom_slider(zoom, cx))
                     .child(
                         div()
-                            .w_full()
-                            // `aspect-[5/3]`, which gpui cannot express: this
-                            // is the height the tile has at the window's
-                            // default 782 width (see the README).
-                            .h(px(93.))
-                            .rounded(px(8.))
+                            .w(px(36.))
+                            .text_size(px(12.))
+                            .text_color(self.theme.settings_muted())
+                            .child(format!("{zoom:.1}x")),
+                    )
+                    .into_any_element()
+            }
+            Row::RememberedTerms => self.render_remembered_terms(cx),
+            Row::StorageFolder => self.render_storage_folder(cx),
+            Row::NameTemplate => self.render_name_template(window, cx),
+            Row::CompressInstant => self
+                .toggle(
+                    "auto-compress-instant",
+                    settings.auto_compress_instant,
+                    cx,
+                    |this, cx| {
+                        this.settings.auto_compress_instant = !this.settings.auto_compress_instant;
+                        let value = this.settings.auto_compress_instant;
+                        this.write_bool("autoCompressInstant", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::KeepCompressed => self
+                .toggle(
+                    "auto-compress-delete-original",
+                    settings.auto_compress_delete_original,
+                    cx,
+                    |this, cx| {
+                        if !this.settings.auto_compress_instant {
+                            return;
+                        }
+                        this.settings.auto_compress_delete_original =
+                            !this.settings.auto_compress_delete_original;
+                        let value = this.settings.auto_compress_delete_original;
+                        this.write_bool("autoCompressDeleteOriginal", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::Shortcut(action) => self.render_shortcut(action, cx),
+            Row::Rules => self.render_automations(cx),
+            Row::Cli => self.render_cli(cx),
+            Row::Muxer => self
+                .toggle(
+                    "out-of-process-muxer",
+                    settings.out_of_process_muxer,
+                    cx,
+                    |this, cx| {
+                        this.settings.out_of_process_muxer = !this.settings.out_of_process_muxer;
+                        let value = this.settings.out_of_process_muxer;
+                        this.write_bool("outOfProcessMuxer", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::Diagnostic => self.render_diagnostic(cx),
+            Row::Logs => self.render_logs(cx),
+            Row::Version => self.render_version(cx),
+            Row::UpdateDownloads => self
+                .segmented::<UpdateDownloadPolicy>(
+                    "update-download-policy",
+                    settings.update_download_policy,
+                    cx,
+                    |this, value, cx| {
+                        if this.settings.update_download_policy == value {
+                            return;
+                        }
+                        this.settings.update_download_policy = value;
+                        this.write_enum("updateDownloadPolicy", value, cx);
+                        crate::updates::update_download_policy_changed(value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::UpdateChannel => self
+                .segmented::<UpdateChannel>(
+                    "update-channel",
+                    settings.update_channel,
+                    cx,
+                    |this, value, cx| {
+                        if this.settings.update_channel == value {
+                            return;
+                        }
+                        this.settings.update_channel = value;
+                        this.write_enum("updateChannel", value, cx);
+                        crate::updates::update_channel_changed(value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::ReportProblem => self
+                .button(
+                    "report-problem",
+                    (ui::ButtonVariant::Gray, None),
+                    t!("Open GitHub"),
+                    false,
+                    cx,
+                    |_, _, cx| cx.open_url(&crate::diagnostics::issue_report_url()),
+                )
+                .into_any_element(),
+            Row::Changelog => self.render_changelog(cx),
+            Row::Licences => self.render_licences(cx),
+        }
+    }
+
+    fn render_theme_tiles(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let current = self.settings.theme;
+        div()
+            .flex()
+            .flex_row()
+            .gap(px(8.))
+            .children(AppTheme::ALL.iter().copied().map(|option| {
+                let selected = option == current;
+                let choose = move |this: &mut Self, window: &mut Window, cx: &mut Context<Self>| {
+                    if this.settings.theme == option {
+                        return;
+                    }
+                    this.settings.theme = option;
+                    this.write_enum("theme", option, cx);
+                    crate::theme::set_preference(option, cx);
+                    crate::theme::apply_native(window, cx);
+                    this.theme.refresh(window, cx, true);
+                    cx.defer(|cx: &mut gpui::App| crate::app_windows::broadcast_theme(cx));
+                };
+                div()
+                    .id(SharedString::from(format!("theme-{}", option.as_json())))
+                    .tab_index(0)
+                    .aria_label(option.label())
+                    .aria_selected(selected)
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(4.))
+                    .cursor_pointer()
+                    .child(
+                        div()
+                            .w(px(72.))
+                            .h(px(44.))
+                            .rounded(px(6.))
                             .overflow_hidden()
                             .border_2()
                             .border_color(if selected {
-                                theme.foreground.into()
+                                Hsla::from(theme.primary)
                             } else {
-                                Hsla::from(theme.gray_4)
-                            })
-                            .when(!selected, |this| {
-                                this.hover(|style| style.border_color(Hsla::from(theme.gray_6)))
+                                Hsla::from(theme.border)
                             })
                             .child(img(theme_preview(option)).size_full()),
                     )
                     .child(
-                        // `text-xs font-medium`, gray-12 when selected and
-                        // gray-10 -- i.e. muted -- when not.
                         div()
                             .text_size(px(12.))
-                            .font_weight(FontWeight::MEDIUM)
                             .text_color(if selected {
                                 theme.settings_text()
                             } else {
@@ -2749,30 +1521,21 @@ impl SettingsWindow {
                             })
                             .child(option.label()),
                     )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if this.settings.theme == option {
-                            return;
-                        }
-                        this.settings.theme = option;
-                        this.write_enum("theme", option, cx);
-                        crate::theme::set_preference(option, cx);
-                        crate::theme::apply_native(window, cx);
-                        this.theme.refresh(window, cx, true);
-                        cx.defer(|cx: &mut gpui::App| crate::app_windows::broadcast_theme(cx));
-                    }))
-            }));
-
-        self.section(
-            t!("Appearance"),
-            Some(t!(
-                "Match FrameEver to your system theme or pick a fixed look."
-            )),
-            None,
-            vec![self.card(true).child(tiles).into_any_element()],
-        )
+                    .on_click(cx.listener(move |this, _, window, cx| choose(this, window, cx)))
+                    .on_key_down(cx.listener(
+                        move |this, event: &gpui::KeyDownEvent, window, cx| {
+                            if event.keystroke.modifiers == Default::default()
+                                && matches!(event.keystroke.key.as_str(), "enter" | "space")
+                            {
+                                choose(this, window, cx);
+                                cx.stop_propagation();
+                            }
+                        },
+                    ))
+            }))
     }
 
-    fn render_language(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_language(&self, cx: &mut Context<Self>) -> AnyElement {
         use crate::i18n::Language;
 
         let chosen = self
@@ -2791,7 +1554,7 @@ impl SettingsWindow {
                 chosen == Some(Language::SimplifiedChinese),
             ),
         ];
-        let control = self.segmented_raw("language", options, cx, |this, index, cx| {
+        self.segmented_raw("language", options, cx, |this, index, cx| {
             let choice = match index {
                 0 => None,
                 1 => Some(Language::English),
@@ -2810,80 +1573,12 @@ impl SettingsWindow {
                 tracing::error!("failed to load the Chinese UI font: {error:#}");
             }
             cx.defer(|cx: &mut gpui::App| cx.refresh_windows());
-        });
-
-        self.section(
-            t!("Language"),
-            Some(t!(
-                "The tray menu and window titles switch after FrameEver restarts."
-            )),
-            None,
-            vec![
-                self.rows(vec![
-                    self.setting_row(t!("Interface language"), None, control.into_any_element())
-                        .into_any_element(),
-                ])
-                .into_any_element(),
-            ],
-        )
-    }
-
-    /// The macOS-only App section: `hideDockIcon`, `enableNotifications`.
-    fn render_app_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        self.section(
-            t!("App"),
-            Some(t!("Choose how FrameEver shows up on your system.")),
-            None,
-            vec![
-                self.rows(vec![
-                    self.setting_row(
-                        t!("Always show dock icon"),
-                        Some(t!("Keep FrameEver in the dock even when no windows are open.")),
-                        // The row is the *inverse* of the stored key.
-                        self.toggle(
-                            "hide-dock-icon",
-                            !self.settings.hide_dock_icon,
-                            cx,
-                            |this, cx| {
-                                this.settings.hide_dock_icon = !this.settings.hide_dock_icon;
-                                let value = this.settings.hide_dock_icon;
-                                this.write_bool("hideDockIcon", value, cx);
-                                // `GeneralSettingsStore::set` -> the store
-                                // listener -> `schedule_macos_dock_visibility_sync`.
-                                // Deferred past the debounced write, which is
-                                // what the sync then reads back.
-                                cx.defer(|cx: &mut gpui::App| crate::menus::schedule_dock_sync(cx));
-                            },
-                        )
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("System notifications"),
-                        Some(
-                            t!("Show notifications for clipboard copies, saved files, and more. \
-                             You may need to allow FrameEver in your system's notification settings."),
-                        ),
-                        self.toggle(
-                            "enable-notifications",
-                            self.settings.enable_notifications,
-                            cx,
-                            |this, cx| {
-                                this.settings.enable_notifications =
-                                    !this.settings.enable_notifications;
-                                let value = this.settings.enable_notifications;
-                                this.write_bool("enableNotifications", value, cx);
-                            },
-                        )
-                        .into_any_element(),
-                    ),
-                ])
-                .into_any_element(),
-            ],
-        )
+        })
+        .into_any_element()
     }
 
     fn select_instant_resolution(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some((resolution, _, _)) = INSTANT_RESOLUTION_TIERS.get(index).copied() else {
+        let Some((resolution, _)) = INSTANT_RESOLUTION_TIERS.get(index).copied() else {
             return;
         };
         if store::set_store_setting(
@@ -2892,77 +1587,41 @@ impl SettingsWindow {
             Value::from(resolution),
         ) {
             self.settings.instant_mode_max_resolution = resolution;
-            self.instant_quality_notice = None;
+            self.instant_quality_save_failed = false;
         } else {
-            self.instant_quality_notice = Some(InstantQualityNotice::SaveFailed);
+            self.instant_quality_save_failed = true;
         }
         cx.notify();
     }
 
-    fn render_recording_quality(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
-        vec![
-            self.render_studio_quality(cx).into_any_element(),
-            self.render_instant_quality(cx).into_any_element(),
-        ]
-    }
-
-    fn effective_instant_resolution(&self) -> u32 {
-        self.settings.instant_mode_max_resolution
-    }
-
-    fn render_instant_quality(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_instant_resolution(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let effective = self.effective_instant_resolution();
-        let summary = INSTANT_RESOLUTION_TIERS
-            .iter()
-            .find(|(value, _, _)| *value == effective)
-            .map(|(_, _, summary)| tr(summary))
-            .unwrap_or_default();
-        let description = summary.to_string();
-
+        let current = self.settings.instant_mode_max_resolution;
         let options = INSTANT_RESOLUTION_TIERS
             .iter()
-            .map(|(value, label, _)| ui::SegmentOption::new(*label, *value == effective))
+            .map(|(value, label)| ui::SegmentOption::new(*label, *value == current))
             .collect();
-
-        let resolution = div()
-            .id("settings-instant-quality")
-            .anchor_scroll(Some(self.instant_quality_anchor.clone()))
+        div()
+            .flex()
+            .flex_col()
+            .items_end()
+            .gap(px(4.))
             .child(
-                ui::SettingRow::settings(
-                    &theme,
-                    t!("Maximum resolution"),
-                    None,
-                    self.segmented_raw("instant-resolution", options, cx, |this, index, cx| {
-                        this.select_instant_resolution(index, cx)
-                    })
-                    .into_any_element(),
-                )
-                .description(description),
-            );
+                self.segmented_raw("instant-resolution", options, cx, |this, index, cx| {
+                    this.select_instant_resolution(index, cx)
+                }),
+            )
+            .when(self.instant_quality_save_failed, |this| {
+                this.child(self.save_failed_note(theme))
+            })
+            .into_any_element()
+    }
 
-        let mut rows = vec![resolution.into_any_element()];
-        if let Some(InstantQualityNotice::SaveFailed) = self.instant_quality_notice {
-            rows.push(
-                div()
-                    .p(px(12.))
-                    .text_size(px(12.))
-                    .text_color(Hsla::from(theme.amber_11))
-                    .child(t!(
-                        "Couldn't save your recording settings. Please try again."
-                    ))
-                    .into_any_element(),
-            );
-        }
-
-        self.section(
-            t!("Instant recordings"),
-            Some(t!(
-                "Saved straight to a video file, ready the moment you stop. For the best quality, use Studio mode: it records at the highest quality your screen allows, and you can export up to 4K."
-            )),
-            None,
-            vec![self.rows(rows).into_any_element()],
-        )
+    fn save_failed_note(&self, theme: Theme) -> impl IntoElement {
+        div()
+            .text_size(px(12.))
+            .text_color(Hsla::from(theme.warning_text))
+            .child(t!("Couldn't save your recording settings. Try again."))
     }
 
     fn select_studio_quality(&mut self, quality: StudioQuality, cx: &mut Context<Self>) {
@@ -2977,39 +1636,10 @@ impl SettingsWindow {
         cx.notify();
     }
 
-    fn radio_dot(&self, checked: bool) -> gpui::Div {
-        let theme = self.theme;
-        let accent: Hsla = theme.primary.into();
-        div()
-            .size(px(16.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .when(checked, |this| {
-                this.bg(accent)
-                    .child(div().size(px(6.)).rounded_full().bg(gpui::white()))
-            })
-            .when(!checked, |this| {
-                this.border_1()
-                    .border_color(theme.settings_muted().opacity(0.55))
-                    .group_hover("studio-quality-option", |style| {
-                        style.border_color(theme.settings_muted())
-                    })
-                    .bg(if theme.is_dark() {
-                        gpui::hsla(0., 0., 1., 0.1)
-                    } else {
-                        gpui::white()
-                    })
-            })
-    }
-
-    fn render_studio_quality(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_studio_quality(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let current = self.settings.studio_recording_quality;
-
-        let mut rows: Vec<gpui::AnyElement> = STUDIO_QUALITY_TIERS
+        let tiers = STUDIO_QUALITY_TIERS
             .iter()
             .copied()
             .map(|(quality, label, description)| {
@@ -3026,44 +1656,34 @@ impl SettingsWindow {
                     .aria_selected(selected)
                     .cursor_pointer()
                     .flex()
-                    .items_start()
-                    .gap(px(10.))
-                    .p(px(12.))
-                    .group("studio-quality-option")
-                    .child(div().mt(px(1.)).child(self.radio_dot(selected)))
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(2.))
+                    .p(px(10.))
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(if selected {
+                        Hsla::from(theme.primary)
+                    } else {
+                        Hsla::from(theme.border)
+                    })
+                    .focus_visible(move |style| style.border_color(theme.ring))
+                    .when(!selected, |this| {
+                        this.hover(|style| style.bg(theme.settings_hover()))
+                    })
                     .child(
                         div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .gap(px(2.))
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(6.))
-                                    .child(div().text_size(px(13.)).child(label))
-                                    .when(quality == StudioQuality::Balanced, |this| {
-                                        this.child(
-                                            div()
-                                                .px(px(6.))
-                                                .py(px(1.))
-                                                .rounded(px(4.))
-                                                .bg(theme.settings_fill())
-                                                .text_size(px(11.))
-                                                .text_color(theme.settings_muted())
-                                                .child(t!("Recommended")),
-                                        )
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .line_height(px(16.))
-                                    .text_color(theme.settings_muted())
-                                    .child(description),
-                            ),
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(label),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .line_height(px(16.))
+                            .text_color(theme.settings_muted())
+                            .child(description),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.select_studio_quality(quality, cx);
@@ -3076,313 +1696,16 @@ impl SettingsWindow {
                             cx.stop_propagation();
                         }
                     }))
-                    .into_any_element()
+            });
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .child(div().flex().flex_row().gap(px(8.)).children(tiers))
+            .when(self.studio_quality_save_failed, |this| {
+                this.child(self.save_failed_note(theme))
             })
-            .collect();
-
-        if self.studio_quality_save_failed {
-            rows.push(
-                div()
-                    .p(px(12.))
-                    .text_size(px(12.))
-                    .text_color(Hsla::from(theme.amber_11))
-                    .child(t!(
-                        "Couldn't save your recording settings. Please try again."
-                    ))
-                    .into_any_element(),
-            );
-        }
-
-        self.section(
-            t!("Studio recordings"),
-            Some(t!("Saved to your computer for editing. You choose the export size later, in the editor.")),
-            None,
-            vec![
-                div()
-                    .id("settings-studio-quality")
-                    .anchor_scroll(Some(self.studio_quality_anchor.clone()))
-                    .child(self.rows(rows))
-                    .into_any_element(),
-            ],
-        )
-    }
-
-    /// The Recording card: thirteen rows, in TSX order.
-    fn render_recording(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let settings = &self.settings;
-
-        let countdown_label = COUNTDOWN_OPTIONS
-            .iter()
-            .find(|(value, _)| *value == settings.recording_countdown.unwrap_or(0))
-            .map(|(_, label)| tr(label).to_string())
-            .unwrap_or_else(|| settings.recording_countdown.unwrap_or(0).to_string());
-        let fps_label = MAX_FPS_OPTIONS
-            .iter()
-            .find(|(value, _)| *value == settings.max_fps)
-            .map(|(_, label)| tr(label).to_string())
-            .unwrap_or_else(|| settings.max_fps.to_string());
-        let zoom = settings.default_zoom_amount.unwrap_or(1.5);
-
-        self.section(
-            t!("Recording"),
-            Some(t!("Behaviour while you record and after you stop.")),
-            None,
-            vec![
-                self.rows(vec![
-                    self.setting_row(
-                        t!("Countdown"),
-                        Some(t!("Wait before the recording starts.")),
-                        self.select("countdown", countdown_label, MenuKind::Countdown, cx)
-                            .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Confirm before recording without a microphone"),
-                        Some(t!(
-                            "Require confirmation when no microphone is selected or the \
-                             selected microphone is unavailable."
-                        )),
-                        self.toggle(
-                            "confirm-without-mic",
-                            settings.confirm_without_microphone,
-                            cx,
-                            |this, cx| {
-                                // The one row on this page that is not a
-                                // `general_settings` key.
-                                this.settings.confirm_without_microphone =
-                                    !this.settings.confirm_without_microphone;
-                                let value = this.settings.confirm_without_microphone;
-                                store::set_store_setting(
-                                    RECORDING_START_SAFETY,
-                                    "confirmBeforeRecordingWithoutMicrophone",
-                                    Value::Bool(value),
-                                );
-                                cx.notify();
-                            },
-                        )
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Studio Sound on new recordings"),
-                        Some(t!(
-                            "Clean up microphone audio automatically. You can still turn it \
-                             off for any recording in the editor."
-                        )),
-                        self.toggle(
-                            "studio-sound-default",
-                            settings.studio_sound_by_default,
-                            cx,
-                            |this, cx| {
-                                let value = !this.settings.studio_sound_by_default;
-                                if store::set_studio_sound_by_default(value) {
-                                    this.settings.studio_sound_by_default = value;
-                                }
-                                cx.notify();
-                            },
-                        )
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Main window when recording starts"),
-                        Some(t!(
-                            "What happens to the main window once a recording begins."
-                        )),
-                        self.select(
-                            "main-window-start",
-                            settings.main_window_recording_start_behaviour.label(),
-                            MenuKind::MainWindowStart,
-                            cx,
-                        )
-                        .into_any_element(),
-                    ),
-                    // "After a Studio recording" lives on the Shortcuts page,
-                    // next to the shortcuts it shapes. There is no
-                    // post-capture overlay in this app, so a stored
-                    // `showOverlay` means "reshow the main window"
-                    // (`app_windows.rs`) and is labelled "Show Cap".
-                    self.setting_row(
-                        t!("After deleting a recording"),
-                        Some(t!("Whether the recording window should reopen.")),
-                        self.select(
-                            "post-deletion",
-                            settings.post_deletion_behaviour.label(),
-                            MenuKind::PostDeletion,
-                            cx,
-                        )
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Crash-recoverable recording"),
-                        Some(t!(
-                            "Record in fragments that can be recovered after a crash or power \
-                             loss. Slightly larger files during capture."
-                        )),
-                        self.toggle(
-                            "crash-recovery",
-                            settings.crash_recovery_recording,
-                            cx,
-                            |this, cx| {
-                                this.settings.crash_recovery_recording =
-                                    !this.settings.crash_recovery_recording;
-                                let value = this.settings.crash_recovery_recording;
-                                this.write_bool("crashRecoveryRecording", value, cx);
-                            },
-                        )
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Compress instant recordings automatically"),
-                        Some(t!(
-                            "Make an HEVC copy about half the size after each instant recording. The original is kept."
-                        )),
-                        self.toggle(
-                            "auto-compress-instant",
-                            settings.auto_compress_instant,
-                            cx,
-                            |this, cx| {
-                                this.settings.auto_compress_instant =
-                                    !this.settings.auto_compress_instant;
-                                let value = this.settings.auto_compress_instant;
-                                this.write_bool("autoCompressInstant", value, cx);
-                            },
-                        )
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Then keep only the compressed version"),
-                        Some(t!(
-                            "Switch to the compressed copy and delete the original to save space."
-                        )),
-                        self.toggle(
-                            "auto-compress-delete-original",
-                            settings.auto_compress_delete_original,
-                            cx,
-                            |this, cx| {
-                                this.settings.auto_compress_delete_original =
-                                    !this.settings.auto_compress_delete_original;
-                                let value = this.settings.auto_compress_delete_original;
-                                this.write_bool("autoCompressDeleteOriginal", value, cx);
-                            },
-                        )
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Custom cursor capture (Studio)"),
-                        Some(t!(
-                            "Capture cursor state separately so you can adjust size and \
-                             smoothing in the editor."
-                        )),
-                        self.toggle(
-                            "custom-cursor",
-                            settings.custom_cursor_capture,
-                            cx,
-                            |this, cx| {
-                                this.settings.custom_cursor_capture =
-                                    !this.settings.custom_cursor_capture;
-                                let value = this.settings.custom_cursor_capture;
-                                this.write_bool("custom_cursor_capture2", value, cx);
-                            },
-                        )
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Auto zoom on clicks"),
-                        Some(t!(
-                            "Automatically add zoom segments around mouse clicks in Studio \
-                             recordings."
-                        )),
-                        self.toggle("auto-zoom", settings.auto_zoom_on_clicks, cx, |this, cx| {
-                            this.settings.auto_zoom_on_clicks = !this.settings.auto_zoom_on_clicks;
-                            let value = this.settings.auto_zoom_on_clicks;
-                            this.write_bool("autoZoomOnClicks", value, cx);
-                        })
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Default zoom amount"),
-                        Some(t!(
-                            "Zoom level for newly created and auto-generated zoom segments."
-                        )),
-                        div()
-                            // `flex gap-2 items-center w-52`
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(px(8.))
-                            .w(px(208.))
-                            .child(self.render_zoom_slider(zoom, cx))
-                            .child(
-                                // `w-9 text-xs text-right text-gray-11 tabular-nums`
-                                div()
-                                    .w(px(36.))
-                                    .text_size(px(12.))
-                                    .text_color(theme.settings_muted())
-                                    .child(format!("{zoom:.1}x")),
-                            )
-                            .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Capture keyboard presses"),
-                        Some(t!(
-                            "Record key presses so you can add keyboard overlays in the editor."
-                        )),
-                        self.toggle(
-                            "capture-keyboard",
-                            settings.capture_keyboard_events,
-                            cx,
-                            |this, cx| {
-                                this.settings.capture_keyboard_events =
-                                    !this.settings.capture_keyboard_events;
-                                let value = this.settings.capture_keyboard_events;
-                                this.write_bool("captureKeyboardEvents", value, cx);
-                            },
-                        )
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Draw the MacBook notch on screen recordings"),
-                        Some(t!(
-                            "Automatically restores the notch for new screen and area \
-                             recordings when the selected region contains the complete notch. \
-                             External displays, partial areas, and window recordings are left \
-                             alone. Each recording can override it in the editor."
-                        )),
-                        self.toggle(
-                            "notch-overlay",
-                            settings.macbook_notch_overlay,
-                            cx,
-                            |this, cx| {
-                                this.settings.macbook_notch_overlay =
-                                    !this.settings.macbook_notch_overlay;
-                                let value = this.settings.macbook_notch_overlay;
-                                this.write_bool("macbookNotchOverlay", value, cx);
-                            },
-                        )
-                        .into_any_element(),
-                    ),
-                    self.setting_row(
-                        t!("Max capture framerate"),
-                        Some(if settings.max_fps > 60 {
-                            t!(
-                                "Maximum framerate for screen capture. Higher values may cause \
-                             drops or increased CPU usage on some systems."
-                            )
-                        } else {
-                            t!("Maximum framerate for screen capture.")
-                        }),
-                        self.select("max-fps", fps_label, MenuKind::MaxFps, cx)
-                            .into_any_element(),
-                    ),
-                ])
-                .into_any_element(),
-            ],
-        )
-    }
-
-    fn write_storage(&mut self, cx: &mut Context<Self>) {
-        for (key, value) in self.settings.storage.general_settings_entries() {
-            self.write(key, value, cx);
-        }
+            .into_any_element()
     }
 
     fn storage_path_box(&self, path: &Path) -> gpui::Div {
@@ -3398,8 +1721,13 @@ impl SettingsWindow {
             .min_w_0()
             .rounded(px(8.))
             .bg(theme.settings_fill())
-            .border_1()
-            .border_color(theme.settings_border())
+            .child(
+                svg()
+                    .path("icons/folder.svg")
+                    .size(px(16.))
+                    .flex_shrink_0()
+                    .text_color(theme.settings_muted()),
+            )
             .child(
                 div()
                     .flex_1()
@@ -3410,8 +1738,39 @@ impl SettingsWindow {
             )
     }
 
-    fn render_storage(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn warning_line(&self, text: impl Into<SharedString>) -> impl IntoElement {
         let theme = self.theme;
+        div()
+            .flex()
+            .flex_row()
+            .items_start()
+            .gap(px(8.))
+            .px(px(12.))
+            .py(px(8.))
+            .rounded(px(8.))
+            .bg(theme.settings_fill())
+            .text_size(px(12.))
+            .text_color(Hsla::from(theme.warning_text))
+            .child(
+                svg()
+                    .path("icons/triangle-alert.svg")
+                    .size(px(14.))
+                    .flex_shrink_0()
+                    .mt(px(1.))
+                    .text_color(Hsla::from(theme.warning_text)),
+            )
+            .child(div().flex_1().min_w_0().child(text.into()))
+    }
+
+    fn hint(&self, text: impl Into<SharedString>) -> impl IntoElement {
+        div()
+            .text_size(px(12.))
+            .line_height(px(16.))
+            .text_color(self.theme.settings_muted())
+            .child(text.into())
+    }
+
+    fn render_storage_folder(&self, cx: &mut Context<Self>) -> AnyElement {
         let storage = &self.settings.storage;
         let is_custom = storage.storage_path.is_some();
         let unavailable = storage
@@ -3422,13 +1781,55 @@ impl SettingsWindow {
             .storage_path
             .clone()
             .unwrap_or_else(frameever_utils::storage::default_storage_dir);
+        let reveal = display.clone();
 
-        let mut actions = div().flex().flex_row().justify_end().gap(px(8.));
+        let mut actions = div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .gap(px(8.))
+            .child(self.button(
+                "storage-pick",
+                (ui::ButtonVariant::Gray, None),
+                t!("Change folder"),
+                false,
+                cx,
+                |_, window, cx| {
+                    let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
+                        files: false,
+                        directories: true,
+                        multiple: false,
+                        prompt: None,
+                    });
+                    cx.spawn_in(window, async move |this, cx| {
+                        let Ok(Ok(Some(paths))) = paths.await else {
+                            return;
+                        };
+                        let Some(path) = paths.into_iter().next() else {
+                            return;
+                        };
+                        this.update(cx, |this, cx| {
+                            this.settings.storage.choose_storage_folder(Some(path));
+                            this.write_storage(cx);
+                        })
+                        .ok();
+                    })
+                    .detach();
+                },
+            ))
+            .child(self.button(
+                "storage-show",
+                (ui::ButtonVariant::Gray, Some("icons/folder-open.svg")),
+                t!("Show folder"),
+                unavailable,
+                cx,
+                move |_, _, cx| crate::library::open_with_system(&reveal, cx),
+            ));
         if is_custom {
             actions = actions.child(self.button(
                 "storage-reset",
                 (ui::ButtonVariant::Gray, None),
-                "Reset to Default",
+                t!("Use default folder"),
                 false,
                 cx,
                 |this, _window, cx| {
@@ -3437,83 +1838,37 @@ impl SettingsWindow {
                 },
             ));
         }
-        actions = actions.child(self.button(
-            "storage-pick",
-            (ui::ButtonVariant::Dark, None),
-            "Choose Folder",
-            false,
-            cx,
-            |_, window, cx| {
-                let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
-                    files: false,
-                    directories: true,
-                    multiple: false,
-                    prompt: None,
-                });
-                cx.spawn_in(window, async move |this, cx| {
-                    let Ok(Ok(Some(paths))) = paths.await else {
-                        return;
-                    };
-                    let Some(path) = paths.into_iter().next() else {
-                        return;
-                    };
-                    this.update(cx, |this, cx| {
-                        this.settings.storage.choose_storage_folder(Some(path));
-                        this.write_storage(cx);
-                    })
-                    .ok();
-                })
-                .detach();
-            },
-        ));
 
         let mut content = div()
             .flex()
             .flex_col()
-            .gap(px(12.))
+            .gap(px(10.))
             .child(self.storage_path_box(&display));
         if unavailable {
-            content = content.child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme.settings_muted())
-                    .child(t!(
-                        "This folder is unavailable. New recordings and screenshots go to the default folder until it is back."
-                    )),
-            );
+            content = content.child(self.warning_line(t!(
+                "This folder isn't available. New projects go to the default folder until it's back."
+            )));
         }
         content = content.child(actions);
 
         if !storage.previous_storage_paths.is_empty() {
-            let mut previous = div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .pt(px(4.))
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(theme.settings_muted())
-                        .child(t!(
-                            "Previous folders. FrameEver still lists recordings and screenshots kept in them."
-                        )),
-                );
+            content = content
+                .child(self.hint(t!("Previous folders. Their projects stay in the library.")));
             for (index, path) in storage.previous_storage_paths.iter().enumerate() {
                 let folder = path.clone();
-                previous = previous.child(
+                content = content.child(
                     div()
                         .flex()
                         .flex_row()
                         .items_center()
                         .gap(px(8.))
                         .child(self.storage_path_box(path))
-                        .child(self.button(
+                        .child(self.icon_button(
                             ("storage-previous-remove", index),
-                            (ui::ButtonVariant::Gray, None),
-                            "Remove",
-                            false,
+                            "icons/x.svg",
+                            t!("Remove"),
                             cx,
-                            move |this, _window, cx| {
+                            move |this, cx| {
                                 this.settings
                                     .storage
                                     .remove_previous_storage_folder(&folder);
@@ -3522,21 +1877,56 @@ impl SettingsWindow {
                         )),
                 );
             }
-            content = content.child(previous);
         }
-
-        self.section(
-            t!("Storage"),
-            Some(t!(
-                "Where FrameEver saves recordings and screenshots, in the Recordings and Screenshots folders."
-            )),
-            None,
-            vec![self.card(true).child(content).into_any_element()],
-        )
+        content.into_any_element()
     }
 
-    /// `DefaultProjectNameCard` -- `defaultProjectNameTemplate`.
-    fn render_project_name(&self, _window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn icon_button(
+        &self,
+        id: impl Into<gpui::ElementId>,
+        icon: &'static str,
+        label: &'static str,
+        cx: &mut Context<Self>,
+        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+    ) -> impl IntoElement {
+        let theme = self.theme;
+        div()
+            .id(id)
+            .tab_index(0)
+            .aria_label(label)
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(24.))
+            .flex_shrink_0()
+            .rounded(px(6.))
+            .cursor_pointer()
+            .border_1()
+            .border_color(transparent_black())
+            .focus_visible(move |style| style.border_color(theme.ring))
+            .hover(|style| style.bg(theme.settings_hover()))
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(14.))
+                    .text_color(theme.settings_muted()),
+            )
+            .on_click(cx.listener(move |this, _, _window, cx| on_click(this, cx)))
+    }
+
+    fn insert_project_token(&mut self, token: &'static str, cx: &mut Context<Self>) {
+        let next = if self.project_name.ends_with(' ') || self.project_name.is_empty() {
+            format!("{}{token}", self.project_name)
+        } else {
+            format!("{} {token}", self.project_name)
+        };
+        self.project_name = next.clone();
+        let input = self.project_name_input.clone();
+        input.update(cx, |input, cx| input.set_text(next, cx));
+        cx.notify();
+    }
+
+    fn render_name_template(&self, _window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let stored = self
             .settings
@@ -3548,11 +1938,61 @@ impl SettingsWindow {
         let reset_disabled = draft == DEFAULT_PROJECT_NAME_TEMPLATE
             && self.settings.default_project_name_template.is_none();
 
-        let right = div()
+        let placeholder_rows: Vec<(&str, &str)> = vec![
+            (
+                "{recording_mode}",
+                t!("\"Studio\", \"Instant\", or \"Screenshot\""),
+            ),
+            ("{mode}", t!("\"studio\", \"instant\", or \"screenshot\"")),
+            ("{target_kind}", t!("\"Display\", \"Window\", or \"Area\"")),
+            ("{target_name}", t!("Monitor name or window title.")),
+            (
+                "{random}",
+                t!("10 filename-safe hexadecimal characters; use {random:N} for 1–32."),
+            ),
+            ("{date}", t!("the recording's date")),
+            ("{time}", t!("the recording's time")),
+        ];
+
+        let tokens = div().flex().flex_row().flex_wrap().gap(px(6.)).children(
+            PROJECT_NAME_TOKENS.iter().copied().map(|token| {
+                div()
+                    .id(SharedString::from(format!("project-token-{token}")))
+                    .tab_index(0)
+                    .px(px(8.))
+                    .py(px(2.))
+                    .rounded(px(6.))
+                    .bg(theme.settings_fill())
+                    .text_size(px(11.))
+                    .cursor_pointer()
+                    .border_1()
+                    .border_color(transparent_black())
+                    .focus_visible(move |style| style.border_color(theme.ring))
+                    .hover(|style| style.bg(theme.settings_hover()))
+                    .child(token)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.insert_project_token(token, cx);
+                    }))
+            }),
+        );
+
+        let actions = div()
             .flex()
             .flex_row()
             .items_center()
             .gap(px(8.))
+            .child(self.button(
+                "project-name-save",
+                (ui::ButtonVariant::Dark, None),
+                t!("Save"),
+                save_disabled,
+                cx,
+                |this, _window, cx| {
+                    let template = this.project_name.clone();
+                    this.settings.default_project_name_template = Some(template.clone());
+                    this.write("defaultProjectNameTemplate", Value::String(template), cx);
+                },
+            ))
             .child(self.button(
                 "project-name-reset",
                 (ui::ButtonVariant::Gray, None),
@@ -3568,108 +2008,59 @@ impl SettingsWindow {
                     });
                     this.write("defaultProjectNameTemplate", Value::Null, cx);
                 },
-            ))
-            .child(self.button(
-                "project-name-save",
-                (ui::ButtonVariant::Dark, None),
-                t!("Save"),
-                save_disabled,
-                cx,
-                |this, _window, cx| {
-                    let template = this.project_name.clone();
-                    this.settings.default_project_name_template = Some(template.clone());
-                    this.write("defaultProjectNameTemplate", Value::String(template), cx);
-                },
-            ))
-            .into_any_element();
+            ));
 
-        let placeholder_rows: Vec<(&str, &str, &str)> = vec![
-            (
-                t!("Recording mode"),
-                "{recording_mode}",
-                t!("\"Studio\", \"Instant\", or \"Screenshot\""),
-            ),
-            (
-                "",
-                "{mode}",
-                t!("\"studio\", \"instant\", or \"screenshot\""),
-            ),
-            (
-                t!("Target"),
-                "{target_kind}",
-                t!("\"Display\", \"Window\", or \"Area\""),
-            ),
-            ("", "{target_name}", t!("Monitor name or window title.")),
-            (
-                t!("Random"),
-                "{random}",
-                t!("10 filename-safe hexadecimal characters; use {random:N} for 1–32."),
-            ),
-            (t!("Date & time"), "{date}", t!("the recording's date")),
-            ("", "{time}", t!("the recording's time")),
-        ];
-
-        let body = div()
+        div()
             .flex()
             .flex_col()
-            .gap(px(12.))
-            .child(self.text_field(Field::ProjectName))
-            .child(
-                // The live preview box. The Tauri card renders
-                // `commands.formatProjectName(...)`; ours formats the six
-                // literal placeholders (see `format_project_name`).
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(8.))
-                    .px(px(12.))
-                    .py(px(8.))
-                    .rounded(px(8.))
-                    .bg(theme.settings_fill())
-                    .border_dashed()
-                    .border_1()
-                    .border_color(theme.settings_border())
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(12.))
-                            .child(format_project_name(&draft)),
-                    ),
-            )
+            .gap(px(10.))
+            .child(div().child(ui::TextInput::settings(
+                &theme,
+                "project-name-input",
+                &self.project_name_input,
+            )))
+            .child(self.hint(t!("Preview: {name}", name = format_project_name(&draft))))
+            .child(tokens)
+            .child(actions)
             .child(
                 div()
                     .id("placeholders-trigger")
+                    .tab_index(0)
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap(px(4.))
                     .text_size(px(12.))
                     .text_color(theme.settings_muted())
+                    .cursor_pointer()
                     .child(
                         svg()
-                            .path("icons/chevron-down.svg")
+                            .path(if self.placeholders.is_open() {
+                                "icons/chevron-down.svg"
+                            } else {
+                                "icons/chevron-right.svg"
+                            })
                             .size(px(14.))
                             .text_color(theme.settings_muted()),
                     )
                     .child(t!("Available placeholders"))
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.toggle_placeholders(cx);
+                    }))
+                    .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                        if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                            this.toggle_placeholders(cx);
+                            cx.stop_propagation();
+                        }
                     })),
             )
-            // Mounted while open *and* while animating shut, so the reveal
-            // has something to collapse; unmounted once settled closed, or
-            // the parent's `gap-3` would leave a 12px hole under the
-            // trigger.
             .when(
                 self.placeholders.is_open() || self.placeholders.is_animating(),
                 |this| {
                     if cx.reduce_motion() {
                         self.placeholders.settle();
                     }
-                    let (height, _) = self.placeholders.height_for(std::time::Instant::now());
+                    let (height, _) = self.placeholders.height_for(Instant::now());
                     this.child(
                         ui::Collapsible::new(height, self.placeholders.measure_cell()).content(
                             div()
@@ -3677,220 +2068,119 @@ impl SettingsWindow {
                                 .flex_col()
                                 .gap(px(6.))
                                 .text_size(px(12.))
-                                .children(placeholder_rows.into_iter().map(
-                                    |(heading, code, meaning)| {
-                                        div()
-                                            .flex()
-                                            .flex_col()
-                                            .gap(px(4.))
-                                            .when(!heading.is_empty(), |this| {
-                                                this.child(
-                                                    div()
-                                                        .font_weight(FontWeight::MEDIUM)
-                                                        .child(heading.to_string()),
-                                                )
-                                            })
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .flex_row()
-                                                    .items_center()
-                                                    .gap(px(6.))
-                                                    .child(
-                                                        div()
-                                                            .px(px(6.))
-                                                            .py(px(2.))
-                                                            .rounded(px(6.))
-                                                            .bg(theme.settings_fill())
-                                                            .text_size(px(11.))
-                                                            .child(code.to_string()),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .flex_1()
-                                                            .min_w_0()
-                                                            .truncate()
-                                                            .text_color(theme.settings_muted())
-                                                            .child(format!("-> {meaning}")),
-                                                    ),
-                                            )
-                                    },
-                                )),
+                                .children(placeholder_rows.into_iter().map(|(code, meaning)| {
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(px(6.))
+                                        .child(
+                                            div()
+                                                .px(px(6.))
+                                                .py(px(2.))
+                                                .rounded(px(6.))
+                                                .bg(theme.settings_fill())
+                                                .text_size(px(11.))
+                                                .child(code.to_string()),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .truncate()
+                                                .text_color(theme.settings_muted())
+                                                .child(meaning.to_string()),
+                                        )
+                                })),
                         ),
                     )
                 },
-            );
-
-        self.section(
-            t!("Default project name"),
-            Some(t!("Template used for new recordings and exported files.")),
-            Some(right),
-            vec![self.card(true).child(body).into_any_element()],
-        )
+            )
+            .into_any_element()
     }
 
-    /// `ExcludedWindowsCard` -- `excludedWindows`.
-    fn render_excluded_windows(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_excluded_windows(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let missing = self.missing_default_exclusions();
         let nothing_to_add = self.add_window_options().is_empty();
 
-        let right = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(8.))
-            .child(self.button(
-                "exclusions-reset",
-                (ui::ButtonVariant::Gray, None),
-                t!("Reset"),
-                false,
-                cx,
-                |this, _window, cx| {
-                    this.write_excluded(store::default_excluded_windows(), cx);
-                },
-            ))
-            .child(
-                self.button(
-                    "exclusions-add",
-                    (ui::ButtonVariant::Dark, Some("icons/plus.svg")),
-                    t!("Add"),
-                    nothing_to_add,
-                    cx,
-                    |_, _, _| {},
-                )
-                .on_click(cx.listener(
-                    |this, event: &gpui::ClickEvent, window, cx| {
-                        if !this.add_window_options().is_empty() {
-                            this.open_menu(MenuKind::AddWindow, event.position(), window, cx);
-                        }
-                    },
-                )),
-            )
-            .into_any_element();
-
-        let chips = if self.settings.excluded_windows.is_empty() {
-            div()
-                .text_size(px(12.))
-                .text_color(theme.settings_muted())
-                .child(t!("No windows are currently excluded."))
-                .into_any_element()
-        } else {
+        let chips =
             div()
                 .flex()
                 .flex_row()
                 .flex_wrap()
-                .gap(px(8.))
+                .items_center()
+                .gap(px(6.))
                 .children(self.settings.excluded_windows.iter().enumerate().map(
                     |(index, entry)| {
-                        let secondary = entry.secondary_label().map(str::to_string);
+                        let label = match entry.secondary_label() {
+                            Some(secondary) => {
+                                format!("{} · {}", entry.primary_label(), secondary)
+                            }
+                            None => entry.primary_label().to_string(),
+                        };
                         div()
-                            // `flex gap-2 items-center pr-1 pl-3 py-1.5
-                            //  rounded-full border bg-gray-3 border-gray-4`
                             .flex()
                             .flex_row()
                             .items_center()
-                            .gap(px(8.))
-                            .pl(px(12.))
-                            .pr(px(4.))
-                            .py(px(6.))
-                            .rounded_full()
+                            .gap(px(4.))
+                            .pl(px(10.))
+                            .pr(px(2.))
+                            .h(px(26.))
+                            .rounded(px(6.))
                             .bg(theme.settings_fill())
-                            .border_1()
-                            .border_color(theme.settings_border())
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .child(
-                                        div()
-                                            .text_size(px(12.))
-                                            .child(entry.primary_label().to_string()),
-                                    )
-                                    .children(secondary.map(|label| {
-                                        div()
-                                            .text_size(px(10.))
-                                            .text_color(theme.settings_muted())
-                                            .child(label)
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("exclusion-{index}")))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .size(px(20.))
-                                    .rounded_full()
-                                    .child(
-                                        svg()
-                                            .path("icons/x.svg")
-                                            .size(px(14.))
-                                            .text_color(theme.settings_muted()),
-                                    )
-                                    .hover(|style| style.bg(theme.settings_selection()))
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                        let mut next = this.settings.excluded_windows.clone();
-                                        if index < next.len() {
-                                            next.remove(index);
-                                        }
-                                        this.write_excluded(next, cx);
-                                    })),
-                            )
+                            .text_size(px(12.))
+                            .child(label)
+                            .child(self.icon_button(
+                                ("exclusion-remove", index),
+                                "icons/x.svg",
+                                t!("Remove"),
+                                cx,
+                                move |this, cx| {
+                                    let mut next = this.settings.excluded_windows.clone();
+                                    if index < next.len() {
+                                        next.remove(index);
+                                    }
+                                    this.write_excluded(next, cx);
+                                },
+                            ))
                     },
                 ))
-                .into_any_element()
-        };
+                .child(
+                    self.button(
+                        "exclusions-add",
+                        (ui::ButtonVariant::Gray, Some("icons/plus.svg")),
+                        t!("Add window"),
+                        nothing_to_add,
+                        cx,
+                        |_, _, _| {},
+                    )
+                    .on_click(cx.listener(
+                        |this, event: &gpui::ClickEvent, window, cx| {
+                            if !this.add_window_options().is_empty() {
+                                this.open_menu(MenuKind::AddWindow, event.position(), window, cx);
+                            }
+                        },
+                    )),
+                );
 
-        let mut card = self.card(true).flex().flex_col();
+        let mut content = div().flex().flex_col().gap(px(10.)).child(chips);
         if !missing.is_empty() {
             let names = missing
                 .iter()
                 .map(|entry| entry.primary_label().to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            card = card.child(
-                // `mb-3 rounded-lg border border-amber-6 bg-amber-3/30 px-3 py-2.5`
+            content = content.child(
                 div()
                     .flex()
                     .flex_row()
-                    .items_start()
+                    .items_center()
                     .gap(px(8.))
-                    .mb(px(12.))
-                    .px(px(12.))
-                    .py(px(10.))
-                    .rounded(px(8.))
-                    .border_1()
-                    .border_color(Hsla::from(theme.amber_6))
-                    .bg(Theme::with_alpha(theme.amber_3, 0.3))
-                    .child(
-                        svg()
-                            .path("icons/triangle-alert.svg")
-                            .size(px(16.))
-                            .flex_shrink_0()
-                            .mt(px(2.))
-                            .text_color(Hsla::from(theme.amber_11)),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .gap(px(4.))
-                            .text_color(Hsla::from(theme.amber_11))
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(t!("Recommended FrameEver windows are not excluded")),
-                            )
-                            .child(div().text_size(px(10.)).line_height(px(14.)).child(t!(
-                                "Camera, settings, or recording windows can appear as black \
-                                 boxes in screen recordings. Missing: {names}.",
-                                names = names
-                            ))),
-                    )
+                    .child(div().flex_1().min_w_0().child(self.warning_line(t!(
+                        "These FrameEver windows can show up in recordings: {names}.",
+                        names = names
+                    ))))
                     .child(self.button(
                         "exclusions-restore",
                         (ui::ButtonVariant::Gray, None),
@@ -3903,185 +2193,180 @@ impl SettingsWindow {
                     )),
             );
         }
+        content
+            .child(self.hint(t!(
+                "Over Remote Desktop or a streaming app, FrameEver windows stay visible."
+            )))
+            .into_any_element()
+    }
 
-        self.section(
-            t!("Excluded windows"),
-            Some(if store::OTHER_APP_WINDOWS_EXCLUDABLE {
-                t!("Hide windows from recordings.")
-            } else {
-                t!("Hide FrameEver windows from recordings.")
-            }),
-            Some(right),
-            vec![
-                card.child(chips)
+    fn render_version(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let configured = crate::installer::updates_configured();
+        let status = crate::updates::status(cx);
+        let action: AnyElement = match status {
+            _ if !configured => self
+                .hint(t!("Updates are not enabled in this build"))
+                .into_any_element(),
+            crate::updates::UpdateStatus::Idle => self
+                .button(
+                    "check-updates",
+                    (ui::ButtonVariant::Gray, None),
+                    t!("Check for updates"),
+                    false,
+                    cx,
+                    |_, _, cx| crate::updates::check_manually(cx),
+                )
+                .into_any_element(),
+            crate::updates::UpdateStatus::Checking => self
+                .button(
+                    "check-updates",
+                    (ui::ButtonVariant::Gray, None),
+                    t!("Checking…"),
+                    true,
+                    cx,
+                    |_, _, _| {},
+                )
+                .into_any_element(),
+            crate::updates::UpdateStatus::Downloading { version, fraction } => {
+                let text = match fraction {
+                    Some(fraction) => t!(
+                        "Downloading {version}… {percent}%",
+                        version = version,
+                        percent = (fraction * 100.).round() as u32
+                    ),
+                    None => t!("Downloading {version}…", version = version),
+                };
+                self.hint(text).into_any_element()
+            }
+            crate::updates::UpdateStatus::Installing { version } => self
+                .hint(t!("Installing {version}…", version = version))
+                .into_any_element(),
+            crate::updates::UpdateStatus::Ready { .. }
+            | crate::updates::UpdateStatus::Installed { .. } => self
+                .button(
+                    "restart-to-update",
+                    (ui::ButtonVariant::Primary, None),
+                    t!("Restart to update"),
+                    false,
+                    cx,
+                    |_, _, cx| crate::updates::install_and_relaunch(cx),
+                )
+                .into_any_element(),
+        };
+
+        self.card(true)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(14.))
+            .child(crate::logo::app_icon(44.).flex_shrink_0())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(2.))
                     .child(
                         div()
-                            .mt(px(12.))
+                            .text_size(px(14.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("FrameEver · 帧刻"),
+                    )
+                    .child(self.doodle(&onboarding_doodles::UNDERLINE, 110., cx))
+                    .child(
+                        div()
                             .text_size(px(12.))
                             .text_color(theme.settings_muted())
-                            .child(t!("Over Remote Desktop or a streaming app, FrameEver windows stay visible in recordings.")),
-                    )
-                    .into_any_element(),
-            ],
-        )
+                            .child(t!("Version {version}", version = env!("CARGO_PKG_VERSION"))),
+                    ),
+            )
+            .child(action)
+            .into_any_element()
     }
 
-    fn render_updates(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_licences(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let current = self.settings.update_channel;
-        let current_policy = self.settings.update_download_policy;
-        let description = UPDATE_CHANNEL_DESCRIPTIONS
-            .iter()
-            .find(|(channel, _)| *channel == current)
-            .map(|(_, description)| tr(description))
-            .unwrap_or_default();
-
-        let body = div()
+        let links = [
+            (
+                "licence-cap",
+                t!("Based on Cap (AGPL-3.0)"),
+                "https://github.com/CapSoftware/Cap",
+            ),
+            (
+                "licence-lucide",
+                t!("Icons: Lucide (ISC)"),
+                "https://lucide.dev/license",
+            ),
+            (
+                "licence-tabler",
+                t!("Icons: Tabler (MIT)"),
+                "https://github.com/tabler/tabler-icons/blob/main/LICENSE",
+            ),
+            (
+                "licence-font",
+                t!("Chinese font: HarmonyOS Sans by Huawei"),
+                "https://developer.huawei.com/consumer/cn/design/resource/",
+            ),
+        ];
+        let _ = cx;
+        div()
             .flex()
-            .flex_col()
-            .gap(px(12.))
-            .px(px(16.))
-            .py(px(16.))
-            .child(
+            .flex_row()
+            .flex_wrap()
+            .gap_x(px(14.))
+            .gap_y(px(4.))
+            .children(links.map(|(id, label, url)| {
                 div()
-                    .flex()
-                    .flex_row()
-                    .justify_between()
-                    .items_start()
-                    .gap(px(16.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .min_w_0()
-                            .child(div().text_size(px(13.)).child(t!("Update downloads")))
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .line_height(px(16.))
-                                    .text_color(theme.settings_muted())
-                                    .child(t!(
-                                        "Choose whether FrameEver downloads updates automatically."
-                                    )),
-                            ),
-                    )
-                    .child(self.segmented::<UpdateDownloadPolicy>(
-                        "update-download-policy",
-                        current_policy,
-                        cx,
-                        |this, value, cx| {
-                            if this.settings.update_download_policy == value {
-                                return;
-                            }
-                            this.settings.update_download_policy = value;
-                            this.write_enum("updateDownloadPolicy", value, cx);
-                            crate::updates::update_download_policy_changed(value, cx);
-                        },
-                    )),
-            )
-            .child(div().h(px(1.)).bg(theme.settings_border()))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .justify_between()
-                    .items_start()
-                    .gap(px(16.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .min_w_0()
-                            .child(div().text_size(px(13.)).child(t!("Update channel")))
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .line_height(px(16.))
-                                    .text_color(theme.settings_muted())
-                                    .child(t!("Which release channel updates come from.")),
-                            ),
-                    )
-                    .child(self.segmented::<UpdateChannel>(
-                        "update-channel",
-                        current,
-                        cx,
-                        |this, value, cx| {
-                            if this.settings.update_channel == value {
-                                return;
-                            }
-                            this.settings.update_channel = value;
-                            this.write_enum("updateChannel", value, cx);
-                            crate::updates::update_channel_changed(
-                                this.settings.update_channel,
-                                cx,
-                            );
-                        },
-                    )),
-            )
-            .child(
-                self.note_box()
-                    .child(div().text_size(px(12.)).child(description))
-                    .when(current == UpdateChannel::Nightly, |this| {
-                        this.child(
-                            div()
-                                .text_size(px(11.))
-                                .line_height(px(15.))
-                                .text_color(theme.settings_muted())
-                                .child(t!(
-                                    "Switching back to Stable will return you to the latest \
-                                     stable version, which may be older than your current build."
-                                )),
-                        )
-                    }),
-            );
-
-        self.section(
-            t!("Updates"),
-            Some(t!("Choose which builds you receive.")),
-            None,
-            vec![self.card(false).child(body).into_any_element()],
-        )
+                    .id(id)
+                    .tab_index(0)
+                    .text_size(px(12.))
+                    .text_color(theme.settings_muted())
+                    .cursor_pointer()
+                    .border_1()
+                    .border_color(transparent_black())
+                    .rounded(px(4.))
+                    .focus_visible(move |style| style.border_color(theme.ring))
+                    .hover(|style| style.text_color(theme.settings_text()))
+                    .child(label)
+                    .on_click(move |_, _, cx| cx.open_url(url))
+                    .on_key_down(move |event: &gpui::KeyDownEvent, _, cx| {
+                        if event.keystroke.key == "enter" {
+                            cx.open_url(url);
+                        }
+                    })
+            }))
+            .into_any_element()
     }
 
-    // -- Primitives (Setting.tsx) -----------------------------------------
-
-    /// `<Section>`: `space-y-2.5`, header `flex justify-between items-end
-    /// gap-3 px-1`, title `text-sm font-semibold tracking-tight`, description
-    /// `text-xs leading-relaxed text-gray-10`.
-    pub(crate) fn section(
-        &self,
-        title: &'static str,
-        description: Option<&'static str>,
-        right: Option<gpui::AnyElement>,
-        children: Vec<gpui::AnyElement>,
-    ) -> ui::Section {
-        ui::Section::settings(&self.theme, title, description, right, children)
-    }
-
-    /// `<SectionCard>` -- [`ui::Card::settings`].
     pub(crate) fn card(&self, padded: bool) -> gpui::Div {
         ui::Card::settings(&self.theme, padded)
     }
 
-    /// `<SectionRows>`: the same card with `divide-y divide-gray-3`.
-    pub(crate) fn rows(&self, children: Vec<gpui::AnyElement>) -> gpui::Div {
+    pub(crate) fn rows(&self, children: Vec<AnyElement>) -> gpui::Div {
         ui::Card::settings_rows(&self.theme, children)
     }
 
-    /// `<SettingItem>` -- [`ui::SettingRow`].
+    pub(crate) fn section(
+        &self,
+        title: &'static str,
+        description: Option<&'static str>,
+        right: Option<AnyElement>,
+        children: Vec<AnyElement>,
+    ) -> ui::Section {
+        ui::Section::settings(&self.theme, title, description, right, children)
+    }
+
     pub(crate) fn setting_row(
         &self,
         label: &'static str,
         description: Option<&'static str>,
-        control: gpui::AnyElement,
-    ) -> gpui::AnyElement {
+        control: AnyElement,
+    ) -> AnyElement {
         ui::SettingRow::settings(&self.theme, label, description, control).into_any_element()
     }
 
-    /// The grey explanation box under the two segmented controls:
-    /// `flex flex-col gap-1.5 px-3 py-2.5 rounded-lg bg-gray-3`.
     pub(crate) fn note_box(&self) -> gpui::Div {
         div()
             .flex()
@@ -4093,7 +2378,6 @@ impl SettingsWindow {
             .bg(self.theme.settings_fill())
     }
 
-    /// `<Toggle size="sm">` on the settings material -- [`ui::Toggle::settings`].
     pub(crate) fn toggle(
         &self,
         id: impl Into<gpui::ElementId>,
@@ -4105,8 +2389,6 @@ impl SettingsWindow {
             .on_click(cx.listener(move |this, _, _window, cx| on_change(this, cx)))
     }
 
-    /// `SelectSettingItem`'s button -- [`ui::Select::settings`], opening the
-    /// in-window stand-in for `Menu.popup()`.
     pub(crate) fn select(
         &self,
         id: impl Into<gpui::ElementId>,
@@ -4121,7 +2403,6 @@ impl SettingsWindow {
         ))
     }
 
-    /// [`ui::SegmentedControl::settings`].
     fn segmented<T: SettingsEnum>(
         &self,
         id: &'static str,
@@ -4156,7 +2437,6 @@ impl SettingsWindow {
         )
     }
 
-    /// `<Button size="sm">` under the settings material -- [`ui::Button::settings`].
     pub(crate) fn button(
         &self,
         id: impl Into<gpui::ElementId>,
@@ -4176,27 +2456,6 @@ impl SettingsWindow {
         button.on_click(cx.listener(move |this, _, window, cx| on_click(this, window, cx)))
     }
 
-    /// The General page's two inputs -- [`ui::TextInput::settings`], `<Input>`'s
-    /// `h-8 rounded-lg bg-gray-2 px-2 text-xs` re-filled from the settings
-    /// material.
-    ///
-    /// The drafts stay on this window because the *commit* is the Save /
-    /// Update button, exactly as it is in the Tauri card -- neither `<input>`
-    /// there binds `onKeyDown`, so Return does nothing in either app. What the
-    /// window still owns is what Escape means, which is "revert to what is
-    /// stored".
-    fn text_field(&self, field: Field) -> gpui::Div {
-        let (id, input) = match field {
-            Field::ProjectName => ("project-name-input", &self.project_name_input),
-            // Drawn by the Recordings page itself, as a search field.
-            Field::RecordingsSearch => ("recordings-search", &self.recordings.search_input),
-            Field::ScreenshotsSearch => ("screenshots-search", &self.screenshots.search_input),
-        };
-        div().child(ui::TextInput::settings(&self.theme, id, input))
-    }
-
-    /// Both fields' events. The draft mirrors the field so the Save/Update
-    /// buttons' enablement keeps reading a plain `String`.
     fn on_field_event(
         &mut self,
         field: Field,
@@ -4204,60 +2463,18 @@ impl SettingsWindow {
         event: &ui::TextInputEvent,
         cx: &mut Context<Self>,
     ) {
-        match event {
-            ui::TextInputEvent::Changed => {
-                let value = input.read(cx).text().to_string();
-                match field {
-                    Field::ProjectName => self.project_name = value,
-                    Field::RecordingsSearch => {
-                        self.recordings.search = value;
-                        // `createEffect(() => { activeTab(); trimmedSearch();
-                        //  setVisibleCount(PAGE_SIZE) })`.
-                        self.recordings.visible_count = RECORDINGS_PAGE_SIZE;
-                    }
-                    Field::ScreenshotsSearch => {
-                        self.screenshots.search = value;
-                        self.screenshots.visible_count = RECORDINGS_PAGE_SIZE;
-                    }
-                }
+        match (field, event) {
+            (Field::ProjectName, ui::TextInputEvent::Changed) => {
+                self.project_name = input.read(cx).text().to_string();
                 cx.notify();
             }
-            // `onKeyDown`: Escape clears the field, and *only* when there is
-            // something in it -- `if (event.key === "Escape" && search())`.
-            // With the field empty the key is not even preventDefault'd.
-            ui::TextInputEvent::Cancelled
-                if field == Field::RecordingsSearch && !self.recordings.search.is_empty() =>
-            {
-                self.recordings.search.clear();
-                self.recordings.visible_count = RECORDINGS_PAGE_SIZE;
-                input.update(cx, |input, cx| input.set_text("", cx));
-                cx.notify();
-            }
-            ui::TextInputEvent::Cancelled
-                if field == Field::ScreenshotsSearch && !self.screenshots.search.is_empty() =>
-            {
-                self.screenshots.search.clear();
-                self.screenshots.visible_count = RECORDINGS_PAGE_SIZE;
-                input.update(cx, |input, cx| input.set_text("", cx));
-                cx.notify();
-            }
-            ui::TextInputEvent::Cancelled => {
-                // Revert to what is stored, the way leaving the field without
-                // saving does.
-                let stored = match field {
-                    Field::ProjectName => self
-                        .settings
-                        .default_project_name_template
-                        .clone()
-                        .unwrap_or_else(|| DEFAULT_PROJECT_NAME_TEMPLATE.to_string()),
-                    // Taken by the guarded arm above; nothing is "stored" for
-                    // the search field.
-                    Field::RecordingsSearch | Field::ScreenshotsSearch => return,
-                };
-                match field {
-                    Field::ProjectName => self.project_name = stored.clone(),
-                    Field::RecordingsSearch | Field::ScreenshotsSearch => return,
-                }
+            (Field::ProjectName, ui::TextInputEvent::Cancelled) => {
+                let stored = self
+                    .settings
+                    .default_project_name_template
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_PROJECT_NAME_TEMPLATE.to_string());
+                self.project_name = stored.clone();
                 input.update(cx, |input, cx| input.set_text(stored, cx));
                 cx.notify();
             }
@@ -4282,8 +2499,6 @@ impl SettingsWindow {
                 },
                 Some(theme.settings_border()),
             )
-            // Transcribed, not corrected: the thumb sits half a pixel high of
-            // centre over the 5px track.
             .thumb_top(px(-6.))
             .on_drag_start(
                 cx.listener(|this, event: &gpui::MouseDownEvent, _window, cx| {
@@ -4293,10 +2508,7 @@ impl SettingsWindow {
             )
     }
 
-    /// While the button is held the whole window takes the mouse, so a drag
-    /// that leaves the 164px track keeps updating -- what `KSlider` gets from
-    /// pointer capture.
-    fn render_slider_drag_layer(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    fn render_slider_drag_layer(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.slider_dragging {
             return None;
         }
@@ -4308,8 +2520,6 @@ impl SettingsWindow {
                 }),
                 cx.listener(|this, _, _window, cx| {
                     this.slider_dragging = false;
-                    // `onChangeEnd` -- the store write happens once, at the
-                    // end of the drag.
                     let value = this.settings.default_zoom_amount.unwrap_or(1.5);
                     this.write(
                         "defaultZoomAmount",
@@ -4323,7 +2533,6 @@ impl SettingsWindow {
     }
 
     fn set_zoom_from(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        // `step={0.1}`
         let Some(value) =
             ui::slider_value_at(&self.slider_track, position, ZOOM_MIN, ZOOM_MAX, 0.1)
         else {
@@ -4335,9 +2544,7 @@ impl SettingsWindow {
         }
     }
 
-    // -- The stand-in for `Menu.popup()` -----------------------------------
-
-    fn render_menu(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    fn render_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let menu = self.menu.as_ref()?;
         let kind = menu.kind;
         let items = self.menu_items(kind);
@@ -4354,23 +2561,21 @@ impl SettingsWindow {
                 .into_any_element(),
         )
     }
+
+    pub(crate) fn toggle_changelog(&mut self, cx: &mut Context<Self>) {
+        self.changelog_all = !self.changelog_all;
+        cx.notify();
+    }
+
+    pub(crate) fn changelog_all(&self) -> bool {
+        self.changelog_all
+    }
 }
 
-/// `minValue={1} maxValue={4.5}` on the zoom slider.
 const ZOOM_MIN: f32 = 1.;
 const ZOOM_MAX: f32 = 4.5;
 
-/// The preview under the project-name template.
-///
-/// `commands.formatProjectName` is `recording::format_project_name`, which
-/// also understands `{moment:<format>}` and custom `{date:...}` / `{time:...}`
-/// formats through a moment-to-chrono translation. Only the six literal
-/// placeholders the card documents are substituted here (README deviation);
-/// anything else is left in the string, which is what an unknown placeholder
-/// does there too.
 fn format_project_name(template: &str) -> String {
-    // The card previews a Safari window recorded in Instant mode, at 09:41 on
-    // today's date -- `DefaultProjectNameCard`'s `datetime`.
     let now = chrono::Local::now();
     let date = now.format("%Y-%m-%d").to_string();
     template
@@ -4386,35 +2591,6 @@ fn format_project_name(template: &str) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn locked_files_get_a_plain_message_and_other_errors_pass_through() {
-        assert_eq!(
-            file_error_message(
-                "The process cannot access the file because it is being used by another process. (os error 32)"
-            ),
-            "The file is open in another program. Close it and try again."
-        );
-        assert_eq!(
-            file_error_message("Access is denied. (os error 5)"),
-            "The file is open in another program. Close it and try again."
-        );
-        assert_eq!(file_error_message("disk full"), "disk full");
-    }
-
-    /// The sidebar list and its routes, which `showWindow({ Settings: { page } })`
-    /// addresses by slug.
-    #[test]
-    fn every_page_round_trips_through_its_slug() {
-        assert_eq!(Page::ALL.len(), 11);
-        for page in Page::ALL {
-            assert_eq!(Page::from_slug(page.slug()), Some(*page));
-        }
-        assert_eq!(Page::Shortcuts.slug(), "hotkeys");
-        assert_eq!(Page::from_slug("nope"), None);
-    }
-
-    /// `coversDefaultExclusion`: the Reset button's "is this default already
-    /// covered" test, which decides whether the amber warning shows.
     #[test]
     fn default_exclusions_are_covered_by_title() {
         let default = WindowExclusion {
@@ -4439,132 +2615,11 @@ mod tests {
         ));
     }
 
-    // -- The Recordings page ------------------------------------------------
-
-    fn recording(name: &str, mode: RecordingMode) -> RecordingItem {
-        RecordingItem {
-            thumbnail_version: None,
-            path: std::path::PathBuf::from(format!("/tmp/{name}.cap")),
-            mode,
-            status: crate::library::RecordingStatus::Complete,
-            clip_count: 1,
-            pretty_name: name.to_string(),
-            sort_time_millis: 0.,
-            thumbnail: None,
-            versions: None,
-            media: Vec::new(),
-        }
-    }
-
-    /// `filteredRecordings()`: the tab first, then a case-insensitive substring
-    /// of the *trimmed* query against `prettyName`.
-    #[test]
-    fn tabs_and_search_filter_the_list() {
-        let items = [
-            recording("Team standup", RecordingMode::Studio),
-            recording("Bug repro", RecordingMode::Instant),
-            recording("STANDUP notes", RecordingMode::Instant),
-        ];
-        let matching = |tab, query: &str| {
-            items
-                .iter()
-                .filter(|item| matches_recording_filters(item, tab, &query.trim().to_lowercase()))
-                .map(|item| item.pretty_name.as_str())
-                .collect::<Vec<_>>()
-        };
-
-        assert_eq!(
-            matching(RecordingsTab::All, ""),
-            ["Team standup", "Bug repro", "STANDUP notes"]
-        );
-        assert_eq!(matching(RecordingsTab::Studio, ""), ["Team standup"]);
-        assert_eq!(
-            matching(RecordingsTab::Instant, ""),
-            ["Bug repro", "STANDUP notes"]
-        );
-        // Case-insensitive, and whitespace-only is no filter at all.
-        assert_eq!(
-            matching(RecordingsTab::All, "standup"),
-            ["Team standup", "STANDUP notes"]
-        );
-        assert_eq!(
-            matching(RecordingsTab::All, "  "),
-            ["Team standup", "Bug repro", "STANDUP notes"]
-        );
-        // The two filters compose.
-        assert_eq!(
-            matching(RecordingsTab::Instant, " STAND "),
-            ["STANDUP notes"]
-        );
-        assert!(matching(RecordingsTab::Studio, "repro").is_empty());
-    }
-
-    /// `visibleRecordings()` / `hasMoreRecordings()` / the Load more step.
-    #[test]
-    fn pagination_pages_by_twenty_and_a_search_shows_everything() {
-        assert_eq!(RECORDINGS_PAGE_SIZE, 20);
-
-        // No search: capped at the visible count, with more to load.
-        assert_eq!(visible_recordings_len(53, false, 20), 20);
-        assert!(has_more_recordings(53, false, 20));
-        assert_eq!(load_more_count(20, 53), 40);
-        assert_eq!(visible_recordings_len(53, false, 40), 40);
-        // The last page is short, and the button goes away with it.
-        assert_eq!(load_more_count(40, 53), 53);
-        assert_eq!(visible_recordings_len(53, false, 53), 53);
-        assert!(!has_more_recordings(53, false, 53));
-        // Fewer matches than a page.
-        assert_eq!(visible_recordings_len(7, false, 20), 7);
-        assert!(!has_more_recordings(7, false, 20));
-
-        // An active search is never paginated.
-        assert_eq!(visible_recordings_len(53, true, 20), 53);
-        assert!(!has_more_recordings(53, true, 20));
-    }
-
-    /// `emptyMessage()`.
-    #[test]
-    fn the_empty_message_names_the_tab_and_the_search() {
-        assert_eq!(
-            recordings_empty_message(RecordingsTab::All, ""),
-            "No recordings"
-        );
-        assert_eq!(
-            recordings_empty_message(RecordingsTab::Studio, ""),
-            "No studio recordings"
-        );
-        assert_eq!(
-            recordings_empty_message(RecordingsTab::Instant, ""),
-            "No instant recordings"
-        );
-        assert_eq!(
-            recordings_empty_message(RecordingsTab::Instant, "demo"),
-            "No matching instant recordings"
-        );
-        assert_eq!(
-            recordings_empty_message(RecordingsTab::All, "demo"),
-            "No matching recordings"
-        );
-    }
-
-    /// The tab strip, and the ids `emptyMessage()` interpolates.
-    #[test]
-    fn the_three_tabs_are_all_instant_studio() {
-        let ids: Vec<&str> = RecordingsTab::ALL.iter().map(|tab| tab.id()).collect();
-        assert_eq!(ids, ["all", "instant", "studio"]);
-        let labels: Vec<&str> = RecordingsTab::ALL.iter().map(|tab| tab.label()).collect();
-        assert_eq!(labels, ["Show all", "Instant", "Studio"]);
-        assert_eq!(RecordingsTab::All.icon(), None, "Show all has no glyph");
-        assert_eq!(RecordingsTab::Studio.icon(), Some("icons/clapperboard.svg"));
-        assert_eq!(RecordingsTab::Instant.icon(), Some("icons/zap.svg"));
-    }
-
     #[test]
     fn the_preview_substitutes_the_documented_placeholders() {
         let preview = format_project_name(DEFAULT_PROJECT_NAME_TEMPLATE);
         assert!(preview.starts_with("Safari (Window) "));
         assert!(preview.ends_with(" 09:41 AM"));
-        // An unknown placeholder survives untouched.
         assert_eq!(format_project_name("{nope}"), "{nope}");
     }
 }

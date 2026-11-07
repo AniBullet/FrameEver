@@ -1,54 +1,45 @@
-use gpui::{Rgba, WindowAppearance, rgb};
+use gpui::WindowAppearance;
+
+#[path = "../../src/theme/tokens.rs"]
+pub mod tokens;
+
+use tokens::{Component, Semantic};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Appearance {
+    Light,
+    Dark,
+}
+
+impl Appearance {
+    pub fn from_window(appearance: WindowAppearance) -> Self {
+        match appearance {
+            WindowAppearance::Light | WindowAppearance::VibrantLight => Self::Light,
+            WindowAppearance::Dark | WindowAppearance::VibrantDark => Self::Dark,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {
-    pub background: Rgba,
-    pub card: Rgba,
-    pub card_hover: Rgba,
-    pub border: Rgba,
-    pub text: Rgba,
-    pub muted: Rgba,
-    pub primary: Rgba,
-    pub primary_hover: Rgba,
-    pub on_primary: Rgba,
-    pub warning: Rgba,
+    pub semantic: Semantic,
+    pub component: Component,
 }
 
 impl Palette {
     pub fn for_appearance(appearance: WindowAppearance) -> Self {
-        match appearance {
-            WindowAppearance::Light | WindowAppearance::VibrantLight => Self::light(),
-            WindowAppearance::Dark | WindowAppearance::VibrantDark => Self::dark(),
+        let appearance = Appearance::from_window(appearance);
+        Self {
+            semantic: Semantic::new(appearance),
+            component: Component::new(appearance),
         }
     }
+}
 
-    fn light() -> Self {
-        Self {
-            background: rgb(0xfcfcfc),
-            card: rgb(0xf9f9f9),
-            card_hover: rgb(0xf0f0f0),
-            border: rgb(0xd9d9d9),
-            text: rgb(0x202020),
-            muted: rgb(0x646464),
-            primary: rgb(0x202020),
-            primary_hover: rgb(0x646464),
-            on_primary: rgb(0xfcfcfc),
-            warning: rgb(0xab6400),
-        }
-    }
+impl std::ops::Deref for Palette {
+    type Target = Semantic;
 
-    fn dark() -> Self {
-        Self {
-            background: rgb(0x111111),
-            card: rgb(0x1c1c1c),
-            card_hover: rgb(0x282828),
-            border: rgb(0x444444),
-            text: rgb(0xeeeeee),
-            muted: rgb(0xa1a1a1),
-            primary: rgb(0xeeeeee),
-            primary_hover: rgb(0xa1a1a1),
-            on_primary: rgb(0x111111),
-            warning: rgb(0xffca16),
-        }
+    fn deref(&self) -> &Semantic {
+        &self.semantic
     }
 }
