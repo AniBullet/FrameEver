@@ -1471,6 +1471,7 @@ pub struct EditorWindow {
     /// The live segment drag, if any.
     drag: Option<Drag>,
     lane_reorder: Option<LaneReorder>,
+    full_screen_preview: bool,
     /// Generation guard for the 60Hz playback redraw ticker.
     playback_tick: u64,
     /// `isGeneratingAutoZoom` / `sessionDismissedGenerateZoomPrompt`
@@ -2096,6 +2097,7 @@ impl EditorWindow {
             hovered_gutter: None,
             drag: None,
             lane_reorder: None,
+            full_screen_preview: false,
             playback_tick: 0,
             generating_auto_zoom: false,
             auto_zoom_message: None,
@@ -3420,6 +3422,21 @@ impl EditorWindow {
             }
         }
 
+        if self.full_screen_preview {
+            match full_screen_key(&event.keystroke) {
+                Some(FullScreenKey::Exit) if !event.is_held => {
+                    self.toggle_full_screen_preview(window, cx);
+                }
+                Some(FullScreenKey::Step(frames)) => {
+                    self.step_playhead(frames, cx);
+                    window.refresh();
+                }
+                _ => {}
+            }
+            cx.stop_propagation();
+            return;
+        }
+
         if self.lane_reorder.is_some() && event.keystroke.key == "escape" && !event.is_held {
             self.cancel_lane_reorder(cx);
             cx.stop_propagation();
@@ -3642,6 +3659,10 @@ impl EditorWindow {
             "c" => {
                 cx.stop_propagation();
                 self.split_at_playhead(window, cx);
+            }
+            "f" => {
+                cx.stop_propagation();
+                self.toggle_full_screen_preview(window, cx);
             }
             "escape" => {
                 cx.stop_propagation();
@@ -9810,7 +9831,7 @@ impl EditorWindow {
                         .h(px(PLAYER_TOOLBAR_HEIGHT)),
                 ),
             )
-            .child(self.render_preview_canvas(cx))
+            .child(self.render_preview_canvas(cx, true))
             .child(
                 self.transport_controls
                     .clone()
@@ -9930,6 +9951,15 @@ impl EditorWindow {
                     .items_center()
                     .flex_none()
                     .gap(px(8.))
+                    .child(
+                        ui::EditorButton::plain(&theme, "full-screen-preview")
+                            .left_icon("icons/maximize.svg")
+                            .tooltip(&theme, t!("Full-screen preview"))
+                            .disabled(!self.project_ready())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_full_screen_preview(window, cx);
+                            })),
+                    )
                     .child(
                         div()
                             .text_size(px(12.))
@@ -10074,7 +10104,19 @@ impl EditorWindow {
     /// `paint_surface_fitted`. Elsewhere the picture arrives as a CPU
     /// `RenderedFrame`, gets un-padded and BGRA-swapped once, and goes through
     /// the sprite atlas.
-    fn render_preview_canvas(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn toggle_full_screen_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.visual_ready() {
+            return;
+        }
+        self.full_screen_preview = !self.full_screen_preview;
+        if self.full_screen_preview != window.is_fullscreen() {
+            window.toggle_fullscreen();
+        }
+        self.focus.focus(window, cx);
+        cx.notify();
+    }
+
+    fn render_preview_canvas(&self, cx: &mut Context<Self>, overlay: bool) -> impl IntoElement {
         let theme = self.theme;
         let body = match (&self.state, self.latest_frame.is_some()) {
             (LoadState::Failed(message), _) => self.render_error_state(message).into_any_element(),
@@ -10098,7 +10140,7 @@ impl EditorWindow {
             // `CanvasElementsOverlay` + `SnapGuidesOverlay`
             // (`Player.tsx:636-643`), both mounted inside the letterbox
             // wrapper and only while a frame exists.
-            .children(if self.project_ready() {
+            .children(if overlay && self.project_ready() {
                 self.render_canvas_overlay(cx)
             } else {
                 None
@@ -11596,6 +11638,31 @@ fn playhead_step_frames(keystroke: &gpui::Keystroke, owners: ArrowKeyOwners) -> 
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FullScreenKey {
+    Exit,
+    Step(i32),
+}
+
+fn full_screen_key(keystroke: &gpui::Keystroke) -> Option<FullScreenKey> {
+    let modifiers = &keystroke.modifiers;
+    if modifiers.platform || modifiers.control || modifiers.alt || modifiers.function {
+        return None;
+    }
+    match keystroke.key.as_str() {
+        "escape" | "f" => Some(FullScreenKey::Exit),
+        "left" | "right" => {
+            let frames = if modifiers.shift { 10 } else { 1 };
+            Some(FullScreenKey::Step(if keystroke.key == "left" {
+                -frames
+            } else {
+                frames
+            }))
+        }
+        _ => None,
+    }
+}
+
 fn stepped_playhead(playhead: f64, total: f64, frames: i32) -> f64 {
     let fps = f64::from(EDITOR_PREVIEW_FPS);
     let frame = (playhead * fps).round() + f64::from(frames);
@@ -11654,6 +11721,18 @@ impl Render for EditorWindow {
                     .transform
                     .fit_on_mount(timeline::content_width(viewport_width), total),
             }
+        }
+
+        if self.full_screen_preview {
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .bg(gpui::black())
+                .track_focus(&self.focus)
+                .capture_key_down(cx.listener(Self::capture_playback_key))
+                .on_key_down(cx.listener(Self::on_key))
+                .child(self.render_preview_canvas(cx, false));
         }
 
         if self.export.is_some() {
@@ -13044,6 +13123,22 @@ mod tests {
         for text in ["up", "down", "cmd-right", "ctrl-left", "alt-right", "space"] {
             assert_eq!(playhead_step_frames(&key(text), free), None, "{text}");
         }
+    }
+
+    #[test]
+    fn full_screen_preview_keys_map_to_exit_play_and_step() {
+        let key = |text: &'static str| gpui::Keystroke::parse(text).unwrap();
+        assert_eq!(full_screen_key(&key("escape")), Some(FullScreenKey::Exit));
+        assert_eq!(full_screen_key(&key("f")), Some(FullScreenKey::Exit));
+        assert_eq!(full_screen_key(&key("space")), None);
+        assert_eq!(full_screen_key(&key("left")), Some(FullScreenKey::Step(-1)));
+        assert_eq!(full_screen_key(&key("right")), Some(FullScreenKey::Step(1)));
+        assert_eq!(
+            full_screen_key(&key("shift-right")),
+            Some(FullScreenKey::Step(10))
+        );
+        assert_eq!(full_screen_key(&key("ctrl-f")), None);
+        assert_eq!(full_screen_key(&key("s")), None);
     }
 
     #[test]
