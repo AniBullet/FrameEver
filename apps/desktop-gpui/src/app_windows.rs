@@ -5363,6 +5363,13 @@ pub fn prepare_for_screenshot_capture(cx: &mut App) -> bool {
     true
 }
 
+pub fn screenshot_saved(cx: &mut App) {
+    crate::tray::refresh_previous(cx);
+    let main = cx.global::<AppWindows>().main;
+    main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
+        .ok();
+}
+
 /// A screenshot finished (`Some` PNG path) or failed (`None`): refresh every
 /// surface that lists screenshots -- the `NewScreenshotAdded` listeners in
 /// the Tauri app -- and open the screenshot editor on the new bundle, the
@@ -5377,10 +5384,7 @@ pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
         return;
     };
 
-    crate::tray::refresh_previous(cx);
-    let main = cx.global::<AppWindows>().main;
-    main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
-        .ok();
+    screenshot_saved(cx);
 
     let behaviour = crate::store::GeneralSettings::load().post_screenshot_behaviour;
     if behaviour.copies() {

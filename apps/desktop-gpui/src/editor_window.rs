@@ -1858,6 +1858,7 @@ fn clip_menu_row(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolbarMenu {
     AspectRatio,
+    Snapshot,
 }
 
 struct OpenToolbarMenu {
@@ -6827,6 +6828,10 @@ impl EditorWindow {
                     })
                     .collect()
             }
+            ToolbarMenu::Snapshot => crate::editor_frame_export::FrameAction::ALL
+                .iter()
+                .map(|action| ui::MenuItem::new(action.label(), false))
+                .collect(),
         }
     }
 
@@ -6899,6 +6904,11 @@ impl EditorWindow {
                     project.aspect_ratio = next;
                     true
                 });
+            }
+            ToolbarMenu::Snapshot => {
+                if let Some(action) = crate::editor_frame_export::FrameAction::ALL.get(index) {
+                    self.export_current_frame(*action, window, cx);
+                }
             }
         }
         cx.notify();
@@ -9735,6 +9745,23 @@ impl EditorWindow {
                     })),
             )
             .child(self.render_frame_button(narrow, cx))
+            .child(
+                ui::EditorButton::plain(&theme, "snapshot")
+                    .text(&theme)
+                    .left_icon("icons/image.svg")
+                    .right_icon("icons/chevron-down.svg")
+                    .when(!narrow, |button| button.label(t!("Snapshot")))
+                    .tooltip(&theme, t!("Export the current frame"))
+                    .disabled(!self.project_ready())
+                    .pressed(
+                        self.toolbar_menu
+                            .as_ref()
+                            .is_some_and(|menu| menu.kind == ToolbarMenu::Snapshot),
+                    )
+                    .on_open(cx.listener(|this, bounds: &Bounds<Pixels>, window, cx| {
+                        this.open_toolbar_menu(ToolbarMenu::Snapshot, *bounds, window, cx);
+                    })),
+            )
     }
 
     /// The preview-resolution control: a segmented `Full | Half | Quarter`.

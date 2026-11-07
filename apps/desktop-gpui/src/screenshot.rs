@@ -83,7 +83,18 @@ async fn capture_and_write(target: ScreenCaptureTarget) -> anyhow::Result<PathBu
         now.format("%Y-%m-%d"),
         now.format("%I.%M %p"),
     );
-    let bundle = crate::recording::create_named_project(&base, &pretty_name)?;
+    let bundle = create_screenshot_project(&base, pretty_name)?;
+
+    let png = bundle.join("original.png");
+    write_png(png.clone(), image).await?;
+    Ok(png)
+}
+
+pub(crate) fn create_screenshot_project(
+    base: &std::path::Path,
+    pretty_name: String,
+) -> anyhow::Result<PathBuf> {
+    let bundle = crate::recording::create_named_project(base, &pretty_name)?;
 
     let meta = frameever_project::RecordingMeta {
         platform: Some(frameever_project::Platform::default()),
@@ -119,10 +130,7 @@ async fn capture_and_write(target: ScreenCaptureTarget) -> anyhow::Result<PathBu
     config
         .write(&bundle)
         .map_err(|e| anyhow!("saving screenshot project config: {e}"))?;
-
-    let png = bundle.join("original.png");
-    write_png(png.clone(), image).await?;
-    Ok(png)
+    Ok(bundle)
 }
 
 /// The Tauri encode settings (`recording.rs:2987-3016`): RGB stays RGB, a

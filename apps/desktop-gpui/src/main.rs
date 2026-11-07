@@ -34,6 +34,7 @@ mod editor_color;
 mod editor_crop;
 mod editor_edits;
 mod editor_export;
+mod editor_frame_export;
 mod editor_hover_bench;
 mod editor_panels;
 mod editor_preparing;
