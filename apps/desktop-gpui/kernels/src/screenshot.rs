@@ -417,7 +417,7 @@ fn pack_tap3(axis: &AxisSamples) -> Vec<Tap3> {
 
 #[inline(always)]
 fn quantize_channel(value: f32) -> u8 {
-    let clamped = value.clamp(0.0, 255.0);
+    let clamped = value.max(0.0).min(255.0);
     let sum = clamped + 0.5;
     let truncated = unsafe { sum.to_int_unchecked::<i32>() };
     let boundary = truncated as f32;
@@ -708,6 +708,20 @@ mod tests {
                 sum as f64 / actual.len() as f64
             }
         );
+    }
+
+    #[test]
+    fn quantizing_rounds_halves_up_and_maps_non_finite_values_into_range() {
+        assert_eq!(quantize_channel(f32::NAN), 0);
+        assert_eq!(quantize_channel(-f32::NAN), 0);
+        assert_eq!(quantize_channel(f32::INFINITY), 255);
+        assert_eq!(quantize_channel(f32::NEG_INFINITY), 0);
+        assert_eq!(quantize_channel(-3.0), 0);
+        assert_eq!(quantize_channel(300.0), 255);
+        assert_eq!(quantize_channel(1.5), 2);
+        assert_eq!(quantize_channel(2.5), 3);
+        assert_eq!(quantize_channel(2.6), 3);
+        assert_eq!(quantize_channel(0.49999997), 0);
     }
 
     #[test]
