@@ -908,6 +908,7 @@ pub struct GeneralSettings {
     pub update_channel: UpdateChannel,
     pub update_download_policy: UpdateDownloadPolicy,
     pub editor_preview_quality: EditorPreviewQuality,
+    pub editor_sidebar_width: Option<f32>,
     /// The Experimental page's two toggles. Both default false the way the
     /// page shows them (`!!settings.enableNativeCameraPreview` /
     /// `!!settings.outOfProcessMuxer` in experimental.tsx).
@@ -1285,6 +1286,7 @@ impl GeneralSettings {
             update_channel: enum_at(general, "updateChannel"),
             update_download_policy: enum_at(general, "updateDownloadPolicy"),
             editor_preview_quality: enum_at(general, "editorPreviewQuality"),
+            editor_sidebar_width: opt_f32_at(general, "editorSidebarWidth"),
             enable_native_camera_preview: bool_at(general, "enableNativeCameraPreview", false),
             out_of_process_muxer: bool_at(general, "outOfProcessMuxer", false),
             confirm_without_microphone: bool_at(

@@ -98,6 +98,7 @@ fn create_tray(mode: Mode, entries: &[Entry]) -> anyhow::Result<Tray> {
         .with_tooltip("FrameEver")
         .with_icon(app_tray_icon()?)
         .with_menu(Box::new(native_menu.menu.clone()))
+        .with_menu_on_left_click(false)
         .build()?;
 
     Ok(Tray {

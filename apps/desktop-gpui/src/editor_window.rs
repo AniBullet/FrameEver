@@ -171,6 +171,11 @@ const HEADER_HEIGHT: f32 = 44.;
 /// arbitrary spacing: 104 x 0.25rem = 26rem = 416px. The column also carries
 /// `ml-2`, i.e. an 8px gutter.
 pub(crate) const SIDEBAR_WIDTH: f32 = 386.;
+const SIDEBAR_MAX_WIDTH: f32 = 606.;
+const MIN_PLAYER_WIDTH: f32 = 480.;
+const SIDEBAR_KEY_STEP: f32 = 16.;
+const SIDEBAR_GRIP_WIDTH: f32 = 8.;
+const SIDEBAR_WIDTH_SETTING: &str = "editorSidebarWidth";
 /// The sidebar's tab rail.
 
 /// `padding = 4` inside `PreviewCanvas` (`Player.tsx:566`).
@@ -254,8 +259,28 @@ fn compact_header_controls(viewport_width: f32, windows: bool, captions: bool) -
     viewport_width < actions_width * 2. + 144. + caption_controls_width
 }
 
-fn editor_player_width(viewport_width: f32) -> f32 {
-    (viewport_width - SIDEBAR_WIDTH).max(0.)
+fn editor_player_width(viewport_width: f32, sidebar_width: f32) -> f32 {
+    (viewport_width - sidebar_width).max(0.)
+}
+
+fn clamp_sidebar_width(value: f32, viewport_width: f32) -> f32 {
+    let room = (viewport_width - MIN_PLAYER_WIDTH).max(SIDEBAR_WIDTH);
+    value.clamp(SIDEBAR_WIDTH, SIDEBAR_MAX_WIDTH.min(room))
+}
+
+fn keyboard_sidebar_width(current: f32, key: &str, shift: bool) -> Option<f32> {
+    let step = if shift {
+        SIDEBAR_KEY_STEP * 4.
+    } else {
+        SIDEBAR_KEY_STEP
+    };
+    match key {
+        "left" => Some(current + step),
+        "right" => Some(current - step),
+        "home" => Some(SIDEBAR_WIDTH),
+        "end" => Some(SIDEBAR_MAX_WIDTH),
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1583,6 +1608,8 @@ pub struct EditorWindow {
     timeline_height_override: Option<f32>,
     initial_timeline_rows: Option<usize>,
     timeline_resize: Option<(f32, f32)>,
+    sidebar_width_preference: f32,
+    sidebar_resize: Option<(f32, f32)>,
     /// The header's Presets dropdown (`PresetsDropdown.tsx`), and whichever
     /// of its three dialogs is up. The dialog closes the menu when it opens,
     /// exactly as the Solid dialogs replace the dropdown.
@@ -2130,6 +2157,10 @@ impl EditorWindow {
             timeline_height_override: None,
             initial_timeline_rows: None,
             timeline_resize: None,
+            sidebar_width_preference: crate::store::GeneralSettings::load()
+                .editor_sidebar_width
+                .unwrap_or(SIDEBAR_WIDTH),
+            sidebar_resize: None,
             presets_menu: None,
             preset_dialog: None,
             caption_sync_signature: None,
@@ -5353,6 +5384,96 @@ fn delete_caption_segments(project: &mut ProjectConfiguration, indices: &[usize]
 impl EditorWindow {
     fn clamp_timeline_height(&self, value: f32, viewport_height: f32) -> f32 {
         EditorVerticalLayout::new(viewport_height, value).timeline_height
+    }
+
+    fn render_sidebar_grip(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let active = self.sidebar_resize.is_some();
+        div()
+            .id("sidebar-resize-handle")
+            .group("sidebar-grip")
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(-SIDEBAR_GRIP_WIDTH / 2.))
+            .w(px(SIDEBAR_GRIP_WIDTH))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor(gpui::CursorStyle::ResizeLeftRight)
+            .tab_index(0)
+            .focus_visible(|style| style.bg(Hsla::from(theme.editor.ctl_hover)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    let viewport_width = f32::from(window.viewport_size().width);
+                    this.sidebar_resize = Some((
+                        f32::from(event.position.x),
+                        this.sidebar_width(viewport_width),
+                    ));
+                    cx.notify();
+                }),
+            )
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                this.sidebar_resize_key(event, window, cx);
+            }))
+            .child(
+                div()
+                    .w(px(4.))
+                    .h(px(36.))
+                    .rounded(px(2.))
+                    .bg(if active {
+                        Hsla::from(theme.editor.text_3)
+                    } else {
+                        gpui::transparent_black()
+                    })
+                    .group_hover("sidebar-grip", |this| {
+                        this.bg(Hsla::from(theme.editor.text_3))
+                    }),
+            )
+    }
+
+    fn sidebar_width(&self, viewport_width: f32) -> f32 {
+        clamp_sidebar_width(self.sidebar_width_preference, viewport_width)
+    }
+
+    fn set_sidebar_width(&mut self, width: f32, viewport_width: f32, cx: &mut Context<Self>) {
+        let width = clamp_sidebar_width(width, viewport_width);
+        if width != self.sidebar_width_preference {
+            self.sidebar_width_preference = width;
+            cx.notify();
+        }
+    }
+
+    fn persist_sidebar_width(&self) {
+        if !crate::store::set_store_setting(
+            crate::store::GENERAL_SETTINGS,
+            SIDEBAR_WIDTH_SETTING,
+            serde_json::json!(self.sidebar_width_preference),
+        ) {
+            tracing::warn!("failed to persist editor sidebar width");
+        }
+    }
+
+    fn sidebar_resize_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let viewport_width = f32::from(window.viewport_size().width);
+        let current = self.sidebar_width(viewport_width);
+        let Some(width) = keyboard_sidebar_width(
+            current,
+            event.keystroke.key.as_str(),
+            event.keystroke.modifiers.shift,
+        ) else {
+            return;
+        };
+        cx.stop_propagation();
+        self.set_sidebar_width(width, viewport_width, cx);
+        self.persist_sidebar_width();
     }
 
     fn preferred_timeline_height(&self) -> f32 {
@@ -9786,7 +9907,10 @@ impl EditorWindow {
     /// preview-resolution control on the right.
     fn render_player_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let narrow = editor_player_width(f32::from(window.viewport_size().width)) < 560.;
+        let narrow = {
+            let viewport_width = f32::from(window.viewport_size().width);
+            editor_player_width(viewport_width, self.sidebar_width(viewport_width))
+        } < 560.;
         div()
             .w_full()
             .h_full()
@@ -10101,7 +10225,10 @@ impl EditorWindow {
     fn render_transport(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let editor = theme.editor;
-        let player_width = editor_player_width(f32::from(window.viewport_size().width));
+        let player_width = {
+            let viewport_width = f32::from(window.viewport_size().width);
+            editor_player_width(viewport_width, self.sidebar_width(viewport_width))
+        };
         let compact = player_width < 760.;
         let narrow = player_width < 620.;
         let total = self.total_duration();
@@ -10861,12 +10988,6 @@ impl EditorWindow {
                     ))
                     .tab_index(0)
                     .focus_visible(|style| style.border_1().border_color(theme.foreground))
-                    .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
-                    .tooltip(move |_, cx| {
-                        ui::Tooltip::new(&theme, t!("Select segment"))
-                            .keys(["Enter", "←", "→"])
-                            .view(cx)
-                    })
                     .on_key_down(cx.listener(
                         move |this, event: &gpui::KeyDownEvent, window, cx| {
                             this.timeline_row_key(kind, lane, event, window, cx)
@@ -11000,19 +11121,22 @@ impl EditorWindow {
                             .right_0()
                             .top_0()
                             .bottom_0()
+                            .when(generating, |lane| {
+                                lane.on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                                )
+                            })
                             .child(
                                 div()
-                                    .id("zoom-generate-hit")
                                     .absolute()
                                     .inset_0()
                                     .flex()
                                     .flex_row()
                                     .items_center()
                                     .justify_center()
-                                    .gap(px(10.))
                                     .pl(px(10.))
                                     .pr(px(32.))
-                                    .rounded(px(8.))
                                     .text_size(px(12.))
                                     .line_height(px(16.))
                                     .text_color(Hsla::from(if hovering {
@@ -11020,40 +11144,47 @@ impl EditorWindow {
                                     } else {
                                         theme.editor.text_3
                                     }))
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
-                                    )
-                                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                                        if this.hovering_generate_zoom != *hovered {
-                                            this.hovering_generate_zoom = *hovered;
-                                            cx.notify();
-                                        }
-                                    }))
                                     .child(
-                                        div().min_w_0().truncate().child(tr(self
-                                            .auto_zoom_message
-                                            .unwrap_or(n!("Add zooms automatically")))),
-                                    )
-                                    .child(
-                                        ui::Button::plain(
-                                            &theme,
-                                            "zoom-generate-button",
-                                            ui::ButtonVariant::Gray,
-                                            ui::ButtonSize::Sm,
-                                        )
-                                        .label(if generating {
-                                            t!("Generating…")
-                                        } else {
-                                            t!("Generate")
-                                        })
-                                        .radius(px(7.))
-                                        .disabled(generating)
-                                        .on_click(
-                                            cx.listener(|this, _, window, cx| {
-                                                this.generate_auto_zoom(window, cx);
-                                            }),
-                                        ),
+                                        div()
+                                            .id("zoom-generate-hit")
+                                            .min_w_0()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap(px(10.))
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                                            )
+                                            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                                                if this.hovering_generate_zoom != *hovered {
+                                                    this.hovering_generate_zoom = *hovered;
+                                                    cx.notify();
+                                                }
+                                            }))
+                                            .child(
+                                                div().min_w_0().truncate().child(tr(self
+                                                    .auto_zoom_message
+                                                    .unwrap_or(n!("Add zooms automatically")))),
+                                            )
+                                            .child(
+                                                ui::Button::plain(
+                                                    &theme,
+                                                    "zoom-generate-button",
+                                                    ui::ButtonVariant::Gray,
+                                                    ui::ButtonSize::Sm,
+                                                )
+                                                .label(if generating {
+                                                    t!("Generating…")
+                                                } else {
+                                                    t!("Generate")
+                                                })
+                                                .radius(px(7.))
+                                                .disabled(generating)
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    this.generate_auto_zoom(window, cx);
+                                                })),
+                                            ),
                                     ),
                             )
                             .child(
@@ -11497,6 +11628,7 @@ impl Render for EditorWindow {
         // this window is resizable, so read them off the viewport rather than
         // assuming the default width.
         let viewport_width: f32 = window.viewport_size().width.into();
+        let sidebar_width = self.sidebar_width(viewport_width);
 
         let layout = EditorVerticalLayout::new(
             f32::from(window.viewport_size().height),
@@ -11748,13 +11880,18 @@ impl Render for EditorWindow {
                                     // sidebar view's: a margin inside a cached
                                     // element is not honoured.
                                     .child(
-                                        div().flex_none().h_full().child(
-                                            self.sidebar_view.clone().cached(
-                                                StyleRefinement::default()
-                                                    .w(px(SIDEBAR_WIDTH))
-                                                    .h_full(),
-                                            ),
-                                        ),
+                                        div()
+                                            .relative()
+                                            .flex_none()
+                                            .h_full()
+                                            .child(
+                                                self.sidebar_view.clone().cached(
+                                                    StyleRefinement::default()
+                                                        .w(px(sidebar_width))
+                                                        .h_full(),
+                                                ),
+                                            )
+                                            .child(self.render_sidebar_grip(cx)),
                                     ),
                             )
                             // The timeline card: the wrapper is owned here so
@@ -11847,6 +11984,28 @@ impl Render for EditorWindow {
                     .absolute()
                     .inset_0()
                     .cursor(cursor)
+            }))
+            .children(self.sidebar_resize.is_some().then(|| {
+                ui::Slider::drag_layer(
+                    "sidebar-width-drag",
+                    cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                        let Some((start_x, start_width)) = this.sidebar_resize else {
+                            return;
+                        };
+                        let delta = start_x - f32::from(event.position.x);
+                        this.set_sidebar_width(
+                            start_width + delta,
+                            f32::from(window.viewport_size().width),
+                            cx,
+                        );
+                    }),
+                    cx.listener(|this, _: &MouseUpEvent, _window, cx| {
+                        this.sidebar_resize = None;
+                        this.persist_sidebar_width();
+                        cx.notify();
+                    }),
+                )
+                .cursor(gpui::CursorStyle::ResizeLeftRight)
             }))
             .children(self.timeline_resize.is_some().then(|| {
                 ui::Slider::drag_layer(
@@ -12590,7 +12749,7 @@ mod tests {
         let layout = EditorVerticalLayout::new(652., DEFAULT_TIMELINE_HEIGHT);
         assert_eq!(layout.player_min_height, MIN_PLAYER_HEIGHT);
         assert_eq!(layout.timeline_height, DEFAULT_TIMELINE_HEIGHT);
-        assert_eq!(editor_player_width(992.), 606.);
+        assert_eq!(editor_player_width(992., SIDEBAR_WIDTH), 606.);
     }
 
     #[test]
@@ -12655,6 +12814,42 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_resize_keeps_the_inspector_between_its_limits_and_the_player_usable() {
+        assert_eq!(clamp_sidebar_width(500., 1600.), 500.);
+        assert_eq!(clamp_sidebar_width(100., 1600.), SIDEBAR_WIDTH);
+        assert_eq!(clamp_sidebar_width(9000., 1600.), SIDEBAR_MAX_WIDTH);
+        assert_eq!(clamp_sidebar_width(600., 1000.), 1000. - MIN_PLAYER_WIDTH);
+        assert_eq!(clamp_sidebar_width(600., 700.), SIDEBAR_WIDTH);
+        assert_eq!(editor_player_width(1600., 500.), 1100.);
+    }
+
+    #[test]
+    fn sidebar_resize_keys_widen_left_narrow_right_and_jump_to_the_ends() {
+        let step = SIDEBAR_KEY_STEP;
+        assert_eq!(
+            keyboard_sidebar_width(400., "left", false),
+            Some(400. + step)
+        );
+        assert_eq!(
+            keyboard_sidebar_width(400., "right", false),
+            Some(400. - step)
+        );
+        assert_eq!(
+            keyboard_sidebar_width(400., "left", true),
+            Some(400. + step * 4.)
+        );
+        assert_eq!(
+            keyboard_sidebar_width(400., "home", false),
+            Some(SIDEBAR_WIDTH)
+        );
+        assert_eq!(
+            keyboard_sidebar_width(400., "end", false),
+            Some(SIDEBAR_MAX_WIDTH)
+        );
+        assert_eq!(keyboard_sidebar_width(400., "up", false), None);
+    }
+
+    #[test]
     fn responsive_editor_preserves_the_spacious_layout() {
         let layout = EditorVerticalLayout::new(800., DEFAULT_TIMELINE_HEIGHT);
         assert_eq!(layout.player_min_height, MIN_PLAYER_HEIGHT);
@@ -12673,7 +12868,7 @@ mod tests {
         assert!(!compact_header_controls(992., false, true));
         assert!(compact_header_controls(800., true, false));
         assert!(compact_header_controls(800., false, true));
-        assert_eq!(editor_player_width(800.), 414.);
+        assert_eq!(editor_player_width(800., SIDEBAR_WIDTH), 414.);
     }
 
     fn open_sidebar_menu_for_test(

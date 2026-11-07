@@ -2573,7 +2573,7 @@ impl EditorWindow {
             }
         };
         div()
-            .w(px(crate::editor_window::SIDEBAR_WIDTH))
+            .w_full()
             .h_full()
             .flex()
             .flex_row()

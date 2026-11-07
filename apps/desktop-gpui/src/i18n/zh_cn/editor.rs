@@ -1,5 +1,4 @@
 pub static ENTRIES: &[(&str, &str)] = &[
-    ("Select segment", "选择段落"),
     ("Clip options", "片段选项"),
     ("Incoming transition", "入场转场"),
     ("Cross fade", "交叉淡化"),

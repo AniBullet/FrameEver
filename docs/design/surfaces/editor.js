@@ -1877,8 +1877,8 @@ const renderDocs = () => {
 		[
 			["Inspector", "检查器"],
 			[
-				"46 icon rail plus a 340 panel, about 445 of content height",
-				"46 宽图标栏加 340 宽面板，内容高度约 445",
+				"46 icon rail plus a panel 340 by default, dragged from its left edge up to 560 (arrow keys too), remembered; about 445 of content height",
+				"46 宽图标栏加默认 340 宽面板，拖左边缘最宽到 560（也可用方向键），会记住宽度；内容高度约 445",
 			],
 		],
 		[
