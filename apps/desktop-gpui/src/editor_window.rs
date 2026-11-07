@@ -3414,16 +3414,17 @@ impl EditorWindow {
             }
         }
 
-        let menu_open = self.crop.is_some()
-            || self.sidebar.menu.is_some()
-            || self.toolbar_menu.is_some()
-            || self.presets_menu.is_some();
-        if let Some(frames) = playhead_step_frames(
-            &event.keystroke,
-            ui::text_input_has_focus(window, cx),
-            self.canvas_selection.is_some(),
-            menu_open,
-        ) {
+        let arrow_owners = ArrowKeyOwners {
+            text_input: ui::text_input_has_focus(window, cx),
+            canvas_selection: self.canvas_selection.is_some(),
+            menu: self.crop.is_some()
+                || self.sidebar.menu.is_some()
+                || self.toolbar_menu.is_some()
+                || self.presets_menu.is_some(),
+            frame_controls: self.frame_controls.is_open(),
+            lane_reorder: self.lane_reorder.is_some(),
+        };
+        if let Some(frames) = playhead_step_frames(&event.keystroke, arrow_owners) {
             cx.stop_propagation();
             self.step_playhead(frames, cx);
             window.refresh();
@@ -11149,16 +11150,28 @@ fn is_playback_shortcut(
     keystroke.key == "space" && !keystroke.modifiers.modified() && !text_input_focused && !menu_open
 }
 
-fn playhead_step_frames(
-    keystroke: &gpui::Keystroke,
-    text_input_focused: bool,
-    canvas_selected: bool,
-    menu_open: bool,
-) -> Option<i32> {
+#[derive(Clone, Copy, Default)]
+struct ArrowKeyOwners {
+    text_input: bool,
+    canvas_selection: bool,
+    menu: bool,
+    frame_controls: bool,
+    lane_reorder: bool,
+}
+
+impl ArrowKeyOwners {
+    fn any(self) -> bool {
+        self.text_input
+            || self.canvas_selection
+            || self.menu
+            || self.frame_controls
+            || self.lane_reorder
+    }
+}
+
+fn playhead_step_frames(keystroke: &gpui::Keystroke, owners: ArrowKeyOwners) -> Option<i32> {
     let modifiers = &keystroke.modifiers;
-    if text_input_focused
-        || canvas_selected
-        || menu_open
+    if owners.any()
         || modifiers.platform
         || modifiers.control
         || modifiers.alt
@@ -12529,37 +12542,35 @@ mod tests {
     #[test]
     fn arrows_step_the_playhead_only_when_nothing_else_takes_them() {
         let key = |text: &'static str| gpui::Keystroke::parse(text).unwrap();
-        assert_eq!(
-            playhead_step_frames(&key("left"), false, false, false),
-            Some(-1)
-        );
-        assert_eq!(
-            playhead_step_frames(&key("right"), false, false, false),
-            Some(1)
-        );
-        assert_eq!(
-            playhead_step_frames(&key("shift-left"), false, false, false),
-            Some(-10)
-        );
-        assert_eq!(
-            playhead_step_frames(&key("shift-right"), false, false, false),
-            Some(10)
-        );
-        assert_eq!(
-            playhead_step_frames(&key("right"), false, true, false),
-            None
-        );
-        assert_eq!(
-            playhead_step_frames(&key("right"), true, false, false),
-            None
-        );
-        assert_eq!(playhead_step_frames(&key("left"), false, false, true), None);
+        let free = ArrowKeyOwners::default();
+        assert_eq!(playhead_step_frames(&key("left"), free), Some(-1));
+        assert_eq!(playhead_step_frames(&key("right"), free), Some(1));
+        assert_eq!(playhead_step_frames(&key("shift-left"), free), Some(-10));
+        assert_eq!(playhead_step_frames(&key("shift-right"), free), Some(10));
+        for owners in [
+            ArrowKeyOwners {
+                text_input: true,
+                ..free
+            },
+            ArrowKeyOwners {
+                canvas_selection: true,
+                ..free
+            },
+            ArrowKeyOwners { menu: true, ..free },
+            ArrowKeyOwners {
+                frame_controls: true,
+                ..free
+            },
+            ArrowKeyOwners {
+                lane_reorder: true,
+                ..free
+            },
+        ] {
+            assert_eq!(playhead_step_frames(&key("left"), owners), None);
+            assert_eq!(playhead_step_frames(&key("right"), owners), None);
+        }
         for text in ["up", "down", "cmd-right", "ctrl-left", "alt-right", "space"] {
-            assert_eq!(
-                playhead_step_frames(&key(text), false, false, false),
-                None,
-                "{text}"
-            );
+            assert_eq!(playhead_step_frames(&key(text), free), None, "{text}");
         }
     }
 
