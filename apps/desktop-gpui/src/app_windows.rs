@@ -5374,8 +5374,6 @@ pub(crate) fn fit_controls_height(native: &platform::NativeWindow, height: f32, 
         let height = height * f64::from(scale);
         platform::set_window_frame(native, x, y + current - height, width, height);
     }
-    #[cfg(not(any(target_os = "macos", windows)))]
-    let _ = (native, x, y, current, height, scale);
 }
 
 /// Open the bar. Returns the native window number for capture exclusion.
