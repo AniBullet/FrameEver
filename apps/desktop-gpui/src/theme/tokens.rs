@@ -302,6 +302,7 @@ color_layer! {
     popover_foreground: b.n(12), b.n(12);
     muted: b.n(3), b.n(3);
     muted_foreground: b.n(11), b.n(11);
+    faint_foreground: b.n(9), b.n(9);
     secondary: b.n(4), b.n(4);
     secondary_hover: b.n(5), b.n(5);
     secondary_active: b.n(7), b.n(7);
@@ -328,6 +329,7 @@ color_layer! {
     warning: b.amber.solid, b.amber.solid;
     warning_foreground: b.n(1), b.n(12);
     warning_text: b.amber.text, b.amber.text;
+    warning_tint: b.amber.tint, b.amber.tint;
     success: b.green.solid, b.green.solid;
     success_text: b.green.text, b.green.text;
     success_tint: b.green.tint, b.green.tint;
@@ -602,7 +604,7 @@ mod tests {
 
     #[test]
     fn text_pairs_reach_wcag_aa() {
-        const PAIRS: [(&str, &str); 24] = [
+        const PAIRS: [(&str, &str); 25] = [
             ("foreground", "background"),
             ("foreground", "card"),
             ("foreground", "popover"),
@@ -624,6 +626,7 @@ mod tests {
             ("danger_text", "danger_tint"),
             ("danger_foreground", "danger"),
             ("warning_text", "background"),
+            ("warning_text", "warning_tint"),
             ("warning_foreground", "warning"),
             ("success_text", "background"),
             ("success_text", "success_tint"),

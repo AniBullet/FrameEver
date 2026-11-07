@@ -1,9 +1,9 @@
-use gpui::{Rgba, WindowAppearance};
+use gpui::WindowAppearance;
 
 #[path = "../../src/theme/tokens.rs"]
 pub mod tokens;
 
-use tokens::{Brand, Component, Semantic};
+use tokens::{Component, Semantic};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Appearance {
@@ -24,24 +24,14 @@ impl Appearance {
 pub struct Palette {
     pub semantic: Semantic,
     pub component: Component,
-    pub step_ahead: Rgba,
-    pub step_separator: Rgba,
-    pub off_text: Rgba,
-    pub warning_tint: Rgba,
 }
 
 impl Palette {
     pub fn for_appearance(appearance: WindowAppearance) -> Self {
         let appearance = Appearance::from_window(appearance);
-        let brand = Brand::of(appearance);
-        let semantic = Semantic::new(appearance);
         Self {
-            semantic,
+            semantic: Semantic::new(appearance),
             component: Component::new(appearance),
-            step_ahead: brand.neutral[8].to_rgba(),
-            step_separator: brand.neutral[7].to_rgba(),
-            off_text: brand.neutral[8].to_rgba(),
-            warning_tint: brand.amber.tint.to_rgba(),
         }
     }
 }

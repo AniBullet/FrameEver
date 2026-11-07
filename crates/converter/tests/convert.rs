@@ -4,8 +4,8 @@ use std::{
 };
 
 use frameever_converter::{
-    OldInstall, Plan, Progress, Selection, Source, Target, convert, convert_watched, destination,
-    find_installs,
+    OldInstall, Plan, Progress, Selection, SkipReason, Source, Target, convert, convert_watched,
+    destination, find_installs,
 };
 use frameever_project::{
     InstantRecordingMeta, Platform, RecordingMeta, RecordingMetaInner, SingleSegment,
@@ -701,5 +701,47 @@ fn an_old_install_counts_its_automation_rules() {
     assert_eq!(
         OldInstall::picked_folder(&machine.path("E")).rule_count(),
         0
+    );
+}
+
+#[test]
+fn a_storage_folder_that_cannot_be_saved_leaves_every_item_behind_with_the_reason() {
+    let machine = Machine::new();
+    let install = three_item_install(&machine);
+    machine.write(
+        "AppData/Roaming/io.github.anibullet.frameever",
+        b"a file, not a folder",
+    );
+
+    let report = convert(
+        &install,
+        &machine.target(),
+        &Plan {
+            selection: Selection::default(),
+            destination: Some(machine.path("E/Elsewhere")),
+        },
+    );
+
+    assert!(report.converted.is_empty(), "{report:?}");
+    assert!(!report.stopped);
+    assert_eq!(report.left, 0);
+    let kinds: Vec<_> = report.skipped.iter().map(|skipped| skipped.kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            ProjectKind::Recording,
+            ProjectKind::Recording,
+            ProjectKind::Screenshot
+        ]
+    );
+    assert!(report.skipped.iter().all(|skipped| matches!(
+        &skipped.reason,
+        SkipReason::Failed(reason) if !reason.is_empty()
+    )));
+    assert!(report.settings_error.is_some());
+    assert!(
+        machine
+            .path("Videos/Cap Recordings/recordings/One.cap")
+            .is_dir()
     );
 }

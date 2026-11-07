@@ -97,7 +97,7 @@ main {
 	align-items: center;
 	padding: 4px 24px 0;
 	font-size: var(--text-small);
-	color: var(--neutral-9);
+	color: var(--faint-foreground);
 }
 
 .steps-line b {
@@ -111,7 +111,7 @@ main {
 }
 
 .steps-line .sep {
-	color: var(--neutral-8);
+	color: var(--border-strong);
 }
 
 .page {
@@ -219,7 +219,7 @@ button.row:hover {
 
 .row.off b,
 .row.off small {
-	color: var(--neutral-9);
+	color: var(--faint-foreground);
 }
 
 .row .amber {
@@ -232,8 +232,8 @@ button.row:hover {
 	gap: 8px;
 	padding: 8px 10px;
 	border-radius: var(--radius-sm);
-	background: var(--amber-tint);
-	color: var(--amber-text);
+	background: var(--warning-tint);
+	color: var(--warning-text);
 	font-size: var(--text-small);
 	line-height: var(--line-small);
 }

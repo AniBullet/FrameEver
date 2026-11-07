@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fmt::Display,
     path::{Path, PathBuf},
     sync::{
@@ -47,8 +48,14 @@ pub enum Action {
     OpenFrameEver,
     ShowFolder,
     ConvertAnother,
-    Details,
+    Details(Disclosure),
     Close,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Disclosure {
+    Settings,
+    Item(usize),
 }
 
 pub enum Effect {
@@ -92,6 +99,7 @@ pub struct Details {
     pub label: String,
     pub raw: String,
     pub open: bool,
+    pub toggle: Action,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,6 +247,10 @@ impl Review {
         needed > 0 && self.free.is_some_and(|free| free < needed)
     }
 
+    fn space_unknown(&self) -> bool {
+        self.needed() > 0 && self.free.is_none()
+    }
+
     fn is_empty(&self) -> bool {
         self.items.is_empty() && !self.install.has_settings()
     }
@@ -277,7 +289,7 @@ pub struct Wizard {
     review: Option<Review>,
     step: Step,
     stop: Arc<AtomicBool>,
-    details_open: bool,
+    details_open: HashSet<Disclosure>,
 }
 
 impl Wizard {
@@ -291,7 +303,7 @@ impl Wizard {
             review: None,
             step: Step::Choose,
             stop: Arc::new(AtomicBool::new(false)),
-            details_open: false,
+            details_open: HashSet::new(),
         };
         wizard.find();
         if wizard.found.len() == 1 {
@@ -364,7 +376,7 @@ impl Wizard {
         };
         self.measure(&mut review);
         self.review = Some(review);
-        self.details_open = false;
+        self.details_open.clear();
         self.step = Step::Review;
     }
 
@@ -393,7 +405,7 @@ impl Wizard {
             plan: review.plan(),
             stop: self.stop.clone(),
         };
-        self.details_open = false;
+        self.details_open.clear();
         self.step = Step::Converting { progress: None };
         Some(Effect::Run(job))
     }
@@ -409,6 +421,7 @@ impl Wizard {
             return;
         }
         if report.skipped.is_empty()
+            && report.settings_error.is_none()
             && !report.stopped
             && let Some(review) = &self.review
             && !self.finished.contains(&review.install)
@@ -416,6 +429,29 @@ impl Wizard {
             self.finished.push(review.install.clone());
         }
         self.step = Step::Done(report);
+    }
+
+    fn retry(&mut self) -> Option<Effect> {
+        let Step::Done(report) = &self.step else {
+            return None;
+        };
+        let settings_carried = report.settings_error.is_none();
+        let mut review = self.review.take()?;
+        if settings_carried && review.carries_settings() {
+            review.selection.settings = false;
+        }
+        review.items = review.install.items();
+        review.running = (self.system.running)();
+        self.measure(&mut review);
+        let ready = review.can_convert();
+        self.review = Some(review);
+        if ready {
+            self.start()
+        } else {
+            self.details_open.clear();
+            self.step = Step::Review;
+            None
+        }
     }
 
     fn installed_app(&self) -> Option<PathBuf> {
@@ -474,13 +510,7 @@ impl Wizard {
                     && self.review.as_ref().is_some_and(Review::can_convert);
                 if ready { self.start() } else { None }
             }
-            Action::ConvertRest | Action::TryAgain => {
-                if matches!(self.step, Step::Done(_)) {
-                    self.start()
-                } else {
-                    None
-                }
-            }
+            Action::ConvertRest | Action::TryAgain => self.retry(),
             Action::Stop | Action::Close if self.is_converting() => {
                 self.stop.store(true, Ordering::SeqCst);
                 None
@@ -492,8 +522,10 @@ impl Wizard {
                 .review
                 .as_ref()
                 .map(|review| Effect::Open(review.destination.clone())),
-            Action::Details => {
-                self.details_open = !self.details_open;
+            Action::Details(disclosure) => {
+                if !self.details_open.remove(&disclosure) {
+                    self.details_open.insert(disclosure);
+                }
                 None
             }
         }
@@ -519,11 +551,16 @@ impl Wizard {
     }
 
     fn tr_fmt(&self, template: &'static str, args: &[(&str, &dyn Display)]) -> String {
-        let mut out = i18n::translate(template, self.language).to_string();
-        for (name, value) in args {
-            out = out.replace(&format!("{{{name}}}"), &value.to_string());
-        }
-        out
+        fill(i18n::translate(template, self.language), args)
+    }
+
+    fn tr_fmt_in(
+        &self,
+        context: &'static str,
+        template: &'static str,
+        args: &[(&str, &dyn Display)],
+    ) -> String {
+        fill(i18n::translate_in(context, template, self.language), args)
     }
 
     fn button(&self, label: &'static str, action: Action, style: Style) -> Button {
@@ -656,8 +693,9 @@ impl Wizard {
                 icon: Some(Icon::Video),
                 title: self.tr("Recordings"),
                 detail: self.tr(".cap projects and loose MP4 exports"),
-                trailing: self.tr_fmt(
-                    "{count} · {size}|recordings",
+                trailing: self.tr_fmt_in(
+                    "recordings",
+                    "{count} · {size}",
                     &[
                         ("count", &recordings),
                         ("size", &size_text(review.bytes(ProjectKind::Recording))),
@@ -674,8 +712,9 @@ impl Wizard {
                 icon: Some(Icon::Image),
                 title: self.tr("Screenshots"),
                 detail: self.tr("PNG and JPEG, kept with their dates"),
-                trailing: self.tr_fmt(
-                    "{count} · {size}|screenshots",
+                trailing: self.tr_fmt_in(
+                    "screenshots",
+                    "{count} · {size}",
                     &[
                         ("count", &screenshots),
                         ("size", &size_text(review.bytes(ProjectKind::Screenshot))),
@@ -740,6 +779,19 @@ impl Wizard {
 
     fn review_warnings(&self, review: &Review) -> Vec<Warning> {
         let mut warnings = Vec::new();
+        if review.space_unknown() {
+            warnings.push(Warning {
+                text: self.tr_fmt(
+                    "Couldn't check the free space on {drive}. This needs {needed}.",
+                    &[
+                        ("drive", &review.drive),
+                        ("needed", &size_text(review.needed())),
+                    ],
+                ),
+                details: None,
+                button: None,
+            });
+        }
         if review.lacks_space() {
             warnings.push(Warning {
                 text: self.tr_fmt(
@@ -821,10 +873,11 @@ impl Wizard {
     fn done_screen(&self, report: &Report) -> Screen {
         let total = report.total();
         let converted = report.converted.len();
-        let details = |raw: &str| Details {
+        let details = |disclosure: Disclosure, raw: &str| Details {
             label: self.tr("Details"),
             raw: raw.to_string(),
-            open: self.details_open,
+            open: self.details_open.contains(&disclosure),
+            toggle: Action::Details(disclosure),
         };
         let warnings: Vec<Warning> = report
             .settings_error
@@ -832,14 +885,16 @@ impl Wizard {
             .map(|error| Warning {
                 text: self
                     .tr("Couldn't carry over your settings. Your recordings aren't affected."),
-                details: Some(details(error)),
+                details: Some(details(Disclosure::Settings, error)),
                 button: None,
             })
             .collect();
         let left: Vec<Row> = report
             .skipped
             .iter()
-            .map(|skipped| {
+            .enumerate()
+            .map(|(index, skipped)| {
+                let details = |raw: &str| details(Disclosure::Item(index), raw);
                 let (detail, raw) = match (&skipped.reason, skipped.kind) {
                     (SkipReason::InUse, _) => (
                         self.tr("In use by another program. Close it and try again."),
@@ -914,7 +969,7 @@ impl Wizard {
             vec![show_folder]
         };
         let mut end = Vec::new();
-        if all_moved && self.remaining_install() {
+        if self.remaining_install() {
             end.push(self.button("Convert another", Action::ConvertAnother, Style::Secondary));
         }
         end.extend([close, primary]);
@@ -933,6 +988,14 @@ impl Wizard {
             ..Screen::default()
         }
     }
+}
+
+fn fill(template: &str, args: &[(&str, &dyn Display)]) -> String {
+    let mut out = template.to_string();
+    for (name, value) in args {
+        out = out.replace(&format!("{{{name}}}"), &value.to_string());
+    }
+    out
 }
 
 fn nearest_existing(path: &Path) -> PathBuf {

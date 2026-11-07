@@ -127,13 +127,11 @@ static ZH_CN: &[(&str, &str)] = &[
         ".cap projects and loose MP4 exports",
         ".cap 项目和零散的 MP4 导出",
     ),
-    ("{count} · {size}|recordings", "{count} 个 · {size}"),
     ("Screenshots", "截图"),
     (
         "PNG and JPEG, kept with their dates",
         "PNG 和 JPEG，保留原来的日期",
     ),
-    ("{count} · {size}|screenshots", "{count} 张 · {size}"),
     ("Settings and automations", "设置和自动化"),
     (
         "Only what FrameEver doesn't have yet",
@@ -151,6 +149,10 @@ static ZH_CN: &[(&str, &str)] = &[
         "文件会移到另一个磁盘：先复制、再校验，然后删除原文件。之后只有 FrameEver 能打开它们。",
     ),
     ("Convert {count} items", "转换 {count} 项"),
+    (
+        "Couldn't check the free space on {drive}. This needs {needed}.",
+        "无法检查 {drive} 的剩余空间。需要 {needed}。",
+    ),
     (
         "Not enough space on {drive}. This needs {needed} and {free} is free. Change the folder or convert less.",
         "{drive} 盘空间不够。需要 {needed}，只剩 {free}。换个文件夹，或者少转换一些。",
@@ -216,6 +218,11 @@ static ZH_CN: &[(&str, &str)] = &[
     ("Try again", "再试一次"),
 ];
 
+static CONTEXTUAL: &[(&str, &str, &str)] = &[
+    ("recordings", "{count} · {size}", "{count} 个 · {size}"),
+    ("screenshots", "{count} · {size}", "{count} 张 · {size}"),
+];
+
 static ZH_CN_MAP: LazyLock<HashMap<&'static str, &'static str>> =
     LazyLock::new(|| ZH_CN.iter().copied().collect());
 
@@ -223,10 +230,27 @@ pub fn chinese_table() -> &'static [(&'static str, &'static str)] {
     ZH_CN
 }
 
-pub fn translate(key: &'static str, language: Language) -> &'static str {
-    let english = key.split('|').next().unwrap_or(key);
+pub fn contextual_table() -> &'static [(&'static str, &'static str, &'static str)] {
+    CONTEXTUAL
+}
+
+pub fn translate(english: &'static str, language: Language) -> &'static str {
     match language {
         Language::English => english,
-        Language::SimplifiedChinese => ZH_CN_MAP.get(key).copied().unwrap_or(english),
+        Language::SimplifiedChinese => ZH_CN_MAP.get(english).copied().unwrap_or(english),
+    }
+}
+
+pub fn translate_in(
+    context: &'static str,
+    english: &'static str,
+    language: Language,
+) -> &'static str {
+    match language {
+        Language::English => english,
+        Language::SimplifiedChinese => CONTEXTUAL
+            .iter()
+            .find(|(entry_context, entry, _)| *entry_context == context && *entry == english)
+            .map_or(english, |(_, _, chinese)| chinese),
     }
 }

@@ -525,8 +525,16 @@ pub fn convert_watched(
         && let Err(error) = settings::save_storage_folder(&target.settings_file, &chosen)
     {
         return Report {
-            settings_error: Some(error),
-            left: items.len(),
+            skipped: items
+                .iter()
+                .map(|item| Skipped {
+                    source: item.source().to_path_buf(),
+                    kind: item.kind(),
+                    reason: SkipReason::Failed(error.clone()),
+                })
+                .collect(),
+            settings_error: (plan.selection.settings && install.source.carries_settings())
+                .then_some(error),
             ..Report::default()
         };
     }

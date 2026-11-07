@@ -255,7 +255,7 @@ fn button(
         (false, _) => (
             palette.muted,
             palette.muted,
-            palette.off_text,
+            palette.faint_foreground,
             palette.muted,
             palette.muted,
         ),
@@ -323,6 +323,7 @@ fn details_link(
     palette: Palette,
     cx: &mut Context<ConverterWindow>,
 ) -> impl IntoElement + use<> {
+    let toggle = details.toggle;
     div()
         .flex()
         .flex_col()
@@ -335,7 +336,7 @@ fn details_link(
                 .text_color(palette.link)
                 .cursor_pointer()
                 .child(details.label)
-                .on_click(cx.listener(|this, _, window, cx| this.act(Action::Details, window, cx))),
+                .on_click(cx.listener(move |this, _, window, cx| this.act(toggle, window, cx))),
         )
         .when(details.open, |this| {
             this.child(
@@ -446,12 +447,12 @@ fn row(
 ) -> AnyElement {
     let id: SharedString = format!("row-{group}-{index}").into();
     let title_color = if row.off {
-        palette.off_text
+        palette.faint_foreground
     } else {
         palette.foreground
     };
     let detail_color = if row.off {
-        palette.off_text
+        palette.faint_foreground
     } else {
         palette.muted_foreground
     };
@@ -885,7 +886,7 @@ fn steps(steps: &[(String, StepState)], palette: Palette) -> impl IntoElement {
         .text_size(px(SMALL_TEXT));
     for (index, (label, state)) in steps.iter().enumerate() {
         if index > 0 {
-            line = line.child(div().text_color(palette.step_separator).child("›"));
+            line = line.child(div().text_color(palette.border_strong).child("›"));
         }
         let text = div().child(label.clone());
         line = line.child(match state {
@@ -893,7 +894,7 @@ fn steps(steps: &[(String, StepState)], palette: Palette) -> impl IntoElement {
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(palette.foreground),
             StepState::Done => text.text_color(palette.muted_foreground),
-            StepState::Ahead => text.text_color(palette.step_ahead),
+            StepState::Ahead => text.text_color(palette.faint_foreground),
         });
     }
     line

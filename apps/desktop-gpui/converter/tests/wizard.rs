@@ -600,8 +600,15 @@ fn left_behind_items_show_their_reason_and_details_and_try_again_converts_what_i
     assert_eq!(details.raw, "disk on fire");
     assert!(!details.open);
     assert!(done.groups[0][0].details.is_none());
-    wizard.act(Action::Details);
-    assert!(wizard.screen().groups[0][1].details.as_ref().unwrap().open);
+    wizard.act(details.toggle);
+    let opened = wizard.screen();
+    assert!(opened.groups[0][1].details.as_ref().unwrap().open);
+    assert!(!opened.warnings[0].details.as_ref().unwrap().open);
+    wizard.act(opened.warnings[0].details.as_ref().unwrap().toggle);
+    wizard.act(details.toggle);
+    let swapped = wizard.screen();
+    assert!(!swapped.groups[0][1].details.as_ref().unwrap().open);
+    assert!(swapped.warnings[0].details.as_ref().unwrap().open);
     assert_eq!(
         buttons(&done),
         [
@@ -648,4 +655,151 @@ fn convert_another_shows_only_while_another_install_remains_and_show_folder_stan
         buttons(&wizard.screen()),
         [(Action::Close, true), (Action::ShowFolder, true)]
     );
+}
+
+#[test]
+fn convert_another_also_shows_when_items_were_left_behind() {
+    let machine = Machine::with_cap_anibullet_2();
+    machine.add_cap();
+    let mut wizard = machine.wizard(Language::English);
+    wizard.act(Action::Choose(0));
+    let _started = job(wizard.act(Action::Convert));
+    wizard.finish(Report {
+        skipped: vec![Skipped {
+            source: machine.path("Videos/Cap Recordings/exports/video/Clip.mp4"),
+            kind: ProjectKind::Recording,
+            reason: SkipReason::InUse,
+        }],
+        ..Report::default()
+    });
+    assert_eq!(
+        buttons(&wizard.screen()),
+        [
+            (Action::ShowFolder, true),
+            (Action::ConvertAnother, true),
+            (Action::Close, true),
+            (Action::TryAgain, true)
+        ]
+    );
+}
+
+#[test]
+fn a_storage_folder_that_cannot_be_saved_is_left_behind_and_not_finished() {
+    let machine = Machine::with_cap_anibullet_2();
+    *machine.world.free.lock().unwrap() = Some(1 << 30);
+    let mut wizard = machine.wizard(Language::English);
+    std::fs::create_dir_all(machine.path("E")).unwrap();
+    wizard.change_destination(&machine.path("E/FrameEver"));
+    machine.write(
+        "AppData/Roaming/io.github.anibullet.frameever",
+        b"a file, not a folder",
+    );
+
+    let started = job(wizard.act(Action::Convert));
+    run(&mut wizard, started);
+
+    let done = wizard.screen();
+    assert_eq!(done.title, "Some items were left behind");
+    assert_eq!(done.subtitle, "0 of 3 items are now in FrameEver.");
+    assert!(!done.tick);
+    assert_eq!(wizard.primary(), Some(Action::TryAgain));
+    shows(
+        &done,
+        "Studio.cap | Couldn't move this recording. It's still where it was.",
+    );
+}
+
+#[test]
+fn an_unknown_free_space_across_drives_is_said_not_passed_silently() {
+    let machine = Machine::with_cap_anibullet_2();
+    let mut wizard = machine.wizard(Language::English);
+    std::fs::create_dir_all(machine.path("E")).unwrap();
+    wizard.change_destination(&machine.path("E/FrameEver"));
+
+    let review = wizard.screen();
+    assert_eq!(
+        review.warnings[0].text,
+        "Couldn't check the free space on E:. This needs 1 KB."
+    );
+    assert_eq!(wizard.primary(), Some(Action::Convert));
+}
+
+#[test]
+fn convert_the_rest_skips_settings_already_carried_and_checks_space_again() {
+    let machine = Machine::with_cap_anibullet_2();
+    *machine.world.free.lock().unwrap() = Some(1 << 30);
+    let mut wizard = machine.wizard(Language::English);
+    std::fs::create_dir_all(machine.path("E")).unwrap();
+    let elsewhere = machine.path("E/FrameEver");
+    wizard.change_destination(&elsewhere);
+    let first = job(wizard.act(Action::Convert));
+    let report = first.run(|progress| {
+        if progress.done == 0 {
+            wizard.act(Action::Stop);
+        }
+    });
+    wizard.finish(report);
+    assert_eq!(wizard.screen().title, "Conversion stopped");
+
+    let settings_file = machine.target().settings_file;
+    let mut settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&settings_file).unwrap()).unwrap();
+    assert!(
+        settings
+            .as_object_mut()
+            .unwrap()
+            .remove("automations")
+            .is_some()
+    );
+    std::fs::write(&settings_file, settings.to_string()).unwrap();
+
+    *machine.world.free.lock().unwrap() = Some(10);
+    assert!(wizard.act(Action::ConvertRest).is_none());
+    let review = wizard.screen();
+    assert_eq!(review.title, "Choose what comes over");
+    assert_eq!(
+        review.warnings[0].text,
+        "Not enough space on E:. This needs 1 KB and 1 KB is free. Change the folder or convert less."
+    );
+    shows(&review, "[Convert 2 items]");
+    assert!(
+        review.groups[0]
+            .iter()
+            .any(|row| row.check == Some((Kind::Settings, false)))
+    );
+
+    *machine.world.free.lock().unwrap() = Some(1 << 30);
+    wizard.change_destination(&elsewhere);
+    let rest = job(wizard.act(Action::Convert));
+    run(&mut wizard, rest);
+    assert_eq!(wizard.screen().subtitle, "2 items are now in FrameEver.");
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&settings_file).unwrap()).unwrap();
+    assert!(settings.get("automations").is_none());
+    assert!(elsewhere.join("Recordings/Clip.ever").is_dir());
+}
+
+#[test]
+fn try_again_with_enough_space_runs_only_what_is_left_without_the_settings() {
+    let machine = Machine::with_cap_anibullet_2();
+    let mut wizard = machine.wizard(Language::English);
+    let first = job(wizard.act(Action::Convert));
+    let report = first.run(|progress| {
+        if progress.done == 0 {
+            wizard.act(Action::Stop);
+        }
+    });
+    wizard.finish(report);
+    let settings_file = machine.target().settings_file;
+    let mut settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&settings_file).unwrap()).unwrap();
+    settings.as_object_mut().unwrap().remove("automations");
+    std::fs::write(&settings_file, settings.to_string()).unwrap();
+
+    let rest = job(wizard.act(Action::ConvertRest));
+    run(&mut wizard, rest);
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&settings_file).unwrap()).unwrap();
+    assert!(settings.get("automations").is_none());
+    assert_eq!(wizard.screen().subtitle, "2 items are now in FrameEver.");
 }
