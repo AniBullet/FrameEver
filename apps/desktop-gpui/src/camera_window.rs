@@ -109,8 +109,8 @@ mod inline_preview_tests {
 mod toolbar_fit_tests {
     use super::*;
 
-    fn drawn(scale: f32, buttons: usize) -> f32 {
-        (42. * buttons as f32 + 4.) * scale + 2.
+    fn fits(scale: f32, buttons: usize, width: f32) -> bool {
+        toolbar_width(scale, buttons) + TOOLBAR_INSET <= width
     }
 
     #[test]
@@ -120,35 +120,38 @@ mod toolbar_fit_tests {
             ..Default::default()
         };
         let width = window_size(&state, None).0;
-        let (scale, buttons) = toolbar_fit(toolbar_base_scale(&state), width);
-        assert_eq!(buttons, 4);
+        let scale = toolbar_scale(&state);
         assert_eq!(scale, 0.7);
-        assert!(drawn(scale, buttons) <= width - 8.);
+        assert_eq!(toolbar_buttons(scale, width), 4);
+        assert!(fits(scale, 4, width));
     }
 
     #[test]
-    fn a_default_bubble_keeps_every_button_at_its_size_driven_scale() {
+    fn a_default_bubble_keeps_every_button() {
         let state = CameraWindowState::default();
-        let base = toolbar_base_scale(&state);
-        assert_eq!(toolbar_fit(base, window_size(&state, None).0), (base, 5));
-        assert_eq!(toolbar_fit(0.7, 300.), (0.7, 5));
+        assert_eq!(
+            toolbar_buttons(toolbar_scale(&state), window_size(&state, None).0),
+            5
+        );
+        assert_eq!(toolbar_buttons(0.7, 300.), 5);
     }
 
     #[test]
     fn blur_goes_before_mirror() {
-        assert_eq!(toolbar_fit(0.7, 150.).1, 4);
-        assert_eq!(toolbar_fit(1., 150.).1, 3);
-        assert_eq!(toolbar_fit(1., 190.).1, 4);
+        assert_eq!(toolbar_buttons(0.7, 150.), 4);
+        assert_eq!(toolbar_buttons(1., 150.), 3);
+        assert_eq!(toolbar_buttons(1., 190.), 4);
     }
 
     #[test]
-    fn a_shrunk_preview_fits_its_toolbar_inside_it() {
+    fn a_narrow_preview_drops_buttons_without_shrinking_them() {
         for width in [81., 100., 120., 144., 160., 200.] {
-            let (scale, buttons) = toolbar_fit(1., width);
-            assert!(drawn(scale, buttons) <= width - 8. + 0.01, "{width}");
-            assert!(scale >= 0.4);
+            let buttons = toolbar_buttons(1., width);
+            assert!(buttons == 3 || fits(1., buttons, width), "{width}");
+            assert!(buttons == 5 || !fits(1., buttons + 1, width), "{width}");
         }
-        assert_eq!(toolbar_fit(1., 81.).1, 3);
+        assert_eq!(toolbar_buttons(1., 81.), 3);
+        assert_eq!(toolbar_width(1., 3), 130.);
     }
 }
 
@@ -159,19 +162,23 @@ fn normalized_size(state: &CameraWindowState) -> f32 {
     (clamp_size(state.size) - CAMERA_MIN_SIZE) / (CAMERA_MAX_SIZE - CAMERA_MIN_SIZE)
 }
 
-fn toolbar_base_scale(state: &CameraWindowState) -> f32 {
+const TOOLBAR_BUTTON_FOOTPRINT: f32 = 42.;
+const TOOLBAR_STRIP_PADDING: f32 = 4.;
+const TOOLBAR_INSET: f32 = 10.;
+
+fn toolbar_scale(state: &CameraWindowState) -> f32 {
     0.7 + normalized_size(state) * 0.3
 }
 
-fn toolbar_fit(base_scale: f32, width: f32) -> (f32, usize) {
-    const SMALLEST: f32 = 0.4;
-    let fit = |buttons: usize| (width - 10.) / (42. * buttons as f32 + 4.);
-    for buttons in [5, 4] {
-        if fit(buttons) >= base_scale {
-            return (base_scale, buttons);
-        }
-    }
-    (base_scale.min(fit(3)).max(SMALLEST), 3)
+fn toolbar_width(scale: f32, buttons: usize) -> f32 {
+    (TOOLBAR_BUTTON_FOOTPRINT * buttons as f32 + TOOLBAR_STRIP_PADDING) * scale
+}
+
+fn toolbar_buttons(scale: f32, width: f32) -> usize {
+    [5, 4]
+        .into_iter()
+        .find(|&buttons| toolbar_width(scale, buttons) + TOOLBAR_INSET <= width)
+        .unwrap_or(3)
 }
 
 /// The visible bubble's corner radius. The shipped Tauri experience is the
@@ -1927,12 +1934,16 @@ impl CameraWindow {
             .or(self.retained_aspect)
     }
 
-    fn toolbar_fit(&self) -> (f32, usize) {
+    fn toolbar_scale(&self) -> f32 {
+        toolbar_scale(&self.state)
+    }
+
+    fn toolbar_buttons(&self) -> usize {
         let width = self.picker_size.map_or_else(
             || window_size(&self.state, self.frame_aspect()).0,
             |(width, _)| width,
         );
-        toolbar_fit(toolbar_base_scale(&self.state), width)
+        toolbar_buttons(self.toolbar_scale(), width)
     }
 
     /// Pushes the chrome inputs the preview renders with (its own notify is
@@ -2183,7 +2194,8 @@ impl CameraWindow {
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let (scale, buttons) = self.toolbar_fit();
+        let scale = self.toolbar_scale();
+        let buttons = self.toolbar_buttons();
         #[cfg(target_os = "macos")]
         let (mirror_failed, blur_failed) = (self.effect_failures.mirror, self.effect_failures.blur);
         #[cfg(not(target_os = "macos"))]
