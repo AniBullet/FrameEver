@@ -6828,7 +6828,7 @@ impl EditorWindow {
                     })
                     .collect()
             }
-            ToolbarMenu::Snapshot => crate::editor_frame_export::FrameAction::ALL
+            ToolbarMenu::Snapshot => crate::editor_snapshot::SnapshotAction::ALL
                 .iter()
                 .map(|action| ui::MenuItem::new(action.label(), false))
                 .collect(),
@@ -6906,8 +6906,8 @@ impl EditorWindow {
                 });
             }
             ToolbarMenu::Snapshot => {
-                if let Some(action) = crate::editor_frame_export::FrameAction::ALL.get(index) {
-                    self.export_current_frame(*action, window, cx);
+                if let Some(action) = crate::editor_snapshot::SnapshotAction::ALL.get(index) {
+                    self.take_snapshot(*action, window, cx);
                 }
             }
         }
@@ -9751,7 +9751,7 @@ impl EditorWindow {
                     .left_icon("icons/image.svg")
                     .right_icon("icons/chevron-down.svg")
                     .when(!narrow, |button| button.label(t!("Snapshot")))
-                    .tooltip(&theme, t!("Export the current frame"))
+                    .tooltip(&theme, t!("Snapshot"))
                     .disabled(!self.project_ready())
                     .pressed(
                         self.toolbar_menu

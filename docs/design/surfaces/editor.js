@@ -1228,7 +1228,7 @@ const aspects = [
 const toolbar = () => `<div class="toolbar">
 	<button class="ib ${S.menu === "aspect" ? "on" : ""}" data-act="menu" data-m="aspect">${icon("proportions")}${L(...aspects[S.aspect])}${icon("chevron-down")}</button>
 	<button class="ib" data-act="dialog" data-d="crop">${icon("crop")}${L("Crop", "裁剪")}</button>
-	<button class="ib ${S.menu === "snapshot" ? "on" : ""}" data-act="menu" data-m="snapshot" title="${L("Export the current frame", "导出当前帧")}">${icon("image")}${L("Snapshot", "快照")}${icon("chevron-down")}</button>
+	<button class="ib ${S.menu === "snapshot" ? "on" : ""}" data-act="menu" data-m="snapshot" title="${L("Snapshot", "快照")}">${icon("image")}${L("Snapshot", "快照")}${icon("chevron-down")}</button>
 	<span class="grow"></span>
 	<span class="lbl">${L("Preview", "预览")}</span>
 	${`<div class="seg">${[

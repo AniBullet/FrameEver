@@ -155,13 +155,12 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Crop", "裁剪"),
     ("Crop Video", "裁剪视频"),
     ("Snapshot", "快照"),
-    ("Export the current frame", "导出当前帧"),
     ("Save to library", "保存到资源库"),
     ("Frame saved to the library", "当前帧已保存到资源库"),
     ("Frame copied", "当前帧已复制"),
     (
         "Couldn't save the frame. Check that the storage folder is available and has free space, then try again.",
-        "无法保存当前帧。请检查存储文件夹是否可用、空间是否足够，然后再试一次。",
+        "无法保存当前帧。检查存储文件夹是否可用、空间是否足够，然后再试一次。",
     ),
     (
         "Couldn't copy the frame. Try again.",

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{borrow::Cow, path::PathBuf};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use frameever_editor::EditorInstance;
@@ -105,7 +105,7 @@ pub async fn render_preview_with_config(
 /// Everything a preview frame needs, borrowed from whichever owner already
 /// holds the decoders and GPU pipelines.
 struct PreviewSource<'a> {
-    project_config: ProjectConfiguration,
+    project_config: Cow<'a, ProjectConfiguration>,
     render_constants: &'a RenderVideoConstants,
     segments: Vec<PreviewSegment<'a>>,
     total_duration: f64,
@@ -121,14 +121,12 @@ async fn render_preview_with_base(
     frame_time: f64,
     settings: ExportPreviewSettings,
 ) -> Result<ExportPreviewResult, ExportError> {
-    let total_duration = frameever_rendering::get_duration(
-        &exporter_base.recordings,
-        &exporter_base.recording_meta,
-        &exporter_base.studio_meta,
-        &exporter_base.project_config,
-    );
-    let source = PreviewSource {
-        project_config: exporter_base.project_config.clone(),
+    render_preview_frame(base_source(&exporter_base), frame_time, settings).await
+}
+
+fn base_source(exporter_base: &ExporterBase) -> PreviewSource<'_> {
+    PreviewSource {
+        project_config: Cow::Borrowed(&exporter_base.project_config),
         render_constants: &exporter_base.render_constants,
         segments: exporter_base
             .segments
@@ -138,9 +136,13 @@ async fn render_preview_with_base(
                 cursor: &segment.cursor,
             })
             .collect(),
-        total_duration,
-    };
-    render_preview_frame(source, frame_time, settings).await
+        total_duration: frameever_rendering::get_duration(
+            &exporter_base.recordings,
+            &exporter_base.recording_meta,
+            &exporter_base.studio_meta,
+            &exporter_base.project_config,
+        ),
+    }
 }
 
 pub async fn render_still_with_config(
@@ -156,26 +158,7 @@ pub async fn render_still_with_config(
         .build()
         .await
         .map_err(|error| ExportError::Other(format!("Exporter build error: {error}")))?;
-    let total_duration = frameever_rendering::get_duration(
-        &exporter_base.recordings,
-        &exporter_base.recording_meta,
-        &exporter_base.studio_meta,
-        &exporter_base.project_config,
-    );
-    let source = PreviewSource {
-        project_config: exporter_base.project_config.clone(),
-        render_constants: &exporter_base.render_constants,
-        segments: exporter_base
-            .segments
-            .iter()
-            .map(|segment| PreviewSegment {
-                decoders: &segment.decoders,
-                cursor: &segment.cursor,
-            })
-            .collect(),
-        total_duration,
-    };
-    render_still(&source, frame_time, fps).await
+    render_still(&base_source(&exporter_base), frame_time, fps).await
 }
 
 pub async fn render_still_with_editor(
@@ -264,7 +247,7 @@ fn editor_source(
     );
 
     Ok(PreviewSource {
-        project_config,
+        project_config: Cow::Owned(project_config),
         render_constants: &editor.render_constants,
         segments: editor
             .segment_medias
@@ -354,7 +337,7 @@ async fn render_source_frame(
     resolution_base: XY<u32>,
     cursor_only: bool,
 ) -> Result<RenderedFrame, ExportError> {
-    let project_config = &source.project_config;
+    let project_config: &ProjectConfiguration = &source.project_config;
     let render_constants = source.render_constants;
     let segments = &source.segments;
     let total_duration = source.total_duration;

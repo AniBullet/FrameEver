@@ -8,34 +8,34 @@ use crate::editor_window::{EDITOR_PREVIEW_FPS, EditorWindow};
 use crate::i18n::t;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrameAction {
+pub enum SnapshotAction {
     Save,
     Copy,
 }
 
-impl FrameAction {
-    pub const ALL: [FrameAction; 2] = [FrameAction::Save, FrameAction::Copy];
+impl SnapshotAction {
+    pub const ALL: [SnapshotAction; 2] = [SnapshotAction::Save, SnapshotAction::Copy];
 
     pub fn label(self) -> &'static str {
         match self {
-            FrameAction::Save => t!("Save to library"),
-            FrameAction::Copy => t!("Copy to clipboard"),
+            SnapshotAction::Save => t!("Save to library"),
+            SnapshotAction::Copy => t!("Copy to clipboard"),
         }
     }
 
     pub fn done(self) -> &'static str {
         match self {
-            FrameAction::Save => t!("Frame saved to the library"),
-            FrameAction::Copy => t!("Frame copied"),
+            SnapshotAction::Save => t!("Frame saved to the library"),
+            SnapshotAction::Copy => t!("Frame copied"),
         }
     }
 
     pub fn failed(self) -> &'static str {
         match self {
-            FrameAction::Save => t!(
+            SnapshotAction::Save => t!(
                 "Couldn't save the frame. Check that the storage folder is available and has free space, then try again."
             ),
-            FrameAction::Copy => t!("Couldn't copy the frame. Try again."),
+            SnapshotAction::Copy => t!("Couldn't copy the frame. Try again."),
         }
     }
 }
@@ -64,9 +64,9 @@ pub fn save_still_in(dir: &Path, pretty_name: &str, still: &StillFrame) -> anyho
 }
 
 impl EditorWindow {
-    pub(crate) fn export_current_frame(
+    pub(crate) fn take_snapshot(
         &mut self,
-        action: FrameAction,
+        action: SnapshotAction,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -92,12 +92,12 @@ impl EditorWindow {
             }
             .map_err(|error| anyhow!("rendering the frame: {error}"))?;
             match action {
-                FrameAction::Save => tokio::task::spawn_blocking(move || {
+                SnapshotAction::Save => tokio::task::spawn_blocking(move || {
                     save_still_in(&screenshots, &name, &still).map(|_| None)
                 })
                 .await
                 .context("the frame save task died")?,
-                FrameAction::Copy => {
+                SnapshotAction::Copy => {
                     tokio::task::spawn_blocking(move || encode_still_png(&still).map(Some))
                         .await
                         .context("the frame encode task died")?
@@ -118,13 +118,13 @@ impl EditorWindow {
             };
             this.update_in(cx, |this, window, cx| match result {
                 Ok(()) => {
-                    if action == FrameAction::Save {
+                    if action == SnapshotAction::Save {
                         crate::app_windows::screenshot_saved(cx);
                     }
                     this.show_notice(action.done(), window, cx);
                 }
                 Err(error) => {
-                    tracing::error!("exporting the current frame failed: {error:#}");
+                    tracing::error!("taking a snapshot failed: {error:#}");
                     this.show_notice(action.failed(), window, cx);
                 }
             })
