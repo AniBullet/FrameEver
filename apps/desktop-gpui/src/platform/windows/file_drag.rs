@@ -11,30 +11,41 @@ use windows::Win32::UI::Shell::{DROPFILES, SHCreateDataObject, SHDoDragDrop};
 
 const DROPFILES_SIZE: usize = std::mem::size_of::<DROPFILES>();
 
-fn drop_list(paths: &[PathBuf]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(DROPFILES_SIZE);
-    bytes.extend_from_slice(&(DROPFILES_SIZE as u32).to_le_bytes());
-    bytes.extend_from_slice(&[0; 12]);
-    bytes.extend_from_slice(&1_i32.to_le_bytes());
-    let units = paths
-        .iter()
-        .flat_map(|path| path.as_os_str().encode_wide().chain([0]))
-        .chain([0]);
-    for unit in units {
-        bytes.extend_from_slice(&unit.to_le_bytes());
+fn drop_list_header() -> DROPFILES {
+    DROPFILES {
+        pFiles: DROPFILES_SIZE as u32,
+        fWide: true.into(),
+        ..Default::default()
     }
-    bytes
 }
 
-unsafe fn global_bytes(bytes: &[u8]) -> windows::core::Result<HGLOBAL> {
+fn drop_list_names(paths: &[PathBuf]) -> Vec<u16> {
+    paths
+        .iter()
+        .flat_map(|path| path.as_os_str().encode_wide().chain([0]))
+        .chain([0])
+        .collect()
+}
+
+unsafe fn global_drop_list(paths: &[PathBuf]) -> windows::core::Result<HGLOBAL> {
+    let names = drop_list_names(paths);
+    let names_size = std::mem::size_of_val(names.as_slice());
     unsafe {
-        let global = GlobalAlloc(GMEM_MOVEABLE, bytes.len())?;
+        let global = GlobalAlloc(GMEM_MOVEABLE, DROPFILES_SIZE + names_size)?;
         let target = GlobalLock(global).cast::<u8>();
         if target.is_null() {
-            GlobalFree(Some(global))?;
-            return Err(windows::core::Error::from_thread());
+            let error = windows::core::Error::from_thread();
+            GlobalFree(Some(global)).ok();
+            return Err(error);
         }
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), target, bytes.len());
+        target
+            .cast::<DROPFILES>()
+            .write_unaligned(drop_list_header());
+        std::ptr::copy_nonoverlapping(
+            names.as_ptr().cast::<u8>(),
+            target.add(DROPFILES_SIZE),
+            names_size,
+        );
         GlobalUnlock(global).ok();
         Ok(global)
     }
@@ -50,12 +61,16 @@ unsafe fn files_data_object(paths: &[PathBuf]) -> windows::core::Result<IDataObj
             lindex: -1,
             tymed: TYMED_HGLOBAL.0 as u32,
         };
+        let global = global_drop_list(paths)?;
         let mut medium = STGMEDIUM {
             tymed: TYMED_HGLOBAL.0 as u32,
             ..Default::default()
         };
-        medium.u.hGlobal = global_bytes(&drop_list(paths))?;
-        data.SetData(&format, &medium, true)?;
+        medium.u.hGlobal = global;
+        if let Err(error) = data.SetData(&format, &medium, true) {
+            GlobalFree(Some(global)).ok();
+            return Err(error);
+        }
         Ok(data)
     }
 }
@@ -83,16 +98,28 @@ mod tests {
 
     #[test]
     fn the_drop_list_holds_every_path_in_wide_characters_and_ends_with_two_nulls() {
-        let bytes = drop_list(&[PathBuf::from(r"C:\a.mp4"), PathBuf::from(r"D:\帧.png")]);
-        assert_eq!(&bytes[..4], &20_u32.to_le_bytes());
-        assert_eq!(&bytes[16..20], &1_i32.to_le_bytes());
-        let units: Vec<u16> = bytes[20..]
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|pair| u16::from_le_bytes(*pair))
-            .collect();
+        let header = drop_list_header();
+        assert_eq!({ header.pFiles }, 20);
+        assert!({ header.fWide }.as_bool());
+        assert!(!{ header.fNC }.as_bool());
+        let names = drop_list_names(&[PathBuf::from(r"C:\a.mp4"), PathBuf::from(r"D:\帧.png")]);
         let expected: Vec<u16> = "C:\\a.mp4\0D:\\帧.png\0\0".encode_utf16().collect();
-        assert_eq!(units, expected);
+        assert_eq!(names, expected);
+    }
+
+    #[test]
+    fn the_drop_list_memory_starts_with_the_header_and_then_the_names() {
+        let paths = [PathBuf::from(r"C:\a.mp4")];
+        unsafe {
+            let global = global_drop_list(&paths).unwrap();
+            let bytes = GlobalLock(global).cast::<u8>();
+            let header = bytes.cast::<DROPFILES>().read_unaligned();
+            let names =
+                std::slice::from_raw_parts(bytes.add(DROPFILES_SIZE).cast::<u16>(), 10).to_vec();
+            GlobalUnlock(global).ok();
+            GlobalFree(Some(global)).ok();
+            assert_eq!({ header.pFiles }, 20);
+            assert_eq!(names, "C:\\a.mp4\0\0".encode_utf16().collect::<Vec<u16>>());
+        }
     }
 }
