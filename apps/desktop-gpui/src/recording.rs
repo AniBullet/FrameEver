@@ -442,6 +442,13 @@ async fn finish_failed_capture(
 }
 
 impl ActiveRecording {
+    pub fn studio_handle(&self) -> Option<studio_recording::ActorHandle> {
+        match &self.handle {
+            Handle::Studio(handle) => Some(handle.clone()),
+            Handle::Instant(_) => None,
+        }
+    }
+
     pub fn done_fut(&self) -> frameever_recording::DoneFut {
         match &self.handle {
             Handle::Studio(handle) => handle.done_fut(),
@@ -1342,6 +1349,52 @@ pub async fn start(config: StartConfig) -> anyhow::Result<ActiveRecording> {
         tracing::warn!(dir = %project_dir.display(), "could not remove unused project: {error}");
     }
     started
+}
+
+pub async fn attach_microphone(
+    handle: studio_recording::ActorHandle,
+    actor: ActorRef<MicrophoneFeed>,
+    label: String,
+    ready: Option<crate::feeds::InputReady>,
+) -> anyhow::Result<Arc<std::sync::atomic::AtomicBool>> {
+    if let Some(ready) = ready {
+        ready.await.map_err(anyhow::Error::msg)?;
+    }
+    let lock = actor.ask(microphone::Lock).await?;
+    anyhow::ensure!(
+        lock.device_name() == label,
+        t!(
+            "Selected microphone '{label}' is not the connected microphone '{device}'. Please select it again.",
+            label = label,
+            device = lock.device_name()
+        )
+    );
+    let mute = lock.recording_muted_handle();
+    handle.set_mic_feed(Some(Arc::new(lock))).await?;
+    Ok(mute)
+}
+
+pub async fn attach_camera(
+    handle: studio_recording::ActorHandle,
+    actor: ActorRef<CameraFeed>,
+    id: DeviceOrModelID,
+    ready: Option<crate::feeds::InputReady>,
+) -> anyhow::Result<()> {
+    if let Some(ready) = ready {
+        ready.await.map_err(anyhow::Error::msg)?;
+    }
+    let lock = actor.ask(camera::Lock).await?;
+    let info = lock.camera_info();
+    let matches_selection = match &id {
+        DeviceOrModelID::DeviceID(device_id) => info.device_id() == device_id,
+        DeviceOrModelID::ModelID(model_id) => info.model_id() == Some(model_id),
+    };
+    anyhow::ensure!(
+        matches_selection,
+        t!("The selected camera is not the connected camera. Please select it again.")
+    );
+    handle.set_camera_feed(Some(Arc::new(lock))).await?;
+    Ok(())
 }
 
 async fn start_attempt(

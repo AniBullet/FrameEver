@@ -33,6 +33,18 @@ pub struct ControlsWindow {
     _tick: gpui::Task<()>,
     ticking_live: bool,
     level_bar: Entity<ui::MicrophoneLevel>,
+    options_open: bool,
+    expanded: Option<InputKind>,
+    microphones: Vec<String>,
+    cameras: Vec<(String, crate::recording::DeviceOrModelID)>,
+    dismissed_issue: Option<String>,
+    window_height: f32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InputKind {
+    Microphone,
+    Camera,
 }
 
 #[derive(Clone, Copy)]
@@ -51,6 +63,7 @@ impl ControlsWindow {
         crate::theme::bind_window(window, cx);
         let theme = Theme::for_window(window, cx, false);
         cx.observe_in(&session, window, |this, _, window, cx| {
+            this.fit_height(window, cx);
             let live = this.timer_is_live(cx);
             if live != this.ticking_live {
                 this.ticking_live = live;
@@ -77,10 +90,131 @@ impl ControlsWindow {
             _tick: gpui::Task::ready(()),
             ticking_live: false,
             level_bar,
+            options_open: false,
+            expanded: None,
+            microphones: Vec::new(),
+            cameras: Vec::new(),
+            dismissed_issue: None,
+            window_height: crate::app_windows::CONTROLS_BAR_HEIGHT,
         };
         this.ticking_live = this.timer_is_live(cx);
         this._tick = Self::spawn_tick(window, cx);
+        cx.defer_in(window, |this, window, cx| this.fit_height(window, cx));
         this
+    }
+
+    fn issue(&self, cx: &gpui::App) -> Option<String> {
+        let session = self.session.read(cx);
+        let mut lines = Vec::new();
+        if session.mic_disconnected {
+            lines.push(
+                t!("Microphone disconnected. Silence will be used until it reconnects.").to_owned(),
+            );
+        }
+        if Feeds::global(cx).read(cx).camera_disconnected() {
+            lines.push(
+                t!("Camera disconnected. Recording continues without the camera.").to_owned(),
+            );
+        }
+        if let Some(error) = session.error.clone() {
+            lines.push(error);
+        }
+        if session.storage_warning {
+            lines.push(
+                t!("Low storage. FrameEver will stop soon to save your recording.").to_owned(),
+            );
+        }
+        (!lines.is_empty()).then(|| lines.join("\n"))
+    }
+
+    fn issue_card_shown(&self, cx: &gpui::App) -> Option<String> {
+        self.issue(cx)
+            .filter(|issue| self.dismissed_issue.as_ref() != Some(issue))
+    }
+
+    fn fit_height(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let height = crate::app_windows::controls_window_height(
+            self.issue_card_shown(cx).is_some(),
+            self.options_open,
+        );
+        if height == self.window_height {
+            return;
+        }
+        self.window_height = height;
+        let Some(native) = crate::platform::native_window(window) else {
+            return;
+        };
+        let scale = window.scale_factor();
+        cx.spawn(async move |_, _| {
+            crate::app_windows::fit_controls_height(&native, height, scale);
+        })
+        .detach();
+    }
+
+    fn toggle_options(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.options_open = !self.options_open;
+        self.expanded = None;
+        if self.options_open {
+            cx.spawn(async move |this, cx| {
+                let (microphones, cameras) = cx
+                    .background_executor()
+                    .spawn(async {
+                        let microphones =
+                            frameever_recording::feeds::microphone::MicrophoneFeed::list_names();
+                        let cameras = frameever_camera::list_cameras()
+                            .map(|camera| {
+                                let id = camera
+                                    .model_id()
+                                    .cloned()
+                                    .map(crate::recording::DeviceOrModelID::ModelID)
+                                    .unwrap_or_else(|| {
+                                        crate::recording::DeviceOrModelID::DeviceID(
+                                            camera.device_id().to_string(),
+                                        )
+                                    });
+                                (camera.display_name().to_string(), id)
+                            })
+                            .collect::<Vec<_>>();
+                        (microphones, cameras)
+                    })
+                    .await;
+                this.update(cx, |this, cx| {
+                    this.microphones = microphones;
+                    this.cameras = cameras;
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+        self.fit_height(window, cx);
+        cx.notify();
+    }
+
+    fn toggle_issue_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let issue = self.issue(cx);
+        self.dismissed_issue = if self.issue_card_shown(cx).is_some() {
+            issue
+        } else {
+            None
+        };
+        self.fit_height(window, cx);
+        cx.notify();
+    }
+
+    fn toggle_camera_preview(&mut self, cx: &mut Context<Self>) {
+        cx.defer(|cx| {
+            if cx
+                .global::<crate::app_windows::AppWindows>()
+                .camera
+                .is_some()
+            {
+                crate::app_windows::close_camera_window(cx);
+            } else {
+                crate::app_windows::open_camera_window(cx);
+            }
+        });
+        cx.notify();
     }
 
     fn timer_is_live(&self, cx: &gpui::App) -> bool {
@@ -117,10 +251,14 @@ impl ControlsWindow {
         })
     }
 
-    /// `formatTime`: `M:SS`, hours folded into minutes the same way.
     fn format_elapsed(elapsed: Duration) -> String {
         let total = elapsed.as_secs();
-        format!("{}:{:02}", total / 60, total % 60)
+        let (hours, minutes, seconds) = (total / 3600, total / 60 % 60, total % 60);
+        if hours > 0 {
+            format!("{hours}:{minutes:02}:{seconds:02}")
+        } else {
+            format!("{minutes}:{seconds:02}")
+        }
     }
 
     fn action_button(
@@ -273,6 +411,227 @@ impl ControlsWindow {
             })
     }
 
+    fn option_row(
+        &self,
+        id: impl Into<gpui::ElementId>,
+        enabled: bool,
+    ) -> gpui::Stateful<gpui::Div> {
+        let theme = self.theme;
+        div()
+            .id(id)
+            .w_full()
+            .h(px(32.))
+            .flex_shrink_0()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(8.))
+            .px(px(8.))
+            .rounded(px(8.))
+            .text_size(px(13.))
+            .text_color(theme.gray_12)
+            .when(enabled, |this| {
+                this.hover(|style| style.bg(Theme::with_alpha(theme.gray_12, 0.06)))
+            })
+            .when(!enabled, |this| this.opacity(0.5))
+    }
+
+    fn device_row(
+        &self,
+        kind: InputKind,
+        icon: &'static str,
+        label: SharedString,
+        value: Option<SharedString>,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let theme = self.theme;
+        let open = self.expanded == Some(kind);
+        let id = match kind {
+            InputKind::Microphone => "pick-microphone",
+            InputKind::Camera => "pick-camera",
+        };
+        self.option_row(id, enabled)
+            .when(enabled, |this| {
+                this.on_click(cx.listener(move |this, _, _, cx| {
+                    this.expanded = if this.expanded == Some(kind) {
+                        None
+                    } else {
+                        Some(kind)
+                    };
+                    cx.notify();
+                }))
+            })
+            .child(svg().path(icon).size(px(16.)).text_color(theme.gray_11))
+            .child(div().flex_1().min_w_0().truncate().child(label))
+            .child(
+                div()
+                    .max_w(px(130.))
+                    .truncate()
+                    .text_size(px(12.))
+                    .text_color(theme.gray_10)
+                    .children(value),
+            )
+            .when(enabled, |this| {
+                this.child(
+                    svg()
+                        .path(if open {
+                            "icons/chevron-up.svg"
+                        } else {
+                            "icons/chevron-down.svg"
+                        })
+                        .size(px(14.))
+                        .text_color(theme.gray_10),
+                )
+            })
+    }
+
+    fn render_options(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let session = self.session.read(cx);
+        let can_change = session.can_change_inputs();
+        let microphone = session.microphone_label();
+        let camera = session.camera_id();
+        let camera_label = camera.as_ref().and_then(|id| {
+            self.cameras
+                .iter()
+                .find(|(_, candidate)| candidate == id)
+                .map(|(label, _)| label.clone())
+        });
+        let camera_window_open = cx
+            .global::<crate::app_windows::AppWindows>()
+            .camera
+            .is_some();
+        let not_used: SharedString = t!("Not in this recording").into();
+
+        let microphone_rows = (self.expanded == Some(InputKind::Microphone)).then(|| {
+            self.microphones
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(index, name)| {
+                    let checked = microphone.as_deref() == Some(name.as_str());
+                    let pick = name.clone();
+                    self.option_row(("microphone-choice", index), can_change)
+                        .pl(px(32.))
+                        .child(div().flex_1().min_w_0().truncate().child(name))
+                        .when(checked, |this| {
+                            this.child(
+                                svg()
+                                    .path("icons/check.svg")
+                                    .size(px(14.))
+                                    .text_color(theme.gray_11),
+                            )
+                        })
+                        .when(can_change && !checked, |this| {
+                            this.on_click(cx.listener(move |this, _, _, cx| {
+                                this.expanded = None;
+                                let label = pick.clone();
+                                this.session
+                                    .update(cx, |session, cx| session.change_microphone(label, cx));
+                            }))
+                        })
+                })
+                .collect::<Vec<_>>()
+        });
+        let camera_rows = (self.expanded == Some(InputKind::Camera)).then(|| {
+            self.cameras
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(index, (name, id))| {
+                    let checked = camera.as_ref() == Some(&id);
+                    self.option_row(("camera-choice", index), can_change)
+                        .pl(px(32.))
+                        .child(div().flex_1().min_w_0().truncate().child(name))
+                        .when(checked, |this| {
+                            this.child(
+                                svg()
+                                    .path("icons/check.svg")
+                                    .size(px(14.))
+                                    .text_color(theme.gray_11),
+                            )
+                        })
+                        .when(can_change && !checked, |this| {
+                            this.on_click(cx.listener(move |this, _, _, cx| {
+                                this.expanded = None;
+                                let selection = crate::deeplink::camera_selection(id.clone());
+                                this.session
+                                    .update(cx, |session, cx| session.change_camera(selection, cx));
+                            }))
+                        })
+                })
+                .collect::<Vec<_>>()
+        });
+
+        div()
+            .id("recording-options")
+            .w_full()
+            .max_h(px(crate::app_windows::CONTROLS_OPTIONS_HEIGHT - 8.))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .mb(px(8.))
+            .p(px(4.))
+            .rounded(px(12.))
+            .border_1()
+            .border_color(theme.gray_5)
+            .bg(theme.gray_1)
+            .child(
+                self.device_row(
+                    InputKind::Microphone,
+                    "icons/mic.svg",
+                    t!("Microphone").into(),
+                    Some(
+                        microphone
+                            .clone()
+                            .map_or_else(|| not_used.clone(), Into::into),
+                    ),
+                    microphone.is_some() && can_change,
+                    cx,
+                ),
+            )
+            .children(microphone_rows.into_iter().flatten())
+            .child(self.device_row(
+                InputKind::Camera,
+                "icons/webcam.svg",
+                t!("Camera").into(),
+                Some(camera.as_ref().map_or_else(
+                    || not_used.clone(),
+                    |_| camera_label.unwrap_or_default().into(),
+                )),
+                camera.is_some() && can_change,
+                cx,
+            ))
+            .children(camera_rows.into_iter().flatten())
+            .child(
+                self.option_row("camera-preview", camera.is_some())
+                    .child(
+                        svg()
+                            .path("icons/maximize.svg")
+                            .size(px(16.))
+                            .text_color(theme.gray_11),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(t!("Show camera preview")),
+                    )
+                    .child(ui::Toggle::settings(
+                        &theme,
+                        "camera-preview-switch",
+                        camera_window_open,
+                    ))
+                    .when(camera.is_some(), |this| {
+                        this.on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_camera_preview(cx);
+                        }))
+                    }),
+            )
+    }
+
     fn confirm_action(
         &mut self,
         action: DestructiveAction,
@@ -410,8 +769,36 @@ impl ControlsWindow {
                                     }))
                                 },
                             ))
-                            // TODO: the recording settings popover menu.
-                            .child(self.action_button("settings", "icons/settings.svg", true)),
+                            .when(self.issue(cx).is_some(), |this| {
+                                this.child(
+                                    self.action_button("issue", "icons/triangle-alert.svg", false)
+                                        .text_color(theme.red_11)
+                                        .tooltip(move |_, cx| {
+                                            ui::Tooltip::new(&theme, t!("Recording issue")).view(cx)
+                                        })
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.toggle_issue_card(window, cx);
+                                        })),
+                                )
+                            })
+                            .child(
+                                self.action_button(
+                                    "settings",
+                                    "icons/sliders-horizontal.svg",
+                                    false,
+                                )
+                                .when(self.options_open, |this| {
+                                    this.bg(Theme::with_alpha(theme.gray_12, 0.10))
+                                })
+                                .tooltip(move |_, cx| {
+                                    ui::Tooltip::new(&theme, t!("Recording options")).view(cx)
+                                })
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| {
+                                        this.toggle_options(window, cx);
+                                    },
+                                )),
+                            ),
                     ),
             )
             .child(
@@ -444,12 +831,9 @@ impl ControlsWindow {
 impl Render for ControlsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.theme.refresh(window, cx, false);
-        let session = self.session.read(cx);
-        let issue = session.error.clone().or_else(|| {
-            session.storage_warning.then(|| {
-                t!("Low storage. FrameEver will stop soon to save your recording.").to_owned()
-            })
-        });
+        let theme = self.theme;
+        let issue = self.issue_card_shown(cx);
+        let options = self.options_open.then(|| self.render_options(cx));
 
         div()
             .size_full()
@@ -460,6 +844,7 @@ impl Render for ControlsWindow {
             .font_family(crate::theme::ui_font())
             // `body { font-weight: 500 }` (`ui-solid/src/main.css:189-192`).
             .font_weight(FontWeight::MEDIUM)
+            .when_some(options, |this, options| this.child(options))
             .when_some(issue, |this, issue| {
                 this.child(
                     div()
@@ -483,7 +868,27 @@ impl Render for ControlsWindow {
                                 .flex_shrink_0()
                                 .text_color(self.theme.red_11),
                         )
-                        .child(recording_issue_text(issue)),
+                        .child(recording_issue_text(issue))
+                        .child(
+                            div()
+                                .id("dismiss-issue")
+                                .flex_shrink_0()
+                                .size(px(20.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(6.))
+                                .hover(|style| style.bg(Theme::with_alpha(theme.gray_12, 0.06)))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.toggle_issue_card(window, cx);
+                                }))
+                                .child(
+                                    svg()
+                                        .path("icons/x.svg")
+                                        .size(px(14.))
+                                        .text_color(theme.gray_11),
+                                ),
+                        ),
                 )
             })
             .child(self.render_bar(cx))
@@ -538,6 +943,16 @@ mod repaint_tests {
             Duration::from_millis(20)
         );
         assert_eq!(until_next_second(Duration::ZERO), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn the_timer_shows_hours_from_an_hour_on() {
+        let label = |seconds| ControlsWindow::format_elapsed(Duration::from_secs_f64(seconds));
+        assert_eq!(label(0.), "0:00");
+        assert_eq!(label(95.7), "1:35");
+        assert_eq!(label(3_599.9), "59:59");
+        assert_eq!(label(3_600.), "1:00:00");
+        assert_eq!(label(3_905.), "1:05:05");
     }
 
     #[test]

@@ -41,8 +41,10 @@ use crate::{
 
 /// Matches the Tauri `InProgressRecording` window and
 /// `fake_window.rs` position math.
-pub const CONTROLS_WIDTH: f32 = 320.;
+pub const CONTROLS_WIDTH: f32 = 360.;
 pub const CONTROLS_HEIGHT: f32 = 150.;
+pub const CONTROLS_BAR_HEIGHT: f32 = 64.;
+pub const CONTROLS_OPTIONS_HEIGHT: f32 = 210.;
 const CONTROLS_BOTTOM_OFFSET: f64 = 120.;
 const TARGET_CONTROLS_OFFSET_Y: f64 = 48.;
 
@@ -5268,6 +5270,36 @@ fn controls_origin(config: &StartConfig) -> (f64, f64) {
     }
 }
 
+pub fn controls_window_height(issue: bool, options: bool) -> f32 {
+    let issue_room = if issue {
+        CONTROLS_HEIGHT - CONTROLS_BAR_HEIGHT
+    } else {
+        0.
+    };
+    let options_room = if options { CONTROLS_OPTIONS_HEIGHT } else { 0. };
+    CONTROLS_BAR_HEIGHT + issue_room + options_room
+}
+
+pub(crate) fn fit_controls_height(native: &platform::NativeWindow, height: f32, scale: f32) {
+    let height = f64::from(height);
+    let (x, y, width, current) = platform::window_frame(native);
+    if width <= 0. {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (current, scale);
+        platform::set_window_frame(native, x, y, width, height);
+    }
+    #[cfg(windows)]
+    {
+        let height = height * f64::from(scale);
+        platform::set_window_frame(native, x, y + current - height, width, height);
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let _ = (native, x, y, current, height, scale);
+}
+
 /// Open the bar. Returns the native window number for capture exclusion.
 fn open_controls(
     config: &StartConfig,
@@ -5276,8 +5308,11 @@ fn open_controls(
 ) -> Option<scap_targets::WindowId> {
     let (x, y) = controls_origin(config);
     let bounds = Bounds {
-        origin: point(px(x as f32), px(y as f32)),
-        size: size(px(CONTROLS_WIDTH), px(CONTROLS_HEIGHT)),
+        origin: point(
+            px(x as f32),
+            px(y as f32 + CONTROLS_HEIGHT - CONTROLS_BAR_HEIGHT),
+        ),
+        size: size(px(CONTROLS_WIDTH), px(CONTROLS_BAR_HEIGHT)),
     };
     let display = config
         .target
@@ -5687,6 +5722,20 @@ mod tests {
         let centered = Bounds::centered_at(available.center(), preferred);
         assert_eq!(fit_window_bounds(centered, available), centered);
         assert_eq!(fitted_window_min_size(preferred, centered), preferred);
+    }
+
+    #[test]
+    fn the_bar_window_only_grows_for_an_issue_card_or_the_options_card() {
+        assert_eq!(controls_window_height(false, false), CONTROLS_BAR_HEIGHT);
+        assert_eq!(controls_window_height(true, false), CONTROLS_HEIGHT);
+        assert_eq!(
+            controls_window_height(false, true),
+            CONTROLS_BAR_HEIGHT + CONTROLS_OPTIONS_HEIGHT
+        );
+        assert_eq!(
+            controls_window_height(true, true),
+            CONTROLS_HEIGHT + CONTROLS_OPTIONS_HEIGHT
+        );
     }
 
     #[test]
