@@ -213,7 +213,7 @@ const startBtn = (st) =>
 const targetTools = (st, t) => {
 	if (st.target === "display")
 		return `<span class="tb-info tnum">${L("Display 1", "显示器 1")} <em>2560 × 1440</em></span>`;
-	return `<span class="tb-info tnum">${L(t.en, t.zh)} <em>${size(t)}</em></span><button class="tb-txt" data-a="menu" data-v="win" title="${pick("Window size and focus", "窗口尺寸和专注")}">${st.focusWin ? L("Focus on", "专注开") : L("Size", "尺寸")}${icon("chevron-down", "sm")}</button>`;
+	return `<span class="tb-info tnum">${L(t.en, t.zh)} <em>${size(t)}</em></span><button class="tb-txt" data-a="menu" data-v="win" title="${pick("Window size and focus", "窗口尺寸和专注")}">${st.focusWin ? L("Focus on", "专注已开") : L("Size", "尺寸")}${icon("chevron-down", "sm")}</button>`;
 };
 
 const barSpot = (st, t) => {

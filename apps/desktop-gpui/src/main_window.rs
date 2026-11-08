@@ -2154,6 +2154,16 @@ impl MainWindow {
         cx.notify();
     }
 
+    pub fn switch_overlay_target(&mut self, kind: TargetType, cx: &mut Context<Self>) {
+        if self.target == Some(kind) {
+            return;
+        }
+        self.start_target = Some(kind);
+        self.target = Some(kind);
+        self.sync_overlays(cx);
+        cx.notify();
+    }
+
     /// `FRAMEEVER_GPUI_AUTO_OVERLAY` on its own (no `FRAMEEVER_GPUI_AUTO_RECORD`): open the
     /// overlays and leave them up, which is how the screenshots are taken.
     pub fn auto_open_overlay(

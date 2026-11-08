@@ -2526,38 +2526,26 @@ impl EditorWindow {
                     SidebarTab::Cursor => !summary.is_some_and(|summary| summary.has_cursor_data),
                     _ => false,
                 };
-                div()
-                    .id(("sidebar-tab-tooltip", index))
-                    .when(tab == SidebarTab::Clips, |this| {
-                        this.mt(px(8.))
-                            .pt(px(8.))
-                            .border_t_1()
-                            .border_color(theme.border)
-                    })
-                    .flex_none()
-                    .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
-                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, tr(tab.label())).view(cx))
-                    .child(
-                        ui::IconButton::new(("sidebar-tab", index), tab.icon())
-                            .size(px(32.))
-                            .icon_size(px(16.))
-                            .color(theme.muted_foreground.into())
-                            .disabled(disabled)
-                            .when(
-                                selection.is_none()
-                                    && self.sidebar.style_target.is_none()
-                                    && tab == selected_tab,
-                                |button| {
-                                    button
-                                        .filled(theme.selection.into(), None)
-                                        .color(theme.foreground.into())
-                                },
-                            )
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.select_sidebar_tab(index, window, cx)
-                            })),
-                    )
-                    .into_any_element()
+                crate::editor_chrome::rail_item(
+                    &theme,
+                    ("sidebar-tab", index),
+                    tab.icon(),
+                    tr(tab.label()).into(),
+                    selection.is_none()
+                        && self.sidebar.style_target.is_none()
+                        && tab == selected_tab,
+                    disabled,
+                    cx.listener(move |this, _, window, cx| {
+                        this.select_sidebar_tab(index, window, cx)
+                    }),
+                )
+                .when(tab == SidebarTab::Clips, |this| {
+                    this.mt(px(8.))
+                        .pt(px(8.))
+                        .border_t_1()
+                        .border_color(theme.border)
+                })
+                .into_any_element()
             })
             .collect();
         let body = if self.clips.open {
@@ -2572,65 +2560,22 @@ impl EditorWindow {
                 None => self.render_tab_body(cx),
             }
         };
-        div()
-            .w_full()
-            .h_full()
-            .flex()
-            .flex_row()
-            .flex_none()
-            .min_h_0()
-            .bg(theme.background)
-            .child(
-                div()
-                    .id("editor-rail")
-                    .bg(theme.sidebar)
-                    .w(px(46.))
-                    .h_full()
-                    .flex_none()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap(px(2.))
-                    .py(px(6.))
-                    .overflow_y_scroll()
-                    .border_r_1()
-                    .border_color(theme.border)
-                    .children(items),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .h(px(40.))
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .px(px(16.))
-                            .text_size(px(13.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .border_b_1()
-                            .border_color(theme.border)
-                            .child(title),
-                    )
-                    .children(
-                        self.sidebar
-                            .image_import_error
-                            .as_ref()
-                            .map(|error| div().p(px(12.)).child(error.clone())),
-                    )
-                    .children(
-                        self.sidebar
-                            .picking_image
-                            .then(|| div().p(px(12.)).child(t!("Importing image…"))),
-                    )
-                    .child(body),
-            )
+        let mut panel =
+            vec![crate::editor_chrome::panel_head(&theme, title, None).into_any_element()];
+        panel.extend(
+            self.sidebar
+                .image_import_error
+                .as_ref()
+                .map(|error| div().p(px(12.)).child(error.clone()).into_any_element()),
+        );
+        panel.extend(self.sidebar.picking_image.then(|| {
+            div()
+                .p(px(12.))
+                .child(t!("Importing image…"))
+                .into_any_element()
+        }));
+        panel.push(body);
+        crate::editor_chrome::inspector(&theme, "editor-rail", items, panel)
     }
 
     /// The scroll region (`:679-692`): `custom-scroll overflow-x-hidden

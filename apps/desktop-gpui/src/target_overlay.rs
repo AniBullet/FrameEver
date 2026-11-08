@@ -36,6 +36,9 @@ use scap_targets::{
 };
 
 mod area_math;
+mod attached_bar;
+
+use attached_bar::{BAR_EDGE, BAR_HEIGHT, BarSpot, BarTarget, place_bar, work_area_on_display};
 
 use area_math::{
     AREA_RATIOS, area_between, area_exact_size, area_fill, area_from_anchor_with_ratio,
@@ -49,7 +52,7 @@ const AREA_SELECTION_STORE: &str = "area_selection";
 use crate::{
     app_windows,
     editor_canvas::{GuideAxis, NormRect, SnapGuide},
-    i18n::{n, t, tr},
+    i18n::{n, t, tc, tr},
     main_window::{Mode, TargetType},
     theme::Theme,
 };
@@ -110,33 +113,6 @@ fn recording_devices_available(cx: &App) -> bool {
 /// expressed as a distance test, because the hit zones are computed in one
 /// place here rather than being eight elements with their own listeners.
 const AREA_HANDLE_GRAB: f32 = 12.;
-
-/// `w-104` on the controls cluster, and the height its one card comes out at
-/// (`p-3` + `h-11` + `p-3`, plus `my-2.5` above and below). The TSX measures
-/// its own controls element with a ResizeObserver to place it against the
-/// crop; gpui has no layout read-back, so the two numbers are constants.
-const CLUSTER_WIDTH: f32 = 416.;
-const CLUSTER_HEIGHT: f32 = 88.;
-
-fn area_controls_position(crop: AreaRect, available: AreaRect, cluster_height: f32) -> (f32, f32) {
-    let left = available.x + 16.;
-    let right = (available.right() - CLUSTER_WIDTH - 16.).max(left);
-    let top = available.y + 40.;
-    let bottom = (available.bottom() - cluster_height - 16.).max(top);
-    let below = crop.bottom() + 16.;
-    let above = crop.y - cluster_height - 16.;
-    let y = if below <= bottom {
-        below
-    } else if above >= top {
-        above
-    } else {
-        crop.y + 40.
-    };
-    (
-        (crop.x + crop.width / 2. - CLUSTER_WIDTH / 2.).clamp(left, right),
-        y.clamp(top, bottom),
-    )
-}
 
 const COUNTDOWN_OPTIONS: &[(u32, &str)] = &[
     (0, n!("Off")),
@@ -713,19 +689,24 @@ impl OverlayWindow {
             .raw_handle()
             .logical_bounds()
             .zip(app_windows::display_work_area(Some(display), cx))
-            .map(|(bounds, available)| AreaRect {
-                x: f32::from(available.origin.x) - bounds.position().x() as f32,
-                y: f32::from(available.origin.y) - bounds.position().y() as f32,
-                width: f32::from(available.size.width),
-                height: f32::from(available.size.height),
+            .map(|(bounds, available)| {
+                work_area_on_display(
+                    (bounds.position().x() as f32, bounds.position().y() as f32),
+                    logical,
+                    AreaRect {
+                        x: f32::from(available.origin.x),
+                        y: f32::from(available.origin.y),
+                        width: f32::from(available.size.width),
+                        height: f32::from(available.size.height),
+                    },
+                )
             })
             .unwrap_or(AreaRect {
                 x: 0.,
                 y: 0.,
                 width: logical.0,
                 height: logical.1,
-            })
-            .clamped(logical);
+            });
 
         let locked_area = locked_area_for(
             &display.id(),
@@ -950,77 +931,37 @@ impl Render for OverlayWindow {
             .id("overlay-root")
             .track_focus(&self.focus)
             .key_context("TargetSelectOverlay")
+            .capture_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if this.menu_key(&event.keystroke.key, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                if let Some(menu) = &mut this.countdown_menu {
-                    match menu.on_key(&event.keystroke.key) {
-                        crate::ui::MenuKey::Commit(index) => this.choose_countdown(index, cx),
-                        crate::ui::MenuKey::Dismiss => {
-                            this.countdown_menu = None;
-                            cx.notify();
-                        }
-                        crate::ui::MenuKey::Moved => cx.notify(),
-                        crate::ui::MenuKey::Ignored => return,
-                    }
-                    cx.stop_propagation();
-                    return;
-                }
-                if let Some(menu) = &mut this.window_menu {
-                    match menu.on_key(&event.keystroke.key) {
-                        crate::ui::MenuKey::Commit(index) => this.choose_window_size(index, cx),
-                        crate::ui::MenuKey::Dismiss => {
-                            this.window_menu = None;
-                            cx.notify();
-                        }
-                        crate::ui::MenuKey::Moved => cx.notify(),
-                        crate::ui::MenuKey::Ignored => return,
-                    }
-                    cx.stop_propagation();
-                    return;
-                }
-                if let Some(menu) = &mut this.aspect_menu {
-                    match menu.on_key(&event.keystroke.key) {
-                        crate::ui::MenuKey::Commit(index) => this.choose_aspect(index, cx),
-                        crate::ui::MenuKey::Dismiss => {
-                            this.aspect_menu = None;
-                            cx.notify();
-                        }
-                        crate::ui::MenuKey::Moved => cx.notify(),
-                        crate::ui::MenuKey::Ignored => return,
-                    }
-                    cx.stop_propagation();
-                    return;
-                }
-                if let Some(menu) = &mut this.device_menu {
-                    match menu.state.on_key(&event.keystroke.key) {
-                        crate::ui::MenuKey::Commit(index) => this.choose_device(index, cx),
-                        crate::ui::MenuKey::Dismiss => {
-                            this.device_menu = None;
-                            cx.notify();
-                        }
-                        crate::ui::MenuKey::Moved => cx.notify(),
-                        crate::ui::MenuKey::Ignored => return,
-                    }
-                    cx.stop_propagation();
-                    return;
-                }
-                // The Tauri app registers Escape as a *global* shortcut while
-                // the overlays are up; here it is a plain key handler on the
-                // overlay that has focus (see the README deviation).
-                if this.mode_menu.is_none() && this.area_key(&event.keystroke, window, cx) {
-                    cx.stop_propagation();
-                    return;
-                }
-                if event.keystroke.key.as_str() == "escape" {
-                    // An open mode menu takes the Escape before the
-                    // overlay does -- the native menu in the Tauri app
-                    // eats it the same way during menu tracking.
-                    if this.mode_menu.is_some() {
-                        this.mode_menu = None;
-                        cx.notify();
+                let key = event.keystroke.key.as_str();
+                if key == "tab" {
+                    if event.keystroke.modifiers.shift {
+                        window.focus_prev(cx);
                     } else {
-                        this.dismiss(cx);
+                        window.focus_next(cx);
                     }
+                    cx.stop_propagation();
+                    return;
                 }
+                if matches!(key, "enter" | "space") && !this.focus.is_focused(window) {
+                    return;
+                }
+                if this.area_key(&event.keystroke, window, cx) {
+                    cx.stop_propagation();
+                    return;
+                }
+                match key {
+                    "enter" if this.drag.is_none() && this.target(cx).is_some() => {
+                        this.start_recording(window, cx);
+                    }
+                    "escape" => this.dismiss(cx),
+                    _ => return,
+                }
+                cx.stop_propagation();
             }))
             .size_full()
             .relative()
@@ -1051,7 +992,60 @@ impl Render for OverlayWindow {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+enum BarBody {
+    AreaEmpty,
+    WindowPending,
+    Area { valid: bool },
+    Window { name: String, size: String },
+    Display,
+    CameraOnly,
+}
+
 impl OverlayWindow {
+    fn menu_key(&mut self, key: &str, cx: &mut Context<Self>) -> bool {
+        if let Some(menu) = &mut self.countdown_menu {
+            match menu.on_key(key) {
+                crate::ui::MenuKey::Commit(index) => self.choose_countdown(index, cx),
+                crate::ui::MenuKey::Dismiss => self.countdown_menu = None,
+                crate::ui::MenuKey::Moved => {}
+                crate::ui::MenuKey::Ignored => return false,
+            }
+        } else if let Some(menu) = &mut self.window_menu {
+            match menu.on_key(key) {
+                crate::ui::MenuKey::Commit(index) => self.choose_window_size(index, cx),
+                crate::ui::MenuKey::Dismiss => self.window_menu = None,
+                crate::ui::MenuKey::Moved => {}
+                crate::ui::MenuKey::Ignored => return false,
+            }
+        } else if let Some(menu) = &mut self.aspect_menu {
+            match menu.on_key(key) {
+                crate::ui::MenuKey::Commit(index) => self.choose_aspect(index, cx),
+                crate::ui::MenuKey::Dismiss => self.aspect_menu = None,
+                crate::ui::MenuKey::Moved => {}
+                crate::ui::MenuKey::Ignored => return false,
+            }
+        } else if let Some(menu) = &mut self.device_menu {
+            match menu.state.on_key(key) {
+                crate::ui::MenuKey::Commit(index) => self.choose_device(index, cx),
+                crate::ui::MenuKey::Dismiss => self.device_menu = None,
+                crate::ui::MenuKey::Moved => {}
+                crate::ui::MenuKey::Ignored => return false,
+            }
+        } else if let Some(menu) = &mut self.mode_menu {
+            match menu.on_key(key) {
+                crate::ui::MenuKey::Commit(index) => self.choose_mode(index, cx),
+                crate::ui::MenuKey::Dismiss => self.mode_menu = None,
+                crate::ui::MenuKey::Moved => {}
+                crate::ui::MenuKey::Ignored => return false,
+            }
+        } else {
+            return false;
+        }
+        cx.notify();
+        true
+    }
+
     fn render_device_menu(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         let menu = self.device_menu.as_ref()?;
         Some(
@@ -1188,153 +1182,6 @@ impl OverlayWindow {
         cx.notify();
     }
 
-    fn render_device_control(&self, camera: bool, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let main = cx.global::<app_windows::AppWindows>().main;
-        let Ok(view) = main.read(cx) else {
-            return div().into_any_element();
-        };
-        let selected = if camera {
-            view.camera_selection()
-                .map(|camera| crate::main_window::camera_label(&camera.label))
-        } else {
-            view.microphone_selection().map(|mic| mic.name.clone())
-        };
-        let enabled = selected.is_some();
-        let disabled = view.is_enumerating_devices() || !recording_devices_available(cx);
-        let theme = self.theme;
-        let permission = if camera {
-            crate::permissions::OSPermission::Camera
-        } else {
-            crate::permissions::OSPermission::Microphone
-        };
-        let access = crate::media_access::MediaAccess::global(cx);
-        let access = access.read(cx);
-        let blocked = enabled && !access.allowed(permission);
-        let pill_label = if !blocked {
-            if enabled { t!("On") } else { t!("Off") }
-        } else if access.requesting(permission) {
-            t!("Asking…")
-        } else if access.status(permission) == crate::permissions::OSPermissionStatus::Denied {
-            t!("Allow in Settings")
-        } else {
-            t!("Allow")
-        };
-        div()
-            .id(if camera {
-                "overlay-camera"
-            } else {
-                "overlay-microphone"
-            })
-            .relative()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .px(px(8.))
-            .h(px(42.))
-            .flex_1()
-            .min_w_0()
-            .rounded(px(8.))
-            .border_1()
-            .border_color(theme.gray_5)
-            .bg(theme.gray_3)
-            .text_color(theme.gray_12)
-            .overflow_hidden()
-            .when(disabled, |row| row.opacity(0.7))
-            .when(!camera && enabled && !disabled, |row| {
-                row.child(
-                    crate::ui::MicrophoneLevel::snapshot(
-                        self.select.read(cx).microphone_fill,
-                        theme.success.into(),
-                    )
-                    .absolute()
-                    .top_0()
-                    .left_0(),
-                )
-            })
-            .child(
-                svg()
-                    .path(if camera {
-                        "icons/webcam.svg"
-                    } else {
-                        "icons/mic.svg"
-                    })
-                    .size(px(16.))
-                    .flex_shrink_0()
-                    .text_color(theme.gray_11),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(14.))
-                    .child(selected.unwrap_or_else(|| {
-                        if camera {
-                            t!("No Camera")
-                        } else {
-                            t!("No Microphone")
-                        }
-                        .into()
-                    })),
-            )
-            .child(
-                div()
-                    .id(if camera {
-                        "overlay-camera-toggle"
-                    } else {
-                        "overlay-microphone-toggle"
-                    })
-                    .px(px(10.))
-                    .h(px(24.))
-                    .min_w(px(40.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_full()
-                    .text_size(px(11.))
-                    .bg(if blocked {
-                        Hsla::from(theme.amber_3)
-                    } else if enabled {
-                        Hsla::from(theme.primary)
-                    } else {
-                        Hsla::from(theme.gray_5)
-                    })
-                    .text_color(if blocked {
-                        Hsla::from(theme.amber_11)
-                    } else if enabled {
-                        gpui::white()
-                    } else {
-                        Hsla::from(theme.gray_11)
-                    })
-                    .child(pill_label)
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
-                        cx.stop_propagation();
-                        if disabled {
-                            return;
-                        }
-                        if blocked {
-                            this.apply_device_choice(OverlayDeviceChoice::Access(permission), cx);
-                        } else if enabled {
-                            this.apply_device_choice(
-                                if camera {
-                                    OverlayDeviceChoice::Camera(None)
-                                } else {
-                                    OverlayDeviceChoice::Microphone(None)
-                                },
-                                cx,
-                            );
-                        } else {
-                            this.open_device_menu(camera, event.position(), cx);
-                        }
-                    })),
-            )
-            .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
-                this.open_device_menu(camera, event.position(), cx);
-            }))
-            .into_any_element()
-    }
-
     /// The caret's dropdown while it is open -- `Menu.popup` in the source,
     /// rendered with the app's own menu component here (the closest thing to
     /// a native context menu this side of AppKit; check state, outside-click
@@ -1451,13 +1298,10 @@ impl OverlayWindow {
                         .child(label),
                 )
                 .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(self.render_controls_cluster(self.target(cx), false, cx)),
+                    self.place_attached_bar(
+                        BarTarget::Display,
+                        self.render_bar(BarBody::Display, cx),
+                    ),
                 )
             })
     }
@@ -1474,9 +1318,16 @@ impl OverlayWindow {
             .filter(|window| window.display_id == self.display_id)
             .cloned();
 
+        let pending = select.pinned_window.is_none() && self.is_active_display(cx);
+        let pending = pending.then(|| {
+            self.place_attached_bar(
+                BarTarget::Pending,
+                self.render_bar(BarBody::WindowPending, cx),
+            )
+        });
         let Some(active) = active else {
             self.window_drawn.set(None);
-            return div().size_full().into_any_element();
+            return div().size_full().children(pending).into_any_element();
         };
         let target = active.bounds;
         let bounds = match self.window_reshape {
@@ -1502,6 +1353,23 @@ impl OverlayWindow {
             (target.height * scale).round()
         );
         let (tag_x, tag_y) = tag_position(bounds);
+        let bar = match pending {
+            Some(pending) => pending,
+            None => self.place_attached_bar(
+                BarTarget::Rect(bounds.intersected(self.display_size).unwrap_or(bounds)),
+                self.render_bar(
+                    BarBody::Window {
+                        name: active.app_name.clone(),
+                        size: format!(
+                            "{} × {}",
+                            (target.width * scale).round(),
+                            (target.height * scale).round()
+                        ),
+                    },
+                    cx,
+                ),
+            ),
+        };
 
         div()
             .size_full()
@@ -1531,21 +1399,7 @@ impl OverlayWindow {
                     .top(px(tag_y))
                     .child(tag),
             )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(bounds.x))
-                    .top(px(bounds.y))
-                    .w(px(bounds.width))
-                    .h(px(bounds.height))
-                    .flex()
-                    .flex_col()
-                    .justify_center()
-                    .items_center()
-                    .child(self.render_window_size(target, cx))
-                    .children(self.render_focus_toggle(cx))
-                    .child(self.render_controls_cluster(self.target(cx), false, cx)),
-            )
+            .child(bar)
             .into_any_element()
     }
 
@@ -1630,7 +1484,7 @@ impl OverlayWindow {
                     .mb(px(16.))
                     .child(preview),
             )
-            .child(self.render_controls_cluster(self.target(cx), false, cx))
+            .child(self.render_bar(BarBody::CameraOnly, cx))
     }
 
     /// The crop overlay: `bg-black/45` outside the selection, a `border-white/50`
@@ -1730,12 +1584,18 @@ impl OverlayWindow {
         if crop.is_none() && !interacting {
             root = root.child(self.render_selection_hint(cx));
         }
-        root = root.child(self.render_area_toolbar(crop, valid, cx));
-        if crop.is_some() {
-            root.child(self.render_area_controls(shown, valid, cx))
-        } else {
-            root
+        if interacting {
+            return root;
         }
+        root.child(match shown {
+            Some(shown) => self.place_attached_bar(
+                BarTarget::Rect(shown),
+                self.render_bar(BarBody::Area { valid }, cx),
+            ),
+            None => {
+                self.place_attached_bar(BarTarget::Pending, self.render_bar(BarBody::AreaEmpty, cx))
+            }
+        })
     }
 
     fn render_crop_region(&self, crop: AreaRect, interactive: bool) -> impl IntoElement {
@@ -1919,517 +1779,551 @@ impl OverlayWindow {
             )
     }
 
-    /// The floating readout: `top-12 left-1/2 -translate-x-1/2` over the
-    /// liquid-glass surface, `min-w-28 px-2 text-base tabular-nums`. The
-    fn render_area_toolbar(
-        &self,
-        crop: Option<AreaRect>,
-        valid: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        const WIDTH: f32 = 440.;
-        let theme = self.theme;
-        let locked = self.area_locked;
-        let label = match crop.filter(|_| valid) {
-            Some(crop) => self.area_readout(crop),
-            None => t!("Draw an area").to_string(),
-        };
-        let ratio_label = match self.area_ratio {
-            Some((width, height)) => format!("{width}:{height}"),
-            None => t!("Free").to_string(),
-        };
-        let divider = || div().h(px(24.)).w(px(1.)).flex_shrink_0().bg(theme.gray_5);
-        let icon_button =
-            |id: &'static str, icon: &'static str, title: SharedString, key: &'static str| {
-                div()
-                    .id(id)
-                    .size(px(36.))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(12.))
-                    .cursor_pointer()
-                    .group(id)
-                    .hover(move |style| style.bg(Theme::with_alpha(theme.gray_12, 0.08)))
-                    .tooltip(move |_, cx| {
-                        crate::ui::Tooltip::new(&theme, title.clone())
-                            .keys([key])
-                            .view(cx)
-                    })
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(
-                        svg()
-                            .path(icon)
-                            .size(px(16.))
-                            .text_color(theme.gray_11)
-                            .group_hover(id, move |style| style.text_color(theme.gray_12)),
-                    )
-            };
-
-        div()
+    fn place_attached_bar(&self, target: BarTarget, bar: gpui::Div) -> gpui::Div {
+        let work = self.controls_work_area.clamped(self.display_size);
+        let placed = place_bar(target, work);
+        let lane_left = work.x + BAR_EDGE;
+        let lane_width = (work.width - 2. * BAR_EDGE).max(0.);
+        let lane = div()
             .absolute()
-            .top(px(48.))
-            .left(px((self.display_size.0 - WIDTH) / 2.))
-            .w(px(WIDTH))
-            .flex()
-            .justify_center()
-            .child(
-                self.glass_surface()
-                    .occlude()
-                    .h(px(48.))
+            .left(px(lane_left))
+            .top(px(placed.top))
+            .w(px(lane_width))
+            .h(px(BAR_HEIGHT))
+            .flex();
+        match placed.spot {
+            BarSpot::BottomCentre | BarSpot::TopCentre => lane.justify_center().child(bar),
+            BarSpot::Below | BarSpot::Above | BarSpot::Inside => lane.child(
+                div()
                     .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .p(px(6.))
-                    .text_color(theme.gray_12)
+                    .flex_none()
+                    .justify_end()
+                    .w(px((placed.anchor_x - lane_left).clamp(0., lane_width)))
+                    .child(bar),
+            ),
+        }
+    }
+
+    fn bar_button(
+        &self,
+        id: &'static str,
+        icon: &'static str,
+        label: SharedString,
+        key: Option<&'static str>,
+        on: bool,
+        disabled: bool,
+    ) -> gpui::Stateful<gpui::Div> {
+        let theme = self.theme;
+        let color = if disabled {
+            theme.faint_foreground
+        } else if on {
+            theme.selection_foreground
+        } else {
+            theme.muted_foreground
+        };
+        div()
+            .id(id)
+            .group(id)
+            .relative()
+            .size(px(28.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .when(on && !disabled, |button| button.bg(theme.selection))
+            .when(!disabled, |button| {
+                button
+                    .tab_index(0)
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(theme.accent))
+                    .focus_visible(move |style| style.border_2().border_color(theme.ring))
+            })
+            .tooltip(move |_, cx| {
+                crate::ui::Tooltip::new(&theme, label.clone())
+                    .keys(key)
+                    .view(cx)
+            })
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(16.))
+                    .text_color(color)
+                    .when(!disabled, |icon| {
+                        icon.group_hover(id, move |style| style.text_color(theme.foreground))
+                    }),
+            )
+    }
+
+    fn bar_menu_button(
+        &self,
+        id: &'static str,
+        icon: Option<&'static str>,
+        label: Option<SharedString>,
+        tooltip: SharedString,
+        disabled: bool,
+    ) -> gpui::Stateful<gpui::Div> {
+        let theme = self.theme;
+        let color = if disabled {
+            theme.faint_foreground
+        } else {
+            theme.muted_foreground
+        };
+        let glyph = move |path: &'static str| {
+            svg()
+                .path(path)
+                .size(px(14.))
+                .text_color(color)
+                .when(!disabled, |icon| {
+                    icon.group_hover(id, move |style| style.text_color(theme.foreground))
+                })
+        };
+        div()
+            .id(id)
+            .group(id)
+            .h(px(28.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .pl(px(8.))
+            .pr(px(6.))
+            .rounded_full()
+            .text_size(px(12.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(color)
+            .when(!disabled, |button| {
+                button
+                    .tab_index(0)
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(theme.accent).text_color(theme.foreground))
+                    .focus_visible(move |style| style.border_2().border_color(theme.ring))
+            })
+            .tooltip(move |_, cx| crate::ui::Tooltip::new(&theme, tooltip.clone()).view(cx))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .children(icon.map(glyph))
+            .children(label)
+            .child(glyph("icons/chevron-down.svg"))
+    }
+
+    fn bar_separator(&self) -> gpui::Div {
+        div()
+            .w(px(1.))
+            .h(px(20.))
+            .mx(px(3.))
+            .flex_none()
+            .bg(self.theme.border)
+    }
+
+    fn bar_info(&self, name: SharedString, detail: Option<String>) -> gpui::Div {
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(4.))
+            .px(px(8.))
+            .text_color(self.theme.foreground)
+            .font_weight(FontWeight::MEDIUM)
+            .child(name)
+            .children(detail.map(|detail| {
+                div()
+                    .font_weight(FontWeight::NORMAL)
+                    .text_color(self.theme.muted_foreground)
+                    .child(detail)
+            }))
+    }
+
+    fn render_target_segment(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let current = self.select.read(cx).mode;
+        let targets = [
+            (
+                "bar-target-display",
+                "icons/monitor.svg",
+                t!("Display"),
+                TargetType::Display,
+            ),
+            (
+                "bar-target-window",
+                "icons/app-window.svg",
+                t!("Window"),
+                TargetType::Window,
+            ),
+            (
+                "bar-target-area",
+                "icons/scan.svg",
+                t!("Area"),
+                TargetType::Area,
+            ),
+        ];
+        div()
+            .flex()
+            .flex_none()
+            .gap(px(2.))
+            .children(targets.into_iter().map(|(id, icon, label, kind)| {
+                let on = current == Some(kind);
+                self.bar_button(id, icon, label.into(), None, on, false)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        if this.select.read(cx).mode != Some(kind) {
+                            cx.defer(move |cx| app_windows::switch_overlay_target(kind, cx));
+                        }
+                    }))
+            }))
+    }
+
+    fn render_bar_devices(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+        let main = cx.global::<app_windows::AppWindows>().main;
+        let Ok(view) = main.read(cx) else {
+            return Vec::new();
+        };
+        let camera = view
+            .camera_selection()
+            .map(|camera| crate::main_window::camera_label(&camera.label));
+        let microphone = view.microphone_selection().map(|mic| mic.name.clone());
+        let disabled = view.is_enumerating_devices() || !recording_devices_available(cx);
+        let theme = self.theme;
+        let camera_on = camera.is_some();
+        let microphone_on = microphone.is_some();
+        let fill = self.select.read(cx).microphone_fill;
+        vec![
+            self.bar_button(
+                "bar-camera",
+                "icons/webcam.svg",
+                camera.map_or_else(|| t!("No Camera").into(), SharedString::from),
+                None,
+                camera_on,
+                disabled,
+            )
+            .when(!disabled, |button| {
+                button.on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.open_device_menu(true, event.position(), cx);
+                }))
+            })
+            .into_any_element(),
+            self.bar_button(
+                "bar-microphone",
+                "icons/mic.svg",
+                microphone.map_or_else(|| t!("No Microphone").into(), SharedString::from),
+                None,
+                false,
+                disabled,
+            )
+            .when(microphone_on && !disabled, |button| {
+                button.child(
+                    div()
+                        .absolute()
+                        .left(px(6.))
+                        .right(px(6.))
+                        .bottom(px(2.))
+                        .h(px(2.))
+                        .rounded(px(1.))
+                        .overflow_hidden()
+                        .bg(theme.border)
+                        .child(
+                            div()
+                                .h_full()
+                                .w(gpui::relative(fill.clamp(0., 1.)))
+                                .bg(theme.success),
+                        ),
+                )
+            })
+            .when(!disabled, |button| {
+                button.on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.open_device_menu(false, event.position(), cx);
+                }))
+            })
+            .into_any_element(),
+            self.bar_button(
+                "bar-options",
+                "icons/sliders-horizontal.svg",
+                t!("Recording options").into(),
+                None,
+                self.countdown_menu.is_some(),
+                false,
+            )
+            .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.open_countdown_menu(event.position(), cx);
+            }))
+            .into_any_element(),
+        ]
+    }
+
+    fn open_countdown_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let current = crate::store::GeneralSettings::load()
+            .recording_countdown
+            .unwrap_or(0);
+        let items = COUNTDOWN_OPTIONS
+            .iter()
+            .map(|(value, label)| crate::ui::MenuItem::new(tr(label), *value == current))
+            .collect::<Vec<_>>();
+        self.mode_menu = None;
+        self.device_menu = None;
+        self.aspect_menu = None;
+        self.window_menu = None;
+        self.countdown_menu = Some(crate::ui::MenuState::new(position, &items));
+        cx.notify();
+    }
+
+    fn open_mode_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if crate::session::RecordingSession::global(cx)
+            .read(cx)
+            .editor_recording_target()
+            .is_some()
+        {
+            return;
+        }
+        let current = self.select.read(cx).recording_mode;
+        self.device_menu = None;
+        self.countdown_menu = None;
+        self.aspect_menu = None;
+        self.window_menu = None;
+        self.mode_menu = Some(crate::ui::MenuState::new(
+            position,
+            &mode_menu_items(current),
+        ));
+        cx.notify();
+    }
+
+    fn render_bar_start(&self, disabled: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let label: SharedString = match self.select.read(cx).recording_mode {
+            Mode::Screenshot => t!("Take screenshot").into(),
+            Mode::Studio | Mode::Instant => t!("Start recording").into(),
+        };
+        let tooltip = label.clone();
+        div()
+            .id("bar-start")
+            .h(px(28.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .pl(px(6.))
+            .pr(px(12.))
+            .rounded_full()
+            .text_size(px(12.))
+            .font_weight(FontWeight::MEDIUM)
+            .bg(if disabled { theme.muted } else { theme.primary })
+            .text_color(if disabled {
+                theme.faint_foreground
+            } else {
+                theme.primary_foreground
+            })
+            .tooltip(move |_, cx| {
+                crate::ui::Tooltip::new(&theme, tooltip.clone())
+                    .keys(["enter"])
+                    .view(cx)
+            })
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(crate::ui::record_mark(&theme).when(disabled, |mark| mark.opacity(0.45)))
+            .child(label)
+            .when(!disabled, |button| {
+                button
+                    .tab_index(0)
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(theme.primary_hover))
+                    .focus_visible(move |style| style.border_2().border_color(theme.ring))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.start_recording(window, cx);
+                    }))
+            })
+    }
+
+    fn render_bar(&self, body: BarBody, cx: &mut Context<Self>) -> gpui::Div {
+        let theme = self.theme;
+        let mode = self.select.read(cx).recording_mode;
+        let editor_recording = crate::session::RecordingSession::global(cx)
+            .read(cx)
+            .editor_recording_target()
+            .is_some();
+        let mut bar = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(2.))
+            .h(px(BAR_HEIGHT))
+            .px(px(4.))
+            .rounded(px(20.))
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.popover)
+            .text_color(theme.foreground)
+            .text_size(px(13.))
+            .whitespace_nowrap()
+            .occlude()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                self.bar_button(
+                    "bar-close",
+                    "icons/x.svg",
+                    t!("Close").into(),
+                    Some("escape"),
+                    false,
+                    false,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.dismiss(cx);
+                })),
+            );
+        if body != BarBody::CameraOnly {
+            bar = bar.child(self.render_target_segment(cx));
+        }
+        bar = bar.child(self.bar_separator());
+        let ratio = |this: &Self, cx: &mut Context<Self>| {
+            let label: SharedString = match this.area_ratio {
+                Some((width, height)) => format!("{width}:{height}").into(),
+                None => t!("Free").into(),
+            };
+            let locked = this.area_locked;
+            this.bar_menu_button(
+                "bar-ratio",
+                None,
+                Some(label),
+                t!("Ratio and size").into(),
+                locked,
+            )
+            .when(!locked, |button| {
+                button.on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.open_aspect_menu(event.position(), cx);
+                }))
+            })
+        };
+        let mode_button = |this: &Self, cx: &mut Context<Self>| {
+            this.bar_menu_button(
+                "bar-mode",
+                Some(mode.icon()),
+                None,
+                t!("Mode").into(),
+                editor_recording,
+            )
+            .when(!editor_recording, |button| {
+                button.on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.open_mode_menu(event.position(), cx);
+                }))
+            })
+        };
+        let valid = match &body {
+            BarBody::AreaEmpty => return bar.child(ratio(self, cx)).child(mode_button(self, cx)),
+            BarBody::WindowPending => {
+                return bar.child(self.bar_info(t!("Click a window").into(), None));
+            }
+            BarBody::Area { valid } => {
+                let locked = self.area_locked;
+                bar = bar
+                    .child(ratio(self, cx))
                     .child(
-                        div()
-                            .min_w(px(112.))
-                            .px(px(8.))
-                            .text_size(px(16.))
-                            .font_weight(FontWeight::NORMAL)
-                            .child(label),
-                    )
-                    .child(divider())
-                    .child(
-                        div()
-                            .id("area-ratio")
-                            .h(px(36.))
-                            .px(px(10.))
-                            .flex()
-                            .items_center()
-                            .gap(px(4.))
-                            .rounded(px(12.))
-                            .cursor_pointer()
-                            .text_size(px(13.))
-                            .font_weight(FontWeight::NORMAL)
-                            .text_color(theme.gray_11)
-                            .when(locked, |button| button.opacity(0.4))
-                            .hover(move |style| style.bg(Theme::with_alpha(theme.gray_12, 0.08)))
-                            .tooltip(move |_, cx| {
-                                crate::ui::Tooltip::new(&theme, t!("Aspect ratio")).view(cx)
-                            })
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
-                                cx.stop_propagation();
-                                if !this.area_locked {
-                                    this.open_aspect_menu(event.position(), cx);
-                                }
-                            }))
-                            .child(ratio_label)
-                            .child(
-                                svg()
-                                    .path("icons/chevron-down.svg")
-                                    .size(px(12.))
-                                    .text_color(theme.gray_11),
-                            ),
-                    )
-                    .child(divider())
-                    .child(
-                        icon_button(
-                            "area-clear",
+                        self.bar_button(
+                            "bar-clear",
                             "icons/rotate-ccw.svg",
-                            SharedString::from(t!("Clear area")),
-                            "R",
+                            t!("Clear area").into(),
+                            Some("R"),
+                            false,
+                            locked,
                         )
-                        .when(crop.is_none(), |button| button.opacity(0.4))
-                        .on_click(cx.listener(|this, _, _, cx| this.reset_area(cx))),
+                        .when(!locked, |button| {
+                            button.on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.reset_area(cx);
+                            }))
+                        }),
                     )
                     .child(
-                        icon_button(
-                            "area-fill",
+                        self.bar_button(
+                            "bar-fill",
                             "icons/maximize.svg",
-                            SharedString::from(t!("Fill display")),
-                            "F",
+                            t!("Fill display").into(),
+                            Some("F"),
+                            false,
+                            locked,
                         )
-                        .when(locked, |button| button.opacity(0.4))
-                        .on_click(cx.listener(|this, _, _, cx| this.fill_area(cx))),
+                        .when(!locked, |button| {
+                            button.on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.fill_area(cx);
+                            }))
+                        }),
                     )
-                    .child(divider())
                     .child(
-                        icon_button(
-                            "area-lock",
+                        self.bar_button(
+                            "bar-lock",
                             if locked {
                                 "icons/lock.svg"
                             } else {
                                 "icons/lock-open.svg"
                             },
                             if locked {
-                                SharedString::from(t!("Unlock area"))
+                                t!("Unlock area").into()
                             } else {
-                                SharedString::from(t!("Lock area"))
+                                t!("Lock area").into()
                             },
-                            "L",
+                            Some("L"),
+                            locked,
+                            !locked && !valid,
                         )
-                        .when(locked, |button| {
-                            button.bg(Theme::with_alpha(theme.gray_12, 0.12))
-                        })
-                        .when(!locked && !valid, |button| button.opacity(0.4))
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_area_lock(cx))),
-                    ),
-            )
-    }
-
-    /// The controls cluster, placed against the crop the way `controlsStyle`
-    /// places it: below when it fits, above when it does not, inside the crop
-    /// otherwise.
-    fn render_area_controls(
-        &self,
-        crop: Option<AreaRect>,
-        valid: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let crop = crop.unwrap_or(AreaRect {
-            x: 0.,
-            y: 0.,
-            width: 0.,
-            height: 0.,
-        });
-        let min = area_min_size(self.select.read(cx).recording_mode);
-        let available = self.controls_work_area.clamped(self.display_size);
-        let cluster_height = CLUSTER_HEIGHT
-            + if self.select.read(cx).recording_mode == Mode::Screenshot {
-                0.
-            } else {
-                78.
-            };
-        let (x, y) = area_controls_position(crop, available, cluster_height);
-
-        div()
-            .absolute()
-            .left(px(x))
-            .top(px(y))
-            .w(px(CLUSTER_WIDTH))
-            .flex()
-            .flex_col()
-            .items_center()
-            .when(valid, |this| {
-                this.child(self.render_controls_cluster(self.target(cx), false, cx))
-            })
-            .when(!valid, |this| {
-                // `Minimum size is 150 x 150` / `W x H is too small`.
-                this.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.))
-                        .items_center()
-                        .p(px(10.))
-                        .my(px(8.))
-                        .rounded(px(12.))
-                        .border_1()
-                        .border_color(self.theme.red_4)
-                        .bg(self.theme.red_2)
-                        .text_size(px(14.))
-                        .text_color(self.theme.gray_12)
-                        .child(t!(
-                            "Minimum size is {width} x {height}",
-                            width = min as u32,
-                            height = min as u32
-                        ))
-                        .child(div().text_size(px(11.)).child(t!(
-                            "{width} x {height} is too small",
-                            width = crop.width.round(),
-                            height = crop.height.round()
-                        ))),
-                )
-            })
-    }
-
-    fn glass_surface(&self) -> gpui::Div {
-        let theme = self.theme;
-        div()
-            .rounded(px(16.))
-            .border_1()
-            .border_color(if theme.is_dark() {
-                gpui::hsla(0., 0., 1., 0.1)
-            } else {
-                Theme::with_alpha(theme.gray_12, 0.1)
-            })
-            .bg(if theme.is_dark() {
-                Theme::with_alpha(theme.gray_2, 0.82)
-            } else {
-                Theme::with_alpha(theme.gray_1, 0.82)
-            })
-    }
-
-    fn render_controls_cluster(
-        &self,
-        target: Option<ScreenCaptureTarget>,
-        disabled: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = self.theme;
-        let mode = self.select.read(cx).recording_mode;
-        let disabled = disabled || target.is_none();
-
-        // `flex flex-col gap-2.5 items-stretch my-2.5 w-104`.
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(10.))
-            .items_stretch()
-            .my(px(10.))
-            .w(px(CLUSTER_WIDTH))
-            // The cluster sits on top of the area overlay's drawing surface;
-            // without this a click on Start would also start a new crop.
-            .occlude()
-            .child(
-                self.glass_surface().p(px(12.)).child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .gap(px(10.))
-                        .items_center()
-                        .child(self.render_close_button(cx))
-                        .child(self.render_start_button(target, disabled, mode, cx))
-                        .child(
-                            div()
-                                .id("overlay-countdown")
-                                .flex()
-                                .justify_center()
-                                .items_center()
-                                .size(px(36.))
-                                .flex_shrink_0()
-                                .rounded_full()
-                                .border_1()
-                                .border_color(theme.gray_5)
-                                .bg(theme.gray_6)
-                                .child(
-                                    svg()
-                                        .path("icons/settings.svg")
-                                        .size(px(20.))
-                                        .text_color(theme.gray_12),
-                                )
-                                .hover(|style| style.opacity(0.8))
-                                .tooltip(move |_, cx| {
-                                    crate::ui::Tooltip::new(&theme, t!("Recording countdown"))
-                                        .view(cx)
-                                })
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                    cx.stop_propagation();
-                                })
-                                .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
-                                    cx.stop_propagation();
-                                    let current = crate::store::GeneralSettings::load()
-                                        .recording_countdown
-                                        .unwrap_or(0);
-                                    let items = COUNTDOWN_OPTIONS
-                                        .iter()
-                                        .map(|(value, label)| {
-                                            crate::ui::MenuItem::new(tr(label), *value == current)
-                                        })
-                                        .collect::<Vec<_>>();
-                                    this.mode_menu = None;
-                                    this.device_menu = None;
-                                    this.countdown_menu =
-                                        Some(crate::ui::MenuState::new(event.position(), &items));
-                                    cx.notify();
-                                })),
-                        ),
-                ),
-            )
-            .when(mode != Mode::Screenshot, |cluster| {
-                cluster.child(
-                    self.glass_surface().p(px(12.)).child(
-                        div()
-                            .flex()
-                            .gap(px(8.))
-                            .w_full()
-                            .child(self.render_device_control(true, cx))
-                            .child(self.render_device_control(false, cx)),
-                    ),
-                )
-            })
-    }
-
-    /// `size-9 rounded-full bg-gray-12` with the inverted X glyph.
-    fn render_close_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-
-        div()
-            .id("overlay-close")
-            .flex()
-            .justify_center()
-            .items_center()
-            .size(px(36.))
-            .flex_shrink_0()
-            .rounded_full()
-            .bg(theme.gray_12)
-            .hover(|style| style.opacity(0.8))
-            .child(
-                svg()
-                    .path("icons/x.svg")
-                    // `invert dark:invert-0` on a black glyph: white on the
-                    // light theme's dark circle, black on the dark theme's
-                    // light one.
-                    .size(px(14.))
-                    .text_color(theme.gray_1),
-            )
-            .on_click(cx.listener(|this, _, _window, cx| {
-                cx.stop_propagation();
-                this.dismiss(cx);
-            }))
-    }
-
-    fn render_start_button(
-        &self,
-        target: Option<ScreenCaptureTarget>,
-        disabled: bool,
-        mode: Mode,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = self.theme;
-        let label = match mode {
-            Mode::Screenshot => t!("Take Screenshot"),
-            _ => t!("Start Recording"),
-        };
-        let icon = match mode {
-            Mode::Instant => "icons/zap.svg",
-            Mode::Studio => "icons/clapperboard.svg",
-            Mode::Screenshot => "icons/image.svg",
-        };
-        let mode_label = match mode {
-            Mode::Instant => t!("Instant Mode — Record straight to a video file"),
-            Mode::Studio => t!("Studio Mode — Record and edit locally"),
-            Mode::Screenshot => t!("Screenshot Mode"),
-        };
-        let _ = target;
-
-        div()
-            .id("overlay-start")
-            .flex()
-            .flex_1()
-            .min_w_0()
-            .max_w(px(288.))
-            .overflow_hidden()
-            .flex_row()
-            .h(px(44.))
-            .rounded_full()
-            .text_color(gpui::white())
-            .bg(theme.primary)
-            .child(
-                div()
-                    .id("overlay-start-action")
-                    .flex()
-                    .flex_1()
-                    .items_center()
-                    .py(px(4.))
-                    .pl(px(16.))
-                    .min_w_0()
-                    // The pill's `overflow-hidden rounded-full` clips these
-                    // fills in the Tauri app; gpui masks are rectangles, so
-                    // the halves round their own outer caps (h-11 -> 22px) or
-                    // they paint square corners past the pill onto the glass
-                    // card behind it.
-                    .rounded_l(px(22.))
-                    // `opacity-60 cursor-not-allowed hover:bg-transparent`.
-                    .when(disabled, |this| this.opacity(0.6))
-                    .when(!disabled, |this| {
-                        this.hover(|style| style.bg(gpui::hsla(0., 0., 1., 0.1)))
-                    })
-                    .tooltip(move |_, cx| crate::ui::Tooltip::new(&theme, label).view(cx))
-                    .child(
-                        svg()
-                            .path(icon)
-                            .size(px(16.))
-                            .flex_shrink_0()
-                            .text_color(gpui::white()),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .ml(px(12.))
-                            .mr(px(8.))
-                            .min_w_0()
-                            .child(
-                                div()
-                                    // `text-[0.95rem] font-medium`.
-                                    .text_size(px(15.2))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(label),
-                            )
-                            .child(
-                                div()
-                                    .mt(px(-2.))
-                                    .text_size(px(11.))
-                                    .whitespace_nowrap()
-                                    .truncate()
-                                    // `text-[11px] ... text-white/90
-                                    //  font-light` (`t-s-overlay.tsx:2200`).
-                                    // `font-light` is 300 and no 300 face is
-                                    // loaded (`ui-solid/vite.js:31-33` ships
-                                    // 400/500/700), so CSS font-matching
-                                    // resolves it to 400 -- Regular, not Light
-                                    // -- and it must opt out of the `body`
-                                    // Medium default explicitly.
-                                    .font_weight(FontWeight::NORMAL)
-                                    .text_color(gpui::hsla(0., 0., 1., 0.9))
-                                    .child(mode_label),
-                            ),
-                    ),
-            )
-            .child(
-                // `pl-2.5 pr-3 py-1.5 border-l border-white/20 bg-white/5`,
-                // `onMouseDown/onClick={showMenu(menuModes(), e)}`: the caret
-                // pops the mode menu at the press location and must never arm
-                // the pill's start click -- gpui arms clicks on mouse-down per
-                // hitbox, so the stop has to happen here, not on a click
-                // handler. Active even while start is disabled, same as the
-                // source (the disabled styling only wraps the leading half).
-                div()
-                    .id("overlay-mode-picker")
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, event: &gpui::MouseDownEvent, _window, cx| {
-                            cx.stop_propagation();
-                            if crate::session::RecordingSession::global(cx)
-                                .read(cx)
-                                .editor_recording_target()
-                                .is_some()
-                            {
-                                return;
-                            }
-                            let current = this.select.read(cx).recording_mode;
-                            this.device_menu = None;
-                            this.countdown_menu = None;
-                            this.mode_menu = Some(crate::ui::MenuState::new(
-                                event.position,
-                                &mode_menu_items(current),
-                            ));
-                            cx.notify();
+                        .when(locked || *valid, |button| {
+                            button.on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.toggle_area_lock(cx);
+                            }))
                         }),
-                    )
-                    .flex()
-                    .items_center()
-                    .pl(px(10.))
-                    .pr(px(12.))
-                    .py(px(6.))
-                    // The right cap of the pill, for the same reason the
-                    // leading half takes `rounded_l`: its `bg-white/5` panel
-                    // otherwise pokes square corners past `rounded-full`.
-                    .rounded_r(px(22.))
-                    .border_l_1()
-                    .border_color(gpui::hsla(0., 0., 1., 0.2))
-                    .bg(gpui::hsla(0., 0., 1., 0.05))
-                    .tooltip(move |_, cx| {
-                        crate::ui::Tooltip::new(&theme, t!("Choose recording mode")).view(cx)
-                    })
-                    .child(
-                        svg()
-                            .path("icons/chevron-down.svg")
-                            .size(px(14.))
-                            .text_color(gpui::white()),
-                    ),
-            )
-            .when(!disabled, |this| {
-                this.on_click(cx.listener(|this, _, window, cx| {
-                    cx.stop_propagation();
-                    this.start_recording(window, cx);
-                }))
-            })
+                    );
+                *valid
+            }
+            BarBody::Window { name, size } => {
+                let focus = self.select.read(cx).focus_window;
+                bar = bar
+                    .child(self.bar_info(name.clone().into(), Some(size.clone())))
+                    .when(crate::foreign_window::can_arrange(), |bar| {
+                        bar.child(
+                            self.bar_menu_button(
+                                "bar-window-size",
+                                None,
+                                Some(if focus {
+                                    t!("Focus on").into()
+                                } else {
+                                    tc!("window menu", "Size").into()
+                                }),
+                                t!("Window size and focus").into(),
+                                false,
+                            )
+                            .on_click(cx.listener(
+                                |this, event: &gpui::ClickEvent, _, cx| {
+                                    cx.stop_propagation();
+                                    this.open_window_menu(event.position(), cx);
+                                },
+                            )),
+                        )
+                    });
+                true
+            }
+            BarBody::Display => {
+                let detail = self
+                    .physical_size
+                    .map(|(width, height)| format!("{width} × {height}"));
+                bar = bar.child(self.bar_info(self.display_name.clone().into(), detail));
+                true
+            }
+            BarBody::CameraOnly => true,
+        };
+        if body != BarBody::CameraOnly {
+            bar = bar.child(self.bar_separator());
+        }
+        bar = bar.child(mode_button(self, cx));
+        if mode != Mode::Screenshot {
+            bar = bar
+                .children(self.render_bar_devices(cx))
+                .child(self.bar_separator());
+        }
+        let ready = valid && self.target(cx).is_some();
+        bar.child(self.render_bar_start(!ready, cx))
     }
 }
 
@@ -3126,6 +3020,30 @@ impl OverlayWindow {
         entries
     }
 
+    fn window_menu_items(&self, window: AreaRect, cx: &App) -> (Vec<crate::ui::MenuItem>, usize) {
+        let mut items = Vec::new();
+        if FOCUS_SUPPORTED && crate::foreign_window::can_arrange() {
+            let select = self.select.read(cx);
+            items.push(crate::ui::MenuItem::new(
+                t!("Record only this window"),
+                select.focus_window,
+            ));
+            if select.focus_window {
+                items.push(crate::ui::MenuItem::new(
+                    t!("Center on screen"),
+                    select.focus_center,
+                ));
+            }
+        }
+        let focus_rows = items.len();
+        items.extend(
+            self.window_menu_entries(window)
+                .into_iter()
+                .map(|(label, checked, _)| crate::ui::MenuItem::new(label, checked)),
+        );
+        (items, focus_rows)
+    }
+
     fn open_window_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let Some(window) = self.active_window_logical(cx) else {
             return;
@@ -3134,11 +3052,7 @@ impl OverlayWindow {
             self.select
                 .update(cx, |select, cx| select.set_pinned(active, cx));
         }
-        let items: Vec<crate::ui::MenuItem> = self
-            .window_menu_entries(window)
-            .into_iter()
-            .map(|(label, checked, _)| crate::ui::MenuItem::new(label, checked))
-            .collect();
+        let (items, _) = self.window_menu_items(window, cx);
         self.mode_menu = None;
         self.countdown_menu = None;
         self.device_menu = None;
@@ -3150,11 +3064,7 @@ impl OverlayWindow {
     fn render_window_menu(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         let state = self.window_menu.as_ref()?;
         let window = self.active_window_logical(cx)?;
-        let items = self
-            .window_menu_entries(window)
-            .into_iter()
-            .map(|(label, checked, _)| crate::ui::MenuItem::new(label, checked))
-            .collect();
+        let (items, _) = self.window_menu_items(window, cx);
         Some(
             crate::ui::Menu::plain(&self.theme, "overlay-window-menu", items, state)
                 .on_select(cx.listener(|this, index: &usize, _, cx| {
@@ -3170,9 +3080,25 @@ impl OverlayWindow {
 
     fn choose_window_size(&mut self, index: usize, cx: &mut Context<Self>) {
         self.window_menu = None;
+        let Some(window) = self.active_window_logical(cx) else {
+            cx.notify();
+            return;
+        };
+        let (_, focus_rows) = self.window_menu_items(window, cx);
+        if index < focus_rows {
+            let select = self.select.read(cx);
+            let (focus, center) = (select.focus_window, select.focus_center);
+            if index == 0 {
+                self.set_focus(!focus, cx);
+            } else {
+                self.set_focus_center(!center, cx);
+            }
+            return;
+        }
         let frame = self
-            .active_window_logical(cx)
-            .and_then(|window| self.window_menu_entries(window).into_iter().nth(index))
+            .window_menu_entries(window)
+            .into_iter()
+            .nth(index - focus_rows)
             .map(|(_, _, frame)| frame);
         match frame {
             Some(frame) => self.arrange_active_window(Arrangement::Frame(frame), false, cx),
@@ -3324,118 +3250,6 @@ impl OverlayWindow {
             cx.update(app_windows::refresh_target_overlays);
         })
         .detach();
-    }
-
-    fn render_window_size(&self, window: AreaRect, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let scale = self.pixels_per_point();
-        let mut label = format!(
-            "{} × {}",
-            (window.width * scale).round(),
-            (window.height * scale).round()
-        );
-        if let Some((w, h)) = crate::window_arrange::matching_ratio(window) {
-            label.push_str(&format!("  ·  {w}:{h}"));
-        }
-        let arrangeable = crate::foreign_window::can_arrange();
-        self.glass_surface()
-            .id("window-size")
-            .h(px(28.))
-            .rounded_full()
-            .mb(px(8.))
-            .px(px(10.))
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .text_size(px(12.))
-            .text_color(theme.gray_12)
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(label)
-            .when(arrangeable, |chip| {
-                chip.cursor_pointer()
-                    .hover(move |style| style.bg(Theme::with_alpha(theme.gray_12, 0.08)))
-                    .tooltip(move |_, cx| {
-                        crate::ui::Tooltip::new(&theme, t!("Window size")).view(cx)
-                    })
-                    .child(
-                        svg()
-                            .path("icons/chevron-down.svg")
-                            .size(px(12.))
-                            .text_color(theme.gray_12),
-                    )
-                    .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
-                        cx.stop_propagation();
-                        this.open_window_menu(event.position(), cx);
-                    }))
-            })
-    }
-
-    fn render_focus_toggle(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        if !FOCUS_SUPPORTED || !crate::foreign_window::can_arrange() {
-            return None;
-        }
-        let theme = self.theme;
-        let select = self.select.read(cx);
-        let (focus, center) = (select.focus_window, select.focus_center);
-        let row = |id: &'static str, label: SharedString| {
-            div()
-                .id(id)
-                .h(px(40.))
-                .px(px(12.))
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(16.))
-                .cursor_pointer()
-                .text_size(px(13.))
-                .text_color(theme.gray_12)
-                .child(label)
-        };
-        Some(
-            self.glass_surface()
-                .mb(px(10.))
-                .w(px(260.))
-                .flex()
-                .flex_col()
-                .when(focus, |card| {
-                    card.border_color(Hsla::from(theme.primary).opacity(0.7))
-                })
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(
-                    row(
-                        "window-focus",
-                        SharedString::from(t!("Record only this window")),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        cx.stop_propagation();
-                        let focus = this.select.read(cx).focus_window;
-                        this.set_focus(!focus, cx);
-                    }))
-                    .child(crate::ui::Toggle::glass(
-                        &theme,
-                        "window-focus-toggle",
-                        focus,
-                    )),
-                )
-                .when(focus, |card| {
-                    card.child(
-                        row(
-                            "window-focus-center",
-                            SharedString::from(t!("Center on screen")),
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            cx.stop_propagation();
-                            let center = this.select.read(cx).focus_center;
-                            this.set_focus_center(!center, cx);
-                        }))
-                        .child(crate::ui::Toggle::glass(
-                            &theme,
-                            "window-focus-center-toggle",
-                            center,
-                        )),
-                    )
-                }),
-        )
     }
 }
 
@@ -3597,39 +3411,6 @@ mod tests {
         assert!(!overlay_display_is_active(None, &display, false));
         assert!(overlay_display_is_active(Some(&display), &display, false));
         assert!(!overlay_display_is_active(Some(&other), &display, true));
-    }
-
-    #[test]
-    fn area_controls_stay_above_the_dock_on_a_small_display() {
-        let available = rect(0., 25., 1024., 684.);
-        let height = CLUSTER_HEIGHT + 78.;
-        let (x, y) = area_controls_position(rect(202., 216., 641., 361.), available, height);
-        assert!(x >= available.x && x + CLUSTER_WIDTH <= available.right());
-        assert!(y >= available.y && y + height <= available.bottom());
-        assert!(y < 577.);
-    }
-
-    #[test]
-    fn area_controls_respect_side_taskbars_and_bottom_edge_crops() {
-        let available = rect(64., 24., 736., 416.);
-        for crop in [rect(0., 0., 800., 480.), rect(600., 350., 180., 120.)] {
-            let (x, y) = area_controls_position(crop, available, CLUSTER_HEIGHT + 78.);
-            assert!(x >= available.x && x + CLUSTER_WIDTH <= available.right());
-            assert!(y >= available.y && y + CLUSTER_HEIGHT + 78. <= available.bottom());
-        }
-    }
-
-    #[test]
-    fn area_controls_keep_available_space_below_or_above_a_crop() {
-        let available = rect(0., 0., 1280., 800.);
-        assert_eq!(
-            area_controls_position(rect(100., 100., 640., 360.), available, 166.).1,
-            476.
-        );
-        assert_eq!(
-            area_controls_position(rect(100., 500., 640., 240.), available, 166.).1,
-            318.
-        );
     }
 
     #[test]

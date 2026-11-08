@@ -115,6 +115,26 @@ impl Tool {
         }
     }
 
+    pub const TOOLBAR_GROUPS: &'static [&'static [Tool]] = &[
+        &[Tool::Select],
+        &[Tool::Draw, Tool::Arrow, Tool::Rectangle, Tool::Circle],
+        &[Tool::Text],
+        &[Tool::Mask],
+    ];
+
+    pub fn for_key(key: &str) -> Option<Tool> {
+        match key {
+            "v" | "s" => Some(Tool::Select),
+            "d" => Some(Tool::Draw),
+            "a" => Some(Tool::Arrow),
+            "r" => Some(Tool::Rectangle),
+            "c" | "o" => Some(Tool::Circle),
+            "t" => Some(Tool::Text),
+            "m" => Some(Tool::Mask),
+            _ => None,
+        }
+    }
+
     /// The annotation this tool draws, if it draws one.
     pub fn annotation_type(self) -> Option<AnnotationType> {
         match self {
@@ -2515,12 +2535,7 @@ impl ScreenshotEditorWindow {
         let is_mask = kind == AnnotationType::Mask;
         let is_text = kind == AnnotationType::Text;
 
-        let mut row = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_center()
-            .gap(px(24.));
+        let mut row = div().flex().flex_col().gap(px(14.));
 
         if !is_mask {
             row = row.child(config_item(
@@ -2535,7 +2550,7 @@ impl ScreenshotEditorWindow {
                 &theme,
                 t!("Width"),
                 Some(format!("{}px", annotation.stroke_width.round() as i64)),
-                self.annotation_slider(AnnotationSlider::Width, px(80.), cx)
+                self.annotation_slider(AnnotationSlider::Width, px(160.), cx)
                     .into_any_element(),
             ));
         }
@@ -2552,7 +2567,7 @@ impl ScreenshotEditorWindow {
                 &theme,
                 t!("Opacity"),
                 Some(format!("{}%", (annotation.opacity * 100.).round() as i64)),
-                self.annotation_slider(AnnotationSlider::Opacity, px(80.), cx)
+                self.annotation_slider(AnnotationSlider::Opacity, px(160.), cx)
                     .into_any_element(),
             ));
         }
@@ -2583,7 +2598,7 @@ impl ScreenshotEditorWindow {
                         "{}",
                         annotation.mask_level.unwrap_or(MASK_FALLBACK_LEVEL).round() as i64
                     )),
-                    self.annotation_slider(AnnotationSlider::MaskLevel, px(96.), cx)
+                    self.annotation_slider(AnnotationSlider::MaskLevel, px(160.), cx)
                         .into_any_element(),
                 ));
         }
@@ -2592,7 +2607,7 @@ impl ScreenshotEditorWindow {
                 &theme,
                 t!("Size"),
                 Some(format!("{}px", annotation.height.round() as i64)),
-                self.annotation_slider(AnnotationSlider::TextSize, px(80.), cx)
+                self.annotation_slider(AnnotationSlider::TextSize, px(160.), cx)
                     .into_any_element(),
             ));
         }
@@ -2621,6 +2636,7 @@ impl ScreenshotEditorWindow {
             .px(px(10.))
             .rounded(px(6.))
             .cursor_pointer()
+            .tab_index(0)
             .text_size(px(12.))
             .font_weight(FontWeight::MEDIUM)
             .when(active, |this| {
@@ -2680,21 +2696,59 @@ impl ScreenshotEditorWindow {
             .cloned()
             .unwrap_or_default();
 
-        ui::Slider::new(
-            gpui::SharedString::from(format!("screenshot-annotation-slider-{}", slider.id())),
-            fraction,
-            track,
-        )
-        .row_width(width)
-        .track(px(4.), theme.gray_4.into())
-        .fill(theme.primary.into())
-        .thumb(px(14.), gpui::white(), Some(theme.gray_6.into()))
-        .on_drag_start(
-            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                cx.stop_propagation();
-                this.begin_annotation_slider(slider, event.position, window, cx);
-            }),
-        )
+        let (_, _, step) = slider.range();
+        div()
+            .id(gpui::SharedString::from(format!(
+                "screenshot-annotation-slider-row-{}",
+                slider.id()
+            )))
+            .tab_index(0)
+            .focus_visible(move |style| style.bg(theme.selection))
+            .rounded(px(4.))
+            .px(px(2.))
+            .on_key_down(
+                cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                    let Some(current) = this.selected().map(|annotation| slider.value(annotation))
+                    else {
+                        return;
+                    };
+                    if let Some(value) = ui::keyboard_slider_value(
+                        event.keystroke.key.as_str(),
+                        current,
+                        min,
+                        max,
+                        step,
+                    ) {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        this.set_annotation_slider_value(slider, value, window, cx);
+                    }
+                }),
+            )
+            .child(
+                ui::Slider::new(
+                    gpui::SharedString::from(format!(
+                        "screenshot-annotation-slider-{}",
+                        slider.id()
+                    )),
+                    fraction,
+                    track,
+                )
+                .row_width(width)
+                .track(px(3.), Hsla::from(theme.editor.ctl_active))
+                .fill(Hsla::from(theme.editor.accent))
+                .thumb(
+                    px(14.),
+                    Hsla::from(theme.editor.thumb),
+                    Some(gpui::hsla(0., 0., 0., 0.12)),
+                )
+                .on_drag_start(cx.listener(
+                    move |this, event: &MouseDownEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.begin_annotation_slider(slider, event.position, window, cx);
+                    },
+                )),
+            )
     }
 
     /// The same bracket the styling sliders take (`ui/slider.rs`'s
@@ -2731,6 +2785,16 @@ impl ScreenshotEditorWindow {
         let Some(value) = ui::slider_value_at(&track, position, min, max, step) else {
             return;
         };
+        self.set_annotation_slider_value(slider, value, window, cx);
+    }
+
+    fn set_annotation_slider_value(
+        &mut self,
+        slider: AnnotationSlider,
+        value: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(id) = self.selected_annotation.clone() else {
             return;
         };
@@ -2833,6 +2897,7 @@ impl ScreenshotEditorWindow {
                     .rounded_full()
                     .overflow_hidden()
                     .cursor_pointer()
+                    .tab_index(0)
                     .border_1()
                     .border_color(theme.gray_5)
                     .hover(|style| style.border_color(theme.gray_7))
@@ -2846,6 +2911,10 @@ impl ScreenshotEditorWindow {
                     })),
             )
             .into_any_element()
+    }
+
+    pub(crate) fn close_color_popover(&mut self) -> bool {
+        self.annotation_state.color_popover.take().is_some()
     }
 
     fn toggle_color_popover(
@@ -2920,6 +2989,7 @@ impl ScreenshotEditorWindow {
                             .rounded_full()
                             .overflow_hidden()
                             .cursor_pointer()
+                            .tab_index(0)
                             .border_1()
                             .border_color(if selected {
                                 theme.foreground
@@ -2962,6 +3032,7 @@ impl ScreenshotEditorWindow {
                             .size(px(20.))
                             .rounded_full()
                             .cursor_pointer()
+                            .tab_index(0)
                             .border_1()
                             .border_color(Theme::with_alpha(gpui::rgb(0x000000), 0.1))
                             .when(selected, |this| {
@@ -3173,7 +3244,7 @@ impl ScreenshotEditorWindow {
                         .mt(px(4.))
                         .text_size(px(10.))
                         .text_color(theme.gray_10)
-                        .child(t!("Use the tools above to add annotations")),
+                        .child(t!("Use the tools to add annotations")),
                 )
                 .into_any_element();
         }
@@ -3265,6 +3336,7 @@ impl ScreenshotEditorWindow {
             .mx(px(4.))
             .rounded(px(6.))
             .cursor_pointer()
+            .tab_index(0)
             .when(dragging, |this| this.opacity(0.5).bg(theme.gray_3))
             .when(selected && !dragging, |this| this.bg(theme.selection))
             .when(!selected && !dragging, |this| {
@@ -3336,6 +3408,7 @@ impl ScreenshotEditorWindow {
                     .p(px(2.))
                     .rounded(px(4.))
                     .cursor_pointer()
+                    .tab_index(0)
                     .opacity(0.)
                     .text_color(theme.gray_9)
                     .group_hover("screenshot-layer-row", |style| style.opacity(1.))
@@ -3916,8 +3989,10 @@ fn config_item(
         .flex()
         .flex_row()
         .items_center()
+        .justify_between()
         .gap(px(8.))
-        .flex_shrink_0()
+        .w_full()
+        .min_h(px(28.))
         .child(
             div()
                 .flex()
@@ -3925,7 +4000,7 @@ fn config_item(
                 .items_center()
                 .gap(px(4.))
                 .flex_shrink_0()
-                .text_size(px(11.))
+                .text_size(px(12.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme.gray_10)
                 .child(label)
@@ -4057,6 +4132,43 @@ fn mask_region(mask: &Annotation, rect: Rect, frame: (u32, u32)) -> Option<(u32,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_toolbar_groups_tools_as_the_design_page_does() {
+        assert_eq!(
+            Tool::TOOLBAR_GROUPS,
+            &[
+                &[Tool::Select][..],
+                &[Tool::Draw, Tool::Arrow, Tool::Rectangle, Tool::Circle][..],
+                &[Tool::Text][..],
+                &[Tool::Mask][..],
+            ][..]
+        );
+        let mut grouped: Vec<Tool> = Tool::TOOLBAR_GROUPS
+            .iter()
+            .flat_map(|group| group.iter().copied())
+            .collect();
+        grouped.sort_by_key(|tool| Tool::ALL.iter().position(|other| other == tool));
+        assert_eq!(grouped, Tool::ALL);
+    }
+
+    #[test]
+    fn tool_keys_keep_their_shortcuts() {
+        for (key, tool) in [
+            ("v", Tool::Select),
+            ("s", Tool::Select),
+            ("d", Tool::Draw),
+            ("a", Tool::Arrow),
+            ("r", Tool::Rectangle),
+            ("c", Tool::Circle),
+            ("o", Tool::Circle),
+            ("t", Tool::Text),
+            ("m", Tool::Mask),
+        ] {
+            assert_eq!(Tool::for_key(key), Some(tool), "{key}");
+        }
+        assert_eq!(Tool::for_key("b"), None);
+    }
 
     fn transform(
         frame: (f64, f64),

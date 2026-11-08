@@ -3904,6 +3904,35 @@ mod tests {
     }
 
     #[test]
+    fn undo_restores_the_state_before_each_transition_edit() {
+        let mut project = frameever_project::ProjectConfiguration {
+            timeline: Some(timeline(vec![segment(0, 0., 4.), segment(1, 0., 4.)])),
+            ..Default::default()
+        };
+        let mut history = crate::editor_edits::ProjectHistory::new(project.clone());
+        let mut states = vec![serde_json::to_value(&project).unwrap()];
+        for edit in [
+            Some((frameever_project::ClipTransitionType::CrossFade, 0.5)),
+            Some((frameever_project::ClipTransitionType::FadeThroughBlack, 1.)),
+            None,
+        ] {
+            assert!(set_clip_transition(
+                project.timeline.as_mut().unwrap(),
+                1,
+                edit
+            ));
+            history.record(&project);
+            states.push(serde_json::to_value(&project).unwrap());
+        }
+        states.pop();
+        while let Some(expected) = states.pop() {
+            let restored = history.undo().unwrap();
+            assert_eq!(serde_json::to_value(restored).unwrap(), expected);
+        }
+        assert!(history.undo().is_none());
+    }
+
+    #[test]
     fn durations_format_like_the_source() {
         assert_eq!(format_clip_duration(0.0), "0:00");
         assert_eq!(format_clip_duration(-3.0), "0:00");
