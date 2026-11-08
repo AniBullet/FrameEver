@@ -91,7 +91,7 @@ pub struct PersistedState {
     #[serde(default)]
     pub export: Option<ExportPrefs>,
     #[serde(default)]
-    pub screenshot_inspector_page: Option<String>,
+    pub screenshot_inspector_page: crate::screenshot_layout::InspectorPage,
     /// `editorCropSnapToRatio` -- the crop dialog's persisted snap toggle,
     /// also `localStorage` over there.
     #[serde(default)]

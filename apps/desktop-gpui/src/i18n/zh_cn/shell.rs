@@ -484,7 +484,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Mode", "模式"),
     ("Click a window", "点击选定窗口"),
     ("Window size and focus", "窗口尺寸和专注"),
-    ("Focus on", "专注开"),
+    ("Focus on", "专注已开"),
     ("Take screenshot", "截图"),
     ("Start recording", "开始录制"),
     ("Library", "资源库"),

@@ -16,7 +16,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Show in Explorer", "在资源管理器中显示"),
     ("Delete screenshot", "删除截图"),
     ("Output {size}", "输出 {size}"),
-    ("Show border", "显示边框"),
+    ("Show border", "显示描边"),
     ("Corner style", "圆角样式"),
     ("Done", "完成"),
     ("Color", "颜色"),

@@ -957,11 +957,7 @@ impl ScreenshotEditorWindow {
             tool: Tool::Select,
             selected_annotation: None,
             annotation_state: AnnotationState::default(),
-            inspector_page: crate::store::load()
-                .screenshot_inspector_page
-                .as_deref()
-                .and_then(InspectorPage::from_storage_id)
-                .unwrap_or(InspectorPage::Background),
+            inspector_page: crate::store::load().screenshot_inspector_page,
             groups: InspectorGroup::ALL
                 .into_iter()
                 .map(|group| (group, ui::CollapsibleState::new(true)))
@@ -2221,11 +2217,10 @@ impl ScreenshotEditorWindow {
         if self.inspector_page != page {
             self.inspector_page = page;
             if !cfg!(test) {
-                let id = page.storage_id();
                 cx.background_executor()
                     .spawn(async move {
                         crate::store::update(|state| {
-                            state.screenshot_inspector_page = Some(id.to_string());
+                            state.screenshot_inspector_page = page;
                         });
                     })
                     .detach();
@@ -2471,12 +2466,7 @@ impl ScreenshotEditorWindow {
                     .text_color(Hsla::from(theme.editor.text_1))
                     .child(self.pretty_name.clone()),
             )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(Hsla::from(theme.editor.text_3))
-                    .child(format!(".{}", frameever_utils::brand::PROJECT_EXTENSION)),
-            );
+            .child(editor_chrome::project_extension_suffix(&theme));
         let file = editor_chrome::title_bar_group()
             .child(
                 ui::EditorButton::plain(&theme, "screenshot-show-in-explorer")
@@ -2872,9 +2862,13 @@ impl ScreenshotEditorWindow {
                 )
                 .when(width.is_none(), |this| this.flex())
                 .when_some(width, |this, width| this.row_width(width))
-                .track(px(4.), theme.gray_4.into())
-                .fill(theme.primary.into())
-                .thumb(px(14.), gpui::white(), Some(theme.gray_6.into()))
+                .track(px(3.), Hsla::from(theme.editor.ctl_active))
+                .fill(Hsla::from(theme.editor.accent))
+                .thumb(
+                    px(14.),
+                    Hsla::from(theme.editor.thumb),
+                    Some(gpui::hsla(0., 0., 0., 0.12)),
+                )
                 .on_drag_start(cx.listener(
                     move |this, event: &MouseDownEvent, window, cx| {
                         cx.stop_propagation();

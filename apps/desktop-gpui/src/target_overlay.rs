@@ -2196,14 +2196,9 @@ impl OverlayWindow {
             })
         };
         let mode_button = |this: &Self, cx: &mut Context<Self>| {
-            let icon = match mode {
-                Mode::Studio => "icons/clapperboard.svg",
-                Mode::Instant => "icons/zap.svg",
-                Mode::Screenshot => "icons/image.svg",
-            };
             this.bar_menu_button(
                 "bar-mode",
-                Some(icon),
+                Some(mode.icon()),
                 None,
                 t!("Mode").into(),
                 editor_recording,

@@ -9867,14 +9867,7 @@ impl EditorWindow {
                             .text_color(Hsla::from(theme.editor.text_1)),
                     ),
             )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_size(px(13.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(Hsla::from(theme.editor.text_3))
-                    .child(format!(".{}", frameever_utils::brand::PROJECT_EXTENSION)),
-            );
+            .child(crate::editor_chrome::project_extension_suffix(&theme));
         let file_group = crate::editor_chrome::title_bar_group()
             .child(
                 ui::EditorButton::plain(&theme, "open-recording-bundle")

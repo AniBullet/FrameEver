@@ -3085,9 +3085,6 @@ fn rounded_segment_overlay(
         )
 }
 
-/// The paused window a fullscreen text segment inserts inside a clip
-/// (`TL/ClipTrack.tsx:959-1002`): the clip's tint washed back to the card,
-/// ruled off at both edges, with a pause glyph.
 fn render_transition_mark(
     theme: &Theme,
     center: f32,
@@ -3119,6 +3116,9 @@ fn render_transition_mark(
     .size(px(TRANSITION_MARK_SIZE))
 }
 
+/// The paused window a fullscreen text segment inserts inside a clip
+/// (`TL/ClipTrack.tsx:959-1002`): the clip's tint washed back to the card,
+/// ruled off at both edges, with a pause glyph.
 fn render_hold(
     theme: &Theme,
     color: Hsla,

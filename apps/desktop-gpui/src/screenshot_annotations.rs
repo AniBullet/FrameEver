@@ -2735,9 +2735,13 @@ impl ScreenshotEditorWindow {
                     track,
                 )
                 .row_width(width)
-                .track(px(4.), theme.gray_4.into())
-                .fill(theme.primary.into())
-                .thumb(px(14.), gpui::white(), Some(theme.gray_6.into()))
+                .track(px(3.), Hsla::from(theme.editor.ctl_active))
+                .fill(Hsla::from(theme.editor.accent))
+                .thumb(
+                    px(14.),
+                    Hsla::from(theme.editor.thumb),
+                    Some(gpui::hsla(0., 0., 0., 0.12)),
+                )
                 .on_drag_start(cx.listener(
                     move |this, event: &MouseDownEvent, window, cx| {
                         cx.stop_propagation();

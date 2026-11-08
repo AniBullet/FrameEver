@@ -1,7 +1,9 @@
 use crate::i18n::n;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum InspectorPage {
+    #[default]
     Background,
     Screen,
     Layers,
@@ -34,20 +36,19 @@ impl InspectorPage {
             _ => None,
         }
     }
+}
 
-    pub(crate) fn storage_id(self) -> &'static str {
-        match self {
-            Self::Background => "background",
-            Self::Screen => "screen",
-            Self::Layers => "layers",
-        }
-    }
-
-    pub(crate) fn from_storage_id(id: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|page| page.storage_id() == id)
+impl<'de> serde::Deserialize<'de> for InspectorPage {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let stored = serde_json::Value::deserialize(deserializer)?;
+        Ok(Self::ALL
+            .into_iter()
+            .find(|page| serde_json::to_value(page).is_ok_and(|value| value == stored))
+            .unwrap_or_default())
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Place {
     TitleBar,
@@ -64,6 +65,7 @@ pub(crate) enum Place {
     Removed,
 }
 
+#[cfg(test)]
 pub(crate) const INVENTORY: &[(&str, &[Place])] = &[
     (
         "Select, draw, arrow, rectangle, mask, circle, text",
@@ -213,15 +215,21 @@ mod tests {
     #[test]
     fn the_inspector_remembers_its_page_by_name() {
         for page in InspectorPage::ALL {
+            let stored = serde_json::to_value(page).unwrap();
             assert_eq!(
-                InspectorPage::from_storage_id(page.storage_id()),
-                Some(page)
+                serde_json::from_value::<InspectorPage>(stored).unwrap(),
+                page
             );
         }
         assert_eq!(
-            InspectorPage::from_storage_id("layers"),
-            Some(InspectorPage::Layers)
+            serde_json::to_value(InspectorPage::Layers).unwrap(),
+            serde_json::json!("layers")
         );
-        assert_eq!(InspectorPage::from_storage_id("nonsense"), None);
+        for unknown in [serde_json::json!("nonsense"), serde_json::json!(3)] {
+            assert_eq!(
+                serde_json::from_value::<InspectorPage>(unknown).unwrap(),
+                InspectorPage::default()
+            );
+        }
     }
 }
