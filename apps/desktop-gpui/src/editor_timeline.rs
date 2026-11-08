@@ -122,6 +122,7 @@ const TRACK_TILE_INSET: f32 = 4.;
 /// it (`0 10px 0 13px`).
 const SEGMENT_RADIUS: f32 = 8.;
 const SEGMENT_ACCENT_BAR: f32 = 3.;
+const TRANSITION_MARK_SIZE: f32 = 14.;
 const SEGMENT_PADDING_LEFT: f32 = 13.;
 const SEGMENT_PADDING_RIGHT: f32 = 10.;
 /// The selected 3D shot's pose dots: 6px, 5px inside each edge, so the resize
@@ -1099,6 +1100,7 @@ pub enum SegmentDetail {
         /// Held (paused) windows inside this clip's on-screen box, in output
         /// time (`TL/ClipTrack.tsx:658-666`).
         holds: Arc<[(f64, f64)]>,
+        transition_in: Option<f64>,
     },
     /// `TL/ZoomTrack.tsx:343-349`.
     Zoom {
@@ -1630,6 +1632,9 @@ fn clip_rows(
                     volume: segment.volume(),
                     recording_clip: segment.recording_clip,
                     holds: inner_holds,
+                    transition_in: timeline
+                        .effective_transition(index)
+                        .map(|transition| transition.duration),
                 },
             }
         })
@@ -2648,6 +2653,7 @@ fn render_segment(
     if let SegmentDetail::Clip {
         holds,
         recording_clip,
+        transition_in,
         ..
     } = &segment.detail
     {
@@ -2677,6 +2683,10 @@ fn render_segment(
             let hold_x = ((hold_start - segment.start) / secs_per_pixel) as f32;
             let hold_width = ((hold_end - hold_start) / secs_per_pixel) as f32;
             fill = fill.child(render_hold(theme, color, hold_x, hold_width, width, height));
+        }
+        if let Some(overlap) = transition_in {
+            let center = (*overlap / 2. / secs_per_pixel) as f32;
+            fill = fill.child(render_transition_mark(theme, center, width, height));
         }
     }
 
@@ -3078,6 +3088,37 @@ fn rounded_segment_overlay(
 /// The paused window a fullscreen text segment inserts inside a clip
 /// (`TL/ClipTrack.tsx:959-1002`): the clip's tint washed back to the card,
 /// ruled off at both edges, with a pause glyph.
+fn render_transition_mark(
+    theme: &Theme,
+    center: f32,
+    segment_width: f32,
+    height: f32,
+) -> impl IntoElement {
+    let half = TRANSITION_MARK_SIZE / 2.;
+    let center = center.clamp(half + 1., (segment_width - half - 1.).max(half + 1.));
+    let ink = Hsla::from(theme.foreground);
+    gpui::canvas(
+        |bounds, _window, _cx| bounds,
+        move |_, bounds, window, _cx| {
+            let mut builder = gpui::PathBuilder::fill();
+            let point =
+                |x: f32, y: f32| gpui::point(bounds.origin.x + px(x), bounds.origin.y + px(y));
+            builder.move_to(point(half, 0.));
+            builder.line_to(point(TRANSITION_MARK_SIZE, half));
+            builder.line_to(point(half, TRANSITION_MARK_SIZE));
+            builder.line_to(point(0., half));
+            builder.close();
+            if let Ok(path) = builder.build() {
+                window.paint_path(path, ink);
+            }
+        },
+    )
+    .absolute()
+    .left(px(center - half))
+    .top(px(height / 2. - half))
+    .size(px(TRANSITION_MARK_SIZE))
+}
+
 fn render_hold(
     theme: &Theme,
     color: Hsla,
@@ -4253,6 +4294,33 @@ mod tests {
             panic!("not a clip")
         };
         assert_eq!(name.as_ref(), "Clip 1");
+    }
+
+    #[test]
+    fn only_a_clip_entered_through_a_transition_carries_its_overlap() {
+        let config: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": {
+                "segments": [
+                    { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0 },
+                    { "recordingSegment": 1, "timescale": 1.0, "start": 0.0, "end": 10.0 },
+                    { "recordingSegment": 2, "timescale": 1.0, "start": 0.0, "end": 10.0 }
+                ],
+                "transitions": [{ "segmentIndex": 1, "type": "fade-through-black", "duration": 0.6 }],
+                "zoomSegments": []
+            }
+        }))
+        .unwrap();
+
+        let model = TimelineModel::build(&config, false, true);
+        let overlaps: Vec<_> = model
+            .clips
+            .iter()
+            .map(|clip| match &clip.detail {
+                SegmentDetail::Clip { transition_in, .. } => *transition_in,
+                _ => panic!("not a clip"),
+            })
+            .collect();
+        assert_eq!(overlaps, vec![None, Some(0.6), None]);
     }
 
     #[test]
