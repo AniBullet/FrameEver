@@ -244,11 +244,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "无法确认录制状态，请点击停止。",
     ),
     (
-        "Microphone disconnected. Silence will be used until it reconnects.",
+        "Microphone disconnected. Recording silence until it's back.",
         "麦克风已断开。在它恢复之前录入的是静音。",
     ),
     (
-        "Camera disconnected. Recording continues without the camera.",
+        "Camera disconnected. Recording continues without it.",
         "摄像头已断开。录制继续，只是没有摄像头画面。",
     ),
     ("The microphone is unavailable", "麦克风不可用"),
@@ -472,10 +472,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Draw an area", "框选一个区域"),
     ("Clear area", "清除选区"),
     ("Fill display", "填满屏幕"),
-    ("Lock area for next time", "锁定区域供下次使用"),
+    ("Lock area", "锁定区域"),
     ("Unlock area", "解锁区域"),
     ("Locked", "已锁定"),
-    ("Window size and ratio", "窗口尺寸和比例"),
+    ("Window size", "窗口尺寸"),
     ("Record only this window", "只录这个窗口"),
     ("Center on screen", "移到屏幕中央"),
     (

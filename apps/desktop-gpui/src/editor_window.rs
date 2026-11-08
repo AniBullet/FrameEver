@@ -8388,6 +8388,15 @@ impl EditorWindow {
             })
             .and_then(|index| self.timeline.clips.get(index))
             .map(|clip| clip.start);
+        if let Some(blocker) = self
+            .project
+            .timeline
+            .as_ref()
+            .and_then(|timeline| edits::clip_side_blocker(timeline, time, index, side))
+        {
+            self.show_notice(blocker.hint(), window, cx);
+            return;
+        }
         if self.edit(
             |timeline| edits::delete_clip_side(timeline, time, index, side),
             window,
@@ -11961,7 +11970,7 @@ impl Render for EditorWindow {
                 .size_full()
                 .flex()
                 .flex_col()
-                .bg(gpui::black())
+                .bg(self.theme.fixed_preview)
                 .track_focus(&self.focus)
                 .capture_key_down(cx.listener(Self::capture_playback_key))
                 .on_key_down(cx.listener(Self::on_key))
@@ -13775,6 +13784,37 @@ mod tests {
                 );
             }
             assert_eq!(serde_json::to_value(&editor.project).unwrap(), before);
+        });
+    }
+
+    #[gpui::test]
+    fn a_blocked_side_delete_says_why(cx: &mut gpui::TestAppContext) {
+        let project = tempfile::tempdir().unwrap();
+        let path = project.path().to_path_buf();
+        let (editor, cx) =
+            cx.add_window_view(move |window, cx| EditorWindow::new(path.clone(), window, cx));
+        editor.update_in(cx, |editor, window, cx| {
+            editor.set_error("side delete fixture".into(), window, cx);
+            editor.project.timeline = Some(
+                serde_json::from_value(serde_json::json!({
+                    "segments": [
+                        { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0 },
+                        { "recordingSegment": 1, "timescale": 1.0, "start": 0.0, "end": 8.0 }
+                    ],
+                    "zoomSegments": []
+                }))
+                .unwrap(),
+            );
+            editor.timeline = timeline::TimelineModel::build(&editor.project, false, false);
+            editor.playhead = 9.5;
+            editor.delete_clip_side(None, edits::ClipSide::Left, window, cx);
+            assert_eq!(
+                editor
+                    .notice
+                    .as_ref()
+                    .map(|notice| notice.message.to_string()),
+                Some("Less than 1 second would remain".to_string())
+            );
         });
     }
 

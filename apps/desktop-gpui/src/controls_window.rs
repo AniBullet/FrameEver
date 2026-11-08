@@ -107,14 +107,11 @@ impl ControlsWindow {
         let session = self.session.read(cx);
         let mut lines = Vec::new();
         if session.mic_disconnected {
-            lines.push(
-                t!("Microphone disconnected. Silence will be used until it reconnects.").to_owned(),
-            );
+            lines
+                .push(t!("Microphone disconnected. Recording silence until it's back.").to_owned());
         }
         if Feeds::global(cx).read(cx).camera_disconnected() {
-            lines.push(
-                t!("Camera disconnected. Recording continues without the camera.").to_owned(),
-            );
+            lines.push(t!("Camera disconnected. Recording continues without it.").to_owned());
         }
         if let Some(error) = session.error.clone() {
             lines.push(error);
@@ -527,8 +524,12 @@ impl ControlsWindow {
                             this.on_click(cx.listener(move |this, _, _, cx| {
                                 this.expanded = None;
                                 let label = pick.clone();
-                                this.session
-                                    .update(cx, |session, cx| session.change_microphone(label, cx));
+                                this.session.update(cx, |session, cx| {
+                                    session.change_input(
+                                        crate::session::InputChoice::Microphone(label),
+                                        cx,
+                                    )
+                                });
                             }))
                         })
                 })
@@ -556,8 +557,12 @@ impl ControlsWindow {
                             this.on_click(cx.listener(move |this, _, _, cx| {
                                 this.expanded = None;
                                 let selection = crate::deeplink::camera_selection(id.clone());
-                                this.session
-                                    .update(cx, |session, cx| session.change_camera(selection, cx));
+                                this.session.update(cx, |session, cx| {
+                                    session.change_input(
+                                        crate::session::InputChoice::Camera(selection),
+                                        cx,
+                                    )
+                                });
                             }))
                         })
                 })

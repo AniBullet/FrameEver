@@ -1364,7 +1364,7 @@ pub async fn attach_microphone(
     anyhow::ensure!(
         lock.device_name() == label,
         t!(
-            "Selected microphone '{label}' is not the connected microphone '{device}'. Please select it again.",
+            "Selected microphone '{label}' is not the connected microphone '{device}'. Select it again.",
             label = label,
             device = lock.device_name()
         )
@@ -1391,7 +1391,7 @@ pub async fn attach_camera(
     };
     anyhow::ensure!(
         matches_selection,
-        t!("The selected camera is not the connected camera. Please select it again.")
+        t!("The selected camera is not the connected camera. Select it again.")
     );
     handle.set_camera_feed(Some(Arc::new(lock))).await?;
     Ok(())
@@ -1420,7 +1420,7 @@ async fn start_attempt(
                 anyhow::ensure!(
                     lock.device_name() == label,
                     t!(
-                        "Selected microphone '{label}' is not the connected microphone '{device}'. Please select it again.",
+                        "Selected microphone '{label}' is not the connected microphone '{device}'. Select it again.",
                         label = label,
                         device = lock.device_name()
                     )
@@ -1474,9 +1474,7 @@ async fn start_attempt(
                         };
                         anyhow::ensure!(
                             matches_selection,
-                            t!(
-                                "The selected camera is not the connected camera. Please select it again."
-                            )
+                            t!("The selected camera is not the connected camera. Select it again.")
                         );
                         (None, Some(Arc::new(lock)))
                     }

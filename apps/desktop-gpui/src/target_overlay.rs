@@ -153,8 +153,8 @@ fn snap_off(modifiers: &gpui::Modifiers) -> bool {
     }
 }
 
-fn render_thirds(crop: AreaRect) -> impl IntoElement {
-    let line = gpui::hsla(0., 0., 1., 0.28);
+fn render_thirds(crop: AreaRect, theme: &Theme) -> impl IntoElement {
+    let line = Theme::with_alpha(theme.fixed_white, 0.28);
     let mut grid = div()
         .absolute()
         .left(px(crop.x))
@@ -1006,11 +1006,6 @@ impl Render for OverlayWindow {
                 // The Tauri app registers Escape as a *global* shortcut while
                 // the overlays are up; here it is a plain key handler on the
                 // overlay that has focus (see the README deviation).
-                tracing::debug!(key = %event.keystroke.key, "overlay key");
-                if this.mode_menu.is_none() && this.area_key(&event.keystroke, window, cx) {
-                    cx.stop_propagation();
-                    return;
-                }
                 if this.mode_menu.is_none() && this.area_key(&event.keystroke, window, cx) {
                     cx.stop_propagation();
                     return;
@@ -1708,7 +1703,7 @@ impl OverlayWindow {
         if let Some(shown) = shown {
             root = root.child(self.render_crop_region(shown, editable));
             if self.drag.is_some() {
-                root = root.child(render_thirds(shown));
+                root = root.child(render_thirds(shown, &self.theme));
             }
         }
         if let Some(hover) = self.fit_hover.filter(|_| editable && !interacting) {
@@ -1944,28 +1939,33 @@ impl OverlayWindow {
             None => t!("Free").to_string(),
         };
         let divider = || div().h(px(24.)).w(px(1.)).flex_shrink_0().bg(theme.gray_5);
-        let icon_button = |id: &'static str, icon: &'static str, title: SharedString| {
-            div()
-                .id(id)
-                .size(px(36.))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(12.))
-                .cursor_pointer()
-                .group(id)
-                .hover(move |style| style.bg(Theme::with_alpha(theme.gray_12, 0.08)))
-                .tooltip(move |_, cx| crate::ui::Tooltip::new(&theme, title.clone()).view(cx))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(
-                    svg()
-                        .path(icon)
-                        .size(px(16.))
-                        .text_color(theme.gray_11)
-                        .group_hover(id, move |style| style.text_color(theme.gray_12)),
-                )
-        };
+        let icon_button =
+            |id: &'static str, icon: &'static str, title: SharedString, key: &'static str| {
+                div()
+                    .id(id)
+                    .size(px(36.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(12.))
+                    .cursor_pointer()
+                    .group(id)
+                    .hover(move |style| style.bg(Theme::with_alpha(theme.gray_12, 0.08)))
+                    .tooltip(move |_, cx| {
+                        crate::ui::Tooltip::new(&theme, title.clone())
+                            .keys([key])
+                            .view(cx)
+                    })
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(
+                        svg()
+                            .path(icon)
+                            .size(px(16.))
+                            .text_color(theme.gray_11)
+                            .group_hover(id, move |style| style.text_color(theme.gray_12)),
+                    )
+            };
 
         div()
             .absolute()
@@ -2031,6 +2031,7 @@ impl OverlayWindow {
                             "area-clear",
                             "icons/rotate-ccw.svg",
                             SharedString::from(t!("Clear area")),
+                            "R",
                         )
                         .when(crop.is_none(), |button| button.opacity(0.4))
                         .on_click(cx.listener(|this, _, _, cx| this.reset_area(cx))),
@@ -2040,6 +2041,7 @@ impl OverlayWindow {
                             "area-fill",
                             "icons/maximize.svg",
                             SharedString::from(t!("Fill display")),
+                            "F",
                         )
                         .when(locked, |button| button.opacity(0.4))
                         .on_click(cx.listener(|this, _, _, cx| this.fill_area(cx))),
@@ -2056,8 +2058,9 @@ impl OverlayWindow {
                             if locked {
                                 SharedString::from(t!("Unlock area"))
                             } else {
-                                SharedString::from(t!("Lock area for next time"))
+                                SharedString::from(t!("Lock area"))
                             },
+                            "L",
                         )
                         .when(locked, |button| {
                             button.bg(Theme::with_alpha(theme.gray_12, 0.12))
@@ -3027,7 +3030,9 @@ impl OverlayWindow {
             .top(px(crop.y + 8.))
             .cursor_pointer()
             .tooltip(move |_, cx| {
-                crate::ui::Tooltip::new(&theme, SharedString::from(t!("Unlock area"))).view(cx)
+                crate::ui::Tooltip::new(&theme, SharedString::from(t!("Unlock area")))
+                    .keys(["L"])
+                    .view(cx)
             })
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|this, _, _, cx| this.toggle_area_lock(cx)))
@@ -3350,7 +3355,7 @@ impl OverlayWindow {
                 chip.cursor_pointer()
                     .hover(move |style| style.bg(Theme::with_alpha(theme.gray_12, 0.08)))
                     .tooltip(move |_, cx| {
-                        crate::ui::Tooltip::new(&theme, t!("Window size and ratio")).view(cx)
+                        crate::ui::Tooltip::new(&theme, t!("Window size")).view(cx)
                     })
                     .child(
                         svg()

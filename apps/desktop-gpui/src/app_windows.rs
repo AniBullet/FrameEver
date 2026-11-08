@@ -392,6 +392,11 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
     let mut last_phase = Phase::Idle;
     cx.observe(&session, move |session, cx| {
         let phase = session.read(cx).phase;
+        match arranged_windows_step(last_phase, phase) {
+            Some(ArrangedWindowsStep::Keep) => keep_arranged_windows(cx),
+            Some(ArrangedWindowsStep::Restore) => restore_arranged_windows(cx),
+            None => {}
+        }
         let recording = matches!(phase, Phase::Recording { .. });
         if recording != matches!(last_phase, Phase::Recording { .. }) {
             // `RecordingStarted` / `RecordingStopped` in `create_tray`: the
@@ -2100,6 +2105,22 @@ fn keep_arranged_windows(cx: &mut App) {
     });
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ArrangedWindowsStep {
+    Keep,
+    Restore,
+}
+
+fn arranged_windows_step(last: Phase, phase: Phase) -> Option<ArrangedWindowsStep> {
+    match (last, phase) {
+        (Phase::Recording { .. }, Phase::Recording { .. }) => None,
+        (_, Phase::Recording { .. }) => Some(ArrangedWindowsStep::Keep),
+        (Phase::Idle, Phase::Idle) => None,
+        (_, Phase::Idle) => Some(ArrangedWindowsStep::Restore),
+        _ => None,
+    }
+}
+
 const ARRANGE_SETTLE_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub fn start_recording_from_overlay(target: ScreenCaptureTarget, cx: &mut App) {
@@ -2730,7 +2751,6 @@ fn begin_recording_after_preflight(config: StartConfig, cx: &mut App) {
     if session.read(cx).phase != Phase::Idle {
         return;
     }
-    keep_arranged_windows(cx);
 
     // `start_recording`'s first act (`src-tauri/src/recording.rs:1492-1494`):
     // an armed editor recording target forces Studio, whatever mode the main
@@ -5743,6 +5763,32 @@ fn close_controls(session: &Entity<RecordingSession>, cx: &mut App) {
 mod tests {
     use super::*;
     use crate::store::{DEFAULT_EXCLUDED_WINDOW_TITLES, WindowExclusion, default_excluded_windows};
+
+    #[test]
+    fn arranged_windows_are_kept_only_once_capture_starts() {
+        let recording = Phase::Recording { paused: false };
+        assert_eq!(arranged_windows_step(Phase::Idle, Phase::Starting), None);
+        assert_eq!(
+            arranged_windows_step(Phase::Starting, recording),
+            Some(ArrangedWindowsStep::Keep)
+        );
+        assert_eq!(
+            arranged_windows_step(Phase::Starting, Phase::Idle),
+            Some(ArrangedWindowsStep::Restore)
+        );
+        assert_eq!(
+            arranged_windows_step(Phase::Starting, Phase::Stopping),
+            None
+        );
+        assert_eq!(
+            arranged_windows_step(Phase::Stopping, Phase::Idle),
+            Some(ArrangedWindowsStep::Restore)
+        );
+        assert_eq!(
+            arranged_windows_step(recording, Phase::Recording { paused: true }),
+            None
+        );
+    }
 
     #[test]
     fn opening_a_cap_folder_points_to_the_converter_in_both_languages() {

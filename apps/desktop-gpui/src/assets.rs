@@ -178,7 +178,6 @@ const IMAGES: &[(&str, &[u8])] = assets!("images":
     "auto.jpg",
     "light.jpg",
     "dark.jpg",
-    "monitor-illustration.svg",
 );
 
 const ONBOARDING: &[(&str, &[u8])] = &[
@@ -551,12 +550,6 @@ mod tests {
             let svg = std::str::from_utf8(&bytes).unwrap();
             assert!(!svg.contains("@license"), "{path}");
         }
-        assert!(
-            Assets
-                .load("images/monitor-illustration.svg")
-                .unwrap()
-                .is_some()
-        );
     }
 
     #[test]
