@@ -165,12 +165,12 @@ const CLIP_RESIZE_ANIM_DURATION: Duration = Duration::from_millis(180);
 const CLIP_RESIZE_ANIM_TICK: Duration = Duration::from_millis(16);
 
 /// The header row.
-const HEADER_HEIGHT: f32 = 44.;
+const HEADER_HEIGHT: f32 = crate::editor_chrome::TITLE_BAR_HEIGHT;
 
 /// `w-104 min-w-104` on the sidebar column (`Editor.tsx:728`). Tailwind v4
 /// arbitrary spacing: 104 x 0.25rem = 26rem = 416px. The column also carries
 /// `ml-2`, i.e. an 8px gutter.
-pub(crate) const SIDEBAR_WIDTH: f32 = 386.;
+pub(crate) const SIDEBAR_WIDTH: f32 = crate::editor_chrome::INSPECTOR_WIDTH;
 const SIDEBAR_MAX_WIDTH: f32 = 606.;
 const MIN_PLAYER_WIDTH: f32 = 480.;
 const SIDEBAR_KEY_STEP: f32 = 16.;
@@ -235,7 +235,7 @@ fn preset_submenu_origin(
     point(px(x), px(row_top.clamp(POPOVER_WINDOW_INSET, max_y)))
 }
 
-fn traverse_editor_focus(
+pub(crate) fn traverse_editor_focus(
     event: &gpui::KeyDownEvent,
     window: &mut Window,
     cx: &mut gpui::App,
@@ -9829,221 +9829,115 @@ impl EditorWindow {
             has_captions,
         );
 
-        let drag_area = |area: gpui::Div| {
-            area.flex_1()
-                .h_full()
-                .when(cfg!(target_os = "windows"), |area| {
-                    area.occlude()
-                        .window_control_area(gpui::WindowControlArea::Drag)
-                })
-                .when(cfg!(target_os = "macos"), |area| {
-                    area.on_mouse_down(gpui::MouseButton::Left, |event, window, _| {
-                        if event.click_count == 2 {
-                            window.titlebar_double_click();
-                        } else {
-                            window.start_window_move();
-                        }
-                    })
-                })
-        };
-
-        let header = div()
-            .relative()
+        let name_group = div()
             .flex()
             .flex_row()
             .items_center()
-            .w_full()
-            .h(px(HEADER_HEIGHT))
-            .flex_none()
-            .gap(px(6.))
-            .px(px(10.))
-            .when(compact, |header| header.px(px(6.)))
-            .when(cfg!(target_os = "windows"), |header| {
-                header.window_control_area(gpui::WindowControlArea::Drag)
-            })
-            // The macOS spacer for the inset traffic lights.
-            .when(!cfg!(target_os = "windows"), |header| {
-                header.child(div().h_full().w(px(82.)).flex_none())
-            })
-            // The name field plus its literal `.cap` suffix, editable. The
-            // Solid version is an `<input>` overlaying a measuring `<span>`;
-            // here the field paints its own text, so the span is not needed and
-            // the `max-w-[200px]` sits on the field itself.
+            .min_w_0()
+            .flex_shrink(1.)
+            .when(cfg!(target_os = "windows"), |group| group.occlude())
             .child(
                 div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
                     .min_w_0()
-                    .flex_shrink(1.)
-                    .when(cfg!(target_os = "windows"), |group| group.occlude())
+                    .max_w(px(220.))
+                    .overflow_hidden()
+                    .border_b_1()
+                    .border_color(if name_focused {
+                        Hsla::from(theme.editor.line_strong)
+                    } else {
+                        gpui::transparent_black()
+                    })
                     .child(
-                        div()
-                            .min_w_0()
-                            .max_w(px(220.))
-                            .overflow_hidden()
-                            .border_b_1()
-                            .border_color(if name_focused {
-                                Hsla::from(theme.editor.line_strong)
-                            } else {
-                                gpui::transparent_black()
-                            })
-                            .child(
-                                ui::TextInput::bare(&theme, "editor-name", &self.name_input)
-                                    .fit_content()
-                                    .padding_x(px(1.))
-                                    .text_size(px(13.))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(Hsla::from(theme.editor.text_1)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
+                        ui::TextInput::bare(&theme, "editor-name", &self.name_input)
+                            .fit_content()
+                            .padding_x(px(1.))
                             .text_size(px(13.))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(Hsla::from(theme.editor.text_3))
-                            .child(format!(".{}", frameever_utils::brand::PROJECT_EXTENSION)),
+                            .text_color(Hsla::from(theme.editor.text_1)),
                     ),
             )
             .child(
                 div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(2.))
-                    .flex_none()
-                    .when(cfg!(target_os = "windows"), |group| group.occlude())
-                    .child(
-                        ui::EditorButton::plain(&theme, "open-recording-bundle")
-                            .left_icon("icons/folder.svg")
-                            .tooltip(&theme, t!("Open recording bundle"))
-                            .disabled(!self.visual_ready())
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.open_recording_bundle(cx);
-                            })),
-                    )
-                    .child(
-                        ui::EditorButton::plain(&theme, "delete-recording")
-                            .left_icon("icons/trash.svg")
-                            .tooltip(&theme, t!("Delete recording"))
-                            .disabled(!self.visual_ready())
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.delete_recording(window, cx);
-                            })),
-                    ),
-            )
-            .child(drag_area(div()))
-            // The right cluster.
+                    .flex_shrink_0()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(Hsla::from(theme.editor.text_3))
+                    .child(format!(".{}", frameever_utils::brand::PROJECT_EXTENSION)),
+            );
+        let file_group = crate::editor_chrome::title_bar_group()
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(2.))
-                    .flex_none()
-                    .when(cfg!(target_os = "windows"), |group| group.occlude())
-                    .child(self.history_button("editor-undo", "icons/undo-2.svg", true, cx))
-                    .child(self.history_button("editor-redo", "icons/redo-2.svg", false, cx))
-                    .child(self.header_divider())
-                    .child(
-                        ui::EditorButton::plain(&theme, "presets")
-                            .left_icon("icons/wand-sparkles.svg")
-                            .when(!compact, |button| button.label(t!("Presets")))
-                            .tooltip(&theme, t!("Presets"))
-                            .disabled(!self.project_ready())
-                            .right_icon("icons/chevron-down.svg")
-                            .pressed(self.presets_menu.is_some())
-                            .on_open(cx.listener(|this, bounds: &Bounds<Pixels>, window, cx| {
-                                this.open_presets_menu(bounds.bottom_left(), window, cx);
-                            })),
-                    )
-                    .child(self.render_export_button(cx))
-                    .relative()
-                    .children((!self.visual_ready()).then(|| {
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .occlude()
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
+                ui::EditorButton::plain(&theme, "open-recording-bundle")
+                    .left_icon("icons/folder.svg")
+                    .tooltip(&theme, t!("Open recording bundle"))
+                    .disabled(!self.visual_ready())
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.open_recording_bundle(cx);
+                    })),
+            )
+            .child(
+                ui::EditorButton::plain(&theme, "delete-recording")
+                    .left_icon("icons/trash.svg")
+                    .tooltip(&theme, t!("Delete recording"))
+                    .disabled(!self.visual_ready())
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.delete_recording(window, cx);
                     })),
             );
+        let actions = crate::editor_chrome::title_bar_group()
+            .child(self.history_button("editor-undo", "icons/undo-2.svg", true, cx))
+            .child(self.history_button("editor-redo", "icons/redo-2.svg", false, cx))
+            .child(self.header_divider())
+            .child(
+                ui::EditorButton::plain(&theme, "presets")
+                    .left_icon("icons/wand-sparkles.svg")
+                    .when(!compact, |button| button.label(t!("Presets")))
+                    .tooltip(&theme, t!("Presets"))
+                    .disabled(!self.project_ready())
+                    .right_icon("icons/chevron-down.svg")
+                    .pressed(self.presets_menu.is_some())
+                    .on_open(cx.listener(|this, bounds: &Bounds<Pixels>, window, cx| {
+                        this.open_presets_menu(bounds.bottom_left(), window, cx);
+                    })),
+            )
+            .child(self.render_export_button(cx))
+            .relative()
+            .children((!self.visual_ready()).then(|| {
+                div()
+                    .absolute()
+                    .inset_0()
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
+            }));
 
-        #[cfg(target_os = "windows")]
-        let header = header.child(ui::windows_caption_controls(
+        crate::editor_chrome::title_bar(
             theme,
-            window.is_window_active(),
-            window.is_maximized(),
-            true,
-            true,
-        ));
-
-        header
+            window,
+            compact,
+            vec![name_group.into_any_element(), file_group.into_any_element()],
+            actions.into_any_element(),
+        )
     }
 
-    /// The 1px x 16px rule between the history pair and the action cluster.
     fn header_divider(&self) -> impl IntoElement {
-        div()
-            .w(px(1.))
-            .h(px(16.))
-            .mx(px(6.))
-            .flex_none()
-            .bg(Hsla::from(self.theme.editor.line_strong))
+        crate::editor_chrome::title_bar_divider(&self.theme)
     }
 
     fn render_export_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let editor = self.theme.editor;
-        div()
-            .id("editor-export")
-            .relative()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_center()
-            .gap(px(6.))
-            .pl(px(12.))
-            .pr(px(14.))
-            .h(px(crate::theme::CONTROL_HEIGHT))
-            .flex_none()
-            .overflow_hidden()
-            .rounded(px(8.))
-            .when(self.project_ready(), |button| {
-                button.tab_index(0).cursor_pointer()
-            })
-            .when(!self.project_ready(), |button| button.opacity(0.5))
-            .bg(editor.accent)
-            .hover(move |style| style.bg(editor.accent_hover))
-            .active(move |style| style.bg(editor.accent_active))
-            .text_size(px(13.))
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(gpui::white())
-            // gpui has no box-shadow, so the `inset 0 1px 0 rgba(255,255,255,
-            // .22)` highlight is a painted hairline instead.
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .right_0()
-                    .h(px(1.))
-                    .bg(gpui::hsla(0., 0., 1., 0.22)),
-            )
-            .child(
-                svg()
-                    .path("icons/upload.svg")
-                    .size(px(16.))
-                    .flex_shrink_0()
-                    .text_color(gpui::white()),
-            )
-            .child(t!("Export"))
-            .when(self.project_ready(), |button| {
-                button.on_click(cx.listener(|this, _, window, cx| {
-                    if this.project_ready() {
-                        this.open_export(window, cx);
-                    }
-                }))
-            })
+        crate::editor_chrome::primary_button(
+            &self.theme,
+            "editor-export",
+            Some("icons/upload.svg"),
+            t!("Export"),
+            self.project_ready(),
+        )
+        .when(self.project_ready(), |button| {
+            button.on_click(cx.listener(|this, _, window, cx| {
+                if this.project_ready() {
+                    this.open_export(window, cx);
+                }
+            }))
+        })
     }
 
     // -- Player --------------------------------------------------------------

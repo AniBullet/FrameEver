@@ -11,13 +11,6 @@
 //! what the Phase 2 mask overlay resamples) and once BGRA-swapped for gpui's
 //! atlas.
 //!
-//! The chrome is `Editor.tsx`'s: a 56px `Header.tsx` whose centre cluster
-//! carries the aspect select, the crop button, `AnnotationTools.tsx` and the
-//! five styling popovers; `LayersPanel.tsx` on the left; `Preview.tsx` filling
-//! the rest with its checkerboard, its zoom HUD and its pan/zoom maths. The
-//! annotation engine itself lives behind the seam in
-//! [`crate::screenshot_annotations`]; sharing and the crop dialog are Phase 3.
-
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -41,6 +34,7 @@ use gpui::{
     img, linear_color_stop, linear_gradient, prelude::FluentBuilder as _, px, svg,
 };
 
+use crate::editor_chrome;
 use crate::editor_edits::ProjectHistory;
 use crate::editor_sidebar::{
     self, BACKGROUND_COLORS, BACKGROUND_IMAGE_EXTENSIONS, BACKGROUND_THEMES, DEFAULT_GRADIENT_FROM,
@@ -48,6 +42,7 @@ use crate::editor_sidebar::{
 };
 use crate::i18n::{n, t, tr};
 use crate::screenshot_annotations::{self as annotations, AnnotationState, Tool};
+use crate::screenshot_layout::InspectorPage;
 use crate::theme::Theme;
 use crate::ui;
 
@@ -64,14 +59,10 @@ const MAX_DIMENSION: u32 = 16_384;
 /// editor's 250.
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(1000);
 
-/// `Header.tsx:112` -- `h-14`.
-const HEADER_HEIGHT: f32 = 56.;
-/// `AnnotationConfig.tsx:44` -- `h-11`.
-const CONFIG_BAR_HEIGHT: f32 = 44.;
-/// `LayersPanel.tsx:203` -- `w-56`.
-const LAYERS_PANEL_WIDTH: f32 = 224.;
 /// `Preview.tsx:52`.
 const PREVIEW_PADDING: f32 = 20.;
+const TOOLBAR_HEIGHT: f32 = 40.;
+const STATUS_BAR_HEIGHT: f32 = 36.;
 /// `clampZoom` (`Preview.tsx:193`).
 const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 3.;
@@ -516,77 +507,31 @@ impl BgTab {
     }
 }
 
-/// `activePopover` (`context.tsx:198-200`) -- the five styling popovers on the
-/// header's right-hand cluster. One at a time, by construction.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Popover {
-    Background,
-    Padding,
-    Rounding,
+enum InspectorGroup {
+    Source,
+    Blur,
+    Layout,
     Shadow,
     Border,
 }
 
-impl Popover {
-    fn anchor(self) -> Anchor {
-        match self {
-            Self::Background => Anchor::Background,
-            Self::Padding => Anchor::Padding,
-            Self::Rounding => Anchor::Rounding,
-            Self::Shadow => Anchor::Shadow,
-            Self::Border => Anchor::Border,
-        }
-    }
+impl InspectorGroup {
+    const ALL: [Self; 5] = [
+        Self::Source,
+        Self::Blur,
+        Self::Layout,
+        Self::Shadow,
+        Self::Border,
+    ];
 
-    /// `Popover.Content`'s `w-[...]` per popover.
-    fn width(self) -> f32 {
+    fn label(self) -> &'static str {
         match self {
-            Self::Background => 400.,
-            Self::Padding => 200.,
-            Self::Rounding => 240.,
-            Self::Shadow | Self::Border => 280.,
-        }
-    }
-
-    fn icon(self) -> &'static str {
-        match self {
-            Self::Background => "icons/image.svg",
-            Self::Padding => "icons/box-padding.svg",
-            Self::Rounding => "icons/square-round-corner.svg",
-            Self::Shadow => "icons/shadow.svg",
-            Self::Border => "icons/square.svg",
-        }
-    }
-
-    fn tooltip(self) -> &'static str {
-        match self {
-            Self::Background => n!("Background"),
-            Self::Padding => n!("Padding"),
-            Self::Rounding => n!("Corner Rounding"),
+            Self::Source => n!("Source"),
+            Self::Blur => n!("Blur"),
+            Self::Layout => n!("Layout"),
             Self::Shadow => n!("Shadow"),
             Self::Border => n!("Border"),
-        }
-    }
-
-    /// The `kbd` chips on the trigger's tooltip -- and the bare key
-    /// `Editor.tsx:153-169` binds. `RoundingPopover` passes no `kbd`.
-    fn keys(self) -> &'static [&'static str] {
-        match self {
-            Self::Background => &["B"],
-            Self::Padding => &["P"],
-            Self::Rounding => &[],
-            Self::Shadow => &["H"],
-            Self::Border => &["E"],
-        }
-    }
-
-    fn id(self) -> &'static str {
-        match self {
-            Self::Background => "screenshot-popover-background",
-            Self::Padding => "screenshot-popover-padding",
-            Self::Rounding => "screenshot-popover-rounding",
-            Self::Shadow => "screenshot-popover-shadow",
-            Self::Border => "screenshot-popover-border",
         }
     }
 }
@@ -597,33 +542,17 @@ impl Popover {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Anchor {
     Aspect,
-    Background,
-    Padding,
-    Rounding,
-    Shadow,
-    Border,
-    More,
     CornerStyle,
 }
 
 impl Anchor {
-    const ALL: [Anchor; 8] = [
-        Anchor::Aspect,
-        Anchor::Background,
-        Anchor::Padding,
-        Anchor::Rounding,
-        Anchor::Shadow,
-        Anchor::Border,
-        Anchor::More,
-        Anchor::CornerStyle,
-    ];
+    const ALL: [Anchor; 2] = [Anchor::Aspect, Anchor::CornerStyle];
 }
 
 /// The three `KSelect` / `KDropdownMenu` popups on the chrome.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum MenuKind {
     Aspect,
-    More,
     CornerStyle,
 }
 
@@ -948,10 +877,10 @@ pub struct ScreenshotEditorWindow {
     pub(crate) selected_annotation: Option<String>,
     /// Everything the annotation engine keeps ([`crate::screenshot_annotations`]).
     pub(crate) annotation_state: AnnotationState,
-    layers_panel_open: bool,
+    inspector_page: InspectorPage,
+    groups: HashMap<InspectorGroup, ui::CollapsibleState>,
     /// The crop dialog ([`crate::screenshot_crop`]). `None` means closed.
     pub(crate) crop: Option<crate::screenshot_crop::ScreenshotCropDialog>,
-    active_popover: Option<Popover>,
     menu: Option<(MenuKind, ui::MenuState)>,
     anchors: HashMap<Anchor, BoundsCell>,
     bg_tab: BgTab,
@@ -1028,14 +957,16 @@ impl ScreenshotEditorWindow {
             tool: Tool::Select,
             selected_annotation: None,
             annotation_state: AnnotationState::default(),
-            // `makePersisted(createSignal(false), { name:
-            // "screenshotEditorLayersPanelOpen" })` -- localStorage over
-            // there, `store.rs` here.
-            layers_panel_open: crate::store::load()
-                .screenshot_layers_panel_open
-                .unwrap_or(false),
+            inspector_page: crate::store::load()
+                .screenshot_inspector_page
+                .as_deref()
+                .and_then(InspectorPage::from_storage_id)
+                .unwrap_or(InspectorPage::Background),
+            groups: InspectorGroup::ALL
+                .into_iter()
+                .map(|group| (group, ui::CollapsibleState::new(true)))
+                .collect(),
             crop: None,
-            active_popover: None,
             menu: None,
             anchors: Anchor::ALL
                 .into_iter()
@@ -1403,6 +1334,24 @@ impl ScreenshotEditorWindow {
         let Some(value) = ui::slider_value_at(&track, position, min, max, step) else {
             return;
         };
+        self.set_slider_value(slider, value, window, cx);
+    }
+
+    fn slider_value(&self, slider: StyleSlider) -> f32 {
+        if slider == StyleSlider::Zoom {
+            self.zoom
+        } else {
+            slider.value(&self.project)
+        }
+    }
+
+    fn set_slider_value(
+        &mut self,
+        slider: StyleSlider,
+        value: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if slider == StyleSlider::Zoom {
             // The HUD's slider sets zoom outright and leaves the pan alone
             // (`Preview.tsx:484-492`).
@@ -1875,15 +1824,11 @@ impl ScreenshotEditorWindow {
             // `onMouseDown={dismissActivePopover}` sits on the viewport itself
             // (`Preview.tsx:711`), so a press that draws still closes whatever
             // styling popover was open.
-            if self.active_popover.take().is_some() {
-                cx.notify();
-            }
             return;
         }
         if event.button != MouseButton::Left && event.button != MouseButton::Middle {
             return;
         }
-        self.active_popover = None;
         self.panning = Some(PanDrag {
             start: event.position,
             origin: self.pan,
@@ -2184,10 +2129,6 @@ impl ScreenshotEditorWindow {
     fn menu_items(&self, kind: MenuKind) -> Vec<ui::MenuItem> {
         match kind {
             MenuKind::Aspect => self.aspect_menu_items(),
-            MenuKind::More => vec![
-                ui::MenuItem::new(t!("Open Folder"), false),
-                ui::MenuItem::new(t!("Delete"), false),
-            ],
             MenuKind::CornerStyle => Self::CORNER_STYLES
                 .iter()
                 .map(|(style, label)| {
@@ -2203,15 +2144,6 @@ impl ScreenshotEditorWindow {
         };
         match kind {
             MenuKind::Aspect => self.choose_aspect(index, window, cx),
-            MenuKind::More => {
-                self.menu = None;
-                match index {
-                    0 => crate::library::reveal_path(&self.bundle.join("original.png"), cx),
-                    1 => self.delete_screenshot(window, cx),
-                    _ => {}
-                }
-                cx.notify();
-            }
             MenuKind::CornerStyle => {
                 self.menu = None;
                 let Some((style, _)) = Self::CORNER_STYLES.get(index) else {
@@ -2253,18 +2185,17 @@ impl ScreenshotEditorWindow {
             .map(|bounds| {
                 let x = match kind {
                     // `placement="bottom-end"` (`Header.tsx:168`).
-                    MenuKind::More => bounds.origin.x + bounds.size.width - px(200.),
                     _ => bounds.origin.x,
                 };
                 gpui::point(x.max(px(8.)), bounds.origin.y + bounds.size.height + px(4.))
             })
-            .unwrap_or_else(|| gpui::point(px(16.), px(HEADER_HEIGHT)));
+            .unwrap_or_else(|| {
+                gpui::point(
+                    px(16.),
+                    px(editor_chrome::TITLE_BAR_HEIGHT + TOOLBAR_HEIGHT),
+                )
+            });
         self.menu = Some((kind, ui::MenuState::new(origin, &items)));
-        // The corner-style select lives *inside* the rounding popover, so it
-        // is the one menu that must not close what it is standing on.
-        if kind != MenuKind::CornerStyle {
-            self.active_popover = None;
-        }
         window.focus(&self.focus, cx);
         cx.notify();
     }
@@ -2272,19 +2203,7 @@ impl ScreenshotEditorWindow {
     /// Close the styling popover and any chrome menu -- what opening a modal
     /// (the crop dialog) does to the layers beneath it.
     pub(crate) fn dismiss_chrome_popups(&mut self) {
-        self.active_popover = None;
         self.menu = None;
-    }
-
-    fn toggle_popover(&mut self, popover: Popover, window: &mut Window, cx: &mut Context<Self>) {
-        self.active_popover = if self.active_popover == Some(popover) {
-            None
-        } else {
-            self.menu = None;
-            window.focus(&self.focus, cx);
-            Some(popover)
-        };
-        cx.notify();
     }
 
     fn set_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
@@ -2295,15 +2214,31 @@ impl ScreenshotEditorWindow {
         cx.notify();
     }
 
-    fn toggle_layers_panel(&mut self, cx: &mut Context<Self>) {
-        self.layers_panel_open = !self.layers_panel_open;
-        let open = self.layers_panel_open;
-        cx.background_executor()
-            .spawn(async move {
-                crate::store::update(|state| state.screenshot_layers_panel_open = Some(open));
-            })
-            .detach();
+    pub(crate) fn show_page(&mut self, page: InspectorPage, cx: &mut Context<Self>) {
+        self.selected_annotation = None;
+        self.close_color_popover();
+        self.menu = None;
+        if self.inspector_page != page {
+            self.inspector_page = page;
+            if !cfg!(test) {
+                let id = page.storage_id();
+                cx.background_executor()
+                    .spawn(async move {
+                        crate::store::update(|state| {
+                            state.screenshot_inspector_page = Some(id.to_string());
+                        });
+                    })
+                    .detach();
+            }
+        }
         cx.notify();
+    }
+
+    fn toggle_group(&mut self, group: InspectorGroup, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(state) = self.groups.get(&group) {
+            state.toggle();
+        }
+        self.animate_collapsibles(window, cx);
     }
 
     // -- Keyboard ---------------------------------------------------------------
@@ -2312,6 +2247,9 @@ impl ScreenshotEditorWindow {
     /// which are three `window` listeners over there and one handler here.
     fn on_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if event.is_held {
+            return;
+        }
+        if self.crop.is_none() && crate::editor_window::traverse_editor_focus(event, window, cx) {
             return;
         }
         // Every one of the three listeners bails on a focused input first.
@@ -2405,21 +2343,21 @@ impl ScreenshotEditorWindow {
             return;
         }
 
-        match key {
-            "a" => self.set_tool(Tool::Arrow, cx),
-            "r" => self.set_tool(Tool::Rectangle, cx),
-            "m" => self.set_tool(Tool::Mask, cx),
-            // 'o' for oval, the same alias `Editor.tsx:134-138` carries.
-            "c" | "o" => self.set_tool(Tool::Circle, cx),
-            "d" => self.set_tool(Tool::Draw, cx),
-            "t" => self.set_tool(Tool::Text, cx),
-            "v" | "s" => {
-                self.set_tool(Tool::Select, cx);
+        if let Some(tool) = Tool::for_key(key) {
+            self.set_tool(tool, cx);
+            if tool == Tool::Select {
                 self.selected_annotation = None;
                 cx.notify();
             }
+            return;
+        }
+        if let Some(page) = InspectorPage::for_key(key) {
+            self.show_page(page, cx);
+            return;
+        }
+        match key {
             "escape" => {
-                if self.active_popover.take().is_some() || self.menu.take().is_some() {
+                if self.menu.take().is_some() || self.close_color_popover() {
                     cx.notify();
                     return;
                 }
@@ -2427,11 +2365,6 @@ impl ScreenshotEditorWindow {
                 self.selected_annotation = None;
                 cx.notify();
             }
-            "p" => self.toggle_popover(Popover::Padding, window, cx),
-            "b" => self.toggle_popover(Popover::Background, window, cx),
-            "h" => self.toggle_popover(Popover::Shadow, window, cx),
-            "e" => self.toggle_popover(Popover::Border, window, cx),
-            "l" => self.toggle_layers_panel(cx),
             "backspace" | "delete" => self.delete_selected_annotation(window, cx),
             _ => {}
         }
@@ -2458,31 +2391,19 @@ impl ScreenshotEditorWindow {
             .child(child)
     }
 
-    /// `AnnotationTools.tsx:20-75`: the layers toggle, a divider, then the
-    /// seven tool buttons.
     fn render_annotation_tools(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let layers_open = self.layers_panel_open;
-
-        div()
+        let mut row = div()
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(4.))
-            .child(tool_button(
-                &theme,
-                "screenshot-layers-toggle",
-                "icons/layers.svg",
-                n!("Layers"),
-                "L",
-                layers_open,
-                cx.listener(|this, _, _window, cx| {
-                    cx.stop_propagation();
-                    this.toggle_layers_panel(cx);
-                }),
-            ))
-            .child(divider(&theme, 16.))
-            .children(Tool::ALL.map(|tool| {
+            .gap(px(2.))
+            .flex_none();
+        for (index, group) in Tool::TOOLBAR_GROUPS.iter().enumerate() {
+            if index > 0 {
+                row = row.child(divider(&theme, 16.));
+            }
+            row = row.children(group.iter().map(|&tool| {
                 tool_button(
                     &theme,
                     gpui::SharedString::from(format!("screenshot-tool-{}", tool.label())),
@@ -2495,31 +2416,160 @@ impl ScreenshotEditorWindow {
                         this.set_tool(tool, cx);
                     }),
                 )
-            }))
+            }));
+        }
+        row
     }
 
-    /// `Header.tsx:109-216`.
-    fn render_header(&self, _window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn history_button(
+        &self,
+        id: &'static str,
+        icon: &'static str,
+        undo: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let theme = self.theme;
-        let crop_enabled = self.image_size.is_some();
-        let exporting = self.exporting;
+        let enabled = if undo {
+            self.history.can_undo()
+        } else {
+            self.history.can_redo()
+        };
+        kbd_tooltip(
+            &theme,
+            if undo { n!("Undo") } else { n!("Redo") },
+            if undo { &["meta", "z"] } else { &["meta", "y"] },
+            ui::EditorButton::plain(&theme, id)
+                .left_icon(icon)
+                .disabled(!enabled)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    if undo {
+                        this.undo(window, cx);
+                    } else {
+                        this.redo(window, cx);
+                    }
+                })),
+        )
+    }
 
-        let tools = div()
+    fn render_title_bar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let exporting = self.exporting;
+        let name = div()
             .flex()
             .flex_row()
             .items_center()
-            .justify_center()
-            .gap(px(8.))
+            .min_w_0()
+            .flex_shrink(1.)
+            .text_size(px(13.))
+            .font_weight(FontWeight::MEDIUM)
+            .child(
+                div()
+                    .min_w_0()
+                    .max_w(px(220.))
+                    .truncate()
+                    .text_color(Hsla::from(theme.editor.text_1))
+                    .child(self.pretty_name.clone()),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(Hsla::from(theme.editor.text_3))
+                    .child(format!(".{}", frameever_utils::brand::PROJECT_EXTENSION)),
+            );
+        let file = editor_chrome::title_bar_group()
+            .child(
+                ui::EditorButton::plain(&theme, "screenshot-show-in-explorer")
+                    .left_icon("icons/folder.svg")
+                    .tooltip(&theme, t!("Show in Explorer"))
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        cx.stop_propagation();
+                        crate::library::reveal_path(&this.bundle.join("original.png"), cx);
+                    })),
+            )
+            .child(
+                ui::EditorButton::plain(&theme, "screenshot-delete")
+                    .left_icon("icons/trash.svg")
+                    .tooltip(&theme, t!("Delete screenshot"))
+                    .disabled(exporting)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        if !this.exporting {
+                            this.delete_screenshot(window, cx);
+                        }
+                    })),
+            );
+        let actions = editor_chrome::title_bar_group()
+            .child(self.history_button("screenshot-undo", "icons/undo-2.svg", true, cx))
+            .child(self.history_button("screenshot-redo", "icons/redo-2.svg", false, cx))
+            .child(editor_chrome::title_bar_divider(&theme))
+            .child(kbd_tooltip(
+                &theme,
+                n!("Save"),
+                &["meta", "s"],
+                ui::EditorButton::plain(&theme, "screenshot-save")
+                    .left_icon("icons/download.svg")
+                    .label(t!("Save"))
+                    .disabled(exporting)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        if !this.exporting {
+                            this.export_image(ExportDestination::File, window, cx);
+                        }
+                    })),
+            ))
+            .child(div().w(px(4.)))
+            .child(kbd_tooltip(
+                &theme,
+                n!("Copy"),
+                &["meta", "c"],
+                editor_chrome::primary_button(
+                    &theme,
+                    "screenshot-copy",
+                    None,
+                    t!("Copy"),
+                    !exporting,
+                )
+                .when(!exporting, |button| {
+                    button.on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        if !this.exporting {
+                            this.export_image(ExportDestination::Clipboard, window, cx);
+                        }
+                    }))
+                }),
+            ));
+
+        editor_chrome::title_bar(
+            theme,
+            window,
+            false,
+            vec![name.into_any_element(), file.into_any_element()],
+            actions.into_any_element(),
+        )
+    }
+
+    fn render_preview_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let crop_enabled = self.image_size.is_some();
+        div()
+            .id("screenshot-preview-toolbar")
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(2.))
+            .w_full()
+            .h(px(TOOLBAR_HEIGHT))
+            .flex_none()
+            .px(px(8.))
+            .overflow_x_scroll()
             .child(
                 self.anchored(
                     Anchor::Aspect,
                     ui::EditorButton::plain(&theme, "screenshot-aspect")
-                        .width(px(80.))
                         .left_icon("icons/ratio.svg")
-                        .icon_size(px(16.))
                         .label(self.aspect_label())
                         .right_icon("icons/chevron-down.svg")
-                        .right_icon_end(true)
                         .pressed(
                             self.menu
                                 .as_ref()
@@ -2535,7 +2585,7 @@ impl ScreenshotEditorWindow {
             .child(
                 ui::EditorButton::plain(&theme, "screenshot-crop")
                     .left_icon("icons/crop.svg")
-                    .icon_size(px(16.))
+                    .label(t!("Crop"))
                     .disabled(!crop_enabled)
                     .tooltip(&theme, t!("Crop Image"))
                     .on_click(cx.listener(|this, _, window, cx| {
@@ -2543,216 +2593,213 @@ impl ScreenshotEditorWindow {
                         this.open_crop_dialog(window, cx);
                     })),
             )
-            .child(divider(&theme, 24.))
+            .child(div().flex_1().min_w(px(12.)))
             .child(self.render_annotation_tools(cx))
-            .child(divider(&theme, 24.))
-            .children(
-                [
-                    Popover::Background,
-                    Popover::Padding,
-                    Popover::Rounding,
-                    Popover::Shadow,
-                    Popover::Border,
-                ]
-                .map(|popover| {
-                    let button = ui::EditorButton::plain(&theme, popover.id())
-                        .left_icon(popover.icon())
-                        .icon_size(px(16.))
-                        .pressed(self.active_popover == Some(popover))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.toggle_popover(popover, window, cx);
-                        }));
-                    // The `kbd` prop rides the tooltip, which
-                    // `ui::EditorButton` does not carry, so the wrapper the
-                    // popover anchors against owns it instead.
-                    self.anchored(
-                        popover.anchor(),
-                        kbd_tooltip(&theme, popover.tooltip(), popover.keys(), button),
-                    )
-                    .into_any_element()
-                }),
-            );
-        #[cfg(not(target_os = "windows"))]
-        let tools = tools.absolute().top_0().left_0().size_full();
-        #[cfg(target_os = "windows")]
-        let tools = div()
-            .id("screenshot-header-tools")
-            .flex()
-            .flex_1()
-            .min_w_0()
-            .h(px(32.))
-            .overflow_x_scroll()
-            .occlude()
-            .child(tools.flex_shrink_0().mx_auto());
+            .child(div().flex_1().min_w(px(12.)))
+    }
 
-        let header = div()
-            .relative()
+    fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let output = self.frame.as_ref().map(|_| {
+            format!(
+                "{} \u{d7} {}",
+                self.frame_size.0.round() as u32,
+                self.frame_size.1.round() as u32
+            )
+        });
+        div()
             .flex()
             .flex_row()
             .items_center()
-            .justify_between()
+            .gap(px(4.))
             .w_full()
-            .h(px(HEADER_HEIGHT))
-            .px(px(16.))
-            .when(cfg!(target_os = "windows"), |header| {
-                header
-                    .pr_0()
-                    .gap(px(8.))
-                    .window_control_area(gpui::WindowControlArea::Drag)
+            .h(px(STATUS_BAR_HEIGHT))
+            .flex_none()
+            .px(px(8.))
+            .text_size(px(12.))
+            .text_color(Hsla::from(theme.editor.text_2))
+            .child(kbd_tooltip(
+                &theme,
+                n!("Zoom Out"),
+                &["meta", "-"],
+                ui::EditorButton::plain(&theme, "screenshot-zoom-out")
+                    .left_icon("icons/zoom-out.svg")
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        cx.stop_propagation();
+                        this.nudge_zoom(-0.1, cx);
+                    })),
+            ))
+            .child(self.slider(StyleSlider::Zoom, Some(px(96.)), cx))
+            .child(kbd_tooltip(
+                &theme,
+                n!("Zoom In"),
+                &["meta", "+"],
+                ui::EditorButton::plain(&theme, "screenshot-zoom-in")
+                    .left_icon("icons/zoom-in.svg")
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        cx.stop_propagation();
+                        this.nudge_zoom(0.1, cx);
+                    })),
+            ))
+            .child(
+                div()
+                    .w(px(44.))
+                    .flex_none()
+                    .child(format!("{}%", (self.zoom * 100.).round() as i64)),
+            )
+            .child(div().flex_1())
+            .children(output.map(|size| div().flex_none().child(t!("Output {size}", size = size))))
+    }
+
+    fn render_inspector(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let selected = self.selected_annotation.is_some();
+        let rail = InspectorPage::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(index, page)| {
+                editor_chrome::rail_item(
+                    &theme,
+                    ("screenshot-page", index),
+                    page.icon(),
+                    tr(page.label()).into(),
+                    !selected && page == self.inspector_page,
+                    false,
+                    cx.listener(move |this, _, _window, cx| {
+                        cx.stop_propagation();
+                        this.show_page(page, cx);
+                    }),
+                )
+                .into_any_element()
             })
-            .flex_shrink_0()
-            .border_b_1()
-            .border_color(theme.gray_3)
-            .bg(if theme.is_dark() {
-                theme.gray_2
-            } else {
-                theme.gray_1
-            })
-            // The inset traffic lights' spacer (`Header.tsx:115`).
-            .when(!cfg!(target_os = "windows"), |header| {
-                header.child(div().flex().items_center().child(div().w(px(56.))))
-            })
-            // `absolute left-1/2 -translate-x-1/2` -- a full-width centred row
-            // is the same placement without a transform, and it is not
-            // interactive itself, so the right cluster painted after it still
-            // takes its own clicks.
-            .child(tools)
+            .collect();
+        let panel = match self.render_selection_panel(cx) {
+            Some(panel) => panel,
+            None => {
+                let page = self.inspector_page;
+                let body = match page {
+                    InspectorPage::Background => self.render_background_page(cx),
+                    InspectorPage::Screen => self.render_screen_page(cx),
+                    InspectorPage::Layers => self.render_layers_page(cx),
+                };
+                vec![
+                    editor_chrome::panel_head(&theme, tr(page.label()), None).into_any_element(),
+                    body,
+                ]
+            }
+        };
+        div()
+            .w(px(editor_chrome::INSPECTOR_WIDTH))
+            .h_full()
+            .flex_none()
+            .border_l_1()
+            .border_color(theme.border)
+            .child(editor_chrome::inspector(
+                &theme,
+                "screenshot-rail",
+                rail,
+                panel,
+            ))
+    }
+
+    fn inspector_body(&self, id: &'static str, content: impl IntoElement) -> AnyElement {
+        div()
+            .id(id)
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .overflow_x_hidden()
+            .overflow_y_scroll()
+            .text_size(px(13.))
             .child(
                 div()
                     .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(8.))
-                    .h_full()
-                    .pr(px(8.))
-                    .when(cfg!(target_os = "windows"), |actions| {
-                        actions.h(px(32.)).flex_shrink_0().occlude()
-                    })
-                    .child(divider(&theme, 24.))
-                    .child(
-                        ui::EditorButton::plain(&theme, "screenshot-copy")
-                            .left_icon("icons/copy.svg")
-                            .icon_size(px(16.))
-                            .disabled(exporting)
-                            .tooltip(&theme, t!("Copy to Clipboard"))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.export_image(ExportDestination::Clipboard, window, cx);
-                            })),
-                    )
-                    .child(
-                        ui::EditorButton::plain(&theme, "screenshot-save")
-                            .left_icon("icons/save.svg")
-                            .icon_size(px(16.))
-                            .disabled(exporting)
-                            .tooltip(&theme, t!("Save"))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.export_image(ExportDestination::File, window, cx);
-                            })),
-                    )
-                    .child(
-                        self.anchored(
-                            Anchor::More,
-                            ui::EditorButton::plain(&theme, "screenshot-more")
-                                .left_icon("icons/ellipsis.svg")
-                                .icon_size(px(16.))
-                                .disabled(exporting)
-                                .pressed(
-                                    self.menu
-                                        .as_ref()
-                                        .is_some_and(|(kind, _)| *kind == MenuKind::More),
-                                )
-                                .tooltip(&theme, t!("More Actions"))
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    cx.stop_propagation();
-                                    this.toggle_menu(MenuKind::More, Anchor::More, window, cx);
-                                })),
-                        ),
-                    ),
-            );
-
-        #[cfg(target_os = "windows")]
-        let header = header.child(ui::windows_caption_controls(
-            theme,
-            _window.is_window_active(),
-            _window.is_maximized(),
-            true,
-            true,
-        ));
-
-        header
+                    .flex_col()
+                    .gap(px(14.))
+                    .pt(px(14.))
+                    .px(px(16.))
+                    .pb(px(16.))
+                    .child(content),
+            )
+            .into_any_element()
     }
 
-    // -- Layers panel -----------------------------------------------------------
+    fn group(&self, group: InspectorGroup, body: AnyElement, cx: &mut Context<Self>) -> AnyElement {
+        let Some(state) = self.groups.get(&group) else {
+            return body;
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(editor_sidebar::disclosure_row(
+                &self.theme,
+                gpui::SharedString::from(format!("screenshot-group-{}", group.label())),
+                tr(group.label()),
+                state.is_open(),
+                cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.toggle_group(group, window, cx);
+                }),
+            ))
+            .child(editor_sidebar::collapsible(state, body, cx.reduce_motion()))
+            .into_any_element()
+    }
 
-    /// `LayersPanel.tsx:202-325`.
-    fn render_layers_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_selection_panel(&self, cx: &mut Context<Self>) -> Option<Vec<AnyElement>> {
+        let annotation = self
+            .project
+            .annotations
+            .iter()
+            .find(|annotation| Some(&annotation.id) == self.selected_annotation.as_ref())?;
+        let theme = self.theme;
+        let actions = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(2.))
+            .flex_none()
+            .child(kbd_tooltip(
+                &theme,
+                n!("Delete"),
+                &["delete"],
+                ui::EditorButton::plain(&theme, "screenshot-annotation-delete")
+                    .left_icon("icons/trash.svg")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.delete_selected_annotation(window, cx);
+                    })),
+            ))
+            .child(
+                ui::EditorButton::plain(&theme, "screenshot-annotation-done")
+                    .label(t!("Done"))
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        cx.stop_propagation();
+                        this.selected_annotation = None;
+                        this.close_color_popover();
+                        cx.notify();
+                    })),
+            );
+        let controls = self.render_annotation_config_controls(cx)?;
+        Some(vec![
+            editor_chrome::panel_head(
+                &theme,
+                tr(annotations::annotation_label(annotation.annotation_type)),
+                Some(actions.into_any_element()),
+            )
+            .into_any_element(),
+            self.inspector_body("screenshot-selection-scroll", controls),
+        ])
+    }
+
+    fn render_layers_page(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         div()
             .flex()
             .flex_col()
-            .h_full()
-            .w(px(LAYERS_PANEL_WIDTH))
-            .flex_shrink_0()
-            .border_r_1()
-            .border_color(theme.gray_3)
-            .bg(if theme.is_dark() {
-                theme.gray_2
-            } else {
-                theme.gray_1
-            })
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_between()
-                    .px(px(12.))
-                    .h(px(40.))
-                    .flex_shrink_0()
-                    .border_b_1()
-                    .border_color(theme.gray_3)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(px(8.))
-                            .text_size(px(14.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme.gray_12)
-                            .child(
-                                svg()
-                                    .path("icons/layers.svg")
-                                    .size(px(16.))
-                                    .text_color(theme.gray_12),
-                            )
-                            .child(t!("Layers")),
-                    )
-                    .child(
-                        div()
-                            .id("screenshot-layers-close")
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .p(px(4.))
-                            .rounded(px(4.))
-                            .cursor_pointer()
-                            .hover(|style| style.bg(theme.gray_3))
-                            .child(
-                                svg()
-                                    .path("icons/x.svg")
-                                    .size(px(16.))
-                                    .text_color(theme.gray_11),
-                            )
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                cx.stop_propagation();
-                                this.toggle_layers_panel(cx);
-                            })),
-                    ),
-            )
+            .flex_1()
+            .min_h_0()
             .child(
                 div()
                     .id("screenshot-layers-list")
@@ -2762,71 +2809,20 @@ impl ScreenshotEditorWindow {
                     .overflow_y_scroll()
                     .child(self.render_layer_rows(cx)),
             )
-            .child(
-                div()
-                    .px(px(12.))
-                    .py(px(8.))
-                    .flex_shrink_0()
-                    .border_t_1()
-                    .border_color(theme.gray_3)
-                    .text_size(px(10.))
-                    .text_color(theme.gray_9)
-                    .child(t!("Drag to reorder • Top = front")),
-            )
-    }
-
-    /// `AnnotationConfig.tsx:38-168` -- Phase 1 draws the bar and its Done
-    /// button; the per-type controls come with the engine.
-    fn render_annotation_config_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        self.selected_annotation.as_ref()?;
-        let theme = self.theme;
-        Some(
-            div()
-                // The bar floats over the preview, and gpui hitboxes do not
-                // occlude by default: without this a press on a swatch would
-                // also land on the annotation underneath it.
-                .occlude()
-                .absolute()
-                .top(px(HEADER_HEIGHT))
-                .left(px(if self.layers_panel_open {
-                    LAYERS_PANEL_WIDTH
-                } else {
-                    0.
-                }))
-                .right_0()
-                .h(px(CONFIG_BAR_HEIGHT))
-                .border_b_1()
-                .border_color(theme.gray_3)
-                .bg(if theme.is_dark() {
-                    theme.gray_2
-                } else {
-                    theme.gray_1
-                })
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_center()
-                .gap(px(24.))
-                .px(px(16.))
-                .children(self.render_annotation_config_controls(cx))
-                .child(divider(&theme, 20.))
-                .child(
+            .when(!self.project.annotations.is_empty(), |page| {
+                page.child(
                     div()
-                        .id("screenshot-annotation-done")
-                        .cursor_pointer()
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme.link)
-                        .hover(|style| style.text_color(theme.foreground))
-                        .child(t!("Done"))
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            cx.stop_propagation();
-                            this.selected_annotation = None;
-                            cx.notify();
-                        })),
+                        .px(px(16.))
+                        .py(px(8.))
+                        .flex_none()
+                        .border_t_1()
+                        .border_color(theme.border)
+                        .text_size(px(11.))
+                        .text_color(Hsla::from(theme.editor.text_3))
+                        .child(t!("Drag to reorder. Top is in front.")),
                 )
-                .into_any_element(),
-        )
+            })
+            .into_any_element()
     }
 
     // -- Popovers ---------------------------------------------------------------
@@ -2838,31 +2834,54 @@ impl ScreenshotEditorWindow {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = self.theme;
-        let (min, max, _) = slider.range();
-        let value = if slider == StyleSlider::Zoom {
-            self.zoom
-        } else {
-            slider.value(&self.project)
-        };
+        let (min, max, step) = slider.range();
+        let value = self.slider_value(slider);
         let fraction = ((value - min) / (max - min)).clamp(0., 1.);
         let track = self.track(slider);
 
-        ui::Slider::new(
-            gpui::SharedString::from(format!("screenshot-slider-{}", slider_id(slider))),
-            fraction,
-            track,
-        )
-        .when(width.is_none(), |this| this.flex())
-        .when_some(width, |this, width| this.row_width(width))
-        .track(px(4.), theme.gray_4.into())
-        .fill(theme.primary.into())
-        .thumb(px(14.), gpui::white(), Some(theme.gray_6.into()))
-        .on_drag_start(
-            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                cx.stop_propagation();
-                this.begin_slider(slider, event.position, window, cx);
-            }),
-        )
+        div()
+            .id(gpui::SharedString::from(format!(
+                "screenshot-slider-row-{}",
+                slider_id(slider)
+            )))
+            .tab_index(0)
+            .focus_visible(move |style| style.bg(theme.selection))
+            .rounded(px(4.))
+            .px(px(2.))
+            .when(width.is_none(), |row| row.flex_1().min_w_0())
+            .on_key_down(
+                cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                    if let Some(value) = ui::keyboard_slider_value(
+                        event.keystroke.key.as_str(),
+                        this.slider_value(slider),
+                        min,
+                        max,
+                        step,
+                    ) {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        this.set_slider_value(slider, value, window, cx);
+                    }
+                }),
+            )
+            .child(
+                ui::Slider::new(
+                    gpui::SharedString::from(format!("screenshot-slider-{}", slider_id(slider))),
+                    fraction,
+                    track,
+                )
+                .when(width.is_none(), |this| this.flex())
+                .when_some(width, |this, width| this.row_width(width))
+                .track(px(4.), theme.gray_4.into())
+                .fill(theme.primary.into())
+                .thumb(px(14.), gpui::white(), Some(theme.gray_6.into()))
+                .on_drag_start(cx.listener(
+                    move |this, event: &MouseDownEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.begin_slider(slider, event.position, window, cx);
+                    },
+                )),
+            )
     }
 
     /// The `text-xs font-medium text-gray-11` caption every popover slider
@@ -2957,6 +2976,7 @@ impl ScreenshotEditorWindow {
                     .rounded(px(10.))
                     .border_1()
                     .cursor_pointer()
+                    .tab_index(0)
                     .text_size(px(12.))
                     .when(selected, |this| {
                         this.bg(theme.gray_3)
@@ -3058,6 +3078,7 @@ impl ScreenshotEditorWindow {
                                     .rounded(px(8.))
                                     .border_1()
                                     .cursor_pointer()
+                                    .tab_index(0)
                                     .when(selected, |this| {
                                         this.bg(theme.gray_3)
                                             .border_color(theme.gray_3)
@@ -3094,6 +3115,7 @@ impl ScreenshotEditorWindow {
                                 .rounded(px(8.))
                                 .overflow_hidden()
                                 .cursor_pointer()
+                                .tab_index(0)
                                 .bg(theme.gray_3)
                                 .when(selected, |this| {
                                     this.border_2().border_color(theme.gray_500_legacy)
@@ -3155,6 +3177,7 @@ impl ScreenshotEditorWindow {
                 .border_color(theme.gray_5)
                 .bg(theme.gray_2)
                 .cursor_pointer()
+                .tab_index(0)
                 .hover(|style| style.bg(theme.gray_3))
                 .child(
                     svg()
@@ -3200,6 +3223,7 @@ impl ScreenshotEditorWindow {
                     .size(px(32.))
                     .rounded_full()
                     .cursor_pointer()
+                    .tab_index(0)
                     .bg(Theme::with_alpha(gpui::rgb(0x000000), 0.5))
                     .hover(|style| style.bg(Theme::with_alpha(gpui::rgb(0x000000), 0.7)))
                     .child(
@@ -3256,6 +3280,7 @@ impl ScreenshotEditorWindow {
                                     .rounded(px(8.))
                                     .overflow_hidden()
                                     .cursor_pointer()
+                                    .tab_index(0)
                                     .when(selected, |this| {
                                         this.border_2().border_color(theme.gray_500_legacy)
                                     })
@@ -3329,6 +3354,7 @@ impl ScreenshotEditorWindow {
                                 .size(px(32.))
                                 .rounded(px(8.))
                                 .cursor_pointer()
+                                .tab_index(0)
                                 .when(selected, |this| {
                                     this.border_2().border_color(theme.gray_500_legacy)
                                 })
@@ -3367,8 +3393,7 @@ impl ScreenshotEditorWindow {
             .into_any_element()
     }
 
-    /// `BackgroundSettingsPopover.tsx:245-570`.
-    fn render_background_popover(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_background_page(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let tab_content = match self.bg_tab {
             BgTab::Wallpaper => self.render_wallpaper_tab(cx),
@@ -3376,50 +3401,51 @@ impl ScreenshotEditorWindow {
             BgTab::Color => self.render_color_tab(cx),
             BgTab::Gradient => self.render_gradient_tab(cx),
         };
-
-        div()
-            .id("screenshot-background-scroll")
-            .max_h(px(600.))
-            .overflow_y_scroll()
-            .p(px(16.))
+        let source = div()
             .flex()
             .flex_col()
-            .gap(px(24.))
-            .child(
-                ui::Field::plain(&theme, t!("Background Image"))
-                    .icon("icons/image.svg")
-                    .icon_size(px(16.))
-                    .child(self.render_bg_tabs(cx))
-                    .child(
-                        div()
-                            .my(px(20.))
-                            .w_full()
-                            .border_t_1()
-                            .border_dashed()
-                            .border_color(theme.gray_5),
-                    )
-                    .child(tab_content),
-            )
-            .child(
-                ui::Field::plain(&theme, t!("Background Blur"))
-                    .icon("icons/blur.svg")
-                    .icon_size(px(16.))
-                    .child(self.slider_row(t!("Blur"), StyleSlider::Blur, "%", cx)),
-            )
-            .into_any_element()
+            .gap(px(12.))
+            .child(self.render_bg_tabs(cx))
+            .child(editor_sidebar::dashed_divider(theme.gray_5.into()))
+            .child(tab_content)
+            .into_any_element();
+        let blur = self
+            .slider_row(t!("Background blur"), StyleSlider::Blur, "%", cx)
+            .into_any_element();
+        self.inspector_body(
+            "screenshot-background-scroll",
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(18.))
+                .child(self.group(InspectorGroup::Source, source, cx))
+                .child(self.group(InspectorGroup::Blur, blur, cx)),
+        )
     }
 
-    fn render_padding_popover(&self, cx: &mut Context<Self>) -> AnyElement {
-        div()
-            .p(px(16.))
+    fn render_screen_page(&self, cx: &mut Context<Self>) -> AnyElement {
+        let layout = div()
+            .flex()
+            .flex_col()
+            .gap(px(16.))
             .child(self.slider_row(t!("Padding"), StyleSlider::Padding, "px", cx))
-            .into_any_element()
+            .child(self.render_rounding_controls(cx))
+            .into_any_element();
+        self.inspector_body(
+            "screenshot-screen-scroll",
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(18.))
+                .child(self.group(InspectorGroup::Layout, layout, cx))
+                .child(self.group(InspectorGroup::Shadow, self.render_shadow_controls(cx), cx))
+                .child(self.group(InspectorGroup::Border, self.render_border_controls(cx), cx)),
+        )
     }
 
-    fn render_rounding_popover(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_rounding_controls(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         div()
-            .p(px(16.))
             .flex()
             .flex_col()
             .gap(px(16.))
@@ -3433,7 +3459,7 @@ impl ScreenshotEditorWindow {
                         div()
                             .text_size(px(10.4))
                             .text_color(theme.gray_11)
-                            .child(t!("CORNER STYLE")),
+                            .child(t!("Corner style")),
                     )
                     .child(
                         self.anchored(
@@ -3449,6 +3475,7 @@ impl ScreenshotEditorWindow {
                                 .h(px(32.))
                                 .rounded(px(8.))
                                 .cursor_pointer()
+                                .tab_index(0)
                                 .bg(theme.gray_3)
                                 .child(
                                     div()
@@ -3481,7 +3508,7 @@ impl ScreenshotEditorWindow {
             .into_any_element()
     }
 
-    fn render_shadow_popover(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_shadow_controls(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let open = self.shadow_advanced.is_open();
         let body = div()
@@ -3508,7 +3535,6 @@ impl ScreenshotEditorWindow {
             .into_any_element();
 
         div()
-            .p(px(16.))
             .flex()
             .flex_col()
             .gap(px(16.))
@@ -3519,12 +3545,14 @@ impl ScreenshotEditorWindow {
                     .child(
                         div()
                             .id("screenshot-shadow-advanced")
+                            .tab_index(0)
                             .flex()
                             .flex_row()
                             .items_center()
                             .gap(px(4.))
                             .w_full()
                             .cursor_pointer()
+                            .tab_index(0)
                             .text_size(px(14.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.gray_12)
@@ -3556,7 +3584,7 @@ impl ScreenshotEditorWindow {
             .into_any_element()
     }
 
-    fn render_border_popover(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_border_controls(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let enabled = self
             .project
@@ -3596,7 +3624,6 @@ impl ScreenshotEditorWindow {
             .into_any_element();
 
         div()
-            .p(px(16.))
             .flex()
             .flex_col()
             .gap(px(16.))
@@ -3611,7 +3638,7 @@ impl ScreenshotEditorWindow {
                             .text_size(px(12.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.gray_11)
-                            .child(t!("Border")),
+                            .child(t!("Show border")),
                     )
                     .child(
                         ui::Toggle::plain(&theme, "screenshot-border-toggle", enabled).on_click(
@@ -3641,67 +3668,6 @@ impl ScreenshotEditorWindow {
                 cx.reduce_motion(),
             ))
             .into_any_element()
-    }
-
-    /// The popover shell: a full-window click-away backdrop and the panel
-    /// itself, anchored under its trigger and clamped inside the window.
-    fn render_popover(&self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let popover = self.active_popover?;
-        let theme = self.theme;
-        let width = popover.width();
-        let viewport = window.viewport_size();
-        let anchor = self.anchor(popover.anchor()).get();
-        let left = anchor
-            .map(|bounds| f32::from(bounds.origin.x))
-            .unwrap_or(16.)
-            .clamp(8., (f32::from(viewport.width) - width - 8.).max(8.));
-        let top = anchor
-            .map(|bounds| f32::from(bounds.origin.y + bounds.size.height) + 8.)
-            .unwrap_or(HEADER_HEIGHT + 8.);
-
-        let body = match popover {
-            Popover::Background => self.render_background_popover(cx),
-            Popover::Padding => self.render_padding_popover(cx),
-            Popover::Rounding => self.render_rounding_popover(cx),
-            Popover::Shadow => self.render_shadow_popover(cx),
-            Popover::Border => self.render_border_popover(cx),
-        };
-
-        Some(
-            div()
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .child(
-                    div()
-                        .id("screenshot-popover-backdrop")
-                        .occlude()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full()
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            this.active_popover = None;
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    div()
-                        .occlude()
-                        .absolute()
-                        .left(px(left))
-                        .top(px(top))
-                        .w(px(width))
-                        .overflow_hidden()
-                        .rounded(px(12.))
-                        .border_1()
-                        .border_color(theme.gray_3)
-                        .bg(theme.gray_1)
-                        .child(body),
-                )
-                .into_any_element(),
-        )
     }
 
     fn render_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -3887,62 +3853,8 @@ impl ScreenshotEditorWindow {
                                 .child(t!("Loading preview..."))
                                 .into_any_element(),
                         ),
-                    })
-                    .child(self.render_zoom_hud(cx)),
+                    }),
             )
-    }
-
-    /// `Preview.tsx:476-500` -- `absolute left-4 bottom-4`.
-    fn render_zoom_hud(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        div()
-            .id("screenshot-zoom-hud")
-            .absolute()
-            .left(px(16.))
-            .bottom(px(16.))
-            // The pan surface is a *sibling* of the HUD over there
-            // (`absolute inset-0 z-0`, `Preview.tsx:693-699`), so a press on
-            // the HUD never starts a drag. Here the pan listener is on the
-            // area itself, so the HUD has to stop the press reaching it.
-            .on_mouse_down(MouseButton::Left, |_, _window, cx| cx.stop_propagation())
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(8.))
-            .p(px(4.))
-            .rounded(px(8.))
-            .border_1()
-            .border_color(theme.gray_4)
-            .bg(if theme.is_dark() {
-                theme.gray_3
-            } else {
-                theme.gray_1
-            })
-            .child(kbd_tooltip(
-                &theme,
-                n!("Zoom Out"),
-                &["meta", "-"],
-                ui::EditorButton::plain(&theme, "screenshot-zoom-out")
-                    .left_icon("icons/zoom-out.svg")
-                    .icon_size(px(16.))
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        cx.stop_propagation();
-                        this.nudge_zoom(-0.1, cx);
-                    })),
-            ))
-            .child(self.slider(StyleSlider::Zoom, Some(px(80.)), cx))
-            .child(kbd_tooltip(
-                &theme,
-                n!("Zoom In"),
-                &["meta", "+"],
-                ui::EditorButton::plain(&theme, "screenshot-zoom-in")
-                    .left_icon("icons/zoom-in.svg")
-                    .icon_size(px(16.))
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        cx.stop_propagation();
-                        this.nudge_zoom(0.1, cx);
-                    })),
-            ))
     }
 
     // -- Toasts -----------------------------------------------------------------
@@ -4004,134 +3916,86 @@ impl ScreenshotEditorWindow {
         )
     }
 
-    /// `ScreenshotEditorSkeleton` (`screenshot-editor-skeleton.tsx`): the
-    /// header's three clusters as `rounded-lg` placeholders, and the Cap logo
-    /// spinning over a flat preview.
-    fn render_skeleton(&self, _window: &Window) -> impl IntoElement {
+    fn render_skeleton(&self, window: &Window) -> impl IntoElement {
         let theme = self.theme;
         let block = move |width: f32| {
             div()
-                .h(px(36.))
+                .h(px(24.))
                 .w(px(width))
-                .rounded(px(8.))
-                .bg(if theme.is_dark() {
-                    theme.gray_4
-                } else {
-                    theme.gray_3
-                })
+                .flex_none()
+                .rounded(px(6.))
+                .bg(Hsla::from(theme.editor.ctl_hover))
         };
-
-        let tools = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_center()
-            .gap(px(8.))
-            .child(block(96.))
-            .child(block(36.))
-            .child(divider(&theme, 24.))
-            .children((0..5).map(|_| block(36.)))
-            .child(divider(&theme, 24.))
-            .children((0..5).map(|_| block(36.)));
-        #[cfg(not(target_os = "windows"))]
-        let tools = tools.absolute().top_0().left_0().size_full();
-        #[cfg(target_os = "windows")]
-        let tools = div()
-            .id("screenshot-skeleton-tools")
-            .flex()
-            .flex_1()
-            .min_w_0()
-            .h(px(36.))
-            .overflow_x_scroll()
-            .occlude()
-            .child(tools.flex_shrink_0().mx_auto());
-
-        let header = div()
-            .relative()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .w_full()
-            .h(px(HEADER_HEIGHT))
-            .px(px(16.))
-            .when(cfg!(target_os = "windows"), |header| {
-                header
-                    .pr_0()
-                    .gap(px(8.))
-                    .window_control_area(gpui::WindowControlArea::Drag)
-            })
-            .flex_shrink_0()
-            .border_b_1()
-            .border_color(theme.gray_3)
-            .bg(if theme.is_dark() {
-                theme.gray_2
-            } else {
-                theme.gray_1
-            })
-            .when(!cfg!(target_os = "windows"), |header| {
-                header.child(div().w(px(56.)))
-            })
-            .child(tools)
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(8.))
-                    .pr(px(8.))
-                    .when(cfg!(target_os = "windows"), |actions| {
-                        actions.flex_shrink_0()
-                    })
-                    .child(divider(&theme, 24.))
-                    .children((0..3).map(|_| block(36.))),
-            );
-
-        #[cfg(target_os = "windows")]
-        let header = header.child(ui::windows_caption_controls(
+        let title = editor_chrome::title_bar(
             theme,
-            _window.is_window_active(),
-            _window.is_maximized(),
-            true,
-            true,
-        ));
-
-        div().size_full().flex().flex_col().child(header).child(
+            window,
+            false,
+            vec![block(160.).into_any_element()],
+            editor_chrome::title_bar_group()
+                .gap(px(8.))
+                .child(block(24.))
+                .child(block(24.))
+                .child(block(72.))
+                .child(block(64.))
+                .into_any_element(),
+        );
+        div().size_full().flex().flex_col().child(title).child(
             div()
+                .flex()
+                .flex_row()
                 .flex_1()
                 .min_h_0()
-                .relative()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(if theme.is_dark() {
-                    theme.gray_3
-                } else {
-                    theme.gray_2
-                })
                 .child(
                     div()
-                        .absolute()
-                        .left(px(16.))
-                        .bottom(px(16.))
                         .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(8.))
-                        .p(px(4.))
-                        .rounded(px(8.))
-                        .border_1()
-                        .border_color(theme.gray_4)
-                        .bg(if theme.is_dark() {
-                            theme.gray_3
-                        } else {
-                            theme.gray_1
-                        })
-                        .child(block(36.))
-                        .child(div().w(px(80.)).h(px(8.)).rounded_full().bg(theme.gray_4))
-                        .child(block(36.)),
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .bg(Hsla::from(theme.editor.card))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(8.))
+                                .h(px(TOOLBAR_HEIGHT))
+                                .px(px(8.))
+                                .child(block(96.))
+                                .child(block(64.))
+                                .child(div().flex_1())
+                                .children((0..7).map(|_| block(24.)))
+                                .child(div().flex_1()),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_h_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(theme.preview)
+                                .child(spinning_logo(&theme)),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(8.))
+                                .h(px(STATUS_BAR_HEIGHT))
+                                .px(px(8.))
+                                .child(block(120.)),
+                        ),
                 )
-                .child(spinning_logo(&theme)),
+                .child(
+                    div()
+                        .w(px(editor_chrome::INSPECTOR_WIDTH))
+                        .h_full()
+                        .flex_none()
+                        .border_l_1()
+                        .border_color(theme.border)
+                        .bg(theme.background),
+                ),
         )
     }
 }
@@ -4173,7 +4037,7 @@ impl Render for ScreenshotEditorWindow {
             return root.child(self.render_skeleton(window));
         }
 
-        root.child(self.render_header(window, cx))
+        root.child(self.render_title_bar(window, cx))
             .child(
                 div()
                     .flex()
@@ -4182,14 +4046,28 @@ impl Render for ScreenshotEditorWindow {
                     .min_h_0()
                     .w_full()
                     .overflow_hidden()
-                    .when(self.layers_panel_open, |this| {
-                        this.child(self.render_layers_panel(cx))
-                    })
-                    .child(self.render_preview(cx)),
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .min_h_0()
+                            .bg(Hsla::from(theme.editor.card))
+                            .child(self.render_preview_toolbar(cx))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .child(self.render_preview(cx)),
+                            )
+                            .child(self.render_status_bar(cx)),
+                    )
+                    .child(self.render_inspector(cx)),
             )
-            .children(self.render_annotation_config_bar(cx))
             .children(self.render_annotation_overlays(window, cx))
-            .children(self.render_popover(window, cx))
             .children(self.render_menu(cx))
             // The crop dialog is a modal over everything except the toasts
             // (`solid-toast` floats over Kobalte's dialog too).
@@ -4243,7 +4121,7 @@ fn kbd_tooltip(
     label: &'static str,
     keys: &'static [&'static str],
     child: impl IntoElement,
-) -> impl IntoElement {
+) -> gpui::Stateful<gpui::Div> {
     let theme = *theme;
     div()
         // gpui hangs tooltips off `StatefulInteractiveElement`, so the wrapper
@@ -4276,6 +4154,8 @@ fn tool_button(
         .flex_shrink_0()
         .rounded(px(8.))
         .cursor_pointer()
+        .tab_index(0)
+        .focus_visible(move |style| style.border_1().border_color(theme.ring))
         .when(active, |this| this.bg(theme.selection))
         .when(!active, |this| this.hover(|style| style.bg(theme.gray_3)))
         .child(svg().path(icon).size(px(16.)).text_color(if active {
@@ -4578,6 +4458,52 @@ fn aspect_eq(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn key(key: &'static str) -> gpui::KeyDownEvent {
+        gpui::KeyDownEvent {
+            keystroke: gpui::Keystroke::parse(key).unwrap(),
+            is_held: false,
+            prefer_character_input: false,
+        }
+    }
+
+    #[gpui::test]
+    fn keys_reach_every_inspector_page_and_tab_leaves_the_root(cx: &mut gpui::TestAppContext) {
+        let bundle = tempfile::tempdir().unwrap();
+        let path = bundle.path().to_path_buf();
+        let (editor, cx) = cx.add_window_view(move |window, cx| {
+            ScreenshotEditorWindow::new(path.clone(), window, cx)
+        });
+        editor.update_in(cx, |editor, window, cx| {
+            editor.set_error("keyboard fixture".into(), cx);
+            for (pressed, page) in [
+                ("l", InspectorPage::Layers),
+                ("b", InspectorPage::Background),
+                ("p", InspectorPage::Screen),
+                ("l", InspectorPage::Layers),
+                ("h", InspectorPage::Screen),
+                ("l", InspectorPage::Layers),
+                ("e", InspectorPage::Screen),
+            ] {
+                editor.on_key(&key(pressed), window, cx);
+                assert_eq!(editor.inspector_page, page, "{pressed}");
+            }
+            editor.selected_annotation = Some("annotation".into());
+            editor.on_key(&key("b"), window, cx);
+            assert_eq!(editor.selected_annotation, None);
+            assert_eq!(editor.inspector_page, InspectorPage::Background);
+            editor.on_key(&key("r"), window, cx);
+            assert_eq!(editor.tool, Tool::Rectangle);
+            editor.on_key(&key("escape"), window, cx);
+            assert_eq!(editor.tool, Tool::Select);
+            window.focus(&editor.focus, cx);
+        });
+        cx.run_until_parked();
+        cx.simulate_keystrokes("tab");
+        editor.update_in(cx, |editor, window, _cx| {
+            assert!(!editor.focus.is_focused(window));
+        });
+    }
 
     /// The checkerboard is one 240x240 tile of 10px cells -- an even number of
     /// cells per axis, so tiling it leaves no seam.

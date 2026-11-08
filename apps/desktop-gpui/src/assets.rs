@@ -53,8 +53,6 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "arrow-up.svg",
     "arrow-up-right.svg",
     "ban.svg",
-    "blur.svg",
-    "box-padding.svg",
     "caption-close-windows.svg",
     "caption-maximize-windows.svg",
     "caption-minimize-windows.svg",
@@ -79,7 +77,6 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "crop.svg",
     "download.svg",
     "eighth-notes.svg",
-    "ellipsis.svg",
     "ellipsis-vertical.svg",
     "eye-off.svg",
     "film.svg",
@@ -147,7 +144,6 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "square.svg",
     "square-dashed.svg",
     "square-pen.svg",
-    "square-round-corner.svg",
     "text-align-center.svg",
     "text-align-end.svg",
     "text-align-start.svg",
@@ -298,6 +294,7 @@ mod tests {
         // The cursor tab's style picker and ripple section live one directory
         // down, and the ripple field names its own glyph.
         include_str!("editor_sidebar/cursor.rs"),
+        include_str!("editor_sidebar/animated_gradient.rs"),
         include_str!("editor_color.rs"),
         include_str!("editor_panels.rs"),
         // The crop dialog's ratio / Full / Reset glyphs and the chevron

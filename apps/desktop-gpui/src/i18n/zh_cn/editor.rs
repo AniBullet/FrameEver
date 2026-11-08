@@ -493,7 +493,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Image", "图片"),
     ("Animated", "动态"),
     ("Importing image…", "正在导入图片…"),
-    ("Background Blur", "背景模糊"),
     ("Padding", "内边距"),
     (
         "Custom screen position (dragged on canvas)",

@@ -48,7 +48,6 @@
 		"crop",
 		"download",
 		"eighth-notes",
-		"ellipsis",
 		"ellipsis-vertical",
 		"eye-off",
 		"film",
@@ -107,7 +106,6 @@
 		"square",
 		"square-dashed",
 		"square-pen",
-		"square-round-corner",
 		"text-align-center",
 		"text-align-end",
 		"text-align-start",
@@ -133,7 +131,7 @@
 		"pause": "pause",
 		"play": "play"
 	},
-	"tabler": ["blur", "box-padding", "shadow"],
+	"tabler": ["shadow"],
 	"custom": [
 		"caption-close-windows",
 		"caption-maximize-windows",

@@ -90,12 +90,8 @@ pub struct PersistedState {
     pub camera_window: Option<CameraWindowState>,
     #[serde(default)]
     pub export: Option<ExportPrefs>,
-    /// `screenshotEditorLayersPanelOpen` -- the Tauri screenshot editor keeps
-    /// it in `localStorage` (`makePersisted` in
-    /// `screenshot-editor/context.tsx`); no webview here, so it lives in this
-    /// file.
     #[serde(default)]
-    pub screenshot_layers_panel_open: Option<bool>,
+    pub screenshot_inspector_page: Option<String>,
     /// `editorCropSnapToRatio` -- the crop dialog's persisted snap toggle,
     /// also `localStorage` over there.
     #[serde(default)]
