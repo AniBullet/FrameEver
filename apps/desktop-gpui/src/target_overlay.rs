@@ -605,7 +605,7 @@ pub struct OverlayWindow {
     /// coordinate here lives in.
     display_size: (f32, f32),
     controls_work_area: AreaRect,
-    /// Physical pixels, for the `1920x1080 路 60FPS` line.
+    /// Physical pixels, for the `1920x1080 · 60FPS` line.
     physical_size: Option<(u32, u32)>,
     refresh_rate: f64,
     focus: gpui::FocusHandle,
@@ -1138,10 +1138,10 @@ impl OverlayWindow {
                 access.read(cx).status(permission)
                     == crate::permissions::OSPermissionStatus::Denied,
             ) {
-                (true, true) => t!("Turn on camera access in Settings鈥?),
-                (true, false) => t!("Allow camera access鈥?),
-                (false, true) => t!("Turn on microphone access in Settings鈥?),
-                (false, false) => t!("Allow microphone access鈥?),
+                (true, true) => t!("Turn on camera access in Settings…"),
+                (true, false) => t!("Allow camera access…"),
+                (false, true) => t!("Turn on microphone access in Settings…"),
+                (false, false) => t!("Allow microphone access…"),
             };
             (
                 crate::ui::MenuItem::new(label, false),
@@ -1218,7 +1218,7 @@ impl OverlayWindow {
         let pill_label = if !blocked {
             if enabled { t!("On") } else { t!("Off") }
         } else if access.requesting(permission) {
-            t!("Asking鈥?)
+            t!("Asking…")
         } else if access.status(permission) == crate::permissions::OSPermissionStatus::Denied {
             t!("Allow in Settings")
         } else {
@@ -1422,7 +1422,7 @@ impl OverlayWindow {
         let mut label = self.display_name.clone();
         if let Some((width, height)) = self.physical_size {
             label.push_str(&format!(
-                " 路 {width} 脳 {height} 路 {} FPS",
+                " · {width} × {height} · {} FPS",
                 self.refresh_rate.round()
             ));
         }
@@ -1501,7 +1501,7 @@ impl OverlayWindow {
 
         let scale = self.pixels_per_point();
         let tag = format!(
-            "{} 路 {} 脳 {}",
+            "{} · {} × {}",
             active.app_name,
             (target.width * scale).round(),
             (target.height * scale).round()
@@ -2288,8 +2288,8 @@ impl OverlayWindow {
             Mode::Screenshot => "icons/image.svg",
         };
         let mode_label = match mode {
-            Mode::Instant => t!("Instant Mode 鈥?Record straight to a video file"),
-            Mode::Studio => t!("Studio Mode 鈥?Record and edit locally"),
+            Mode::Instant => t!("Instant Mode — Record straight to a video file"),
+            Mode::Studio => t!("Studio Mode — Record and edit locally"),
             Mode::Screenshot => t!("Screenshot Mode"),
         };
         let _ = target;
@@ -2884,7 +2884,7 @@ impl OverlayWindow {
         });
         let sizes = self.area_sizes().map(|(name, width, height, _)| {
             crate::ui::MenuItem::new(
-                format!("{name}  路  {width} 脳 {height}"),
+                format!("{name}  ·  {width} × {height}"),
                 recorded == Some((width, height)),
             )
         });
@@ -3012,7 +3012,7 @@ impl OverlayWindow {
     fn area_readout(&self, crop: AreaRect) -> String {
         let scale = self.pixels_per_point();
         format!(
-            "{} 脳 {}",
+            "{} × {}",
             (crop.width * scale).round(),
             (crop.height * scale).round()
         )
@@ -3044,13 +3044,13 @@ impl OverlayWindow {
         let label = if valid {
             let mut label = self.area_readout(crop);
             if let Some((width, height)) = self.area_ratio {
-                label.push_str(&format!(" 路 {width}:{height}"));
+                label.push_str(&format!(" · {width}:{height}"));
             }
             label
         } else {
             let least = (min * self.pixels_per_point()).round();
             t!(
-                "Too small. At least {width} 脳 {height}",
+                "Too small. At least {width} × {height}",
                 width = least,
                 height = least
             )
@@ -3112,7 +3112,7 @@ impl OverlayWindow {
         entries.extend(SIZES.into_iter().filter_map(|(name, width, height)| {
             fit_to_size(window, (width, height), scale, work_area).map(|frame| {
                 (
-                    format!("{name}  路  {width} 脳 {height}"),
+                    format!("{name}  ·  {width} × {height}"),
                     recorded == (width, height),
                     frame,
                 )
@@ -3325,12 +3325,12 @@ impl OverlayWindow {
         let theme = self.theme;
         let scale = self.pixels_per_point();
         let mut label = format!(
-            "{} 脳 {}",
+            "{} × {}",
             (window.width * scale).round(),
             (window.height * scale).round()
         );
         if let Some((w, h)) = crate::window_arrange::matching_ratio(window) {
-            label.push_str(&format!("  路  {w}:{h}"));
+            label.push_str(&format!("  ·  {w}:{h}"));
         }
         let arrangeable = crate::foreign_window::can_arrange();
         self.glass_surface()
