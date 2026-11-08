@@ -38,7 +38,7 @@ FrameEver · 帧刻是 aniBullet 的纯本地屏幕录制和编辑应用，最�
 ```powershell
 pnpm fe setup     # 准备环境（首次）
 pnpm fe dev       # 用独立的测试数据运行应用（--watch 自动重编译）
-pnpm fe lint      # 提交前检查：格式、Clippy、翻译
+pnpm fe lint      # 合进 main 前检查一次：格式、Clippy、翻译
 pnpm fe package   # 打包安装程序
 ```
 

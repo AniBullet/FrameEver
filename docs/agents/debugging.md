@@ -18,13 +18,13 @@ Everything goes through one entry point, `pnpm fe <command>` (`scripts/fe.mjs`).
 | `pnpm fe logs [--grep <text>] [--lines N]` | Read the app log after a run (`--real` reads the installed app's log) |
 | `pnpm fe check` | Compile the GPUI app, FrameEver Converter and the CLI with tests |
 | `pnpm fe test [filter]` / `--all` | GPUI tests; `--all` adds converter, encoder, export, CLI and script tests |
-| `pnpm fe lint` | Format check, clippy, translation tests: run before committing |
+| `pnpm fe lint` | Format check, clippy, translation tests: once per change landing on `main` |
 | `pnpm fe fmt` | Format what FrameEver changed |
 | `pnpm fe export h264\|hevc\|av1` | Export the newest test recording to `target/testdata/exports/` |
 | `pnpm fe converter [--lang zh-CN]` | Run FrameEver Converter against a fresh fake Cap-aniBullet 2.x install in `target/testdata/converter/` |
 | `pnpm fe package` | Build the installer and `FrameEver-Converter_<version>_x64.exe` into `dist/` exactly as CI does |
 
-Test cadence: while iterating run `pnpm fe test <filter>` (an app-only edit rebuilds in about 20 s); run `pnpm fe check` only when you want errors without running anything, since `test` compiles the same code. Run `pnpm fe test --all` and `pnpm fe lint` once, before committing. An edit in a shared crate (`frameever-project`, `-rendering`, `-recording`, `-editor`, `-export`) rebuilds everything above it, 30–45 s; renaming or upgrading crates rebuilds everything. `dev`, `check`, `test` and `lint` keep the four newest incremental caches per crate and delete older ones.
+Test cadence: while iterating run `pnpm fe test <filter>` (an app-only edit rebuilds in about 20 s); run `pnpm fe check` only when you want errors without running anything, since `test` compiles the same code. Run `pnpm fe fmt` after each edit. Run `pnpm fe test --all` and `pnpm fe lint` once per change landing on `main`, after code review and its fixes; for tickets built in parallel, once on the integration branch. An edit in a shared crate (`frameever-project`, `-rendering`, `-recording`, `-editor`, `-export`) rebuilds everything above it, 30–45 s; renaming or upgrading crates rebuilds everything. `dev`, `check`, `test` and `lint` keep the four newest incremental caches per crate and delete older ones.
 
 ## Where things are
 
@@ -74,6 +74,6 @@ Environment variables the app reads: `FRAMEEVER_GPUI_APP_DATA_DIR` (also moves t
 
 ## Before you say it's done
 
-1. `pnpm fe lint` and `pnpm fe test --all` pass.
+1. `pnpm fe fmt` ran and the filtered tests for what you touched pass. `pnpm fe lint` and `pnpm fe test --all` pass once before the change lands on `main` (for a parallel batch, on the integration branch).
 2. For anything visible, the owner has looked at it in the running app.
 3. Update `docs/upstream-sync/HANDOFF.md` if the state of the work changed.
