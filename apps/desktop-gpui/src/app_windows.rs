@@ -5309,6 +5309,13 @@ pub fn arm_target_mode(kind: crate::main_window::TargetType, cx: &mut App) {
         .ok();
 }
 
+pub fn switch_overlay_target(kind: crate::main_window::TargetType, cx: &mut App) {
+    let main = cx.global::<AppWindows>().main;
+    if let Err(error) = main.update(cx, |view, _window, cx| view.switch_overlay_target(kind, cx)) {
+        tracing::warn!(%error, "could not switch the capture target");
+    }
+}
+
 fn camera_window_number(cx: &mut App) -> Option<isize> {
     let handle = cx.global::<AppWindows>().camera?;
     handle
