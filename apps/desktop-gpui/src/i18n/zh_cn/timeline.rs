@@ -122,6 +122,9 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Rename clip", "重命名片段"),
     ("Delete clip", "删除片段"),
     ("Can't delete the only clip", "不能删除唯一的片段"),
+    ("Delete before playhead", "删除播放头之前的部分"),
+    ("Delete after playhead", "删除播放头之后的部分"),
+    ("Less than 1 second would remain", "剩余不足 1 秒"),
     (
         "Choose a track to add to your timeline.",
         "选择要添加到时间轴的轨道。",
