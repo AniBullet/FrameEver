@@ -3493,6 +3493,17 @@ impl EditorWindow {
             window.refresh();
             return;
         }
+        if !event.is_held
+            && let Some(boundary) = playhead_boundary(&event.keystroke, arrow_owners)
+        {
+            cx.stop_propagation();
+            match boundary {
+                PlayheadBoundary::Start => self.jump_to_start(cx),
+                PlayheadBoundary::End => self.jump_to_end(cx),
+            }
+            window.refresh();
+            return;
+        }
 
         if event.is_held {
             return;
@@ -11881,6 +11892,26 @@ fn playhead_step_frames(keystroke: &gpui::Keystroke, owners: ArrowKeyOwners) -> 
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PlayheadBoundary {
+    Start,
+    End,
+}
+
+fn playhead_boundary(
+    keystroke: &gpui::Keystroke,
+    owners: ArrowKeyOwners,
+) -> Option<PlayheadBoundary> {
+    if owners.any() || keystroke.modifiers.modified() {
+        return None;
+    }
+    match keystroke.key.as_str() {
+        "home" => Some(PlayheadBoundary::Start),
+        "end" => Some(PlayheadBoundary::End),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FullScreenKey {
     Exit,
     Step(i32),
@@ -13411,6 +13442,49 @@ mod tests {
         }
         for text in ["up", "down", "cmd-right", "ctrl-left", "alt-right", "space"] {
             assert_eq!(playhead_step_frames(&key(text), free), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn home_and_end_jump_the_playhead_only_when_nothing_else_takes_them() {
+        let key = |text: &'static str| gpui::Keystroke::parse(text).unwrap();
+        let free = ArrowKeyOwners::default();
+        assert_eq!(
+            playhead_boundary(&key("home"), free),
+            Some(PlayheadBoundary::Start)
+        );
+        assert_eq!(
+            playhead_boundary(&key("end"), free),
+            Some(PlayheadBoundary::End)
+        );
+        for owners in [
+            ArrowKeyOwners {
+                text_input: true,
+                ..free
+            },
+            ArrowKeyOwners {
+                canvas_selection: true,
+                ..free
+            },
+            ArrowKeyOwners { menu: true, ..free },
+            ArrowKeyOwners {
+                lane_reorder: true,
+                ..free
+            },
+        ] {
+            assert_eq!(playhead_boundary(&key("home"), owners), None);
+            assert_eq!(playhead_boundary(&key("end"), owners), None);
+        }
+        for text in [
+            "shift-home",
+            "ctrl-end",
+            "alt-home",
+            "cmd-end",
+            "left",
+            "up",
+            "space",
+        ] {
+            assert_eq!(playhead_boundary(&key(text), free), None, "{text}");
         }
     }
 
