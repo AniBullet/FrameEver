@@ -1457,6 +1457,7 @@ pub struct EditorWindow {
     pub(crate) history: ProjectHistory,
     /// `editorState.timeline.selection`.
     pub(crate) selection: Option<Selection>,
+    segment_clipboard: Option<edits::SegmentClipboard>,
     /// `editorState.timeline.interactMode === "split"`.
     split_mode: bool,
     /// `editorState.timeline.splitPreview` -- `(time, snapped)`.
@@ -2090,6 +2091,7 @@ impl EditorWindow {
             project: ProjectConfiguration::default(),
             history: ProjectHistory::new(ProjectConfiguration::default()),
             selection: None,
+            segment_clipboard: None,
             split_mode: false,
             split_preview: None,
             hovered_segment: None,
@@ -3588,6 +3590,22 @@ impl EditorWindow {
                 "y" => {
                     cx.stop_propagation();
                     self.redo(window, cx);
+                    window.refresh();
+                    return;
+                }
+                "c" if !keystroke.modifiers.shift && self.copy_selection() => {
+                    cx.stop_propagation();
+                    return;
+                }
+                "v" if !keystroke.modifiers.shift && self.segment_clipboard.is_some() => {
+                    cx.stop_propagation();
+                    self.paste_segments(window, cx);
+                    window.refresh();
+                    return;
+                }
+                "d" if !keystroke.modifiers.shift && self.selection.is_some() => {
+                    cx.stop_propagation();
+                    self.duplicate_selection(window, cx);
                     window.refresh();
                     return;
                 }
@@ -5387,6 +5405,51 @@ fn split_caption_segment(
     true
 }
 
+fn add_pasted_caption_sources(
+    project: &mut ProjectConfiguration,
+    indices: &[usize],
+    recording_durations: &[f64],
+) -> Vec<String> {
+    let Some(timeline) = project.timeline.as_ref() else {
+        return Vec::new();
+    };
+    let to_source = |time: f64| {
+        crate::transcription::map_edited_time_to_source(time, timeline, recording_durations, None)
+            .map(|source| source as f32)
+    };
+    let sources: Vec<frameever_project::CaptionSegment> = indices
+        .iter()
+        .filter_map(|index| timeline.caption_segments.get(*index))
+        .filter_map(|segment| {
+            Some(frameever_project::CaptionSegment {
+                id: segment.id.clone(),
+                start: to_source(segment.start)?,
+                end: to_source(segment.end)?,
+                text: segment.text.clone(),
+                words: segment
+                    .words
+                    .iter()
+                    .filter_map(|word| {
+                        Some(frameever_project::CaptionWord {
+                            text: word.text.clone(),
+                            start: to_source(f64::from(word.start))?,
+                            end: to_source(f64::from(word.end))?,
+                        })
+                    })
+                    .collect(),
+            })
+        })
+        .collect();
+    let ids = sources.iter().map(|source| source.id.clone()).collect();
+    if let Some(captions) = project.captions.as_mut() {
+        captions.segments.extend(sources);
+        captions
+            .segments
+            .sort_by(|a, b| a.start.total_cmp(&b.start));
+    }
+    ids
+}
+
 fn delete_caption_segments(project: &mut ProjectConfiguration, indices: &[usize]) -> bool {
     let Some(timeline) = project.timeline.as_ref() else {
         return false;
@@ -6414,6 +6477,103 @@ impl EditorWindow {
             self.set_selection(None, cx);
             self.note_edit("split", Some(TrackKind::Clip));
         }
+    }
+
+    fn copy_selection(&mut self) -> bool {
+        let (Some(timeline), Some(selection)) =
+            (self.project.timeline.as_ref(), self.selection.as_ref())
+        else {
+            return false;
+        };
+        let Some(clipboard) = edits::copy_segments(timeline, selection) else {
+            return false;
+        };
+        self.segment_clipboard = Some(clipboard);
+        self.note_edit("copy", Some(selection.track));
+        true
+    }
+
+    fn paste_segments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(clipboard) = self.segment_clipboard.clone() else {
+            return;
+        };
+        let at = self.playhead.max(0.0);
+        self.place_segments(
+            "paste",
+            |timeline, total| edits::paste_segments(timeline, &clipboard, at, total),
+            window,
+            cx,
+        );
+    }
+
+    fn duplicate_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(selection) = self.selection.clone() else {
+            return;
+        };
+        self.place_segments(
+            "duplicate",
+            |timeline, total| edits::duplicate_segments(timeline, &selection, total),
+            window,
+            cx,
+        );
+    }
+
+    fn place_segments(
+        &mut self,
+        reason: &'static str,
+        place: impl FnOnce(&mut TimelineConfiguration, f64) -> Option<Selection>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let total = self.total_duration();
+        let durations = self.clip_display_durations.clone();
+        let mut placed = None;
+        let mut caption_ids = Vec::new();
+        self.edit_timeline_project(
+            |project| {
+                let Some(timeline) = project.timeline.as_mut() else {
+                    return false;
+                };
+                placed = place(timeline, total);
+                if let Some(selection) = placed.as_ref()
+                    && selection.track == TrackKind::Caption
+                {
+                    caption_ids =
+                        add_pasted_caption_sources(project, &selection.indices, &durations);
+                }
+                placed.is_some()
+            },
+            window,
+            cx,
+        );
+        let Some(mut selection) = placed else {
+            return;
+        };
+        if selection.track == TrackKind::Caption {
+            selection.indices = self.caption_indices(&caption_ids);
+        }
+        let track = selection.track;
+        self.set_selection(Some(selection), cx);
+        self.note_edit(reason, Some(track));
+    }
+
+    fn caption_indices(&self, source_ids: &[String]) -> Vec<usize> {
+        self.project
+            .timeline
+            .as_ref()
+            .map(|timeline| {
+                timeline
+                    .caption_segments
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, segment)| {
+                        let source = frameever_project::source_caption_id(&segment.id);
+                        source_ids.iter().any(|id| id == source)
+                    })
+                    .map(|(index, _)| index)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// `Cmd/Ctrl+A` (`TL/index.tsx:1019-1045`).
@@ -12790,6 +12950,53 @@ mod tests {
         frameever_project::synchronize_captions(&mut project, &[10.0]);
         assert_eq!(project.captions.as_ref().unwrap().segments.len(), 1);
         assert_eq!(project.timeline.as_ref().unwrap().caption_segments.len(), 1);
+    }
+
+    #[test]
+    fn a_duplicated_caption_gets_its_own_source_and_survives_a_resync() {
+        let word = |text: &str, start: f32, end: f32| frameever_project::CaptionWord {
+            text: text.into(),
+            start,
+            end,
+        };
+        let mut project: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": {
+                "segments": [{ "recordingSegment": 0, "timescale": 1.0, "start": 2.0, "end": 12.0 }],
+                "zoomSegments": []
+            }
+        }))
+        .unwrap();
+        project.captions = Some(frameever_project::CaptionsData {
+            segments: vec![frameever_project::CaptionSegment {
+                id: "spoken".into(),
+                start: 3.0,
+                end: 6.0,
+                text: "hello world".into(),
+                words: vec![word("hello", 3.0, 4.0), word("world", 5.0, 6.0)],
+            }],
+            source_timed: true,
+            ..Default::default()
+        });
+        frameever_project::synchronize_captions(&mut project, &[12.0]);
+        let timeline = project.timeline.as_mut().unwrap();
+        timeline.caption_segments[0].position_override = Some("top".into());
+        let pasted =
+            edits::duplicate_segments(timeline, &Selection::single(TrackKind::Caption, 0), 10.0)
+                .unwrap();
+
+        let ids = add_pasted_caption_sources(&mut project, &pasted.indices, &[12.0]);
+        frameever_project::synchronize_captions(&mut project, &[12.0]);
+
+        let sources = &project.captions.as_ref().unwrap().segments;
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[1].id, ids[0]);
+        assert_eq!((sources[1].start, sources[1].end), (6.0, 9.0));
+        assert_eq!(sources[1].words[1].start, 8.0);
+        let track = &project.timeline.as_ref().unwrap().caption_segments;
+        assert_eq!(track.len(), 2);
+        assert_eq!((track[1].start, track[1].end), (4.0, 7.0));
+        assert_eq!(track[1].text, "hello world");
+        assert_eq!(track[1].position_override.as_deref(), Some("top"));
     }
 
     #[test]
