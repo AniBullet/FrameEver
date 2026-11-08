@@ -567,7 +567,7 @@ impl DeepLinkAction {
     }
 }
 
-fn camera_selection(id: DeviceOrModelID) -> SelectedCamera {
+pub(crate) fn camera_selection(id: DeviceOrModelID) -> SelectedCamera {
     let info = frameever_camera::list_cameras().find(|info| match &id {
         DeviceOrModelID::DeviceID(device) => info.device_id() == device,
         DeviceOrModelID::ModelID(model) => info.model_id() == Some(model),
