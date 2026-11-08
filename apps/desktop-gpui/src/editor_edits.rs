@@ -820,6 +820,9 @@ macro_rules! with_track {
     };
 }
 
+mod segment_copy;
+pub use segment_copy::*;
+
 /// How many segments a track carries -- `Cmd+A`'s `segmentCount`
 /// (`TL/index.tsx:1029-1039`).
 pub fn segment_count(timeline: &TimelineConfiguration, kind: TrackKind) -> usize {
