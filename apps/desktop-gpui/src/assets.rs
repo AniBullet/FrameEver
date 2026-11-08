@@ -559,7 +559,7 @@ mod tests {
             include_str!("main_window.rs").contains(r#"Self::Screenshot => "icons/image.svg""#)
         );
         assert!(
-            include_str!("target_overlay.rs").contains(r#"Mode::Screenshot => "icons/image.svg""#)
+            include_str!("target_overlay.rs").contains("Some(mode.icon())")
         );
         assert!(
             include_str!("settings_window/catalog.rs")
