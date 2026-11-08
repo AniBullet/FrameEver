@@ -25,10 +25,10 @@ use std::time::{Duration, Instant};
 
 use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::{
-    App, AppContext as _, Context, Entity, FontWeight, Global, Hsla,
-    InteractiveElement as _, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent,
-    ParentElement as _, Pixels, Point, Render, SharedString, StatefulInteractiveElement as _,
-    Styled, Window, div, prelude::FluentBuilder as _, px, svg,
+    App, AppContext as _, Context, Entity, FontWeight, Global, Hsla, InteractiveElement as _,
+    IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Point,
+    Render, SharedString, StatefulInteractiveElement as _, Styled, Window, div,
+    prelude::FluentBuilder as _, px, svg,
 };
 use scap_targets::{
     DisplayId, WindowId,
