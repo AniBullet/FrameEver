@@ -820,6 +820,9 @@ macro_rules! with_track {
     };
 }
 
+mod segment_copy;
+pub use segment_copy::*;
+
 /// How many segments a track carries -- `Cmd+A`'s `segmentCount`
 /// (`TL/index.tsx:1029-1039`).
 pub fn segment_count(timeline: &TimelineConfiguration, kind: TrackKind) -> usize {
@@ -2190,6 +2193,101 @@ pub fn split_clip_segment(
     true
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClipSide {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClipSideBlocker {
+    OutsideClip,
+    TooShort,
+}
+
+impl ClipSideBlocker {
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::OutsideClip => t!("Move the playhead into this clip"),
+            Self::TooShort => t!("Less than 1 second would remain"),
+        }
+    }
+}
+
+fn clip_side_cut(
+    timeline: &TimelineConfiguration,
+    output_time: f64,
+    requested_index: Option<usize>,
+    side: ClipSide,
+) -> Result<usize, ClipSideBlocker> {
+    let holds = timeline.hold_windows();
+    let time = output_time - held_time_before(&holds, output_time);
+    let offsets = crate::editor_timeline::clip_timeline_offsets(timeline);
+    let index = requested_index
+        .filter(|index| *index < timeline.segments.len())
+        .or_else(|| {
+            timeline
+                .segments
+                .iter()
+                .enumerate()
+                .rposition(|(position, segment)| {
+                    let offset = offsets.get(position).copied().unwrap_or(0.);
+                    time >= offset && time <= offset + segment.duration()
+                })
+        })
+        .ok_or(ClipSideBlocker::OutsideClip)?;
+    let duration = timeline.segments[index].duration();
+    let local_time = time - offsets.get(index).copied().unwrap_or(0.);
+    if local_time <= 0. || local_time >= duration {
+        return Err(ClipSideBlocker::OutsideClip);
+    }
+    let incoming = timeline
+        .effective_transition(index)
+        .map_or(0., |transition| transition.duration);
+    let outgoing = timeline
+        .effective_transition(index + 1)
+        .map_or(0., |transition| transition.duration);
+    let kept = match side {
+        ClipSide::Left => duration - local_time,
+        ClipSide::Right => local_time,
+    };
+    if kept < min_split_duration(TrackKind::Clip)
+        || local_time < incoming * 2.
+        || duration - local_time < outgoing * 2.
+    {
+        return Err(ClipSideBlocker::TooShort);
+    }
+    Ok(index)
+}
+
+pub fn clip_side_blocker(
+    timeline: &TimelineConfiguration,
+    output_time: f64,
+    requested_index: Option<usize>,
+    side: ClipSide,
+) -> Option<ClipSideBlocker> {
+    clip_side_cut(timeline, output_time, requested_index, side).err()
+}
+
+pub fn delete_clip_side(
+    timeline: &mut TimelineConfiguration,
+    output_time: f64,
+    requested_index: Option<usize>,
+    side: ClipSide,
+) -> bool {
+    let Ok(index) = clip_side_cut(timeline, output_time, requested_index, side) else {
+        return false;
+    };
+    if !split_clip_segment(timeline, output_time, Some(index)) {
+        return false;
+    }
+    let removed = match side {
+        ClipSide::Left => index,
+        ClipSide::Right => index + 1,
+    };
+    delete_clip_segments(timeline, &[removed])
+}
+
 /// `heldTimeBefore` (`ED/timeline-holds.ts`): how much held time an output
 /// timestamp sits past. Rust's own copy is private, so it is transcribed the
 /// same way `effective_to_output` was in E3.
@@ -3453,6 +3551,90 @@ mod tests {
             )),
             bounds(expected)
         );
+    }
+
+    fn clip_bounds(timeline: &TimelineConfiguration) -> Vec<(u32, f64, f64)> {
+        timeline
+            .segments
+            .iter()
+            .map(|segment| (segment.recording_clip, segment.start, segment.end))
+            .collect()
+    }
+
+    #[test]
+    fn deleting_left_of_the_playhead_keeps_the_tail_and_ripples_later_tracks() {
+        let mut config = two_clip_config();
+        let timeline = config.timeline.as_mut().unwrap();
+        insert_zoom_segment(timeline, 12.0, 14.0, 1.5);
+
+        assert!(delete_clip_side(timeline, 4.0, None, ClipSide::Left));
+
+        assert_eq!(clip_bounds(timeline), vec![(0, 4.0, 10.0), (1, 0.0, 8.0)]);
+        let zoom = &timeline.zoom_segments[0];
+        assert_eq!((zoom.start, zoom.end), (8.0, 10.0));
+    }
+
+    #[test]
+    fn deleting_right_of_the_playhead_keeps_the_head_and_ripples_later_clips() {
+        let mut config = two_clip_config();
+        let timeline = config.timeline.as_mut().unwrap();
+        insert_zoom_segment(timeline, 12.0, 14.0, 1.5);
+
+        assert!(delete_clip_side(timeline, 3.0, None, ClipSide::Right));
+
+        assert_eq!(clip_bounds(timeline), vec![(0, 0.0, 3.0), (1, 0.0, 8.0)]);
+        let zoom = &timeline.zoom_segments[0];
+        assert_eq!((zoom.start, zoom.end), (5.0, 7.0));
+    }
+
+    #[test]
+    fn deleting_a_side_of_a_later_clip_uses_the_clip_under_the_playhead() {
+        let mut config = two_clip_config();
+        let timeline = config.timeline.as_mut().unwrap();
+
+        assert!(delete_clip_side(timeline, 13.0, None, ClipSide::Left));
+        assert_eq!(clip_bounds(timeline), vec![(0, 0.0, 10.0), (1, 3.0, 8.0)]);
+    }
+
+    #[test]
+    fn a_side_delete_that_would_leave_less_than_the_minimum_is_blocked() {
+        let mut config = two_clip_config();
+        let timeline = config.timeline.as_mut().unwrap();
+        let before = clip_bounds(timeline);
+
+        assert_eq!(
+            clip_side_blocker(timeline, 9.5, Some(0), ClipSide::Left),
+            Some(ClipSideBlocker::TooShort)
+        );
+        assert!(!delete_clip_side(timeline, 9.5, Some(0), ClipSide::Left));
+        assert_eq!(
+            clip_side_blocker(timeline, 0.5, Some(0), ClipSide::Right),
+            Some(ClipSideBlocker::TooShort)
+        );
+        assert!(!delete_clip_side(timeline, 0.5, Some(0), ClipSide::Right));
+        assert_eq!(clip_bounds(timeline), before);
+
+        assert_eq!(
+            clip_side_blocker(timeline, 9.5, Some(0), ClipSide::Right),
+            None
+        );
+        assert_eq!(
+            clip_side_blocker(timeline, 0.5, Some(0), ClipSide::Left),
+            None
+        );
+    }
+
+    #[test]
+    fn a_side_delete_needs_the_playhead_inside_the_clip() {
+        let mut config = two_clip_config();
+        let timeline = config.timeline.as_mut().unwrap();
+
+        assert_eq!(
+            clip_side_blocker(timeline, 12.0, Some(0), ClipSide::Left),
+            Some(ClipSideBlocker::OutsideClip)
+        );
+        assert!(!delete_clip_side(timeline, 30.0, None, ClipSide::Right));
+        assert_eq!(timeline.segments.len(), 2);
     }
 
     // -- Split --------------------------------------------------------------

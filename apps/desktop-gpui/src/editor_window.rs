@@ -1457,6 +1457,7 @@ pub struct EditorWindow {
     pub(crate) history: ProjectHistory,
     /// `editorState.timeline.selection`.
     pub(crate) selection: Option<Selection>,
+    segment_clipboard: Option<edits::SegmentClipboard>,
     /// `editorState.timeline.interactMode === "split"`.
     split_mode: bool,
     /// `editorState.timeline.splitPreview` -- `(time, snapped)`.
@@ -1471,6 +1472,7 @@ pub struct EditorWindow {
     /// The live segment drag, if any.
     drag: Option<Drag>,
     lane_reorder: Option<LaneReorder>,
+    full_screen_preview: bool,
     /// Generation guard for the 60Hz playback redraw ticker.
     playback_tick: u64,
     /// `isGeneratingAutoZoom` / `sessionDismissedGenerateZoomPrompt`
@@ -2089,6 +2091,7 @@ impl EditorWindow {
             project: ProjectConfiguration::default(),
             history: ProjectHistory::new(ProjectConfiguration::default()),
             selection: None,
+            segment_clipboard: None,
             split_mode: false,
             split_preview: None,
             hovered_segment: None,
@@ -2096,6 +2099,7 @@ impl EditorWindow {
             hovered_gutter: None,
             drag: None,
             lane_reorder: None,
+            full_screen_preview: false,
             playback_tick: 0,
             generating_auto_zoom: false,
             auto_zoom_message: None,
@@ -3420,6 +3424,21 @@ impl EditorWindow {
             }
         }
 
+        if self.full_screen_preview {
+            match full_screen_key(&event.keystroke) {
+                Some(FullScreenKey::Exit) if !event.is_held => {
+                    self.toggle_full_screen_preview(window, cx);
+                }
+                Some(FullScreenKey::Step(frames)) => {
+                    self.step_playhead(frames, cx);
+                    window.refresh();
+                }
+                _ => {}
+            }
+            cx.stop_propagation();
+            return;
+        }
+
         if self.lane_reorder.is_some() && event.keystroke.key == "escape" && !event.is_held {
             self.cancel_lane_reorder(cx);
             cx.stop_propagation();
@@ -3574,6 +3593,22 @@ impl EditorWindow {
                     window.refresh();
                     return;
                 }
+                "c" if !keystroke.modifiers.shift && self.copy_selection() => {
+                    cx.stop_propagation();
+                    return;
+                }
+                "v" if !keystroke.modifiers.shift && self.segment_clipboard.is_some() => {
+                    cx.stop_propagation();
+                    self.paste_segments(window, cx);
+                    window.refresh();
+                    return;
+                }
+                "d" if !keystroke.modifiers.shift && self.selection.is_some() => {
+                    cx.stop_propagation();
+                    self.duplicate_selection(window, cx);
+                    window.refresh();
+                    return;
+                }
                 // `Cmd/Ctrl+A` expands the selection to the whole track.
                 "a" if !keystroke.modifiers.shift => {
                     cx.stop_propagation();
@@ -3642,6 +3677,18 @@ impl EditorWindow {
             "c" => {
                 cx.stop_propagation();
                 self.split_at_playhead(window, cx);
+            }
+            "q" => {
+                cx.stop_propagation();
+                self.delete_clip_side(None, edits::ClipSide::Left, window, cx);
+            }
+            "w" => {
+                cx.stop_propagation();
+                self.delete_clip_side(None, edits::ClipSide::Right, window, cx);
+            }
+            "f" => {
+                cx.stop_propagation();
+                self.toggle_full_screen_preview(window, cx);
             }
             "escape" => {
                 cx.stop_propagation();
@@ -5358,6 +5405,51 @@ fn split_caption_segment(
     true
 }
 
+fn add_pasted_caption_sources(
+    project: &mut ProjectConfiguration,
+    indices: &[usize],
+    recording_durations: &[f64],
+) -> Vec<String> {
+    let Some(timeline) = project.timeline.as_ref() else {
+        return Vec::new();
+    };
+    let to_source = |time: f64| {
+        crate::transcription::map_edited_time_to_source(time, timeline, recording_durations, None)
+            .map(|source| source as f32)
+    };
+    let sources: Vec<frameever_project::CaptionSegment> = indices
+        .iter()
+        .filter_map(|index| timeline.caption_segments.get(*index))
+        .filter_map(|segment| {
+            Some(frameever_project::CaptionSegment {
+                id: segment.id.clone(),
+                start: to_source(segment.start)?,
+                end: to_source(segment.end)?,
+                text: segment.text.clone(),
+                words: segment
+                    .words
+                    .iter()
+                    .filter_map(|word| {
+                        Some(frameever_project::CaptionWord {
+                            text: word.text.clone(),
+                            start: to_source(f64::from(word.start))?,
+                            end: to_source(f64::from(word.end))?,
+                        })
+                    })
+                    .collect(),
+            })
+        })
+        .collect();
+    let ids = sources.iter().map(|source| source.id.clone()).collect();
+    if let Some(captions) = project.captions.as_mut() {
+        captions.segments.extend(sources);
+        captions
+            .segments
+            .sort_by(|a, b| a.start.total_cmp(&b.start));
+    }
+    ids
+}
+
 fn delete_caption_segments(project: &mut ProjectConfiguration, indices: &[usize]) -> bool {
     let Some(timeline) = project.timeline.as_ref() else {
         return false;
@@ -6385,6 +6477,103 @@ impl EditorWindow {
             self.set_selection(None, cx);
             self.note_edit("split", Some(TrackKind::Clip));
         }
+    }
+
+    fn copy_selection(&mut self) -> bool {
+        let (Some(timeline), Some(selection)) =
+            (self.project.timeline.as_ref(), self.selection.as_ref())
+        else {
+            return false;
+        };
+        let Some(clipboard) = edits::copy_segments(timeline, selection) else {
+            return false;
+        };
+        self.segment_clipboard = Some(clipboard);
+        self.note_edit("copy", Some(selection.track));
+        true
+    }
+
+    fn paste_segments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(clipboard) = self.segment_clipboard.clone() else {
+            return;
+        };
+        let at = self.playhead.max(0.0);
+        self.place_segments(
+            "paste",
+            |timeline, total| edits::paste_segments(timeline, &clipboard, at, total),
+            window,
+            cx,
+        );
+    }
+
+    fn duplicate_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(selection) = self.selection.clone() else {
+            return;
+        };
+        self.place_segments(
+            "duplicate",
+            |timeline, total| edits::duplicate_segments(timeline, &selection, total),
+            window,
+            cx,
+        );
+    }
+
+    fn place_segments(
+        &mut self,
+        reason: &'static str,
+        place: impl FnOnce(&mut TimelineConfiguration, f64) -> Option<Selection>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let total = self.total_duration();
+        let durations = self.clip_display_durations.clone();
+        let mut placed = None;
+        let mut caption_ids = Vec::new();
+        self.edit_timeline_project(
+            |project| {
+                let Some(timeline) = project.timeline.as_mut() else {
+                    return false;
+                };
+                placed = place(timeline, total);
+                if let Some(selection) = placed.as_ref()
+                    && selection.track == TrackKind::Caption
+                {
+                    caption_ids =
+                        add_pasted_caption_sources(project, &selection.indices, &durations);
+                }
+                placed.is_some()
+            },
+            window,
+            cx,
+        );
+        let Some(mut selection) = placed else {
+            return;
+        };
+        if selection.track == TrackKind::Caption {
+            selection.indices = self.caption_indices(&caption_ids);
+        }
+        let track = selection.track;
+        self.set_selection(Some(selection), cx);
+        self.note_edit(reason, Some(track));
+    }
+
+    fn caption_indices(&self, source_ids: &[String]) -> Vec<usize> {
+        self.project
+            .timeline
+            .as_ref()
+            .map(|timeline| {
+                timeline
+                    .caption_segments
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, segment)| {
+                        let source = frameever_project::source_caption_id(&segment.id);
+                        source_ids.iter().any(|id| id == source)
+                    })
+                    .map(|(index, _)| index)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// `Cmd/Ctrl+A` (`TL/index.tsx:1019-1045`).
@@ -8181,6 +8370,48 @@ impl EditorWindow {
         cx.notify();
     }
 
+    fn delete_clip_side(
+        &mut self,
+        index: Option<usize>,
+        side: edits::ClipSide,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.clip_speed = None;
+        let time = self.view.preview_time.unwrap_or(self.playhead);
+        let cut_start = index
+            .or_else(|| {
+                self.timeline
+                    .clips
+                    .iter()
+                    .position(|clip| time > clip.start && time < clip.end)
+            })
+            .and_then(|index| self.timeline.clips.get(index))
+            .map(|clip| clip.start);
+        if let Some(blocker) = self
+            .project
+            .timeline
+            .as_ref()
+            .and_then(|timeline| edits::clip_side_blocker(timeline, time, index, side))
+        {
+            self.show_notice(blocker.hint(), window, cx);
+            return;
+        }
+        if self.edit(
+            |timeline| edits::delete_clip_side(timeline, time, index, side),
+            window,
+            cx,
+        ) {
+            if side == edits::ClipSide::Left
+                && let Some(start) = cut_start
+            {
+                self.seek_to_time(start, cx);
+            }
+            self.note_edit("clip-delete-side", Some(TrackKind::Clip));
+        }
+        cx.notify();
+    }
+
     fn render_clip_speed_overlays(
         &self,
         model: &timeline::TimelineModel,
@@ -8300,6 +8531,12 @@ impl EditorWindow {
         let merge_next =
             edits::clip_merge_blocker(&timeline.segments, index, edits::ClipMergeDirection::Next);
         let can_delete = timeline.segments.len() > 1;
+        let side_blockers = [edits::ClipSide::Left, edits::ClipSide::Right].map(|side| {
+            (
+                side,
+                edits::clip_side_blocker(timeline, playhead, Some(index), side),
+            )
+        });
         let rename_input = self
             .clips
             .rename_in_progress()
@@ -8695,6 +8932,32 @@ impl EditorWindow {
                     }),
             )
             .child(divider())
+            .children(side_blockers.into_iter().map(|(side, blocker)| {
+                let (id, label, key) = match side {
+                    edits::ClipSide::Left => {
+                        ("clip-menu-delete-left", t!("Delete before playhead"), "Q")
+                    }
+                    edits::ClipSide::Right => {
+                        ("clip-menu-delete-right", t!("Delete after playhead"), "W")
+                    }
+                };
+                clip_menu_row(
+                    &theme,
+                    id,
+                    "icons/trash.svg",
+                    label,
+                    blocker.map_or(ClipMenuTrailing::Kbd(key), |blocker| {
+                        ClipMenuTrailing::Hint(blocker.hint())
+                    }),
+                    blocker.is_none(),
+                    true,
+                )
+                .when(blocker.is_none(), |this| {
+                    this.on_click(cx.listener(move |this, _, window, cx| {
+                        this.delete_clip_side(Some(index), side, window, cx);
+                    }))
+                })
+            }))
             .child(
                 clip_menu_row(
                     &theme,
@@ -9810,7 +10073,7 @@ impl EditorWindow {
                         .h(px(PLAYER_TOOLBAR_HEIGHT)),
                 ),
             )
-            .child(self.render_preview_canvas(cx))
+            .child(self.render_preview_canvas(cx, true))
             .child(
                 self.transport_controls
                     .clone()
@@ -9930,6 +10193,15 @@ impl EditorWindow {
                     .items_center()
                     .flex_none()
                     .gap(px(8.))
+                    .child(
+                        ui::EditorButton::plain(&theme, "full-screen-preview")
+                            .left_icon("icons/maximize.svg")
+                            .tooltip(&theme, t!("Full-screen preview"))
+                            .disabled(!self.project_ready())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_full_screen_preview(window, cx);
+                            })),
+                    )
                     .child(
                         div()
                             .text_size(px(12.))
@@ -10065,6 +10337,18 @@ impl EditorWindow {
             }))
     }
 
+    fn toggle_full_screen_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.visual_ready() {
+            return;
+        }
+        self.full_screen_preview = !self.full_screen_preview;
+        if self.full_screen_preview != window.is_fullscreen() {
+            window.toggle_fullscreen();
+        }
+        self.focus.focus(window, cx);
+        cx.notify();
+    }
+
     /// `PreviewCanvas` (`Player.tsx:605-648`): the stage, with the frame
     /// centred inside it at its letterboxed size.
     ///
@@ -10074,7 +10358,7 @@ impl EditorWindow {
     /// `paint_surface_fitted`. Elsewhere the picture arrives as a CPU
     /// `RenderedFrame`, gets un-padded and BGRA-swapped once, and goes through
     /// the sprite atlas.
-    fn render_preview_canvas(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_preview_canvas(&self, cx: &mut Context<Self>, overlay: bool) -> impl IntoElement {
         let theme = self.theme;
         let body = match (&self.state, self.latest_frame.is_some()) {
             (LoadState::Failed(message), _) => self.render_error_state(message).into_any_element(),
@@ -10098,7 +10382,7 @@ impl EditorWindow {
             // `CanvasElementsOverlay` + `SnapGuidesOverlay`
             // (`Player.tsx:636-643`), both mounted inside the letterbox
             // wrapper and only while a frame exists.
-            .children(if self.project_ready() {
+            .children(if overlay && self.project_ready() {
                 self.render_canvas_overlay(cx)
             } else {
                 None
@@ -11596,6 +11880,31 @@ fn playhead_step_frames(keystroke: &gpui::Keystroke, owners: ArrowKeyOwners) -> 
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FullScreenKey {
+    Exit,
+    Step(i32),
+}
+
+fn full_screen_key(keystroke: &gpui::Keystroke) -> Option<FullScreenKey> {
+    let modifiers = &keystroke.modifiers;
+    if modifiers.platform || modifiers.control || modifiers.alt || modifiers.function {
+        return None;
+    }
+    match keystroke.key.as_str() {
+        "escape" | "f" => Some(FullScreenKey::Exit),
+        "left" | "right" => {
+            let frames = if modifiers.shift { 10 } else { 1 };
+            Some(FullScreenKey::Step(if keystroke.key == "left" {
+                -frames
+            } else {
+                frames
+            }))
+        }
+        _ => None,
+    }
+}
+
 fn stepped_playhead(playhead: f64, total: f64, frames: i32) -> f64 {
     let fps = f64::from(EDITOR_PREVIEW_FPS);
     let frame = (playhead * fps).round() + f64::from(frames);
@@ -11654,6 +11963,18 @@ impl Render for EditorWindow {
                     .transform
                     .fit_on_mount(timeline::content_width(viewport_width), total),
             }
+        }
+
+        if self.full_screen_preview {
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .bg(self.theme.fixed_preview)
+                .track_focus(&self.focus)
+                .capture_key_down(cx.listener(Self::capture_playback_key))
+                .on_key_down(cx.listener(Self::on_key))
+                .child(self.render_preview_canvas(cx, false));
         }
 
         if self.export.is_some() {
@@ -12641,6 +12962,53 @@ mod tests {
     }
 
     #[test]
+    fn a_duplicated_caption_gets_its_own_source_and_survives_a_resync() {
+        let word = |text: &str, start: f32, end: f32| frameever_project::CaptionWord {
+            text: text.into(),
+            start,
+            end,
+        };
+        let mut project: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": {
+                "segments": [{ "recordingSegment": 0, "timescale": 1.0, "start": 2.0, "end": 12.0 }],
+                "zoomSegments": []
+            }
+        }))
+        .unwrap();
+        project.captions = Some(frameever_project::CaptionsData {
+            segments: vec![frameever_project::CaptionSegment {
+                id: "spoken".into(),
+                start: 3.0,
+                end: 6.0,
+                text: "hello world".into(),
+                words: vec![word("hello", 3.0, 4.0), word("world", 5.0, 6.0)],
+            }],
+            source_timed: true,
+            ..Default::default()
+        });
+        frameever_project::synchronize_captions(&mut project, &[12.0]);
+        let timeline = project.timeline.as_mut().unwrap();
+        timeline.caption_segments[0].position_override = Some("top".into());
+        let pasted =
+            edits::duplicate_segments(timeline, &Selection::single(TrackKind::Caption, 0), 10.0)
+                .unwrap();
+
+        let ids = add_pasted_caption_sources(&mut project, &pasted.indices, &[12.0]);
+        frameever_project::synchronize_captions(&mut project, &[12.0]);
+
+        let sources = &project.captions.as_ref().unwrap().segments;
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[1].id, ids[0]);
+        assert_eq!((sources[1].start, sources[1].end), (6.0, 9.0));
+        assert_eq!(sources[1].words[1].start, 8.0);
+        let track = &project.timeline.as_ref().unwrap().caption_segments;
+        assert_eq!(track.len(), 2);
+        assert_eq!((track[1].start, track[1].end), (4.0, 7.0));
+        assert_eq!(track[1].text, "hello world");
+        assert_eq!(track[1].position_override.as_deref(), Some("top"));
+    }
+
+    #[test]
     fn caption_split_delete_survives_a_repeated_trimmed_edl() {
         let mut project = ProjectConfiguration {
             timeline: Some(TimelineConfiguration {
@@ -13047,6 +13415,22 @@ mod tests {
     }
 
     #[test]
+    fn full_screen_preview_keys_map_to_exit_play_and_step() {
+        let key = |text: &'static str| gpui::Keystroke::parse(text).unwrap();
+        assert_eq!(full_screen_key(&key("escape")), Some(FullScreenKey::Exit));
+        assert_eq!(full_screen_key(&key("f")), Some(FullScreenKey::Exit));
+        assert_eq!(full_screen_key(&key("space")), None);
+        assert_eq!(full_screen_key(&key("left")), Some(FullScreenKey::Step(-1)));
+        assert_eq!(full_screen_key(&key("right")), Some(FullScreenKey::Step(1)));
+        assert_eq!(
+            full_screen_key(&key("shift-right")),
+            Some(FullScreenKey::Step(10))
+        );
+        assert_eq!(full_screen_key(&key("ctrl-f")), None);
+        assert_eq!(full_screen_key(&key("s")), None);
+    }
+
+    #[test]
     fn a_playhead_step_moves_whole_frames_and_stays_on_the_timeline() {
         assert_eq!(stepped_playhead(1.0, 10.0, 1), 61.0 / 60.0);
         assert_eq!(stepped_playhead(1.0, 10.0, -10), 50.0 / 60.0);
@@ -13400,6 +13784,37 @@ mod tests {
                 );
             }
             assert_eq!(serde_json::to_value(&editor.project).unwrap(), before);
+        });
+    }
+
+    #[gpui::test]
+    fn a_blocked_side_delete_says_why(cx: &mut gpui::TestAppContext) {
+        let project = tempfile::tempdir().unwrap();
+        let path = project.path().to_path_buf();
+        let (editor, cx) =
+            cx.add_window_view(move |window, cx| EditorWindow::new(path.clone(), window, cx));
+        editor.update_in(cx, |editor, window, cx| {
+            editor.set_error("side delete fixture".into(), window, cx);
+            editor.project.timeline = Some(
+                serde_json::from_value(serde_json::json!({
+                    "segments": [
+                        { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0 },
+                        { "recordingSegment": 1, "timescale": 1.0, "start": 0.0, "end": 8.0 }
+                    ],
+                    "zoomSegments": []
+                }))
+                .unwrap(),
+            );
+            editor.timeline = timeline::TimelineModel::build(&editor.project, false, false);
+            editor.playhead = 9.5;
+            editor.delete_clip_side(None, edits::ClipSide::Left, window, cx);
+            assert_eq!(
+                editor
+                    .notice
+                    .as_ref()
+                    .map(|notice| notice.message.to_string()),
+                Some("Less than 1 second would remain".to_string())
+            );
         });
     }
 

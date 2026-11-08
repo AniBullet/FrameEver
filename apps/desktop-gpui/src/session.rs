@@ -241,6 +241,8 @@ pub struct RecordingSession {
     /// payloads; the flag itself lives on the live recording's mic lock and
     /// resets with every new session).
     pub mic_muted: bool,
+    pub mic_disconnected: bool,
+    pub changing_input: bool,
     /// The project dir of the studio recording that just stopped cleanly.
     /// Taken by the phase observer to honour `postStudioRecordingBehaviour`
     /// (`openEditor` by default) the way the Tauri app does.
@@ -262,6 +264,7 @@ pub struct RecordingSession {
     paused_since: Option<Instant>,
     storage_monitor: Option<Task<()>>,
     camera_monitor: Option<Task<()>>,
+    microphone_monitor: Option<Task<()>>,
     failure_monitor: Option<Task<()>>,
     recording_generation: u64,
     countdown_remaining: Option<u32>,
@@ -296,6 +299,8 @@ impl RecordingSession {
             last_config: None,
             controls_open: false,
             mic_muted: false,
+            mic_disconnected: false,
+            changing_input: false,
             finished_studio: None,
             finished_instant: None,
             preparing_studio_editor: None,
@@ -305,6 +310,7 @@ impl RecordingSession {
             paused_since: None,
             storage_monitor: None,
             camera_monitor: None,
+            microphone_monitor: None,
             failure_monitor: None,
             recording_generation: 0,
             countdown_remaining: None,
@@ -377,6 +383,25 @@ impl RecordingSession {
     /// The live (or last) recording's mode -- the bar exposes mic mute for
     /// instant recordings only (studio records the mic as an editable track,
     /// where muted spans would silently bake zeros in).
+    pub fn microphone_label(&self) -> Option<String> {
+        self.last_config
+            .as_ref()
+            .and_then(|config| config.microphone.clone())
+    }
+
+    pub fn camera_id(&self) -> Option<recording::DeviceOrModelID> {
+        self.last_config
+            .as_ref()
+            .and_then(|config| config.camera.clone())
+    }
+
+    pub fn can_change_inputs(&self) -> bool {
+        self.mode() == Some(crate::recording::RecordingMode::Studio)
+            && matches!(self.phase, Phase::Recording { .. })
+            && !self.changing_input
+            && !self.pause_unavailable()
+    }
+
     pub fn mode(&self) -> Option<crate::recording::RecordingMode> {
         self.last_config.as_ref().map(|config| config.mode)
     }
@@ -675,7 +700,8 @@ impl RecordingSession {
             crate::app_windows::prewarm_shared_wgpu_device(cx);
         }
         self.monitor_storage(project_dir, cx);
-        self.monitor_camera(cx);
+        self.monitor_input(InputKind::Camera, cx);
+        self.monitor_input(InputKind::Microphone, cx);
         self.monitor_recording_failure(done, cx);
         cx.notify();
     }
@@ -728,13 +754,12 @@ impl RecordingSession {
         }));
     }
 
-    fn monitor_camera(&mut self, cx: &mut Context<Self>) {
-        self.camera_monitor = None;
-        let Some(camera) = self
-            .last_config
-            .as_ref()
-            .and_then(|config| config.camera.clone())
-        else {
+    fn monitor_input(&mut self, kind: InputKind, cx: &mut Context<Self>) {
+        *self.input_monitor(kind) = None;
+        let Some(input) = self.last_config.as_ref().and_then(|config| match kind {
+            InputKind::Microphone => config.microphone.clone().map(WatchedInput::Microphone),
+            InputKind::Camera => config.camera.clone().map(WatchedInput::Camera),
+        }) else {
             return;
         };
         let generation = self.recording_generation;
@@ -749,34 +774,201 @@ impl RecordingSession {
                     })
                     .unwrap_or(false);
                 if !is_current {
-                    if marked_lost {
+                    if marked_lost && kind == InputKind::Camera {
                         cx.update(|cx| set_camera_disconnected(false, cx));
                     }
                     return;
                 }
-                let id = camera.clone();
+                let probe = input.clone();
                 let connected = cx
                     .background_executor()
-                    .spawn(async move { crate::devices::camera_connected(&id) })
+                    .spawn(async move { probe.connected() })
                     .await;
-                let Some(lost) = camera_link_change(marked_lost, connected) else {
+                let Some(lost) = input_link_change(marked_lost, connected) else {
                     continue;
                 };
                 marked_lost = lost;
                 if lost {
-                    tracing::warn!("camera disconnected during the recording; recording continues");
+                    tracing::warn!(
+                        ?kind,
+                        "input disconnected during the recording; recording continues"
+                    );
                 } else {
-                    tracing::info!("camera reconnected during the recording");
+                    tracing::info!(?kind, "input reconnected during the recording");
                 }
-                cx.update(|cx| set_camera_disconnected(lost, cx));
+                if this
+                    .update(cx, |this, cx| this.set_input_lost(kind, lost, cx))
+                    .is_err()
+                {
+                    return;
+                }
             }
         });
-        self.camera_monitor = Some(task);
+        *self.input_monitor(kind) = Some(task);
+    }
+
+    fn input_monitor(&mut self, kind: InputKind) -> &mut Option<Task<()>> {
+        match kind {
+            InputKind::Microphone => &mut self.microphone_monitor,
+            InputKind::Camera => &mut self.camera_monitor,
+        }
+    }
+
+    fn set_input_lost(&mut self, kind: InputKind, lost: bool, cx: &mut Context<Self>) {
+        match kind {
+            InputKind::Microphone => {
+                self.mic_disconnected = lost;
+                cx.notify();
+            }
+            InputKind::Camera => set_camera_disconnected(lost, cx),
+        }
+    }
+
+    pub fn change_input(&mut self, choice: InputChoice, cx: &mut Context<Self>) {
+        let Some(handle) = self.begin_input_change(cx) else {
+            return;
+        };
+        let generation = self.recording_generation;
+        let kind = choice.kind();
+        let watched = choice.watched();
+        cx.spawn(async move |this, cx| {
+            let result = async {
+                wait_until_paused(&this, cx).await?;
+                tokio_spawn(cx, {
+                    let handle = handle.clone();
+                    async move {
+                        match kind {
+                            InputKind::Microphone => handle.set_mic_feed(None).await,
+                            InputKind::Camera => handle.set_camera_feed(None).await,
+                        }
+                    }
+                })
+                .await?;
+                match choice {
+                    InputChoice::Microphone(label) => {
+                        let (actor, ready) = this.update(cx, |_, cx| {
+                            crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
+                                feeds.set_microphone(Some(label.clone()), cx);
+                                (feeds.mic_actor(), feeds.input_readiness().microphone)
+                            })
+                        })?;
+                        let actor = actor
+                            .ok_or_else(|| anyhow::anyhow!(t!("The microphone is unavailable")))?;
+                        tokio_spawn(
+                            cx,
+                            recording::attach_microphone(handle, actor, label, ready),
+                        )
+                        .await
+                        .map(Some)
+                    }
+                    InputChoice::Camera(selection) => {
+                        let id = selection.id.clone();
+                        let (actor, ready) = this.update(cx, |_, cx| {
+                            crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
+                                feeds.set_camera(Some(selection), cx);
+                                (feeds.camera_actor(), feeds.input_readiness().camera)
+                            })
+                        })?;
+                        let actor = actor
+                            .ok_or_else(|| anyhow::anyhow!(t!("The camera is unavailable")))?;
+                        tokio_spawn(cx, recording::attach_camera(handle, actor, id, ready))
+                            .await
+                            .map(|()| None)
+                    }
+                }
+            }
+            .await;
+            this.update(cx, |this, cx| {
+                if let Some(mute) = this.finish_input_change(generation, result, cx) {
+                    this.input_changed(watched, mute, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn begin_input_change(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<frameever_recording::studio_recording::ActorHandle> {
+        if self.changing_input || !matches!(self.phase, Phase::Recording { .. }) {
+            return None;
+        }
+        let handle = self.active.as_ref()?.studio_handle()?;
+        self.changing_input = true;
+        if !self.is_paused() {
+            self.toggle_pause(cx);
+        }
+        cx.notify();
+        Some(handle)
+    }
+
+    fn finish_input_change<T>(
+        &mut self,
+        generation: u64,
+        result: anyhow::Result<T>,
+        cx: &mut Context<Self>,
+    ) -> Option<T> {
+        if self.recording_generation != generation {
+            return None;
+        }
+        self.changing_input = false;
+        cx.notify();
+        match result {
+            Ok(value) => Some(value),
+            Err(error) => {
+                tracing::error!("changing the recording input failed: {error:#}");
+                self.error = Some(t!(
+                    "Could not change the device: {error}. The recording stays paused.",
+                    error = error
+                ));
+                None
+            }
+        }
+    }
+
+    fn input_changed(
+        &mut self,
+        input: WatchedInput,
+        mute: Option<Arc<std::sync::atomic::AtomicBool>>,
+        cx: &mut Context<Self>,
+    ) {
+        match &input {
+            WatchedInput::Microphone(label) => {
+                if let Some(mute) = mute {
+                    mute.store(self.mic_muted, std::sync::atomic::Ordering::Relaxed);
+                    if let Some(active) = self.active.as_mut() {
+                        active.mic_mute = Some(mute);
+                    }
+                }
+                if let Some(config) = self.last_config.as_mut() {
+                    config.microphone = Some(label.clone());
+                }
+                if !crate::store::set_recording_microphone_name(Some(label)) {
+                    tracing::warn!("Could not save the selected microphone");
+                }
+                self.mic_disconnected = false;
+            }
+            WatchedInput::Camera(id) => {
+                if let Some(config) = self.last_config.as_mut() {
+                    config.camera = Some(id.clone());
+                }
+                if !crate::store::set_recording_camera_id(Some(id)) {
+                    tracing::warn!("Could not save the selected camera");
+                }
+                set_camera_disconnected(false, cx);
+            }
+        }
+        self.monitor_input(input.kind(), cx);
     }
 
     fn stop_recording_monitors(&mut self, cx: &mut Context<Self>) {
         self.storage_monitor = None;
         self.camera_monitor = None;
+        self.microphone_monitor = None;
+        self.mic_disconnected = false;
+        self.changing_input = false;
         set_camera_disconnected(false, cx);
     }
 
@@ -1299,13 +1491,87 @@ fn recording_failure_is_current(phase: Phase, current: u64, completed: u64) -> b
     current == completed && matches!(phase, Phase::Recording { .. })
 }
 
+async fn tokio_spawn<T: Send + 'static>(
+    cx: &mut gpui::AsyncApp,
+    future: impl std::future::Future<Output = anyhow::Result<T>> + Send + 'static,
+) -> anyhow::Result<T> {
+    let task = cx.update(|cx| gpui_tokio::Tokio::spawn(cx, future));
+    task.await.map_err(anyhow::Error::from)?
+}
+
+async fn wait_until_paused(
+    this: &gpui::WeakEntity<RecordingSession>,
+    cx: &mut gpui::AsyncApp,
+) -> anyhow::Result<()> {
+    for _ in 0..60 {
+        if this.update(cx, |this, _| this.is_paused())? {
+            return Ok(());
+        }
+        cx.background_executor()
+            .timer(Duration::from_millis(50))
+            .await;
+    }
+    anyhow::bail!(t!("The recording did not pause in time"))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InputKind {
+    Microphone,
+    Camera,
+}
+
+#[derive(Clone)]
+enum WatchedInput {
+    Microphone(String),
+    Camera(recording::DeviceOrModelID),
+}
+
+impl WatchedInput {
+    fn kind(&self) -> InputKind {
+        match self {
+            Self::Microphone(_) => InputKind::Microphone,
+            Self::Camera(_) => InputKind::Camera,
+        }
+    }
+
+    fn connected(&self) -> bool {
+        match self {
+            Self::Microphone(label) => {
+                frameever_recording::feeds::microphone::MicrophoneFeed::list_names().contains(label)
+            }
+            Self::Camera(id) => crate::devices::camera_connected(id),
+        }
+    }
+}
+
+pub enum InputChoice {
+    Microphone(String),
+    Camera(crate::feeds::SelectedCamera),
+}
+
+impl InputChoice {
+    fn kind(&self) -> InputKind {
+        match self {
+            Self::Microphone(_) => InputKind::Microphone,
+            Self::Camera(_) => InputKind::Camera,
+        }
+    }
+
+    fn watched(&self) -> WatchedInput {
+        match self {
+            Self::Microphone(label) => WatchedInput::Microphone(label.clone()),
+            Self::Camera(selection) => WatchedInput::Camera(selection.id.clone()),
+        }
+    }
+}
+
 fn set_camera_disconnected(disconnected: bool, cx: &mut App) {
     crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
         feeds.set_camera_disconnected(disconnected, cx)
     });
 }
 
-fn camera_link_change(marked_lost: bool, connected: bool) -> Option<bool> {
+fn input_link_change(marked_lost: bool, connected: bool) -> Option<bool> {
     (marked_lost == connected).then_some(!connected)
 }
 
@@ -1315,10 +1581,10 @@ mod camera_watch_tests {
 
     #[test]
     fn an_unplugged_camera_is_marked_once_and_cleared_when_it_returns() {
-        assert_eq!(camera_link_change(false, false), Some(true));
-        assert_eq!(camera_link_change(true, false), None);
-        assert_eq!(camera_link_change(true, true), Some(false));
-        assert_eq!(camera_link_change(false, true), None);
+        assert_eq!(input_link_change(false, false), Some(true));
+        assert_eq!(input_link_change(true, false), None);
+        assert_eq!(input_link_change(true, true), Some(false));
+        assert_eq!(input_link_change(false, true), None);
     }
 }
 

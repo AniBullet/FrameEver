@@ -199,16 +199,16 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "仅摄像头录制需要先选择一个摄像头。",
     ),
     (
-        "Selected microphone '{label}' is not the connected microphone '{device}'. Please select it again.",
-        "所选麦克风“{label}”与已连接的麦克风“{device}”不一致。请重新选择。",
+        "Selected microphone '{label}' is not the connected microphone '{device}'. Select it again.",
+        "所选麦克风“{label}”与已连接的麦克风“{device}”不一致。重新选择一次。",
     ),
     (
         "Selected microphone '{label}' is unavailable",
         "所选麦克风“{label}”不可用",
     ),
     (
-        "The selected camera is not the connected camera. Please select it again.",
-        "所选摄像头与已连接的摄像头不一致。请重新选择。",
+        "The selected camera is not the connected camera. Select it again.",
+        "所选摄像头与已连接的摄像头不一致。重新选择一次。",
     ),
     (
         "Low storage: only {available} GB is available. Free up at least {required} MB before recording.",

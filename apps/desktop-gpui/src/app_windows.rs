@@ -41,8 +41,10 @@ use crate::{
 
 /// Matches the Tauri `InProgressRecording` window and
 /// `fake_window.rs` position math.
-pub const CONTROLS_WIDTH: f32 = 320.;
+pub const CONTROLS_WIDTH: f32 = 360.;
 pub const CONTROLS_HEIGHT: f32 = 150.;
+pub const CONTROLS_BAR_HEIGHT: f32 = 64.;
+pub const CONTROLS_OPTIONS_HEIGHT: f32 = 210.;
 const CONTROLS_BOTTOM_OFFSET: f64 = 120.;
 const TARGET_CONTROLS_OFFSET_Y: f64 = 48.;
 
@@ -390,6 +392,11 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
     let mut last_phase = Phase::Idle;
     cx.observe(&session, move |session, cx| {
         let phase = session.read(cx).phase;
+        match arranged_windows_step(last_phase, phase) {
+            Some(ArrangedWindowsStep::Keep) => keep_arranged_windows(cx),
+            Some(ArrangedWindowsStep::Restore) => restore_arranged_windows(cx),
+            None => {}
+        }
         let recording = matches!(phase, Phase::Recording { .. });
         if recording != matches!(last_phase, Phase::Recording { .. }) {
             // `RecordingStarted` / `RecordingStopped` in `create_tray`: the
@@ -646,6 +653,7 @@ pub(crate) fn show_main_window_after_capture_pause(cx: &mut App) {
             windows.main_hidden_for_picker || !windows.overlays.is_empty()
         };
         if picker_open {
+            restore_arranged_windows(cx);
             close_target_overlays(cx);
         }
         cx.global_mut::<AppWindows>().main_hidden_for_picker = false;
@@ -836,6 +844,7 @@ pub fn request_close_main(cx: &mut App) {
     }
 
     close_camera_window(cx);
+    restore_arranged_windows(cx);
     close_target_overlays(cx);
     // Closing the main window explicitly is not a picker dismissal; a stale
     // flag here would reveal the window the user just closed.
@@ -1845,6 +1854,7 @@ fn open_overlays_core(request: OverlayRequest, cx: &mut App) -> bool {
 /// reveals the main window again (`dismissalReveals`,
 /// `new-main/index.tsx:2047-2058`).
 pub fn dismiss_target_overlays(cx: &mut App) {
+    restore_arranged_windows(cx);
     if RecordingSession::global(cx).read(cx).phase == Phase::Idle
         && RecordingSession::global(cx)
             .read(cx)
@@ -2078,7 +2088,85 @@ fn overlay_window_ids(cx: &mut App) -> Vec<scap_targets::WindowId> {
         .collect()
 }
 
+fn restore_arranged_windows(cx: &mut App) {
+    let arranged = TargetSelect::global(cx).update(cx, |select, _| select.take_arranged());
+    crate::foreign_window::put_back_all(arranged, cx.background_executor());
+}
+
+pub(crate) fn restore_arranged_windows_if_idle(cx: &mut App) {
+    if RecordingSession::global(cx).read(cx).phase == Phase::Idle {
+        restore_arranged_windows(cx);
+    }
+}
+
+fn keep_arranged_windows(cx: &mut App) {
+    TargetSelect::global(cx).update(cx, |select, _| {
+        select.take_arranged();
+    });
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ArrangedWindowsStep {
+    Keep,
+    Restore,
+}
+
+fn arranged_windows_step(last: Phase, phase: Phase) -> Option<ArrangedWindowsStep> {
+    match (last, phase) {
+        (Phase::Recording { .. }, Phase::Recording { .. }) => None,
+        (_, Phase::Recording { .. }) => Some(ArrangedWindowsStep::Keep),
+        (Phase::Idle, Phase::Idle) => None,
+        (_, Phase::Idle) => Some(ArrangedWindowsStep::Restore),
+        _ => None,
+    }
+}
+
+const ARRANGE_SETTLE_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub fn start_recording_from_overlay(target: ScreenCaptureTarget, cx: &mut App) {
+    if !TargetSelect::global(cx).read(cx).has_arranged() {
+        start_recording_from_overlay_now(target, cx);
+        return;
+    }
+    let overlays = overlay_handles(cx);
+    let settled = crate::foreign_window::in_order(|| ());
+    cx.spawn(async move |cx| {
+        let limit = cx.background_executor().timer(ARRANGE_SETTLE_LIMIT);
+        let settled = matches!(
+            futures_util::future::select(std::pin::pin!(settled), std::pin::pin!(limit)).await,
+            futures_util::future::Either::Left(_)
+        );
+        cx.update(|cx| {
+            let current = overlay_handles(cx);
+            if current.is_empty() || current != overlays {
+                return;
+            }
+            if !settled {
+                tracing::warn!("a picked window is still moving; recording not started");
+                dismiss_target_overlays(cx);
+                show_main_window(cx);
+                RecordingSession::global(cx).update(cx, |session, cx| {
+                    session.error =
+                        Some(t!("The window is still being resized. Try starting again.").into());
+                    cx.notify();
+                });
+                return;
+            }
+            start_recording_from_overlay_now(target, cx);
+        });
+    })
+    .detach();
+}
+
+fn overlay_handles(cx: &App) -> Vec<gpui::AnyWindowHandle> {
+    cx.global::<AppWindows>()
+        .overlays
+        .iter()
+        .map(|(_, handle)| (*handle).into())
+        .collect()
+}
+
+fn start_recording_from_overlay_now(target: ScreenCaptureTarget, cx: &mut App) {
     let main = cx.global::<AppWindows>().main;
     if RecordingSession::global(cx).read(cx).phase != Phase::Idle
         || main
@@ -2127,6 +2215,17 @@ pub fn start_recording_from_overlay(target: ScreenCaptureTarget, cx: &mut App) {
     } else if !retained_area {
         cx.global_mut::<AppWindows>().main_hidden_for_picker = false;
         cx.global_mut::<AppWindows>().editor_hidden_for_picker = None;
+    }
+}
+
+pub fn release_other_area_locks(display: &DisplayId, cx: &mut App) {
+    let overlays = cx.global::<AppWindows>().overlays.clone();
+    for (id, overlay) in overlays {
+        if &id != display {
+            overlay
+                .update(cx, |view, _, cx| view.release_area_lock(cx))
+                .ok();
+        }
     }
 }
 
@@ -5175,6 +5274,7 @@ pub fn abort_editor_recording_flow(cx: &mut App) {
     }) else {
         return;
     };
+    restore_arranged_windows(cx);
     close_target_overlays(cx);
     cx.global_mut::<AppWindows>().editor_hidden_for_picker = None;
     cx.global_mut::<AppWindows>().main_hidden_for_picker = false;
@@ -5268,6 +5368,34 @@ fn controls_origin(config: &StartConfig) -> (f64, f64) {
     }
 }
 
+pub fn controls_window_height(issue: bool, options: bool) -> f32 {
+    let issue_room = if issue {
+        CONTROLS_HEIGHT - CONTROLS_BAR_HEIGHT
+    } else {
+        0.
+    };
+    let options_room = if options { CONTROLS_OPTIONS_HEIGHT } else { 0. };
+    CONTROLS_BAR_HEIGHT + issue_room + options_room
+}
+
+pub(crate) fn fit_controls_height(native: &platform::NativeWindow, height: f32, scale: f32) {
+    let height = f64::from(height);
+    let (x, y, width, current) = platform::window_frame(native);
+    if width <= 0. {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (current, scale);
+        platform::set_window_frame(native, x, y, width, height);
+    }
+    #[cfg(windows)]
+    {
+        let height = height * f64::from(scale);
+        platform::set_window_frame(native, x, y + current - height, width, height);
+    }
+}
+
 /// Open the bar. Returns the native window number for capture exclusion.
 fn open_controls(
     config: &StartConfig,
@@ -5276,8 +5404,11 @@ fn open_controls(
 ) -> Option<scap_targets::WindowId> {
     let (x, y) = controls_origin(config);
     let bounds = Bounds {
-        origin: point(px(x as f32), px(y as f32)),
-        size: size(px(CONTROLS_WIDTH), px(CONTROLS_HEIGHT)),
+        origin: point(
+            px(x as f32),
+            px(y as f32 + CONTROLS_HEIGHT - CONTROLS_BAR_HEIGHT),
+        ),
+        size: size(px(CONTROLS_WIDTH), px(CONTROLS_BAR_HEIGHT)),
     };
     let display = config
         .target
@@ -5359,6 +5490,7 @@ pub fn prepare_for_screenshot_capture(cx: &mut App) -> bool {
     // The screenshot branch of `onRecordingStart` nulls the saved camera bounds
     // just like the recording branch does, so a parked bubble stays parked.
     release_camera_park(cx);
+    keep_arranged_windows(cx);
     close_target_overlays(cx);
     true
 }
@@ -5633,6 +5765,32 @@ mod tests {
     use crate::store::{DEFAULT_EXCLUDED_WINDOW_TITLES, WindowExclusion, default_excluded_windows};
 
     #[test]
+    fn arranged_windows_are_kept_only_once_capture_starts() {
+        let recording = Phase::Recording { paused: false };
+        assert_eq!(arranged_windows_step(Phase::Idle, Phase::Starting), None);
+        assert_eq!(
+            arranged_windows_step(Phase::Starting, recording),
+            Some(ArrangedWindowsStep::Keep)
+        );
+        assert_eq!(
+            arranged_windows_step(Phase::Starting, Phase::Idle),
+            Some(ArrangedWindowsStep::Restore)
+        );
+        assert_eq!(
+            arranged_windows_step(Phase::Starting, Phase::Stopping),
+            None
+        );
+        assert_eq!(
+            arranged_windows_step(Phase::Stopping, Phase::Idle),
+            Some(ArrangedWindowsStep::Restore)
+        );
+        assert_eq!(
+            arranged_windows_step(recording, Phase::Recording { paused: true }),
+            None
+        );
+    }
+
+    #[test]
     fn opening_a_cap_folder_points_to_the_converter_in_both_languages() {
         use crate::i18n::{Language, translate};
 
@@ -5687,6 +5845,20 @@ mod tests {
         let centered = Bounds::centered_at(available.center(), preferred);
         assert_eq!(fit_window_bounds(centered, available), centered);
         assert_eq!(fitted_window_min_size(preferred, centered), preferred);
+    }
+
+    #[test]
+    fn the_bar_window_only_grows_for_an_issue_card_or_the_options_card() {
+        assert_eq!(controls_window_height(false, false), CONTROLS_BAR_HEIGHT);
+        assert_eq!(controls_window_height(true, false), CONTROLS_HEIGHT);
+        assert_eq!(
+            controls_window_height(false, true),
+            CONTROLS_BAR_HEIGHT + CONTROLS_OPTIONS_HEIGHT
+        );
+        assert_eq!(
+            controls_window_height(true, true),
+            CONTROLS_HEIGHT + CONTROLS_OPTIONS_HEIGHT
+        );
     }
 
     #[test]

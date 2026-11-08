@@ -656,6 +656,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Crop", "裁剪"),
     ("Close", "关闭"),
     ("Preview", "预览"),
+    ("Full-screen preview", "全屏预览"),
     ("Aspect ratio", "宽高比"),
     ("Full", "全幅"),
     ("Loading frame…", "正在加载画面…"),

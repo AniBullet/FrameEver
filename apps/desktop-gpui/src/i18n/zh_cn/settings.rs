@@ -123,6 +123,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Copy", "复制"),
     ("Do nothing", "不做任何操作"),
     ("Show FrameEver", "显示帧刻"),
+    ("Screen region", "屏幕区域"),
+    ("Focused window", "只录窗口"),
     ("Show in library", "显示资源库"),
     ("Copy file", "复制文件"),
     ("Screenshot an area", "截取区域"),

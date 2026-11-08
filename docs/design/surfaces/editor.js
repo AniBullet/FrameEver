@@ -1230,6 +1230,7 @@ const toolbar = () => `<div class="toolbar">
 	<button class="ib" data-act="dialog" data-d="crop">${icon("crop")}${L("Crop", "裁剪")}</button>
 	<button class="ib ${S.menu === "snapshot" ? "on" : ""}" data-act="menu" data-m="snapshot" title="${L("Snapshot", "快照")}">${icon("image")}${L("Snapshot", "快照")}${icon("chevron-down")}</button>
 	<span class="grow"></span>
+	<button class="ib" title="${L("Full-screen preview (F)", "全屏预览（F）")}">${icon("maximize")}</button>
 	<span class="lbl">${L("Preview", "预览")}</span>
 	${`<div class="seg">${[
 		["Full", "完整"],
@@ -1532,6 +1533,8 @@ const menus = {
 			<button data-act="close">${icon("arrow-up")}${L("Move clip up", "上移片段")}</button>
 			<button data-act="close">${icon("arrow-down")}${L("Move clip down", "下移片段")}</button>
 			<button data-act="close">${icon("pencil")}${L("Rename clip", "重命名片段")}</button>
+			<button class="danger" data-act="close">${icon("trash")}<span class="grow">${L("Delete before playhead", "删除播放头之前的部分")}</span><span class="kbd">Q</span></button>
+			<button class="danger" data-act="close">${icon("trash")}<span class="grow">${L("Delete after playhead", "删除播放头之后的部分")}</span><span class="kbd">W</span></button>
 			<button class="danger" data-act="close">${icon("trash")}<span class="grow">${L("Delete clip", "删除片段")}</span><span class="kbd">Del</span></button>
 		</div>`;
 	},
@@ -1859,8 +1862,8 @@ const renderDocs = () => {
 		[
 			["Preview toolbar", "预览工具栏"],
 			[
-				"40 high: aspect ratio, crop, snapshot (saves the frame at the playhead to the library as a screenshot, or copies it), preview quality",
-				"40 高：宽高比、裁剪、快照（把播放头处的帧存进资源库成为截图，或复制它）、预览画质",
+				"40 high: aspect ratio, crop, snapshot (saves the frame at the playhead to the library as a screenshot, or copies it), preview quality, full-screen preview (F, Esc returns; Space plays, arrows step frames)",
+				"40 高：宽高比、裁剪、快照（把播放头处的帧存进资源库成为截图，或复制它）、预览画质、全屏预览（F 进入，Esc 返回；空格播放，方向键逐帧）",
 			],
 		],
 		[
@@ -2037,8 +2040,8 @@ const renderDocs = () => {
 		],
 		[
 			[
-				"Clip speed, volume, mute, pitch, hide cursor, split, merge, rename, delete",
-				"片段速度、音量、静音、音调、隐藏光标、分割、合并、重命名、删除",
+				"Clip speed, volume, mute, pitch, hide cursor, split, merge, rename, delete before or after the playhead, delete",
+				"片段速度、音量、静音、音调、隐藏光标、分割、合并、重命名、删除播放头前后部分、删除",
 			],
 			["Clip menu (also from Clips › Clip options)", "片段菜单（也可从片段页的片段选项打开）"],
 		],

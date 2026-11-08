@@ -666,6 +666,14 @@ settings_enum! {
 }
 
 settings_enum! {
+    WindowCaptureStyle {
+        ScreenRegion = "screenRegion", t!("Screen region");
+        FocusedWindow = "focusedWindow", t!("Focused window");
+    }
+    default = ScreenRegion
+}
+
+settings_enum! {
     /// `PostStudioRecordingBehaviour`.
     PostStudioBehaviour {
         OpenEditor = "openEditor", t!("Open editor");
@@ -891,6 +899,8 @@ pub struct GeneralSettings {
     pub main_window_recording_start_behaviour: MainWindowStartBehaviour,
     pub post_studio_recording_behaviour: PostStudioBehaviour,
     pub post_screenshot_behaviour: PostScreenshotBehaviour,
+    pub window_capture_style: WindowCaptureStyle,
+    pub focus_center: bool,
     pub post_deletion_behaviour: PostDeletionBehaviour,
     pub delete_instant_recordings_after_upload: bool,
     pub crash_recovery_recording: bool,
@@ -1248,6 +1258,8 @@ impl GeneralSettings {
             ),
             post_studio_recording_behaviour: enum_at(general, "postStudioRecordingBehaviour"),
             post_screenshot_behaviour: enum_at(general, "postScreenshotBehaviour"),
+            window_capture_style: enum_at(general, "windowCaptureStyle"),
+            focus_center: bool_at(general, "focusCenter", false),
             post_deletion_behaviour: enum_at(general, "postDeletionBehaviour"),
             delete_instant_recordings_after_upload: bool_at(
                 general,
