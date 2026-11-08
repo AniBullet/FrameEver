@@ -21,15 +21,14 @@
 
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::{
-    Animation, AnimationExt as _, App, AppContext as _, Context, Entity, FontWeight, Global, Hsla,
-    ImageFormat, InteractiveElement as _, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent,
+    App, AppContext as _, Context, Entity, FontWeight, Global, Hsla,
+    InteractiveElement as _, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent,
     ParentElement as _, Pixels, Point, Render, SharedString, StatefulInteractiveElement as _,
-    Styled, Window, div, img, prelude::FluentBuilder as _, px, svg,
+    Styled, Window, div, prelude::FluentBuilder as _, px, svg,
 };
 use scap_targets::{
     DisplayId, WindowId,
@@ -39,10 +38,10 @@ use scap_targets::{
 mod area_math;
 
 use area_math::{
-    AREA_RATIOS, area_between, area_fill, area_from_anchor_with_ratio, area_resize_with_ratio,
-    area_snap_rects, area_with_ratio, locked_area_for, ratio_value, snap_area_point,
-    snap_area_rect, snap_resize_point, store_area_ratio, store_locked_area, stored_area_ratio,
-    stored_locked_area,
+    AREA_RATIOS, area_between, area_exact_size, area_fill, area_from_anchor_with_ratio,
+    area_resize_with_ratio, area_resized_by, area_snap_rects, area_with_ratio, drag_ratio,
+    fit_candidate, locked_area_for, ratio_value, snap_area_point, snap_area_rect,
+    snap_resize_point, store_area_ratio, store_locked_area, stored_area_ratio, stored_locked_area,
 };
 
 const AREA_SELECTION_STORE: &str = "area_selection";
@@ -146,41 +145,6 @@ const COUNTDOWN_OPTIONS: &[(u32, &str)] = &[
     (10, n!("10 seconds")),
 ];
 
-const SELECTION_HINT_CYCLE: Duration = Duration::from_millis(2800);
-
-fn material_ease(progress: f32) -> f32 {
-    let progress = progress.clamp(0., 1.);
-    if progress <= 0. {
-        return 0.;
-    }
-    if progress >= 1. {
-        return 1.;
-    }
-    let mut low = 0.;
-    let mut high = 1.;
-    for _ in 0..10 {
-        let t = (low + high) / 2.;
-        let inverse = 1. - t;
-        let x = 3. * inverse * inverse * t * 0.4 + 3. * inverse * t * t * 0.2 + t * t * t;
-        if x < progress {
-            low = t;
-        } else {
-            high = t;
-        }
-    }
-    let t = (low + high) / 2.;
-    let inverse = 1. - t;
-    3. * inverse * t * t + t * t * t
-}
-
-fn selection_drag_progress(progress: f32) -> f32 {
-    if progress <= 0.5 {
-        material_ease(progress * 2.)
-    } else {
-        1. - material_ease((progress - 0.5) * 2.)
-    }
-}
-
 fn snap_off(modifiers: &gpui::Modifiers) -> bool {
     if cfg!(target_os = "macos") {
         modifiers.platform
@@ -267,7 +231,6 @@ pub struct TargetSelect {
     pub pinned_window: Option<HoveredWindow>,
     microphone_fill: f32,
     /// App icons by window id, fetched once per window.
-    icons: HashMap<String, Arc<gpui::Image>>,
     arranged: HashMap<String, ArrangedWindow>,
     pub focus_window: bool,
     pub focus_center: bool,
@@ -305,7 +268,6 @@ impl TargetSelect {
             hovered_window: None,
             pinned_window: None,
             microphone_fill: 0.,
-            icons: HashMap::new(),
             arranged: HashMap::new(),
             focus_window: saved_focus(),
             focus_center: crate::store::GeneralSettings::load().focus_center,
@@ -361,10 +323,6 @@ impl TargetSelect {
     /// `activeWindow = selectedWindow() ?? targetUnderCursor.window`.
     pub fn active_window(&self) -> Option<&HoveredWindow> {
         self.pinned_window.as_ref().or(self.hovered_window.as_ref())
-    }
-
-    pub fn icon_for(&self, id: &WindowId) -> Option<Arc<gpui::Image>> {
-        self.icons.get(&id.to_string()).cloned()
     }
 
     pub fn remember_arranged(&mut self, window: &HoveredWindow) {
@@ -434,7 +392,7 @@ impl TargetSelect {
                     })
                     .await;
 
-                let Ok((icon_wanted, active, changed)) = this.update(cx, |this: &mut Self, cx| {
+                let Ok((active, changed)) = this.update(cx, |this: &mut Self, cx| {
                     let (display, window) = probe;
                     let microphone_fill = crate::ui::MicrophoneLevel::capture_fill(cx);
                     let changed = this.cursor_display != display
@@ -447,21 +405,10 @@ impl TargetSelect {
                         cx.notify();
                     }
 
-                    (
-                        this.active_window()
-                            .map(|window| window.id.clone())
-                            .filter(|id| !this.icons.contains_key(&id.to_string())),
-                        this.active_window().cloned(),
-                        changed,
-                    )
+                    (this.active_window().cloned(), changed)
                 }) else {
                     return;
                 };
-                let fetched_icon = icon_wanted.is_some();
-                if let Some(id) = icon_wanted {
-                    Self::fetch_icon(id, &this, cx).await;
-                }
-
                 // The overlay's camera-parking effect runs off the same signal
                 // as the highlight (`target-select-overlay.tsx:518-545`), and
                 // like the repaint below it has to happen with no entity borrow
@@ -472,33 +419,12 @@ impl TargetSelect {
                 // window while the user hovers another app, and an inactive
                 // window only repaints when asked (the unit-2 finding). A tick
                 // that changed nothing they draw has nothing to repaint.
-                if changed || fetched_icon {
+                if changed {
                     cx.update(app_windows::refresh_target_overlays);
                 }
                 cx.background_executor().timer(POLL_INTERVAL).await;
             }
         }));
-    }
-
-    /// The hovered window's app icon, the way `get_window_icon` fetches it:
-    /// `Window::app_icon()` PNG bytes, decoded by gpui's image path (`img`,
-    /// not `svg` -- an app icon is full colour).
-    async fn fetch_icon(id: WindowId, this: &gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp) {
-        let key = id.to_string();
-        let lookup = id.clone();
-        let bytes = cx
-            .background_executor()
-            .spawn(async move {
-                scap_targets::Window::from_id(&lookup).and_then(|window| window.app_icon())
-            })
-            .await;
-        let Some(bytes) = bytes else { return };
-        let image = Arc::new(gpui::Image::from_bytes(ImageFormat::Png, bytes));
-        this.update(cx, |this, cx| {
-            this.icons.insert(key, image);
-            cx.notify();
-        })
-        .ok();
     }
 }
 
@@ -679,7 +605,7 @@ pub struct OverlayWindow {
     /// coordinate here lives in.
     display_size: (f32, f32),
     controls_work_area: AreaRect,
-    /// Physical pixels, for the `1920x1080 · 60FPS` line.
+    /// Physical pixels, for the `1920x1080 路 60FPS` line.
     physical_size: Option<(u32, u32)>,
     refresh_rate: f64,
     focus: gpui::FocusHandle,
@@ -689,6 +615,8 @@ pub struct OverlayWindow {
     area_ratio: Option<(u32, u32)>,
     area_locked: bool,
     area_snap: Vec<NormRect>,
+    area_windows: Vec<AreaRect>,
+    fit_hover: Option<AreaRect>,
     area_windows_requested: bool,
     aspect_menu: Option<crate::ui::MenuState>,
     reshape: Option<(AreaRect, Instant)>,
@@ -825,6 +753,8 @@ impl OverlayWindow {
             area_ratio: stored_area_ratio(),
             area_locked: locked_area.is_some(),
             area_snap: area_snap_rects(controls_work_area, &[], logical),
+            area_windows: Vec::new(),
+            fit_hover: None,
             area_windows_requested: false,
             aspect_menu: None,
             reshape: None,
@@ -1208,10 +1138,10 @@ impl OverlayWindow {
                 access.read(cx).status(permission)
                     == crate::permissions::OSPermissionStatus::Denied,
             ) {
-                (true, true) => t!("Turn on camera access in Settings…"),
-                (true, false) => t!("Allow camera access…"),
-                (false, true) => t!("Turn on microphone access in Settings…"),
-                (false, false) => t!("Allow microphone access…"),
+                (true, true) => t!("Turn on camera access in Settings鈥?),
+                (true, false) => t!("Allow camera access鈥?),
+                (false, true) => t!("Turn on microphone access in Settings鈥?),
+                (false, false) => t!("Allow microphone access鈥?),
             };
             (
                 crate::ui::MenuItem::new(label, false),
@@ -1288,7 +1218,7 @@ impl OverlayWindow {
         let pill_label = if !blocked {
             if enabled { t!("On") } else { t!("Off") }
         } else if access.requesting(permission) {
-            t!("Asking…")
+            t!("Asking鈥?)
         } else if access.status(permission) == crate::permissions::OSPermissionStatus::Denied {
             t!("Allow in Settings")
         } else {
@@ -1489,61 +1419,52 @@ impl OverlayWindow {
 
     fn render_display_variant(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let over = self.is_active_display(cx);
-        let resolution = self.physical_size.map(|(width, height)| {
-            // `${size().width}x${size().height} · ${display.refresh_rate}FPS`
-            format!("{width}x{height} · {}FPS", self.refresh_rate)
-        });
+        let mut label = self.display_name.clone();
+        if let Some((width, height)) = self.physical_size {
+            label.push_str(&format!(
+                " 路 {width} 脳 {height} 路 {} FPS",
+                self.refresh_rate.round()
+            ));
+        }
 
         div()
             .size_full()
             .relative()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .child(div().absolute().inset_0().bg(gpui::hsla(0., 0., 0., 0.6)))
+            .when(!over, |this| {
+                this.children(scrim(None, self.display_size, self.theme.overlay.into()))
+                    .child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                overlay_badge(&self.theme)
+                                    .h(px(32.))
+                                    .text_size(px(16.))
+                                    .child(SharedString::from(self.display_name.clone())),
+                            ),
+                    )
+            })
             .when(over, |this| {
                 this.child(
+                    overlay_badge(&self.theme)
+                        .absolute()
+                        .left(px(12.))
+                        .top(px(12.))
+                        .child(label),
+                )
+                .child(
                     div()
                         .absolute()
                         .inset_0()
-                        .bg(Theme::with_alpha(self.theme.fixed_white, 0.16)),
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(self.render_controls_cluster(self.target(cx), false, cx)),
                 )
             })
-            .child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    // `IconCapMonitor class="size-20 mb-3"`: the art is a
-                    // full-colour gradient, so it goes through `img()` (an
-                    // `svg()` would flatten it to a silhouette), and its
-                    // 125x84 viewBox keeps its aspect inside the 80px box.
-                    .child(
-                        img("images/monitor-illustration.svg")
-                            .w(px(80.))
-                            .h(px(80. * 84. / 125.))
-                            .mb(px(12.)),
-                    )
-                    .child(
-                        div()
-                            .mb(px(8.))
-                            .text_size(px(30.))
-                            // `text-3xl font-semibold`
-                            // (`target-select-overlay.tsx:426`). `font-semibold`
-                            // renders 700: no 600 face is loaded over there
-                            // (`ui-solid/vite.js:31-33` ships 400/500/700 only).
-                            .font_weight(FontWeight::BOLD)
-                            .child(SharedString::from(self.display_name.clone())),
-                    )
-                    .children(
-                        resolution.map(|resolution| {
-                            div().mb(px(8.)).text_size(px(12.)).child(resolution)
-                        }),
-                    )
-                    .child(self.render_controls_cluster(self.target(cx), false, cx)),
-            )
     }
 
     fn render_window_variant(
@@ -1557,9 +1478,6 @@ impl OverlayWindow {
             .active_window()
             .filter(|window| window.display_id == self.display_id)
             .cloned();
-        let icon = active
-            .as_ref()
-            .and_then(|window| select.icon_for(&window.id));
 
         let Some(active) = active else {
             self.window_drawn.set(None);
@@ -1581,10 +1499,18 @@ impl OverlayWindow {
         };
         self.window_drawn.set(Some(bounds));
 
+        let scale = self.pixels_per_point();
+        let tag = format!(
+            "{} 路 {} 脳 {}",
+            active.app_name,
+            (target.width * scale).round(),
+            (target.height * scale).round()
+        );
+        let (tag_x, tag_y) = tag_position(bounds);
+
         div()
             .size_full()
             .relative()
-            .bg(gpui::hsla(0., 0., 0., 0.7))
             .id("window-variant")
             .on_click(cx.listener(|this, _, _window, cx| {
                 this.window_menu = None;
@@ -1594,9 +1520,22 @@ impl OverlayWindow {
                 }
                 cx.defer(app_windows::release_camera_park);
             }))
+            .children(scrim(
+                Some(bounds),
+                self.display_size,
+                self.theme.overlay.into(),
+            ))
+            .child(selection_frame(bounds, &self.theme))
             .when(focus, |variant| {
                 variant.child(focus_ring(bounds, &self.theme))
             })
+            .child(
+                overlay_badge(&self.theme)
+                    .absolute()
+                    .left(px(tag_x))
+                    .top(px(tag_y))
+                    .child(tag),
+            )
             .child(
                 div()
                     .absolute()
@@ -1608,28 +1547,8 @@ impl OverlayWindow {
                     .flex_col()
                     .justify_center()
                     .items_center()
-                    .bg(Theme::with_alpha(self.theme.fixed_white, 0.16))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .justify_center()
-                            .items_center()
-                            .children(
-                                icon.map(|icon| {
-                                    img(icon).size(px(96.)).mb(px(12.)).rounded(px(8.))
-                                }),
-                            )
-                            .child(
-                                div()
-                                    .mb(px(8.))
-                                    .text_size(px(30.))
-                                    .font_weight(FontWeight::BOLD)
-                                    .child(SharedString::from(active.app_name.clone())),
-                            )
-                            .child(self.render_window_size(target, cx))
-                            .children(self.render_focus_toggle(cx)),
-                    )
+                    .child(self.render_window_size(target, cx))
+                    .children(self.render_focus_toggle(cx))
                     .child(self.render_controls_cluster(self.target(cx), false, cx)),
             )
             .into_any_element()
@@ -1753,81 +1672,68 @@ impl OverlayWindow {
                         }),
                     )
                     .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                        this.area_mouse_move(event.position, snap_off(&event.modifiers), cx);
+                        this.area_mouse_move(
+                            event.position,
+                            snap_off(&event.modifiers),
+                            event.modifiers.shift,
+                            cx,
+                        );
                     }))
                     .on_mouse_up(
                         MouseButton::Left,
                         cx.listener(|this, event: &MouseUpEvent, _window, cx| {
-                            this.area_mouse_up(event.position, snap_off(&event.modifiers), cx);
+                            this.area_mouse_up(
+                                event.position,
+                                snap_off(&event.modifiers),
+                                event.modifiers.shift,
+                                cx,
+                            );
                         }),
                     )
             });
 
         if !visible {
-            // `classList={{ "opacity-0 pointer-events-none": !shouldShowOverlay() }}`
             return root.invisible();
         }
 
-        // The occluder: four `bg-black/45` rectangles around the crop (one
-        // full-screen rectangle while nothing is drawn).
-        let dim: Hsla = gpui::hsla(0., 0., 0., 0.45);
-        root = match shown {
-            None => root.child(div().absolute().inset_0().bg(dim)),
-            Some(crop) => root
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .h_full()
-                        .w(px(crop.x.max(0.)))
-                        .bg(dim),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .right_0()
-                        .h_full()
-                        .w(px((self.display_size.0 - crop.right()).max(0.)))
-                        .bg(dim),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left(px(crop.x))
-                        .w(px(crop.width))
-                        .h(px(crop.y.max(0.)))
-                        .bg(dim),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .bottom_0()
-                        .left(px(crop.x))
-                        .w(px(crop.width))
-                        .h(px((self.display_size.1 - crop.bottom()).max(0.)))
-                        .bg(dim),
-                ),
-        };
+        if self.recording_area {
+            if let Some(shown) = shown {
+                root = root.children(corner_marks(shown, &self.theme));
+            }
+            return root;
+        }
+
+        root = root.children(scrim(shown, self.display_size, self.theme.overlay.into()));
 
         if let Some(shown) = shown {
             root = root.child(self.render_crop_region(shown, editable));
-            if interactive && self.drag.is_some() {
+            if self.drag.is_some() {
                 root = root.child(render_thirds(shown));
             }
-            if interactive && self.area_locked {
-                root = root.child(self.render_locked_badge(shown, cx));
-            }
+        }
+        if let Some(hover) = self.fit_hover.filter(|_| editable && !interacting) {
+            root = root.child(
+                div()
+                    .absolute()
+                    .left(px(hover.x))
+                    .top(px(hover.y))
+                    .w(px(hover.width))
+                    .h(px(hover.height))
+                    .border_1()
+                    .border_dashed()
+                    .border_color(self.theme.fixed_white),
+            );
+        }
+        if let Some(shown) = shown {
+            root = root.child(self.render_size_tag(shown, valid, min));
+        }
+        if let Some(shown) = shown.filter(|_| self.area_locked && !interacting) {
+            root = root.child(self.render_locked_badge(shown, cx));
         }
 
         root = root.children(self.render_snap_guides());
-        if self.recording_area {
-            return root;
-        }
         if crop.is_none() && !interacting {
-            root = root.child(self.render_selection_hint());
+            root = root.child(self.render_selection_hint(cx));
         }
         root = root.child(self.render_area_toolbar(crop, valid, cx));
         if crop.is_some() {
@@ -1837,27 +1743,55 @@ impl OverlayWindow {
         }
     }
 
-    /// `border border-white/50` around the selection, plus the eight resize
-    /// zones. The zones carry only a cursor: the drag itself is dispatched from
-    /// the root's mouse-down through [`Self::area_zone_at`], so a grab that
-    /// starts a pixel outside the handle still resizes.
     fn render_crop_region(&self, crop: AreaRect, interactive: bool) -> impl IntoElement {
+        let white = self.theme.fixed_white;
+        let shade = edge_shade(&self.theme);
         let mut region = div()
             .absolute()
             .left(px(crop.x))
             .top(px(crop.y))
             .w(px(crop.width))
             .h(px(crop.height))
-            .border_1()
-            .border_color(gpui::hsla(0., 0., 1., 0.5))
-            .when(interactive, |this| this.cursor(gpui::CursorStyle::OpenHand));
+            .border_2()
+            .border_color(white)
+            .when(matches!(self.drag, Some(AreaDrag::Move { .. })), |this| {
+                this.bg(Theme::with_alpha(white, 0.06))
+            })
+            .when(interactive, |this| this.cursor(gpui::CursorStyle::OpenHand))
+            .child(
+                div()
+                    .absolute()
+                    .left(px(-3.))
+                    .top(px(-3.))
+                    .w(px(crop.width + 2.))
+                    .h(px(crop.height + 2.))
+                    .border_1()
+                    .border_color(shade),
+            );
 
         for handle in AreaHandle::ALL.into_iter().filter(|_| interactive) {
             let mut zone = div().id(handle.id()).absolute().cursor(handle.cursor());
             let reach = px(AREA_HANDLE_GRAB * 2.);
+            let grip = |width: f32, height: f32| {
+                div()
+                    .flex_shrink_0()
+                    .w(px(width + 2.))
+                    .h(px(height + 2.))
+                    .p(px(1.))
+                    .rounded(px(3.))
+                    .bg(shade)
+                    .child(div().size_full().rounded(px(2.)).bg(white))
+            };
 
             zone = if handle.is_corner() {
-                let zone = zone.size(reach);
+                let zone = zone.size(reach).child(
+                    grip(10., 10.)
+                        .absolute()
+                        .when(handle.west(), |this| this.left(px(5.)))
+                        .when(handle.east(), |this| this.right(px(5.)))
+                        .when(handle.north(), |this| this.top(px(5.)))
+                        .when(handle.south(), |this| this.bottom(px(5.))),
+                );
                 let zone = if handle.west() {
                     zone.left(px(-AREA_HANDLE_GRAB))
                 } else {
@@ -1872,7 +1806,10 @@ impl OverlayWindow {
                 let zone = zone
                     .left(px(AREA_HANDLE_GRAB))
                     .right(px(AREA_HANDLE_GRAB))
-                    .h(reach);
+                    .h(reach)
+                    .flex()
+                    .justify_center()
+                    .child(grip(20., 4.).mt(px(if handle.north() { 8. } else { 10. })));
                 if handle.north() {
                     zone.top(px(-AREA_HANDLE_GRAB))
                 } else {
@@ -1882,51 +1819,16 @@ impl OverlayWindow {
                 let zone = zone
                     .top(px(AREA_HANDLE_GRAB))
                     .bottom(px(AREA_HANDLE_GRAB))
-                    .w(reach);
+                    .w(reach)
+                    .flex()
+                    .items_center()
+                    .child(grip(4., 20.).ml(px(if handle.west() { 8. } else { 10. })));
                 if handle.west() {
                     zone.left(px(-AREA_HANDLE_GRAB))
                 } else {
                     zone.right(px(-AREA_HANDLE_GRAB))
                 }
             };
-
-            // The corner glyph: the TSX draws an `M0 0 H12 M0 0 V12` stroke in
-            // white at `stroke-width 4`. gpui's `div` has no paths, so the same
-            // L is two 4px bars.
-            if handle.is_corner() {
-                let bar = |width: f32, height: f32| {
-                    div()
-                        .absolute()
-                        .w(px(width))
-                        .h(px(height))
-                        .bg(gpui::white())
-                };
-                let arm = 18.;
-                let thickness = 4.;
-                let mut horizontal = bar(arm, thickness);
-                let mut vertical = bar(thickness, arm);
-                horizontal = if handle.west() {
-                    horizontal.left(px(AREA_HANDLE_GRAB))
-                } else {
-                    horizontal.right(px(AREA_HANDLE_GRAB))
-                };
-                vertical = if handle.west() {
-                    vertical.left(px(AREA_HANDLE_GRAB))
-                } else {
-                    vertical.right(px(AREA_HANDLE_GRAB))
-                };
-                horizontal = if handle.north() {
-                    horizontal.top(px(AREA_HANDLE_GRAB))
-                } else {
-                    horizontal.bottom(px(AREA_HANDLE_GRAB))
-                };
-                vertical = if handle.north() {
-                    vertical.top(px(AREA_HANDLE_GRAB))
-                } else {
-                    vertical.bottom(px(AREA_HANDLE_GRAB))
-                };
-                zone = zone.child(horizontal).child(vertical);
-            }
 
             region = region.child(zone);
         }
@@ -1935,96 +1837,42 @@ impl OverlayWindow {
     }
 
     fn render_snap_guides(&self) -> Vec<gpui::AnyElement> {
+        let white: Hsla = self.theme.fixed_white.into();
+        let shade = edge_shade(&self.theme);
+        let (width, height) = self.display_size;
         self.snap_guides
             .iter()
             .map(|guide| {
-                let color = self.theme.recording;
-                match guide.axis {
+                let line = |thickness: f32, color: Hsla| match guide.axis {
                     GuideAxis::V => div()
                         .absolute()
-                        .left(px(guide.pos as f32 * self.display_size.0))
-                        .top(px(guide.start as f32 * self.display_size.1))
-                        .w(px(1.))
-                        .h(px((guide.end - guide.start) as f32 * self.display_size.1))
-                        .bg(color)
-                        .into_any_element(),
+                        .left(px(guide.pos as f32 * width - (thickness - 1.) / 2.))
+                        .top(px(guide.start as f32 * height))
+                        .w(px(thickness))
+                        .h(px((guide.end - guide.start) as f32 * height))
+                        .bg(color),
                     GuideAxis::H => div()
                         .absolute()
-                        .top(px(guide.pos as f32 * self.display_size.1))
-                        .left(px(guide.start as f32 * self.display_size.0))
-                        .h(px(1.))
-                        .w(px((guide.end - guide.start) as f32 * self.display_size.0))
-                        .bg(color)
-                        .into_any_element(),
-                }
+                        .top(px(guide.pos as f32 * height - (thickness - 1.) / 2.))
+                        .left(px(guide.start as f32 * width))
+                        .h(px(thickness))
+                        .w(px((guide.end - guide.start) as f32 * width))
+                        .bg(color),
+                };
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(line(3., shade))
+                    .child(line(1., white))
+                    .into_any_element()
             })
             .collect()
     }
 
-    fn render_selection_hint(&self) -> impl IntoElement {
-        let cursor_path = if cfg!(target_os = "windows") {
-            "onboarding/cursor-windows.svg"
-        } else {
-            "onboarding/cursor-macos.svg"
-        };
-        let animation = || Animation::new(SELECTION_HINT_CYCLE).repeat();
-        let selection = div()
-            .absolute()
-            .left(px(41.))
-            .top(px(26.))
-            .border_1()
-            .border_color(gpui::hsla(0., 0., 1., 0.82))
-            .bg(gpui::hsla(0., 0., 1., 0.2))
-            .with_animation("area-selection-hint-box", animation(), |this, progress| {
-                let progress = selection_drag_progress(progress);
-                this.w(px(10. + 58. * progress)).h(px(8. + 44. * progress))
-            });
-        let cursor = img(cursor_path)
-            .absolute()
-            .left(px(41.))
-            .top(px(26.))
-            .w(px(18.))
-            .h(px(26.))
-            .with_animation(
-                "area-selection-hint-cursor",
-                animation(),
-                |this, progress| {
-                    let progress = selection_drag_progress(progress);
-                    this.left(px(41. + 68. * progress))
-                        .top(px(26. + 52. * progress))
-                },
-            );
-        let click = div()
-            .absolute()
-            .rounded_full()
-            .border_2()
-            .border_color(gpui::hsla(0., 0., 1., 0.85))
-            .with_animation(
-                "area-selection-hint-click",
-                animation(),
-                |this, progress| {
-                    let (scale, opacity) = if (0.1..0.12).contains(&progress) {
-                        (
-                            (progress - 0.1) / 0.02 * 0.2,
-                            (progress - 0.1) / 0.02 * 0.95,
-                        )
-                    } else if (0.12..0.18).contains(&progress) {
-                        (
-                            0.2 + (progress - 0.12) / 0.06 * 0.65,
-                            0.95 * (1. - (progress - 0.12) / 0.06),
-                        )
-                    } else {
-                        (0., 0.)
-                    };
-                    let drag = selection_drag_progress(progress);
-                    let size = 20. * scale;
-                    this.left(px(41. + 68. * drag + 9. - size / 2.))
-                        .top(px(26. + 52. * drag + 14.3 - size / 2.))
-                        .size(px(size))
-                        .opacity(opacity)
-                },
-            );
-
+    fn render_selection_hint(&self, cx: &App) -> impl IntoElement {
+        let theme = self.theme;
+        let screenshot = self.select.read(cx).recording_mode == Mode::Screenshot;
+        let key = |label: &'static str| crate::ui::KbdChip::row(&theme, label);
         div()
             .absolute()
             .inset_0()
@@ -2036,32 +1884,42 @@ impl OverlayWindow {
                     .flex()
                     .flex_col()
                     .items_center()
-                    .gap(px(20.))
-                    .child(
-                        div()
-                            .relative()
-                            .w(px(152.))
-                            .h(px(104.))
-                            .mb(px(24.))
-                            .child(img("images/monitor-illustration.svg").size_full())
-                            .child(
-                                div()
-                                    .absolute()
-                                    .left(px(4.5))
-                                    .top(px(4.5))
-                                    .w(px(143.))
-                                    .h(px(94.5))
-                                    .overflow_hidden()
-                                    .child(selection)
-                                    .child(click)
-                                    .child(cursor),
-                            ),
-                    )
+                    .gap(px(8.))
+                    .px(px(20.))
+                    .py(px(16.))
+                    .rounded(px(12.))
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.popover)
+                    .text_color(theme.foreground)
                     .child(
                         div()
                             .text_size(px(16.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(t!("Click and drag to select an area")),
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(t!("Drag to select an area")),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .text_color(theme.muted_foreground)
+                            .child(t!("Or click a window to fit it")),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .text_size(px(13.))
+                            .text_color(theme.muted_foreground)
+                            .child(key("ctrl"))
+                            .child(key("A"))
+                            .child(t!("Whole display"))
+                            .child(key("escape"))
+                            .child(if screenshot {
+                                t!("Cancel")
+                            } else {
+                                t!("Close")
+                            }),
                     ),
             )
     }
@@ -2430,8 +2288,8 @@ impl OverlayWindow {
             Mode::Screenshot => "icons/image.svg",
         };
         let mode_label = match mode {
-            Mode::Instant => t!("Instant Mode — Record straight to a video file"),
-            Mode::Studio => t!("Studio Mode — Record and edit locally"),
+            Mode::Instant => t!("Instant Mode 鈥?Record straight to a video file"),
+            Mode::Studio => t!("Studio Mode 鈥?Record and edit locally"),
             Mode::Screenshot => t!("Screenshot Mode"),
         };
         let _ = target;
@@ -2619,6 +2477,7 @@ impl OverlayWindow {
         }
         let point = (f32::from(position.x), f32::from(position.y));
         self.snap_guides.clear();
+        self.fit_hover = None;
         if let (Some(crop), Some((from, started))) = (self.crop, self.reshape.take()) {
             self.crop = Some(area_between(
                 from,
@@ -2659,15 +2518,37 @@ impl OverlayWindow {
         cx.notify();
     }
 
-    fn area_mouse_move(&mut self, position: Point<Pixels>, free: bool, cx: &mut Context<Self>) {
+    fn area_mouse_move(
+        &mut self,
+        position: Point<Pixels>,
+        free: bool,
+        keep: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self.recording_area {
             return;
         }
-        let Some(drag) = &self.drag else { return };
+        let Some(drag) = &self.drag else {
+            let hover = fit_candidate(
+                &self.area_windows,
+                (f32::from(position.x), f32::from(position.y)),
+                self.crop,
+            )
+            .filter(|_| !self.area_locked);
+            if hover != self.fit_hover {
+                self.fit_hover = hover;
+                cx.notify();
+            }
+            return;
+        };
         let x = f32::from(position.x).clamp(0., self.display_size.0);
         let y = f32::from(position.y).clamp(0., self.display_size.1);
 
-        let ratio = self.area_ratio.map(ratio_value);
+        let start = match drag {
+            AreaDrag::Resize { start, .. } => Some(*start),
+            _ => None,
+        };
+        let ratio = drag_ratio(self.area_ratio.map(ratio_value), keep, start);
         let (next, guides) = match (drag, ratio) {
             (AreaDrag::Draw { anchor, .. }, Some(ratio)) => (
                 area_from_anchor_with_ratio(*anchor, (x, y), ratio, self.display_size),
@@ -2751,11 +2632,17 @@ impl OverlayWindow {
         cx.notify();
     }
 
-    fn area_mouse_up(&mut self, position: Point<Pixels>, free: bool, cx: &mut Context<Self>) {
+    fn area_mouse_up(
+        &mut self,
+        position: Point<Pixels>,
+        free: bool,
+        keep: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self.recording_area {
             return;
         }
-        self.area_mouse_move(position, free, cx);
+        self.area_mouse_move(position, free, keep, cx);
         let Some(drag) = self.drag.take() else {
             return;
         };
@@ -2861,6 +2748,10 @@ impl OverlayWindow {
             this.update(cx, |this, _| {
                 this.area_snap =
                     area_snap_rects(this.controls_work_area, &windows, this.display_size);
+                this.area_windows = windows
+                    .iter()
+                    .filter_map(|window| window.intersected(this.display_size))
+                    .collect();
             })
             .ok();
         })
@@ -2910,7 +2801,28 @@ impl OverlayWindow {
             self.start_recording(window, cx);
             return true;
         }
-        let step = if keystroke.modifiers.shift { 10. } else { 1. };
+        let modifiers = &keystroke.modifiers;
+        let command = modifiers.control || modifiers.platform;
+        if self.drag.is_none() {
+            match (key, command, modifiers.shift || modifiers.alt) {
+                ("a", true, false) | ("f", false, false) => {
+                    self.fill_area(cx);
+                    return true;
+                }
+                ("r", false, false) => {
+                    self.reset_area(cx);
+                    return true;
+                }
+                ("l", false, false) => {
+                    if self.crop.is_some() {
+                        self.toggle_area_lock(cx);
+                    }
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        let step = if modifiers.shift { 10. } else { 1. };
         let (dx, dy) = match key {
             "left" => (-step, 0.),
             "right" => (step, 0.),
@@ -2925,14 +2837,22 @@ impl OverlayWindow {
             return false;
         };
         self.reshape = None;
-        self.crop = Some(
+        self.crop = Some(if command {
+            area_resized_by(
+                crop,
+                (dx, dy),
+                area_min_size(self.select.read(cx).recording_mode),
+                self.display_size,
+            )
+        } else {
             AreaRect {
                 x: crop.x + dx,
                 y: crop.y + dy,
                 ..crop
             }
-            .clamped(self.display_size),
-        );
+            .clamped(self.display_size)
+        });
+        self.persist_locked_area();
         self.sync_area_camera(cx);
         cx.notify();
         true
@@ -2948,16 +2868,37 @@ impl OverlayWindow {
     }
 
     fn aspect_menu_items(&self) -> Vec<crate::ui::MenuItem> {
-        AREA_RATIOS
-            .iter()
-            .map(|ratio| {
-                let label = match ratio {
-                    Some((width, height)) => format!("{width}:{height}"),
-                    None => t!("Free").to_string(),
-                };
-                crate::ui::MenuItem::new(label, self.area_ratio == *ratio)
+        let ratios = AREA_RATIOS.iter().map(|ratio| {
+            let label = match ratio {
+                Some((width, height)) => format!("{width}:{height}"),
+                None => t!("Free").to_string(),
+            };
+            crate::ui::MenuItem::new(label, self.area_ratio == *ratio)
+        });
+        let scale = self.pixels_per_point();
+        let recorded = self.crop.map(|crop| {
+            (
+                (crop.width * scale).round() as u32,
+                (crop.height * scale).round() as u32,
+            )
+        });
+        let sizes = self.area_sizes().map(|(name, width, height, _)| {
+            crate::ui::MenuItem::new(
+                format!("{name}  路  {width} 脳 {height}"),
+                recorded == Some((width, height)),
+            )
+        });
+        ratios.chain(sizes).collect()
+    }
+
+    fn area_sizes(&self) -> impl Iterator<Item = (&'static str, u32, u32, AreaRect)> + '_ {
+        let scale = self.pixels_per_point();
+        crate::window_arrange::SIZES
+            .into_iter()
+            .filter_map(move |(name, width, height)| {
+                area_exact_size(self.crop, (width, height), scale, self.display_size)
+                    .map(|area| (name, width, height, area))
             })
-            .collect()
     }
 
     fn render_aspect_menu(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
@@ -2982,8 +2923,17 @@ impl OverlayWindow {
 
     fn choose_aspect(&mut self, index: usize, cx: &mut Context<Self>) {
         self.aspect_menu = None;
-        match AREA_RATIOS.get(index) {
-            Some(ratio) => self.set_area_ratio(*ratio, cx),
+        if let Some(ratio) = AREA_RATIOS.get(index) {
+            self.set_area_ratio(*ratio, cx);
+            return;
+        }
+        let size = self.area_sizes().nth(index - AREA_RATIOS.len());
+        match size.filter(|_| !self.area_locked) {
+            Some((_, _, _, area)) => {
+                self.area_ratio = None;
+                store_area_ratio(None);
+                self.reshape_area(area, cx);
+            }
             None => cx.notify(),
         }
     }
@@ -3062,7 +3012,7 @@ impl OverlayWindow {
     fn area_readout(&self, crop: AreaRect) -> String {
         let scale = self.pixels_per_point();
         format!(
-            "{} × {}",
+            "{} 脳 {}",
             (crop.width * scale).round(),
             (crop.height * scale).round()
         )
@@ -3070,39 +3020,64 @@ impl OverlayWindow {
 
     fn render_locked_badge(&self, crop: AreaRect, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        div()
+        overlay_badge(&theme)
+            .id("area-locked-badge")
             .absolute()
             .left(px(crop.x + 8.))
             .top(px(crop.y + 8.))
+            .cursor_pointer()
+            .tooltip(move |_, cx| {
+                crate::ui::Tooltip::new(&theme, SharedString::from(t!("Unlock area"))).view(cx)
+            })
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_area_lock(cx)))
             .child(
-                div()
-                    .id("area-locked-badge")
-                    .h(px(26.))
-                    .px(px(9.))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .rounded_full()
-                    .cursor_pointer()
-                    .bg(gpui::hsla(0., 0., 0., 0.62))
-                    .hover(|style| style.bg(gpui::hsla(0., 0., 0., 0.78)))
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(gpui::white())
-                    .tooltip(move |_, cx| {
-                        crate::ui::Tooltip::new(&theme, SharedString::from(t!("Unlock area")))
-                            .view(cx)
-                    })
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_area_lock(cx)))
-                    .child(
-                        svg()
-                            .path("icons/lock.svg")
-                            .size(px(12.))
-                            .text_color(gpui::white()),
-                    )
-                    .child(t!("Locked")),
+                svg()
+                    .path("icons/lock.svg")
+                    .size(px(12.))
+                    .text_color(theme.fixed_white),
             )
+            .child(t!("Locked"))
+    }
+
+    fn render_size_tag(&self, crop: AreaRect, valid: bool, min: f32) -> impl IntoElement {
+        let label = if valid {
+            let mut label = self.area_readout(crop);
+            if let Some((width, height)) = self.area_ratio {
+                label.push_str(&format!(" 路 {width}:{height}"));
+            }
+            label
+        } else {
+            let least = (min * self.pixels_per_point()).round();
+            t!(
+                "Too small. At least {width} 脳 {height}",
+                width = least,
+                height = least
+            )
+            .to_string()
+        };
+        let badge = overlay_badge(&self.theme).absolute().when(!valid, |this| {
+            this.bg(self.theme.danger)
+                .text_color(self.theme.danger_foreground)
+        });
+        if self.drag.is_some() {
+            let below = crop.bottom() + 32. <= self.display_size.1;
+            badge
+                .right(px(self.display_size.0 - crop.right()))
+                .top(px(if below {
+                    crop.bottom() + 8.
+                } else {
+                    crop.bottom() - 32.
+                }))
+                .child(if valid {
+                    self.area_readout(crop)
+                } else {
+                    label
+                })
+        } else {
+            let (x, y) = tag_position(crop);
+            badge.left(px(x)).top(px(y)).child(label)
+        }
     }
 }
 
@@ -3137,7 +3112,7 @@ impl OverlayWindow {
         entries.extend(SIZES.into_iter().filter_map(|(name, width, height)| {
             fit_to_size(window, (width, height), scale, work_area).map(|frame| {
                 (
-                    format!("{name}  ·  {width} × {height}"),
+                    format!("{name}  路  {width} 脳 {height}"),
                     recorded == (width, height),
                     frame,
                 )
@@ -3350,12 +3325,12 @@ impl OverlayWindow {
         let theme = self.theme;
         let scale = self.pixels_per_point();
         let mut label = format!(
-            "{} × {}",
+            "{} 脳 {}",
             (window.width * scale).round(),
             (window.height * scale).round()
         );
         if let Some((w, h)) = crate::window_arrange::matching_ratio(window) {
-            label.push_str(&format!("  ·  {w}:{h}"));
+            label.push_str(&format!("  路  {w}:{h}"));
         }
         let arrangeable = crate::foreign_window::can_arrange();
         self.glass_surface()
@@ -3457,6 +3432,107 @@ impl OverlayWindow {
                 }),
         )
     }
+}
+
+fn overlay_badge(theme: &Theme) -> gpui::Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .h(px(24.))
+        .px(px(8.))
+        .rounded(px(6.))
+        .bg(theme.badge)
+        .text_color(theme.fixed_white)
+        .text_size(px(12.))
+        .font_weight(FontWeight::MEDIUM)
+        .whitespace_nowrap()
+}
+
+fn tag_position(target: AreaRect) -> (f32, f32) {
+    if target.y >= 32. {
+        (target.x, target.y - 30.)
+    } else {
+        (target.x + 8., target.y + 8.)
+    }
+}
+
+fn selection_frame(target: AreaRect, theme: &Theme) -> impl IntoElement {
+    div()
+        .absolute()
+        .left(px(target.x - 1.))
+        .top(px(target.y - 1.))
+        .w(px(target.width + 2.))
+        .h(px(target.height + 2.))
+        .border_1()
+        .border_color(edge_shade(theme))
+        .child(div().size_full().border_2().border_color(theme.fixed_white))
+}
+
+fn edge_shade(theme: &Theme) -> Hsla {
+    Theme::with_alpha(theme.badge, 0.55)
+}
+
+fn scrim(target: Option<AreaRect>, display: (f32, f32), color: Hsla) -> Vec<gpui::AnyElement> {
+    let piece = |x: f32, y: f32, width: f32, height: f32| {
+        div()
+            .absolute()
+            .left(px(x))
+            .top(px(y))
+            .w(px(width.max(0.)))
+            .h(px(height.max(0.)))
+            .bg(color)
+            .into_any_element()
+    };
+    match target {
+        None => vec![piece(0., 0., display.0, display.1)],
+        Some(t) => vec![
+            piece(0., 0., t.x, display.1),
+            piece(t.right(), 0., display.0 - t.right(), display.1),
+            piece(t.x, 0., t.width, t.y),
+            piece(t.x, t.bottom(), t.width, display.1 - t.bottom()),
+        ],
+    }
+}
+
+fn corner_marks(target: AreaRect, theme: &Theme) -> Vec<gpui::AnyElement> {
+    let white: Hsla = theme.fixed_white.into();
+    let shade = edge_shade(theme);
+    [(false, false), (true, false), (false, true), (true, true)]
+        .into_iter()
+        .map(|(right, bottom)| {
+            let x = if right {
+                target.right() - 12.
+            } else {
+                target.x - 2.
+            };
+            let y = if bottom {
+                target.bottom() - 12.
+            } else {
+                target.y - 2.
+            };
+            let arm = |size: f32, inset: f32, color: Hsla| {
+                div()
+                    .absolute()
+                    .left(px(inset))
+                    .top(px(inset))
+                    .size(px(size))
+                    .border_color(color)
+                    .when(right, |this| this.border_r_2())
+                    .when(!right, |this| this.border_l_2())
+                    .when(bottom, |this| this.border_b_2())
+                    .when(!bottom, |this| this.border_t_2())
+            };
+            div()
+                .absolute()
+                .left(px(x - 3.))
+                .top(px(y - 3.))
+                .size(px(20.))
+                .child(arm(20., 0., shade))
+                .child(arm(14., 3., white))
+                .into_any_element()
+        })
+        .collect()
 }
 
 fn focus_ring(window: AreaRect, theme: &Theme) -> impl IntoElement {
@@ -3693,12 +3769,5 @@ mod tests {
         let (unsnapped, guides) = snap_area_point((490., 390.), display, &[]);
         assert_eq!(unsnapped, (490., 390.));
         assert!(guides.is_empty());
-    }
-
-    #[test]
-    fn selection_hint_curve_reaches_both_drag_extents() {
-        assert_eq!(selection_drag_progress(0.), 0.);
-        assert!((selection_drag_progress(0.5) - 1.).abs() < 0.001);
-        assert_eq!(selection_drag_progress(1.), 0.);
     }
 }

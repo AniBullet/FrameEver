@@ -369,6 +369,64 @@ pub(super) fn area_with_ratio(area: AreaRect, ratio: f32, display: (f32, f32)) -
     .clamped(display)
 }
 
+pub(super) fn area_resized_by(
+    crop: AreaRect,
+    (dw, dh): (f32, f32),
+    min: f32,
+    display: (f32, f32),
+) -> AreaRect {
+    let grow = |size: f32, delta: f32, room: f32| (size + delta).min(room).max(min.min(room));
+    AreaRect {
+        width: grow(crop.width, dw, display.0 - crop.x),
+        height: grow(crop.height, dh, display.1 - crop.y),
+        ..crop
+    }
+}
+
+pub(super) fn drag_ratio(chosen: Option<f32>, keep: bool, start: Option<AreaRect>) -> Option<f32> {
+    chosen.or_else(|| {
+        start
+            .filter(|start| keep && start.width > 0. && start.height > 0.)
+            .map(|start| start.width / start.height)
+    })
+}
+
+pub(super) fn area_exact_size(
+    crop: Option<AreaRect>,
+    pixels: (u32, u32),
+    scale: f32,
+    display: (f32, f32),
+) -> Option<AreaRect> {
+    let (width, height) = (pixels.0 as f32 / scale, pixels.1 as f32 / scale);
+    if width > display.0 + 0.5 || height > display.1 + 0.5 {
+        return None;
+    }
+    let (width, height) = (width.min(display.0), height.min(display.1));
+    let (cx, cy) = crop.map_or((display.0 / 2., display.1 / 2.), |crop| {
+        (crop.x + crop.width / 2., crop.y + crop.height / 2.)
+    });
+    Some(AreaRect {
+        x: (cx - width / 2.).clamp(0., display.0 - width),
+        y: (cy - height / 2.).clamp(0., display.1 - height),
+        width,
+        height,
+    })
+}
+
+pub(super) fn fit_candidate(
+    windows: &[AreaRect],
+    point: (f32, f32),
+    area: Option<AreaRect>,
+) -> Option<AreaRect> {
+    let contains = |rect: &AreaRect| {
+        (rect.x..rect.right()).contains(&point.0) && (rect.y..rect.bottom()).contains(&point.1)
+    };
+    if area.as_ref().is_some_and(contains) {
+        return None;
+    }
+    windows.iter().copied().find(contains)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -558,5 +616,67 @@ mod tests {
             assert_eq!(bounds.size().width(), 900.);
             assert_eq!(bounds.size().height(), 600.);
         }
+    }
+
+    #[test]
+    fn keyboard_resize_moves_the_right_and_bottom_edges_within_the_display_and_min() {
+        let display = (1920., 1080.);
+        let crop = rect(100., 100., 400., 300.);
+        assert_eq!(
+            area_resized_by(crop, (10., -1.), 150., display),
+            rect(100., 100., 410., 299.)
+        );
+        assert_eq!(
+            area_resized_by(crop, (-500., 0.), 150., display),
+            rect(100., 100., 150., 300.)
+        );
+        assert_eq!(
+            area_resized_by(rect(1800., 900., 100., 160.), (50., 50.), 1., display),
+            rect(1800., 900., 120., 180.)
+        );
+    }
+
+    #[test]
+    fn shift_keeps_the_ratio_the_resize_started_with_unless_a_ratio_is_chosen() {
+        let start = rect(0., 0., 400., 200.);
+        assert_eq!(drag_ratio(None, true, Some(start)), Some(2.));
+        assert_eq!(drag_ratio(None, false, Some(start)), None);
+        assert_eq!(drag_ratio(Some(1.), true, Some(start)), Some(1.));
+        assert_eq!(drag_ratio(None, true, None), None);
+        assert_eq!(drag_ratio(None, true, Some(rect(0., 0., 400., 0.))), None);
+    }
+
+    #[test]
+    fn an_exact_size_is_recorded_pixels_centred_on_the_area_and_refused_when_too_big() {
+        let display = (1920., 1080.);
+        assert_eq!(
+            area_exact_size(Some(rect(0., 0., 400., 400.)), (1280, 720), 1., display),
+            Some(rect(0., 0., 1280., 720.))
+        );
+        assert_eq!(
+            area_exact_size(None, (1920, 1080), 2., display),
+            Some(rect(480., 270., 960., 540.))
+        );
+        assert_eq!(
+            area_exact_size(None, (1920, 1080), 1.5, (1280., 720.)),
+            Some(rect(0., 0., 1280., 720.))
+        );
+        assert_eq!(area_exact_size(None, (3840, 2160), 1., display), None);
+    }
+
+    #[test]
+    fn the_fit_candidate_is_the_frontmost_window_under_the_pointer_outside_the_area() {
+        let front = rect(100., 100., 400., 300.);
+        let back = rect(0., 0., 1000., 800.);
+        let windows = [front, back];
+        assert_eq!(fit_candidate(&windows, (150., 150.), None), Some(front));
+        assert_eq!(fit_candidate(&windows, (700., 700.), None), Some(back));
+        assert_eq!(fit_candidate(&windows, (1500., 900.), None), None);
+        let area = rect(120., 120., 50., 50.);
+        assert_eq!(fit_candidate(&windows, (130., 130.), Some(area)), None);
+        assert_eq!(
+            fit_candidate(&windows, (300., 300.), Some(area)),
+            Some(front)
+        );
     }
 }
