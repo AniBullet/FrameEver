@@ -56,6 +56,7 @@ const s = {
 	ratio: null,
 	locked: false,
 	drag: null,
+	pointer: null,
 	guides: [],
 	hover: null,
 	pinned: null,
@@ -125,6 +126,42 @@ const thirds = (t) =>
 				`<div class="thirds" style="left:${t.x + (t.w * n) / 3}px;top:${t.y}px;width:1px;height:${t.h}px"></div><div class="thirds" style="left:${t.x}px;top:${t.y + (t.h * n) / 3}px;width:${t.w}px;height:1px"></div>`,
 		)
 		.join("");
+
+const wallPixel = (x, y) => {
+	const w = windowAt({ x, y });
+	if (!w) return y >= H - 40 ? "#1e1e1e" : "#3a3a3a";
+	const dx = x - w.x;
+	const dy = y - w.y;
+	if (dy < 30) return w.cls ? "#2b2b2b" : "#555";
+	for (const [left, top, width, height, color] of [
+		[24, 56, w.w * 0.4, 14, "#777"],
+		[24, 88, w.w * 0.8, 9, "#c4c4c4"],
+		[24, 108, w.w * 0.72, 9, "#c4c4c4"],
+		[24, 128, w.w * 0.76, 9, "#c4c4c4"],
+		[24, 164, w.w * 0.44, w.h * 0.42, "#c4c4c4"],
+		[w.w * 0.5, 164, w.w * 0.44, w.h * 0.42, "#b0b0b0"],
+	]) {
+		if (dx >= left && dx < left + width && dy >= top && dy < top + height)
+			return color;
+	}
+	return w.cls ? "#fafafa" : "#ededed";
+};
+
+const magnifier = (st) => {
+	if (st.mode !== "screenshot" || st.target !== "area" || !st.drag || !st.pointer)
+		return "";
+	const { x, y } = st.pointer;
+	const left = clamp(x + 142 <= W ? x + 20 : x - 142, 0, W - 122);
+	const top = clamp(y + 142 <= H ? y + 20 : y - 142, 0, H - 122);
+	const pixels = Array.from({ length: 225 }, (_, i) => {
+		const col = i % 15;
+		const row = Math.floor(i / 15);
+		const sx = clamp(Math.floor(x * PX) + col - 7, 0, W * PX - 1) / PX;
+		const sy = clamp(Math.floor(y * PX) + row - 7, 0, H * PX - 1) / PX;
+		return `<i style="left:${col * 8}px;top:${row * 8}px;background:${wallPixel(sx, sy)}"></i>`;
+	}).join("");
+	return `<div class="magnifier" style="left:${left}px;top:${top}px"><div class="magnifier-pixels">${pixels}<b></b></div></div>`;
+};
 
 const guides = (st) =>
 	st.guides
@@ -353,6 +390,7 @@ const overlay = (st) => {
 	if (cd) return h + countdown(st, t) + recBar(st);
 	if (st.drag && st.target === "area" && t) h += thirds(t);
 	h += guides(st);
+	h += magnifier(st);
 	if (st.target === "area" && st.hover && !st.drag && !st.locked) {
 		const w = winOf(st.hover);
 		if (w && !(t && st.hoverOutside === false))
@@ -608,6 +646,7 @@ desk.addEventListener("pointerdown", (e) => {
 		return;
 	}
 	if (s.target !== "area" || s.locked) return;
+	s.pointer = p;
 	reshapeId += 1;
 	const zone = zoneAt(p);
 	s.drag = {
@@ -623,6 +662,7 @@ desk.addEventListener("pointerdown", (e) => {
 
 desk.addEventListener("pointermove", (e) => {
 	const p = point(e);
+	s.pointer = p;
 	if (!s.drag) {
 		if (e.target.closest(".ui") || s.phase !== "pick") return;
 		const w = windowAt(p);
@@ -1413,7 +1453,10 @@ const copy = () => {
 					"Medium: needs a frozen frame of the display",
 					"中：需要一张冻结的屏幕画面",
 				],
-				["Add for Screenshot mode only", "只在截图模式加入"],
+				[
+					"Screenshot area only. Freeze the display once; the preview, 15 × 15 pixel lens and saved crop use that same frame. Each sample fills an 8 px cell. The lens follows the pointer and flips at display edges. Capture failure is shown and keeps live screenshot capture available.",
+					"只用于截图选区。冻结一次屏幕，预览、15 × 15 像素放大镜和保存的裁切共用同一帧。每个像素占 8 px，放大镜跟随指针，在屏幕边缘翻转。取帧失败时明确提示，仍可实时截图。",
+				],
 			],
 			[
 				["Audible countdown", "有声倒计时"],

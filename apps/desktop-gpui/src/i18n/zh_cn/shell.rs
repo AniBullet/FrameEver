@@ -1,4 +1,8 @@
 pub static ENTRIES: &[(&str, &str)] = &[
+    (
+        "Couldn't load magnifier. You can still take a screenshot.",
+        "无法加载放大镜。仍可截图。",
+    ),
     ("January", "1 月"),
     ("February", "2 月"),
     ("March", "3 月"),
