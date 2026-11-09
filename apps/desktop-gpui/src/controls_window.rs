@@ -106,6 +106,11 @@ impl ControlsWindow {
     fn issue(&self, cx: &gpui::App) -> Option<String> {
         let session = self.session.read(cx);
         let mut lines = Vec::new();
+        if session.phase == Phase::Starting && session.countdown_overlay_unavailable {
+            lines.push(
+                t!("Full-screen countdown is unavailable. Use the recording bar.").to_owned(),
+            );
+        }
         if session.mic_disconnected {
             lines
                 .push(t!("Microphone disconnected. Recording silence until it's back.").to_owned());

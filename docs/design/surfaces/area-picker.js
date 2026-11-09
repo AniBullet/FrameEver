@@ -1102,8 +1102,8 @@ const copy = () => {
 					"倒计时只出现在被录的显示器和录制控制条上",
 				],
 				[
-					"The bar's Starts in 3 from Recording controls stays. If you started from a hotkey the overlay has no focus, so Cancel is the bar's X or the stop shortcut",
-					"录制控制条的“3 秒后开始”保留。从快捷键开始时覆盖层没有焦点，取消要用控制条的 X 或停止快捷键",
+					"The bar's Starts in 3 stays. A hotkey start never focuses the overlay; cancel from the bar or the stop shortcut. If capture exclusion cannot be confirmed, only the bar counts down and explains why. While the pipeline warms up, the last number stays until the cue starts.",
+					"录制控制条的倒计时保留。快捷键启动不激活覆盖层，取消用控制条或停止快捷键。无法确认捕获排除时，只在控制条倒计时并说明原因。管线预热时保留最后一个数字，提示音开始才换成红色标记。",
 				],
 			],
 			[

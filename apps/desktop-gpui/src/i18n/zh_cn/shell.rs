@@ -147,6 +147,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Previous item", "上一个"),
     ("Next item", "下一个"),
     ("Cancel", "取消"),
+    ("Start now", "立即开始"),
+    (
+        "Full-screen countdown is unavailable. Use the recording bar.",
+        "无法显示全屏倒计时，请查看录制控制条。",
+    ),
     (" · ~{seconds}s", " · 约 {seconds} 秒"),
     (" · ~{minutes}m", " · 约 {minutes} 分钟"),
     (

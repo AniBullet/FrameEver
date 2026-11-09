@@ -18,6 +18,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use super::{ForcedAppearance, MaterialKind, PanelBehavior};
 
 mod capture_exclusion;
+mod countdown_panel;
 mod file_drag;
 mod hidden_frame;
 mod main_frame;
@@ -217,6 +218,13 @@ pub fn teleprompter_level() -> isize {
 
 pub fn set_window_alpha(_native: &NativeWindow, _alpha: f64) -> f64 {
     1.
+}
+
+pub(crate) fn prepare_countdown_panel(
+    native: &NativeWindow,
+    interactive: bool,
+) -> std::io::Result<()> {
+    countdown_panel::prepare(native.hwnd(), interactive)
 }
 
 pub fn set_window_capture_hidden(native: &NativeWindow, hidden: bool) -> usize {
