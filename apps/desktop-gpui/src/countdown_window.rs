@@ -153,12 +153,13 @@ impl Render for CountdownWindow {
         root = root.child(
             div()
                 .absolute()
-                .left(target.left())
-                .top(target.top())
-                .w(target.size.width)
-                .h(target.size.height)
+                .left(target.left() - px(1.))
+                .top(target.top() - px(1.))
+                .w(target.size.width + px(2.))
+                .h(target.size.height + px(2.))
                 .border_1()
-                .border_color(theme.fixed_white),
+                .border_color(Theme::with_alpha(theme.badge, 0.55))
+                .child(div().size_full().border_2().border_color(theme.fixed_white)),
         );
         let mut ring = div()
             .size(px(92.))

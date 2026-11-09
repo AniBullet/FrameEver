@@ -199,11 +199,35 @@ fn fitted_window_min_size(preferred: Size<Pixels>, bounds: Bounds<Pixels>) -> Si
     )
 }
 
+#[derive(Clone, Copy, Default)]
+enum CountdownFocus {
+    #[default]
+    Automatic,
+    Passive,
+    Interactive,
+}
+
+impl CountdownFocus {
+    fn remember_app_focus(&mut self, app_active: bool) {
+        if matches!(self, Self::Automatic) {
+            *self = if app_active {
+                Self::Interactive
+            } else {
+                Self::Passive
+            };
+        }
+    }
+
+    fn consume(&mut self) -> bool {
+        matches!(std::mem::take(self), Self::Interactive)
+    }
+}
+
 pub struct AppWindows {
     pub main: WindowHandle<MainWindow>,
     pub controls: Option<WindowHandle<ControlsWindow>>,
     pub countdown: Option<WindowHandle<CountdownWindow>>,
-    countdown_keyboard: bool,
+    countdown_focus: CountdownFocus,
     pub camera: Option<WindowHandle<CameraWindow>>,
     pub settings: Option<WindowHandle<SettingsWindow>>,
     pub onboarding: Option<WindowHandle<OnboardingWindow>>,
@@ -361,7 +385,7 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
         main,
         controls: None,
         countdown: None,
-        countdown_keyboard: false,
+        countdown_focus: CountdownFocus::default(),
         camera: None,
         settings: None,
         onboarding: None,
@@ -1859,7 +1883,7 @@ fn open_overlays_core(request: OverlayRequest, cx: &mut App) -> bool {
 /// reveals the main window again (`dismissalReveals`,
 /// `new-main/index.tsx:2047-2058`).
 pub fn dismiss_target_overlays(cx: &mut App) {
-    cx.global_mut::<AppWindows>().countdown_keyboard = false;
+    cx.global_mut::<AppWindows>().countdown_focus = CountdownFocus::Automatic;
     restore_arranged_windows(cx);
     if RecordingSession::global(cx).read(cx).phase == Phase::Idle
         && RecordingSession::global(cx)
@@ -2184,7 +2208,10 @@ fn start_recording_from_overlay_now(target: ScreenCaptureTarget, cx: &mut App) {
     // Collected before the windows go away: the capture starts a beat after
     // this, and an overlay that has not finished closing must not end up in
     // the recording.
-    cx.global_mut::<AppWindows>().countdown_keyboard = cx.active_window().is_some();
+    let app_active = cx.active_window().is_some();
+    let focus = &mut cx.global_mut::<AppWindows>().countdown_focus;
+    *focus = CountdownFocus::Automatic;
+    focus.remember_app_focus(app_active);
     let excluded = overlay_window_ids(cx);
     let retained_area =
         cfg!(target_os = "macos") && matches!(&target, ScreenCaptureTarget::Area { .. });
@@ -2575,7 +2602,7 @@ fn own_windows(cx: &mut App) -> Vec<OwnWindowHandle> {
         main,
         controls,
         countdown: _,
-        countdown_keyboard: _,
+        countdown_focus: _,
         camera,
         settings,
         onboarding,
@@ -2780,7 +2807,9 @@ fn begin_recording_after_preflight(config: StartConfig, cx: &mut App) {
     }
 
     let app_active = cx.active_window().is_some();
-    cx.global_mut::<AppWindows>().countdown_keyboard |= app_active;
+    cx.global_mut::<AppWindows>()
+        .countdown_focus
+        .remember_app_focus(app_active);
     let mut excluded: Vec<scap_targets::WindowId> = config.excluded_windows.clone();
     excluded.extend(open_controls(&config, session.clone(), cx));
     // The camera bubble is excluded from studio captures (the camera is its own
@@ -6513,8 +6542,8 @@ mod tests {
     }
 }
 
-pub(crate) fn reset_countdown_keyboard(cx: &mut App) {
-    cx.global_mut::<AppWindows>().countdown_keyboard = false;
+pub(crate) fn keep_countdown_passive(cx: &mut App) {
+    cx.global_mut::<AppWindows>().countdown_focus = CountdownFocus::Passive;
 }
 
 pub(crate) fn open_countdown(
@@ -6532,7 +6561,7 @@ pub(crate) fn open_countdown(
             .update(cx, |_, window, _| window.remove_window())
             .ok();
     }
-    let interactive = std::mem::take(&mut cx.global_mut::<AppWindows>().countdown_keyboard);
+    let interactive = cx.global_mut::<AppWindows>().countdown_focus.consume();
     if seconds == 0 {
         return None;
     }
@@ -6677,4 +6706,113 @@ pub(crate) fn open_countdown(
     })
     .detach();
     Some(id)
+}
+
+#[cfg(test)]
+mod countdown_focus_tests {
+    use super::*;
+
+    #[test]
+    fn countdown_focus_unresolved_starts_and_restarts_stay_passive() {
+        let mut focus = CountdownFocus::default();
+        assert!(!focus.consume());
+        focus.remember_app_focus(true);
+        assert!(focus.consume());
+        assert!(!focus.consume());
+    }
+
+    #[test]
+    fn countdown_focus_explicit_passive_wins_and_is_consumed() {
+        let mut focus = CountdownFocus::Passive;
+        focus.remember_app_focus(true);
+        assert!(!focus.consume());
+        focus.remember_app_focus(true);
+        assert!(focus.consume());
+        assert!(!focus.consume());
+    }
+
+    #[test]
+    fn countdown_focus_automatic_remembers_focus_before_the_main_window_hides() {
+        let mut focus = CountdownFocus::default();
+        focus.remember_app_focus(true);
+        assert!(focus.consume());
+        assert!(!focus.consume());
+        focus.remember_app_focus(false);
+        assert!(!focus.consume());
+        focus.remember_app_focus(true);
+        assert!(focus.consume());
+    }
+}
+
+#[cfg(test)]
+mod countdown_hotkey_tests {
+    use super::*;
+
+    #[gpui::test]
+    fn countdown_focus_rejected_hotkey_keeps_the_preparing_request(cx: &mut gpui::TestAppContext) {
+        struct ResetStore;
+        impl Drop for ResetStore {
+            fn drop(&mut self) {
+                crate::store::set_test_tauri_store_path(None);
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let storage = directory.path().join("storage");
+        std::fs::create_dir_all(&storage).unwrap();
+        crate::store::set_test_tauri_store_path(Some(directory.path().join("store")));
+        let _reset = ResetStore;
+        assert!(crate::store::set_store_setting(
+            crate::store::GENERAL_SETTINGS,
+            "storagePath",
+            serde_json::json!(storage),
+        ));
+        let session = cx.update(|cx| {
+            crate::feeds::Feeds::init(cx);
+            crate::media_access::MediaAccess::init(cx);
+            crate::target_overlay::TargetSelect::init(cx);
+            RecordingSession::init(cx)
+        });
+        let observed_session = session.clone();
+        let main = cx.add_window(move |window, cx| MainWindow::new(observed_session, window, cx));
+        cx.update(|cx| {
+            cx.set_global(AppWindows {
+                main,
+                controls: None,
+                countdown: None,
+                countdown_focus: CountdownFocus::default(),
+                camera: None,
+                settings: None,
+                onboarding: None,
+                mode_select: None,
+                teleprompter: None,
+                overlays: Vec::new(),
+                editors: Vec::new(),
+                deleting_editors: HashSet::new(),
+                preparing_cleanup: crate::editor_preparing::PreparingCleanupRegistry::default(),
+                screenshot_editors: Vec::new(),
+                main_hidden_for_picker: false,
+                main_visible_before_picker: false,
+                editor_hidden_for_picker: None,
+                camera_park: CameraPark::default(),
+            });
+            let permit = main
+                .update(cx, |main, _, cx| main.prepare_deep_link_start(cx))
+                .unwrap()
+                .unwrap();
+            cx.global_mut::<AppWindows>().countdown_focus = CountdownFocus::Interactive;
+            let mode = Mode::from_store();
+            let requested_mode = if mode == Mode::Instant {
+                Mode::Studio
+            } else {
+                Mode::Instant
+            };
+            crate::hotkeys::start_now(main, requested_mode, ScreenCaptureTarget::CameraOnly, cx);
+            assert!(cx.global_mut::<AppWindows>().countdown_focus.consume());
+            assert!(permit.is_current(cx));
+            assert!(main.read(cx).unwrap().is_preparing_recording());
+            assert!(Mode::from_store() == mode);
+            main.update(cx, |main, _, _| main.cancel_deep_link_start())
+                .unwrap();
+        });
+    }
 }

@@ -532,19 +532,23 @@ fn target_is_live(target: &ScreenCaptureTarget) -> bool {
     }
 }
 
-fn start_now(
+pub(crate) fn start_now(
     main: gpui::WindowHandle<crate::main_window::MainWindow>,
     mode: Mode,
     target: ScreenCaptureTarget,
     cx: &mut App,
 ) {
-    app_windows::reset_countdown_keyboard(cx);
+    let ready = main
+        .read(cx)
+        .is_ok_and(|view| !view.is_preparing_recording());
+    if RecordingSession::global(cx).read(cx).phase != Phase::Idle || !ready {
+        return;
+    }
+    app_windows::keep_countdown_passive(cx);
     // The start waited on the target lookup (and maybe the microphone
     // prompt); another Start or Cycle shortcut can change the mode meanwhile,
     // and the start path reads the window's mode.
-    if RecordingSession::global(cx).read(cx).phase == Phase::Idle {
-        app_windows::set_recording_mode(mode, cx);
-    }
+    app_windows::set_recording_mode(mode, cx);
     main.update(cx, |view, window, cx| {
         view.start_recording_with_target(target, Vec::new(), window, cx)
     })
