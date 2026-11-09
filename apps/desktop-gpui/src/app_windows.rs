@@ -24,6 +24,7 @@ use crate::{
     brand::app_name,
     camera_window::{self, CameraWindow},
     controls_window::ControlsWindow,
+    countdown_window::CountdownWindow,
     editor_timeline,
     editor_window::{self, EditorWindow},
     i18n::{n, t, tr},
@@ -201,6 +202,8 @@ fn fitted_window_min_size(preferred: Size<Pixels>, bounds: Bounds<Pixels>) -> Si
 pub struct AppWindows {
     pub main: WindowHandle<MainWindow>,
     pub controls: Option<WindowHandle<ControlsWindow>>,
+    pub countdown: Option<WindowHandle<CountdownWindow>>,
+    countdown_keyboard: bool,
     pub camera: Option<WindowHandle<CameraWindow>>,
     pub settings: Option<WindowHandle<SettingsWindow>>,
     pub onboarding: Option<WindowHandle<OnboardingWindow>>,
@@ -357,6 +360,8 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
     cx.set_global(AppWindows {
         main,
         controls: None,
+        countdown: None,
+        countdown_keyboard: false,
         camera: None,
         settings: None,
         onboarding: None,
@@ -1854,6 +1859,7 @@ fn open_overlays_core(request: OverlayRequest, cx: &mut App) -> bool {
 /// reveals the main window again (`dismissalReveals`,
 /// `new-main/index.tsx:2047-2058`).
 pub fn dismiss_target_overlays(cx: &mut App) {
+    cx.global_mut::<AppWindows>().countdown_keyboard = false;
     restore_arranged_windows(cx);
     if RecordingSession::global(cx).read(cx).phase == Phase::Idle
         && RecordingSession::global(cx)
@@ -2178,6 +2184,7 @@ fn start_recording_from_overlay_now(target: ScreenCaptureTarget, cx: &mut App) {
     // Collected before the windows go away: the capture starts a beat after
     // this, and an overlay that has not finished closing must not end up in
     // the recording.
+    cx.global_mut::<AppWindows>().countdown_keyboard = cx.active_window().is_some();
     let excluded = overlay_window_ids(cx);
     let retained_area =
         cfg!(target_os = "macos") && matches!(&target, ScreenCaptureTarget::Area { .. });
@@ -2567,6 +2574,8 @@ fn own_windows(cx: &mut App) -> Vec<OwnWindowHandle> {
     let AppWindows {
         main,
         controls,
+        countdown: _,
+        countdown_keyboard: _,
         camera,
         settings,
         onboarding,
@@ -2770,6 +2779,8 @@ fn begin_recording_after_preflight(config: StartConfig, cx: &mut App) {
         set_editor_content_protection(editor_path, true, cx);
     }
 
+    let app_active = cx.active_window().is_some();
+    cx.global_mut::<AppWindows>().countdown_keyboard |= app_active;
     let mut excluded: Vec<scap_targets::WindowId> = config.excluded_windows.clone();
     excluded.extend(open_controls(&config, session.clone(), cx));
     // The camera bubble is excluded from studio captures (the camera is its own
@@ -6500,4 +6511,160 @@ mod tests {
             })
         );
     }
+}
+
+pub(crate) fn open_countdown(
+    config: &StartConfig,
+    session: Entity<RecordingSession>,
+    seconds: u32,
+    cx: &mut App,
+) -> Option<scap_targets::WindowId> {
+    if !cx.has_global::<AppWindows>() {
+        return None;
+    }
+    let previous = cx.global_mut::<AppWindows>().countdown.take();
+    if let Some(previous) = previous {
+        previous
+            .update(cx, |_, window, _| window.remove_window())
+            .ok();
+    }
+    let interactive = std::mem::take(&mut cx.global_mut::<AppWindows>().countdown_keyboard);
+    if seconds == 0 {
+        return None;
+    }
+    let display = config
+        .target
+        .display()
+        .or_else(scap_targets::Display::get_containing_cursor)
+        .unwrap_or_else(scap_targets::Display::primary);
+    let bounds = capture_display_bounds(&display)?;
+    let target = match &config.target {
+        ScreenCaptureTarget::Area { bounds: area, .. } => Bounds {
+            origin: point(
+                px(area.position().x() as f32),
+                px(area.position().y() as f32),
+            ),
+            size: size(
+                px(area.size().width() as f32),
+                px(area.size().height() as f32),
+            ),
+        },
+        ScreenCaptureTarget::Window { id } => {
+            let window = scap_targets::Window::from_id(id)?;
+            let target = window_logical_bounds_on_display(&window)?;
+            Bounds {
+                origin: point(
+                    px(target.position().x() as f32),
+                    px(target.position().y() as f32),
+                ) - bounds.origin,
+                size: size(
+                    px(target.size().width() as f32),
+                    px(target.size().height() as f32),
+                ),
+            }
+        }
+        _ => Bounds {
+            origin: point(px(0.), px(0.)),
+            size: bounds.size,
+        },
+    };
+    let work_bottom = display_work_area(Some(&display), cx)
+        .map(|work| work.bottom() - bounds.origin.y)
+        .unwrap_or(bounds.size.height);
+    let handle = match cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            display_id: gpui_display_id(Some(&display), cx),
+            titlebar: None,
+            kind: WindowKind::PopUp,
+            focus: false,
+            show: false,
+            is_resizable: false,
+            is_minimizable: false,
+            window_background: gpui::WindowBackgroundAppearance::Transparent,
+            ..Default::default()
+        },
+        |window, cx| {
+            cx.new(|cx| {
+                CountdownWindow::new(
+                    session,
+                    seconds,
+                    target,
+                    work_bottom,
+                    interactive,
+                    window,
+                    cx,
+                )
+            })
+        },
+    ) {
+        Ok(handle) => handle,
+        Err(error) => {
+            tracing::warn!(%error, "full-screen countdown could not open; using the recording bar");
+            return None;
+        }
+    };
+    let prepared = handle
+        .update(cx, |_, window, _| {
+            let native = platform::native_window(window)
+                .ok_or_else(|| std::io::Error::other("countdown has no native window"))?;
+            let id = platform::window_number(window)
+                .and_then(|number| number.to_string().parse::<scap_targets::WindowId>().ok())
+                .ok_or_else(|| std::io::Error::other("countdown has no capture window id"))?;
+            #[cfg(target_os = "windows")]
+            platform::prepare_countdown_panel(&native, interactive)?;
+            #[cfg(target_os = "macos")]
+            if platform::set_window_capture_hidden(&native, true) != 0 {
+                return Err(std::io::Error::other(
+                    "countdown sharing exclusion was not confirmed",
+                ));
+            }
+            Ok::<_, std::io::Error>((native, id))
+        })
+        .and_then(|prepared| prepared.map_err(anyhow::Error::from));
+    let (native, id) = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "full-screen countdown could not be excluded; using the recording bar"
+            );
+            handle
+                .update(cx, |_, window, _| window.remove_window())
+                .ok();
+            return None;
+        }
+    };
+    cx.global_mut::<AppWindows>().countdown = Some(handle);
+    cx.spawn(async move |cx| {
+        if !cx.update(|cx| cx.global::<AppWindows>().countdown == Some(handle)) {
+            return;
+        }
+        platform::place_overlay_panel(
+            &native,
+            f64::from(f32::from(bounds.origin.x)),
+            f64::from(f32::from(bounds.origin.y)),
+            f64::from(f32::from(bounds.size.width)),
+            f64::from(f32::from(bounds.size.height)),
+            platform::target_overlay_level(),
+        );
+        handle
+            .update(cx, |_, window, _| {
+                platform::kick_display_link(window);
+                if interactive {
+                    window.activate_window();
+                }
+                window.refresh();
+            })
+            .ok();
+        if let Some(controls) = cx.update(|cx| cx.global::<AppWindows>().controls) {
+            controls
+                .update(cx, |_, window, _| {
+                    platform::show_window_without_focus(window)
+                })
+                .ok();
+        }
+    })
+    .detach();
+    Some(id)
 }

@@ -19,6 +19,7 @@ mod camera_blur_portable;
 mod camera_loading;
 mod camera_window;
 mod controls_window;
+mod countdown_window;
 mod crash_capture;
 mod deeplink;
 mod dev_restore;
