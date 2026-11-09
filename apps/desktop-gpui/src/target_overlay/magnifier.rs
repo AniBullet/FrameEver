@@ -1,7 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
 use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
-use gpui::{Context, IntoElement, ParentElement as _, RenderImage, Styled, Window, div, img, px};
+use gpui::{
+    Context, IntoElement, ParentElement as _, RenderImage, Styled, StyledImage as _, Window, div,
+    img, px,
+};
 use image::RgbaImage;
 
 use super::{AreaRect, Mode, OverlayWindow, TargetType, repaint};
@@ -21,6 +24,57 @@ enum SelectedImage {
     Wait,
     Live,
     Frozen(image::DynamicImage),
+}
+
+impl Capture {
+    fn selected_image(
+        &self,
+        target: &ScreenCaptureTarget,
+        display_id: &scap_targets::DisplayId,
+        display: (f32, f32),
+        active: bool,
+        current: bool,
+    ) -> anyhow::Result<SelectedImage> {
+        let ScreenCaptureTarget::Area { screen, bounds } = target else {
+            return Ok(SelectedImage::Live);
+        };
+        if !active || screen != display_id {
+            return Ok(SelectedImage::Live);
+        }
+        if !current || matches!(self, Self::Empty | Self::Loading) {
+            return Ok(SelectedImage::Wait);
+        }
+        let Self::Ready { pixels, .. } = self else {
+            return Ok(SelectedImage::Live);
+        };
+        anyhow::ensure!(display.0 > 0. && display.1 > 0., "invalid display size");
+        let scale_x = pixels.width() as f32 / display.0;
+        let scale_y = pixels.height() as f32 / display.1;
+        let x = (bounds.position().x() as f32 * scale_x).floor();
+        let y = (bounds.position().y() as f32 * scale_y).floor();
+        let width = (bounds.size().width() as f32 * scale_x).round();
+        let height = (bounds.size().height() as f32 * scale_y).round();
+        anyhow::ensure!(
+            x.is_finite()
+                && y.is_finite()
+                && width.is_finite()
+                && height.is_finite()
+                && x >= 0.
+                && y >= 0.
+                && width > 0.
+                && height > 0.
+                && x < pixels.width() as f32
+                && y < pixels.height() as f32,
+            "selected area does not fit the frozen display"
+        );
+        let x = x as u32;
+        let y = y as u32;
+        let width = (width as u32).min(pixels.width() - x);
+        let height = (height as u32).min(pixels.height() - y);
+        Ok(SelectedImage::Frozen(image::DynamicImage::ImageRgba8(
+            image::imageops::crop_imm(pixels, x, y, width, height).to_image(),
+        )))
+    }
 }
 
 fn capture_active(mode: Mode, target: Option<TargetType>, recording: bool) -> bool {

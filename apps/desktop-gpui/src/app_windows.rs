@@ -6513,6 +6513,10 @@ mod tests {
     }
 }
 
+pub(crate) fn reset_countdown_keyboard(cx: &mut App) {
+    cx.global_mut::<AppWindows>().countdown_keyboard = false;
+}
+
 pub(crate) fn open_countdown(
     config: &StartConfig,
     session: Entity<RecordingSession>,
@@ -6571,6 +6575,7 @@ pub(crate) fn open_countdown(
     let work_bottom = display_work_area(Some(&display), cx)
         .map(|work| work.bottom() - bounds.origin.y)
         .unwrap_or(bounds.size.height);
+    let observed_session = session.clone();
     let handle = match cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -6637,7 +6642,12 @@ pub(crate) fn open_countdown(
     };
     cx.global_mut::<AppWindows>().countdown = Some(handle);
     cx.spawn(async move |cx| {
-        if !cx.update(|cx| cx.global::<AppWindows>().countdown == Some(handle)) {
+        if !cx.update(|cx| {
+            let session = observed_session.read(cx);
+            cx.global::<AppWindows>().countdown == Some(handle)
+                && session.phase == Phase::Starting
+                && session.countdown_remaining().is_some()
+        }) {
             return;
         }
         platform::place_overlay_panel(

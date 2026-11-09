@@ -558,9 +558,7 @@ mod tests {
         assert!(
             include_str!("main_window.rs").contains(r#"Self::Screenshot => "icons/image.svg""#)
         );
-        assert!(
-            include_str!("target_overlay.rs").contains("Some(mode.icon())")
-        );
+        assert!(include_str!("target_overlay.rs").contains("Some(mode.icon())"));
         assert!(
             include_str!("settings_window/catalog.rs")
                 .contains(r#"Page::Automations => "icons/workflow.svg""#)

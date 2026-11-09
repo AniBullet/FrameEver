@@ -538,6 +538,7 @@ fn start_now(
     target: ScreenCaptureTarget,
     cx: &mut App,
 ) {
+    app_windows::reset_countdown_keyboard(cx);
     // The start waited on the target lookup (and maybe the microphone
     // prompt); another Start or Cycle shortcut can change the mode meanwhile,
     // and the start path reads the window's mode.

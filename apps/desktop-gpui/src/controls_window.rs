@@ -107,9 +107,8 @@ impl ControlsWindow {
         let session = self.session.read(cx);
         let mut lines = Vec::new();
         if session.phase == Phase::Starting && session.countdown_overlay_unavailable {
-            lines.push(
-                t!("Full-screen countdown is unavailable. Use the recording bar.").to_owned(),
-            );
+            lines
+                .push(t!("Couldn't show full-screen countdown. Use the recording bar.").to_owned());
         }
         if session.mic_disconnected {
             lines
