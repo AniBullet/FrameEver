@@ -28,6 +28,35 @@
 	cursor: crosshair;
 }
 
+.magnifier {
+	position: absolute;
+	width: 122px;
+	height: 122px;
+	border: 1px solid var(--border);
+	background: var(--popover);
+	pointer-events: none;
+}
+
+.magnifier-pixels {
+	position: relative;
+	width: 120px;
+	height: 120px;
+}
+
+.magnifier-pixels i,
+.magnifier-pixels b {
+	position: absolute;
+	width: 8px;
+	height: 8px;
+}
+
+.magnifier-pixels b {
+	left: 56px;
+	top: 56px;
+	border: 1px solid var(--foreground);
+	outline: 1px solid var(--background);
+}
+
 .state-line {
 	margin: 8px 0 0;
 	font-size: var(--text-caption);

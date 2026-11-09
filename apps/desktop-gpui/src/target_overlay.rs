@@ -37,6 +37,7 @@ use scap_targets::{
 
 mod area_math;
 mod attached_bar;
+mod magnifier;
 
 use attached_bar::{BAR_EDGE, BAR_HEIGHT, BarSpot, BarTarget, place_bar, work_area_on_display};
 
@@ -196,6 +197,7 @@ impl HoveredWindow {
 /// App-scoped target-select state: which mode is armed, what the cursor is
 /// over, and which window a click has locked onto.
 pub struct TargetSelect {
+    capture_epoch: u64,
     /// `None` when no overlays are up.
     pub mode: Option<TargetType>,
     /// The recording mode the start cluster labels itself with.
@@ -238,6 +240,7 @@ impl Global for TargetSelectGlobal {}
 impl TargetSelect {
     pub fn init(cx: &mut App) -> Entity<Self> {
         let select = cx.new(|_| Self {
+            capture_epoch: 0,
             mode: None,
             recording_mode: Mode::Instant,
             cursor_display: None,
@@ -265,6 +268,7 @@ impl TargetSelect {
         pinned_window: Option<HoveredWindow>,
         cx: &mut Context<Self>,
     ) {
+        self.capture_epoch = self.capture_epoch.wrapping_add(1);
         self.recording_mode = recording_mode;
         self.pinned_window = pinned_window;
         if self.mode.is_none() && mode.is_some() {
@@ -289,6 +293,7 @@ impl TargetSelect {
 
     pub fn set_recording_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
         if self.recording_mode != mode {
+            self.capture_epoch = self.capture_epoch.wrapping_add(1);
             self.recording_mode = mode;
             cx.notify();
         }
@@ -587,6 +592,10 @@ pub struct OverlayWindow {
     focus: gpui::FocusHandle,
     crop: Option<AreaRect>,
     drag: Option<AreaDrag>,
+    screenshot_frame: magnifier::Capture,
+    screenshot_frame_epoch: u64,
+    screenshot_frame_task: Option<gpui::Task<()>>,
+    magnifier_cursor: Option<(f32, f32)>,
     snap_guides: Vec<SnapGuide>,
     area_ratio: Option<(u32, u32)>,
     area_locked: bool,
@@ -730,6 +739,10 @@ impl OverlayWindow {
             focus: cx.focus_handle(),
             crop: locked_area,
             drag: None,
+            screenshot_frame: magnifier::Capture::Empty,
+            screenshot_frame_epoch: 0,
+            screenshot_frame_task: None,
+            magnifier_cursor: None,
             snap_guides: Vec::new(),
             area_ratio: stored_area_ratio(),
             area_locked: locked_area.is_some(),
@@ -853,7 +866,7 @@ impl OverlayWindow {
             // straight to the capture path, which closes these overlays
             // itself (`startRecording`'s screenshot branch,
             // `target-select-overlay.tsx:1995`).
-            cx.defer(move |cx: &mut App| crate::screenshot::take_screenshot(target, cx));
+            self.take_selected_screenshot(target, cx);
             return;
         }
         // Deferred: this runs inside the overlay's own window update and the
@@ -926,6 +939,7 @@ impl Render for OverlayWindow {
             self.sync_area_camera(cx);
         }
         let mode = self.select.read(cx).mode;
+        self.sync_screenshot_frame(window, cx);
 
         let root = div()
             .id("overlay-root")
@@ -938,6 +952,13 @@ impl Render for OverlayWindow {
             }))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 let key = event.keystroke.key.as_str();
+                if this.screenshot_frame_loading() {
+                    if key == "escape" {
+                        this.dismiss(cx);
+                    }
+                    cx.stop_propagation();
+                    return;
+                }
                 if key == "tab" {
                     if event.keystroke.modifiers.shift {
                         window.focus_prev(cx);
@@ -970,6 +991,9 @@ impl Render for OverlayWindow {
             .font_weight(FontWeight::MEDIUM)
             .text_color(gpui::white());
 
+        if self.screenshot_frame_loading() {
+            return root.into_any_element();
+        }
         let root = if self.recording_area {
             root.child(self.render_area_variant(window, cx))
         } else {
@@ -1552,7 +1576,9 @@ impl OverlayWindow {
             return root;
         }
 
-        root = root.children(scrim(shown, self.display_size, self.theme.overlay.into()));
+        root = root
+            .children(self.render_screenshot_background())
+            .children(scrim(shown, self.display_size, self.theme.overlay.into()));
 
         if let Some(shown) = shown {
             root = root.child(self.render_crop_region(shown, editable));
@@ -1580,7 +1606,9 @@ impl OverlayWindow {
             root = root.child(self.render_locked_badge(shown, cx));
         }
 
-        root = root.children(self.render_snap_guides());
+        root = root
+            .children(self.render_snap_guides())
+            .children(self.render_magnifier(window));
         if crop.is_none() && !interacting {
             root = root.child(self.render_selection_hint(cx));
         }
@@ -2373,6 +2401,7 @@ impl OverlayWindow {
             return;
         }
         let point = (f32::from(position.x), f32::from(position.y));
+        self.magnifier_cursor = Some(point);
         self.snap_guides.clear();
         self.fit_hover = None;
         if let (Some(crop), Some((from, started))) = (self.crop, self.reshape.take()) {
@@ -2425,6 +2454,7 @@ impl OverlayWindow {
         if self.recording_area {
             return;
         }
+        self.magnifier_cursor = Some((f32::from(position.x), f32::from(position.y)));
         let Some(drag) = &self.drag else {
             let hover = fit_candidate(
                 &self.area_windows,
@@ -2567,7 +2597,7 @@ impl OverlayWindow {
             && self.select.read(cx).recording_mode == Mode::Screenshot
             && let Some(target) = self.target(cx)
         {
-            cx.defer(move |cx: &mut App| crate::screenshot::take_screenshot(target, cx));
+            self.take_selected_screenshot(target, cx);
         }
         cx.notify();
     }
