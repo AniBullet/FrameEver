@@ -4695,7 +4695,8 @@ mod tests {
             .chain(catalog::WHILE_RECORDING_SHORTCUTS.iter())
             .copied()
             .collect();
-        assert_eq!(shown.len(), 13);
+        assert_eq!(shown.len(), 14);
+        assert!(shown.contains(&"focusCameraPreview"));
         let settings = store::GeneralSettings::default();
         for action in &shown {
             assert_eq!(shown.iter().filter(|other| *other == action).count(), 1);
