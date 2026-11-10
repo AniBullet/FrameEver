@@ -251,6 +251,21 @@ pub fn set_window_capture_hidden(native: &NativeWindow, hidden: bool) -> usize {
     }
 }
 
+pub(crate) fn window_capture_exclusion_unavailable_reason() -> Option<String> {
+    capture_exclusion::streamed_display_reason()
+}
+
+pub(crate) fn flush_camera_capture_frame() -> Result<(), String> {
+    let result = unsafe { windows_sys::Win32::Graphics::Dwm::DwmFlush() };
+    if result < 0 {
+        Err(format!(
+            "Camera capture compositor flush failed: HRESULT={result}"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 pub fn set_window_click_through(_native: &NativeWindow, _click_through: bool) -> bool {
     false
 }

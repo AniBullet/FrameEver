@@ -25,6 +25,7 @@ use crate::{
 };
 
 pub struct ControlsWindow {
+    tray_hidden: bool,
     session: Entity<RecordingSession>,
     theme: Theme,
     has_microphone: bool,
@@ -84,6 +85,7 @@ impl ControlsWindow {
         });
 
         let mut this = Self {
+            tray_hidden: false,
             session,
             theme,
             has_microphone,
@@ -676,6 +678,28 @@ impl ControlsWindow {
             .ok();
         })
         .detach();
+    }
+
+    pub(crate) fn tray_hidden(&self) -> bool {
+        self.tray_hidden
+    }
+
+    pub(crate) fn set_tray_hidden(&mut self, hidden: bool, window: &mut Window) {
+        let Some(native) = crate::platform::native_window(window) else {
+            tracing::error!("recording controls have no native window");
+            return;
+        };
+        if hidden {
+            crate::platform::hide_native(&native);
+        } else {
+            crate::platform::show_window_without_focus(window);
+        }
+        self.tray_hidden = hidden;
+    }
+
+    pub(crate) fn restart_from_tray(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_tray_hidden(false, window);
+        self.confirm_action(DestructiveAction::Restart, window, cx);
     }
 
     fn render_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {

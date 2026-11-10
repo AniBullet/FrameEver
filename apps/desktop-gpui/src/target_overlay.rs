@@ -50,6 +50,79 @@ use area_math::{
 
 const AREA_SELECTION_STORE: &str = "area_selection";
 
+fn usable_last_area(bounds: AreaRect, display_size: (f32, f32), mode: Mode) -> Option<AreaRect> {
+    [
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height,
+        display_size.0,
+        display_size.1,
+    ]
+    .into_iter()
+    .all(f32::is_finite)
+    .then_some(bounds)
+    .filter(|bounds| {
+        bounds.x >= 0.
+            && bounds.y >= 0.
+            && bounds.right() <= display_size.0
+            && bounds.bottom() <= display_size.1
+            && bounds.is_valid_for(area_min_size(mode))
+    })
+}
+
+pub(crate) fn last_locked_target(mode: Mode) -> Option<ScreenCaptureTarget> {
+    let (screen_id, bounds) = stored_locked_area()?;
+    let display = scap_targets::Display::list()
+        .into_iter()
+        .find(|display| display.id().to_string() == screen_id)?;
+    let size = display.logical_size()?;
+    let bounds = usable_last_area(bounds, (size.width() as f32, size.height() as f32), mode)?;
+    Some(ScreenCaptureTarget::Area {
+        screen: display.id(),
+        bounds: bounds.to_bounds(),
+    })
+}
+
+#[cfg(test)]
+mod tray_last_area_tests {
+    use super::*;
+
+    #[test]
+    fn tray_last_area_preserves_the_lock_and_rejects_stale_geometry() {
+        let area = AreaRect {
+            x: 100.,
+            y: 60.,
+            width: 800.,
+            height: 600.,
+        };
+        assert_eq!(
+            usable_last_area(area, (1920., 1080.), Mode::Studio),
+            Some(area)
+        );
+        assert_eq!(usable_last_area(area, (640., 480.), Mode::Studio), None);
+        assert_eq!(
+            usable_last_area(
+                AreaRect {
+                    width: f32::NAN,
+                    ..area
+                },
+                (1920., 1080.),
+                Mode::Studio
+            ),
+            None
+        );
+        assert_eq!(
+            usable_last_area(
+                AreaRect { x: -5., ..area },
+                (1920., 1080.),
+                Mode::Screenshot
+            ),
+            None
+        );
+    }
+}
+
 use crate::{
     app_windows,
     editor_canvas::{GuideAxis, NormRect, SnapGuide},

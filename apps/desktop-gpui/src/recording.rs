@@ -128,6 +128,7 @@ async fn finalize_studio(
             &project_path,
             camera_snapshot.map_or_else(current_camera_blur, |snapshot| snapshot.blur),
             placement,
+            completed.meta.camera_path().and(camera_snapshot),
         );
         let library = serde_json::from_value(serde_json::Value::Object(
             crate::store::store_section("animated_gradients"),
@@ -203,6 +204,44 @@ pub(crate) type CaptureStopFuture =
 pub(crate) struct StudioCameraSnapshot {
     pub blur: crate::store::BlurMode,
     pub placement: Option<frameever_recording::camera_placement::RecordingCameraPlacement>,
+    pub preview: crate::store::CameraWindowState,
+    pub size_percent: Option<f32>,
+}
+
+fn apply_camera_appearance(
+    camera: &mut serde_json::Map<String, serde_json::Value>,
+    preview: crate::store::CameraWindowState,
+    size_percent: Option<f32>,
+) {
+    let (shape, rounding) = camera_preview_shape(preview);
+    camera.insert("shape".into(), serde_json::to_value(shape).unwrap());
+    camera.insert("rounding".into(), serde_json::Value::from(rounding));
+    if preview.shape == crate::store::CameraShape::Full {
+        camera.insert("aspectRatio".into(), serde_json::Value::from(16. / 9.));
+    } else {
+        camera.remove("aspectRatio");
+    }
+    if let Some(size) = size_percent.filter(|size| size.is_finite() && *size > 0.) {
+        camera.insert("size".into(), serde_json::Value::from(size.clamp(0., 100.)));
+        camera.insert("sizeIncludesPadding".into(), true.into());
+    }
+}
+
+fn camera_preview_shape(
+    preview: crate::store::CameraWindowState,
+) -> (frameever_project::CameraShape, f32) {
+    use crate::store::CameraShape;
+    match preview.shape {
+        CameraShape::Round => (frameever_project::CameraShape::Square, 100.),
+        CameraShape::Square => (
+            frameever_project::CameraShape::Square,
+            (4000. / preview.size.max(1.)).clamp(0., 100.),
+        ),
+        CameraShape::Full => (
+            frameever_project::CameraShape::Source,
+            (4000. / preview.size.max(1.)).clamp(0., 100.),
+        ),
+    }
 }
 
 #[derive(Clone, Default)]
@@ -982,6 +1021,20 @@ pub(crate) fn preparing_presentation(
     if let Some(placement) = camera_snapshot.and_then(|snapshot| snapshot.placement) {
         placement.apply(&mut config.camera);
     }
+    if let Some(snapshot) = camera_snapshot {
+        let (shape, rounding) = camera_preview_shape(snapshot.preview);
+        config.camera.shape = shape;
+        config.camera.rounding = rounding;
+        config.camera.aspect_ratio =
+            (snapshot.preview.shape == crate::store::CameraShape::Full).then_some(16. / 9.);
+        if let Some(size) = snapshot
+            .size_percent
+            .filter(|size| size.is_finite() && *size > 0.)
+        {
+            config.camera.size = size.clamp(0., 100.);
+            config.camera.size_includes_padding = true;
+        }
+    }
     Ok(config)
 }
 
@@ -1177,13 +1230,14 @@ fn apply_camera_blur_to_project_config(
     project_dir: &std::path::Path,
     blur: crate::store::BlurMode,
 ) -> bool {
-    apply_camera_preview_to_project_config(project_dir, blur, None)
+    apply_camera_preview_to_project_config(project_dir, blur, None, None)
 }
 
 fn apply_camera_preview_to_project_config(
     project_dir: &std::path::Path,
     blur: crate::store::BlurMode,
     placement: Option<frameever_recording::camera_placement::RecordingCameraPlacement>,
+    snapshot: Option<StudioCameraSnapshot>,
 ) -> bool {
     use serde_json::{Map, Value};
 
@@ -1240,6 +1294,10 @@ fn apply_camera_preview_to_project_config(
         };
         saved_position.extend(position);
         camera.insert("manualPosition".into(), Value::Null);
+    }
+
+    if let Some(snapshot) = snapshot {
+        apply_camera_appearance(camera, snapshot.preview, snapshot.size_percent);
     }
 
     // Same shape `ProjectConfiguration::write` produces (serde_json pretty),
@@ -2322,7 +2380,8 @@ mod tests {
             assert!(apply_camera_preview_to_project_config(
                 &dir,
                 blur,
-                Some(placement)
+                Some(placement),
+                None
             ));
             let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
             let mut expected = original.clone();
@@ -2333,6 +2392,52 @@ mod tests {
             assert_eq!(written, expected);
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn camera_appearance_carries_the_preview_shape_and_recorded_size() {
+        use crate::store::{CameraShape, CameraWindowState};
+        for (shape, expected_shape, expected_rounding) in [
+            (CameraShape::Round, "square", 100.0),
+            (CameraShape::Square, "square", 20.0),
+            (CameraShape::Full, "source", 20.0),
+        ] {
+            let mut camera = serde_json::json!({"size": 30.0, "futureField": 42})
+                .as_object()
+                .unwrap()
+                .clone();
+            apply_camera_appearance(
+                &mut camera,
+                CameraWindowState {
+                    size: 200.0,
+                    shape,
+                    ..CameraWindowState::default()
+                },
+                Some(25.0),
+            );
+            assert_eq!(camera["shape"], expected_shape);
+            assert_eq!(camera["rounding"], expected_rounding);
+            assert_eq!(camera["size"], 25.0);
+            assert_eq!(camera["futureField"], 42);
+        }
+    }
+
+    #[test]
+    fn camera_wide_framing_survives_the_project_camera_round_trip() {
+        let camera: frameever_project::Camera = serde_json::from_value(serde_json::json!({
+            "shape": "source", "aspectRatio": 16.0 / 9.0
+        }))
+        .unwrap();
+        let written = serde_json::to_value(camera).unwrap();
+        assert_eq!(written["aspectRatio"], 16.0 / 9.0);
+        assert_eq!(
+            frameever_rendering::camera_crop_bounds([640., 480.], 16. / 9.),
+            [0., 60., 640., 420.]
+        );
+        assert_eq!(
+            frameever_rendering::camera_crop_bounds([480., 640.], 16. / 9.),
+            [0., 185., 480., 455.]
+        );
     }
 
     /// A config written by a build that predates `backgroundBlur` (or one that
