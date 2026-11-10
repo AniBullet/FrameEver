@@ -359,7 +359,7 @@ Not checked by eye: timing feel, the card's position at 100 to 200% scaling, and
 
 ### Screenshot magnifier and record-mark countdown (#121, #120; 2026-11-10)
 
-This batch is on `codex/spec85-picker`, based on `6ef220735`. It is separate from Claude's #101, #99 and #103 worktrees. Neither `main` nor those worktrees was changed.
+This batch was developed on `codex/spec85-picker`, based on `6ef220735`, and integrated into `main` on 2026-11-10 at the owner's request. Claude's #101, #99 and #103 worktrees were not changed. The integration is a fast-forward of the tested source; subsequent changes only update this handoff.
 
 #120 adds a transparent window on the recorded display with the target scrim and 128 px record mark. Numbers fade for 120 ms, then stay still. The last number stays while the capture pipeline warms up; the actual cue-start event changes it to the red mark. Enter skips the remaining seconds without bypassing the cue or start gate; Esc cancels when the window has keyboard focus. A hotkey start stays passive, including mouse activation. Windows display affinity must be set and strictly read back before showing the window. If that cannot be confirmed, the window stays hidden and the recording bar explains that it carries the countdown instead. The existing remote-session exception is unchanged. Zero countdown opens no window. Temporary countdown window ids are not retained in restart configuration. Deferred showing checks both the registered window and the current session; hotkey and deep-link starts clear old keyboard intent.
 
