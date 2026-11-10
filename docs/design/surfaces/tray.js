@@ -163,7 +163,7 @@ const row = (r) => {
 const menu = () =>
 	`<div class="menu tm" role="menu">${rows().map(row).join("")}</div>`;
 const recent = () =>
-	`<div class="menu tm" role="menu">${RECENT.map(([en, zh, ic]) => `<button data-a="recent"><span class="thumb">${icon(ic, "sm")}</span><span class="grow">${L(en, zh)}</span></button>`).join("")}<hr><button data-a="library"><span class="grow">${L("All in library", "在资源库里查看全部")}</span></button></div>`;
+	`<div class="menu tm" role="menu"><button class="recent-back" data-sub>${icon("chevron-left", "sm")}<span class="grow">${L("Recent", "最近")}</span></button>${RECENT.map(([en, zh, ic]) => `<button data-a="recent"><span class="thumb">${icon(ic, "sm")}</span><span class="grow">${L(en, zh)}</span></button>`).join("")}<hr><button data-a="library"><span class="grow">${L("All in library", "在资源库里查看全部")}</span></button></div>`;
 
 const results = {
 	open: ["The compact main window opens.", "打开紧凑主窗口。"],
@@ -309,8 +309,8 @@ const copy = () => {
 	text("t-inv", "Everything in the tray today", "现在托盘里的全部内容");
 	text(
 		"l-inv",
-		"Compared with upstream at f7d351611. Nothing is lost except cloud features.",
-		"对照上游 f7d351611。除了云功能，没有丢失任何能力。",
+		"Compared with upstream at 017172936. Nothing is lost except cloud features. The Windows popup follows this page; upstream keeps a native macOS menu.",
+		"对照上游 017172936。除了云功能，没有丢失任何能力。Windows 弹出菜单按本页实现，上游保留 macOS 原生菜单。",
 	);
 	text("t-add", "Added", "新增");
 	text("l-add", "One addition from other tools.", "从其他工具加入的一项。");
@@ -460,8 +460,8 @@ const copy = () => {
 			[
 				["Recent", "最近"],
 				[
-					"Six items at most, with thumbnails and no emoji. Choosing one opens the library with it selected, as the main window ticket decided",
-					"最多六项，用缩略图，不用 emoji。选择后打开资源库并选中它，这是主窗口工单定的",
+					"Six items at most, with thumbnails and no emoji. Choosing one selects it in the library. The submenu opens on the side that fits; on a narrow work area it replaces the menu, with Back and Esc returning",
+					"最多六项，用缩略图，不用 emoji。选择后在资源库中选中它。子菜单向空间足够的一侧打开；工作区较窄时替换主菜单，可点返回或按 Esc 回到主菜单",
 				],
 			],
 			[
@@ -699,10 +699,10 @@ const copy = () => {
 				],
 			],
 			[
-				["Upstream Cap f7d351611", "上游 Cap f7d351611"],
+				["Upstream Cap 017172936", "上游 Cap 017172936"],
 				[
-					"Row icons, shortcuts on rows, separate screenshot items",
-					"行图标、行上的快捷键、单独的截图项目",
+					"Row icons, registered shortcuts and separate screenshot items remain references. The latest upstream GPUI tray is native on macOS and has no Windows popup",
+					"行图标、已注册的快捷键和单独的截图项目仍作参考。最新版上游 GPUI 托盘在 macOS 用原生菜单，没有 Windows 弹出菜单",
 				],
 			],
 			[
