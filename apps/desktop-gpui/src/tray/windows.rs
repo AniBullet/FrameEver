@@ -150,7 +150,7 @@ pub fn init(cx: &mut App) {
                         cx.spawn(async move |_| {
                             if let Err(error) = shown.await {
                                 tracing::error!(%error, "tray popup could not open safely");
-                                platform::alert_dialog(t!("Could not open tray menu"), t!("The tray menu could not open safely. Open FrameEver to use its controls."));
+                                platform::alert_dialog(t!("Couldn't open tray menu"), t!("Couldn't open the tray menu safely. Open FrameEver to use its controls."));
                             }
                         }).detach();
                     }

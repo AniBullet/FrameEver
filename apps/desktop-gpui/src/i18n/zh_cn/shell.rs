@@ -1,4 +1,8 @@
 pub static ENTRIES: &[(&str, &str)] = &[
+    (
+        "Couldn't prepare the camera preview. Start recording again.",
+        "无法准备摄像头预览。重新开始录制。",
+    ),
     ("Record display", "录制显示器"),
     ("Record window", "录制窗口"),
     ("Record area", "录制区域"),
@@ -10,7 +14,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Mirror", "镜像"),
     ("Resume", "继续"),
     (
-        "Could not prepare camera controls for capture: {error}",
+        "Couldn't prepare camera controls for capture: {error}",
         "无法为录制准备摄像头控制项：{error}",
     ),
     (
@@ -49,10 +53,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Exporting {title} · {percent}%",
         "正在导出 {title} · {percent}%",
     ),
-    ("Could not open tray menu", "无法打开托盘菜单"),
+    ("Couldn't open tray menu", "无法打开托盘菜单"),
     (
-        "The tray menu could not open safely. Open FrameEver to use its controls.",
-        "无法安全打开托盘菜单。请打开 FrameEver 使用控制项。",
+        "Couldn't open the tray menu safely. Open FrameEver to use its controls.",
+        "无法安全打开托盘菜单。打开 FrameEver 使用控制项。",
     ),
     (
         "This menu may appear in recordings on this desktop.",
@@ -65,16 +69,16 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "FrameEver · Exporting {percent}%",
         "FrameEver · 正在导出 {percent}%",
     ),
-    ("Focus camera preview", "聚焦摄像头预览"),
-    ("focus the camera preview controls", "聚焦摄像头预览控制项"),
+    ("Focus camera preview", "聚焦摄像头"),
+    ("focus the camera preview controls", "聚焦摄像头控制项"),
     (
         "Allow it in Windows Settings.",
-        "请在 Windows 设置中允许访问。",
+        "在 Windows 设置中允许访问。",
     ),
     ("It may be in use by another app.", "可能正被其他应用占用。"),
-    ("Reconnect your camera.", "请重新连接摄像头。"),
+    ("Reconnect your camera.", "重新连接摄像头。"),
     ("No usable camera format.", "没有可用的摄像头格式。"),
-    ("Choose another camera.", "请选择其他摄像头。"),
+    ("Choose another camera.", "选择其他摄像头。"),
     ("Couldn't start camera", "无法启动摄像头"),
     ("Turn camera off", "关闭摄像头"),
     (

@@ -31,7 +31,7 @@ pub(crate) fn camera_capture_ready(
         })
         .map_err(|error| {
             t!(
-                "Could not prepare camera controls for capture: {error}",
+                "Couldn't prepare camera controls for capture: {error}",
                 error = error
             )
         })
@@ -41,10 +41,10 @@ pub(crate) fn tray_open_library_item(path: PathBuf, cx: &mut App) {
     let main = cx.global::<AppWindows>().main;
     if let Err(error) = main.update(cx, |view, window, cx| {
         view.select_library_project(path, window, cx);
-        view.expand_then_show(window, cx);
     }) {
         tracing::error!("could not select the recent project in the library: {error}");
     }
+    show_library(cx);
     cx.activate(true);
 }
 

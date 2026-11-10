@@ -18,6 +18,19 @@ use crate::app_sounds::AppSound;
 use crate::i18n::t;
 use crate::recording::{self, ActiveRecording, StartConfig};
 
+#[derive(Debug)]
+struct CameraCapturePreparationFailed;
+
+impl std::fmt::Display for CameraCapturePreparationFailed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(t!(
+            "Couldn't prepare the camera preview. Start recording again."
+        ))
+    }
+}
+
+impl std::error::Error for CameraCapturePreparationFailed {}
+
 /// `Idle -> Starting -> Recording -> Stopping -> Idle`; pause is a flag on
 /// `Recording`, matching the `recording`/`paused` variants of the Tauri bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -762,7 +775,10 @@ impl RecordingSession {
                         return None;
                     }
                     Some(gpui_tokio::Tokio::spawn(cx, async move {
-                        prepared??;
+                        prepared
+                            .map_err(anyhow::Error::from)
+                            .and_then(std::convert::identity)
+                            .map_err(|error| error.context(CameraCapturePreparationFailed))?;
                         start.await
                     }))
                 })
@@ -790,7 +806,11 @@ impl RecordingSession {
                     }
                     Ok(Err(error)) => {
                         tracing::error!("recording failed to start: {error:#}");
-                        this.error = Some(format!("{error:#}"));
+                        this.error = Some(
+                            error
+                                .downcast_ref::<CameraCapturePreparationFailed>()
+                                .map_or_else(|| format!("{error:#}"), ToString::to_string),
+                        );
                         this.abort_start_cue();
                         this.countdown_remaining = None;
                         {
