@@ -1,4 +1,12 @@
 pub static ENTRIES: &[(&str, &str)] = &[
+    ("Record display", "录制显示器"),
+    ("Record window", "录制窗口"),
+    ("Record area", "录制区域"),
+    ("Screenshot display", "截取显示器"),
+    ("Screenshot window", "截取窗口"),
+    ("Screenshot area", "截取区域"),
+    ("Take a screenshot", "截图"),
+    ("Import media…", "导入媒体…"),
     ("Mirror", "镜像"),
     ("Resume", "继续"),
     (
