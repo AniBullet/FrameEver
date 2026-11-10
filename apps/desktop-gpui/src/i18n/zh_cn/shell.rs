@@ -392,7 +392,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Select how you want to capture your screen",
         "选择你想要的录屏方式",
     ),
-    ("FrameEver - Stop Recording", "帧刻 - 停止录制"),
     ("Previous", "最近"),
     ("No recent items", "没有最近的项目"),
     ("Select Mode", "选择模式"),
@@ -491,31 +490,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "这次录制不会包含你的声音。",
     ),
     ("Camera access needed", "需要摄像头权限"),
-    (
-        "Click to allow FrameEver to use your camera in System Settings.",
-        "点击后在系统设置中允许帧刻使用摄像头。",
-    ),
-    (
-        "This camera is no longer available. Check that it is connected and allowed by system permissions.",
-        "此摄像头已不可用。请检查它是否已连接，并已在系统权限中允许。",
-    ),
-    (
-        "No frames were received from this camera. It may be closed, disconnected, covered, or in use by another app.",
-        "没有收到此摄像头的画面。它可能已关闭、断开、被遮挡，或正被其他应用占用。",
-    ),
-    (
-        "The system could not start this camera. It may be unavailable or in use by another app.",
-        "系统无法启动此摄像头。它可能不可用，或正被其他应用占用。",
-    ),
-    (
-        "This camera did not report a usable capture format.",
-        "此摄像头没有提供可用的采集格式。",
-    ),
-    (
-        "The selected camera could not be started. Choose another camera or reconnect this one.",
-        "无法启动所选摄像头。请换一个摄像头，或重新连接它。",
-    ),
-    ("Camera unavailable", "摄像头不可用"),
     ("Camera disconnected", "摄像头已断开"),
     (
         "Recording continues without it.",
