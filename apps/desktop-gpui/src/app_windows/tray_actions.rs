@@ -7,7 +7,10 @@ pub(crate) fn camera_capture_ready(
     if mode != RecordingMode::Instant {
         return Ok(None);
     }
-    let Some(handle) = cx.global::<AppWindows>().camera else {
+    let Some(handle) = cx
+        .try_global::<AppWindows>()
+        .and_then(|windows| windows.camera)
+    else {
         return Ok(None);
     };
     handle
@@ -26,7 +29,12 @@ pub(crate) fn camera_capture_ready(
             });
             Some(receiver)
         })
-        .map_err(|error| format!("Could not prepare camera controls for capture: {error}"))
+        .map_err(|error| {
+            t!(
+                "Could not prepare camera controls for capture: {error}",
+                error = error
+            )
+        })
 }
 
 pub(crate) fn tray_open_library_item(path: PathBuf, cx: &mut App) {
@@ -97,7 +105,7 @@ pub(crate) fn tray_restart_recording(cx: &mut App) {
 
 pub(crate) fn tray_export_status(cx: &App) -> Option<(String, u8)> {
     let windows = cx.global::<AppWindows>();
-    for (path, handle) in &windows.editors {
+    for (_, handle) in &windows.editors {
         let Ok(editor) = handle.read(cx) else {
             continue;
         };

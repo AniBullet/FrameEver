@@ -1,4 +1,30 @@
 pub static ENTRIES: &[(&str, &str)] = &[
+    ("Mirror", "镜像"),
+    ("Resume", "继续"),
+    (
+        "Could not prepare camera controls for capture: {error}",
+        "无法为录制准备摄像头控制项：{error}",
+    ),
+    (
+        "Camera controls did not hide before recording",
+        "录制前未能隐藏摄像头控制项",
+    ),
+    (
+        "Camera capture preparation failed: {error}",
+        "摄像头录制准备失败：{error}",
+    ),
+    (
+        "Camera capture compositor timed out",
+        "等待摄像头画面合成超时",
+    ),
+    (
+        "Camera capture compositor task failed: {error}",
+        "摄像头画面合成任务失败：{error}",
+    ),
+    (
+        "Camera capture compositor flush failed: HRESULT={result}",
+        "摄像头画面合成同步失败：HRESULT={result}",
+    ),
     ("Open FrameEver", "打开帧刻"),
     ("Recent", "最近"),
     ("All in library", "在资源库里查看全部"),
@@ -11,17 +37,32 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Hide controls", "隐藏控制条"),
     ("Screenshot last area", "截取上次区域"),
     ("Record last area", "录制上次区域"),
-    ("Exporting {title} · {percent}%", "正在导出 {title} · {percent}%"),
+    (
+        "Exporting {title} · {percent}%",
+        "正在导出 {title} · {percent}%",
+    ),
     ("Could not open tray menu", "无法打开托盘菜单"),
-    ("The tray menu could not open safely. Open FrameEver to use its controls.", "无法安全打开托盘菜单。请打开 FrameEver 使用控制项。"),
-    ("This menu may appear in recordings on this desktop.", "此桌面环境下，菜单可能出现在录制中。"),
+    (
+        "The tray menu could not open safely. Open FrameEver to use its controls.",
+        "无法安全打开托盘菜单。请打开 FrameEver 使用控制项。",
+    ),
+    (
+        "This menu may appear in recordings on this desktop.",
+        "此桌面环境下，菜单可能出现在录制中。",
+    ),
     ("FrameEver · Starting", "FrameEver · 即将开始"),
     ("FrameEver · Paused", "FrameEver · 已暂停"),
     ("FrameEver · Recording", "FrameEver · 录制中"),
-    ("FrameEver · Exporting {percent}%", "FrameEver · 正在导出 {percent}%"),
+    (
+        "FrameEver · Exporting {percent}%",
+        "FrameEver · 正在导出 {percent}%",
+    ),
     ("Focus camera preview", "聚焦摄像头预览"),
     ("focus the camera preview controls", "聚焦摄像头预览控制项"),
-    ("Allow it in Windows Settings.", "请在 Windows 设置中允许访问。"),
+    (
+        "Allow it in Windows Settings.",
+        "请在 Windows 设置中允许访问。",
+    ),
     ("It may be in use by another app.", "可能正被其他应用占用。"),
     ("Reconnect your camera.", "请重新连接摄像头。"),
     ("No usable camera format.", "没有可用的摄像头格式。"),

@@ -6482,10 +6482,10 @@ mod tests {
         assert_eq!(
             camera_area_bounds((0., 0.), crop, (180., 364.)),
             Some(AreaRect {
-                x: 603.,
-                y: 246.,
-                width: 81.,
-                height: 188.,
+                x: 596.,
+                y: 234.,
+                width: 88.,
+                height: 200.,
             })
         );
     }

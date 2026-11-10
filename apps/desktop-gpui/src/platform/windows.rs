@@ -258,8 +258,9 @@ pub(crate) fn window_capture_exclusion_unavailable_reason() -> Option<String> {
 pub(crate) fn flush_camera_capture_frame() -> Result<(), String> {
     let result = unsafe { windows_sys::Win32::Graphics::Dwm::DwmFlush() };
     if result < 0 {
-        Err(format!(
-            "Camera capture compositor flush failed: HRESULT={result}"
+        Err(crate::i18n::t!(
+            "Camera capture compositor flush failed: HRESULT={result}",
+            result = result
         ))
     } else {
         Ok(())

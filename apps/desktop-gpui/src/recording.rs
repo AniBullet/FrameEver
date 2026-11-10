@@ -222,7 +222,7 @@ fn apply_camera_appearance(
         camera.remove("aspectRatio");
     }
     if let Some(size) = size_percent.filter(|size| size.is_finite() && *size > 0.) {
-        camera.insert("size".into(), serde_json::Value::from(size.clamp(0., 100.)));
+        camera.insert("size".into(), serde_json::Value::from(size));
         camera.insert("sizeIncludesPadding".into(), true.into());
     }
 }
@@ -1031,7 +1031,7 @@ pub(crate) fn preparing_presentation(
             .size_percent
             .filter(|size| size.is_finite() && *size > 0.)
         {
-            config.camera.size = size.clamp(0., 100.);
+            config.camera.size = size;
             config.camera.size_includes_padding = true;
         }
     }
@@ -2418,6 +2418,7 @@ mod tests {
             assert_eq!(camera["shape"], expected_shape);
             assert_eq!(camera["rounding"], expected_rounding);
             assert_eq!(camera["size"], 25.0);
+            assert_eq!(camera["sizeIncludesPadding"], true);
             assert_eq!(camera["futureField"], 42);
         }
     }
@@ -2430,6 +2431,9 @@ mod tests {
         .unwrap();
         let written = serde_json::to_value(camera).unwrap();
         assert_eq!(written["aspectRatio"], 16.0 / 9.0);
+        let legacy: frameever_project::Camera = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.size_includes_padding);
+        assert!(legacy.aspect_ratio.is_none());
         assert_eq!(
             frameever_rendering::camera_crop_bounds([640., 480.], 16. / 9.),
             [0., 60., 640., 420.]
