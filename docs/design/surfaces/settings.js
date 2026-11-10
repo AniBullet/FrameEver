@@ -46,6 +46,7 @@ const v = {
 		instant: [],
 		picker: [],
 		cycle: [],
+		cameraFocus: ["Ctrl", "Shift", "C"],
 		stop: ["Ctrl", "Shift", "S"],
 		pause: ["Ctrl", "Shift", "P"],
 		restart: [],
@@ -543,6 +544,7 @@ const sections = [
 					},
 					{ k: "picker", en: "Open picker", zh: "打开录制选择器", c: "hotkey" },
 					{ k: "cycle", en: "Cycle mode", zh: "切换录制模式", c: "hotkey" },
+					{ k: "cameraFocus", en: "Focus camera preview", zh: "聚焦摄像头预览", c: "hotkey" },
 				],
 			},
 			{

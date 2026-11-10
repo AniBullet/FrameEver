@@ -108,6 +108,7 @@ impl Marquee {
 }
 
 pub(super) struct LibraryPage {
+    pending_selection: Option<PathBuf>,
     entries: Option<Vec<Entry>>,
     state: ViewState,
     view: LibraryView,
@@ -157,6 +158,7 @@ impl LibraryPage {
         overlay_focus: FocusHandle,
     ) -> Self {
         Self {
+            pending_selection: None,
             entries: None,
             state: crate::store::load().library,
             view: LibraryView::default(),
@@ -412,6 +414,14 @@ impl MainWindow {
         self.library.entries = Some(entries);
         self.library.detail.stale = true;
         self.rebuild_library(cx);
+        if let Some(path) = self.library.pending_selection.take() {
+            if self.library.order.contains(&path) {
+                self.library.reveal_lead = true;
+                self.change_selection(cx, |selection, _| selection.click(&path));
+            } else {
+                tracing::warn!(path = %path.display(), "the recent project is no longer in the library");
+            }
+        }
         if self.shell.shows_library() && dirs != self.library.watched {
             self.watch_library(dirs, window, cx);
         }
@@ -801,6 +811,18 @@ impl MainWindow {
             self.library.unseen.push(project);
             cx.notify();
         }
+    }
+
+    pub(crate) fn select_library_project(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.clear_search(cx);
+        self.library.state.clear_filters();
+        self.library.pending_selection = Some(path);
+        self.refresh_library(window, cx);
     }
 
     fn show_fresh(&mut self, projects: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {

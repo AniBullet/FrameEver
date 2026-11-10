@@ -50,9 +50,10 @@ pub enum HotkeyAction {
     ScreenshotDisplay,
     ScreenshotWindow,
     ScreenshotArea,
+    FocusCameraPreview,
 }
 
-const ACTION_KEYS: [(&str, HotkeyAction); 13] = [
+const ACTION_KEYS: [(&str, HotkeyAction); 14] = [
     ("startStudioRecording", HotkeyAction::StartStudioRecording),
     ("startInstantRecording", HotkeyAction::StartInstantRecording),
     ("stopRecording", HotkeyAction::StopRecording),
@@ -75,7 +76,20 @@ const ACTION_KEYS: [(&str, HotkeyAction); 13] = [
     ("screenshotDisplay", HotkeyAction::ScreenshotDisplay),
     ("screenshotWindow", HotkeyAction::ScreenshotWindow),
     ("screenshotArea", HotkeyAction::ScreenshotArea),
+    ("focusCameraPreview", HotkeyAction::FocusCameraPreview),
 ];
+
+#[cfg(test)]
+mod camera_focus_tests {
+    use super::*;
+
+    #[test]
+    fn camera_focus_shortcut_is_a_configurable_action() {
+        let action = HotkeyAction::from_store_key("focusCameraPreview");
+        assert!(action.is_some());
+        assert_eq!(action.unwrap().store_key(), "focusCameraPreview");
+    }
+}
 
 impl HotkeyAction {
     /// `#[serde(other)] Other` over there: a newer app's action survives in
@@ -136,6 +150,7 @@ impl Hotkeys {
 /// fires on the OS event seam, so it only forwards into a channel; the gpui
 /// task dispatches with a clean borrow -- the tray-channel discipline.
 pub fn init(cx: &mut App) {
+    initialize_camera_focus_shortcut();
     cx.set_global(Hotkeys {
         manager: None,
         bindings: Vec::new(),
@@ -233,6 +248,30 @@ fn unregister_all(cx: &mut App) {
     hotkeys.unavailable.clear();
 }
 
+fn initialize_camera_focus_shortcut() {
+    let mut section = store::store_section(store::HOTKEYS);
+    if section
+        .get("cameraFocusShortcutInitialized")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        return;
+    }
+    let mut bindings = store::hotkeys_raw();
+    bindings
+        .entry("focusCameraPreview".to_string())
+        .or_insert_with(|| {
+            serde_json::json!({
+                "code": "KeyC", "ctrl": true, "shift": true, "alt": false, "meta": false
+            })
+        });
+    section.insert("hotkeys".into(), serde_json::Value::Object(bindings));
+    section.insert("cameraFocusShortcutInitialized".into(), true.into());
+    if !store::set_store_value(store::HOTKEYS, serde_json::Value::Object(section)) {
+        tracing::error!("could not save the camera focus shortcut");
+    }
+}
+
 fn register_from_store(cx: &mut App) {
     let stored = store::hotkeys_raw();
     let hotkeys = cx.global_mut::<Hotkeys>();
@@ -245,6 +284,17 @@ fn register_from_store(cx: &mut App) {
             tracing::warn!(key, "unparseable hotkey binding in the store");
             continue;
         };
+        if action == HotkeyAction::FocusCameraPreview
+            && stored.iter().any(|(other, value)| {
+                other != key
+                    && HotkeyAction::from_store_key(other).is_some()
+                    && store::hotkey_from_value(value).is_some_and(|other| other == binding)
+            })
+        {
+            tracing::warn!("camera focus shortcut conflicts with an existing shortcut");
+            hotkeys.unavailable.push(action);
+            continue;
+        }
         let Ok(code) = Code::from_str(&binding.code) else {
             tracing::warn!(key, code = %binding.code, "unknown hotkey code");
             continue;
@@ -331,6 +381,7 @@ fn actions_for(bindings: &[(HotKey, HotkeyAction)], id: u32) -> Vec<HotkeyAction
 pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
     tracing::info!(?action, "global hotkey");
     match action {
+        HotkeyAction::FocusCameraPreview => app_windows::focus_camera_preview(cx),
         HotkeyAction::StartStudioRecording => start_from_hotkey(Mode::Studio, cx),
         HotkeyAction::StartInstantRecording => start_from_hotkey(Mode::Instant, cx),
         HotkeyAction::StopRecording => {

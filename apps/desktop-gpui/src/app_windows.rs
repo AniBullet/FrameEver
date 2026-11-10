@@ -13,6 +13,9 @@ use std::{
     sync::Arc,
 };
 
+mod tray_actions;
+pub(crate) use tray_actions::*;
+
 use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::{
     App, AppContext as _, Bounds, Entity, Global, Pixels, Size, WindowBounds, WindowHandle,
@@ -2838,6 +2841,12 @@ fn begin_recording_after_preflight(config: StartConfig, cx: &mut App) {
         if !excluded.contains(&id) {
             excluded.push(id);
         }
+    }
+    #[cfg(windows)]
+    if let Some(id) = crate::tray::popup_window_id(cx)
+        && !excluded.contains(&id)
+    {
+        excluded.push(id);
     }
     let recording_area = retain_recording_area(&config.target, cx);
     cx.global_mut::<AppWindows>().main_hidden_for_picker = false;
@@ -6426,11 +6435,11 @@ mod tests {
             height: 600.,
         };
         assert_eq!(
-            camera_area_bounds((0., 0.), crop, (320., 376.)),
+            camera_area_bounds((0., 0.), crop, (320., 364.)),
             Some(AreaRect {
-                x: 640.,
+                x: 628.,
                 y: 334.,
-                width: 244.,
+                width: 256.,
                 height: 300.,
             })
         );
@@ -6442,13 +6451,13 @@ mod tests {
                     height: 1000.,
                     ..crop
                 },
-                (320., 376.)
+                (320., 364.)
             ),
             Some(AreaRect {
                 x: 964.,
-                y: 658.,
+                y: 670.,
                 width: 320.,
-                height: 376.,
+                height: 364.,
             })
         );
     }
@@ -6462,21 +6471,21 @@ mod tests {
             height: 400.,
         };
         assert_eq!(
-            camera_area_bounds((0., 0.), crop, (320., 236.)),
+            camera_area_bounds((0., 0.), crop, (320., 224.)),
             Some(AreaRect {
-                x: 540.,
-                y: 297.,
-                width: 144.,
-                height: 137.,
+                x: 528.,
+                y: 302.,
+                width: 156.,
+                height: 132.,
             })
         );
         assert_eq!(
-            camera_area_bounds((0., 0.), crop, (180., 376.)),
+            camera_area_bounds((0., 0.), crop, (180., 364.)),
             Some(AreaRect {
                 x: 603.,
-                y: 234.,
+                y: 246.,
                 width: 81.,
-                height: 200.,
+                height: 188.,
             })
         );
     }
@@ -6490,12 +6499,12 @@ mod tests {
             height: 200.,
         };
         assert_eq!(
-            camera_area_bounds((0., 0.), crop, (320., 376.)),
+            camera_area_bounds((0., 0.), crop, (320., 364.)),
             Some(AreaRect {
                 x: 84.,
-                y: 28.,
+                y: 40.,
                 width: 100.,
-                height: 156.,
+                height: 144.,
             })
         );
         assert_eq!(
@@ -6505,7 +6514,7 @@ mod tests {
                     width: 132.,
                     ..crop
                 },
-                (320., 376.)
+                (320., 364.)
             ),
             None
         );
@@ -6513,10 +6522,10 @@ mod tests {
             camera_area_bounds(
                 (0., 0.),
                 AreaRect {
-                    height: 188.,
+                    height: 176.,
                     ..crop
                 },
-                (320., 376.)
+                (320., 364.)
             ),
             None
         );
@@ -6531,11 +6540,11 @@ mod tests {
             height: 600.,
         };
         assert_eq!(
-            camera_area_bounds((-1920.5, -1080.25), crop, (320., 376.)),
+            camera_area_bounds((-1920.5, -1080.25), crop, (320., 364.)),
             Some(AreaRect {
-                x: -1280.5,
+                x: -1292.5,
                 y: -746.25,
-                width: 244.,
+                width: 256.,
                 height: 300.,
             })
         );
