@@ -714,9 +714,25 @@ impl RecordingSession {
             return;
         }
 
+        let camera_ready = crate::app_windows::camera_capture_ready(config.mode, cx);
         let start = recording::start(config);
         let discarding = self.discarding.take();
-        let task = gpui_tokio::Tokio::spawn(cx, async move {
+        let preparation = gpui_tokio::Tokio::spawn(cx, async move {
+            if let Some(ready) = camera_ready.map_err(anyhow::Error::msg)? {
+                tokio::time::timeout(Duration::from_millis(1500), ready.recv_async())
+                    .await
+                    .map_err(|_| anyhow::anyhow!("Camera controls did not hide before recording"))?
+                    .map_err(|error| {
+                        anyhow::anyhow!("Camera capture preparation failed: {error}")
+                    })?;
+                #[cfg(windows)]
+                tokio::task::spawn_blocking(crate::platform::flush_camera_capture_frame)
+                    .await
+                    .map_err(|error| {
+                        anyhow::anyhow!("Camera capture compositor task failed: {error}")
+                    })?
+                    .map_err(anyhow::Error::msg)?;
+            }
             if let Some(discarding) = discarding
                 && tokio::time::timeout(Duration::from_secs(5), discarding)
                     .await
@@ -724,9 +740,20 @@ impl RecordingSession {
             {
                 tracing::warn!("previous recording start is still tearing down; starting anyway");
             }
-            start.await
+            Ok::<(), anyhow::Error>(())
         });
         cx.spawn(async move |this, cx| {
+            let prepared = preparation.await;
+            let task = this.update(cx, |this, cx| {
+                if this.recording_generation != generation || this.phase != Phase::Starting {
+                    return None;
+                }
+                Some(gpui_tokio::Tokio::spawn(cx, async move {
+                    prepared??;
+                    start.await
+                }))
+            }).ok().flatten();
+            let Some(task) = task else { return };
             let result = task.await;
             this.update(cx, |this, cx| {
                 if this.recording_generation != generation || this.phase != Phase::Starting {

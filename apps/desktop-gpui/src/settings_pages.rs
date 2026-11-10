@@ -688,6 +688,7 @@ fn shortcut_effect(
         "stopRecording" => t!("stop the current recording").into(),
         "togglePauseRecording" => t!("pause the current recording, or resume it").into(),
         "restartRecording" => t!("throw away the current take and start again").into(),
+        "focusCameraPreview" => t!("focus the camera preview controls").into(),
         _ => String::new(),
     }
 }

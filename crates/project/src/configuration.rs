@@ -548,6 +548,10 @@ pub struct Camera {
     /// Overrides `position` when set.
     pub manual_position: Option<XY<f64>>,
     pub size: f32,
+    #[serde(default)]
+    pub size_includes_padding: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<f64>,
     #[serde(alias = "zoom_size")]
     pub zoom_size: Option<f32>,
     pub rounding: f32,
@@ -593,6 +597,8 @@ impl Default for Camera {
             position: CameraPosition::default(),
             manual_position: None,
             size: 30.0,
+            size_includes_padding: false,
+            aspect_ratio: None,
             zoom_size: Some(Self::default_zoom_size()),
             rounding: Self::default_rounding(),
             shadow: 62.5,

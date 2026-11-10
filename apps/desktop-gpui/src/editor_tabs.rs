@@ -831,6 +831,7 @@ impl EditorWindow {
                 let shape = *shape;
                 self.edit_project("camera-shape", window, cx, move |project| {
                     project.camera.shape = shape;
+                    project.camera.aspect_ratio = None;
                     true
                 });
             }
