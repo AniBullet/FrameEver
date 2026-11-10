@@ -735,4 +735,14 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "文件可能已损坏。换个播放器打开试试。",
     ),
     ("Version", "版本"),
+    ("{fps} FPS", "{fps} 帧/秒"),
+    ("{seconds} s", "{seconds} 秒"),
+    ("Auto-stop, minutes", "自动停止（分钟）"),
+    ("Click highlight", "点击高亮"),
+    ("All recording settings", "全部录制设置"),
+    (
+        "Auto-stop and click highlight are saved for a future update.",
+        "自动停止和点击高亮的设置已预留，将在后续更新生效。",
+    ),
+    ("Smaller", "更小"),
 ];
