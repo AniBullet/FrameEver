@@ -124,6 +124,15 @@ pub enum TrayItem {
     ModeStudio,
     ModeInstant,
     ModeScreenshot,
+    RecordLastArea,
+    ScreenshotLastArea,
+    StopRecording,
+    CancelCountdown,
+    PauseRecording,
+    ResumeRecording,
+    RestartRecording,
+    ToggleControls,
+    ShowExport,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -456,6 +465,7 @@ pub fn build_menu(mode: Mode, previous: &[PreviousItem], version: &str) -> Vec<E
     entries
 }
 
+#[cfg(any(target_os = "macos", test))]
 pub fn build_onboarding_menu(version: &str) -> Vec<Entry> {
     vec![
         Entry::item(t!("Request Permissions"), TrayItem::RequestPermissions),
@@ -495,6 +505,7 @@ fn decorate_accelerators(entries: &mut [Entry], bound: &dyn Fn(HotkeyAction) -> 
     }
 }
 
+#[cfg(target_os = "macos")]
 fn current_menu_entries(cx: &App, mode: Mode, previous: &[PreviousItem]) -> Vec<Entry> {
     if crate::app_windows::onboarding_is_open(cx) && !crate::permissions::necessary_granted() {
         return build_onboarding_menu(crate::menus::app_version());
@@ -511,6 +522,11 @@ fn current_menu_entries(cx: &App, mode: Mode, previous: &[PreviousItem]) -> Vec<
 /// Act on a tray item, with a clean gpui borrow. Public so the harness hook can
 /// reach exactly the path a click reaches.
 pub fn handle_item(item: TrayItem, cx: &mut App) {
+    #[cfg(target_os = "windows")]
+    if !windows::action_available(&item, cx) {
+        tracing::debug!(?item, "stale tray action is no longer available");
+        return;
+    }
     tracing::info!(?item, "tray item activated");
     match item {
         TrayItem::OpenCap => {
@@ -550,10 +566,25 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
             cx.activate(true);
         }
         TrayItem::Quit => menus::quit(cx),
-        TrayItem::PreviousItem(path) => open_previous_item(path, cx),
+        TrayItem::PreviousItem(path) => {
+            #[cfg(target_os = "windows")]
+            app_windows::tray_open_library_item(path, cx);
+            #[cfg(target_os = "macos")]
+            open_previous_item(path, cx);
+        }
         TrayItem::ModeStudio => set_mode(Mode::Studio, cx),
         TrayItem::ModeInstant => set_mode(Mode::Instant, cx),
         TrayItem::ModeScreenshot => set_mode(Mode::Screenshot, cx),
+        TrayItem::RecordLastArea => app_windows::tray_capture_last_area(false, cx),
+        TrayItem::ScreenshotLastArea => app_windows::tray_capture_last_area(true, cx),
+        TrayItem::StopRecording | TrayItem::CancelCountdown => stop_recording(cx),
+        TrayItem::PauseRecording | TrayItem::ResumeRecording => {
+            let session = crate::session::RecordingSession::global(cx);
+            session.update(cx, |session, cx| session.toggle_pause(cx));
+        }
+        TrayItem::RestartRecording => app_windows::tray_restart_recording(cx),
+        TrayItem::ToggleControls => app_windows::tray_toggle_controls(cx),
+        TrayItem::ShowExport => app_windows::tray_show_export(cx),
     }
 }
 
@@ -569,6 +600,7 @@ fn set_mode(mode: Mode, cx: &mut App) {
 }
 
 /// `handle_previous_item_click`.
+#[cfg(target_os = "macos")]
 fn open_previous_item(path: PathBuf, cx: &mut App) {
     use frameever_project::{RecordingMeta, RecordingMetaInner};
 
@@ -1879,5 +1911,170 @@ mod tests {
             })
             .collect();
         assert_eq!(disabled, vec!["FrameEver v0.1.0"]);
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn build_surface_menu(mode: Mode, previous: &[PreviousItem], version: &str) -> Vec<Entry> {
+    let mut entries = vec![
+        Entry::item(t!("Open FrameEver"), TrayItem::OpenCap),
+        Entry::item(t!("Open library"), TrayItem::OpenLibrary),
+        Entry::Separator,
+        mode_submenu(mode),
+    ];
+    let legacy = build_menu(mode, &[], version);
+    entries.extend(legacy.into_iter().filter(|entry| matches!(entry, Entry::Item { item: Some(TrayItem::RecordDisplay | TrayItem::RecordWindow | TrayItem::RecordArea | TrayItem::ScreenshotDisplay | TrayItem::ScreenshotWindow | TrayItem::ScreenshotArea | TrayItem::TakeScreenshot), .. })).map(|mut entry| {
+        if let Entry::Item { title, item: Some(item), .. } = &mut entry {
+            *title = match item {
+                TrayItem::RecordDisplay => t!("Record display"),
+                TrayItem::RecordWindow => t!("Record window"),
+                TrayItem::RecordArea => t!("Record area"),
+                TrayItem::ScreenshotDisplay => t!("Screenshot display"),
+                TrayItem::ScreenshotWindow => t!("Screenshot window"),
+                TrayItem::ScreenshotArea => t!("Screenshot area"),
+                TrayItem::TakeScreenshot => t!("Take a screenshot"),
+                _ => unreachable!(),
+            }.into();
+        }
+        entry
+    }));
+    entries.push(Entry::Separator);
+    if !previous.is_empty() {
+        let mut recent = previous_submenu(previous);
+        if let Entry::Submenu { title, items, .. } = &mut recent {
+            *title = t!("Recent").into();
+            items.truncate(MAX_PREVIOUS_ITEMS);
+            for (entry, previous) in items.iter_mut().zip(previous) {
+                if let Entry::Item { title, .. } = entry { *title = truncate_title(&previous.pretty_name); }
+            }
+            items.push(Entry::Separator);
+            items.push(Entry::item(t!("All in library"), TrayItem::OpenLibrary));
+        }
+        entries.push(recent);
+    }
+    entries.push(Entry::icon_item(t!("Import media…"), TrayItem::ImportMedia, IMPORT_ICON));
+    entries.push(Entry::icon_item(t!("Settings"), TrayItem::OpenSettings, SETTINGS_ICON));
+    entries.push(Entry::Separator);
+    entries.push(Entry::item(t!("Quit FrameEver"), TrayItem::Quit));
+    entries
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod surface_tests {
+    use super::*;
+
+    #[test]
+    fn tray_surface_omits_empty_recents_and_places_library_after_open() {
+        let menu = build_surface_menu(Mode::Studio, &[], "1.0.0");
+        assert!(matches!(&menu[1], Entry::Item { item: Some(TrayItem::OpenLibrary), .. }));
+        assert!(!menu.iter().any(|entry| matches!(entry, Entry::Submenu { enabled: false, .. })));
+    }
+}
+#[cfg(target_os = "windows")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SurfaceState {
+    Idle,
+    Starting(u32),
+    Recording { paused: bool, elapsed: u64, controls_hidden: bool },
+    Exporting { title: String, percent: u8 },
+    Setup,
+}
+
+#[cfg(target_os = "windows")]
+pub fn build_state_menu(mode: Mode, previous: &[PreviousItem], version: &str, state: &SurfaceState, last_area: bool) -> Vec<Entry> {
+    match state {
+        SurfaceState::Setup => vec![Entry::item(t!("Continue setup"), TrayItem::RequestPermissions), Entry::Separator, Entry::item(t!("Quit FrameEver"), TrayItem::Quit)],
+        SurfaceState::Starting(seconds) => vec![Entry::disabled(t!("Starting in {seconds}", seconds = seconds)), Entry::Separator, Entry::item(t!("Cancel"), TrayItem::CancelCountdown)],
+        SurfaceState::Recording { paused, elapsed, controls_hidden } => {
+            let timer = format!("{}:{:02}", elapsed / 60, elapsed % 60);
+            let mut entries = vec![Entry::disabled(if *paused { t!("Paused · {time}", time = timer) } else { t!("Recording · {time}", time = timer) }), Entry::Separator];
+            if *paused { entries.push(Entry::item(t!("Resume"), TrayItem::ResumeRecording)); }
+            entries.push(Entry::item(t!("Stop recording"), TrayItem::StopRecording));
+            if !paused { entries.push(Entry::item(t!("Pause"), TrayItem::PauseRecording)); }
+            entries.push(Entry::item(t!("Restart…"), TrayItem::RestartRecording));
+            entries.push(Entry::Separator);
+            entries.push(Entry::item(if *controls_hidden { t!("Show controls") } else { t!("Hide controls") }, TrayItem::ToggleControls));
+            entries
+        }
+        SurfaceState::Idle | SurfaceState::Exporting { .. } => {
+            let mut entries = build_surface_menu(mode, previous, version);
+            if last_area {
+                let index = entries.iter().position(|entry| matches!(entry, Entry::Item { item: Some(TrayItem::TakeScreenshot), .. })).unwrap_or(7);
+                entries.insert(index, Entry::item(if mode == Mode::Screenshot { t!("Screenshot last area") } else { t!("Record last area") }, if mode == Mode::Screenshot { TrayItem::ScreenshotLastArea } else { TrayItem::RecordLastArea }));
+            }
+            if let SurfaceState::Exporting { title, percent } = state {
+                entries.insert(0, Entry::Separator);
+                entries.insert(0, Entry::item(t!("Exporting {title} · {percent}%", title = title, percent = percent), TrayItem::ShowExport));
+            }
+            entries
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod surface_state_tests {
+    use super::*;
+
+    #[test]
+    fn tray_recording_menu_exposes_only_live_recording_controls() {
+        let entries = build_state_menu(Mode::Studio, &[], "1.0.0", &SurfaceState::Recording { paused: false, elapsed: 83, controls_hidden: false }, true);
+        let actions: Vec<_> = entries.iter().filter_map(|entry| match entry { Entry::Item { item: Some(item), .. } => Some(item.clone()), _ => None }).collect();
+        assert_eq!(actions, vec![TrayItem::StopRecording, TrayItem::PauseRecording, TrayItem::RestartRecording, TrayItem::ToggleControls]);
+    }
+}
+#[cfg(target_os = "windows")]
+mod popup;
+#[cfg(target_os = "windows")]
+mod native;
+
+#[cfg(all(test, target_os = "windows"))]
+mod redesigned_surface_regressions {
+    use super::*;
+
+    fn actions(entries: &[Entry]) -> Vec<TrayItem> {
+        entries.iter().filter_map(|entry| match entry { Entry::Item { item: Some(item), .. } => Some(item.clone()), _ => None }).collect()
+    }
+
+    #[test]
+    fn tray_paused_menu_offers_resume_first_and_preserves_the_timer() {
+        let menu = build_state_menu(Mode::Studio, &[], "1.0.0", &SurfaceState::Recording { paused: true, elapsed: 83, controls_hidden: true }, true);
+        assert_eq!(actions(&menu), vec![TrayItem::ResumeRecording, TrayItem::StopRecording, TrayItem::RestartRecording, TrayItem::ToggleControls]);
+        assert!(matches!(&menu[0], Entry::Item { title, item: None, .. } if title == "Paused · 1:23"));
+        assert!(matches!(menu.last(), Some(Entry::Item { title, .. }) if title == "Show controls"));
+    }
+
+    #[test]
+    fn tray_countdown_and_first_run_have_only_their_applicable_actions() {
+        assert_eq!(actions(&build_state_menu(Mode::Studio, &[], "1.0.0", &SurfaceState::Starting(3), true)), vec![TrayItem::CancelCountdown]);
+        assert_eq!(actions(&build_state_menu(Mode::Studio, &[], "1.0.0", &SurfaceState::Setup, true)), vec![TrayItem::RequestPermissions, TrayItem::Quit]);
+    }
+
+    #[test]
+    fn tray_last_area_is_absent_until_saved_and_follows_the_selected_mode() {
+        for mode in [Mode::Studio, Mode::Instant, Mode::Screenshot] {
+            let without = actions(&build_state_menu(mode, &[], "1.0.0", &SurfaceState::Idle, false));
+            assert!(!without.contains(&TrayItem::RecordLastArea));
+            assert!(!without.contains(&TrayItem::ScreenshotLastArea));
+            let with = actions(&build_state_menu(mode, &[], "1.0.0", &SurfaceState::Idle, true));
+            assert!(with.contains(&if mode == Mode::Screenshot { TrayItem::ScreenshotLastArea } else { TrayItem::RecordLastArea }));
+        }
+    }
+
+    #[test]
+    fn tray_recent_shows_six_plain_names_and_opens_library_items() {
+        let previous: Vec<_> = (0..8).map(|index| PreviousItem { path: PathBuf::from(format!("{index}.ever")), kind: MediaKind::Screenshot, pretty_name: format!("Project {index}"), thumbnail: None }).collect();
+        let menu = build_surface_menu(Mode::Studio, &previous, "1.0.0");
+        let recent = menu.iter().find_map(|entry| match entry { Entry::Submenu { title, items, .. } if title == "Recent" => Some(items), _ => None }).unwrap();
+        assert_eq!(actions(recent), vec![TrayItem::PreviousItem(PathBuf::from("0.ever")), TrayItem::PreviousItem(PathBuf::from("1.ever")), TrayItem::PreviousItem(PathBuf::from("2.ever")), TrayItem::PreviousItem(PathBuf::from("3.ever")), TrayItem::PreviousItem(PathBuf::from("4.ever")), TrayItem::PreviousItem(PathBuf::from("5.ever")), TrayItem::OpenLibrary]);
+        assert!(matches!(&recent[0], Entry::Item { title, .. } if title == "Project 0"));
+    }
+
+    #[test]
+    fn tray_export_menu_exposes_progress_and_keeps_idle_actions() {
+        let menu = build_state_menu(Mode::Studio, &[], "1.0.0", &SurfaceState::Exporting { title: "Demo".into(), percent: 42 }, false);
+        assert!(matches!(&menu[0], Entry::Item { title, item: Some(TrayItem::ShowExport), .. } if title == "Exporting Demo · 42%"));
+        let actions = actions(&menu);
+        assert!(actions.contains(&TrayItem::OpenLibrary));
+        assert!(actions.contains(&TrayItem::Quit));
     }
 }
