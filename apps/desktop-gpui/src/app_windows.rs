@@ -5632,7 +5632,7 @@ fn open_controls(
         }
         Err(error) => {
             tracing::error!("recording controls window failed to open: {error:#}");
-            Err(error.into())
+            Err(error)
         }
     }
 }
@@ -5924,8 +5924,10 @@ mod tests {
 
     #[test]
     fn remembered_controls_position_survives_reopen_and_fits_a_changed_work_area() {
-        let mut state = crate::store::PersistedState::default();
-        state.controls_position = Some((-2000., 900.));
+        let state = crate::store::PersistedState {
+            controls_position: Some((-2000., 900.)),
+            ..Default::default()
+        };
         let state: crate::store::PersistedState =
             serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
         let available = Bounds {
