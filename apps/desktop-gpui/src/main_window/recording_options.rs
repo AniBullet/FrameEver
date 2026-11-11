@@ -165,7 +165,6 @@ impl MainWindow {
     ) -> Option<gpui::AnyElement> {
         let summary = summary(self.mode, &GeneralSettings::load())?;
         let accessible_label = format!("{}: {summary}", t!("Recording options"));
-        let tooltip_label = accessible_label.clone();
         let theme = self.theme;
         Some(
             focus_ring(
@@ -183,7 +182,9 @@ impl MainWindow {
                     .rounded(px(8.))
                     .text_size(px(12.))
                     .aria_label(accessible_label)
-                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, tooltip_label.clone()).view(cx))
+                    .tooltip(move |_, cx| {
+                        ui::Tooltip::new(&theme, t!("Recording options")).view(cx)
+                    })
                     .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
                     .when(self.recording_options_open, |style| {
                         style.bg(theme.accent).text_color(theme.foreground)

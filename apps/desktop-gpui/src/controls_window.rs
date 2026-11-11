@@ -1,12 +1,3 @@
-//! The in-progress recording bar -- `in-progress-recording.tsx`, natively.
-//!
-//! A 320x150 transparent panel whose visible content is a 40px card hugging the
-//! bottom: stop button with the elapsed timer on the left, mic indicator and
-//! action buttons on the right, a drag handle on the trailing edge. The window
-//! itself is a non-activating panel at the maximum window level (see
-//! `app_windows`), so the buttons work without pulling focus from whatever is
-//! being recorded.
-
 use std::{
     sync::{
         Arc,
