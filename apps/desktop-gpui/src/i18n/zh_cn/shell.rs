@@ -317,17 +317,19 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Resuming…", "正在继续…"),
     ("Pausing…", "正在暂停…"),
     ("Paused", "已暂停"),
-    ("Error", "出错"),
-    ("Confirm Restart", "确认重新开始"),
+    ("Starting…", "正在开始…"),
+    ("Starts in {count}", "{count} 秒后开始"),
+    ("Draw on screen", "屏幕画笔"),
+    ("Restart this recording?", "重新开始录制？"),
     (
-        "Are you sure you want to restart the recording? The current recording will be discarded.",
-        "确定要重新开始录制吗？当前录制内容将被丢弃。",
+        "What you've recorded so far is discarded. This can't be undone.",
+        "已录内容会被丢弃，无法撤销。",
     ),
     ("Restart", "重新开始"),
-    ("Confirm Delete", "确认删除"),
+    ("Delete this recording?", "删除这段录制？"),
     (
-        "Are you sure you want to delete the recording?",
-        "确定要删除这次录制吗？",
+        "It won't be saved. This can't be undone.",
+        "这段录制不会保存，无法撤销。",
     ),
     ("Delete", "删除"),
     (
@@ -350,6 +352,22 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "无法更换设备：{error}。录制保持暂停。",
     ),
     ("Recording options", "录制选项"),
+    (
+        "Couldn't confirm the capture state. Stop to save what you have.",
+        "无法确认录制状态。点停止保存已录内容。",
+    ),
+    (
+        "Couldn't resume. There isn't enough disk space. Free up space and try again, or stop to save.",
+        "无法继续录制。磁盘空间不足，清理后再试，或点停止保存。",
+    ),
+    (
+        "Couldn't complete the recording action. Use Stop to save what you have. See Details for the cause.",
+        "无法完成录制操作。点停止保存已录内容，在详情中查看原因。",
+    ),
+    (
+        "Couldn't open recording controls. Recording hasn't started. Try again, or export logs from Settings.",
+        "无法打开录制控制条，录制尚未开始。再试一次，或从设置中导出日志。",
+    ),
     ("Recording issue", "录制问题"),
     ("Show camera preview", "显示摄像头预览"),
     ("Not in this recording", "本次未使用"),
@@ -360,10 +378,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     (
         "Low storage. FrameEver will stop soon to save your recording.",
         "存储空间不足。帧刻即将停止录制以保存你的内容。",
-    ),
-    (
-        "Not enough disk space to resume. Free up space and try again, or press Stop to save.",
-        "磁盘空间不足，无法继续录制。请清理空间后重试，或点击停止以保存。",
     ),
     ("Paste or type your script…", "粘贴或输入你的稿子…"),
     ("Scrolling paused with recording", "滚动已随录制暂停"),

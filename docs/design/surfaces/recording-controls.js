@@ -636,8 +636,8 @@ const copy = () => {
 				["Error and low storage", "错误和空间不足"],
 				["Ours: banner above the bar", "我们：控制条上方的横幅"],
 				[
-					"Same card, now dismissible, and the warning button brings it back",
-					"同样的卡片，现在可关闭，警告按钮可再打开",
+					"Dismissible card; the warning button brings it back. Raw causes sit behind Details, with Export logs",
+					"卡片可关闭，警告按钮可再打开。原始错误放在详情中，并可导出日志",
 				],
 			],
 			[
@@ -646,7 +646,7 @@ const copy = () => {
 					"Upstream fixed it; ours keeps a 150 px window that blocks clicks above the bar",
 					"上游已修；我们的窗口固定 150 px，挡住控制条上方的点击",
 				],
-				["Port upstream's fit", "移植上游做法"],
+				["Grow only for visible cards, keeping the bar inside the display work area", "只为可见卡片增高，控制条保持在显示器工作区内"],
 			],
 			[
 				["Countdown in the bar, cancel", "控制条内倒计时、取消"],
@@ -659,7 +659,7 @@ const copy = () => {
 			[
 				["Drag anywhere", "随意拖动"],
 				["Ours: handle on the right", "我们：手柄在右侧"],
-				["Handle on the left, position remembered", "手柄移到左侧，并记住位置"],
+				["Handle on the left; remember the bar position and fit it when displays change", "手柄移到左侧；记住控制条位置，显示器变化时限制在工作区内"],
 			],
 			[
 				["Quality link on the mode panel", "模式面板的画质链接"],

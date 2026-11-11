@@ -18,6 +18,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use super::{ForcedAppearance, MaterialKind, PanelBehavior};
 
 mod capture_exclusion;
+mod controls_panel;
 mod countdown_panel;
 mod file_drag;
 mod hidden_frame;
@@ -500,6 +501,10 @@ pub fn place_overlay_panel(
     );
 }
 
+pub(crate) fn prepare_recording_panel(native: &NativeWindow) -> std::io::Result<()> {
+    controls_panel::prepare(native.hwnd())
+}
+
 pub fn apply_panel_behavior(window: &Window, behavior: PanelBehavior) {
     let _ = (behavior.join_all_spaces, behavior.shadow);
     let Some(native) = native_window(window) else {
@@ -959,4 +964,49 @@ pub fn reveal_items(items: &[PathBuf]) -> Result<(), String> {
         unsafe { CoUninitialize() };
     }
     result
+}
+
+#[cfg(test)]
+mod recording_panel_tests {
+    use super::*;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, HTCLIENT, MA_NOACTIVATE, SendMessageW, WM_LBUTTONDOWN,
+        WM_MOUSEACTIVATE, WS_POPUP,
+    };
+
+    #[test]
+    fn recording_panel_mouse_activation_preserves_the_foreground_window() {
+        let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+        let foreground = unsafe { GetForegroundWindow() };
+        let hwnd = unsafe {
+            CreateWindowExW(
+                0,
+                class.as_ptr(),
+                std::ptr::null(),
+                WS_POPUP,
+                0,
+                0,
+                432,
+                60,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            )
+        };
+        assert!(!hwnd.is_null());
+        let native = NativeWindow(hwnd as isize);
+        prepare_recording_panel(&native).unwrap();
+        let result = unsafe {
+            SendMessageW(
+                hwnd,
+                WM_MOUSEACTIVATE,
+                0,
+                ((WM_LBUTTONDOWN as isize) << 16) | HTCLIENT as isize,
+            )
+        };
+        assert_eq!(result, MA_NOACTIVATE as isize);
+        assert_eq!(unsafe { GetForegroundWindow() }, foreground);
+        assert_ne!(unsafe { DestroyWindow(hwnd) }, 0);
+    }
 }

@@ -45,9 +45,9 @@ use crate::{
 
 /// Matches the Tauri `InProgressRecording` window and
 /// `fake_window.rs` position math.
-pub const CONTROLS_WIDTH: f32 = 360.;
+pub const CONTROLS_WIDTH: f32 = 432.;
 pub const CONTROLS_HEIGHT: f32 = 150.;
-pub const CONTROLS_BAR_HEIGHT: f32 = 64.;
+pub const CONTROLS_BAR_HEIGHT: f32 = 60.;
 pub const CONTROLS_OPTIONS_HEIGHT: f32 = 210.;
 const CONTROLS_BOTTOM_OFFSET: f64 = 120.;
 const TARGET_CONTROLS_OFFSET_Y: f64 = 48.;
@@ -2814,7 +2814,22 @@ fn begin_recording_after_preflight(config: StartConfig, cx: &mut App) {
         .countdown_focus
         .remember_app_focus(app_active);
     let mut excluded: Vec<scap_targets::WindowId> = config.excluded_windows.clone();
-    excluded.extend(open_controls(&config, session.clone(), cx));
+    let controls_id = match open_controls(&config, session.clone(), cx) {
+        Ok(id) => id,
+        Err(error) => {
+            tracing::error!(error = %error, "recording controls preparation failed; recording was not started");
+            close_controls(&session, cx);
+            restore_content_protection(cx);
+            dismiss_target_overlays(cx);
+            session.update(cx, |session, cx| {
+                session.error = Some(t!("Couldn't open recording controls. Recording hasn't started. Try again, or export logs from Settings.").to_owned());
+                cx.notify();
+            });
+            show_main_window(cx);
+            return;
+        }
+    };
+    excluded.push(controls_id);
     // The camera bubble is excluded from studio captures (the camera is its own
     // track, composited in the editor) but *included* in instant captures --
     // `filter_for_instant_mode` in the Tauri app strips the camera exclusion
@@ -5434,22 +5449,74 @@ pub fn controls_window_height(issue: bool, options: bool) -> f32 {
     CONTROLS_BAR_HEIGHT + issue_room + options_room
 }
 
-pub(crate) fn fit_controls_height(native: &platform::NativeWindow, height: f32, scale: f32) {
-    let height = f64::from(height);
-    let (x, y, width, current) = platform::window_frame(native);
-    if width <= 0. {
-        return;
+fn remembered_controls_bounds(
+    remembered: Option<(f64, f64)>,
+    mut preferred: Bounds<Pixels>,
+    available: Bounds<Pixels>,
+) -> Bounds<Pixels> {
+    if let Some((x, y)) = remembered.filter(|(x, y)| x.is_finite() && y.is_finite()) {
+        preferred.origin = point(px(x as f32), px(y as f32));
     }
+    fit_window_bounds(preferred, inset_work_area(available))
+}
+
+fn resized_controls_bounds(
+    current: Bounds<Pixels>,
+    height: f32,
+    available: Bounds<Pixels>,
+) -> Bounds<Pixels> {
+    fit_window_bounds(
+        Bounds {
+            origin: point(current.origin.x, current.bottom() - px(height)),
+            size: size(current.size.width, px(height)),
+        },
+        inset_work_area(available),
+    )
+}
+
+pub(crate) fn fit_controls_height(
+    native: &platform::NativeWindow,
+    height: f32,
+    available: Option<Bounds<Pixels>>,
+) {
     #[cfg(target_os = "macos")]
     {
-        let _ = (current, scale);
-        platform::set_window_frame(native, x, y, width, height);
+        let _ = available;
+        let (x, y, width, _) = platform::window_frame(native);
+        if width > 0. {
+            platform::set_window_frame(native, x, y, width, f64::from(height));
+        }
     }
     #[cfg(windows)]
     {
-        let height = height * f64::from(scale);
-        platform::set_window_frame(native, x, y + current - height, width, height);
+        let (x, y, width, current) = platform::window_logical_frame(native);
+        if width <= 0. {
+            return;
+        }
+        let current = Bounds {
+            origin: point(px(x as f32), px(y as f32)),
+            size: size(px(width as f32), px(current as f32)),
+        };
+        let fallback = Bounds {
+            origin: point(current.origin.x, current.bottom() - px(height)),
+            size: size(current.size.width, px(height)),
+        };
+        let bounds = available
+            .map(|available| resized_controls_bounds(current, height, available))
+            .unwrap_or(fallback);
+        platform::set_window_logical_frame(
+            native,
+            f32::from(bounds.origin.x).into(),
+            f32::from(bounds.origin.y).into(),
+            f32::from(bounds.size.width).into(),
+            f32::from(bounds.size.height).into(),
+        );
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_CONTROLS_OPEN_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Open the bar. Returns the native window number for capture exclusion.
@@ -5457,7 +5524,11 @@ fn open_controls(
     config: &StartConfig,
     session: Entity<RecordingSession>,
     cx: &mut App,
-) -> Option<scap_targets::WindowId> {
+) -> anyhow::Result<scap_targets::WindowId> {
+    #[cfg(test)]
+    if TEST_CONTROLS_OPEN_FAILURE.with(|failure| failure.replace(false)) {
+        anyhow::bail!("injected native failure");
+    }
     let (x, y) = controls_origin(config);
     let bounds = Bounds {
         origin: point(
@@ -5471,9 +5542,26 @@ fn open_controls(
         .display()
         .or_else(scap_targets::Display::get_containing_cursor)
         .or_else(|| Some(scap_targets::Display::primary()));
-    let display_id = gpui_display_id(display.as_ref(), cx);
-    let bounds = display_work_area(display.as_ref(), cx)
-        .map(|available| fit_window_bounds(bounds, inset_work_area(available)))
+    let remembered = crate::store::load()
+        .controls_position
+        .filter(|(x, y)| x.is_finite() && y.is_finite());
+    let remembered_display = remembered.and_then(|(x, y)| {
+        cx.displays().into_iter().find(|display| {
+            display
+                .visible_bounds()
+                .contains(&point(px(x as f32), px(y as f32)))
+        })
+    });
+    let display_id = remembered_display
+        .as_ref()
+        .map(|display| display.id())
+        .or_else(|| gpui_display_id(display.as_ref(), cx));
+    let available = remembered_display
+        .as_ref()
+        .map(|display| display.visible_bounds())
+        .or_else(|| display_work_area(display.as_ref(), cx));
+    let bounds = available
+        .map(|available| remembered_controls_bounds(remembered, bounds, available))
         .unwrap_or(bounds);
     let has_microphone = config.microphone.is_some();
 
@@ -5523,14 +5611,28 @@ fn open_controls(
                         platform::native_window(window),
                     )
                 })
-                .ok()?;
+                .map_err(|error| {
+                    anyhow::anyhow!("could not configure recording controls: {error}")
+                })?;
+            #[cfg(windows)]
+            if let Some(native) = native.as_ref()
+                && let Err(error) = platform::prepare_recording_panel(native)
+            {
+                tracing::error!(%error, "recording controls could not stay non-activating");
+                return Err(error.into());
+            }
             remove_popup_window_chrome(native, cx);
-            let number = number?;
-            number.to_string().parse().ok()
+            let number = number.ok_or_else(|| {
+                anyhow::anyhow!("recording controls have no capture-exclusion window id")
+            })?;
+            number
+                .to_string()
+                .parse()
+                .map_err(|error| anyhow::anyhow!("invalid recording controls window id: {error}"))
         }
         Err(error) => {
             tracing::error!("recording controls window failed to open: {error:#}");
-            None
+            Err(error.into())
         }
     }
 }
@@ -5819,6 +5921,33 @@ fn close_controls(session: &Entity<RecordingSession>, cx: &mut App) {
 mod tests {
     use super::*;
     use crate::store::{DEFAULT_EXCLUDED_WINDOW_TITLES, WindowExclusion, default_excluded_windows};
+
+    #[test]
+    fn remembered_controls_position_survives_reopen_and_fits_a_changed_work_area() {
+        let mut state = crate::store::PersistedState::default();
+        state.controls_position = Some((-2000., 900.));
+        let state: crate::store::PersistedState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        let available = Bounds {
+            origin: point(px(-1440.), px(-180.)),
+            size: size(px(1440.), px(850.)),
+        };
+        let preferred = Bounds {
+            origin: point(px(-1000.), px(300.)),
+            size: size(px(CONTROLS_WIDTH), px(CONTROLS_BAR_HEIGHT)),
+        };
+        let restored = remembered_controls_bounds(state.controls_position, preferred, available);
+        assert_eq!(restored.origin, point(px(-1424.), px(594.)));
+        let old: crate::store::PersistedState = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.controls_position, None);
+        assert_eq!(
+            remembered_controls_bounds(Some((f64::NAN, 2.)), preferred, available),
+            preferred
+        );
+        let expanded = resized_controls_bounds(restored, 212., available);
+        assert_eq!(expanded.bottom(), restored.bottom());
+        assert_eq!(expanded.size.height, px(212.));
+    }
 
     #[test]
     fn arranged_windows_are_kept_only_once_capture_starts() {
@@ -6822,6 +6951,90 @@ mod countdown_hotkey_tests {
             assert!(Mode::from_store() == mode);
             main.update(cx, |main, _, _| main.cancel_deep_link_start())
                 .unwrap();
+        });
+    }
+}
+
+#[cfg(test)]
+mod controls_preflight_tests {
+    use super::*;
+
+    #[gpui::test]
+    fn controls_preparation_failure_stops_before_capture_and_restores_the_picker(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        struct ResetStore;
+        impl Drop for ResetStore {
+            fn drop(&mut self) {
+                crate::store::set_test_tauri_store_path(None);
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let storage = directory.path().join("storage");
+        std::fs::create_dir_all(&storage).unwrap();
+        crate::store::set_test_tauri_store_path(Some(directory.path().join("store")));
+        let _reset = ResetStore;
+        assert!(crate::store::set_store_setting(
+            crate::store::GENERAL_SETTINGS,
+            "storagePath",
+            serde_json::json!(storage)
+        ));
+        assert!(crate::store::set_has_completed_startup(true));
+        assert!(crate::store::set_has_completed_onboarding(true));
+        let session = cx.update(|cx| {
+            crate::feeds::Feeds::init(cx);
+            crate::media_access::MediaAccess::init(cx);
+            crate::target_overlay::TargetSelect::init(cx);
+            RecordingSession::init(cx)
+        });
+        let observed_session = session.clone();
+        let main = cx.add_window(move |window, cx| MainWindow::new(observed_session, window, cx));
+        cx.update(|cx| {
+            cx.set_global(AppWindows {
+                main,
+                controls: None,
+                countdown: None,
+                countdown_focus: CountdownFocus::default(),
+                camera: None,
+                settings: None,
+                onboarding: None,
+                mode_select: None,
+                teleprompter: None,
+                overlays: Vec::new(),
+                editors: Vec::new(),
+                deleting_editors: HashSet::new(),
+                preparing_cleanup: crate::editor_preparing::PreparingCleanupRegistry::default(),
+                screenshot_editors: Vec::new(),
+                main_hidden_for_picker: true,
+                main_visible_before_picker: true,
+                editor_hidden_for_picker: None,
+                camera_park: CameraPark::default(),
+            });
+            TEST_CONTROLS_OPEN_FAILURE.with(|failure| failure.set(true));
+            begin_recording_after_preflight(
+                StartConfig {
+                    mode: RecordingMode::Studio,
+                    target: ScreenCaptureTarget::CameraOnly,
+                    microphone: None,
+                    camera: None,
+                    device_settings: Default::default(),
+                    input_readiness: Default::default(),
+                    system_audio: false,
+                    excluded_windows: Vec::new(),
+                    camera_feed: None,
+                    mic_feed: None,
+                    mic_meter: None,
+                    start_gate: None,
+                },
+                cx,
+            );
+            assert_eq!(session.read(cx).phase, Phase::Idle);
+            assert!(!session.read(cx).controls_open);
+            let error = session.read(cx).error.as_deref().unwrap();
+            assert!(error.contains("Couldn't open recording controls"));
+            assert!(!error.contains("injected native failure"));
+            assert!(!cx.global::<AppWindows>().main_hidden_for_picker);
+            assert!(cx.global::<AppWindows>().controls.is_none());
         });
     }
 }
