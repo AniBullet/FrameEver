@@ -333,12 +333,13 @@ const summary = () => {
 const optPop = (bottom) => {
 	const studio = opt.mode === "studio";
 	return `<div class="opt-pop" style="bottom:${bottom}px" role="dialog" aria-label="${pick("Recording options", "录制选项")}">
-		<div class="opt-row"><span class="grow">${studio ? L("Quality", "画质") : L("Resolution", "分辨率")}</span>${
+		<div class="opt-head"><span>${L("Recording options", "录制选项")}</span><button data-opt="toggle" aria-label="${pick("Close", "关闭")}">${icon("x", "sm")}</button></div>
+		<div class="opt-row"><span class="grow">${studio ? L("Studio quality", "工作室画质") : L("Instant resolution", "即时录制分辨率")}</span>${
 			studio
 				? seg("quality", opt.quality, [
-						["small", "Smaller", "更小"],
+						["small", "Smaller files", "更小的文件"],
 						["balanced", "Balanced", "均衡"],
-						["max", "Maximum", "最高"],
+						["max", "Maximum detail", "最高细节"],
 					])
 				: seg("res", opt.res, [
 						["720", "720p"],
@@ -352,6 +353,7 @@ const optPop = (bottom) => {
 			opt.fps,
 			[
 				["24", "24"],
+				["25", "25"],
 				["30", "30"],
 				["60", "60"],
 				["120", "120"],
@@ -384,6 +386,7 @@ const optPop = (bottom) => {
 			],
 		)}</div>
 		${studio ? "" : `<div class="opt-row"><span class="grow">${L("Click highlight", "点击高亮")}</span><button class="switch ${opt.clicks ? "on" : ""}" data-o="clicks" aria-label="${pick("Click highlight", "点击高亮")}"></button></div>`}
+		<p class="muted" style="font-size:10px;margin:0">${L("Auto-stop and click highlight are saved for a future update.", "自动停止和点击高亮的设置已预留，将在后续更新生效。")}</p>
 		<hr style="border:0;border-top:1px solid var(--border);margin:4px 0">
 		<button class="opt-more">${L("All recording settings", "全部录制设置")}${icon("chevron-right", "sm")}</button></div>`;
 };
