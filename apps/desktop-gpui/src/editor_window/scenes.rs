@@ -162,7 +162,7 @@ impl EditorWindow {
         self.audio_picker = None;
         self.sidebar.editing_end_pose = false;
         self.set_selection(Some(Selection::single(TrackKind::ThreeD, 0)), cx);
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         self.seek_camera3d_pose(0, false, cx);
         self.view.preview_time = None;
         self.note_edit("auto-3d-scene", Some(TrackKind::ThreeD));
@@ -208,7 +208,7 @@ impl EditorWindow {
         self.audio_picker = None;
         self.sidebar.editing_end_pose = false;
         self.set_selection(Some(Selection::single(TrackKind::ThreeD, index)), cx);
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         self.seek_camera3d_pose(index, false, cx);
         self.view.preview_time = None;
         self.note_edit(reason, Some(TrackKind::ThreeD));
@@ -237,7 +237,7 @@ impl EditorWindow {
                 if let Some(count) = hover {
                     self.hover_camera3d_count(Some(count), cx);
                 }
-                self.rebuild_timeline();
+                self.rebuild_timeline(cx);
                 tracing::info!(?hover, "auto 3d picker");
             }
             "auto" | "scene" => {

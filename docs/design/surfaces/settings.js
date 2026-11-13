@@ -1054,6 +1054,12 @@ document.addEventListener("keydown", (event) => {
 		ui.listening = null;
 		return render();
 	}
+	const listen = event.target.dataset?.listen;
+	if (listen && (event.key === "Delete" || event.key === "Backspace")) {
+		event.preventDefault();
+		v.hotkeys[listen] = [];
+		return render();
+	}
 	if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
 		event.preventDefault();
 		stage.querySelector("[data-search]")?.focus();
@@ -1136,8 +1142,8 @@ const openCards = [
 	[
 		["Window", "窗口"],
 		[
-			"An ordinary resizable window, 880 × 640, minimum 720 × 520. It reopens on the last page within a session; a fresh launch starts on General. Esc clears search and never closes the window; Ctrl+W closes it.",
-			"普通可调整大小的窗口，880 × 640，最小 720 × 520。同一次运行内回到上次的页面，重新启动后从通用开始。Esc 只清空搜索，不关窗口；Ctrl+W 关闭。",
+			"An ordinary resizable window, 880 × 640, minimum 720 × 520. It reopens on the last page within a session; a fresh launch starts on General. Esc clears search and never closes the window; Ctrl+W closes it. Tab reaches every control: Enter opens a dropdown or starts recording a shortcut, Delete clears a focused shortcut, and the arrow keys, Page Up/Down and Home/End move the zoom slider.",
+			"普通可调整大小的窗口，880 × 640，最小 720 × 520。同一次运行内回到上次的页面，重新启动后从通用开始。Esc 只清空搜索，不关窗口；Ctrl+W 关闭。Tab 能走到每个控件：Enter 打开下拉框或开始录入快捷键，Delete 清除选中的快捷键，方向键、Page Up/Down 和 Home/End 调整缩放滑块。",
 		],
 	],
 ];

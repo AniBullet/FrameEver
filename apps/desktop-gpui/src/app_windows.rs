@@ -481,15 +481,17 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                 }
             } else {
                 let settings = crate::store::GeneralSettings::load();
-                let behaviour = settings.post_studio_recording_behaviour;
-                let after_instant = settings.post_instant_recording_behaviour;
-                if let Some(project) = &finished_instant
-                    && after_instant.finish().copy_file
-                {
+                let finish = recording_finish(
+                    finished_studio
+                        .as_ref()
+                        .map(|_| settings.post_studio_recording_behaviour),
+                    finished_instant
+                        .as_ref()
+                        .map(|_| settings.post_instant_recording_behaviour),
+                );
+                if let Some(project) = finished_instant.as_ref().filter(|_| finish.copy_instant) {
                     copy_instant_recording(project, cx);
                 }
-                let hides_after_instant =
-                    finished_instant.is_some() && after_instant.keeps_main_window_hidden();
                 if let Some(project) = finished_studio.clone().or_else(|| finished_instant.clone())
                 {
                     main.update(cx, |view, window, cx| {
@@ -497,19 +499,13 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                     })
                     .ok();
                 }
-                match (finished_studio, behaviour) {
-                    (Some(project_dir), crate::store::PostStudioBehaviour::OpenEditor) => {
-                        open_editor(project_dir, cx)
-                    }
-                    (Some(_), crate::store::PostStudioBehaviour::DoNothing) => {
+                match (finish.next, finished_studio) {
+                    (AfterRecording::OpenEditor, Some(project_dir)) => open_editor(project_dir, cx),
+                    (AfterRecording::StayHidden, _) => {
                         park_idle_camera_preview(cx);
                         crate::menus::schedule_dock_sync(cx);
                     }
-                    (None, _) if hides_after_instant => {
-                        park_idle_camera_preview(cx);
-                        crate::menus::schedule_dock_sync(cx);
-                    }
-                    _ if finished_instant.is_some() => show_library(cx),
+                    (AfterRecording::ShowLibrary, _) => show_library(cx),
                     _ => show_main_window(cx),
                 }
             }
@@ -2136,6 +2132,36 @@ fn keep_arranged_windows(cx: &mut App) {
     TargetSelect::global(cx).update(cx, |select, _| {
         select.take_arranged();
     });
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AfterRecording {
+    OpenEditor,
+    StayHidden,
+    ShowLibrary,
+    ShowMain,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RecordingFinish {
+    copy_instant: bool,
+    next: AfterRecording,
+}
+
+fn recording_finish(
+    studio: Option<crate::store::PostStudioBehaviour>,
+    instant: Option<crate::store::PostInstantBehaviour>,
+) -> RecordingFinish {
+    use crate::store::PostStudioBehaviour;
+    let copy_instant = instant.is_some_and(|instant| instant.finish().copy_file);
+    let next = match (studio, instant) {
+        (Some(PostStudioBehaviour::OpenEditor), _) => AfterRecording::OpenEditor,
+        (Some(PostStudioBehaviour::DoNothing), _) => AfterRecording::StayHidden,
+        (Some(PostStudioBehaviour::ShowOverlay), _) | (None, None) => AfterRecording::ShowMain,
+        (None, Some(instant)) if instant.keeps_main_window_hidden() => AfterRecording::StayHidden,
+        (None, Some(_)) => AfterRecording::ShowLibrary,
+    };
+    RecordingFinish { copy_instant, next }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4404,6 +4430,7 @@ fn load_editor_project_candidate(
         .detach();
 
         load_editor_waveforms(instance.clone(), handle, cx);
+        load_editor_filmstrips(instance.clone(), handle, cx);
 
         if handle
             .update(cx, |view, window, cx| {
@@ -4475,7 +4502,7 @@ async fn drive_auto_export(handle: WindowHandle<EditorWindow>, cx: &mut gpui::As
 fn log_timeline_model(model: &editor_timeline::TimelineModel) {
     tracing::info!(
         rows = model.rows.len(),
-        track_height = model.track_height(),
+        rows_height = editor_timeline::rows_height(&model.rows),
         total = format!("{:.3}", model.total_duration),
         clip = model.clips.len(),
         zoom = model.zoom.len(),
@@ -4553,6 +4580,59 @@ fn load_editor_waveforms(
             );
             view.set_waveforms(peaks.0, peaks.1, window, cx)
         });
+    })
+    .detach();
+}
+
+fn load_editor_filmstrips(
+    instance: Arc<frameever_editor::EditorInstance>,
+    handle: WindowHandle<EditorWindow>,
+    cx: &mut gpui::AsyncApp,
+) {
+    let project_path = instance.project_path.clone();
+    let durations: Vec<f64> = instance
+        .recordings
+        .segments
+        .iter()
+        .map(|segment| segment.display.duration)
+        .collect();
+    let paths = crate::editor_clips::recording_display_paths(&project_path).unwrap_or_default();
+    let sources: Vec<(PathBuf, f64)> = paths.iter().cloned().zip(durations).collect();
+    let Ok((stop, wanted)) = handle.update(cx, |view, _window, _cx| {
+        view.set_clip_paths(paths);
+        (
+            view.filmstrip_decode_stop(),
+            editor_timeline::filmstrip::missing(&sources, |path| view.has_filmstrip(path)),
+        )
+    }) else {
+        return;
+    };
+    if wanted.is_empty() {
+        return;
+    }
+    cx.spawn(async move |cx| {
+        let started = std::time::Instant::now();
+        let strips = cx
+            .background_executor()
+            .spawn(async move {
+                wanted
+                    .into_iter()
+                    .filter(|(path, _)| path.is_file())
+                    .filter_map(|(path, duration)| {
+                        editor_timeline::filmstrip::decode(&path, duration, &stop)
+                            .map(|frames| (path, Arc::new(frames)))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await;
+        tracing::info!(
+            ms = started.elapsed().as_millis() as u64,
+            frames = strips.iter().map(|(_, strip)| strip.len()).sum::<usize>(),
+            "editor filmstrips ready"
+        );
+        handle
+            .update(cx, |view, _window, cx| view.add_filmstrips(strips, cx))
+            .ok();
     })
     .detach();
 }
@@ -5149,6 +5229,11 @@ pub fn reload_editor(project_path: &Path, cx: &mut App) {
             .update(cx, |view, _window, _cx| view.timeline_transform())
             .ok()
     });
+    let media = handle.and_then(|handle| {
+        handle
+            .update(cx, |view, _window, _cx| view.timeline_media())
+            .ok()
+    });
 
     if let Some(handle) = handle {
         if let Ok(pending) = handle.update(cx, |view, _window, _cx| view.pending_save()) {
@@ -5168,12 +5253,15 @@ pub fn reload_editor(project_path: &Path, cx: &mut App) {
 
     tracing::info!(path = %key.display(), "reloading editor after import");
     open_editor(key.clone(), cx);
-    if let Some(transform) = transform
-        && let Some(handle) = editor_window_handle(&key, cx)
-    {
+    if let Some(handle) = editor_window_handle(&key, cx) {
         handle
             .update(cx, |view, _window, _cx| {
-                view.restore_timeline_transform(transform)
+                if let Some(transform) = transform {
+                    view.restore_timeline_transform(transform);
+                }
+                if let Some(media) = media {
+                    view.adopt_timeline_media(media);
+                }
             })
             .ok();
     }
@@ -5921,6 +6009,88 @@ fn close_controls(session: &Entity<RecordingSession>, cx: &mut App) {
 mod tests {
     use super::*;
     use crate::store::{DEFAULT_EXCLUDED_WINDOW_TITLES, WindowExclusion, default_excluded_windows};
+
+    #[test]
+    fn each_instant_outcome_decides_the_copy_and_the_window() {
+        use crate::store::PostInstantBehaviour;
+        let after = |instant| recording_finish(None, Some(instant));
+        assert_eq!(
+            after(PostInstantBehaviour::ShowLibrary),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::ShowLibrary
+            }
+        );
+        assert_eq!(
+            after(PostInstantBehaviour::CopyFile),
+            RecordingFinish {
+                copy_instant: true,
+                next: AfterRecording::StayHidden
+            }
+        );
+        assert_eq!(
+            after(PostInstantBehaviour::DoNothing),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::StayHidden
+            }
+        );
+    }
+
+    #[test]
+    fn studio_outcomes_ignore_the_instant_setting() {
+        use crate::store::PostStudioBehaviour;
+        let after = |studio| recording_finish(Some(studio), None).next;
+        assert_eq!(
+            after(PostStudioBehaviour::OpenEditor),
+            AfterRecording::OpenEditor
+        );
+        assert_eq!(
+            after(PostStudioBehaviour::ShowOverlay),
+            AfterRecording::ShowMain
+        );
+        assert_eq!(
+            after(PostStudioBehaviour::DoNothing),
+            AfterRecording::StayHidden
+        );
+        assert_eq!(recording_finish(None, None).next, AfterRecording::ShowMain);
+        assert!(!recording_finish(Some(PostStudioBehaviour::OpenEditor), None).copy_instant);
+    }
+
+    #[test]
+    fn a_studio_and_an_instant_recording_finishing_together_follow_studio_and_still_copy() {
+        use crate::store::{PostInstantBehaviour, PostStudioBehaviour};
+        assert_eq!(
+            recording_finish(
+                Some(PostStudioBehaviour::OpenEditor),
+                Some(PostInstantBehaviour::CopyFile)
+            ),
+            RecordingFinish {
+                copy_instant: true,
+                next: AfterRecording::OpenEditor
+            }
+        );
+        assert_eq!(
+            recording_finish(
+                Some(PostStudioBehaviour::DoNothing),
+                Some(PostInstantBehaviour::ShowLibrary)
+            ),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::StayHidden
+            }
+        );
+        assert_eq!(
+            recording_finish(
+                Some(PostStudioBehaviour::ShowOverlay),
+                Some(PostInstantBehaviour::DoNothing)
+            ),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::ShowMain
+            }
+        );
+    }
 
     #[test]
     fn remembered_controls_position_survives_reopen_and_fits_a_changed_work_area() {

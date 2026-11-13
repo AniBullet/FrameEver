@@ -1113,17 +1113,7 @@ impl SettingsWindow {
             )
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(move |this, _, _window, cx| {
-                this.shortcuts_cancel(cx);
-                this.pages.hotkeys.remove(action);
-                if this
-                    .pages
-                    .shortcut_saved
-                    .as_ref()
-                    .is_some_and(|saved| saved.action == action)
-                {
-                    this.pages.shortcut_saved = None;
-                }
-                this.shortcuts_commit(cx);
+                this.shortcut_clear(action, cx);
             }));
 
         div()
@@ -1187,6 +1177,20 @@ impl SettingsWindow {
             .into_any_element()
     }
 
+    fn shortcut_clear(&mut self, action: &'static str, cx: &mut Context<Self>) {
+        self.shortcuts_cancel(cx);
+        self.pages.hotkeys.remove(action);
+        if self
+            .pages
+            .shortcut_saved
+            .as_ref()
+            .is_some_and(|saved| saved.action == action)
+        {
+            self.pages.shortcut_saved = None;
+        }
+        self.shortcuts_commit(cx);
+    }
+
     fn render_shortcut_field(
         &self,
         action: &'static str,
@@ -1208,7 +1212,22 @@ impl SettingsWindow {
             .px(px(5.))
             .rounded(px(8.))
             .border_1()
-            .cursor_pointer();
+            .cursor_pointer()
+            .when(listening.is_none(), |this| {
+                this.tab_index(0)
+                    .focus_visible(move |style| style.border_color(theme.ring))
+            })
+            .when(listening.is_none() && binding.is_some(), |this| {
+                this.on_key_down(cx.listener(
+                    move |this, event: &gpui::KeyDownEvent, window, cx| {
+                        if matches!(event.keystroke.key.as_str(), "backspace" | "delete") {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            this.shortcut_clear(action, cx);
+                        }
+                    },
+                ))
+            });
 
         let field = match (listening, binding) {
             (Some(listening), _) => {
@@ -3508,6 +3527,8 @@ impl SettingsWindow {
         let theme = self.theme;
         div()
             .id("automations-add")
+            .tab_index(0)
+            .focus_visible(move |style| style.border_color(theme.ring))
             .flex()
             .flex_row()
             .items_center()
@@ -3550,6 +3571,8 @@ impl SettingsWindow {
         let name = template.name;
         div()
             .id(SharedString::from(format!("template-{}", template.id)))
+            .tab_index(0)
+            .focus_visible(move |style| style.border_color(theme.ring))
             .flex()
             .flex_row()
             .items_start()
@@ -3705,6 +3728,8 @@ impl SettingsWindow {
             .child(
                 div()
                     .id(("rule-expand", index))
+                    .tab_index(0)
+                    .focus_visible(move |style| style.bg(theme.settings_fill()))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -3961,6 +3986,8 @@ impl SettingsWindow {
             .child(
                 div()
                     .id(("rule-delete", index))
+                    .tab_index(0)
+                    .focus_visible(move |style| style.bg(theme.settings_fill()))
                     .flex()
                     .flex_row()
                     .items_center()
