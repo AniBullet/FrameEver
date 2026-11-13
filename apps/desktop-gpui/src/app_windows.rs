@@ -4532,40 +4532,42 @@ fn load_editor_filmstrips(
         .iter()
         .map(|segment| segment.display.duration)
         .collect();
+    let paths = crate::editor_clips::recording_display_paths(&project_path).unwrap_or_default();
+    let sources: Vec<(PathBuf, f64)> = paths.iter().cloned().zip(durations).collect();
+    let Ok((stop, wanted)) = handle.update(cx, |view, _window, _cx| {
+        view.set_clip_paths(paths);
+        (
+            view.filmstrip_decode_stop(),
+            editor_timeline::filmstrip::missing(&sources, |path| view.has_filmstrip(path)),
+        )
+    }) else {
+        return;
+    };
+    if wanted.is_empty() {
+        return;
+    }
     cx.spawn(async move |cx| {
         let started = std::time::Instant::now();
         let strips = cx
             .background_executor()
             .spawn(async move {
-                let stop = std::sync::atomic::AtomicBool::new(false);
-                let paths =
-                    crate::editor_clips::recording_display_paths(&project_path).unwrap_or_default();
-                durations
-                    .iter()
-                    .enumerate()
-                    .map(|(index, duration)| {
-                        paths
-                            .get(index)
-                            .filter(|path| path.is_file())
-                            .and_then(|path| {
-                                editor_timeline::filmstrip::decode(path, *duration, &stop)
-                            })
-                            .map(Arc::new)
+                wanted
+                    .into_iter()
+                    .filter(|(path, _)| path.is_file())
+                    .filter_map(|(path, duration)| {
+                        editor_timeline::filmstrip::decode(&path, duration, &stop)
+                            .map(|frames| (path, Arc::new(frames)))
                     })
                     .collect::<Vec<_>>()
             })
             .await;
         tracing::info!(
             ms = started.elapsed().as_millis() as u64,
-            frames = strips
-                .iter()
-                .flatten()
-                .map(|strip| strip.len())
-                .sum::<usize>(),
+            frames = strips.iter().map(|(_, strip)| strip.len()).sum::<usize>(),
             "editor filmstrips ready"
         );
         handle
-            .update(cx, |view, _window, cx| view.set_filmstrips(strips, cx))
+            .update(cx, |view, _window, cx| view.add_filmstrips(strips, cx))
             .ok();
     })
     .detach();
@@ -5163,6 +5165,11 @@ pub fn reload_editor(project_path: &Path, cx: &mut App) {
             .update(cx, |view, _window, _cx| view.timeline_transform())
             .ok()
     });
+    let media = handle.and_then(|handle| {
+        handle
+            .update(cx, |view, _window, _cx| view.timeline_media())
+            .ok()
+    });
 
     if let Some(handle) = handle {
         if let Ok(pending) = handle.update(cx, |view, _window, _cx| view.pending_save()) {
@@ -5182,12 +5189,15 @@ pub fn reload_editor(project_path: &Path, cx: &mut App) {
 
     tracing::info!(path = %key.display(), "reloading editor after import");
     open_editor(key.clone(), cx);
-    if let Some(transform) = transform
-        && let Some(handle) = editor_window_handle(&key, cx)
-    {
+    if let Some(handle) = editor_window_handle(&key, cx) {
         handle
             .update(cx, |view, _window, _cx| {
-                view.restore_timeline_transform(transform)
+                if let Some(transform) = transform {
+                    view.restore_timeline_transform(transform);
+                }
+                if let Some(media) = media {
+                    view.adopt_timeline_media(media);
+                }
             })
             .ok();
     }
@@ -5894,6 +5904,41 @@ mod tests {
         );
         assert_eq!(recording_finish(None, None).next, AfterRecording::ShowMain);
         assert!(!recording_finish(Some(PostStudioBehaviour::OpenEditor), None).copy_instant);
+    }
+
+    #[test]
+    fn a_studio_and_an_instant_recording_finishing_together_follow_studio_and_still_copy() {
+        use crate::store::{PostInstantBehaviour, PostStudioBehaviour};
+        assert_eq!(
+            recording_finish(
+                Some(PostStudioBehaviour::OpenEditor),
+                Some(PostInstantBehaviour::CopyFile)
+            ),
+            RecordingFinish {
+                copy_instant: true,
+                next: AfterRecording::OpenEditor
+            }
+        );
+        assert_eq!(
+            recording_finish(
+                Some(PostStudioBehaviour::DoNothing),
+                Some(PostInstantBehaviour::ShowLibrary)
+            ),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::StayHidden
+            }
+        );
+        assert_eq!(
+            recording_finish(
+                Some(PostStudioBehaviour::ShowOverlay),
+                Some(PostInstantBehaviour::DoNothing)
+            ),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::ShowMain
+            }
+        );
     }
 
     #[test]

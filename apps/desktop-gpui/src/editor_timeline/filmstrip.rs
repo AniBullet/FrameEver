@@ -1,5 +1,5 @@
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -82,6 +82,29 @@ impl<T> Filmstrip<T> {
 
 pub type Frames = Filmstrip<Arc<RenderImage>>;
 
+#[derive(Debug, Default)]
+pub struct DecodeStop(Arc<AtomicBool>);
+
+impl DecodeStop {
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        self.0.clone()
+    }
+}
+
+impl Drop for DecodeStop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+pub fn missing(sources: &[(PathBuf, f64)], present: impl Fn(&Path) -> bool) -> Vec<(PathBuf, f64)> {
+    sources
+        .iter()
+        .filter(|(path, _)| !present(path))
+        .cloned()
+        .collect()
+}
+
 pub fn decode(path: &Path, duration: f64, stop: &AtomicBool) -> Option<Frames> {
     let mut reader = VideoReader::open_light(path).ok()?;
     let mut frames: Vec<(f64, Arc<RenderImage>)> = Vec::new();
@@ -144,6 +167,23 @@ mod tests {
         assert_eq!(source_time(3., 10., &holds, 0., 8.), 2.);
         assert_eq!(source_time(10., 10., &holds, 0., 8.), 8.);
         assert_eq!(source_time(6., 10., &holds, 0., 8.), 4.);
+    }
+
+    #[test]
+    fn decoding_stops_once_its_editor_is_gone() {
+        let stop = DecodeStop::default();
+        let flag = stop.flag();
+        assert!(!flag.load(Ordering::Relaxed));
+        drop(stop);
+        assert!(flag.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn only_recordings_without_a_strip_are_decoded() {
+        let a = std::path::PathBuf::from("a.mp4");
+        let b = std::path::PathBuf::from("b.mp4");
+        let sources = vec![(a.clone(), 4.), (b.clone(), 6.)];
+        assert_eq!(missing(&sources, |path| path == a.as_path()), vec![(b, 6.)]);
     }
 
     #[test]

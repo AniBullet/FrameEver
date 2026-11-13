@@ -1324,7 +1324,7 @@ const TRACK_FILL = {
 	image: "input",
 	mask: "mask",
 	shot: "shot",
-	scene: "audio",
+	scene: "scene",
 };
 const trackList = () => {
 	return TRACKS.filter((t) => S.shown.has(t.id));

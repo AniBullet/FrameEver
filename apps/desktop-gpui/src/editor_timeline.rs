@@ -33,6 +33,7 @@
 
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -68,7 +69,7 @@ pub const TIMELINE_PADDING: f32 = 11.;
 pub const TIMELINE_TOP_PADDING: f32 = 9.;
 pub const TIMELINE_BOTTOM_PADDING: f32 = 11.;
 pub const TRACK_GUTTER_GAP: f32 = 8.;
-pub const TRACK_GUTTER: f32 = 104.;
+pub const TRACK_GUTTER: f32 = 96.;
 pub const TRACK_ICON_WIDTH: f32 = TRACK_GUTTER - TRACK_GUTTER_GAP;
 pub const TIMELINE_HEADER_HEIGHT: f32 = 26.;
 /// The playhead hangs from the ruler's baseline, which is the header's bottom
@@ -140,23 +141,22 @@ pub fn row_at(rows: &[TrackRow], y: f32) -> Option<usize> {
 /// long, half seconds are short.
 const RULER_MAJOR_TICK: f32 = 8.;
 const RULER_MINOR_TICK: f32 = 5.;
-/// The gutter cell: a 22px tile at 4px of left padding, then the label.
-const TRACK_TILE_SIZE: f32 = 22.;
-const TRACK_TILE_INSET: f32 = 4.;
-/// The segment's radius, its left accent bar and the content inset that clears
-/// it (`0 10px 0 13px`).
+const TRACK_GUTTER_PADDING_LEFT: f32 = 12.;
+const TRACK_GUTTER_PADDING_RIGHT: f32 = 8.;
+const TRACK_ROW_GROUP: &str = "timeline-track-row";
 const SEGMENT_RADIUS: f32 = 4.;
 const SELECTED_EDGE: f32 = 2.;
 const TRIM_BAR_WIDTH: f32 = 3.;
 const TRIM_BAR_HEIGHT: f32 = 14.;
 const TRIM_BAR_INSET: f32 = 4.;
 const CLIP_WAVE_BAND: f32 = 18.;
+const MUSIC_WAVE_HEIGHT: f32 = 16.;
+const MUSIC_WAVE_BOTTOM: f32 = 3.;
+const MUSIC_LABEL_TOP: f32 = 5.;
 const TRANSITION_MARK_SIZE: f32 = 14.;
 const SEGMENT_PADDING_LEFT: f32 = 10.;
 const SEGMENT_PADDING_RIGHT: f32 = 10.;
 const CLIP_CHIP_INSET: f32 = 4.;
-/// The selected 3D shot's pose dots: 6px, 5px inside each edge, so the resize
-/// handles still own the outer pixels.
 pub const CAMERA3D_POSE_DOT: f32 = 6.;
 pub const CAMERA3D_POSE_DOT_INSET: f32 = 11.;
 /// The waveform's ceiling inside a row, so it never climbs into the labels.
@@ -214,7 +214,7 @@ pub mod track_color {
     pub const IMAGE: u32 = 0x94661e;
     pub const TEXT: u32 = 0x2f7f6e;
     pub const MASK: u32 = 0xa0453f;
-    pub const SCENE: u32 = 0x6b4693;
+    pub const SCENE: u32 = 0x3b793f;
     pub const AUDIO: u32 = 0x6b4693;
     pub const THREE_D: u32 = 0x4b4a9e;
 }
@@ -256,7 +256,8 @@ pub fn segment_fill(theme: &Theme, kind: TrackKind) -> Hsla {
         TrackKind::Clip => theme.preview,
         TrackKind::Zoom => theme.track_zoom,
         TrackKind::Caption | TrackKind::Text => theme.track_text,
-        TrackKind::Audio | TrackKind::Scene => theme.track_audio,
+        TrackKind::Audio => theme.track_audio,
+        TrackKind::Scene => theme.track_scene,
         TrackKind::Keyboard | TrackKind::Image => theme.track_input,
         TrackKind::Style => theme.track_style,
         TrackKind::Mask => theme.track_mask,
@@ -768,6 +769,7 @@ impl PartialEq for WaveformGeometry {
 pub enum WaveformTrack {
     Mic,
     System,
+    Music,
 }
 
 /// Shared by every clone of the model, so a drag preview reuses the committed
@@ -1185,9 +1187,12 @@ pub enum SegmentDetail {
     /// `TL/AudioTrack.tsx:449-540`.
     Audio {
         name: SharedString,
+        path: SharedString,
         enabled: bool,
         fade_in: f64,
         fade_out: f64,
+        trim_start: f64,
+        volume_db: f64,
     },
     /// `TL/CaptionsTrack.tsx:176-273`.
     Caption {
@@ -1233,6 +1238,12 @@ impl TrackRow {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TimelineMedia {
+    pub filmstrips: HashMap<PathBuf, Arc<filmstrip::Frames>>,
+    pub music_waveforms: HashMap<SharedString, Arc<Vec<f32>>>,
+}
+
 /// Everything the timeline draws, derived once per project-config change.
 #[derive(Debug, Clone, Default)]
 pub struct TimelineModel {
@@ -1261,13 +1272,46 @@ pub struct TimelineModel {
     pub mic_waveforms: Vec<Arc<Vec<f32>>>,
     pub system_waveforms: Vec<Arc<Vec<f32>>>,
     pub waveform_paths: Arc<WaveformPaths>,
-    pub filmstrips: Vec<Option<Arc<filmstrip::Frames>>>,
+    pub clip_paths: Arc<Vec<PathBuf>>,
+    pub filmstrips: HashMap<PathBuf, Arc<filmstrip::Frames>>,
+    pub music_waveforms: HashMap<SharedString, Arc<Vec<f32>>>,
     /// The span a live ghost trim is removing, in output time. Drawn as a gap
     /// with a red duration badge, the way Blip's ghost resize marks the cut.
     pub clip_ghost_gap: Option<(f64, f64)>,
 }
 
 impl TimelineModel {
+    pub fn filmstrip_for(&self, recording_clip: u32) -> Option<&Arc<filmstrip::Frames>> {
+        self.clip_paths
+            .get(recording_clip as usize)
+            .and_then(|path| self.filmstrips.get(path))
+    }
+
+    pub fn music_peaks(&self, segment: &Segment) -> Option<Arc<Vec<f32>>> {
+        let SegmentDetail::Audio { path, .. } = &segment.detail else {
+            return None;
+        };
+        self.music_waveforms.get(path).cloned()
+    }
+
+    pub fn missing_music_waveforms(&self, pending: impl Fn(&str) -> bool) -> Vec<SharedString> {
+        let mut missing: Vec<SharedString> = Vec::new();
+        for segment in &self.audio {
+            let SegmentDetail::Audio { path, .. } = &segment.detail else {
+                continue;
+            };
+            if path.is_empty()
+                || self.music_waveforms.contains_key(path)
+                || pending(path)
+                || missing.contains(path)
+            {
+                continue;
+            }
+            missing.push(path.clone());
+        }
+        missing
+    }
+
     fn segments_for(&self, row: TrackRow) -> &[Segment] {
         self.segments(row.kind)
     }
@@ -1399,9 +1443,12 @@ impl TimelineModel {
                         .clone()
                         .filter(|name| !name.is_empty())
                         .map_or_else(|| SharedString::new_static(t!("Audio")), SharedString::from),
+                    path: SharedString::from(segment.path.clone()),
                     enabled: segment.enabled,
                     fade_in: segment.fade_in,
                     fade_out: segment.fade_out,
+                    trim_start: segment.trim_start,
+                    volume_db: f64::from(segment.volume_db),
                 },
             })
             .collect();
@@ -1488,7 +1535,9 @@ impl TimelineModel {
             mic_waveforms: Vec::new(),
             system_waveforms: Vec::new(),
             waveform_paths: Arc::default(),
-            filmstrips: Vec::new(),
+            clip_paths: Arc::default(),
+            filmstrips: HashMap::new(),
+            music_waveforms: HashMap::new(),
             clip_ghost_gap: None,
         };
         model.rows = build_rows(
@@ -1824,36 +1873,23 @@ impl SegmentUi<'_> {
 // Rendering
 // ---------------------------------------------------------------------------
 
-/// The gutter cell: a tinted 22px tile carrying the track's glyph, then the
-/// track's name. The saturated pill the source draws
-/// (`TL/TrackManager.tsx:264-281`) is gone.
-pub fn track_chip(theme: &Theme, kind: TrackKind) -> impl IntoElement {
-    let color = kind.color();
+pub fn track_chip(kind: TrackKind, rest: Hsla, active: Hsla) -> impl IntoElement {
     div()
         .w_full()
         .h_full()
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(8.))
-        .pl(px(TRACK_TILE_INSET))
-        .pr(px(6.))
+        .gap(px(6.))
+        .pl(px(TRACK_GUTTER_PADDING_LEFT))
+        .pr(px(TRACK_GUTTER_PADDING_RIGHT))
         .child(
-            div()
+            svg()
+                .path(kind.icon())
+                .size(px(14.))
                 .flex_none()
-                .size(px(TRACK_TILE_SIZE))
-                .rounded(px(6.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(tile_bg(theme, color))
-                .child(
-                    svg()
-                        .path(kind.icon())
-                        .size(px(14.))
-                        .flex_none()
-                        .text_color(tile_fg(theme, color)),
-                ),
+                .text_color(rest)
+                .group_hover(TRACK_ROW_GROUP, move |style| style.text_color(active)),
         )
         .child(
             div()
@@ -2135,7 +2171,13 @@ pub fn render_row(
     let selected = ui.row_selected(model, row);
     let active_bg = Hsla::from(theme.editor.ctl_hover);
     let active_text = Hsla::from(theme.editor.text_1);
+    let rest_text = if selected {
+        active_text
+    } else {
+        Hsla::from(theme.editor.text_2)
+    };
     div()
+        .group(TRACK_ROW_GROUP)
         .relative()
         .flex()
         .flex_row()
@@ -2148,18 +2190,14 @@ pub fn render_row(
         } else {
             Hsla::from(theme.editor.ctl)
         })
-        .text_color(if selected {
-            active_text
-        } else {
-            Hsla::from(theme.editor.text_2)
-        })
+        .text_color(rest_text)
         .hover(|style| style.bg(active_bg).text_color(active_text))
         .child(
             div()
                 .w(px(TRACK_GUTTER))
                 .flex_none()
                 .relative()
-                .child(track_chip(theme, row.kind)),
+                .child(track_chip(row.kind, rest_text, active_text)),
         )
         .child(
             div()
@@ -2759,6 +2797,19 @@ fn render_segment(
         }
     }
 
+    if let Some(peaks) = model.music_peaks(segment) {
+        fill = fill.child(render_music_waveform(
+            model,
+            index,
+            segment,
+            peaks,
+            view,
+            width,
+            height,
+            waveform_color(theme),
+        ));
+    }
+
     fill = fill.child(render_label(theme, segment, visible_width, center_x, kind));
 
     if let SegmentDetail::Audio {
@@ -2854,11 +2905,7 @@ fn render_filmstrip(
     else {
         return strip;
     };
-    let Some(frames) = model
-        .filmstrips
-        .get(*recording_clip as usize)
-        .and_then(Option::as_ref)
-    else {
+    let Some(frames) = model.filmstrip_for(*recording_clip) else {
         return strip;
     };
     let output_duration = (segment.end - segment.start).max(f64::EPSILON);
@@ -3302,6 +3349,82 @@ fn render_waveform(
     .into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
+fn render_music_waveform(
+    model: &TimelineModel,
+    index: usize,
+    segment: &Segment,
+    peaks: Arc<Vec<f32>>,
+    view: TimelineView,
+    width: f32,
+    height: f32,
+    color: Hsla,
+) -> impl IntoElement {
+    let SegmentDetail::Audio {
+        trim_start,
+        volume_db,
+        ..
+    } = segment.detail
+    else {
+        return div().into_any_element();
+    };
+    let scale = gain_to_scale(volume_db);
+    if peaks.is_empty() || scale <= 0. {
+        return div().into_any_element();
+    }
+    let timeline_start = segment.start;
+    let output_duration = (segment.end - segment.start).max(0.0001);
+    let transform = view.transform;
+    let full_width = width.max(1.) as f64;
+    let paths = model.waveform_paths.clone();
+    gpui::canvas(
+        |bounds, _window, _cx| bounds,
+        move |_, bounds, window, _cx| {
+            let view_start = transform.position;
+            let view_end = view_start + transform.zoom;
+            let visible_start = view_start.max(timeline_start) - timeline_start;
+            let visible_end = view_end.min(timeline_start + output_duration) - timeline_start;
+            if visible_end <= visible_start {
+                return;
+            }
+            let px_per_sec = full_width / output_duration;
+            let origin = gpui::point(
+                bounds.origin.x + px((visible_start * px_per_sec) as f32),
+                bounds.origin.y,
+            );
+            let slice_width = ((visible_end - visible_start) * px_per_sec) as f32;
+            let geometry = WaveformGeometry {
+                peaks: peaks.clone(),
+                range: (visible_start, visible_end),
+                target_samples: waveform_sample_count(slice_width as f64),
+                holds: Vec::new(),
+                source_start: trim_start,
+                origin,
+                size: gpui::size(px(slice_width), px(MUSIC_WAVE_HEIGHT)),
+                scale,
+                clip_bounds: gpui::Bounds {
+                    origin: gpui::point(
+                        bounds.origin.x,
+                        bounds.bottom() + px(MUSIC_WAVE_BOTTOM) - px(height),
+                    ),
+                    size: gpui::size(px(width), px(height)),
+                },
+            };
+            if let Some(path) = paths.get_or_build((index, WaveformTrack::Music), geometry) {
+                window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
+                    window.paint_path(path, color)
+                });
+            }
+        },
+    )
+    .absolute()
+    .bottom(px(MUSIC_WAVE_BOTTOM))
+    .left_0()
+    .w(px(width))
+    .h(px(MUSIC_WAVE_HEIGHT))
+    .into_any_element()
+}
+
 /// `SegmentLabel` (`TL/Track.tsx:186-220`): full, compact and glyph tiers,
 /// anchored to the visible box and left-aligned inside the segment's own
 /// `0 10px 0 13px` content padding.
@@ -3377,6 +3500,9 @@ fn render_label(
             .w(px(max_width as f32))
             .flex()
             .items_center()
+            .when(kind == TrackKind::Audio, |this| {
+                this.items_start().pt(px(MUSIC_LABEL_TOP))
+            })
             .when(tier == LabelTier::Glyph, |this| this.justify_center())
             .overflow_hidden()
             .child(body),
@@ -4010,9 +4136,9 @@ mod tests {
 
     #[test]
     fn the_content_column_carries_the_scroll_bodys_padding() {
-        assert_eq!(content_width(1275.), 1143.);
-        assert_eq!(ruler_width(1275.), 1147.);
-        assert_eq!(content_left(), 116.);
+        assert_eq!(content_width(1275.), 1151.);
+        assert_eq!(ruler_width(1275.), 1155.);
+        assert_eq!(content_left(), 108.);
     }
 
     #[test]
@@ -4022,10 +4148,10 @@ mod tests {
         let transform = Transform::initial(total);
         let content = content_width(width);
 
-        assert!(time_from_x(116., width, transform, total).abs() < 1e-9);
-        let end = time_from_x(116. + content, width, transform, total);
+        assert!(time_from_x(108., width, transform, total).abs() < 1e-9);
+        let end = time_from_x(108. + content, width, transform, total);
         assert!((end - total).abs() < 1e-6, "{end}");
-        let middle = time_from_x(116. + content / 2., width, transform, total);
+        let middle = time_from_x(108. + content / 2., width, transform, total);
         assert!((middle - total / 2.).abs() < 1e-6, "{middle}");
     }
 
@@ -4034,8 +4160,8 @@ mod tests {
         let width = 1275.;
         let total = 60.0;
         let transform = Transform::initial(total);
-        assert_eq!(time_from_x(116. + 9., width, transform, total), 0.0);
-        assert!(time_from_x(116. + 11., width, transform, total) > 0.0);
+        assert_eq!(time_from_x(108. + 9., width, transform, total), 0.0);
+        assert!(time_from_x(108. + 11., width, transform, total) > 0.0);
         assert_eq!(time_from_x(0., width, transform, total), 0.0);
         assert_eq!(time_from_x(9_000., width, transform, total), total);
     }
@@ -4049,7 +4175,7 @@ mod tests {
             zoom: 10.,
             position: 20.,
         };
-        let time = time_from_x(116. + content_width(width) / 2., width, transform, 600.);
+        let time = time_from_x(108. + content_width(width) / 2., width, transform, 600.);
         assert!((time - 25.0).abs() < 1e-6, "{time}");
     }
 
@@ -4059,13 +4185,13 @@ mod tests {
     fn the_hover_preview_clears_outside_the_content_column() {
         let width = 1275.;
         let transform = Transform::initial(60.);
-        assert_eq!(preview_time_from_x(115., width, transform), None);
+        assert_eq!(preview_time_from_x(107., width, transform), None);
         assert_eq!(
-            preview_time_from_x(116. + content_width(width) + 1., width, transform),
+            preview_time_from_x(108. + content_width(width) + 1., width, transform),
             None
         );
-        assert_eq!(preview_time_from_x(116. + 5., width, transform), Some(0.));
-        let middle = preview_time_from_x(116. + content_width(width) / 2., width, transform);
+        assert_eq!(preview_time_from_x(108. + 5., width, transform), Some(0.));
+        let middle = preview_time_from_x(108. + content_width(width) / 2., width, transform);
         assert!((middle.unwrap() - 30.).abs() < 1e-6);
     }
 
@@ -4409,6 +4535,77 @@ mod tests {
                 matches!(model.clips[1].detail, SegmentDetail::Clip { volume: value, .. } if value == volume)
             );
         }
+    }
+
+    #[test]
+    fn an_audio_segment_reads_the_peaks_of_its_own_file() {
+        let config: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": {
+                "segments": [{ "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0 }],
+                "zoomSegments": [],
+                "audioSegments": [
+                    { "start": 0.0, "end": 4.0, "path": "music/a.mp3", "trimStart": 1.5, "volumeDb": -6.0 },
+                    { "start": 4.0, "end": 8.0, "path": "music/b.mp3" }
+                ]
+            }
+        }))
+        .unwrap();
+        let mut model = TimelineModel::build(&config, false, false);
+        let peaks = Arc::new(vec![-12.0_f32; 40]);
+        model
+            .music_waveforms
+            .insert(SharedString::from("music/a.mp3"), peaks.clone());
+        let first = model.music_peaks(&model.audio[0]).expect("a's peaks");
+        assert!(Arc::ptr_eq(&first, &peaks));
+        assert!(model.music_peaks(&model.audio[1]).is_none());
+        assert!(matches!(
+            model.audio[0].detail,
+            SegmentDetail::Audio {
+                trim_start: 1.5,
+                volume_db: -6.0,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn only_music_files_not_loaded_or_loading_are_requested() {
+        let config: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": {
+                "segments": [],
+                "zoomSegments": [],
+                "audioSegments": [
+                    { "start": 0.0, "end": 1.0, "path": "a.mp3" },
+                    { "start": 1.0, "end": 2.0, "path": "b.mp3" },
+                    { "start": 2.0, "end": 3.0, "path": "a.mp3" },
+                    { "start": 3.0, "end": 4.0, "path": "c.mp3" },
+                    { "start": 4.0, "end": 5.0, "path": "" }
+                ]
+            }
+        }))
+        .unwrap();
+        let model = TimelineModel::build(&config, false, false);
+        let missing = model.missing_music_waveforms(|path| path == "b.mp3");
+        assert_eq!(
+            missing,
+            vec![SharedString::from("a.mp3"), SharedString::from("c.mp3")]
+        );
+    }
+
+    #[test]
+    fn a_clip_finds_its_filmstrip_by_its_recording_path() {
+        let mut model = TimelineModel::default();
+        let first = std::path::PathBuf::from("rec/segment-0/display.mp4");
+        let second = std::path::PathBuf::from("rec/segment-1/display.mp4");
+        let strip = Arc::new(filmstrip::Frames::new(Vec::new(), 1.));
+        model.clip_paths = Arc::new(vec![first, second.clone()]);
+        model.filmstrips.insert(second, strip.clone());
+        assert!(model.filmstrip_for(0).is_none());
+        assert!(Arc::ptr_eq(
+            model.filmstrip_for(1).expect("segment 1"),
+            &strip
+        ));
+        assert!(model.filmstrip_for(2).is_none());
     }
 
     #[test]
@@ -5371,6 +5568,10 @@ mod track_look_tests {
         assert_eq!(
             segment_fill(&theme, TrackKind::Audio),
             Hsla::from(theme.track_audio)
+        );
+        assert_eq!(
+            segment_fill(&theme, TrackKind::Scene),
+            Hsla::from(theme.track_scene)
         );
         assert_eq!(
             segment_fill(&theme, TrackKind::Keyboard),

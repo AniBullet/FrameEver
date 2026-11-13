@@ -53,6 +53,7 @@
 	--track-style: oklch(0.51 0.116 350.4);
 	--track-mask: oklch(0.509 0.122 26.1);
 	--track-shot: oklch(0.456 0.133 280.3);
+	--track-scene: oklch(0.52 0.11 145);
 	--background: var(--neutral-2);
 	--foreground: var(--neutral-12);
 	--page: var(--neutral-1);
@@ -208,6 +209,7 @@
 	--track-style: oklch(0.51 0.116 350.4);
 	--track-mask: oklch(0.509 0.122 26.1);
 	--track-shot: oklch(0.456 0.133 280.3);
+	--track-scene: oklch(0.52 0.11 145);
 	--background: var(--neutral-2);
 	--foreground: var(--neutral-12);
 	--page: var(--neutral-3);

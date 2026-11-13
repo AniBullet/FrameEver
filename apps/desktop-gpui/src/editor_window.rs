@@ -1438,6 +1438,8 @@ pub struct EditorWindow {
     /// first render that knows both the width and the duration does it.
     fitted: bool,
     restore_transform: Option<Transform>,
+    media_decode_stop: timeline::filmstrip::DecodeStop,
+    music_waveforms_loading: std::collections::HashSet<SharedString>,
     /// The transport's zoom slider track rect, written by the slider's own
     /// prepaint canvas and read by the pointer maths.
     zoom_slider_track: ui::SliderTrack,
@@ -2086,6 +2088,8 @@ impl EditorWindow {
             playback_follow: timeline::PlaybackFollow::default(),
             fitted: false,
             restore_transform: None,
+            media_decode_stop: timeline::filmstrip::DecodeStop::default(),
+            music_waveforms_loading: std::collections::HashSet::new(),
             zoom_slider_track: ui::SliderTrack::default(),
             zoom_slider_drag: false,
             project: ProjectConfiguration::default(),
@@ -2275,7 +2279,7 @@ impl EditorWindow {
         self.synchronize_caption_track(true);
         self.history = ProjectHistory::new(self.project.clone());
         self.tracks = TrackLanes::from_project(&self.project, self.has_camera);
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         // The sidebar's own signals are seeded from the config the instance
         // actually loaded, not the pre-flight's: `backgroundSourceTab`'s
         // initial value reads `background.padding`/`rounding` (`CS:1799-1802`).
@@ -2289,12 +2293,14 @@ impl EditorWindow {
     /// Re-derive the drawn model from the live config. Runs after every edit;
     /// the waveforms arrive separately and later, so whatever has landed is
     /// carried across.
-    fn rebuild_timeline(&mut self) {
+    fn rebuild_timeline(&mut self, cx: &mut Context<Self>) {
         dismiss_indexed_sidebar_menu(&mut self.sidebar.menu);
         let mic = std::mem::take(&mut self.timeline.mic_waveforms);
         let system = std::mem::take(&mut self.timeline.system_waveforms);
         let waveform_paths = self.timeline.waveform_paths.clone();
+        let clip_paths = self.timeline.clip_paths.clone();
         let filmstrips = std::mem::take(&mut self.timeline.filmstrips);
+        let music_waveforms = std::mem::take(&mut self.timeline.music_waveforms);
         self.timeline = TimelineModel::build_with_lanes(
             &self.project,
             self.has_camera,
@@ -2304,10 +2310,65 @@ impl EditorWindow {
         self.timeline.mic_waveforms = mic;
         self.timeline.system_waveforms = system;
         self.timeline.waveform_paths = waveform_paths;
+        self.timeline.clip_paths = clip_paths;
         self.timeline.filmstrips = filmstrips;
+        self.timeline.music_waveforms = music_waveforms;
         if self.timeline.total_duration > 0.0 {
             self.total = self.timeline.total_duration;
         }
+        self.load_missing_music_waveforms(cx);
+    }
+
+    fn load_missing_music_waveforms(&mut self, cx: &mut Context<Self>) {
+        let missing = self
+            .timeline
+            .missing_music_waveforms(|path| self.music_waveforms_loading.contains(path));
+        if missing.is_empty() {
+            return;
+        }
+        self.music_waveforms_loading.extend(missing.iter().cloned());
+        let project_path = self.project_path.clone();
+        let stop = self.media_decode_stop.flag();
+        cx.spawn(async move |this, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn(async move {
+                    missing
+                        .into_iter()
+                        .map(|path| {
+                            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                                return (path, Vec::new());
+                            }
+                            let resolved = project_path.join(&*path);
+                            let peaks = match frameever_audio::AudioData::from_file(&resolved) {
+                                Ok(audio) => {
+                                    timeline::waveform_peaks(&[audio.samples()], audio.channels())
+                                }
+                                Err(error) => {
+                                    tracing::warn!(
+                                        path = %resolved.display(),
+                                        error,
+                                        "audio track waveform unavailable"
+                                    );
+                                    Vec::new()
+                                }
+                            };
+                            (path, peaks)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                for (path, peaks) in loaded {
+                    this.music_waveforms_loading.remove(&path);
+                    this.timeline.music_waveforms.insert(path, Arc::new(peaks));
+                }
+                this.timeline_view.update(cx, |_, cx| cx.notify());
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// `getMicWaveforms()` / `getSystemAudioWaveforms()` resolving
@@ -2327,12 +2388,37 @@ impl EditorWindow {
         window.refresh();
     }
 
-    pub fn set_filmstrips(
+    pub fn set_clip_paths(&mut self, clip_paths: Vec<PathBuf>) {
+        self.timeline.clip_paths = Arc::new(clip_paths);
+    }
+
+    pub fn filmstrip_decode_stop(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.media_decode_stop.flag()
+    }
+
+    pub fn has_filmstrip(&self, path: &std::path::Path) -> bool {
+        self.timeline.filmstrips.contains_key(path)
+    }
+
+    pub fn timeline_media(&self) -> timeline::TimelineMedia {
+        timeline::TimelineMedia {
+            filmstrips: self.timeline.filmstrips.clone(),
+            music_waveforms: self.timeline.music_waveforms.clone(),
+        }
+    }
+
+    pub fn adopt_timeline_media(&mut self, media: timeline::TimelineMedia) {
+        self.timeline.filmstrips.extend(media.filmstrips);
+        self.timeline.music_waveforms.extend(media.music_waveforms);
+    }
+
+    pub fn add_filmstrips(
         &mut self,
-        filmstrips: Vec<Option<Arc<timeline::filmstrip::Frames>>>,
+        filmstrips: Vec<(PathBuf, Arc<timeline::filmstrip::Frames>)>,
         cx: &mut Context<Self>,
     ) {
-        self.timeline.filmstrips = filmstrips;
+        self.timeline.filmstrips.extend(filmstrips);
+        self.timeline_view.update(cx, |_, cx| cx.notify());
         cx.notify();
     }
 
@@ -2448,7 +2534,7 @@ impl EditorWindow {
         }
         self.synchronize_caption_track(false);
         self.history.record(&self.project);
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         self.publish_project();
         self.schedule_save(window, cx);
         cx.notify();
@@ -2605,7 +2691,7 @@ impl EditorWindow {
                 != crate::editor_sidebar::is_none_background(&config);
         self.project = config;
         self.synchronize_caption_track(false);
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         if self.animated_gradient_config().is_some() {
             self.sidebar.source_tab = crate::editor_sidebar::initial_source_tab(&self.project);
         } else {
@@ -5608,7 +5694,7 @@ impl EditorWindow {
             return false;
         }
         self.history.record(&self.project);
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         self.publish_project();
         cx.notify();
         true
@@ -6054,7 +6140,7 @@ impl EditorWindow {
                 &self.clip_display_durations,
             );
             self.synchronize_caption_track(false);
-            self.rebuild_timeline();
+            self.rebuild_timeline(cx);
             self.publish_project();
         }
 
@@ -6351,7 +6437,7 @@ impl EditorWindow {
             _ => {}
         }
         self.hovered_gutter = None;
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         self.note_edit("delete-track", Some(kind));
         cx.notify();
     }
@@ -7612,7 +7698,7 @@ impl EditorWindow {
         {
             self.set_selection(None, cx);
         }
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         cx.notify();
         window.refresh();
     }
@@ -7650,7 +7736,7 @@ impl EditorWindow {
                     .find(|lane| !segments.iter().any(|segment| segment.track == *lane))
                     .unwrap_or(lane_count);
                 self.tracks.audio = lane_count.max(lane + 1);
-                self.rebuild_timeline();
+                self.rebuild_timeline(cx);
                 self.open_audio_picker(lane, cx);
             }
             TrackKind::Text | TrackKind::Mask => {
@@ -7735,7 +7821,7 @@ impl EditorWindow {
                 TrackKind::Mask => self.tracks.mask += 1,
                 _ => {}
             }
-            self.rebuild_timeline();
+            self.rebuild_timeline(cx);
             return;
         };
 
@@ -8106,7 +8192,7 @@ impl EditorWindow {
         }) {
             self.set_selection(Some(Selection::single(TrackKind::Audio, index)), cx);
         }
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         self.note_edit("add-audio", Some(TrackKind::Audio));
         cx.notify();
         window.refresh();
@@ -10920,8 +11006,6 @@ impl EditorWindow {
             .into_any_element()
     }
 
-    /// The 26px header strip (`TL/index.tsx:1220-1245`): the ruler and the
-    /// scrub surface over everything right of `TRACK_GUTTER - START_SNAP_PX`.
     fn render_timeline_header(
         &self,
         viewport_width: f32,
