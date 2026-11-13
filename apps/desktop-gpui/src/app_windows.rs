@@ -449,15 +449,17 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                 }
             } else {
                 let settings = crate::store::GeneralSettings::load();
-                let behaviour = settings.post_studio_recording_behaviour;
-                let after_instant = settings.post_instant_recording_behaviour;
-                if let Some(project) = &finished_instant
-                    && after_instant.finish().copy_file
-                {
+                let finish = recording_finish(
+                    finished_studio
+                        .as_ref()
+                        .map(|_| settings.post_studio_recording_behaviour),
+                    finished_instant
+                        .as_ref()
+                        .map(|_| settings.post_instant_recording_behaviour),
+                );
+                if let Some(project) = finished_instant.as_ref().filter(|_| finish.copy_instant) {
                     copy_instant_recording(project, cx);
                 }
-                let hides_after_instant =
-                    finished_instant.is_some() && after_instant.keeps_main_window_hidden();
                 if let Some(project) = finished_studio.clone().or_else(|| finished_instant.clone())
                 {
                     main.update(cx, |view, window, cx| {
@@ -465,19 +467,13 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                     })
                     .ok();
                 }
-                match (finished_studio, behaviour) {
-                    (Some(project_dir), crate::store::PostStudioBehaviour::OpenEditor) => {
-                        open_editor(project_dir, cx)
-                    }
-                    (Some(_), crate::store::PostStudioBehaviour::DoNothing) => {
+                match (finish.next, finished_studio) {
+                    (AfterRecording::OpenEditor, Some(project_dir)) => open_editor(project_dir, cx),
+                    (AfterRecording::StayHidden, _) => {
                         park_idle_camera_preview(cx);
                         crate::menus::schedule_dock_sync(cx);
                     }
-                    (None, _) if hides_after_instant => {
-                        park_idle_camera_preview(cx);
-                        crate::menus::schedule_dock_sync(cx);
-                    }
-                    _ if finished_instant.is_some() => show_library(cx),
+                    (AfterRecording::ShowLibrary, _) => show_library(cx),
                     _ => show_main_window(cx),
                 }
             }
@@ -2103,6 +2099,36 @@ fn keep_arranged_windows(cx: &mut App) {
     TargetSelect::global(cx).update(cx, |select, _| {
         select.take_arranged();
     });
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AfterRecording {
+    OpenEditor,
+    StayHidden,
+    ShowLibrary,
+    ShowMain,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RecordingFinish {
+    copy_instant: bool,
+    next: AfterRecording,
+}
+
+fn recording_finish(
+    studio: Option<crate::store::PostStudioBehaviour>,
+    instant: Option<crate::store::PostInstantBehaviour>,
+) -> RecordingFinish {
+    use crate::store::PostStudioBehaviour;
+    let copy_instant = instant.is_some_and(|instant| instant.finish().copy_file);
+    let next = match (studio, instant) {
+        (Some(PostStudioBehaviour::OpenEditor), _) => AfterRecording::OpenEditor,
+        (Some(PostStudioBehaviour::DoNothing), _) => AfterRecording::StayHidden,
+        (Some(PostStudioBehaviour::ShowOverlay), _) | (None, None) => AfterRecording::ShowMain,
+        (None, Some(instant)) if instant.keeps_main_window_hidden() => AfterRecording::StayHidden,
+        (None, Some(_)) => AfterRecording::ShowLibrary,
+    };
+    RecordingFinish { copy_instant, next }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -5822,6 +5848,53 @@ fn close_controls(session: &Entity<RecordingSession>, cx: &mut App) {
 mod tests {
     use super::*;
     use crate::store::{DEFAULT_EXCLUDED_WINDOW_TITLES, WindowExclusion, default_excluded_windows};
+
+    #[test]
+    fn each_instant_outcome_decides_the_copy_and_the_window() {
+        use crate::store::PostInstantBehaviour;
+        let after = |instant| recording_finish(None, Some(instant));
+        assert_eq!(
+            after(PostInstantBehaviour::ShowLibrary),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::ShowLibrary
+            }
+        );
+        assert_eq!(
+            after(PostInstantBehaviour::CopyFile),
+            RecordingFinish {
+                copy_instant: true,
+                next: AfterRecording::StayHidden
+            }
+        );
+        assert_eq!(
+            after(PostInstantBehaviour::DoNothing),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::StayHidden
+            }
+        );
+    }
+
+    #[test]
+    fn studio_outcomes_ignore_the_instant_setting() {
+        use crate::store::PostStudioBehaviour;
+        let after = |studio| recording_finish(Some(studio), None).next;
+        assert_eq!(
+            after(PostStudioBehaviour::OpenEditor),
+            AfterRecording::OpenEditor
+        );
+        assert_eq!(
+            after(PostStudioBehaviour::ShowOverlay),
+            AfterRecording::ShowMain
+        );
+        assert_eq!(
+            after(PostStudioBehaviour::DoNothing),
+            AfterRecording::StayHidden
+        );
+        assert_eq!(recording_finish(None, None).next, AfterRecording::ShowMain);
+        assert!(!recording_finish(Some(PostStudioBehaviour::OpenEditor), None).copy_instant);
+    }
 
     #[test]
     fn arranged_windows_are_kept_only_once_capture_starts() {
