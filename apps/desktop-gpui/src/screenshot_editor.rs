@@ -2294,6 +2294,14 @@ impl ScreenshotEditorWindow {
             }
         }
 
+        if let Some((delta, action)) =
+            annotations::Nudge::for_keys(key, modified, modifiers.shift, modifiers.alt)
+            && self.nudge_selected(delta, action, window, cx)
+        {
+            cx.stop_propagation();
+            return;
+        }
+
         if modified {
             match key {
                 "z" => {
@@ -2361,6 +2369,11 @@ impl ScreenshotEditorWindow {
                 cx.notify();
             }
             "backspace" | "delete" => self.delete_selected_annotation(window, cx),
+            "enter" if self.focus.is_focused(window) || window.focused(cx).is_none() => {
+                if self.edit_selected_text(window, cx) || self.place_with_keyboard(window, cx) {
+                    cx.stop_propagation();
+                }
+            }
             _ => {}
         }
     }
@@ -4691,6 +4704,10 @@ mod tests {
             mask_type: None,
             mask_level: None,
             points: None,
+            number: None,
+            font_size: None,
+            tail: None,
+            zoom: None,
         }
     }
 

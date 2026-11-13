@@ -79,6 +79,7 @@ mod screenshot_crop;
 mod screenshot_editor;
 mod screenshot_export;
 mod screenshot_layout;
+mod screenshot_shapes;
 mod script_text;
 mod session;
 mod settings_pages;
