@@ -38,6 +38,7 @@ pub struct Select {
     gap: Pixels,
     stretch: bool,
     disabled: bool,
+    focus_ring: Option<Hsla>,
     on_click: Option<crate::ui::button::ClickHandler>,
     on_open: Option<OpenHandler>,
 }
@@ -69,6 +70,7 @@ impl Select {
             gap: px(6.),
             stretch: false,
             disabled: false,
+            focus_ring: Some(Hsla::from(theme.ring)),
             on_click: None,
             on_open: None,
         }
@@ -92,6 +94,7 @@ impl Select {
             chevron: Hsla::from(theme.editor.text_3),
             chevron_size: px(14.),
             gap: px(8.),
+            focus_ring: None,
             ..Self::settings(theme, id, label)
         }
     }
@@ -144,9 +147,11 @@ impl RenderOnce for Select {
             gap,
             stretch,
             disabled,
+            focus_ring,
             on_click,
             on_open,
         } = self;
+        let focus_ring = focus_ring.filter(|_| on_click.is_some() && !disabled);
 
         div()
             .id(id)
@@ -180,6 +185,10 @@ impl RenderOnce for Select {
                     .flex_shrink_0()
                     .text_color(chevron),
             )
+            .when_some(focus_ring, |this, ring| {
+                this.tab_index(0)
+                    .focus_visible(move |style| style.border_color(ring))
+            })
             .when_some(on_click.filter(|_| !disabled), |this, handler| {
                 this.on_click(move |event, window, cx| handler(event, window, cx))
             })
