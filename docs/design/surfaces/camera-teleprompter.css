@@ -61,6 +61,10 @@
 	box-sizing: border-box;
 }
 
+.cam-bar .rb-sep {
+	margin: 0 2px;
+}
+
 .rb-btn.on {
 	background: var(--selection);
 	color: var(--selection-foreground);

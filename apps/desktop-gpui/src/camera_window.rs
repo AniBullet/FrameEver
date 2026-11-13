@@ -1,3 +1,5 @@
+mod layout;
+
 use std::sync::{
     Arc,
     atomic::{AtomicU32, AtomicU64, Ordering},
@@ -9,7 +11,7 @@ use gpui::{
     AppContext as _, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
     MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement as _, Render,
     StatefulInteractiveElement as _, StyleRefinement, Styled, Subscription, WeakEntity, Window,
-    div, prelude::FluentBuilder as _, px, size, svg,
+    div, prelude::FluentBuilder as _, px, svg,
 };
 use serde_json::Value;
 
@@ -30,11 +32,9 @@ pub const CAMERA_MAX_SIZE: f32 = 600.;
 pub const CAMERA_DEFAULT_SIZE: f32 = 230.;
 pub const CAMERA_PRESET_SMALL: f32 = 230.;
 pub const CAMERA_PRESET_LARGE: f32 = 400.;
-pub const CAMERA_TOOLBAR_HEIGHT: f32 = 56.;
+pub const CAMERA_TOOLBAR_HEIGHT: f32 = 44.;
 /// `CAMERA_WIDE_ASPECT_RATIO`.
 const WIDE_ASPECT: f32 = 16. / 9.;
-const LOADING_FADE_OUT_SECONDS: f32 = 0.28;
-const CUTOUT_REVEAL_SECONDS: f32 = 0.45;
 
 pub fn clamp_size(scale: f32) -> f32 {
     scale.clamp(CAMERA_MIN_SIZE, CAMERA_MAX_SIZE)
@@ -42,15 +42,16 @@ pub fn clamp_size(scale: f32) -> f32 {
 
 /// `cameraPreviewDimensions`: height is the size; width follows the aspect
 /// ratio (1 unless the shape is `full`).
-pub fn preview_dimensions(state: &CameraWindowState, frame_aspect: Option<f32>) -> (f32, f32) {
+pub fn preview_dimensions(state: &CameraWindowState, _frame_aspect: Option<f32>) -> (f32, f32) {
     let base = clamp_size(state.size);
-    let aspect = match state.shape {
-        CameraShape::Full => frame_aspect
-            .filter(|aspect| aspect.is_finite() && *aspect > 0.)
-            .map_or(WIDE_ASPECT, |aspect| aspect.max(WIDE_ASPECT)),
-        _ => 1.,
-    };
-    (base * aspect, base)
+    (
+        base * if state.shape == CameraShape::Full {
+            WIDE_ASPECT
+        } else {
+            1.
+        },
+        base,
+    )
 }
 
 pub fn window_size(state: &CameraWindowState, frame_aspect: Option<f32>) -> (f32, f32) {
@@ -74,6 +75,21 @@ pub(crate) fn inline_preview_size(
 }
 
 #[cfg(test)]
+mod camera_redesign_tests {
+    use super::*;
+
+    #[test]
+    fn camera_window_reserves_only_the_fixed_bar_and_gap() {
+        for size in [150., 230., 600.] {
+            let state = CameraWindowState {
+                size,
+                ..Default::default()
+            };
+            assert_eq!(window_size(&state, None), (size, size + 44.));
+        }
+    }
+}
+#[cfg(test)]
 mod inline_preview_tests {
     use super::*;
 
@@ -86,7 +102,7 @@ mod inline_preview_tests {
         );
         assert_eq!(
             inline_preview_size(&state, None, (100., 100.)),
-            (160., 216.),
+            (160., 204.),
         );
     }
 
@@ -99,7 +115,7 @@ mod inline_preview_tests {
         };
         assert_eq!(
             inline_preview_size(&state, Some(16. / 9.), (800., 600.)),
-            (498., 336.),
+            (498., 324.),
         );
         assert_eq!(state.size, 600.);
     }
@@ -109,93 +125,49 @@ mod inline_preview_tests {
 mod toolbar_fit_tests {
     use super::*;
 
-    fn fits(scale: f32, buttons: usize, width: f32) -> bool {
-        toolbar_width(scale, buttons) + TOOLBAR_INSET <= width
-    }
-
     #[test]
-    fn the_smallest_bubble_drops_blur_and_keeps_its_bar_inside() {
-        let state = CameraWindowState {
-            size: CAMERA_MIN_SIZE,
-            ..Default::default()
-        };
-        let width = window_size(&state, None).0;
-        let scale = toolbar_scale(&state);
-        assert_eq!(scale, 0.7);
-        assert_eq!(toolbar_buttons(scale, width), 4);
-        assert!(fits(scale, 4, width));
-    }
-
-    #[test]
-    fn a_default_bubble_keeps_every_button() {
-        let state = CameraWindowState::default();
-        assert_eq!(
-            toolbar_buttons(toolbar_scale(&state), window_size(&state, None).0),
-            5
-        );
-        assert_eq!(toolbar_buttons(0.7, 300.), 5);
-    }
-
-    #[test]
-    fn blur_goes_before_mirror() {
-        assert_eq!(toolbar_buttons(0.7, 150.), 4);
-        assert_eq!(toolbar_buttons(1., 150.), 3);
-        assert_eq!(toolbar_buttons(1., 190.), 4);
-    }
-
-    #[test]
-    fn a_narrow_preview_drops_buttons_without_shrinking_them() {
-        for width in [81., 100., 120., 144., 160., 200.] {
-            let buttons = toolbar_buttons(1., width);
-            assert!(buttons == 3 || fits(1., buttons, width), "{width}");
-            assert!(buttons == 5 || !fits(1., buttons + 1, width), "{width}");
+    fn camera_toolbar_keeps_fixed_controls_at_every_bubble_size() {
+        for size in [150., 230., 600.] {
+            let state = CameraWindowState {
+                size,
+                ..Default::default()
+            };
+            assert_eq!(toolbar_scale(&state), 1.);
         }
-        assert_eq!(toolbar_buttons(1., 81.), 3);
-        assert_eq!(toolbar_width(1., 3), 130.);
+    }
+
+    #[test]
+    fn camera_toolbar_drops_blur_then_mirror_without_shrinking() {
+        assert_eq!(toolbar_buttons(1., 230.), 5);
+        assert_eq!(toolbar_buttons(1., 165.), 5);
+        assert_eq!(toolbar_buttons(1., 150.), 4);
+        assert_eq!(toolbar_buttons(1., 134.), 3);
+        assert_eq!(toolbar_width(1., 5), 165.);
+        assert_eq!(toolbar_width(1., 4), 135.);
+        assert_eq!(toolbar_width(1., 3), 105.);
     }
 }
-
-/// 0..1 across the 150..600 size range -- drives the toolbar scale and the
-/// issue overlay's text metrics, like `cameraToolbarScale` /
-/// `cameraOverlayTextMetrics`.
-fn normalized_size(state: &CameraWindowState) -> f32 {
-    (clamp_size(state.size) - CAMERA_MIN_SIZE) / (CAMERA_MAX_SIZE - CAMERA_MIN_SIZE)
+fn toolbar_scale(_: &CameraWindowState) -> f32 {
+    1.
 }
 
-const TOOLBAR_BUTTON_FOOTPRINT: f32 = 42.;
-const TOOLBAR_STRIP_PADDING: f32 = 4.;
-const TOOLBAR_INSET: f32 = 10.;
-
-fn toolbar_scale(state: &CameraWindowState) -> f32 {
-    0.7 + normalized_size(state) * 0.3
-}
-
-fn toolbar_width(scale: f32, buttons: usize) -> f32 {
-    (TOOLBAR_BUTTON_FOOTPRINT * buttons as f32 + TOOLBAR_STRIP_PADDING) * scale
+fn toolbar_width(_: f32, buttons: usize) -> f32 {
+    buttons as f32 * 28. + (buttons - 1) as f32 * 2. + 17.
 }
 
 fn toolbar_buttons(scale: f32, width: f32) -> usize {
     [5, 4]
         .into_iter()
-        .find(|&buttons| toolbar_width(scale, buttons) + TOOLBAR_INSET <= width)
+        .find(|&buttons| toolbar_width(scale, buttons) <= width)
         .unwrap_or(3)
 }
-
-/// The visible bubble's corner radius. The shipped Tauri experience is the
-/// legacy webview preview (`enable_native_camera_preview` defaults to false,
-/// re-forced by the `native_camera_preview_default_rollback_v1` migration,
-/// `general_settings.rs:259-261, 526-530`), whose video container is
-/// `rounded-full` for round and `rounded-3xl` -- 24px -- for square and full
-/// (`camera.tsx:805-807`). The `cameraBorderRadius` 3rem formula styles only
-/// the native page's issue overlay, and the native WGSL mask uses its own
-/// smaller radii; the 24px container is what users see.
 pub(crate) fn preview_radius(state: &CameraWindowState) -> f32 {
     if cfg!(target_os = "macos") && state.background_blur == BlurMode::Remove {
         return 0.;
     }
     match state.shape {
         CameraShape::Round => clamp_size(state.size) / 2.,
-        _ => 24.,
+        _ => 20.,
     }
 }
 
@@ -221,7 +193,7 @@ mod preview_radius_tests {
         let saved = state;
         assert_eq!(picker_preview_radius(&state, Some((136., 192.))), 68.);
         assert_eq!(picker_preview_radius(&state, Some((120., 192.))), 60.);
-        assert_eq!(picker_preview_radius(&state, Some((136., 156.))), 50.);
+        assert_eq!(picker_preview_radius(&state, Some((136., 156.))), 56.);
         assert_eq!(picker_preview_radius(&state, None), saved.size / 2.);
         assert_eq!(state, saved);
     }
@@ -233,8 +205,8 @@ mod preview_radius_tests {
                 shape,
                 ..Default::default()
             };
-            assert_eq!(picker_preview_radius(&state, Some((136., 192.))), 24.);
-            assert_eq!(picker_preview_radius(&state, None), 24.);
+            assert_eq!(picker_preview_radius(&state, Some((136., 192.))), 20.);
+            assert_eq!(picker_preview_radius(&state, None), 20.);
         }
     }
 }
@@ -521,6 +493,13 @@ struct ResizeDrag {
     start_size: f32,
     start_picker_size: Option<(f32, f32)>,
     start_position: gpui::Point<gpui::Pixels>,
+    start_origin: (f32, f32),
+    start_dimensions: (f32, f32),
+}
+
+struct MoveDrag {
+    pointer: gpui::Point<gpui::Pixels>,
+    origin: (f32, f32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -567,28 +546,28 @@ mod resize_tests {
 
     #[test]
     fn parked_square_resizes_from_its_visible_size() {
-        let (start, picker) = resize_start(230., Some((100., 156.)));
+        let (start, picker) = resize_start(230., Some((100., 144.)));
         assert_eq!(start, 100.);
         assert_eq!(
             resize_target(start, picker, 1.),
-            ResizeTarget::Picker((101., 157.))
+            ResizeTarget::Picker((101., 145.))
         );
     }
 
     #[test]
     fn parked_landscape_preserves_aspect_below_the_saved_size_floor() {
-        let (start, picker) = resize_start(180., Some((144., 137.)));
+        let (start, picker) = resize_start(180., Some((144., 125.)));
         let ResizeTarget::Picker((width, height)) = resize_target(start, picker, 1.) else {
             panic!("expected temporary picker geometry");
         };
         close(start, 81.);
-        close(height, 138.);
+        close(height, 126.);
         close(width / (height - CAMERA_TOOLBAR_HEIGHT), 16. / 9.);
     }
 
     #[test]
     fn parked_resize_hands_off_continuously_at_the_saved_size_floor() {
-        let (start, picker) = resize_start(180., Some((144., 137.)));
+        let (start, picker) = resize_start(180., Some((144., 125.)));
         assert_eq!(
             resize_target(start, picker, CAMERA_MIN_SIZE - start),
             ResizeTarget::State(CAMERA_MIN_SIZE)
@@ -606,10 +585,10 @@ mod resize_tests {
 
     #[test]
     fn parked_resize_does_not_shrink_below_its_visible_size() {
-        let (start, picker) = resize_start(230., Some((100., 156.)));
+        let (start, picker) = resize_start(230., Some((100., 144.)));
         assert_eq!(
             resize_target(start, picker, -50.),
-            ResizeTarget::Picker((100., 156.))
+            ResizeTarget::Picker((100., 144.))
         );
     }
 }
@@ -626,11 +605,11 @@ struct OverlayMetrics {
 fn overlay_metrics(size: f32) -> OverlayMetrics {
     let normalized = (clamp_size(size) - CAMERA_MIN_SIZE) / (CAMERA_MAX_SIZE - CAMERA_MIN_SIZE);
     OverlayMetrics {
-        gap: (0.375 + normalized * 0.25) * 16.,
-        max_width: (size / 16.).clamp(7.5, 18.) * 16.,
-        line_height: (1.2 + normalized * 0.2) * 16.,
-        message_size: (0.625 + normalized * 0.25) * 16.,
-        title_size: (0.75 + normalized * 0.375) * 16.,
+        gap: 4.,
+        max_width: (size * 0.8).clamp(118., 320.),
+        line_height: 16. + normalized * 2.,
+        message_size: 11. + normalized,
+        title_size: 12. + normalized * 2.,
     }
 }
 
@@ -654,27 +633,23 @@ fn camera_issue(error: &str) -> (&'static str, &'static str) {
     if error.contains("access is unavailable") {
         return (
             t!("Camera access needed"),
-            t!("Click to allow FrameEver to use your camera in System Settings."),
+            if cfg!(target_os = "windows") {
+                t!("Allow it in Windows Settings.")
+            } else {
+                t!("Choose Allow in the macOS prompt.")
+            },
         );
     }
     let message = if error.contains("DeviceNotFound") {
-        t!(
-            "This camera is no longer available. Check that it is connected and allowed by system permissions."
-        )
-    } else if error.contains("CameraTimeout") {
-        t!(
-            "No frames were received from this camera. It may be closed, disconnected, covered, or in use by another app."
-        )
-    } else if error.contains("StartCapturing") {
-        t!(
-            "The system could not start this camera. It may be unavailable or in use by another app."
-        )
+        t!("Reconnect your camera.")
+    } else if error.contains("CameraTimeout") || error.contains("StartCapturing") {
+        t!("It may be in use by another app.")
     } else if error.contains("InvalidFormat") {
-        t!("This camera did not report a usable capture format.")
+        t!("No usable camera format.")
     } else {
-        t!("The selected camera could not be started. Choose another camera or reconnect this one.")
+        t!("Choose another camera.")
     };
-    (t!("Camera unavailable"), message)
+    (t!("Couldn't start camera"), message)
 }
 
 fn preview_issue(
@@ -992,8 +967,6 @@ struct CameraPreviewView {
     retained_dims: Option<(usize, usize)>,
     retained_captured_at: Option<Instant>,
     reveal_started: Option<Instant>,
-    loading_started: Option<Instant>,
-    loading_fade_started: Option<Instant>,
     retained_invalidated: bool,
     selection_revision: u64,
     frame_revision: Option<u64>,
@@ -1104,8 +1077,6 @@ impl CameraPreviewView {
             retained_dims,
             retained_captured_at,
             reveal_started: None,
-            loading_started: None,
-            loading_fade_started: None,
             retained_invalidated: false,
             selection_revision: 0,
             frame_revision: None,
@@ -1206,44 +1177,14 @@ impl Render for CameraPreviewView {
 
         let showing_frame = self.latest_frame.is_some() || self.retained.is_some();
         let awaiting_access = self.awaiting_access && !showing_frame && self.camera_error.is_none();
-        let has_issue = self.camera_disconnected
-            || self.camera_error.is_some()
-            || self.effect_issue.is_some()
-            || awaiting_access;
 
-        let loading = if !showing_frame {
-            self.loading_fade_started = None;
-            let started = *self.loading_started.get_or_insert_with(Instant::now);
-            Some((started, 1., !has_issue && !cx.reduce_motion()))
-        } else if let Some(started) = self.loading_started {
-            let fade_started = *self.loading_fade_started.get_or_insert_with(Instant::now);
-            let fade_seconds = if radius > 0. {
-                LOADING_FADE_OUT_SECONDS
-            } else {
-                CUTOUT_REVEAL_SECONDS
-            };
-            let progress = fade_started.elapsed().as_secs_f32() / fade_seconds;
-            if progress < 1. && !cx.reduce_motion() {
-                Some((
-                    started,
-                    1. - progress * progress * (3. - 2. * progress),
-                    true,
-                ))
-            } else {
-                self.loading_started = None;
-                self.loading_fade_started = None;
-                None
-            }
-        } else {
-            None
-        };
         let mut container = div()
             .relative()
             .size_full()
             .overflow_hidden()
             .rounded(px(radius))
-            .when(radius > 0., |this| this.bg(theme.gray_1))
-            .text_color(theme.gray_12);
+            .when(radius > 0., |this| this.bg(theme.preview))
+            .text_color(gpui::white());
 
         #[cfg(target_os = "macos")]
         if let Some(buffer) = self
@@ -1289,7 +1230,7 @@ impl Render for CameraPreviewView {
             // The cutout window is transparent, so the person fades in while
             // the loading disc fades out; a raw surface cannot take opacity,
             // but the bubble's opaque glass covers it during its own fade.
-            let reveal = loading.map_or(1., |(_, opacity, _)| 1. - opacity);
+            let reveal = 1.;
             container = container.child(
                 gpui::img(image)
                     .size_full()
@@ -1330,12 +1271,9 @@ impl Render for CameraPreviewView {
             };
         }
 
-        if let Some((started, opacity, animate)) = loading {
-            container = container.child(camera_loading::camera_loading(
-                started, radius, opacity, animate, !has_issue,
-            ));
+        if !showing_frame {
+            container = container.child(camera_loading::camera_loading(&theme, radius));
         }
-
         // `CameraIssueOverlay` (`camera.tsx:911-955`): a black/75 wash over
         // the preview with a centred, size-scaled title + message. The
         // `backdrop-blur-xs` behind it has no per-element hook in this gpui
@@ -1369,7 +1307,7 @@ impl Render for CameraPreviewView {
                     .justify_center()
                     .overflow_hidden()
                     .rounded(px(radius))
-                    .bg(gpui::hsla(0., 0., 0., 0.75))
+                    .bg(theme.preview)
                     .px(px(16.))
                     .child(
                         div()
@@ -1458,6 +1396,9 @@ pub struct CameraWindow {
     picker_size: Option<(f32, f32)>,
     size_generation: Arc<AtomicU64>,
     chrome_visible: bool,
+    focus: gpui::FocusHandle,
+    toolbar_below: bool,
+    moving: Option<MoveDrag>,
     resizing: Option<ResizeDrag>,
     hovered_handle: Option<ResizeCorner>,
     #[cfg(target_os = "macos")]
@@ -1482,38 +1423,144 @@ pub struct CameraWindow {
     last_saved_position: Option<(f32, f32)>,
 }
 
+fn camera_size_percent(short_side: f64, reference: (f64, f64)) -> Option<f32> {
+    let (width, height) = reference;
+    if ![short_side, width, height]
+        .into_iter()
+        .all(|value| value.is_finite() && value > 0.)
+    {
+        return None;
+    }
+    Some((short_side / width.min(height) * 100.) as f32)
+}
+
+fn camera_capture_size(
+    target: &frameever_recording::screen_capture::ScreenCaptureTarget,
+) -> Option<(f64, f64)> {
+    use frameever_recording::screen_capture::ScreenCaptureTarget;
+    match target {
+        ScreenCaptureTarget::CameraOnly => None,
+        ScreenCaptureTarget::Area { bounds, .. } => {
+            #[cfg(target_os = "windows")]
+            let scale = {
+                let display = target.display()?;
+                let physical = display.raw_handle().physical_bounds()?;
+                let logical = display.logical_size()?;
+                (
+                    physical.size().width() / logical.width(),
+                    physical.size().height() / logical.height(),
+                )
+            };
+            #[cfg(target_os = "macos")]
+            let scale = (1., 1.);
+            Some((
+                bounds.size().width() * scale.0,
+                bounds.size().height() * scale.1,
+            ))
+        }
+        ScreenCaptureTarget::Display { .. } => {
+            let display = target.display()?;
+            #[cfg(target_os = "windows")]
+            let bounds = display.raw_handle().physical_bounds()?;
+            #[cfg(target_os = "macos")]
+            let bounds = display.raw_handle().logical_bounds()?;
+            Some((bounds.size().width(), bounds.size().height()))
+        }
+        ScreenCaptureTarget::Window { id } => {
+            let window = scap_targets::Window::from_id(id)?;
+            #[cfg(target_os = "windows")]
+            let bounds = window.raw_handle().physical_bounds()?;
+            #[cfg(target_os = "macos")]
+            let bounds = window.raw_handle().logical_bounds()?;
+            Some((bounds.size().width(), bounds.size().height()))
+        }
+    }
+}
+
+#[cfg(test)]
+mod snapshot_size_tests {
+    use super::*;
+
+    #[test]
+    fn camera_size_inherits_the_visible_short_side_without_a_minimum_padding() {
+        for (short, reference, expected) in [
+            (230., (1920., 1080.), 21.296296),
+            (460., (3840., 2160.), 21.296296),
+            (230., (1080., 1920.), 21.296296),
+            (150., (720., 1280.), 20.833334),
+        ] {
+            assert!((camera_size_percent(short, reference).unwrap() - expected).abs() < 0.001);
+        }
+        assert_eq!(camera_size_percent(230., (0., 1080.)), None);
+        assert_eq!(camera_size_percent(f64::NAN, (1920., 1080.)), None);
+    }
+
+    #[test]
+    fn camera_wide_preview_keeps_the_designed_ratio_for_portrait_and_four_three_inputs() {
+        let state = CameraWindowState {
+            shape: CameraShape::Full,
+            size: 230.,
+            ..Default::default()
+        };
+        for aspect in [Some(0.75), Some(4. / 3.), Some(16. / 9.), None] {
+            let dimensions = preview_dimensions(&state, aspect);
+            assert!((dimensions.0 / dimensions.1 - 16. / 9.).abs() < 0.001);
+        }
+    }
+}
+
 impl CameraWindow {
     pub(crate) fn studio_snapshot(
         &self,
         window: &Window,
         target: &frameever_recording::screen_capture::ScreenCaptureTarget,
     ) -> crate::recording::StudioCameraSnapshot {
-        let placement = (|| {
-            if self.inline {
-                return None;
-            }
+        let bounds = if self.inline {
+            None
+        } else {
             #[cfg(target_os = "macos")]
             let bounds = {
                 let bounds = window.bounds();
-                [
+                Some([
                     f64::from(f32::from(bounds.origin.x)),
-                    f64::from(f32::from(bounds.origin.y)) + f64::from(CAMERA_TOOLBAR_HEIGHT),
+                    f64::from(f32::from(bounds.origin.y) + self.preview_offset()),
                     f64::from(f32::from(bounds.size.width)),
                     f64::from(f32::from(bounds.size.height) - CAMERA_TOOLBAR_HEIGHT),
-                ]
+                ])
             };
             #[cfg(target_os = "windows")]
-            let bounds = {
-                let native = platform::native_window(window)?;
+            let bounds = platform::native_window(window).map(|native| {
                 let (x, y, width, height) = platform::window_frame(&native);
-                let toolbar = f64::from(CAMERA_TOOLBAR_HEIGHT * window.scale_factor());
-                [x, y + toolbar, width, height - toolbar]
-            };
+                let scale = f64::from(window.scale_factor());
+                [
+                    x,
+                    y + f64::from(self.preview_offset()) * scale,
+                    width,
+                    height - f64::from(CAMERA_TOOLBAR_HEIGHT) * scale,
+                ]
+            });
+            bounds
+        };
+        let placement = bounds.and_then(|bounds| {
             frameever_recording::camera_placement::recording_camera_placement(target, bounds)
-        })();
+        });
+        let size_percent = bounds.and_then(|bounds| {
+            camera_capture_size(target)
+                .and_then(|reference| camera_size_percent(bounds[2].min(bounds[3]), reference))
+        });
         crate::recording::StudioCameraSnapshot {
             blur: self.state.background_blur,
             placement,
+            preview: if self.inline {
+                self.state
+            } else {
+                CameraWindowState {
+                    size: f32::from(window.bounds().size.width)
+                        .min(f32::from(window.bounds().size.height) - CAMERA_TOOLBAR_HEIGHT),
+                    ..self.state
+                }
+            },
+            size_percent,
         }
     }
 
@@ -1606,6 +1653,22 @@ impl CameraWindow {
         })
         .detach();
 
+        let session = crate::session::RecordingSession::global(cx);
+        cx.observe_in(&session, window, |this, _, window, cx| {
+            if !this.chrome_allowed(cx) {
+                this.chrome_visible = false;
+                this.resizing = None;
+            }
+            cx.notify();
+            window.refresh();
+        })
+        .detach();
+        cx.defer_in(window, |this, window, cx| {
+            this.apply_window_size(window, cx)
+        });
+        let toolbar_below = window
+            .display(cx)
+            .is_some_and(|display| window.bounds().origin.y <= display.visible_bounds().origin.y);
         Self {
             theme,
             state,
@@ -1613,6 +1676,9 @@ impl CameraWindow {
             picker_size: None,
             size_generation: Arc::new(AtomicU64::new(0)),
             chrome_visible: false,
+            focus: cx.focus_handle(),
+            toolbar_below,
+            moving: None,
             resizing: None,
             hovered_handle: None,
             #[cfg(target_os = "macos")]
@@ -1641,6 +1707,7 @@ impl CameraWindow {
         self.inline = inline;
         self.invalidate_pending_resize();
         self.resizing = None;
+        self.moving = None;
         self.chrome_visible = false;
         self.hovered_handle = None;
         if !inline {
@@ -1934,6 +2001,180 @@ impl CameraWindow {
             .or(self.retained_aspect)
     }
 
+    pub fn focus_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+        self.chrome_visible = self.chrome_allowed(cx);
+        cx.notify();
+    }
+
+    fn chrome_allowed(&self, cx: &gpui::App) -> bool {
+        let session = crate::session::RecordingSession::global(cx);
+        let session = session.read(cx);
+        layout::controls_allowed(self.inline, session.phase, session.mode())
+    }
+
+    fn preview_offset(&self) -> f32 {
+        if self.toolbar_below {
+            0.
+        } else {
+            CAMERA_TOOLBAR_HEIGHT
+        }
+    }
+
+    fn bubble_origin(&self, window: &Window) -> (f32, f32) {
+        let bounds = window.bounds();
+        (
+            bounds.origin.x.into(),
+            f32::from(bounds.origin.y) + self.preview_offset(),
+        )
+    }
+
+    fn pointer_global(
+        window: &Window,
+        point: gpui::Point<gpui::Pixels>,
+    ) -> gpui::Point<gpui::Pixels> {
+        window.bounds().origin + point
+    }
+
+    fn place_bubble(
+        &mut self,
+        position: (f32, f32),
+        snap: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.inline {
+            return;
+        }
+        let (width, window_height) = self
+            .picker_size
+            .unwrap_or_else(|| window_size(&self.state, self.frame_aspect()));
+        let height = window_height - CAMERA_TOOLBAR_HEIGHT;
+        let display = display_for_point(
+            f64::from(position.0 + width / 2.),
+            f64::from(position.1 + height / 2.),
+        );
+        let Some(work) = crate::app_windows::display_work_area(display.as_ref(), cx) else {
+            tracing::warn!("camera move skipped because its display work area is unavailable");
+            return;
+        };
+        let layout = layout::camera_layout(
+            [position.0, position.1, width, height],
+            [
+                work.origin.x.into(),
+                work.origin.y.into(),
+                work.size.width.into(),
+                work.size.height.into(),
+            ],
+            snap,
+        );
+        let [x, y, width, height] = layout.frame;
+        if self.toolbar_below != layout.toolbar_below {
+            self.toolbar_below = layout.toolbar_below;
+            cx.notify();
+        }
+        let generation = self.size_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let generations = self.size_generation.clone();
+        if let Some(native) = platform::native_window(window) {
+            #[cfg(target_os = "windows")]
+            cx.spawn(async move |_, _| {
+                if generations.load(Ordering::Acquire) == generation {
+                    platform::set_window_logical_frame(
+                        &native,
+                        x.into(),
+                        y.into(),
+                        width.into(),
+                        height.into(),
+                    );
+                }
+            })
+            .detach();
+            #[cfg(not(target_os = "windows"))]
+            {
+                let old = window.bounds();
+                let (frame_x, frame_y, _, frame_height) = platform::window_frame(&native);
+                let native_x = frame_x + f64::from(x - f32::from(old.origin.x));
+                let native_y = frame_y + frame_height
+                    - f64::from(y - f32::from(old.origin.y))
+                    - f64::from(height);
+                cx.spawn(async move |_, _| {
+                    if generations.load(Ordering::Acquire) == generation {
+                        platform::set_window_frame(
+                            &native,
+                            native_x,
+                            native_y,
+                            width.into(),
+                            height.into(),
+                        );
+                    }
+                })
+                .detach();
+            }
+        } else {
+            tracing::warn!("camera move skipped because its native window is unavailable");
+        }
+    }
+
+    fn handle_move(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(drag) = &self.moving else {
+            return;
+        };
+        let pointer = Self::pointer_global(window, event.position);
+        let position = (
+            drag.origin.0 + f32::from(pointer.x - drag.pointer.x),
+            drag.origin.1 + f32::from(pointer.y - drag.pointer.y),
+        );
+        self.place_bubble(position, !event.modifiers.control, window, cx);
+    }
+
+    fn handle_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.inline
+            || event.keystroke.modifiers.control
+            || event.keystroke.modifiers.alt
+            || event.keystroke.modifiers.platform
+        {
+            return;
+        }
+        let step = if event.keystroke.modifiers.shift {
+            10.
+        } else {
+            1.
+        };
+        let (x, y) = self.bubble_origin(window);
+        match event.keystroke.key.as_str() {
+            "left" => self.place_bubble((x - step, y), false, window, cx),
+            "right" => self.place_bubble((x + step, y), false, window, cx),
+            "up" => self.place_bubble((x, y - step), false, window, cx),
+            "down" => self.place_bubble((x, y + step), false, window, cx),
+            "+" | "=" => self.mutate_state(window, cx, |state| state.size += 10.),
+            "-" => self.mutate_state(window, cx, |state| state.size -= 10.),
+            "s" => self.mutate_state(window, cx, |state| {
+                state.shape = match state.shape {
+                    CameraShape::Round => CameraShape::Square,
+                    CameraShape::Square => CameraShape::Full,
+                    CameraShape::Full => CameraShape::Round,
+                }
+            }),
+            "m" => self.mutate_state(window, cx, |state| state.mirrored = !state.mirrored),
+            "b" => self.mutate_state(window, cx, |state| {
+                state.background_blur = state.background_blur.cycle()
+            }),
+            "delete" | "backspace" => self.close(cx),
+            "escape" => {
+                window.blur(cx);
+                self.chrome_visible = false;
+                cx.notify();
+            }
+            _ => return,
+        }
+        cx.stop_propagation();
+    }
+
     fn toolbar_scale(&self) -> f32 {
         toolbar_scale(&self.state)
     }
@@ -1990,93 +2231,8 @@ impl CameraWindow {
         cx.notify();
     }
 
-    /// Resize to the state's dimensions, top-left anchored, clamped inside
-    /// the current monitor -- `resize_window` (`camera.rs:1683-1788`), which
-    /// runs on every size/shape/aspect change over there. gpui's
-    /// `Window::resize` is AppKit `setContentSize:`, which anchors the
-    /// *bottom*-left, so the anchor and the clamp both go through one native
-    /// `setFrame:` instead.
-    fn apply_window_size(&self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.inline {
-            return;
-        }
-        let (width, height) = self
-            .picker_size
-            .unwrap_or_else(|| window_size(&self.state, self.frame_aspect()));
-        let generation = self.size_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        let generations = self.size_generation.clone();
-
-        let bounds = window.bounds();
-        let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
-        let (mut new_x, mut new_y) = (x, y);
-        if let Some(display_bounds) = window.display(cx).map(|display| display.bounds()) {
-            let (dx, dy) = (
-                f32::from(display_bounds.origin.x),
-                f32::from(display_bounds.origin.y),
-            );
-            let (dw, dh) = (
-                f32::from(display_bounds.size.width),
-                f32::from(display_bounds.size.height),
-            );
-            if new_x + width > dx + dw {
-                new_x = dx + dw - width;
-            }
-            if new_y + height > dy + dh {
-                new_y = dy + dh - height;
-            }
-            if new_x < dx {
-                new_x = dx;
-            }
-            if new_y < dy {
-                new_y = dy;
-            }
-        }
-
-        #[cfg(target_os = "windows")]
-        if let Some(native) = platform::native_window(window) {
-            cx.spawn(async move |_, _| {
-                if generations.load(Ordering::Acquire) != generation {
-                    return;
-                }
-                platform::set_window_logical_frame(
-                    &native,
-                    f64::from(new_x),
-                    f64::from(new_y),
-                    f64::from(width),
-                    f64::from(height),
-                );
-            })
-            .detach();
-        } else {
-            window.resize(size(px(width), px(height)));
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        if let Some(native) = platform::native_window(window) {
-            let (frame_x, frame_y, _, frame_height) = platform::window_frame(&native);
-            // AppKit y grows upward: keep the gpui-space top edge, then apply
-            // the clamp deltas (gpui +y = AppKit -y).
-            let appkit_x = frame_x + (new_x - x) as f64;
-            let appkit_y = (frame_y + frame_height) - (new_y - y) as f64 - height as f64;
-            // `setFrame:` synchronously re-enters gpui's own window
-            // callbacks, so it runs from a fresh runloop turn (the
-            // `set_window_frame` rule).
-            cx.spawn(async move |_, _| {
-                if generations.load(Ordering::Acquire) != generation {
-                    return;
-                }
-                platform::set_window_frame(
-                    &native,
-                    appkit_x,
-                    appkit_y,
-                    width as f64,
-                    height as f64,
-                );
-            })
-            .detach();
-        } else {
-            window.resize(size(px(width), px(height)));
-        }
+    fn apply_window_size(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.place_bubble(self.bubble_origin(window), false, window, cx);
     }
 
     fn persist(&self, cx: &mut Context<Self>) {
@@ -2121,38 +2277,47 @@ impl CameraWindow {
         Feeds::global(cx).update(cx, |feeds, cx| feeds.set_camera(None, cx));
     }
 
-    // Mirrors `ControlButton`'s prop list; a config struct would just rename
-    // the same eight things. No hover style on purpose: `ControlButton`
-    // (`CameraPreviewChrome.tsx:206-216`) styles only the pressed state.
-    #[allow(clippy::too_many_arguments)]
     fn toolbar_button(
         &self,
         id: &'static str,
         icon: &'static str,
         pressed: bool,
-        scale: f32,
-        label: Option<&'static str>,
+        failed: bool,
         cx: &mut Context<Self>,
         on_click: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> impl IntoElement {
         let theme = self.theme;
+        let label = match id {
+            "shape" => t!("Shape"),
+            "size" => t!("Size"),
+            "mirror" => t!("Mirror"),
+            "blur" => t!("Background blur"),
+            _ => t!("Turn camera off"),
+        };
+        let dots = if id == "blur" && !failed {
+            match self.state.background_blur {
+                BlurMode::Light => 1,
+                BlurMode::Heavy => 2,
+                _ => 0,
+            }
+        } else {
+            0
+        };
         div()
             .id(id)
-            .p(px(8. * scale))
-            .rounded(px(8. * scale))
+            .relative()
+            .size(px(28.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(6.))
+            .text_color(theme.muted_foreground)
+            .hover(|style| style.bg(theme.accent).text_color(theme.foreground))
             .when(pressed, |this| {
-                this.bg(theme.gray_3).text_color(theme.gray_12)
+                this.bg(theme.selection)
+                    .text_color(theme.selection_foreground)
             })
-            // No `.occlude()` here: an occluding hitbox breaks gpui's hit
-            // test at the button (`hit_test` stops at `BlockMouse`), which
-            // drops `camera-root` from the hover set -- the chrome would
-            // vanish the moment the cursor reached a control, before it could
-            // be clicked. The Tauri page keeps its chrome up while the
-            // pointer is anywhere over the window, controls included
-            // (`camera.tsx:781-783`). Keeping the press out of the root's
-            // window-move listener is stop_propagation's job instead; the
-            // button's own click tracker dispatches before this listener
-            // (deepest-first bubble order), so the click still lands.
+            .tooltip(move |_, cx| crate::ui::Tooltip::new(&theme, label).view(cx))
             .on_mouse_down(MouseButton::Left, |_, window, cx| {
                 window.prevent_default();
                 cx.stop_propagation();
@@ -2161,40 +2326,37 @@ impl CameraWindow {
                 cx.stop_propagation();
                 on_click(this, window, cx);
             }))
-            .child(
-                div()
-                    .relative()
-                    .child(
-                        svg()
-                            .path(icon)
-                            .size(px(20. * scale))
-                            .text_color(if pressed {
-                                theme.gray_12.into()
-                            } else {
-                                gpui::Hsla::from(theme.gray_10)
-                            }),
-                    )
-                    .when_some(label, |this, label| {
-                        this.child(
-                            div()
-                                .absolute()
-                                .bottom(px(-4. * scale))
-                                .left_0()
-                                .right_0()
-                                .flex()
-                                .justify_center()
-                                .text_size(px(7. * scale))
-                                .font_weight(gpui::FontWeight::BOLD)
-                                .text_color(theme.gray_12)
-                                .child(label),
-                        )
-                    }),
-            )
+            .child(svg().path(icon).size(px(16.)))
+            .when(failed, |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .bottom_0()
+                        .right_0()
+                        .text_size(px(10.))
+                        .child("!"),
+                )
+            })
+            .when(dots > 0, |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .bottom(px(2.))
+                        .left_0()
+                        .right_0()
+                        .flex()
+                        .justify_center()
+                        .gap(px(2.))
+                        .children(
+                            (0..dots)
+                                .map(|_| div().size(px(3.)).rounded_full().bg(theme.foreground)),
+                        ),
+                )
+            })
     }
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let scale = self.toolbar_scale();
         let buttons = self.toolbar_buttons();
         #[cfg(target_os = "macos")]
         let (mirror_failed, blur_failed) = (self.effect_failures.mirror, self.effect_failures.blur);
@@ -2205,61 +2367,37 @@ impl CameraWindow {
             CameraShape::Square => "icons/square.svg",
             CameraShape::Full => "icons/rectangle-horizontal.svg",
         };
-
         div()
-            .h(px(CAMERA_TOOLBAR_HEIGHT))
+            .h(px(36.))
             .w_full()
             .flex_none()
             .flex()
-            .flex_row()
             .justify_center()
             .items_center()
             .child(
                 div()
                     .flex()
-                    .flex_row()
-                    .gap(px(4. * scale))
-                    .p(px(4. * scale))
-                    .rounded(px(12. * scale))
-                    .bg(theme.gray_1)
+                    .items_center()
+                    .gap(px(2.))
+                    .h(px(36.))
+                    .px(px(4.))
+                    .rounded(px(20.))
+                    .bg(theme.popover)
                     .border_1()
-                    .border_color(gpui::hsla(0., 0., 1., 0.2))
-                    .text_color(theme.gray_10)
-                    .when(!self.chrome_visible && self.resizing.is_none(), |this| {
-                        this.invisible()
-                    })
-                    .child(self.toolbar_button(
-                        "close",
-                        "icons/circle-x.svg",
-                        false,
-                        scale,
-                        None,
-                        cx,
-                        |this, _, cx| this.close(cx),
-                    ))
-                    .child(self.toolbar_button(
-                        "size",
-                        "icons/maximize-2.svg",
-                        self.state.size >= CAMERA_PRESET_LARGE,
-                        scale,
-                        None,
-                        cx,
-                        |this, window, cx| {
-                            this.mutate_state(window, cx, |state| {
-                                state.size = if state.size < CAMERA_PRESET_LARGE {
-                                    CAMERA_PRESET_LARGE
-                                } else {
-                                    CAMERA_PRESET_SMALL
-                                };
-                            })
-                        },
-                    ))
+                    .border_color(theme.border)
+                    .text_color(theme.popover_foreground)
+                    .when(
+                        !self.chrome_allowed(cx)
+                            || (!self.chrome_visible
+                                && self.resizing.is_none()
+                                && self.moving.is_none()),
+                        |this| this.invisible(),
+                    )
                     .child(self.toolbar_button(
                         "shape",
                         shape_icon,
-                        self.state.shape != CameraShape::Round,
-                        scale,
-                        None,
+                        false,
+                        false,
                         cx,
                         |this, window, cx| {
                             this.mutate_state(window, cx, |state| {
@@ -2268,46 +2406,69 @@ impl CameraWindow {
                                     CameraShape::Square => CameraShape::Full,
                                     CameraShape::Full => CameraShape::Round,
                                 };
-                            })
+                            });
                         },
                     ))
-                    // Preview-only, like both Tauri paths (the WGSL UV flip /
-                    // the legacy `scaleX(-1)`); the recorded camera track is
-                    // never mirrored by either app.
-                    .when(buttons >= 4, |this| {
-                        this.child(self.toolbar_button(
+                    .child(self.toolbar_button(
+                        "size",
+                        "icons/maximize-2.svg",
+                        self.state.size >= CAMERA_PRESET_LARGE,
+                        false,
+                        cx,
+                        |this, window, cx| {
+                            this.mutate_state(window, cx, |state| {
+                                state.size = if state.size < CAMERA_PRESET_LARGE {
+                                    CAMERA_PRESET_LARGE
+                                } else {
+                                    CAMERA_PRESET_SMALL
+                                };
+                            });
+                        },
+                    ))
+                    .when(buttons >= 4, |bar| {
+                        bar.child(self.toolbar_button(
                             "mirror",
                             "icons/triangles-centerline-dashed-horizontal.svg",
                             self.state.mirrored && !mirror_failed,
-                            scale,
-                            mirror_failed.then_some("!"),
+                            mirror_failed,
                             cx,
                             |this, window, cx| {
                                 this.mutate_state(window, cx, |state| {
-                                    state.mirrored = !state.mirrored;
-                                })
+                                    state.mirrored = !state.mirrored
+                                });
                             },
                         ))
                     })
-                    .when(buttons >= 5, |this| {
-                        this.child(self.toolbar_button(
+                    .when(buttons >= 5, |bar| {
+                        bar.child(self.toolbar_button(
                             "blur",
                             "icons/person-standing.svg",
                             self.state.background_blur != BlurMode::Off && !blur_failed,
-                            scale,
-                            if blur_failed {
-                                Some("!")
-                            } else {
-                                self.state.background_blur.label()
-                            },
+                            blur_failed,
                             cx,
                             |this, window, cx| {
                                 this.mutate_state(window, cx, |state| {
-                                    state.background_blur = state.background_blur.cycle();
-                                })
+                                    state.background_blur = state.background_blur.cycle()
+                                });
                             },
                         ))
-                    }),
+                    })
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(px(1.))
+                            .h(px(20.))
+                            .mx(px(2.))
+                            .bg(theme.border),
+                    )
+                    .child(self.toolbar_button(
+                        "close",
+                        "icons/x.svg",
+                        false,
+                        false,
+                        cx,
+                        |this, _, cx| this.close(cx),
+                    )),
             )
     }
 
@@ -2316,12 +2477,15 @@ impl CameraWindow {
     /// visible and 100% while hovered or resizing. A 50% black bracket sits
     /// underneath, 1px proud on every edge, so the white L keeps a contour
     /// over a light desktop (cutout mode has no backdrop behind it).
-    fn render_resize_handles(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let visible = self.chrome_visible || self.resizing.is_some();
+    fn render_resize_handles(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        if !self.chrome_allowed(cx) {
+            return div().into_any_element();
+        }
+        let visible = self.chrome_visible || self.resizing.is_some() || self.moving.is_some();
         let mut layer = div()
             .absolute()
-            .top(px(CAMERA_TOOLBAR_HEIGHT))
-            .bottom_0()
+            .top(px(self.preview_offset()))
+            .bottom(px(CAMERA_TOOLBAR_HEIGHT - self.preview_offset()))
             .left_0()
             .right_0();
 
@@ -2465,14 +2629,22 @@ impl CameraWindow {
                                 corner,
                                 start_size,
                                 start_picker_size,
-                                start_position: event.position,
+                                start_position: Self::pointer_global(window, event.position),
+                                start_origin: this.bubble_origin(window),
+                                start_dimensions: {
+                                    let bounds = window.bounds();
+                                    (
+                                        bounds.size.width.into(),
+                                        f32::from(bounds.size.height) - CAMERA_TOOLBAR_HEIGHT,
+                                    )
+                                },
                             });
                             cx.notify();
                         }),
                     ),
             );
         }
-        layer
+        layer.into_any_element()
     }
 
     fn handle_resize_move(
@@ -2486,8 +2658,12 @@ impl CameraWindow {
         };
         // `CameraResizeHandles.handleResizeMove`: outward drag on either axis
         // grows the square size, diagonal takes the larger delta.
-        let delta_x = f32::from(event.position.x - drag.start_position.x);
-        let delta_y = f32::from(event.position.y - drag.start_position.y);
+        let pointer = Self::pointer_global(window, event.position);
+        let delta_x = f32::from(pointer.x - drag.start_position.x);
+        let delta_y = f32::from(pointer.y - drag.start_position.y);
+        let corner = drag.corner;
+        let origin = drag.start_origin;
+        let dimensions = drag.start_dimensions;
         let dx = if drag.corner.east() {
             delta_x
         } else {
@@ -2507,7 +2683,7 @@ impl CameraWindow {
                     return;
                 }
                 self.picker_size = Some(next);
-                self.apply_window_size(window, cx);
+
                 self.sync_preview_chrome(cx);
                 cx.notify();
             }
@@ -2517,11 +2693,33 @@ impl CameraWindow {
                 }
                 self.picker_size = None;
                 self.state.size = next;
-                self.apply_window_size(window, cx);
+
                 self.sync_preview_chrome(cx);
                 cx.notify();
             }
         }
+        let next = self
+            .picker_size
+            .unwrap_or_else(|| window_size(&self.state, self.frame_aspect()));
+        self.place_bubble(
+            (
+                origin.0
+                    + if corner.east() {
+                        0.
+                    } else {
+                        dimensions.0 - next.0
+                    },
+                origin.1
+                    + if corner.south() {
+                        0.
+                    } else {
+                        dimensions.1 - (next.1 - CAMERA_TOOLBAR_HEIGHT)
+                    },
+            ),
+            false,
+            window,
+            cx,
+        );
     }
 
     fn end_resize(&mut self, cx: &mut Context<Self>) {
@@ -2540,45 +2738,49 @@ impl Render for CameraWindow {
                 preview.theme = theme;
                 cx.notify();
             });
+            self.toolbar.update(cx, |_, cx| cx.notify());
         }
-        let resizing = self.resizing.is_some();
-
+        let interacting = self.resizing.is_some() || self.moving.is_some();
+        let preview_offset = self.preview_offset();
+        let toolbar_top = if self.toolbar_below {
+            f32::from(window.viewport_size().height) - 36.
+        } else {
+            0.
+        };
         div()
             .id("camera-root")
+            .relative()
+            .track_focus(&self.focus)
             .size_full()
-            .flex()
-            .flex_col()
             .font_family(crate::theme::ui_font())
-            // `body { font-weight: 500 }` (`ui-solid/src/main.css:189-192`).
             .font_weight(FontWeight::MEDIUM)
-            // One hover region for the whole window -- bubble, toolbar and
-            // resize handles alike -- matching the Tauri page's container
-            // (`onPointerMove={chrome.show}` / `onPointerLeave={chrome.hide}`,
-            // `camera.tsx:781-783`, no linger timeout). This only holds while
-            // no descendant occludes: `hitbox.is_hovered` walks the hit test
-            // top-down and stops at the first `BlockMouse` hitbox, so an
-            // `.occlude()` on any control would flip this false while the
-            // cursor is over that control and hide the chrome under it.
+            .on_key_down(cx.listener(Self::handle_key))
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                if this.chrome_visible != *hovered {
-                    this.chrome_visible = *hovered;
+                let visible = *hovered && this.chrome_allowed(cx);
+                if this.chrome_visible != visible {
+                    this.chrome_visible = visible;
                     cx.notify();
                 }
             }))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, _| {
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                     if this.resizing.is_none() && !this.inline {
-                        window.start_window_move();
+                        this.moving = Some(MoveDrag {
+                            pointer: Self::pointer_global(window, event.position),
+                            origin: this.bubble_origin(window),
+                        });
+                        window.focus(&this.focus, cx);
+                        cx.notify();
                     }
                 }),
             )
-            .when(resizing, |this| {
+            .when(interacting, |this| {
                 let move_camera = cx.entity().downgrade();
                 let up_camera = cx.entity().downgrade();
                 this.child(gpui::canvas(
-                    |_bounds, _window, _cx| (),
-                    move |_bounds, (), window, _cx| {
+                    |_, _, _| (),
+                    move |_, (), window, _| {
                         let camera = move_camera.clone();
                         window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
                             if phase != gpui::DispatchPhase::Bubble {
@@ -2587,37 +2789,54 @@ impl Render for CameraWindow {
                             camera
                                 .update(cx, |this, cx| {
                                     if event.dragging() {
-                                        this.handle_resize_move(event, window, cx);
+                                        if this.resizing.is_some() {
+                                            this.handle_resize_move(event, window, cx);
+                                        } else {
+                                            this.handle_move(event, window, cx);
+                                        }
                                     } else {
+                                        this.moving = None;
                                         this.end_resize(cx);
+                                        cx.notify();
                                     }
                                 })
                                 .ok();
                         });
                         let camera = up_camera.clone();
-                        window.on_mouse_event(move |event: &MouseUpEvent, phase, _window, cx| {
+                        window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
                             if phase != gpui::DispatchPhase::Bubble
                                 || event.button != MouseButton::Left
                             {
                                 return;
                             }
-                            camera.update(cx, |this, cx| this.end_resize(cx)).ok();
+                            camera
+                                .update(cx, |this, cx| {
+                                    this.moving = None;
+                                    this.end_resize(cx);
+                                    cx.notify();
+                                })
+                                .ok();
                         });
                     },
                 ))
             })
             .child(
-                self.toolbar.clone().cached(
+                self.preview.clone().cached(
                     StyleRefinement::default()
-                        .w_full()
-                        .h(px(CAMERA_TOOLBAR_HEIGHT))
-                        .flex_none(),
+                        .absolute()
+                        .top(px(preview_offset))
+                        .bottom(px(CAMERA_TOOLBAR_HEIGHT - preview_offset))
+                        .w_full(),
                 ),
             )
             .child(
-                self.preview
-                    .clone()
-                    .cached(StyleRefinement::default().w_full().flex_1()),
+                self.toolbar.clone().cached(
+                    StyleRefinement::default()
+                        .absolute()
+                        .top(px(toolbar_top))
+                        .w_full()
+                        .h(px(36.)),
+                ),
             )
             .child(self.render_resize_handles(cx))
     }

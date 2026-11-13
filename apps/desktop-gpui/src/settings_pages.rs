@@ -688,6 +688,7 @@ fn shortcut_effect(
         "stopRecording" => t!("stop the current recording").into(),
         "togglePauseRecording" => t!("pause the current recording, or resume it").into(),
         "restartRecording" => t!("throw away the current take and start again").into(),
+        "focusCameraPreview" => t!("focus the camera preview controls").into(),
         _ => String::new(),
     }
 }
@@ -4721,7 +4722,8 @@ mod tests {
             .chain(catalog::WHILE_RECORDING_SHORTCUTS.iter())
             .copied()
             .collect();
-        assert_eq!(shown.len(), 13);
+        assert_eq!(shown.len(), 14);
+        assert!(shown.contains(&"focusCameraPreview"));
         let settings = store::GeneralSettings::default();
         for action in &shown {
             assert_eq!(shown.iter().filter(|other| *other == action).count(), 1);

@@ -18,6 +18,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use super::{ForcedAppearance, MaterialKind, PanelBehavior};
 
 mod capture_exclusion;
+mod controls_panel;
+mod countdown_panel;
 mod file_drag;
 mod hidden_frame;
 mod main_frame;
@@ -219,6 +221,13 @@ pub fn set_window_alpha(_native: &NativeWindow, _alpha: f64) -> f64 {
     1.
 }
 
+pub(crate) fn prepare_countdown_panel(
+    native: &NativeWindow,
+    interactive: bool,
+) -> std::io::Result<()> {
+    countdown_panel::prepare(native.hwnd(), interactive)
+}
+
 pub fn set_window_capture_hidden(native: &NativeWindow, hidden: bool) -> usize {
     let streamed = hidden
         .then(capture_exclusion::streamed_display_reason)
@@ -240,6 +249,22 @@ pub fn set_window_capture_hidden(native: &NativeWindow, hidden: bool) -> usize {
             return affinity as usize;
         }
         current as usize
+    }
+}
+
+pub(crate) fn window_capture_exclusion_unavailable_reason() -> Option<String> {
+    capture_exclusion::streamed_display_reason()
+}
+
+pub(crate) fn flush_camera_capture_frame() -> Result<(), String> {
+    let result = unsafe { windows_sys::Win32::Graphics::Dwm::DwmFlush() };
+    if result < 0 {
+        Err(crate::i18n::t!(
+            "Camera capture compositor flush failed: HRESULT={result}",
+            result = result
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -474,6 +499,10 @@ pub fn place_overlay_panel(
         physical,
         SWP_NOACTIVATE | SWP_SHOWWINDOW,
     );
+}
+
+pub(crate) fn prepare_recording_panel(native: &NativeWindow) -> std::io::Result<()> {
+    controls_panel::prepare(native.hwnd())
 }
 
 pub fn apply_panel_behavior(window: &Window, behavior: PanelBehavior) {
@@ -935,4 +964,49 @@ pub fn reveal_items(items: &[PathBuf]) -> Result<(), String> {
         unsafe { CoUninitialize() };
     }
     result
+}
+
+#[cfg(test)]
+mod recording_panel_tests {
+    use super::*;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, HTCLIENT, MA_NOACTIVATE, SendMessageW, WM_LBUTTONDOWN,
+        WM_MOUSEACTIVATE, WS_POPUP,
+    };
+
+    #[test]
+    fn recording_panel_mouse_activation_preserves_the_foreground_window() {
+        let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+        let foreground = unsafe { GetForegroundWindow() };
+        let hwnd = unsafe {
+            CreateWindowExW(
+                0,
+                class.as_ptr(),
+                std::ptr::null(),
+                WS_POPUP,
+                0,
+                0,
+                432,
+                60,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            )
+        };
+        assert!(!hwnd.is_null());
+        let native = NativeWindow(hwnd as isize);
+        prepare_recording_panel(&native).unwrap();
+        let result = unsafe {
+            SendMessageW(
+                hwnd,
+                WM_MOUSEACTIVATE,
+                0,
+                ((WM_LBUTTONDOWN as isize) << 16) | HTCLIENT as isize,
+            )
+        };
+        assert_eq!(result, MA_NOACTIVATE as isize);
+        assert_eq!(unsafe { GetForegroundWindow() }, foreground);
+        assert_ne!(unsafe { DestroyWindow(hwnd) }, 0);
+    }
 }

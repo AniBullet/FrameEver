@@ -1172,8 +1172,8 @@ const copy = () => {
 				["Focus the camera bubble, anywhere", "全局聚焦摄像头气泡"],
 				keys("Ctrl", "Shift", "C"),
 				[
-					"New; checked for conflicts during implementation",
-					"新增；实现时检查冲突",
+					"Default shortcut; conflicts stay visible in Settings and can be rebound",
+					"默认快捷键；冲突会在设置里明确提示，可改绑",
 				],
 			],
 			[
@@ -1422,8 +1422,8 @@ const copy = () => {
 					"我们发现的缺口：现在只带过去位置和模糊",
 				],
 				[
-					"Small: written once at the start, no format change",
-					"小：开始时写一次，不改格式",
+					"The new project keeps the visible size and fixed wide aspect; older projects retain their defaults",
+					"新项目沿用画面尺寸和固定宽屏比例；旧项目保持原有默认值",
 				],
 				["Add", "加入"],
 			],

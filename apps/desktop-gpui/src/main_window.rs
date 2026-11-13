@@ -7,6 +7,7 @@
 //! considerably easier to check against the original than `12.` and `10.`.
 
 mod library_page;
+mod recording_options;
 pub mod shell;
 mod surfaces;
 
@@ -810,6 +811,10 @@ struct MicrophoneWarning {
 pub struct MainWindow {
     theme: Theme,
     mode: Mode,
+    recording_options_open: bool,
+    recording_options_save_failed: bool,
+    recording_options_trigger: FocusHandle,
+    recording_options_focus: FocusHandle,
     mode_hover: ModeHoverState,
     mode_hover_task: Option<Task<()>>,
     mode_hover_bounds: [Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>; 3],
@@ -910,6 +915,7 @@ impl MainWindow {
         });
         cx.observe_window_activation(window, |this, window, cx| {
             if !window.is_window_active() {
+                this.close_recording_options(window, cx);
                 this.clear_mode_hover();
             } else {
                 MediaAccess::global(cx).update(cx, |access, cx| access.refresh(cx));
@@ -937,6 +943,7 @@ impl MainWindow {
         cx.observe_in(&session, window, move |this, session, window, cx| {
             let phase = session.read(cx).phase;
             if phase != Phase::Idle {
+                this.recording_options_open = false;
                 this.pause_library_preview(cx);
                 this.clear_library_scrub(cx);
                 this.close_library_overlay(window, cx);
@@ -1085,6 +1092,10 @@ impl MainWindow {
             // window has to start where the store left it rather than at a
             // hardcoded Instant.
             mode: Mode::from_store(),
+            recording_options_open: false,
+            recording_options_save_failed: false,
+            recording_options_trigger: cx.focus_handle().tab_stop(true).tab_index(0),
+            recording_options_focus: cx.focus_handle(),
             mode_hover: ModeHoverState::default(),
             mode_hover_task: None,
             mode_hover_bounds: std::array::from_fn(|_| Rc::new(Cell::new(None))),
@@ -1878,6 +1889,7 @@ impl MainWindow {
         {
             return;
         }
+        self.recording_options_open = false;
         self.mode = mode;
         // Open overlays label their start button with the mode.
         let select = crate::target_overlay::TargetSelect::global(cx);
@@ -2918,6 +2930,7 @@ impl Render for MainWindow {
                     .flatten(),
             )
             .children(self.render_mode_hover(cx))
+            .children(self.render_recording_options(cx))
             .when(
                 // The controls bar owns the live-recording UI; this overlay is
                 // the fallback for when the bar window failed to open.
@@ -3812,6 +3825,9 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.close_recording_options(window, cx) {
+            return true;
+        }
         let layers = EscLayers {
             library_dialog: self.library.dialog_open(),
             whole_screen: self.library_full_screen(),
@@ -3861,6 +3877,7 @@ impl MainWindow {
     }
 
     pub fn expand_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.recording_options_open = false;
         if self.panel.is_some() {
             self.close_panel(cx);
         }
@@ -4001,6 +4018,7 @@ impl MainWindow {
     }
 
     pub fn open_panel(&mut self, panel: Panel, window: &mut Window, cx: &mut Context<Self>) {
+        self.recording_options_open = false;
         self.collapse_library(window, cx);
         self.input_poll_task = None;
         self.input_poll_generation = self.input_poll_generation.wrapping_add(1);

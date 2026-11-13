@@ -400,6 +400,7 @@ impl DeepLinkAction {
                     };
                     if main
                         .update(cx, |view, _, cx| {
+                            app_windows::keep_countdown_passive(cx);
                             view.start_recording_config_with_permit(
                                 recording::StartConfig {
                                     mode,

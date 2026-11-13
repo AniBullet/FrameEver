@@ -18,6 +18,19 @@ use crate::app_sounds::AppSound;
 use crate::i18n::t;
 use crate::recording::{self, ActiveRecording, StartConfig};
 
+#[derive(Debug)]
+struct CameraCapturePreparationFailed;
+
+impl std::fmt::Display for CameraCapturePreparationFailed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(t!(
+            "Couldn't prepare the camera preview. Start recording again."
+        ))
+    }
+}
+
+impl std::error::Error for CameraCapturePreparationFailed {}
+
 /// `Idle -> Starting -> Recording -> Stopping -> Idle`; pause is a flag on
 /// `Recording`, matching the `recording`/`paused` variants of the Tauri bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +123,28 @@ fn countdown_advance(
         Some(0) => CountdownAdvance::Start,
         _ => CountdownAdvance::Ignore,
     }
+}
+
+fn countdown_advance_on_skip(
+    phase: Phase,
+    current: u64,
+    generation: u64,
+    remaining: Option<u32>,
+    skipped: bool,
+) -> CountdownAdvance {
+    match countdown_advance(phase, current, generation, remaining) {
+        CountdownAdvance::Tick(_) if skipped => CountdownAdvance::PlaySound,
+        advance => advance,
+    }
+}
+
+fn countdown_cue_is_current(
+    phase: Phase,
+    current: u64,
+    generation: u64,
+    remaining: Option<u32>,
+) -> bool {
+    phase == Phase::Starting && current == generation && remaining == Some(0)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -268,6 +303,9 @@ pub struct RecordingSession {
     failure_monitor: Option<Task<()>>,
     recording_generation: u64,
     countdown_remaining: Option<u32>,
+    countdown_skip: Option<flume::Sender<()>>,
+    countdown_cue_started: bool,
+    pub countdown_overlay_unavailable: bool,
     countdown_cue_abort: Option<futures_util::future::AbortHandle>,
     start_gate: Option<frameever_recording::RecordingStartGate>,
     start_cue: Option<crate::app_sounds::StartCue>,
@@ -314,6 +352,9 @@ impl RecordingSession {
             failure_monitor: None,
             recording_generation: 0,
             countdown_remaining: None,
+            countdown_skip: None,
+            countdown_cue_started: false,
+            countdown_overlay_unavailable: false,
             countdown_cue_abort: None,
             start_gate: None,
             start_cue: None,
@@ -457,6 +498,22 @@ impl RecordingSession {
         self.countdown_remaining
     }
 
+    pub fn countdown_cue_started(&self) -> bool {
+        self.countdown_cue_started
+    }
+
+    pub fn skip_countdown(&mut self, _cx: &mut Context<Self>) {
+        if self.phase == Phase::Starting
+            && self
+                .countdown_remaining
+                .is_some_and(|remaining| remaining > 0)
+            && let Some(skip) = &self.countdown_skip
+            && let Err(error) = skip.try_send(())
+        {
+            tracing::warn!(%error, "could not skip the recording countdown");
+        }
+    }
+
     pub(crate) fn preparing_studio_editor(&self) -> Option<&PreparingStudioEditor> {
         self.preparing_studio_editor
             .as_ref()
@@ -496,6 +553,15 @@ impl RecordingSession {
         let countdown = crate::store::GeneralSettings::load()
             .recording_countdown
             .unwrap_or(0);
+        let mut config = config;
+        let restart_excluded = config.excluded_windows.clone();
+        let countdown_window =
+            crate::app_windows::open_countdown(&config, cx.entity(), countdown, cx);
+        self.countdown_overlay_unavailable = countdown > 0 && countdown_window.is_none();
+        config.excluded_windows.extend(countdown_window);
+        self.countdown_cue_started = false;
+        let (skip_sender, skip_receiver) = flume::unbounded();
+        self.countdown_skip = Some(skip_sender);
         let start_gate = frameever_recording::RecordingStartGate::new();
         let config = StartConfig {
             start_gate: Some(start_gate.clone()),
@@ -515,7 +581,10 @@ impl RecordingSession {
         self.storage_notice = None;
         self.stopped_for_low_storage = false;
         self.stopped_elapsed = None;
-        self.last_config = Some(config.clone());
+        self.last_config = Some(StartConfig {
+            excluded_windows: restart_excluded,
+            ..config.clone()
+        });
         // `Some(0)` keeps the controls in their pre-start state while the cue plays.
         self.countdown_remaining = Some(countdown);
         cx.notify();
@@ -528,18 +597,28 @@ impl RecordingSession {
         cx.spawn(async move |this, cx| {
             let mut pending_cue = initial_cue;
             loop {
-                if let Some(cue) = pending_cue.take() {
+                let skipped = if let Some(cue) = pending_cue.take() {
                     cue.await;
+                    false
                 } else {
-                    cx.background_executor().timer(Duration::from_secs(1)).await;
-                }
+                    let timer = cx.background_executor().timer(Duration::from_secs(1));
+                    matches!(
+                        futures_util::future::select(
+                            std::pin::pin!(timer),
+                            std::pin::pin!(skip_receiver.recv_async())
+                        )
+                        .await,
+                        futures_util::future::Either::Right((Ok(()), _))
+                    )
+                };
                 let keep_waiting = this
                     .update(cx, |this, cx| {
-                        match countdown_advance(
+                        match countdown_advance_on_skip(
                             this.phase,
                             this.recording_generation,
                             generation,
                             this.countdown_remaining,
+                            skipped,
                         ) {
                             CountdownAdvance::Ignore => false,
                             CountdownAdvance::Tick(remaining) => {
@@ -551,6 +630,12 @@ impl RecordingSession {
                                 true
                             }
                             CountdownAdvance::PlaySound => {
+                                if this
+                                    .countdown_remaining
+                                    .is_some_and(|remaining| remaining > 1)
+                                {
+                                    this.prime_engine(config.clone(), generation, cx);
+                                }
                                 this.countdown_remaining = Some(0);
                                 pending_cue = Some(this.play_start_cue(cx));
                                 cx.notify();
@@ -583,12 +668,34 @@ impl RecordingSession {
         let gate = self.start_gate.clone().unwrap_or_default();
         let cue = self.start_cue.take();
         let primed = self.primed_ready.as_ref().map(|ready| ready.subscribe());
+        let (cue_started, cue_events) = flume::bounded(1);
+        let generation = self.recording_generation;
+        cx.spawn(async move |this, cx| {
+            if cue_events.recv_async().await.is_ok() {
+                this.update(cx, |this, cx| {
+                    if countdown_cue_is_current(
+                        this.phase,
+                        this.recording_generation,
+                        generation,
+                        this.countdown_remaining,
+                    ) {
+                        this.countdown_cue_started = true;
+                        cx.notify();
+                    }
+                })
+                .ok();
+            }
+        })
+        .detach();
         let (abort, registration) = futures_util::future::AbortHandle::new_pair();
         self.countdown_cue_abort = Some(abort);
         let task = gpui_tokio::Tokio::spawn(
             cx,
             futures_util::future::Abortable::new(
                 play_cue_when_primed(primed, gate, move |gate| async move {
+                    if let Err(error) = cue_started.send(()) {
+                        tracing::debug!(%error, "countdown cue observer closed");
+                    }
                     match cue {
                         Some(cue) => crate::app_sounds::play_recording_start_sound(cue, gate).await,
                         None => {
@@ -620,9 +727,37 @@ impl RecordingSession {
             return;
         }
 
+        let camera_ready = crate::app_windows::camera_capture_ready(config.mode, cx);
         let start = recording::start(config);
         let discarding = self.discarding.take();
-        let task = gpui_tokio::Tokio::spawn(cx, async move {
+        let preparation = gpui_tokio::Tokio::spawn(cx, async move {
+            if let Some(ready) = camera_ready.map_err(anyhow::Error::msg)? {
+                tokio::time::timeout(Duration::from_millis(1500), ready.recv_async())
+                    .await
+                    .map_err(|_| {
+                        anyhow::Error::msg(t!("Camera controls did not hide before recording"))
+                    })?
+                    .map_err(|error| {
+                        anyhow::Error::msg(t!(
+                            "Camera capture preparation failed: {error}",
+                            error = error
+                        ))
+                    })?;
+                #[cfg(windows)]
+                tokio::time::timeout(
+                    Duration::from_millis(1500),
+                    tokio::task::spawn_blocking(crate::platform::flush_camera_capture_frame),
+                )
+                .await
+                .map_err(|_| anyhow::Error::msg(t!("Camera capture compositor timed out")))?
+                .map_err(|error| {
+                    anyhow::Error::msg(t!(
+                        "Camera capture compositor task failed: {error}",
+                        error = error
+                    ))
+                })?
+                .map_err(anyhow::Error::msg)?;
+            }
             if let Some(discarding) = discarding
                 && tokio::time::timeout(Duration::from_secs(5), discarding)
                     .await
@@ -630,9 +765,26 @@ impl RecordingSession {
             {
                 tracing::warn!("previous recording start is still tearing down; starting anyway");
             }
-            start.await
+            Ok::<(), anyhow::Error>(())
         });
         cx.spawn(async move |this, cx| {
+            let prepared = preparation.await;
+            let task = this
+                .update(cx, |this, cx| {
+                    if this.recording_generation != generation || this.phase != Phase::Starting {
+                        return None;
+                    }
+                    Some(gpui_tokio::Tokio::spawn(cx, async move {
+                        prepared
+                            .map_err(anyhow::Error::from)
+                            .and_then(std::convert::identity)
+                            .map_err(|error| error.context(CameraCapturePreparationFailed))?;
+                        start.await
+                    }))
+                })
+                .ok()
+                .flatten();
+            let Some(task) = task else { return };
             let result = task.await;
             this.update(cx, |this, cx| {
                 if this.recording_generation != generation || this.phase != Phase::Starting {
@@ -654,7 +806,11 @@ impl RecordingSession {
                     }
                     Ok(Err(error)) => {
                         tracing::error!("recording failed to start: {error:#}");
-                        this.error = Some(format!("{error:#}"));
+                        this.error = Some(
+                            error
+                                .downcast_ref::<CameraCapturePreparationFailed>()
+                                .map_or_else(|| format!("{error:#}"), ToString::to_string),
+                        );
                         this.abort_start_cue();
                         this.countdown_remaining = None;
                         {
@@ -690,6 +846,7 @@ impl RecordingSession {
         let done = active.done_fut();
         self.active = Some(active);
         self.phase = Phase::Recording { paused: false };
+        self.countdown_overlay_unavailable = false;
         // A fresh mic lock always starts unmuted.
         self.mic_muted = false;
         self.started_at = Some(Instant::now());
@@ -1476,6 +1633,9 @@ impl RecordingSession {
         self.pipeline_failed = false;
         self.stop_recording_monitors(cx);
         self.countdown_remaining = None;
+        self.countdown_skip = None;
+        self.countdown_cue_started = false;
+        self.countdown_overlay_unavailable = false;
         self.phase = Phase::Idle;
         self.mic_muted = false;
         self.storage_warning = false;
@@ -1883,5 +2043,38 @@ mod studio_editor_presentation_tests {
         assert_eq!(state, StudioEditorPresentation::Opened(2));
         state.closed(2);
         assert_eq!(state, StudioEditorPresentation::Dismissed);
+    }
+}
+
+#[cfg(test)]
+mod countdown_event_tests {
+    use super::*;
+
+    #[test]
+    fn skip_countdown_keeps_the_cue_and_rejects_a_cancelled_generation() {
+        assert_eq!(
+            countdown_advance_on_skip(Phase::Starting, 7, 7, Some(3), true),
+            CountdownAdvance::PlaySound
+        );
+        assert_eq!(
+            countdown_advance_on_skip(Phase::Starting, 7, 7, Some(3), false),
+            CountdownAdvance::Tick(2)
+        );
+        assert_eq!(
+            countdown_advance_on_skip(Phase::Idle, 7, 7, Some(3), true),
+            CountdownAdvance::Ignore
+        );
+        assert_eq!(
+            countdown_advance_on_skip(Phase::Starting, 8, 7, Some(3), true),
+            CountdownAdvance::Ignore
+        );
+    }
+
+    #[test]
+    fn only_the_current_countdown_cue_can_switch_the_mark() {
+        assert!(countdown_cue_is_current(Phase::Starting, 7, 7, Some(0)));
+        assert!(!countdown_cue_is_current(Phase::Starting, 8, 7, Some(0)));
+        assert!(!countdown_cue_is_current(Phase::Idle, 7, 7, Some(0)));
+        assert!(!countdown_cue_is_current(Phase::Starting, 7, 7, Some(2)));
     }
 }

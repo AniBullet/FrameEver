@@ -3277,6 +3277,19 @@ fn normalized_motion_amount(user_motion_blur: f32, fps: f32) -> f32 {
 }
 
 const CAMERA_PADDING: f32 = 50.0;
+
+pub fn camera_crop_bounds(frame_size: [f32; 2], aspect: f32) -> [f32; 4] {
+    let [width, height] = frame_size;
+    if width / height > aspect {
+        let crop_width = height * aspect;
+        let left = (width - crop_width) / 2.;
+        [left, 0., left + crop_width, height]
+    } else {
+        let crop_height = width / aspect;
+        let top = (height - crop_height) / 2.;
+        [0., top, width, top + crop_height]
+    }
+}
 const CAMERA_EDGE_CROP_INSET_PX: f32 = 2.0;
 
 /// Output aspect ratio at/above which split-screen lays the screen and camera
@@ -4808,7 +4821,11 @@ impl ProjectUniforms {
 
                 const BASE_HEIGHT: f32 = 1080.0;
                 let resolution_scale = output_size[1] / BASE_HEIGHT;
-                let camera_padding = CAMERA_PADDING * resolution_scale;
+                let camera_padding = if project.camera.size_includes_padding {
+                    0.
+                } else {
+                    CAMERA_PADDING * resolution_scale
+                };
 
                 let base_size = project.camera.size / 100.0;
                 let scale_during_zoom = project.camera.scale_during_zoom;
@@ -4818,7 +4835,9 @@ impl ProjectUniforms {
                 let prev_zoomed_size =
                     Self::camera_zoom_factor(&prev_zoom, &prev_scene, base_size, scale_during_zoom);
 
-                let aspect = frame_size[0] / frame_size[1];
+                let aspect = project.camera.aspect_ratio
+                    .filter(|aspect| aspect.is_finite() && *aspect > 0.)
+                    .map_or(frame_size[0] / frame_size[1], |aspect| aspect as f32);
                 let camera_size_for = |scale: f32| match project.camera.shape {
                     CameraShape::Source => {
                         if aspect >= 1.0 {
@@ -4905,7 +4924,7 @@ impl ProjectUniforms {
                 };
 
                 let crop_bounds = match project.camera.shape {
-                    CameraShape::Source => [0.0, 0.0, frame_size[0], frame_size[1]],
+                    CameraShape::Source => camera_crop_bounds(frame_size, aspect),
                     CameraShape::Square => {
                         if frame_size[0] > frame_size[1] {
                             let offset = (frame_size[0] - frame_size[1]) / 2.0;

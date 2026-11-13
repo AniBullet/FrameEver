@@ -21,6 +21,22 @@ use gpui::App;
 use crate::app_windows;
 
 pub fn take_screenshot(target: ScreenCaptureTarget, cx: &mut App) {
+    take_screenshot_with_image(target, None, cx);
+}
+
+pub fn take_screenshot_from_image(
+    target: ScreenCaptureTarget,
+    image: image::DynamicImage,
+    cx: &mut App,
+) {
+    take_screenshot_with_image(target, Some(image), cx);
+}
+
+fn take_screenshot_with_image(
+    target: ScreenCaptureTarget,
+    image: Option<image::DynamicImage>,
+    cx: &mut App,
+) {
     if matches!(target, ScreenCaptureTarget::CameraOnly) {
         // `capture_screenshot` rejects it too; failing here keeps the pickers
         // up instead of tearing them down for nothing.
@@ -32,6 +48,9 @@ pub fn take_screenshot(target: ScreenCaptureTarget, cx: &mut App) {
     let settle = app_windows::prepare_for_screenshot_capture(cx);
 
     let task = gpui_tokio::Tokio::spawn_result(cx, async move {
+        if let Some(image) = image {
+            return write_capture(target, image).await;
+        }
         if settle {
             // The 150ms the Tauri command sleeps after hiding overlays
             // (`recording.rs:2893-2895`): the windows close synchronously but
@@ -65,6 +84,13 @@ async fn capture_and_write(target: ScreenCaptureTarget) -> anyhow::Result<PathBu
         .await
         .context("capturing the screenshot")?;
 
+    write_capture(target, image).await
+}
+
+async fn write_capture(
+    target: ScreenCaptureTarget,
+    image: image::DynamicImage,
+) -> anyhow::Result<PathBuf> {
     crate::app_sounds::AppSound::Notification.play();
 
     let base = crate::library::screenshots_dir();

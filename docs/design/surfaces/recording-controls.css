@@ -607,6 +607,8 @@
 }
 
 .opt-pop {
+	max-height: 298px;
+	overflow-y: auto;
 	position: absolute;
 	left: 8px;
 	right: 8px;
@@ -616,6 +618,27 @@
 	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
 	font-size: var(--text-small);
+}
+
+.opt-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	height: 24px;
+	padding: 0 8px;
+}
+
+.opt-head button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--muted-foreground);
+	cursor: pointer;
 }
 
 .opt-row {
