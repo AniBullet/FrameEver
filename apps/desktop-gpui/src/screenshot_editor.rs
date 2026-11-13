@@ -2416,7 +2416,7 @@ impl ScreenshotEditorWindow {
                     &theme,
                     gpui::SharedString::from(format!("screenshot-tool-{}", tool.label())),
                     tool.icon(),
-                    tool.label(),
+                    tool.title(),
                     tool.shortcut(),
                     self.tool == tool,
                     cx.listener(move |this, _, _window, cx| {
@@ -4150,7 +4150,7 @@ fn tool_button(
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     let theme = *theme;
-    let label: gpui::SharedString = tr(label).into();
+    let label: gpui::SharedString = label.into();
     let shortcut: gpui::SharedString = shortcut.into();
     div()
         .id(id.into())

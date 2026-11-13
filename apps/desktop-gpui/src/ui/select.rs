@@ -6,10 +6,12 @@
 //! The chevron does not rotate: this gpui rev has no transform (the same gap
 //! that leaves the camera bubble's mirror button disabled).
 
+use std::{cell::Cell, rc::Rc};
+
 use gpui::{
     App, Bounds, ClickEvent, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Pixels, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
-    div, prelude::FluentBuilder, px, svg,
+    KeyDownEvent, KeyboardClickEvent, ParentElement, Pixels, RenderOnce, SharedString,
+    StatefulInteractiveElement, Styled, Window, canvas, div, prelude::FluentBuilder, px, svg,
 };
 
 use super::menu::OpenHandler;
@@ -128,6 +130,17 @@ impl Select {
     }
 }
 
+fn activation_button(keystroke: &gpui::Keystroke) -> Option<gpui::KeyboardButton> {
+    if keystroke.modifiers.modified() {
+        return None;
+    }
+    match keystroke.key.as_str() {
+        "enter" => Some(gpui::KeyboardButton::Enter),
+        "space" => Some(gpui::KeyboardButton::Space),
+        _ => None,
+    }
+}
+
 impl RenderOnce for Select {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let Select {
@@ -152,6 +165,8 @@ impl RenderOnce for Select {
             on_open,
         } = self;
         let focus_ring = focus_ring.filter(|_| on_click.is_some() && !disabled);
+        let on_click = on_click.filter(|_| !disabled).map(Rc::new);
+        let bounds = Rc::new(Cell::new(Bounds::default()));
 
         div()
             .id(id)
@@ -185,13 +200,59 @@ impl RenderOnce for Select {
                     .flex_shrink_0()
                     .text_color(chevron),
             )
-            .when_some(focus_ring, |this, ring| {
+            .when_some(focus_ring.zip(on_click.clone()), |this, (ring, handler)| {
+                let measured = bounds.clone();
                 this.tab_index(0)
                     .focus_visible(move |style| style.border_color(ring))
+                    .child(
+                        canvas(move |area, _, _| measured.set(area), |_, _, _, _| {})
+                            .absolute()
+                            .size_full(),
+                    )
+                    .on_key_down(move |event: &KeyDownEvent, window, cx| {
+                        let Some(button) = activation_button(&event.keystroke) else {
+                            return;
+                        };
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        let click = ClickEvent::Keyboard(KeyboardClickEvent {
+                            button,
+                            bounds: bounds.get(),
+                        });
+                        handler(&click, window, cx);
+                    })
             })
-            .when_some(on_click.filter(|_| !disabled), |this, handler| {
-                this.on_click(move |event, window, cx| handler(event, window, cx))
+            .when_some(on_click, |this, handler| {
+                this.on_click(move |event, window, cx| {
+                    if !event.is_keyboard() {
+                        handler(event, window, cx);
+                    }
+                })
             })
             .when_some(on_open.filter(|_| !disabled), crate::ui::Menu::trigger)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(text: &'static str) -> gpui::Keystroke {
+        gpui::Keystroke::parse(text).unwrap()
+    }
+
+    #[test]
+    fn enter_and_space_open_a_focused_select() {
+        assert_eq!(
+            activation_button(&key("enter")),
+            Some(gpui::KeyboardButton::Enter)
+        );
+        assert_eq!(
+            activation_button(&key("space")),
+            Some(gpui::KeyboardButton::Space)
+        );
+        assert_eq!(activation_button(&key("ctrl-enter")), None);
+        assert_eq!(activation_button(&key("down")), None);
+        assert_eq!(activation_button(&key("a")), None);
     }
 }

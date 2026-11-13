@@ -42,7 +42,7 @@ use gpui::{
 };
 
 use crate::editor_sidebar::{BACKGROUND_COLORS, hex_digit_count, hex_to_rgb};
-use crate::i18n::{n, t, tr};
+use crate::i18n::{n, t, tc, tr};
 use crate::screenshot_editor::ScreenshotEditorWindow;
 use crate::screenshot_shapes::{self as shapes, ShapeOp};
 use crate::theme::Theme;
@@ -105,6 +105,13 @@ impl Tool {
             Tool::Step => "icons/hash.svg",
             Tool::Spotlight => "icons/flashlight.svg",
             Tool::Magnifier => "icons/zoom-in.svg",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Tool::Spotlight => tc!("screenshot tool", "Spotlight"),
+            tool => tr(tool.label()),
         }
     }
 
@@ -230,7 +237,7 @@ pub fn annotation_label(annotation_type: AnnotationType) -> &'static str {
         AnnotationType::Line => t!("Line"),
         AnnotationType::Bubble => t!("Speech bubble"),
         AnnotationType::Step => t!("Step number"),
-        AnnotationType::Spotlight => t!("Spotlight"),
+        AnnotationType::Spotlight => tc!("screenshot tool", "Spotlight"),
         AnnotationType::Magnifier => t!("Magnifier"),
     }
 }
@@ -780,6 +787,7 @@ pub fn hit_test(annotations: &[Annotation], point: (f64, f64), handle_size: f64)
 pub fn hit_annotation(annotation: &Annotation, point: (f64, f64), handle_size: f64) -> bool {
     let stroke = (annotation.stroke_width / 2.).max(0.);
     match annotation.annotation_type {
+        kind if shapes::is_shape(kind) => shapes::hit_shape(annotation, point, handle_size),
         AnnotationType::Rectangle | AnnotationType::Mask => {
             let rect = normalized_rect(annotation);
             point.0 >= rect.x - stroke
@@ -829,12 +837,6 @@ pub fn hit_annotation(annotation: &Annotation, point: (f64, f64), handle_size: f
             distance_to_segment(point, (annotation.x, annotation.y), head.base) <= tolerance
                 || point_in_triangle(point, head.points)
         }
-        AnnotationType::Line
-        | AnnotationType::Highlighter
-        | AnnotationType::Step
-        | AnnotationType::Bubble
-        | AnnotationType::Spotlight
-        | AnnotationType::Magnifier => shapes::hit_shape(annotation, point, handle_size),
         AnnotationType::Draw => {
             let points = draw_points(annotation);
             if points.len() < 2 {
@@ -850,6 +852,7 @@ pub fn hit_annotation(annotation: &Annotation, point: (f64, f64), handle_size: f
                     <= tolerance
             }) || point_in_polygon(point, &points)
         }
+        _ => false,
     }
 }
 
@@ -1121,13 +1124,7 @@ pub(crate) fn parse_css_rgba(value: &str, opacity: f64) -> Option<([u8; 3], f32)
 
 /// A CSS colour string as gpui takes it.
 fn annotation_color(value: &str, opacity: f64) -> Option<Hsla> {
-    let (rgb, alpha) = parse_css_rgba(value, opacity)?;
-    Some(Hsla::from(gpui::Rgba {
-        r: f32::from(rgb[0]) / 255.,
-        g: f32::from(rgb[1]) / 255.,
-        b: f32::from(rgb[2]) / 255.,
-        a: alpha,
-    }))
+    parse_css_rgba(value, opacity).map(shape_color)
 }
 
 // ---------------------------------------------------------------------------
@@ -2747,13 +2744,10 @@ impl ScreenshotEditorWindow {
         let (left, top, width, font_size) = text_editor_frame(annotation);
         let font_size = (font_size as f32 * scale).max(1.);
         let color = if annotation.annotation_type == AnnotationType::Bubble {
-            let [r, g, b] = shapes::contrast_text(parse_css_rgba(&annotation.fill_color, 1.));
-            Hsla::from(gpui::Rgba {
-                r: f32::from(r) / 255.,
-                g: f32::from(g) / 255.,
-                b: f32::from(b) / 255.,
-                a: 1.,
-            })
+            shape_color((
+                shapes::contrast_text(parse_css_rgba(&annotation.fill_color, 1.)),
+                1.,
+            ))
         } else {
             annotation_color(&annotation.stroke_color, 1.).unwrap_or(gpui::black())
         };
@@ -3008,7 +3002,7 @@ impl ScreenshotEditorWindow {
             }
             AnnotationType::Magnifier => vec![
                 self.shape_slider_row(
-                    t!("Zoom"),
+                    tc!("magnifier", "Zoom"),
                     format!("{}×", shapes::magnifier_zoom(annotation)),
                     AnnotationSlider::Zoom,
                     cx,
@@ -4436,12 +4430,7 @@ fn paint_annotation(
             paint_stroke_path(&points, origin, scale, stroke_width, stroke, window);
         }
         AnnotationType::Text => paint_text(annotation, origin, scale, window, cx),
-        AnnotationType::Line
-        | AnnotationType::Highlighter
-        | AnnotationType::Step
-        | AnnotationType::Bubble
-        | AnnotationType::Spotlight
-        | AnnotationType::Magnifier => {}
+        _ => {}
     }
 }
 
