@@ -16,7 +16,7 @@ Object.assign(window.FRAMEEVER_ICONS, {
 		'<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
 	"square-round-corner":
 		'<path d="M21 11a8 8 0 0 0-8-8"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
-	line: '<path d="M21 3 3 21"/>',
+	slash: '<path d="M22 2 2 22"/>',
 	highlighter:
 		'<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>',
 	flashlight:
@@ -55,7 +55,7 @@ const TOOLS = [
 		zh: "荧光笔",
 		k: "G",
 	},
-	{ id: "line", g: 1, icon: "line", en: "Line", zh: "直线", k: "I" },
+	{ id: "line", g: 1, icon: "slash", en: "Line", zh: "直线", k: "I" },
 	{
 		id: "arrow",
 		g: 1,
@@ -566,6 +566,12 @@ const mosaic = (a, b) => {
 	}
 	return cells.join("");
 };
+const ink = (hex) => {
+	const n = Number.parseInt(String(hex).slice(1, 7), 16);
+	if (Number.isNaN(n)) return "#000";
+	const l = 0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
+	return l > 160 ? "#000" : "#fff";
+};
 const annSvg = (a) => {
 	const hit = `data-ann="${a.id}"`;
 	const op = `opacity="${a.op ?? 1}"`;
@@ -585,7 +591,7 @@ const annSvg = (a) => {
 		case "bubble": {
 			const tx = b.x + b.w * 0.25;
 			const by = b.y + b.h;
-			return `<g ${hit} ${op}><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="10" fill="${a.stroke}"/><polygon points="${tx},${by} ${tx + 26},${by} ${tx - 8},${by + 34}" fill="${a.stroke}"/><text x="${b.x + b.w / 2}" y="${b.y + b.h / 2 + a.size * 0.36}" text-anchor="middle" font-family="Inter,'HarmonyOS Sans SC',sans-serif" font-size="${a.size}" font-weight="500" fill="#fff">${layerLabel(a)}</text></g>`;
+			return `<g ${hit} ${op}><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="10" fill="${a.stroke}"/><polygon points="${tx},${by} ${tx + 26},${by} ${tx - 8},${by + 34}" fill="${a.stroke}"/><text x="${b.x + b.w / 2}" y="${b.y + b.h / 2 + a.size * 0.36}" text-anchor="middle" font-family="Inter,'HarmonyOS Sans SC',sans-serif" font-size="${a.size}" font-weight="500" fill="${ink(a.stroke)}">${layerLabel(a)}</text></g>`;
 		}
 		case "image":
 			return `<g ${hit} ${op}><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="${a.radius}" fill="#20242E"/><text x="${b.x + b.w / 2}" y="${b.y + b.h / 2 + 7}" text-anchor="middle" font-family="Inter,sans-serif" font-size="20" font-weight="600" fill="#fff">Logo</text></g>`;
@@ -609,7 +615,7 @@ const annSvg = (a) => {
 		case "mask":
 			return `<g ${hit}><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="#F2F1EC"/><g clip-path="url(#clip-${a.id})">${a.mask === "blur" ? `<g filter="url(#fx-blur-${a.id})">${SCENE}</g>` : mosaic(a, b)}</g></g>`;
 		case "counter":
-			return `<g ${hit} ${op}><circle cx="${a.x}" cy="${a.y}" r="${a.h * 0.7}" fill="${a.stroke}"/><text x="${a.x}" y="${a.y + a.h * 0.32}" text-anchor="middle" font-family="Inter,sans-serif" font-size="${a.h * 0.9}" font-weight="600" fill="#fff">${a.n}</text></g>`;
+			return `<g ${hit} ${op}><circle cx="${a.x}" cy="${a.y}" r="${a.h * 0.7}" fill="${a.stroke}"/><text x="${a.x}" y="${a.y + a.h * 0.32}" text-anchor="middle" font-family="Inter,sans-serif" font-size="${a.h * 0.9}" font-weight="600" fill="${ink(a.stroke)}">${a.n}</text></g>`;
 		default:
 			return "";
 	}
@@ -1112,7 +1118,7 @@ document.addEventListener("pointerup", () => {
 			Math.abs(a.h) < 5
 		)
 			Object.assign(a, { w: 90, h: -60 });
-		S.tool = "select";
+		if (a?.t !== "counter") S.tool = "select";
 		S.sel = g.id;
 	}
 	render();
@@ -1345,15 +1351,15 @@ const renderDocs = () => {
 		[
 			["Step number (new)", "序号（新增）"],
 			[
-				"N. Click to place a filled circle with the next unused number; color, opacity, size",
-				"N。点击放置带下一个可用数字的实心圆；颜色、不透明度、大小",
+				"N. Click to place a filled circle with the next unused number; the tool stays on for the next one. Color, opacity, size; the number turns dark on a light color",
+				"N。点击放置带下一个可用数字的实心圆，工具保持选中以便继续放置。颜色、不透明度、大小；浅色上数字变深",
 			],
 		],
 		[
 			["Speech bubble (new)", "对话气泡（新增）"],
 			[
-				"U. Filled box with a tail you drag: fill, opacity, text size; double-click edits the text",
-				"U。带可拖动尾巴的色块：填充、不透明度、文字大小；双击改文字",
+				"U. Filled box with a tail you drag: fill, opacity, text size; double-click or Enter edits the text, which turns dark on a light fill",
+				"U。带可拖动尾巴的色块：填充、不透明度、文字大小；双击或按 Enter 改文字，浅色填充上文字变深",
 			],
 		],
 		[
@@ -1394,8 +1400,8 @@ const renderDocs = () => {
 		[
 			["Shortcuts", "快捷键"],
 			[
-				"V or S select, D draw, G highlighter, I line, A arrow, R rectangle, C or O circle, T text, U speech bubble, N step number, M mask, F spotlight, Z magnifier, K image, X cut out, B background, P padding, H shadow, E border, L layers, Del delete, Esc deselect",
-				"V 或 S 选择，D 画笔，G 荧光笔，I 直线，A 箭头，R 矩形，C 或 O 椭圆，T 文字，U 对话气泡，N 序号，M 遮罩，F 聚光灯，Z 放大镜，K 图片，X 切割，B 背景，P 内边距，H 阴影，E 描边，L 图层，Del 删除，Esc 取消选中",
+				"V or S select, D draw, G highlighter, I line, A arrow, R rectangle, C or O circle, T text, U speech bubble, N step number, M mask, F spotlight, Z magnifier, K image, X cut out, B background, P padding, H shadow, E border, L layers, Del delete, Esc deselect. Enter places the chosen tool in the middle of the image or edits the selected text; arrows move the selection (Shift for 10 px), Ctrl+arrows resize it and Alt+arrows move a speech bubble's tail",
+				"V 或 S 选择，D 画笔，G 荧光笔，I 直线，A 箭头，R 矩形，C 或 O 椭圆，T 文字，U 对话气泡，N 序号，M 遮罩，F 聚光灯，Z 放大镜，K 图片，X 切割，B 背景，P 内边距，H 阴影，E 描边，L 图层，Del 删除，Esc 取消选中。Enter 在图片中央放置当前工具，或编辑选中的文字；方向键移动选中项（Shift 每次 10 px），Ctrl+方向键调整大小，Alt+方向键移动对话气泡的尾巴",
 			],
 		],
 	]);

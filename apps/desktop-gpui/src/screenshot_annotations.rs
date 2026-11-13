@@ -44,6 +44,7 @@ use gpui::{
 use crate::editor_sidebar::{BACKGROUND_COLORS, hex_digit_count, hex_to_rgb};
 use crate::i18n::{n, t, tr};
 use crate::screenshot_editor::ScreenshotEditorWindow;
+use crate::screenshot_shapes::{self as shapes, ShapeOp};
 use crate::theme::Theme;
 use crate::ui;
 
@@ -57,23 +58,35 @@ use crate::ui;
 pub enum Tool {
     Select,
     Draw,
+    Highlighter,
+    Line,
     Arrow,
     Rectangle,
-    Mask,
     Circle,
     Text,
+    Bubble,
+    Step,
+    Mask,
+    Spotlight,
+    Magnifier,
 }
 
 impl Tool {
     /// Toolbar order (`AnnotationTools.tsx:37-73`).
-    pub const ALL: [Tool; 7] = [
+    pub const ALL: [Tool; 13] = [
         Tool::Select,
         Tool::Draw,
+        Tool::Highlighter,
+        Tool::Line,
         Tool::Arrow,
         Tool::Rectangle,
-        Tool::Mask,
         Tool::Circle,
         Tool::Text,
+        Tool::Bubble,
+        Tool::Step,
+        Tool::Mask,
+        Tool::Spotlight,
+        Tool::Magnifier,
     ];
 
     /// The Lucide glyph each button draws at `size-4`.
@@ -86,6 +99,12 @@ impl Tool {
             Tool::Mask => "icons/eye-off.svg",
             Tool::Circle => "icons/circle.svg",
             Tool::Text => "icons/type.svg",
+            Tool::Highlighter => "icons/highlighter.svg",
+            Tool::Line => "icons/slash.svg",
+            Tool::Bubble => "icons/message-square.svg",
+            Tool::Step => "icons/hash.svg",
+            Tool::Spotlight => "icons/flashlight.svg",
+            Tool::Magnifier => "icons/zoom-in.svg",
         }
     }
 
@@ -98,6 +117,12 @@ impl Tool {
             Tool::Mask => n!("Mask"),
             Tool::Circle => n!("Circle"),
             Tool::Text => n!("Text"),
+            Tool::Highlighter => n!("Highlighter"),
+            Tool::Line => n!("Line"),
+            Tool::Bubble => n!("Speech bubble"),
+            Tool::Step => n!("Step number"),
+            Tool::Spotlight => n!("Spotlight"),
+            Tool::Magnifier => n!("Magnifier"),
         }
     }
 
@@ -112,14 +137,27 @@ impl Tool {
             Tool::Mask => "M",
             Tool::Circle => "C",
             Tool::Text => "T",
+            Tool::Highlighter => "G",
+            Tool::Line => "I",
+            Tool::Bubble => "U",
+            Tool::Step => "N",
+            Tool::Spotlight => "F",
+            Tool::Magnifier => "Z",
         }
     }
 
     pub const TOOLBAR_GROUPS: &'static [&'static [Tool]] = &[
         &[Tool::Select],
-        &[Tool::Draw, Tool::Arrow, Tool::Rectangle, Tool::Circle],
-        &[Tool::Text],
-        &[Tool::Mask],
+        &[
+            Tool::Draw,
+            Tool::Highlighter,
+            Tool::Line,
+            Tool::Arrow,
+            Tool::Rectangle,
+            Tool::Circle,
+        ],
+        &[Tool::Text, Tool::Bubble, Tool::Step],
+        &[Tool::Mask, Tool::Spotlight, Tool::Magnifier],
     ];
 
     pub fn for_key(key: &str) -> Option<Tool> {
@@ -131,6 +169,12 @@ impl Tool {
             "c" | "o" => Some(Tool::Circle),
             "t" => Some(Tool::Text),
             "m" => Some(Tool::Mask),
+            "g" => Some(Tool::Highlighter),
+            "i" => Some(Tool::Line),
+            "u" => Some(Tool::Bubble),
+            "n" => Some(Tool::Step),
+            "f" => Some(Tool::Spotlight),
+            "z" => Some(Tool::Magnifier),
             _ => None,
         }
     }
@@ -145,6 +189,12 @@ impl Tool {
             Tool::Mask => Some(AnnotationType::Mask),
             Tool::Circle => Some(AnnotationType::Circle),
             Tool::Text => Some(AnnotationType::Text),
+            Tool::Highlighter => Some(AnnotationType::Highlighter),
+            Tool::Line => Some(AnnotationType::Line),
+            Tool::Bubble => Some(AnnotationType::Bubble),
+            Tool::Step => Some(AnnotationType::Step),
+            Tool::Spotlight => Some(AnnotationType::Spotlight),
+            Tool::Magnifier => Some(AnnotationType::Magnifier),
         }
     }
 }
@@ -158,6 +208,12 @@ pub fn annotation_icon(annotation_type: AnnotationType) -> &'static str {
         AnnotationType::Mask => "icons/eye-off.svg",
         AnnotationType::Text => "icons/type.svg",
         AnnotationType::Draw => "icons/pencil.svg",
+        AnnotationType::Highlighter => "icons/highlighter.svg",
+        AnnotationType::Line => "icons/slash.svg",
+        AnnotationType::Bubble => "icons/message-square.svg",
+        AnnotationType::Step => "icons/hash.svg",
+        AnnotationType::Spotlight => "icons/flashlight.svg",
+        AnnotationType::Magnifier => "icons/zoom-in.svg",
     }
 }
 
@@ -170,13 +226,24 @@ pub fn annotation_label(annotation_type: AnnotationType) -> &'static str {
         AnnotationType::Mask => t!("Mask"),
         AnnotationType::Text => t!("Text"),
         AnnotationType::Draw => t!("Draw"),
+        AnnotationType::Highlighter => t!("Highlighter"),
+        AnnotationType::Line => t!("Line"),
+        AnnotationType::Bubble => t!("Speech bubble"),
+        AnnotationType::Step => t!("Step number"),
+        AnnotationType::Spotlight => t!("Spotlight"),
+        AnnotationType::Magnifier => t!("Magnifier"),
     }
 }
 
 /// `getTypeLabel` (`LayersPanel.tsx:53-60`): a text annotation shows its own
 /// content, truncated at twelve characters.
 pub fn layer_label(annotation: &Annotation) -> String {
-    if annotation.annotation_type == AnnotationType::Text
+    if annotation.annotation_type == AnnotationType::Step
+        && let Some(number) = annotation.number
+    {
+        return format!("{} {number}", annotation_label(annotation.annotation_type));
+    }
+    if shapes::has_text(annotation.annotation_type)
         && let Some(text) = annotation.text.as_ref().filter(|text| !text.is_empty())
     {
         let mut chars = text.chars();
@@ -381,14 +448,18 @@ pub fn rescale_annotations(
     }
     let scale_x = current.size.0 / previous.size.0;
     let scale_y = current.size.1 / previous.size.1;
+    let map = |x: f64, y: f64| {
+        (
+            current.offset.0 + (x - previous.offset.0) * scale_x,
+            current.offset.1 + (y - previous.offset.1) * scale_y,
+        )
+    };
 
     for annotation in annotations {
-        let relative_x = annotation.x - previous.offset.0;
-        let relative_y = annotation.y - previous.offset.1;
-        annotation.x = current.offset.0 + relative_x * scale_x;
-        annotation.y = current.offset.1 + relative_y * scale_y;
+        (annotation.x, annotation.y) = map(annotation.x, annotation.y);
         annotation.width *= scale_x;
         annotation.height *= scale_y;
+        shapes::scale_extras(annotation, map, (scale_x + scale_y) / 2.);
     }
 }
 
@@ -508,7 +579,7 @@ const DEFAULT_STROKE: &str = "#F05656";
 const DEFAULT_STROKE_WIDTH: f64 = 4.;
 /// `fillColor: "transparent"` -- the sentinel a mask strokes with too, and the
 /// one `ColorPickerButton` draws a checkerboard for.
-const TRANSPARENT: &str = "transparent";
+pub(crate) const TRANSPARENT: &str = "transparent";
 /// `handleSize` (`:611-614`): ten **screen** pixels, expressed in frame units
 /// at the zoom in force.
 const HANDLE_SCREEN_SIZE: f64 = 10.;
@@ -566,6 +637,7 @@ pub enum Handle {
     Start,
     /// An arrow's tip.
     End,
+    Tail,
 }
 
 impl Handle {
@@ -594,7 +666,7 @@ impl Handle {
             Handle::Ne | Handle::Sw => CursorStyle::ResizeUpRightDownLeft,
             Handle::N | Handle::S => CursorStyle::ResizeUpDown,
             Handle::W | Handle::E => CursorStyle::ResizeLeftRight,
-            Handle::Start | Handle::End => CursorStyle::Crosshair,
+            Handle::Start | Handle::End | Handle::Tail => CursorStyle::Crosshair,
         }
     }
 }
@@ -619,7 +691,7 @@ pub fn selection_rect(annotation: &Annotation, handle_size: f64) -> Rect {
 /// `cornerHandles` (`:958-977`) placed on the selection rect: eight for a
 /// shape, the four corners for text, and the two endpoints for an arrow.
 pub fn handles(annotation: &Annotation, handle_size: f64) -> Vec<(Handle, (f64, f64))> {
-    if annotation.annotation_type == AnnotationType::Arrow {
+    if shapes::has_end_points(annotation.annotation_type) {
         return vec![
             (Handle::Start, (annotation.x, annotation.y)),
             (
@@ -633,7 +705,10 @@ pub fn handles(annotation: &Annotation, handle_size: f64) -> Vec<(Handle, (f64, 
     }
 
     let rect = selection_rect(annotation, handle_size);
-    let corners: &[(Handle, f64, f64)] = if annotation.annotation_type == AnnotationType::Text {
+    let corners: &[(Handle, f64, f64)] = if matches!(
+        annotation.annotation_type,
+        AnnotationType::Text | AnnotationType::Step
+    ) {
         &[
             (Handle::Nw, 0., 0.),
             (Handle::Ne, 1., 0.),
@@ -652,7 +727,7 @@ pub fn handles(annotation: &Annotation, handle_size: f64) -> Vec<(Handle, (f64, 
             (Handle::Se, 1., 1.),
         ]
     };
-    corners
+    let mut grips: Vec<(Handle, (f64, f64))> = corners
         .iter()
         .map(|(handle, fraction_x, fraction_y)| {
             (
@@ -663,7 +738,13 @@ pub fn handles(annotation: &Annotation, handle_size: f64) -> Vec<(Handle, (f64, 
                 ),
             )
         })
-        .collect()
+        .collect();
+    if annotation.annotation_type == AnnotationType::Bubble
+        && let Some([x, y]) = annotation.tail
+    {
+        grips.push((Handle::Tail, (x, y)));
+    }
+    grips
 }
 
 /// The grip under a pointer, if any. The handles are `<circle r={half()}>`, so
@@ -748,6 +829,12 @@ pub fn hit_annotation(annotation: &Annotation, point: (f64, f64), handle_size: f
             distance_to_segment(point, (annotation.x, annotation.y), head.base) <= tolerance
                 || point_in_triangle(point, head.points)
         }
+        AnnotationType::Line
+        | AnnotationType::Highlighter
+        | AnnotationType::Step
+        | AnnotationType::Bubble
+        | AnnotationType::Spotlight
+        | AnnotationType::Magnifier => shapes::hit_shape(annotation, point, handle_size),
         AnnotationType::Draw => {
             let points = draw_points(annotation);
             if points.len() < 2 {
@@ -960,6 +1047,7 @@ fn geometry_changed(before: &Annotation, after: &Annotation) -> bool {
         || before.width != after.width
         || before.height != after.height
         || before.points != after.points
+        || before.tail != after.tail
 }
 
 fn distance_to_segment(point: (f64, f64), start: (f64, f64), end: (f64, f64)) -> f64 {
@@ -1046,6 +1134,38 @@ fn annotation_color(value: &str, opacity: f64) -> Option<Hsla> {
 // Engine state
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Nudge {
+    Move,
+    Resize,
+    Tail,
+}
+
+impl Nudge {
+    pub(crate) fn for_keys(
+        key: &str,
+        control: bool,
+        shift: bool,
+        alt: bool,
+    ) -> Option<((f64, f64), Nudge)> {
+        let step = if shift { 10. } else { 1. };
+        let delta = match key {
+            "left" => (-step, 0.),
+            "right" => (step, 0.),
+            "up" => (0., -step),
+            "down" => (0., step),
+            _ => return None,
+        };
+        let action = match (control, alt) {
+            (false, false) => Nudge::Move,
+            (true, false) => Nudge::Resize,
+            (false, true) => Nudge::Tail,
+            (true, true) => return None,
+        };
+        Some((delta, action))
+    }
+}
+
 /// One live gesture over the preview.
 enum Gesture {
     /// A tool drawing a new annotation (`isDrawing` + `tempAnnotation`).
@@ -1127,14 +1247,24 @@ enum AnnotationSlider {
     Opacity,
     MaskLevel,
     TextSize,
+    StepSize,
+    BubbleTextSize,
+    Darkness,
+    Zoom,
+    BorderWidth,
 }
 
 impl AnnotationSlider {
-    const ALL: [AnnotationSlider; 4] = [
+    const ALL: [AnnotationSlider; 9] = [
         AnnotationSlider::Width,
         AnnotationSlider::Opacity,
         AnnotationSlider::MaskLevel,
         AnnotationSlider::TextSize,
+        AnnotationSlider::StepSize,
+        AnnotationSlider::BubbleTextSize,
+        AnnotationSlider::Darkness,
+        AnnotationSlider::Zoom,
+        AnnotationSlider::BorderWidth,
     ];
 
     /// `(min, max, step)` -- `AnnotationConfig.tsx:60-157`.
@@ -1144,6 +1274,23 @@ impl AnnotationSlider {
             Self::Opacity => (0.1, 1., 0.1),
             Self::MaskLevel => (4., 50., 1.),
             Self::TextSize => (12., 100., 1.),
+            Self::StepSize => (
+                shapes::STEP_SIZE_RANGE.0 as f32,
+                shapes::STEP_SIZE_RANGE.1 as f32,
+                1.,
+            ),
+            Self::BubbleTextSize => (
+                shapes::BUBBLE_FONT_RANGE.0 as f32,
+                shapes::BUBBLE_FONT_RANGE.1 as f32,
+                1.,
+            ),
+            Self::Darkness => (0., 1., 0.05),
+            Self::Zoom => (
+                shapes::MAGNIFIER_ZOOM_RANGE.0 as f32,
+                shapes::MAGNIFIER_ZOOM_RANGE.1 as f32,
+                0.5,
+            ),
+            Self::BorderWidth => (0., 12., 1.),
         }
     }
 
@@ -1153,6 +1300,11 @@ impl AnnotationSlider {
             Self::Opacity => "opacity",
             Self::MaskLevel => "mask-level",
             Self::TextSize => "text-size",
+            Self::StepSize => "step-size",
+            Self::BubbleTextSize => "bubble-text-size",
+            Self::Darkness => "darkness",
+            Self::Zoom => "zoom",
+            Self::BorderWidth => "border-width",
         }
     }
 
@@ -1162,15 +1314,45 @@ impl AnnotationSlider {
             Self::Opacity => annotation.opacity as f32,
             Self::MaskLevel => annotation.mask_level.unwrap_or(MASK_FALLBACK_LEVEL) as f32,
             Self::TextSize => annotation.height as f32,
+            Self::StepSize => annotation.width.abs().min(annotation.height.abs()) as f32,
+            Self::BubbleTextSize => shapes::bubble_font_size(annotation) as f32,
+            Self::Darkness => annotation.opacity as f32,
+            Self::Zoom => shapes::magnifier_zoom(annotation) as f32,
+            Self::BorderWidth => annotation.stroke_width as f32,
         }
     }
 
     fn apply(self, annotation: &mut Annotation, value: f32) -> bool {
         let value = value as f64;
         let field = match self {
-            Self::Width => &mut annotation.stroke_width,
-            Self::Opacity => &mut annotation.opacity,
+            Self::Width | Self::BorderWidth => &mut annotation.stroke_width,
+            Self::Opacity | Self::Darkness => &mut annotation.opacity,
             Self::TextSize => &mut annotation.height,
+            Self::StepSize => {
+                let before = (annotation.x, annotation.width);
+                shapes::set_step_size(annotation, value);
+                return before != (annotation.x, annotation.width);
+            }
+            Self::BubbleTextSize => {
+                let size = annotation
+                    .font_size
+                    .get_or_insert(shapes::BUBBLE_DEFAULT_FONT_SIZE);
+                if *size == value {
+                    return false;
+                }
+                *size = value;
+                return true;
+            }
+            Self::Zoom => {
+                let zoom = annotation
+                    .zoom
+                    .get_or_insert(shapes::MAGNIFIER_DEFAULT_ZOOM);
+                if *zoom == value {
+                    return false;
+                }
+                *zoom = value;
+                return true;
+            }
             Self::MaskLevel => {
                 let level = annotation.mask_level.get_or_insert(MASK_FALLBACK_LEVEL);
                 if *level == value {
@@ -1235,6 +1417,8 @@ struct LayerPaint {
     annotations: Vec<Annotation>,
     temp: Option<Annotation>,
     masks: Vec<MaskOverlay>,
+    frame: Option<Arc<RenderImage>>,
+    frame_size: (f64, f64),
     selected: Option<String>,
     editing: Option<String>,
     hover: Option<String>,
@@ -1565,7 +1749,7 @@ impl ScreenshotEditorWindow {
 
             let annotation = annotation.clone();
             self.selected_annotation = Some(annotation.id.clone());
-            if click_count >= 2 && annotation.annotation_type == AnnotationType::Text {
+            if click_count >= 2 && shapes::has_text(annotation.annotation_type) {
                 self.begin_text_edit(annotation.id, window, cx);
                 return true;
             }
@@ -1630,7 +1814,7 @@ impl ScreenshotEditorWindow {
                 .flatten();
 
         let is_text = annotation_type == AnnotationType::Text;
-        let annotation = Annotation {
+        let mut annotation = Annotation {
             id: crate::store::new_uuid_v4(),
             annotation_type,
             x,
@@ -1655,11 +1839,20 @@ impl ScreenshotEditorWindow {
             fill_color: TRANSPARENT.to_string(),
             opacity: style.as_ref().map_or(1., |(_, _, opacity)| *opacity),
             rotation: 0.,
-            text: is_text.then(|| t!("Text").to_string()),
+            text: match annotation_type {
+                AnnotationType::Text => Some(t!("Text").to_string()),
+                AnnotationType::Bubble => Some(t!("Note").to_string()),
+                _ => None,
+            },
             mask_type: is_mask.then_some(MaskType::Pixelate),
             mask_level: is_mask.then_some(MASK_DEFAULT_LEVEL),
             points: (annotation_type == AnnotationType::Draw).then(|| vec![[x, y]]),
+            number: None,
+            font_size: None,
+            tail: None,
+            zoom: None,
         };
+        shapes::apply_defaults(&mut annotation, &self.project.annotations);
 
         if is_mask {
             self.project.annotations.push(annotation.clone());
@@ -1710,7 +1903,10 @@ impl ScreenshotEditorWindow {
     /// `handleMouseMove`'s drawing branch (`:245-320`).
     fn drag_create(&mut self, mut creating: Creating, point: (f64, f64), shift: bool) -> Creating {
         let temp = &mut creating.temp;
-        if temp.annotation_type == AnnotationType::Text {
+        if matches!(
+            temp.annotation_type,
+            AnnotationType::Text | AnnotationType::Step
+        ) {
             return creating;
         }
 
@@ -1763,7 +1959,7 @@ impl ScreenshotEditorWindow {
                     width = if width < 0. { -size } else { size };
                     height = if height < 0. { -size } else { size };
                 }
-                AnnotationType::Arrow => {
+                AnnotationType::Arrow | AnnotationType::Line => {
                     let quarter = std::f64::consts::FRAC_PI_4;
                     let snapped = (height.atan2(width) / quarter).round() * quarter;
                     let distance = (width * width + height * height).sqrt();
@@ -1820,6 +2016,7 @@ impl ScreenshotEditorWindow {
         }
         annotation.x = dragging.original.x + dx;
         annotation.y = dragging.original.y + dy;
+        annotation.tail = dragging.original.tail.map(|[x, y]| [x + dx, y + dy]);
     }
 
     /// `dragState.action === "resize"` (`:355-432`), handle by handle.
@@ -1834,7 +2031,15 @@ impl ScreenshotEditorWindow {
         let mut width = original.width;
         let mut height = original.height;
 
-        if original.annotation_type == AnnotationType::Arrow {
+        if handle == Handle::Tail {
+            let tail = original.tail.map(|[x, y]| [x + dx, y + dy]);
+            if let Some(annotation) = self.annotation_mut(&dragging.id) {
+                annotation.tail = tail;
+            }
+            return;
+        }
+
+        if shapes::has_end_points(original.annotation_type) {
             match handle {
                 Handle::Start => {
                     x = original.x + dx;
@@ -1867,6 +2072,7 @@ impl ScreenshotEditorWindow {
             // A circle is square unless shift says otherwise; a rectangle is
             // square only while shift is held (`:386-405`).
             let constrain = (original.annotation_type == AnnotationType::Circle && !shift)
+                || original.annotation_type == AnnotationType::Step
                 || (original.annotation_type == AnnotationType::Rectangle && shift);
             if constrain {
                 let size = width.abs().max(height.abs());
@@ -1986,8 +2192,21 @@ impl ScreenshotEditorWindow {
             }
         }
 
+        let kind = annotation.annotation_type;
+        let press = (annotation.x, annotation.y);
+        let tiny = annotation.width.abs() < MIN_SIZE && annotation.height.abs() < MIN_SIZE;
+        if shapes::takes_click_size(kind) {
+            shapes::normalize_box(&mut annotation);
+            if tiny {
+                shapes::give_default_size(&mut annotation, press);
+            }
+        } else if kind == AnnotationType::Line && tiny {
+            shapes::give_default_size(&mut annotation, press);
+        }
+        shapes::finish_bubble(&mut annotation);
+
         let id = annotation.id.clone();
-        let is_text = annotation.annotation_type == AnnotationType::Text;
+        let is_text = shapes::has_text(kind);
         if creating.in_list {
             if let Some(live) = self.annotation_mut(&id) {
                 *live = annotation;
@@ -1995,7 +2214,9 @@ impl ScreenshotEditorWindow {
         } else {
             self.project.annotations.push(annotation);
         }
-        self.tool = Tool::Select;
+        if kind != AnnotationType::Step {
+            self.tool = Tool::Select;
+        }
         self.selected_annotation = Some(id.clone());
         self.commit_annotations(window, cx);
 
@@ -2098,8 +2319,10 @@ impl ScreenshotEditorWindow {
         };
         let mut duplicate = source;
         duplicate.id = crate::store::new_uuid_v4();
-        duplicate.x += 16.;
-        duplicate.y += 16.;
+        shapes::translate(&mut duplicate, 16., 16.);
+        if duplicate.annotation_type == AnnotationType::Step {
+            duplicate.number = Some(shapes::next_step_number(&self.project.annotations));
+        }
         self.annotation_state.clipboard = Some(duplicate.clone());
         self.selected_annotation = Some(duplicate.id.clone());
         self.project.annotations.push(duplicate);
@@ -2131,6 +2354,78 @@ impl ScreenshotEditorWindow {
         }
         self.annotation_state.reorder = None;
         self.commit_annotations(window, cx);
+    }
+
+    pub(crate) fn place_with_keyboard(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if matches!(self.tool, Tool::Select | Tool::Draw) || self.frame.is_none() {
+            return false;
+        }
+        let at = shapes::center(self.annotation_image_rect());
+        self.begin_create(self.tool, at, cx);
+        let Some(Gesture::Create(mut creating)) = self.annotation_state.gesture.take() else {
+            return false;
+        };
+        shapes::give_default_size(&mut creating.temp, at);
+        if creating.in_list {
+            let temp = creating.temp.clone();
+            if let Some(live) = self.annotation_mut(&temp.id) {
+                *live = temp;
+            }
+        }
+        self.finish_create(creating, window, cx);
+        true
+    }
+
+    pub(crate) fn edit_selected_text(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(annotation) = self.selected() else {
+            return false;
+        };
+        if !shapes::has_text(annotation.annotation_type) || self.annotation_state.editing.is_some()
+        {
+            return false;
+        }
+        let id = annotation.id.clone();
+        self.begin_text_edit(id, window, cx);
+        true
+    }
+
+    pub(crate) fn nudge_selected(
+        &mut self,
+        delta: (f64, f64),
+        action: Nudge,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.annotation_state.editing.is_some() || self.annotation_state.gesture.is_some() {
+            return false;
+        }
+        let Some(id) = self.selected_annotation.clone() else {
+            return false;
+        };
+        let Some(annotation) = self.annotation_mut(&id) else {
+            return false;
+        };
+        match action {
+            Nudge::Move => shapes::translate(annotation, delta.0, delta.1),
+            Nudge::Resize => shapes::keyboard_resize(annotation, delta.0, delta.1),
+            Nudge::Tail => {
+                let Some(tail) = annotation.tail.as_mut() else {
+                    return false;
+                };
+                tail[0] += delta.0;
+                tail[1] += delta.1;
+            }
+        }
+        self.commit_annotations(window, cx);
+        true
     }
 
     // -- Inline text ----------------------------------------------------------
@@ -2246,14 +2541,15 @@ impl ScreenshotEditorWindow {
         let annotation = self.annotation(&edit.id)?;
         let bounds = self.annotation_state.layer.get()?;
         let scale = self.annotation_scale()?;
+        let (left, top, width, font_size) = text_editor_frame(annotation);
         Some(Bounds {
             origin: gpui::point(
-                bounds.origin.x + px(annotation.x as f32 * scale),
-                bounds.origin.y + px(annotation.y as f32 * scale),
+                bounds.origin.x + px(left as f32 * scale),
+                bounds.origin.y + px(top as f32 * scale),
             ),
             size: gpui::size(
-                px((annotation.width.abs() as f32 * scale).max(100.)),
-                px((annotation.height as f32 * scale).max(16.)),
+                px((width as f32 * scale).max(100.)),
+                px((font_size as f32 * scale).max(16.)),
             ),
         })
     }
@@ -2399,6 +2695,8 @@ impl ScreenshotEditorWindow {
                 .iter()
                 .filter_map(|entry| entry.value.clone())
                 .collect(),
+            frame: self.frame.clone(),
+            frame_size: (f64::from(self.frame_size.0), f64::from(self.frame_size.1)),
             selected: self.selected_annotation.clone(),
             editing: self
                 .annotation_state
@@ -2446,15 +2744,26 @@ impl ScreenshotEditorWindow {
         let edit = self.annotation_state.editing.as_ref()?;
         let annotation = self.annotation(&edit.id)?;
         let input = self.annotation_state.text_input.clone()?;
-        let font_size = (annotation.height as f32 * scale).max(1.);
-        let color = annotation_color(&annotation.stroke_color, 1.).unwrap_or(gpui::black());
+        let (left, top, width, font_size) = text_editor_frame(annotation);
+        let font_size = (font_size as f32 * scale).max(1.);
+        let color = if annotation.annotation_type == AnnotationType::Bubble {
+            let [r, g, b] = shapes::contrast_text(parse_css_rgba(&annotation.fill_color, 1.));
+            Hsla::from(gpui::Rgba {
+                r: f32::from(r) / 255.,
+                g: f32::from(g) / 255.,
+                b: f32::from(b) / 255.,
+                a: 1.,
+            })
+        } else {
+            annotation_color(&annotation.stroke_color, 1.).unwrap_or(gpui::black())
+        };
 
         Some(
             div()
                 .absolute()
-                .left(px(annotation.x as f32 * scale))
-                .top(px(annotation.y as f32 * scale))
-                .w(px((annotation.width.abs() as f32 * scale).max(100.)))
+                .left(px(left as f32 * scale))
+                .top(px(top as f32 * scale))
+                .w(px((width as f32 * scale).max(100.)))
                 .child(
                     ui::TextInput::bare(&self.theme, "screenshot-annotation-text", &input)
                         .text_size(px(font_size))
@@ -2532,6 +2841,9 @@ impl ScreenshotEditorWindow {
         let annotation = self.selected()?;
         let theme = self.theme;
         let kind = annotation.annotation_type;
+        if shapes::is_shape(kind) {
+            return Some(self.render_shape_controls(annotation, cx));
+        }
         let is_mask = kind == AnnotationType::Mask;
         let is_text = kind == AnnotationType::Text;
 
@@ -2613,6 +2925,110 @@ impl ScreenshotEditorWindow {
         }
 
         Some(row.into_any_element())
+    }
+
+    fn shape_color_row(
+        &self,
+        label: &'static str,
+        target: ColorTarget,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        config_item(
+            &self.theme,
+            label,
+            None,
+            self.render_color_button(target, cx),
+        )
+    }
+
+    fn shape_slider_row(
+        &self,
+        label: &'static str,
+        value: String,
+        slider: AnnotationSlider,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        config_item(
+            &self.theme,
+            label,
+            Some(value),
+            self.annotation_slider(slider, px(160.), cx)
+                .into_any_element(),
+        )
+    }
+
+    fn render_shape_controls(&self, annotation: &Annotation, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let pixels = |value: f64| format!("{}px", value.round() as i64);
+        let percent = |value: f64| format!("{}%", (value * 100.).round() as i64);
+        let opacity = percent(annotation.opacity);
+
+        let rows: Vec<AnyElement> = match annotation.annotation_type {
+            AnnotationType::Line => vec![
+                self.shape_color_row(t!("Color"), ColorTarget::Stroke, cx),
+                self.shape_slider_row(
+                    t!("Width"),
+                    pixels(annotation.stroke_width),
+                    AnnotationSlider::Width,
+                    cx,
+                ),
+                self.shape_slider_row(t!("Opacity"), opacity, AnnotationSlider::Opacity, cx),
+            ],
+            AnnotationType::Highlighter => vec![
+                self.shape_color_row(t!("Color"), ColorTarget::Stroke, cx),
+                self.shape_slider_row(t!("Opacity"), opacity, AnnotationSlider::Opacity, cx),
+            ],
+            AnnotationType::Step => vec![
+                self.shape_color_row(t!("Color"), ColorTarget::Stroke, cx),
+                self.shape_slider_row(t!("Opacity"), opacity, AnnotationSlider::Opacity, cx),
+                self.shape_slider_row(
+                    t!("Size"),
+                    pixels(f64::from(AnnotationSlider::StepSize.value(annotation))),
+                    AnnotationSlider::StepSize,
+                    cx,
+                ),
+            ],
+            AnnotationType::Bubble => vec![
+                self.shape_color_row(t!("Fill"), ColorTarget::Fill, cx),
+                self.shape_slider_row(t!("Opacity"), opacity, AnnotationSlider::Opacity, cx),
+                self.shape_slider_row(
+                    t!("Text size"),
+                    pixels(shapes::bubble_font_size(annotation)),
+                    AnnotationSlider::BubbleTextSize,
+                    cx,
+                ),
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme.gray_10)
+                    .child(t!("Drag the tail to point at something."))
+                    .into_any_element(),
+            ],
+            AnnotationType::Spotlight => {
+                vec![self.shape_slider_row(t!("Darkness"), opacity, AnnotationSlider::Darkness, cx)]
+            }
+            AnnotationType::Magnifier => vec![
+                self.shape_slider_row(
+                    t!("Zoom"),
+                    format!("{}×", shapes::magnifier_zoom(annotation)),
+                    AnnotationSlider::Zoom,
+                    cx,
+                ),
+                self.shape_color_row(t!("Border"), ColorTarget::Stroke, cx),
+                self.shape_slider_row(
+                    t!("Width"),
+                    pixels(annotation.stroke_width),
+                    AnnotationSlider::BorderWidth,
+                    cx,
+                ),
+            ],
+            _ => Vec::new(),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(14.))
+            .children(rows)
+            .into_any_element()
     }
 
     /// The two `Style` pills (`AnnotationConfig.tsx:100-123`).
@@ -3539,6 +3955,26 @@ impl ScreenshotEditorWindow {
 // -- a filled disc at each end is the same shape.
 
 /// Frame space to window space.
+fn text_editor_frame(annotation: &Annotation) -> (f64, f64, f64, f64) {
+    if annotation.annotation_type == AnnotationType::Bubble {
+        let rect = normalized_rect(annotation);
+        let font_size = shapes::bubble_font_size(annotation);
+        let inset = (rect.width * 0.1).min(12.);
+        return (
+            rect.x + inset,
+            rect.y + rect.height / 2. - font_size / 2.,
+            rect.width - inset * 2.,
+            font_size,
+        );
+    }
+    (
+        annotation.x,
+        annotation.y,
+        annotation.width.abs(),
+        annotation.height,
+    )
+}
+
 fn map_point(origin: Point<Pixels>, scale: f32, x: f64, y: f64) -> Point<Pixels> {
     gpui::point(
         origin.x + px(x as f32 * scale),
@@ -3646,7 +4082,12 @@ fn paint_layer(paint: &LayerPaint, bounds: Bounds<Pixels>, window: &mut Window, 
     }
 
     for annotation in &paint.annotations {
-        if paint.editing.as_deref() == Some(annotation.id.as_str()) {
+        let editing = paint.editing.as_deref() == Some(annotation.id.as_str());
+        if shapes::is_shape(annotation.annotation_type) {
+            paint_shape(annotation, paint, origin, editing, window, cx);
+            continue;
+        }
+        if editing {
             continue;
         }
         paint_annotation(annotation, origin, scale, window, cx);
@@ -3713,10 +4154,179 @@ fn paint_layer(paint: &LayerPaint, bounds: Bounds<Pixels>, window: &mut Window, 
                     window,
                 );
             }
+        } else if shapes::is_shape(temp.annotation_type) {
+            paint_shape(temp, paint, origin, false, window, cx);
         } else {
             paint_annotation(temp, origin, scale, window, cx);
         }
     }
+}
+
+fn shape_color(color: shapes::Rgba) -> Hsla {
+    Hsla::from(gpui::Rgba {
+        r: f32::from(color.0[0]) / 255.,
+        g: f32::from(color.0[1]) / 255.,
+        b: f32::from(color.0[2]) / 255.,
+        a: color.1,
+    })
+}
+
+fn push_segs(builder: &mut PathBuilder, path: &[shapes::Seg], origin: Point<Pixels>, scale: f32) {
+    let at = |x: f64, y: f64| map_point(origin, scale, x, y);
+    for seg in path {
+        match *seg {
+            shapes::Seg::Move(x, y) => builder.move_to(at(x, y)),
+            shapes::Seg::Line(x, y) => builder.line_to(at(x, y)),
+            shapes::Seg::Quad(cx, cy, x, y) => builder.curve_to(at(x, y), at(cx, cy)),
+            shapes::Seg::Cubic(ax, ay, bx, by, x, y) => {
+                builder.cubic_bezier_to(at(x, y), at(ax, ay), at(bx, by))
+            }
+            shapes::Seg::Close => builder.close(),
+        }
+    }
+}
+
+fn seg_end(seg: &shapes::Seg) -> Option<(f64, f64)> {
+    match *seg {
+        shapes::Seg::Move(x, y)
+        | shapes::Seg::Line(x, y)
+        | shapes::Seg::Quad(_, _, x, y)
+        | shapes::Seg::Cubic(_, _, _, _, x, y) => Some((x, y)),
+        shapes::Seg::Close => None,
+    }
+}
+
+fn paint_shape(
+    annotation: &Annotation,
+    paint: &LayerPaint,
+    origin: Point<Pixels>,
+    hide_label: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let scale = paint.scale;
+    let frame = Rect {
+        x: 0.,
+        y: 0.,
+        width: paint.frame_size.0,
+        height: paint.frame_size.1,
+    };
+    for op in shapes::shape_ops(annotation, frame) {
+        match op {
+            ShapeOp::Fill { path, color } => {
+                let mut builder = PathBuilder::fill();
+                push_segs(&mut builder, &path, origin, scale);
+                paint_fill(builder, shape_color(color), window);
+            }
+            ShapeOp::Stroke {
+                path,
+                width,
+                color,
+                round,
+            } => {
+                let width = (width as f32 * scale).max(0.);
+                let color = shape_color(color);
+                let mut builder = PathBuilder::stroke(px(width));
+                push_segs(&mut builder, &path, origin, scale);
+                paint_fill(builder, color, window);
+                if round {
+                    for (x, y) in [path.first(), path.last()]
+                        .into_iter()
+                        .flatten()
+                        .filter_map(seg_end)
+                    {
+                        paint_disc(window, map_point(origin, scale, x, y), width / 2., color);
+                    }
+                }
+            }
+            ShapeOp::Label {
+                text,
+                font_size,
+                center,
+                color,
+            } => {
+                if !hide_label {
+                    paint_label(
+                        &text,
+                        font_size,
+                        center,
+                        shape_color(color),
+                        origin,
+                        scale,
+                        window,
+                        cx,
+                    );
+                }
+            }
+            ShapeOp::Magnify { rect, center, zoom } => {
+                let Some(image) = paint.frame.clone() else {
+                    continue;
+                };
+                let bounds = screen_rect(origin, scale, rect);
+                let zoomed = shapes::magnified_frame(frame, center, zoom);
+                let _ = window.paint_image(
+                    bounds,
+                    screen_rect(origin, scale, zoomed),
+                    Corners::default(),
+                    image,
+                    0,
+                    false,
+                );
+                for overlay in &paint.masks {
+                    let zoomed = shapes::magnified_frame(overlay.rect, center, zoom);
+                    let _ = window.paint_image(
+                        bounds,
+                        screen_rect(origin, scale, zoomed),
+                        Corners::default(),
+                        overlay.image.clone(),
+                        0,
+                        false,
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_label(
+    text: &str,
+    font_size: f64,
+    center: (f64, f64),
+    color: Hsla,
+    origin: Point<Pixels>,
+    scale: f32,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if text.is_empty() {
+        return;
+    }
+    let run = TextRun {
+        len: text.len(),
+        font: gpui::font(TEXT_FONT),
+        color,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let line = window.text_system().shape_line(
+        text.to_string().into(),
+        px((font_size as f32 * scale).max(1.)),
+        &[run],
+        None,
+    );
+    let baseline = origin.y + px(shapes::label_baseline(center.1, font_size) as f32 * scale);
+    let left = origin.x + px(center.0 as f32 * scale) - line.width / 2.;
+    let line_height = line.ascent + line.descent;
+    let _ = line.paint(
+        gpui::point(left, baseline - line.ascent),
+        line_height,
+        gpui::TextAlign::Left,
+        None,
+        window,
+        cx,
+    );
 }
 
 fn screen_rect(origin: Point<Pixels>, scale: f32, rect: Rect) -> Bounds<Pixels> {
@@ -3826,6 +4436,12 @@ fn paint_annotation(
             paint_stroke_path(&points, origin, scale, stroke_width, stroke, window);
         }
         AnnotationType::Text => paint_text(annotation, origin, scale, window, cx),
+        AnnotationType::Line
+        | AnnotationType::Highlighter
+        | AnnotationType::Step
+        | AnnotationType::Bubble
+        | AnnotationType::Spotlight
+        | AnnotationType::Magnifier => {}
     }
 }
 
@@ -4139,9 +4755,16 @@ mod tests {
             Tool::TOOLBAR_GROUPS,
             &[
                 &[Tool::Select][..],
-                &[Tool::Draw, Tool::Arrow, Tool::Rectangle, Tool::Circle][..],
-                &[Tool::Text][..],
-                &[Tool::Mask][..],
+                &[
+                    Tool::Draw,
+                    Tool::Highlighter,
+                    Tool::Line,
+                    Tool::Arrow,
+                    Tool::Rectangle,
+                    Tool::Circle
+                ][..],
+                &[Tool::Text, Tool::Bubble, Tool::Step][..],
+                &[Tool::Mask, Tool::Spotlight, Tool::Magnifier][..],
             ][..]
         );
         let mut grouped: Vec<Tool> = Tool::TOOLBAR_GROUPS
@@ -4164,10 +4787,48 @@ mod tests {
             ("o", Tool::Circle),
             ("t", Tool::Text),
             ("m", Tool::Mask),
+            ("g", Tool::Highlighter),
+            ("i", Tool::Line),
+            ("u", Tool::Bubble),
+            ("n", Tool::Step),
+            ("f", Tool::Spotlight),
+            ("z", Tool::Magnifier),
         ] {
             assert_eq!(Tool::for_key(key), Some(tool), "{key}");
         }
         assert_eq!(Tool::for_key("b"), None);
+        for tool in Tool::ALL {
+            assert_eq!(
+                Tool::for_key(&tool.shortcut().to_lowercase()),
+                Some(tool),
+                "{tool:?}"
+            );
+        }
+        for key in ["b", "p", "h", "e", "l"] {
+            assert_eq!(Tool::for_key(key), None, "{key} opens a page");
+        }
+    }
+
+    #[test]
+    fn arrows_move_ctrl_arrows_resize_and_alt_arrows_steer_a_tail() {
+        assert_eq!(
+            Nudge::for_keys("left", false, false, false),
+            Some(((-1., 0.), Nudge::Move))
+        );
+        assert_eq!(
+            Nudge::for_keys("down", false, true, false),
+            Some(((0., 10.), Nudge::Move))
+        );
+        assert_eq!(
+            Nudge::for_keys("right", true, false, false),
+            Some(((1., 0.), Nudge::Resize))
+        );
+        assert_eq!(
+            Nudge::for_keys("up", false, false, true),
+            Some(((0., -1.), Nudge::Tail))
+        );
+        assert_eq!(Nudge::for_keys("up", true, false, true), None);
+        assert_eq!(Nudge::for_keys("a", false, false, false), None);
     }
 
     fn transform(
@@ -4263,6 +4924,10 @@ mod tests {
             mask_type: None,
             mask_level: None,
             points: None,
+            number: None,
+            font_size: None,
+            tail: None,
+            zoom: None,
         }];
         rescale_annotations(&mut annotations, &previous, &current);
         assert_eq!((annotations[0].x, annotations[0].y), (30., 40.));
@@ -4346,6 +5011,10 @@ mod tests {
             mask_type: None,
             mask_level: None,
             points: None,
+            number: None,
+            font_size: None,
+            tail: None,
+            zoom: None,
         };
         assert_eq!(layer_label(&annotation), "Hello");
         annotation.text = Some("A very long caption".into());
@@ -4381,6 +5050,10 @@ mod tests {
             mask_type: None,
             mask_level: None,
             points: None,
+            number: None,
+            font_size: None,
+            tail: None,
+            zoom: None,
         }
     }
 
@@ -4571,6 +5244,53 @@ mod tests {
             handles(&arrow, 10.),
             vec![(Handle::Start, (10., 10.)), (Handle::End, (50., 30.))]
         );
+    }
+
+    #[test]
+    fn new_shapes_carry_the_grips_they_need() {
+        let kinds = |annotation: &Annotation| -> Vec<Handle> {
+            handles(annotation, 10.)
+                .into_iter()
+                .map(|(handle, _)| handle)
+                .collect()
+        };
+        assert_eq!(
+            kinds(&shape(AnnotationType::Line, 0., 0., 50., 20.)),
+            [Handle::Start, Handle::End]
+        );
+        assert_eq!(
+            kinds(&shape(AnnotationType::Step, 0., 0., 40., 40.)).len(),
+            4
+        );
+        assert_eq!(
+            kinds(&shape(AnnotationType::Spotlight, 0., 0., 40., 40.)).len(),
+            8
+        );
+        let mut bubble = shape(AnnotationType::Bubble, 0., 0., 80., 40.);
+        bubble.tail = Some([10., 90.]);
+        let grips = handles(&bubble, 10.);
+        assert_eq!(grips.len(), 9);
+        assert_eq!(grips[8], (Handle::Tail, (10., 90.)));
+        assert_eq!(hit_handle(&bubble, (11., 89.), 10.), Some(Handle::Tail));
+    }
+
+    #[test]
+    fn a_bubble_tail_and_text_size_ride_a_resize_of_the_frame() {
+        let mut bubble = shape(AnnotationType::Bubble, 10., 10., 80., 40.);
+        bubble.tail = Some([20., 70.]);
+        bubble.font_size = Some(20.);
+        let previous = ImageTransform {
+            offset: (0., 0.),
+            size: (100., 100.),
+        };
+        let current = ImageTransform {
+            offset: (10., 10.),
+            size: (200., 200.),
+        };
+        let mut list = vec![bubble];
+        rescale_annotations(&mut list, &previous, &current);
+        assert_eq!(list[0].tail, Some([50., 150.]));
+        assert_eq!(list[0].font_size, Some(40.));
     }
 
     #[test]

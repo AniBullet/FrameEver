@@ -156,7 +156,13 @@ pub(crate) const INVENTORY: &[(&str, &[Place])] = &[
     ),
     (
         "Step number, line, highlighter, speech bubble, spotlight, magnifier, image, cut out",
-        &[Place::Ticket(103), Place::Ticket(104)],
+        &[
+            Place::PreviewToolbar,
+            Place::Preview,
+            Place::Selection,
+            Place::Keyboard,
+            Place::Ticket(104),
+        ],
     ),
     ("Ctrl+K command palette", &[Place::Ticket(98)]),
     (

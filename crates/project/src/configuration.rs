@@ -2508,6 +2508,12 @@ pub enum AnnotationType {
     Text,
     Mask,
     Draw,
+    Line,
+    Highlighter,
+    Step,
+    Bubble,
+    Spotlight,
+    Magnifier,
 }
 
 #[derive(Type, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -2582,6 +2588,14 @@ pub struct Annotation {
     pub mask_level: Option<f64>,
     #[serde(default)]
     pub points: Option<Vec<[f64; 2]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_size: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tail: Option<[f64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<f64>,
 }
 
 impl Annotation {

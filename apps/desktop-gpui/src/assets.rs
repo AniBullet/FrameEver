@@ -80,6 +80,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "ellipsis-vertical.svg",
     "eye-off.svg",
     "film.svg",
+    "flashlight.svg",
     "folder.svg",
     "folder-down.svg",
     "folder-open.svg",
@@ -87,6 +88,8 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "gem.svg",
     "globe.svg",
     "grip-vertical.svg",
+    "hash.svg",
+    "highlighter.svg",
     "image.svg",
     "import.svg",
     "info.svg",
@@ -106,6 +109,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "lock-open.svg",
     "maximize.svg",
     "maximize-2.svg",
+    "message-square.svg",
     "minimize.svg",
     "mic.svg",
     "mic-off.svg",
@@ -140,6 +144,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "shuffle.svg",
     "skip-back.svg",
     "skip-forward.svg",
+    "slash.svg",
     "sliders-horizontal.svg",
     "square.svg",
     "square-dashed.svg",
@@ -558,9 +563,7 @@ mod tests {
         assert!(
             include_str!("main_window.rs").contains(r#"Self::Screenshot => "icons/image.svg""#)
         );
-        assert!(
-            include_str!("target_overlay.rs").contains("Some(mode.icon())")
-        );
+        assert!(include_str!("target_overlay.rs").contains("Some(mode.icon())"));
         assert!(
             include_str!("settings_window/catalog.rs")
                 .contains(r#"Page::Automations => "icons/workflow.svg""#)

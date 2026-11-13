@@ -6,6 +6,7 @@ use frameever_project::{Annotation, AnnotationType, ProjectConfiguration};
 use crate::i18n::t;
 use crate::screenshot_annotations::{self as annotations, Rect};
 use crate::screenshot_editor::has_no_visible_background;
+use crate::screenshot_shapes::{self as shapes, Seg, ShapeOp};
 
 /// One export-resolution GPU render, plus the size the *preview* renders the
 /// same config at. Annotations live in preview-frame space
@@ -52,14 +53,18 @@ pub struct ExportBounds {
 pub fn scale_annotations(list: &[Annotation], scale_x: f64, scale_y: f64) -> Vec<Annotation> {
     let scalar = (scale_x + scale_y) / 2.;
     list.iter()
-        .map(|annotation| Annotation {
-            x: annotation.x * scale_x,
-            y: annotation.y * scale_y,
-            width: annotation.width * scale_x,
-            height: annotation.height * scale_y,
-            stroke_width: annotation.stroke_width * scalar,
-            mask_level: annotation.mask_level.map(|level| level * scalar),
-            ..annotation.clone()
+        .map(|annotation| {
+            let mut scaled = Annotation {
+                x: annotation.x * scale_x,
+                y: annotation.y * scale_y,
+                width: annotation.width * scale_x,
+                height: annotation.height * scale_y,
+                stroke_width: annotation.stroke_width * scalar,
+                mask_level: annotation.mask_level.map(|level| level * scalar),
+                ..annotation.clone()
+            };
+            shapes::scale_extras(&mut scaled, |x, y| (x * scale_x, y * scale_y), scalar);
+            scaled
         })
         .collect()
 }
@@ -84,6 +89,11 @@ pub fn export_bounds(scaled: &[Annotation], canvas: (u32, u32)) -> ExportBounds 
             min_y = min_y.min(y);
             max_y = max_y.max(y + height);
         };
+        if shapes::is_shape(annotation.annotation_type) {
+            let extent = shapes::shape_extent(annotation);
+            include(extent.x, extent.y, extent.width, extent.height);
+            continue;
+        }
         let rect = annotations::normalized_rect(annotation);
         include(rect.x, rect.y, rect.width, rect.height);
         let has_stroke = annotations::parse_css_rgba(&annotation.stroke_color, annotation.opacity)
@@ -136,7 +146,7 @@ pub fn export_bounds(scaled: &[Annotation], canvas: (u32, u32)) -> ExportBounds 
                     );
                 }
             }),
-            AnnotationType::Mask | AnnotationType::Arrow | AnnotationType::Draw => {}
+            _ => {}
         }
     }
 
@@ -199,8 +209,17 @@ pub fn composite(raw: &RawFrame, config: &ProjectConfiguration) -> Composited {
         && bounds.min_y == 0.
         && bounds.width == width
         && bounds.height == height;
+    let backdrop_pixels = scaled
+        .iter()
+        .any(|annotation| annotation.annotation_type == AnnotationType::Magnifier)
+        .then(|| canvas.clone());
+    let backdrop = |origin: (f64, f64)| Backdrop {
+        rgba: backdrop_pixels.as_deref(),
+        size: (width, height),
+        origin,
+    };
     if fits_frame {
-        draw_annotations_onto(&mut canvas, width, height, &scaled);
+        draw_annotations_onto(&mut canvas, width, height, &scaled, &backdrop((0., 0.)));
     }
     let mut out = vec![0u8; bounds.width as usize * bounds.height as usize * 4];
     if !has_no_visible_background(&config.background.source) {
@@ -219,10 +238,15 @@ pub fn composite(raw: &RawFrame, config: &ProjectConfiguration) -> Composited {
     );
     if !fits_frame {
         for annotation in &mut scaled {
-            annotation.x += offset.0 as f64;
-            annotation.y += offset.1 as f64;
+            shapes::translate(annotation, offset.0 as f64, offset.1 as f64);
         }
-        draw_annotations_onto(&mut out, bounds.width, bounds.height, &scaled);
+        draw_annotations_onto(
+            &mut out,
+            bounds.width,
+            bounds.height,
+            &scaled,
+            &backdrop((offset.0 as f64, offset.1 as f64)),
+        );
     }
 
     Composited {
@@ -319,23 +343,156 @@ fn skia_stroke(width: f64, round: bool) -> tiny_skia::Stroke {
 /// Draw every non-mask annotation onto the straight-alpha canvas, in list
 /// order -- rect, ellipse, arrow, freehand with tiny-skia, text with
 /// cosmic-text, each under its own `globalAlpha`.
-fn draw_annotations_onto(canvas: &mut [u8], width: u32, height: u32, scaled: &[Annotation]) {
+struct Backdrop<'a> {
+    rgba: Option<&'a [u8]>,
+    size: (u32, u32),
+    origin: (f64, f64),
+}
+
+impl Backdrop<'_> {
+    fn frame(&self) -> Rect {
+        Rect {
+            x: self.origin.0,
+            y: self.origin.1,
+            width: f64::from(self.size.0),
+            height: f64::from(self.size.1),
+        }
+    }
+
+    fn pixmap(&self) -> Option<tiny_skia::Pixmap> {
+        let mut rgba = self.rgba?.to_vec();
+        pixels::premultiply(&mut rgba);
+        tiny_skia::Pixmap::from_vec(rgba, tiny_skia::IntSize::from_wh(self.size.0, self.size.1)?)
+    }
+}
+
+fn draw_annotations_onto(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    scaled: &[Annotation],
+    backdrop: &Backdrop<'_>,
+) {
     if scaled
         .iter()
         .all(|annotation| annotation.annotation_type == AnnotationType::Mask)
     {
         return;
     }
+    let source = backdrop.pixmap();
     pixels::premultiply(canvas);
     if let Some(mut pixmap) = tiny_skia::PixmapMut::from_bytes(canvas, width, height) {
         for annotation in scaled {
             if annotation.annotation_type == AnnotationType::Mask {
                 continue;
             }
+            if shapes::is_shape(annotation.annotation_type) {
+                for op in shapes::shape_ops(annotation, backdrop.frame()) {
+                    draw_op(&mut pixmap, &op, backdrop, source.as_ref());
+                }
+                continue;
+            }
             draw_one(&mut pixmap, annotation);
         }
     }
     pixels::demultiply(canvas);
+}
+
+fn skia_path(path: &[Seg]) -> Option<tiny_skia::Path> {
+    let mut builder = tiny_skia::PathBuilder::new();
+    for seg in path {
+        match *seg {
+            Seg::Move(x, y) => builder.move_to(x as f32, y as f32),
+            Seg::Line(x, y) => builder.line_to(x as f32, y as f32),
+            Seg::Quad(cx, cy, x, y) => builder.quad_to(cx as f32, cy as f32, x as f32, y as f32),
+            Seg::Cubic(ax, ay, bx, by, x, y) => builder.cubic_to(
+                ax as f32, ay as f32, bx as f32, by as f32, x as f32, y as f32,
+            ),
+            Seg::Close => builder.close(),
+        }
+    }
+    builder.finish()
+}
+
+fn draw_op(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    op: &ShapeOp,
+    backdrop: &Backdrop<'_>,
+    source: Option<&tiny_skia::Pixmap>,
+) {
+    let transform = tiny_skia::Transform::identity();
+    match op {
+        ShapeOp::Fill { path, color } => {
+            let (Some(path), Some(color)) = (skia_path(path), skia_color(color.0, color.1)) else {
+                return;
+            };
+            pixmap.fill_path(
+                &path,
+                &skia_paint(color),
+                tiny_skia::FillRule::EvenOdd,
+                transform,
+                None,
+            );
+        }
+        ShapeOp::Stroke {
+            path,
+            width,
+            color,
+            round,
+        } => {
+            let (Some(path), Some(color)) = (skia_path(path), skia_color(color.0, color.1)) else {
+                return;
+            };
+            pixmap.stroke_path(
+                &path,
+                &skia_paint(color),
+                &skia_stroke(*width, *round),
+                transform,
+                None,
+            );
+        }
+        ShapeOp::Label {
+            text,
+            font_size,
+            center,
+            color,
+        } => {
+            let canvas_size = (pixmap.width(), pixmap.height());
+            rasterize_label(text, *font_size, *center, *color, |at, size, rgba| {
+                pixels::blend_rect_premultiplied(pixmap.data_mut(), canvas_size, at, size, rgba);
+            });
+        }
+        ShapeOp::Magnify { rect, center, zoom } => {
+            let Some(source) = source else {
+                return;
+            };
+            let frame = backdrop.frame();
+            let Some(area) =
+                shapes::intersect(*rect, shapes::magnified_frame(frame, *center, *zoom))
+            else {
+                return;
+            };
+            let Some(path) = skia_path(&shapes::rect_path(area)) else {
+                return;
+            };
+            let zoom = *zoom as f32;
+            let (cx, cy) = (center.0 as f32, center.1 as f32);
+            let (sx, sy) = (cx - frame.x as f32, cy - frame.y as f32);
+            let pattern = tiny_skia::Pattern::new(
+                source.as_ref(),
+                tiny_skia::SpreadMode::Pad,
+                tiny_skia::FilterQuality::Bilinear,
+                1.,
+                tiny_skia::Transform::from_row(zoom, 0., 0., zoom, cx - zoom * sx, cy - zoom * sy),
+            );
+            let paint = tiny_skia::Paint {
+                shader: pattern,
+                anti_alias: true,
+                ..tiny_skia::Paint::default()
+            };
+            pixmap.fill_path(&path, &paint, tiny_skia::FillRule::Winding, transform, None);
+        }
+    }
 }
 
 fn draw_one(pixmap: &mut tiny_skia::PixmapMut<'_>, annotation: &Annotation) {
@@ -501,6 +658,7 @@ fn draw_one(pixmap: &mut tiny_skia::PixmapMut<'_>, annotation: &Annotation) {
                 pixels::blend_rect_premultiplied(pixmap.data_mut(), canvas_size, at, size, color);
             });
         }
+        _ => {}
     }
 }
 
@@ -512,6 +670,60 @@ fn draw_one(pixmap: &mut tiny_skia::PixmapMut<'_>, annotation: &Annotation) {
 /// database, which is far too slow to redo per export.
 static TEXT_STACK: OnceLock<Mutex<(cosmic_text::FontSystem, cosmic_text::SwashCache)>> =
     OnceLock::new();
+
+fn rasterize_label(
+    text: &str,
+    font_size: f64,
+    center: (f64, f64),
+    color: shapes::Rgba,
+    mut pixel: impl FnMut((f64, f64), (u32, u32), [u8; 4]),
+) {
+    if text.is_empty() {
+        return;
+    }
+    let font_size = (font_size as f32).max(1.);
+    let stack = TEXT_STACK.get_or_init(|| {
+        Mutex::new((
+            frameever_rendering::new_font_system(),
+            cosmic_text::SwashCache::new(),
+        ))
+    });
+    let mut guard = match stack.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let (font_system, swash_cache) = &mut *guard;
+
+    let mut buffer =
+        cosmic_text::Buffer::new(font_system, cosmic_text::Metrics::new(font_size, font_size));
+    buffer.set_size(None, None);
+    let attrs = cosmic_text::Attrs::new().family(cosmic_text::Family::Name(annotations::TEXT_FONT));
+    buffer.set_text(text, &attrs, cosmic_text::Shaping::Advanced, None);
+    buffer.shape_until_scroll(font_system, false);
+
+    let (line_y, line_w) = buffer
+        .layout_runs()
+        .next()
+        .map(|run| (run.line_y, run.line_w))
+        .unwrap_or((font_size, 0.));
+    let origin_x = center.0 - f64::from(line_w) / 2.;
+    let origin_y = shapes::label_baseline(center.1, f64::from(font_size)) - f64::from(line_y);
+
+    let (rgb, alpha) = color;
+    let color = cosmic_text::Color::rgba(
+        rgb[0],
+        rgb[1],
+        rgb[2],
+        (alpha.clamp(0., 1.) * 255.).round() as u8,
+    );
+    buffer.draw(font_system, swash_cache, color, |x, y, w, h, color| {
+        pixel(
+            (origin_x + f64::from(x), origin_y + f64::from(y)),
+            (w, h),
+            [color.r(), color.g(), color.b(), color.a()],
+        );
+    });
+}
 
 /// `<text>` at `font-size = height`, baseline at `y + height`, filled with the
 /// stroke colour -- the same placement the preview's `paint_text` resolves,
@@ -595,6 +807,18 @@ mod tests {
             mask_type: None,
             mask_level: None,
             points: None,
+            number: None,
+            font_size: None,
+            tail: None,
+            zoom: None,
+        }
+    }
+
+    fn no_backdrop(width: u32, height: u32) -> Backdrop<'static> {
+        Backdrop {
+            rgba: None,
+            size: (width, height),
+            origin: (0., 0.),
         }
     }
 
@@ -613,7 +837,7 @@ mod tests {
             vec![annotation(AnnotationType::Mask, 0., 0., 16., 16.)],
         ] {
             let mut canvas = original.clone();
-            draw_annotations_onto(&mut canvas, 16, 16, &scaled);
+            draw_annotations_onto(&mut canvas, 16, 16, &scaled, &no_backdrop(16, 16));
             assert_eq!(canvas, original);
         }
     }
@@ -758,7 +982,7 @@ mod tests {
         let width = raw.width.max(1);
         let height = raw.height.max(1);
         let mut canvas = raw.rgba.clone();
-        draw_annotations_onto(&mut canvas, width, height, &[]);
+        draw_annotations_onto(&mut canvas, width, height, &[], &no_backdrop(width, height));
         let mut rgba = vec![0; width as usize * height as usize * 4];
         if !has_no_visible_background(&config.background.source) {
             rgba.fill(255);
@@ -992,7 +1216,7 @@ mod tests {
         text.x += 128.;
         text.y += 128.;
         let mut reference = vec![0; 512 * 512 * 4];
-        draw_annotations_onto(&mut reference, 512, 512, &[text]);
+        draw_annotations_onto(&mut reference, 512, 512, &[text], &no_backdrop(512, 512));
         let reference = image::RgbaImage::from_raw(512, 512, reference).unwrap();
         let (mut left, mut top, mut right, mut bottom) = (0i64, -5i64, 100i64, 100i64);
         for (x, y, pixel) in reference.enumerate_pixels() {
@@ -1044,7 +1268,13 @@ mod tests {
             annotation.rotation = 45.;
         }
         let mut expected = raw.rgba.clone();
-        draw_annotations_onto(&mut expected, raw.width, raw.height, &config.annotations);
+        draw_annotations_onto(
+            &mut expected,
+            raw.width,
+            raw.height,
+            &config.annotations,
+            &no_backdrop(raw.width, raw.height),
+        );
         let out = composite(&raw, &config);
         assert_eq!((out.width, out.height), (100, 100));
         assert_eq!(out.rgba, expected);
@@ -1083,7 +1313,13 @@ mod tests {
             config.annotations.push(rectangle);
 
             let mut canvas = raw.rgba.clone();
-            draw_annotations_onto(&mut canvas, 64, 64, &config.annotations);
+            draw_annotations_onto(
+                &mut canvas,
+                64,
+                64,
+                &config.annotations,
+                &no_backdrop(64, 64),
+            );
             let mut expected = vec![if visible { 255 } else { 0 }; 64 * 64 * 4];
             pixels::blit_over_offset(&mut expected, (64, 64), &canvas, (64, 64), (0, 0));
 
@@ -1189,5 +1425,131 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn pixel(out: &Composited, x: u32, y: u32) -> [u8; 4] {
+        let start = (y as usize * out.width as usize + x as usize) * 4;
+        out.rgba[start..start + 4].try_into().unwrap()
+    }
+
+    fn near(actual: [u8; 4], expected: [u8; 4]) -> bool {
+        actual
+            .iter()
+            .zip(expected)
+            .all(|(a, e)| (i16::from(*a) - i16::from(e)).abs() <= 3)
+    }
+
+    fn blue_frame() -> RawFrame {
+        RawFrame {
+            rgba: [0u8, 0, 255, 255].repeat(200 * 160),
+            width: 200,
+            height: 160,
+            base_width: 200,
+            base_height: 160,
+        }
+    }
+
+    fn gradient_frame() -> RawFrame {
+        RawFrame {
+            rgba: (0..160u32)
+                .flat_map(|y| (0..200u32).flat_map(move |x| [x as u8, y as u8, 90, 255]))
+                .collect(),
+            width: 200,
+            height: 160,
+            base_width: 200,
+            base_height: 160,
+        }
+    }
+
+    fn with(annotations: Vec<Annotation>) -> ProjectConfiguration {
+        ProjectConfiguration {
+            annotations,
+            ..ProjectConfiguration::default()
+        }
+    }
+
+    #[test]
+    fn a_line_and_a_highlighter_export_as_the_preview_draws_them() {
+        let mut line = annotation(AnnotationType::Line, 20., 20., 100., 0.);
+        line.stroke_width = 6.;
+        line.stroke_color = "#FF0000".into();
+        let mut highlighter = annotation(AnnotationType::Highlighter, 10., 50., 40., 20.);
+        highlighter.stroke_color = "#FFFF00".into();
+        let out = composite(&blue_frame(), &with(vec![line, highlighter]));
+
+        assert_eq!((out.width, out.height), (200, 160));
+        assert!(near(pixel(&out, 70, 20), [255, 0, 0, 255]));
+        assert!(near(pixel(&out, 18, 20), [255, 0, 0, 255]));
+        assert!(near(pixel(&out, 70, 30), [0, 0, 255, 255]));
+        assert!(near(pixel(&out, 30, 60), [102, 102, 153, 255]));
+        assert!(near(pixel(&out, 30, 75), [0, 0, 255, 255]));
+    }
+
+    #[test]
+    fn a_step_exports_its_disc_and_a_white_number() {
+        let mut step = annotation(AnnotationType::Step, 150., 10., 40., 40.);
+        step.stroke_color = "#FF0000".into();
+        step.number = Some(4);
+        let out = composite(&blue_frame(), &with(vec![step]));
+
+        assert!(near(pixel(&out, 170, 13), [255, 0, 0, 255]));
+        assert!(near(pixel(&out, 151, 11), [0, 0, 255, 255]));
+        let white = (150..190)
+            .flat_map(|x| (10..50).map(move |y| (x, y)))
+            .filter(|(x, y)| near(pixel(&out, *x, *y), [255, 255, 255, 255]))
+            .count();
+        assert!(white > 10, "{white} white pixels");
+    }
+
+    #[test]
+    fn a_bubble_exports_its_tail_and_grows_the_canvas_for_it() {
+        let mut bubble = annotation(AnnotationType::Bubble, 20., 80., 80., 30.);
+        bubble.stroke_color = "transparent".into();
+        bubble.fill_color = "#00FF00".into();
+        bubble.tail = Some([30., 140.]);
+        let out = composite(&blue_frame(), &with(vec![bubble.clone()]));
+        assert!(near(pixel(&out, 40, 125), [0, 255, 0, 255]));
+        assert!(near(pixel(&out, 60, 125), [0, 0, 255, 255]));
+        assert!(near(pixel(&out, 25, 95), [0, 255, 0, 255]));
+
+        bubble.tail = Some([30., 200.]);
+        let out = composite(&blue_frame(), &with(vec![bubble]));
+        assert!(out.height >= 200, "{}", out.height);
+    }
+
+    #[test]
+    fn a_spotlight_darkens_only_what_is_below_it_and_outside_its_box() {
+        let mut spotlight = annotation(AnnotationType::Spotlight, 120., 100., 40., 30.);
+        spotlight.opacity = 0.5;
+        let mut line = annotation(AnnotationType::Line, 0., 5., 200., 0.);
+        line.stroke_color = "#FF0000".into();
+        let out = composite(&blue_frame(), &with(vec![spotlight, line]));
+
+        assert!(near(pixel(&out, 5, 155), [0, 0, 128, 255]));
+        assert!(near(pixel(&out, 140, 115), [0, 0, 255, 255]));
+        assert!(near(pixel(&out, 100, 5), [255, 0, 0, 255]));
+    }
+
+    #[test]
+    fn a_magnifier_exports_the_masked_pixels_enlarged_about_its_centre() {
+        let mut magnifier = annotation(AnnotationType::Magnifier, 40., 40., 40., 40.);
+        magnifier.zoom = Some(2.);
+        magnifier.stroke_width = 0.;
+        let out = composite(&gradient_frame(), &with(vec![magnifier.clone()]));
+        assert!(near(pixel(&out, 70, 60), [65, 60, 90, 255]));
+        assert!(near(pixel(&out, 50, 44), [55, 52, 90, 255]));
+        assert!(near(pixel(&out, 100, 100), [100, 100, 90, 255]));
+
+        let mut mask = annotation(AnnotationType::Mask, 55., 50., 20., 20.);
+        mask.mask_type = Some(frameever_project::MaskType::Pixelate);
+        mask.mask_level = Some(10.);
+        let masked = composite(&gradient_frame(), &with(vec![mask.clone()]));
+        let both = composite(&gradient_frame(), &with(vec![mask, magnifier.clone()]));
+        assert!(near(pixel(&both, 70, 60), pixel(&masked, 65, 60)));
+
+        magnifier.stroke_width = 4.;
+        magnifier.stroke_color = "#FFFFFF".into();
+        let bordered = composite(&gradient_frame(), &with(vec![magnifier]));
+        assert!(near(pixel(&bordered, 40, 60), [255, 255, 255, 255]));
     }
 }
