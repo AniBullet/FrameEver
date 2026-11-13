@@ -1608,7 +1608,7 @@ pub struct EditorWindow {
     /// The user's drag on the resize grip. `None` means the card hugs its
     /// track rows and re-hugs whenever a track is added or removed.
     timeline_height_override: Option<f32>,
-    initial_timeline_rows: Option<usize>,
+    initial_timeline_hug: Option<f32>,
     timeline_resize: Option<(f32, f32)>,
     sidebar_width_preference: f32,
     sidebar_resize: Option<(f32, f32)>,
@@ -2159,7 +2159,7 @@ impl EditorWindow {
             camera3d_picker: false,
             camera3d_count_hover: None,
             timeline_height_override: None,
-            initial_timeline_rows: None,
+            initial_timeline_hug: None,
             timeline_resize: None,
             sidebar_width_preference: crate::store::GeneralSettings::load()
                 .editor_sidebar_width
@@ -2294,6 +2294,7 @@ impl EditorWindow {
         let mic = std::mem::take(&mut self.timeline.mic_waveforms);
         let system = std::mem::take(&mut self.timeline.system_waveforms);
         let waveform_paths = self.timeline.waveform_paths.clone();
+        let filmstrips = std::mem::take(&mut self.timeline.filmstrips);
         self.timeline = TimelineModel::build_with_lanes(
             &self.project,
             self.has_camera,
@@ -2303,6 +2304,7 @@ impl EditorWindow {
         self.timeline.mic_waveforms = mic;
         self.timeline.system_waveforms = system;
         self.timeline.waveform_paths = waveform_paths;
+        self.timeline.filmstrips = filmstrips;
         if self.timeline.total_duration > 0.0 {
             self.total = self.timeline.total_duration;
         }
@@ -2323,6 +2325,15 @@ impl EditorWindow {
         self.timeline.system_waveforms = system;
         cx.notify();
         window.refresh();
+    }
+
+    pub fn set_filmstrips(
+        &mut self,
+        filmstrips: Vec<Option<Arc<timeline::filmstrip::Frames>>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.timeline.filmstrips = filmstrips;
+        cx.notify();
     }
 
     // -- Editing: the write path ---------------------------------------------
@@ -2904,7 +2915,7 @@ impl EditorWindow {
     }
 
     pub fn set_instance(&mut self, instance: Arc<EditorInstance>) {
-        self.initial_timeline_rows = Some(self.timeline.rows.len());
+        self.initial_timeline_hug = Some(timeline::hug_height(&self.timeline.rows));
         self.preparing_retry_pending = false;
         self.preparing_candidate_frame = None;
         self.ordinary_handoff_frame = self
@@ -4477,7 +4488,7 @@ impl EditorWindow {
         let bounds = self.timeline_scroll.bounds();
         let content_y =
             pointer_y - f32::from(bounds.origin.y) - f32::from(self.timeline_scroll.offset().y);
-        let stride = self.timeline.track_height() + TRACK_ROW_GAP;
+        let all_rows = &self.timeline.rows;
         let remaining = self
             .timeline
             .rows
@@ -4487,8 +4498,8 @@ impl EditorWindow {
             .collect::<Vec<_>>();
         remaining
             .iter()
-            .position(|(index, _)| {
-                content_y < *index as f32 * stride + self.timeline.track_height() / 2.
+            .position(|(index, row)| {
+                content_y < timeline::row_top(all_rows, *index) + row.kind.row_height() / 2.
             })
             .unwrap_or(remaining.len())
     }
@@ -4503,12 +4514,9 @@ impl EditorWindow {
             return false;
         }
         let content_y = y - f32::from(bounds.top()) - f32::from(self.timeline_scroll.offset().y);
-        let stride = self.timeline.track_height() + TRACK_ROW_GAP;
-        let row_index = (content_y / stride).floor().max(0.) as usize;
-        if content_y - row_index as f32 * stride >= self.timeline.track_height() {
-            return true;
-        }
-        let Some(row) = self.timeline.rows.get(row_index) else {
+        let Some(row) = timeline::row_at(&self.timeline.rows, content_y.max(0.))
+            .and_then(|index| self.timeline.rows.get(index))
+        else {
             return true;
         };
         if source.kind.overlay_track(source.lane).is_some() {
@@ -5582,8 +5590,8 @@ impl EditorWindow {
     fn preferred_timeline_height(&self) -> f32 {
         self.timeline_height_override.unwrap_or_else(|| {
             DEFAULT_TIMELINE_HEIGHT
-                + self.initial_timeline_rows.map_or(0., |initial| {
-                    timeline::hug_height(self.timeline.rows.len()) - timeline::hug_height(initial)
+                + self.initial_timeline_hug.map_or(0., |initial| {
+                    timeline::hug_height(&self.timeline.rows) - initial
                 })
         })
     }
@@ -10558,17 +10566,15 @@ impl EditorWindow {
             .flex_none()
             .flex()
             .items_center()
-            .justify_end()
-            .px(px(12.))
+            .justify_between()
+            .px(px(8.))
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .flex_none()
                     .gap(px(2.))
-                    .justify_end()
                     .items_center()
-                    // The split toggle (`Player.tsx:409-427`).
                     .child(
                         div()
                             .id("transport-split-tooltip")
@@ -10628,6 +10634,7 @@ impl EditorWindow {
                                     })),
                             ),
                     )
+                    .child(self.header_divider())
                     .child(
                         ui::EditorButton::plain(&theme, "timeline-add-track")
                             .left_icon("icons/plus.svg")
@@ -10636,11 +10643,15 @@ impl EditorWindow {
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.open_add_track(window, cx)),
                             ),
-                    )
-                    .child(self.header_divider())
-                    // `IconCapZoomOut` -> `updateZoom(zoom * 1.1,
-                    // playbackTime)`; `IconCapZoomIn` -> `zoom / 1.1`
-                    // (`Player.tsx:432-449`).
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_none()
+                    .gap(px(2.))
+                    .items_center()
                     .child(self.zoom_button("transport-zoom-out", "icons/zoom-out.svg", 1.1, cx))
                     // `Slider class="w-24" minValue={0} maxValue={1}
                     // step={0.001}`. Fully left is fully zoomed *out* -- the
@@ -10909,16 +10920,14 @@ impl EditorWindow {
             .into_any_element()
     }
 
-    /// The 26px header strip (`TL/index.tsx:1220-1245`): the ruler, the "Add
-    /// track" trigger over the gutter, and the scrub surface over everything
-    /// right of `TRACK_GUTTER - START_SNAP_PX`.
+    /// The 26px header strip (`TL/index.tsx:1220-1245`): the ruler and the
+    /// scrub surface over everything right of `TRACK_GUTTER - START_SNAP_PX`.
     fn render_timeline_header(
         &self,
         viewport_width: f32,
         live: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let theme = self.theme;
         div()
             .relative()
             .h(px(TIMELINE_HEADER_HEIGHT))
@@ -10928,51 +10937,6 @@ impl EditorWindow {
                 self.view,
                 viewport_width,
             ))
-            // `TrackManager`'s trigger (`TL/TrackManager.tsx`): a solid pill
-            // in the gutter (`bg-ed-text-1 text-ed-card`, so black on the
-            // light theme and white on the dark one). Its plus turns into an
-            // x while the tray is open.
-            .child(
-                div()
-                    .id("add-track")
-                    .absolute()
-                    .bottom_0()
-                    .left(px(4.))
-                    .h(px(24.))
-                    .flex()
-                    .flex_row()
-                    .flex_none()
-                    .items_center()
-                    .justify_start()
-                    .gap(px(5.))
-                    .pl(px(6.))
-                    .pr(px(8.))
-                    .rounded(px(6.))
-                    .tab_index(0)
-                    .cursor_pointer()
-                    .bg(Hsla::from(theme.editor.text_1))
-                    .hover(|style| style.opacity(0.85))
-                    .active(|style| style.opacity(0.7))
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(Hsla::from(theme.editor.card))
-                    .child(
-                        svg()
-                            .path(if self.add_track.is_some() {
-                                "icons/x.svg"
-                            } else {
-                                "icons/plus.svg"
-                            })
-                            .size(px(14.))
-                            .flex_none()
-                            .text_color(Hsla::from(theme.editor.card)),
-                    )
-                    .child(div().flex_none().whitespace_nowrap().child(t!("Add track")))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(|this, _: &gpui::ClickEvent, window, cx| {
-                        this.open_add_track(window, cx);
-                    })),
-            )
             // `absolute inset-y-0 right-0 z-40` at
             // `left: TRACK_GUTTER - START_SNAP_PX` -- the ruler's scrub
             // surface, which reaches into the snap-to-zero zone so hitting
@@ -11256,7 +11220,7 @@ impl EditorWindow {
                             .left_0()
                             .top_0()
                             .w(px(TRACK_ICON_WIDTH))
-                            .h(px(model.track_height()))
+                            .h(px(kind.row_height()))
                             .flex()
                             .items_center()
                             .justify_start()
@@ -11361,7 +11325,8 @@ impl EditorWindow {
                                                 } else {
                                                     t!("Generate")
                                                 })
-                                                .radius(px(7.))
+                                                .height(px(20.))
+                                                .radius(px(5.))
                                                 .disabled(generating)
                                                 .on_click(cx.listener(|this, _, window, cx| {
                                                     this.generate_auto_zoom(window, cx);
@@ -11372,7 +11337,7 @@ impl EditorWindow {
                             .child(
                                 div()
                                     .absolute()
-                                    .top(px((model.track_height() - 20.) / 2.))
+                                    .top(px((kind.row_height() - 20.) / 2.))
                                     .right(px(6.))
                                     .child(
                                         ui::IconButton::new("zoom-generate-dismiss", "icons/x.svg")
@@ -11433,7 +11398,8 @@ impl EditorWindow {
                                         ui::ButtonSize::Sm,
                                     )
                                     .label(t!("Auto scene"))
-                                    .radius(px(7.))
+                                    .height(px(20.))
+                                    .radius(px(5.))
                                     .on_click(cx.listener(
                                         |this, _, _window, cx| {
                                             this.open_camera3d_picker(cx);
@@ -11494,7 +11460,7 @@ impl EditorWindow {
                             ))
                             .absolute()
                             .left(px(timeline::TRACK_GUTTER - 24.))
-                            .top(px((model.track_height() - 20.) / 2.))
+                            .top(px((kind.row_height() - 20.) / 2.))
                             .w(px(20.))
                             .h(px(20.))
                             .on_hover(cx.listener(move |this, entered: &bool, _, cx| {
@@ -11592,7 +11558,7 @@ impl EditorWindow {
             )
             .children(reorder_ghost.map(|reorder| {
                 let bounds = self.timeline_scroll.bounds();
-                let height = model.track_height();
+                let height = reorder.source.kind.row_height();
                 let max_top = (f32::from(bounds.size.height) - height).max(0.);
                 let top =
                     (reorder.pointer_y - f32::from(bounds.top()) - height / 2.).clamp(0., max_top);
@@ -13040,11 +13006,19 @@ mod tests {
 
     #[test]
     fn responsive_editor_hugs_its_rows_and_still_fits_a_short_viewport() {
-        // The four-row scratch project: chrome plus four rows and their gaps.
-        assert_eq!(timeline::hug_height(4), 246.);
-        assert_eq!(timeline::hug_height(0), timeline::MIN_HUG_HEIGHT);
+        let row = |kind| timeline::TrackRow { kind, lane: 0 };
+        let scratch = [
+            row(TrackKind::Clip),
+            row(TrackKind::Zoom),
+            row(TrackKind::Caption),
+            row(TrackKind::Audio),
+        ];
+        assert_eq!(timeline::hug_height(&scratch), 224.);
+        assert_eq!(timeline::hug_height(&[]), timeline::MIN_HUG_HEIGHT);
         for rows in 1..12usize {
-            let hug = timeline::hug_height(rows);
+            let mut kinds = vec![row(TrackKind::Clip)];
+            kinds.extend(std::iter::repeat_n(row(TrackKind::Audio), rows - 1));
+            let hug = timeline::hug_height(&kinds);
             assert_eq!(
                 EditorVerticalLayout::new(1200., hug).timeline_height,
                 hug,
