@@ -4340,6 +4340,7 @@ fn load_editor_project_candidate(
         .detach();
 
         load_editor_waveforms(instance.clone(), handle, cx);
+        load_editor_filmstrips(instance.clone(), handle, cx);
 
         if handle
             .update(cx, |view, window, cx| {
@@ -4411,7 +4412,7 @@ async fn drive_auto_export(handle: WindowHandle<EditorWindow>, cx: &mut gpui::As
 fn log_timeline_model(model: &editor_timeline::TimelineModel) {
     tracing::info!(
         rows = model.rows.len(),
-        track_height = model.track_height(),
+        rows_height = editor_timeline::rows_height(&model.rows),
         total = format!("{:.3}", model.total_duration),
         clip = model.clips.len(),
         zoom = model.zoom.len(),
@@ -4489,6 +4490,57 @@ fn load_editor_waveforms(
             );
             view.set_waveforms(peaks.0, peaks.1, window, cx)
         });
+    })
+    .detach();
+}
+
+fn load_editor_filmstrips(
+    instance: Arc<frameever_editor::EditorInstance>,
+    handle: WindowHandle<EditorWindow>,
+    cx: &mut gpui::AsyncApp,
+) {
+    let project_path = instance.project_path.clone();
+    let durations: Vec<f64> = instance
+        .recordings
+        .segments
+        .iter()
+        .map(|segment| segment.display.duration)
+        .collect();
+    cx.spawn(async move |cx| {
+        let started = std::time::Instant::now();
+        let strips = cx
+            .background_executor()
+            .spawn(async move {
+                let stop = std::sync::atomic::AtomicBool::new(false);
+                let paths =
+                    crate::editor_clips::recording_display_paths(&project_path).unwrap_or_default();
+                durations
+                    .iter()
+                    .enumerate()
+                    .map(|(index, duration)| {
+                        paths
+                            .get(index)
+                            .filter(|path| path.is_file())
+                            .and_then(|path| {
+                                editor_timeline::filmstrip::decode(path, *duration, &stop)
+                            })
+                            .map(Arc::new)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await;
+        tracing::info!(
+            ms = started.elapsed().as_millis() as u64,
+            frames = strips
+                .iter()
+                .flatten()
+                .map(|strip| strip.len())
+                .sum::<usize>(),
+            "editor filmstrips ready"
+        );
+        handle
+            .update(cx, |view, _window, cx| view.set_filmstrips(strips, cx))
+            .ok();
     })
     .detach();
 }

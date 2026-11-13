@@ -1933,6 +1933,13 @@ const renderDocs = () => {
 			],
 		],
 		[
+			["Filmstrip", "画面条"],
+			[
+				"One keyframe about every two seconds (at most 180 per recording), decoded in the background; a muted clip shows it at half opacity",
+				"约每两秒取一个关键帧（每段录制最多 180 帧），在后台解码；静音片段的画面条为半透明",
+			],
+		],
+		[
 			["Gutter", "轨道名"],
 			["96 wide: icon and track name", "96 宽：图标和轨道名"],
 		],

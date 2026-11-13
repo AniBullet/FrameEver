@@ -446,11 +446,6 @@ impl EditorPalette {
         mix(self.card, color, self.seg_tint)
     }
 
-    /// A selected segment: the tint plus ten points.
-    pub fn seg_fill_selected(&self, color: Rgba) -> Rgba {
-        mix(self.card, color, self.seg_tint + 0.10)
-    }
-
     /// The segment's 1px inset border.
     pub fn seg_border(&self, color: Rgba) -> Rgba {
         rgba_alpha(color, self.seg_line)
@@ -461,12 +456,6 @@ impl EditorPalette {
         mix(self.seg_label_base, color, self.seg_label_mix)
     }
 
-    /// Segment secondary text (durations, amounts): the label colour at 45%
-    /// toward `text_3`.
-    pub fn seg_muted(&self, color: Rgba) -> Rgba {
-        mix(self.text_3, color, 0.45)
-    }
-
     /// The track gutter's icon tile: `color 16%` over transparent.
     pub fn tile_bg(&self, color: Rgba) -> Rgba {
         rgba_alpha(color, 0.16)
@@ -475,11 +464,6 @@ impl EditorPalette {
     /// The tile's glyph: the track colour pulled 62% toward the label base.
     pub fn tile_fg(&self, color: Rgba) -> Rgba {
         mix(self.seg_label_base, color, 0.62)
-    }
-
-    /// Trim handles: the colour at 70% toward the label base.
-    pub fn seg_handle(&self, color: Rgba) -> Rgba {
-        mix(self.seg_label_base, color, 0.70)
     }
 }
 
