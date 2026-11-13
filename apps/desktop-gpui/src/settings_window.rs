@@ -1357,7 +1357,27 @@ impl SettingsWindow {
                 .into_any_element(),
             Row::ZoomAmount => {
                 let zoom = settings.default_zoom_amount.unwrap_or(1.5);
+                let theme = self.theme;
                 div()
+                    .id("zoom-amount")
+                    .tab_index(0)
+                    .rounded(px(6.))
+                    .focus_visible(move |style| style.bg(theme.selection))
+                    .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                        let current = this.settings.default_zoom_amount.unwrap_or(1.5);
+                        if let Some(value) = ui::keyboard_slider_value(
+                            event.keystroke.key.as_str(),
+                            current,
+                            ZOOM_MIN,
+                            ZOOM_MAX,
+                            0.1,
+                        ) {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            this.settings.default_zoom_amount = Some(value);
+                            this.write("defaultZoomAmount", Value::from(f64::from(value)), cx);
+                        }
+                    }))
                     .flex()
                     .flex_row()
                     .items_center()
