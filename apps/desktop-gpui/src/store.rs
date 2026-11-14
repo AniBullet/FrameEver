@@ -89,6 +89,8 @@ impl Default for CameraWindowState {
 pub struct PersistedState {
     pub camera_window: Option<CameraWindowState>,
     #[serde(default)]
+    pub controls_position: Option<(f64, f64)>,
+    #[serde(default)]
     pub export: Option<ExportPrefs>,
     #[serde(default)]
     pub screenshot_inspector_page: crate::screenshot_layout::InspectorPage,
@@ -104,6 +106,8 @@ pub struct PersistedState {
     pub library: crate::library::view::ViewState,
     #[serde(default)]
     pub library_first_line_shown: bool,
+    #[serde(default)]
+    pub recent_commands: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

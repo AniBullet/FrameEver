@@ -84,6 +84,7 @@ pub struct FixedColors {
     pub track_style: Oklch,
     pub track_mask: Oklch,
     pub track_shot: Oklch,
+    pub track_scene: Oklch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -99,7 +100,7 @@ pub struct Brand {
 const KLEIN_HUE: f32 = 266.4;
 const NEUTRAL_HUE: f32 = 266.;
 
-const TRACKS: [Oklch; 7] = [
+const TRACKS: [Oklch; 8] = [
     ok(0.473, 0.132, 268.5),
     ok(0.543, 0.082, 176.5),
     ok(0.471, 0.125, 304.2),
@@ -107,6 +108,7 @@ const TRACKS: [Oklch; 7] = [
     ok(0.51, 0.116, 350.4),
     ok(0.509, 0.122, 26.1),
     ok(0.456, 0.133, 280.3),
+    ok(0.52, 0.11, 145.),
 ];
 
 pub const DARK: Brand = Brand {
@@ -174,6 +176,7 @@ pub const DARK: Brand = Brand {
         track_style: TRACKS[4],
         track_mask: TRACKS[5],
         track_shot: TRACKS[6],
+        track_scene: TRACKS[7],
     },
 };
 
@@ -242,6 +245,7 @@ pub const LIGHT: Brand = Brand {
         track_style: TRACKS[4],
         track_mask: TRACKS[5],
         track_shot: TRACKS[6],
+        track_scene: TRACKS[7],
     },
 };
 
@@ -345,6 +349,7 @@ color_layer! {
     track_style: b.fixed.track_style, b.fixed.track_style;
     track_mask: b.fixed.track_mask, b.fixed.track_mask;
     track_shot: b.fixed.track_shot, b.fixed.track_shot;
+    track_scene: b.fixed.track_scene, b.fixed.track_scene;
     overlay: b.fixed.overlay, b.fixed.overlay;
 }
 
@@ -503,6 +508,7 @@ mod tests {
                 ("track-style", fixed.track_style),
                 ("track-mask", fixed.track_mask),
                 ("track-shot", fixed.track_shot),
+                ("track-scene", fixed.track_scene),
             ];
             assert_eq!(json["fixed"].as_object().expect("a map").len(), rust.len());
             for (name, color) in rust {
@@ -662,7 +668,7 @@ mod tests {
             (track_color::IMAGE, dark.track_input),
             (track_color::STYLE, dark.track_style),
             (track_color::MASK, dark.track_mask),
-            (track_color::SCENE, dark.track_audio),
+            (track_color::SCENE, dark.track_scene),
             (track_color::AUDIO, dark.track_audio),
             (track_color::THREE_D, dark.track_shot),
         ] {

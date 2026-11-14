@@ -18,6 +18,7 @@ mod camera_blur;
 mod camera_blur_portable;
 mod camera_loading;
 mod camera_window;
+mod command_palette;
 mod controls_window;
 mod countdown_window;
 mod crash_capture;
@@ -78,12 +79,16 @@ mod platform;
 mod presets;
 mod project_save;
 mod recording;
+mod screen_ink;
 mod screenshot;
 mod screenshot_annotations;
 mod screenshot_crop;
+mod screenshot_cut;
 mod screenshot_editor;
 mod screenshot_export;
+mod screenshot_images;
 mod screenshot_layout;
+mod screenshot_shapes;
 mod script_text;
 mod session;
 mod settings_pages;
@@ -326,12 +331,14 @@ fn main() {
         // the path runs (`gpui/src/window.rs:5280-5296`).
         ui::bind_text_input_keys(cx);
         main_window::bind_keys(cx);
+        command_palette::view::bind_keys(cx);
         settings_window::bind_keys(cx);
         crate::theme::init(cx);
         platform::follow_system_reduce_motion(cx);
 
         let session = RecordingSession::init(cx);
         crate::feeds::Feeds::init(cx);
+        crate::screen_ink::ScreenInk::init(cx);
         crate::media_access::MediaAccess::init(cx);
         crate::target_overlay::TargetSelect::init(cx);
 

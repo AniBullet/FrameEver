@@ -1324,7 +1324,7 @@ const TRACK_FILL = {
 	image: "input",
 	mask: "mask",
 	shot: "shot",
-	scene: "audio",
+	scene: "scene",
 };
 const trackList = () => {
 	return TRACKS.filter((t) => S.shown.has(t.id));
@@ -1930,6 +1930,13 @@ const renderDocs = () => {
 			[
 				"2 px foreground edge with a trim bar at each end",
 				"2 px 前景色描边，两端有修剪手柄",
+			],
+		],
+		[
+			["Filmstrip", "画面条"],
+			[
+				"One keyframe about every two seconds (at most 180 per recording), decoded in the background; a muted clip shows it at half opacity",
+				"约每两秒取一个关键帧（每段录制最多 180 帧），在后台解码；静音片段的画面条为半透明",
 			],
 		],
 		[
