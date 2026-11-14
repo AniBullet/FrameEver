@@ -298,6 +298,7 @@ pub struct RecordingSession {
     /// leak into the next recording.
     editor_recording_target: Option<std::path::PathBuf>,
     clock: Option<RecordedClock>,
+    chapter_markers: Vec<Duration>,
     auto_stop_limit: Option<Duration>,
     auto_stop_monitor: Option<Task<()>>,
     storage_monitor: Option<Task<()>>,
@@ -347,6 +348,7 @@ impl RecordingSession {
             preparing_studio_editor: None,
             editor_recording_target: None,
             clock: None,
+            chapter_markers: Vec::new(),
             auto_stop_limit: None,
             auto_stop_monitor: None,
             storage_monitor: None,
@@ -400,6 +402,39 @@ impl RecordingSession {
         self.clock
             .map(|clock| clock.recorded_at(Instant::now()))
             .unwrap_or_default()
+    }
+
+    pub fn add_chapter_marker(&mut self) {
+        let Some(at) = chapter_marker_at(
+            self.mode(),
+            self.phase,
+            self.editor_recording_target.is_some(),
+            self.clock,
+            Instant::now(),
+        ) else {
+            return;
+        };
+        tracing::info!(
+            recorded_at = at.as_secs_f64(),
+            count = self.chapter_markers.len() + 1,
+            "chapter marker added"
+        );
+        self.chapter_markers.push(at);
+    }
+
+    fn save_chapter_markers(project: &std::path::Path, markers: Vec<Duration>) {
+        let markers: Vec<_> = markers
+            .into_iter()
+            .map(|at| frameever_utils::storage::ChapterMarker {
+                recorded_at: at.as_secs_f64(),
+            })
+            .collect();
+        if markers.is_empty() {
+            return;
+        }
+        if let Err(error) = frameever_utils::storage::save_chapter_markers(project, &markers) {
+            tracing::error!(dir = %project.display(), "could not save chapter markers: {error}");
+        }
     }
 
     pub fn auto_stop_countdown(&self) -> Option<Duration> {
@@ -869,6 +904,7 @@ impl RecordingSession {
         // A fresh mic lock always starts unmuted.
         self.mic_muted = false;
         self.clock = Some(RecordedClock::start(Instant::now()));
+        self.chapter_markers.clear();
         self.auto_stop_limit =
             auto_stop_limit(crate::store::GeneralSettings::load().recording_auto_stop_minutes);
         self.start_cue = None;
@@ -1281,6 +1317,7 @@ impl RecordingSession {
         let Some(active) = self.active.as_ref() else {
             return;
         };
+        let chapter_markers = self.chapter_markers.clone();
         let stop_generation = self.recording_generation;
         let phase_before_stop = self.phase;
         let low_storage = self.stopped_for_low_storage;
@@ -1288,6 +1325,7 @@ impl RecordingSession {
         #[cfg(any(target_os = "macos", windows))]
         let original_failure = recording_failed.then(|| self.error.clone()).flatten();
         let studio_project_path = active.project_dir.clone();
+        Self::save_chapter_markers(&studio_project_path, chapter_markers);
         let camera_snapshot = self.last_config.as_ref().and_then(|config| {
             (config.mode == recording::RecordingMode::Studio && config.camera.is_some())
                 .then(|| crate::app_windows::studio_camera_snapshot(&config.target, cx))
@@ -1592,6 +1630,7 @@ impl RecordingSession {
         }
         self.phase = Phase::Starting;
         self.clock = None;
+        self.chapter_markers.clear();
         cx.notify();
 
         let task = gpui_tokio::Tokio::spawn(cx, active.cancel_and_delete());
@@ -1703,6 +1742,7 @@ impl RecordingSession {
         self.storage_warning = false;
         self.stopped_elapsed = None;
         self.clock = None;
+        self.chapter_markers.clear();
         self.auto_stop_limit = None;
         cx.notify();
     }
@@ -2261,5 +2301,96 @@ mod input_change_tests {
         for phase in [Phase::Idle, Phase::Starting, Phase::Stopping] {
             assert_eq!(ticket.finish(1, phase, true), InputChangeEnd::Stale);
         }
+    }
+}
+
+fn chapter_marker_at(
+    mode: Option<recording::RecordingMode>,
+    phase: Phase,
+    records_into_editor: bool,
+    clock: Option<RecordedClock>,
+    now: Instant,
+) -> Option<Duration> {
+    if mode != Some(recording::RecordingMode::Studio)
+        || records_into_editor
+        || !matches!(phase, Phase::Recording { .. })
+    {
+        return None;
+    }
+    clock.map(|clock| clock.recorded_at(now))
+}
+
+#[cfg(test)]
+mod chapter_marker_tests {
+    use super::*;
+    use crate::recording::RecordingMode;
+
+    fn secs(seconds: u64) -> Duration {
+        Duration::from_secs(seconds)
+    }
+
+    #[test]
+    fn a_marker_lands_at_the_recorded_time_leaving_pauses_out() {
+        let start = Instant::now();
+        let mut clock = RecordedClock::start(start);
+        clock.pause(start + secs(10));
+        clock.resume(start + secs(70));
+        let recording = Phase::Recording { paused: false };
+
+        assert_eq!(
+            chapter_marker_at(
+                Some(RecordingMode::Studio),
+                recording,
+                false,
+                Some(clock),
+                start + secs(75)
+            ),
+            Some(secs(15))
+        );
+    }
+
+    #[test]
+    fn a_marker_pressed_while_paused_lands_at_the_pause_point() {
+        let start = Instant::now();
+        let mut clock = RecordedClock::start(start);
+        clock.pause(start + secs(20));
+
+        assert_eq!(
+            chapter_marker_at(
+                Some(RecordingMode::Studio),
+                Phase::Recording { paused: true },
+                false,
+                Some(clock),
+                start + secs(90)
+            ),
+            Some(secs(20))
+        );
+    }
+
+    #[test]
+    fn only_a_running_studio_take_of_its_own_project_takes_markers() {
+        let start = Instant::now();
+        let clock = Some(RecordedClock::start(start));
+        let now = start + secs(5);
+        let recording = Phase::Recording { paused: false };
+
+        assert_eq!(
+            chapter_marker_at(Some(RecordingMode::Instant), recording, false, clock, now),
+            None
+        );
+        assert_eq!(
+            chapter_marker_at(Some(RecordingMode::Studio), recording, true, clock, now),
+            None
+        );
+        for phase in [Phase::Idle, Phase::Starting, Phase::Stopping] {
+            assert_eq!(
+                chapter_marker_at(Some(RecordingMode::Studio), phase, false, clock, now),
+                None
+            );
+        }
+        assert_eq!(
+            chapter_marker_at(Some(RecordingMode::Studio), recording, false, None, now),
+            None
+        );
     }
 }

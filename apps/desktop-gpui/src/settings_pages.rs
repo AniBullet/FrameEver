@@ -700,6 +700,9 @@ fn shortcut_effect(
         )
         .into(),
         "toggleRecordingControls" => t!("hide the recording controls, or show them again").into(),
+        "addChapterMarker" => {
+            t!("mark this moment in a Studio recording; it shows on the editor timeline").into()
+        }
         _ => String::new(),
     }
 }
@@ -4733,7 +4736,8 @@ mod tests {
             .chain(catalog::WHILE_RECORDING_SHORTCUTS.iter())
             .copied()
             .collect();
-        assert_eq!(shown.len(), 18);
+        assert_eq!(shown.len(), 19);
+        assert!(shown.contains(&"addChapterMarker"));
         assert!(shown.contains(&"focusRecordingControls"));
         assert!(shown.contains(&"toggleRecordingControls"));
         assert!(shown.contains(&"focusCameraPreview"));

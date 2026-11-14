@@ -366,6 +366,7 @@ pub struct ProjectSummary {
     /// `editorInstance.recordings.segments[i].display.duration` -- the ceiling
     /// a clip's end handle trims out to (`TL/ClipTrack.tsx:1160-1162`).
     pub clip_display_durations: Vec<f64>,
+    pub chapter_markers: Vec<f64>,
     /// `editorInstance.recordingDuration` (`lib.rs:3114` =
     /// `recordings.duration()`), the other half of that clamp.
     pub recording_duration: f64,
@@ -526,6 +527,10 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
             .segments
             .iter()
             .map(|segment| segment.display.duration)
+            .collect(),
+        chapter_markers: frameever_utils::storage::chapter_markers(path)
+            .into_iter()
+            .map(|marker| marker.recorded_at)
             .collect(),
         recording_duration: recordings.duration(),
         multiple_clips: multiple_recording_segments,
@@ -1505,6 +1510,7 @@ pub struct EditorWindow {
     /// `editorInstance.recordings.segments[i].display.duration`, which the clip
     /// trim clamps read (`TL/ClipTrack.tsx:1160-1162`).
     clip_display_durations: Vec<f64>,
+    chapter_markers: Vec<f64>,
     /// `editorInstance.recordingDuration` = `recordings.duration()`.
     recording_duration: f64,
     /// `meta().hasCamera` and "more than one recording clip", the two facts
@@ -2122,6 +2128,7 @@ impl EditorWindow {
             clip_anim: None,
             clip_anim_generation: 0,
             clip_display_durations: Vec::new(),
+            chapter_markers: Vec::new(),
             recording_duration: 0.0,
             has_camera: false,
             multiple_clips: false,
@@ -2242,6 +2249,7 @@ impl EditorWindow {
     ) {
         self.timeline = summary.timeline.clone();
         self.clip_display_durations = summary.clip_display_durations.clone();
+        self.chapter_markers = summary.chapter_markers.clone();
         self.recording_duration = summary.recording_duration;
         self.has_camera = summary.has_camera;
         self.multiple_clips = summary.multiple_clips;
@@ -3414,13 +3422,25 @@ impl EditorWindow {
     /// The prev button (`Player.tsx:370-381`): stop, playhead to 0, and the
     /// timeline transform back to the start. **Not** a frame step -- neither
     /// transport button is one in the Tauri editor.
+    fn chapter_mark_times(&self) -> Vec<f64> {
+        timeline::chapter_marker_times(
+            &self.chapter_markers,
+            &self.clip_display_durations,
+            &self.timeline.clips,
+        )
+    }
+
     pub fn jump_to_start(&mut self, cx: &mut Context<Self>) {
+        self.jump_to(0.0, cx);
+    }
+
+    fn jump_to(&mut self, time: f64, cx: &mut Context<Self>) {
         if self.preparing_transport_active() && self.preparing_controls_ready() {
-            self.preparing_command(Some(0.0), Some(false));
+            self.preparing_command(Some(time), Some(false));
             return;
         }
         self.stop_playback(cx);
-        self.seek_to_time(0.0, cx);
+        self.seek_to_time(time, cx);
     }
 
     fn step_playhead(&mut self, frames: i32, cx: &mut Context<Self>) {
@@ -3637,6 +3657,16 @@ impl EditorWindow {
             match boundary {
                 PlayheadBoundary::Start => self.jump_to_start(cx),
                 PlayheadBoundary::End => self.jump_to_end(cx),
+            }
+            window.refresh();
+            return;
+        }
+        if !event.is_held
+            && let Some(jump) = chapter_jump(&event.keystroke, arrow_owners)
+        {
+            cx.stop_propagation();
+            if let Some(time) = adjacent_chapter(&self.chapter_mark_times(), self.playhead, jump) {
+                self.jump_to(time, cx);
             }
             window.refresh();
             return;
@@ -11061,6 +11091,12 @@ impl EditorWindow {
                 self.view,
                 viewport_width,
             ))
+            .child(timeline::render_chapter_marks(
+                &self.theme,
+                self.view,
+                viewport_width,
+                &self.chapter_mark_times(),
+            ))
             // `absolute inset-y-0 right-0 z-40` at
             // `left: TRACK_GUTTER - START_SNAP_PX` -- the ruler's scrub
             // surface, which reaches into the snap-to-zero zone so hitting
@@ -11885,6 +11921,45 @@ fn playhead_boundary(
         "home" => Some(PlayheadBoundary::Start),
         "end" => Some(PlayheadBoundary::End),
         _ => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChapterJump {
+    Previous,
+    Next,
+}
+
+fn chapter_jump(keystroke: &gpui::Keystroke, owners: ArrowKeyOwners) -> Option<ChapterJump> {
+    let modifiers = &keystroke.modifiers;
+    if owners.any()
+        || !modifiers.shift
+        || modifiers.platform
+        || modifiers.control
+        || modifiers.alt
+        || modifiers.function
+    {
+        return None;
+    }
+    match keystroke.key.as_str() {
+        "up" => Some(ChapterJump::Previous),
+        "down" => Some(ChapterJump::Next),
+        _ => None,
+    }
+}
+
+fn adjacent_chapter(markers: &[f64], playhead: f64, jump: ChapterJump) -> Option<f64> {
+    let tolerance = 0.5 / f64::from(EDITOR_PREVIEW_FPS);
+    match jump {
+        ChapterJump::Next => markers
+            .iter()
+            .copied()
+            .find(|time| *time > playhead + tolerance),
+        ChapterJump::Previous => markers
+            .iter()
+            .copied()
+            .rev()
+            .find(|time| *time < playhead - tolerance),
     }
 }
 
@@ -13477,6 +13552,70 @@ mod tests {
         ] {
             assert_eq!(playhead_boundary(&key(text), free), None, "{text}");
         }
+    }
+
+    #[test]
+    fn shift_up_and_down_jump_between_chapter_markers_only_when_nothing_else_takes_them() {
+        let key = |text: &'static str| gpui::Keystroke::parse(text).unwrap();
+        let free = ArrowKeyOwners::default();
+        assert_eq!(
+            chapter_jump(&key("shift-up"), free),
+            Some(ChapterJump::Previous)
+        );
+        assert_eq!(
+            chapter_jump(&key("shift-down"), free),
+            Some(ChapterJump::Next)
+        );
+        for owners in [
+            ArrowKeyOwners {
+                text_input: true,
+                ..free
+            },
+            ArrowKeyOwners {
+                canvas_selection: true,
+                ..free
+            },
+            ArrowKeyOwners { menu: true, ..free },
+        ] {
+            assert_eq!(chapter_jump(&key("shift-down"), owners), None);
+        }
+        for text in [
+            "up",
+            "down",
+            "ctrl-shift-down",
+            "alt-shift-up",
+            "shift-left",
+        ] {
+            assert_eq!(chapter_jump(&key(text), free), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_chapter_jump_lands_on_the_nearest_marker_past_the_playhead() {
+        let markers = [2.0, 5.0, 9.0];
+        assert_eq!(
+            adjacent_chapter(&markers, 0.0, ChapterJump::Next),
+            Some(2.0)
+        );
+        assert_eq!(
+            adjacent_chapter(&markers, 5.0, ChapterJump::Next),
+            Some(9.0)
+        );
+        assert_eq!(
+            adjacent_chapter(&markers, 5.004, ChapterJump::Next),
+            Some(9.0)
+        );
+        assert_eq!(adjacent_chapter(&markers, 9.0, ChapterJump::Next), None);
+        assert_eq!(
+            adjacent_chapter(&markers, 5.0, ChapterJump::Previous),
+            Some(2.0)
+        );
+        assert_eq!(
+            adjacent_chapter(&markers, 6.0, ChapterJump::Previous),
+            Some(5.0)
+        );
+        assert_eq!(adjacent_chapter(&markers, 2.0, ChapterJump::Previous), None);
+        assert_eq!(adjacent_chapter(&[], 2.0, ChapterJump::Next), None);
     }
 
     #[test]

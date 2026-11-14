@@ -55,9 +55,10 @@ pub enum HotkeyAction {
     DrawOnScreen,
     FocusRecordingControls,
     ToggleRecordingControls,
+    AddChapterMarker,
 }
 
-const ACTION_KEYS: [(&str, HotkeyAction); 18] = [
+const ACTION_KEYS: [(&str, HotkeyAction); 19] = [
     ("startStudioRecording", HotkeyAction::StartStudioRecording),
     ("startInstantRecording", HotkeyAction::StartInstantRecording),
     ("stopRecording", HotkeyAction::StopRecording),
@@ -94,6 +95,7 @@ const ACTION_KEYS: [(&str, HotkeyAction); 18] = [
         "toggleRecordingControls",
         HotkeyAction::ToggleRecordingControls,
     ),
+    ("addChapterMarker", HotkeyAction::AddChapterMarker),
 ];
 
 const DEFAULT_SHORTCUTS: [(&str, &str, &str); 4] = [
@@ -125,7 +127,13 @@ fn recording_only(action: HotkeyAction) -> bool {
         HotkeyAction::DrawOnScreen
             | HotkeyAction::FocusRecordingControls
             | HotkeyAction::ToggleRecordingControls
+            | HotkeyAction::AddChapterMarker
     )
+}
+
+fn registers_in_mode(action: HotkeyAction, mode: Option<crate::recording::RecordingMode>) -> bool {
+    action != HotkeyAction::AddChapterMarker
+        || mode == Some(crate::recording::RecordingMode::Studio)
 }
 
 fn registers_now(action: HotkeyAction, recording: bool, teleprompter_open: bool) -> bool {
@@ -139,11 +147,16 @@ fn registers_now(action: HotkeyAction, recording: bool, teleprompter_open: bool)
 fn follow_recording(cx: &mut App) {
     let session = RecordingSession::global(cx);
     cx.observe(&session, |session, cx| {
-        let recording = crate::screen_ink::can_draw(session.read(cx).phase);
-        if cx.global::<Hotkeys>().recording == recording {
+        let session = session.read(cx);
+        let recording = crate::screen_ink::can_draw(session.phase);
+        let mode = recording.then(|| session.mode()).flatten();
+        let hotkeys = cx.global::<Hotkeys>();
+        if hotkeys.recording == recording && hotkeys.recording_mode == mode {
             return;
         }
-        cx.global_mut::<Hotkeys>().recording = recording;
+        let hotkeys = cx.global_mut::<Hotkeys>();
+        hotkeys.recording = recording;
+        hotkeys.recording_mode = mode;
         if store::hotkeys_raw()
             .keys()
             .any(|key| HotkeyAction::from_store_key(key).is_some_and(recording_only))
@@ -204,6 +217,37 @@ mod recording_controls_shortcut_tests {
             );
             assert!(Code::from_str(code).is_ok());
         }
+    }
+}
+
+#[cfg(test)]
+mod chapter_marker_shortcut_tests {
+    use super::*;
+    use crate::recording::RecordingMode;
+
+    #[test]
+    fn the_chapter_marker_shortcut_registers_only_while_a_studio_take_runs() {
+        let action = HotkeyAction::from_store_key("addChapterMarker");
+        assert_eq!(action, Some(HotkeyAction::AddChapterMarker));
+        let action = HotkeyAction::AddChapterMarker;
+        assert!(!registers_now(action, false, false));
+        assert!(registers_now(action, true, false));
+        assert!(registers_in_mode(action, Some(RecordingMode::Studio)));
+        assert!(!registers_in_mode(action, Some(RecordingMode::Instant)));
+        assert!(!registers_in_mode(action, None));
+        assert!(registers_in_mode(
+            HotkeyAction::DrawOnScreen,
+            Some(RecordingMode::Instant)
+        ));
+    }
+
+    #[test]
+    fn the_chapter_marker_shortcut_is_not_set_by_default() {
+        assert!(
+            !DEFAULT_SHORTCUTS
+                .iter()
+                .any(|(_, key, _)| *key == "addChapterMarker")
+        );
     }
 }
 
@@ -296,6 +340,7 @@ struct Hotkeys {
     /// would otherwise fire its action instead of reaching the page.
     paused: bool,
     recording: bool,
+    recording_mode: Option<crate::recording::RecordingMode>,
 }
 
 impl Global for Hotkeys {}
@@ -333,6 +378,7 @@ pub fn init(cx: &mut App) {
         unavailable: Vec::new(),
         paused: false,
         recording: false,
+        recording_mode: None,
     });
     follow_recording(cx);
     register_from_store(cx);
@@ -475,7 +521,9 @@ fn register_from_store(cx: &mut App) {
             hotkeys.unavailable.push(action);
             continue;
         }
-        if !registers_now(action, hotkeys.recording, teleprompter_open) {
+        if !registers_now(action, hotkeys.recording, teleprompter_open)
+            || !registers_in_mode(action, hotkeys.recording_mode)
+        {
             continue;
         }
         let Ok(code) = Code::from_str(&binding.code) else {
@@ -569,6 +617,9 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
         HotkeyAction::DrawOnScreen => crate::screen_ink::toggle(cx),
         HotkeyAction::FocusRecordingControls => app_windows::focus_recording_controls(cx),
         HotkeyAction::ToggleRecordingControls => app_windows::tray_toggle_controls(cx),
+        HotkeyAction::AddChapterMarker => {
+            RecordingSession::global(cx).update(cx, |session, _| session.add_chapter_marker());
+        }
         HotkeyAction::StartStudioRecording => start_from_hotkey(Mode::Studio, cx),
         HotkeyAction::StartInstantRecording => start_from_hotkey(Mode::Instant, cx),
         HotkeyAction::StopRecording => {
@@ -813,6 +864,7 @@ mod tests {
             unavailable: Vec::new(),
             paused: false,
             recording: false,
+            recording_mode: None,
         };
         assert!(hotkeys.idle());
         hotkeys.release_idle_manager();

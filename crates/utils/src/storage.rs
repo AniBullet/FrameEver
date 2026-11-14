@@ -176,6 +176,7 @@ pub const FORMAT_VERSION: u64 = 2;
 const PROJECT_FILE_NAME: &str = "frameever.json";
 const FORMAT_VERSION_KEY: &str = "formatVersion";
 const EXPORTS_KEY: &str = "exports";
+const CHAPTER_MARKERS_KEY: &str = "chapterMarkers";
 const LEGACY_PROJECT_EXTENSION: &str = "cap";
 
 pub fn project_dir_name(name: &str) -> String {
@@ -289,6 +290,33 @@ pub fn remove_export(project: &Path, path: &Path) -> std::io::Result<()> {
             .map_or(true, |record| record.path != path)
     });
     write_project_file(project, &document)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterMarker {
+    pub recorded_at: f64,
+}
+
+pub fn save_chapter_markers(project: &Path, markers: &[ChapterMarker]) -> std::io::Result<()> {
+    let mut document = read_project_file_for_update(project)?;
+    let entries = serde_json::to_value(markers).map_err(std::io::Error::other)?;
+    document.insert(CHAPTER_MARKERS_KEY.into(), entries);
+    write_project_file(project, &document)
+}
+
+pub fn chapter_markers(project: &Path) -> Vec<ChapterMarker> {
+    let document = read_project_file(project);
+    let mut markers: Vec<ChapterMarker> = document
+        .get(CHAPTER_MARKERS_KEY)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| serde_json::from_value::<ChapterMarker>(entry.clone()).ok())
+        .filter(|marker| marker.recorded_at.is_finite() && marker.recorded_at >= 0.0)
+        .collect();
+    markers.sort_by(|a, b| a.recorded_at.total_cmp(&b.recorded_at));
+    markers
 }
 
 pub fn format_version(project: &Path) -> Option<u64> {
@@ -772,6 +800,76 @@ mod tests {
         std::fs::write(project.join("frameever.json"), b"{ not json").unwrap();
 
         assert!(remove_export(&project, &tree.path("Demo.mp4")).is_err());
+        assert_eq!(
+            std::fs::read(project.join("frameever.json")).unwrap(),
+            b"{ not json"
+        );
+    }
+
+    #[test]
+    fn chapter_markers_survive_save_and_reopen_beside_other_fields() {
+        let tree = Tree::new();
+        let project = create_project(&tree.path("Recordings"), "Demo").unwrap();
+        let video = tree.path("Demo.mp4");
+        std::fs::write(&video, b"video").unwrap();
+        let record = export_record(video, "mp4", None, 1);
+        record_export(&project, &record).unwrap();
+        let markers = vec![
+            ChapterMarker { recorded_at: 4.25 },
+            ChapterMarker { recorded_at: 61.5 },
+        ];
+
+        save_chapter_markers(&project, &markers).unwrap();
+
+        assert_eq!(chapter_markers(&project), markers);
+        assert_eq!(exports(&project), vec![record]);
+        assert_eq!(format_version(&project), Some(FORMAT_VERSION));
+        let document: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(project.join("frameever.json")).unwrap())
+                .unwrap();
+        assert_eq!(document["chapterMarkers"][1]["recordedAt"], 61.5);
+    }
+
+    #[test]
+    fn a_project_without_chapter_markers_reads_none() {
+        let tree = Tree::new();
+        let older = tree.dir("Older.ever");
+        std::fs::write(
+            older.join("frameever.json"),
+            br#"{"formatVersion":2,"exports":[]}"#,
+        )
+        .unwrap();
+
+        assert!(chapter_markers(&older).is_empty());
+        assert!(chapter_markers(&tree.dir("Unstamped.ever")).is_empty());
+    }
+
+    #[test]
+    fn unusable_chapter_markers_are_skipped_and_the_rest_read_in_order() {
+        let tree = Tree::new();
+        let project = tree.dir("Odd.ever");
+        std::fs::write(
+            project.join("frameever.json"),
+            br#"{"chapterMarkers":[{"recordedAt":9.0},{"recordedAt":-1},{"other":1},{"recordedAt":2.5}]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            chapter_markers(&project),
+            vec![
+                ChapterMarker { recorded_at: 2.5 },
+                ChapterMarker { recorded_at: 9.0 },
+            ]
+        );
+    }
+
+    #[test]
+    fn saving_chapter_markers_leaves_a_damaged_frameever_file_alone() {
+        let tree = Tree::new();
+        let project = tree.dir("Damaged.ever");
+        std::fs::write(project.join("frameever.json"), b"{ not json").unwrap();
+
+        assert!(save_chapter_markers(&project, &[ChapterMarker { recorded_at: 1.0 }]).is_err());
         assert_eq!(
             std::fs::read(project.join("frameever.json")).unwrap(),
             b"{ not json"

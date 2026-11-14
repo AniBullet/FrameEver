@@ -154,6 +154,8 @@ const MUSIC_WAVE_HEIGHT: f32 = 16.;
 const MUSIC_WAVE_BOTTOM: f32 = 3.;
 const MUSIC_LABEL_TOP: f32 = 5.;
 const TRANSITION_MARK_SIZE: f32 = 14.;
+const CHAPTER_MARK_WIDTH: f32 = 2.;
+const CHAPTER_MARK_CAP: f32 = 8.;
 const SEGMENT_PADDING_LEFT: f32 = 10.;
 const SEGMENT_PADDING_RIGHT: f32 = 10.;
 const CLIP_CHIP_INSET: f32 = 4.;
@@ -1671,6 +1673,48 @@ pub fn clip_timeline_offsets(timeline: &TimelineConfiguration) -> Vec<f64> {
     offsets
 }
 
+pub fn chapter_marker_times(
+    recorded: &[f64],
+    clip_durations: &[f64],
+    clips: &[Segment],
+) -> Vec<f64> {
+    let recorded_total: f64 = clip_durations.iter().sum();
+    let mut times: Vec<f64> = recorded
+        .iter()
+        .filter_map(|&at| {
+            let at = at.min(recorded_total);
+            let mut clip_start = 0.0;
+            clip_durations
+                .iter()
+                .enumerate()
+                .find_map(|(recording_clip, &duration)| {
+                    let offset = at - clip_start;
+                    clip_start += duration;
+                    if !(0.0..=duration).contains(&offset) {
+                        return None;
+                    }
+                    clips.iter().find_map(|clip| match &clip.detail {
+                        SegmentDetail::Clip {
+                            recording_clip: clip_recording,
+                            source_start,
+                            source_duration,
+                            timescale,
+                            ..
+                        } if *clip_recording as usize == recording_clip
+                            && (*source_start..=source_start + source_duration)
+                                .contains(&offset) =>
+                        {
+                            Some(clip.start + (offset - source_start) / timescale)
+                        }
+                        _ => None,
+                    })
+                })
+        })
+        .collect();
+    times.sort_by(f64::total_cmp);
+    times
+}
+
 /// `effectiveToOutput` (`ED/timeline-holds.ts:54-64`) -- a gapless
 /// recording-flow timestamp placed back into output time, landing after every
 /// hold it passed. Rust's own copy is private
@@ -1980,6 +2024,56 @@ pub fn render_ruler(theme: &Theme, view: TimelineView, viewport_width: f32) -> A
         .flex()
         .items_end()
         .child(body)
+        .into_any_element()
+}
+
+pub fn chapter_mark_color(theme: &Theme) -> Hsla {
+    theme.warning_text.into()
+}
+
+pub fn render_chapter_marks(
+    theme: &Theme,
+    view: TimelineView,
+    viewport_width: f32,
+    times: &[f64],
+) -> AnyElement {
+    let transform = view.transform;
+    let secs_per_pixel = transform.secs_per_pixel(content_width(viewport_width));
+    let strip_width = (ruler_width(viewport_width) - TRACK_GUTTER) as f64;
+    let color = chapter_mark_color(theme);
+    let marks = times.iter().filter_map(|time| {
+        let x = (time - transform.position) / secs_per_pixel;
+        (x.is_finite() && (0.0..=strip_width).contains(&x)).then(|| {
+            div()
+                .absolute()
+                .left(px(x as f32 - CHAPTER_MARK_WIDTH / 2.))
+                .top_0()
+                .bottom_0()
+                .w(px(CHAPTER_MARK_WIDTH))
+                .bg(color)
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left(px((CHAPTER_MARK_WIDTH - CHAPTER_MARK_CAP) / 2.))
+                        .size(px(CHAPTER_MARK_CAP))
+                        .rounded(px(2.))
+                        .bg(color),
+                )
+        })
+    });
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .child(
+            div()
+                .relative()
+                .flex_1()
+                .h_full()
+                .ml(px(TRACK_GUTTER))
+                .children(marks),
+        )
         .into_any_element()
 }
 
@@ -4416,6 +4510,54 @@ mod tests {
         assert_eq!(name.as_ref(), "Clip 1");
     }
 
+    fn chapter_model(segments: serde_json::Value) -> TimelineModel {
+        let config: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": { "segments": segments, "zoomSegments": [] }
+        }))
+        .unwrap();
+        TimelineModel::build(&config, false, true)
+    }
+
+    #[test]
+    fn chapter_markers_sit_at_their_recorded_time_on_an_unedited_timeline() {
+        let model = chapter_model(serde_json::json!([
+            { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0 },
+            { "recordingSegment": 1, "timescale": 1.0, "start": 0.0, "end": 8.0 }
+        ]));
+
+        assert_eq!(
+            chapter_marker_times(&[2.0, 10.0, 13.0], &[10.0, 8.0], &model.clips),
+            vec![2.0, 10.0, 13.0]
+        );
+    }
+
+    #[test]
+    fn chapter_markers_follow_trims_and_speed_and_hide_when_cut_out() {
+        let model = chapter_model(serde_json::json!([
+            { "recordingSegment": 0, "timescale": 1.0, "start": 2.0, "end": 6.0 },
+            { "recordingSegment": 0, "timescale": 2.0, "start": 8.0, "end": 10.0 },
+            { "recordingSegment": 1, "timescale": 1.0, "start": 0.0, "end": 8.0 }
+        ]));
+
+        assert_eq!(
+            chapter_marker_times(&[1.0, 3.0, 7.0, 9.0, 12.0], &[10.0, 8.0], &model.clips),
+            vec![1.0, 4.5, 7.0]
+        );
+    }
+
+    #[test]
+    fn a_chapter_marker_past_the_last_recording_clip_stays_on_its_end() {
+        let model = chapter_model(serde_json::json!([
+            { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0 }
+        ]));
+
+        assert_eq!(
+            chapter_marker_times(&[10.04], &[10.0], &model.clips),
+            vec![10.0]
+        );
+        assert!(chapter_marker_times(&[3.0], &[], &model.clips).is_empty());
+    }
+
     #[test]
     fn only_a_clip_entered_through_a_transition_carries_its_overlap() {
         let config: ProjectConfiguration = serde_json::from_value(serde_json::json!({
@@ -5551,6 +5693,14 @@ mod track_look_tests {
                 let ratio = contrast(segment_ink(&theme), fill);
                 assert!(ratio >= 4.5, "{kind:?} text is {ratio:.2}:1");
             }
+        }
+    }
+
+    #[test]
+    fn chapter_marks_stand_out_from_the_ruler_in_both_themes() {
+        for theme in [Theme::light(), Theme::dark()] {
+            let ratio = contrast(chapter_mark_color(&theme), theme.editor.card.into());
+            assert!(ratio >= 3.0, "chapter mark is {ratio:.2}:1");
         }
     }
 
