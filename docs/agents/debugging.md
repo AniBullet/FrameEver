@@ -17,7 +17,7 @@ Everything goes through one entry point, `pnpm fe <command>` (`scripts/fe.mjs`).
 | `pnpm fe dev [--lang zh-CN] [--watch]` | Build and run the app on the test profile |
 | `pnpm fe logs [--grep <text>] [--lines N]` | Read the app log after a run (`--real` reads the installed app's log) |
 | `pnpm fe check` | Compile the GPUI app, FrameEver Converter and the CLI with tests |
-| `pnpm fe test [filter]` / `--all` | GPUI tests; `--all` adds converter, encoder, export, CLI and script tests |
+| `pnpm fe test [filter]` / `--crate <package>` / `--all` | GPUI tests; `--crate` runs one root-workspace crate's library tests instead (`--ignored` adds ignored tests with their output, `--optimized` builds that crate at opt-level 3); `--all` adds converter, encoder, export, CLI and script tests |
 | `pnpm fe lint` | Format check, clippy, translation tests: once per change landing on `main` |
 | `pnpm fe fmt` | Format what FrameEver changed |
 | `pnpm fe export h264\|hevc\|av1` | Export the newest test recording to `target/testdata/exports/` |

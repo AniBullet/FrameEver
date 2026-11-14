@@ -38,7 +38,7 @@ pnpm fe setup
 | `pnpm fe dev --real` | 使用你真实的数据运行（谨慎） |
 | `pnpm fe logs` | 查看最近一次运行的日志，`--grep <关键词>` 过滤，`--lines 500` 看更多 |
 | `pnpm fe check` | 编译检查（GPUI 应用、FrameEver Converter、安装程序和命令行，含测试代码） |
-| `pnpm fe test [过滤词]` | 运行 GPUI 测试；`--installer [过滤词]` 只跑安装程序的测试；`--all` 再加上转换器、安装程序、编码库、导出、命令行和脚本测试 |
+| `pnpm fe test [过滤词]` | 运行 GPUI 测试；`--crate <包名>` 改跑根工作区某个 crate 的库测试（`--ignored` 连同忽略的测试一起跑并显示输出，`--optimized` 以 opt-level 3 编译该 crate）；`--installer [过滤词]` 只跑安装程序的测试；`--all` 再加上转换器、安装程序、编码库、导出、命令行和脚本测试 |
 | `pnpm fe lint` | 格式检查、Clippy、翻译完整性检查，每次合进 `main` 前跑一次 |
 | `pnpm fe fmt` | 格式化代码 |
 | `pnpm fe export h264\|hevc\|av1` | 用最新的测试录制导出视频到 `target/testdata/exports/` |

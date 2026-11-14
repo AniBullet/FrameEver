@@ -15,6 +15,7 @@ import {
 	changelogSection,
 	converterAssetName,
 	converterEnv,
+	crateTestArgs,
 	designCss,
 	designDir,
 	designJs,
@@ -133,6 +134,35 @@ test("flags take a value, an inline value, or stand alone", () => {
 		all: true,
 		"skip-tests": true,
 	});
+});
+
+test("a filtered root-workspace crate test runs that crate's library tests", () => {
+	assert.deepEqual(crateTestArgs("frameever-utils", ["chapter"], {}), [
+		"test",
+		"-p",
+		"frameever-utils",
+		"--lib",
+		"chapter",
+	]);
+	assert.deepEqual(
+		crateTestArgs("frameever-recording", ["click_highlight"], {
+			ignored: true,
+			optimized: true,
+		}),
+		[
+			"test",
+			"--config",
+			"profile.dev.package.frameever-recording.opt-level=3",
+			"-p",
+			"frameever-recording",
+			"--lib",
+			"click_highlight",
+			"--",
+			"--ignored",
+			"--nocapture",
+		],
+	);
+	assert.throws(() => crateTestArgs(true, [], {}), /--crate <package>/);
 });
 
 test("FFmpeg goes first on the path, keeping the host's own path key", () => {
@@ -404,8 +434,18 @@ test("the installer dev run fakes the existing install and never touches the rea
 		`${path.join("T", "Programs", "FrameEver")}|0.9.0`,
 	);
 	assert.equal(env.LOCALAPPDATA, path.join("T", "Local"));
-	assert.equal(installerEnv("T", null, "1.0.0", {}).FRAMEEVER_INSTALLER_INSTALLED, "none");
-	assert.ok(installerEnv("T", "same", "1.0.0", {}).FRAMEEVER_INSTALLER_INSTALLED.endsWith("|1.0.0"));
+	assert.equal(
+		installerEnv("T", null, "1.0.0", {}).FRAMEEVER_INSTALLER_INSTALLED,
+		"none",
+	);
+	assert.ok(
+		installerEnv(
+			"T",
+			"same",
+			"1.0.0",
+			{},
+		).FRAMEEVER_INSTALLER_INSTALLED.endsWith("|1.0.0"),
+	);
 });
 
 test("the release installer front end refuses a missing or empty NSIS payload", () => {

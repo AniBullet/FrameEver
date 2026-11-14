@@ -81,7 +81,7 @@ const COMMANDS = {
 	dev: "Build and run the app (test data by default). --watch, --lang zh-CN|en, --real",
 	check:
 		"Compile-check the GPUI app, FrameEver Converter, the installer and the CLI, tests included",
-	test: "Run GPUI tests (optional filter). --installer runs only the installer's. --all adds converter, installer, encoder, export, utils, CLI and script tests",
+	test: "Run GPUI tests (optional filter). --crate <package> runs one root-workspace crate's library tests instead (--ignored also runs ignored ones with output, --optimized builds it at opt-level 3). --installer runs only the installer's. --all adds converter, installer, encoder, export, utils, CLI and script tests",
 	lint: "Format check, clippy and translation tests",
 	fmt: "Format the GPUI app and the root crates FrameEver changed",
 	export:
@@ -613,7 +613,9 @@ function installer({ flags }) {
 	}
 	const dir = path.join(testdataDir, "installer");
 	rmSync(dir, { recursive: true, force: true });
-	const version = manifestVersion(path.join(gpuiDir, "installer", "Cargo.toml"));
+	const version = manifestVersion(
+		path.join(gpuiDir, "installer", "Cargo.toml"),
+	);
 	const env = installerEnv(dir, existing, version);
 	if (existing) {
 		const app = env.FRAMEEVER_INSTALLER_INSTALLED.split("|")[0];
@@ -632,7 +634,11 @@ function installer({ flags }) {
 	step("Build the installer front end");
 	run("cargo", ["build", "-p", INSTALLER_APP], { cwd: gpuiDir });
 	console.log(`  Test data (no payload, nothing is installed): ${dir}`);
-	const args = flags.update ? ["--update"] : flags.uninstall ? ["--uninstall"] : [];
+	const args = flags.update
+		? ["--update"]
+		: flags.uninstall
+			? ["--uninstall"]
+			: [];
 	const exe = path.join(gpuiDir, "target", "debug", "frameever-setup.exe");
 	run(exe, args, { env });
 }
@@ -750,12 +756,37 @@ function check() {
 	console.log("\n\u001b[32m✓ Everything compiles\u001b[0m");
 }
 
+export function crateTestArgs(crate, filter, { ignored, optimized }) {
+	if (typeof crate !== "string") {
+		throw new Error("Usage: pnpm fe test [filter] --crate <package>");
+	}
+	return [
+		"test",
+		...(optimized
+			? ["--config", `profile.dev.package.${crate}.opt-level=3`]
+			: []),
+		"-p",
+		crate,
+		"--lib",
+		...filter,
+		...(ignored ? ["--", "--ignored", "--nocapture"] : []),
+	];
+}
+
 function test({ flags, positional }) {
 	pruneIncremental();
 	if (flags.installer) {
 		step("Installer tests");
 		run("cargo", ["test", "-p", INSTALLER_APP, "--", ...positional], {
 			cwd: gpuiDir,
+		});
+		console.log("\n\u001b[32m✓ Tests passed\u001b[0m");
+		return;
+	}
+	if (flags.crate !== undefined) {
+		step(`${flags.crate} tests`);
+		run("cargo", crateTestArgs(flags.crate, positional, flags), {
+			env: withFfmpeg(),
 		});
 		console.log("\n\u001b[32m✓ Tests passed\u001b[0m");
 		return;
@@ -1098,7 +1129,9 @@ export function expandResource(base, pattern) {
 	if (!name.includes("*")) return existsSync(full) ? [full] : [];
 	const dir = path.dirname(full);
 	if (!existsSync(dir)) return [];
-	const escaped = name.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+	const escaped = name
+		.replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+		.replace(/\*/g, ".*");
 	const matcher = new RegExp(`^${escaped}$`, "i");
 	return readdirSync(dir, { withFileTypes: true })
 		.filter((entry) => entry.isFile() && matcher.test(entry.name))
@@ -1108,7 +1141,9 @@ export function expandResource(base, pattern) {
 export function installedPayloadFiles(
 	triple,
 	base = gpuiDir,
-	config = JSON.parse(readFileSync(path.join(gpuiDir, "tauri.conf.json"), "utf8")),
+	config = JSON.parse(
+		readFileSync(path.join(gpuiDir, "tauri.conf.json"), "utf8"),
+	),
 ) {
 	const resources = {
 		...config.bundle.resources,

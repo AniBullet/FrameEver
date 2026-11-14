@@ -39,7 +39,7 @@ Everything goes through `pnpm fe <command>` (`scripts/fe.mjs`; `pnpm fe` lists t
 |---|---|
 | `pnpm fe setup` / `doctor` | Prepare the machine / say what is missing and how to fix it |
 | `pnpm fe dev [--watch] [--lang zh-CN]` | Build and run the app on the test profile (`apps/desktop-gpui/target/testdata/`) |
-| `pnpm fe test [filter]` / `--all` | GPUI tests / plus converter, encoder, export, utils, CLI and script tests |
+| `pnpm fe test [filter]` / `--crate <package>` / `--all` | GPUI tests / one root-workspace crate's library tests (`--ignored`, `--optimized`) / plus converter, encoder, export, utils, CLI and script tests |
 | `pnpm fe check` | Compile the GPUI app, FrameEver Converter and the CLI with tests |
 | `pnpm fe lint` / `fmt` | Format check, clippy, translation tests / format |
 | `pnpm fe converter [--lang zh-CN]` | Run FrameEver Converter against a fresh fake 2.x install |
@@ -83,7 +83,7 @@ These are denied in the workspace `Cargo.toml` and fail CI:
 - For ticket work, inspect relevant local upstream source/history and authoritative primary references before choosing an implementation. Upstream is a read-only reference (ADR-0007), not a constraint: prefer a better solution when the ticket, design and measured results support it. Record the sources and reasoning in the handoff.
 - Agents choose routine test seams and implementation details within the ticket's scope; ask the owner when a product decision or missing requirement changes that scope.
 - Work test-first. Rust tests sit beside the code (`#[cfg(test)]`) or in a crate's `tests/`; script tests are `scripts/*.test.mjs` (`node --test`).
-- Checks come in two layers. After each edit: `pnpm fe fmt` and `pnpm fe test <filter>` for the code you touched; nothing wider. Once per change that lands on `main`, after code review and its fixes: `pnpm fe test --all` and `pnpm fe lint`. When several tickets are built in parallel, that pass runs once on the integration branch, not per ticket. Don't edit source while it runs.
+- Checks come in two layers. After each edit: `pnpm fe fmt` and `pnpm fe test <filter>` for the code you touched (`--crate <package>` for a root-workspace crate); nothing wider. Once per change that lands on `main`, after code review and its fixes: `pnpm fe test --all` and `pnpm fe lint`. When several tickets are built in parallel, that pass runs once on the integration branch, not per ticket. Don't edit source while it runs.
 - Prove a fix by reproducing it first and checking it with a test or a measured result. Anything visible is checked by the owner in the running app: never take screenshots of the owner's screen.
 
 ## Commits and PRs
