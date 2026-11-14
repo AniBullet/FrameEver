@@ -52,9 +52,10 @@ pub enum HotkeyAction {
     ScreenshotArea,
     FocusCameraPreview,
     ToggleTeleprompterPlayback,
+    DrawOnScreen,
 }
 
-const ACTION_KEYS: [(&str, HotkeyAction); 15] = [
+const ACTION_KEYS: [(&str, HotkeyAction); 16] = [
     ("startStudioRecording", HotkeyAction::StartStudioRecording),
     ("startInstantRecording", HotkeyAction::StartInstantRecording),
     ("stopRecording", HotkeyAction::StopRecording),
@@ -82,6 +83,7 @@ const ACTION_KEYS: [(&str, HotkeyAction); 15] = [
         "toggleTeleprompterPlayback",
         HotkeyAction::ToggleTeleprompterPlayback,
     ),
+    ("drawOnScreen", HotkeyAction::DrawOnScreen),
 ];
 
 const DEFAULT_SHORTCUTS: [(&str, &str, &str); 2] = [
@@ -96,6 +98,43 @@ const DEFAULT_SHORTCUTS: [(&str, &str, &str); 2] = [
         "KeyT",
     ),
 ];
+
+fn registers_now(action: HotkeyAction, recording: bool, teleprompter_open: bool) -> bool {
+    match action {
+        HotkeyAction::DrawOnScreen => recording,
+        HotkeyAction::ToggleTeleprompterPlayback => teleprompter_open,
+        _ => true,
+    }
+}
+
+fn follow_recording(cx: &mut App) {
+    let session = RecordingSession::global(cx);
+    cx.observe(&session, |session, cx| {
+        let recording = crate::screen_ink::can_draw(session.read(cx).phase);
+        if cx.global::<Hotkeys>().recording == recording {
+            return;
+        }
+        cx.global_mut::<Hotkeys>().recording = recording;
+        if store::hotkeys_raw().contains_key(HotkeyAction::DrawOnScreen.store_key()) {
+            reload(cx);
+        }
+    })
+    .detach();
+}
+
+#[cfg(test)]
+mod draw_shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn draw_shortcut_is_configurable_and_registered_only_while_recording() {
+        let action = HotkeyAction::from_store_key("drawOnScreen");
+        assert_eq!(action, Some(HotkeyAction::DrawOnScreen));
+        assert!(!registers_now(HotkeyAction::DrawOnScreen, false, true));
+        assert!(registers_now(HotkeyAction::DrawOnScreen, true, false));
+        assert!(registers_now(HotkeyAction::StopRecording, false, false));
+    }
+}
 
 #[cfg(test)]
 mod camera_focus_tests {
@@ -123,13 +162,15 @@ mod camera_focus_tests {
     fn the_teleprompter_shortcut_registers_only_while_the_window_is_open() {
         assert!(!registers_now(
             HotkeyAction::ToggleTeleprompterPlayback,
+            true,
             false
         ));
         assert!(registers_now(
             HotkeyAction::ToggleTeleprompterPlayback,
+            false,
             true
         ));
-        assert!(registers_now(HotkeyAction::FocusCameraPreview, false));
+        assert!(registers_now(HotkeyAction::FocusCameraPreview, false, false));
     }
 
     #[test]
@@ -138,10 +179,6 @@ mod camera_focus_tests {
         assert!(yields_on_conflict(HotkeyAction::FocusCameraPreview));
         assert!(!yields_on_conflict(HotkeyAction::StopRecording));
     }
-}
-
-fn registers_now(action: HotkeyAction, teleprompter_open: bool) -> bool {
-    action != HotkeyAction::ToggleTeleprompterPlayback || teleprompter_open
 }
 
 fn yields_on_conflict(action: HotkeyAction) -> bool {
@@ -180,6 +217,7 @@ struct Hotkeys {
     /// Set while the Shortcuts page records a new combo: a registered combo
     /// would otherwise fire its action instead of reaching the page.
     paused: bool,
+    recording: bool,
 }
 
 impl Global for Hotkeys {}
@@ -216,7 +254,9 @@ pub fn init(cx: &mut App) {
         bindings: Vec::new(),
         unavailable: Vec::new(),
         paused: false,
+        recording: false,
     });
+    follow_recording(cx);
     register_from_store(cx);
 
     let (tx, rx) = flume::unbounded::<GlobalHotKeyEvent>();
@@ -357,7 +397,7 @@ fn register_from_store(cx: &mut App) {
             hotkeys.unavailable.push(action);
             continue;
         }
-        if !registers_now(action, teleprompter_open) {
+        if !registers_now(action, hotkeys.recording, teleprompter_open) {
             continue;
         }
         let Ok(code) = Code::from_str(&binding.code) else {
@@ -448,6 +488,7 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
     match action {
         HotkeyAction::FocusCameraPreview => app_windows::focus_camera_preview(cx),
         HotkeyAction::ToggleTeleprompterPlayback => app_windows::toggle_teleprompter_playback(cx),
+        HotkeyAction::DrawOnScreen => crate::screen_ink::toggle(cx),
         HotkeyAction::StartStudioRecording => start_from_hotkey(Mode::Studio, cx),
         HotkeyAction::StartInstantRecording => start_from_hotkey(Mode::Instant, cx),
         HotkeyAction::StopRecording => {
@@ -691,6 +732,7 @@ mod tests {
             bindings: Vec::new(),
             unavailable: Vec::new(),
             paused: false,
+            recording: false,
         };
         assert!(hotkeys.idle());
         hotkeys.release_idle_manager();

@@ -75,8 +75,12 @@ pub const RECORDING_SHORTCUTS: [&str; 9] = [
     "toggleTeleprompterPlayback",
 ];
 
-pub const WHILE_RECORDING_SHORTCUTS: [&str; 3] =
-    ["stopRecording", "togglePauseRecording", "restartRecording"];
+pub const WHILE_RECORDING_SHORTCUTS: [&str; 4] = [
+    "stopRecording",
+    "togglePauseRecording",
+    "restartRecording",
+    "drawOnScreen",
+];
 
 pub fn all_shortcuts() -> impl Iterator<Item = &'static str> {
     SCREENSHOT_SHORTCUTS
@@ -102,6 +106,7 @@ pub fn shortcut_label(action: &str) -> &'static str {
         "restartRecording" => n!("Restart recording"),
         "focusCameraPreview" => n!("Focus camera preview"),
         "toggleTeleprompterPlayback" => n!("Play or pause the teleprompter"),
+        "drawOnScreen" => n!("Draw on screen"),
         _ => n!("Shortcut"),
     }
 }
@@ -205,6 +210,7 @@ const SHORTCUTS: &[Group] = &[
             Row::Shortcut(WHILE_RECORDING_SHORTCUTS[0]),
             Row::Shortcut(WHILE_RECORDING_SHORTCUTS[1]),
             Row::Shortcut(WHILE_RECORDING_SHORTCUTS[2]),
+            Row::Shortcut(WHILE_RECORDING_SHORTCUTS[3]),
         ],
     },
 ];
@@ -570,6 +576,7 @@ mod tests {
                     "Stop recording",
                     "Pause or resume",
                     "Restart recording",
+                    "Draw on screen",
                 ],
             ),
             (Page::Automations, &["Rules"]),

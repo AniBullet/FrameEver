@@ -2094,22 +2094,27 @@ fn decode_clip_thumbnail(
     recording_segment: u32,
     time: f64,
 ) -> Result<Arc<RenderImage>, String> {
+    let display_path = recording_display_paths(project_path)?
+        .into_iter()
+        .nth(recording_segment as usize)
+        .ok_or_else(|| format!("Recording segment {recording_segment} not found"))?;
+    decode_thumbnail_frame(&display_path, time.max(0.0))
+}
+
+pub(crate) fn recording_display_paths(project_path: &Path) -> Result<Vec<PathBuf>, String> {
     let meta = RecordingMeta::load_for_project(project_path)
         .map_err(|error| format!("Failed to load recording meta: {error}"))?;
     let RecordingMetaInner::Studio(studio) = &meta.inner else {
         return Err("Clip thumbnails are only available for studio recordings".to_string());
     };
-    let display_path = match studio.as_ref() {
-        StudioRecordingMeta::SingleSegment { segment } => meta.path(&segment.display.path),
-        StudioRecordingMeta::MultipleSegments { inner } => {
-            let segment = inner
-                .segments
-                .get(recording_segment as usize)
-                .ok_or_else(|| format!("Recording segment {recording_segment} not found"))?;
-            meta.path(&segment.display.path)
-        }
-    };
-    decode_thumbnail_frame(&display_path, time.max(0.0))
+    Ok(match studio.as_ref() {
+        StudioRecordingMeta::SingleSegment { segment } => vec![meta.path(&segment.display.path)],
+        StudioRecordingMeta::MultipleSegments { inner } => inner
+            .segments
+            .iter()
+            .map(|segment| meta.path(&segment.display.path))
+            .collect(),
+    })
 }
 
 fn decode_thumbnail_frame(input: &Path, time: f64) -> Result<Arc<RenderImage>, String> {

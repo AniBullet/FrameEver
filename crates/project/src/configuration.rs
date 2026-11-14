@@ -2514,6 +2514,28 @@ pub enum AnnotationType {
     Text,
     Mask,
     Draw,
+    Line,
+    Highlighter,
+    Step,
+    Bubble,
+    Spotlight,
+    Magnifier,
+    Image,
+}
+
+#[derive(Type, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ImageCutAxis {
+    Columns,
+    Rows,
+}
+
+#[derive(Type, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageCut {
+    pub axis: ImageCutAxis,
+    pub start: u32,
+    pub length: u32,
 }
 
 #[derive(Type, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -2588,6 +2610,18 @@ pub struct Annotation {
     pub mask_level: Option<f64>,
     #[serde(default)]
     pub points: Option<Vec<[f64; 2]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_size: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tail: Option<[f64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corner_radius: Option<f64>,
 }
 
 impl Annotation {
@@ -2660,6 +2694,8 @@ pub struct ProjectConfiguration {
     pub keyboard: Option<KeyboardData>,
     pub clips: Vec<ClipConfiguration>,
     pub annotations: Vec<Annotation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub image_cuts: Vec<ImageCut>,
     #[serde(skip_serializing)]
     pub hidden_text_segments: Vec<usize>,
     #[serde(default = "ProjectConfiguration::default_screen_motion_blur")]
@@ -2730,6 +2766,7 @@ impl Default for ProjectConfiguration {
             keyboard: Default::default(),
             clips: Default::default(),
             annotations: Default::default(),
+            image_cuts: Default::default(),
             hidden_text_segments: Default::default(),
             screen_motion_blur: Self::default_screen_motion_blur(),
             screen_movement_spring: Default::default(),

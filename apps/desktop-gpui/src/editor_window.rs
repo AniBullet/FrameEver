@@ -1396,6 +1396,7 @@ pub struct EditorWindow {
     /// tears the decoders down, and `dispose()` on close does it explicitly.
     pub(crate) instance: Option<Arc<EditorInstance>>,
     focus: FocusHandle,
+    palette: crate::command_palette::view::Slot,
 
     // -- Transport ----------------------------------------------------------
     /// `editorState.playing`.
@@ -1438,6 +1439,8 @@ pub struct EditorWindow {
     /// first render that knows both the width and the duration does it.
     fitted: bool,
     restore_transform: Option<Transform>,
+    media_decode_stop: timeline::filmstrip::DecodeStop,
+    music_waveforms_loading: std::collections::HashSet<SharedString>,
     /// The transport's zoom slider track rect, written by the slider's own
     /// prepaint canvas and read by the pointer maths.
     zoom_slider_track: ui::SliderTrack,
@@ -1608,7 +1611,7 @@ pub struct EditorWindow {
     /// The user's drag on the resize grip. `None` means the card hugs its
     /// track rows and re-hugs whenever a track is added or removed.
     timeline_height_override: Option<f32>,
-    initial_timeline_rows: Option<usize>,
+    initial_timeline_hug: Option<f32>,
     timeline_resize: Option<(f32, f32)>,
     sidebar_width_preference: f32,
     sidebar_resize: Option<(f32, f32)>,
@@ -2071,6 +2074,7 @@ impl EditorWindow {
             frame_layout: None,
             instance: None,
             focus: cx.focus_handle(),
+            palette: Default::default(),
             playing: false,
             playhead: 0.0,
             last_playhead_redraw: Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
@@ -2086,6 +2090,8 @@ impl EditorWindow {
             playback_follow: timeline::PlaybackFollow::default(),
             fitted: false,
             restore_transform: None,
+            media_decode_stop: timeline::filmstrip::DecodeStop::default(),
+            music_waveforms_loading: std::collections::HashSet::new(),
             zoom_slider_track: ui::SliderTrack::default(),
             zoom_slider_drag: false,
             project: ProjectConfiguration::default(),
@@ -2159,7 +2165,7 @@ impl EditorWindow {
             camera3d_picker: false,
             camera3d_count_hover: None,
             timeline_height_override: None,
-            initial_timeline_rows: None,
+            initial_timeline_hug: None,
             timeline_resize: None,
             sidebar_width_preference: crate::store::GeneralSettings::load()
                 .editor_sidebar_width
@@ -2275,7 +2281,7 @@ impl EditorWindow {
         self.synchronize_caption_track(true);
         self.history = ProjectHistory::new(self.project.clone());
         self.tracks = TrackLanes::from_project(&self.project, self.has_camera);
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         // The sidebar's own signals are seeded from the config the instance
         // actually loaded, not the pre-flight's: `backgroundSourceTab`'s
         // initial value reads `background.padding`/`rounding` (`CS:1799-1802`).
@@ -2289,11 +2295,14 @@ impl EditorWindow {
     /// Re-derive the drawn model from the live config. Runs after every edit;
     /// the waveforms arrive separately and later, so whatever has landed is
     /// carried across.
-    fn rebuild_timeline(&mut self) {
+    fn rebuild_timeline(&mut self, cx: &mut Context<Self>) {
         dismiss_indexed_sidebar_menu(&mut self.sidebar.menu);
         let mic = std::mem::take(&mut self.timeline.mic_waveforms);
         let system = std::mem::take(&mut self.timeline.system_waveforms);
         let waveform_paths = self.timeline.waveform_paths.clone();
+        let clip_paths = self.timeline.clip_paths.clone();
+        let filmstrips = std::mem::take(&mut self.timeline.filmstrips);
+        let music_waveforms = std::mem::take(&mut self.timeline.music_waveforms);
         self.timeline = TimelineModel::build_with_lanes(
             &self.project,
             self.has_camera,
@@ -2303,9 +2312,65 @@ impl EditorWindow {
         self.timeline.mic_waveforms = mic;
         self.timeline.system_waveforms = system;
         self.timeline.waveform_paths = waveform_paths;
+        self.timeline.clip_paths = clip_paths;
+        self.timeline.filmstrips = filmstrips;
+        self.timeline.music_waveforms = music_waveforms;
         if self.timeline.total_duration > 0.0 {
             self.total = self.timeline.total_duration;
         }
+        self.load_missing_music_waveforms(cx);
+    }
+
+    fn load_missing_music_waveforms(&mut self, cx: &mut Context<Self>) {
+        let missing = self
+            .timeline
+            .missing_music_waveforms(|path| self.music_waveforms_loading.contains(path));
+        if missing.is_empty() {
+            return;
+        }
+        self.music_waveforms_loading.extend(missing.iter().cloned());
+        let project_path = self.project_path.clone();
+        let stop = self.media_decode_stop.flag();
+        cx.spawn(async move |this, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn(async move {
+                    missing
+                        .into_iter()
+                        .map(|path| {
+                            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                                return (path, Vec::new());
+                            }
+                            let resolved = project_path.join(&*path);
+                            let peaks = match frameever_audio::AudioData::from_file(&resolved) {
+                                Ok(audio) => {
+                                    timeline::waveform_peaks(&[audio.samples()], audio.channels())
+                                }
+                                Err(error) => {
+                                    tracing::warn!(
+                                        path = %resolved.display(),
+                                        error,
+                                        "audio track waveform unavailable"
+                                    );
+                                    Vec::new()
+                                }
+                            };
+                            (path, peaks)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                for (path, peaks) in loaded {
+                    this.music_waveforms_loading.remove(&path);
+                    this.timeline.music_waveforms.insert(path, Arc::new(peaks));
+                }
+                this.timeline_view.update(cx, |_, cx| cx.notify());
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// `getMicWaveforms()` / `getSystemAudioWaveforms()` resolving
@@ -2323,6 +2388,40 @@ impl EditorWindow {
         self.timeline.system_waveforms = system;
         cx.notify();
         window.refresh();
+    }
+
+    pub fn set_clip_paths(&mut self, clip_paths: Vec<PathBuf>) {
+        self.timeline.clip_paths = Arc::new(clip_paths);
+    }
+
+    pub fn filmstrip_decode_stop(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.media_decode_stop.flag()
+    }
+
+    pub fn has_filmstrip(&self, path: &std::path::Path) -> bool {
+        self.timeline.filmstrips.contains_key(path)
+    }
+
+    pub fn timeline_media(&self) -> timeline::TimelineMedia {
+        timeline::TimelineMedia {
+            filmstrips: self.timeline.filmstrips.clone(),
+            music_waveforms: self.timeline.music_waveforms.clone(),
+        }
+    }
+
+    pub fn adopt_timeline_media(&mut self, media: timeline::TimelineMedia) {
+        self.timeline.filmstrips.extend(media.filmstrips);
+        self.timeline.music_waveforms.extend(media.music_waveforms);
+    }
+
+    pub fn add_filmstrips(
+        &mut self,
+        filmstrips: Vec<(PathBuf, Arc<timeline::filmstrip::Frames>)>,
+        cx: &mut Context<Self>,
+    ) {
+        self.timeline.filmstrips.extend(filmstrips);
+        self.timeline_view.update(cx, |_, cx| cx.notify());
+        cx.notify();
     }
 
     // -- Editing: the write path ---------------------------------------------
@@ -2437,7 +2536,7 @@ impl EditorWindow {
         }
         self.synchronize_caption_track(false);
         self.history.record(&self.project);
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         self.publish_project();
         self.schedule_save(window, cx);
         cx.notify();
@@ -2543,6 +2642,44 @@ impl EditorWindow {
         }));
     }
 
+    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::command_palette::{Surface, view};
+        if self.crop.is_some() {
+            return;
+        }
+        let mut slot = std::mem::take(&mut self.palette);
+        view::toggle(
+            &mut slot,
+            Surface::Editor,
+            Self::on_palette_event,
+            window,
+            cx,
+        );
+        self.palette = slot;
+    }
+
+    fn on_palette_event(
+        &mut self,
+        palette: &Entity<crate::command_palette::view::CommandPalette>,
+        event: &crate::command_palette::view::PaletteEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::command_palette::{Command, view};
+        self.palette.close(window, cx);
+        cx.notify();
+        let view::PaletteEvent::Chosen(outcome) = event else {
+            return;
+        };
+        match view::act(palette, outcome, cx) {
+            Some(Command::PlayPause) => self.toggle_play(window, cx),
+            Some(Command::ExportProject) => self.open_export(window, cx),
+            Some(Command::Undo) => self.undo(window, cx),
+            Some(Command::Redo) => self.redo(window, cx),
+            _ => {}
+        }
+    }
+
     // -- Editing: undo and redo ----------------------------------------------
 
     /// `projectHistory.undo()` -- reconcile the previous snapshot back over the
@@ -2594,7 +2731,7 @@ impl EditorWindow {
                 != crate::editor_sidebar::is_none_background(&config);
         self.project = config;
         self.synchronize_caption_track(false);
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         if self.animated_gradient_config().is_some() {
             self.sidebar.source_tab = crate::editor_sidebar::initial_source_tab(&self.project);
         } else {
@@ -2904,7 +3041,7 @@ impl EditorWindow {
     }
 
     pub fn set_instance(&mut self, instance: Arc<EditorInstance>) {
-        self.initial_timeline_rows = Some(self.timeline.rows.len());
+        self.initial_timeline_hug = Some(timeline::hug_height(&self.timeline.rows));
         self.preparing_retry_pending = false;
         self.preparing_candidate_frame = None;
         self.ordinary_handoff_frame = self
@@ -4477,7 +4614,7 @@ impl EditorWindow {
         let bounds = self.timeline_scroll.bounds();
         let content_y =
             pointer_y - f32::from(bounds.origin.y) - f32::from(self.timeline_scroll.offset().y);
-        let stride = self.timeline.track_height() + TRACK_ROW_GAP;
+        let all_rows = &self.timeline.rows;
         let remaining = self
             .timeline
             .rows
@@ -4487,8 +4624,8 @@ impl EditorWindow {
             .collect::<Vec<_>>();
         remaining
             .iter()
-            .position(|(index, _)| {
-                content_y < *index as f32 * stride + self.timeline.track_height() / 2.
+            .position(|(index, row)| {
+                content_y < timeline::row_top(all_rows, *index) + row.kind.row_height() / 2.
             })
             .unwrap_or(remaining.len())
     }
@@ -4503,12 +4640,9 @@ impl EditorWindow {
             return false;
         }
         let content_y = y - f32::from(bounds.top()) - f32::from(self.timeline_scroll.offset().y);
-        let stride = self.timeline.track_height() + TRACK_ROW_GAP;
-        let row_index = (content_y / stride).floor().max(0.) as usize;
-        if content_y - row_index as f32 * stride >= self.timeline.track_height() {
-            return true;
-        }
-        let Some(row) = self.timeline.rows.get(row_index) else {
+        let Some(row) = timeline::row_at(&self.timeline.rows, content_y.max(0.))
+            .and_then(|index| self.timeline.rows.get(index))
+        else {
             return true;
         };
         if source.kind.overlay_track(source.lane).is_some() {
@@ -5582,8 +5716,8 @@ impl EditorWindow {
     fn preferred_timeline_height(&self) -> f32 {
         self.timeline_height_override.unwrap_or_else(|| {
             DEFAULT_TIMELINE_HEIGHT
-                + self.initial_timeline_rows.map_or(0., |initial| {
-                    timeline::hug_height(self.timeline.rows.len()) - timeline::hug_height(initial)
+                + self.initial_timeline_hug.map_or(0., |initial| {
+                    timeline::hug_height(&self.timeline.rows) - initial
                 })
         })
     }
@@ -5600,7 +5734,7 @@ impl EditorWindow {
             return false;
         }
         self.history.record(&self.project);
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         self.publish_project();
         cx.notify();
         true
@@ -6046,7 +6180,7 @@ impl EditorWindow {
                 &self.clip_display_durations,
             );
             self.synchronize_caption_track(false);
-            self.rebuild_timeline();
+            self.rebuild_timeline(cx);
             self.publish_project();
         }
 
@@ -6343,7 +6477,7 @@ impl EditorWindow {
             _ => {}
         }
         self.hovered_gutter = None;
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         self.note_edit("delete-track", Some(kind));
         cx.notify();
     }
@@ -7604,7 +7738,7 @@ impl EditorWindow {
         {
             self.set_selection(None, cx);
         }
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         cx.notify();
         window.refresh();
     }
@@ -7642,7 +7776,7 @@ impl EditorWindow {
                     .find(|lane| !segments.iter().any(|segment| segment.track == *lane))
                     .unwrap_or(lane_count);
                 self.tracks.audio = lane_count.max(lane + 1);
-                self.rebuild_timeline();
+                self.rebuild_timeline(cx);
                 self.open_audio_picker(lane, cx);
             }
             TrackKind::Text | TrackKind::Mask => {
@@ -7727,7 +7861,7 @@ impl EditorWindow {
                 TrackKind::Mask => self.tracks.mask += 1,
                 _ => {}
             }
-            self.rebuild_timeline();
+            self.rebuild_timeline(cx);
             return;
         };
 
@@ -8098,7 +8232,7 @@ impl EditorWindow {
         }) {
             self.set_selection(Some(Selection::single(TrackKind::Audio, index)), cx);
         }
-        self.rebuild_timeline();
+        self.rebuild_timeline(cx);
         self.note_edit("add-audio", Some(TrackKind::Audio));
         cx.notify();
         window.refresh();
@@ -10558,17 +10692,15 @@ impl EditorWindow {
             .flex_none()
             .flex()
             .items_center()
-            .justify_end()
-            .px(px(12.))
+            .justify_between()
+            .px(px(8.))
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .flex_none()
                     .gap(px(2.))
-                    .justify_end()
                     .items_center()
-                    // The split toggle (`Player.tsx:409-427`).
                     .child(
                         div()
                             .id("transport-split-tooltip")
@@ -10628,6 +10760,7 @@ impl EditorWindow {
                                     })),
                             ),
                     )
+                    .child(self.header_divider())
                     .child(
                         ui::EditorButton::plain(&theme, "timeline-add-track")
                             .left_icon("icons/plus.svg")
@@ -10636,11 +10769,15 @@ impl EditorWindow {
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.open_add_track(window, cx)),
                             ),
-                    )
-                    .child(self.header_divider())
-                    // `IconCapZoomOut` -> `updateZoom(zoom * 1.1,
-                    // playbackTime)`; `IconCapZoomIn` -> `zoom / 1.1`
-                    // (`Player.tsx:432-449`).
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_none()
+                    .gap(px(2.))
+                    .items_center()
                     .child(self.zoom_button("transport-zoom-out", "icons/zoom-out.svg", 1.1, cx))
                     // `Slider class="w-24" minValue={0} maxValue={1}
                     // step={0.001}`. Fully left is fully zoomed *out* -- the
@@ -10909,16 +11046,12 @@ impl EditorWindow {
             .into_any_element()
     }
 
-    /// The 26px header strip (`TL/index.tsx:1220-1245`): the ruler, the "Add
-    /// track" trigger over the gutter, and the scrub surface over everything
-    /// right of `TRACK_GUTTER - START_SNAP_PX`.
     fn render_timeline_header(
         &self,
         viewport_width: f32,
         live: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let theme = self.theme;
         div()
             .relative()
             .h(px(TIMELINE_HEADER_HEIGHT))
@@ -10928,51 +11061,6 @@ impl EditorWindow {
                 self.view,
                 viewport_width,
             ))
-            // `TrackManager`'s trigger (`TL/TrackManager.tsx`): a solid pill
-            // in the gutter (`bg-ed-text-1 text-ed-card`, so black on the
-            // light theme and white on the dark one). Its plus turns into an
-            // x while the tray is open.
-            .child(
-                div()
-                    .id("add-track")
-                    .absolute()
-                    .bottom_0()
-                    .left(px(4.))
-                    .h(px(24.))
-                    .flex()
-                    .flex_row()
-                    .flex_none()
-                    .items_center()
-                    .justify_start()
-                    .gap(px(5.))
-                    .pl(px(6.))
-                    .pr(px(8.))
-                    .rounded(px(6.))
-                    .tab_index(0)
-                    .cursor_pointer()
-                    .bg(Hsla::from(theme.editor.text_1))
-                    .hover(|style| style.opacity(0.85))
-                    .active(|style| style.opacity(0.7))
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(Hsla::from(theme.editor.card))
-                    .child(
-                        svg()
-                            .path(if self.add_track.is_some() {
-                                "icons/x.svg"
-                            } else {
-                                "icons/plus.svg"
-                            })
-                            .size(px(14.))
-                            .flex_none()
-                            .text_color(Hsla::from(theme.editor.card)),
-                    )
-                    .child(div().flex_none().whitespace_nowrap().child(t!("Add track")))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(|this, _: &gpui::ClickEvent, window, cx| {
-                        this.open_add_track(window, cx);
-                    })),
-            )
             // `absolute inset-y-0 right-0 z-40` at
             // `left: TRACK_GUTTER - START_SNAP_PX` -- the ruler's scrub
             // surface, which reaches into the snap-to-zero zone so hitting
@@ -11256,7 +11344,7 @@ impl EditorWindow {
                             .left_0()
                             .top_0()
                             .w(px(TRACK_ICON_WIDTH))
-                            .h(px(model.track_height()))
+                            .h(px(kind.row_height()))
                             .flex()
                             .items_center()
                             .justify_start()
@@ -11361,7 +11449,8 @@ impl EditorWindow {
                                                 } else {
                                                     t!("Generate")
                                                 })
-                                                .radius(px(7.))
+                                                .height(px(20.))
+                                                .radius(px(5.))
                                                 .disabled(generating)
                                                 .on_click(cx.listener(|this, _, window, cx| {
                                                     this.generate_auto_zoom(window, cx);
@@ -11372,7 +11461,7 @@ impl EditorWindow {
                             .child(
                                 div()
                                     .absolute()
-                                    .top(px((model.track_height() - 20.) / 2.))
+                                    .top(px((kind.row_height() - 20.) / 2.))
                                     .right(px(6.))
                                     .child(
                                         ui::IconButton::new("zoom-generate-dismiss", "icons/x.svg")
@@ -11433,7 +11522,8 @@ impl EditorWindow {
                                         ui::ButtonSize::Sm,
                                     )
                                     .label(t!("Auto scene"))
-                                    .radius(px(7.))
+                                    .height(px(20.))
+                                    .radius(px(5.))
                                     .on_click(cx.listener(
                                         |this, _, _window, cx| {
                                             this.open_camera3d_picker(cx);
@@ -11494,7 +11584,7 @@ impl EditorWindow {
                             ))
                             .absolute()
                             .left(px(timeline::TRACK_GUTTER - 24.))
-                            .top(px((model.track_height() - 20.) / 2.))
+                            .top(px((kind.row_height() - 20.) / 2.))
                             .w(px(20.))
                             .h(px(20.))
                             .on_hover(cx.listener(move |this, entered: &bool, _, cx| {
@@ -11592,7 +11682,7 @@ impl EditorWindow {
             )
             .children(reorder_ghost.map(|reorder| {
                 let bounds = self.timeline_scroll.bounds();
-                let height = model.track_height();
+                let height = reorder.source.kind.row_height();
                 let max_top = (f32::from(bounds.size.height) - height).max(0.);
                 let top =
                     (reorder.pointer_y - f32::from(bounds.top()) - height / 2.).clamp(0., max_top);
@@ -11936,6 +12026,11 @@ impl Render for EditorWindow {
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(Self::capture_playback_key))
             .on_key_down(cx.listener(Self::on_key))
+            .on_action(cx.listener(
+                |this, _: &crate::command_palette::view::Toggle, window, cx| {
+                    this.toggle_palette(window, cx);
+                },
+            ))
             // Only the cropper needs key-*up*: its nudge loop runs until every
             // arrow is released (`Cropper.tsx:1025-1051`).
             .on_key_up(cx.listener(|this, event: &gpui::KeyUpEvent, _window, cx| {
@@ -12376,6 +12471,7 @@ impl Render for EditorWindow {
             // Crop mode is a modal: it goes over everything, including the
             // menu above.
             .children(self.render_crop_dialog(cx))
+            .children(self.palette.view())
             // ...and its own pointer-capture stand-in over that, which is
             // `trackPointerSession`'s `setPointerCapture` + window listeners
             // (`Cropper.tsx:686-733`).
@@ -13040,11 +13136,19 @@ mod tests {
 
     #[test]
     fn responsive_editor_hugs_its_rows_and_still_fits_a_short_viewport() {
-        // The four-row scratch project: chrome plus four rows and their gaps.
-        assert_eq!(timeline::hug_height(4), 246.);
-        assert_eq!(timeline::hug_height(0), timeline::MIN_HUG_HEIGHT);
+        let row = |kind| timeline::TrackRow { kind, lane: 0 };
+        let scratch = [
+            row(TrackKind::Clip),
+            row(TrackKind::Zoom),
+            row(TrackKind::Caption),
+            row(TrackKind::Audio),
+        ];
+        assert_eq!(timeline::hug_height(&scratch), 224.);
+        assert_eq!(timeline::hug_height(&[]), timeline::MIN_HUG_HEIGHT);
         for rows in 1..12usize {
-            let hug = timeline::hug_height(rows);
+            let mut kinds = vec![row(TrackKind::Clip)];
+            kinds.extend(std::iter::repeat_n(row(TrackKind::Audio), rows - 1));
+            let hug = timeline::hug_height(&kinds);
             assert_eq!(
                 EditorVerticalLayout::new(1200., hug).timeline_height,
                 hug,

@@ -13,7 +13,9 @@ use std::{
     sync::Arc,
 };
 
+mod ink_overlays;
 mod tray_actions;
+pub(crate) use ink_overlays::*;
 pub(crate) use tray_actions::*;
 
 use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
@@ -45,9 +47,9 @@ use crate::{
 
 /// Matches the Tauri `InProgressRecording` window and
 /// `fake_window.rs` position math.
-pub const CONTROLS_WIDTH: f32 = 360.;
+pub const CONTROLS_WIDTH: f32 = 432.;
 pub const CONTROLS_HEIGHT: f32 = 150.;
-pub const CONTROLS_BAR_HEIGHT: f32 = 64.;
+pub const CONTROLS_BAR_HEIGHT: f32 = 60.;
 pub const CONTROLS_OPTIONS_HEIGHT: f32 = 210.;
 const CONTROLS_BOTTOM_OFFSET: f64 = 120.;
 const TARGET_CONTROLS_OFFSET_Y: f64 = 48.;
@@ -481,15 +483,17 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                 }
             } else {
                 let settings = crate::store::GeneralSettings::load();
-                let behaviour = settings.post_studio_recording_behaviour;
-                let after_instant = settings.post_instant_recording_behaviour;
-                if let Some(project) = &finished_instant
-                    && after_instant.finish().copy_file
-                {
+                let finish = recording_finish(
+                    finished_studio
+                        .as_ref()
+                        .map(|_| settings.post_studio_recording_behaviour),
+                    finished_instant
+                        .as_ref()
+                        .map(|_| settings.post_instant_recording_behaviour),
+                );
+                if let Some(project) = finished_instant.as_ref().filter(|_| finish.copy_instant) {
                     copy_instant_recording(project, cx);
                 }
-                let hides_after_instant =
-                    finished_instant.is_some() && after_instant.keeps_main_window_hidden();
                 if let Some(project) = finished_studio.clone().or_else(|| finished_instant.clone())
                 {
                     main.update(cx, |view, window, cx| {
@@ -497,19 +501,13 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                     })
                     .ok();
                 }
-                match (finished_studio, behaviour) {
-                    (Some(project_dir), crate::store::PostStudioBehaviour::OpenEditor) => {
-                        open_editor(project_dir, cx)
-                    }
-                    (Some(_), crate::store::PostStudioBehaviour::DoNothing) => {
+                match (finish.next, finished_studio) {
+                    (AfterRecording::OpenEditor, Some(project_dir)) => open_editor(project_dir, cx),
+                    (AfterRecording::StayHidden, _) => {
                         park_idle_camera_preview(cx);
                         crate::menus::schedule_dock_sync(cx);
                     }
-                    (None, _) if hides_after_instant => {
-                        park_idle_camera_preview(cx);
-                        crate::menus::schedule_dock_sync(cx);
-                    }
-                    _ if finished_instant.is_some() => show_library(cx),
+                    (AfterRecording::ShowLibrary, _) => show_library(cx),
                     _ => show_main_window(cx),
                 }
             }
@@ -975,6 +973,19 @@ fn first_registered_reopen_target(
     candidates
         .into_iter()
         .find(|candidate| live.contains(&candidate.window_id()))
+}
+
+pub fn open_settings_row(row: crate::settings_window::catalog::Row, cx: &mut App) {
+    let Some(place) = crate::settings_window::catalog::place_of(row) else {
+        return;
+    };
+    open_settings(place.page, cx);
+    if let Some(handle) = cx.global::<AppWindows>().settings {
+        handle
+            .update(cx, |view, window, cx| view.show_row(row, window, cx))
+            .ok();
+    }
+    cx.activate(true);
 }
 
 pub fn open_quality_settings(mode: Mode, cx: &mut App) {
@@ -2090,6 +2101,36 @@ fn keep_arranged_windows(cx: &mut App) {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AfterRecording {
+    OpenEditor,
+    StayHidden,
+    ShowLibrary,
+    ShowMain,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RecordingFinish {
+    copy_instant: bool,
+    next: AfterRecording,
+}
+
+fn recording_finish(
+    studio: Option<crate::store::PostStudioBehaviour>,
+    instant: Option<crate::store::PostInstantBehaviour>,
+) -> RecordingFinish {
+    use crate::store::PostStudioBehaviour;
+    let copy_instant = instant.is_some_and(|instant| instant.finish().copy_file);
+    let next = match (studio, instant) {
+        (Some(PostStudioBehaviour::OpenEditor), _) => AfterRecording::OpenEditor,
+        (Some(PostStudioBehaviour::DoNothing), _) => AfterRecording::StayHidden,
+        (Some(PostStudioBehaviour::ShowOverlay), _) | (None, None) => AfterRecording::ShowMain,
+        (None, Some(instant)) if instant.keeps_main_window_hidden() => AfterRecording::StayHidden,
+        (None, Some(_)) => AfterRecording::ShowLibrary,
+    };
+    RecordingFinish { copy_instant, next }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ArrangedWindowsStep {
     Keep,
     Restore,
@@ -2770,7 +2811,22 @@ fn begin_recording_after_preflight(config: StartConfig, cx: &mut App) {
         .countdown_focus
         .remember_app_focus(app_active);
     let mut excluded: Vec<scap_targets::WindowId> = config.excluded_windows.clone();
-    excluded.extend(open_controls(&config, session.clone(), cx));
+    let controls_id = match open_controls(&config, session.clone(), cx) {
+        Ok(id) => id,
+        Err(error) => {
+            tracing::error!(error = %error, "recording controls preparation failed; recording was not started");
+            close_controls(&session, cx);
+            restore_content_protection(cx);
+            dismiss_target_overlays(cx);
+            session.update(cx, |session, cx| {
+                session.error = Some(t!("Couldn't open recording controls. Recording hasn't started. Try again, or export logs from Settings.").to_owned());
+                cx.notify();
+            });
+            show_main_window(cx);
+            return;
+        }
+    };
+    excluded.push(controls_id);
     // The camera bubble is excluded from studio captures (the camera is its own
     // track, composited in the editor) but *included* in instant captures --
     // `filter_for_instant_mode` in the Tauri app strips the camera exclusion
@@ -4345,6 +4401,7 @@ fn load_editor_project_candidate(
         .detach();
 
         load_editor_waveforms(instance.clone(), handle, cx);
+        load_editor_filmstrips(instance.clone(), handle, cx);
 
         if handle
             .update(cx, |view, window, cx| {
@@ -4416,7 +4473,7 @@ async fn drive_auto_export(handle: WindowHandle<EditorWindow>, cx: &mut gpui::As
 fn log_timeline_model(model: &editor_timeline::TimelineModel) {
     tracing::info!(
         rows = model.rows.len(),
-        track_height = model.track_height(),
+        rows_height = editor_timeline::rows_height(&model.rows),
         total = format!("{:.3}", model.total_duration),
         clip = model.clips.len(),
         zoom = model.zoom.len(),
@@ -4494,6 +4551,59 @@ fn load_editor_waveforms(
             );
             view.set_waveforms(peaks.0, peaks.1, window, cx)
         });
+    })
+    .detach();
+}
+
+fn load_editor_filmstrips(
+    instance: Arc<frameever_editor::EditorInstance>,
+    handle: WindowHandle<EditorWindow>,
+    cx: &mut gpui::AsyncApp,
+) {
+    let project_path = instance.project_path.clone();
+    let durations: Vec<f64> = instance
+        .recordings
+        .segments
+        .iter()
+        .map(|segment| segment.display.duration)
+        .collect();
+    let paths = crate::editor_clips::recording_display_paths(&project_path).unwrap_or_default();
+    let sources: Vec<(PathBuf, f64)> = paths.iter().cloned().zip(durations).collect();
+    let Ok((stop, wanted)) = handle.update(cx, |view, _window, _cx| {
+        view.set_clip_paths(paths);
+        (
+            view.filmstrip_decode_stop(),
+            editor_timeline::filmstrip::missing(&sources, |path| view.has_filmstrip(path)),
+        )
+    }) else {
+        return;
+    };
+    if wanted.is_empty() {
+        return;
+    }
+    cx.spawn(async move |cx| {
+        let started = std::time::Instant::now();
+        let strips = cx
+            .background_executor()
+            .spawn(async move {
+                wanted
+                    .into_iter()
+                    .filter(|(path, _)| path.is_file())
+                    .filter_map(|(path, duration)| {
+                        editor_timeline::filmstrip::decode(&path, duration, &stop)
+                            .map(|frames| (path, Arc::new(frames)))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await;
+        tracing::info!(
+            ms = started.elapsed().as_millis() as u64,
+            frames = strips.iter().map(|(_, strip)| strip.len()).sum::<usize>(),
+            "editor filmstrips ready"
+        );
+        handle
+            .update(cx, |view, _window, cx| view.add_filmstrips(strips, cx))
+            .ok();
     })
     .detach();
 }
@@ -5090,6 +5200,11 @@ pub fn reload_editor(project_path: &Path, cx: &mut App) {
             .update(cx, |view, _window, _cx| view.timeline_transform())
             .ok()
     });
+    let media = handle.and_then(|handle| {
+        handle
+            .update(cx, |view, _window, _cx| view.timeline_media())
+            .ok()
+    });
 
     if let Some(handle) = handle {
         if let Ok(pending) = handle.update(cx, |view, _window, _cx| view.pending_save()) {
@@ -5109,12 +5224,15 @@ pub fn reload_editor(project_path: &Path, cx: &mut App) {
 
     tracing::info!(path = %key.display(), "reloading editor after import");
     open_editor(key.clone(), cx);
-    if let Some(transform) = transform
-        && let Some(handle) = editor_window_handle(&key, cx)
-    {
+    if let Some(handle) = editor_window_handle(&key, cx) {
         handle
             .update(cx, |view, _window, _cx| {
-                view.restore_timeline_transform(transform)
+                if let Some(transform) = transform {
+                    view.restore_timeline_transform(transform);
+                }
+                if let Some(media) = media {
+                    view.adopt_timeline_media(media);
+                }
             })
             .ok();
     }
@@ -5390,22 +5508,74 @@ pub fn controls_window_height(issue: bool, options: bool) -> f32 {
     CONTROLS_BAR_HEIGHT + issue_room + options_room
 }
 
-pub(crate) fn fit_controls_height(native: &platform::NativeWindow, height: f32, scale: f32) {
-    let height = f64::from(height);
-    let (x, y, width, current) = platform::window_frame(native);
-    if width <= 0. {
-        return;
+fn remembered_controls_bounds(
+    remembered: Option<(f64, f64)>,
+    mut preferred: Bounds<Pixels>,
+    available: Bounds<Pixels>,
+) -> Bounds<Pixels> {
+    if let Some((x, y)) = remembered.filter(|(x, y)| x.is_finite() && y.is_finite()) {
+        preferred.origin = point(px(x as f32), px(y as f32));
     }
+    fit_window_bounds(preferred, inset_work_area(available))
+}
+
+fn resized_controls_bounds(
+    current: Bounds<Pixels>,
+    height: f32,
+    available: Bounds<Pixels>,
+) -> Bounds<Pixels> {
+    fit_window_bounds(
+        Bounds {
+            origin: point(current.origin.x, current.bottom() - px(height)),
+            size: size(current.size.width, px(height)),
+        },
+        inset_work_area(available),
+    )
+}
+
+pub(crate) fn fit_controls_height(
+    native: &platform::NativeWindow,
+    height: f32,
+    available: Option<Bounds<Pixels>>,
+) {
     #[cfg(target_os = "macos")]
     {
-        let _ = (current, scale);
-        platform::set_window_frame(native, x, y, width, height);
+        let _ = available;
+        let (x, y, width, _) = platform::window_frame(native);
+        if width > 0. {
+            platform::set_window_frame(native, x, y, width, f64::from(height));
+        }
     }
     #[cfg(windows)]
     {
-        let height = height * f64::from(scale);
-        platform::set_window_frame(native, x, y + current - height, width, height);
+        let (x, y, width, current) = platform::window_logical_frame(native);
+        if width <= 0. {
+            return;
+        }
+        let current = Bounds {
+            origin: point(px(x as f32), px(y as f32)),
+            size: size(px(width as f32), px(current as f32)),
+        };
+        let fallback = Bounds {
+            origin: point(current.origin.x, current.bottom() - px(height)),
+            size: size(current.size.width, px(height)),
+        };
+        let bounds = available
+            .map(|available| resized_controls_bounds(current, height, available))
+            .unwrap_or(fallback);
+        platform::set_window_logical_frame(
+            native,
+            f32::from(bounds.origin.x).into(),
+            f32::from(bounds.origin.y).into(),
+            f32::from(bounds.size.width).into(),
+            f32::from(bounds.size.height).into(),
+        );
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_CONTROLS_OPEN_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Open the bar. Returns the native window number for capture exclusion.
@@ -5413,7 +5583,11 @@ fn open_controls(
     config: &StartConfig,
     session: Entity<RecordingSession>,
     cx: &mut App,
-) -> Option<scap_targets::WindowId> {
+) -> anyhow::Result<scap_targets::WindowId> {
+    #[cfg(test)]
+    if TEST_CONTROLS_OPEN_FAILURE.with(|failure| failure.replace(false)) {
+        anyhow::bail!("injected native failure");
+    }
     let (x, y) = controls_origin(config);
     let bounds = Bounds {
         origin: point(
@@ -5427,9 +5601,26 @@ fn open_controls(
         .display()
         .or_else(scap_targets::Display::get_containing_cursor)
         .or_else(|| Some(scap_targets::Display::primary()));
-    let display_id = gpui_display_id(display.as_ref(), cx);
-    let bounds = display_work_area(display.as_ref(), cx)
-        .map(|available| fit_window_bounds(bounds, inset_work_area(available)))
+    let remembered = crate::store::load()
+        .controls_position
+        .filter(|(x, y)| x.is_finite() && y.is_finite());
+    let remembered_display = remembered.and_then(|(x, y)| {
+        cx.displays().into_iter().find(|display| {
+            display
+                .visible_bounds()
+                .contains(&point(px(x as f32), px(y as f32)))
+        })
+    });
+    let display_id = remembered_display
+        .as_ref()
+        .map(|display| display.id())
+        .or_else(|| gpui_display_id(display.as_ref(), cx));
+    let available = remembered_display
+        .as_ref()
+        .map(|display| display.visible_bounds())
+        .or_else(|| display_work_area(display.as_ref(), cx));
+    let bounds = available
+        .map(|available| remembered_controls_bounds(remembered, bounds, available))
         .unwrap_or(bounds);
     let has_microphone = config.microphone.is_some();
 
@@ -5479,14 +5670,28 @@ fn open_controls(
                         platform::native_window(window),
                     )
                 })
-                .ok()?;
+                .map_err(|error| {
+                    anyhow::anyhow!("could not configure recording controls: {error}")
+                })?;
+            #[cfg(windows)]
+            if let Some(native) = native.as_ref()
+                && let Err(error) = platform::prepare_recording_panel(native)
+            {
+                tracing::error!(%error, "recording controls could not stay non-activating");
+                return Err(error.into());
+            }
             remove_popup_window_chrome(native, cx);
-            let number = number?;
-            number.to_string().parse().ok()
+            let number = number.ok_or_else(|| {
+                anyhow::anyhow!("recording controls have no capture-exclusion window id")
+            })?;
+            number
+                .to_string()
+                .parse()
+                .map_err(|error| anyhow::anyhow!("invalid recording controls window id: {error}"))
         }
         Err(error) => {
             tracing::error!("recording controls window failed to open: {error:#}");
-            None
+            Err(error)
         }
     }
 }
@@ -5775,6 +5980,117 @@ fn close_controls(session: &Entity<RecordingSession>, cx: &mut App) {
 mod tests {
     use super::*;
     use crate::store::{DEFAULT_EXCLUDED_WINDOW_TITLES, WindowExclusion, default_excluded_windows};
+
+    #[test]
+    fn each_instant_outcome_decides_the_copy_and_the_window() {
+        use crate::store::PostInstantBehaviour;
+        let after = |instant| recording_finish(None, Some(instant));
+        assert_eq!(
+            after(PostInstantBehaviour::ShowLibrary),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::ShowLibrary
+            }
+        );
+        assert_eq!(
+            after(PostInstantBehaviour::CopyFile),
+            RecordingFinish {
+                copy_instant: true,
+                next: AfterRecording::StayHidden
+            }
+        );
+        assert_eq!(
+            after(PostInstantBehaviour::DoNothing),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::StayHidden
+            }
+        );
+    }
+
+    #[test]
+    fn studio_outcomes_ignore_the_instant_setting() {
+        use crate::store::PostStudioBehaviour;
+        let after = |studio| recording_finish(Some(studio), None).next;
+        assert_eq!(
+            after(PostStudioBehaviour::OpenEditor),
+            AfterRecording::OpenEditor
+        );
+        assert_eq!(
+            after(PostStudioBehaviour::ShowOverlay),
+            AfterRecording::ShowMain
+        );
+        assert_eq!(
+            after(PostStudioBehaviour::DoNothing),
+            AfterRecording::StayHidden
+        );
+        assert_eq!(recording_finish(None, None).next, AfterRecording::ShowMain);
+        assert!(!recording_finish(Some(PostStudioBehaviour::OpenEditor), None).copy_instant);
+    }
+
+    #[test]
+    fn a_studio_and_an_instant_recording_finishing_together_follow_studio_and_still_copy() {
+        use crate::store::{PostInstantBehaviour, PostStudioBehaviour};
+        assert_eq!(
+            recording_finish(
+                Some(PostStudioBehaviour::OpenEditor),
+                Some(PostInstantBehaviour::CopyFile)
+            ),
+            RecordingFinish {
+                copy_instant: true,
+                next: AfterRecording::OpenEditor
+            }
+        );
+        assert_eq!(
+            recording_finish(
+                Some(PostStudioBehaviour::DoNothing),
+                Some(PostInstantBehaviour::ShowLibrary)
+            ),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::StayHidden
+            }
+        );
+        assert_eq!(
+            recording_finish(
+                Some(PostStudioBehaviour::ShowOverlay),
+                Some(PostInstantBehaviour::DoNothing)
+            ),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::ShowMain
+            }
+        );
+    }
+
+    #[test]
+    fn remembered_controls_position_survives_reopen_and_fits_a_changed_work_area() {
+        let state = crate::store::PersistedState {
+            controls_position: Some((-2000., 900.)),
+            ..Default::default()
+        };
+        let state: crate::store::PersistedState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        let available = Bounds {
+            origin: point(px(-1440.), px(-180.)),
+            size: size(px(1440.), px(850.)),
+        };
+        let preferred = Bounds {
+            origin: point(px(-1000.), px(300.)),
+            size: size(px(CONTROLS_WIDTH), px(CONTROLS_BAR_HEIGHT)),
+        };
+        let restored = remembered_controls_bounds(state.controls_position, preferred, available);
+        assert_eq!(restored.origin, point(px(-1424.), px(594.)));
+        let old: crate::store::PersistedState = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.controls_position, None);
+        assert_eq!(
+            remembered_controls_bounds(Some((f64::NAN, 2.)), preferred, available),
+            preferred
+        );
+        let expanded = resized_controls_bounds(restored, 212., available);
+        assert_eq!(expanded.bottom(), restored.bottom());
+        assert_eq!(expanded.size.height, px(212.));
+    }
 
     #[test]
     fn arranged_windows_are_kept_only_once_capture_starts() {
@@ -6778,6 +7094,90 @@ mod countdown_hotkey_tests {
             assert!(Mode::from_store() == mode);
             main.update(cx, |main, _, _| main.cancel_deep_link_start())
                 .unwrap();
+        });
+    }
+}
+
+#[cfg(test)]
+mod controls_preflight_tests {
+    use super::*;
+
+    #[gpui::test]
+    fn controls_preparation_failure_stops_before_capture_and_restores_the_picker(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        struct ResetStore;
+        impl Drop for ResetStore {
+            fn drop(&mut self) {
+                crate::store::set_test_tauri_store_path(None);
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let storage = directory.path().join("storage");
+        std::fs::create_dir_all(&storage).unwrap();
+        crate::store::set_test_tauri_store_path(Some(directory.path().join("store")));
+        let _reset = ResetStore;
+        assert!(crate::store::set_store_setting(
+            crate::store::GENERAL_SETTINGS,
+            "storagePath",
+            serde_json::json!(storage)
+        ));
+        assert!(crate::store::set_has_completed_startup(true));
+        assert!(crate::store::set_has_completed_onboarding(true));
+        let session = cx.update(|cx| {
+            crate::feeds::Feeds::init(cx);
+            crate::media_access::MediaAccess::init(cx);
+            crate::target_overlay::TargetSelect::init(cx);
+            RecordingSession::init(cx)
+        });
+        let observed_session = session.clone();
+        let main = cx.add_window(move |window, cx| MainWindow::new(observed_session, window, cx));
+        cx.update(|cx| {
+            cx.set_global(AppWindows {
+                main,
+                controls: None,
+                countdown: None,
+                countdown_focus: CountdownFocus::default(),
+                camera: None,
+                settings: None,
+                onboarding: None,
+                mode_select: None,
+                teleprompter: None,
+                overlays: Vec::new(),
+                editors: Vec::new(),
+                deleting_editors: HashSet::new(),
+                preparing_cleanup: crate::editor_preparing::PreparingCleanupRegistry::default(),
+                screenshot_editors: Vec::new(),
+                main_hidden_for_picker: true,
+                main_visible_before_picker: true,
+                editor_hidden_for_picker: None,
+                camera_park: CameraPark::default(),
+            });
+            TEST_CONTROLS_OPEN_FAILURE.with(|failure| failure.set(true));
+            begin_recording_after_preflight(
+                StartConfig {
+                    mode: RecordingMode::Studio,
+                    target: ScreenCaptureTarget::CameraOnly,
+                    microphone: None,
+                    camera: None,
+                    device_settings: Default::default(),
+                    input_readiness: Default::default(),
+                    system_audio: false,
+                    excluded_windows: Vec::new(),
+                    camera_feed: None,
+                    mic_feed: None,
+                    mic_meter: None,
+                    start_gate: None,
+                },
+                cx,
+            );
+            assert_eq!(session.read(cx).phase, Phase::Idle);
+            assert!(!session.read(cx).controls_open);
+            let error = session.read(cx).error.as_deref().unwrap();
+            assert!(error.contains("Couldn't open recording controls"));
+            assert!(!error.contains("injected native failure"));
+            assert!(!cx.global::<AppWindows>().main_hidden_for_picker);
+            assert!(cx.global::<AppWindows>().controls.is_none());
         });
     }
 }

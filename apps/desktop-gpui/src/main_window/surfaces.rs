@@ -495,7 +495,10 @@ impl MainWindow {
             .text_size(px(11.))
             .text_color(theme.muted_foreground)
             .child(self.settings_button(cx))
-            .child(self.render_footer_note())
+            .child(
+                self.render_recording_options_summary(cx)
+                    .unwrap_or_else(|| self.render_footer_note()),
+            )
             .child(library)
     }
 

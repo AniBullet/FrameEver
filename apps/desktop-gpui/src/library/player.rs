@@ -18,7 +18,7 @@ mod clock;
 pub mod strip;
 mod timeline;
 mod timer;
-mod video;
+pub(crate) mod video;
 
 use audio::{AudioCommand, Feed, Output};
 use clock::Clock;

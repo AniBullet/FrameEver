@@ -1068,6 +1068,23 @@ mod mac {
         unsafe { native.0.ignoresMouseEvents() == click_through }
     }
 
+    pub(crate) fn set_ink_overlay_interactive(
+        native: &NativeWindow,
+        interactive: bool,
+    ) -> std::io::Result<()> {
+        if set_window_click_through(native, !interactive) {
+            Ok(())
+        } else {
+            Err(std::io::Error::other("ink overlay input was not changed"))
+        }
+    }
+
+    pub(crate) fn foreground_window() -> Option<isize> {
+        None
+    }
+
+    pub(crate) fn restore_foreground_window(_window: isize) {}
+
     /// `orderOut:` -- hide without closing, the way the Tauri main window
     /// hides while the recording controls bar is up. Takes the retained
     /// handle for the same reason [`place_overlay_panel`] does: ordering a

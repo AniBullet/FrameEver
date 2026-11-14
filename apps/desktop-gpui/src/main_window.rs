@@ -7,6 +7,7 @@
 //! considerably easier to check against the original than `12.` and `10.`.
 
 mod library_page;
+mod recording_options;
 pub mod shell;
 mod surfaces;
 
@@ -810,6 +811,10 @@ struct MicrophoneWarning {
 pub struct MainWindow {
     theme: Theme,
     mode: Mode,
+    recording_options_open: bool,
+    recording_options_save_failed: bool,
+    recording_options_trigger: FocusHandle,
+    recording_options_focus: FocusHandle,
     mode_hover: ModeHoverState,
     mode_hover_task: Option<Task<()>>,
     mode_hover_bounds: [Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>; 3],
@@ -841,6 +846,7 @@ pub struct MainWindow {
     /// The real field. `ui::TextInputState` owns the caret, the selection and
     /// the clipboard; this window owns what Escape means.
     search_input: Entity<ui::TextInputState>,
+    palette: crate::command_palette::view::Slot,
     _search_events: gpui::Subscription,
     _library_name_events: gpui::Subscription,
     /// True until the background enumeration has reported back, so the panel can
@@ -910,6 +916,7 @@ impl MainWindow {
         });
         cx.observe_window_activation(window, |this, window, cx| {
             if !window.is_window_active() {
+                this.close_recording_options(window, cx);
                 this.clear_mode_hover();
             } else {
                 MediaAccess::global(cx).update(cx, |access, cx| access.refresh(cx));
@@ -937,6 +944,7 @@ impl MainWindow {
         cx.observe_in(&session, window, move |this, session, window, cx| {
             let phase = session.read(cx).phase;
             if phase != Phase::Idle {
+                this.recording_options_open = false;
                 this.pause_library_preview(cx);
                 this.clear_library_scrub(cx);
                 this.close_library_overlay(window, cx);
@@ -1085,6 +1093,10 @@ impl MainWindow {
             // window has to start where the store left it rather than at a
             // hardcoded Instant.
             mode: Mode::from_store(),
+            recording_options_open: false,
+            recording_options_save_failed: false,
+            recording_options_trigger: cx.focus_handle().tab_stop(true).tab_index(0),
+            recording_options_focus: cx.focus_handle(),
             mode_hover: ModeHoverState::default(),
             mode_hover_task: None,
             mode_hover_bounds: std::array::from_fn(|_| Rc::new(Cell::new(None))),
@@ -1110,6 +1122,7 @@ impl MainWindow {
             panel: None,
             search: String::new(),
             search_input,
+            palette: Default::default(),
             _search_events: search_events,
             _library_name_events: library_name_events,
             shell: Shell::launch(crate::store::load().main_window),
@@ -1878,6 +1891,7 @@ impl MainWindow {
         {
             return;
         }
+        self.recording_options_open = false;
         self.mode = mode;
         // Open overlays label their start button with the mode.
         let select = crate::target_overlay::TargetSelect::global(cx);
@@ -2799,6 +2813,11 @@ impl Render for MainWindow {
         div()
             .track_focus(&self.focus_handle)
             .key_context("MainWindow")
+            .on_action(cx.listener(
+                |this, _: &crate::command_palette::view::Toggle, window, cx| {
+                    this.toggle_palette(window, cx);
+                },
+            ))
             .on_action(cx.listener(|this, _: &ToggleLibrary, window, cx| {
                 this.toggle_library(window, cx);
             }))
@@ -2918,6 +2937,7 @@ impl Render for MainWindow {
                     .flatten(),
             )
             .children(self.render_mode_hover(cx))
+            .children(self.render_recording_options(cx))
             .when(
                 // The controls bar owns the live-recording UI; this overlay is
                 // the fallback for when the bar window failed to open.
@@ -2952,6 +2972,7 @@ impl Render for MainWindow {
                 this.children(self.render_library_undo(cx))
                     .children(self.render_library_dialog(cx))
             })
+            .children(self.palette.view())
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" && this.dismiss_main(false, window, cx) {
                     cx.stop_propagation();
@@ -3812,6 +3833,9 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.close_recording_options(window, cx) {
+            return true;
+        }
         let layers = EscLayers {
             library_dialog: self.library.dialog_open(),
             whole_screen: self.library_full_screen(),
@@ -3860,7 +3884,47 @@ impl MainWindow {
         self.shell.is_compact()
     }
 
+    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::command_palette::{Surface, view};
+        if self.library.dialog_open() {
+            return;
+        }
+        let surface = if self.shell.shows_library() {
+            Surface::Library
+        } else {
+            Surface::Recorder
+        };
+        let mut slot = std::mem::take(&mut self.palette);
+        view::toggle(&mut slot, surface, Self::on_palette_event, window, cx);
+        self.palette = slot;
+    }
+
+    fn on_palette_event(
+        &mut self,
+        palette: &Entity<crate::command_palette::view::CommandPalette>,
+        event: &crate::command_palette::view::PaletteEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::command_palette::{Command, view};
+        self.palette.close(window, cx);
+        cx.notify();
+        let view::PaletteEvent::Chosen(outcome) = event else {
+            return;
+        };
+        match view::act(palette, outcome, cx) {
+            Some(Command::StartRecording) => self.start_recording(window, cx),
+            Some(Command::BackToRecording) => self.collapse_library(window, cx),
+            Some(Command::ExportSelection) => self.export_library_selection(window, cx),
+            Some(Command::GridView) => self.show_library_as(ViewMode::Grid, cx),
+            Some(Command::ListView) => self.show_library_as(ViewMode::List, cx),
+            Some(Command::RefreshLibrary) => self.refresh_library(window, cx),
+            _ => {}
+        }
+    }
+
     pub fn expand_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.recording_options_open = false;
         if self.panel.is_some() {
             self.close_panel(cx);
         }
@@ -4001,6 +4065,7 @@ impl MainWindow {
     }
 
     pub fn open_panel(&mut self, panel: Panel, window: &mut Window, cx: &mut Context<Self>) {
+        self.recording_options_open = false;
         self.collapse_library(window, cx);
         self.input_poll_task = None;
         self.input_poll_generation = self.input_poll_generation.wrapping_add(1);

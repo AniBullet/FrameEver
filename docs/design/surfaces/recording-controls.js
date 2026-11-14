@@ -333,12 +333,13 @@ const summary = () => {
 const optPop = (bottom) => {
 	const studio = opt.mode === "studio";
 	return `<div class="opt-pop" style="bottom:${bottom}px" role="dialog" aria-label="${pick("Recording options", "录制选项")}">
-		<div class="opt-row"><span class="grow">${studio ? L("Quality", "画质") : L("Resolution", "分辨率")}</span>${
+		<div class="opt-head"><span>${L("Recording options", "录制选项")}</span><button data-opt="toggle" aria-label="${pick("Close", "关闭")}">${icon("x", "sm")}</button></div>
+		<div class="opt-row"><span class="grow">${studio ? L("Studio quality", "工作室画质") : L("Instant resolution", "即时录制分辨率")}</span>${
 			studio
 				? seg("quality", opt.quality, [
-						["small", "Smaller", "更小"],
+						["small", "Smaller files", "更小的文件"],
 						["balanced", "Balanced", "均衡"],
-						["max", "Maximum", "最高"],
+						["max", "Maximum detail", "最高细节"],
 					])
 				: seg("res", opt.res, [
 						["720", "720p"],
@@ -352,6 +353,7 @@ const optPop = (bottom) => {
 			opt.fps,
 			[
 				["24", "24"],
+				["25", "25"],
 				["30", "30"],
 				["60", "60"],
 				["120", "120"],
@@ -384,6 +386,7 @@ const optPop = (bottom) => {
 			],
 		)}</div>
 		${studio ? "" : `<div class="opt-row"><span class="grow">${L("Click highlight", "点击高亮")}</span><button class="switch ${opt.clicks ? "on" : ""}" data-o="clicks" aria-label="${pick("Click highlight", "点击高亮")}"></button></div>`}
+		<p class="muted" style="font-size:10px;margin:0">${L("Auto-stop and click highlight are saved for a future update.", "自动停止和点击高亮的设置已预留，将在后续更新生效。")}</p>
 		<hr style="border:0;border-top:1px solid var(--border);margin:4px 0">
 		<button class="opt-more">${L("All recording settings", "全部录制设置")}${icon("chevron-right", "sm")}</button></div>`;
 };
@@ -633,8 +636,8 @@ const copy = () => {
 				["Error and low storage", "错误和空间不足"],
 				["Ours: banner above the bar", "我们：控制条上方的横幅"],
 				[
-					"Same card, now dismissible, and the warning button brings it back",
-					"同样的卡片，现在可关闭，警告按钮可再打开",
+					"Dismissible card; the warning button brings it back. Raw causes sit behind Details, with Export logs",
+					"卡片可关闭，警告按钮可再打开。原始错误放在详情中，并可导出日志",
 				],
 			],
 			[
@@ -643,7 +646,7 @@ const copy = () => {
 					"Upstream fixed it; ours keeps a 150 px window that blocks clicks above the bar",
 					"上游已修；我们的窗口固定 150 px，挡住控制条上方的点击",
 				],
-				["Port upstream's fit", "移植上游做法"],
+				["Grow only for visible cards, keeping the bar inside the display work area", "只为可见卡片增高，控制条保持在显示器工作区内"],
 			],
 			[
 				["Countdown in the bar, cancel", "控制条内倒计时、取消"],
@@ -656,7 +659,7 @@ const copy = () => {
 			[
 				["Drag anywhere", "随意拖动"],
 				["Ours: handle on the right", "我们：手柄在右侧"],
-				["Handle on the left, position remembered", "手柄移到左侧，并记住位置"],
+				["Handle on the left; remember the bar position and fit it when displays change", "手柄移到左侧；记住控制条位置，显示器变化时限制在工作区内"],
 			],
 			[
 				["Quality link on the mode panel", "模式面板的画质链接"],
