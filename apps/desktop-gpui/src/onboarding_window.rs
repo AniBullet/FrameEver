@@ -723,7 +723,7 @@ impl OnboardingWindow {
 
 fn mode_doodle(mode: Mode) -> &'static crate::doodle::Doodle {
     match mode {
-        Mode::Instant => &crate::onboarding_doodles::UPLOAD,
+        Mode::Instant => &crate::onboarding_doodles::BOLT,
         Mode::Studio => &crate::onboarding_doodles::TRACKS,
         Mode::Screenshot => &crate::onboarding_doodles::SNAP,
     }
@@ -780,12 +780,8 @@ impl OnboardingWindow {
         div()
             .rounded(px(12.))
             .border_1()
-            .border_color(self.theme.body_border(4))
-            .bg(if self.theme.is_dark() {
-                self.theme.body_fill(2)
-            } else {
-                gpui::white()
-            })
+            .border_color(self.theme.border)
+            .bg(stage::Paper::new(&self.theme).card)
     }
 
     fn paper_card(&self) -> Div {
@@ -1171,7 +1167,7 @@ impl OnboardingWindow {
                                     .border_color(if active == index {
                                         theme.foreground
                                     } else {
-                                        theme.gray_5
+                                        theme.border
                                     })
                                     .bg(if active == index {
                                         theme.body_fill(7)
@@ -1192,7 +1188,7 @@ impl OnboardingWindow {
                                         glyph(
                                             mode.icon,
                                             if active == index { 35. } else { 32. },
-                                            theme.gray_12,
+                                            theme.foreground,
                                         )
                                         .opacity(if active == index { 1. } else { 0.5 }),
                                     )
@@ -1204,9 +1200,9 @@ impl OnboardingWindow {
                                 tr(mode.title),
                                 14.,
                                 if active == index {
-                                    theme.gray_12
+                                    theme.foreground
                                 } else {
-                                    theme.gray_9
+                                    theme.muted_foreground
                                 },
                             )
                             .w(px(80.))
@@ -1232,10 +1228,10 @@ impl OnboardingWindow {
                 (t!("Recording Preferences"), t!("FPS, quality, countdown timer, cursor effects, and more")),
             ].into_iter().map(|(title, description)| {
                 self.paper_card().rounded(px(16.)).px(px(18.)).py(px(13.)).flex().flex_col().gap(px(4.))
-                    .child(copy(title, 13., theme.gray_12).font_weight(FontWeight::MEDIUM))
-                    .child(copy(description, 11., theme.gray_10).line_height(px(15.)))
+                    .child(copy(title, 13., theme.foreground).font_weight(FontWeight::MEDIUM))
+                    .child(copy(description, 11., theme.muted_foreground).line_height(px(15.)))
             })))
-            .child(copy(t!("Change any of these at any time in Settings"), 12., theme.gray_9))
+            .child(copy(t!("Change any of these at any time in Settings"), 12., theme.muted_foreground))
             .into_any_element()
     }
 
@@ -1281,7 +1277,7 @@ impl OnboardingWindow {
                                         cx.notify();
                                     }))
                                     .child(
-                                        copy(tr(question), 13., theme.gray_12)
+                                        copy(tr(question), 13., theme.foreground)
                                             .font_weight(FontWeight::MEDIUM),
                                     )
                                     .child(glyph(
@@ -1291,13 +1287,16 @@ impl OnboardingWindow {
                                             "icons/chevron-down.svg"
                                         },
                                         16.,
-                                        theme.gray_10,
+                                        theme.muted_foreground,
                                     )),
                             )
                             .when(open, |el| {
-                                el.child(div().px(px(20.)).pb(px(16.)).child(
-                                    copy(tr(answer), 13., theme.gray_10).line_height(px(20.)),
-                                ))
+                                el.child(
+                                    div().px(px(20.)).pb(px(16.)).child(
+                                        copy(tr(answer), 13., theme.muted_foreground)
+                                            .line_height(px(20.)),
+                                    ),
+                                )
                             })
                     })),
             )
@@ -1468,7 +1467,7 @@ impl OnboardingWindow {
                     .items_center()
                     .gap(px(8.))
                     .when(index > 0, |el| {
-                        el.child(div().w(px(12.)).h(px(1.)).bg(theme.gray_5))
+                        el.child(div().w(px(12.)).h(px(1.)).bg(theme.border))
                     })
                     .child(
                         div()
@@ -1482,7 +1481,7 @@ impl OnboardingWindow {
                             .border_color(if index == active {
                                 theme.border_strong
                             } else {
-                                theme.gray_4
+                                theme.secondary_hover
                             })
                             .bg(if index == active {
                                 Hsla::from(theme.selection)
@@ -1495,7 +1494,7 @@ impl OnboardingWindow {
                                 if index == active {
                                     theme.selection_foreground
                                 } else {
-                                    theme.gray_9
+                                    theme.muted_foreground
                                 },
                             ))
                             .child(copy(
@@ -1504,7 +1503,7 @@ impl OnboardingWindow {
                                 if index == active {
                                     theme.selection_foreground
                                 } else {
-                                    theme.gray_10
+                                    theme.muted_foreground
                                 },
                             )),
                     )
@@ -1584,8 +1583,8 @@ impl OnboardingWindow {
                             .items_center()
                             .px(px(12.))
                             .border_l_1()
-                            .border_color(rgba(0xffffff33))
-                            .bg(rgba(0xffffff0d))
+                            .border_color(self.theme.primary_active)
+                            .bg(self.theme.primary_hover)
                             .child(glyph("icons/chevron-down.svg", 16., gpui::white())),
                     ),
             )
@@ -1598,11 +1597,6 @@ impl OnboardingWindow {
         let stopped = self.demo_phase >= 6;
         let time = format!("0:0{}", self.demo_phase.saturating_sub(2).min(3));
         self.card()
-            .bg(if theme.is_dark() {
-                theme.gray_1.into()
-            } else {
-                gpui::white()
-            })
             .w_full()
             .min_w(px(280.))
             .h(px(40.))
@@ -1626,7 +1620,7 @@ impl OnboardingWindow {
                             .px(px(8.))
                             .flex_shrink_0()
                             .when(stopped, |el| {
-                                el.child(div().size(px(8.)).rounded_full().bg(theme.gray_8))
+                                el.child(div().size(px(8.)).rounded_full().bg(theme.border_strong))
                             })
                             .when(!stopped, |el| {
                                 el.child(glyph("icons/circle-stop.svg", 20., theme.danger_text))
@@ -1635,7 +1629,7 @@ impl OnboardingWindow {
                                 if stopped { t!("Stopped").into() } else { time },
                                 14.,
                                 if stopped {
-                                    Hsla::from(theme.gray_10)
+                                    Hsla::from(theme.muted_foreground)
                                 } else {
                                     theme.danger_text.into()
                                 },
@@ -1653,7 +1647,7 @@ impl OnboardingWindow {
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .child(glyph("icons/mic.svg", 20., theme.gray_12))
+                                    .child(glyph("icons/mic.svg", 20., theme.foreground))
                                     .child(
                                         div()
                                             .absolute()
@@ -1662,7 +1656,7 @@ impl OnboardingWindow {
                                             .right(px(4.))
                                             .h(px(2.))
                                             .rounded_full()
-                                            .bg(theme.gray_10)
+                                            .bg(theme.muted_foreground)
                                             .child(
                                                 div().w(relative(0.6)).h_full().bg(theme.primary),
                                             ),
@@ -1682,7 +1676,7 @@ impl OnboardingWindow {
                                         .flex()
                                         .items_center()
                                         .justify_center()
-                                        .child(glyph(path, 20., theme.gray_11))
+                                        .child(glyph(path, 20., theme.muted_foreground))
                                 }),
                             ),
                     ),
@@ -1695,9 +1689,13 @@ impl OnboardingWindow {
                     .items_center()
                     .justify_center()
                     .border_l_1()
-                    .border_color(theme.gray_5)
+                    .border_color(theme.border)
                     .opacity(if stopped { 0.45 } else { 1. })
-                    .child(glyph("icons/ellipsis-vertical.svg", 20., theme.gray_10)),
+                    .child(glyph(
+                        "icons/ellipsis-vertical.svg",
+                        20.,
+                        theme.muted_foreground,
+                    )),
             )
     }
 
@@ -1705,11 +1703,6 @@ impl OnboardingWindow {
         let theme = self.theme;
         let copied = self.demo_phase >= 8;
         self.card()
-            .bg(if theme.is_dark() {
-                theme.gray_1.into()
-            } else {
-                gpui::white()
-            })
             .w_full()
             .max_w(px(340.))
             .overflow_hidden()
@@ -1731,7 +1724,7 @@ impl OnboardingWindow {
                             .justify_center()
                             .child(glyph("icons/check.svg", 14., self.success_palette().2)),
                     )
-                    .child(copy(t!("Video saved!"), 12., theme.gray_12)),
+                    .child(copy(t!("Video saved!"), 12., theme.foreground)),
             )
             .child(
                 div()
@@ -1743,7 +1736,11 @@ impl OnboardingWindow {
                     .p(px(8.))
                     .rounded(px(8.))
                     .bg(theme.body_fill(3))
-                    .child(copy("Recording.mp4", 11., theme.gray_11).flex_1().min_w_0())
+                    .child(
+                        copy("Recording.mp4", 11., theme.muted_foreground)
+                            .flex_1()
+                            .min_w_0(),
+                    )
                     .child(
                         div()
                             .flex()
@@ -1786,11 +1783,6 @@ impl OnboardingWindow {
     fn demo_document(&self) -> Div {
         let theme = self.theme;
         self.card()
-            .bg(if theme.is_dark() {
-                theme.gray_1.into()
-            } else {
-                gpui::white()
-            })
             .flex()
             .flex_col()
             .justify_center()
@@ -1801,7 +1793,7 @@ impl OnboardingWindow {
                     .w(relative(0.75))
                     .h(px(6.))
                     .rounded_full()
-                    .bg(theme.gray_5)
+                    .bg(theme.border)
                     .opacity(0.5),
             )
             .child(
@@ -1809,7 +1801,7 @@ impl OnboardingWindow {
                     .w(relative(0.5))
                     .h(px(6.))
                     .rounded_full()
-                    .bg(theme.gray_5)
+                    .bg(theme.border)
                     .opacity(0.3),
             )
             .child(
@@ -1818,7 +1810,7 @@ impl OnboardingWindow {
                     .h(px(20.))
                     .mt(px(4.))
                     .rounded(px(3.))
-                    .bg(theme.gray_5)
+                    .bg(theme.border)
                     .opacity(0.2),
             )
     }
@@ -1834,11 +1826,6 @@ impl OnboardingWindow {
             25
         };
         self.card()
-            .bg(if theme.is_dark() {
-                theme.gray_1.into()
-            } else {
-                gpui::white()
-            })
             .relative()
             .size_full()
             .flex()
@@ -1853,14 +1840,14 @@ impl OnboardingWindow {
                     .justify_between()
                     .px(px(12.))
                     .border_b_1()
-                    .border_color(theme.gray_3)
+                    .border_color(theme.secondary)
                     .child(
                         div()
                             .flex()
                             .items_center()
                             .gap(px(8.))
                             .child(self.demo_window_dots())
-                            .child(copy("FrameEver Editor", 10., theme.gray_11)),
+                            .child(copy("FrameEver Editor", 10., theme.muted_foreground)),
                     )
                     .child(
                         copy(t!("Export"), 9., gpui::white())
@@ -1894,28 +1881,28 @@ impl OnboardingWindow {
                             .w(px(90.))
                             .flex_shrink_0()
                             .border_l_1()
-                            .border_color(theme.gray_3)
+                            .border_color(theme.secondary)
                             .p(px(8.))
                             .flex()
                             .flex_col()
                             .gap(px(6.))
-                            .child(copy("STYLE", 8., theme.gray_9))
+                            .child(copy("STYLE", 8., theme.muted_foreground))
                             .child(
                                 div()
                                     .h(px(20.))
                                     .rounded(px(3.))
                                     .border_1()
-                                    .border_color(theme.gray_3)
+                                    .border_color(theme.secondary)
                                     .bg(theme.body_fill(2)),
                             )
-                            .child(copy("BACKGROUND", 8., theme.gray_9).mt(px(4.)))
+                            .child(copy("BACKGROUND", 8., theme.muted_foreground).mt(px(4.)))
                             .child(div().flex().gap(px(4.)).children(
                                 [0x667eea, 0xf78c88, 0xcccccc].map(|color| {
                                     div()
                                         .size(px(16.))
                                         .rounded_full()
                                         .border_1()
-                                        .border_color(theme.gray_3)
+                                        .border_color(theme.secondary)
                                         .bg(rgb(color))
                                 }),
                             )),
@@ -1925,7 +1912,7 @@ impl OnboardingWindow {
                             div()
                                 .absolute()
                                 .inset_0()
-                                .bg(rgba(0x00000040))
+                                .bg(theme.overlay)
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -1957,7 +1944,7 @@ impl OnboardingWindow {
                                                         t!("Exporting...")
                                                     },
                                                     14.,
-                                                    theme.gray_12,
+                                                    theme.foreground,
                                                 )),
                                         )
                                         .child(
@@ -1965,7 +1952,7 @@ impl OnboardingWindow {
                                                 .w_full()
                                                 .h(px(8.))
                                                 .rounded_full()
-                                                .bg(theme.gray_4)
+                                                .bg(theme.secondary_hover)
                                                 .overflow_hidden()
                                                 .child(
                                                     div()
@@ -1975,7 +1962,11 @@ impl OnboardingWindow {
                                                         .bg(theme.primary),
                                                 ),
                                         )
-                                        .child(copy(format!("{progress}%"), 12., theme.gray_10)),
+                                        .child(copy(
+                                            format!("{progress}%"),
+                                            12.,
+                                            theme.muted_foreground,
+                                        )),
                                 ),
                         )
                     }),
@@ -1984,7 +1975,7 @@ impl OnboardingWindow {
                 div()
                     .flex_shrink_0()
                     .border_t_1()
-                    .border_color(theme.gray_3)
+                    .border_color(theme.secondary)
                     .px(px(12.))
                     .py(px(8.))
                     .child(
@@ -1996,31 +1987,33 @@ impl OnboardingWindow {
                             .px(px(8.))
                             .rounded(px(8.))
                             .border_1()
-                            .border_color(theme.gray_3)
+                            .border_color(theme.secondary)
                             .child(
                                 div()
                                     .flex_1()
                                     .h(px(3.))
                                     .rounded_full()
-                                    .bg(theme.gray_4)
+                                    .bg(theme.secondary_hover)
                                     .child(
                                         div()
                                             .w(relative(0.42))
                                             .h_full()
                                             .rounded_full()
-                                            .bg(theme.gray_8),
+                                            .bg(theme.border_strong),
                                     ),
                             )
-                            .child(copy("0:12", 8., theme.gray_10)),
+                            .child(copy("0:12", 8., theme.muted_foreground)),
                     ),
             )
     }
 
     fn demo_window_dots(&self) -> Div {
-        div()
-            .flex()
-            .gap(px(4.))
-            .children((0..3).map(|_| div().size(px(8.)).rounded_full().bg(self.theme.gray_6)))
+        div().flex().gap(px(4.)).children((0..3).map(|_| {
+            div()
+                .size(px(8.))
+                .rounded_full()
+                .bg(self.theme.secondary_active)
+        }))
     }
 
     fn demo_screenshot(&self) -> AnyElement {
@@ -2085,7 +2078,7 @@ impl OnboardingWindow {
                 .overflow_hidden()
                 .opacity(if phase == 0 { 0. } else { 1. })
                 .when(phase >= 2, |el| {
-                    el.child(div().absolute().inset_0().bg(rgba(0x00000073)))
+                    el.child(div().absolute().inset_0().bg(theme.overlay))
                 })
                 .when(phase >= 3, |el| el.child(selection))
                 .when(phase == 2, |el| {
@@ -2113,7 +2106,7 @@ impl OnboardingWindow {
                     .justify_between()
                     .px(px(12.))
                     .border_b_1()
-                    .border_color(theme.gray_3)
+                    .border_color(theme.secondary)
                     .child(self.demo_window_dots())
                     .child(
                         div().flex().gap(px(4.)).children(
@@ -2132,7 +2125,7 @@ impl OnboardingWindow {
                                     .justify_center()
                                     .rounded(px(4.))
                                     .bg(theme.body_fill(3))
-                                    .child(glyph(path, 12., theme.gray_11))
+                                    .child(glyph(path, 12., theme.muted_foreground))
                             }),
                         ),
                     )
@@ -2141,7 +2134,7 @@ impl OnboardingWindow {
                             .flex()
                             .gap(px(4.))
                             .child(
-                                copy(t!("Copy"), 9., theme.gray_12)
+                                copy(t!("Copy"), 9., theme.foreground)
                                     .px(px(6.))
                                     .py(px(4.))
                                     .rounded(px(4.))
@@ -2197,7 +2190,7 @@ impl OnboardingWindow {
                                             .child(copy(
                                                 t!("Copied to clipboard"),
                                                 11.,
-                                                theme.gray_12,
+                                                theme.foreground,
                                             )),
                                     ),
                             )

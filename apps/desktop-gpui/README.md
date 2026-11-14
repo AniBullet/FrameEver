@@ -187,16 +187,16 @@ is how probe runs avoid touching real settings.
 | `toggle.rs`, `slider.rs`, `segmented.rs` | switch, slider with its snapping maths, segmented control |
 | `menu.rs`, `select.rs` | `MenuState` (the keyboard contract) and `Menu`; `Select`, the trigger a menu opens from |
 | `text_input.rs` | `TextInputState` and `TextInput`, see [Text input](#text-input) |
-| `surface.rs` | `Card`, `Popover`, `SettingRow`, `Section` |
+| `surface.rs` | `Card`, `SettingRow`, `Section` |
 | `collapsible.rs` | `Collapsible`, with measured-height animation |
-| `tab_rail.rs`, `field.rs`, `editor_button.rs` | the editor sidebar's tab rail, labelled setting containers and header buttons |
-| `radio_cards.rs`, `number_field.rs`, `position_pad.rs` | full-width radio cards, a number field with its raw-value state machine, the 2D focal-point pad |
+| `field.rs`, `editor_button.rs` | labelled setting containers and header buttons |
+| `radio_cards.rs`, `number_text.rs`, `position_pad.rs` | full-width radio cards, number parsing and printing for the inspector fields, the 2D focal-point pad |
 | `selection_header.rs` | the Done / "N selected" / Delete row the segment panels open with |
 | `progress.rs`, `kbd.rs`, `tooltip.rs` | circular progress, key chips, tooltips over gpui's `.tooltip()` |
 | `color_picker.rs`, `microphone_level.rs`, `windows_caption.rs` | colour picker, live microphone meter, the Windows caption buttons |
 
 Components have one named constructor per surface (`::plain`, `::body`,
-`::settings`, `::glass`), and that surface's colours come from `theme.rs`. A
+`::settings`), and that surface's colours come from `theme.rs`. A
 call site that needs a colour no surface provides sets it on the builder.
 Handlers are `impl Fn(&ClickEvent, &mut Window, &mut App)`, which is what
 `cx.listener(..)` produces for any window, so components need no generic

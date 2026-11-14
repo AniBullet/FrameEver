@@ -705,7 +705,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("{count} selected", "已选 {count} 项"),
     ("Done", "完成"),
     ("Select all", "全选"),
-    ("Coming Soon", "即将推出"),
     ("Delete “{name}”?", "删除“{name}”？"),
     ("Deleted “{name}”", "已删除“{name}”"),
     ("Deleted {count} items", "已删除 {count} 项"),

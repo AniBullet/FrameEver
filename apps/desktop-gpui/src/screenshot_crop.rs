@@ -699,8 +699,8 @@ impl ScreenshotEditorWindow {
                         .flex_col()
                         .rounded(px(20.))
                         .border_1()
-                        .border_color(Hsla::from(theme.gray_3))
-                        .bg(Hsla::from(theme.gray_1))
+                        .border_color(Hsla::from(theme.secondary))
+                        .bg(Hsla::from(theme.background))
                         .overflow_hidden()
                         .child(self.render_crop_dialog_header(dialog, cx))
                         .child(self.render_crop_dialog_body(dialog, cx))
@@ -731,7 +731,7 @@ impl ScreenshotEditorWindow {
                 .flex_row()
                 .items_center()
                 .gap(px(12.))
-                .text_color(Hsla::from(theme.gray_11))
+                .text_color(Hsla::from(theme.muted_foreground))
                 .child(label)
                 .child(this.render_crop_dialog_field(dialog, a))
                 .child("×")
@@ -774,8 +774,8 @@ impl ScreenshotEditorWindow {
                             .size(px(32.))
                             .rounded_full()
                             .border_1()
-                            .border_color(Hsla::from(theme.gray_4))
-                            .bg(Hsla::from(theme.gray_1))
+                            .border_color(Hsla::from(theme.secondary_hover))
+                            .bg(Hsla::from(theme.background))
                             .cursor_pointer()
                             .child(match state.aspect {
                                 Some(ratio) => div()
@@ -787,7 +787,7 @@ impl ScreenshotEditorWindow {
                                 None => svg()
                                     .path("icons/ratio.svg")
                                     .size(px(16.))
-                                    .text_color(Hsla::from(theme.gray_12))
+                                    .text_color(Hsla::from(theme.foreground))
                                     .into_any_element(),
                             })
                             .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
@@ -851,8 +851,8 @@ impl ScreenshotEditorWindow {
         .height(px(32.))
         .radius(px(8.))
         .text_size(px(14.))
-        .bg(Hsla::from(theme.gray_2))
-        .border(Hsla::from(theme.gray_2))
+        .bg(Hsla::from(theme.card))
+        .border(Hsla::from(theme.card))
         .into_any_element()
     }
 
@@ -865,7 +865,7 @@ impl ScreenshotEditorWindow {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
-        let mut card_bg = Hsla::from(theme.gray_2);
+        let mut card_bg = Hsla::from(theme.card);
         card_bg.a = 0.8;
 
         div()
@@ -874,7 +874,7 @@ impl ScreenshotEditorWindow {
             .p(px(16.))
             .border_t_1()
             .border_b_1()
-            .border_color(Hsla::from(theme.gray_3))
+            .border_color(Hsla::from(theme.secondary))
             .child(
                 div()
                     .flex()
@@ -956,7 +956,7 @@ impl ScreenshotEditorWindow {
                                         gpui::hsla(0., 0., 1., 0.5)
                                     })
                                     .text_size(px(12.))
-                                    .text_color(Hsla::from(theme.gray_12))
+                                    .text_color(Hsla::from(theme.foreground))
                                     .child(SharedString::from(format!("{}:{}", ratio.0, ratio.1))),
                             )
                     }),
@@ -1028,10 +1028,10 @@ impl ScreenshotEditorWindow {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .bg(Hsla::from(theme.gray_3))
+                        .bg(Hsla::from(theme.secondary))
                         .text_size(px(12.))
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(Hsla::from(theme.gray_10))
+                        .text_color(Hsla::from(theme.muted_foreground))
                         .child(t!("Loading frame…"))
                         .into_any_element(),
                 ),

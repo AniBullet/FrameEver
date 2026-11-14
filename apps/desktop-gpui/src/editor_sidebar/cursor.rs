@@ -199,7 +199,7 @@ impl EditorWindow {
                 .child(
                     div()
                         .text_size(px(11.))
-                        .text_color(Hsla::from(theme.gray_11))
+                        .text_color(Hsla::from(theme.muted_foreground))
                         .child(t!("Recorded cursors")),
                 )
                 .into_any_element(),
@@ -222,10 +222,10 @@ impl EditorWindow {
                         .bg(Hsla::from(theme.selection))
                 } else {
                     this.border_1()
-                        .border_color(Hsla::from(theme.gray_3))
-                        .bg(Hsla::from(theme.gray_2))
+                        .border_color(Hsla::from(theme.secondary))
+                        .bg(Hsla::from(theme.card))
                         .group_hover(CARD_GROUP, |this| {
-                            this.border_color(Hsla::from(theme.gray_5))
+                            this.border_color(Hsla::from(theme.border))
                         })
                 }
             })
@@ -272,13 +272,13 @@ impl EditorWindow {
                         .line_height(px(11.))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(Hsla::from(if selected {
-                            theme.gray_12
+                            theme.foreground
                         } else {
-                            theme.gray_11
+                            theme.muted_foreground
                         }))
                         .when(!selected, |this| {
                             this.group_hover(CARD_GROUP, |this| {
-                                this.text_color(Hsla::from(theme.gray_12))
+                                this.text_color(Hsla::from(theme.foreground))
                             })
                         })
                         .child(card.label()),
@@ -337,7 +337,7 @@ impl EditorWindow {
             .child(
                 div()
                     .text_size(px(11.))
-                    .text_color(Hsla::from(self.theme.gray_11))
+                    .text_color(Hsla::from(self.theme.muted_foreground))
                     .child(description),
             )
             .into_any_element()

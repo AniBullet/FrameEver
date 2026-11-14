@@ -118,27 +118,29 @@ impl ModeSelectWindow {
                 Hsla::from(theme.foreground)
             } else if dark {
                 // `border-gray-4 dark:border-gray-5`
-                Hsla::from(theme.gray_5)
+                Hsla::from(theme.border)
             } else {
-                Hsla::from(theme.gray_4)
+                Hsla::from(theme.secondary_hover)
             })
             .bg(if selected {
                 theme.tile_selected_bg()
             } else if dark {
                 // `bg-gray-2 dark:bg-gray-3`
-                Hsla::from(theme.gray_3)
+                Hsla::from(theme.secondary)
             } else {
-                Hsla::from(theme.gray_2)
+                Hsla::from(theme.card)
             })
             .when(!selected, |this| {
                 // `hover:border-gray-6 dark:hover:border-gray-6
                 //  hover:bg-gray-3 dark:hover:bg-gray-4`
                 this.hover(move |style| {
-                    style.border_color(Hsla::from(theme.gray_6)).bg(if dark {
-                        Hsla::from(theme.gray_4)
-                    } else {
-                        Hsla::from(theme.gray_3)
-                    })
+                    style
+                        .border_color(Hsla::from(theme.secondary_active))
+                        .bg(if dark {
+                            Hsla::from(theme.secondary_hover)
+                        } else {
+                            Hsla::from(theme.secondary)
+                        })
                 })
             })
             .when(selected, |this| {
@@ -178,7 +180,7 @@ impl ModeSelectWindow {
                             // `invert dark:invert-0`: a monochrome glyph in the
                             // foreground colour. gpui tints the alpha mask, so
                             // the filter trick is just the text colour here.
-                            .text_color(theme.gray_12),
+                            .text_color(theme.foreground),
                     ),
             )
             .child(
@@ -202,7 +204,7 @@ impl ModeSelectWindow {
                             .text_color(if selected {
                                 Hsla::from(theme.selection_foreground)
                             } else {
-                                Hsla::from(theme.gray_12)
+                                Hsla::from(theme.foreground)
                             })
                             .child(mode.panel_title()),
                     )
@@ -212,7 +214,7 @@ impl ModeSelectWindow {
                             .text_size(px(12.))
                             .line_height(px(12. * 1.625))
                             .line_clamp(3)
-                            .text_color(Hsla::from(theme.gray_11))
+                            .text_color(Hsla::from(theme.muted_foreground))
                             .child(mode.card_description()),
                     ),
             )
@@ -235,11 +237,11 @@ impl Render for ModeSelectWindow {
             .flex_col()
             .justify_center()
             .items_center()
-            .bg(Hsla::from(theme.gray_1))
+            .bg(Hsla::from(theme.background))
             .font_family(crate::theme::ui_font())
             // `body { font-weight: 500 }` (`ui-solid/src/main.css:189-192`).
             .font_weight(FontWeight::MEDIUM)
-            .text_color(theme.text_primary)
+            .text_color(theme.foreground)
             .child(
                 // `flex flex-col items-center w-full px-6 py-5`
                 div()
@@ -265,14 +267,14 @@ impl Render for ModeSelectWindow {
                                     .mb(px(4.))
                                     .text_size(px(20.))
                                     .font_weight(FontWeight::BOLD)
-                                    .text_color(Hsla::from(theme.gray_12))
+                                    .text_color(Hsla::from(theme.foreground))
                                     .child(t!("Choose Recording Mode")),
                             )
                             .child(
                                 // `text-sm text-gray-11`
                                 div()
                                     .text_size(px(14.))
-                                    .text_color(Hsla::from(theme.gray_11))
+                                    .text_color(Hsla::from(theme.muted_foreground))
                                     .child(t!("Select how you want to capture your screen")),
                             ),
                     )

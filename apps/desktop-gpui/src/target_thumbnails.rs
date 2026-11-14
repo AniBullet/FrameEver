@@ -347,7 +347,7 @@ pub fn render_thumbnail_slot(
                     svg()
                         .path(icon)
                         .size(px(24.))
-                        .text_color(Hsla::from(theme.gray_9)),
+                        .text_color(Hsla::from(theme.muted_foreground)),
                 )
                 .into_any_element(),
         })

@@ -1531,10 +1531,10 @@ impl OverlayWindow {
                             &self.empty_camera_state,
                         )))
                         .border_1()
-                        .border_color(self.theme.gray_6)
+                        .border_color(self.theme.secondary_active)
                         .bg(gpui::black())
                         .text_size(px(14.))
-                        .text_color(self.theme.gray_11)
+                        .text_color(self.theme.muted_foreground)
                         .child(svg().path("icons/webcam.svg").size(px(32.)))
                         .child(t!("Please select a camera")),
                 )
@@ -1568,7 +1568,7 @@ impl OverlayWindow {
                     .child(
                         div()
                             .text_size(px(12.))
-                            .text_color(self.theme.gray_11)
+                            .text_color(self.theme.muted_foreground)
                             .child(t!("Record using only your camera and microphone")),
                     ),
             )

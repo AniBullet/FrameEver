@@ -20,11 +20,6 @@ impl RadioCard {
             disabled: false,
         }
     }
-
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
-        self
-    }
 }
 
 /// The index arrives by reference, like the other index-dispatching components,
@@ -58,13 +53,13 @@ impl RadioCards {
             id: id.into(),
             items,
             selected,
-            border: Hsla::from(theme.gray_3),
+            border: Hsla::from(theme.secondary),
             selected_border: Hsla::from(theme.border_strong),
             selected_bg,
-            dot_border: Hsla::from(theme.gray_7),
+            dot_border: Hsla::from(theme.border_strong),
             dot_fill: Hsla::from(theme.primary),
-            title: Hsla::from(theme.gray_12),
-            description: Hsla::from(theme.gray_11),
+            title: Hsla::from(theme.foreground),
+            description: Hsla::from(theme.muted_foreground),
             on_select: None,
         }
     }

@@ -215,19 +215,6 @@ pub static UNDERLINE: Doodle = Doodle {
         .draw(350, 650)],
 };
 
-/// Instant mode: the web recorder's upload cloud, arrow bobbing.
-pub static UPLOAD: Doodle = Doodle {
-    view: (120., 104.),
-    strokes: &[
-        Stroke::ink("M 34 58 L 88 58 C 98 58 106 50 106 41 C 106 32 98.5 25 89.5 25 C 86.5 25 84 25.7 81.8 27 C 79 16.5 69.5 9 58.5 9 C 47 9 37.5 16.8 34.8 27.5 C 25.2 28 17.5 35.4 17.5 44 C 17.5 52 24.8 58 34 58 Z")
-            .draw(60, 800),
-        Stroke::ink("M 60 94 L 60 70 M 49 80 L 60 68 L 71 80")
-            .with_ink(Ink::Accent)
-            .fade(700, 350)
-            .bobbing(),
-    ],
-};
-
 /// Studio mode: the editor's tracks with a playhead.
 pub static TRACKS: Doodle = Doodle {
     view: (120., 104.),
@@ -325,7 +312,6 @@ pub static LENS: Doodle = Doodle {
     ],
 };
 
-#[allow(dead_code)]
 pub static BOLT: Doodle = Doodle {
     view: (120., 104.),
     strokes: &[

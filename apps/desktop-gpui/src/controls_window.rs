@@ -745,7 +745,7 @@ impl ControlsWindow {
             bar.configure(
                 self.has_microphone && !muted,
                 theme.success.into(),
-                theme.gray_10.into(),
+                theme.muted_foreground.into(),
                 cx,
             );
         });
@@ -779,8 +779,8 @@ impl ControlsWindow {
         )
         .when(can_mute, |this| {
             this.rounded(px(8.))
-                .hover(|style| style.bg(Theme::with_alpha(theme.gray_12, 0.06)))
-                .active(|style| style.bg(Theme::with_alpha(theme.gray_12, 0.10)))
+                .hover(|style| style.bg(Theme::with_alpha(theme.foreground, 0.06)))
+                .active(|style| style.bg(Theme::with_alpha(theme.foreground, 0.10)))
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.press(Control::Microphone, window, cx);
                 }))

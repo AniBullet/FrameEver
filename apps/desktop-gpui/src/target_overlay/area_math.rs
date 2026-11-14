@@ -17,24 +17,7 @@ pub(super) const AREA_RATIOS: [Option<(u32, u32)>; 9] = [
     Some((2, 1)),
 ];
 
-pub(super) const QUICK_AREA_RATIOS: [Option<(u32, u32)>; 5] = [
-    None,
-    Some((16, 9)),
-    Some((4, 3)),
-    Some((1, 1)),
-    Some((9, 16)),
-];
-
 pub(super) const AREA_SNAP_WINDOW_MIN: f32 = 48.;
-
-pub(super) fn more_area_ratios() -> Vec<(u32, u32)> {
-    AREA_RATIOS
-        .iter()
-        .flatten()
-        .copied()
-        .filter(|ratio| !QUICK_AREA_RATIOS.contains(&Some(*ratio)))
-        .collect()
-}
 
 pub(super) fn ratio_value((width, height): (u32, u32)) -> f32 {
     width as f32 / height.max(1) as f32
@@ -498,18 +481,6 @@ mod tests {
         let crossed =
             area_edge_resize_with_ratio(AreaHandle::West, start, (900., 0.), ratio, display);
         assert_eq!((crossed.x, crossed.width), (800., 100.));
-    }
-
-    #[test]
-    fn quick_and_more_ratios_cover_every_ratio_once() {
-        let more = more_area_ratios();
-        assert_eq!(more, vec![(16, 10), (21, 9), (3, 2), (2, 1)]);
-        let mut all: Vec<Option<(u32, u32)>> = QUICK_AREA_RATIOS.to_vec();
-        all.extend(more.into_iter().map(Some));
-        all.sort();
-        let mut expected = AREA_RATIOS.to_vec();
-        expected.sort();
-        assert_eq!(all, expected);
     }
 
     #[test]

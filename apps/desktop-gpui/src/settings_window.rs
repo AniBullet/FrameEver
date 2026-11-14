@@ -2520,9 +2520,9 @@ impl SettingsWindow {
             .thumb(
                 px(16.),
                 if theme.is_dark() {
-                    Hsla::from(theme.gray_12)
+                    Hsla::from(theme.foreground)
                 } else {
-                    Hsla::from(theme.gray_1)
+                    Hsla::from(theme.background)
                 },
                 Some(theme.settings_border()),
             )

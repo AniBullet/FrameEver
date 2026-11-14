@@ -93,8 +93,8 @@ impl EditorButton {
     /// with `text-gray-1` on it, not a wash.
     pub fn danger(mut self, theme: &Theme) -> Self {
         self.variant = EditorButtonVariant::Danger;
-        self.pressed_bg = Hsla::from(theme.red_300);
-        self.pressed_text = Hsla::from(theme.gray_1);
+        self.pressed_bg = Hsla::from(theme.recording);
+        self.pressed_text = Hsla::from(theme.background);
         self
     }
 
@@ -116,11 +116,6 @@ impl EditorButton {
 
     pub fn right_icon(mut self, icon: impl Into<SharedString>) -> Self {
         self.right_icon = Some(icon.into());
-        self
-    }
-
-    pub fn right_icon_end(mut self, end: bool) -> Self {
-        self.right_icon_end = end;
         self
     }
 

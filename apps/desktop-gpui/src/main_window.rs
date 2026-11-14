@@ -2927,7 +2927,7 @@ impl Render for MainWindow {
             // *everything* Medium unless a `font-*` class says otherwise, so
             // Medium -- not Regular -- is the inherited default at every root.
             .font_weight(FontWeight::MEDIUM)
-            .text_color(theme.text_primary)
+            .text_color(theme.foreground)
             .child(self.render_header(window, cx))
             .child(self.render_body(cx))
             .children(
@@ -3014,17 +3014,17 @@ impl MainWindow {
                     .rounded(px(12.))
                     .border_1()
                     .border_color(theme.body_border(6))
-                    .bg(theme.gray_1)
+                    .bg(theme.background)
                     .p(px(16.))
                     .flex()
                     .flex_col()
                     .gap(px(12.))
-                    .child(div().text_size(px(15.)).text_color(theme.gray_12).child(t!("No microphone detected")))
+                    .child(div().text_size(px(15.)).text_color(theme.foreground).child(t!("No microphone detected")))
                     .child(
                         div()
                             .text_size(px(12.))
                             .line_height(px(18.))
-                            .text_color(theme.gray_11)
+                            .text_color(theme.muted_foreground)
                             .child(t!("This recording will not include your voice. Select a microphone, or continue without one.")),
                     )
                     .child(
@@ -3040,11 +3040,11 @@ impl MainWindow {
                                     .size(px(16.))
                                     .rounded(px(4.))
                                     .border_1()
-                                    .border_color(if checked { theme.primary } else { theme.gray_7 })
-                                    .bg(if checked { theme.primary } else { theme.gray_2 })
+                                    .border_color(if checked { theme.primary } else { theme.border_strong })
+                                    .bg(if checked { theme.primary } else { theme.card })
                                     .when(checked, |this| this.child(svg().path("icons/check.svg").size(px(14.)).text_color(theme.primary_foreground))),
                             )
-                            .child(div().text_size(px(12.)).text_color(theme.gray_11).child(t!("Don't show again")))
+                            .child(div().text_size(px(12.)).text_color(theme.muted_foreground).child(t!("Don't show again")))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if let Some(warning) = &mut this.microphone_warning {
                                     warning.dont_show_again = !warning.dont_show_again;
@@ -3053,7 +3053,7 @@ impl MainWindow {
                                 cx.notify();
                             })),
                     )
-                    .when_some(error, |this, error| this.child(div().text_size(px(11.)).text_color(theme.red_11).child(error)))
+                    .when_some(error, |this, error| this.child(div().text_size(px(11.)).text_color(theme.danger_text).child(error)))
                     .child(
                         div()
                             .flex()
@@ -3118,7 +3118,7 @@ impl MainWindow {
                     .rounded(px(14.))
                     .border_1()
                     .border_color(theme.body_border(6))
-                    .bg(theme.gray_1)
+                    .bg(theme.background)
                     .p(px(16.))
                     .flex()
                     .flex_col()
@@ -3146,7 +3146,7 @@ impl MainWindow {
                                     .text_size(px(15.))
                                     .line_height(px(20.))
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme.gray_12)
+                                    .text_color(theme.foreground)
                                     .child(title),
                             ),
                     )
@@ -3163,13 +3163,13 @@ impl MainWindow {
                             .size(px(24.))
                             .rounded_full()
                             .cursor_pointer()
-                            .hover(|style| style.bg(theme.gray_3))
+                            .hover(|style| style.bg(theme.secondary))
                             .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Close")).view(cx))
                             .child(
                                 svg()
                                     .path("icons/x.svg")
                                     .size(px(14.))
-                                    .text_color(theme.gray_10),
+                                    .text_color(theme.muted_foreground),
                             )
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
@@ -3225,8 +3225,8 @@ impl MainWindow {
             .occlude()
             .rounded(px(8.))
             .border_1()
-            .border_color(theme.red_4)
-            .bg(theme.red_2)
+            .border_color(theme.danger_tint)
+            .bg(theme.danger_tint)
             .p(px(10.))
             .child(
                 div()
@@ -3244,7 +3244,7 @@ impl MainWindow {
                                 div()
                                     .text_size(px(10.))
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme.red_11)
+                                    .text_color(theme.danger_text)
                                     .child(t!("Incomplete Recording")),
                             )
                             .child(
@@ -3252,13 +3252,13 @@ impl MainWindow {
                                     .truncate()
                                     .text_size(px(12.))
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme.gray_12)
+                                    .text_color(theme.foreground)
                                     .child(recording.pretty_name),
                             )
                             .child(
                                 div()
                                     .text_size(px(10.))
-                                    .text_color(theme.gray_11)
+                                    .text_color(theme.muted_foreground)
                                     .child(segments),
                             )
                             .when_some(self.recovery_error.clone(), |this, error| {
@@ -3266,7 +3266,7 @@ impl MainWindow {
                                     div()
                                         .mt(px(4.))
                                         .text_size(px(10.))
-                                        .text_color(theme.red_11)
+                                        .text_color(theme.danger_text)
                                         .child(error),
                                 )
                             }),
@@ -3518,12 +3518,12 @@ impl MainWindow {
             .child(
                 recording_error_text(error)
                     .rounded(px(8.))
-                    .bg(theme.gray_3)
+                    .bg(theme.secondary)
                     .px(px(10.))
                     .py(px(8.))
                     .text_size(px(12.5))
                     .line_height(px(18.))
-                    .text_color(theme.gray_12),
+                    .text_color(theme.foreground),
             )
             .child(
                 div()
@@ -3577,7 +3577,7 @@ impl MainWindow {
 
         self.render_modal(
             "recording-error-panel",
-            ("icons/triangle-alert.svg", theme.red_3, theme.red_9),
+            ("icons/triangle-alert.svg", theme.danger_tint, theme.danger),
             t!("Something went wrong"),
             Self::dismiss_idle_error,
             body,
@@ -3594,7 +3594,7 @@ impl MainWindow {
         let countdown = self.session.read(cx).countdown_remaining();
         let can_stop = !stopping && (!starting || countdown.is_some());
 
-        let mut wash: Hsla = theme.gray_1.into();
+        let mut wash: Hsla = theme.background.into();
         wash.a = 0.8;
 
         div()
@@ -3625,7 +3625,7 @@ impl MainWindow {
                         .flex_shrink_0()
                         .mb(px(8.))
                         .text_size(px(11.))
-                        .text_color(theme.red_11)
+                        .text_color(theme.danger_text)
                         .text_center()
                         .child(error),
                 )
@@ -3699,7 +3699,7 @@ impl MainWindow {
                 .min_w_0()
                 .text_size(px(12.))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.gray_11)
+                .text_color(theme.muted_foreground)
                 .child(t!("Recording Modes"))
                 .into_any_element(),
             Panel::Device(_) if self.device_format_target.is_some() => div()
@@ -3707,7 +3707,7 @@ impl MainWindow {
                 .min_w_0()
                 .truncate()
                 .text_size(px(12.))
-                .text_color(theme.gray_11)
+                .text_color(theme.muted_foreground)
                 .child(match self.device_format_target.as_ref().unwrap() {
                     DeviceFormatTarget::Camera(camera) => camera_label(&camera.label),
                     DeviceFormatTarget::Microphone(name) => name.clone(),
@@ -3743,17 +3743,17 @@ impl MainWindow {
                             .flex_shrink_0()
                             .rounded(px(6.))
                             .text_size(px(12.))
-                            .text_color(theme.gray_11)
+                            .text_color(theme.muted_foreground)
                             .child(
                                 svg()
                                     .path("icons/move-left.svg")
                                     .size(px(14.))
-                                    .text_color(theme.gray_11),
+                                    .text_color(theme.muted_foreground),
                             )
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme.gray_12)
+                                    .text_color(theme.foreground)
                                     .child(t!("Back")),
                             )
                             .hover(move |style| style.bg(glass_hover(theme)))
@@ -4132,11 +4132,15 @@ impl MainWindow {
         let theme = self.theme;
         let converting = entry.stage == crate::import::ImportStage::Converting;
         let ring = {
-            let ring =
-                ui::CircularProgress::new(px(36.), px(3.), theme.gray(4), theme.primary.into());
+            let ring = ui::CircularProgress::new(
+                px(36.),
+                px(3.),
+                gpui::Hsla::from(theme.secondary_hover),
+                theme.primary.into(),
+            );
             if converting {
                 ring.progress(entry.progress as f32)
-                    .label(theme.gray_12.into(), px(9.))
+                    .label(theme.foreground.into(), px(9.))
             } else {
                 ring.indeterminate()
             }
@@ -4193,14 +4197,14 @@ impl MainWindow {
                             .w_full()
                             .truncate()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme.gray_12)
+                            .text_color(theme.foreground)
                             .child(entry.pretty_name.clone()),
                     )
                     .child(
                         div()
                             .w_full()
                             .truncate()
-                            .text_color(theme.gray_11)
+                            .text_color(theme.muted_foreground)
                             .child(entry.message.clone()),
                     ),
             )
@@ -4284,7 +4288,7 @@ impl MainWindow {
                     .py(px(24.))
                     .w_full()
                     .text_size(px(14.))
-                    .text_color(theme.gray_11)
+                    .text_color(theme.muted_foreground)
                     .child(t!("Loading...")),
             );
         }
@@ -4673,7 +4677,7 @@ impl MainWindow {
             .child(
                 div()
                     .text_size(px(12.))
-                    .text_color(theme.gray_11)
+                    .text_color(theme.muted_foreground)
                     .pb(px(8.))
                     .child(t!("Preferred format")),
             )
@@ -4681,7 +4685,7 @@ impl MainWindow {
                 list.child(
                     div()
                         .text_size(px(12.))
-                        .text_color(theme.gray_11)
+                        .text_color(theme.muted_foreground)
                         .pb(px(8.))
                         .child(t!("Current: {format}", format = format.label())),
                 )
@@ -4742,7 +4746,7 @@ impl MainWindow {
                 svg()
                     .path("icons/settings-2.svg")
                     .size(px(16.))
-                    .text_color(theme.gray_10),
+                    .text_color(theme.muted_foreground),
             )
             .on_click(
                 cx.listener(move |this, _, _, cx| this.open_device_formats(target.clone(), cx)),
@@ -4777,7 +4781,7 @@ impl MainWindow {
                     .py(px(24.))
                     .w_full()
                     .text_size(px(14.))
-                    .text_color(theme.gray_11)
+                    .text_color(theme.muted_foreground)
                     .child(t!("Loading...")),
             );
         }
@@ -4932,21 +4936,21 @@ impl MainWindow {
                             .w_full()
                             .truncate()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme.gray_12)
+                            .text_color(theme.foreground)
                             .child(label),
                     )
                     .children(subtitle.map(|subtitle| {
                         div()
                             .w_full()
                             .truncate()
-                            .text_color(theme.gray_11)
+                            .text_color(theme.muted_foreground)
                             .child(subtitle)
                     }))
                     .children(metadata.map(|metadata| {
                         div()
                             .w_full()
                             .truncate()
-                            .text_color(theme.gray_10)
+                            .text_color(theme.muted_foreground)
                             .child(metadata)
                     })),
             )
@@ -4999,7 +5003,7 @@ impl MainWindow {
                             .text_color(if selected {
                                 theme.selection_foreground
                             } else {
-                                theme.gray_12
+                                theme.foreground
                             }),
                     )
                     .child(
@@ -5020,14 +5024,14 @@ impl MainWindow {
                                     .text_color(if selected {
                                         theme.selection_foreground
                                     } else {
-                                        theme.gray_12
+                                        theme.foreground
                                     })
                                     .child(mode.panel_title()),
                             )
                             .child(
                                 div()
                                     .text_size(px(12.))
-                                    .text_color(theme.gray_11)
+                                    .text_color(theme.muted_foreground)
                                     .child(mode.panel_description()),
                             ),
                     )
@@ -5086,16 +5090,16 @@ impl MainWindow {
                 .py(px(8.))
                 .mb(px(4.))
                 .rounded(px(10.))
-                .bg(theme.amber_3)
+                .bg(theme.warning_tint)
                 .border_1()
-                .border_color(theme.amber_6)
+                .border_color(theme.warning)
                 .child(
                     div()
                         .flex_1()
                         .min_w_0()
                         .text_size(px(12.))
                         .line_height(px(16.))
-                        .text_color(theme.amber_11)
+                        .text_color(theme.warning_text)
                         .child(message),
                 )
                 .child(
@@ -5120,7 +5124,7 @@ impl MainWindow {
             .py(px(24.))
             .w_full()
             .text_size(px(14.))
-            .text_color(self.theme.gray_11)
+            .text_color(self.theme.muted_foreground)
             .child(message.into())
             .into_any_element()
     }
@@ -5162,7 +5166,7 @@ impl MainWindow {
                     .path(icon)
                     .size(px(16.))
                     .flex_shrink_0()
-                    .text_color(theme.gray_11),
+                    .text_color(theme.muted_foreground),
             )
             .child(
                 div()
@@ -5175,14 +5179,14 @@ impl MainWindow {
                         div()
                             .truncate()
                             .text_size(px(13.))
-                            .text_color(theme.gray_12)
+                            .text_color(theme.foreground)
                             .child(label),
                     )
                     .children(detail.map(|detail| {
                         div()
                             .truncate()
                             .text_size(px(11.))
-                            .text_color(theme.gray_10)
+                            .text_color(theme.muted_foreground)
                             .child(detail)
                     }))
                     .when_some(audio_level.filter(|_| selected), |this, level| {
@@ -5598,13 +5602,21 @@ impl PillState {
                 Hsla::from(theme.foreground),
                 t!("On"),
             ),
-            Self::Off => (theme.body_fill(5), Hsla::from(theme.gray_11), t!("Off")),
+            Self::Off => (
+                theme.body_fill(5),
+                Hsla::from(theme.muted_foreground),
+                t!("Off"),
+            ),
             Self::Disconnected => (
                 theme.body_fill(5),
-                Hsla::from(theme.gray_11),
+                Hsla::from(theme.muted_foreground),
                 t!("Not connected"),
             ),
-            Self::Access(label) => (Hsla::from(theme.amber_3), Hsla::from(theme.amber_11), label),
+            Self::Access(label) => (
+                Hsla::from(theme.warning_tint),
+                Hsla::from(theme.warning_text),
+                label,
+            ),
         };
 
         div()

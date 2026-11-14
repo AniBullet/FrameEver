@@ -1642,7 +1642,7 @@ impl EditorWindow {
                                 .bg(if resizable {
                                     Hsla::from(theme.foreground)
                                 } else {
-                                    with_alpha(theme.gray_8, 0.6)
+                                    with_alpha(theme.border_strong, 0.6)
                                 }),
                         )
                         .on_mouse_down(

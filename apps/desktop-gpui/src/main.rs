@@ -90,7 +90,6 @@ mod screenshot_export;
 mod screenshot_images;
 mod screenshot_layout;
 mod screenshot_shapes;
-mod script_text;
 mod session;
 mod settings_pages;
 mod settings_window;

@@ -163,11 +163,6 @@ impl Field {
         self.children.push(child.into_any_element());
         self
     }
-
-    pub fn children(mut self, children: impl IntoIterator<Item = AnyElement>) -> Self {
-        self.children.extend(children);
-        self
-    }
 }
 
 impl RenderOnce for Field {
@@ -307,11 +302,6 @@ impl Subfield {
             text: Hsla::from(theme.editor.text_1),
             accent: Hsla::from(theme.link),
         }
-    }
-
-    pub fn required(mut self, required: bool) -> Self {
-        self.required = required;
-        self
     }
 
     /// The `class` prop: `GradientEditor`'s angle row is `gap-4 items-center`.

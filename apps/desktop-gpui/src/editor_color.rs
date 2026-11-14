@@ -561,7 +561,7 @@ impl EditorWindow {
                         .border_color(if selected {
                             Hsla::from(theme.foreground)
                         } else {
-                            Hsla::from(theme.gray_3)
+                            Hsla::from(theme.secondary)
                         })
                         .when(selected, |this| {
                             this.shadow(vec![gpui::BoxShadow {
@@ -587,7 +587,7 @@ impl EditorWindow {
                                 .px(px(2.))
                                 .text_size(px(12.))
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(Hsla::from(theme.gray_12))
+                                .text_color(Hsla::from(theme.foreground))
                                 .child(tr(preset.label)),
                         )
                         .tooltip({

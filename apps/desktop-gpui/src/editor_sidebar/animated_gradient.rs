@@ -776,7 +776,7 @@ impl EditorWindow {
             .children(error.map(|error| {
                 div()
                     .text_size(px(12.))
-                    .text_color(Hsla::from(theme.red_11))
+                    .text_color(Hsla::from(theme.danger_text))
                     .child(error)
             }))
             .child(self.render_animated_gradient_presets(cx))
@@ -858,15 +858,15 @@ impl EditorWindow {
                         .h(px(32.))
                         .px(px(12.))
                         .rounded(px(8.))
-                        .bg(Hsla::from(theme.gray_3))
+                        .bg(Hsla::from(theme.secondary))
                         .text_size(px(12.))
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(Hsla::from(theme.gray_12))
+                        .text_color(Hsla::from(theme.foreground))
                         .when(name_empty, |this| this.opacity(0.4))
                         .when(!name_empty, |this| {
                             this.tab_index(0)
                                 .cursor_pointer()
-                                .hover(|this| this.bg(Hsla::from(theme.gray_4)))
+                                .hover(|this| this.bg(Hsla::from(theme.secondary_hover)))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.save_animated_gradient_preset(cx);
                                     this.focus_root(window, cx);
@@ -973,17 +973,17 @@ impl EditorWindow {
                         .justify_center()
                         .size(px(20.))
                         .rounded_full()
-                        .bg(Hsla::from(theme.gray_12))
-                        .text_color(Hsla::from(theme.gray_1))
+                        .bg(Hsla::from(theme.foreground))
+                        .text_color(Hsla::from(theme.background))
                         .tab_index(0)
                         .cursor_pointer()
-                        .hover(|this| this.bg(Hsla::from(theme.red_11)))
+                        .hover(|this| this.bg(Hsla::from(theme.danger_text)))
                         .tooltip(move |_window, cx| ui::Tooltip::new(&theme, t!("Delete")).view(cx))
                         .child(
                             svg()
                                 .path("icons/x.svg")
                                 .size(px(14.))
-                                .text_color(Hsla::from(theme.gray_1)),
+                                .text_color(Hsla::from(theme.background)),
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.delete_animated_gradient_preset(&delete_id, cx);
@@ -1107,7 +1107,7 @@ impl EditorWindow {
                     div()
                         .ml_auto()
                         .text_size(px(12.))
-                        .text_color(Hsla::from(theme.gray_11))
+                        .text_color(Hsla::from(theme.muted_foreground))
                         .child(format!("{}%", stop.position.round() as i32)),
                 )
                 .child(icon_button(

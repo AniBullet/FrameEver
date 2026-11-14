@@ -3128,7 +3128,7 @@ impl ScreenshotEditorWindow {
                     .justify_between()
                     .text_size(px(12.))
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.gray_11)
+                    .text_color(theme.muted_foreground)
                     .child(label)
                     .child(format!("{}{suffix}", value.round() as i64)),
             )
@@ -3155,7 +3155,7 @@ impl ScreenshotEditorWindow {
                     .size(px(32.))
                     .rounded(px(8.))
                     .border_1()
-                    .border_color(theme.gray_4)
+                    .border_color(theme.secondary_hover)
                     .bg(color_to_hsla(value)),
             )
             .children(self.hex_inputs.get(&target).map(|input| {
@@ -3165,10 +3165,10 @@ impl ScreenshotEditorWindow {
                     .padding_y(px(6.))
                     .height(px(30.))
                     .radius(px(8.))
-                    .bg(Hsla::from(theme.gray_1))
-                    .border(Hsla::from(theme.gray_12))
+                    .bg(Hsla::from(theme.background))
+                    .border(Hsla::from(theme.foreground))
                     .text_size(px(13.))
-                    .text_color(Hsla::from(theme.gray_12))
+                    .text_color(Hsla::from(theme.foreground))
             }))
     }
 
@@ -3198,14 +3198,14 @@ impl ScreenshotEditorWindow {
                     .tab_index(0)
                     .text_size(px(12.))
                     .when(selected, |this| {
-                        this.bg(theme.gray_3)
-                            .border_color(theme.gray_3)
-                            .text_color(theme.gray_12)
+                        this.bg(theme.secondary)
+                            .border_color(theme.secondary)
+                            .text_color(theme.foreground)
                     })
                     .when(!selected, |this| {
                         this.border_color(gpui::transparent_black())
-                            .text_color(theme.gray_11)
-                            .hover(|style| style.border_color(theme.gray_7))
+                            .text_color(theme.muted_foreground)
+                            .hover(|style| style.border_color(theme.border_strong))
                     })
                     .child(tr(label))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -3299,14 +3299,14 @@ impl ScreenshotEditorWindow {
                                     .cursor_pointer()
                                     .tab_index(0)
                                     .when(selected, |this| {
-                                        this.bg(theme.gray_3)
-                                            .border_color(theme.gray_3)
-                                            .text_color(theme.gray_12)
+                                        this.bg(theme.secondary)
+                                            .border_color(theme.secondary)
+                                            .text_color(theme.foreground)
                                     })
                                     .when(!selected, |this| {
                                         this.border_color(gpui::transparent_black())
-                                            .text_color(theme.gray_11)
-                                            .hover(|style| style.border_color(theme.gray_7))
+                                            .text_color(theme.muted_foreground)
+                                            .hover(|style| style.border_color(theme.border_strong))
                                     })
                                     .child(tr(label))
                                     .on_click(cx.listener(move |this, _, _window, cx| {
@@ -3335,14 +3335,14 @@ impl ScreenshotEditorWindow {
                                 .overflow_hidden()
                                 .cursor_pointer()
                                 .tab_index(0)
-                                .bg(theme.gray_3)
+                                .bg(theme.secondary)
                                 .when(selected, |this| {
-                                    this.border_2().border_color(theme.gray_500_legacy)
+                                    this.border_2().border_color(theme.foreground)
                                 })
                                 .when(!selected, |this| {
                                     this.border_2()
                                         .border_color(gpui::transparent_black())
-                                        .hover(|style| style.border_color(theme.gray_8))
+                                        .hover(|style| style.border_color(theme.border_strong))
                                 })
                                 .when_some(self.wallpapers.get(id).cloned(), |this, image| {
                                     this.child(
@@ -3393,21 +3393,21 @@ impl ScreenshotEditorWindow {
                 .rounded(px(8.))
                 .border_1()
                 .border_dashed()
-                .border_color(theme.gray_5)
-                .bg(theme.gray_2)
+                .border_color(theme.border)
+                .bg(theme.card)
                 .cursor_pointer()
                 .tab_index(0)
-                .hover(|style| style.bg(theme.gray_3))
+                .hover(|style| style.bg(theme.secondary))
                 .child(
                     svg()
                         .path("icons/image.svg")
                         .size(px(24.))
-                        .text_color(theme.gray_11),
+                        .text_color(theme.muted_foreground),
                 )
                 .child(
                     div()
                         .text_size(px(13.))
-                        .text_color(theme.gray_12)
+                        .text_color(theme.foreground)
                         .child(t!("Click to select or drag and drop image")),
                 )
                 .on_click(cx.listener(|this, _, window, cx| {
@@ -3424,8 +3424,8 @@ impl ScreenshotEditorWindow {
             .rounded(px(6.))
             .overflow_hidden()
             .border_1()
-            .border_color(theme.gray_3)
-            .bg(theme.gray_2)
+            .border_color(theme.secondary)
+            .bg(theme.card)
             .when_some(
                 self.bg_image.as_ref().map(|(_, image)| image.clone()),
                 |this, image| this.child(img(image).size_full().object_fit(gpui::ObjectFit::Cover)),
@@ -3501,7 +3501,7 @@ impl ScreenshotEditorWindow {
                                     .cursor_pointer()
                                     .tab_index(0)
                                     .when(selected, |this| {
-                                        this.border_2().border_color(theme.gray_500_legacy)
+                                        this.border_2().border_color(theme.foreground)
                                     })
                                     .when(!selected, |this| {
                                         this.border_2().border_color(gpui::transparent_black())
@@ -3537,7 +3537,7 @@ impl ScreenshotEditorWindow {
         ) {
             return div()
                 .text_size(px(12.))
-                .text_color(theme.gray_11)
+                .text_color(theme.muted_foreground)
                 .child(t!("Animated Gradient is rendered as a still image for screenshots. Choose another background to replace it."))
                 .into_any_element();
         }
@@ -3575,7 +3575,7 @@ impl ScreenshotEditorWindow {
                                 .cursor_pointer()
                                 .tab_index(0)
                                 .when(selected, |this| {
-                                    this.border_2().border_color(theme.gray_500_legacy)
+                                    this.border_2().border_color(theme.foreground)
                                 })
                                 .when(!selected, |this| {
                                     this.border_2().border_color(gpui::transparent_black())
@@ -3625,7 +3625,7 @@ impl ScreenshotEditorWindow {
             .flex_col()
             .gap(px(12.))
             .child(self.render_bg_tabs(cx))
-            .child(editor_sidebar::dashed_divider(theme.gray_5.into()))
+            .child(editor_sidebar::dashed_divider(theme.border.into()))
             .child(tab_content)
             .into_any_element();
         let blur = self
@@ -3677,7 +3677,7 @@ impl ScreenshotEditorWindow {
                     .child(
                         div()
                             .text_size(px(10.4))
-                            .text_color(theme.gray_11)
+                            .text_color(theme.muted_foreground)
                             .child(t!("Corner style")),
                     )
                     .child(
@@ -3695,14 +3695,14 @@ impl ScreenshotEditorWindow {
                                 .rounded(px(8.))
                                 .cursor_pointer()
                                 .tab_index(0)
-                                .bg(theme.gray_3)
+                                .bg(theme.secondary)
                                 .child(
                                     div()
                                         .flex_1()
                                         .min_w_0()
                                         .truncate()
                                         .text_size(px(14.))
-                                        .text_color(theme.gray_500_legacy)
+                                        .text_color(theme.foreground)
                                         .child(self.corner_style_label()),
                                 )
                                 .child(
@@ -3710,7 +3710,7 @@ impl ScreenshotEditorWindow {
                                         .path("icons/chevron-down.svg")
                                         .size(px(16.))
                                         .flex_shrink_0()
-                                        .text_color(theme.gray_500_legacy),
+                                        .text_color(theme.foreground),
                                 )
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     cx.stop_propagation();
@@ -3774,14 +3774,14 @@ impl ScreenshotEditorWindow {
                             .tab_index(0)
                             .text_size(px(14.))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme.gray_12)
-                            .hover(|style| style.text_color(theme.gray_10))
+                            .text_color(theme.foreground)
+                            .hover(|style| style.text_color(theme.muted_foreground))
                             .child(t!("Advanced shadow settings"))
                             .child(
                                 svg()
                                     .path("icons/chevron-down.svg")
                                     .size(px(20.))
-                                    .text_color(theme.gray_12)
+                                    .text_color(theme.foreground)
                                     .when(open, |this| {
                                         this.with_transformation(gpui::Transformation::rotate(
                                             gpui::radians(std::f32::consts::PI),
@@ -3856,7 +3856,7 @@ impl ScreenshotEditorWindow {
                         div()
                             .text_size(px(12.))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme.gray_11)
+                            .text_color(theme.muted_foreground)
                             .child(t!("Show border")),
                     )
                     .child(
@@ -3935,9 +3935,9 @@ impl ScreenshotEditorWindow {
             .min_w_0()
             .overflow_hidden()
             .bg(if theme.is_dark() {
-                theme.gray_2
+                theme.card
             } else {
-                theme.gray_1
+                theme.background
             })
             .child(
                 div()
@@ -4004,7 +4004,7 @@ impl ScreenshotEditorWindow {
                         (Some(message), _, _) => Some(
                             div()
                                 .text_size(px(13.))
-                                .text_color(theme.gray_11)
+                                .text_color(theme.muted_foreground)
                                 .child(message.clone())
                                 .into_any_element(),
                         ),
@@ -4073,7 +4073,7 @@ impl ScreenshotEditorWindow {
                         (None, _, _) => Some(
                             div()
                                 .text_size(px(13.))
-                                .text_color(theme.gray_11)
+                                .text_color(theme.muted_foreground)
                                 .child(t!("Loading preview..."))
                                 .into_any_element(),
                         ),
@@ -4107,12 +4107,12 @@ impl ScreenshotEditorWindow {
                         .py(px(10.))
                         .rounded(px(15.))
                         .border_1()
-                        .border_color(theme.gray_200_legacy)
-                        .bg(theme.gray_1)
+                        .border_color(theme.card)
+                        .bg(theme.background)
                         .text_size(px(16.))
                         .text_color(match toast.kind {
-                            ToastKind::Loading => theme.gray_11,
-                            _ => theme.gray_12,
+                            ToastKind::Loading => theme.muted_foreground,
+                            _ => theme.foreground,
                         })
                         .child(match toast.kind {
                             ToastKind::Success => svg()
@@ -4125,13 +4125,13 @@ impl ScreenshotEditorWindow {
                                 .path("icons/x.svg")
                                 .size(px(16.))
                                 .flex_shrink_0()
-                                .text_color(theme.red_11)
+                                .text_color(theme.danger_text)
                                 .into_any_element(),
                             ToastKind::Loading => div()
                                 .size(px(10.))
                                 .flex_shrink_0()
                                 .rounded_full()
-                                .bg(theme.gray_9)
+                                .bg(theme.muted_foreground)
                                 .into_any_element(),
                         })
                         .child(toast.message.clone())
@@ -4256,11 +4256,11 @@ impl Render for ScreenshotEditorWindow {
             .font_family(crate::theme::ui_font())
             .font_weight(FontWeight::MEDIUM)
             .bg(if theme.is_dark() {
-                theme.gray_1
+                theme.background
             } else {
-                theme.gray_2
+                theme.card
             })
-            .text_color(theme.gray_12);
+            .text_color(theme.foreground);
 
         if !self.ready {
             return root.child(self.render_skeleton(window));
@@ -4340,7 +4340,7 @@ fn divider(theme: &Theme, height: f32) -> impl IntoElement {
         .h(px(height))
         .mx(px(4.))
         .flex_shrink_0()
-        .bg(theme.gray_4)
+        .bg(theme.secondary_hover)
 }
 
 /// `Tooltip`'s `kbd` prop (`components/Tooltip.tsx`). `ui::EditorButton`'s own
@@ -4387,11 +4387,13 @@ fn tool_button(
         .tab_index(0)
         .focus_visible(move |style| style.border_1().border_color(theme.ring))
         .when(active, |this| this.bg(theme.selection))
-        .when(!active, |this| this.hover(|style| style.bg(theme.gray_3)))
+        .when(!active, |this| {
+            this.hover(|style| style.bg(theme.secondary))
+        })
         .child(svg().path(icon).size(px(16.)).text_color(if active {
             theme.selection_foreground
         } else {
-            theme.gray_11
+            theme.muted_foreground
         }))
         .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
         .tooltip(move |_window, cx| {
@@ -4436,7 +4438,7 @@ fn spinning_logo(theme: &Theme) -> impl IntoElement {
         .items_center()
         .justify_center()
         .opacity(0.5)
-        .child(crate::logo::logo_mono(theme.gray_8.into(), 40.))
+        .child(crate::logo::logo_mono(theme.border_strong.into(), 40.))
 }
 
 /// The preview's checkerboard: `background-color: white` under `#f0f0f0`

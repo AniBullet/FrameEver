@@ -82,13 +82,13 @@ impl PositionPad {
             x: x.clamp(0., 1.),
             y: y.clamp(0., 1.),
             bounds_cell: bounds,
-            bg: Hsla::from(theme.gray_2),
-            border: Hsla::from(theme.gray_3),
-            cross: Hsla::from(theme.gray_3),
-            knob_bg: Hsla::from(theme.gray_1),
+            bg: Hsla::from(theme.card),
+            border: Hsla::from(theme.secondary),
+            cross: Hsla::from(theme.secondary),
+            knob_bg: Hsla::from(theme.background),
             // `border-gray-400`, the legacy scale the source names here.
-            knob_border: Hsla::from(theme.gray_400_legacy),
-            dot: Hsla::from(theme.gray_5),
+            knob_border: Hsla::from(theme.muted_foreground),
+            dot: Hsla::from(theme.border),
             on_press: None,
         }
     }

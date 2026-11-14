@@ -605,14 +605,6 @@ impl TextInputState {
         &self.content
     }
 
-    pub fn shared_text(&self) -> SharedString {
-        self.content.clone()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.content.is_empty()
-    }
-
     pub fn set_placeholder(&mut self, placeholder: impl Into<SharedString>) {
         self.placeholder = placeholder.into();
     }
@@ -660,10 +652,7 @@ impl TextInputState {
         cx.notify();
     }
 
-    pub fn has_selection(&self) -> bool {
-        !self.selected_range.is_empty()
-    }
-
+    #[cfg(test)]
     pub fn selection(&self) -> Range<usize> {
         self.selected_range.clone()
     }
@@ -1270,11 +1259,7 @@ impl TextInputState {
 
 // `align` is a render-time property, but `offset_for_position` needs it to
 // undo the aligner's shift, so the element writes it back with the layout.
-impl TextInputState {
-    fn set_align(&mut self, align: TextAlign) {
-        self.align = align;
-    }
-}
+impl TextInputState {}
 
 impl Focusable for TextInputState {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
@@ -1665,10 +1650,10 @@ impl TextInput {
             bg: None,
             border: None,
             focus_border: None,
-            text: theme.gray(12),
-            muted: theme.gray(10),
-            icon_color: theme.gray(10),
-            caret_color: theme.gray(12),
+            text: gpui::Hsla::from(theme.foreground),
+            muted: gpui::Hsla::from(theme.muted_foreground),
+            icon_color: gpui::Hsla::from(theme.muted_foreground),
+            caret_color: gpui::Hsla::from(theme.foreground),
             selection_color: selection_tint(),
             flex: false,
             full_width: false,
@@ -1708,9 +1693,9 @@ impl TextInput {
             bg: Some(theme.body_fill(2)),
             border: Some(theme.body_border(5)),
             icon: Some(SharedString::from("icons/search.svg")),
-            text: theme.gray(12),
-            muted: theme.gray(10),
-            caret_color: theme.gray(12),
+            text: gpui::Hsla::from(theme.foreground),
+            muted: gpui::Hsla::from(theme.muted_foreground),
+            caret_color: gpui::Hsla::from(theme.foreground),
             flex: true,
             ..Self::base(theme, id, state)
         }
@@ -1780,11 +1765,6 @@ impl TextInput {
 
     pub fn font_weight(mut self, weight: FontWeight) -> Self {
         self.weight = weight;
-        self
-    }
-
-    pub fn align(mut self, align: TextAlign) -> Self {
-        self.align = align;
         self
     }
 

@@ -2819,7 +2819,7 @@ impl EditorWindow {
                                         gpui::hsla(0., 0., 1., 0.5)
                                     })
                                     .text_size(px(12.))
-                                    .text_color(Hsla::from(theme.gray_12))
+                                    .text_color(Hsla::from(theme.foreground))
                                     .child(SharedString::from(format!("{}:{}", ratio.0, ratio.1))),
                             )
                     }),
@@ -2996,7 +2996,10 @@ impl EditorWindow {
         let theme = self.theme;
         let editor = theme.editor;
         let note: Option<(SharedString, Hsla)> = match (&state.error, &state.style_target) {
-            (Some(error), _) => Some((SharedString::from(error.clone()), Hsla::from(theme.red_11))),
+            (Some(error), _) => Some((
+                SharedString::from(error.clone()),
+                Hsla::from(theme.danger_text),
+            )),
             (None, Some(target)) => Some((
                 SharedString::from(if target.opting_in {
                     t!(

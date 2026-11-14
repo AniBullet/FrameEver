@@ -28,23 +28,11 @@ use crate::{
 /// `openDelay={200}`.
 pub const TOOLTIP_SHOW_DELAY: Duration = Duration::from_millis(200);
 
-/// The two looks the app uses: the dark bubble, and `ComingSoonTooltip`'s pill
-/// (which is the same bubble with an instant delay and fixed text).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TooltipStyle {
-    /// `border border-gray-3 bg-gray-12 text-gray-1 rounded-md shadow-lg`.
-    Dark,
-    /// `bg-gray-2 text-gray-12 border border-gray-3 rounded-lg` -- the
-    /// `TooltipIconButton` variant, meant to sit on a light page.
-    Light,
-}
-
 /// A tooltip body. Build it with [`Tooltip::view`] and hand that to
 /// `.tooltip(..)`.
 pub struct Tooltip {
     label: SharedString,
     keys: Vec<SharedString>,
-    style: TooltipStyle,
     theme: Theme,
 }
 
@@ -53,15 +41,8 @@ impl Tooltip {
         Self {
             label: label.into(),
             keys: Vec::new(),
-            style: TooltipStyle::Dark,
             theme: *theme,
         }
-    }
-
-    /// `ComingSoonTooltip`: always the literal text, instant delay at the call
-    /// site (`openDelay={0} closeDelay={0}`).
-    pub fn coming_soon(theme: &Theme) -> Self {
-        Self::new(theme, crate::i18n::t!("Coming Soon"))
     }
 
     /// `EditorButton`'s `kbd` prop: one chip per key, in order.
@@ -77,11 +58,6 @@ impl Tooltip {
         self
     }
 
-    pub fn style(mut self, style: TooltipStyle) -> Self {
-        self.style = style;
-        self
-    }
-
     /// Build the view `.tooltip(..)` wants.
     pub fn view(self, cx: &mut App) -> gpui::AnyView {
         cx.new(|_| self).into()
@@ -91,10 +67,11 @@ impl Tooltip {
 impl Render for Tooltip {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let (bg, text, border): (Hsla, Hsla, Hsla) = match self.style {
-            TooltipStyle::Dark => (theme.gray(12), theme.gray(1), theme.gray(3)),
-            TooltipStyle::Light => (theme.gray(2), theme.gray(12), theme.gray(3)),
-        };
+        let (bg, text, border): (Hsla, Hsla, Hsla) = (
+            theme.foreground.into(),
+            theme.background.into(),
+            theme.secondary.into(),
+        );
         let keys = self.keys.clone();
 
         div()

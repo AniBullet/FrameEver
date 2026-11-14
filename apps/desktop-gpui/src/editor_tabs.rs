@@ -1369,7 +1369,7 @@ impl EditorWindow {
                     .child(
                         div()
                             .text_size(px(12.))
-                            .text_color(Hsla::from(theme.gray_11))
+                            .text_color(Hsla::from(theme.muted_foreground))
                             .child(t!("Custom position (dragged on canvas)")),
                     )
                     .child(
@@ -1434,7 +1434,7 @@ impl EditorWindow {
             .rounded(px(8.))
             .border_1()
             .border_color(Hsla::from(theme.editor.line))
-            .bg(Hsla::from(theme.gray_2));
+            .bg(Hsla::from(theme.card));
 
         for (item_x, item_y) in dots {
             let checked = selected && x_index == item_x && y_index == item_y;
@@ -1453,7 +1453,7 @@ impl EditorWindow {
                 .bg(if checked {
                     Hsla::from(theme.primary)
                 } else {
-                    Hsla::from(theme.gray_5)
+                    Hsla::from(theme.border)
                 })
                 // `size-2 bg-solid-white rounded-full`
                 .child(div().size(px(8.)).rounded_full().bg(gpui::white()));
@@ -1918,7 +1918,7 @@ impl EditorWindow {
                                 div()
                                     .w(px(48.))
                                     .text_size(px(12.))
-                                    .text_color(Hsla::from(theme.gray_11))
+                                    .text_color(Hsla::from(theme.muted_foreground))
                                     .child(readout),
                             ),
                     ),
@@ -2387,7 +2387,7 @@ impl EditorWindow {
             .children(self.keyboard_generation_message.as_ref().map(|message| {
                 div()
                     .text_size(px(12.))
-                    .text_color(Hsla::from(theme.gray_10))
+                    .text_color(Hsla::from(theme.muted_foreground))
                     .child(message.clone())
                     .into_any_element()
             }))
@@ -2401,13 +2401,13 @@ impl EditorWindow {
                     .child(
                         div()
                             .text_size(px(14.))
-                            .text_color(Hsla::from(theme.gray_11))
+                            .text_color(Hsla::from(theme.muted_foreground))
                             .child(t!("No keyboard segments yet.")),
                     )
                     .child(
                         div()
                             .text_size(px(12.))
-                            .text_color(Hsla::from(theme.gray_10))
+                            .text_color(Hsla::from(theme.muted_foreground))
                             .child(
                                 "Click \"Generate Keyboard Segments\" to create segments from \
                                  recorded keyboard presses.",
@@ -2562,14 +2562,14 @@ impl EditorWindow {
                         div()
                             .text_size(px(14.))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(Hsla::from(theme.gray_12))
+                            .text_color(Hsla::from(theme.foreground))
                             .truncate()
                             .child(tr(model.label)),
                     )
                     .child(
                         div()
                             .text_size(px(12.))
-                            .text_color(Hsla::from(theme.gray_11))
+                            .text_color(Hsla::from(theme.muted_foreground))
                             .truncate()
                             .child(tr(model.description)),
                     ),
@@ -2578,7 +2578,7 @@ impl EditorWindow {
                 div()
                     .flex_shrink_0()
                     .text_size(px(10.))
-                    .text_color(Hsla::from(theme.gray_10))
+                    .text_color(Hsla::from(theme.muted_foreground))
                     .child(model.size),
             )
             .child(
@@ -2586,7 +2586,7 @@ impl EditorWindow {
                     .path("icons/chevron-down.svg")
                     .size(px(16.))
                     .flex_shrink_0()
-                    .text_color(Hsla::from(theme.gray_11)),
+                    .text_color(Hsla::from(theme.muted_foreground)),
             )
             .tooltip({
                 let model_name = SharedString::new_static(model.model_name);
@@ -2643,12 +2643,12 @@ impl EditorWindow {
                                     .path("icons/check.svg")
                                     .size(px(14.))
                                     .flex_shrink_0()
-                                    .text_color(Hsla::from(theme.gray_9)),
+                                    .text_color(Hsla::from(theme.muted_foreground)),
                             )
                             .child(
                                 div()
                                     .text_size(px(12.))
-                                    .text_color(Hsla::from(theme.gray_10))
+                                    .text_color(Hsla::from(theme.muted_foreground))
                                     .truncate()
                                     .child(SharedString::from(t!(
                                         "{model} model downloaded",
@@ -2717,7 +2717,7 @@ impl EditorWindow {
                             .h(px(6.))
                             .rounded_full()
                             .overflow_hidden()
-                            .bg(Hsla::from(theme.gray_3))
+                            .bg(Hsla::from(theme.secondary))
                             .child(
                                 div()
                                     .h_full()
@@ -2729,7 +2729,7 @@ impl EditorWindow {
                     .child(
                         div()
                             .text_size(px(12.))
-                            .text_color(Hsla::from(theme.gray_10))
+                            .text_color(Hsla::from(theme.muted_foreground))
                             .child(download_message.unwrap_or_else(|| {
                                 "Keep FrameEver open while the model downloads. Editor reloads will \
                                  reconnect automatically."
@@ -2759,7 +2759,7 @@ impl EditorWindow {
             .children((!transcription::supports_parakeet()).then(|| {
                 div()
                     .text_size(px(12.))
-                    .text_color(Hsla::from(theme.gray_10))
+                    .text_color(Hsla::from(theme.muted_foreground))
                     .child(
                         "Parakeet caption models are unavailable on Intel Macs. Whisper models \
                          remain available.",
@@ -2768,7 +2768,7 @@ impl EditorWindow {
             .child(
                 div()
                     .text_size(px(12.))
-                    .text_color(Hsla::from(theme.gray_10))
+                    .text_color(Hsla::from(theme.muted_foreground))
                     .child(t!(
                         "One time download to your system. All captions are stored locally."
                     )),
@@ -2863,7 +2863,7 @@ impl EditorWindow {
                                 .child(
                                     div()
                                         .text_size(px(12.))
-                                        .text_color(Hsla::from(theme.gray_10))
+                                        .text_color(Hsla::from(theme.muted_foreground))
                                         .child(
                                             "This is the first version of captions in FrameEver. \
                                                  Active word highlighting may be inaccurate in \
@@ -3005,7 +3005,7 @@ impl EditorWindow {
                     .border_color(if selected {
                         Hsla::from(theme.foreground)
                     } else {
-                        Hsla::from(theme.gray_3)
+                        Hsla::from(theme.secondary)
                     })
                     .when(selected, |this| {
                         this.shadow(vec![gpui::BoxShadow {
@@ -3022,7 +3022,7 @@ impl EditorWindow {
                             .px(px(2.))
                             .text_size(px(12.))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(Hsla::from(theme.gray_12))
+                            .text_color(Hsla::from(theme.foreground))
                             .child(tr(preset.label)),
                     )
                     .tooltip({
@@ -3524,9 +3524,9 @@ impl EditorWindow {
                                 .rounded(px(2.))
                                 .border_1()
                                 .border_color(Hsla::from(theme.editor.line))
-                                .bg(Hsla::from(theme.gray_1))
+                                .bg(Hsla::from(theme.background))
                                 .text_size(px(12.))
-                                .text_color(Hsla::from(theme.gray_11))
+                                .text_color(Hsla::from(theme.muted_foreground))
                                 .child(SharedString::from(format!(
                                     "{}{}ms",
                                     if delta > 0 { "+" } else { "-" },

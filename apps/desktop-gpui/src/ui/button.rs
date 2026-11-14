@@ -28,10 +28,6 @@ pub enum ButtonVariant {
     Destructive,
     /// `border border-gray-4 text-gray-12`, inverting to filled on hover.
     Outline,
-    /// `bg-gray-1 border border-gray-6 text-gray-12 hover:bg-gray-3`.
-    White,
-    /// Transparent until `hover:bg-white/20` -- only legible on a dark backdrop.
-    Ghost,
     /// `bg-gray-5 hover:bg-gray-7 text-gray-12`, with the `data-selected="true"`
     /// sub-state at `bg-gray-8` (`dark:bg-gray-9`).
     Gray,
@@ -111,7 +107,6 @@ pub struct Button {
     id: ElementId,
     label: Option<SharedString>,
     icon: Option<SharedString>,
-    right_icon: Option<SharedString>,
     size: ButtonSize,
     paint: ButtonPaint,
     /// `rounded-full` unless a surface overrides it -- the settings material
@@ -120,7 +115,6 @@ pub struct Button {
     disabled: bool,
     gap: Pixels,
     font_weight: Option<FontWeight>,
-    width: Option<Pixels>,
     full_width: bool,
     height: Option<Pixels>,
     /// Whether the disabled look is the plain surface's `opacity-50` rather
@@ -143,14 +137,12 @@ impl Button {
             id: id.into(),
             label: None,
             icon: None,
-            right_icon: None,
             size,
             paint: radix_paint(theme, variant),
             radius: None,
             disabled: false,
             gap: px(6.),
             font_weight: None,
-            width: None,
             full_width: false,
             height: None,
             dim_disabled: false,
@@ -193,13 +185,13 @@ impl Button {
         let control_fill = theme
             .material
             .map(|material| Hsla::from(material.control_fill))
-            .unwrap_or_else(|| Hsla::from(theme.gray_5));
+            .unwrap_or_else(|| Hsla::from(theme.border));
 
         // No `:hover` arm: the settings block's hover rules land on the nav and
         // profile rows, not on `button[data-variant]`, and the window has never
         // drawn one.
         let paint = match variant {
-            ButtonVariant::Gray | ButtonVariant::White | ButtonVariant::Outline => ButtonPaint {
+            ButtonVariant::Gray | ButtonVariant::Outline => ButtonPaint {
                 bg: Some(control_fill),
                 hover_bg: None,
                 text: theme.settings_text(),
@@ -236,11 +228,6 @@ impl Button {
 
     pub fn icon(mut self, icon: impl Into<SharedString>) -> Self {
         self.icon = Some(icon.into());
-        self
-    }
-
-    pub fn right_icon(mut self, icon: impl Into<SharedString>) -> Self {
-        self.right_icon = Some(icon.into());
         self
     }
 
@@ -285,11 +272,6 @@ impl Button {
         self
     }
 
-    pub fn width(mut self, width: Pixels) -> Self {
-        self.width = Some(width);
-        self
-    }
-
     pub fn full_width(mut self) -> Self {
         self.full_width = true;
         self
@@ -297,11 +279,6 @@ impl Button {
 
     pub fn height(mut self, height: Pixels) -> Self {
         self.height = Some(height);
-        self
-    }
-
-    pub fn bg(mut self, bg: Hsla) -> Self {
-        self.paint.bg = Some(bg);
         self
     }
 
@@ -361,31 +338,15 @@ fn radix_paint(theme: &Theme, variant: ButtonVariant) -> ButtonPaint {
         ButtonVariant::Outline => ButtonPaint {
             bg: None,
             hover_bg: Some(theme.accent.into()),
-            text: theme.gray(12),
+            text: gpui::Hsla::from(theme.foreground),
             hover_text: None,
             border: Some(theme.input.into()),
-            hover_border: None,
-        },
-        ButtonVariant::White => ButtonPaint {
-            bg: Some(theme.secondary.into()),
-            hover_bg: Some(theme.secondary_hover.into()),
-            text: theme.gray(12),
-            hover_text: None,
-            border: Some(theme.gray(6)),
-            hover_border: None,
-        },
-        ButtonVariant::Ghost => ButtonPaint {
-            bg: None,
-            hover_bg: Some(theme.accent.into()),
-            text: theme.gray(12),
-            hover_text: None,
-            border: None,
             hover_border: None,
         },
         ButtonVariant::Gray => ButtonPaint {
             bg: Some(theme.secondary.into()),
             hover_bg: Some(theme.secondary_hover.into()),
-            text: theme.gray(12),
+            text: gpui::Hsla::from(theme.foreground),
             hover_text: None,
             border: None,
             hover_border: None,
@@ -393,7 +354,7 @@ fn radix_paint(theme: &Theme, variant: ButtonVariant) -> ButtonPaint {
         ButtonVariant::Dark => ButtonPaint {
             bg: Some(theme.secondary.into()),
             hover_bg: Some(theme.secondary_hover.into()),
-            text: theme.gray(12),
+            text: gpui::Hsla::from(theme.foreground),
             hover_text: None,
             border: None,
             hover_border: None,
@@ -407,7 +368,6 @@ impl RenderOnce for Button {
             id,
             label,
             icon,
-            right_icon,
             size,
             paint,
             radius,
@@ -415,7 +375,6 @@ impl RenderOnce for Button {
             dim_disabled,
             gap,
             font_weight,
-            width,
             full_width,
             height,
             on_click,
@@ -436,7 +395,6 @@ impl RenderOnce for Button {
             .px(size.padding_x())
             .when_some(size.padding_y(), |this, py| this.py(py))
             .when_some(height.or(size.height()), |this, h| this.h(h))
-            .when_some(width, |this, w| this.w(w))
             .when(full_width, |this| this.w_full())
             .map(|this| match radius {
                 Some(radius) => this.rounded(radius),
@@ -474,13 +432,6 @@ impl RenderOnce for Button {
                     .text_color(icon_color)
             }))
             .children(label)
-            .children(right_icon.map(|icon| {
-                svg()
-                    .path(icon)
-                    .size(px(14.))
-                    .flex_shrink_0()
-                    .text_color(icon_color)
-            }))
             .when_some(on_click.filter(|_| !disabled), |this, handler| {
                 this.on_click(move |event, window, cx| handler(event, window, cx))
             })
@@ -537,44 +488,6 @@ impl IconButton {
         }
     }
 
-    /// The main window header's action row: a 20px hit box with no fill at
-    /// all, `text-gray-11` going to `text-gray-12` on hover.
-    pub fn header(theme: &Theme, id: impl Into<ElementId>, icon: impl Into<SharedString>) -> Self {
-        Self {
-            occlude: cfg!(target_os = "windows"),
-            size: px(20.),
-            icon_size: px(16.),
-            idle: theme.gray(11),
-            active_color: theme.gray(12),
-            hover_color: Some(theme.gray(12)),
-            ..Self::new(id, icon)
-        }
-    }
-
-    /// The teleprompter's `ToolButton`: `size-7 rounded-full text-gray-9
-    /// hover:bg-gray-12/7 hover:text-gray-12`, active `bg-gray-12/8 text-gray-12`.
-    pub fn glass(theme: &Theme, id: impl Into<ElementId>, icon: impl Into<SharedString>) -> Self {
-        Self {
-            idle: Hsla::from(theme.gray_9),
-            active_color: Hsla::from(theme.gray_12),
-            hover_bg: Some(Theme::with_alpha(theme.gray_12, 0.07)),
-            active_bg: Some(Theme::with_alpha(theme.gray_12, 0.08)),
-            ..Self::new(id, icon)
-        }
-    }
-
-    /// A main-window body button: the panel material's `hover:bg-gray-4` /
-    /// `bg-gray-5` remaps rather than the raw Radix steps.
-    pub fn body(theme: &Theme, id: impl Into<ElementId>, icon: impl Into<SharedString>) -> Self {
-        Self {
-            idle: theme.gray(11),
-            active_color: theme.body_text(),
-            hover_bg: Some(theme.body_hover_fill(4)),
-            active_bg: Some(theme.body_fill(5)),
-            ..Self::new(id, icon)
-        }
-    }
-
     pub fn size(mut self, size: Pixels) -> Self {
         self.size = size;
         self
@@ -587,11 +500,6 @@ impl IconButton {
 
     pub fn rounded(mut self, radius: Pixels) -> Self {
         self.rounded = Some(radius);
-        self
-    }
-
-    pub fn active(mut self, active: bool) -> Self {
-        self.active = active;
         self
     }
 

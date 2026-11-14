@@ -77,11 +77,6 @@ impl CollapsibleState {
         self.measured.clone()
     }
 
-    /// The natural height, once one frame has been laid out.
-    pub fn measured_height(&self) -> Option<Pixels> {
-        self.measured.get()
-    }
-
     /// Flip the panel, starting a transition from wherever it is now.
     pub fn toggle(&self) {
         self.set_open(!self.open.get());

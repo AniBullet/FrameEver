@@ -4182,10 +4182,10 @@ impl EditorWindow {
                 .px(px(6.))
                 .py(px(2.))
                 .rounded_full()
-                .bg(Hsla::from(theme.gray_3))
+                .bg(Hsla::from(theme.secondary))
                 .text_size(px(10.))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(Hsla::from(theme.gray_11))
+                .text_color(Hsla::from(theme.muted_foreground))
                 .child(label)
                 .into_any_element()
         };
@@ -4239,7 +4239,7 @@ impl EditorWindow {
                                         .children(positions_mixed.then(|| {
                                             div()
                                                 .text_size(px(12.))
-                                                .text_color(Hsla::from(theme.gray_10))
+                                                .text_color(Hsla::from(theme.muted_foreground))
                                                 .child(
                                                     "Segments zoom into different spots. Drag \
                                                          to move them all to the same one.",
@@ -4274,12 +4274,12 @@ impl EditorWindow {
                             .p(px(10.))
                             .rounded(px(8.))
                             .border_1()
-                            .border_color(Hsla::from(theme.gray_4))
-                            .bg(Hsla::from(theme.gray_3))
+                            .border_color(Hsla::from(theme.secondary_hover))
+                            .bg(Hsla::from(theme.secondary))
                             .child(
                                 div()
                                     .text_size(px(12.))
-                                    .text_color(Hsla::from(theme.gray_11))
+                                    .text_color(Hsla::from(theme.muted_foreground))
                                     .child(SharedString::from(t!(
                                         "Zoom {number}",
                                         number = index + 1
@@ -4293,12 +4293,12 @@ impl EditorWindow {
                                     .items_center()
                                     .size(px(20.))
                                     .rounded_full()
-                                    .bg(Hsla::from(theme.gray_5))
+                                    .bg(Hsla::from(theme.border))
                                     .child(
                                         svg()
                                             .path("icons/x.svg")
                                             .size(px(14.))
-                                            .text_color(Hsla::from(theme.gray_11)),
+                                            .text_color(Hsla::from(theme.muted_foreground)),
                                     )
                                     .on_click(cx.listener(move |this, _, _window, cx| {
                                         this.remove_from_zoom_selection(index, cx);
@@ -4339,12 +4339,12 @@ impl EditorWindow {
                 .py(px(10.))
                 .rounded(px(9.6))
                 .text_color(if selected {
-                    Hsla::from(theme.gray_12)
+                    Hsla::from(theme.foreground)
                 } else {
-                    Hsla::from(theme.gray_11)
+                    Hsla::from(theme.muted_foreground)
                 })
                 .when(locked, |this| this.opacity(0.5))
-                .when(selected, |this| this.bg(Hsla::from(theme.gray_3)))
+                .when(selected, |this| this.bg(Hsla::from(theme.secondary)))
                 .child(label)
                 .when(!locked, |this| {
                     this.on_click(cx.listener(move |this, _, window, cx| {
@@ -4364,7 +4364,7 @@ impl EditorWindow {
                     .items_center()
                     .rounded(px(8.))
                     .border_1()
-                    .border_color(Hsla::from(theme.gray_12))
+                    .border_color(Hsla::from(theme.foreground))
                     .p(px(1.))
                     .child(tab(
                         t!("Auto"),
@@ -4379,7 +4379,7 @@ impl EditorWindow {
             .children(auto_locked.then(|| {
                 div()
                     .text_size(px(12.))
-                    .text_color(Hsla::from(theme.gray_11))
+                    .text_color(Hsla::from(theme.muted_foreground))
                     .child(t!(
                         "Auto mode needs cursor capture. Enable \"Custom cursor capture \
                          (Studio)\" in Settings \u{2192} General."
@@ -4410,14 +4410,14 @@ impl EditorWindow {
                     .w_full()
                     .text_size(px(12.))
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(Hsla::from(theme.gray_11))
+                    .text_color(Hsla::from(theme.muted_foreground))
                     .tab_index(0)
                     .cursor_pointer()
                     .child(
                         svg()
                             .path("icons/info.svg")
                             .size(px(14.))
-                            .text_color(Hsla::from(theme.gray_11)),
+                            .text_color(Hsla::from(theme.muted_foreground)),
                     )
                     .child(t!("How does it work?"))
                     .child(
@@ -4429,7 +4429,7 @@ impl EditorWindow {
                                     "icons/chevron-right.svg"
                                 })
                                 .size(px(14.))
-                                .text_color(Hsla::from(theme.gray_11)),
+                                .text_color(Hsla::from(theme.muted_foreground)),
                         ),
                     )
                     .on_click(cx.listener(|this, _, window, cx| {
@@ -4452,8 +4452,8 @@ impl EditorWindow {
                             .rounded(px(8.))
                             .overflow_hidden()
                             .border_1()
-                            .border_color(Hsla::from(theme.gray_4))
-                            .bg(Hsla::from(theme.gray_3))
+                            .border_color(Hsla::from(theme.secondary_hover))
+                            .bg(Hsla::from(theme.secondary))
                             .child(
                                 div()
                                     .absolute()
@@ -4480,14 +4480,14 @@ impl EditorWindow {
                                         svg()
                                             .path("icons/mouse-pointer-2.svg")
                                             .size(px(14.))
-                                            .text_color(Hsla::from(theme.gray_12)),
+                                            .text_color(Hsla::from(theme.foreground)),
                                     ),
                             ),
                     )
                     .child(
                         div()
                             .text_size(px(12.))
-                            .text_color(Hsla::from(theme.gray_11))
+                            .text_color(Hsla::from(theme.muted_foreground))
                             .child(if manual {
                                 t!("Manual zoom stays on a fixed spot you pick below.")
                             } else {
@@ -4653,7 +4653,7 @@ impl EditorWindow {
                 .flex(true)
                 .padding_x(px(12.))
                 .text_size(px(14.))
-                .bg(Hsla::from(theme.gray_2))
+                .bg(Hsla::from(theme.card))
                 .border(Hsla::from(theme.editor.line));
         // A `<textarea>` measures its own height; a single-line box is `h-9`.
         field = match height {
@@ -4687,12 +4687,12 @@ impl EditorWindow {
                     .padding_x(px(6.))
                     .height(px(30.))
                     .text_size(px(14.))
-                    .bg(Hsla::from(theme.gray_1))
-                    .border(Hsla::from(theme.gray_12)),
+                    .bg(Hsla::from(theme.background))
+                    .border(Hsla::from(theme.foreground)),
             )
             .children((!unit.is_empty()).then(|| {
                 div()
-                    .text_color(Hsla::from(theme.gray_11))
+                    .text_color(Hsla::from(theme.muted_foreground))
                     .child(unit)
                     .into_any_element()
             }))
@@ -5687,7 +5687,7 @@ impl EditorWindow {
                 .rounded(px(8.))
                 .border_1()
                 .border_color(Hsla::from(theme.editor.line))
-                .bg(crate::editor_sidebar::with_alpha(theme.gray_1, 0.8))
+                .bg(crate::editor_sidebar::with_alpha(theme.background, 0.8))
                 .child(
                     div()
                         .flex()
@@ -5695,7 +5695,7 @@ impl EditorWindow {
                         .justify_between()
                         .items_center()
                         .text_size(px(10.))
-                        .text_color(Hsla::from(theme.gray_10))
+                        .text_color(Hsla::from(theme.muted_foreground))
                         .child(label)
                         .child(SharedString::from(format_time(time))),
                 )
@@ -5712,7 +5712,7 @@ impl EditorWindow {
                     .rounded(px(12.))
                     .border_1()
                     .border_color(Hsla::from(theme.editor.line))
-                    .bg(crate::editor_sidebar::with_alpha(theme.gray_2, 0.7))
+                    .bg(crate::editor_sidebar::with_alpha(theme.card, 0.7))
                     .child(
                         div()
                             .flex()
@@ -5725,7 +5725,7 @@ impl EditorWindow {
                                     .pt(px(40.))
                                     .text_size(px(12.))
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(Hsla::from(theme.gray_10))
+                                    .text_color(Hsla::from(theme.muted_foreground))
                                     .child("to"),
                             )
                             .child(box_for(t!("End"), end, end_key)),
@@ -5739,14 +5739,14 @@ impl EditorWindow {
                             .px(px(12.))
                             .py(px(8.))
                             .rounded(px(8.))
-                            .bg(crate::editor_sidebar::with_alpha(theme.gray_1, 0.7))
+                            .bg(crate::editor_sidebar::with_alpha(theme.background, 0.7))
                             .text_size(px(12.))
-                            .text_color(Hsla::from(theme.gray_11))
+                            .text_color(Hsla::from(theme.muted_foreground))
                             .child(t!("Duration"))
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(Hsla::from(theme.gray_12))
+                                    .text_color(Hsla::from(theme.foreground))
                                     .child(SharedString::from(format!(
                                         "{:.2}s",
                                         (end - start).max(0.)
@@ -5802,7 +5802,7 @@ impl EditorWindow {
                                 .rounded(px(12.))
                                 .border_1()
                                 .border_color(Hsla::from(theme.editor.line))
-                                .bg(Hsla::from(theme.gray_2))
+                                .bg(Hsla::from(theme.card))
                                 .tab_index(0)
                                 .cursor_pointer()
                                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -5826,13 +5826,13 @@ impl EditorWindow {
                                                 .text_size(px(14.))
                                                 .font_weight(FontWeight::MEDIUM)
                                                 .truncate()
-                                                .text_color(Hsla::from(theme.gray_12))
+                                                .text_color(Hsla::from(theme.foreground))
                                                 .child(SharedString::from(name)),
                                         )
                                         .child(
                                             div()
                                                 .text_size(px(12.))
-                                                .text_color(Hsla::from(theme.gray_10))
+                                                .text_color(Hsla::from(theme.muted_foreground))
                                                 .child(t!("Tap to change track")),
                                         ),
                                 )
@@ -5848,16 +5848,16 @@ impl EditorWindow {
                                         .rounded(px(8.))
                                         .border_1()
                                         .border_color(Hsla::from(theme.editor.line))
-                                        .bg(Hsla::from(theme.gray_1))
+                                        .bg(Hsla::from(theme.background))
                                         .text_size(px(12.))
                                         .font_weight(FontWeight::MEDIUM)
-                                        .text_color(Hsla::from(theme.gray_11))
+                                        .text_color(Hsla::from(theme.muted_foreground))
                                         .opacity(0.5)
                                         .child(
                                             svg()
                                                 .path("icons/refresh-cw.svg")
                                                 .size(px(14.))
-                                                .text_color(Hsla::from(theme.gray_11)),
+                                                .text_color(Hsla::from(theme.muted_foreground)),
                                         )
                                         .child(t!("Change")),
                                 ),
@@ -5880,7 +5880,7 @@ impl EditorWindow {
                                         .child(
                                             div()
                                                 .text_size(px(12.))
-                                                .text_color(Hsla::from(theme.gray_11))
+                                                .text_color(Hsla::from(theme.muted_foreground))
                                                 .child(t!("Enabled")),
                                         )
                                         .child(
@@ -5995,7 +5995,7 @@ impl EditorWindow {
                             .child(
                                 div()
                                     .text_size(px(12.))
-                                    .text_color(Hsla::from(theme.gray_11))
+                                    .text_color(Hsla::from(theme.muted_foreground))
                                     .child(t!("Enabled")),
                             )
                             .child(
@@ -6110,7 +6110,7 @@ impl EditorWindow {
                             .border_color(if checked {
                                 Hsla::from(theme.border_strong)
                             } else {
-                                Hsla::from(theme.gray_3)
+                                Hsla::from(theme.secondary)
                             })
                             .when(checked, |this| this.bg(Hsla::from(theme.selection)))
                             .child(
@@ -6121,7 +6121,7 @@ impl EditorWindow {
                                     .gap(px(8.))
                                     .p(px(8.))
                                     .text_size(px(14.))
-                                    .text_color(Hsla::from(theme.gray_12))
+                                    .text_color(Hsla::from(theme.foreground))
                                     .child(
                                         div()
                                             .size(px(16.))
@@ -6131,7 +6131,7 @@ impl EditorWindow {
                                             .border_color(if checked {
                                                 Hsla::from(theme.primary)
                                             } else {
-                                                Hsla::from(theme.gray_7)
+                                                Hsla::from(theme.border_strong)
                                             })
                                             .when(checked, |this| {
                                                 this.bg(Hsla::from(theme.primary))
@@ -6238,23 +6238,23 @@ impl EditorWindow {
                                         .rounded(px(10.))
                                         .border_1()
                                         .border_color(if selected {
-                                            Hsla::from(theme.gray_3)
+                                            Hsla::from(theme.secondary)
                                         } else {
                                             gpui::transparent_black()
                                         })
-                                        .when(selected, |this| this.bg(Hsla::from(theme.gray_3)))
+                                        .when(selected, |this| this.bg(Hsla::from(theme.secondary)))
                                         .when(disabled, |this| this.opacity(0.4))
                                         .text_size(px(12.))
                                         .text_color(if selected {
-                                            Hsla::from(theme.gray_12)
+                                            Hsla::from(theme.foreground)
                                         } else {
-                                            Hsla::from(theme.gray_11)
+                                            Hsla::from(theme.muted_foreground)
                                         })
                                         .child(svg().path(*icon).size(px(14.)).text_color(
                                             if selected {
-                                                Hsla::from(theme.gray_12)
+                                                Hsla::from(theme.foreground)
                                             } else {
-                                                Hsla::from(theme.gray_11)
+                                                Hsla::from(theme.muted_foreground)
                                             },
                                         ))
                                         .child(tr(label))
@@ -6272,7 +6272,7 @@ impl EditorWindow {
                             div()
                                 .p(px(10.))
                                 .rounded(px(6.))
-                                .bg(Hsla::from(theme.gray_2))
+                                .bg(Hsla::from(theme.card))
                                 .border_1()
                                 .border_color(Hsla::from(theme.editor.line))
                                 .child(
@@ -6280,7 +6280,7 @@ impl EditorWindow {
                                         .w_full()
                                         .text_size(px(12.))
                                         .text_center()
-                                        .text_color(Hsla::from(theme.gray_11))
+                                        .text_color(Hsla::from(theme.muted_foreground))
                                         .child(description),
                                 ),
                         ),
@@ -8865,8 +8865,8 @@ impl EditorWindow {
                     .gap(px(8.))
                     .rounded(px(8.))
                     .border_1()
-                    .border_color(Hsla::from(self.theme.gray_4))
-                    .bg(Hsla::from(self.theme.gray_2))
+                    .border_color(Hsla::from(self.theme.secondary_hover))
+                    .bg(Hsla::from(self.theme.card))
                     .p(px(12.))
                     .child(
                         div()
@@ -8882,7 +8882,7 @@ impl EditorWindow {
                     .child(
                         div()
                             .text_size(px(12.))
-                            .text_color(Hsla::from(self.theme.gray_10))
+                            .text_color(Hsla::from(self.theme.muted_foreground))
                             .child(t!("Drag the image to move it. Pull a corner to resize, or use the rotation control below to turn it.")),
                     )
                     .child(
@@ -9059,7 +9059,7 @@ impl EditorWindow {
                             .px(px(12.))
                             .py(px(8.))
                             .rounded(px(6.))
-                            .bg(Hsla::from(self.theme.gray_3))
+                            .bg(Hsla::from(self.theme.secondary))
                             .child(
                                 div()
                                     .flex()

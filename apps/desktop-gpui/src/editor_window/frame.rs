@@ -345,7 +345,7 @@ impl EditorWindow {
                         .gap(px(12.))
                         .p(px(12.))
                         .border_t_1()
-                        .border_color(theme.gray(3))
+                        .border_color(gpui::Hsla::from(theme.secondary))
                         .child(
                             div()
                                 .flex()
@@ -356,7 +356,7 @@ impl EditorWindow {
                                     div()
                                         .text_size(px(12.))
                                         .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme.gray(11))
+                                        .text_color(gpui::Hsla::from(theme.muted_foreground))
                                         .child(t!("Theme")),
                                 )
                                 .child(
@@ -365,7 +365,7 @@ impl EditorWindow {
                                         .w(px(160.))
                                         .h(px(32.))
                                         .border_1()
-                                        .border_color(theme.gray(3))
+                                        .border_color(gpui::Hsla::from(theme.secondary))
                                         .rounded(px(8.))
                                         .p(px(1.))
                                         .children(
@@ -389,14 +389,20 @@ impl EditorWindow {
                                                         .rounded(px(7.))
                                                         .text_size(px(12.))
                                                         .text_color(if value == frame_theme {
-                                                            theme.gray(12)
+                                                            gpui::Hsla::from(theme.foreground)
                                                         } else {
-                                                            theme.gray(11)
+                                                            gpui::Hsla::from(theme.muted_foreground)
                                                         })
                                                         .when(value == frame_theme, |tab| {
-                                                            tab.bg(theme.gray(3))
+                                                            tab.bg(gpui::Hsla::from(
+                                                                theme.secondary,
+                                                            ))
                                                         })
-                                                        .focus_visible(|tab| tab.bg(theme.gray(4)))
+                                                        .focus_visible(|tab| {
+                                                            tab.bg(gpui::Hsla::from(
+                                                                theme.secondary_hover,
+                                                            ))
+                                                        })
                                                         .cursor_pointer()
                                                         .child(label)
                                                         .on_click(cx.listener(
@@ -425,7 +431,7 @@ impl EditorWindow {
                                         div()
                                             .text_size(px(12.))
                                             .font_weight(FontWeight::MEDIUM)
-                                            .text_color(theme.gray(11))
+                                            .text_color(gpui::Hsla::from(theme.muted_foreground))
                                             .child(field.label()),
                                     )
                                     .child(
@@ -437,7 +443,7 @@ impl EditorWindow {
                                         .width(px(160.))
                                         .height(px(32.))
                                         .radius(px(8.))
-                                        .bg(theme.gray(2)),
+                                        .bg(gpui::Hsla::from(theme.card)),
                                     ),
                             )
                         })),

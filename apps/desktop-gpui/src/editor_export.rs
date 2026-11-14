@@ -1485,7 +1485,7 @@ impl EditorWindow {
             .child(
                 div()
                     .text_size(px(11.))
-                    .text_color(Hsla::from(theme.gray_10))
+                    .text_color(Hsla::from(theme.muted_foreground))
                     .child(description),
             )
     }

@@ -76,8 +76,8 @@ impl KbdChip {
         Self {
             key: kbd_symbol(key.as_ref()),
             size: KbdSize::Sm,
-            bg: theme.gray(1),
-            text: theme.gray(12),
+            bg: gpui::Hsla::from(theme.background),
+            text: gpui::Hsla::from(theme.foreground),
             border: None,
         }
     }
@@ -88,9 +88,9 @@ impl KbdChip {
         Self {
             key: kbd_symbol(key.as_ref()),
             size: KbdSize::Md,
-            bg: theme.gray(5),
-            text: theme.gray(12),
-            border: Some(theme.gray(6)),
+            bg: gpui::Hsla::from(theme.border),
+            text: gpui::Hsla::from(theme.foreground),
+            border: Some(gpui::Hsla::from(theme.secondary_active)),
         }
     }
 }

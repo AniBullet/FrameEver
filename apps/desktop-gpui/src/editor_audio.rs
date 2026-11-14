@@ -196,7 +196,7 @@ impl EditorWindow {
                     .child(
                         div()
                             .text_size(px(14.))
-                            .text_color(Hsla::from(theme.gray_10))
+                            .text_color(Hsla::from(theme.muted_foreground))
                             .child(if is_replace {
                                 t!("Change audio")
                             } else {
@@ -207,7 +207,7 @@ impl EditorWindow {
             .child(
                 div()
                     .text_size(px(12.))
-                    .text_color(Hsla::from(theme.gray_10))
+                    .text_color(Hsla::from(theme.muted_foreground))
                     .child(if is_replace {
                         t!("Pick a different track for this segment")
                     } else {
@@ -253,12 +253,12 @@ fn render_library_row(
         .py(px(10.))
         .rounded(px(12.))
         .border_1()
-        .border_color(Hsla::from(theme.gray_3))
-        .bg(Hsla::from(theme.gray_2))
+        .border_color(Hsla::from(theme.secondary))
+        .bg(Hsla::from(theme.card))
         .when(!importing, |row| {
             row.tab_index(0)
                 .cursor_pointer()
-                .hover(|this| this.bg(Hsla::from(theme.gray_3)))
+                .hover(|this| this.bg(Hsla::from(theme.secondary)))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.add_library_track(id, name, window, cx);
                 }))
@@ -273,13 +273,13 @@ fn render_library_row(
                     div()
                         .text_size(px(13.))
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(Hsla::from(theme.gray_12))
+                        .text_color(Hsla::from(theme.foreground))
                         .child(name),
                 )
                 .child(
                     div()
                         .text_size(px(11.))
-                        .text_color(Hsla::from(theme.gray_10))
+                        .text_color(Hsla::from(theme.muted_foreground))
                         .child("Lo-Fi"),
                 ),
         )
@@ -287,7 +287,7 @@ fn render_library_row(
             svg()
                 .path("icons/plus.svg")
                 .size(px(16.))
-                .text_color(Hsla::from(theme.gray_11)),
+                .text_color(Hsla::from(theme.muted_foreground)),
         )
         .into_any_element()
 }

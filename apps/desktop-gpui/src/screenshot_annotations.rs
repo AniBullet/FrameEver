@@ -3300,7 +3300,7 @@ impl ScreenshotEditorWindow {
                 ),
                 div()
                     .text_size(px(12.))
-                    .text_color(theme.gray_10)
+                    .text_color(theme.muted_foreground)
                     .child(t!("Drag the tail to point at something."))
                     .into_any_element(),
             ],
@@ -3378,9 +3378,9 @@ impl ScreenshotEditorWindow {
                     .text_color(theme.selection_foreground)
             })
             .when(!active, |this| {
-                this.bg(theme.gray_3)
-                    .text_color(theme.gray_11)
-                    .hover(|style| style.bg(theme.gray_4))
+                this.bg(theme.secondary)
+                    .text_color(theme.muted_foreground)
+                    .hover(|style| style.bg(theme.secondary_hover))
             })
             .child(tr(label))
             .on_click(cx.listener(move |this, _, window, cx| {
@@ -3633,8 +3633,8 @@ impl ScreenshotEditorWindow {
                     .cursor_pointer()
                     .tab_index(0)
                     .border_1()
-                    .border_color(theme.gray_5)
-                    .hover(|style| style.border_color(theme.gray_7))
+                    .border_color(theme.border)
+                    .hover(|style| style.border_color(theme.border_strong))
                     .when(transparent, |this| this.children(checker_quarters(20.)))
                     .when(!transparent, |this| {
                         this.bg(annotation_color(&value, 1.).unwrap_or(gpui::transparent_black()))
@@ -3728,7 +3728,7 @@ impl ScreenshotEditorWindow {
                             .border_color(if selected {
                                 theme.foreground
                             } else {
-                                theme.gray_4
+                                theme.secondary_hover
                             })
                             .when(selected, |this| this.border_2())
                             .children(checker_quarters(20.))
@@ -3815,11 +3815,11 @@ impl ScreenshotEditorWindow {
                         .gap(px(10.))
                         .rounded(px(8.))
                         .border_1()
-                        .border_color(theme.gray_4)
+                        .border_color(theme.secondary_hover)
                         .bg(if theme.is_dark() {
-                            theme.gray_2
+                            theme.card
                         } else {
-                            theme.gray_1
+                            theme.background
                         })
                         .child(
                             // `RgbInput` (`ColorPicker.tsx:47-102`).
@@ -3834,7 +3834,7 @@ impl ScreenshotEditorWindow {
                                         .rounded(px(8.))
                                         .overflow_hidden()
                                         .border_1()
-                                        .border_color(theme.gray_4)
+                                        .border_color(theme.secondary_hover)
                                         .when(annotation_color(&value, 1.).is_none(), |this| {
                                             this.children(checker_quarters(32.))
                                         })
@@ -3965,19 +3965,19 @@ impl ScreenshotEditorWindow {
                         .path("icons/layers.svg")
                         .size(px(32.))
                         .mb(px(8.))
-                        .text_color(theme.gray_10),
+                        .text_color(theme.muted_foreground),
                 )
                 .child(
                     div()
                         .text_size(px(12.))
-                        .text_color(theme.gray_10)
+                        .text_color(theme.muted_foreground)
                         .child(t!("No layers yet")),
                 )
                 .child(
                     div()
                         .mt(px(4.))
                         .text_size(px(10.))
-                        .text_color(theme.gray_10)
+                        .text_color(theme.muted_foreground)
                         .child(t!("Use the tools to add annotations")),
                 )
                 .into_any_element();
@@ -4071,10 +4071,10 @@ impl ScreenshotEditorWindow {
             .rounded(px(6.))
             .cursor_pointer()
             .tab_index(0)
-            .when(dragging, |this| this.opacity(0.5).bg(theme.gray_3))
+            .when(dragging, |this| this.opacity(0.5).bg(theme.secondary))
             .when(selected && !dragging, |this| this.bg(theme.selection))
             .when(!selected && !dragging, |this| {
-                this.hover(|style| style.bg(theme.gray_3))
+                this.hover(|style| style.bg(theme.secondary))
             })
             .child(
                 div()
@@ -4084,8 +4084,8 @@ impl ScreenshotEditorWindow {
                     .justify_center()
                     .flex_shrink_0()
                     .cursor(CursorStyle::OpenHand)
-                    .text_color(theme.gray_10)
-                    .hover(|style| style.text_color(theme.gray_11))
+                    .text_color(theme.muted_foreground)
+                    .hover(|style| style.text_color(theme.muted_foreground))
                     .child(svg().path("icons/grip-vertical.svg").size(px(14.)))
                     .on_mouse_down(
                         MouseButton::Left,
@@ -4106,7 +4106,7 @@ impl ScreenshotEditorWindow {
                     .bg(if selected {
                         theme.selection
                     } else {
-                        theme.gray_3
+                        theme.secondary
                     })
                     .child(
                         svg()
@@ -4115,7 +4115,7 @@ impl ScreenshotEditorWindow {
                             .text_color(if selected {
                                 theme.selection_foreground
                             } else {
-                                theme.gray_11
+                                theme.muted_foreground
                             }),
                     ),
             )
@@ -4128,7 +4128,7 @@ impl ScreenshotEditorWindow {
                     .text_color(if selected {
                         theme.selection_foreground
                     } else {
-                        theme.gray_12
+                        theme.foreground
                     })
                     .child(layer_label(annotation)),
             )
@@ -4144,9 +4144,9 @@ impl ScreenshotEditorWindow {
                     .cursor_pointer()
                     .tab_index(0)
                     .opacity(0.)
-                    .text_color(theme.gray_9)
+                    .text_color(theme.muted_foreground)
                     .group_hover("screenshot-layer-row", |style| style.opacity(1.))
-                    .hover(|style| style.bg(theme.red_3).text_color(theme.red_11))
+                    .hover(|style| style.bg(theme.danger_tint).text_color(theme.danger_text))
                     .child(svg().path("icons/x.svg").size(px(14.)))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
@@ -5005,9 +5005,9 @@ fn config_item(
                 .flex_shrink_0()
                 .text_size(px(12.))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.gray_10)
+                .text_color(theme.muted_foreground)
                 .child(label)
-                .children(value.map(|value| div().text_color(theme.gray_11).child(value))),
+                .children(value.map(|value| div().text_color(theme.muted_foreground).child(value))),
         )
         .child(control)
         .into_any_element()

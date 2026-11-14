@@ -433,20 +433,12 @@ impl Drop for ClipsState {
     }
 }
 
-fn red_3(theme: &Theme) -> Hsla {
-    theme.danger_tint.into()
-}
-
-fn red_11(theme: &Theme) -> Hsla {
-    theme.danger_text.into()
-}
-
 /// `bg-gray-2 dark:bg-gray-3` -- the card and the drag ghost (`:877, 1228`).
 fn card_bg(theme: &Theme) -> Hsla {
     if theme.is_dark() {
-        theme.gray_3
+        theme.secondary
     } else {
-        theme.gray_2
+        theme.card
     }
     .into()
 }
@@ -824,18 +816,18 @@ impl EditorWindow {
                         div()
                             .text_size(px(14.))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(Hsla::from(theme.gray_12))
+                            .text_color(Hsla::from(theme.foreground))
                             .child(t!("Clips")),
                     )
                     .children((recorded_clip_count > 0).then(|| {
                         div()
                             .rounded(px(6.))
-                            .bg(Hsla::from(theme.gray_3))
+                            .bg(Hsla::from(theme.secondary))
                             .px(px(6.))
                             .py(px(2.))
                             .text_size(px(10.))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(Hsla::from(theme.gray_11))
+                            .text_color(Hsla::from(theme.muted_foreground))
                             .child(recorded_clip_count.to_string())
                     })),
             )
@@ -880,26 +872,26 @@ impl EditorWindow {
                     .items_center()
                     .size(px(40.))
                     .rounded_full()
-                    .bg(Hsla::from(theme.gray_3))
+                    .bg(Hsla::from(theme.secondary))
                     .child(
                         svg()
                             .path("icons/clapperboard.svg")
                             .size(px(20.))
-                            .text_color(Hsla::from(theme.gray_9)),
+                            .text_color(Hsla::from(theme.muted_foreground)),
                     ),
             )
             .child(
                 div()
                     .text_size(px(14.))
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(Hsla::from(theme.gray_12))
+                    .text_color(Hsla::from(theme.foreground))
                     .child(t!("No clips yet")),
             )
             .child(
                 div()
                     .max_w(px(200.))
                     .text_size(px(12.))
-                    .text_color(Hsla::from(theme.gray_10))
+                    .text_color(Hsla::from(theme.muted_foreground))
                     .child(t!("Record or import a clip and it will show up here.")),
             )
     }
@@ -1036,7 +1028,7 @@ impl EditorWindow {
                     .gap(px(12.))
                     .rounded(px(8.))
                     .border_1()
-                    .border_color(Hsla::from(theme.gray_4))
+                    .border_color(Hsla::from(theme.secondary_hover))
                     .p(px(8.))
                     .bg(card_bg(&theme))
                     .cursor(if dragging {
@@ -1044,7 +1036,7 @@ impl EditorWindow {
                     } else {
                         CursorStyle::OpenHand
                     })
-                    .hover(move |style| style.border_color(Hsla::from(theme.gray_7)))
+                    .hover(move |style| style.border_color(Hsla::from(theme.border_strong)))
                     .when(is_dragged, |this| this.opacity(0.4))
                     .child(probe)
                     .on_mouse_down(
@@ -1064,7 +1056,7 @@ impl EditorWindow {
                             .h(px(54.))
                             .rounded(px(6.))
                             .flex_shrink_0()
-                            .bg(Hsla::from(theme.gray_4))
+                            .bg(Hsla::from(theme.secondary_hover))
                             .child(
                                 div()
                                     .absolute()
@@ -1073,13 +1065,13 @@ impl EditorWindow {
                                     .justify_center()
                                     .items_center()
                                     .bg(if theme.is_dark() {
-                                        Hsla::from(theme.gray_4)
+                                        Hsla::from(theme.secondary_hover)
                                     } else {
-                                        Hsla::from(theme.gray_3)
+                                        Hsla::from(theme.secondary)
                                     })
                                     .text_size(px(14.))
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(Hsla::from(theme.gray_9))
+                                    .text_color(Hsla::from(theme.muted_foreground))
                                     .child((index + 1).to_string()),
                             )
                             .children(thumb.map(|image| {
@@ -1108,11 +1100,11 @@ impl EditorWindow {
                                     .padding_x(px(6.))
                                     .radius(px(4.))
                                     .bg(if theme.is_dark() {
-                                        Hsla::from(theme.gray_4)
+                                        Hsla::from(theme.secondary_hover)
                                     } else {
-                                        Hsla::from(theme.gray_1)
+                                        Hsla::from(theme.background)
                                     })
-                                    .border(Hsla::from(theme.gray_6))
+                                    .border(Hsla::from(theme.secondary_active))
                                     .flex(true)
                                     .into_any_element(),
                                     None => div().into_any_element(),
@@ -1123,7 +1115,7 @@ impl EditorWindow {
                                     .text_size(px(14.))
                                     .font_weight(FontWeight::MEDIUM)
                                     .truncate()
-                                    .text_color(Hsla::from(theme.gray_12))
+                                    .text_color(Hsla::from(theme.foreground))
                                     .child(title)
                                     .on_mouse_down(
                                         MouseButton::Left,
@@ -1141,7 +1133,7 @@ impl EditorWindow {
                             .child(
                                 div()
                                     .text_size(px(12.))
-                                    .text_color(Hsla::from(theme.gray_10))
+                                    .text_color(Hsla::from(theme.muted_foreground))
                                     .child(subtitle),
                             ),
                     )
@@ -1191,11 +1183,11 @@ impl EditorWindow {
                                     .size(px(28.))
                                     .opacity(0.)
                                     .group_hover(group.clone(), |style| style.opacity(1.))
-                                    .text_color(Hsla::from(theme.gray_10))
+                                    .text_color(Hsla::from(theme.muted_foreground))
                                     .hover(move |style| {
                                         style
-                                            .bg(Hsla::from(theme.gray_5))
-                                            .text_color(Hsla::from(theme.gray_12))
+                                            .bg(Hsla::from(theme.border))
+                                            .text_color(Hsla::from(theme.foreground))
                                     })
                                     .child(svg().path("icons/square-pen.svg").size(px(14.)))
                                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
@@ -1218,9 +1210,9 @@ impl EditorWindow {
                                     .size(px(28.))
                                     .opacity(0.)
                                     .group_hover(group.clone(), |style| style.opacity(1.))
-                                    .text_color(Hsla::from(theme.gray_10))
+                                    .text_color(Hsla::from(theme.muted_foreground))
                                     .hover(move |style| {
-                                        style.bg(red_3(&theme)).text_color(red_11(&theme))
+                                        style.bg(theme.danger_tint).text_color(theme.danger_text)
                                     })
                                     .child(svg().path("icons/trash.svg").size(px(14.)))
                                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
@@ -1424,13 +1416,13 @@ impl EditorWindow {
                                 .p(px(4.))
                                 .rounded(px(8.))
                                 .border_1()
-                                .border_color(Hsla::from(theme.gray_3))
-                                .bg(Hsla::from(theme.gray_1))
+                                .border_color(Hsla::from(theme.secondary))
+                                .bg(Hsla::from(theme.background))
                                 .text_size(px(12.))
-                                .text_color(Hsla::from(theme.gray_12))
+                                .text_color(Hsla::from(theme.foreground))
                                 .child(
                                     row("clips-import-existing", t!("Existing recording"))
-                                        .hover(move |style| style.bg(Hsla::from(theme.gray_3)))
+                                        .hover(move |style| style.bg(Hsla::from(theme.secondary)))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.clips.import_menu = None;
                                             cx.notify();
@@ -1439,7 +1431,7 @@ impl EditorWindow {
                                 )
                                 .child(
                                     row("clips-import-mp4", t!("MP4 Video…"))
-                                        .hover(move |style| style.bg(Hsla::from(theme.gray_3)))
+                                        .hover(move |style| style.bg(Hsla::from(theme.secondary)))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.clips.import_menu = None;
                                             cx.notify();
@@ -1472,11 +1464,11 @@ impl EditorWindow {
                 .py(px(8.))
                 .rounded(px(8.))
                 .border_1()
-                .border_color(Hsla::from(theme.gray_6))
+                .border_color(Hsla::from(theme.secondary_active))
                 .bg(card_bg(&theme))
                 .text_size(px(14.))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(Hsla::from(theme.gray_12))
+                .text_color(Hsla::from(theme.foreground))
                 .child(display_name_at(segments, drag.index))
         });
 

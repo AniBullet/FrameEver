@@ -34,12 +34,6 @@
 //! what `cx.listener(..)` produces for any window type. Components are
 //! therefore window-agnostic without a generic parameter.
 
-// The library is transcribed whole rather than trimmed to today's callers,
-// for the same reason `Theme` carries the Radix steps nothing paints yet:
-// half a variant scale is worse than none, because the next person needing
-// `destructive` would have to go back to `Button.tsx` and re-derive it.
-#![allow(dead_code)]
-
 mod button;
 mod collapsible;
 mod color_picker;
@@ -48,7 +42,7 @@ mod field;
 mod kbd;
 mod menu;
 mod microphone_level;
-mod number_field;
+mod number_text;
 mod position_pad;
 mod progress;
 mod radio_cards;
@@ -58,7 +52,6 @@ mod select;
 mod selection_header;
 mod slider;
 mod surface;
-mod tab_rail;
 // `pub` where its siblings are private: the app menu's Edit items are built
 // from this module's actions by name (`crate::menus::build_menus`), and a
 // re-export would not give the menu a path to `text_input::Undo` as a type.
@@ -67,65 +60,34 @@ mod toggle;
 mod tooltip;
 mod windows_caption;
 
-// Some of these have no call site in this rev. They are the foundation tier
-// the editor's sidebar unit was blocked on -- `KbdChip` for `EditorButton`'s
-// `kbd` prop, `Tooltip` for its `tooltipText`/`comingSoon` arms,
-// `CircularProgress` for the export flow's three hand-rolled rings -- and
-// building them with the rest is the point of the unit. They are covered by
-// their own tests rather than by a caller.
-#[allow(unused_imports)]
 pub use button::{Button, ButtonSize, ButtonVariant, ClickHandler, IconButton};
-#[allow(unused_imports)]
 pub use collapsible::{Collapsible, CollapsibleState};
-#[allow(unused_imports)]
 pub use color_picker::{
-    ColorPicker, ColorPickerSnapshot, hsv_to_rgb, hue_from_point, preview_ring, rgb_to_hsv,
-    sv_from_point,
+    ColorPicker, ColorPickerSnapshot, hsv_to_rgb, hue_from_point, rgb_to_hsv, sv_from_point,
 };
-#[allow(unused_imports)]
-pub use editor_button::{EditorButton, EditorButtonVariant};
-#[allow(unused_imports)]
+pub use editor_button::EditorButton;
 pub use field::{Field, Subfield};
-#[allow(unused_imports)]
-pub use kbd::{KbdChip, KbdSize, kbd_symbol};
-#[allow(unused_imports)]
+pub use kbd::{KbdChip, kbd_symbol};
 pub use menu::{Menu, MenuItem, MenuKey, MenuState};
 pub(crate) use microphone_level::{MicrophoneLevel, MicrophoneLevelKind};
-#[allow(unused_imports)]
-pub use number_field::{
-    NumberChange, NumberField, NumberFieldState, NumberLimits, format_number, parse_number,
-};
-#[allow(unused_imports)]
-pub use position_pad::{PAD_HEIGHT, PositionPad, pad_position};
-#[allow(unused_imports)]
+pub use number_text::{format_number, parse_number};
+pub use position_pad::{PositionPad, pad_position};
 pub use progress::CircularProgress;
-#[allow(unused_imports)]
 pub use radio_cards::{RadioCard, RadioCards};
-#[allow(unused_imports)]
 pub use record_mark::{record_mark, stop_mark};
-#[allow(unused_imports)]
 pub use segmented::{SegmentOption, SegmentedControl, option_at};
-#[allow(unused_imports)]
 pub use select::Select;
-#[allow(unused_imports)]
 pub use selection_header::{SelectionHeader, selection_label, zoom_selection_label};
-#[allow(unused_imports)]
 pub use slider::{
     Slider, SliderDrag, SliderTrack, fraction_from_x, keyboard_slider_value, snap_to_step,
     value_at as slider_value_at, value_from_fraction,
 };
-#[allow(unused_imports)]
-pub use surface::{Card, Popover, Section, SettingRow};
-#[allow(unused_imports)]
-pub use tab_rail::{TabRail, TabRailItem};
-#[allow(unused_imports)]
+pub use surface::{Card, Section, SettingRow};
 pub use text_input::{
     TextInput, TextInputEvent, TextInputState, bind_keys as bind_text_input_keys,
     text_input_has_focus,
 };
-#[allow(unused_imports)]
-pub use toggle::{Toggle, ToggleSize};
-#[allow(unused_imports)]
-pub use tooltip::{TOOLTIP_SHOW_DELAY, Tooltip, TooltipStyle};
+pub use toggle::Toggle;
+pub use tooltip::{TOOLTIP_SHOW_DELAY, Tooltip};
 #[cfg(target_os = "windows")]
 pub use windows_caption::windows_caption_controls;

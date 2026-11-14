@@ -1,4 +1,4 @@
-//! The settings pages beyond General/Recordings/Screenshots -- Shortcuts,
+//! The settings pages beyond General -- Shortcuts,
 //! CLI, Automations, Transcription, Integrations, License, Experimental,
 //! Feedback and Changelog -- kept out of `settings_window.rs` so the shell
 //! stays readable. Every renderer here is an `impl SettingsWindow` extension.
@@ -1078,8 +1078,8 @@ impl SettingsWindow {
             .as_ref()
             .filter(|saved| saved.action == action);
         let effect = shortcut_effect(action, &self.settings, mode);
-        let red: Hsla = theme.red_11.into();
-        let amber: Hsla = theme.amber_11.into();
+        let red: Hsla = theme.danger_text.into();
+        let amber: Hsla = theme.warning_text.into();
 
         let (detail, detail_color, detail_icon): (String, Hsla, Option<(&str, Hsla)>) =
             if let Some(listening) = listening {
@@ -1390,7 +1390,7 @@ impl SettingsWindow {
                     div()
                         .text_size(px(12.))
                         .line_height(px(18.))
-                        .text_color(Hsla::from(theme.red_11))
+                        .text_color(Hsla::from(theme.danger_text))
                         .child(t!("Couldn't load CLI status: {error}", error = error)),
                 )
                 .child(div().child(self.button(
@@ -1555,11 +1555,11 @@ impl SettingsWindow {
                         .py(px(8.))
                         .rounded(px(8.))
                         .border_1()
-                        .border_color(Theme::with_alpha(theme.red_9, 0.4))
-                        .bg(Theme::with_alpha(theme.red_9, 0.1))
+                        .border_color(Theme::with_alpha(theme.danger, 0.4))
+                        .bg(Theme::with_alpha(theme.danger, 0.1))
                         .text_size(px(12.))
                         .line_height(px(18.))
-                        .text_color(Hsla::from(theme.red_11))
+                        .text_color(Hsla::from(theme.danger_text))
                         .child(conflict),
                 )
             })
@@ -1569,7 +1569,7 @@ impl SettingsWindow {
                 this.child(
                     div()
                         .text_size(px(12.))
-                        .text_color(Hsla::from(theme.red_11))
+                        .text_color(Hsla::from(theme.danger_text))
                         .child(error),
                 )
             })
@@ -2232,7 +2232,7 @@ impl SettingsWindow {
                         div()
                             .text_size(px(12.))
                             .line_height(px(18.))
-                            .text_color(Hsla::from(theme.red_11))
+                            .text_color(Hsla::from(theme.danger_text))
                             .child(error.clone()),
                     );
                 }
@@ -2269,7 +2269,7 @@ impl SettingsWindow {
                         div()
                             .text_size(px(13.))
                             .line_height(px(19.))
-                            .text_color(Hsla::from(theme.red_11))
+                            .text_color(Hsla::from(theme.danger_text))
                             .child(error.clone()),
                     )
                     .child(
@@ -2309,7 +2309,7 @@ impl SettingsWindow {
         let (label, fill, text): (&str, Hsla, Hsla) = match verdict {
             Some("pass") => (t!("PASS"), theme.success.into(), theme.success_text.into()),
             Some("warn") => (t!("WARN"), theme.warning.into(), theme.warning_text.into()),
-            Some("fail") => (t!("FAIL"), theme.red_9.into(), theme.red_11.into()),
+            Some("fail") => (t!("FAIL"), theme.danger.into(), theme.danger_text.into()),
             Some("inconclusive") => (
                 t!("INCONCLUSIVE"),
                 theme.settings_muted(),
@@ -3454,7 +3454,7 @@ impl SettingsWindow {
                     .gap(px(8.))
                     .text_size(px(12.))
                     .line_height(px(18.))
-                    .text_color(Hsla::from(theme.amber_11))
+                    .text_color(Hsla::from(theme.warning_text))
                     .child(t!(
                         "Failed to save automations. Your changes have not been saved."
                     ))
@@ -4064,7 +4064,7 @@ impl SettingsWindow {
                     div()
                         .text_size(px(12.))
                         .line_height(px(18.))
-                        .text_color(Hsla::from(theme.amber_11))
+                        .text_color(Hsla::from(theme.warning_text))
                         .child(
                             t!("In the FrameEver CLI, this automation runs commands with your \
                              permissions. Only use values you trust."),
@@ -4077,7 +4077,7 @@ impl SettingsWindow {
                         .id(("rule-compatibility-result", index))
                         .text_size(px(12.))
                         .line_height(px(18.))
-                        .text_color(Hsla::from(theme.amber_11))
+                        .text_color(Hsla::from(theme.warning_text))
                         .child(
                             t!("Compatibility checked: this automation doesn't run in FrameEver yet. \
                              Saved rules remain available to the FrameEver CLI. No actions were run."),
@@ -4200,7 +4200,7 @@ impl SettingsWindow {
                     div()
                         .px(px(4.))
                         .text_size(px(11.))
-                        .text_color(Hsla::from(theme.amber_11))
+                        .text_color(Hsla::from(theme.warning_text))
                         .child(if condition_is_removed(kind) {
                             t!("Organizations were removed, so this condition never matches. Remove it.")
                         } else {
@@ -4332,7 +4332,7 @@ impl SettingsWindow {
                 this.children(notice.map(|notice| {
                     div()
                         .text_size(px(11.))
-                        .text_color(Hsla::from(theme.amber_11))
+                        .text_color(Hsla::from(theme.warning_text))
                         .child(notice)
                 }))
             })

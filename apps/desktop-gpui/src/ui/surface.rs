@@ -1,10 +1,10 @@
-//! Surfaces: the card, the liquid-glass panel, the popover, and the two
+//! Surfaces: the card and the two
 //! label-plus-control row families the Solid app keeps deliberately distinct
 //! (`Setting.tsx`'s bordered card list and `editor/ui.tsx`'s stacked fields).
 
 use gpui::{
-    AnyElement, Div, FontWeight, Hsla, IntoElement, ParentElement, Pixels, RenderOnce,
-    SharedString, Styled, Window, div, prelude::FluentBuilder, px,
+    AnyElement, Div, FontWeight, Hsla, IntoElement, ParentElement, RenderOnce, SharedString,
+    Styled, Window, div, prelude::FluentBuilder, px,
 };
 
 use crate::theme::Theme;
@@ -33,63 +33,6 @@ impl Card {
             }),
         )
     }
-
-    pub fn liquid_glass(theme: &Theme) -> Div {
-        div()
-            .rounded(px(16.))
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.popover)
-    }
-
-    /// The teleprompter footer's pill: `h-8 rounded-full border border-gray-12/6
-    /// bg-gray-12/5 px-2`.
-    pub fn glass_pill(theme: &Theme) -> Div {
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(6.))
-            .h(px(crate::theme::CONTROL_HEIGHT))
-            .rounded_full()
-            .border_1()
-            .border_color(Theme::with_alpha(theme.gray_12, 0.06))
-            .bg(Theme::with_alpha(theme.gray_12, 0.05))
-            .px(px(8.))
-    }
-}
-
-/// An anchored floating panel: `KPopover`'s content, not a modal.
-///
-/// Positioning stays with the caller -- every popover in this app is placed
-/// against a known edge of its own window (`absolute bottom-12 right-2` for the
-/// teleprompter's), not flipped against a viewport.
-pub struct Popover;
-
-impl Popover {
-    pub fn glass(theme: &Theme, width: Pixels) -> Div {
-        div()
-            .absolute()
-            .w(width)
-            .p(px(8.))
-            .rounded(px(16.))
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.popover)
-    }
-
-    /// `PopperContent` on the plain palette: `rounded-xl border border-gray-3
-    /// bg-gray-1 shadow-s`.
-    pub fn plain(theme: &Theme) -> Div {
-        div()
-            .absolute()
-            .flex()
-            .flex_col()
-            .rounded(px(12.))
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.popover)
-    }
 }
 
 /// `<SettingItem>` / `.cap-setting-row { min-height: 46px; padding: 12px }` over
@@ -115,11 +58,6 @@ impl SettingRow {
             control,
             muted: theme.settings_muted(),
         }
-    }
-
-    pub fn description(mut self, description: impl Into<SharedString>) -> Self {
-        self.description = Some(description.into());
-        self
     }
 }
 
@@ -190,11 +128,6 @@ impl Section {
             muted: theme.settings_muted(),
             accent: Hsla::from(theme.secondary),
         }
-    }
-
-    pub fn pro(mut self) -> Self {
-        self.pro = true;
-        self
     }
 }
 

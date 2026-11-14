@@ -9678,7 +9678,7 @@ impl EditorWindow {
                 .hover(move |this| this.bg(Hsla::from(theme.editor.ctl_hover)))
                 .text_size(px(13.))
                 .text_color(if danger {
-                    Hsla::from(theme.red_11)
+                    Hsla::from(theme.danger_text)
                 } else {
                     Hsla::from(theme.editor.text_1)
                 })
@@ -10468,7 +10468,7 @@ impl EditorWindow {
                 svg()
                     .path("icons/triangle-alert.svg")
                     .size(px(32.))
-                    .text_color(Hsla::from(theme.red_11)),
+                    .text_color(Hsla::from(theme.danger_text)),
             )
             .child(
                 div()
@@ -11646,7 +11646,7 @@ impl EditorWindow {
                                     .rounded(px(6.))
                                     .bg(Hsla::from(theme.editor.ctl_active))
                                     .text_color(if hovered {
-                                        Hsla::from(theme.red_11)
+                                        Hsla::from(theme.danger_text)
                                     } else {
                                         Hsla::from(theme.editor.text_3)
                                     })
@@ -11676,7 +11676,7 @@ impl EditorWindow {
                                     )
                                     .child(svg().path("icons/trash.svg").size(px(14.)).text_color(
                                         if hovered {
-                                            Hsla::from(theme.red_11)
+                                            Hsla::from(theme.danger_text)
                                         } else {
                                             Hsla::from(theme.editor.text_3)
                                         },
@@ -12067,7 +12067,7 @@ impl Render for EditorWindow {
                 .flex_col()
                 .font_family(crate::theme::ui_font())
                 .bg(self.root_bg())
-                .text_color(Hsla::from(theme.gray_12))
+                .text_color(Hsla::from(theme.foreground))
                 .track_focus(&self.focus)
                 .capture_key_down(cx.listener(|_, event: &gpui::KeyDownEvent, window, cx| {
                     traverse_editor_focus(event, window, cx);
@@ -12097,7 +12097,7 @@ impl Render for EditorWindow {
             .flex_col()
             .font_family(crate::theme::ui_font())
             .bg(self.root_bg())
-            .text_color(Hsla::from(theme.gray_12))
+            .text_color(Hsla::from(theme.foreground))
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(Self::capture_playback_key))
             .on_key_down(cx.listener(Self::on_key))

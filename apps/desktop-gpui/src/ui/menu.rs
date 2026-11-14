@@ -209,10 +209,10 @@ impl Menu {
         state: &MenuState,
     ) -> Self {
         Self {
-            bg: theme.gray(1),
-            border: theme.gray(3),
-            hover: theme.gray(3),
-            text: theme.gray(12),
+            bg: gpui::Hsla::from(theme.background),
+            border: gpui::Hsla::from(theme.secondary),
+            hover: gpui::Hsla::from(theme.secondary),
+            text: gpui::Hsla::from(theme.foreground),
             ..Self::settings(theme, id, items, state)
         }
     }

@@ -114,10 +114,7 @@ pub fn bind_window<T: 'static>(window: &mut Window, cx: &mut Context<T>) {
 /// element each variable lands on, plus the two material-specific shell rules
 /// (`[..native-material="panel"] .cap-window-shell`). `shell` and `header`
 /// below are the panel's; `sidebar` / `content` / `card` are the settings
-/// window's surfaces. Material `"teleprompter"` adds no custom properties at
-/// all -- its whole block in `theme.css` is two `border-radius` rules (16, and
-/// 22 under liquid glass) -- so it reuses this set through
-/// [`Theme::teleprompter_shell_bg`] and [`Theme::teleprompter_window_radius`].
+/// window's surfaces.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MaterialTokens {
     pub kind: MaterialKind,
@@ -347,36 +344,6 @@ pub struct Theme {
     pub fixed_preview: Rgba,
     pub badge: Rgba,
 
-    pub gray_1: Rgba,
-    pub gray_2: Rgba,
-    pub gray_3: Rgba,
-    pub gray_4: Rgba,
-    pub gray_5: Rgba,
-    pub gray_6: Rgba,
-    pub gray_7: Rgba,
-    pub gray_8: Rgba,
-    pub gray_9: Rgba,
-    pub gray_10: Rgba,
-    pub gray_11: Rgba,
-    pub gray_12: Rgba,
-
-    pub red_2: Rgba,
-    pub red_3: Rgba,
-    pub red_4: Rgba,
-    pub red_9: Rgba,
-    pub red_11: Rgba,
-    pub red_300: Rgba,
-
-    pub amber_3: Rgba,
-    pub amber_6: Rgba,
-    pub amber_11: Rgba,
-
-    pub gray_200_legacy: Rgba,
-    pub gray_400_legacy: Rgba,
-    pub gray_500_legacy: Rgba,
-
-    pub text_primary: Rgba,
-
     pub editor: EditorPalette,
 }
 
@@ -506,36 +473,6 @@ impl Theme {
             fixed_preview: brand.fixed.preview.to_rgba(),
             badge: brand.fixed.badge.to_rgba(),
             editor: EditorPalette::new(appearance, &semantic, &component),
-
-            gray_1: semantic.background,
-            gray_2: semantic.card,
-            gray_3: semantic.secondary,
-            gray_4: semantic.secondary_hover,
-            gray_5: semantic.border,
-            gray_6: semantic.secondary_active,
-            gray_7: semantic.border_strong,
-            gray_8: semantic.border_strong,
-            gray_9: semantic.muted_foreground,
-            gray_10: semantic.muted_foreground,
-            gray_11: semantic.muted_foreground,
-            gray_12: semantic.foreground,
-
-            red_2: semantic.danger_tint,
-            red_3: semantic.danger_tint,
-            red_4: semantic.danger_tint,
-            red_9: semantic.danger,
-            red_11: semantic.danger_text,
-            red_300: semantic.recording,
-
-            amber_3: brand.amber.tint.to_rgba(),
-            amber_6: semantic.warning,
-            amber_11: semantic.warning_text,
-
-            gray_200_legacy: semantic.card,
-            gray_400_legacy: semantic.muted_foreground,
-            gray_500_legacy: semantic.foreground,
-
-            text_primary: semantic.foreground,
         }
     }
 
@@ -589,22 +526,18 @@ impl Theme {
         self.material.map(|material| material.kind)
     }
 
-    /// One Radix gray step by number, so the `.bg-gray-N` remaps below can be
-    /// written the way `theme.css` writes them.
-    pub fn gray(&self, step: u8) -> Hsla {
+    fn step_color(&self, step: u8) -> Hsla {
+        let s = &self.semantic;
         match step {
-            1 => self.gray_1,
-            2 => self.gray_2,
-            3 => self.gray_3,
-            4 => self.gray_4,
-            5 => self.gray_5,
-            6 => self.gray_6,
-            7 => self.gray_7,
-            8 => self.gray_8,
-            9 => self.gray_9,
-            10 => self.gray_10,
-            11 => self.gray_11,
-            _ => self.gray_12,
+            1 => s.background,
+            2 => s.card,
+            3 => s.secondary,
+            4 => s.secondary_hover,
+            5 => s.border,
+            6 => s.secondary_active,
+            7 | 8 => s.border_strong,
+            9..=11 => s.muted_foreground,
+            _ => s.foreground,
         }
         .into()
     }
@@ -614,7 +547,7 @@ impl Theme {
     pub fn shell_bg(&self) -> Hsla {
         match self.material {
             Some(material) => material.shell.into(),
-            None => self.gray_1.into(),
+            None => self.background.into(),
         }
     }
 
@@ -641,7 +574,7 @@ impl Theme {
         match self.material {
             Some(material) if material.remaps_body() => gpui::transparent_black(),
             Some(material) => material.border.into(),
-            None => self.gray_5.into(),
+            None => self.border.into(),
         }
     }
 
@@ -649,7 +582,7 @@ impl Theme {
     pub fn body_text(&self) -> Hsla {
         match self.material {
             Some(material) if material.remaps_body() => material.text.into(),
-            _ => self.text_primary.into(),
+            _ => self.foreground.into(),
         }
     }
 
@@ -667,13 +600,13 @@ impl Theme {
     /// identically either way.)
     pub fn body_fill(&self, step: u8) -> Hsla {
         let Some(material) = self.material.filter(MaterialTokens::remaps_body) else {
-            return self.gray(step);
+            return self.step_color(step);
         };
         match step {
             2 | 3 => material.control_fill.into(),
             4 => material.control_hover.into(),
             5 => material.control_active.into(),
-            _ => self.gray(step),
+            _ => self.step_color(step),
         }
     }
 
@@ -687,12 +620,12 @@ impl Theme {
     /// ```
     pub fn body_hover_fill(&self, step: u8) -> Hsla {
         let Some(material) = self.material.filter(MaterialTokens::remaps_body) else {
-            return self.gray(step);
+            return self.step_color(step);
         };
         match step {
             4 | 5 => material.control_hover.into(),
             6 | 7 => material.selection.into(),
-            _ => self.gray(step),
+            _ => self.step_color(step),
         }
     }
 
@@ -704,11 +637,11 @@ impl Theme {
     /// ```
     pub fn body_border(&self, step: u8) -> Hsla {
         let Some(material) = self.material.filter(MaterialTokens::remaps_body) else {
-            return self.gray(step);
+            return self.step_color(step);
         };
         match step {
             4..=6 => material.border.into(),
-            _ => self.gray(step),
+            _ => self.step_color(step),
         }
     }
 
@@ -743,7 +676,7 @@ impl Theme {
     pub fn settings_content_bg(&self) -> Hsla {
         match self.material {
             Some(material) => material.content.into(),
-            None => self.gray_1.into(),
+            None => self.background.into(),
         }
     }
 
@@ -752,7 +685,7 @@ impl Theme {
     pub fn settings_card_bg(&self) -> Hsla {
         match self.material {
             Some(material) => material.card.into(),
-            None => self.gray_2.into(),
+            None => self.card.into(),
         }
     }
 
@@ -762,7 +695,7 @@ impl Theme {
     pub fn settings_fill(&self) -> Hsla {
         match self.material {
             Some(material) => material.fill.into(),
-            None => self.gray_3.into(),
+            None => self.secondary.into(),
         }
     }
 
@@ -771,16 +704,7 @@ impl Theme {
     pub fn settings_hover(&self) -> Hsla {
         match self.material {
             Some(material) => material.hover.into(),
-            None => self.gray_3.into(),
-        }
-    }
-
-    /// `.cap-settings-nav-item.bg-gray-5 { background:
-    /// var(--macos-settings-selection) }` -- the selected sidebar row.
-    pub fn settings_selection(&self) -> Hsla {
-        match self.material {
-            Some(material) => material.selection.into(),
-            None => self.selection.into(),
+            None => self.secondary.into(),
         }
     }
 
@@ -810,7 +734,7 @@ impl Theme {
     pub fn settings_text(&self) -> Hsla {
         match self.material {
             Some(material) => material.text.into(),
-            None => self.gray_12.into(),
+            None => self.foreground.into(),
         }
     }
 
@@ -819,62 +743,7 @@ impl Theme {
     pub fn settings_muted(&self) -> Hsla {
         match self.material {
             Some(material) => material.muted.into(),
-            None => self.gray_10.into(),
-        }
-    }
-
-    // ---- The teleprompter window's shell -------------------------------
-    //
-    // `applyMacOSWindowMaterial("teleprompter")` sets the same two data
-    // attributes as the other two windows, and `theme.css` gives the material
-    // exactly two rules of its own:
-    //
-    // ```text
-    // [data-macos-native-material="teleprompter"] .cap-window-shell { border-radius: 16px }
-    // [..visual-system="liquid-glass"][..native-material="teleprompter"]
-    //   .cap-window-shell { border-radius: 22px }
-    // ```
-    //
-    // Everything else it paints comes from the shared blocks: the base
-    // `[data-macos-native-material] .cap-window-shell` wash + border under
-    // vibrancy, and `[..="liquid-glass"] .cap-window-shell { background:
-    // transparent; border: 0 }` under glass. The panel's `rgba(255,255,255,
-    // 0.55)` tint is *not* inherited -- that rule is `[..="panel"]`-gated --
-    // so under Liquid Glass this window is bare glass. The body remaps are
-    // panel-gated too, so the footer and script keep their Radix grays.
-
-    /// `.cap-window-shell` under material `"teleprompter"`.
-    pub fn teleprompter_shell_bg(&self) -> Hsla {
-        match self.material {
-            // `[data-macos-visual-system="liquid-glass"] .cap-window-shell
-            //  { background: transparent }`, with no panel-style tint on top.
-            Some(material) if material.remaps_body() => gpui::transparent_black(),
-            // `background: var(--macos-settings-window)`, which is what
-            // `MaterialTokens::shell` already holds on the vibrancy path.
-            Some(material) => material.shell.into(),
-            // No material (non-mac): the route's own
-            // `bg-gray-1/90 rounded-2xl border border-gray-5` fallback.
-            None => Self::with_alpha(self.gray_1, 0.9),
-        }
-    }
-
-    /// The teleprompter shell's `1px solid var(--macos-settings-border)` --
-    /// the same base rule the panel material takes, erased by the glass block.
-    /// Without a material the route draws `border border-gray-5`.
-    pub fn teleprompter_shell_border(&self) -> Option<Hsla> {
-        match self.material {
-            Some(material) if material.remaps_body() => None,
-            Some(material) => Some(material.border.into()),
-            None => Some(self.gray_5.into()),
-        }
-    }
-
-    /// 22 under Liquid Glass, 16 under vibrancy; `rounded-2xl` (16) is also
-    /// what the non-mac fallback draws.
-    pub fn teleprompter_window_radius(&self) -> f32 {
-        match self.material_kind() {
-            Some(MaterialKind::LiquidGlass) => 22.,
-            _ => 16.,
+            None => self.muted_foreground.into(),
         }
     }
 
@@ -927,15 +796,15 @@ mod tests {
     #[test]
     fn no_material_paints_the_klein_field_tokens() {
         for theme in [Theme::light(), Theme::dark()] {
-            assert_eq!(theme.shell_bg(), Hsla::from(theme.gray_1));
+            assert_eq!(theme.shell_bg(), Hsla::from(theme.background));
             assert_eq!(theme.shell_border(), None);
             assert_eq!(theme.header_bg(), Hsla::from(theme.background));
-            assert_eq!(theme.header_border(), Hsla::from(theme.gray_5));
-            assert_eq!(theme.body_text(), Hsla::from(theme.text_primary));
+            assert_eq!(theme.header_border(), Hsla::from(theme.border));
+            assert_eq!(theme.body_text(), Hsla::from(theme.foreground));
             for step in 1..=12 {
-                assert_eq!(theme.body_fill(step), theme.gray(step));
-                assert_eq!(theme.body_hover_fill(step), theme.gray(step));
-                assert_eq!(theme.body_border(step), theme.gray(step));
+                assert_eq!(theme.body_fill(step), theme.step_color(step));
+                assert_eq!(theme.body_hover_fill(step), theme.step_color(step));
+                assert_eq!(theme.body_border(step), theme.step_color(step));
             }
         }
     }
@@ -947,14 +816,14 @@ mod tests {
     fn vibrancy_changes_the_shell_but_not_the_body() {
         for appearance in [Appearance::Light, Appearance::Dark] {
             let theme = Theme::new(appearance).with_material(Some(MaterialKind::Vibrancy));
-            assert_ne!(theme.shell_bg(), Hsla::from(theme.gray_1));
+            assert_ne!(theme.shell_bg(), Hsla::from(theme.background));
             // `border: 1px solid var(--macos-settings-border)` -- only the
             // vibrancy path draws it.
             assert!(theme.shell_border().is_some());
             for step in 1..=12 {
-                assert_eq!(theme.body_fill(step), theme.gray(step));
-                assert_eq!(theme.body_hover_fill(step), theme.gray(step));
-                assert_eq!(theme.body_border(step), theme.gray(step));
+                assert_eq!(theme.body_fill(step), theme.step_color(step));
+                assert_eq!(theme.body_hover_fill(step), theme.step_color(step));
+                assert_eq!(theme.body_border(step), theme.step_color(step));
             }
         }
     }
@@ -983,7 +852,7 @@ mod tests {
             assert_eq!(theme.body_fill(4), Hsla::from(material.control_hover));
             assert_eq!(theme.body_fill(5), Hsla::from(material.control_active));
             // Untouched steps stay Radix.
-            assert_eq!(theme.body_fill(6), theme.gray(6));
+            assert_eq!(theme.body_fill(6), theme.step_color(6));
 
             // `hover:bg-gray-4|5 -> control-hover`, `hover:bg-gray-6|7 ->
             // selection`.
@@ -996,7 +865,7 @@ mod tests {
             for step in 4..=6 {
                 assert_eq!(theme.body_border(step), Hsla::from(material.border));
             }
-            assert_eq!(theme.body_border(8), theme.gray(8));
+            assert_eq!(theme.body_border(8), theme.step_color(8));
         }
     }
 
@@ -1018,7 +887,6 @@ mod tests {
             assert_eq!(theme.settings_card_bg(), Hsla::from(material.card));
             assert_eq!(theme.settings_fill(), Hsla::from(material.fill));
             assert_eq!(theme.settings_hover(), Hsla::from(material.hover));
-            assert_eq!(theme.settings_selection(), Hsla::from(material.selection));
             assert_eq!(theme.settings_border(), Hsla::from(material.border));
             assert_eq!(theme.settings_divider(), Hsla::from(material.border));
             assert_eq!(theme.settings_text(), Hsla::from(material.text));
@@ -1045,41 +913,11 @@ mod tests {
         // No material at all: the Tailwind classes, unremapped.
         let bare = Theme::light();
         assert_eq!(bare.settings_sidebar_bg(), Hsla::from(bare.sidebar));
-        assert_eq!(bare.settings_card_bg(), bare.gray(2));
-        assert_eq!(bare.settings_fill(), bare.gray(3));
-        assert_eq!(bare.settings_selection(), Hsla::from(bare.selection));
-        assert_eq!(bare.settings_text(), bare.gray(12));
-        assert_eq!(bare.settings_muted(), bare.gray(10));
+        assert_eq!(bare.settings_card_bg(), Hsla::from(bare.card));
+        assert_eq!(bare.settings_fill(), Hsla::from(bare.secondary));
+        assert_eq!(bare.settings_text(), Hsla::from(bare.foreground));
+        assert_eq!(bare.settings_muted(), Hsla::from(bare.muted_foreground));
         assert_eq!(bare.settings_window_radius(), 16.);
-    }
-
-    /// Material `"teleprompter"` differs from `"panel"` in exactly one thing:
-    /// the radius. It gets no tint under Liquid Glass (that rule is
-    /// `[..native-material="panel"]`-gated) and the shared vibrancy wash
-    /// otherwise.
-    #[test]
-    fn the_teleprompter_material_is_the_shared_one_at_radius_22() {
-        for appearance in [Appearance::Light, Appearance::Dark] {
-            let glass = Theme::new(appearance).with_material(Some(MaterialKind::LiquidGlass));
-            assert_eq!(glass.teleprompter_window_radius(), 22.);
-            assert_eq!(glass.teleprompter_shell_bg(), gpui::transparent_black());
-            assert_eq!(glass.teleprompter_shell_border(), None);
-            // The panel's tint must not leak over: it is a different window.
-            assert_ne!(glass.teleprompter_shell_bg(), glass.shell_bg());
-
-            let vibrancy = Theme::new(appearance).with_material(Some(MaterialKind::Vibrancy));
-            assert_eq!(vibrancy.teleprompter_window_radius(), 16.);
-            // `background: var(--macos-settings-window)` -- the same value the
-            // panel and settings shells take on this path.
-            assert_eq!(vibrancy.teleprompter_shell_bg(), vibrancy.shell_bg());
-            assert!(vibrancy.teleprompter_shell_border().is_some());
-        }
-
-        // No material at all: the route's own non-macOS classes.
-        let bare = Theme::dark();
-        assert_eq!(bare.teleprompter_window_radius(), 16.);
-        assert!((bare.teleprompter_shell_bg().a - 0.9).abs() < 0.01);
-        assert_eq!(bare.teleprompter_shell_border(), Some(bare.gray(5)));
     }
 
     /// The light panel tint is `rgba(255, 255, 255, 0.55)` and the dark one

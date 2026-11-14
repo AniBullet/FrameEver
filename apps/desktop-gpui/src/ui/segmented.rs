@@ -119,8 +119,8 @@ impl SegmentedControl {
             font_weight: Some(FontWeight::MEDIUM),
             icon_size: px(14.),
             selected_bg: None,
-            selected_text: theme.gray(12),
-            idle_text: theme.gray(11),
+            selected_text: gpui::Hsla::from(theme.foreground),
+            idle_text: gpui::Hsla::from(theme.muted_foreground),
             idle_bg: None,
             hover_bg: None,
             stretch: false,
@@ -142,23 +142,6 @@ impl SegmentedControl {
             selected_text: theme.settings_text(),
             idle_text: theme.settings_muted(),
             hover_bg: Some(theme.settings_hover()),
-            ..Self::base(theme, id, options)
-        }
-    }
-
-    /// `ExportPage`'s loose pills: no container chrome, `flex gap-1.5`,
-    /// selected `bg-gray-3 border-gray-5 text-gray-12`, idle transparent with
-    /// `hover:bg-gray-3`.
-    pub fn pills(theme: &Theme, id: impl Into<ElementId>, options: Vec<SegmentOption>) -> Self {
-        Self {
-            container_padding: px(0.),
-            container_gap: px(6.),
-            container_bg: None,
-            container_border: None,
-            item_radius: px(8.),
-            selected_bg: Some(theme.gray(3)),
-            hover_bg: Some(theme.gray(3)),
-            idle_text: theme.gray(11),
             ..Self::base(theme, id, options)
         }
     }
@@ -188,11 +171,11 @@ impl SegmentedControl {
         Self {
             container_padding: px(4.),
             container_gap: px(4.),
-            container_bg: Some(theme.gray(2)),
-            container_border: Some(theme.gray(3)),
+            container_bg: Some(gpui::Hsla::from(theme.card)),
+            container_border: Some(gpui::Hsla::from(theme.secondary)),
             item_padding_x: px(6.),
             item_padding_y: px(6.),
-            selected_bg: Some(theme.gray(5)),
+            selected_bg: Some(gpui::Hsla::from(theme.border)),
             stretch: true,
             ..Self::base(theme, id, options)
         }
@@ -216,11 +199,6 @@ impl SegmentedControl {
     pub fn item_padding(mut self, x: Pixels, y: Pixels) -> Self {
         self.item_padding_x = x;
         self.item_padding_y = y;
-        self
-    }
-
-    pub fn idle_bg(mut self, bg: Hsla) -> Self {
-        self.idle_bg = Some(bg);
         self
     }
 
