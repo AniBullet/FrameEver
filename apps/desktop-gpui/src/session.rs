@@ -422,21 +422,6 @@ impl RecordingSession {
         self.chapter_markers.push(at);
     }
 
-    fn save_chapter_markers(project: &std::path::Path, markers: Vec<Duration>) {
-        let markers: Vec<_> = markers
-            .into_iter()
-            .map(|at| frameever_utils::storage::ChapterMarker {
-                recorded_at: at.as_secs_f64(),
-            })
-            .collect();
-        if markers.is_empty() {
-            return;
-        }
-        if let Err(error) = frameever_utils::storage::save_chapter_markers(project, &markers) {
-            tracing::error!(dir = %project.display(), "could not save chapter markers: {error}");
-        }
-    }
-
     pub fn auto_stop_countdown(&self) -> Option<Duration> {
         matches!(self.phase, Phase::Recording { .. })
             .then(|| auto_stop_countdown(self.auto_stop_limit, self.elapsed()))
@@ -1340,7 +1325,6 @@ impl RecordingSession {
         #[cfg(any(target_os = "macos", windows))]
         let original_failure = recording_failed.then(|| self.error.clone()).flatten();
         let studio_project_path = active.project_dir.clone();
-        Self::save_chapter_markers(&studio_project_path, chapter_markers);
         let camera_snapshot = self.last_config.as_ref().and_then(|config| {
             (config.mode == recording::RecordingMode::Studio && config.camera.is_some())
                 .then(|| crate::app_windows::studio_camera_snapshot(&config.target, cx))
@@ -1379,6 +1363,15 @@ impl RecordingSession {
                 Box::pin(async move { (true, active.stop(camera_snapshot).await) })
             }
         };
+        let markers_project = studio_project_path.clone();
+        let stop_future: recording::CaptureStopFuture = Box::pin(async move {
+            if let Err(error) =
+                frameever_utils::storage::save_chapter_markers(&markers_project, &chapter_markers)
+            {
+                tracing::error!(dir = %markers_project.display(), "could not save chapter markers: {error}");
+            }
+            stop_future.await
+        });
         self.stopped_elapsed = Some(self.elapsed());
         self.pause_control.cancel_for_stop();
         self.phase = Phase::Stopping;
@@ -1530,6 +1523,7 @@ impl RecordingSession {
             active.pause_handle()
         };
         let query_paused = active.is_paused_handle();
+        let requested_at = Instant::now();
         cx.notify();
         let task = gpui_tokio::Tokio::spawn(
             cx,
@@ -1557,14 +1551,9 @@ impl RecordingSession {
                     return;
                 }
                 if let Some(paused) = outcome.paused {
-                    let was_paused = this.is_paused();
                     this.phase = Phase::Recording { paused };
                     if let Some(clock) = this.clock.as_mut() {
-                        if was_paused && !paused {
-                            clock.resume(Instant::now());
-                        } else if !was_paused && paused {
-                            clock.pause(Instant::now());
-                        }
+                        clock.settle(paused, requested_at, Instant::now());
                     }
                 }
                 if this.pause_control_error.is_some() && this.error == this.pause_control_error {

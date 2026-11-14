@@ -9,7 +9,12 @@ use lyon_tessellation::{LineCap, LineJoin, StrokeOptions};
 use crate::session::{Phase, RecordingSession};
 
 pub const INK_COLOURS: usize = 3;
-const INK_RGB: [u32; INK_COLOURS] = [0x1F3FD8, 0xD4212D, 0xF5AE39];
+const AMBER: [u8; 3] = frameever_utils::brand::ANNOTATION_AMBER;
+const INK_RGB: [u32; INK_COLOURS] = [
+    0x1F3FD8,
+    0xD4212D,
+    u32::from_be_bytes([0, AMBER[0], AMBER[1], AMBER[2]]),
+];
 const MIN_STEP: f32 = 1.5;
 const MIN_ARROW: f32 = 6.;
 const ARROW_HEAD: f32 = 14.;

@@ -1,3 +1,4 @@
+use frameever_utils::brand::ANNOTATION_AMBER as AMBER;
 use parking_lot::Mutex;
 use std::{
     collections::VecDeque,
@@ -6,7 +7,6 @@ use std::{
 };
 
 const BASE_RADIUS: f64 = 18.0;
-const AMBER: [u8; 3] = [0xF5, 0xAE, 0x39];
 const START_OPACITY: f32 = 0.5;
 pub const PULSE: Duration = Duration::from_millis(450);
 
@@ -262,7 +262,8 @@ fn channel_order(frame: &ffmpeg::frame::Video) -> Option<ChannelOrder> {
 impl FrameBaker {
     pub fn captured(&mut self, frame: &mut ffmpeg::frame::Video, now: Instant) {
         self.patches.clear();
-        self.paint(frame, now);
+        let discs = self.highlights.discs(now, (frame.width(), frame.height()));
+        self.paint(frame, &discs);
     }
 
     pub fn repeated(
@@ -271,7 +272,8 @@ impl FrameBaker {
         now: Instant,
     ) -> Option<ffmpeg::frame::Video> {
         let size = (last.width(), last.height());
-        if self.patches.is_empty() && self.highlights.discs(now, size).is_empty() {
+        let discs = self.highlights.discs(now, size);
+        if self.patches.is_empty() && discs.is_empty() {
             return None;
         }
         let mut frame = last.clone();
@@ -280,16 +282,15 @@ impl FrameBaker {
         for patch in self.patches.drain(..) {
             patch.restore(pixels, stride);
         }
-        self.paint(&mut frame, now);
+        self.paint(&mut frame, &discs);
         Some(frame)
     }
 
-    fn paint(&mut self, frame: &mut ffmpeg::frame::Video, now: Instant) {
+    fn paint(&mut self, frame: &mut ffmpeg::frame::Video, discs: &[Disc]) {
         let Some(order) = channel_order(frame) else {
             return;
         };
         let size = (frame.width(), frame.height());
-        let discs = self.highlights.discs(now, size);
         if discs.is_empty() {
             return;
         }
@@ -301,7 +302,7 @@ impl FrameBaker {
                 .filter_map(|disc| disc.bounds(size))
                 .map(|bounds| Patch::save(pixels, stride, bounds)),
         );
-        for disc in &discs {
+        for disc in discs {
             disc.paint(pixels, stride, size, order);
         }
     }

@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use crate::brand::{EXPORTS_DIR_NAME, RECORDINGS_DIR_NAME, SCREENSHOTS_DIR_NAME, STORAGE_DIR_NAME};
@@ -298,7 +299,16 @@ pub struct ChapterMarker {
     pub recorded_at: f64,
 }
 
-pub fn save_chapter_markers(project: &Path, markers: &[ChapterMarker]) -> std::io::Result<()> {
+pub fn save_chapter_markers(project: &Path, recorded: &[Duration]) -> std::io::Result<()> {
+    if recorded.is_empty() {
+        return Ok(());
+    }
+    let markers: Vec<ChapterMarker> = recorded
+        .iter()
+        .map(|at| ChapterMarker {
+            recorded_at: at.as_secs_f64(),
+        })
+        .collect();
     let mut document = read_project_file_for_update(project)?;
     let entries = serde_json::to_value(markers).map_err(std::io::Error::other)?;
     document.insert(CHAPTER_MARKERS_KEY.into(), entries);
@@ -819,7 +829,11 @@ mod tests {
             ChapterMarker { recorded_at: 61.5 },
         ];
 
-        save_chapter_markers(&project, &markers).unwrap();
+        save_chapter_markers(
+            &project,
+            &[Duration::from_secs_f64(4.25), Duration::from_secs_f64(61.5)],
+        )
+        .unwrap();
 
         assert_eq!(chapter_markers(&project), markers);
         assert_eq!(exports(&project), vec![record]);
@@ -828,6 +842,20 @@ mod tests {
             serde_json::from_slice(&std::fs::read(project.join("frameever.json")).unwrap())
                 .unwrap();
         assert_eq!(document["chapterMarkers"][1]["recordedAt"], 61.5);
+    }
+
+    #[test]
+    fn a_take_without_chapter_markers_leaves_the_frameever_file_untouched() {
+        let tree = Tree::new();
+        let project = tree.dir("Quiet.ever");
+        std::fs::write(project.join("frameever.json"), b"{ not json").unwrap();
+
+        save_chapter_markers(&project, &[]).unwrap();
+
+        assert_eq!(
+            std::fs::read(project.join("frameever.json")).unwrap(),
+            b"{ not json"
+        );
     }
 
     #[test]
@@ -869,7 +897,7 @@ mod tests {
         let project = tree.dir("Damaged.ever");
         std::fs::write(project.join("frameever.json"), b"{ not json").unwrap();
 
-        assert!(save_chapter_markers(&project, &[ChapterMarker { recorded_at: 1.0 }]).is_err());
+        assert!(save_chapter_markers(&project, &[Duration::from_secs(1)]).is_err());
         assert_eq!(
             std::fs::read(project.join("frameever.json")).unwrap(),
             b"{ not json"

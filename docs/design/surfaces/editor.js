@@ -1329,6 +1329,7 @@ const TRACK_FILL = {
 const trackList = () => {
 	return TRACKS.filter((t) => S.shown.has(t.id));
 };
+const CHAPTERS = [0.2, 0.55, 0.8].map((share) => Math.round(TOTAL * share));
 const timeline = (height) => {
 	const marks = [];
 	for (let s = 0; s <= TOTAL; s += S.zoom >= 3 ? 10 : 30) marks.push(s);
@@ -1341,7 +1342,7 @@ const timeline = (height) => {
 	return `<div class="timeline ${S.split ? "split" : ""}" style="height:${height}px">
 		${tlTools()}
 		<div class="tl-scroll" id="tl-scroll"><div class="tl-inner" id="tl-inner" style="width:${S.zoom * 100}%">
-			<div class="tl-row ruler"><span class="gutter"></span><div class="lane" data-act="lane">${marks.map((s) => `<span class="tick" style="left:${(s / TOTAL) * 100}%">${fmt(s)}</span>`).join("")}</div></div>
+			<div class="tl-row ruler"><span class="gutter"></span><div class="lane" data-act="lane">${marks.map((s) => `<span class="tick" style="left:${(s / TOTAL) * 100}%">${fmt(s)}</span>`).join("")}${CHAPTERS.map((s) => `<i class="chapter-mark" style="left:${(s / TOTAL) * 100}%"></i>`).join("")}</div></div>
 			${rows}
 			<i class="playhead" id="playhead"></i>
 		</div></div>

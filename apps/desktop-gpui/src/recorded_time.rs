@@ -30,6 +30,14 @@ impl RecordedClock {
         }
     }
 
+    pub fn settle(&mut self, paused: bool, requested: Instant, confirmed: Instant) {
+        if paused {
+            self.pause(requested);
+        } else {
+            self.resume(confirmed);
+        }
+    }
+
     pub fn recorded_at(&self, now: Instant) -> Duration {
         let paused_now = self
             .paused_since
@@ -80,6 +88,41 @@ mod tests {
         clock.pause(start + secs(80));
         clock.resume(start + secs(200));
         assert_eq!(clock.recorded_at(start + secs(205)), secs(25));
+    }
+
+    #[test]
+    fn a_pause_stops_counting_when_asked_and_a_resume_counts_from_the_recorder_confirming() {
+        let start = Instant::now();
+        let mut clock = RecordedClock::start(start);
+        clock.settle(
+            true,
+            start + secs(10),
+            start + Duration::from_millis(11_500),
+        );
+        assert_eq!(
+            clock.recorded_at(start + Duration::from_millis(11_500)),
+            secs(10)
+        );
+        clock.settle(
+            false,
+            start + secs(20),
+            start + Duration::from_millis(20_400),
+        );
+        assert_eq!(
+            clock.recorded_at(start + Duration::from_millis(25_400)),
+            secs(15)
+        );
+    }
+
+    #[test]
+    fn a_settled_request_that_changed_nothing_leaves_the_clock_alone() {
+        let start = Instant::now();
+        let mut clock = RecordedClock::start(start);
+        clock.settle(false, start + secs(5), start + secs(6));
+        assert_eq!(clock.recorded_at(start + secs(10)), secs(10));
+        clock.settle(true, start + secs(10), start + secs(11));
+        clock.settle(true, start + secs(30), start + secs(31));
+        assert_eq!(clock.recorded_at(start + secs(40)), secs(10));
     }
 
     #[test]

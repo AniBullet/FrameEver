@@ -528,7 +528,7 @@ const copy = () => {
 				["Global, new. Instant only", "全局，新增。仅即时"],
 			],
 			[
-				["Add a chapter marker", "添加章节标记"],
+				["Add chapter marker", "添加章节标记"],
 				["Not set", "未设置"],
 				["Global, new. Studio only", "全局，新增。仅工作室"],
 			],

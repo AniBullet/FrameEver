@@ -2028,7 +2028,7 @@ pub fn render_ruler(theme: &Theme, view: TimelineView, viewport_width: f32) -> A
 }
 
 pub fn chapter_mark_color(theme: &Theme) -> Hsla {
-    theme.warning_text.into()
+    theme.muted_foreground.into()
 }
 
 pub fn render_chapter_marks(

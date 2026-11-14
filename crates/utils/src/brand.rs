@@ -15,6 +15,7 @@ pub const STORAGE_DIR_NAME: &str = app_name!();
 pub const RECORDINGS_DIR_NAME: &str = "Recordings";
 pub const SCREENSHOTS_DIR_NAME: &str = "Screenshots";
 pub const EXPORTS_DIR_NAME: &str = "Exports";
+pub const ANNOTATION_AMBER: [u8; 3] = [0xF5, 0xAE, 0x39];
 
 pub fn is_app_url(raw: &str) -> bool {
     raw.strip_prefix(URL_SCHEME)

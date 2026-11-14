@@ -892,6 +892,27 @@ input[type="range"]::-moz-range-thumb {
 	transform: none;
 }
 
+.chapter-mark {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 2px;
+	background: var(--muted-foreground);
+	transform: translateX(-50%);
+	pointer-events: none;
+}
+
+.chapter-mark::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: -3px;
+	width: 8px;
+	height: 8px;
+	border-radius: 2px;
+	background: var(--muted-foreground);
+}
+
 .seg-b {
 	position: absolute;
 	top: 0;

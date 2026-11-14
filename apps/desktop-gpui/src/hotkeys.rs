@@ -148,6 +148,8 @@ fn registers_in_mode(action: HotkeyAction, mode: Option<crate::recording::Record
     }
 }
 
+const PUSH_TO_TALK_TAP: [HotKeyState; 2] = [HotKeyState::Pressed, HotKeyState::Released];
+
 fn push_to_talk_muted(action: HotkeyAction, state: HotKeyState) -> Option<bool> {
     (action == HotkeyAction::PushToTalk).then_some(state == HotKeyState::Released)
 }
@@ -309,6 +311,15 @@ mod instant_microphone_shortcut_tests {
             push_to_talk_muted(HotkeyAction::ToggleMicrophoneMute, HotKeyState::Pressed),
             None
         );
+    }
+
+    #[test]
+    fn push_to_talk_without_a_held_key_ends_muted() {
+        let states: Vec<bool> = PUSH_TO_TALK_TAP
+            .into_iter()
+            .filter_map(|state| push_to_talk_muted(HotkeyAction::PushToTalk, state))
+            .collect();
+        assert_eq!(states, vec![false, true]);
     }
 
     #[test]
@@ -666,14 +677,17 @@ pub fn dispatch_for_harness(key: &str, cx: &mut App) {
 fn dispatch_id(id: u32, state: HotKeyState, cx: &mut App) {
     let actions = actions_for(&cx.global::<Hotkeys>().bindings, id, state);
     for action in actions {
-        match push_to_talk_muted(action, state) {
-            Some(muted) => {
-                tracing::info!(muted, "push to talk");
-                RecordingSession::global(cx)
-                    .update(cx, |session, cx| session.set_mic_muted(muted, cx));
-            }
-            None => dispatch(action, cx),
+        dispatch_state(action, state, cx);
+    }
+}
+
+fn dispatch_state(action: HotkeyAction, state: HotKeyState, cx: &mut App) {
+    match push_to_talk_muted(action, state) {
+        Some(muted) => {
+            tracing::info!(muted, "push to talk");
+            RecordingSession::global(cx).update(cx, |session, cx| session.set_mic_muted(muted, cx));
         }
+        None => dispatch(action, cx),
     }
 }
 
@@ -713,7 +727,9 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
             RecordingSession::global(cx).update(cx, |session, cx| session.toggle_mic_mute(cx));
         }
         HotkeyAction::PushToTalk => {
-            RecordingSession::global(cx).update(cx, |session, cx| session.set_mic_muted(false, cx));
+            for state in PUSH_TO_TALK_TAP {
+                dispatch_state(action, state, cx);
+            }
         }
         HotkeyAction::StartStudioRecording => start_from_hotkey(Mode::Studio, cx),
         HotkeyAction::StartInstantRecording => start_from_hotkey(Mode::Instant, cx),
