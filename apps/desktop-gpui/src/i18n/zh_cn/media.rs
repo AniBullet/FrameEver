@@ -15,6 +15,20 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Darkness", "暗度"),
     ("Text size", "文字大小"),
     ("Drag the tail to point at something.", "拖动尾巴指向目标。"),
+    ("Cut out", "切割"),
+    ("Rounded corners", "圆角"),
+    (
+        "This image could not be read. Check that the file still exists.",
+        "无法读取这张图片。请确认文件仍然存在。",
+    ),
+    (
+        "This file is not an image FrameEver can read.",
+        "FrameEver 无法读取这个文件，它不是支持的图片。",
+    ),
+    (
+        "The image could not be copied into the project. Check free disk space.",
+        "无法把图片复制进项目。请检查磁盘剩余空间。",
+    ),
     ("Layers", "图层"),
     ("No layers yet", "还没有图层"),
     ("Use the tools to add annotations", "用工具添加标注"),
