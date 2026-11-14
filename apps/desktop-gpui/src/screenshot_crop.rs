@@ -147,10 +147,11 @@ impl ScreenshotEditorWindow {
         };
 
         let image_path = crate::screenshot_editor::bundle_image_path(&self.bundle);
+        let cuts = self.project.image_cuts.clone();
         dialog.image_task = Some(cx.spawn_in(window, async move |this, cx| {
             let decoded = cx
                 .background_executor()
-                .spawn(async move { decode_crop_image(image_path.as_deref()) })
+                .spawn(async move { decode_crop_image(image_path.as_deref(), &cuts) })
                 .await;
             this.update(cx, |this, cx| {
                 if let Some(dialog) = this.crop.as_mut() {
@@ -1125,9 +1126,18 @@ impl ScreenshotEditorWindow {
 /// Decode the original PNG for the cropper -- full resolution, since the box
 /// can be up to 768 logical (1536 physical) pixels wide and the load path
 /// already refused anything past `MAX_DIMENSION`.
-fn decode_crop_image(path: Option<&Path>) -> Option<Arc<RenderImage>> {
-    let decoded = frameever_gpui_kernels::codec::open_image(path?).ok()?;
-    Some(crate::library::rgba_to_render_image(decoded.into_rgba8()))
+fn decode_crop_image(
+    path: Option<&Path>,
+    cuts: &[frameever_project::ImageCut],
+) -> Option<Arc<RenderImage>> {
+    let decoded = frameever_gpui_kernels::codec::open_image(path?)
+        .ok()?
+        .into_rgba8();
+    let size = decoded.dimensions();
+    let (rgba, (width, height)) =
+        crate::screenshot_cut::cut_source(&Arc::new(decoded.into_raw()), size, cuts);
+    let image = image::RgbaImage::from_raw(width, height, Arc::unwrap_or_clone(rgba))?;
+    Some(crate::library::rgba_to_render_image(image))
 }
 
 #[cfg(test)]

@@ -11,7 +11,9 @@ use frameever_project::{
     InstantRecordingMeta, Platform, RecordingMeta, RecordingMetaInner, SingleSegment,
     StudioRecordingMeta, VideoMeta,
 };
-use frameever_utils::storage::{ProjectKind, Storage, StorageSettings, format_version};
+use frameever_utils::storage::{
+    FORMAT_VERSION, ProjectKind, Storage, StorageSettings, format_version,
+};
 
 struct Machine {
     root: tempfile::TempDir,
@@ -118,7 +120,7 @@ fn listed(storage: &Storage, kind: ProjectKind) -> Vec<(String, PathBuf)> {
         .into_iter()
         .map(|project| {
             let meta = RecordingMeta::load_for_project(&project).unwrap();
-            assert_eq!(format_version(&project), Some(1));
+            assert_eq!(format_version(&project), Some(FORMAT_VERSION));
             (meta.pretty_name, project)
         })
         .collect();

@@ -15,6 +15,9 @@ pub const MAGNIFIER_ZOOM_RANGE: (f64, f64) = (1.5, 4.);
 pub const MAGNIFIER_BORDER_COLOR: &str = "#FFFFFF";
 pub const MAGNIFIER_BORDER_WIDTH: f64 = 3.;
 pub const SPOTLIGHT_DEFAULT_DARKNESS: f64 = 0.55;
+pub const IMAGE_DEFAULT_RADIUS: f64 = 8.;
+pub const IMAGE_RADIUS_RANGE: (f64, f64) = (0., 40.);
+pub const IMAGE_PLACED_SHARE: f64 = 0.5;
 pub const CLICK_SIZE: (f64, f64) = (120., 80.);
 pub const LINE_CLICK_EXTENT: (f64, f64) = (90., -60.);
 const BASELINE_RATIO: f64 = 0.35;
@@ -54,6 +57,12 @@ pub enum ShapeOp {
         center: (f64, f64),
         zoom: f64,
     },
+    Image {
+        rect: Rect,
+        radius: f64,
+        alpha: f32,
+        file: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +88,7 @@ pub fn is_shape(kind: AnnotationType) -> bool {
             | AnnotationType::Bubble
             | AnnotationType::Spotlight
             | AnnotationType::Magnifier
+            | AnnotationType::Image
     )
 }
 
@@ -116,6 +126,69 @@ pub fn bubble_font_size(annotation: &Annotation) -> f64 {
 pub fn step_font_size(annotation: &Annotation) -> f64 {
     let rect = normalized_rect(annotation);
     rect.width.min(rect.height) * STEP_LABEL_RATIO
+}
+
+pub fn image_radius(annotation: &Annotation) -> f64 {
+    let rect = normalized_rect(annotation);
+    annotation
+        .corner_radius
+        .unwrap_or(0.)
+        .clamp(0., (rect.width.min(rect.height) / 2.).max(0.))
+}
+
+pub fn image_alpha(annotation: &Annotation) -> f32 {
+    annotation.opacity.clamp(0., 1.) as f32
+}
+
+pub fn place_image(
+    annotation: &mut Annotation,
+    natural: (u32, u32),
+    content: Rect,
+    at: (f64, f64),
+) {
+    let (width, height) = (f64::from(natural.0.max(1)), f64::from(natural.1.max(1)));
+    let scale = (content.width * IMAGE_PLACED_SHARE / width)
+        .min(content.height * IMAGE_PLACED_SHARE / height)
+        .min(1.);
+    annotation.width = (width * scale).max(MIN_SIZE);
+    annotation.height = (height * scale).max(MIN_SIZE);
+    annotation.x = at.0 - annotation.width / 2.;
+    annotation.y = at.1 - annotation.height / 2.;
+}
+
+pub fn rounded_rect_path(rect: Rect, radius: f64) -> Vec<Seg> {
+    if radius <= 0. {
+        return rect_path(rect);
+    }
+    let (left, top) = (rect.x, rect.y);
+    let (right, bottom) = (rect.x + rect.width, rect.y + rect.height);
+    let bend = radius * (1. - 0.552_284_75);
+    vec![
+        Seg::Move(left + radius, top),
+        Seg::Line(right - radius, top),
+        Seg::Cubic(right - bend, top, right, top + bend, right, top + radius),
+        Seg::Line(right, bottom - radius),
+        Seg::Cubic(
+            right,
+            bottom - bend,
+            right - bend,
+            bottom,
+            right - radius,
+            bottom,
+        ),
+        Seg::Line(left + radius, bottom),
+        Seg::Cubic(
+            left + bend,
+            bottom,
+            left,
+            bottom - bend,
+            left,
+            bottom - radius,
+        ),
+        Seg::Line(left, top + radius),
+        Seg::Cubic(left, top + bend, left + bend, top, left + radius, top),
+        Seg::Close,
+    ]
 }
 
 pub fn center(rect: Rect) -> (f64, f64) {
@@ -397,6 +470,15 @@ pub fn shape_ops(annotation: &Annotation, frame: Rect) -> Vec<ShapeOp> {
             }
             ops
         }
+        AnnotationType::Image => match &annotation.image {
+            Some(file) if rect.width > 0. && rect.height > 0. => vec![ShapeOp::Image {
+                rect,
+                radius: image_radius(annotation),
+                alpha: image_alpha(annotation),
+                file: file.clone(),
+            }],
+            _ => Vec::new(),
+        },
         _ => Vec::new(),
     }
 }
@@ -460,7 +542,9 @@ pub fn hit_shape(annotation: &Annotation, point: (f64, f64), handle_size: f64) -
                 || bubble_tail(annotation).is_some_and(|tail| point_in_triangle(point, tail.points))
         }
         AnnotationType::Magnifier => inside(rect, (annotation.stroke_width / 2.).max(0.)),
-        AnnotationType::Highlighter | AnnotationType::Spotlight => inside(rect, 0.),
+        AnnotationType::Highlighter | AnnotationType::Spotlight | AnnotationType::Image => {
+            inside(rect, 0.)
+        }
         _ => false,
     }
 }
@@ -516,6 +600,12 @@ pub fn apply_defaults(annotation: &mut Annotation, annotations: &[Annotation]) {
             annotation.stroke_width = MAGNIFIER_BORDER_WIDTH;
             annotation.opacity = 1.;
             annotation.zoom = Some(MAGNIFIER_DEFAULT_ZOOM);
+        }
+        AnnotationType::Image => {
+            annotation.stroke_color = crate::screenshot_annotations::TRANSPARENT.to_string();
+            annotation.stroke_width = 0.;
+            annotation.opacity = 1.;
+            annotation.corner_radius = Some(IMAGE_DEFAULT_RADIUS);
         }
         _ => {}
     }
@@ -617,6 +707,9 @@ pub fn scale_extras(
     if let Some(size) = annotation.font_size.as_mut() {
         *size *= scalar;
     }
+    if let Some(radius) = annotation.corner_radius.as_mut() {
+        *radius *= scalar;
+    }
 }
 
 #[cfg(test)]
@@ -651,6 +744,8 @@ pub(crate) mod tests {
             font_size: None,
             tail: None,
             zoom: None,
+            image: None,
+            corner_radius: None,
         }
     }
 
