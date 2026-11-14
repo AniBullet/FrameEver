@@ -56,9 +56,11 @@ pub enum HotkeyAction {
     FocusRecordingControls,
     ToggleRecordingControls,
     AddChapterMarker,
+    ToggleMicrophoneMute,
+    PushToTalk,
 }
 
-const ACTION_KEYS: [(&str, HotkeyAction); 19] = [
+const ACTION_KEYS: [(&str, HotkeyAction); 21] = [
     ("startStudioRecording", HotkeyAction::StartStudioRecording),
     ("startInstantRecording", HotkeyAction::StartInstantRecording),
     ("stopRecording", HotkeyAction::StopRecording),
@@ -96,6 +98,8 @@ const ACTION_KEYS: [(&str, HotkeyAction); 19] = [
         HotkeyAction::ToggleRecordingControls,
     ),
     ("addChapterMarker", HotkeyAction::AddChapterMarker),
+    ("toggleMicrophoneMute", HotkeyAction::ToggleMicrophoneMute),
+    ("pushToTalk", HotkeyAction::PushToTalk),
 ];
 
 const DEFAULT_SHORTCUTS: [(&str, &str, &str); 4] = [
@@ -128,12 +132,31 @@ fn recording_only(action: HotkeyAction) -> bool {
             | HotkeyAction::FocusRecordingControls
             | HotkeyAction::ToggleRecordingControls
             | HotkeyAction::AddChapterMarker
+            | HotkeyAction::ToggleMicrophoneMute
+            | HotkeyAction::PushToTalk
     )
 }
 
 fn registers_in_mode(action: HotkeyAction, mode: Option<crate::recording::RecordingMode>) -> bool {
-    action != HotkeyAction::AddChapterMarker
-        || mode == Some(crate::recording::RecordingMode::Studio)
+    use crate::recording::RecordingMode;
+    match action {
+        HotkeyAction::AddChapterMarker => mode == Some(RecordingMode::Studio),
+        HotkeyAction::ToggleMicrophoneMute | HotkeyAction::PushToTalk => {
+            mode == Some(RecordingMode::Instant)
+        }
+        _ => true,
+    }
+}
+
+fn push_to_talk_muted(action: HotkeyAction, state: HotKeyState) -> Option<bool> {
+    (action == HotkeyAction::PushToTalk).then_some(state == HotKeyState::Released)
+}
+
+pub(crate) fn push_to_talk_set() -> bool {
+    store::hotkeys_raw()
+        .get(HotkeyAction::PushToTalk.store_key())
+        .and_then(store::hotkey_from_value)
+        .is_some()
 }
 
 fn registers_now(action: HotkeyAction, recording: bool, teleprompter_open: bool) -> bool {
@@ -247,6 +270,61 @@ mod chapter_marker_shortcut_tests {
             !DEFAULT_SHORTCUTS
                 .iter()
                 .any(|(_, key, _)| *key == "addChapterMarker")
+        );
+    }
+}
+
+#[cfg(test)]
+mod instant_microphone_shortcut_tests {
+    use super::*;
+    use crate::recording::RecordingMode;
+
+    #[test]
+    fn mute_and_push_to_talk_register_only_while_an_instant_take_runs() {
+        for (key, action) in [
+            ("toggleMicrophoneMute", HotkeyAction::ToggleMicrophoneMute),
+            ("pushToTalk", HotkeyAction::PushToTalk),
+        ] {
+            assert_eq!(HotkeyAction::from_store_key(key), Some(action));
+            assert!(!registers_now(action, false, false));
+            assert!(registers_now(action, true, false));
+            assert!(registers_in_mode(action, Some(RecordingMode::Instant)));
+            assert!(!registers_in_mode(action, Some(RecordingMode::Studio)));
+            assert!(!registers_in_mode(action, None));
+            assert!(!DEFAULT_SHORTCUTS.iter().any(|(_, bound, _)| *bound == key));
+        }
+    }
+
+    #[test]
+    fn push_to_talk_unmutes_while_held_and_mutes_on_release() {
+        assert_eq!(
+            push_to_talk_muted(HotkeyAction::PushToTalk, HotKeyState::Pressed),
+            Some(false)
+        );
+        assert_eq!(
+            push_to_talk_muted(HotkeyAction::PushToTalk, HotKeyState::Released),
+            Some(true)
+        );
+        assert_eq!(
+            push_to_talk_muted(HotkeyAction::ToggleMicrophoneMute, HotKeyState::Pressed),
+            None
+        );
+    }
+
+    #[test]
+    fn a_released_key_reaches_only_push_to_talk() {
+        let hotkey = HotKey::new(Some(Modifiers::CONTROL), Code::KeyM);
+        let bindings = [
+            (hotkey, HotkeyAction::StopRecording),
+            (hotkey, HotkeyAction::PushToTalk),
+        ];
+        assert_eq!(
+            actions_for(&bindings, hotkey.id(), HotKeyState::Pressed),
+            vec![HotkeyAction::StopRecording, HotkeyAction::PushToTalk]
+        );
+        assert_eq!(
+            actions_for(&bindings, hotkey.id(), HotKeyState::Released),
+            vec![HotkeyAction::PushToTalk]
         );
     }
 }
@@ -389,10 +467,7 @@ pub fn init(cx: &mut App) {
     }));
     cx.spawn(async move |cx| {
         while let Ok(event) = rx.recv_async().await {
-            // Pressed only, like the Tauri handler (`hotkeys.rs:183-185`).
-            if event.state == HotKeyState::Pressed {
-                cx.update(|cx| dispatch_id(event.id(), cx));
-            }
+            cx.update(|cx| dispatch_id(event.id(), event.state, cx));
         }
     })
     .detach();
@@ -588,20 +663,34 @@ pub fn dispatch_for_harness(key: &str, cx: &mut App) {
 // global-hotkey 0.7 rewrites META into SUPER on every registration path.
 // Not reproduced -- the audit keeps the *observed* behaviour, which is that
 // a Comma binding runs its action and nothing else.
-fn dispatch_id(id: u32, cx: &mut App) {
-    let actions = actions_for(&cx.global::<Hotkeys>().bindings, id);
+fn dispatch_id(id: u32, state: HotKeyState, cx: &mut App) {
+    let actions = actions_for(&cx.global::<Hotkeys>().bindings, id, state);
     for action in actions {
-        dispatch(action, cx);
+        match push_to_talk_muted(action, state) {
+            Some(muted) => {
+                tracing::info!(muted, "push to talk");
+                RecordingSession::global(cx)
+                    .update(cx, |session, cx| session.set_mic_muted(muted, cx));
+            }
+            None => dispatch(action, cx),
+        }
     }
 }
 
 /// Every action bound to the pressed combo, in store order. The Tauri handler
 /// loops the whole map per press (`hotkeys.rs:201-205` over there), so two
 /// actions sharing one binding both fire.
-fn actions_for(bindings: &[(HotKey, HotkeyAction)], id: u32) -> Vec<HotkeyAction> {
+fn actions_for(
+    bindings: &[(HotKey, HotkeyAction)],
+    id: u32,
+    state: HotKeyState,
+) -> Vec<HotkeyAction> {
     bindings
         .iter()
-        .filter(|(hotkey, _)| hotkey.id() == id)
+        .filter(|(hotkey, action)| {
+            hotkey.id() == id
+                && (state == HotKeyState::Pressed || *action == HotkeyAction::PushToTalk)
+        })
         .map(|(_, action)| *action)
         .collect()
 }
@@ -619,6 +708,12 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
         HotkeyAction::ToggleRecordingControls => app_windows::tray_toggle_controls(cx),
         HotkeyAction::AddChapterMarker => {
             RecordingSession::global(cx).update(cx, |session, _| session.add_chapter_marker());
+        }
+        HotkeyAction::ToggleMicrophoneMute => {
+            RecordingSession::global(cx).update(cx, |session, cx| session.toggle_mic_mute(cx));
+        }
+        HotkeyAction::PushToTalk => {
+            RecordingSession::global(cx).update(cx, |session, cx| session.set_mic_muted(false, cx));
         }
         HotkeyAction::StartStudioRecording => start_from_hotkey(Mode::Studio, cx),
         HotkeyAction::StartInstantRecording => start_from_hotkey(Mode::Instant, cx),
@@ -1012,11 +1107,11 @@ mod tests {
             (restart, HotkeyAction::RestartRecording),
         ];
         assert_eq!(
-            actions_for(&bindings, stop.id()),
+            actions_for(&bindings, stop.id(), HotKeyState::Pressed),
             vec![HotkeyAction::StopRecording, HotkeyAction::RestartRecording]
         );
         assert_eq!(
-            actions_for(&bindings, pause.id()),
+            actions_for(&bindings, pause.id(), HotKeyState::Pressed),
             vec![HotkeyAction::TogglePauseRecording]
         );
     }

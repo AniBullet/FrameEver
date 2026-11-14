@@ -75,7 +75,7 @@ pub const RECORDING_SHORTCUTS: [&str; 9] = [
     "toggleTeleprompterPlayback",
 ];
 
-pub const WHILE_RECORDING_SHORTCUTS: [&str; 7] = [
+pub const WHILE_RECORDING_SHORTCUTS: [&str; 9] = [
     "stopRecording",
     "togglePauseRecording",
     "restartRecording",
@@ -83,6 +83,8 @@ pub const WHILE_RECORDING_SHORTCUTS: [&str; 7] = [
     "focusRecordingControls",
     "toggleRecordingControls",
     "addChapterMarker",
+    "toggleMicrophoneMute",
+    "pushToTalk",
 ];
 
 pub fn all_shortcuts() -> impl Iterator<Item = &'static str> {
@@ -113,6 +115,8 @@ pub fn shortcut_label(action: &str) -> &'static str {
         "focusRecordingControls" => n!("Focus recording controls"),
         "toggleRecordingControls" => n!("Hide or show controls"),
         "addChapterMarker" => n!("Add chapter marker"),
+        "toggleMicrophoneMute" => n!("Mute"),
+        "pushToTalk" => n!("Push to talk"),
         _ => n!("Shortcut"),
     }
 }
@@ -220,6 +224,8 @@ const SHORTCUTS: &[Group] = &[
             Row::Shortcut(WHILE_RECORDING_SHORTCUTS[4]),
             Row::Shortcut(WHILE_RECORDING_SHORTCUTS[5]),
             Row::Shortcut(WHILE_RECORDING_SHORTCUTS[6]),
+            Row::Shortcut(WHILE_RECORDING_SHORTCUTS[7]),
+            Row::Shortcut(WHILE_RECORDING_SHORTCUTS[8]),
         ],
     },
 ];
@@ -589,6 +595,8 @@ mod tests {
                     "Focus recording controls",
                     "Hide or show controls",
                     "Add chapter marker",
+                    "Mute",
+                    "Push to talk",
                 ],
             ),
             (Page::Automations, &["Rules"]),

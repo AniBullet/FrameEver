@@ -510,6 +510,10 @@ impl RecordingSession {
 
     /// Flip the recording-scoped mic mute. No-op without a live mic.
     pub fn toggle_mic_mute(&mut self, cx: &mut Context<Self>) {
+        self.set_mic_muted(!self.mic_muted, cx);
+    }
+
+    pub fn set_mic_muted(&mut self, muted: bool, cx: &mut Context<Self>) {
         let Some(mute) = self
             .active
             .as_ref()
@@ -517,9 +521,20 @@ impl RecordingSession {
         else {
             return;
         };
-        self.mic_muted = !self.mic_muted;
-        mute.store(self.mic_muted, std::sync::atomic::Ordering::Relaxed);
+        if self.mic_muted == muted {
+            return;
+        }
+        self.mic_muted = muted;
+        mute.store(muted, std::sync::atomic::Ordering::Relaxed);
         cx.notify();
+    }
+
+    fn mute_for_push_to_talk(&self, active: &ActiveRecording) -> bool {
+        let muted = mic_starts_muted(self.mode(), crate::hotkeys::push_to_talk_set());
+        if let Some(mute) = &active.mic_mute {
+            mute.store(muted, std::sync::atomic::Ordering::Relaxed);
+        }
+        muted
     }
 
     /// `set_editor_recording_target` (`src-tauri/src/lib.rs:3166-3172`):
@@ -850,6 +865,7 @@ impl RecordingSession {
                 match result {
                     Ok(Ok(active)) => {
                         if this.countdown_remaining.is_some() {
+                            this.mute_for_push_to_talk(&active);
                             this.primed = Some(active);
                             if let Some(ready) = &this.primed_ready {
                                 ready.send_replace(true);
@@ -898,11 +914,10 @@ impl RecordingSession {
         tracing::info!(dir = %active.project_dir.display(), "recording started");
         let project_dir = active.project_dir.clone();
         let done = active.done_fut();
+        self.mic_muted = self.mute_for_push_to_talk(&active) && active.mic_mute.is_some();
         self.active = Some(active);
         self.phase = Phase::Recording { paused: false };
         self.countdown_overlay_unavailable = false;
-        // A fresh mic lock always starts unmuted.
-        self.mic_muted = false;
         self.clock = Some(RecordedClock::start(Instant::now()));
         self.chapter_markers.clear();
         self.auto_stop_limit =
@@ -2392,5 +2407,23 @@ mod chapter_marker_tests {
             chapter_marker_at(Some(RecordingMode::Studio), recording, false, None, now),
             None
         );
+    }
+}
+
+fn mic_starts_muted(mode: Option<crate::recording::RecordingMode>, push_to_talk_set: bool) -> bool {
+    push_to_talk_set && mode == Some(crate::recording::RecordingMode::Instant)
+}
+
+#[cfg(test)]
+mod push_to_talk_start_tests {
+    use super::*;
+    use crate::recording::RecordingMode;
+
+    #[test]
+    fn an_instant_take_starts_muted_only_when_push_to_talk_is_set() {
+        assert!(mic_starts_muted(Some(RecordingMode::Instant), true));
+        assert!(!mic_starts_muted(Some(RecordingMode::Instant), false));
+        assert!(!mic_starts_muted(Some(RecordingMode::Studio), true));
+        assert!(!mic_starts_muted(None, true));
     }
 }

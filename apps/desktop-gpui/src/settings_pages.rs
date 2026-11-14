@@ -703,6 +703,13 @@ fn shortcut_effect(
         "addChapterMarker" => {
             t!("mark this moment in a Studio recording; it shows on the editor timeline").into()
         }
+        "toggleMicrophoneMute" => {
+            t!("mute the microphone in an Instant recording, or unmute it").into()
+        }
+        "pushToTalk" => t!(
+            "keep the microphone muted in an Instant recording except while you hold the shortcut"
+        )
+        .into(),
         _ => String::new(),
     }
 }
@@ -4736,8 +4743,10 @@ mod tests {
             .chain(catalog::WHILE_RECORDING_SHORTCUTS.iter())
             .copied()
             .collect();
-        assert_eq!(shown.len(), 19);
+        assert_eq!(shown.len(), 21);
         assert!(shown.contains(&"addChapterMarker"));
+        assert!(shown.contains(&"toggleMicrophoneMute"));
+        assert!(shown.contains(&"pushToTalk"));
         assert!(shown.contains(&"focusRecordingControls"));
         assert!(shown.contains(&"toggleRecordingControls"));
         assert!(shown.contains(&"focusCameraPreview"));

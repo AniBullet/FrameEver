@@ -342,6 +342,15 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "mark this moment in a Studio recording; it shows on the editor timeline",
         "在工作室录制中标记此刻，标记会显示在编辑器时间轴上",
     ),
+    ("Push to talk", "按住说话"),
+    (
+        "mute the microphone in an Instant recording, or unmute it",
+        "在即时录制中将麦克风静音，或取消静音",
+    ),
+    (
+        "keep the microphone muted in an Instant recording except while you hold the shortcut",
+        "即时录制中麦克风保持静音，只在按住快捷键时收音",
+    ),
     ("Restart this recording?", "重新开始录制？"),
     (
         "What you've recorded so far is discarded. This can't be undone.",
