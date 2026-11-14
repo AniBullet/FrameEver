@@ -162,9 +162,9 @@ impl SetupWindow {
 
     fn apply(&mut self, effect: Option<Effect>, window: &mut Window, cx: &mut Context<Self>) {
         match effect {
-            Some(Effect::PickLocation(current)) => self.pick_location(current, cx),
-            Some(Effect::Run(job)) => self.run(job, cx),
-            Some(Effect::CloseApp) => self.close_app(cx),
+            Some(Effect::PickLocation(current)) => self.pick_location(current, window, cx),
+            Some(Effect::Run(job)) => self.run(job, window, cx),
+            Some(Effect::CloseApp) => self.close_app(window, cx),
             Some(Effect::Launch(executable)) => {
                 let launched = runner::launch(&executable);
                 runner::log(format_args!(
@@ -221,7 +221,7 @@ impl SetupWindow {
         cx.notify();
     }
 
-    fn pick_location(&mut self, current: PathBuf, cx: &mut Context<Self>) {
+    fn pick_location(&mut self, current: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -229,7 +229,7 @@ impl SetupWindow {
             prompt: None,
         });
         runner::log(format_args!("pick location from {}", current.display()));
-        cx.spawn_in_window(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let Ok(Ok(Some(paths))) = paths.await else {
                 return;
             };
@@ -262,13 +262,13 @@ impl SetupWindow {
         .detach();
     }
 
-    fn close_app(&mut self, cx: &mut Context<Self>) {
+    fn close_app(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let app_data = self.app_data.clone();
         let dir = self.flow.location().to_path_buf();
         let closing = cx
             .background_executor()
             .spawn(async move { system::close_app(&app_data, &dir) });
-        cx.spawn_in_window(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let closed = closing.await;
             runner::log(format_args!("close FrameEver: {closed:?}"));
             this.update_in(cx, |this, window, cx| {
@@ -280,7 +280,7 @@ impl SetupWindow {
         .detach();
     }
 
-    fn run(&mut self, job: Job, cx: &mut Context<Self>) {
+    fn run(&mut self, job: Job, window: &mut Window, cx: &mut Context<Self>) {
         let shared = Arc::new(Mutex::new(Running::default()));
         let writer = shared.clone();
         let installing = matches!(job, Job::Install { .. });
@@ -300,7 +300,7 @@ impl SetupWindow {
                 running.outcome = Some(outcome);
             }
         });
-        cx.spawn_in_window(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor().timer(POLL).await;
                 let (fraction, outcome) = match shared.lock() {
