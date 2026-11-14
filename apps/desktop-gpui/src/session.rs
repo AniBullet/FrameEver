@@ -1666,6 +1666,7 @@ impl RecordingSession {
         let directory = active.project_dir.clone();
         let generation = self.recording_generation;
         let phase = self.phase;
+        let closed_markers = self.chapter_markers.take().map(|log| log.close());
         self.stop_recording_monitors(cx);
         self.phase = Phase::Stopping;
         cx.notify();
@@ -1701,6 +1702,10 @@ impl RecordingSession {
                     }
                     result => {
                         this.phase = phase;
+                        if let Some(markers) = closed_markers {
+                            this.chapter_markers =
+                                Some(ChapterMarkerLog::resume(directory.clone(), markers));
+                        }
                         if matches!(this.phase, Phase::Recording { .. }) {
                             this.monitor_storage(directory.clone(), cx);
                         }
@@ -2312,32 +2317,46 @@ mod input_change_tests {
 #[derive(Clone)]
 struct ChapterMarkerLog {
     project: std::path::PathBuf,
-    markers: Arc<std::sync::Mutex<Vec<Duration>>>,
+    markers: Arc<std::sync::Mutex<Option<Vec<Duration>>>>,
 }
 
 impl ChapterMarkerLog {
     fn new(project: std::path::PathBuf) -> Self {
+        Self::resume(project, Vec::new())
+    }
+
+    fn resume(project: std::path::PathBuf, markers: Vec<Duration>) -> Self {
         Self {
             project,
-            markers: Arc::default(),
+            markers: Arc::new(std::sync::Mutex::new(Some(markers))),
         }
     }
 
-    fn add(&self, at: Duration) -> usize {
-        let mut markers = self
-            .markers
+    fn locked(&self) -> std::sync::MutexGuard<'_, Option<Vec<Duration>>> {
+        self.markers
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn add(&self, at: Duration) -> usize {
+        let mut markers = self.locked();
+        let Some(markers) = markers.as_mut() else {
+            return 0;
+        };
         markers.push(at);
         markers.len()
     }
 
     fn save(&self) -> std::io::Result<()> {
-        let markers = self
-            .markers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        frameever_utils::storage::save_chapter_markers(&self.project, &markers)
+        let markers = self.locked();
+        let Some(markers) = markers.as_ref() else {
+            return Ok(());
+        };
+        frameever_utils::storage::save_chapter_markers(&self.project, markers)
+    }
+
+    fn close(&self) -> Vec<Duration> {
+        self.locked().take().unwrap_or_default()
     }
 
     fn save_or_log(&self) {
@@ -2455,6 +2474,23 @@ mod chapter_marker_tests {
                 ChapterMarker { recorded_at: 11.0 },
             ]
         );
+    }
+
+    #[test]
+    fn a_save_landing_after_the_take_is_discarded_writes_nothing() {
+        use frameever_utils::storage::create_project;
+        let storage = tempfile::tempdir().unwrap();
+        let project = create_project(storage.path(), "Take").unwrap();
+        let log = ChapterMarkerLog::new(project.clone());
+        log.add(secs(4));
+        let late_save = log.clone();
+
+        assert_eq!(log.close(), vec![secs(4)]);
+        std::fs::remove_dir_all(&project).unwrap();
+        std::fs::create_dir(&project).unwrap();
+        late_save.save().unwrap();
+
+        assert!(!project.join("frameever.json").exists());
     }
 
     #[test]
