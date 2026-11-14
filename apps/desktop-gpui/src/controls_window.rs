@@ -13,12 +13,14 @@ use gpui::{
     transparent_black,
 };
 
+use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
+
 use crate::{
     feeds::Feeds,
     i18n::t,
     recording::RecordingMode,
     screen_ink::{INK_COLOURS, InkAction, InkTool, ScreenInk},
-    session::{Phase, RecordingSession},
+    session::{InputKind, Phase, RecordingSession},
     theme::Theme,
     ui,
 };
@@ -41,6 +43,7 @@ pub struct ControlsWindow {
     expanded: Option<InputKind>,
     microphones: Vec<String>,
     cameras: Vec<(String, crate::recording::DeviceOrModelID)>,
+    options_header: Option<SharedString>,
     dismissed_issue: Option<RecordingIssue>,
     issue_details_open: bool,
     window_height: f32,
@@ -58,18 +61,41 @@ pub struct ControlsWindow {
 
 const DRAW_STRIP_ROOM: f32 = 44.;
 
+const OPTIONS_WIDTH: f32 = 300.;
+
+fn source_label(target: &ScreenCaptureTarget) -> Option<&'static str> {
+    match target {
+        ScreenCaptureTarget::Display { .. } => Some(t!("Display")),
+        ScreenCaptureTarget::Window { .. } => Some(t!("Window")),
+        ScreenCaptureTarget::Area { .. } => Some(t!("Area")),
+        ScreenCaptureTarget::CameraOnly => None,
+    }
+}
+
+fn format_options_header(
+    mode: RecordingMode,
+    source: Option<&str>,
+    size: Option<(u32, u32)>,
+    fps: u32,
+) -> String {
+    let mode = match mode {
+        RecordingMode::Studio => t!("Studio"),
+        RecordingMode::Instant => t!("Instant"),
+    };
+    std::iter::once(mode.to_owned())
+        .chain(source.map(str::to_owned))
+        .chain(size.map(|(width, height)| format!("{width} × {height}")))
+        .chain(std::iter::once(t!("{fps} FPS", fps = fps)))
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 const DRAW_TOOLS: [InkTool; 3] = [InkTool::Pen, InkTool::Highlighter, InkTool::Arrow];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RecordingIssue {
     message: String,
     details: Option<String>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum InputKind {
-    Microphone,
-    Camera,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +184,7 @@ impl ControlsWindow {
             expanded: None,
             microphones: Vec::new(),
             cameras: Vec::new(),
+            options_header: None,
             dismissed_issue: None,
             issue_details_open: false,
             window_height: crate::app_windows::CONTROLS_BAR_HEIGHT,
@@ -439,10 +466,36 @@ impl ControlsWindow {
         self.confirmation = None;
         self.expanded = None;
         if self.options_open {
+            let session = self.session.read(cx);
+            let mode = session.mode();
+            let target = session.capture_target();
             cx.spawn(async move |this, cx| {
-                let (microphones, cameras) = cx
+                let (microphones, cameras, header) = cx
                     .background_executor()
-                    .spawn(async {
+                    .spawn(async move {
+                        let header = mode.map(|mode| {
+                            let settings = crate::store::GeneralSettings::load();
+                            let size = target.as_ref().and_then(|target| {
+                                let size = target.physical_size()?;
+                                let capture =
+                                    (size.width().round() as u32, size.height().round() as u32);
+                                Some(match mode {
+                                    RecordingMode::Studio => capture,
+                                    RecordingMode::Instant => {
+                                        frameever_recording::instant_recording::output_size(
+                                            capture,
+                                            Some(settings.instant_mode_max_resolution),
+                                        )
+                                    }
+                                })
+                            });
+                            format_options_header(
+                                mode,
+                                target.as_ref().and_then(source_label),
+                                size,
+                                settings.max_fps,
+                            )
+                        });
                         let microphones =
                             frameever_recording::feeds::microphone::MicrophoneFeed::list_names();
                         let cameras = frameever_camera::list_cameras()
@@ -459,12 +512,13 @@ impl ControlsWindow {
                                 (camera.display_name().to_string(), id)
                             })
                             .collect::<Vec<_>>();
-                        (microphones, cameras)
+                        (microphones, cameras, header)
                     })
                     .await;
                 this.update(cx, |this, cx| {
                     this.microphones = microphones;
                     this.cameras = cameras;
+                    this.options_header = header.map(Into::into);
                     cx.notify();
                 })
                 .ok();
@@ -745,71 +799,117 @@ impl ControlsWindow {
         let theme = self.theme;
         self.ring(div().id(id), control)
             .w_full()
-            .h(px(32.))
+            .h(px(crate::theme::ROW_HEIGHT))
             .flex_shrink_0()
             .flex()
             .flex_row()
             .items_center()
             .gap(px(8.))
-            .px(px(8.))
-            .rounded(px(8.))
+            .px(px(10.))
+            .rounded(px(12.))
             .text_size(px(13.))
-            .text_color(theme.gray_12)
-            .when(enabled, |this| {
-                this.hover(|style| style.bg(Theme::with_alpha(theme.gray_12, 0.06)))
+            .text_color(if enabled {
+                theme.foreground
+            } else {
+                theme.faint_foreground
             })
-            .when(!enabled, |this| this.opacity(0.5))
+            .when(enabled, |this| this.hover(|style| style.bg(theme.accent)))
+    }
+
+    fn quiet_tint(&self, available: bool) -> Hsla {
+        if available {
+            self.theme.muted_foreground.into()
+        } else {
+            self.theme.faint_foreground.into()
+        }
+    }
+
+    fn row_icon(&self, path: &'static str, available: bool) -> gpui::Svg {
+        svg()
+            .path(path)
+            .size(px(16.))
+            .text_color(self.quiet_tint(available))
     }
 
     fn device_row(
         &self,
         kind: InputKind,
-        icon: &'static str,
-        label: SharedString,
-        value: Option<SharedString>,
+        value: SharedString,
+        in_take: bool,
         enabled: bool,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = self.theme;
+    ) -> gpui::Stateful<gpui::Div> {
         let open = self.expanded == Some(kind);
-        let (id, control) = match kind {
-            InputKind::Microphone => ("pick-microphone", Control::PickMicrophone),
-            InputKind::Camera => ("pick-camera", Control::PickCamera),
+        let (id, control, icon, label) = match kind {
+            InputKind::Microphone => (
+                "pick-microphone",
+                Control::PickMicrophone,
+                "icons/mic.svg",
+                t!("Microphone"),
+            ),
+            InputKind::Camera => (
+                "pick-camera",
+                Control::PickCamera,
+                "icons/webcam.svg",
+                t!("Camera"),
+            ),
         };
         self.option_row(id, enabled, control)
+            .when(in_take, |this| this.text_color(self.theme.foreground))
             .when(enabled, |this| {
                 this.on_click(cx.listener(move |this, _, window, cx| {
                     this.press(control, window, cx);
                 }))
             })
-            .child(svg().path(icon).size(px(16.)).text_color(theme.gray_11))
+            .child(self.row_icon(icon, in_take))
             .child(div().flex_1().min_w_0().truncate().child(label))
             .child(
                 div()
                     .max_w(px(130.))
                     .truncate()
-                    .text_size(px(12.))
-                    .text_color(theme.gray_10)
-                    .children(value),
+                    .text_color(self.quiet_tint(in_take))
+                    .child(value),
             )
             .when(enabled, |this| {
-                this.child(
-                    svg()
-                        .path(if open {
-                            "icons/chevron-up.svg"
-                        } else {
-                            "icons/chevron-down.svg"
-                        })
-                        .size(px(14.))
-                        .text_color(theme.gray_10),
-                )
+                this.child(self.row_icon(
+                    if open {
+                        "icons/chevron-up.svg"
+                    } else {
+                        "icons/chevron-down.svg"
+                    },
+                    true,
+                ))
+            })
+    }
+
+    fn choice_row(
+        &self,
+        id: (&'static str, usize),
+        name: String,
+        checked: bool,
+        enabled: bool,
+        control: Control,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        self.option_row(id, enabled, control)
+            .pl(px(34.))
+            .child(div().flex_1().min_w_0().truncate().child(name))
+            .when(checked, |this| {
+                this.child(self.row_icon("icons/check.svg", enabled))
+            })
+            .when(enabled && !checked, |this| {
+                this.on_click(cx.listener(move |this, _, window, cx| {
+                    this.press(control, window, cx);
+                }))
             })
     }
 
     fn render_options(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let session = self.session.read(cx);
-        let can_change = session.can_change_inputs();
+        let can_change_microphone = session.can_change_input(InputKind::Microphone);
+        let can_change_camera = session.can_change_input(InputKind::Camera);
+        let mode = session.mode();
         let microphone = session.microphone_label();
         let camera = session.camera_id();
         let camera_label = camera.as_ref().and_then(|id| {
@@ -823,6 +923,7 @@ impl ControlsWindow {
             .camera
             .is_some();
         let not_used: SharedString = t!("Not in this recording").into();
+        let divider = || div().h(px(1.)).my(px(4.)).flex_shrink_0().bg(theme.border);
 
         let microphone_rows = (self.expanded == Some(InputKind::Microphone)).then(|| {
             self.microphones
@@ -831,26 +932,14 @@ impl ControlsWindow {
                 .enumerate()
                 .map(|(index, name)| {
                     let checked = microphone.as_deref() == Some(name.as_str());
-                    self.option_row(
+                    self.choice_row(
                         ("microphone-choice", index),
-                        can_change,
+                        name,
+                        checked,
+                        can_change_microphone,
                         Control::MicrophoneChoice(index),
+                        cx,
                     )
-                    .pl(px(32.))
-                    .child(div().flex_1().min_w_0().truncate().child(name))
-                    .when(checked, |this| {
-                        this.child(
-                            svg()
-                                .path("icons/check.svg")
-                                .size(px(14.))
-                                .text_color(theme.gray_11),
-                        )
-                    })
-                    .when(can_change && !checked, |this| {
-                        this.on_click(cx.listener(move |this, _, window, cx| {
-                            this.press(Control::MicrophoneChoice(index), window, cx);
-                        }))
-                    })
                 })
                 .collect::<Vec<_>>()
         });
@@ -861,78 +950,83 @@ impl ControlsWindow {
                 .enumerate()
                 .map(|(index, (name, id))| {
                     let checked = camera.as_ref() == Some(&id);
-                    self.option_row(
+                    self.choice_row(
                         ("camera-choice", index),
-                        can_change,
+                        name,
+                        checked,
+                        can_change_camera,
                         Control::CameraChoice(index),
+                        cx,
                     )
-                    .pl(px(32.))
-                    .child(div().flex_1().min_w_0().truncate().child(name))
-                    .when(checked, |this| {
-                        this.child(
-                            svg()
-                                .path("icons/check.svg")
-                                .size(px(14.))
-                                .text_color(theme.gray_11),
-                        )
-                    })
-                    .when(can_change && !checked, |this| {
-                        this.on_click(cx.listener(move |this, _, window, cx| {
-                            this.press(Control::CameraChoice(index), window, cx);
-                        }))
-                    })
                 })
                 .collect::<Vec<_>>()
         });
 
         div()
             .id("recording-options")
-            .w_full()
+            .w(px(OPTIONS_WIDTH))
+            .max_w_full()
             .max_h(px(crate::app_windows::CONTROLS_OPTIONS_HEIGHT - 8.))
             .overflow_y_scroll()
             .flex()
             .flex_col()
             .mb(px(8.))
             .p(px(4.))
-            .rounded(px(12.))
+            .rounded(px(16.))
             .border_1()
-            .border_color(theme.gray_5)
-            .bg(theme.gray_1)
+            .border_color(theme.border)
+            .bg(theme.popover)
+            .when_some(
+                mode.zip(self.options_header.clone()),
+                |this, (mode, header)| {
+                    this.child(
+                        div()
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .px(px(10.))
+                            .py(px(8.))
+                            .text_size(px(13.))
+                            .text_color(theme.muted_foreground)
+                            .child(self.row_icon(
+                                match mode {
+                                    RecordingMode::Studio => "icons/clapperboard.svg",
+                                    RecordingMode::Instant => "icons/zap.svg",
+                                },
+                                true,
+                            ))
+                            .child(div().flex_1().min_w_0().truncate().child(header)),
+                    )
+                    .child(divider())
+                },
+            )
             .child(
                 self.device_row(
                     InputKind::Microphone,
-                    "icons/mic.svg",
-                    t!("Microphone").into(),
-                    Some(
-                        microphone
-                            .clone()
-                            .map_or_else(|| not_used.clone(), Into::into),
-                    ),
-                    microphone.is_some() && can_change,
+                    microphone
+                        .clone()
+                        .map_or_else(|| not_used.clone(), Into::into),
+                    microphone.is_some(),
+                    can_change_microphone,
                     cx,
                 ),
             )
             .children(microphone_rows.into_iter().flatten())
             .child(self.device_row(
                 InputKind::Camera,
-                "icons/webcam.svg",
-                t!("Camera").into(),
-                Some(camera.as_ref().map_or_else(
+                camera.as_ref().map_or_else(
                     || not_used.clone(),
                     |_| camera_label.unwrap_or_default().into(),
-                )),
-                camera.is_some() && can_change,
+                ),
+                camera.is_some(),
+                can_change_camera,
                 cx,
             ))
             .children(camera_rows.into_iter().flatten())
             .child(
                 self.option_row("camera-preview", camera.is_some(), Control::CameraPreview)
-                    .child(
-                        svg()
-                            .path("icons/maximize.svg")
-                            .size(px(16.))
-                            .text_color(theme.gray_11),
-                    )
+                    .child(self.row_icon("icons/maximize.svg", camera.is_some()))
                     .child(
                         div()
                             .flex_1()
@@ -943,7 +1037,7 @@ impl ControlsWindow {
                     .child(ui::Toggle::settings(
                         &theme,
                         "camera-preview-switch",
-                        camera_window_open,
+                        camera_window_open && camera.is_some(),
                     ))
                     .when(camera.is_some(), |this| {
                         this.on_click(cx.listener(|this, _, window, cx| {
@@ -951,15 +1045,10 @@ impl ControlsWindow {
                         }))
                     }),
             )
-            .child(div().h(px(1.)).my(px(4.)).flex_shrink_0().bg(theme.border))
+            .child(divider())
             .child(
                 self.option_row("hide-controls", true, Control::HideControls)
-                    .child(
-                        svg()
-                            .path("icons/eye-off.svg")
-                            .size(px(16.))
-                            .text_color(theme.gray_11),
-                    )
+                    .child(self.row_icon("icons/eye-off.svg", true))
                     .child(
                         div()
                             .flex_1()
@@ -1177,22 +1266,21 @@ impl ControlsWindow {
         let mut groups = Vec::new();
         if self.options_open {
             let session = self.session.read(cx);
-            let can_change = session.can_change_inputs();
+            let can_change_microphone = session.can_change_input(InputKind::Microphone);
+            let can_change_camera = session.can_change_input(InputKind::Camera);
             let has_camera = session.camera_id().is_some();
-            let mut options = vec![(
-                Control::PickMicrophone,
-                session.microphone_label().is_some() && can_change,
-            )];
+            let mut options = vec![(Control::PickMicrophone, can_change_microphone)];
             if self.expanded == Some(InputKind::Microphone) {
                 options.extend(
                     (0..self.microphones.len())
-                        .map(|index| (Control::MicrophoneChoice(index), can_change)),
+                        .map(|index| (Control::MicrophoneChoice(index), can_change_microphone)),
                 );
             }
-            options.push((Control::PickCamera, has_camera && can_change));
+            options.push((Control::PickCamera, can_change_camera));
             if self.expanded == Some(InputKind::Camera) {
                 options.extend(
-                    (0..self.cameras.len()).map(|index| (Control::CameraChoice(index), can_change)),
+                    (0..self.cameras.len())
+                        .map(|index| (Control::CameraChoice(index), can_change_camera)),
                 );
             }
             options.push((Control::CameraPreview, has_camera));
@@ -1321,7 +1409,9 @@ impl ControlsWindow {
             return;
         };
         let session = self.session.read(cx);
-        if !session.can_change_inputs() || session.microphone_label().as_deref() == Some(&*name) {
+        if !session.can_change_input(InputKind::Microphone)
+            || session.microphone_label().as_deref() == Some(&*name)
+        {
             return;
         }
         self.expanded = None;
@@ -1335,7 +1425,8 @@ impl ControlsWindow {
             return;
         };
         let session = self.session.read(cx);
-        if !session.can_change_inputs() || session.camera_id().as_ref() == Some(&id) {
+        if !session.can_change_input(InputKind::Camera) || session.camera_id().as_ref() == Some(&id)
+        {
             return;
         }
         self.expanded = None;
@@ -1723,7 +1814,9 @@ impl Render for ControlsWindow {
             .font_family(crate::theme::ui_font())
             // `body { font-weight: 500 }` (`ui-solid/src/main.css:189-192`).
             .font_weight(FontWeight::MEDIUM)
-            .when_some(options, |this, options| this.child(options))
+            .when_some(options, |this, options| {
+                this.child(div().flex().justify_center().child(options))
+            })
             .when_some(self.confirmation, |this, action| {
                 this.child(self.render_confirmation(action, cx))
             })
@@ -2048,6 +2141,28 @@ mod repaint_tests {
         assert_eq!(
             tick_delay(false, Duration::from_millis(3_900)),
             Duration::from_secs(1)
+        );
+    }
+}
+
+#[cfg(test)]
+mod options_header_tests {
+    use super::*;
+
+    #[test]
+    fn the_options_header_names_mode_source_recorded_size_and_frame_rate() {
+        assert_eq!(
+            format_options_header(
+                RecordingMode::Studio,
+                Some("Display"),
+                Some((2560, 1440)),
+                60
+            ),
+            "Studio · Display · 2560 × 1440 · 60 FPS"
+        );
+        assert_eq!(
+            format_options_header(RecordingMode::Instant, None, None, 30),
+            "Instant · 30 FPS"
         );
     }
 }

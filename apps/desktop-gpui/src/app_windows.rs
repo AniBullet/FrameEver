@@ -50,7 +50,7 @@ use crate::{
 pub const CONTROLS_WIDTH: f32 = 432.;
 pub const CONTROLS_HEIGHT: f32 = 150.;
 pub const CONTROLS_BAR_HEIGHT: f32 = 60.;
-pub const CONTROLS_OPTIONS_HEIGHT: f32 = 210.;
+pub const CONTROLS_OPTIONS_HEIGHT: f32 = 240.;
 const CONTROLS_BOTTOM_OFFSET: f64 = 120.;
 const TARGET_CONTROLS_OFFSET_Y: f64 = 48.;
 

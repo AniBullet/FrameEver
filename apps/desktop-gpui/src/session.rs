@@ -436,11 +436,27 @@ impl RecordingSession {
             .and_then(|config| config.camera.clone())
     }
 
-    pub fn can_change_inputs(&self) -> bool {
-        self.mode() == Some(crate::recording::RecordingMode::Studio)
-            && matches!(self.phase, Phase::Recording { .. })
-            && !self.changing_input
-            && !self.pause_unavailable()
+    pub fn can_change_input(&self, kind: InputKind) -> bool {
+        self.input_change_gate().allows(kind)
+    }
+
+    fn input_change_gate(&self) -> InputChangeGate {
+        InputChangeGate {
+            mode: self.mode(),
+            phase: self.phase,
+            changing_input: self.changing_input,
+            pause_unavailable: self.pause_unavailable(),
+            started_with_microphone: self.microphone_label().is_some(),
+            started_with_camera: self.camera_id().is_some(),
+        }
+    }
+
+    pub fn capture_target(
+        &self,
+    ) -> Option<frameever_recording::sources::screen_capture::ScreenCaptureTarget> {
+        self.last_config
+            .as_ref()
+            .map(|config| config.target.clone())
     }
 
     pub fn mode(&self) -> Option<crate::recording::RecordingMode> {
@@ -982,11 +998,16 @@ impl RecordingSession {
     }
 
     pub fn change_input(&mut self, choice: InputChoice, cx: &mut Context<Self>) {
+        let kind = choice.kind();
+        let Some(ticket) = self
+            .input_change_gate()
+            .begin(kind, self.recording_generation)
+        else {
+            return;
+        };
         let Some(handle) = self.begin_input_change(cx) else {
             return;
         };
-        let generation = self.recording_generation;
-        let kind = choice.kind();
         let watched = choice.watched();
         cx.spawn(async move |this, cx| {
             let result = async {
@@ -1036,8 +1057,15 @@ impl RecordingSession {
             }
             .await;
             this.update(cx, |this, cx| {
-                if let Some(mute) = this.finish_input_change(generation, result, cx) {
+                let end = ticket.finish(this.recording_generation, this.phase, result.is_ok());
+                if end == InputChangeEnd::Stale {
+                    return;
+                }
+                if let Some(mute) = this.finish_input_change(result, cx) {
                     this.input_changed(watched, mute, cx);
+                }
+                if end == InputChangeEnd::Resume {
+                    this.toggle_pause(cx);
                 }
             })
             .ok();
@@ -1063,13 +1091,9 @@ impl RecordingSession {
 
     fn finish_input_change<T>(
         &mut self,
-        generation: u64,
         result: anyhow::Result<T>,
         cx: &mut Context<Self>,
     ) -> Option<T> {
-        if self.recording_generation != generation {
-            return None;
-        }
         self.changing_input = false;
         cx.notify();
         match result {
@@ -1675,9 +1699,67 @@ async fn wait_until_paused(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum InputKind {
+pub(crate) enum InputKind {
     Microphone,
     Camera,
+}
+
+struct InputChangeGate {
+    mode: Option<crate::recording::RecordingMode>,
+    phase: Phase,
+    changing_input: bool,
+    pause_unavailable: bool,
+    started_with_microphone: bool,
+    started_with_camera: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InputChangeTicket {
+    generation: u64,
+    resume_after: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InputChangeEnd {
+    Resume,
+    StayPaused,
+    Stale,
+}
+
+impl InputChangeTicket {
+    fn finish(&self, generation: u64, phase: Phase, succeeded: bool) -> InputChangeEnd {
+        let Phase::Recording { paused } = phase else {
+            return InputChangeEnd::Stale;
+        };
+        if generation != self.generation {
+            InputChangeEnd::Stale
+        } else if succeeded && self.resume_after && paused {
+            InputChangeEnd::Resume
+        } else {
+            InputChangeEnd::StayPaused
+        }
+    }
+}
+
+impl InputChangeGate {
+    fn allows(&self, kind: InputKind) -> bool {
+        let started_with = match kind {
+            InputKind::Microphone => self.started_with_microphone,
+            InputKind::Camera => self.started_with_camera,
+        };
+        started_with
+            && self.mode == Some(crate::recording::RecordingMode::Studio)
+            && matches!(self.phase, Phase::Recording { .. })
+            && !self.changing_input
+            && !self.pause_unavailable
+    }
+
+    fn begin(&self, kind: InputKind, generation: u64) -> Option<InputChangeTicket> {
+        self.allows(kind).then_some(InputChangeTicket {
+            generation,
+            resume_after: self.phase == Phase::Recording { paused: false },
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -2076,5 +2158,71 @@ mod countdown_event_tests {
         assert!(!countdown_cue_is_current(Phase::Starting, 8, 7, Some(0)));
         assert!(!countdown_cue_is_current(Phase::Idle, 7, 7, Some(0)));
         assert!(!countdown_cue_is_current(Phase::Starting, 7, 7, Some(2)));
+    }
+}
+
+#[cfg(test)]
+mod input_change_tests {
+    use super::*;
+    use crate::recording::RecordingMode;
+
+    fn studio_recording() -> InputChangeGate {
+        InputChangeGate {
+            mode: Some(RecordingMode::Studio),
+            phase: Phase::Recording { paused: false },
+            changing_input: false,
+            pause_unavailable: false,
+            started_with_microphone: true,
+            started_with_camera: false,
+        }
+    }
+
+    #[test]
+    fn a_device_not_used_at_the_start_stays_off_for_this_take() {
+        let gate = studio_recording();
+        assert!(gate.begin(InputKind::Microphone, 1).is_some());
+        assert!(gate.begin(InputKind::Camera, 1).is_none());
+        assert!(!gate.allows(InputKind::Camera));
+    }
+
+    #[test]
+    fn a_change_that_paused_the_take_resumes_it_once_the_new_device_is_in() {
+        let ticket = studio_recording().begin(InputKind::Microphone, 1).unwrap();
+        assert_eq!(
+            ticket.finish(1, Phase::Recording { paused: true }, true),
+            InputChangeEnd::Resume
+        );
+    }
+
+    #[test]
+    fn a_take_paused_by_the_user_stays_paused_after_the_change() {
+        let mut gate = studio_recording();
+        gate.phase = Phase::Recording { paused: true };
+        let ticket = gate.begin(InputKind::Microphone, 1).unwrap();
+        assert_eq!(
+            ticket.finish(1, Phase::Recording { paused: true }, true),
+            InputChangeEnd::StayPaused
+        );
+    }
+
+    #[test]
+    fn a_failed_change_keeps_the_take_paused_instead_of_stopping_it() {
+        let ticket = studio_recording().begin(InputKind::Microphone, 1).unwrap();
+        assert_eq!(
+            ticket.finish(1, Phase::Recording { paused: true }, false),
+            InputChangeEnd::StayPaused
+        );
+    }
+
+    #[test]
+    fn a_change_finishing_after_stop_or_restart_touches_nothing() {
+        let ticket = studio_recording().begin(InputKind::Microphone, 1).unwrap();
+        assert_eq!(
+            ticket.finish(2, Phase::Recording { paused: true }, true),
+            InputChangeEnd::Stale
+        );
+        for phase in [Phase::Idle, Phase::Starting, Phase::Stopping] {
+            assert_eq!(ticket.finish(1, phase, true), InputChangeEnd::Stale);
+        }
     }
 }

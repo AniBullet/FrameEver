@@ -414,22 +414,7 @@ async fn create_pipeline(
         source: screen_capture,
         info: screen_info,
     } = screen;
-    let output_resolution = max_output_size
-        .map(|max_output_size| {
-            clamp_size(
-                (screen_info.width, screen_info.height),
-                (
-                    max_output_size,
-                    (max_output_size as f64 / 16.0 * 9.0) as u32,
-                ),
-            )
-        })
-        .unwrap_or_else(|| {
-            (
-                ensure_even(screen_info.width),
-                ensure_even(screen_info.height),
-            )
-        });
+    let output_resolution = output_size((screen_info.width, screen_info.height), max_output_size);
 
     let segments_dir = content_dir.join("display");
 
@@ -891,6 +876,20 @@ fn capture_size_constraint(input: (u32, u32), max_output_size: u32) -> (u32, u32
     } else {
         (max_short_edge, u32::MAX)
     }
+}
+
+pub fn output_size(input: (u32, u32), max_output_size: Option<u32>) -> (u32, u32) {
+    max_output_size
+        .map(|max_output_size| {
+            clamp_size(
+                input,
+                (
+                    max_output_size,
+                    (max_output_size as f64 / 16.0 * 9.0) as u32,
+                ),
+            )
+        })
+        .unwrap_or_else(|| (ensure_even(input.0), ensure_even(input.1)))
 }
 
 fn clamp_size(input: (u32, u32), max: (u32, u32)) -> (u32, u32) {
