@@ -1182,7 +1182,7 @@ const group = (g) =>
 	}</div>`;
 
 const clipsPanel = () => `<div class="grp-body" style="padding-top:8px">
-	<div class="listing">${clipSegs.map((c, i) => `<div class="clip-row"><span class="thumb">${scene}</span><span>${L(c.l[0], c.l[1])}<small class="tnum">${fmt(c.e - c.s)} · ${c.speed}</small></span></div>`).join("")}</div>
+	<div class="listing">${clipSegs.map((c) => `<div class="clip-row"><span class="thumb">${scene}</span><span>${L(c.l[0], c.l[1])}<small class="tnum">${fmt(c.e - c.s)} · ${c.speed}</small></span></div>`).join("")}</div>
 	<button class="line-btn">${L("Record a new clip", "录制新片段")}</button>
 	<button class="line-btn">${L("Import an existing recording", "导入已有录制")}</button>
 	<button class="line-btn">${L("Import MP4 video", "导入 MP4 视频")}</button>

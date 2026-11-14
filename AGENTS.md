@@ -80,7 +80,7 @@ These are denied in the workspace `Cargo.toml` and fail CI:
 
 ## Testing
 
-- For ticket work, inspect relevant local upstream source/history and authoritative primary references before choosing an implementation. Upstream is a read-only reference (ADR-0007), not a constraint: prefer a better solution when the ticket, design and measured results support it. Record the sources and reasoning in the handoff.
+- For ticket work, inspect relevant upstream source/history and authoritative primary references before choosing an implementation. Upstream is always the original `CapSoftware/Cap` (`git fetch upstream`, then `upstream/main`), never the old Cap-aniBullet fork or its backup folders. Upstream is a read-only reference (ADR-0007), not a constraint: prefer a better solution when the ticket, design and measured results support it. Record the sources and reasoning in the handoff.
 - Agents choose routine test seams and implementation details within the ticket's scope; ask the owner when a product decision or missing requirement changes that scope.
 - Work test-first. Rust tests sit beside the code (`#[cfg(test)]`) or in a crate's `tests/`; script tests are `scripts/*.test.mjs` (`node --test`).
 - Checks come in two layers. After each edit: `pnpm fe fmt` and `pnpm fe test <filter>` for the code you touched (`--crate <package>` for a root-workspace crate); nothing wider. Once per change that lands on `main`, after code review and its fixes: `pnpm fe test --all` and `pnpm fe lint`. When several tickets are built in parallel, that pass runs once on the integration branch, not per ticket. Don't edit source while it runs.
