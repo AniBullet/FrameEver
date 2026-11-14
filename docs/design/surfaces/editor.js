@@ -2040,7 +2040,10 @@ const renderDocs = () => {
 				"Zoom, text, caption, keyboard, audio, mask, scene, 3D shot, image, style segments",
 				"缩放、文字、字幕、按键、音频、遮罩、场景、3D 镜头、图片、样式段落",
 			],
-			["Inspector when selected; Tab to a track, Enter or Left/Right selects an existing segment", "选中后在检查器；Tab 到轨道，Enter 或左右键选择已有段落"],
+			[
+				"Inspector when selected; Tab to a track, Enter or Left/Right selects an existing segment",
+				"选中后在检查器；Tab 到轨道，Enter 或左右键选择已有段落",
+			],
 		],
 		[
 			["Audio library", "音频库"],
@@ -2051,7 +2054,10 @@ const renderDocs = () => {
 				"Clip speed, volume, mute, pitch, hide cursor, split, merge, rename, delete before or after the playhead, delete",
 				"片段速度、音量、静音、音调、隐藏光标、分割、合并、重命名、删除播放头前后部分、删除",
 			],
-			["Clip menu (also from Clips › Clip options)", "片段菜单（也可从片段页的片段选项打开）"],
+			[
+				"Clip menu (also from Clips › Clip options)",
+				"片段菜单（也可从片段页的片段选项打开）",
+			],
 		],
 		[
 			["Clip transitions: add, change, remove", "片段转场：添加、更改、删除"],
