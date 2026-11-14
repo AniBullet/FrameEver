@@ -1461,66 +1461,64 @@ pub fn set_recording_mode(mode: Mode, cx: &mut App) {
 
 // -- Teleprompter -----------------------------------------------------------
 
-/// Open (or re-show) the teleprompter -- `openTeleprompter()` in
-/// `utils/teleprompter.ts`, which reuses a live window with
-/// `unminimize()`/`show()`/`setFocus()` and otherwise builds a new one.
 pub fn open_teleprompter(cx: &mut App) {
     if let Some(handle) = cx.global::<AppWindows>().teleprompter {
         let native = handle
-            .update(cx, |_, window, _| platform::native_window(window))
+            .update(cx, |view, window, cx| {
+                view.focus_root(window, cx);
+                platform::native_window(window)
+            })
             .ok()
             .flatten();
-        cx.spawn(async move |_| {
+        cx.spawn(async move |cx| {
             if let Some(native) = &native {
                 platform::show_native(native);
             }
+            handle
+                .update(cx, |_, window, _| window.activate_window())
+                .ok();
         })
         .detach();
         return;
     }
 
-    let (bounds, display_id) = opening_window_placement(
-        size(
-            px(teleprompter_window::TELEPROMPTER_WIDTH),
-            px(teleprompter_window::TELEPROMPTER_HEIGHT),
-        ),
-        cx,
-    );
+    let state = crate::store::TeleprompterState::load();
+    let target = scap_targets::Display::get_containing_cursor();
+    let display_id = gpui_display_id(target.as_ref(), cx);
+    let Some(work) = display_work_area(target.as_ref(), cx) else {
+        tracing::error!("teleprompter window not opened: no display work area");
+        return;
+    };
+    let work = [
+        f32::from(work.origin.x),
+        f32::from(work.origin.y),
+        f32::from(work.size.width),
+        f32::from(work.size.height),
+    ];
+    let read = teleprompter_window::opening_frame(state.frame, work);
+    let [x, y, width, height] = if state.script.trim().is_empty() {
+        teleprompter_window::edit_frame(read, work)
+    } else {
+        read
+    };
 
     let handle = cx.open_window(
         WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_bounds: Some(WindowBounds::Windowed(Bounds {
+                origin: point(px(x), px(y)),
+                size: size(px(width), px(height)),
+            })),
             display_id,
-            // `decorations: true`, `titleBarStyle: "overlay"`, `hiddenTitle:
-            // true`, `trafficLightPosition: (14, 14)` -- the real AppKit
-            // buttons, moved, as on the settings window.
-            titlebar: Some(gpui::TitlebarOptions {
-                title: Some("FrameEver Teleprompter".into()),
-                appears_transparent: true,
-                traffic_light_position: Some(teleprompter_window::TRAFFIC_LIGHTS),
-            }),
-            #[cfg(target_os = "macos")]
-            kind: WindowKind::Floating,
-            #[cfg(not(target_os = "macos"))]
-            kind: WindowKind::Normal,
+            titlebar: None,
+            kind: WindowKind::PopUp,
             focus: true,
             show: true,
-            // `resizable: true`, `minWidth: 420, minHeight: 220`.
-            is_resizable: true,
-            is_minimizable: true,
-            window_min_size: Some(fitted_window_min_size(
-                size(
-                    px(teleprompter_window::TELEPROMPTER_MIN_WIDTH),
-                    px(teleprompter_window::TELEPROMPTER_MIN_HEIGHT),
-                ),
-                bounds,
-            )),
-            // `transparent: true`, `shadow: true`: the shell paints a tint and
-            // the material shows through.
+            is_resizable: false,
+            is_minimizable: false,
             window_background: gpui::WindowBackgroundAppearance::Transparent,
             ..Default::default()
         },
-        |window, cx| cx.new(|cx| TeleprompterWindow::new(window, cx)),
+        move |window, cx| cx.new(|cx| TeleprompterWindow::new(read, window, cx)),
     );
 
     let handle = match handle {
@@ -1532,81 +1530,34 @@ pub fn open_teleprompter(cx: &mut App) {
     };
 
     cx.global_mut::<AppWindows>().teleprompter = Some(handle);
+    let recording = RecordingSession::global(cx).read(cx).phase != Phase::Idle;
 
-    // `commands.refreshWindowContentProtection()` on open
-    // (`src/utils/teleprompter.ts:26,38,64`): a window that appears *after* the
-    // capture started missed `begin_recording`'s pass, and its id can no longer
-    // join the content filter -- the sharing type is the only lever left.
-    if RecordingSession::global(cx).read(cx).phase != Phase::Idle {
-        set_teleprompter_content_protection(true, cx);
-    }
-
-    let opened = handle
+    let native = handle
         .update(cx, |view, window, cx| {
-            // `commands.setTeleprompterWindowLevel(true)` -- level 101, and the
-            // `visibleOnAllWorkspaces` half.
+            window.set_window_title(teleprompter_window::WINDOW_TITLE);
             platform::apply_panel_behavior(
                 window,
                 platform::PanelBehavior {
                     level: platform::teleprompter_level(),
                     join_all_spaces: true,
-                    // `shadow: true` in the window options.
-                    shadow: true,
+                    shadow: false,
                 },
             );
+            view.sync_capture_protection(recording, window, cx);
             view.focus_root(window, cx);
+            window.activate_window();
             tracing::info!(
                 number = platform::window_number(window),
-                level = platform::teleprompter_level(),
                 "teleprompter window opened"
             );
-            (platform::native_window(window), view.window_alpha())
+            platform::native_window(window)
         })
-        .ok();
-
-    let Some((native, alpha)) = opened else {
-        return;
-    };
-
-    cx.spawn(async move |cx| {
-        if let Some(native) = &native {
-            // `applyMacOSWindowMaterial("teleprompter")`: radius 22 on glass.
-            let kind = platform::install_window_material(
-                native,
-                teleprompter_window::TELEPROMPTER_MATERIAL_RADIUS,
-            );
-            match kind {
-                Some(kind) => tracing::info!(
-                    ?kind,
-                    radius = teleprompter_window::TELEPROMPTER_MATERIAL_RADIUS,
-                    "installed teleprompter window material"
-                ),
-                None => tracing::info!("no native window material available for the teleprompter"),
-            }
-            // The opacity effect's first run.
-            let applied = platform::set_window_alpha(native, alpha);
-            tracing::info!(requested = alpha, applied, "teleprompter window alpha");
-            cx.update(|cx| {
-                if platform::active_material(cx).is_none() {
-                    cx.set_global(platform::WindowMaterial(kind));
-                }
-            });
-        }
-        handle
-            .update(cx, |_, window, cx| {
-                platform::kick_display_link(window);
-                cx.notify();
-                window.refresh();
-            })
-            .ok();
-    })
-    .detach();
+        .ok()
+        .flatten();
+    remove_popup_window_chrome(native, cx);
+    crate::hotkeys::reload(cx);
 }
 
-/// Type into the open teleprompter (harness path for
-/// `FRAMEEVER_GPUI_AUTO_TELEPROMPTER=<script>`; synthetic key events are dropped
-/// without Accessibility, and this drives the same `edit_script` the key
-/// handler does, debounced write included).
 pub fn type_into_teleprompter(text: String, cx: &mut App) {
     let Some(handle) = cx.global::<AppWindows>().teleprompter else {
         return;
@@ -1619,10 +1570,7 @@ pub fn type_into_teleprompter(text: String, cx: &mut App) {
         .ok();
 }
 
-/// Drive the teleprompter's play button (harness path for
-/// `FRAMEEVER_GPUI_AUTO_PLAY=1`). Only meaningful once the window has painted --
-/// the scrollable height does not exist before that.
-pub fn play_teleprompter(cx: &mut App) {
+pub fn toggle_teleprompter_playback(cx: &mut App) {
     let Some(handle) = cx.global::<AppWindows>().teleprompter else {
         return;
     };
@@ -1635,33 +1583,36 @@ pub fn play_teleprompter(cx: &mut App) {
         .ok();
 }
 
-/// The teleprompter closed itself. Nothing to restore: unlike ModeSelect and
-/// Settings this window never hid the main one.
-pub fn teleprompter_closed(cx: &mut App) {
-    cx.global_mut::<AppWindows>().teleprompter.take();
+pub fn teleprompter_is_open(cx: &App) -> bool {
+    cx.try_global::<AppWindows>()
+        .is_some_and(|windows| windows.teleprompter.is_some())
 }
 
-/// `apply_content_protection`: `setSharingType: None` while a capture is
-/// running, back to `ReadOnly` when it stops. `window_capture_excluded` returns
-/// true for the teleprompter's title unconditionally, so this window needs no
-/// settings lookup -- but the gating on an active recording is theirs, and the
-/// reason is in the comment above `capture_exclusion_hides_ui`: a permanently
-/// excluded window is invisible on capture-based displays.
+pub fn teleprompter_closed(cx: &mut App) {
+    if cx.global_mut::<AppWindows>().teleprompter.take().is_some() {
+        crate::hotkeys::reload(cx);
+    }
+}
+
+fn teleprompter_hides_from_sharing(cx: &mut App) -> bool {
+    cx.global::<AppWindows>()
+        .teleprompter
+        .is_some_and(|handle| {
+            handle
+                .read(cx)
+                .is_ok_and(TeleprompterWindow::hides_from_sharing)
+        })
+}
+
 fn set_teleprompter_content_protection(hidden: bool, cx: &mut App) {
     let Some(handle) = cx.global::<AppWindows>().teleprompter else {
         return;
     };
-    let native = handle
-        .update(cx, |_, window, _| platform::native_window(window))
-        .ok()
-        .flatten();
-    cx.spawn(async move |_| {
-        if let Some(native) = &native {
-            let sharing = platform::set_window_capture_hidden(native, hidden);
-            tracing::info!(hidden, sharing, "teleprompter content protection");
-        }
-    })
-    .detach();
+    handle
+        .update(cx, |view, window, cx| {
+            view.sync_capture_protection(hidden, window, cx)
+        })
+        .ok();
 }
 
 /// The teleprompter's native window number, for capture exclusion.
@@ -2812,7 +2763,12 @@ fn apply_content_protection(
 /// [`set_editor_content_protection`] is harmless.
 pub fn restore_content_protection(cx: &mut App) {
     let windows = own_windows(cx);
-    apply_content_protection(windows, |_| false, cx);
+    let teleprompter_hidden = teleprompter_hides_from_sharing(cx);
+    apply_content_protection(
+        windows,
+        move |kind| kind == OwnWindow::Teleprompter && teleprompter_hidden,
+        cx,
+    );
 }
 
 /// The whole start flow: bar up (in its Starting state), main window hidden,

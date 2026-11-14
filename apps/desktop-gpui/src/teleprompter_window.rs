@@ -1,107 +1,49 @@
-//! The teleprompter -- `routes/teleprompter.tsx`, natively.
-//!
-//! 560x320 by default, freely resizable down to 420x220, always over the app
-//! being read from (native window level 101, all Spaces), on the
-//! `"teleprompter"` material at radius 22. A header note, a centre script area
-//! with a vertical vignette and cue markers, and a footer of pills: play/pause,
-//! words-per-minute, window opacity, font size, and a settings popover.
-//!
-//! The Tauri window is the odd one out architecturally -- it is built straight
-//! from JS with `new WebviewWindow(...)` rather than through the
-//! `ShowCapWindow` builder -- but from over here it is just another window, so
-//! `app_windows::open_teleprompter` opens it the way everything else opens.
-//!
-//! The playback maths is a straight port of
-//! Tauri `src/routes/teleprompter-utils.ts`, with that file's own unit
-//! tests translated at the bottom.
+mod model;
 
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeSet,
     rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 use gpui::{
-    AppContext as _, Bounds, Context, Entity, FocusHandle, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Point, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, point, prelude::FluentBuilder, px, svg,
+    AppContext as _, Context, Entity, FocusHandle, FontWeight, HighlightStyle, InteractiveElement,
+    IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render,
+    SharedString, StatefulInteractiveElement, Styled, StyledText, Window, div,
+    prelude::FluentBuilder, px, svg,
 };
 
 use crate::{
-    i18n::t,
+    feeds::Feeds,
+    i18n::{t, tc},
     platform,
     session::{Phase, RecordingSession},
-    store::{self, TeleprompterState},
+    store::{self, TeleprompterAlign, TeleprompterScroll, TeleprompterState},
     teleprompter::count_words,
     theme::Theme,
     ui,
 };
 
-/// `getTeleprompterWindowOptions`: `width: 560, height: 320`, `minWidth: 420`,
-/// `minHeight: 220`, `resizable: true`, `center: true`.
-pub const TELEPROMPTER_WIDTH: f32 = 560.;
-pub const TELEPROMPTER_HEIGHT: f32 = 320.;
-pub const TELEPROMPTER_MIN_WIDTH: f32 = 420.;
-pub const TELEPROMPTER_MIN_HEIGHT: f32 = 220.;
-
-/// `trafficLightPosition: new LogicalPosition(14, 14)`, which
-/// `CapWindowId::Teleprompter::traffic_lights_position` repeats on the Rust
-/// side. Real AppKit buttons, moved -- like the settings window's and unlike
-/// the main window's hand-drawn pair. The Tauri inset resolves to a top-left
-/// of `(inset.x, inset.y / 2 + 4)` (see `editor_window::TRAFFIC_LIGHTS` for
-/// the `position_window_controls` derivation), and gpui takes the literal
-/// top-left: (14, 14) -> (14, 11).
-pub const TRAFFIC_LIGHTS: Point<Pixels> = Point {
-    x: px(14.),
-    y: px(11.),
+use model::{
+    CaptureInputs, CaptureStatus, Edge, PlaybackState, ReadingKey, RecordingCue, VoiceGate,
 };
+pub use model::{edit_frame, opening_frame};
 
-/// `applyMacOSWindowMaterial("teleprompter")` -> radius 22 under liquid glass
-/// (16 under vibrancy, which the content-view clip re-applies anyway).
-pub const TELEPROMPTER_MATERIAL_RADIUS: f64 = 22.;
-
-/// `h-9` header + `h-11` footer -- the `5rem` in the spacer's `calc`.
-const HEADER_HEIGHT: f32 = 36.;
-const FOOTER_HEIGHT: f32 = 44.;
-
-/// `min="60" max="350" step="5"` on the scroll-speed range.
-const WPM_MIN: f32 = 60.;
-const WPM_MAX: f32 = 350.;
-const WPM_STEP: f32 = 5.;
-
-/// `min="45" max="100" step="5"` on the opacity range. The floor is the same
-/// 0.45 `set_window_opacity` clamps to.
-const OPACITY_MIN: f32 = 45.;
-const OPACITY_MAX: f32 = 100.;
-const OPACITY_STEP: f32 = 5.;
-
-/// `clamp(current.fontSize + delta, 22, 52)` with `delta = ±2`.
-const FONT_SIZE_MIN: f32 = 22.;
-const FONT_SIZE_MAX: f32 = 52.;
-const FONT_SIZE_STEP: f32 = 2.;
-
-/// `setTimeout(..., 250)` in the persistence effect.
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(250);
-
-/// One animation frame. The rAF loop the Tauri route runs is display-cadence;
-/// this is the nearest fixed tick, and the elapsed clamp below makes the speed
-/// independent of it either way.
 const PLAYBACK_TICK: Duration = Duration::from_millis(16);
-
-/// `Math.min((timestamp - playbackTimestamp) / 1000, 0.05)` -- a tab (or a
-/// window) that stopped getting frames must not jump the script.
 const MAX_TICK_SECONDS: f32 = 0.05;
+const TITLE_HEIGHT: f32 = 32.;
+const FOOT_HEIGHT: f32 = 44.;
+const TOOLBAR_HEIGHT: f32 = 36.;
+const EDGE_HIT: f32 = 6.;
+const TEXT_PADDING: f32 = 32.;
+pub const WINDOW_TITLE: &str = "FrameEver Teleprompter";
 
-// -- teleprompter-utils.ts --------------------------------------------------
-
-/// `clamp(value, minimum, maximum)`.
-pub fn clamp(value: f32, minimum: f32, maximum: f32) -> f32 {
-    value.max(minimum).min(maximum)
-}
-
-/// `calculatePlaybackSpeed`: pixels per second, from how long the script takes
-/// to read at the chosen words-per-minute.
 pub fn calculate_playback_speed(
     maximum_scroll: f32,
     word_count: usize,
@@ -111,8 +53,6 @@ pub fn calculate_playback_speed(
     maximum_scroll.max(0.) / duration_seconds.max(1.)
 }
 
-/// `advancePlaybackPosition`: the position never runs past the bottom, and
-/// sub-pixel movement accumulates rather than being rounded away each frame.
 pub fn advance_playback_position(
     position: f32,
     maximum_scroll: f32,
@@ -123,76 +63,40 @@ pub fn advance_playback_position(
         .min(maximum_scroll.max(0.))
 }
 
-/// `playbackPosition = element.scrollTop`, with `if (element.scrollTop >=
-/// maximumScroll - 1) element.scrollTop = 0`: playback resumes from where the
-/// script actually is (a pause, or a wheel scroll between two plays, moves
-/// gpui's offset, not ours), and only restarts from the top once it reached the
-/// end. `offset_y` is gpui's scroll offset, which is negative.
-pub fn playback_resume_position(offset_y: f32, maximum_scroll: f32) -> f32 {
-    let position = (-offset_y).clamp(0., maximum_scroll.max(0.));
-    if position >= maximum_scroll - 1. {
-        0.
-    } else {
-        position
-    }
-}
-
-// ---------------------------------------------------------------------------
-
-/// Which range is being dragged, so one drag layer serves both pills.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Slider {
-    Speed,
-    Opacity,
+enum View {
+    Read,
+    Edit,
 }
 
-/// The debounced store write, shared with the close handler.
-///
-/// `onCloseRequested` in the Tauri route cancels the debounce timer and saves
-/// synchronously before letting the window go, so a script typed in the last
-/// 250ms is never lost. That handler runs with only an `&mut App` in hand, so
-/// the pending write lives here rather than on the view.
+#[derive(Debug, Clone, Copy)]
+enum Drag {
+    Move {
+        pointer: Point<Pixels>,
+        frame: [f32; 4],
+    },
+    Line {
+        pointer_y: f32,
+        band_top: f32,
+    },
+    Resize {
+        edge: Edge,
+        pointer: Point<Pixels>,
+        frame: [f32; 4],
+    },
+}
+
 #[derive(Default)]
 struct PendingSave {
     state: TeleprompterState,
-    /// Exactly the keys that changed. The Tauri store writes the whole object;
-    /// `set_store_setting` is per-key, and writing only what moved is what
-    /// keeps a key a newer build added to the section alive.
     keys: BTreeSet<&'static str>,
-}
-
-#[derive(Default)]
-struct PlaybackState {
-    requested: bool,
-    recording_paused: bool,
-    recording_active: bool,
-}
-
-impl PlaybackState {
-    fn running(&self) -> bool {
-        self.requested && !self.recording_paused
-    }
-
-    fn update_recording(&mut self, phase: Phase, uncertain: bool) {
-        if phase == Phase::Stopping || (phase == Phase::Idle && self.recording_active) {
-            self.requested = false;
-        }
-        self.recording_active = phase != Phase::Idle;
-        self.recording_paused =
-            matches!(phase, Phase::Recording { paused: true } | Phase::Stopping) || uncertain;
-    }
 }
 
 impl PendingSave {
     fn flush(&mut self) {
-        if self.keys.is_empty() {
-            return;
-        }
         for key in std::mem::take(&mut self.keys) {
             if !store::set_store_setting(store::TELEPROMPTER, key, self.state.value_for(key)) {
                 tracing::warn!(key, "the store refused the teleprompter write");
-            } else {
-                tracing::debug!(key, "persisted teleprompter setting");
             }
         }
     }
@@ -201,45 +105,88 @@ impl PendingSave {
 pub struct TeleprompterWindow {
     theme: Theme,
     state: TeleprompterState,
-    settings_open: bool,
+    view: View,
+    options_open: bool,
     playback_state: PlaybackState,
-    /// Scroll offset in pixels from the top, positive. gpui's own offset is the
-    /// negative of it.
     position: f32,
-    scroll: ScrollHandle,
+    ended: bool,
+    text_height: Rc<Cell<f32>>,
+    passed_until: Rc<Cell<usize>>,
     focus: FocusHandle,
-    /// The script editor. `ui::TextInputState` in its multi-line shape: the
-    /// text wraps to the window, the element measures its own height so the
-    /// scroller and the auto-scroll maths keep working unchanged, and Return
-    /// inserts a newline instead of committing. `state.script` stays the
-    /// mirror because the word count, the playback maths and the debounced
-    /// store write all read it from `&self`.
     script_input: Entity<ui::TextInputState>,
     _script_events: gpui::Subscription,
     _recording_events: gpui::Subscription,
-    /// Track rects, captured in prepaint: the window is resizable, so neither
-    /// pill's width is known here.
-    speed_track: Rc<Cell<Option<Bounds<Pixels>>>>,
-    opacity_track: Rc<Cell<Option<Bounds<Pixels>>>>,
-    dragging: Option<Slider>,
     save: Rc<RefCell<PendingSave>>,
-    /// Dropping this cancels an in-flight debounce, which is what makes a burst
-    /// of keystrokes one write.
     save_task: Option<gpui::Task<()>>,
     playback: Option<gpui::Task<()>>,
+    hovered: bool,
+    drag: Option<Drag>,
+    voice: VoiceGate,
+    speaking: bool,
+    hiding_requested: bool,
+    hidden_confirmed: Option<bool>,
+    streamed: bool,
+    frame: [f32; 4],
+    read_frame: [f32; 4],
+    full_screen: Option<[f32; 4]>,
+    other_display: Option<[f32; 4]>,
+    frame_generation: Arc<AtomicU64>,
+}
+
+fn frame_of(window: &Window) -> [f32; 4] {
+    let bounds = window.bounds();
+    [
+        bounds.origin.x.into(),
+        bounds.origin.y.into(),
+        bounds.size.width.into(),
+        bounds.size.height.into(),
+    ]
+}
+
+fn centre(frame: [f32; 4]) -> (f32, f32) {
+    (frame[0] + frame[2] / 2., frame[1] + frame[3] / 2.)
+}
+
+pub fn work_area_for(frame: [f32; 4], cx: &gpui::App) -> Option<[f32; 4]> {
+    let (x, y) = centre(frame);
+    let display = crate::camera_window::display_for_point(f64::from(x), f64::from(y));
+    let work = crate::app_windows::display_work_area(display.as_ref(), cx)?;
+    Some([
+        work.origin.x.into(),
+        work.origin.y.into(),
+        work.size.width.into(),
+        work.size.height.into(),
+    ])
+}
+
+fn other_display_bounds(frame: [f32; 4]) -> Option<[f32; 4]> {
+    let (x, y) = centre(frame);
+    scap_targets::Display::list()
+        .into_iter()
+        .filter_map(|display| display.raw_handle().logical_bounds())
+        .map(|bounds| {
+            [
+                bounds.position().x() as f32,
+                bounds.position().y() as f32,
+                bounds.size().width() as f32,
+                bounds.size().height() as f32,
+            ]
+        })
+        .find(|[left, top, width, height]| {
+            !(x >= *left && x < left + width && y >= *top && y < top + height)
+        })
 }
 
 impl TeleprompterWindow {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let state = TeleprompterState::load();
+    pub fn new(read_frame: [f32; 4], window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut state = TeleprompterState::load();
+        state.line_height = model::nearest_line_spacing(state.line_height);
+        state.font_size = model::step_font(state.font_size, 0.);
+        state.reading_line = model::clamp_reading_line(state.reading_line);
         let save = Rc::new(RefCell::new(PendingSave {
             state: state.clone(),
             keys: BTreeSet::new(),
         }));
-
-        // `onCloseRequested`: cancel the debounce, force-save, then let the
-        // close through. `cx.defer` for the registry half -- the callback fires
-        // with the App borrowed.
         let closing = save.clone();
         window.on_window_should_close(cx, move |_window, cx| {
             closing.borrow_mut().flush();
@@ -261,79 +208,144 @@ impl TeleprompterWindow {
                     let script = input.read(cx).text().to_string();
                     this.edit_script(move |value| *value = script, window, cx);
                 }
-                // Escape closes the popover and nothing else, whether or not
-                // the script has focus.
-                ui::TextInputEvent::Cancelled if this.settings_open => {
-                    this.settings_open = false;
-                    cx.notify();
-                }
+                ui::TextInputEvent::Cancelled => this.escape(window, cx),
                 _ => {}
             },
         );
 
         let session = RecordingSession::global(cx);
         let mut playback_state = PlaybackState::default();
-        playback_state.update_recording(session.read(cx).phase, session.read(cx).pause_uncertain());
+        playback_state.update_recording(
+            session.read(cx).phase,
+            session.read(cx).pause_uncertain(),
+            false,
+        );
         let recording_events = cx.observe_in(&session, window, |this, session, window, cx| {
-            let session = session.read(cx);
+            let (phase, uncertain) = {
+                let session = session.read(cx);
+                (session.phase, session.pause_uncertain())
+            };
             let was_running = this.playback_state.running();
-            this.playback_state
-                .update_recording(session.phase, session.pause_uncertain());
+            let start_with =
+                this.state.start_with_recording && this.view == View::Read && this.has_script();
+            let cue = this
+                .playback_state
+                .update_recording(phase, uncertain, start_with);
+            if cue == RecordingCue::StartFromTop {
+                this.position = 0.;
+                this.ended = false;
+                this.voice.reset();
+            }
             if !this.playback_state.running() {
                 this.playback = None;
             } else if !was_running {
                 this.start_playback(window, cx);
             }
+            this.sync_capture_protection(false, window, cx);
             cx.notify();
             window.refresh();
         });
 
         crate::theme::bind_window(window, cx);
+        let frame = frame_of(window);
+        let view = if state.script.trim().is_empty() {
+            View::Edit
+        } else {
+            View::Read
+        };
         Self {
-            theme: Theme::for_window(window, cx, true),
+            theme: Theme::for_window(window, cx, false),
             state,
-            settings_open: false,
+            view,
+            options_open: false,
             playback_state,
             position: 0.,
-            scroll: ScrollHandle::new(),
+            ended: false,
+            text_height: Rc::new(Cell::new(0.)),
+            passed_until: Rc::new(Cell::new(0)),
             focus: cx.focus_handle(),
             script_input,
             _script_events: script_events,
             _recording_events: recording_events,
-            speed_track: Rc::new(Cell::new(None)),
-            opacity_track: Rc::new(Cell::new(None)),
-            dragging: None,
             save,
             save_task: None,
             playback: None,
+            hovered: false,
+            drag: None,
+            voice: VoiceGate::default(),
+            speaking: false,
+            hiding_requested: false,
+            hidden_confirmed: None,
+            streamed: false,
+            frame,
+            read_frame,
+            full_screen: None,
+            other_display: other_display_bounds(frame),
+            frame_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
     pub fn focus_root(&self, window: &mut Window, cx: &mut Context<Self>) {
-        // `onMount` focuses the script editor itself, not the shell.
-        let focus = self.script_input.read(cx).focus_handle();
+        let focus = match self.view {
+            View::Edit => self.script_input.read(cx).focus_handle(),
+            View::Read => self.focus.clone(),
+        };
         window.focus(&focus, cx);
     }
 
-    /// `clamp(state().windowOpacityPercent, 45, 100) / 100`, for the initial
-    /// `setTeleprompterWindowOpacity` the load effect fires.
-    pub fn window_alpha(&self) -> f64 {
-        f64::from(clamp(
-            self.state.window_opacity_percent as f32,
-            OPACITY_MIN,
-            OPACITY_MAX,
-        )) / 100.
+    pub fn hides_from_sharing(&self) -> bool {
+        self.state.hide_from_sharing
     }
 
-    fn sync_appearance(&mut self, window: &Window, cx: &gpui::App) {
-        self.theme.refresh(window, cx, true);
+    pub fn sync_capture_protection(
+        &mut self,
+        force: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let recording = RecordingSession::global(cx).read(cx).phase != Phase::Idle;
+        let hidden = force || recording || self.state.hide_from_sharing;
+        self.hiding_requested = hidden;
+        let Some(native) = platform::native_window(window) else {
+            return;
+        };
+        cx.spawn_in(window, async move |this, cx| {
+            let readback = platform::set_window_capture_hidden(&native, hidden);
+            #[cfg(target_os = "windows")]
+            let streamed = platform::window_capture_exclusion_unavailable_reason().is_some();
+            #[cfg(not(target_os = "windows"))]
+            let streamed = false;
+            tracing::info!(
+                hidden,
+                readback,
+                streamed,
+                "teleprompter capture protection"
+            );
+            this.update(cx, |this, cx| {
+                if this.hiding_requested == hidden {
+                    this.hidden_confirmed = Some(model::readback_hides(readback));
+                }
+                this.streamed = streamed;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
-    // -- Persistence -------------------------------------------------------
+    fn capture_status(&self, cx: &gpui::App) -> CaptureStatus {
+        let session = RecordingSession::global(cx);
+        let session = session.read(cx);
+        model::capture_status(CaptureInputs {
+            phase: session.phase,
+            pause_uncertain: session.pause_uncertain(),
+            hide_from_sharing: self.state.hide_from_sharing,
+            hiding_requested: self.hiding_requested,
+            hidden_confirmed: self.hidden_confirmed,
+            streamed: self.streamed,
+        })
+    }
 
-    /// Queue one key for the debounced write. A second edit inside 250ms drops
-    /// the previous task, so the timer restarts -- `clearTimeout(saveTimer)`
-    /// followed by a fresh `setTimeout`.
     fn touch(&mut self, key: &'static str, window: &mut Window, cx: &mut Context<Self>) {
         {
             let mut save = self.save.borrow_mut();
@@ -347,13 +359,10 @@ impl TeleprompterWindow {
         }));
     }
 
-    // -- Editing -----------------------------------------------------------
-
     fn has_script(&self) -> bool {
         !self.state.script.trim().is_empty()
     }
 
-    /// `updateScript`: an empty script stops playback.
     fn edit_script(
         &mut self,
         edit: impl FnOnce(&mut String),
@@ -364,13 +373,14 @@ impl TeleprompterWindow {
         if !self.has_script() {
             self.stop_playback();
         }
+        self.position = 0.;
+        self.ended = false;
+        self.passed_until.set(0);
         self.touch(TeleprompterState::SCRIPT, window, cx);
         self.touch(TeleprompterState::CHARACTERS_PER_MINUTE, window, cx);
         cx.notify();
     }
 
-    /// Type into the script the way a keystroke does (harness path -- the real
-    /// one is `on_key`, and unprivileged synthetic key events are dropped).
     pub fn type_script(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         let mut next = self.state.script.clone();
         next.push_str(text);
@@ -379,9 +389,8 @@ impl TeleprompterWindow {
         self.edit_script(move |script| *script = next, window, cx);
     }
 
-    /// `changeFontSize(delta)`, clamped 22-52.
-    fn change_font_size(&mut self, delta: f32, window: &mut Window, cx: &mut Context<Self>) {
-        let next = clamp(self.state.font_size + delta, FONT_SIZE_MIN, FONT_SIZE_MAX);
+    fn change_font_size(&mut self, steps: f32, window: &mut Window, cx: &mut Context<Self>) {
+        let next = model::step_font(self.state.font_size, steps);
         if next == self.state.font_size {
             return;
         }
@@ -390,10 +399,30 @@ impl TeleprompterWindow {
         cx.notify();
     }
 
-    // -- Playback ----------------------------------------------------------
+    fn change_speed(&mut self, steps: i32, window: &mut Window, cx: &mut Context<Self>) {
+        let next = model::step_speed(
+            self.state.reading_speed(),
+            steps,
+            self.state.uses_chinese_speed(),
+        );
+        if next == self.state.reading_speed() {
+            return;
+        }
+        let key = self.state.set_reading_speed(next);
+        self.touch(key, window, cx);
+        cx.notify();
+    }
 
     fn maximum_scroll(&self) -> f32 {
-        f32::from(self.scroll.max_offset().y).max(0.)
+        self.text_height.get().max(0.)
+    }
+
+    fn line_height(&self) -> f32 {
+        (self.state.font_size * self.state.line_height).round()
+    }
+
+    fn total_seconds(&self) -> u32 {
+        model::total_seconds(count_words(&self.state.script), self.state.reading_speed())
     }
 
     fn stop_playback(&mut self) {
@@ -405,23 +434,30 @@ impl TeleprompterWindow {
         self.playback_state.running()
     }
 
-    /// `togglePlayback`.
     pub fn toggle_playback(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.view == View::Edit {
+            self.show_read(window, cx);
+            if !self.has_script() {
+                return;
+            }
+            self.position = 0.;
+            self.ended = false;
+        }
         if self.playback_state.requested {
             self.stop_playback();
             cx.notify();
             return;
         }
-
-        let maximum = self.maximum_scroll();
-        if !self.has_script() || maximum <= 1. {
+        if !self.has_script() {
             return;
         }
-        self.position = playback_resume_position(f32::from(self.scroll.offset().y), maximum);
-        if self.position == 0. {
-            self.apply_scroll();
+        if self.ended || self.position >= self.maximum_scroll() - 0.5 {
+            self.position = 0.;
+            self.ended = false;
+            self.passed_until.set(0);
         }
-        self.settings_open = false;
+        self.options_open = false;
+        self.voice.reset();
         self.playback_state.requested = true;
         self.start_playback(window, cx);
         cx.notify();
@@ -431,11 +467,6 @@ impl TeleprompterWindow {
         if !self.playback_state.running() {
             return;
         }
-        self.position = (-f32::from(self.scroll.offset().y)).clamp(0., self.maximum_scroll());
-
-        // An inactive window only repaints when asked, so the tick both
-        // notifies and calls `refresh` -- the same rule the recording bar's
-        // timer runs under.
         self.playback = Some(cx.spawn_in(window, async move |this, cx| {
             let mut last = Instant::now();
             loop {
@@ -448,7 +479,7 @@ impl TeleprompterWindow {
                 last = now;
                 let running = this
                     .update_in(cx, |this, window, cx| {
-                        let running = this.advance(elapsed);
+                        let running = this.advance(elapsed, cx);
                         cx.notify();
                         window.refresh();
                         running
@@ -462,617 +493,1227 @@ impl TeleprompterWindow {
         cx.notify();
     }
 
-    /// One frame of `animatePlayback`. Returns false when the loop should stop
-    /// -- bottom reached, or nothing left to scroll.
-    fn advance(&mut self, elapsed: f32) -> bool {
-        if !self.playback_state.running() {
+    fn microphone_level(cx: &gpui::App) -> Option<f64> {
+        let feeds = Feeds::global(cx);
+        let feeds = feeds.read(cx);
+        feeds.microphone.as_ref()?;
+        Some(feeds.mic_level().read(cx).db())
+    }
+
+    fn advance(&mut self, elapsed: f32, cx: &gpui::App) -> bool {
+        if !self.playback_state.running() || self.view != View::Read {
             return false;
         }
         let maximum = self.maximum_scroll();
         if maximum <= 1. {
-            self.playback_state.requested = false;
-            return false;
+            return true;
         }
-
+        if self.state.scroll == TeleprompterScroll::Voice {
+            self.speaking = match Self::microphone_level(cx) {
+                Some(level) => self.voice.update(level, elapsed),
+                None => false,
+            };
+            if !self.speaking {
+                return true;
+            }
+        }
         let speed = calculate_playback_speed(
             maximum,
             count_words(&self.state.script),
             self.state.reading_speed(),
         );
         self.position = advance_playback_position(self.position, maximum, speed, elapsed);
-        self.apply_scroll();
-
         if self.position >= maximum - 0.5 {
+            self.position = maximum;
+            self.ended = true;
             self.playback_state.requested = false;
             return false;
         }
         true
     }
 
-    /// gpui's scroll offset is the distance the content has moved *up*, so it
-    /// is the negative of the playback position.
-    fn apply_scroll(&self) {
-        self.scroll.set_offset(point(px(0.), px(-self.position)));
+    fn jump_lines(&mut self, lines: f32, cx: &mut Context<Self>) {
+        self.position = model::jump(
+            self.position,
+            lines,
+            self.line_height(),
+            self.maximum_scroll(),
+        );
+        self.ended = false;
+        cx.notify();
     }
 
-    // -- Ranges ------------------------------------------------------------
+    fn to_top(&mut self, cx: &mut Context<Self>) {
+        self.position = 0.;
+        self.ended = false;
+        self.passed_until.set(0);
+        cx.notify();
+    }
 
-    fn set_slider_from(
+    fn apply_frame(&mut self, frame: [f32; 4], window: &mut Window, cx: &mut Context<Self>) {
+        self.frame = frame;
+        let Some(native) = platform::native_window(window) else {
+            tracing::warn!("teleprompter move skipped because its native window is unavailable");
+            return;
+        };
+        let generation = self.frame_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let generations = self.frame_generation.clone();
+        let [x, y, width, height] = frame;
+        #[cfg(target_os = "windows")]
+        cx.spawn(async move |_, _| {
+            if generations.load(Ordering::Acquire) == generation {
+                platform::set_window_logical_frame(
+                    &native,
+                    x.into(),
+                    y.into(),
+                    width.into(),
+                    height.into(),
+                );
+            }
+        })
+        .detach();
+        #[cfg(not(target_os = "windows"))]
+        {
+            let old = window.bounds();
+            let (frame_x, frame_y, _, frame_height) = platform::window_frame(&native);
+            let native_x = frame_x + f64::from(x - f32::from(old.origin.x));
+            let native_y =
+                frame_y + frame_height - f64::from(y - f32::from(old.origin.y)) - f64::from(height);
+            cx.spawn(async move |_, _| {
+                if generations.load(Ordering::Acquire) == generation {
+                    platform::set_window_frame(
+                        &native,
+                        native_x,
+                        native_y,
+                        width.into(),
+                        height.into(),
+                    );
+                }
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    fn remember_read_frame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.full_screen.is_some() || self.view != View::Read {
+            return;
+        }
+        self.read_frame = self.frame;
+        self.state.frame = Some(self.frame);
+        self.touch(TeleprompterState::FRAME, window, cx);
+    }
+
+    fn show_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.view == View::Edit {
+            return;
+        }
+        self.leave_full_screen(window, cx);
+        self.stop_playback();
+        self.read_frame = self.frame;
+        self.view = View::Edit;
+        if let Some(work) = work_area_for(self.frame, cx) {
+            self.apply_frame(model::edit_frame(self.read_frame, work), window, cx);
+        }
+        let focus = self.script_input.read(cx).focus_handle();
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    fn show_read(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.view == View::Read {
+            return;
+        }
+        self.view = View::Read;
+        self.options_open = false;
+        let [x, y, _, _] = self.frame;
+        let [_, _, width, height] = self.read_frame;
+        if let Some(work) = work_area_for(self.frame, cx) {
+            let read = model::strip_frame([x, y, width, height], work, false);
+            self.apply_frame(read, window, cx);
+            self.remember_read_frame(window, cx);
+        }
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn toggle_full_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.full_screen.is_some() {
+            self.leave_full_screen(window, cx);
+            return;
+        }
+        self.other_display = other_display_bounds(self.frame);
+        let Some(display) = self.other_display else {
+            return;
+        };
+        self.show_read(window, cx);
+        self.full_screen = Some(self.frame);
+        self.options_open = false;
+        self.apply_frame(display, window, cx);
+    }
+
+    fn leave_full_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(previous) = self.full_screen.take() {
+            self.apply_frame(previous, window, cx);
+        }
+    }
+
+    fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.options_open {
+            self.options_open = false;
+            cx.notify();
+        } else if self.view == View::Edit {
+            self.show_read(window, cx);
+        } else {
+            self.leave_full_screen(window, cx);
+        }
+    }
+
+    fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.leave_full_screen(window, cx);
+        if self.view == View::Read {
+            self.remember_read_frame(window, cx);
+        } else {
+            self.state.frame = Some([
+                self.frame[0],
+                self.frame[1],
+                self.read_frame[2],
+                self.read_frame[3],
+            ]);
+            self.touch(TeleprompterState::FRAME, window, cx);
+        }
+        self.save_task = None;
+        self.save.borrow_mut().flush();
+        window.remove_window();
+        cx.defer(crate::app_windows::teleprompter_closed);
+    }
+
+    fn minimize(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+        if let Some(native) = platform::native_window(window) {
+            platform::hide_native(&native);
+        }
+    }
+
+    fn toggle_setting(
         &mut self,
-        position: Point<Pixels>,
+        key: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        flip: impl FnOnce(&mut TeleprompterState),
+    ) {
+        flip(&mut self.state);
+        self.touch(key, window, cx);
+        if key == TeleprompterState::HIDE_FROM_SHARING {
+            self.sync_capture_protection(false, window, cx);
+        }
+        cx.notify();
+    }
+
+    fn on_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let keystroke = &event.keystroke;
+        if self.view == View::Edit {
+            if keystroke.key == "escape" {
+                self.escape(window, cx);
+                cx.stop_propagation();
+            }
+            return;
+        }
+        let Some(key) = model::reading_key(
+            keystroke.key.as_str(),
+            keystroke.modifiers.control || keystroke.modifiers.platform,
+            keystroke.modifiers.alt,
+        ) else {
+            if keystroke.key == "delete" {
+                self.close(window, cx);
+            }
+            return;
+        };
+        match key {
+            ReadingKey::TogglePlay => self.toggle_playback(window, cx),
+            ReadingKey::Faster => self.change_speed(1, window, cx),
+            ReadingKey::Slower => self.change_speed(-1, window, cx),
+            ReadingKey::Larger => self.change_font_size(1., window, cx),
+            ReadingKey::Smaller => self.change_font_size(-1., window, cx),
+            ReadingKey::JumpDown => self.jump_lines(3., cx),
+            ReadingKey::JumpUp => self.jump_lines(-3., cx),
+            ReadingKey::Top => self.to_top(cx),
+            ReadingKey::Edit => self.show_edit(window, cx),
+            ReadingKey::FullScreen => self.toggle_full_screen(window, cx),
+            ReadingKey::Leave => self.escape(window, cx),
+        }
+        cx.stop_propagation();
+    }
+
+    fn on_capture_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(slider) = self.dragging else {
-            return;
-        };
-        let track = match slider {
-            Slider::Speed => self.speed_track.get(),
-            Slider::Opacity => self.opacity_track.get(),
-        };
-        let Some(track) = track else {
-            return;
-        };
-        let width = f32::from(track.size.width);
-        if width <= 0. {
+        let keystroke = &event.keystroke;
+        if self.view == View::Edit
+            && keystroke.key == "enter"
+            && (keystroke.modifiers.control || keystroke.modifiers.platform)
+        {
+            self.toggle_playback(window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn pointer_global(window: &Window, point: Point<Pixels>) -> Point<Pixels> {
+        window.bounds().origin + point
+    }
+
+    fn band_top(&self, window: &Window) -> f32 {
+        model::band_top(
+            f32::from(window.viewport_size().height),
+            self.state.reading_line,
+        )
+    }
+
+    fn begin_drag(
+        &mut self,
+        event: &gpui::MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.full_screen.is_some() || self.drag.is_some() {
             return;
         }
-        let fraction = ((f32::from(position.x) - f32::from(track.origin.x)) / width).clamp(0., 1.);
+        let local_y = f32::from(event.position.y);
+        let band = self.band_top(window);
+        let on_band = self.view == View::Read
+            && self.state.show_cue_markers
+            && local_y >= band
+            && local_y <= band + self.line_height();
+        self.drag = Some(if on_band {
+            Drag::Line {
+                pointer_y: local_y,
+                band_top: band,
+            }
+        } else {
+            Drag::Move {
+                pointer: Self::pointer_global(window, event.position),
+                frame: self.frame,
+            }
+        });
+        if self.view == View::Read {
+            window.focus(&self.focus, cx);
+        }
+        cx.notify();
+    }
 
-        match slider {
-            Slider::Speed => {
-                let value =
-                    stepped(fraction, WPM_MIN, self.maximum_reading_speed(), WPM_STEP) as u32;
-                if value != self.state.reading_speed() {
-                    let key = self.state.set_reading_speed(value);
-                    self.touch(key, window, cx);
-                    cx.notify();
+    fn drag_to(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(drag) = self.drag else {
+            return;
+        };
+        match drag {
+            Drag::Move { pointer, frame } => {
+                let now = Self::pointer_global(window, event.position);
+                let moved = [
+                    frame[0] + f32::from(now.x - pointer.x),
+                    frame[1] + f32::from(now.y - pointer.y),
+                    frame[2],
+                    frame[3],
+                ];
+                if let Some(work) = work_area_for(moved, cx) {
+                    let next = model::strip_frame(moved, work, !event.modifiers.control);
+                    if next != self.frame {
+                        self.apply_frame(next, window, cx);
+                    }
                 }
             }
-            Slider::Opacity => {
-                let value = stepped(fraction, OPACITY_MIN, OPACITY_MAX, OPACITY_STEP) as u32;
-                if value != self.state.window_opacity_percent {
-                    self.state.window_opacity_percent = value;
-                    self.touch(TeleprompterState::WINDOW_OPACITY_PERCENT, window, cx);
-                    self.apply_window_alpha(window, cx);
-                    cx.notify();
+            Drag::Line {
+                pointer_y,
+                band_top,
+            } => {
+                let top = band_top + f32::from(event.position.y) - pointer_y;
+                self.state.reading_line =
+                    model::reading_line_for(top, f32::from(window.viewport_size().height));
+                cx.notify();
+            }
+            Drag::Resize {
+                edge,
+                pointer,
+                frame,
+            } => {
+                let now = Self::pointer_global(window, event.position);
+                if let Some(work) = work_area_for(frame, cx) {
+                    let next = model::resize_frame(
+                        frame,
+                        edge,
+                        (f32::from(now.x - pointer.x), f32::from(now.y - pointer.y)),
+                        work,
+                    );
+                    if next != self.frame {
+                        self.apply_frame(next, window, cx);
+                    }
                 }
             }
         }
     }
 
-    /// The macOS path of the opacity effect: `set_teleprompter_window_opacity`
-    /// -> `setAlphaValue:`. Read the native handle inside the update, act on it
-    /// from a task -- changing a window's alpha re-enters gpui's own window
-    /// callbacks.
-    fn apply_window_alpha(&self, window: &Window, cx: &mut Context<Self>) {
-        let Some(native) = platform::native_window(window) else {
+    fn end_drag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(drag) = self.drag.take() else {
             return;
         };
-        let alpha = self.window_alpha();
-        cx.spawn(async move |_, _| {
-            let applied = platform::set_window_alpha(&native, alpha);
-            tracing::debug!(requested = alpha, applied, "teleprompter window alpha");
-        })
-        .detach();
+        match drag {
+            Drag::Line { .. } => self.touch(TeleprompterState::READING_LINE, window, cx),
+            _ if self.view == View::Read => self.remember_read_frame(window, cx),
+            _ => {}
+        }
+        cx.notify();
     }
-}
-
-/// A range's value snapped to its step -- [`ui::snap_to_step`] over
-/// [`ui::value_from_fraction`], which reproduces this window's own formula
-/// exactly (`ui::slider::tests::slider_snapping_matches_the_formulas_it_replaced`).
-fn stepped(fraction: f32, minimum: f32, maximum: f32, step: f32) -> f32 {
-    ui::snap_to_step(
-        ui::value_from_fraction(fraction, minimum, maximum),
-        minimum,
-        maximum,
-        step,
-    )
 }
 
 impl Render for TeleprompterWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_appearance(window, cx);
+        self.theme.refresh(window, cx, false);
         let theme = self.theme;
+        let attached = work_area_for(self.frame, cx)
+            .is_some_and(|work| model::attached_to_top(self.frame, work))
+            || self.full_screen.is_some();
+        let radius = px(if self.full_screen.is_some() { 0. } else { 8. });
 
         div()
+            .id("teleprompter-root")
             .track_focus(&self.focus)
+            .key_context("Teleprompter")
             .on_key_down(cx.listener(Self::on_key))
-            // `cap-window-shell relative flex h-screen w-screen flex-col
-            //  overflow-hidden text-gray-12`
+            .capture_key_down(cx.listener(Self::on_capture_key))
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if this.hovered != *hovered {
+                    this.hovered = *hovered;
+                    cx.notify();
+                }
+            }))
             .size_full()
             .relative()
             .flex()
             .flex_col()
             .overflow_hidden()
-            .rounded(px(theme.teleprompter_window_radius()))
-            .bg(theme.teleprompter_shell_bg())
-            .when_some(theme.teleprompter_shell_border(), |this, color| {
-                this.border_1().border_color(color)
+            .bg(theme.card)
+            .text_color(theme.foreground)
+            .border_color(theme.border)
+            .when(attached, |this| {
+                this.border_l_1()
+                    .border_r_1()
+                    .border_b_1()
+                    .rounded_b(radius)
             })
+            .when(!attached, |this| this.border_1().rounded(radius))
             .font_family(crate::theme::ui_font())
-            // `body { font-weight: 500 }` (`ui-solid/src/main.css:189-192`).
             .font_weight(FontWeight::MEDIUM)
-            .text_color(Hsla::from(theme.gray_12))
-            .child(self.render_header(window))
-            .child(self.render_body(window, cx))
-            .child(self.render_footer(cx))
-            // `z-30` on the popover, over a footer that makes no stacking
-            // context of its own -- so it paints last.
-            .children(self.render_settings_popover(cx))
-            .children(self.render_slider_drag_layer(cx))
+            .text_size(px(13.))
+            .when(self.drag.is_some(), |this| this.child(self.drag_layer(cx)))
+            .map(|this| match self.view {
+                View::Read => this.child(self.render_read(window, cx)),
+                View::Edit => this
+                    .child(self.render_title(cx))
+                    .child(self.render_editor())
+                    .child(self.render_foot(cx))
+                    .children(self.render_options(cx)),
+            })
+            .when(
+                self.view == View::Read && self.full_screen.is_none(),
+                |this| this.child(self.render_resize_edges(attached, cx)),
+            )
     }
 }
 
 impl TeleprompterWindow {
-    /// Escape closes the popover. Everything else is the script field's --
-    /// see `script_input`. This handler only runs when the field does *not*
-    /// have focus, because Escape is bound as an action in the `TextInput` key
-    /// context and a matched binding consumes the keystroke.
-    fn on_key(&mut self, event: &gpui::KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        if event.keystroke.key.as_str() == "escape" && self.settings_open {
-            self.settings_open = false;
-            cx.notify();
-        }
+    fn drag_layer(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let moving = cx.entity().downgrade();
+        let releasing = cx.entity().downgrade();
+        gpui::canvas(
+            |_, _, _| (),
+            move |_, (), window, _| {
+                let entity = moving.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                    if phase != gpui::DispatchPhase::Bubble {
+                        return;
+                    }
+                    entity
+                        .update(cx, |this, cx| {
+                            if event.dragging() {
+                                this.drag_to(event, window, cx);
+                            } else {
+                                this.end_drag(window, cx);
+                            }
+                        })
+                        .ok();
+                });
+                let entity = releasing.clone();
+                window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                    if phase != gpui::DispatchPhase::Bubble || event.button != MouseButton::Left {
+                        return;
+                    }
+                    entity.update(cx, |this, cx| this.end_drag(window, cx)).ok();
+                });
+            },
+        )
+        .absolute()
+        .size_full()
+        .into_any_element()
     }
 
-    /// `cap-window-header flex h-9 shrink-0 items-center` with the note pushed
-    /// to the trailing edge. The traffic lights are AppKit's, at (14, 14).
-    fn render_header(&self, _window: &Window) -> impl IntoElement {
+    fn icon_button(
+        &self,
+        id: &'static str,
+        icon: &'static str,
+        label: &'static str,
+        on: bool,
+        disabled: bool,
+        cx: &mut Context<Self>,
+        handler: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) -> impl IntoElement {
         let theme = self.theme;
+        div()
+            .id(id)
+            .flex_none()
+            .size(px(28.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .text_color(theme.muted_foreground)
+            .when(on, |this| {
+                this.bg(theme.selection)
+                    .text_color(theme.selection_foreground)
+            })
+            .when(disabled, |this| this.text_color(theme.faint_foreground))
+            .when(!disabled, |this| {
+                this.hover(|style| style.bg(theme.accent).text_color(theme.foreground))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        handler(this, window, cx);
+                    }))
+            })
+            .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
+            .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                window.prevent_default();
+                cx.stop_propagation();
+            })
+            .child(svg().path(icon).size(px(16.)))
+    }
 
-        let header = div()
+    fn separator(&self) -> impl IntoElement {
+        div()
+            .flex_none()
+            .w(px(1.))
+            .h(px(20.))
+            .mx(px(3.))
+            .bg(self.theme.border)
+    }
+
+    fn caption(&self, text: impl Into<SharedString>, width: f32) -> impl IntoElement {
+        div()
+            .flex_none()
+            .min_w(px(width))
+            .px(px(6.))
+            .text_center()
+            .text_size(px(12.))
+            .text_color(self.theme.muted_foreground)
+            .whitespace_nowrap()
+            .child(text.into())
+    }
+
+    fn status_line(&self, status: CaptureStatus) -> impl IntoElement {
+        let theme = self.theme;
+        let color = if status.warns() {
+            theme.warning_text
+        } else {
+            theme.muted_foreground
+        };
+        div()
             .flex()
             .flex_row()
             .items_center()
-            .w_full()
-            .h(px(HEADER_HEIGHT))
-            .flex_shrink_0()
-            .rounded_t(px(theme.teleprompter_window_radius()))
-            .bg(theme.header_bg())
-            .child(
-                // `pointer-events-none ml-auto flex items-center gap-1.5
-                //  text-[10px] text-gray-9`, `mr-3`.
-                div()
-                    .ml_auto()
-                    .mr(px(12.))
-                    .when(cfg!(target_os = "windows"), |note| {
-                        note.flex_1()
-                            .min_w_0()
-                            .ml(px(12.))
-                            .mr(px(4.))
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                    })
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(6.))
-                    .text_size(px(10.))
-                    .text_color(Hsla::from(theme.gray_9))
-                    .child(
-                        svg()
-                            .path("icons/eye-off.svg")
-                            .size(px(14.))
-                            .flex_shrink_0()
-                            .text_color(Hsla::from(theme.gray_9)),
-                    )
-                    .child(if self.playback_state.recording_paused {
-                        t!("Scrolling paused with recording")
-                    } else {
-                        t!("This window is hidden from FrameEver recordings")
-                    }),
-            );
-
-        #[cfg(target_os = "windows")]
-        let header = header
-            .window_control_area(gpui::WindowControlArea::Drag)
-            .child(ui::windows_caption_controls(
-                theme,
-                _window.is_window_active(),
-                _window.is_maximized(),
-                true,
-                true,
-            ));
-
-        header
+            .gap(px(4.))
+            .min_w_0()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_size(px(12.))
+            .text_color(color)
+            .child(svg().path(status.icon()).size(px(14.)).flex_none())
+            .child(status_label(status))
     }
 
-    /// `cap-window-body relative min-h-0 flex-1 overflow-hidden`: the script
-    /// scroller, the vignette over it, and the cue markers over that.
-    fn render_body(&self, window: &Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let state = &self.state;
+    fn speed_label(&self) -> String {
+        if self.state.uses_chinese_speed() {
+            t!("{count} chars/min", count = self.state.reading_speed())
+        } else {
+            t!("{count} wpm", count = self.state.reading_speed())
+        }
+    }
 
-        // `calc((100vh - 5rem) / 2 - fontSize * lineHeight * 0.5px)` -- 5rem is
-        // the header plus the footer, so the first line lands in the middle of
-        // the visible area.
-        let viewport = f32::from(window.viewport_size().height);
-        let spacer = ((viewport - HEADER_HEIGHT - FOOTER_HEIGHT) / 2.
-            - state.font_size * state.line_height * 0.5)
-            .max(0.);
+    fn render_read(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let line = self.line_height();
+        let band = self.band_top(window);
+        let text_top = band - self.position;
+        let script = self.state.script.clone();
+        let passed = self.passed_until.get().min(script.len());
+        let status = self.capture_status(cx);
+        let playing = self.playback_state.requested;
+        let show_controls = self.hovered || !playing || self.drag.is_some();
+
+        let text: SharedString = if script.trim().is_empty() {
+            t!("Press E to write your script").into()
+        } else {
+            script.clone().into()
+        };
+        let styled = if script.trim().is_empty() {
+            StyledText::new(text).with_highlights(vec![(
+                0..t!("Press E to write your script").len(),
+                HighlightStyle {
+                    color: Some(theme.muted_foreground.into()),
+                    ..Default::default()
+                },
+            )])
+        } else if passed > 0 && script.is_char_boundary(passed) {
+            StyledText::new(text).with_highlights(vec![(
+                0..passed,
+                HighlightStyle {
+                    color: Some(theme.faint_foreground.into()),
+                    ..Default::default()
+                },
+            )])
+        } else {
+            StyledText::new(text)
+        };
+        let layout = styled.layout().clone();
+        let ends = model::phrase_ends(&script);
+        let height_cell = self.text_height.clone();
+        let passed_cell = self.passed_until.clone();
+        let entity = cx.entity().downgrade();
+        let measure = gpui::canvas(
+            move |bounds, _, cx| {
+                height_cell.set(f32::from(bounds.size.height));
+                let origin_y = f32::from(bounds.origin.y) - text_top;
+                let tops: Vec<(usize, f32)> = ends
+                    .iter()
+                    .filter_map(|end| {
+                        let point = layout.position_for_index(*end)?;
+                        Some((*end, f32::from(point.y) - origin_y))
+                    })
+                    .collect();
+                let next = model::passed_phrases(&tops, line, band);
+                if next != passed_cell.get() {
+                    passed_cell.set(next);
+                    let entity = entity.clone();
+                    cx.defer(move |cx| {
+                        entity.update(cx, |_, cx| cx.notify()).ok();
+                    });
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full();
 
         div()
+            .id("read")
             .relative()
             .flex_1()
             .min_h_0()
             .overflow_hidden()
-            .child(
-                div()
-                    .id("script")
-                    .track_scroll(&self.scroll)
-                    .size_full()
-                    .overflow_y_scroll()
-                    .child(div().h(px(spacer)).flex_shrink_0())
-                    .child(
-                        // `block w-full px-8 text-center font-medium
-                        //  tracking-[-0.025em] text-gray-12`, at the state's
-                        // font size and line height. (`tracking` has no hook in
-                        // this gpui rev.) The wrapping field paints into this
-                        // box and measures its own height from the row count,
-                        // so the scroller and the auto-scroll maths see exactly
-                        // the content height they did before.
-                        div().w_full().px(px(32.)).child(
-                            ui::TextInput::bare(&theme, "script", &self.script_input)
-                                .align(gpui::TextAlign::Center)
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_size(px(state.font_size))
-                                .line_height(px(state.font_size * state.line_height))
-                                .text_color(Hsla::from(theme.gray_12))
-                                // `placeholder:text-gray-8/70`
-                                .placeholder_color(Theme::with_alpha(theme.gray_8, 0.7))
-                                // Bare glass: `gray-12` at 25 %, the same wash
-                                // the other teleprompter controls use rather
-                                // than the settings accent.
-                                .selection_color(Theme::with_alpha(theme.gray_12, 0.25)),
-                        ),
-                    )
-                    .child(div().h(px(spacer)).flex_shrink_0()),
+            .cursor(gpui::CursorStyle::default())
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.begin_drag(event, window, cx);
+                }),
             )
-            .when(state.show_cue_markers, |this| {
+            .when(self.state.show_cue_markers, |this| {
                 this.child(
                     div()
                         .absolute()
-                        .left(px(12.))
-                        .right(px(12.))
-                        .top(gpui::relative(0.5))
-                        .mt(px(-8.))
+                        .left_0()
+                        .right_0()
+                        .top(px(band))
+                        .h(px(line))
+                        .bg(theme.selection)
+                        .cursor(gpui::CursorStyle::ResizeUpDown),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(6.))
+                        .top(px(band))
+                        .h(px(line))
                         .flex()
-                        .flex_row()
                         .items_center()
-                        .justify_between()
+                        .text_color(theme.muted_foreground)
+                        .child(svg().path("icons/chevron-right.svg").size(px(14.))),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .right(px(6.))
+                        .top(px(band))
+                        .h(px(line))
+                        .flex()
+                        .items_center()
+                        .text_color(theme.muted_foreground)
+                        .child(svg().path("icons/chevron-left.svg").size(px(14.))),
+                )
+            })
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .top(px(text_top))
+                    .px(px(TEXT_PADDING))
+                    .text_size(px(self.state.font_size))
+                    .line_height(px(line))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.foreground)
+                    .map(|this| match self.state.align {
+                        TeleprompterAlign::Center => this.text_center(),
+                        TeleprompterAlign::Left => this.text_left(),
+                    })
+                    .child(styled)
+                    .child(measure),
+            )
+            .when(status.shows_notice(), |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .left(px(8.))
+                        .bottom(px(8.))
+                        .h(px(TOOLBAR_HEIGHT))
+                        .max_w(px(290.))
+                        .px(px(12.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(20.))
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(theme.popover)
+                        .child(self.status_line(status)),
+                )
+            })
+            .when(show_controls, |this| this.child(self.render_toolbar(cx)))
+            .when(self.full_screen.is_none(), |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .bottom(px(3.))
+                        .left_0()
+                        .right_0()
+                        .flex()
+                        .justify_center()
                         .child(
-                            svg()
-                                .path("icons/chevron-right.svg")
-                                .size(px(16.))
-                                .text_color(Theme::with_alpha(theme.muted_foreground, 0.75)),
-                        )
-                        .child(
-                            svg()
-                                .path("icons/chevron-left.svg")
-                                .size(px(16.))
-                                .text_color(Theme::with_alpha(theme.muted_foreground, 0.75)),
+                            div()
+                                .w(px(32.))
+                                .h(px(3.))
+                                .rounded(px(2.))
+                                .bg(theme.border_strong),
                         ),
                 )
             })
     }
 
-    fn maximum_reading_speed(&self) -> f32 {
-        if self.state.uses_chinese_speed() {
-            420.
-        } else {
-            WPM_MAX
-        }
-    }
-
-    fn render_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
+        let has_script = self.has_script();
         let playing = self.playback_state.requested;
-        let enabled = self.has_script();
+        let (play_icon, play_label) = if self.ended {
+            ("icons/rotate-ccw.svg", t!("Start over  Space"))
+        } else if playing {
+            ("icons/pause.svg", t!("Pause  Space"))
+        } else {
+            ("icons/play.svg", t!("Play  Space"))
+        };
+        let left = model::seconds_left(self.total_seconds(), self.position, self.maximum_scroll());
+        let voice_chip = (self.state.scroll == TeleprompterScroll::Voice && playing).then(|| {
+            let label = if Self::microphone_level(cx).is_none() {
+                t!("Choose a microphone")
+            } else if self.speaking {
+                t!("Following you")
+            } else {
+                t!("Waiting for you")
+            };
+            self.caption(label, 0.)
+        });
+        let full_screen_available = self.other_display.is_some() || self.full_screen.is_some();
 
         div()
+            .id("toolbar")
+            .absolute()
+            .right(px(8.))
+            .bottom(px(8.))
+            .h(px(TOOLBAR_HEIGHT))
+            .px(px(4.))
             .flex()
             .flex_row()
             .items_center()
-            .h(px(FOOTER_HEIGHT))
-            .flex_shrink_0()
-            .px(px(12.))
-            .pb(px(8.))
-            .child(
-                // `flex size-8 items-center justify-center rounded-full border
-                //  border-gray-12/6 bg-gray-12/7 text-gray-12 shadow-sm
-                //  disabled:opacity-30`
-                div()
-                    .id("playback")
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .size(px(32.))
-                    .flex_shrink_0()
-                    .rounded_full()
-                    .border_1()
-                    .border_color(Theme::with_alpha(theme.gray_12, 0.06))
-                    .bg(Theme::with_alpha(theme.gray_12, 0.07))
-                    .when(!enabled, |this| this.opacity(0.3))
-                    .when(enabled, |this| {
-                        this.hover(|style| style.bg(Theme::with_alpha(theme.gray_12, 0.11)))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.toggle_playback(window, cx);
-                            }))
-                    })
-                    .child(
-                        svg()
-                            .path(if playing {
-                                "icons/pause.svg"
-                            } else {
-                                "icons/play.svg"
-                            })
-                            .size(px(14.))
-                            .text_color(Hsla::from(theme.gray_12)),
-                    ),
-            )
-            .child(
-                // The scroll-speed pill: `ml-1.5 h-8 gap-1.5 rounded-full
-                //  border border-gray-12/6 bg-gray-12/5 px-2`.
-                self.pill()
-                    .ml(px(6.))
-                    .child(
-                        svg()
-                            .path("icons/gauge.svg")
-                            .size(px(14.))
-                            .flex_shrink_0()
-                            .text_color(Hsla::from(theme.gray_9)),
-                    )
-                    .child(self.render_range(
-                        "speed",
-                        Slider::Speed,
-                        (self.state.reading_speed() as f32 - WPM_MIN)
-                            / (self.maximum_reading_speed() - WPM_MIN),
-                        Hsla::from(theme.primary),
-                        cx,
-                    ))
-                    .child(
-                        // `w-12 text-right text-[10px] tabular-nums text-gray-9`
-                        div()
-                            .w(px(if self.state.uses_chinese_speed() {
-                                72.
-                            } else {
-                                48.
-                            }))
-                            .text_right()
-                            .text_size(px(10.))
-                            .text_color(Hsla::from(theme.gray_9))
-                            .child(if self.state.uses_chinese_speed() {
-                                t!("{count} chars/min", count = self.state.reading_speed())
-                            } else {
-                                t!("{count} wpm", count = self.state.reading_speed())
-                            }),
-                    ),
-            )
-            .child(
-                // `ml-auto flex items-center gap-1.5`
-                div()
-                    .ml_auto()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(6.))
-                    .child(
-                        self.pill()
-                            .child(
-                                svg()
-                                    .path("icons/layers.svg")
-                                    .size(px(14.))
-                                    .flex_shrink_0()
-                                    .text_color(Hsla::from(theme.gray_9)),
-                            )
-                            .child(self.render_range(
-                                "opacity",
-                                Slider::Opacity,
-                                (self.state.window_opacity_percent as f32 - OPACITY_MIN)
-                                    / (OPACITY_MAX - OPACITY_MIN),
-                                Hsla::from(theme.gray_11),
-                                cx,
-                            )),
-                    )
-                    .child(
-                        // The font-size stepper: same pill at `px-0.5`.
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .h(px(32.))
-                            .rounded_full()
-                            .border_1()
-                            .border_color(Theme::with_alpha(theme.gray_12, 0.06))
-                            .bg(Theme::with_alpha(theme.gray_12, 0.05))
-                            .px(px(2.))
-                            .child(self.tool_button(
-                                "font-smaller",
-                                "icons/minus.svg",
-                                false,
-                                cx.listener(|this, _, window, cx| {
-                                    this.change_font_size(-FONT_SIZE_STEP, window, cx);
-                                }),
-                            ))
-                            .child(
-                                // `w-6 text-center text-[10px] tabular-nums`
-                                div()
-                                    .w(px(24.))
-                                    .text_center()
-                                    .text_size(px(10.))
-                                    .text_color(Hsla::from(theme.gray_9))
-                                    .child(format!("{}", self.state.font_size as i32)),
-                            )
-                            .child(self.tool_button(
-                                "font-larger",
-                                "icons/plus.svg",
-                                false,
-                                cx.listener(|this, _, window, cx| {
-                                    this.change_font_size(FONT_SIZE_STEP, window, cx);
-                                }),
-                            )),
-                    )
-                    .child(self.tool_button(
-                        "settings",
-                        "icons/settings-2.svg",
-                        self.settings_open,
-                        cx.listener(|this, _, _window, cx| {
-                            this.settings_open = !this.settings_open;
-                            cx.notify();
-                        }),
-                    )),
-            )
+            .gap(px(2.))
+            .rounded(px(20.))
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.popover)
+            .text_color(theme.popover_foreground)
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(self.icon_button(
+                "play",
+                play_icon,
+                play_label,
+                false,
+                !has_script,
+                cx,
+                |this, window, cx| this.toggle_playback(window, cx),
+            ))
+            .children(voice_chip)
+            .child(self.icon_button(
+                "slower",
+                "icons/minus.svg",
+                t!("Slower  ↓"),
+                false,
+                false,
+                cx,
+                |this, window, cx| this.change_speed(-1, window, cx),
+            ))
+            .child(self.caption(self.speed_label(), 56.))
+            .child(self.icon_button(
+                "faster",
+                "icons/plus.svg",
+                t!("Faster  ↑"),
+                false,
+                false,
+                cx,
+                |this, window, cx| this.change_speed(1, window, cx),
+            ))
+            .child(self.separator())
+            .child(self.icon_button(
+                "smaller",
+                "icons/minus.svg",
+                t!("Smaller text  -"),
+                false,
+                false,
+                cx,
+                |this, window, cx| this.change_font_size(-1., window, cx),
+            ))
+            .child(self.caption(format!("{}", self.state.font_size as i32), 24.))
+            .child(self.icon_button(
+                "larger",
+                "icons/plus.svg",
+                t!("Larger text  +"),
+                false,
+                false,
+                cx,
+                |this, window, cx| this.change_font_size(1., window, cx),
+            ))
+            .child(self.separator())
+            .child(self.caption(model::format_clock(left), 0.))
+            .when(full_screen_available, |this| {
+                this.child(self.icon_button(
+                    "full-screen",
+                    if self.full_screen.is_some() {
+                        "icons/minimize.svg"
+                    } else {
+                        "icons/maximize.svg"
+                    },
+                    if self.full_screen.is_some() {
+                        t!("Exit full screen  F")
+                    } else {
+                        t!("Full screen on another display  F")
+                    },
+                    self.full_screen.is_some(),
+                    false,
+                    cx,
+                    |this, window, cx| this.toggle_full_screen(window, cx),
+                ))
+            })
+            .child(self.icon_button(
+                "edit",
+                "icons/pencil.svg",
+                t!("Edit script  E"),
+                false,
+                false,
+                cx,
+                |this, window, cx| this.show_edit(window, cx),
+            ))
+            .child(self.icon_button(
+                "close",
+                "icons/x.svg",
+                t!("Close"),
+                false,
+                false,
+                cx,
+                |this, window, cx| this.close(window, cx),
+            ))
     }
 
-    /// The shared footer pill -- [`ui::Card::glass_pill`].
-    fn pill(&self) -> gpui::Div {
-        ui::Card::glass_pill(&self.theme)
-    }
-
-    /// `ToolButton` -- [`ui::IconButton::glass`].
-    fn tool_button(
-        &self,
-        id: &'static str,
-        icon: &'static str,
-        active: bool,
-        on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-    ) -> ui::IconButton {
-        ui::IconButton::glass(&self.theme, id, icon)
-            .active(active)
-            .on_click(on_click)
-    }
-
-    /// `<input type="range">`: a `h-1 w-12` `bg-gray-12/10` track with a
-    /// `size-3` thumb -- [`ui::Slider`], whose canvas-prepaint track capture
-    /// and drag layer this window and the settings zoom slider now share.
-    fn render_range(
-        &self,
-        id: &'static str,
-        slider: Slider,
-        fraction: f32,
-        thumb: Hsla,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let track = match slider {
-            Slider::Speed => self.speed_track.clone(),
-            Slider::Opacity => self.opacity_track.clone(),
+    fn render_title(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let caption_button = |id: &'static str, icon: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .flex_none()
+                .w(px(40.))
+                .h(px(TITLE_HEIGHT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(theme.muted_foreground)
+                .hover(|style| style.bg(theme.accent).text_color(theme.foreground))
+                .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
+                .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                })
+                .child(svg().path(icon).size(px(14.)))
         };
-
-        ui::Slider::new(id, fraction, track)
-            .row_width(px(48.))
-            .track(px(4.), Theme::with_alpha(self.theme.gray_12, 0.10))
-            .thumb(px(12.), thumb, None)
-            .on_drag_start(
-                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
-                    this.dragging = Some(slider);
-                    this.set_slider_from(event.position, window, cx);
+        div()
+            .id("title")
+            .flex_none()
+            .h(px(TITLE_HEIGHT))
+            .pl(px(12.))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(8.))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.begin_drag(event, window, cx);
                 }),
+            )
+            .child(self.status_line(self.capture_status(cx)))
+            .child(div().flex_1())
+            .child(
+                caption_button("minimize", "icons/minus.svg", t!("Minimize"))
+                    .on_click(cx.listener(|this, _, window, cx| this.minimize(window, cx))),
+            )
+            .child(
+                caption_button("close-window", "icons/x.svg", t!("Close"))
+                    .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
             )
     }
 
-    /// While a range is held the whole window takes the mouse, so a drag that
-    /// leaves the 48px track keeps updating -- pointer capture, by hand.
-    fn render_slider_drag_layer(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        self.dragging?;
-        Some(
-            ui::Slider::drag_layer(
-                "slider-drag",
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
-                    this.set_slider_from(event.position, window, cx);
-                }),
-                cx.listener(|this, _, _window, cx| {
-                    this.dragging = None;
+    fn render_editor(&self) -> impl IntoElement {
+        let theme = self.theme;
+        div()
+            .id("script-scroll")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .px(px(12.))
+            .py(px(8.))
+            .child(
+                ui::TextInput::bare(&theme, "script", &self.script_input)
+                    .text_size(px(14.))
+                    .line_height(px(22.))
+                    .font_weight(FontWeight::NORMAL)
+                    .text_color(theme.foreground.into())
+                    .placeholder_color(theme.muted_foreground.into())
+                    .selection_color(theme.selection.into()),
+            )
+    }
+
+    fn render_foot(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let words = count_words(&self.state.script);
+        let count = if self.state.uses_chinese_speed() {
+            t!(
+                "{count} chars · about {time}",
+                count = words,
+                time = model::format_clock(self.total_seconds())
+            )
+        } else {
+            t!(
+                "{count} words · about {time}",
+                count = words,
+                time = model::format_clock(self.total_seconds())
+            )
+        };
+        div()
+            .flex_none()
+            .h(px(FOOT_HEIGHT))
+            .px(px(8.))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(2.))
+            .child(self.icon_button(
+                "read",
+                "icons/play.svg",
+                t!("Read  Ctrl Enter"),
+                false,
+                !self.has_script(),
+                cx,
+                |this, window, cx| this.toggle_playback(window, cx),
+            ))
+            .child(
+                div()
+                    .px(px(6.))
+                    .text_size(px(12.))
+                    .text_color(self.theme.muted_foreground)
+                    .whitespace_nowrap()
+                    .child(count),
+            )
+            .child(div().flex_1())
+            .child(self.icon_button(
+                "options",
+                "icons/sliders-horizontal.svg",
+                t!("Teleprompter options"),
+                self.options_open,
+                false,
+                cx,
+                |this, _, cx| {
+                    this.options_open = !this.options_open;
+                    this.other_display = other_display_bounds(this.frame);
                     cx.notify();
-                }),
-            )
-            .into_any_element(),
-        )
+                },
+            ))
     }
 
-    fn render_settings_popover(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        if !self.settings_open {
+    fn option_row(&self, label: &'static str) -> gpui::Div {
+        div()
+            .min_h(px(30.))
+            .px(px(8.))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(8.))
+            .child(
+                div()
+                    .flex_1()
+                    .text_size(px(13.))
+                    .text_color(self.theme.popover_foreground)
+                    .child(label),
+            )
+    }
+
+    fn switch_row(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        on: bool,
+        key: &'static str,
+        cx: &mut Context<Self>,
+        flip: fn(&mut TeleprompterState),
+    ) -> impl IntoElement {
+        let theme = self.theme;
+        self.option_row(label)
+            .id(id)
+            .rounded(px(6.))
+            .hover(|style| style.bg(theme.accent))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.toggle_setting(key, window, cx, flip);
+            }))
+            .child(ui::Toggle::settings(
+                &theme,
+                SharedString::from(format!("{id}-switch")),
+                on,
+            ))
+    }
+
+    fn render_options(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        if !self.options_open {
             return None;
         }
         let theme = self.theme;
+        let state = &self.state;
+        let scroll = ui::SegmentedControl::settings(
+            &theme,
+            "scroll-mode",
+            vec![
+                ui::SegmentOption::new(
+                    t!("Fixed speed"),
+                    state.scroll == TeleprompterScroll::Fixed,
+                ),
+                ui::SegmentOption::new(
+                    t!("When I speak"),
+                    state.scroll == TeleprompterScroll::Voice,
+                ),
+            ],
+        )
+        .on_select(cx.listener(|this, index: &usize, window, cx| {
+            this.state.scroll = if *index == 1 {
+                TeleprompterScroll::Voice
+            } else {
+                TeleprompterScroll::Fixed
+            };
+            this.voice.reset();
+            this.touch(TeleprompterState::SCROLL, window, cx);
+            cx.notify();
+        }));
+        let spacing = ui::SegmentedControl::settings(
+            &theme,
+            "line-spacing",
+            model::LINE_SPACINGS
+                .iter()
+                .map(|value| {
+                    ui::SegmentOption::new(
+                        format!("{value}"),
+                        (state.line_height - value).abs() < 0.001,
+                    )
+                })
+                .collect(),
+        )
+        .on_select(cx.listener(|this, index: &usize, window, cx| {
+            if let Some(value) = model::LINE_SPACINGS.get(*index) {
+                this.state.line_height = *value;
+                this.touch(TeleprompterState::LINE_HEIGHT, window, cx);
+                cx.notify();
+            }
+        }));
+        let align = ui::SegmentedControl::settings(
+            &theme,
+            "align",
+            vec![
+                ui::SegmentOption::new(t!("Center"), state.align == TeleprompterAlign::Center),
+                ui::SegmentOption::new(
+                    tc!("text align", "Left"),
+                    state.align == TeleprompterAlign::Left,
+                ),
+            ],
+        )
+        .on_select(cx.listener(|this, index: &usize, window, cx| {
+            this.state.align = if *index == 1 {
+                TeleprompterAlign::Left
+            } else {
+                TeleprompterAlign::Center
+            };
+            this.touch(TeleprompterState::ALIGN, window, cx);
+            cx.notify();
+        }));
 
         Some(
-            ui::Popover::glass(&theme, px(192.))
-                .bottom(px(48.))
+            div()
+                .id("options")
+                .absolute()
                 .right(px(8.))
-                .child(self.render_setting_toggle(
-                    "cue-markers",
-                    "icons/chevron-right.svg",
-                    t!("Cue markers"),
-                    self.state.show_cue_markers,
-                    cx.listener(|this, _, window, cx| {
-                        this.state.show_cue_markers = !this.state.show_cue_markers;
-                        this.touch(TeleprompterState::SHOW_CUE_MARKERS, window, cx);
-                        cx.notify();
-                    }),
+                .bottom(px(48.))
+                .w(px(264.))
+                .p(px(4.))
+                .flex()
+                .flex_col()
+                .border_1()
+                .border_color(theme.border)
+                .rounded(px(8.))
+                .bg(theme.popover)
+                .text_color(theme.popover_foreground)
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(self.option_row(t!("Scroll")).child(scroll))
+                .child(self.option_row(t!("Line spacing")).child(spacing))
+                .child(self.option_row(t!("Align")).child(align))
+                .child(self.switch_row(
+                    "start-with-recording",
+                    t!("Start with recording"),
+                    state.start_with_recording,
+                    TeleprompterState::START_WITH_RECORDING,
+                    cx,
+                    |state| state.start_with_recording = !state.start_with_recording,
                 ))
-                .child(self.render_setting_toggle(
-                    "mirror",
-                    "icons/triangles-centerline-dashed-horizontal.svg",
-                    t!("Mirror text"),
-                    self.state.mirror,
-                    cx.listener(|this, _, window, cx| {
-                        // Persisted, but inert: this gpui rev has no flip
-                        // transform (the camera window's mirror button is
-                        // disabled for the same reason). README deviation.
-                        this.state.mirror = !this.state.mirror;
-                        this.touch(TeleprompterState::MIRROR, window, cx);
-                        cx.notify();
-                    }),
+                .child(self.switch_row(
+                    "reading-line",
+                    t!("Reading line"),
+                    state.show_cue_markers,
+                    TeleprompterState::SHOW_CUE_MARKERS,
+                    cx,
+                    |state| state.show_cue_markers = !state.show_cue_markers,
                 ))
+                .child(self.switch_row(
+                    "hide-from-sharing",
+                    t!("Hide from screen sharing"),
+                    state.hide_from_sharing,
+                    TeleprompterState::HIDE_FROM_SHARING,
+                    cx,
+                    |state| state.hide_from_sharing = !state.hide_from_sharing,
+                ))
+                .when(self.other_display.is_some(), |this| {
+                    this.child(
+                        self.option_row(t!("Full screen on another display"))
+                            .id("full-screen-option")
+                            .rounded(px(6.))
+                            .hover(|style| style.bg(theme.accent))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_full_screen(window, cx);
+                            }))
+                            .child(
+                                svg()
+                                    .path("icons/maximize.svg")
+                                    .size(px(14.))
+                                    .text_color(theme.muted_foreground),
+                            ),
+                    )
+                })
                 .into_any_element(),
         )
     }
 
-    /// `SettingToggle`: `flex items-center justify-between px-2 py-2 text-xs
-    /// text-gray-10` with a `size-3.5` glyph and a `<Toggle size="sm">`.
-    fn render_setting_toggle(
-        &self,
-        id: &'static str,
-        icon: &'static str,
-        label: &'static str,
-        checked: bool,
-        on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-    ) -> impl IntoElement {
-        let theme = self.theme;
+    fn render_resize_edges(&self, attached: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut layer = div().absolute().inset_0().size_full();
+        for edge in Edge::ALL {
+            let id: &'static str = match edge {
+                Edge::Left => "resize-left",
+                Edge::Right => "resize-right",
+                Edge::Bottom => "resize-bottom",
+                Edge::BottomLeft => "resize-bottom-left",
+                Edge::BottomRight => "resize-bottom-right",
+            };
+            let handle = div().id(id).absolute();
+            let handle = match edge {
+                Edge::Left => handle
+                    .left_0()
+                    .top(px(if attached { 0. } else { EDGE_HIT }))
+                    .bottom(px(EDGE_HIT * 2.))
+                    .w(px(EDGE_HIT))
+                    .cursor(gpui::CursorStyle::ResizeLeftRight),
+                Edge::Right => handle
+                    .right_0()
+                    .top(px(if attached { 0. } else { EDGE_HIT }))
+                    .bottom(px(EDGE_HIT * 2.))
+                    .w(px(EDGE_HIT))
+                    .cursor(gpui::CursorStyle::ResizeLeftRight),
+                Edge::Bottom => handle
+                    .bottom_0()
+                    .left(px(EDGE_HIT * 2.))
+                    .right(px(EDGE_HIT * 2.))
+                    .h(px(EDGE_HIT))
+                    .cursor(gpui::CursorStyle::ResizeUpDown),
+                Edge::BottomLeft => handle
+                    .bottom_0()
+                    .left_0()
+                    .size(px(EDGE_HIT * 2.))
+                    .cursor(gpui::CursorStyle::ResizeUpRightDownLeft),
+                Edge::BottomRight => handle
+                    .bottom_0()
+                    .right_0()
+                    .size(px(EDGE_HIT * 2.))
+                    .cursor(gpui::CursorStyle::ResizeUpLeftDownRight),
+            };
+            layer = layer.child(handle.on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    this.drag = Some(Drag::Resize {
+                        edge,
+                        pointer: Self::pointer_global(window, event.position),
+                        frame: this.frame,
+                    });
+                    cx.notify();
+                }),
+            ));
+        }
+        layer
+    }
+}
 
-        div()
-            .id(SharedString::from(id))
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .px(px(8.))
-            .py(px(8.))
-            .text_size(px(12.))
-            .text_color(Hsla::from(theme.gray_10))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(
-                        svg()
-                            .path(icon)
-                            .size(px(14.))
-                            .flex_shrink_0()
-                            .text_color(Hsla::from(theme.gray_10)),
-                    )
-                    .child(label),
-            )
-            // `<Toggle size="sm">` on bare glass.
-            .child(ui::Toggle::glass(
-                &theme,
-                SharedString::from(format!("{id}-toggle")),
-                checked,
-            ))
-            .on_click(on_click)
+fn status_label(status: CaptureStatus) -> &'static str {
+    match status {
+        CaptureStatus::CantHide => t!("Can't hide here, recordings may show this"),
+        CaptureStatus::PausedWithRecording => t!("Paused with the recording"),
+        CaptureStatus::HiddenFromThisRecording => t!("Hidden from this recording"),
+        CaptureStatus::HiddenFromRecordingsAndSharing => t!("Hidden from recordings and sharing"),
+        CaptureStatus::HiddenFromRecordings => t!("Hidden from recordings"),
     }
 }
 
@@ -1080,60 +1721,6 @@ impl TeleprompterWindow {
 mod tests {
     use super::*;
 
-    #[test]
-    fn recording_pause_preserves_manual_playback_intent() {
-        let mut playback = PlaybackState {
-            requested: true,
-            ..Default::default()
-        };
-        playback.update_recording(Phase::Recording { paused: false }, false);
-        assert!(playback.running());
-        playback.update_recording(Phase::Recording { paused: true }, false);
-        assert!(!playback.running());
-        assert!(playback.requested);
-        playback.update_recording(Phase::Recording { paused: false }, false);
-        assert!(playback.running());
-    }
-
-    #[test]
-    fn recording_resume_does_not_start_a_manually_paused_script() {
-        let mut playback = PlaybackState::default();
-        playback.update_recording(Phase::Recording { paused: true }, false);
-        playback.update_recording(Phase::Recording { paused: false }, false);
-        assert!(!playback.running());
-        playback.requested = true;
-        playback.update_recording(Phase::Recording { paused: true }, false);
-        playback.requested = false;
-        playback.update_recording(Phase::Recording { paused: false }, false);
-        assert!(!playback.running());
-    }
-
-    #[test]
-    fn play_cannot_override_recording_pause_or_unconfirmed_capture_state() {
-        for uncertain in [false, true] {
-            let mut playback = PlaybackState::default();
-            playback.update_recording(Phase::Recording { paused: !uncertain }, uncertain);
-            playback.requested = true;
-            assert!(!playback.running());
-        }
-    }
-
-    #[test]
-    fn recording_stop_clears_automatic_scroll_resume() {
-        for terminal in [Phase::Stopping, Phase::Idle] {
-            let mut playback = PlaybackState {
-                requested: true,
-                ..Default::default()
-            };
-            playback.update_recording(Phase::Recording { paused: true }, false);
-            playback.update_recording(terminal, false);
-            playback.update_recording(Phase::Recording { paused: false }, false);
-            assert!(!playback.running());
-        }
-    }
-
-    /// `teleprompter-utils.test.ts`, translated. `countWords` splits on any
-    /// whitespace run, so a newline counts as a separator.
     #[test]
     fn counts_words_in_pasted_scripts() {
         assert_eq!(count_words("  One   two\nthree "), 3);
@@ -1161,12 +1748,6 @@ mod tests {
     }
 
     #[test]
-    fn clamps_a_setting_to_its_supported_range() {
-        assert_eq!(clamp(5., 10., 20.), 10.);
-        assert_eq!(clamp(25., 10., 20.), 20.);
-    }
-
-    #[test]
     fn calculates_a_positive_scroll_speed_from_reading_duration() {
         assert_eq!(calculate_playback_speed(600., 300, 150), 5.);
         assert_eq!(calculate_playback_speed(-10., 300, 150), 0.);
@@ -1181,46 +1762,23 @@ mod tests {
         assert!((position - 10.).abs() < 0.01, "position was {position}");
     }
 
-    /// Not in the TS suite, but the two guards the route relies on: a script
-    /// shorter than a second of reading still moves (the duration floor), and
-    /// the position never runs past the bottom.
     #[test]
     fn playback_is_bounded_at_both_ends() {
-        // 3 words at 350wpm is 0.51s of reading, floored to 1s.
         assert_eq!(calculate_playback_speed(120., 3, 350), 120.);
         assert_eq!(advance_playback_position(90., 100., 1000., 1.), 100.);
         assert_eq!(advance_playback_position(-5., 100., 0., 1.), 0.);
     }
 
-    /// Pausing keeps the scroll offset, so pressing play again picks up where
-    /// the script stopped; only a script that already reached the end goes
-    /// back to the top (https://github.com/CapSoftware/Cap/issues/2081).
     #[test]
-    fn playback_resumes_where_it_was_paused() {
-        let maximum = 1000.;
-        let mut position = playback_resume_position(0., maximum);
-        assert_eq!(position, 0.);
-        for _ in 0..90 {
-            position = advance_playback_position(position, maximum, 40., 1. / 30.);
+    fn every_status_has_a_label() {
+        for status in [
+            CaptureStatus::CantHide,
+            CaptureStatus::PausedWithRecording,
+            CaptureStatus::HiddenFromThisRecording,
+            CaptureStatus::HiddenFromRecordingsAndSharing,
+            CaptureStatus::HiddenFromRecordings,
+        ] {
+            assert!(!status_label(status).is_empty());
         }
-        assert!(position > 100.);
-        assert_eq!(playback_resume_position(-position, maximum), position);
-        assert_eq!(playback_resume_position(-(maximum - 0.5), maximum), 0.);
-        assert_eq!(playback_resume_position(25., maximum), 0.);
-    }
-
-    /// The ranges snap to their steps and stay inside their bounds, which is
-    /// what an `<input type="range" step="5">` does with a pointer anywhere on
-    /// the track.
-    #[test]
-    fn ranges_snap_to_their_step() {
-        assert_eq!(stepped(0., WPM_MIN, WPM_MAX, WPM_STEP), 60.);
-        assert_eq!(stepped(1., WPM_MIN, WPM_MAX, WPM_STEP), 350.);
-        // 60 + 0.5 * 290 = 205, already on the grid.
-        assert_eq!(stepped(0.5, WPM_MIN, WPM_MAX, WPM_STEP), 205.);
-        // 60 + 0.51 * 290 = 207.9 -> 210.
-        assert_eq!(stepped(0.51, WPM_MIN, WPM_MAX, WPM_STEP), 210.);
-        assert_eq!(stepped(0., OPACITY_MIN, OPACITY_MAX, OPACITY_STEP), 45.);
-        assert_eq!(stepped(1., OPACITY_MIN, OPACITY_MAX, OPACITY_STEP), 100.);
     }
 }

@@ -63,7 +63,7 @@ pub struct Group {
 pub const SCREENSHOT_SHORTCUTS: [&str; 3] =
     ["screenshotArea", "screenshotWindow", "screenshotDisplay"];
 
-pub const RECORDING_SHORTCUTS: [&str; 8] = [
+pub const RECORDING_SHORTCUTS: [&str; 9] = [
     "openRecordingPickerArea",
     "openRecordingPickerWindow",
     "openRecordingPickerDisplay",
@@ -72,6 +72,7 @@ pub const RECORDING_SHORTCUTS: [&str; 8] = [
     "openRecordingPicker",
     "cycleRecordingMode",
     "focusCameraPreview",
+    "toggleTeleprompterPlayback",
 ];
 
 pub const WHILE_RECORDING_SHORTCUTS: [&str; 4] = [
@@ -104,6 +105,7 @@ pub fn shortcut_label(action: &str) -> &'static str {
         "togglePauseRecording" => n!("Pause or resume"),
         "restartRecording" => n!("Restart recording"),
         "focusCameraPreview" => n!("Focus camera preview"),
+        "toggleTeleprompterPlayback" => n!("Play or pause the teleprompter"),
         "drawOnScreen" => n!("Draw on screen"),
         _ => n!("Shortcut"),
     }
@@ -199,6 +201,7 @@ const SHORTCUTS: &[Group] = &[
             Row::Shortcut(RECORDING_SHORTCUTS[5]),
             Row::Shortcut(RECORDING_SHORTCUTS[6]),
             Row::Shortcut(RECORDING_SHORTCUTS[7]),
+            Row::Shortcut(RECORDING_SHORTCUTS[8]),
         ],
     },
     Group {
@@ -569,6 +572,7 @@ mod tests {
                     "Open recording picker",
                     "Cycle recording mode",
                     "Focus camera preview",
+                    "Play or pause the teleprompter",
                     "Stop recording",
                     "Pause or resume",
                     "Restart recording",

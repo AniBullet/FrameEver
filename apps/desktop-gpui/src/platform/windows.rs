@@ -218,10 +218,6 @@ pub fn teleprompter_level() -> isize {
     1
 }
 
-pub fn set_window_alpha(_native: &NativeWindow, _alpha: f64) -> f64 {
-    1.
-}
-
 pub(crate) fn prepare_countdown_panel(
     native: &NativeWindow,
     interactive: bool,

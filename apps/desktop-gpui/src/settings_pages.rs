@@ -689,6 +689,9 @@ fn shortcut_effect(
         "togglePauseRecording" => t!("pause the current recording, or resume it").into(),
         "restartRecording" => t!("throw away the current take and start again").into(),
         "focusCameraPreview" => t!("focus the camera preview controls").into(),
+        "toggleTeleprompterPlayback" => {
+            t!("play or pause the teleprompter while its window is open").into()
+        }
         "drawOnScreen" => {
             t!("draw on the screen while recording; what you draw is saved in the video").into()
         }
@@ -4725,8 +4728,9 @@ mod tests {
             .chain(catalog::WHILE_RECORDING_SHORTCUTS.iter())
             .copied()
             .collect();
-        assert_eq!(shown.len(), 15);
+        assert_eq!(shown.len(), 16);
         assert!(shown.contains(&"focusCameraPreview"));
+        assert!(shown.contains(&"toggleTeleprompterPlayback"));
         assert!(shown.contains(&"drawOnScreen"));
         let settings = store::GeneralSettings::default();
         for action in &shown {

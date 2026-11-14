@@ -31,6 +31,7 @@ pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("segment noun", "scene", "场景"),
     ("segment noun", "3D", "3D"),
     ("library menu", "View", "视图"),
+    ("text align", "Left", "靠左"),
     ("screenshot tool", "Spotlight", "聚光灯"),
     ("magnifier", "Zoom", "放大"),
     ("palette hint", "Show in library", "在资源库中显示"),
