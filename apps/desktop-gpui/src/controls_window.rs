@@ -704,6 +704,7 @@ impl ControlsWindow {
             session.countdown_remaining(),
             session.pause_pending(),
             session.elapsed(),
+            session.auto_stop_countdown(),
         );
         div()
             .min_w(px(50.))
@@ -1835,6 +1836,7 @@ fn recording_time_label(
     countdown: Option<u32>,
     pending: bool,
     elapsed: Duration,
+    auto_stop_left: Option<Duration>,
 ) -> String {
     if let Some(count) = countdown.filter(|count| *count > 0) {
         t!("Starts in {count}", count = count)
@@ -1854,6 +1856,12 @@ fn recording_time_label(
             "{} {}",
             t!("Paused"),
             ControlsWindow::format_elapsed(elapsed)
+        )
+    } else if let Some(left) = auto_stop_left {
+        let shown = Duration::from_secs(left.as_secs() + u64::from(left.subsec_nanos() > 0));
+        t!(
+            "Stops in {time}",
+            time = ControlsWindow::format_elapsed(shown)
         )
     } else {
         ControlsWindow::format_elapsed(elapsed)
@@ -2088,23 +2096,72 @@ mod repaint_tests {
     fn paused_recordings_keep_the_elapsed_time_and_pending_states_stay_truthful() {
         let elapsed = Duration::from_secs(3753);
         assert_eq!(
-            recording_time_label(Phase::Recording { paused: true }, None, false, elapsed),
+            recording_time_label(
+                Phase::Recording { paused: true },
+                None,
+                false,
+                elapsed,
+                None
+            ),
             "Paused 1:02:33"
         );
         assert_eq!(
-            recording_time_label(Phase::Recording { paused: false }, None, true, elapsed),
+            recording_time_label(
+                Phase::Recording { paused: false },
+                None,
+                true,
+                elapsed,
+                None
+            ),
             "Pausing…"
         );
         assert_eq!(
-            recording_time_label(Phase::Recording { paused: true }, None, true, elapsed),
+            recording_time_label(Phase::Recording { paused: true }, None, true, elapsed, None),
             "Resuming…"
         );
         assert_eq!(
-            recording_time_label(Phase::Starting, Some(3), false, elapsed),
+            recording_time_label(Phase::Starting, Some(3), false, elapsed, None),
             "Starts in 3"
         );
         assert_eq!(
-            recording_time_label(Phase::Stopping, None, false, elapsed),
+            recording_time_label(Phase::Stopping, None, false, elapsed, None),
+            "Saving…"
+        );
+    }
+
+    #[test]
+    fn the_last_minute_before_auto_stop_shows_the_time_left() {
+        let elapsed = Duration::from_millis(290_500);
+        let left = Some(Duration::from_millis(9_500));
+        let live = Phase::Recording { paused: false };
+        assert_eq!(
+            recording_time_label(live, None, false, elapsed, left),
+            "Stops in 0:10"
+        );
+        assert_eq!(
+            recording_time_label(live, None, false, elapsed, Some(Duration::from_secs(60))),
+            "Stops in 1:00"
+        );
+        assert_eq!(
+            recording_time_label(live, None, false, elapsed, None),
+            "4:50"
+        );
+        assert_eq!(
+            recording_time_label(
+                Phase::Recording { paused: true },
+                None,
+                false,
+                elapsed,
+                left
+            ),
+            "Paused 4:50"
+        );
+        assert_eq!(
+            recording_time_label(live, None, true, elapsed, left),
+            "Pausing…"
+        );
+        assert_eq!(
+            recording_time_label(Phase::Stopping, None, false, elapsed, left),
             "Saving…"
         );
     }

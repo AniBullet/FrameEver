@@ -124,11 +124,7 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
     rows.push(OptionRow {
         label: t!("Auto-stop, minutes"),
         key: "recordingAutoStopMinutes",
-        value: general
-            .get("recordingAutoStopMinutes")
-            .and_then(Value::as_u64)
-            .map(Value::from)
-            .unwrap_or(Value::from(0)),
+        value: Value::from(settings.recording_auto_stop_minutes),
         choices: numbers(&[(0, t!("Off")), (5, "5"), (15, "15"), (30, "30")]),
     });
     if mode == Mode::Instant {
@@ -319,14 +315,14 @@ impl MainWindow {
                         ),
                 )
                 .children(content)
-                .child(
-                    div()
-                        .text_size(px(10.))
-                        .text_color(theme.muted_foreground)
-                        .child(t!(
-                            "Auto-stop and click highlight are saved for a future update."
-                        )),
-                )
+                .when(self.mode == Mode::Instant, |element| {
+                    element.child(
+                        div()
+                            .text_size(px(10.))
+                            .text_color(theme.muted_foreground)
+                            .child(t!("Click highlight is saved for a future update.")),
+                    )
+                })
                 .when(self.recording_options_save_failed, |element| {
                     element.child(
                         div()

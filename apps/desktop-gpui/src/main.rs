@@ -78,6 +78,7 @@ mod picker_ui_benchmark;
 mod platform;
 mod presets;
 mod project_save;
+mod recorded_time;
 mod recording;
 mod screen_ink;
 mod screenshot;

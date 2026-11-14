@@ -572,3 +572,15 @@ Sources: #128, #73, `docs/design/surfaces/recording-controls.{html,js,css}` (`po
 Tests: `session::input_change_tests` (a device not in the take stays off, a change that paused the take resumes it, a user pause stays, a failed change stays paused instead of stopping, a late result after Stop or Restart is ignored), `controls_window::options_header_tests`, and the existing `controls_` tests. The swap on the real Studio actor (pause, `set_mic_feed`/`set_camera_feed`, resume) is not run by a test: it needs real capture and devices.
 
 Owner checks: in a real Studio recording, switch microphone and camera from the popover and check the take resumes and the editor shows one project with the new device after the switch; a take started without a camera shows "Not in this recording" and no preview switch; Instant shows its devices without a chevron; the header's size and frame rate; the popover against the design page in both themes and languages, by mouse and keyboard, and that it stays out of the recording.
+
+### Auto-stop after a set time (#129; 2026-11-15)
+
+The "Auto-stop, minutes" row #127 added to the compact window's options popover (Off, 5, 15, 30; key `recordingAutoStopMinutes`, Off by default) now works. The limit is read when the take starts (`GeneralSettings::recording_auto_stop_minutes`). The session runs one monitor per take that sleeps until the recorded time could reach the limit, then calls the same `RecordingSession::stop` the bar, tray and shortcut call, so Studio and Instant save exactly as Stop does. In the last minute the bar's timer reads "Stops in 0:42" (`{time} 后停止`), rounded up so it reaches 0:00 at the stop; paused, pausing and saving keep their own labels. The popover's note now names only click highlight and shows in Instant only (#131); the design page's note matches.
+
+Recorded time: `recorded_time::RecordedClock` (start, pause, resume, `recorded_at(now)`) replaces the session's three timing fields; `RecordingSession::elapsed()` reads it, so the bar, auto-stop and #133's chapter markers share one recorded time that leaves paused stretches out. `auto_stop_limit`, `auto_stop_time_left` and `auto_stop_countdown` sit beside it.
+
+Sources: #129, `docs/design/surfaces/recording-controls.{html,js}` (Options row, "Added from other products": ShareX). Upstream's desktop apps have no auto-stop; its only time limit is the cloud web recorder's free-plan stop, not relevant here.
+
+Tests: `recorded_time::tests` (paused time does not count, a take paused past the limit in wall time is not stopped, Off at 0, time left never negative, countdown only in the last minute), `controls_window::the_last_minute_before_auto_stop_shows_the_time_left`, and `store::tests::typed_reads_match_the_store_shape` (key read, 0 by default). The monitor calling `stop` on a real take is not run by a test: it needs real capture.
+
+Owner checks: a real Studio and Instant take with a 5-minute limit stops at 5:00 of recorded time, including after a pause, and saves like Stop (editor or library as set); the "Stops in" countdown on the bar in both languages; the Instant-only note in the popover.

@@ -317,6 +317,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Resuming…", "正在继续…"),
     ("Pausing…", "正在暂停…"),
     ("Paused", "已暂停"),
+    ("Stops in {time}", "{time} 后停止"),
     ("Starting…", "正在开始…"),
     ("Starts in {count}", "{count} 秒后开始"),
     ("Draw on screen", "屏幕画笔"),
@@ -807,8 +808,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Click highlight", "点击高亮"),
     ("All recording settings", "全部录制设置"),
     (
-        "Auto-stop and click highlight are saved for a future update.",
-        "自动停止和点击高亮的设置已预留，将在后续更新生效。",
+        "Click highlight is saved for a future update.",
+        "点击高亮的设置已预留，将在后续更新生效。",
     ),
     ("Smaller", "更小"),
     ("Show library", "显示资源库"),

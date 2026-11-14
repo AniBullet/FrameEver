@@ -386,7 +386,7 @@ const optPop = (bottom) => {
 			],
 		)}</div>
 		${studio ? "" : `<div class="opt-row"><span class="grow">${L("Click highlight", "点击高亮")}</span><button class="switch ${opt.clicks ? "on" : ""}" data-o="clicks" aria-label="${pick("Click highlight", "点击高亮")}"></button></div>`}
-		<p class="muted" style="font-size:10px;margin:0">${L("Auto-stop and click highlight are saved for a future update.", "自动停止和点击高亮的设置已预留，将在后续更新生效。")}</p>
+		${studio ? "" : `<p class="muted" style="font-size:10px;margin:0">${L("Click highlight is saved for a future update.", "点击高亮的设置已预留，将在后续更新生效。")}</p>`}
 		<hr style="border:0;border-top:1px solid var(--border);margin:4px 0">
 		<button class="opt-more">${L("All recording settings", "全部录制设置")}${icon("chevron-right", "sm")}</button></div>`;
 };

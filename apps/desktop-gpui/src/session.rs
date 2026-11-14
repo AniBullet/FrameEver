@@ -16,6 +16,9 @@ use gpui::{App, AppContext as _, Context, Entity, Global, Task};
 
 use crate::app_sounds::AppSound;
 use crate::i18n::t;
+use crate::recorded_time::{
+    RecordedClock, auto_stop_countdown, auto_stop_limit, auto_stop_time_left,
+};
 use crate::recording::{self, ActiveRecording, StartConfig};
 
 #[derive(Debug)]
@@ -294,9 +297,9 @@ pub struct RecordingSession {
     /// (`src-tauri/src/recording.rs:3231-3287`) so a stale target can never
     /// leak into the next recording.
     editor_recording_target: Option<std::path::PathBuf>,
-    started_at: Option<Instant>,
-    paused_accum: Duration,
-    paused_since: Option<Instant>,
+    clock: Option<RecordedClock>,
+    auto_stop_limit: Option<Duration>,
+    auto_stop_monitor: Option<Task<()>>,
     storage_monitor: Option<Task<()>>,
     camera_monitor: Option<Task<()>>,
     microphone_monitor: Option<Task<()>>,
@@ -343,9 +346,9 @@ impl RecordingSession {
             finished_instant: None,
             preparing_studio_editor: None,
             editor_recording_target: None,
-            started_at: None,
-            paused_accum: Duration::ZERO,
-            paused_since: None,
+            clock: None,
+            auto_stop_limit: None,
+            auto_stop_monitor: None,
             storage_monitor: None,
             camera_monitor: None,
             microphone_monitor: None,
@@ -394,15 +397,15 @@ impl RecordingSession {
         if let Some(elapsed) = self.stopped_elapsed {
             return elapsed;
         }
-        let Some(started_at) = self.started_at else {
-            return Duration::ZERO;
-        };
-        let paused = self.paused_accum
-            + self
-                .paused_since
-                .map(|since| since.elapsed())
-                .unwrap_or_default();
-        started_at.elapsed().saturating_sub(paused)
+        self.clock
+            .map(|clock| clock.recorded_at(Instant::now()))
+            .unwrap_or_default()
+    }
+
+    pub fn auto_stop_countdown(&self) -> Option<Duration> {
+        matches!(self.phase, Phase::Recording { .. })
+            .then(|| auto_stop_countdown(self.auto_stop_limit, self.elapsed()))
+            .flatten()
     }
 
     pub fn is_paused(&self) -> bool {
@@ -865,14 +868,15 @@ impl RecordingSession {
         self.countdown_overlay_unavailable = false;
         // A fresh mic lock always starts unmuted.
         self.mic_muted = false;
-        self.started_at = Some(Instant::now());
-        self.paused_accum = Duration::ZERO;
-        self.paused_since = None;
+        self.clock = Some(RecordedClock::start(Instant::now()));
+        self.auto_stop_limit =
+            auto_stop_limit(crate::store::GeneralSettings::load().recording_auto_stop_minutes);
         self.start_cue = None;
         if self.mode() == Some(recording::RecordingMode::Studio) {
             crate::app_windows::prewarm_shared_wgpu_device(cx);
         }
         self.monitor_storage(project_dir, cx);
+        self.monitor_auto_stop(cx);
         self.monitor_input(InputKind::Camera, cx);
         self.monitor_input(InputKind::Microphone, cx);
         self.monitor_recording_failure(done, cx);
@@ -1146,11 +1150,45 @@ impl RecordingSession {
 
     fn stop_recording_monitors(&mut self, cx: &mut Context<Self>) {
         self.storage_monitor = None;
+        self.auto_stop_monitor = None;
         self.camera_monitor = None;
         self.microphone_monitor = None;
         self.mic_disconnected = false;
         self.changing_input = false;
         set_camera_disconnected(false, cx);
+    }
+
+    fn monitor_auto_stop(&mut self, cx: &mut Context<Self>) {
+        self.auto_stop_monitor = None;
+        if self.auto_stop_limit.is_none() {
+            return;
+        }
+        let generation = self.recording_generation;
+        self.auto_stop_monitor = Some(cx.spawn(async move |this, cx| {
+            loop {
+                let wait = this
+                    .update(cx, |this, cx| {
+                        if !matches!(this.phase, Phase::Recording { .. })
+                            || this.recording_generation != generation
+                        {
+                            return None;
+                        }
+                        let left = auto_stop_time_left(this.auto_stop_limit, this.elapsed())?;
+                        if left.is_zero() {
+                            tracing::info!("auto-stop limit reached; stopping the recording");
+                            this.stop(cx);
+                            return None;
+                        }
+                        Some(left.max(Duration::from_millis(20)))
+                    })
+                    .ok()
+                    .flatten();
+                let Some(wait) = wait else {
+                    return;
+                };
+                cx.background_executor().timer(wait).await;
+            }
+        }));
     }
 
     fn monitor_storage(&mut self, project_dir: std::path::PathBuf, cx: &mut Context<Self>) {
@@ -1468,12 +1506,12 @@ impl RecordingSession {
                 if let Some(paused) = outcome.paused {
                     let was_paused = this.is_paused();
                     this.phase = Phase::Recording { paused };
-                    if was_paused && !paused {
-                        if let Some(since) = this.paused_since.take() {
-                            this.paused_accum += since.elapsed();
+                    if let Some(clock) = this.clock.as_mut() {
+                        if was_paused && !paused {
+                            clock.resume(Instant::now());
+                        } else if !was_paused && paused {
+                            clock.pause(Instant::now());
                         }
-                    } else if !was_paused && paused {
-                        this.paused_since = Some(Instant::now());
                     }
                 }
                 if this.pause_control_error.is_some() && this.error == this.pause_control_error {
@@ -1553,7 +1591,7 @@ impl RecordingSession {
             self.failure_monitor = None;
         }
         self.phase = Phase::Starting;
-        self.started_at = None;
+        self.clock = None;
         cx.notify();
 
         let task = gpui_tokio::Tokio::spawn(cx, active.cancel_and_delete());
@@ -1664,9 +1702,8 @@ impl RecordingSession {
         self.mic_muted = false;
         self.storage_warning = false;
         self.stopped_elapsed = None;
-        self.started_at = None;
-        self.paused_accum = Duration::ZERO;
-        self.paused_since = None;
+        self.clock = None;
+        self.auto_stop_limit = None;
         cx.notify();
     }
 }
