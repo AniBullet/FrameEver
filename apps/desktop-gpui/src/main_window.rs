@@ -846,6 +846,7 @@ pub struct MainWindow {
     /// The real field. `ui::TextInputState` owns the caret, the selection and
     /// the clipboard; this window owns what Escape means.
     search_input: Entity<ui::TextInputState>,
+    palette: crate::command_palette::view::Slot,
     _search_events: gpui::Subscription,
     _library_name_events: gpui::Subscription,
     /// True until the background enumeration has reported back, so the panel can
@@ -1121,6 +1122,7 @@ impl MainWindow {
             panel: None,
             search: String::new(),
             search_input,
+            palette: Default::default(),
             _search_events: search_events,
             _library_name_events: library_name_events,
             shell: Shell::launch(crate::store::load().main_window),
@@ -2811,6 +2813,11 @@ impl Render for MainWindow {
         div()
             .track_focus(&self.focus_handle)
             .key_context("MainWindow")
+            .on_action(cx.listener(
+                |this, _: &crate::command_palette::view::Toggle, window, cx| {
+                    this.toggle_palette(window, cx);
+                },
+            ))
             .on_action(cx.listener(|this, _: &ToggleLibrary, window, cx| {
                 this.toggle_library(window, cx);
             }))
@@ -2965,6 +2972,7 @@ impl Render for MainWindow {
                 this.children(self.render_library_undo(cx))
                     .children(self.render_library_dialog(cx))
             })
+            .children(self.palette.view())
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" && this.dismiss_main(false, window, cx) {
                     cx.stop_propagation();
@@ -3874,6 +3882,45 @@ impl MainWindow {
 
     pub fn is_compact(&self) -> bool {
         self.shell.is_compact()
+    }
+
+    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::command_palette::{Surface, view};
+        if self.library.dialog_open() {
+            return;
+        }
+        let surface = if self.shell.shows_library() {
+            Surface::Library
+        } else {
+            Surface::Recorder
+        };
+        let mut slot = std::mem::take(&mut self.palette);
+        view::toggle(&mut slot, surface, Self::on_palette_event, window, cx);
+        self.palette = slot;
+    }
+
+    fn on_palette_event(
+        &mut self,
+        palette: &Entity<crate::command_palette::view::CommandPalette>,
+        event: &crate::command_palette::view::PaletteEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::command_palette::{Command, view};
+        self.palette.close(window, cx);
+        cx.notify();
+        let view::PaletteEvent::Chosen(outcome) = event else {
+            return;
+        };
+        match view::act(palette, outcome, cx) {
+            Some(Command::StartRecording) => self.start_recording(window, cx),
+            Some(Command::BackToRecording) => self.collapse_library(window, cx),
+            Some(Command::ExportSelection) => self.export_library_selection(window, cx),
+            Some(Command::GridView) => self.show_library_as(ViewMode::Grid, cx),
+            Some(Command::ListView) => self.show_library_as(ViewMode::List, cx),
+            Some(Command::RefreshLibrary) => self.refresh_library(window, cx),
+            _ => {}
+        }
     }
 
     pub fn expand_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {

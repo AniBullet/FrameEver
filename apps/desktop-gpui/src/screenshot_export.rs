@@ -6,6 +6,7 @@ use frameever_project::{Annotation, AnnotationType, ProjectConfiguration};
 use crate::i18n::t;
 use crate::screenshot_annotations::{self as annotations, Rect};
 use crate::screenshot_editor::has_no_visible_background;
+use crate::screenshot_images::{ExportImage, ExportImages};
 use crate::screenshot_shapes::{self as shapes, Seg, ShapeOp};
 
 /// One export-resolution GPU render, plus the size the *preview* renders the
@@ -161,6 +162,14 @@ pub fn export_bounds(scaled: &[Annotation], canvas: (u32, u32)) -> ExportBounds 
 }
 
 pub fn composite(raw: &RawFrame, config: &ProjectConfiguration) -> Composited {
+    composite_with_images(raw, config, &ExportImages::new())
+}
+
+pub fn composite_with_images(
+    raw: &RawFrame,
+    config: &ProjectConfiguration,
+    images: &ExportImages,
+) -> Composited {
     let width = raw.width.max(1);
     let height = raw.height.max(1);
     if config.annotations.is_empty() && raw.rgba.len() == width as usize * height as usize * 4 {
@@ -217,6 +226,7 @@ pub fn composite(raw: &RawFrame, config: &ProjectConfiguration) -> Composited {
         rgba: backdrop_pixels.as_deref(),
         size: (width, height),
         origin,
+        images,
     };
     if fits_frame {
         draw_annotations_onto(&mut canvas, width, height, &scaled, &backdrop((0., 0.)));
@@ -347,6 +357,16 @@ struct Backdrop<'a> {
     rgba: Option<&'a [u8]>,
     size: (u32, u32),
     origin: (f64, f64),
+    images: &'a ExportImages,
+}
+
+fn image_pixmap(image: &ExportImage) -> Option<tiny_skia::Pixmap> {
+    let mut rgba = image.rgba.clone();
+    pixels::premultiply(&mut rgba);
+    tiny_skia::Pixmap::from_vec(
+        rgba,
+        tiny_skia::IntSize::from_wh(image.width, image.height)?,
+    )
 }
 
 impl Backdrop<'_> {
@@ -484,6 +504,39 @@ fn draw_op(
                 tiny_skia::FilterQuality::Bilinear,
                 1.,
                 tiny_skia::Transform::from_row(zoom, 0., 0., zoom, cx - zoom * sx, cy - zoom * sy),
+            );
+            let paint = tiny_skia::Paint {
+                shader: pattern,
+                anti_alias: true,
+                ..tiny_skia::Paint::default()
+            };
+            pixmap.fill_path(&path, &paint, tiny_skia::FillRule::Winding, transform, None);
+        }
+        ShapeOp::Image {
+            rect,
+            radius,
+            alpha,
+            file,
+        } => {
+            let Some(image) = backdrop.images.get(file).and_then(image_pixmap) else {
+                return;
+            };
+            let Some(path) = skia_path(&shapes::rounded_rect_path(*rect, *radius)) else {
+                return;
+            };
+            let pattern = tiny_skia::Pattern::new(
+                image.as_ref(),
+                tiny_skia::SpreadMode::Pad,
+                tiny_skia::FilterQuality::Bilinear,
+                *alpha,
+                tiny_skia::Transform::from_row(
+                    (rect.width / f64::from(image.width())) as f32,
+                    0.,
+                    0.,
+                    (rect.height / f64::from(image.height())) as f32,
+                    rect.x as f32,
+                    rect.y as f32,
+                ),
             );
             let paint = tiny_skia::Paint {
                 shader: pattern,
@@ -811,15 +864,123 @@ mod tests {
             font_size: None,
             tail: None,
             zoom: None,
+            image: None,
+            corner_radius: None,
         }
     }
 
     fn no_backdrop(width: u32, height: u32) -> Backdrop<'static> {
+        static NO_IMAGES: std::sync::LazyLock<ExportImages> =
+            std::sync::LazyLock::new(ExportImages::new);
         Backdrop {
             rgba: None,
             size: (width, height),
             origin: (0., 0.),
+            images: &NO_IMAGES,
         }
+    }
+
+    fn red_image(width: u32, height: u32) -> ExportImages {
+        let mut images = ExportImages::new();
+        images.insert(
+            "images/red.png".into(),
+            ExportImage {
+                rgba: [255, 0, 0, 255].repeat((width * height) as usize),
+                width,
+                height,
+            },
+        );
+        images
+    }
+
+    fn pixel_at(out: &Composited, x: u32, y: u32) -> [u8; 4] {
+        let at = ((y * out.width + x) * 4) as usize;
+        out.rgba[at..at + 4].try_into().unwrap()
+    }
+
+    #[test]
+    fn an_added_image_lands_where_the_preview_draws_it_with_its_opacity_and_corners() {
+        let raw = RawFrame {
+            rgba: [0, 0, 255, 255].repeat(40 * 20),
+            width: 40,
+            height: 20,
+            base_width: 20,
+            base_height: 10,
+        };
+        let mut config = ProjectConfiguration::default();
+        let mut image =
+            crate::screenshot_annotations::new_image_annotation("images/red.png".into());
+        image.x = 5.;
+        image.y = 2.;
+        image.width = 10.;
+        image.height = 6.;
+        image.corner_radius = Some(2.);
+        image.opacity = 0.5;
+        config.annotations.push(image.clone());
+
+        let preview_rect = match &shapes::shape_ops(
+            &image,
+            Rect {
+                x: 0.,
+                y: 0.,
+                width: 20.,
+                height: 10.,
+            },
+        )[..]
+        {
+            [
+                ShapeOp::Image {
+                    rect,
+                    radius,
+                    alpha,
+                    ..
+                },
+            ] => {
+                assert_eq!((*radius, *alpha), (2., 0.5));
+                *rect
+            }
+            ops => panic!("{ops:?}"),
+        };
+        assert_eq!(
+            preview_rect,
+            Rect {
+                x: 5.,
+                y: 2.,
+                width: 10.,
+                height: 6.
+            }
+        );
+
+        let out = composite_with_images(&raw, &config, &red_image(3, 3));
+        assert_eq!((out.width, out.height), (40, 20));
+        let inside = pixel_at(&out, 20, 10);
+        assert!((126..=129).contains(&inside[0]), "{inside:?}");
+        assert!((126..=129).contains(&inside[2]), "{inside:?}");
+        assert_eq!(pixel_at(&out, 9, 3), [0, 0, 255, 255]);
+        assert_eq!(pixel_at(&out, 30, 10), [0, 0, 255, 255]);
+        assert_eq!(pixel_at(&out, 10, 4), [0, 0, 255, 255]);
+        assert_ne!(pixel_at(&out, 12, 8), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn an_image_whose_file_is_missing_draws_nothing() {
+        let raw = RawFrame {
+            rgba: [0, 0, 255, 255].repeat(4),
+            width: 2,
+            height: 2,
+            base_width: 2,
+            base_height: 2,
+        };
+        let mut config = ProjectConfiguration::default();
+        let mut image =
+            crate::screenshot_annotations::new_image_annotation("images/gone.png".into());
+        image.width = 2.;
+        image.height = 2.;
+        config.annotations.push(image);
+        assert_eq!(
+            composite_with_images(&raw, &config, &red_image(1, 1)).rgba,
+            raw.rgba
+        );
     }
 
     fn invisible_background(config: &mut ProjectConfiguration) {

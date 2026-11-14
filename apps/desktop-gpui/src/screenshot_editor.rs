@@ -199,88 +199,131 @@ pub async fn run_still_renderer(
     frame_tx: flume::Sender<(RenderedFrame, u64)>,
     setup_tx: flume::Sender<Result<(), String>>,
 ) {
-    let options = RenderOptions {
-        screen_size: frameever_project::XY::new(source.width, source.height),
-        camera_size: None,
-        preserve_screen_alpha: true,
-    };
+    let original = Arc::new(source.rgba);
+    let original_size = (source.width, source.height);
+    let mut update = config_rx.borrow_and_update().clone();
+    let mut setup_tx = Some(setup_tx);
+    let mut waiting: Option<ExportRequest> = None;
 
-    let constants = match match crate::app_windows::shared_wgpu_device().await {
-        Some(shared) => Ok(RenderVideoConstants::from_shared_device(
-            shared,
-            options,
-            source.studio_meta,
-            source.meta,
-            Arc::new(frameever_rendering::BackgroundTextureCache::default()),
-        )),
-        None => {
-            RenderVideoConstants::new_with_options(options, source.meta, source.studio_meta).await
+    'source: loop {
+        let cuts = match &waiting {
+            Some(ExportRequest::Render { config, .. }) => config.image_cuts.clone(),
+            None => update.config.image_cuts.clone(),
+        };
+        let (rgba, (width, height)) =
+            crate::screenshot_cut::cut_source(&original, original_size, &cuts);
+        let options = RenderOptions {
+            screen_size: frameever_project::XY::new(width, height),
+            camera_size: None,
+            preserve_screen_alpha: true,
+        };
+
+        let constants = match match crate::app_windows::shared_wgpu_device().await {
+            Some(shared) => Ok(RenderVideoConstants::from_shared_device(
+                shared,
+                options,
+                source.studio_meta.clone(),
+                source.meta.clone(),
+                Arc::new(frameever_rendering::BackgroundTextureCache::default()),
+            )),
+            None => {
+                RenderVideoConstants::new_with_options(
+                    options,
+                    source.meta.clone(),
+                    source.studio_meta.clone(),
+                )
+                .await
+            }
+        } {
+            Ok(constants) => constants,
+            Err(error) => {
+                let message = t!("The GPU renderer failed to start: {error}", error = error);
+                match setup_tx.take() {
+                    Some(setup_tx) => {
+                        let _ = setup_tx.send(Err(message));
+                    }
+                    None => tracing::error!("{message}"),
+                }
+                return;
+            }
+        };
+        if let Some(setup_tx) = setup_tx.take() {
+            let _ = setup_tx.send(Ok(()));
         }
-    } {
-        Ok(constants) => constants,
-        Err(error) => {
-            let _ = setup_tx.send(Err(t!(
-                "The GPU renderer failed to start: {error}",
-                error = error
-            )));
-            return;
-        }
-    };
-    let _ = setup_tx.send(Ok(()));
 
-    let decoded = DecodedFrame::new_with_arc(Arc::new(source.rgba), source.width, source.height);
+        let decoded = DecodedFrame::new_with_arc(rgba, width, height);
 
-    let mut frame_renderer = FrameRenderer::new(&constants);
-    let mut layers = RendererLayers::new_with_options(
-        &constants.device,
-        &constants.queue,
-        constants.is_software_adapter,
-    );
+        let mut frame_renderer = FrameRenderer::new(&constants);
+        let mut layers = RendererLayers::new_with_options(
+            &constants.device,
+            &constants.queue,
+            constants.is_software_adapter,
+        );
 
-    let mut dirty = true;
-    loop {
-        if dirty {
-            dirty = false;
-            let update = config_rx.borrow_and_update().clone();
-            match render_still(
+        if let Some(ExportRequest::Render { config, reply }) = waiting.take() {
+            let result = render_export_rgba(
                 &constants,
                 &mut frame_renderer,
                 &mut layers,
                 &decoded,
-                &update.config,
-                None,
+                &config,
             )
-            .await
-            {
-                Ok(frame) => {
-                    if frame_tx.send_async((frame, update.revision)).await.is_err() {
-                        break;
-                    }
-                }
-                Err(error) => tracing::error!("screenshot render failed: {error}"),
-            }
+            .await;
+            let _ = reply.send(result);
         }
 
-        tokio::select! {
-            changed = config_rx.changed() => {
-                if changed.is_err() {
-                    break;
+        let mut dirty = true;
+        loop {
+            if dirty {
+                dirty = false;
+                update = config_rx.borrow_and_update().clone();
+                if update.config.image_cuts != cuts {
+                    continue 'source;
                 }
-                dirty = true;
-            }
-            request = export_rx.recv() => {
-                let Some(ExportRequest::Render { config, reply }) = request else {
-                    break;
-                };
-                let result = render_export_rgba(
+                match render_still(
                     &constants,
                     &mut frame_renderer,
                     &mut layers,
                     &decoded,
-                    &config,
+                    &update.config,
+                    None,
                 )
-                .await;
-                let _ = reply.send(result);
+                .await
+                {
+                    Ok(frame) => {
+                        if frame_tx.send_async((frame, update.revision)).await.is_err() {
+                            return;
+                        }
+                    }
+                    Err(error) => tracing::error!("screenshot render failed: {error}"),
+                }
+            }
+
+            tokio::select! {
+                changed = config_rx.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    dirty = true;
+                }
+                request = export_rx.recv() => {
+                    let Some(ExportRequest::Render { config, reply }) = request else {
+                        return;
+                    };
+                    if config.image_cuts != cuts {
+                        waiting = Some(ExportRequest::Render { config, reply });
+                        continue 'source;
+                    }
+                    let result = render_export_rgba(
+                        &constants,
+                        &mut frame_renderer,
+                        &mut layers,
+                        &decoded,
+                        &config,
+                    )
+                    .await;
+                    let _ = reply.send(result);
+                }
             }
         }
     }
@@ -468,6 +511,11 @@ impl PendingConfigSave {
         let (Some(path), Some(config)) = (self.path.clone(), self.config.take()) else {
             return;
         };
+        if crate::screenshot_cut::uses_current_format(&config)
+            && let Err(error) = frameever_utils::storage::stamp_format_version(&path)
+        {
+            tracing::error!(path = %path.display(), "failed to stamp the project format: {error}");
+        }
         match config.write(&path) {
             Ok(()) => tracing::debug!(path = %path.display(), "screenshot config written"),
             Err(error) => {
@@ -865,6 +913,7 @@ pub struct ScreenshotEditorWindow {
     /// `originalImageSize` -- the source PNG's dimensions, which the crop
     /// button gates on and the frame-space transform needs.
     pub(crate) image_size: Option<(u32, u32)>,
+    original_size: Option<(u32, u32)>,
     /// `prevState` in the resize effect (`context.tsx:465-472`).
     previous_transform: Option<((f32, f32), annotations::ImageTransform)>,
     /// `isRenderReady`: the skeleton stands in until the first frame lands.
@@ -907,6 +956,7 @@ pub struct ScreenshotEditorWindow {
     checker: Option<Arc<RenderImage>>,
 
     toasts: Vec<Toast>,
+    palette: crate::command_palette::view::Slot,
     next_toast: u64,
     toast_tasks: HashMap<u64, gpui::Task<()>>,
     pub(crate) focus: gpui::FocusHandle,
@@ -949,6 +999,7 @@ impl ScreenshotEditorWindow {
             mask_frame_revision: 0,
             frame_size: (1., 1.),
             image_size: None,
+            original_size: None,
             previous_transform: None,
             ready: false,
             pending_save: Rc::new(RefCell::new(PendingConfigSave::default())),
@@ -995,6 +1046,7 @@ impl ScreenshotEditorWindow {
             next_toast: 0,
             toast_tasks: HashMap::new(),
             focus: cx.focus_handle(),
+            palette: Default::default(),
         };
 
         for target in HexTarget::ALL {
@@ -1040,7 +1092,11 @@ impl ScreenshotEditorWindow {
         self.history = ProjectHistory::new(config.clone());
         self.project = config;
         self.render_gate = RenderInputGate::published(&mut self.project);
-        self.image_size = Some(image_size);
+        self.original_size = Some(image_size);
+        self.image_size = Some(crate::screenshot_cut::cut_size(
+            image_size,
+            &self.project.image_cuts,
+        ));
         self.config_tx = Some(config_tx);
         self.export_tx = Some(export_tx);
         self.pending_save.borrow_mut().path = Some(self.bundle.clone());
@@ -1048,6 +1104,7 @@ impl ScreenshotEditorWindow {
             self.ensure_wallpapers(cx);
         }
         self.ensure_background_image(window, cx);
+        self.ensure_annotation_images(window, cx);
         if let Ok(dest) = std::env::var("FRAMEEVER_GPUI_AUTO_SCREENSHOT_EXPORT")
             && !dest.trim().is_empty()
         {
@@ -1178,6 +1235,48 @@ impl ScreenshotEditorWindow {
 
     // -- History ---------------------------------------------------------------
 
+    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::command_palette::{Surface, view};
+        if self.crop.is_some() {
+            return;
+        }
+        let mut slot = std::mem::take(&mut self.palette);
+        view::toggle(
+            &mut slot,
+            Surface::ScreenshotEditor,
+            Self::on_palette_event,
+            window,
+            cx,
+        );
+        self.palette = slot;
+    }
+
+    fn on_palette_event(
+        &mut self,
+        palette: &Entity<crate::command_palette::view::CommandPalette>,
+        event: &crate::command_palette::view::PaletteEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::command_palette::{Command, view};
+        self.palette.close(window, cx);
+        cx.notify();
+        let view::PaletteEvent::Chosen(outcome) = event else {
+            return;
+        };
+        match view::act(palette, outcome, cx) {
+            Some(Command::CopyScreenshot) => {
+                self.export_image(ExportDestination::Clipboard, window, cx);
+            }
+            Some(Command::SaveScreenshot) => {
+                self.export_image(ExportDestination::File, window, cx);
+            }
+            Some(Command::Undo) => self.undo(window, cx),
+            Some(Command::Redo) => self.redo(window, cx),
+            _ => {}
+        }
+    }
+
     fn undo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(config) = self.history.undo().cloned() else {
             return;
@@ -1198,6 +1297,15 @@ impl ScreenshotEditorWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(original) = self.original_size {
+            let image = crate::screenshot_cut::cut_size(original, &config.image_cuts);
+            if self.image_size != Some(image) {
+                let layout = crate::screenshot_cut::layout(image, &config);
+                self.image_size = Some(image);
+                self.frame_size = layout.frame_size;
+                self.previous_transform = Some((layout.frame_size, layout.transform));
+            }
+        }
         self.project = config;
         self.bg_tab = BgTab::for_source(&self.project.background.source);
         if let Some(id) = &self.selected_annotation
@@ -1210,10 +1318,81 @@ impl ScreenshotEditorWindow {
             self.selected_annotation = None;
         }
         self.ensure_background_image(window, cx);
+        self.ensure_annotation_images(window, cx);
         self.publish();
         self.schedule_save(window, cx);
         self.refresh_mask_overlays(window, cx);
         cx.notify();
+    }
+
+    pub(crate) fn apply_cut(
+        &mut self,
+        band: crate::screenshot_cut::FrameBand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tool = Tool::Select;
+        let Some(image) = self.image_size else {
+            cx.notify();
+            return;
+        };
+        let transform = annotations::calculate_image_transform(
+            (f64::from(self.frame_size.0), f64::from(self.frame_size.1)),
+            (f64::from(image.0), f64::from(image.1)),
+            self.project.background.padding,
+            self.project.background.crop.as_ref(),
+            self.project.aspect_ratio.as_ref(),
+        );
+        let mut next = self.project.clone();
+        let Some(after) = crate::screenshot_cut::cut_project(&mut next, image, &transform, band)
+        else {
+            cx.notify();
+            return;
+        };
+        self.selected_annotation = None;
+        self.image_size = Some(after.image_size);
+        self.frame_size = after.frame_size;
+        self.previous_transform = Some((after.frame_size, after.transform));
+        self.edit_project(
+            move |project| {
+                *project = next;
+                true
+            },
+            window,
+            cx,
+        );
+    }
+
+    fn cut_with_keyboard(&mut self, rows: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let content = self.annotation_image_rect();
+        let (start, extent) = if rows {
+            (content.y, content.height)
+        } else {
+            (content.x, content.width)
+        };
+        let length = crate::screenshot_cut::CLICK_BAND.min(extent / 2.);
+        self.apply_cut(
+            crate::screenshot_cut::FrameBand {
+                axis: if rows {
+                    frameever_project::ImageCutAxis::Rows
+                } else {
+                    frameever_project::ImageCutAxis::Columns
+                },
+                start: start + (extent - length) / 2.,
+                length,
+            },
+            window,
+            cx,
+        );
+    }
+
+    fn choose_tool(&mut self, tool: Tool, window: &mut Window, cx: &mut Context<Self>) {
+        if tool == Tool::Image {
+            self.set_tool(Tool::Select, cx);
+            self.pick_annotation_image(false, window, cx);
+            return;
+        }
+        self.set_tool(tool, cx);
     }
 
     // -- Toasts -----------------------------------------------------------------
@@ -1276,7 +1455,7 @@ impl ScreenshotEditorWindow {
         cx.notify();
     }
 
-    fn toast_error(
+    pub(crate) fn toast_error(
         &mut self,
         message: impl Into<String>,
         window: &mut Window,
@@ -1883,6 +2062,7 @@ impl ScreenshotEditorWindow {
 
         let config = self.project.clone();
         let name = self.pretty_name.clone();
+        let bundle = self.bundle.clone();
         cx.spawn_in(window, async move |this, cx| {
             let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
             let request = ExportRequest::Render {
@@ -1907,7 +2087,13 @@ impl ScreenshotEditorWindow {
                     Ok(cx
                         .background_executor()
                         .spawn(async move {
-                            crate::screenshot_export::composite(&raw, &composite_config)
+                            let images =
+                                crate::screenshot_images::export_images(&bundle, &composite_config);
+                            crate::screenshot_export::composite_with_images(
+                                &raw,
+                                &composite_config,
+                                &images,
+                            )
                         })
                         .await)
                 }
@@ -2324,7 +2510,9 @@ impl ScreenshotEditorWindow {
                 }
                 "v" => {
                     cx.stop_propagation();
-                    self.paste_annotation(window, cx);
+                    if !self.paste_clipboard_image(window, cx) {
+                        self.paste_annotation(window, cx);
+                    }
                 }
                 "s" => {
                     cx.stop_propagation();
@@ -2342,12 +2530,21 @@ impl ScreenshotEditorWindow {
             }
             return;
         }
+        if self.tool == Tool::Cut
+            && key == "enter"
+            && !modifiers.alt
+            && (self.focus.is_focused(window) || window.focused(cx).is_none())
+        {
+            cx.stop_propagation();
+            self.cut_with_keyboard(modifiers.shift, window, cx);
+            return;
+        }
         if modifiers.shift || modifiers.alt {
             return;
         }
 
         if let Some(tool) = Tool::for_key(key) {
-            self.set_tool(tool, cx);
+            self.choose_tool(tool, window, cx);
             if tool == Tool::Select {
                 self.selected_annotation = None;
                 cx.notify();
@@ -2419,9 +2616,9 @@ impl ScreenshotEditorWindow {
                     tool.title(),
                     tool.shortcut(),
                     self.tool == tool,
-                    cx.listener(move |this, _, _window, cx| {
+                    cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
-                        this.set_tool(tool, cx);
+                        this.choose_tool(tool, window, cx);
                     }),
                 )
             }));
@@ -2594,6 +2791,21 @@ impl ScreenshotEditorWindow {
                     .on_click(cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
                         this.open_crop_dialog(window, cx);
+                    })),
+            )
+            .child(
+                ui::EditorButton::plain(&theme, "screenshot-cut")
+                    .left_icon(Tool::Cut.icon())
+                    .label(t!("Cut out"))
+                    .disabled(!crop_enabled)
+                    .pressed(self.tool == Tool::Cut)
+                    .tooltip(
+                        &theme,
+                        format!("{}  {}", t!("Cut out"), Tool::Cut.shortcut()),
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.choose_tool(Tool::Cut, window, cx);
                     })),
             )
             .child(div().flex_1().min_w(px(12.)))
@@ -3780,6 +3992,11 @@ impl ScreenshotEditorWindow {
                     .on_scroll(cx.listener(|this, event: &gpui::ScrollEvent, window, cx| {
                         this.preview_wheel(event, window, cx);
                     }))
+                    .on_drop(
+                        cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
+                            this.drop_image_files(paths, window, cx);
+                        }),
+                    )
                     .on_pinch(cx.listener(|this, event: &gpui::PinchEvent, window, cx| {
                         this.preview_pinch(event, window, cx);
                     }))
@@ -4020,6 +4237,11 @@ impl Render for ScreenshotEditorWindow {
             .id("screenshot-editor-root")
             .track_focus(&self.focus)
             .key_context("ScreenshotEditor")
+            .on_action(cx.listener(
+                |this, _: &crate::command_palette::view::Toggle, window, cx| {
+                    this.toggle_palette(window, cx);
+                },
+            ))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 this.on_key(event, window, cx);
             }))
@@ -4081,6 +4303,7 @@ impl Render for ScreenshotEditorWindow {
             .children(self.render_crop_dialog_overlay(cx))
             .children(self.render_crop_dialog_drag_layer(cx))
             .children(self.render_toasts())
+            .children(self.palette.view())
             .when_some(self.active_slider, |root, slider| {
                 root.child(ui::Slider::drag_layer(
                     "screenshot-slider-drag",
@@ -4515,6 +4738,41 @@ mod tests {
     /// The checkerboard is one 240x240 tile of 10px cells -- an even number of
     /// cells per axis, so tiling it leaves no seam.
     #[test]
+    fn saving_a_cut_moves_an_older_project_to_the_current_format() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = dir.path().join("Shot.ever");
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(bundle.join("frameever.json"), br#"{"formatVersion":1}"#).unwrap();
+
+        let mut pending = PendingConfigSave {
+            path: Some(bundle.clone()),
+            config: Some(ProjectConfiguration::default()),
+        };
+        pending.flush();
+        assert_eq!(frameever_utils::storage::format_version(&bundle), Some(1));
+
+        let mut config = ProjectConfiguration::default();
+        config.image_cuts.push(frameever_project::ImageCut {
+            axis: frameever_project::ImageCutAxis::Rows,
+            start: 1,
+            length: 2,
+        });
+        pending.config = Some(config);
+        pending.flush();
+        assert_eq!(
+            frameever_utils::storage::format_version(&bundle),
+            Some(frameever_utils::storage::FORMAT_VERSION)
+        );
+        assert_eq!(
+            ProjectConfiguration::load(&bundle)
+                .unwrap()
+                .image_cuts
+                .len(),
+            1
+        );
+    }
+
+    #[test]
     fn the_checkerboard_tile_repeats_without_a_seam() {
         assert_eq!(CHECKER_TILE % (CHECKER_CELL * 2), 0);
     }
@@ -4708,6 +4966,8 @@ mod tests {
             font_size: None,
             tail: None,
             zoom: None,
+            image: None,
+            corner_radius: None,
         }
     }
 

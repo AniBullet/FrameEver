@@ -172,7 +172,7 @@ pub fn is_project(path: &Path) -> bool {
             .is_some_and(|extension| extension == crate::brand::PROJECT_EXTENSION)
 }
 
-pub const FORMAT_VERSION: u64 = 1;
+pub const FORMAT_VERSION: u64 = 2;
 const PROJECT_FILE_NAME: &str = "frameever.json";
 const FORMAT_VERSION_KEY: &str = "formatVersion";
 const EXPORTS_KEY: &str = "exports";
@@ -614,7 +614,7 @@ mod tests {
         assert_eq!(second, tree.path("Recordings/Display 2026-10-25 (1).ever"));
         for project in [&first, &second] {
             assert!(is_project(project));
-            assert_eq!(format_version(project), Some(1));
+            assert_eq!(format_version(project), Some(FORMAT_VERSION));
         }
     }
 
@@ -648,7 +648,7 @@ mod tests {
         let document: serde_json::Value =
             serde_json::from_slice(&std::fs::read(project.join("frameever.json")).unwrap())
                 .unwrap();
-        assert_eq!(document["formatVersion"], 1);
+        assert_eq!(document["formatVersion"], FORMAT_VERSION);
         assert_eq!(document["exports"][0]["path"], "D:\\out.mp4");
         assert_eq!(format_version(&tree.dir("Unstamped.ever")), None);
     }
@@ -674,7 +674,7 @@ mod tests {
         record_export(&project, &record).unwrap();
 
         assert_eq!(exports(&project), vec![record]);
-        assert_eq!(format_version(&project), Some(1));
+        assert_eq!(format_version(&project), Some(FORMAT_VERSION));
     }
 
     #[test]
@@ -762,7 +762,7 @@ mod tests {
         remove_export(&project, &moved.path).unwrap();
 
         assert_eq!(export_records(&project), vec![kept]);
-        assert_eq!(format_version(&project), Some(1));
+        assert_eq!(format_version(&project), Some(FORMAT_VERSION));
     }
 
     #[test]

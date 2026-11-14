@@ -106,6 +106,8 @@ pub struct PersistedState {
     pub library: crate::library::view::ViewState,
     #[serde(default)]
     pub library_first_line_shown: bool,
+    #[serde(default)]
+    pub recent_commands: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

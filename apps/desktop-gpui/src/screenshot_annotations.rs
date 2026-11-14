@@ -23,8 +23,9 @@
 // next person would go back to `layout.ts` and re-derive it.
 #![allow(dead_code)]
 
-use std::cell::Cell;
-use std::collections::HashMap;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -69,11 +70,13 @@ pub enum Tool {
     Mask,
     Spotlight,
     Magnifier,
+    Image,
+    Cut,
 }
 
 impl Tool {
     /// Toolbar order (`AnnotationTools.tsx:37-73`).
-    pub const ALL: [Tool; 13] = [
+    pub const ALL: [Tool; 15] = [
         Tool::Select,
         Tool::Draw,
         Tool::Highlighter,
@@ -87,6 +90,8 @@ impl Tool {
         Tool::Mask,
         Tool::Spotlight,
         Tool::Magnifier,
+        Tool::Image,
+        Tool::Cut,
     ];
 
     /// The Lucide glyph each button draws at `size-4`.
@@ -105,6 +110,8 @@ impl Tool {
             Tool::Step => "icons/hash.svg",
             Tool::Spotlight => "icons/flashlight.svg",
             Tool::Magnifier => "icons/zoom-in.svg",
+            Tool::Image => "icons/image-plus.svg",
+            Tool::Cut => "icons/between-vertical-start.svg",
         }
     }
 
@@ -130,6 +137,8 @@ impl Tool {
             Tool::Step => n!("Step number"),
             Tool::Spotlight => n!("Spotlight"),
             Tool::Magnifier => n!("Magnifier"),
+            Tool::Image => n!("Image"),
+            Tool::Cut => n!("Cut out"),
         }
     }
 
@@ -150,6 +159,8 @@ impl Tool {
             Tool::Step => "N",
             Tool::Spotlight => "F",
             Tool::Magnifier => "Z",
+            Tool::Image => "K",
+            Tool::Cut => "X",
         }
     }
 
@@ -165,6 +176,7 @@ impl Tool {
         ],
         &[Tool::Text, Tool::Bubble, Tool::Step],
         &[Tool::Mask, Tool::Spotlight, Tool::Magnifier],
+        &[Tool::Image],
     ];
 
     pub fn for_key(key: &str) -> Option<Tool> {
@@ -182,6 +194,8 @@ impl Tool {
             "n" => Some(Tool::Step),
             "f" => Some(Tool::Spotlight),
             "z" => Some(Tool::Magnifier),
+            "k" => Some(Tool::Image),
+            "x" => Some(Tool::Cut),
             _ => None,
         }
     }
@@ -202,6 +216,7 @@ impl Tool {
             Tool::Step => Some(AnnotationType::Step),
             Tool::Spotlight => Some(AnnotationType::Spotlight),
             Tool::Magnifier => Some(AnnotationType::Magnifier),
+            Tool::Image | Tool::Cut => None,
         }
     }
 }
@@ -221,6 +236,7 @@ pub fn annotation_icon(annotation_type: AnnotationType) -> &'static str {
         AnnotationType::Step => "icons/hash.svg",
         AnnotationType::Spotlight => "icons/flashlight.svg",
         AnnotationType::Magnifier => "icons/zoom-in.svg",
+        AnnotationType::Image => "icons/image.svg",
     }
 }
 
@@ -239,6 +255,7 @@ pub fn annotation_label(annotation_type: AnnotationType) -> &'static str {
         AnnotationType::Step => t!("Step number"),
         AnnotationType::Spotlight => tc!("screenshot tool", "Spotlight"),
         AnnotationType::Magnifier => t!("Magnifier"),
+        AnnotationType::Image => t!("Image"),
     }
 }
 
@@ -1171,6 +1188,10 @@ enum Gesture {
     Move(Dragging),
     /// `dragState.action === "resize"`.
     Resize(Dragging),
+    Cut {
+        start: (f64, f64),
+        end: (f64, f64),
+    },
 }
 
 struct Creating {
@@ -1249,10 +1270,11 @@ enum AnnotationSlider {
     Darkness,
     Zoom,
     BorderWidth,
+    CornerRadius,
 }
 
 impl AnnotationSlider {
-    const ALL: [AnnotationSlider; 9] = [
+    const ALL: [AnnotationSlider; 10] = [
         AnnotationSlider::Width,
         AnnotationSlider::Opacity,
         AnnotationSlider::MaskLevel,
@@ -1262,6 +1284,7 @@ impl AnnotationSlider {
         AnnotationSlider::Darkness,
         AnnotationSlider::Zoom,
         AnnotationSlider::BorderWidth,
+        AnnotationSlider::CornerRadius,
     ];
 
     /// `(min, max, step)` -- `AnnotationConfig.tsx:60-157`.
@@ -1288,6 +1311,11 @@ impl AnnotationSlider {
                 0.5,
             ),
             Self::BorderWidth => (0., 12., 1.),
+            Self::CornerRadius => (
+                shapes::IMAGE_RADIUS_RANGE.0 as f32,
+                shapes::IMAGE_RADIUS_RANGE.1 as f32,
+                1.,
+            ),
         }
     }
 
@@ -1302,6 +1330,7 @@ impl AnnotationSlider {
             Self::Darkness => "darkness",
             Self::Zoom => "zoom",
             Self::BorderWidth => "border-width",
+            Self::CornerRadius => "corner-radius",
         }
     }
 
@@ -1316,6 +1345,7 @@ impl AnnotationSlider {
             Self::Darkness => annotation.opacity as f32,
             Self::Zoom => shapes::magnifier_zoom(annotation) as f32,
             Self::BorderWidth => annotation.stroke_width as f32,
+            Self::CornerRadius => annotation.corner_radius.unwrap_or(0.) as f32,
         }
     }
 
@@ -1338,6 +1368,14 @@ impl AnnotationSlider {
                     return false;
                 }
                 *size = value;
+                return true;
+            }
+            Self::CornerRadius => {
+                let radius = annotation.corner_radius.get_or_insert(0.);
+                if *radius == value {
+                    return false;
+                }
+                *radius = value;
                 return true;
             }
             Self::Zoom => {
@@ -1405,6 +1443,11 @@ pub struct AnnotationState {
     masks: Vec<MaskEntry<MaskOverlay>>,
     mask_pending: Option<Vec<MaskRequest>>,
     mask_task: Option<gpui::Task<()>>,
+    image_sources: HashMap<String, Arc<image::RgbaImage>>,
+    image_loading: HashSet<String>,
+    faded_images: RefCell<HashMap<String, (String, u32, Arc<RenderImage>)>>,
+    stale_images: RefCell<Vec<Arc<RenderImage>>>,
+    clipboard_image_at_copy: Option<u64>,
 }
 
 /// One paint of the layer, copied out of the window so the closure owns it.
@@ -1422,6 +1465,9 @@ struct LayerPaint {
     select_tool: bool,
     scale: f32,
     handle_size: f64,
+    images: HashMap<String, Arc<RenderImage>>,
+    stale_images: Vec<Arc<RenderImage>>,
+    cut_band: Option<Rect>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1704,6 +1750,14 @@ impl ScreenshotEditorWindow {
         if self.tool == Tool::Select {
             return self.begin_select_gesture(point, event.click_count, window, cx);
         }
+        if self.tool == Tool::Cut {
+            self.annotation_state.gesture = Some(Gesture::Cut {
+                start: point,
+                end: point,
+            });
+            cx.notify();
+            return true;
+        }
         self.begin_create(self.tool, point, cx);
         true
     }
@@ -1848,6 +1902,8 @@ impl ScreenshotEditorWindow {
             font_size: None,
             tail: None,
             zoom: None,
+            image: None,
+            corner_radius: None,
         };
         shapes::apply_defaults(&mut annotation, &self.project.annotations);
 
@@ -1890,6 +1946,7 @@ impl ScreenshotEditorWindow {
                 self.drag_resize(&dragging, point, shift);
                 Gesture::Resize(dragging)
             }
+            Gesture::Cut { start, .. } => Gesture::Cut { start, end: point },
         };
         self.annotation_state.gesture = Some(gesture);
         self.refresh_mask_overlays(window, cx);
@@ -2122,6 +2179,13 @@ impl ScreenshotEditorWindow {
             Gesture::Move(dragging) | Gesture::Resize(dragging) => {
                 self.finish_drag(dragging, window, cx)
             }
+            Gesture::Cut { start, end } => {
+                self.apply_cut(
+                    crate::screenshot_cut::band_from_drag(start, end),
+                    window,
+                    cx,
+                );
+            }
         }
         true
     }
@@ -2300,12 +2364,246 @@ impl ScreenshotEditorWindow {
 
     /// `Editor.tsx:72-81` -- Cmd-C over a selected annotation copies it instead
     /// of exporting the screenshot.
-    pub(crate) fn copy_selected_annotation(&mut self, _cx: &mut Context<Self>) -> bool {
+    pub(crate) fn copy_selected_annotation(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(annotation) = self.selected().cloned() else {
             return false;
         };
         self.annotation_state.clipboard = Some(annotation);
+        self.annotation_state.clipboard_image_at_copy = clipboard_image(cx).map(|image| image.id);
         true
+    }
+
+    pub(crate) fn paste_clipboard_image(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(item) = cx.read_from_clipboard() else {
+            return false;
+        };
+        for entry in item.entries() {
+            match entry {
+                gpui::ClipboardEntry::Image(image) => {
+                    if self.annotation_state.clipboard.is_some()
+                        && self.annotation_state.clipboard_image_at_copy == Some(image.id)
+                    {
+                        return false;
+                    }
+                    self.import_image(ImageSource::Bytes(image.bytes.clone()), window, cx);
+                    return true;
+                }
+                gpui::ClipboardEntry::ExternalPaths(paths) => {
+                    if let Some(path) = paths
+                        .paths()
+                        .iter()
+                        .find(|path| crate::screenshot_images::is_image_path(path))
+                    {
+                        self.import_image(ImageSource::File(path.clone()), window, cx);
+                        return true;
+                    }
+                }
+                gpui::ClipboardEntry::String(_) => {}
+            }
+        }
+        false
+    }
+
+    pub(crate) fn drop_image_files(
+        &mut self,
+        paths: &gpui::ExternalPaths,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = paths
+            .paths()
+            .iter()
+            .find(|path| crate::screenshot_images::is_image_path(path))
+        {
+            self.import_image(ImageSource::File(path.clone()), window, cx);
+        }
+    }
+
+    pub(crate) fn pick_annotation_image(
+        &mut self,
+        replace: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let target = if replace {
+            match self.selected_annotation.clone() {
+                Some(id) => Some(id),
+                None => return,
+            }
+        } else {
+            None
+        };
+        if self.frame.is_none() {
+            return;
+        }
+        let bundle = self.bundle.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(path) =
+                crate::platform::open_image_panel(&crate::screenshot_images::IMAGE_EXTENSIONS)
+            else {
+                return;
+            };
+            let imported = cx
+                .background_executor()
+                .spawn(async move { crate::screenshot_images::import_file(&bundle, &path) })
+                .await;
+            this.update_in(cx, |this, window, cx| {
+                this.image_imported(imported, target, window, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn import_image(&mut self, source: ImageSource, window: &mut Window, cx: &mut Context<Self>) {
+        if self.frame.is_none() {
+            return;
+        }
+        let bundle = self.bundle.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let imported = cx
+                .background_executor()
+                .spawn(async move {
+                    match source {
+                        ImageSource::File(path) => {
+                            crate::screenshot_images::import_file(&bundle, &path)
+                        }
+                        ImageSource::Bytes(bytes) => {
+                            crate::screenshot_images::import_bytes(&bundle, &bytes)
+                        }
+                    }
+                })
+                .await;
+            this.update_in(cx, |this, window, cx| {
+                this.image_imported(imported, None, window, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn image_imported(
+        &mut self,
+        imported: Result<crate::screenshot_images::ImportedImage, String>,
+        replace: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let imported = match imported {
+            Ok(imported) => imported,
+            Err(message) => {
+                self.toast_error(message, window, cx);
+                return;
+            }
+        };
+        match replace {
+            Some(id) => {
+                let Some(annotation) = self.annotation_mut(&id) else {
+                    return;
+                };
+                annotation.image = Some(imported.file);
+            }
+            None => {
+                let content = self.annotation_image_rect();
+                let mut annotation = new_image_annotation(imported.file);
+                shapes::place_image(
+                    &mut annotation,
+                    imported.size,
+                    content,
+                    shapes::center(content),
+                );
+                self.selected_annotation = Some(annotation.id.clone());
+                self.project.annotations.push(annotation);
+                self.tool = Tool::Select;
+            }
+        }
+        self.commit_annotations(window, cx);
+        self.ensure_annotation_images(window, cx);
+    }
+
+    pub(crate) fn ensure_annotation_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for file in crate::screenshot_images::image_files(&self.project) {
+            if self.annotation_state.image_sources.contains_key(&file)
+                || !self.annotation_state.image_loading.insert(file.clone())
+            {
+                continue;
+            }
+            let bundle = self.bundle.clone();
+            cx.spawn_in(window, async move |this, cx| {
+                let loaded = cx
+                    .background_executor()
+                    .spawn({
+                        let file = file.clone();
+                        async move { crate::screenshot_images::load_preview(&bundle, &file) }
+                    })
+                    .await;
+                this.update(cx, |this, cx| {
+                    this.annotation_state.image_loading.remove(&file);
+                    match loaded {
+                        Some(image) => {
+                            this.annotation_state
+                                .image_sources
+                                .insert(file, Arc::new(image));
+                        }
+                        None => tracing::warn!(file, "an added image could not be loaded"),
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+    }
+
+    fn layer_images(&self) -> HashMap<String, Arc<RenderImage>> {
+        let mut faded = self.annotation_state.faded_images.borrow_mut();
+        let mut stale = self.annotation_state.stale_images.borrow_mut();
+        let mut images = HashMap::new();
+        for annotation in &self.project.annotations {
+            let Some(file) = annotation
+                .image
+                .as_ref()
+                .filter(|_| annotation.annotation_type == AnnotationType::Image)
+            else {
+                continue;
+            };
+            let Some(source) = self.annotation_state.image_sources.get(file) else {
+                continue;
+            };
+            let alpha = shapes::image_alpha(annotation);
+            let current = faded
+                .get(&annotation.id)
+                .filter(|(cached, bits, _)| cached == file && *bits == alpha.to_bits())
+                .map(|(_, _, image)| image.clone());
+            let image = match current {
+                Some(image) => image,
+                None => {
+                    let image = crate::library::rgba_to_render_image(
+                        crate::screenshot_images::with_opacity(source, alpha),
+                    );
+                    if let Some((_, _, old)) = faded.insert(
+                        annotation.id.clone(),
+                        (file.clone(), alpha.to_bits(), image.clone()),
+                    ) {
+                        stale.push(old);
+                    }
+                    image
+                }
+            };
+            images.insert(annotation.id.clone(), image);
+        }
+        faded.retain(|id, (_, _, image)| {
+            let keep = images.contains_key(id);
+            if !keep {
+                stale.push(image.clone());
+            }
+            keep
+        });
+        images
     }
 
     /// `Editor.tsx:83-101` -- Cmd-V drops the copy 16px down and right, selects
@@ -2704,6 +3002,15 @@ impl ScreenshotEditorWindow {
             select_tool: self.tool == Tool::Select,
             scale,
             handle_size: HANDLE_SCREEN_SIZE / scale.max(0.001) as f64,
+            images: self.layer_images(),
+            stale_images: self.annotation_state.stale_images.take(),
+            cut_band: match &self.annotation_state.gesture {
+                Some(Gesture::Cut { start, end }) => Some(crate::screenshot_cut::band_rect(
+                    &crate::screenshot_cut::band_from_drag(*start, *end),
+                    (f64::from(self.frame_size.0), f64::from(self.frame_size.1)),
+                )),
+                _ => None,
+            },
         };
         let cell = self.annotation_state.layer.clone();
         let drawing = self.tool != Tool::Select;
@@ -3014,6 +3321,23 @@ impl ScreenshotEditorWindow {
                     AnnotationSlider::BorderWidth,
                     cx,
                 ),
+            ],
+            AnnotationType::Image => vec![
+                self.shape_slider_row(t!("Opacity"), opacity, AnnotationSlider::Opacity, cx),
+                self.shape_slider_row(
+                    t!("Rounded corners"),
+                    pixels(annotation.corner_radius.unwrap_or(0.)),
+                    AnnotationSlider::CornerRadius,
+                    cx,
+                ),
+                ui::EditorButton::plain(&theme, "screenshot-replace-image")
+                    .left_icon("icons/image.svg")
+                    .label(t!("Replace image"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.pick_annotation_image(true, window, cx);
+                    }))
+                    .into_any_element(),
             ],
             _ => Vec::new(),
         };
@@ -3949,6 +4273,49 @@ impl ScreenshotEditorWindow {
 // -- a filled disc at each end is the same shape.
 
 /// Frame space to window space.
+pub(crate) enum ImageSource {
+    File(PathBuf),
+    Bytes(Vec<u8>),
+}
+
+fn clipboard_image(cx: &App) -> Option<gpui::Image> {
+    cx.read_from_clipboard()?
+        .entries()
+        .iter()
+        .find_map(|entry| match entry {
+            gpui::ClipboardEntry::Image(image) => Some(image.clone()),
+            _ => None,
+        })
+}
+
+pub(crate) fn new_image_annotation(file: String) -> Annotation {
+    let mut annotation = Annotation {
+        id: crate::store::new_uuid_v4(),
+        annotation_type: AnnotationType::Image,
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        stroke_color: TRANSPARENT.to_string(),
+        stroke_width: 0.,
+        fill_color: TRANSPARENT.to_string(),
+        opacity: 1.,
+        rotation: 0.,
+        text: None,
+        mask_type: None,
+        mask_level: None,
+        points: None,
+        number: None,
+        font_size: None,
+        tail: None,
+        zoom: None,
+        image: Some(file),
+        corner_radius: None,
+    };
+    shapes::apply_defaults(&mut annotation, &[]);
+    annotation
+}
+
 fn text_editor_frame(annotation: &Annotation) -> (f64, f64, f64, f64) {
     if annotation.annotation_type == AnnotationType::Bubble {
         let rect = normalized_rect(annotation);
@@ -4054,6 +4421,9 @@ fn paint_disc(window: &mut Window, center: Point<Pixels>, radius: f32, color: Hs
 fn paint_layer(paint: &LayerPaint, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
     let origin = bounds.origin;
     let scale = paint.scale;
+    for image in &paint.stale_images {
+        let _ = window.drop_image(image.clone());
+    }
 
     // The blur/pixelate regions sit between the frame and the annotations, the
     // way the second canvas does over there.
@@ -4085,6 +4455,20 @@ fn paint_layer(paint: &LayerPaint, bounds: Bounds<Pixels>, window: &mut Window, 
             continue;
         }
         paint_annotation(annotation, origin, scale, window, cx);
+    }
+
+    if let Some(band) = paint.cut_band {
+        let rect = screen_rect(origin, scale, band);
+        let mut fill = PathBuilder::fill();
+        push_rounded_rect(&mut fill, rect, 0.);
+        paint_fill(fill, Theme::with_alpha(gpui::rgb(0x000000), 0.25), window);
+        let mut stroke = PathBuilder::stroke(px(1.5));
+        push_rounded_rect(&mut stroke, rect, 0.);
+        paint_fill(
+            stroke,
+            Theme::with_alpha(gpui::rgb(SELECTION_OUTLINE), 1.),
+            window,
+        );
     }
 
     if paint.select_tool && paint.editing.is_none() {
@@ -4277,6 +4661,20 @@ fn paint_shape(
                         false,
                     );
                 }
+            }
+            ShapeOp::Image { rect, radius, .. } => {
+                let Some(image) = paint.images.get(&annotation.id).cloned() else {
+                    continue;
+                };
+                let bounds = screen_rect(origin, scale, rect);
+                let _ = window.paint_image(
+                    bounds,
+                    bounds,
+                    Corners::all(px(radius as f32 * scale)),
+                    image,
+                    0,
+                    false,
+                );
             }
         }
     }
@@ -4754,6 +5152,7 @@ mod tests {
                 ][..],
                 &[Tool::Text, Tool::Bubble, Tool::Step][..],
                 &[Tool::Mask, Tool::Spotlight, Tool::Magnifier][..],
+                &[Tool::Image][..],
             ][..]
         );
         let mut grouped: Vec<Tool> = Tool::TOOLBAR_GROUPS
@@ -4761,6 +5160,7 @@ mod tests {
             .flat_map(|group| group.iter().copied())
             .collect();
         grouped.sort_by_key(|tool| Tool::ALL.iter().position(|other| other == tool));
+        grouped.push(Tool::Cut);
         assert_eq!(grouped, Tool::ALL);
     }
 
@@ -4782,6 +5182,8 @@ mod tests {
             ("n", Tool::Step),
             ("f", Tool::Spotlight),
             ("z", Tool::Magnifier),
+            ("k", Tool::Image),
+            ("x", Tool::Cut),
         ] {
             assert_eq!(Tool::for_key(key), Some(tool), "{key}");
         }
@@ -4917,6 +5319,8 @@ mod tests {
             font_size: None,
             tail: None,
             zoom: None,
+            image: None,
+            corner_radius: None,
         }];
         rescale_annotations(&mut annotations, &previous, &current);
         assert_eq!((annotations[0].x, annotations[0].y), (30., 40.));
@@ -5004,6 +5408,8 @@ mod tests {
             font_size: None,
             tail: None,
             zoom: None,
+            image: None,
+            corner_radius: None,
         };
         assert_eq!(layer_label(&annotation), "Hello");
         annotation.text = Some("A very long caption".into());
@@ -5043,6 +5449,8 @@ mod tests {
             font_size: None,
             tail: None,
             zoom: None,
+            image: None,
+            corner_radius: None,
         }
     }
 

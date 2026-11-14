@@ -1379,15 +1379,15 @@ const renderDocs = () => {
 		[
 			["Image (new)", "图片（新增）"],
 			[
-				"K, drop a file, or Ctrl+V with an image on the clipboard: opacity, rounded corners, replace. The file is copied into the project",
-				"K、拖入文件，或剪贴板有图片时按 Ctrl+V：不透明度、圆角、替换。文件复制进项目",
+				"K or the tool opens a file picker; or drop a file, or Ctrl+V with an image on the clipboard. Placed in the middle at up to half the image: opacity, rounded corners, replace. The file is copied into the project",
+				"按 K 或点工具打开文件选择；也可拖入文件，或剪贴板有图片时按 Ctrl+V。放在图片中间，最大为图片的一半：不透明度、圆角、替换。文件复制进项目",
 			],
 		],
 		[
 			["Cut out (new)", "切割（新增）"],
 			[
-				"X, in the toolbar next to Crop. Drag across to remove a vertical or horizontal band; the image closes up, annotations move with it and undo restores it. The original stays in the project",
-				"X，在工具栏的裁剪旁边。横向或纵向拖过一段将其去掉；图片合拢，标注跟着移动，可以撤销。原图保留在项目里",
+				"X, in the toolbar next to Crop. Drag across to remove a vertical or horizontal band, or press Enter (Shift+Enter for a horizontal band) to cut one from the middle; the image closes up, annotations move with it and undo restores it. The original stays in the project",
+				"X，在工具栏的裁剪旁边。横向或纵向拖过一段将其去掉，或按 Enter（Shift+Enter 为横向一段）从中间切掉一段；图片合拢，标注跟着移动，可以撤销。原图保留在项目里",
 			],
 		],
 		[

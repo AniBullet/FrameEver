@@ -33,4 +33,5 @@ pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("library menu", "View", "视图"),
     ("screenshot tool", "Spotlight", "聚光灯"),
     ("magnifier", "Zoom", "放大"),
+    ("palette hint", "Show in library", "在资源库中显示"),
 ];

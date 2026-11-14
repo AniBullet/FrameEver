@@ -1396,6 +1396,7 @@ pub struct EditorWindow {
     /// tears the decoders down, and `dispose()` on close does it explicitly.
     pub(crate) instance: Option<Arc<EditorInstance>>,
     focus: FocusHandle,
+    palette: crate::command_palette::view::Slot,
 
     // -- Transport ----------------------------------------------------------
     /// `editorState.playing`.
@@ -2073,6 +2074,7 @@ impl EditorWindow {
             frame_layout: None,
             instance: None,
             focus: cx.focus_handle(),
+            palette: Default::default(),
             playing: false,
             playhead: 0.0,
             last_playhead_redraw: Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
@@ -2645,6 +2647,44 @@ impl EditorWindow {
     /// `projectHistory.undo()` -- reconcile the previous snapshot back over the
     /// store. The playhead is not moved and the selection is not restored;
     /// neither is in the snapshot (`editorState` is a separate store).
+    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::command_palette::{Surface, view};
+        if self.crop.is_some() {
+            return;
+        }
+        let mut slot = std::mem::take(&mut self.palette);
+        view::toggle(
+            &mut slot,
+            Surface::Editor,
+            Self::on_palette_event,
+            window,
+            cx,
+        );
+        self.palette = slot;
+    }
+
+    fn on_palette_event(
+        &mut self,
+        palette: &Entity<crate::command_palette::view::CommandPalette>,
+        event: &crate::command_palette::view::PaletteEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::command_palette::{Command, view};
+        self.palette.close(window, cx);
+        cx.notify();
+        let view::PaletteEvent::Chosen(outcome) = event else {
+            return;
+        };
+        match view::act(palette, outcome, cx) {
+            Some(Command::PlayPause) => self.toggle_play(window, cx),
+            Some(Command::ExportProject) => self.open_export(window, cx),
+            Some(Command::Undo) => self.undo(window, cx),
+            Some(Command::Redo) => self.redo(window, cx),
+            _ => {}
+        }
+    }
+
     fn undo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_frame_controls(window, cx);
         self.end_field_edit(cx);
@@ -11986,6 +12026,11 @@ impl Render for EditorWindow {
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(Self::capture_playback_key))
             .on_key_down(cx.listener(Self::on_key))
+            .on_action(cx.listener(
+                |this, _: &crate::command_palette::view::Toggle, window, cx| {
+                    this.toggle_palette(window, cx);
+                },
+            ))
             // Only the cropper needs key-*up*: its nudge loop runs until every
             // arrow is released (`Cropper.tsx:1025-1051`).
             .on_key_up(cx.listener(|this, event: &gpui::KeyUpEvent, _window, cx| {
@@ -12426,6 +12471,7 @@ impl Render for EditorWindow {
             // Crop mode is a modal: it goes over everything, including the
             // menu above.
             .children(self.render_crop_dialog(cx))
+            .children(self.palette.view())
             // ...and its own pointer-capture stand-in over that, which is
             // `trackPointerSession`'s `setPointerCapture` + window listeners
             // (`Cropper.tsx:686-733`).
