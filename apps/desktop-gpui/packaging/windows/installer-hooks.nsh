@@ -18,4 +18,8 @@ SetFont /LANG=2052 "Microsoft YaHei UI" 9
   Delete "$INSTDIR\cap-cli.exe"
   Delete "$INSTDIR\cap-muxer.exe"
   RMDir /r "$INSTDIR\assets\rive"
+  ${If} ${FileExists} "$INSTDIR\frameever-setup.exe"
+    WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\"$INSTDIR\frameever-setup.exe$\" --uninstall"
+    WriteRegStr SHCTX "${UNINSTKEY}" "QuietUninstallString" "$\"$INSTDIR\uninstall.exe$\" /S"
+  ${EndIf}
 !macroend

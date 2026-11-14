@@ -19,9 +19,12 @@ import {
 	designDir,
 	designJs,
 	easeMove,
+	expandResource,
 	firstRecording,
 	iconFiles,
 	iconTarball,
+	installedPayloadFiles,
+	installerEnv,
 	isLargeAddressAware,
 	missingChineseFont,
 	missingNativeDeps,
@@ -349,6 +352,59 @@ test("a release stamps the converter with the same version as the app", () => {
 			manifest.endsWith(path.join("converter", "Cargo.toml")),
 		),
 	);
+});
+
+test("a release stamps the installer front end with the same version as the app", () => {
+	assert.ok(
+		versionManifests.some((manifest) =>
+			manifest.endsWith(path.join("installer", "Cargo.toml")),
+		),
+	);
+});
+
+test("the installer's space and progress count every file the NSIS installer copies", () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "fe-payload-"));
+	const write = (relative, bytes) => {
+		const file = path.join(dir, relative);
+		mkdirSync(path.dirname(file), { recursive: true });
+		writeFileSync(file, "x".repeat(bytes));
+	};
+	const triple = "x86_64-pc-windows-msvc";
+	write(`target/${triple}/release/FrameEver.exe`, 10);
+	write(`binaries/frameever-cli-${triple}.exe`, 5);
+	write("assets/music/a.mp3", 3);
+	write("assets/music/b.MP3", 3);
+	write("assets/music/notes.txt", 100);
+	write("target/installer/frameever-setup.exe", 2);
+	const config = {
+		bundle: {
+			externalBin: ["binaries/frameever-cli", "binaries/frameever-muxer"],
+			resources: { "assets/music/*.mp3": "assets/music/" },
+		},
+	};
+	const files = installedPayloadFiles(triple, dir, config)
+		.map((file) => path.relative(dir, file).replaceAll("\\", "/"))
+		.sort();
+	assert.deepEqual(files, [
+		"assets/music/a.mp3",
+		"assets/music/b.MP3",
+		"binaries/frameever-cli-x86_64-pc-windows-msvc.exe",
+		"target/installer/frameever-setup.exe",
+		"target/x86_64-pc-windows-msvc/release/FrameEver.exe",
+	]);
+	assert.deepEqual(expandResource(dir, "missing/*"), []);
+	rmSync(dir, { recursive: true });
+});
+
+test("the installer dev run fakes the existing install and never touches the real one", () => {
+	const env = installerEnv("T", "older", "1.0.0", {});
+	assert.equal(
+		env.FRAMEEVER_INSTALLER_INSTALLED,
+		`${path.join("T", "Programs", "FrameEver")}|0.9.0`,
+	);
+	assert.equal(env.LOCALAPPDATA, path.join("T", "Local"));
+	assert.equal(installerEnv("T", null, "1.0.0", {}).FRAMEEVER_INSTALLER_INSTALLED, "none");
+	assert.ok(installerEnv("T", "same", "1.0.0", {}).FRAMEEVER_INSTALLER_INSTALLED.endsWith("|1.0.0"));
 });
 
 test("the fake Cap-aniBullet 2.x install has projects, paired videos and a screenshot where 2.x kept them", () => {

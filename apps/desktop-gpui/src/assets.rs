@@ -378,6 +378,7 @@ mod tests {
     #[test]
     fn every_icon_file_is_in_the_table_or_included_by_source() {
         let assets_source = include_str!("assets.rs");
+        let installer_source = include_str!("../installer/src/main.rs");
         let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons");
 
         let mut orphans: Vec<String> = std::fs::read_dir(&directory)
@@ -387,6 +388,7 @@ mod tests {
             .filter(|name| {
                 Assets.load(&format!("icons/{name}")).unwrap().is_none()
                     && !assets_source.contains(&format!("\"../assets/icons/{name}\""))
+                    && !installer_source.contains(&format!("\"../../assets/icons/{name}\""))
             })
             .collect();
         orphans.sort();

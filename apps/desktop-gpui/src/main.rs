@@ -51,6 +51,10 @@ mod http;
 mod i18n;
 mod import;
 mod installer;
+#[cfg(any(windows, target_os = "macos"))]
+mod installer_control;
+#[allow(dead_code)]
+mod instance_control;
 mod jpeg_thumbnail;
 mod library;
 mod logo;

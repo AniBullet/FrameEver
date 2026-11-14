@@ -15,6 +15,11 @@ import {
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import {
+	gpuiPlatformConfig,
+	installedSetupSource,
+	mainBinaryName,
+} from "./bundle-gpui.mjs";
 import { describe as describeFinding, privacyCheck } from "./privacy.mjs";
 
 export const root = path.resolve(
@@ -75,14 +80,16 @@ const COMMANDS = {
 		"Prepare a fresh machine: JS deps, FFmpeg/ONNX/DXC, patched gpui, HarmonyOS Sans font",
 	dev: "Build and run the app (test data by default). --watch, --lang zh-CN|en, --real",
 	check:
-		"Compile-check the GPUI app, FrameEver Converter and the CLI, tests included",
-	test: "Run GPUI tests (optional filter). --all adds converter, encoder, export, utils, CLI and script tests",
+		"Compile-check the GPUI app, FrameEver Converter, the installer and the CLI, tests included",
+	test: "Run GPUI tests (optional filter). --installer runs only the installer's. --all adds converter, installer, encoder, export, utils, CLI and script tests",
 	lint: "Format check, clippy and translation tests",
 	fmt: "Format the GPUI app and the root crates FrameEver changed",
 	export:
 		"Export the test recording: fe export h264|hevc|av1 [--project <.ever>]",
 	converter:
 		"Run FrameEver Converter against a fresh fake Cap-aniBullet 2.x install. --lang zh-CN|en",
+	installer:
+		"Run the installer window on test data (nothing is installed). --existing older|same|newer, --update, --uninstall, --lang zh-CN|en, --fallback",
 	package:
 		"Build the Windows installer and FrameEver Converter into dist/. --skip-sidecars, --version <x.y.z>",
 	release: "Check, tag and push a release: fe release <x.y.z> [--skip-tests]",
@@ -569,6 +576,54 @@ function converter({ flags }) {
 	run(exe, [], { env });
 }
 
+export const INSTALLER_APP = "frameever-installer-app";
+
+export function installerEnv(dir, existing, version, env = process.env) {
+	const installed = {
+		older: "0.9.0",
+		same: version,
+		newer: "9.9.9",
+	}[existing];
+	const app = path.join(dir, "Programs", "FrameEver");
+	return {
+		...env,
+		LOCALAPPDATA: path.join(dir, "Local"),
+		FRAMEEVER_GPUI_APP_DATA_DIR: path.join(dir, "FrameEver"),
+		FRAMEEVER_INSTALLER_INSTALLED: installed ? `${app}|${installed}` : "none",
+	};
+}
+
+function installer({ flags }) {
+	const existing = typeof flags.existing === "string" ? flags.existing : null;
+	if (existing && !["older", "same", "newer"].includes(existing)) {
+		fail("--existing must be older, same or newer");
+	}
+	const dir = path.join(testdataDir, "installer");
+	rmSync(dir, { recursive: true, force: true });
+	const version = manifestVersion(path.join(gpuiDir, "installer", "Cargo.toml"));
+	const env = installerEnv(dir, existing, version);
+	if (existing) {
+		const app = env.FRAMEEVER_INSTALLER_INSTALLED.split("|")[0];
+		mkdirSync(app, { recursive: true });
+		writeFileSync(path.join(app, "FrameEver.exe"), "");
+	}
+	if (typeof flags.lang === "string") {
+		const store = path.join(env.FRAMEEVER_GPUI_APP_DATA_DIR, "store");
+		mkdirSync(path.dirname(store), { recursive: true });
+		writeFileSync(
+			store,
+			JSON.stringify({ general_settings: { language: flags.lang } }),
+		);
+	}
+	if (flags.fallback) env.FRAMEEVER_INSTALLER_FALLBACK = "1";
+	step("Build the installer front end");
+	run("cargo", ["build", "-p", INSTALLER_APP], { cwd: gpuiDir });
+	console.log(`  Test data (no payload, nothing is installed): ${dir}`);
+	const args = flags.update ? ["--update"] : flags.uninstall ? ["--uninstall"] : [];
+	const exe = path.join(gpuiDir, "target", "debug", "frameever-setup.exe");
+	run(exe, args, { env });
+}
+
 const WATCH_DIRS = [
 	"apps/desktop-gpui/src",
 	"apps/desktop-gpui/assets",
@@ -668,6 +723,8 @@ function check() {
 	run("cargo", ["check", "--tests"], { cwd: gpuiDir });
 	step("FrameEver Converter");
 	run("cargo", ["check", "-p", CONVERTER_APP, "--tests"], { cwd: gpuiDir });
+	step("Installer front end");
+	run("cargo", ["check", "-p", INSTALLER_APP, "--tests"], { cwd: gpuiDir });
 	step("CLI and converter core");
 	run("cargo", [
 		"check",
@@ -682,6 +739,14 @@ function check() {
 
 function test({ flags, positional }) {
 	pruneIncremental();
+	if (flags.installer) {
+		step("Installer tests");
+		run("cargo", ["test", "-p", INSTALLER_APP, "--", ...positional], {
+			cwd: gpuiDir,
+		});
+		console.log("\n\u001b[32m✓ Tests passed\u001b[0m");
+		return;
+	}
 	step("GPUI tests");
 	run("cargo", ["test", "--bin", "frameever-gpui", ...positional], {
 		cwd: gpuiDir,
@@ -695,6 +760,7 @@ function test({ flags, positional }) {
 		run("cargo", ["test", "-p", "frameever-utils", "--lib"]);
 		run("cargo", ["test", "-p", "frameever-converter"]);
 		run("cargo", ["test", "-p", CONVERTER_APP], { cwd: gpuiDir });
+		run("cargo", ["test", "-p", INSTALLER_APP], { cwd: gpuiDir });
 		run("cargo", ["test", "-p", "frameever-export", "--lib"], {
 			env: withFfmpeg(),
 		});
@@ -747,6 +813,7 @@ const CONVERTER_APP = "frameever-converter-app";
 function fmt() {
 	run("cargo", ["fmt"], { cwd: gpuiDir });
 	run("cargo", ["fmt", "-p", CONVERTER_APP], { cwd: gpuiDir });
+	run("cargo", ["fmt", "-p", INSTALLER_APP], { cwd: gpuiDir });
 	run("cargo", ["fmt", ...ROOT_CRATES.flatMap((crate) => ["-p", crate])]);
 }
 
@@ -755,9 +822,11 @@ function lint() {
 	step("Format");
 	run("cargo", ["fmt", "--check"], { cwd: gpuiDir });
 	run("cargo", ["fmt", "-p", CONVERTER_APP, "--check"], { cwd: gpuiDir });
+	run("cargo", ["fmt", "-p", INSTALLER_APP, "--check"], { cwd: gpuiDir });
 	step("Clippy");
 	run("cargo", ["clippy", "--tests"], { cwd: gpuiDir });
 	run("cargo", ["clippy", "-p", CONVERTER_APP, "--tests"], { cwd: gpuiDir });
+	run("cargo", ["clippy", "-p", INSTALLER_APP, "--tests"], { cwd: gpuiDir });
 	run("cargo", [
 		"clippy",
 		...ROOT_CRATES.flatMap((crate) => ["-p", crate]),
@@ -769,6 +838,9 @@ function lint() {
 		env: withFfmpeg(),
 	});
 	run("cargo", ["test", "-p", CONVERTER_APP, "--test", "i18n"], {
+		cwd: gpuiDir,
+	});
+	run("cargo", ["test", "-p", INSTALLER_APP, "--test", "i18n"], {
 		cwd: gpuiDir,
 	});
 	console.log("\n\u001b[32m✓ Lint passed\u001b[0m");
@@ -840,6 +912,7 @@ export function missingNativeDeps(base = root) {
 export const versionManifests = [
 	path.join(gpuiDir, "Cargo.toml"),
 	path.join(gpuiDir, "converter", "Cargo.toml"),
+	path.join(gpuiDir, "installer", "Cargo.toml"),
 ];
 
 export function stampVersion(version, manifests = versionManifests) {
@@ -886,21 +959,34 @@ function packageInstaller({ flags }) {
 		);
 	}
 
+	step("Installer front end for the uninstall entry");
+	const lean = { ...process.env };
+	delete lean.FRAMEEVER_INSTALLER_PAYLOAD;
+	delete lean.FRAMEEVER_INSTALLER_INSTALLED_BYTES;
+	run(
+		"cargo",
+		["build", "--release", "-p", INSTALLER_APP, "--target", target],
+		{ cwd: gpuiDir, env: lean },
+	);
+	const staged = path.join(gpuiDir, installedSetupSource);
+	mkdirSync(path.dirname(staged), { recursive: true });
+	copyFileSync(installerExe(target), staged);
+
 	step("App and NSIS installer");
 	const signing = Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY);
-	const bundleArgs = ["--bundles", "nsis"];
 	if (!signing) {
 		console.log(
 			"  No TAURI_SIGNING_PRIVATE_KEY: building an unsigned installer (no updater .sig).",
 		);
-		const unsigned = path.join(gpuiDir, "target", "fe-unsigned.conf.json");
-		mkdirSync(path.dirname(unsigned), { recursive: true });
-		writeFileSync(
-			unsigned,
-			JSON.stringify({ bundle: { createUpdaterArtifacts: false } }),
-		);
-		bundleArgs.push("--config", unsigned);
 	}
+	const bundleArgs = ["--bundles", "nsis"];
+	const unsigned = path.join(gpuiDir, "target", "fe-unsigned.conf.json");
+	mkdirSync(path.dirname(unsigned), { recursive: true });
+	writeFileSync(
+		unsigned,
+		JSON.stringify({ bundle: { createUpdaterArtifacts: false } }),
+	);
+	bundleArgs.push("--config", unsigned);
 	run(
 		process.execPath,
 		[path.join("scripts", "bundle-gpui.mjs"), target, ...bundleArgs],
@@ -921,13 +1007,43 @@ function packageInstaller({ flags }) {
 		name.endsWith("-setup.exe"),
 	);
 	if (installers.length === 0) fail(`No installer in ${nsisDir}`);
-	const newest = installers
+	const nsis = installers
 		.map((name) => path.join(nsisDir, name))
 		.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+
+	step("Installer front end with NSIS inside");
+	const installedBytes = installedPayloadFiles(target)
+		.map((file) => statSync(file).size)
+		.reduce((sum, size) => sum + size, 0);
+	console.log(
+		`  Installs ${(installedBytes / 1024 / 1024).toFixed(1)} MB from ${path.basename(nsis)}`,
+	);
+	run(
+		"cargo",
+		["build", "--release", "-p", INSTALLER_APP, "--target", target],
+		{
+			cwd: gpuiDir,
+			env: {
+				...process.env,
+				FRAMEEVER_INSTALLER_PAYLOAD: nsis,
+				FRAMEEVER_INSTALLER_INSTALLED_BYTES: String(installedBytes),
+			},
+		},
+	);
 	mkdirSync(distDir, { recursive: true });
-	const copied = [newest, `${newest}.sig`].filter((file) => existsSync(file));
-	for (const file of copied)
-		copyFileSync(file, path.join(distDir, path.basename(file)));
+	const newest = path.join(distDir, path.basename(nsis));
+	for (const stale of [newest, `${newest}.sig`]) rmSync(stale, { force: true });
+	copyFileSync(installerExe(target), newest);
+	const copied = [newest];
+	if (signing) {
+		step("Updater signature");
+		run("pnpm", ["run", "tauri", "signer", "sign", newest], {
+			cwd: gpuiDir,
+			shell: true,
+		});
+		if (!existsSync(`${newest}.sig`)) fail(`No signature for ${newest}`);
+		copied.push(`${newest}.sig`);
+	}
 
 	step("FrameEver Converter");
 	run(
@@ -958,6 +1074,44 @@ function packageInstaller({ flags }) {
 	console.log(
 		`\u001b[32m✓ ${converterAsset} (${megabytes(converterAsset)} MB)\u001b[0m`,
 	);
+}
+
+function installerExe(triple) {
+	return path.join(gpuiDir, "target", triple, "release", "frameever-setup.exe");
+}
+
+export function expandResource(base, pattern) {
+	const full = path.join(base, pattern);
+	const name = path.basename(full);
+	if (!name.includes("*")) return existsSync(full) ? [full] : [];
+	const dir = path.dirname(full);
+	if (!existsSync(dir)) return [];
+	const escaped = name.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+	const matcher = new RegExp(`^${escaped}$`, "i");
+	return readdirSync(dir, { withFileTypes: true })
+		.filter((entry) => entry.isFile() && matcher.test(entry.name))
+		.map((entry) => path.join(dir, entry.name));
+}
+
+export function installedPayloadFiles(
+	triple,
+	base = gpuiDir,
+	config = JSON.parse(readFileSync(path.join(gpuiDir, "tauri.conf.json"), "utf8")),
+) {
+	const resources = {
+		...config.bundle.resources,
+		...gpuiPlatformConfig("win32").bundle.resources,
+	};
+	const files = [
+		path.join(base, "target", triple, "release", mainBinaryName(triple)),
+		...config.bundle.externalBin.map((binary) =>
+			path.join(base, `${binary}-${triple}.exe`),
+		),
+		...Object.keys(resources).flatMap((pattern) =>
+			expandResource(base, pattern),
+		),
+	];
+	return [...new Set(files)].filter((file) => existsSync(file));
 }
 
 function manifestVersion(manifest) {
@@ -1533,6 +1687,7 @@ const HANDLERS = {
 	fmt,
 	export: exportVideo,
 	converter,
+	installer,
 	package: packageInstaller,
 	release,
 	notes,

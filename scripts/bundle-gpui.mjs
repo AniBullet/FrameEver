@@ -38,6 +38,9 @@ export function gpuiBinaryPath(target, profile = "release") {
 	);
 }
 
+export const installedSetupName = "frameever-setup.exe";
+export const installedSetupSource = `target/installer/${installedSetupName}`;
+
 export function gpuiPlatformConfig(platform) {
 	if (platform === "darwin") {
 		return {
@@ -53,6 +56,7 @@ export function gpuiPlatformConfig(platform) {
 		return {
 			bundle: {
 				resources: {
+					[installedSetupSource]: installedSetupName,
 					"../../target/ffmpeg/bin/*.dll": "./",
 					"../../target/native-deps/dxc/*.dll": "./",
 					"../../target/native-deps/dxc/LICENSE-*.txt": "licenses/dxc/",

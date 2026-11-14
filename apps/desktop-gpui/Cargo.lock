@@ -3159,6 +3159,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "frameever-installer-app"
+version = "1.0.0-dev"
+dependencies = [
+ "frameever-utils",
+ "gpui-pre",
+ "gpui-pre-platform",
+ "raw-window-handle",
+ "semver",
+ "serde_json",
+ "tauri-winres",
+ "tempfile",
+ "windows 0.62.2",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "frameever-media"
 version = "0.1.0"
 dependencies = [

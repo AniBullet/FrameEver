@@ -22,13 +22,15 @@ enum ForwardedRequest {
     DeepLink(String),
     #[cfg(any(windows, target_os = "macos"))]
     Reopen,
+    #[cfg(any(windows, target_os = "macos"))]
+    Control(crate::instance_control::Control),
 }
 
 #[cfg(any(windows, target_os = "macos"))]
 const REOPEN_ACK: u8 = 1;
 
 fn pidfile() -> PathBuf {
-    crate::store::app_data_dir().join("cap-gpui.pid")
+    crate::store::app_data_dir().join(crate::instance_control::PIDFILE_NAME)
 }
 
 pub fn acquire() {
@@ -554,6 +556,15 @@ fn start_deep_link_forwarding(path: &Path) -> std::io::Result<()> {
                                     tracing::warn!(%error, "could not acknowledge the FrameEver reopen request");
                                 }
                             }
+                            Ok(ForwardedRequest::Control(control)) => {
+                                use std::io::Write;
+                                let reply = crate::installer_control::answer(control);
+                                let result = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)))
+                                    .and_then(|()| stream.write_all(&[reply.byte()]));
+                                if let Err(error) = result {
+                                    tracing::warn!(%error, "could not answer the installer");
+                                }
+                            }
                             Err(error) => {
                                 tracing::warn!(%error, "rejected a forwarded Cap deep link");
                             }
@@ -725,7 +736,12 @@ fn read_forwarded_request(
 
     let mut size = [0_u8; 4];
     reader.read_exact(&mut size)?;
-    let size = u32::from_be_bytes(size) as usize;
+    let size = u32::from_be_bytes(size);
+    #[cfg(any(windows, target_os = "macos"))]
+    if let Some(control) = crate::instance_control::Control::from_size(size) {
+        return Ok(ForwardedRequest::Control(control));
+    }
+    let size = size as usize;
     #[cfg(any(windows, target_os = "macos"))]
     if size == 0 {
         return Ok(ForwardedRequest::Reopen);
@@ -907,7 +923,9 @@ mod tests {
         let authenticated = match read_forwarded_request(&mut payload.as_slice(), secret).unwrap() {
             ForwardedRequest::DeepLink(url) => url,
             #[cfg(any(windows, target_os = "macos"))]
-            ForwardedRequest::Reopen => panic!("A project action must remain a deep link"),
+            ForwardedRequest::Reopen | ForwardedRequest::Control(_) => {
+                panic!("A project action must remain a deep link")
+            }
         };
         let authenticated = url::Url::parse(&authenticated).unwrap();
         assert!(matches!(
@@ -986,6 +1004,27 @@ mod tests {
 
             assert_eq!(super::send_windows_reopen(endpoint).is_ok(), queued);
             assert_eq!(server.join().unwrap(), queued);
+        }
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn the_installer_asks_through_the_same_authenticated_endpoint() {
+        use crate::instance_control::Control;
+        let secret = 0x0123_4567_89ab_cdef_u64;
+        for control in [Control::Busy, Control::Quit] {
+            let mut payload = secret.to_be_bytes().to_vec();
+            payload.extend_from_slice(&control.size().to_be_bytes());
+            assert_eq!(
+                read_forwarded_request(&mut payload.as_slice(), secret).unwrap(),
+                ForwardedRequest::Control(control)
+            );
+            assert_eq!(
+                read_forwarded_request(&mut payload.as_slice(), secret + 1)
+                    .unwrap_err()
+                    .kind(),
+                std::io::ErrorKind::PermissionDenied
+            );
         }
     }
 

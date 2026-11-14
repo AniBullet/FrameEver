@@ -37,14 +37,15 @@ pnpm fe setup
 | `pnpm fe dev --lang zh-CN` | 用中文界面启动测试数据（`--lang en` 切回英文） |
 | `pnpm fe dev --real` | 使用你真实的数据运行（谨慎） |
 | `pnpm fe logs` | 查看最近一次运行的日志，`--grep <关键词>` 过滤，`--lines 500` 看更多 |
-| `pnpm fe check` | 编译检查（GPUI 应用、FrameEver Converter 和命令行，含测试代码） |
-| `pnpm fe test [过滤词]` | 运行 GPUI 测试；`--all` 再加上转换器、编码库、导出、命令行和脚本测试 |
+| `pnpm fe check` | 编译检查（GPUI 应用、FrameEver Converter、安装程序和命令行，含测试代码） |
+| `pnpm fe test [过滤词]` | 运行 GPUI 测试；`--installer [过滤词]` 只跑安装程序的测试；`--all` 再加上转换器、安装程序、编码库、导出、命令行和脚本测试 |
 | `pnpm fe lint` | 格式检查、Clippy、翻译完整性检查，每次合进 `main` 前跑一次 |
 | `pnpm fe fmt` | 格式化代码 |
 | `pnpm fe export h264\|hevc\|av1` | 用最新的测试录制导出视频到 `target/testdata/exports/` |
 | `pnpm fe design` | 从 `docs/design/tokens.json` 生成 `tokens.css` 和 `tokens.js`；设计参考页直接双击 `docs/design/index.html` 打开 |
 | `pnpm fe icons` | 按 `apps/desktop-gpui/assets/icons/sources.json` 从固定版本的 Lucide 和 Tabler 重新拷贝全部图标 |
 | `pnpm fe converter [--lang zh-CN]` | 在 `target/testdata/converter/` 里造一个假的 Cap-aniBullet 2.x 安装，然后打开 FrameEver Converter 转换它；每次运行都重新造 |
+| `pnpm fe installer [--existing older\|same\|newer] [--update\|--uninstall] [--lang zh-CN] [--fallback]` | 打开安装程序窗口看各个页面。用 `target/testdata/installer/` 里假的已安装版本，不带安装包，什么也不会装或删；`--fallback` 走 GPUI 启动不了时的 NSIS 回退 |
 
 测试节奏：改代码时用 `pnpm fe test <过滤词>`，只改应用代码约 20 秒；`pnpm fe check` 只在想看编译错误又不想跑测试时用，`test` 本身会编译同样的代码。每次改完跑 `pnpm fe fmt`。`pnpm fe test --all` 和 `pnpm fe lint` 只在合进 `main` 前、代码审查改完后跑一次；几张票并行做时，在集成分支上统一跑一次，不要每张票各跑。改共享 crate（`frameever-project`、`-rendering`、`-recording`、`-editor`、`-export`）会连带重编上层，约 30–45 秒；crate 改名或升级依赖会全部重编。`dev`、`check`、`test`、`lint` 每次会自动只保留每个 crate 最新的 4 份增量缓存，删除更旧的。
 
@@ -54,9 +55,13 @@ pnpm fe setup
 pnpm fe package
 ```
 
-依次编译附带程序（命令行、muxer）、正式版应用，再生成 NSIS 安装包，复制到 `dist/`；同时编译单独下载的 `FrameEver-Converter_<版本>_x64.exe`，也放进 `dist/`。第一次要完整编译，需要十几到几十分钟。
+依次编译附带程序（命令行、muxer）、正式版应用和安装程序前端（`apps/desktop-gpui/installer`，ADR-0009），再生成 NSIS 安装包，最后把 NSIS 安装包嵌进前端，得到唯一的下载 `dist/FrameEver_<版本>_x64-setup.exe`；同时编译单独下载的 `FrameEver-Converter_<版本>_x64.exe`，也放进 `dist/`。第一次要完整编译，需要十几到几十分钟。
 
-- 没有设置 `TAURI_SIGNING_PRIVATE_KEY` 时，会生成不带自动更新签名的安装包，自己测试用足够了。
+- 前端编两次：先编一个不带安装包的，作为 `frameever-setup.exe` 装进安装目录，Windows 的卸载入口指向它的卸载模式；再编一个嵌入 NSIS 安装包的，作为下载文件。
+- 下载文件保留 `/S` 和 `/D=<目录>`（`/D=` 必须放在最后），给脚本和 winget 用：不显示窗口，也不打开帧刻。退出码 0 成功，2 安装失败，5 帧刻正在录制或无法让它退出，6 空间不足，7 卸载时没找到已安装的帧刻。`--update` 是应用内更新用的更新模式，旧版应用传的 `/P /R /UPDATE` 也会进入更新模式；`--uninstall` 是卸载模式。
+- 前端运行日志在 `%TEMP%\frameever-setup\install.log`。设置环境变量 `FRAMEEVER_INSTALLER_FALLBACK=1` 可以强制走 NSIS 自带界面的回退。
+
+- 没有设置 `TAURI_SIGNING_PRIVATE_KEY` 时，会生成不带自动更新签名的安装包，自己测试用足够了。设置了就用 `tauri signer sign` 给最终的下载文件（前端）签名，生成 `.sig`。
 - `--version 3.0.0` 会把版本号写进应用再打包（CI 发版时使用）。
 - `--skip-sidecars` 跳过附带程序的编译，只重新打应用和安装包。
 

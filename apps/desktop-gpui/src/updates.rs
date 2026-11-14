@@ -779,7 +779,7 @@ fn apply_package(
     package: &std::path::Path,
     _kind: ArtifactKind,
 ) -> Result<Option<PathBuf>, String> {
-    installer::launch_installer(package, &["/P", "/R", "/UPDATE"])?;
+    installer::launch_installer(package, &["--update"])?;
     Ok(None)
 }
 

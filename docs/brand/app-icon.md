@@ -16,7 +16,7 @@ Klein blue `#1F3FD8`, chosen by the owner on 2026-10-24 from thirteen candidates
 | Record gap | `#000F5C` | tone 10 |
 | Brand light | `#BBC3FF` | tone 80 |
 | Brand tint | `#DEE0FF` | tone 90 |
-| Surface (installer sidebar) | `#F0EFFF` | tone 95 |
+| Surface (NSIS fallback sidebar) | `#F4F4F5` | near-achromatic neutral, as the Klein Field neutrals (#54); was the blue-tinted tone 95 `#F0EFFF` until #83 |
 | Upper clip | `#FFFDED` | cream from the "Judgement Day" Klein blue palette |
 | Lower clip | `#87BFFF` | sky blue from the same palette |
 | Record ring | `#FFFFFF` | |
@@ -48,5 +48,5 @@ Contrast-first choices (plum, a Material 3 palette seeded with the old mint) met
 
 - Windows icon `icons/icon.ico` (16–256 px, 15 frames; 16, 20 and 24 are drawn pixel by pixel, the rest are rendered from the vector shapes), PNGs, `assets/dock-icon.png`.
 - In-app logo: single-colour SVG layers `assets/icons/logo-*.svg`, composed in `src/logo.rs`; the plate shows in both themes.
-- Installer: `packaging/windows/nsis-sidebar.bmp` (light surface, icon, left-aligned type, a short brand-blue rule) and `nsis-header.bmp`, both at 2× so they stay sharp on scaled displays. The Chinese installer uses Microsoft YaHei UI.
+- Installer: the GPUI front end (`apps/desktop-gpui/installer`, ADR-0009) draws the icon from `icons/128x128@2x.png`. Its NSIS fallback keeps `packaging/windows/nsis-sidebar.bmp` (neutral surface, icon, left-aligned type, a short brand-blue rule) and `nsis-header.bmp`, both at 2× so they stay sharp on scaled displays, and uses Microsoft YaHei UI for Chinese. Only the bitmaps are regenerated for a surface change: `write_installer_images` in the script.
 - The window icon is loaded from `icon.ico` at the taskbar's size (24 logical px × display scale) and the small icon at the system small-icon size (`platform::apply_app_icon`); the tray icon is loaded from `icon.ico` at the system small-icon size (`tray::windows::app_tray_icon`). Windows picks the exact frame, so nothing is rescaled. While recording, the tray shows `assets/tray/tray-recording-icon.png` (`render_tray_recording_icon` in `packaging/brand/render_brand.py`), scaled to the system small-icon size.

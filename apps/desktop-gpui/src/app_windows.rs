@@ -539,6 +539,8 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
     // The Tauri app orders it the same way -- `DeepLinkActionExecutor::new` in
     // `setup`, before `on_open_url` is wired (`lib.rs:5449`).
     crate::deeplink::init(cx);
+    #[cfg(any(windows, target_os = "macos"))]
+    crate::installer_control::init(cx);
 }
 
 fn open_preparing_studio_editor(session: &Entity<RecordingSession>, cx: &mut App) {
