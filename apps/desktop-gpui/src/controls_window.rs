@@ -7,9 +7,10 @@ use std::{
 };
 
 use gpui::{
-    AppContext as _, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled,
-    Window, div, prelude::FluentBuilder as _, px, svg,
+    AppContext as _, Context, Entity, FocusHandle, FontWeight, Hsla, InteractiveElement as _,
+    IntoElement, KeyDownEvent, MouseButton, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Window, div, prelude::FluentBuilder as _, px, svg,
+    transparent_black,
 };
 
 use crate::{
@@ -21,6 +22,10 @@ use crate::{
     theme::Theme,
     ui,
 };
+
+mod keyboard;
+
+use keyboard::{Command, Control, Group};
 
 pub struct ControlsWindow {
     tray_hidden: bool,
@@ -44,9 +49,16 @@ pub struct ControlsWindow {
     last_saved_position: Option<(f64, f64)>,
     position_save_generation: Arc<AtomicU64>,
     ink: Option<Entity<ScreenInk>>,
+    focus: FocusHandle,
+    focused: Option<Control>,
+    opener: Option<Control>,
+    return_to: Option<isize>,
+    ringed: Option<Control>,
 }
 
 const DRAW_STRIP_ROOM: f32 = 44.;
+
+const DRAW_TOOLS: [InkTool; 3] = [InkTool::Pen, InkTool::Highlighter, InkTool::Arrow];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RecordingIssue {
@@ -115,6 +127,15 @@ impl ControlsWindow {
             })
             .detach();
         }
+        cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() {
+                this.focused = None;
+                this.opener = None;
+                this.return_to = None;
+                cx.notify();
+            }
+        })
+        .detach();
         let mic_level = Feeds::global(cx).read(cx).mic_level().clone();
         let level_bar = cx.new(|cx| {
             ui::MicrophoneLevel::new(
@@ -145,6 +166,11 @@ impl ControlsWindow {
             last_saved_position: None,
             position_save_generation: Arc::new(AtomicU64::new(0)),
             ink,
+            focus: cx.focus_handle(),
+            focused: None,
+            opener: None,
+            return_to: None,
+            ringed: None,
         };
         this.ticking_live = this.timer_is_live(cx);
         this._tick = Self::spawn_tick(window, cx);
@@ -266,62 +292,68 @@ impl ControlsWindow {
                 .flex_shrink_0()
         };
         let tools = [
-            (InkTool::Pen, "draw-pen", "icons/pencil.svg", t!("Pen"), "P"),
+            ("draw-pen", "icons/pencil.svg", t!("Pen"), "P"),
             (
-                InkTool::Highlighter,
                 "draw-highlighter",
                 "icons/highlighter.svg",
                 t!("Highlighter"),
                 "H",
             ),
-            (
-                InkTool::Arrow,
-                "draw-arrow",
-                "icons/arrow-up-right.svg",
-                t!("Arrow"),
-                "A",
-            ),
+            ("draw-arrow", "icons/arrow-up-right.svg", t!("Arrow"), "A"),
         ]
-        .map(|(kind, id, icon, label, key)| {
-            self.action_button(id, icon, false)
-                .when(tool == kind, |this| this.bg(theme.selection))
+        .into_iter()
+        .enumerate()
+        .map(|(index, (id, icon, label, key))| {
+            self.action_button(id, icon, false, Control::DrawTool(index))
+                .when(tool == DRAW_TOOLS[index], |this| this.bg(theme.selection))
                 .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).keys([key]).view(cx))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.ink_action(InkAction::Tool(kind), cx);
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.press(Control::DrawTool(index), window, cx);
                 }))
-        });
+        })
+        .collect::<Vec<_>>();
         let swatches = (0..INK_COLOURS)
             .map(|index| {
                 let number = index + 1;
-                div()
-                    .id(("draw-colour", index))
-                    .size(px(22.))
-                    .mx(px(1.))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_full()
-                    .border_2()
-                    .border_color(if colour == index {
-                        theme.foreground
-                    } else {
-                        theme.popover
-                    })
-                    .child(
-                        div()
-                            .size(px(14.))
-                            .rounded_full()
-                            .bg(crate::screen_ink::ink_colour(index)),
-                    )
-                    .tooltip(move |_, cx| {
-                        ui::Tooltip::new(&theme, t!("Colour {number}", number = number))
-                            .keys([number.to_string()])
-                            .view(cx)
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.ink_action(InkAction::Colour(index), cx);
-                    }))
+                self.ring(
+                    div()
+                        .id(("draw-colour", index))
+                        .size(px(24.))
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full(),
+                    Control::DrawColour(index),
+                )
+                .child(
+                    div()
+                        .size(px(22.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .border_2()
+                        .border_color(if colour == index {
+                            theme.foreground
+                        } else {
+                            theme.popover
+                        })
+                        .child(
+                            div()
+                                .size(px(14.))
+                                .rounded_full()
+                                .bg(crate::screen_ink::ink_colour(index)),
+                        ),
+                )
+                .tooltip(move |_, cx| {
+                    ui::Tooltip::new(&theme, t!("Colour {number}", number = number))
+                        .keys([number.to_string()])
+                        .view(cx)
+                })
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.press(Control::DrawColour(index), window, cx);
+                }))
             })
             .collect::<Vec<_>>();
         div()
@@ -347,24 +379,34 @@ impl ControlsWindow {
                     .children(swatches)
                     .child(separator())
                     .child(
-                        self.action_button("draw-undo", "icons/undo-2.svg", false)
-                            .tooltip(move |_, cx| {
-                                ui::Tooltip::new(&theme, t!("Undo"))
-                                    .keys(["Ctrl", "Z"])
-                                    .view(cx)
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.ink_action(InkAction::Undo, cx);
-                            })),
+                        self.action_button(
+                            "draw-undo",
+                            "icons/undo-2.svg",
+                            false,
+                            Control::DrawUndo,
+                        )
+                        .tooltip(move |_, cx| {
+                            ui::Tooltip::new(&theme, t!("Undo"))
+                                .keys(["Ctrl", "Z"])
+                                .view(cx)
+                        })
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.press(Control::DrawUndo, window, cx);
+                        })),
                     )
                     .child(
-                        self.action_button("draw-clear", "icons/eraser.svg", false)
-                            .tooltip(move |_, cx| {
-                                ui::Tooltip::new(&theme, t!("Clear")).keys(["Del"]).view(cx)
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.ink_action(InkAction::Clear, cx);
-                            })),
+                        self.action_button(
+                            "draw-clear",
+                            "icons/eraser.svg",
+                            false,
+                            Control::DrawClear,
+                        )
+                        .tooltip(move |_, cx| {
+                            ui::Tooltip::new(&theme, t!("Clear")).keys(["Del"]).view(cx)
+                        })
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.press(Control::DrawClear, window, cx);
+                        })),
                     ),
             )
     }
@@ -504,83 +546,101 @@ impl ControlsWindow {
         }
     }
 
+    fn ring<E: Styled>(&self, element: E, control: Control) -> E {
+        element
+            .border_1()
+            .border_color(if self.ringed == Some(control) {
+                Hsla::from(self.theme.ring)
+            } else {
+                transparent_black()
+            })
+    }
+
+    fn ringed_button(&self, button: ui::Button, control: Control) -> impl IntoElement {
+        self.ring(div().rounded_full(), control).child(button)
+    }
+
     fn action_button(
         &self,
         id: &'static str,
         icon: &'static str,
         disabled: bool,
+        control: Control,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
-        div()
-            .id(id)
-            .w(px(28.))
-            .h(px(28.))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(8.))
-            .when(!disabled, |this| {
-                this.hover(|style| style.bg(theme.accent))
-                    .active(|style| style.bg(theme.secondary_active))
-            })
-            .child(svg().path(icon).size(px(16.)).text_color(if disabled {
-                theme.muted_foreground
-            } else {
-                theme.foreground
-            }))
+        self.ring(
+            div()
+                .id(id)
+                .w(px(28.))
+                .h(px(28.))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(8.)),
+            control,
+        )
+        .when(!disabled, |this| {
+            this.hover(|style| style.bg(theme.accent))
+                .active(|style| style.bg(theme.secondary_active))
+        })
+        .child(svg().path(icon).size(px(16.)).text_color(if disabled {
+            theme.muted_foreground
+        } else {
+            theme.foreground
+        }))
     }
 
     fn render_stop(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let session = self.session.read(cx);
-        let starting = session.phase == Phase::Starting;
-        let stopping = session.phase == Phase::Stopping;
-        let countdown = session.countdown_remaining();
-        let can_stop = (!starting && !stopping) || countdown.is_some();
+        let countdown = self.session.read(cx).countdown_remaining();
+        let can_stop = self.can_stop(cx);
 
-        div()
-            .id("stop")
-            .size(px(28.))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .bg(if countdown.is_some() {
-                theme.secondary
-            } else {
-                theme.primary
-            })
-            .when(can_stop, |this| {
-                this.hover(|style| style.bg(theme.primary_hover))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.session.update(cx, |session, cx| session.stop(cx));
-                    }))
-            })
-            .when(!can_stop, |this| this.opacity(0.5))
-            .tooltip(move |_, cx| {
-                ui::Tooltip::new(
-                    &theme,
-                    if countdown.is_some() {
-                        t!("Cancel")
-                    } else {
-                        t!("Stop")
-                    },
-                )
-                .view(cx)
-            })
-            .when(countdown.is_some(), |this| {
-                this.child(
-                    svg()
-                        .path("icons/x.svg")
-                        .size(px(16.))
-                        .text_color(theme.foreground),
-                )
-            })
-            .when(countdown.is_none(), |this| {
-                this.child(crate::ui::stop_mark(&theme))
-            })
+        self.ring(
+            div()
+                .id("stop")
+                .size(px(28.))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full(),
+            Control::Stop,
+        )
+        .bg(if countdown.is_some() {
+            theme.secondary
+        } else {
+            theme.primary
+        })
+        .when(can_stop, |this| {
+            this.hover(|style| style.bg(theme.primary_hover))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.press(Control::Stop, window, cx);
+                }))
+        })
+        .when(!can_stop, |this| this.opacity(0.5))
+        .tooltip(move |_, cx| {
+            ui::Tooltip::new(
+                &theme,
+                if countdown.is_some() {
+                    t!("Cancel")
+                } else {
+                    t!("Stop")
+                },
+            )
+            .view(cx)
+        })
+        .when(countdown.is_some(), |this| {
+            this.child(
+                svg()
+                    .path("icons/x.svg")
+                    .size(px(16.))
+                    .text_color(theme.foreground),
+            )
+        })
+        .when(countdown.is_none(), |this| {
+            this.child(crate::ui::stop_mark(&theme))
+        })
     }
 
     fn render_time(&self, cx: &gpui::App) -> impl IntoElement {
@@ -624,11 +684,8 @@ impl ControlsWindow {
 
     fn render_microphone(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let session = self.session.read(cx);
-        let muted = session.mic_muted;
-        let can_mute = session.mode() == Some(RecordingMode::Instant)
-            && session.has_microphone()
-            && matches!(session.phase, Phase::Recording { .. });
+        let muted = self.session.read(cx).mic_muted;
+        let can_mute = self.can_mute(cx);
         self.level_bar.update(cx, |bar, cx| {
             bar.configure(
                 self.has_microphone && !muted,
@@ -652,38 +709,41 @@ impl ControlsWindow {
             theme.muted_foreground.into()
         };
 
-        div()
-            .id("microphone")
-            .w(px(28.))
-            .h(px(28.))
-            .flex_shrink_0()
-            .relative()
-            .flex()
-            .items_center()
-            .justify_center()
-            .when(can_mute, |this| {
-                this.rounded(px(8.))
-                    .hover(|style| style.bg(Theme::with_alpha(theme.gray_12, 0.06)))
-                    .active(|style| style.bg(Theme::with_alpha(theme.gray_12, 0.10)))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.session
-                            .update(cx, |session, cx| session.toggle_mic_mute(cx));
-                    }))
-            })
-            .child(svg().path(icon).size(px(20.)).text_color(icon_color))
-            .when(self.has_microphone && !muted, |this| {
-                this.child(self.level_bar.clone())
-            })
+        self.ring(
+            div()
+                .id("microphone")
+                .w(px(28.))
+                .h(px(28.))
+                .flex_shrink_0()
+                .relative()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(8.)),
+            Control::Microphone,
+        )
+        .when(can_mute, |this| {
+            this.rounded(px(8.))
+                .hover(|style| style.bg(Theme::with_alpha(theme.gray_12, 0.06)))
+                .active(|style| style.bg(Theme::with_alpha(theme.gray_12, 0.10)))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.press(Control::Microphone, window, cx);
+                }))
+        })
+        .child(svg().path(icon).size(px(20.)).text_color(icon_color))
+        .when(self.has_microphone && !muted, |this| {
+            this.child(self.level_bar.clone())
+        })
     }
 
     fn option_row(
         &self,
         id: impl Into<gpui::ElementId>,
         enabled: bool,
+        control: Control,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
-        div()
-            .id(id)
+        self.ring(div().id(id), control)
             .w_full()
             .h(px(32.))
             .flex_shrink_0()
@@ -712,19 +772,14 @@ impl ControlsWindow {
     ) -> impl IntoElement {
         let theme = self.theme;
         let open = self.expanded == Some(kind);
-        let id = match kind {
-            InputKind::Microphone => "pick-microphone",
-            InputKind::Camera => "pick-camera",
+        let (id, control) = match kind {
+            InputKind::Microphone => ("pick-microphone", Control::PickMicrophone),
+            InputKind::Camera => ("pick-camera", Control::PickCamera),
         };
-        self.option_row(id, enabled)
+        self.option_row(id, enabled, control)
             .when(enabled, |this| {
-                this.on_click(cx.listener(move |this, _, _, cx| {
-                    this.expanded = if this.expanded == Some(kind) {
-                        None
-                    } else {
-                        Some(kind)
-                    };
-                    cx.notify();
+                this.on_click(cx.listener(move |this, _, window, cx| {
+                    this.press(control, window, cx);
                 }))
             })
             .child(svg().path(icon).size(px(16.)).text_color(theme.gray_11))
@@ -776,30 +831,26 @@ impl ControlsWindow {
                 .enumerate()
                 .map(|(index, name)| {
                     let checked = microphone.as_deref() == Some(name.as_str());
-                    let pick = name.clone();
-                    self.option_row(("microphone-choice", index), can_change)
-                        .pl(px(32.))
-                        .child(div().flex_1().min_w_0().truncate().child(name))
-                        .when(checked, |this| {
-                            this.child(
-                                svg()
-                                    .path("icons/check.svg")
-                                    .size(px(14.))
-                                    .text_color(theme.gray_11),
-                            )
-                        })
-                        .when(can_change && !checked, |this| {
-                            this.on_click(cx.listener(move |this, _, _, cx| {
-                                this.expanded = None;
-                                let label = pick.clone();
-                                this.session.update(cx, |session, cx| {
-                                    session.change_input(
-                                        crate::session::InputChoice::Microphone(label),
-                                        cx,
-                                    )
-                                });
-                            }))
-                        })
+                    self.option_row(
+                        ("microphone-choice", index),
+                        can_change,
+                        Control::MicrophoneChoice(index),
+                    )
+                    .pl(px(32.))
+                    .child(div().flex_1().min_w_0().truncate().child(name))
+                    .when(checked, |this| {
+                        this.child(
+                            svg()
+                                .path("icons/check.svg")
+                                .size(px(14.))
+                                .text_color(theme.gray_11),
+                        )
+                    })
+                    .when(can_change && !checked, |this| {
+                        this.on_click(cx.listener(move |this, _, window, cx| {
+                            this.press(Control::MicrophoneChoice(index), window, cx);
+                        }))
+                    })
                 })
                 .collect::<Vec<_>>()
         });
@@ -810,29 +861,26 @@ impl ControlsWindow {
                 .enumerate()
                 .map(|(index, (name, id))| {
                     let checked = camera.as_ref() == Some(&id);
-                    self.option_row(("camera-choice", index), can_change)
-                        .pl(px(32.))
-                        .child(div().flex_1().min_w_0().truncate().child(name))
-                        .when(checked, |this| {
-                            this.child(
-                                svg()
-                                    .path("icons/check.svg")
-                                    .size(px(14.))
-                                    .text_color(theme.gray_11),
-                            )
-                        })
-                        .when(can_change && !checked, |this| {
-                            this.on_click(cx.listener(move |this, _, _, cx| {
-                                this.expanded = None;
-                                let selection = crate::deeplink::camera_selection(id.clone());
-                                this.session.update(cx, |session, cx| {
-                                    session.change_input(
-                                        crate::session::InputChoice::Camera(selection),
-                                        cx,
-                                    )
-                                });
-                            }))
-                        })
+                    self.option_row(
+                        ("camera-choice", index),
+                        can_change,
+                        Control::CameraChoice(index),
+                    )
+                    .pl(px(32.))
+                    .child(div().flex_1().min_w_0().truncate().child(name))
+                    .when(checked, |this| {
+                        this.child(
+                            svg()
+                                .path("icons/check.svg")
+                                .size(px(14.))
+                                .text_color(theme.gray_11),
+                        )
+                    })
+                    .when(can_change && !checked, |this| {
+                        this.on_click(cx.listener(move |this, _, window, cx| {
+                            this.press(Control::CameraChoice(index), window, cx);
+                        }))
+                    })
                 })
                 .collect::<Vec<_>>()
         });
@@ -878,7 +926,7 @@ impl ControlsWindow {
             ))
             .children(camera_rows.into_iter().flatten())
             .child(
-                self.option_row("camera-preview", camera.is_some())
+                self.option_row("camera-preview", camera.is_some(), Control::CameraPreview)
                     .child(
                         svg()
                             .path("icons/maximize.svg")
@@ -898,11 +946,50 @@ impl ControlsWindow {
                         camera_window_open,
                     ))
                     .when(camera.is_some(), |this| {
-                        this.on_click(cx.listener(|this, _, _, cx| {
-                            this.toggle_camera_preview(cx);
+                        this.on_click(cx.listener(|this, _, window, cx| {
+                            this.press(Control::CameraPreview, window, cx);
                         }))
                     }),
             )
+            .child(div().h(px(1.)).my(px(4.)).flex_shrink_0().bg(theme.border))
+            .child(
+                self.option_row("hide-controls", true, Control::HideControls)
+                    .child(
+                        svg()
+                            .path("icons/eye-off.svg")
+                            .size(px(16.))
+                            .text_color(theme.gray_11),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(t!("Hide controls")),
+                    )
+                    .children(self.hide_shortcut_keys(cx))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.press(Control::HideControls, window, cx);
+                    })),
+            )
+    }
+
+    fn hide_shortcut_keys(&self, cx: &gpui::App) -> Option<gpui::Div> {
+        let action = crate::hotkeys::HotkeyAction::ToggleRecordingControls;
+        crate::hotkeys::accelerator(action, cx)?;
+        let binding = crate::store::hotkeys_raw()
+            .get(action.store_key())
+            .and_then(crate::store::hotkey_from_value)?;
+        let theme = self.theme;
+        Some(
+            div().flex().gap(px(2.)).children(
+                crate::settings_pages::hotkey_display_keys(&binding)
+                    .iter()
+                    .map(|key| {
+                        ui::KbdChip::row(&theme, crate::settings_pages::hotkey_key_text(key))
+                    }),
+            ),
+        )
     }
 
     fn confirm_action(
@@ -982,28 +1069,34 @@ impl ControlsWindow {
                     .justify_end()
                     .gap(px(8.))
                     .child(
-                        ui::Button::plain(
-                            &theme,
-                            "cancel-recording-action",
-                            ui::ButtonVariant::Gray,
-                            ui::ButtonSize::Sm,
-                        )
-                        .label(t!("Cancel"))
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.cancel_confirmation(window, cx)),
+                        self.ringed_button(
+                            ui::Button::plain(
+                                &theme,
+                                "cancel-recording-action",
+                                ui::ButtonVariant::Gray,
+                                ui::ButtonSize::Sm,
+                            )
+                            .label(t!("Cancel"))
+                            .on_click(cx.listener(
+                                |this, _, window, cx| this.press(Control::CancelAction, window, cx),
+                            )),
+                            Control::CancelAction,
                         ),
                     )
                     .child(
-                        ui::Button::plain(
-                            &theme,
-                            "accept-recording-action",
-                            ui::ButtonVariant::Gray,
-                            ui::ButtonSize::Sm,
-                        )
-                        .text_color(theme.danger_text.into())
-                        .label(accept)
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.accept_confirmation(window, cx)),
+                        self.ringed_button(
+                            ui::Button::plain(
+                                &theme,
+                                "accept-recording-action",
+                                ui::ButtonVariant::Gray,
+                                ui::ButtonSize::Sm,
+                            )
+                            .text_color(theme.danger_text.into())
+                            .label(accept)
+                            .on_click(cx.listener(
+                                |this, _, window, cx| this.press(Control::AcceptAction, window, cx),
+                            )),
+                            Control::AcceptAction,
                         ),
                     ),
             )
@@ -1013,7 +1106,15 @@ impl ControlsWindow {
         self.tray_hidden
     }
 
-    pub(crate) fn set_tray_hidden(&mut self, hidden: bool, window: &mut Window) {
+    pub(crate) fn set_tray_hidden(
+        &mut self,
+        hidden: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if hidden {
+            self.give_back_focus(cx);
+        }
         let Some(native) = crate::platform::native_window(window) else {
             tracing::error!("recording controls have no native window");
             return;
@@ -1027,8 +1128,308 @@ impl ControlsWindow {
     }
 
     pub(crate) fn restart_from_tray(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.set_tray_hidden(false, window);
+        self.set_tray_hidden(false, window, cx);
         self.confirm_action(DestructiveAction::Restart, window, cx);
+    }
+
+    pub(crate) fn take_keyboard_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tray_hidden {
+            self.set_tray_hidden(false, window, cx);
+        }
+        if self.focused.is_none() {
+            self.return_to = crate::platform::foreground_window();
+        }
+        window.activate_window();
+        window.focus(&self.focus, cx);
+        self.focused = keyboard::resolve(&self.groups(cx), self.focused, None);
+        cx.notify();
+    }
+
+    fn give_back_focus(&mut self, cx: &mut Context<Self>) {
+        self.focused = None;
+        self.opener = None;
+        if let Some(previous) = self.return_to.take() {
+            cx.spawn(async move |_, _| crate::platform::restore_foreground_window(previous))
+                .detach();
+        }
+        cx.notify();
+    }
+
+    fn busy(&self, cx: &gpui::App) -> bool {
+        let session = self.session.read(cx);
+        !matches!(session.phase, Phase::Recording { .. }) || session.pause_unavailable()
+    }
+
+    fn can_mute(&self, cx: &gpui::App) -> bool {
+        let session = self.session.read(cx);
+        session.mode() == Some(RecordingMode::Instant)
+            && session.has_microphone()
+            && matches!(session.phase, Phase::Recording { .. })
+    }
+
+    fn can_stop(&self, cx: &gpui::App) -> bool {
+        let session = self.session.read(cx);
+        !matches!(session.phase, Phase::Starting | Phase::Stopping)
+            || session.countdown_remaining().is_some()
+    }
+
+    fn groups(&self, cx: &gpui::App) -> Vec<Group> {
+        let mut groups = Vec::new();
+        if self.options_open {
+            let session = self.session.read(cx);
+            let can_change = session.can_change_inputs();
+            let has_camera = session.camera_id().is_some();
+            let mut options = vec![(
+                Control::PickMicrophone,
+                session.microphone_label().is_some() && can_change,
+            )];
+            if self.expanded == Some(InputKind::Microphone) {
+                options.extend(
+                    (0..self.microphones.len())
+                        .map(|index| (Control::MicrophoneChoice(index), can_change)),
+                );
+            }
+            options.push((Control::PickCamera, has_camera && can_change));
+            if self.expanded == Some(InputKind::Camera) {
+                options.extend(
+                    (0..self.cameras.len()).map(|index| (Control::CameraChoice(index), can_change)),
+                );
+            }
+            options.push((Control::CameraPreview, has_camera));
+            options.push((Control::HideControls, true));
+            groups.push(options);
+        }
+        if self.confirmation.is_some() {
+            groups.push(vec![
+                (Control::CancelAction, true),
+                (Control::AcceptAction, true),
+            ]);
+        }
+        if let Some(issue) = self.issue_card_shown(cx) {
+            let details = issue.details.is_some();
+            groups.push(vec![
+                (Control::DismissIssue, true),
+                (Control::IssueDetails, details),
+                (Control::ExportLogs, details),
+            ]);
+        }
+        if self.drawing(cx) {
+            let mut strip: Group = (0..DRAW_TOOLS.len())
+                .map(|index| (Control::DrawTool(index), true))
+                .collect();
+            strip.extend((0..INK_COLOURS).map(|index| (Control::DrawColour(index), true)));
+            strip.push((Control::DrawUndo, true));
+            strip.push((Control::DrawClear, true));
+            groups.push(strip);
+        }
+        let busy = self.busy(cx);
+        groups.push(vec![
+            (Control::Microphone, self.can_mute(cx)),
+            (Control::Pause, !busy),
+            (Control::Restart, !busy),
+            (Control::Issue, self.issue(cx).is_some()),
+            (Control::Delete, !busy),
+            (Control::Draw, !busy),
+            (Control::Options, true),
+            (Control::Stop, self.can_stop(cx)),
+        ]);
+        groups
+    }
+
+    fn press(&mut self, control: Control, window: &mut Window, cx: &mut Context<Self>) {
+        let from_keyboard = self.focused.is_some();
+        if from_keyboard {
+            self.focused = Some(control);
+        }
+        match control {
+            Control::Microphone => {
+                if self.can_mute(cx) {
+                    self.session
+                        .update(cx, |session, cx| session.toggle_mic_mute(cx));
+                }
+            }
+            Control::Pause => {
+                if !self.busy(cx) {
+                    self.session
+                        .update(cx, |session, cx| session.toggle_pause(cx));
+                }
+            }
+            Control::Restart => self.confirm_action(DestructiveAction::Restart, window, cx),
+            Control::Delete => self.confirm_action(DestructiveAction::Delete, window, cx),
+            Control::Issue | Control::DismissIssue => self.toggle_issue_card(window, cx),
+            Control::Draw => self.toggle_draw(window, cx),
+            Control::Options => self.toggle_options(window, cx),
+            Control::Stop => {
+                if self.can_stop(cx) {
+                    self.session.update(cx, |session, cx| session.stop(cx));
+                }
+            }
+            Control::DrawTool(index) => {
+                if let Some(tool) = DRAW_TOOLS.get(index) {
+                    self.ink_action(InkAction::Tool(*tool), cx);
+                }
+            }
+            Control::DrawColour(index) => self.ink_action(InkAction::Colour(index), cx),
+            Control::DrawUndo => self.ink_action(InkAction::Undo, cx),
+            Control::DrawClear => self.ink_action(InkAction::Clear, cx),
+            Control::PickMicrophone => self.toggle_expanded(InputKind::Microphone),
+            Control::PickCamera => self.toggle_expanded(InputKind::Camera),
+            Control::MicrophoneChoice(index) => self.choose_microphone(index, cx),
+            Control::CameraChoice(index) => self.choose_camera(index, cx),
+            Control::CameraPreview => self.toggle_camera_preview(cx),
+            Control::HideControls => {
+                self.options_open = false;
+                self.expanded = None;
+                self.fit_height(window, cx);
+                self.set_tray_hidden(true, window, cx);
+                cx.defer(crate::tray::refresh_menu);
+            }
+            Control::CancelAction => self.cancel_confirmation(window, cx),
+            Control::AcceptAction => self.accept_confirmation(window, cx),
+            Control::IssueDetails => {
+                self.issue_details_open = !self.issue_details_open;
+                self.fit_height(window, cx);
+            }
+            Control::ExportLogs => self.export_logs(window, cx),
+        }
+        if from_keyboard
+            && self.focused.is_some()
+            && matches!(
+                control,
+                Control::Restart | Control::Delete | Control::Options | Control::Issue
+            )
+        {
+            self.opener = Some(control);
+            let groups = self.groups(cx);
+            if groups.len() > 1 {
+                self.focused = keyboard::resolve(&groups[..1], None, None);
+            }
+        }
+        cx.notify();
+    }
+
+    fn toggle_expanded(&mut self, kind: InputKind) {
+        self.expanded = if self.expanded == Some(kind) {
+            None
+        } else {
+            Some(kind)
+        };
+    }
+
+    fn choose_microphone(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(name) = self.microphones.get(index).cloned() else {
+            return;
+        };
+        let session = self.session.read(cx);
+        if !session.can_change_inputs() || session.microphone_label().as_deref() == Some(&*name) {
+            return;
+        }
+        self.expanded = None;
+        self.session.update(cx, |session, cx| {
+            session.change_input(crate::session::InputChoice::Microphone(name), cx)
+        });
+    }
+
+    fn choose_camera(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some((_, id)) = self.cameras.get(index).cloned() else {
+            return;
+        };
+        let session = self.session.read(cx);
+        if !session.can_change_inputs() || session.camera_id().as_ref() == Some(&id) {
+            return;
+        }
+        self.expanded = None;
+        let selection = crate::deeplink::camera_selection(id);
+        self.session.update(cx, |session, cx| {
+            session.change_input(crate::session::InputChoice::Camera(selection), cx)
+        });
+    }
+
+    fn export_logs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.spawn_in(window, async move |_, cx| {
+            let Some(path) = crate::platform::save_file_panel_async(
+                "frameever-recording-logs.txt",
+                &["txt"],
+                cx,
+            )
+            .await
+            else {
+                return;
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::diagnostics::export_logs(&path).map(|()| path) })
+                .await;
+            match result {
+                Ok(path) => {
+                    cx.update(|_, cx| crate::library::reveal_path(&path, cx))
+                        .ok();
+                }
+                Err(error) => {
+                    tracing::error!(error, "could not export recording logs");
+                    crate::platform::alert_dialog(
+                        t!("Couldn't export logs"),
+                        t!("Choose a writable folder and try again."),
+                    );
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let modifiers = event.keystroke.modifiers;
+        if modifiers.control || modifiers.alt || modifiers.platform {
+            return;
+        }
+        if self.handle_key(&event.keystroke.key, modifiers.shift, window, cx) {
+            cx.stop_propagation();
+        }
+    }
+
+    fn handle_key(
+        &mut self,
+        key: &str,
+        shift: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(command) = keyboard::command(key, shift) else {
+            return false;
+        };
+        let groups = self.groups(cx);
+        let Some(current) = keyboard::resolve(&groups, self.focused, self.opener) else {
+            return false;
+        };
+        self.focused = Some(current);
+        match command {
+            Command::Press => self.press(current, window, cx),
+            Command::Escape => self.escape(window, cx),
+            _ => self.focused = Some(keyboard::moved(&groups, current, command)),
+        }
+        cx.notify();
+        true
+    }
+
+    fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let back_to = if self.confirmation.is_some() {
+            self.cancel_confirmation(window, cx);
+            self.opener.unwrap_or(Control::Pause)
+        } else if self.options_open {
+            self.toggle_options(window, cx);
+            Control::Options
+        } else if self.issue_card_shown(cx).is_some() {
+            self.toggle_issue_card(window, cx);
+            Control::Issue
+        } else if self.drawing(cx) {
+            self.toggle_draw(window, cx);
+            Control::Draw
+        } else {
+            self.give_back_focus(cx);
+            return;
+        };
+        self.opener = None;
+        self.focused = keyboard::resolve(&self.groups(cx), Some(back_to), None);
     }
 
     fn render_issue(&self, issue: RecordingIssue, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1080,11 +1481,16 @@ impl ControlsWindow {
                             .child(issue.message),
                     )
                     .child(
-                        self.action_button("dismiss-issue", "icons/x.svg", false)
-                            .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Dismiss")).view(cx))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.toggle_issue_card(window, cx)
-                            })),
+                        self.action_button(
+                            "dismiss-issue",
+                            "icons/x.svg",
+                            false,
+                            Control::DismissIssue,
+                        )
+                        .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Dismiss")).view(cx))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.press(Control::DismissIssue, window, cx)
+                        })),
                     ),
             )
             .when_some(issue.details, |this, details| {
@@ -1093,70 +1499,38 @@ impl ControlsWindow {
                         .flex()
                         .gap(px(8.))
                         .child(
-                            ui::Button::plain(
-                                &theme,
-                                "recording-details",
-                                ui::ButtonVariant::Gray,
-                                ui::ButtonSize::Sm,
-                            )
-                            .label(t!("Details"))
-                            .on_click(cx.listener(
-                                |this, _, window, cx| {
-                                    this.issue_details_open = !this.issue_details_open;
-                                    this.fit_height(window, cx);
-                                    cx.notify();
-                                },
-                            )),
+                            self.ringed_button(
+                                ui::Button::plain(
+                                    &theme,
+                                    "recording-details",
+                                    ui::ButtonVariant::Gray,
+                                    ui::ButtonSize::Sm,
+                                )
+                                .label(t!("Details"))
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| {
+                                        this.press(Control::IssueDetails, window, cx)
+                                    },
+                                )),
+                                Control::IssueDetails,
+                            ),
                         )
                         .child(
-                            ui::Button::plain(
-                                &theme,
-                                "recording-export-logs",
-                                ui::ButtonVariant::Gray,
-                                ui::ButtonSize::Sm,
-                            )
-                            .label(t!("Export logs"))
-                            .on_click(cx.listener(
-                                |_, _, window, cx| {
-                                    cx.spawn_in(window, async move |_, cx| {
-                                        let Some(path) = crate::platform::save_file_panel_async(
-                                            "frameever-recording-logs.txt",
-                                            &["txt"],
-                                            cx,
-                                        )
-                                        .await
-                                        else {
-                                            return;
-                                        };
-                                        let result = cx
-                                            .background_executor()
-                                            .spawn(async move {
-                                                crate::diagnostics::export_logs(&path)
-                                                    .map(|()| path)
-                                            })
-                                            .await;
-                                        match result {
-                                            Ok(path) => {
-                                                cx.update(|_, cx| {
-                                                    crate::library::reveal_path(&path, cx)
-                                                })
-                                                .ok();
-                                            }
-                                            Err(error) => {
-                                                tracing::error!(
-                                                    error,
-                                                    "could not export recording logs"
-                                                );
-                                                crate::platform::alert_dialog(
-                                                    t!("Couldn't export logs"),
-                                                    t!("Choose a writable folder and try again."),
-                                                );
-                                            }
-                                        }
-                                    })
-                                    .detach();
-                                },
-                            )),
+                            self.ringed_button(
+                                ui::Button::plain(
+                                    &theme,
+                                    "recording-export-logs",
+                                    ui::ButtonVariant::Gray,
+                                    ui::ButtonSize::Sm,
+                                )
+                                .label(t!("Export logs"))
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| {
+                                        this.press(Control::ExportLogs, window, cx)
+                                    },
+                                )),
+                                Control::ExportLogs,
+                            ),
                         ),
                 )
                 .when(self.issue_details_open, |this| {
@@ -1178,7 +1552,7 @@ impl ControlsWindow {
         let theme = self.theme;
         let session = self.session.read(cx);
         let paused = session.is_paused();
-        let busy = !matches!(session.phase, Phase::Recording { .. }) || session.pause_unavailable();
+        let busy = self.busy(cx);
         let pause_pending = session.pause_pending();
         let pause_tooltip = if session.pause_uncertain() {
             t!("Capture state is unconfirmed. Use Stop.")
@@ -1241,34 +1615,34 @@ impl ControlsWindow {
                         "icons/pause.svg"
                     },
                     busy,
+                    Control::Pause,
                 )
                 .when(pause_pending, |this| this.opacity(0.5))
                 .tooltip(move |_, cx| ui::Tooltip::new(&theme, pause_tooltip).view(cx))
                 .when(!busy, |this| {
-                    this.on_click(cx.listener(|this, _, _, cx| {
-                        this.session
-                            .update(cx, |session, cx| session.toggle_pause(cx));
+                    this.on_click(cx.listener(|this, _, window, cx| {
+                        this.press(Control::Pause, window, cx);
                     }))
                 }),
             )
             .child(
-                self.action_button("restart", "icons/rotate-ccw.svg", busy)
+                self.action_button("restart", "icons/rotate-ccw.svg", busy, Control::Restart)
                     .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Restart")).view(cx))
                     .when(!busy, |this| {
                         this.on_click(cx.listener(|this, _, window, cx| {
-                            this.confirm_action(DestructiveAction::Restart, window, cx);
+                            this.press(Control::Restart, window, cx);
                         }))
                     }),
             )
             .when(self.issue(cx).is_some(), |this| {
                 this.child(
-                    self.action_button("issue", "icons/triangle-alert.svg", false)
+                    self.action_button("issue", "icons/triangle-alert.svg", false, Control::Issue)
                         .tooltip(move |_, cx| {
                             ui::Tooltip::new(&theme, t!("Recording issue")).view(cx)
                         })
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.toggle_issue_card(window, cx)),
-                        ),
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.press(Control::Issue, window, cx)
+                        })),
                 )
             })
             .child(
@@ -1280,31 +1654,38 @@ impl ControlsWindow {
                     .flex_shrink_0(),
             )
             .child(
-                self.action_button("delete", "icons/trash.svg", busy)
+                self.action_button("delete", "icons/trash.svg", busy, Control::Delete)
                     .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Delete")).view(cx))
                     .when(!busy, |this| {
                         this.on_click(cx.listener(|this, _, window, cx| {
-                            this.confirm_action(DestructiveAction::Delete, window, cx);
+                            this.press(Control::Delete, window, cx);
                         }))
                     }),
             )
             .child(
-                self.action_button("draw", "icons/pencil.svg", busy)
+                self.action_button("draw", "icons/pencil.svg", busy, Control::Draw)
                     .when(self.drawing(cx), |this| this.bg(theme.selection))
                     .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Draw on screen")).view(cx))
                     .when(!busy, |this| {
                         this.on_click(
-                            cx.listener(|this, _, window, cx| this.toggle_draw(window, cx)),
+                            cx.listener(|this, _, window, cx| {
+                                this.press(Control::Draw, window, cx)
+                            }),
                         )
                     }),
             )
             .child(
-                self.action_button("settings", "icons/sliders-horizontal.svg", false)
-                    .when(self.options_open, |this| this.bg(theme.selection))
-                    .tooltip(move |_, cx| {
-                        ui::Tooltip::new(&theme, t!("Recording options")).view(cx)
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_options(window, cx))),
+                self.action_button(
+                    "settings",
+                    "icons/sliders-horizontal.svg",
+                    false,
+                    Control::Options,
+                )
+                .when(self.options_open, |this| this.bg(theme.selection))
+                .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Recording options")).view(cx))
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.press(Control::Options, window, cx)),
+                ),
             )
             .child(
                 div()
@@ -1321,10 +1702,19 @@ impl ControlsWindow {
 impl Render for ControlsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.theme.refresh(window, cx, false);
+        if self.focused.is_some() {
+            self.focused = keyboard::resolve(&self.groups(cx), self.focused, self.opener);
+        }
+        self.ringed = self
+            .focused
+            .filter(|_| window.is_window_active() && self.focus.is_focused(window));
+        let key_down = cx.listener(Self::key_down);
         let issue = self.issue_card_shown(cx);
         let options = self.options_open.then(|| self.render_options(cx));
 
         div()
+            .track_focus(&self.focus)
+            .on_key_down(key_down)
             .size_full()
             .flex()
             .flex_col()
@@ -1504,6 +1894,83 @@ mod repaint_tests {
                 controls.window_height,
                 crate::app_windows::CONTROLS_BAR_HEIGHT
             );
+        });
+    }
+
+    #[gpui::test]
+    fn the_focus_shortcut_walks_the_bar_and_esc_closes_a_card_before_leaving(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            Feeds::init(cx);
+            RecordingSession::init(cx);
+        });
+        let (controls, cx) = cx.add_window_view(|window, cx| {
+            let session = RecordingSession::global(cx);
+            session.update(cx, |session, _| {
+                session.phase = Phase::Recording { paused: false }
+            });
+            ControlsWindow::new(session, false, window, cx)
+        });
+        controls.update_in(cx, |controls, window, cx| {
+            assert_eq!(controls.focused, None);
+            controls.take_keyboard_focus(window, cx);
+            assert_eq!(controls.focused, Some(Control::Pause));
+            assert!(controls.handle_key("right", false, window, cx));
+            assert_eq!(controls.focused, Some(Control::Restart));
+            controls.handle_key("end", false, window, cx);
+            assert_eq!(controls.focused, Some(Control::Stop));
+            controls.handle_key("home", false, window, cx);
+            assert_eq!(controls.focused, Some(Control::Pause));
+
+            controls.focused = Some(Control::Delete);
+            controls.handle_key("enter", false, window, cx);
+            assert_eq!(controls.confirmation, Some(DestructiveAction::Delete));
+            assert_eq!(controls.focused, Some(Control::CancelAction));
+            controls.handle_key("tab", false, window, cx);
+            assert_eq!(controls.focused, Some(Control::Pause));
+            controls.handle_key("tab", true, window, cx);
+            assert_eq!(controls.focused, Some(Control::CancelAction));
+
+            controls.handle_key("escape", false, window, cx);
+            assert_eq!(controls.confirmation, None);
+            assert_eq!(controls.focused, Some(Control::Delete));
+            assert_eq!(
+                controls.session.read(cx).phase,
+                Phase::Recording { paused: false }
+            );
+            controls.handle_key("escape", false, window, cx);
+            assert_eq!(controls.focused, None);
+            assert!(!controls.handle_key("a", false, window, cx));
+        });
+    }
+
+    #[gpui::test]
+    fn hide_controls_sits_in_the_options_and_closes_them(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            Feeds::init(cx);
+            RecordingSession::init(cx);
+        });
+        let (controls, cx) = cx.add_window_view(|window, cx| {
+            let session = RecordingSession::global(cx);
+            session.update(cx, |session, _| {
+                session.phase = Phase::Recording { paused: false }
+            });
+            ControlsWindow::new(session, false, window, cx)
+        });
+        controls.update_in(cx, |controls, window, cx| {
+            controls.take_keyboard_focus(window, cx);
+            controls.focused = Some(Control::Options);
+            controls.handle_key("space", false, window, cx);
+            assert!(controls.options_open);
+            assert_eq!(controls.focused, Some(Control::HideControls));
+            assert_eq!(
+                controls.groups(cx)[0].last(),
+                Some(&(Control::HideControls, true))
+            );
+            controls.handle_key("enter", false, window, cx);
+            assert!(!controls.options_open);
+            assert_eq!(controls.focused, None);
         });
     }
 

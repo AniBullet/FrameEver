@@ -88,11 +88,27 @@ pub(crate) fn tray_controls_hidden(cx: &App) -> bool {
 pub(crate) fn tray_toggle_controls(cx: &mut App) {
     let hidden = !tray_controls_hidden(cx);
     if let Some(handle) = cx.global::<AppWindows>().controls
-        && let Err(error) =
-            handle.update(cx, |view, window, _| view.set_tray_hidden(hidden, window))
+        && let Err(error) = handle.update(cx, |view, window, cx| {
+            view.set_tray_hidden(hidden, window, cx)
+        })
     {
         tracing::error!("could not change recording controls visibility: {error}");
     }
+    crate::tray::refresh_menu(cx);
+}
+
+pub(crate) fn focus_recording_controls(cx: &mut App) {
+    let Some(handle) = cx.global::<AppWindows>().controls else {
+        return;
+    };
+    cx.defer(move |cx| {
+        if let Err(error) =
+            handle.update(cx, |view, window, cx| view.take_keyboard_focus(window, cx))
+        {
+            tracing::error!("could not focus the recording controls: {error}");
+        }
+        crate::tray::refresh_menu(cx);
+    });
 }
 
 pub(crate) fn tray_restart_recording(cx: &mut App) {

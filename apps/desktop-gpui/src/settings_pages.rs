@@ -695,6 +695,11 @@ fn shortcut_effect(
         "drawOnScreen" => {
             t!("draw on the screen while recording; what you draw is saved in the video").into()
         }
+        "focusRecordingControls" => t!(
+            "move keyboard focus to the recording controls; Esc gives it back to the app you're recording"
+        )
+        .into(),
+        "toggleRecordingControls" => t!("hide the recording controls, or show them again").into(),
         _ => String::new(),
     }
 }
@@ -792,7 +797,7 @@ const UNAVAILABLE: &str =
 
 /// `HotkeyText`'s key list: modifiers in ⌘⌃⌥⇧ order, then the main key.
 /// [`ui::kbd_symbol`] does the per-OS glyph mapping.
-fn hotkey_display_keys(hotkey: &Hotkey) -> Vec<String> {
+pub(crate) fn hotkey_display_keys(hotkey: &Hotkey) -> Vec<String> {
     let mut keys = Vec::new();
     if hotkey.meta {
         keys.push("meta".to_string());
@@ -836,7 +841,7 @@ fn hotkey_inline_text(hotkey: &Hotkey) -> String {
         .join(separator)
 }
 
-fn hotkey_key_text(key: &str) -> SharedString {
+pub(crate) fn hotkey_key_text(key: &str) -> SharedString {
     if let Some(digit) = key.strip_prefix("Digit") {
         return SharedString::from(digit.to_string());
     }
@@ -4728,7 +4733,9 @@ mod tests {
             .chain(catalog::WHILE_RECORDING_SHORTCUTS.iter())
             .copied()
             .collect();
-        assert_eq!(shown.len(), 16);
+        assert_eq!(shown.len(), 18);
+        assert!(shown.contains(&"focusRecordingControls"));
+        assert!(shown.contains(&"toggleRecordingControls"));
         assert!(shown.contains(&"focusCameraPreview"));
         assert!(shown.contains(&"toggleTeleprompterPlayback"));
         assert!(shown.contains(&"drawOnScreen"));

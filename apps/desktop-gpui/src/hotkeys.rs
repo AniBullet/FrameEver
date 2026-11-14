@@ -53,9 +53,11 @@ pub enum HotkeyAction {
     FocusCameraPreview,
     ToggleTeleprompterPlayback,
     DrawOnScreen,
+    FocusRecordingControls,
+    ToggleRecordingControls,
 }
 
-const ACTION_KEYS: [(&str, HotkeyAction); 16] = [
+const ACTION_KEYS: [(&str, HotkeyAction); 18] = [
     ("startStudioRecording", HotkeyAction::StartStudioRecording),
     ("startInstantRecording", HotkeyAction::StartInstantRecording),
     ("stopRecording", HotkeyAction::StopRecording),
@@ -84,9 +86,17 @@ const ACTION_KEYS: [(&str, HotkeyAction); 16] = [
         HotkeyAction::ToggleTeleprompterPlayback,
     ),
     ("drawOnScreen", HotkeyAction::DrawOnScreen),
+    (
+        "focusRecordingControls",
+        HotkeyAction::FocusRecordingControls,
+    ),
+    (
+        "toggleRecordingControls",
+        HotkeyAction::ToggleRecordingControls,
+    ),
 ];
 
-const DEFAULT_SHORTCUTS: [(&str, &str, &str); 2] = [
+const DEFAULT_SHORTCUTS: [(&str, &str, &str); 4] = [
     (
         "cameraFocusShortcutInitialized",
         "focusCameraPreview",
@@ -97,11 +107,30 @@ const DEFAULT_SHORTCUTS: [(&str, &str, &str); 2] = [
         "toggleTeleprompterPlayback",
         "KeyT",
     ),
+    (
+        "focusControlsShortcutInitialized",
+        "focusRecordingControls",
+        "Space",
+    ),
+    (
+        "toggleControlsShortcutInitialized",
+        "toggleRecordingControls",
+        "KeyH",
+    ),
 ];
+
+fn recording_only(action: HotkeyAction) -> bool {
+    matches!(
+        action,
+        HotkeyAction::DrawOnScreen
+            | HotkeyAction::FocusRecordingControls
+            | HotkeyAction::ToggleRecordingControls
+    )
+}
 
 fn registers_now(action: HotkeyAction, recording: bool, teleprompter_open: bool) -> bool {
     match action {
-        HotkeyAction::DrawOnScreen => recording,
+        _ if recording_only(action) => recording,
         HotkeyAction::ToggleTeleprompterPlayback => teleprompter_open,
         _ => true,
     }
@@ -115,7 +144,10 @@ fn follow_recording(cx: &mut App) {
             return;
         }
         cx.global_mut::<Hotkeys>().recording = recording;
-        if store::hotkeys_raw().contains_key(HotkeyAction::DrawOnScreen.store_key()) {
+        if store::hotkeys_raw()
+            .keys()
+            .any(|key| HotkeyAction::from_store_key(key).is_some_and(recording_only))
+        {
             reload(cx);
         }
     })
@@ -133,6 +165,45 @@ mod draw_shortcut_tests {
         assert!(!registers_now(HotkeyAction::DrawOnScreen, false, true));
         assert!(registers_now(HotkeyAction::DrawOnScreen, true, false));
         assert!(registers_now(HotkeyAction::StopRecording, false, false));
+    }
+}
+
+#[cfg(test)]
+mod recording_controls_shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn controls_shortcuts_register_only_while_recording() {
+        for (key, action) in [
+            (
+                "focusRecordingControls",
+                HotkeyAction::FocusRecordingControls,
+            ),
+            (
+                "toggleRecordingControls",
+                HotkeyAction::ToggleRecordingControls,
+            ),
+        ] {
+            assert_eq!(HotkeyAction::from_store_key(key), Some(action));
+            assert!(!registers_now(action, false, true));
+            assert!(registers_now(action, true, false));
+            assert!(yields_on_conflict(action));
+        }
+    }
+
+    #[test]
+    fn controls_shortcuts_default_to_ctrl_shift_space_and_h() {
+        for (action, code) in [
+            ("focusRecordingControls", "Space"),
+            ("toggleRecordingControls", "KeyH"),
+        ] {
+            assert!(
+                DEFAULT_SHORTCUTS
+                    .iter()
+                    .any(|(_, key, default)| *key == action && *default == code)
+            );
+            assert!(Code::from_str(code).is_ok());
+        }
     }
 }
 
@@ -188,7 +259,10 @@ mod camera_focus_tests {
 fn yields_on_conflict(action: HotkeyAction) -> bool {
     matches!(
         action,
-        HotkeyAction::FocusCameraPreview | HotkeyAction::ToggleTeleprompterPlayback
+        HotkeyAction::FocusCameraPreview
+            | HotkeyAction::ToggleTeleprompterPlayback
+            | HotkeyAction::FocusRecordingControls
+            | HotkeyAction::ToggleRecordingControls
     )
 }
 
@@ -202,7 +276,7 @@ impl HotkeyAction {
             .map(|(_, action)| *action)
     }
 
-    fn store_key(self) -> &'static str {
+    pub(crate) fn store_key(self) -> &'static str {
         ACTION_KEYS
             .iter()
             .find(|(_, action)| *action == self)
@@ -493,6 +567,8 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
         HotkeyAction::FocusCameraPreview => app_windows::focus_camera_preview(cx),
         HotkeyAction::ToggleTeleprompterPlayback => app_windows::toggle_teleprompter_playback(cx),
         HotkeyAction::DrawOnScreen => crate::screen_ink::toggle(cx),
+        HotkeyAction::FocusRecordingControls => app_windows::focus_recording_controls(cx),
+        HotkeyAction::ToggleRecordingControls => app_windows::tray_toggle_controls(cx),
         HotkeyAction::StartStudioRecording => start_from_hotkey(Mode::Studio, cx),
         HotkeyAction::StartInstantRecording => start_from_hotkey(Mode::Instant, cx),
         HotkeyAction::StopRecording => {

@@ -326,6 +326,16 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "draw on the screen while recording; what you draw is saved in the video",
         "录制时在屏幕上画，画的内容会录进视频",
     ),
+    ("Focus recording controls", "聚焦录制控制条"),
+    ("Hide or show controls", "隐藏或显示控制条"),
+    (
+        "move keyboard focus to the recording controls; Esc gives it back to the app you're recording",
+        "把键盘焦点移到录制控制条；按 Esc 还给正在录制的应用",
+    ),
+    (
+        "hide the recording controls, or show them again",
+        "隐藏录制控制条，或重新显示",
+    ),
     ("Restart this recording?", "重新开始录制？"),
     (
         "What you've recorded so far is discarded. This can't be undone.",
