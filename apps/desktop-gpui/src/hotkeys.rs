@@ -170,7 +170,11 @@ mod camera_focus_tests {
             false,
             true
         ));
-        assert!(registers_now(HotkeyAction::FocusCameraPreview, false, false));
+        assert!(registers_now(
+            HotkeyAction::FocusCameraPreview,
+            false,
+            false
+        ));
     }
 
     #[test]

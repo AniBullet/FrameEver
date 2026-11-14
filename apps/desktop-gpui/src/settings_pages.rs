@@ -4728,7 +4728,7 @@ mod tests {
             .chain(catalog::WHILE_RECORDING_SHORTCUTS.iter())
             .copied()
             .collect();
-        assert_eq!(shown.len(), 15);
+        assert_eq!(shown.len(), 16);
         assert!(shown.contains(&"focusCameraPreview"));
         assert!(shown.contains(&"toggleTeleprompterPlayback"));
         assert!(shown.contains(&"drawOnScreen"));
