@@ -316,6 +316,10 @@ impl SettingsWindow {
         }
     }
 
+    pub fn show_row(&mut self, row: Row, window: &mut Window, cx: &mut Context<Self>) {
+        self.jump_to(row, window, cx);
+    }
+
     pub fn page_shown(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.pages_shown(window, cx);
     }

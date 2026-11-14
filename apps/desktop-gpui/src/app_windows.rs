@@ -973,6 +973,19 @@ fn first_registered_reopen_target(
         .find(|candidate| live.contains(&candidate.window_id()))
 }
 
+pub fn open_settings_row(row: crate::settings_window::catalog::Row, cx: &mut App) {
+    let Some(place) = crate::settings_window::catalog::place_of(row) else {
+        return;
+    };
+    open_settings(place.page, cx);
+    if let Some(handle) = cx.global::<AppWindows>().settings {
+        handle
+            .update(cx, |view, window, cx| view.show_row(row, window, cx))
+            .ok();
+    }
+    cx.activate(true);
+}
+
 pub fn open_quality_settings(mode: Mode, cx: &mut App) {
     if mode == Mode::Screenshot {
         return;

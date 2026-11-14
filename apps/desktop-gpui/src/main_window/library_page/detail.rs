@@ -293,7 +293,11 @@ impl MainWindow {
             .collect()
     }
 
-    pub(super) fn export_library_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::main_window) fn export_library_selection(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(entry) = self.library.lead_entry().cloned() else {
             return;
         };

@@ -907,6 +907,7 @@ pub struct ScreenshotEditorWindow {
     checker: Option<Arc<RenderImage>>,
 
     toasts: Vec<Toast>,
+    palette: crate::command_palette::view::Slot,
     next_toast: u64,
     toast_tasks: HashMap<u64, gpui::Task<()>>,
     pub(crate) focus: gpui::FocusHandle,
@@ -995,6 +996,7 @@ impl ScreenshotEditorWindow {
             next_toast: 0,
             toast_tasks: HashMap::new(),
             focus: cx.focus_handle(),
+            palette: Default::default(),
         };
 
         for target in HexTarget::ALL {
@@ -1177,6 +1179,48 @@ impl ScreenshotEditorWindow {
     }
 
     // -- History ---------------------------------------------------------------
+
+    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::command_palette::{Surface, view};
+        if self.crop.is_some() {
+            return;
+        }
+        let mut slot = std::mem::take(&mut self.palette);
+        view::toggle(
+            &mut slot,
+            Surface::ScreenshotEditor,
+            Self::on_palette_event,
+            window,
+            cx,
+        );
+        self.palette = slot;
+    }
+
+    fn on_palette_event(
+        &mut self,
+        palette: &Entity<crate::command_palette::view::CommandPalette>,
+        event: &crate::command_palette::view::PaletteEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::command_palette::{Command, view};
+        self.palette.close(window, cx);
+        cx.notify();
+        let view::PaletteEvent::Chosen(outcome) = event else {
+            return;
+        };
+        match view::act(palette, outcome, cx) {
+            Some(Command::CopyScreenshot) => {
+                self.export_image(ExportDestination::Clipboard, window, cx);
+            }
+            Some(Command::SaveScreenshot) => {
+                self.export_image(ExportDestination::File, window, cx);
+            }
+            Some(Command::Undo) => self.undo(window, cx),
+            Some(Command::Redo) => self.redo(window, cx),
+            _ => {}
+        }
+    }
 
     fn undo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(config) = self.history.undo().cloned() else {
@@ -4020,6 +4064,11 @@ impl Render for ScreenshotEditorWindow {
             .id("screenshot-editor-root")
             .track_focus(&self.focus)
             .key_context("ScreenshotEditor")
+            .on_action(cx.listener(
+                |this, _: &crate::command_palette::view::Toggle, window, cx| {
+                    this.toggle_palette(window, cx);
+                },
+            ))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 this.on_key(event, window, cx);
             }))
@@ -4081,6 +4130,7 @@ impl Render for ScreenshotEditorWindow {
             .children(self.render_crop_dialog_overlay(cx))
             .children(self.render_crop_dialog_drag_layer(cx))
             .children(self.render_toasts())
+            .children(self.palette.view())
             .when_some(self.active_slider, |root, slider| {
                 root.child(ui::Slider::drag_layer(
                     "screenshot-slider-drag",
