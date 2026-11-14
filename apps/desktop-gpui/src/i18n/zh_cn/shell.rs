@@ -421,6 +421,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Paused with the recording", "随录制暂停"),
     ("Hidden from this recording", "这次录制看不到这个窗口"),
+    ("Visible until you record", "开始录制前可见"),
     (
         "Hidden from recordings and sharing",
         "录制和屏幕共享都看不到",

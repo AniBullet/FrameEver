@@ -283,7 +283,7 @@ impl SetupWindow {
     fn run(&mut self, job: Job, window: &mut Window, cx: &mut Context<Self>) {
         let shared = Arc::new(Mutex::new(Running::default()));
         let writer = shared.clone();
-        let installing = matches!(job, Job::Install { .. });
+        let finished_job = job.clone();
         std::thread::spawn(move || {
             let report = |fraction: f64| {
                 if let Ok(mut running) = writer.lock() {
@@ -314,7 +314,7 @@ impl SetupWindow {
                     }
                     match outcome {
                         Some(outcome) => {
-                            if installing && outcome.is_ok() {
+                            if flow::writes_first_language(&finished_job, &outcome) {
                                 runner::write_first_language(i18n::current().code());
                             }
                             let next = this.flow.finished(outcome);
@@ -1062,6 +1062,9 @@ fn run_silent(setup: &Setup, app_data: &Path) -> i32 {
         Job::Uninstall { .. } => runner::uninstall(&job, &mut |_| {}),
     };
     runner::log(format_args!("silent {job:?}: {outcome:?}"));
+    if flow::writes_first_language(&job, &outcome) {
+        runner::write_first_language(i18n::current().code());
+    }
     if setup.launch.mode == Mode::Uninstall {
         runner::remove_temp_copy();
     }

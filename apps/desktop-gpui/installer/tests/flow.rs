@@ -8,9 +8,11 @@ use frameever_installer_app::{
     command_line::{Launch, Mode},
     flow::{
         Action, AppState, Choice, Closed, EXIT_BUSY, EXIT_NO_SPACE, EXIT_NOT_INSTALLED, Effect,
-        Flow, Frame, Holder, Installed, Job, Page, Setup, Silent, Style, System, silent,
+        Flow, Frame, Holder, Installed, Job, Page, Setup, Silent, Style, System, quit_answer,
+        silent, writes_first_language,
     },
     i18n::Language,
+    instance_control::Reply,
 };
 
 const MB: u64 = 1024 * 1024;
@@ -290,6 +292,29 @@ fn the_installer_never_closes_a_recording() {
     assert_eq!(flow.page(), Page::AppInUse);
     assert_eq!(flow.act(Action::Cancel), None);
     assert_eq!(flow.page(), Page::Welcome);
+}
+
+#[test]
+fn a_quit_request_frameever_cannot_answer_counts_as_unreachable() {
+    let down = || Err(std::io::Error::from(std::io::ErrorKind::NotFound));
+    assert_eq!(quit_answer(down(), true), Some(Closed::Unreachable));
+    assert_eq!(quit_answer(down(), false), None);
+    assert_eq!(quit_answer(Ok(Reply::Refused), true), Some(Closed::Refused));
+    assert_eq!(quit_answer(Ok(Reply::Quitting), true), None);
+}
+
+#[test]
+fn an_unreachable_frameever_asks_to_quit_it_from_the_tray() {
+    let machine = Machine::new();
+    machine.set_app(AppState::Idle);
+    machine.hold(vec![frameever()]);
+    let mut flow = flow(Mode::Install, None, &machine);
+    flow.act(Action::Install);
+    assert_eq!(flow.act(Action::CloseApp), Some(Effect::CloseApp));
+    assert_eq!(flow.app_closed(Closed::Unreachable), None);
+    assert_eq!(flow.page(), Page::AppInUse);
+    assert_ne!(flow.primary(), Some(Action::CloseApp));
+    assert!(flow.screen().sentence.contains("Quit it from the tray"));
 }
 
 #[test]
@@ -724,16 +749,35 @@ fn silent_install_passes_s_and_d_through_and_opens_nothing() {
             fresh: false,
             desktop: true,
             start_menu: true,
-            path: false,
+            path: true,
         })
     );
-    let Silent::Run(Job::Install { dir, .. }) = silent(
+    let Silent::Run(Job::Install { dir, path, .. }) = silent(
         &silent_setup(Mode::Install, None, Some("E:\\FrameEver")),
         &machine.system(),
     ) else {
         panic!("install expected");
     };
     assert_eq!(dir, PathBuf::from("E:\\FrameEver"));
+    assert!(!path);
+}
+
+#[test]
+fn a_finished_install_writes_the_first_language_and_an_uninstall_does_not() {
+    let machine = Machine::new();
+    let Silent::Run(install) = silent(&silent_setup(Mode::Install, None, None), &machine.system())
+    else {
+        panic!("install expected");
+    };
+    assert!(writes_first_language(&install, &Ok(())));
+    assert!(!writes_first_language(&install, &Err("failed".into())));
+    let Silent::Run(uninstall) = silent(
+        &silent_setup(Mode::Uninstall, None, Some("E:\\FrameEver")),
+        &machine.system(),
+    ) else {
+        panic!("uninstall expected");
+    };
+    assert!(!writes_first_language(&uninstall, &Ok(())));
 }
 
 #[test]

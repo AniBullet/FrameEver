@@ -136,7 +136,7 @@ pub enum CaptureStatus {
     PausedWithRecording,
     HiddenFromThisRecording,
     HiddenFromRecordingsAndSharing,
-    HiddenFromRecordings,
+    VisibleUntilRecording,
 }
 
 impl CaptureStatus {
@@ -184,7 +184,7 @@ pub fn capture_status(inputs: CaptureInputs) -> CaptureStatus {
     if inputs.hide_from_sharing {
         CaptureStatus::HiddenFromRecordingsAndSharing
     } else {
-        CaptureStatus::HiddenFromRecordings
+        CaptureStatus::VisibleUntilRecording
     }
 }
 
@@ -506,7 +506,7 @@ mod tests {
                 hidden_confirmed: Some(false),
                 ..inputs()
             }),
-            CaptureStatus::HiddenFromRecordings
+            CaptureStatus::VisibleUntilRecording
         );
         assert_eq!(
             capture_status(CaptureInputs {

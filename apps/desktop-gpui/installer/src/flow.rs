@@ -8,6 +8,7 @@ use frameever_utils::brand::{APP_NAME, RELEASES_REPO};
 use crate::{
     command_line::{Launch, Mode, install_arguments},
     i18n::{self, Language},
+    instance_control::Reply,
     measure::{Bar, Need, format_size, needs},
     version::{Existing, compare},
 };
@@ -117,6 +118,15 @@ pub enum Closed {
     Gone,
     Refused,
     StillRunning,
+    Unreachable,
+}
+
+pub fn quit_answer(reply: std::io::Result<Reply>, running: bool) -> Option<Closed> {
+    match reply {
+        Ok(Reply::Refused) => Some(Closed::Refused),
+        Err(_) if running => Some(Closed::Unreachable),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -280,6 +290,10 @@ fn install_location(picked: &Path) -> PathBuf {
     }
 }
 
+pub fn writes_first_language(job: &Job, outcome: &Result<(), String>) -> bool {
+    matches!(job, Job::Install { .. }) && outcome.is_ok()
+}
+
 pub fn silent(setup: &Setup, system: &System) -> Silent {
     let job = match setup.launch.mode {
         Mode::Uninstall => {
@@ -314,7 +328,7 @@ pub fn silent(setup: &Setup, system: &System) -> Silent {
                 fresh: false,
                 desktop: true,
                 start_menu: true,
-                path: false,
+                path: setup.installed.is_none(),
             }
         }
     };
@@ -616,6 +630,17 @@ impl Flow {
             }
             Closed::StillRunning if self.updating() => {
                 self.stop_update(self.tr("FrameEver is open, so its files can't be replaced."));
+                None
+            }
+            Closed::Unreachable if self.updating() => {
+                self.stop_update(self.tr(
+                    "FrameEver is open, so its files can't be replaced. Quit it from the tray, then try again.",
+                ));
+                None
+            }
+            Closed::Unreachable => {
+                self.unreachable = true;
+                self.go(Page::AppInUse);
                 None
             }
             Closed::Gone | Closed::StillRunning => self.gate(),

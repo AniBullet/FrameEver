@@ -12,7 +12,11 @@ fn embed_payload() {
     match &payload {
         Some(source) => {
             println!("cargo:rerun-if-changed={}", PathBuf::from(source).display());
-            std::fs::copy(source, &embedded).expect("failed to copy the NSIS installer payload");
+            let copied = std::fs::copy(source, &embedded)
+                .expect("failed to copy the NSIS installer payload");
+            if copied == 0 {
+                panic!("{PAYLOAD} points at an empty file");
+            }
         }
         None => std::fs::write(&embedded, []).expect("failed to write an empty payload"),
     }

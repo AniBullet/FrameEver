@@ -578,6 +578,19 @@ function converter({ flags }) {
 
 export const INSTALLER_APP = "frameever-installer-app";
 
+export function installerPayloadEnv(nsis, installedBytes, env = process.env) {
+	if (!existsSync(nsis)) throw new Error(`No NSIS installer at ${nsis}`);
+	if (statSync(nsis).size === 0) throw new Error(`${nsis} is empty`);
+	if (!(installedBytes > 0)) {
+		throw new Error(`The installed size for ${path.basename(nsis)} is 0`);
+	}
+	return {
+		...env,
+		FRAMEEVER_INSTALLER_PAYLOAD: nsis,
+		FRAMEEVER_INSTALLER_INSTALLED_BYTES: String(installedBytes),
+	};
+}
+
 export function installerEnv(dir, existing, version, env = process.env) {
 	const installed = {
 		older: "0.9.0",
@@ -1018,17 +1031,16 @@ function packageInstaller({ flags }) {
 	console.log(
 		`  Installs ${(installedBytes / 1024 / 1024).toFixed(1)} MB from ${path.basename(nsis)}`,
 	);
+	let payloadEnv;
+	try {
+		payloadEnv = installerPayloadEnv(nsis, installedBytes);
+	} catch (error) {
+		fail(error.message);
+	}
 	run(
 		"cargo",
 		["build", "--release", "-p", INSTALLER_APP, "--target", target],
-		{
-			cwd: gpuiDir,
-			env: {
-				...process.env,
-				FRAMEEVER_INSTALLER_PAYLOAD: nsis,
-				FRAMEEVER_INSTALLER_INSTALLED_BYTES: String(installedBytes),
-			},
-		},
+		{ cwd: gpuiDir, env: payloadEnv },
 	);
 	mkdirSync(distDir, { recursive: true });
 	const newest = path.join(distDir, path.basename(nsis));

@@ -5,7 +5,7 @@ use std::{
 };
 
 use frameever_installer_app::{
-    flow::{AppState, Closed, Holder, Installed, System},
+    flow::{AppState, Closed, Holder, Installed, System, quit_answer},
     instance_control::{Control, ENDPOINT_EXTENSION, PIDFILE_NAME, Reply},
     measure::drive_letter,
 };
@@ -293,8 +293,8 @@ pub fn app_state(app_data: &Path) -> AppState {
 }
 
 pub fn close_app(app_data: &Path, dir: &Path) -> Closed {
-    if let Ok(Reply::Refused) = ask(app_data, Control::Quit) {
-        return Closed::Refused;
+    if let Some(closed) = quit_answer(ask(app_data, Control::Quit), frameever_running()) {
+        return closed;
     }
     let started = Instant::now();
     while started.elapsed() < QUIT_WAIT {

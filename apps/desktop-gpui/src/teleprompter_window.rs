@@ -1064,8 +1064,9 @@ impl TeleprompterWindow {
             script.clone().into()
         };
         let styled = if script.trim().is_empty() {
+            let placeholder = text.len();
             StyledText::new(text).with_highlights(vec![(
-                0..t!("Press E to write your script").len(),
+                0..placeholder,
                 HighlightStyle {
                     color: Some(theme.muted_foreground.into()),
                     ..Default::default()
@@ -1713,7 +1714,7 @@ fn status_label(status: CaptureStatus) -> &'static str {
         CaptureStatus::PausedWithRecording => t!("Paused with the recording"),
         CaptureStatus::HiddenFromThisRecording => t!("Hidden from this recording"),
         CaptureStatus::HiddenFromRecordingsAndSharing => t!("Hidden from recordings and sharing"),
-        CaptureStatus::HiddenFromRecordings => t!("Hidden from recordings"),
+        CaptureStatus::VisibleUntilRecording => t!("Visible until you record"),
     }
 }
 
@@ -1776,7 +1777,7 @@ mod tests {
             CaptureStatus::PausedWithRecording,
             CaptureStatus::HiddenFromThisRecording,
             CaptureStatus::HiddenFromRecordingsAndSharing,
-            CaptureStatus::HiddenFromRecordings,
+            CaptureStatus::VisibleUntilRecording,
         ] {
             assert!(!status_label(status).is_empty());
         }

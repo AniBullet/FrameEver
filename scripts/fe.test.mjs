@@ -25,6 +25,7 @@ import {
 	iconTarball,
 	installedPayloadFiles,
 	installerEnv,
+	installerPayloadEnv,
 	isLargeAddressAware,
 	missingChineseFont,
 	missingNativeDeps,
@@ -405,6 +406,21 @@ test("the installer dev run fakes the existing install and never touches the rea
 	assert.equal(env.LOCALAPPDATA, path.join("T", "Local"));
 	assert.equal(installerEnv("T", null, "1.0.0", {}).FRAMEEVER_INSTALLER_INSTALLED, "none");
 	assert.ok(installerEnv("T", "same", "1.0.0", {}).FRAMEEVER_INSTALLER_INSTALLED.endsWith("|1.0.0"));
+});
+
+test("the release installer front end refuses a missing or empty NSIS payload", () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "fe-payload-"));
+	const nsis = path.join(dir, "FrameEver_1.0.0_x64-setup.exe");
+	assert.throws(() => installerPayloadEnv(nsis, 10, {}), /No NSIS installer/);
+	writeFileSync(nsis, "");
+	assert.throws(() => installerPayloadEnv(nsis, 10, {}), /is empty/);
+	writeFileSync(nsis, "MZ");
+	assert.throws(() => installerPayloadEnv(nsis, 0, {}), /installed size/);
+	const env = installerPayloadEnv(nsis, 10, { KEEP: "1" });
+	assert.equal(env.FRAMEEVER_INSTALLER_PAYLOAD, nsis);
+	assert.equal(env.FRAMEEVER_INSTALLER_INSTALLED_BYTES, "10");
+	assert.equal(env.KEEP, "1");
+	rmSync(dir, { recursive: true });
 });
 
 test("the fake Cap-aniBullet 2.x install has projects, paired videos and a screenshot where 2.x kept them", () => {
