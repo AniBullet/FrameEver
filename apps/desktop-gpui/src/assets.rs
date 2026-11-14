@@ -518,8 +518,10 @@ mod tests {
                 release["license"].as_str().unwrap(),
             );
             let path = format!("icons/{name}.svg");
-            let bytes = Assets.load(&path).unwrap();
-            let bytes = bytes.unwrap_or_else(|| panic!("{path} is not embedded"));
+            let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("assets")
+                .join(&path);
+            let bytes = std::fs::read(&file).unwrap_or_else(|_| panic!("{path} is missing"));
             let svg = std::str::from_utf8(&bytes).unwrap();
             assert!(svg.starts_with(&format!("<!-- {stamp} -->")), "{path}");
             assert!(svg.contains(r#"viewBox="0 0 24 24""#), "{path}");
