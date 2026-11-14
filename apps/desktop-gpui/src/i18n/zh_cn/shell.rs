@@ -821,10 +821,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Auto-stop, minutes", "自动停止（分钟）"),
     ("Click highlight", "点击高亮"),
     ("All recording settings", "全部录制设置"),
-    (
-        "Click highlight is saved for a future update.",
-        "点击高亮的设置已预留，将在后续更新生效。",
-    ),
     ("Smaller", "更小"),
     ("Show library", "显示资源库"),
     ("Back to recording", "回到录制"),

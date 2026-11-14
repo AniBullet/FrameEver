@@ -120,7 +120,6 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
             settings.capture_keyboard_events,
         ));
     }
-    let general = store::store_section(store::GENERAL_SETTINGS);
     rows.push(OptionRow {
         label: t!("Auto-stop, minutes"),
         key: "recordingAutoStopMinutes",
@@ -131,10 +130,7 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
         rows.push(toggle(
             t!("Click highlight"),
             "instantClickHighlight",
-            general
-                .get("instantClickHighlight")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            settings.instant_click_highlight,
         ));
     }
     rows
@@ -315,14 +311,6 @@ impl MainWindow {
                         ),
                 )
                 .children(content)
-                .when(self.mode == Mode::Instant, |element| {
-                    element.child(
-                        div()
-                            .text_size(px(10.))
-                            .text_color(theme.muted_foreground)
-                            .child(t!("Click highlight is saved for a future update.")),
-                    )
-                })
                 .when(self.recording_options_save_failed, |element| {
                     element.child(
                         div()
@@ -482,6 +470,7 @@ mod tests {
         choose(Mode::Instant, "recordingAutoStopMinutes", Value::from(15));
         choose(Mode::Instant, "instantClickHighlight", Value::Bool(true));
         assert_eq!(GeneralSettings::load().instant_mode_max_resolution, 3840);
+        assert!(GeneralSettings::load().instant_click_highlight);
         let saved: Value =
             serde_json::from_slice(&std::fs::read(fixture.0.path().join("store")).unwrap())
                 .unwrap();

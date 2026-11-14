@@ -7,6 +7,7 @@ use crate::{
     capture_pipeline::{
         MakeCapturePipeline, ScreenCaptureMethod, Stop, target_to_display_and_crop,
     },
+    click_highlight::ClickHighlights,
     feeds::microphone::MicrophoneFeedLock,
     output_pipeline::{self, OutputPipeline},
     resolution_limits::ensure_even,
@@ -404,6 +405,7 @@ async fn create_pipeline(
     max_output_size: Option<u32>,
     start_time: Timestamps,
     start_gate: Option<RecordingStartGate>,
+    click_highlight: Option<ClickHighlights>,
 ) -> anyhow::Result<Pipeline> {
     // Instant merges its screen and audio tracks by timestamp, and gated
     // audio starts at the arm point, so the screen must start there too.
@@ -434,6 +436,7 @@ async fn create_pipeline(
         start_time,
         start_gate.clone(),
         segment_tx_for_video,
+        click_highlight,
     )
     .await?;
 
@@ -511,6 +514,7 @@ pub struct ActorBuilder {
     max_output_size: Option<u32>,
     max_fps: u32,
     window_only: bool,
+    click_highlight: bool,
     #[cfg(target_os = "macos")]
     excluded_windows: Vec<scap_targets::WindowId>,
     start_gate: Option<RecordingStartGate>,
@@ -527,6 +531,7 @@ impl ActorBuilder {
             max_output_size: None,
             max_fps: crate::defaults::DEFAULT_INSTANT_MODE_FPS,
             window_only: false,
+            click_highlight: false,
             #[cfg(target_os = "macos")]
             excluded_windows: Vec::new(),
             start_gate: None,
@@ -547,6 +552,11 @@ impl ActorBuilder {
 
     pub fn with_window_only(mut self, window_only: bool) -> Self {
         self.window_only = window_only;
+        self
+    }
+
+    pub fn with_click_highlight(mut self, click_highlight: bool) -> Self {
+        self.click_highlight = click_highlight;
         self
     }
 
@@ -599,6 +609,7 @@ impl ActorBuilder {
             },
             self.max_output_size,
             self.max_fps,
+            self.click_highlight,
         )
         .await
     }
@@ -610,7 +621,8 @@ pub async fn spawn_instant_recording_actor(
     max_output_size: Option<u32>,
     max_fps: u32,
 ) -> anyhow::Result<ActorHandle> {
-    spawn_instant_recording_actor_inner(recording_dir, inputs, max_output_size, max_fps).await
+    spawn_instant_recording_actor_inner(recording_dir, inputs, max_output_size, max_fps, false)
+        .await
 }
 
 async fn spawn_instant_recording_actor_inner(
@@ -618,8 +630,15 @@ async fn spawn_instant_recording_actor_inner(
     inputs: RecordingBaseInputs,
     max_output_size: Option<u32>,
     max_fps: u32,
+    click_highlight: bool,
 ) -> anyhow::Result<ActorHandle> {
-    let startup = build_instant_recording_actor(recording_dir, inputs, max_output_size, max_fps);
+    let startup = build_instant_recording_actor(
+        recording_dir,
+        inputs,
+        max_output_size,
+        max_fps,
+        click_highlight,
+    );
     #[cfg(windows)]
     {
         let scope = output_pipeline::PipelineBuildScope::new();
@@ -635,6 +654,7 @@ async fn build_instant_recording_actor(
     inputs: RecordingBaseInputs,
     max_output_size: Option<u32>,
     max_fps: u32,
+    click_highlight: bool,
 ) -> anyhow::Result<ActorHandle> {
     use frameever_utils::operation_diagnostics::{Field, Operation};
     let mut diagnostic = Operation::start(
@@ -751,6 +771,16 @@ async fn build_instant_recording_actor(
             let (display, crop_bounds) = target_to_display_and_crop(&inputs.capture_target)
                 .context("target_display_crop")?;
 
+            #[cfg(windows)]
+            let click_highlight = click_highlight
+                .then(|| click_highlights(&display, crop_bounds.as_ref()))
+                .flatten();
+            #[cfg(not(windows))]
+            let click_highlight: Option<ClickHighlights> = None;
+            if let Some(highlights) = &click_highlight {
+                highlights.watch();
+            }
+
             #[cfg(target_os = "macos")]
             let max_capture_size = max_output_size.and_then(|max_output_size| {
                 inputs.capture_target.physical_size().map(|size| {
@@ -806,6 +836,7 @@ async fn build_instant_recording_actor(
                 max_output_size,
                 timestamps,
                 inputs.start_gate.clone(),
+                click_highlight,
             )
             .await?;
 
@@ -932,6 +963,29 @@ fn clamp_size(input: (u32, u32), max: (u32, u32)) -> (u32, u32) {
     } else {
         unreachable!()
     }
+}
+
+#[cfg(windows)]
+use crate::click_highlight::CaptureArea;
+
+#[cfg(windows)]
+fn click_highlights(
+    display: &scap_targets::Display,
+    crop: Option<&scap_targets::bounds::PhysicalBounds>,
+) -> Option<ClickHighlights> {
+    let bounds = display.raw_handle().physical_bounds()?;
+    let logical = display.logical_size()?;
+    let rect = |position: scap_targets::bounds::PhysicalPosition,
+                size: scap_targets::bounds::PhysicalSize| {
+        (position.x(), position.y(), size.width(), size.height())
+    };
+    Some(ClickHighlights::new(
+        CaptureArea::new(
+            rect(bounds.position(), bounds.size()),
+            crop.map(|crop| rect(crop.position(), crop.size())),
+        ),
+        bounds.size().width() / logical.width().max(1.0),
+    ))
 }
 
 #[cfg(windows)]

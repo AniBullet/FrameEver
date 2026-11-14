@@ -6,6 +6,7 @@ use super::frame_pacing::{FramePacer, Paced};
 use super::win::reference_video_frame;
 use crate::{
     AudioFrame, AudioMuxer, Muxer, SharedPauseState, TaskPool, VideoMuxer,
+    click_highlight::ClickHighlights,
     output_pipeline::{NativeCameraFrame, camera_frame_to_ffmpeg},
     screen_capture,
 };
@@ -216,6 +217,7 @@ pub struct WindowsFragmentedM4SMuxer {
         std::sync::mpsc::Sender<frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>,
     >,
     health_tx: SharedHealthSender,
+    click_highlight: Option<ClickHighlights>,
 }
 
 pub struct WindowsFragmentedM4SMuxerConfig {
@@ -229,6 +231,7 @@ pub struct WindowsFragmentedM4SMuxerConfig {
     pub segment_tx: Option<
         std::sync::mpsc::Sender<frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>,
     >,
+    pub click_highlight: Option<ClickHighlights>,
 }
 
 impl Default for WindowsFragmentedM4SMuxerConfig {
@@ -242,6 +245,7 @@ impl Default for WindowsFragmentedM4SMuxerConfig {
             shared_pause_state: None,
             disk_space_callback: None,
             segment_tx: None,
+            click_highlight: None,
         }
     }
 }
@@ -288,6 +292,7 @@ impl Muxer for WindowsFragmentedM4SMuxer {
             disk_space_callback: config.disk_space_callback,
             segment_tx: config.segment_tx,
             health_tx: SharedHealthSender::new(),
+            click_highlight: config.click_highlight,
         };
 
         muxer.start_encoder()?;
@@ -363,6 +368,10 @@ impl WindowsFragmentedM4SMuxer {
         let health_tx = self.health_tx.clone();
         let base_path = self.base_path.clone();
         let pause_flag = self.pause.flag();
+        let mut baker = self
+            .click_highlight
+            .take()
+            .map(|highlights| highlights.baker());
         let encoder_handle = std::thread::Builder::new()
             .name("win-m4s-segment-encoder".to_string())
             .spawn(move || {
@@ -449,7 +458,10 @@ impl WindowsFragmentedM4SMuxer {
 
                     let (ffmpeg_frame, timestamp) = match pacer.next(&video_rx, &pause_flag) {
                         Paced::Frame(frame, ts) => match frame.as_ffmpeg() {
-                            Ok(f) => {
+                            Ok(mut f) => {
+                                if let Some(baker) = &mut baker {
+                                    baker.captured(&mut f, std::time::Instant::now());
+                                }
                                 last_ffmpeg_frame = Some(reference_video_frame(&f));
                                 (Some(f), ts)
                             }
@@ -464,7 +476,16 @@ impl WindowsFragmentedM4SMuxer {
                                 continue;
                             };
                             duplicated_frames += 1;
-                            (Some(reference_video_frame(f)), ts)
+                            let repainted = baker
+                                .as_mut()
+                                .and_then(|baker| baker.repeated(f, std::time::Instant::now()));
+                            match repainted {
+                                Some(frame) => {
+                                    last_ffmpeg_frame = Some(reference_video_frame(&frame));
+                                    (Some(frame), ts)
+                                }
+                                None => (Some(reference_video_frame(f)), ts),
+                            }
                         }
                         Paced::End => {
                             let mut drained = 0u64;
@@ -474,7 +495,10 @@ impl WindowsFragmentedM4SMuxer {
                             loop {
                                 match video_rx.recv_timeout(Duration::from_millis(10)) {
                                     Ok(Some((frame, ts))) => {
-                                        if let Ok(f) = frame.as_ffmpeg() {
+                                        if let Ok(mut f) = frame.as_ffmpeg() {
+                                            if let Some(baker) = &mut baker {
+                                                baker.captured(&mut f, std::time::Instant::now());
+                                            }
                                             let normalized_ts =
                                                 normalize_timestamp(ts, &mut first_timestamp);
                                             if let Err(e) = encode_frame_fn(

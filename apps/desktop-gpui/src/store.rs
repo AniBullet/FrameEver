@@ -897,6 +897,7 @@ pub struct GeneralSettings {
     pub studio_recording_quality: StudioQuality,
     pub recording_countdown: Option<u32>,
     pub recording_auto_stop_minutes: u32,
+    pub instant_click_highlight: bool,
     pub main_window_recording_start_behaviour: MainWindowStartBehaviour,
     pub post_studio_recording_behaviour: PostStudioBehaviour,
     pub post_screenshot_behaviour: PostScreenshotBehaviour,
@@ -1254,6 +1255,7 @@ impl GeneralSettings {
             studio_recording_quality: enum_at(general, "studioRecordingQuality"),
             recording_countdown: opt_u32_at(general, "recordingCountdown"),
             recording_auto_stop_minutes: u32_at(general, "recordingAutoStopMinutes", 0),
+            instant_click_highlight: bool_at(general, "instantClickHighlight", false),
             main_window_recording_start_behaviour: enum_at(
                 general,
                 "mainWindowRecordingStartBehaviour",
@@ -2707,6 +2709,7 @@ mod tests {
     "postDeletionBehaviour": "somethingFromTheFuture",
     "recordingCountdown": 5,
     "recordingAutoStopMinutes": 15,
+    "instantClickHighlight": true,
     "custom_cursor_capture2": false,
     "defaultZoomAmount": 2.5,
     "maxFps": 120,
@@ -2726,6 +2729,7 @@ mod tests {
         );
         assert_eq!(settings.recording_countdown, Some(5));
         assert_eq!(settings.recording_auto_stop_minutes, 15);
+        assert!(settings.instant_click_highlight);
         assert!(!settings.custom_cursor_capture);
         assert_eq!(settings.default_zoom_amount, Some(2.5));
         assert_eq!(settings.max_fps, 120);
@@ -2738,6 +2742,7 @@ mod tests {
         assert!(settings.studio_sound_by_default);
         assert_eq!(settings.instant_mode_max_resolution, 1920);
         assert_eq!(GeneralSettings::default().recording_auto_stop_minutes, 0);
+        assert!(!GeneralSettings::default().instant_click_highlight);
     }
 
     /// The teleprompter's own section: defaults when absent, and a per-key
