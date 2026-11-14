@@ -298,7 +298,7 @@ pub struct RecordingSession {
     /// leak into the next recording.
     editor_recording_target: Option<std::path::PathBuf>,
     clock: Option<RecordedClock>,
-    chapter_markers: Vec<Duration>,
+    chapter_markers: Option<ChapterMarkerLog>,
     auto_stop_limit: Option<Duration>,
     auto_stop_monitor: Option<Task<()>>,
     storage_monitor: Option<Task<()>>,
@@ -348,7 +348,7 @@ impl RecordingSession {
             preparing_studio_editor: None,
             editor_recording_target: None,
             clock: None,
-            chapter_markers: Vec::new(),
+            chapter_markers: None,
             auto_stop_limit: None,
             auto_stop_monitor: None,
             storage_monitor: None,
@@ -404,7 +404,10 @@ impl RecordingSession {
             .unwrap_or_default()
     }
 
-    pub fn add_chapter_marker(&mut self) {
+    pub fn add_chapter_marker(&mut self, cx: &mut Context<Self>) {
+        let Some(log) = self.chapter_markers.clone() else {
+            return;
+        };
         let Some(at) = chapter_marker_at(
             self.mode(),
             self.phase,
@@ -414,12 +417,13 @@ impl RecordingSession {
         ) else {
             return;
         };
+        let count = log.add(at);
         tracing::info!(
             recorded_at = at.as_secs_f64(),
-            count = self.chapter_markers.len() + 1,
+            count,
             "chapter marker added"
         );
-        self.chapter_markers.push(at);
+        gpui_tokio::Tokio::spawn(cx, async move { log.save_or_log() }).detach();
     }
 
     pub fn auto_stop_countdown(&self) -> Option<Duration> {
@@ -904,7 +908,7 @@ impl RecordingSession {
         self.phase = Phase::Recording { paused: false };
         self.countdown_overlay_unavailable = false;
         self.clock = Some(RecordedClock::start(Instant::now()));
-        self.chapter_markers.clear();
+        self.chapter_markers = Some(ChapterMarkerLog::new(project_dir.clone()));
         self.auto_stop_limit =
             auto_stop_limit(crate::store::GeneralSettings::load().recording_auto_stop_minutes);
         self.start_cue = None;
@@ -1363,12 +1367,9 @@ impl RecordingSession {
                 Box::pin(async move { (true, active.stop(camera_snapshot).await) })
             }
         };
-        let markers_project = studio_project_path.clone();
         let stop_future: recording::CaptureStopFuture = Box::pin(async move {
-            if let Err(error) =
-                frameever_utils::storage::save_chapter_markers(&markers_project, &chapter_markers)
-            {
-                tracing::error!(dir = %markers_project.display(), "could not save chapter markers: {error}");
+            if let Some(log) = chapter_markers {
+                log.save_or_log();
             }
             stop_future.await
         });
@@ -1634,7 +1635,7 @@ impl RecordingSession {
         }
         self.phase = Phase::Starting;
         self.clock = None;
-        self.chapter_markers.clear();
+        self.chapter_markers = None;
         cx.notify();
 
         let task = gpui_tokio::Tokio::spawn(cx, active.cancel_and_delete());
@@ -1746,7 +1747,7 @@ impl RecordingSession {
         self.storage_warning = false;
         self.stopped_elapsed = None;
         self.clock = None;
-        self.chapter_markers.clear();
+        self.chapter_markers = None;
         self.auto_stop_limit = None;
         cx.notify();
     }
@@ -2308,6 +2309,44 @@ mod input_change_tests {
     }
 }
 
+#[derive(Clone)]
+struct ChapterMarkerLog {
+    project: std::path::PathBuf,
+    markers: Arc<std::sync::Mutex<Vec<Duration>>>,
+}
+
+impl ChapterMarkerLog {
+    fn new(project: std::path::PathBuf) -> Self {
+        Self {
+            project,
+            markers: Arc::default(),
+        }
+    }
+
+    fn add(&self, at: Duration) -> usize {
+        let mut markers = self
+            .markers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        markers.push(at);
+        markers.len()
+    }
+
+    fn save(&self) -> std::io::Result<()> {
+        let markers = self
+            .markers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        frameever_utils::storage::save_chapter_markers(&self.project, &markers)
+    }
+
+    fn save_or_log(&self) {
+        if let Err(error) = self.save() {
+            tracing::error!(dir = %self.project.display(), "could not save chapter markers: {error}");
+        }
+    }
+}
+
 fn chapter_marker_at(
     mode: Option<recording::RecordingMode>,
     phase: Phase,
@@ -2368,6 +2407,53 @@ mod chapter_marker_tests {
                 start + secs(90)
             ),
             Some(secs(20))
+        );
+    }
+
+    #[test]
+    fn markers_saved_as_each_press_lands_survive_a_take_that_never_stops() {
+        use frameever_utils::storage::{ChapterMarker, chapter_markers, create_project};
+        let storage = tempfile::tempdir().unwrap();
+        let project = create_project(storage.path(), "Take").unwrap();
+        let log = ChapterMarkerLog::new(project.clone());
+
+        log.add(secs(3));
+        let stale_save = log.clone();
+        log.add(secs(9));
+        log.save().unwrap();
+        stale_save.save().unwrap();
+        drop(log);
+        drop(stale_save);
+
+        assert_eq!(
+            chapter_markers(&project),
+            vec![
+                ChapterMarker { recorded_at: 3.0 },
+                ChapterMarker { recorded_at: 9.0 },
+            ]
+        );
+    }
+
+    #[test]
+    fn stop_saving_again_after_each_press_keeps_one_ordered_list() {
+        use frameever_utils::storage::{ChapterMarker, chapter_markers, create_project};
+        let storage = tempfile::tempdir().unwrap();
+        let project = create_project(storage.path(), "Take").unwrap();
+        let log = ChapterMarkerLog::new(project.clone());
+        for at in [2, 5, 11] {
+            log.add(secs(at));
+            log.save().unwrap();
+        }
+
+        log.save().unwrap();
+
+        assert_eq!(
+            chapter_markers(&project),
+            vec![
+                ChapterMarker { recorded_at: 2.0 },
+                ChapterMarker { recorded_at: 5.0 },
+                ChapterMarker { recorded_at: 11.0 },
+            ]
         );
     }
 

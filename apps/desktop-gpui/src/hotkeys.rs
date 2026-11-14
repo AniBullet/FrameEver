@@ -721,7 +721,7 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
         HotkeyAction::FocusRecordingControls => app_windows::focus_recording_controls(cx),
         HotkeyAction::ToggleRecordingControls => app_windows::tray_toggle_controls(cx),
         HotkeyAction::AddChapterMarker => {
-            RecordingSession::global(cx).update(cx, |session, _| session.add_chapter_marker());
+            RecordingSession::global(cx).update(cx, |session, cx| session.add_chapter_marker(cx));
         }
         HotkeyAction::ToggleMicrophoneMute => {
             RecordingSession::global(cx).update(cx, |session, cx| session.toggle_mic_mute(cx));
