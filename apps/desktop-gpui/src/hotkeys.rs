@@ -51,9 +51,10 @@ pub enum HotkeyAction {
     ScreenshotWindow,
     ScreenshotArea,
     FocusCameraPreview,
+    ToggleTeleprompterPlayback,
 }
 
-const ACTION_KEYS: [(&str, HotkeyAction); 14] = [
+const ACTION_KEYS: [(&str, HotkeyAction); 15] = [
     ("startStudioRecording", HotkeyAction::StartStudioRecording),
     ("startInstantRecording", HotkeyAction::StartInstantRecording),
     ("stopRecording", HotkeyAction::StopRecording),
@@ -77,6 +78,23 @@ const ACTION_KEYS: [(&str, HotkeyAction); 14] = [
     ("screenshotWindow", HotkeyAction::ScreenshotWindow),
     ("screenshotArea", HotkeyAction::ScreenshotArea),
     ("focusCameraPreview", HotkeyAction::FocusCameraPreview),
+    (
+        "toggleTeleprompterPlayback",
+        HotkeyAction::ToggleTeleprompterPlayback,
+    ),
+];
+
+const DEFAULT_SHORTCUTS: [(&str, &str, &str); 2] = [
+    (
+        "cameraFocusShortcutInitialized",
+        "focusCameraPreview",
+        "KeyC",
+    ),
+    (
+        "teleprompterShortcutInitialized",
+        "toggleTeleprompterPlayback",
+        "KeyT",
+    ),
 ];
 
 #[cfg(test)]
@@ -89,6 +107,48 @@ mod camera_focus_tests {
         assert!(action.is_some());
         assert_eq!(action.unwrap().store_key(), "focusCameraPreview");
     }
+
+    #[test]
+    fn teleprompter_shortcut_is_configurable_and_defaults_to_ctrl_shift_t() {
+        let action = HotkeyAction::from_store_key("toggleTeleprompterPlayback");
+        assert_eq!(action, Some(HotkeyAction::ToggleTeleprompterPlayback));
+        assert!(
+            DEFAULT_SHORTCUTS
+                .iter()
+                .any(|(_, key, code)| *key == "toggleTeleprompterPlayback" && *code == "KeyT")
+        );
+    }
+
+    #[test]
+    fn the_teleprompter_shortcut_registers_only_while_the_window_is_open() {
+        assert!(!registers_now(
+            HotkeyAction::ToggleTeleprompterPlayback,
+            false
+        ));
+        assert!(registers_now(
+            HotkeyAction::ToggleTeleprompterPlayback,
+            true
+        ));
+        assert!(registers_now(HotkeyAction::FocusCameraPreview, false));
+    }
+
+    #[test]
+    fn new_default_shortcuts_yield_to_an_existing_binding() {
+        assert!(yields_on_conflict(HotkeyAction::ToggleTeleprompterPlayback));
+        assert!(yields_on_conflict(HotkeyAction::FocusCameraPreview));
+        assert!(!yields_on_conflict(HotkeyAction::StopRecording));
+    }
+}
+
+fn registers_now(action: HotkeyAction, teleprompter_open: bool) -> bool {
+    action != HotkeyAction::ToggleTeleprompterPlayback || teleprompter_open
+}
+
+fn yields_on_conflict(action: HotkeyAction) -> bool {
+    matches!(
+        action,
+        HotkeyAction::FocusCameraPreview | HotkeyAction::ToggleTeleprompterPlayback
+    )
 }
 
 impl HotkeyAction {
@@ -150,7 +210,7 @@ impl Hotkeys {
 /// fires on the OS event seam, so it only forwards into a channel; the gpui
 /// task dispatches with a clean borrow -- the tray-channel discipline.
 pub fn init(cx: &mut App) {
-    initialize_camera_focus_shortcut();
+    initialize_default_shortcuts();
     cx.set_global(Hotkeys {
         manager: None,
         bindings: Vec::new(),
@@ -248,32 +308,34 @@ fn unregister_all(cx: &mut App) {
     hotkeys.unavailable.clear();
 }
 
-fn initialize_camera_focus_shortcut() {
+fn initialize_default_shortcuts() {
     let mut section = store::store_section(store::HOTKEYS);
-    if section
-        .get("cameraFocusShortcutInitialized")
-        .and_then(serde_json::Value::as_bool)
-        == Some(true)
-    {
-        return;
-    }
     let mut bindings = store::hotkeys_raw();
-    bindings
-        .entry("focusCameraPreview".to_string())
-        .or_insert_with(|| {
+    let mut changed = false;
+    for (flag, action, code) in DEFAULT_SHORTCUTS {
+        if section.get(flag).and_then(serde_json::Value::as_bool) == Some(true) {
+            continue;
+        }
+        bindings.entry(action.to_string()).or_insert_with(|| {
             serde_json::json!({
-                "code": "KeyC", "ctrl": true, "shift": true, "alt": false, "meta": false
+                "code": code, "ctrl": true, "shift": true, "alt": false, "meta": false
             })
         });
+        section.insert(flag.into(), true.into());
+        changed = true;
+    }
+    if !changed {
+        return;
+    }
     section.insert("hotkeys".into(), serde_json::Value::Object(bindings));
-    section.insert("cameraFocusShortcutInitialized".into(), true.into());
     if !store::set_store_value(store::HOTKEYS, serde_json::Value::Object(section)) {
-        tracing::error!("could not save the camera focus shortcut");
+        tracing::error!("could not save the default shortcuts");
     }
 }
 
 fn register_from_store(cx: &mut App) {
     let stored = store::hotkeys_raw();
+    let teleprompter_open = app_windows::teleprompter_is_open(cx);
     let hotkeys = cx.global_mut::<Hotkeys>();
     for (key, value) in &stored {
         let Some(action) = HotkeyAction::from_store_key(key) else {
@@ -284,15 +346,18 @@ fn register_from_store(cx: &mut App) {
             tracing::warn!(key, "unparseable hotkey binding in the store");
             continue;
         };
-        if action == HotkeyAction::FocusCameraPreview
+        if yields_on_conflict(action)
             && stored.iter().any(|(other, value)| {
                 other != key
                     && HotkeyAction::from_store_key(other).is_some()
                     && store::hotkey_from_value(value).is_some_and(|other| other == binding)
             })
         {
-            tracing::warn!("camera focus shortcut conflicts with an existing shortcut");
+            tracing::warn!(?action, "shortcut conflicts with an existing shortcut");
             hotkeys.unavailable.push(action);
+            continue;
+        }
+        if !registers_now(action, teleprompter_open) {
             continue;
         }
         let Ok(code) = Code::from_str(&binding.code) else {
@@ -382,6 +447,7 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
     tracing::info!(?action, "global hotkey");
     match action {
         HotkeyAction::FocusCameraPreview => app_windows::focus_camera_preview(cx),
+        HotkeyAction::ToggleTeleprompterPlayback => app_windows::toggle_teleprompter_playback(cx),
         HotkeyAction::StartStudioRecording => start_from_hotkey(Mode::Studio, cx),
         HotkeyAction::StartInstantRecording => start_from_hotkey(Mode::Instant, cx),
         HotkeyAction::StopRecording => {

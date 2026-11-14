@@ -482,7 +482,7 @@ const settings = (st) => {
 			["center", L("Center", "居中")],
 			["left", L("Left", "靠左")],
 		],
-	)}</div>${sw("startWith", L("Start with recording", "随录制开始"), st.startWith)}${sw("cue", L("Reading line", "阅读线"), st.cue)}${sw("mirror", L("Mirror text", "镜像文字"), st.mirror)}${sw("hideShare", L("Hide from screen sharing", "屏幕共享时隐藏"), st.hideShare)}</div>`;
+	)}</div>${sw("startWith", L("Start with recording", "随录制开始"), st.startWith)}${sw("cue", L("Reading line", "阅读线"), st.cue)}${sw("hideShare", L("Hide from screen sharing", "屏幕共享时隐藏"), st.hideShare)}<button class="pop-row" data-a="full"><span class="grow">${L("Full screen on another display", "在另一台显示器全屏")}</span>${icon("maximize", "sm")}</button></div>`;
 };
 
 const editView = (st, text, words) =>
@@ -502,7 +502,7 @@ const tpWindow = (st) => {
 		? `<div class="tp-band" style="top:${bandTop}px;height:${lineH}px"></div><div class="tp-cue" style="left:6px;top:${bandTop}px;height:${lineH}px">${icon("chevron-right", "sm")}</div><div class="tp-cue" style="right:6px;top:${bandTop}px;height:${lineH}px">${icon("chevron-left", "sm")}</div>`
 		: "";
 	const read = `<div class="tp-read" data-band="${bandTop}" data-line="${lineH}" data-drag>${band}${textBlock(st, text, lineH)}<span class="tp-grab"></span></div>`;
-	const controls = `<div class="rb tp-float ui" role="toolbar">${playBtn(st, text)}${voiceChip(st)}${speed(st, text)}<span class="rb-sep"></span>${font(st)}<span class="rb-sep"></span>${left(st, text)}${tBtn("edit", icon("pencil"), pick("Edit script  E", "编辑文稿  E"))}${tBtn("hide", icon("x"), pick("Close", "关闭"))}</div>`;
+	const controls = `<div class="rb tp-float ui" role="toolbar">${playBtn(st, text)}${voiceChip(st)}${speed(st, text)}<span class="rb-sep"></span>${font(st)}<span class="rb-sep"></span>${left(st, text)}${tBtn("full", icon("maximize"), pick("Full screen on another display  F", "在另一台显示器全屏  F"))}${tBtn("edit", icon("pencil"), pick("Edit script  E", "编辑文稿  E"))}${tBtn("hide", icon("x"), pick("Close", "关闭"))}</div>`;
 	const notice =
 		st.phase === "streamed" || st.phase === "paused"
 			? `<div class="tp-notice">${status(st)}</div>`
@@ -1180,8 +1180,8 @@ const copy = () => {
 				["Play or pause the teleprompter, anywhere", "全局播放或暂停提词器"],
 				keys("Ctrl", "Shift", "T"),
 				[
-					"New; only registered while the window is open",
-					"新增；只在窗口打开时注册",
+					"New; only registered while the window is open. A conflict stays visible in Settings and can be rebound",
+					"新增；只在窗口打开时注册。冲突会在设置里明确提示，可改绑",
 				],
 			],
 			[
@@ -1228,6 +1228,15 @@ const copy = () => {
 				keys("Ctrl", "Enter"),
 				["New", "新增"],
 			],
+			[
+				[
+					"Full screen on another display, or back",
+					"在另一台显示器全屏，或退出",
+				],
+				`${keys("F")} ${keys("Esc")}`,
+				["New; only with a second display", "新增；有第二台显示器时可用"],
+			],
+			[["Close the teleprompter", "关闭提词器"], keys("Del"), ["New", "新增"]],
 		],
 	);
 	table(
@@ -1355,8 +1364,8 @@ const copy = () => {
 					"我们和上游：开关没有作用，GPUI 不能翻转文字",
 				],
 				[
-					"Kept; needs a GPUI change, sized in implementation",
-					"保留；需要改 GPUI，实现时评估",
+					"Left out until a GPUI change lands. Sized in #124: a small glyph-transform patch, but it changes the shared patched gpui every checkout builds on, so it gets its own ticket. The saved setting is kept",
+					"在 GPUI 改动落地前先不放。#124 评估过：字形变换补丁本身不大，但会改动所有检出共用的 gpui 补丁，所以单独开票。已保存的设置保留",
 				],
 			],
 			[

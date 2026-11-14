@@ -1322,6 +1322,18 @@ pub const TELEPROMPTER: &str = "teleprompter";
 /// Read field by field for the same reason `GeneralSettings` is: a value
 /// written by a newer build that this app cannot parse costs that one field its
 /// value, not the whole script.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TeleprompterAlign {
+    Center,
+    Left,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TeleprompterScroll {
+    Fixed,
+    Voice,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TeleprompterState {
     pub script: String,
@@ -1331,7 +1343,12 @@ pub struct TeleprompterState {
     pub line_height: f32,
     pub show_cue_markers: bool,
     pub mirror: bool,
-    pub window_opacity_percent: u32,
+    pub align: TeleprompterAlign,
+    pub scroll: TeleprompterScroll,
+    pub start_with_recording: bool,
+    pub hide_from_sharing: bool,
+    pub reading_line: f32,
+    pub frame: Option<[f32; 4]>,
 }
 
 impl TeleprompterState {
@@ -1343,7 +1360,12 @@ impl TeleprompterState {
     pub const LINE_HEIGHT: &'static str = "lineHeight";
     pub const SHOW_CUE_MARKERS: &'static str = "showCueMarkers";
     pub const MIRROR: &'static str = "mirror";
-    pub const WINDOW_OPACITY_PERCENT: &'static str = "windowOpacityPercent";
+    pub const ALIGN: &'static str = "align";
+    pub const SCROLL: &'static str = "scrollMode";
+    pub const START_WITH_RECORDING: &'static str = "startWithRecording";
+    pub const HIDE_FROM_SHARING: &'static str = "hideFromSharing";
+    pub const READING_LINE: &'static str = "readingLine";
+    pub const FRAME: &'static str = "frame";
 
     pub fn load() -> Self {
         Self::from_section(&store_section(TELEPROMPTER))
@@ -1365,11 +1387,22 @@ impl TeleprompterState {
             line_height: f32_at(map, Self::LINE_HEIGHT, defaults.line_height),
             show_cue_markers: bool_at(map, Self::SHOW_CUE_MARKERS, defaults.show_cue_markers),
             mirror: bool_at(map, Self::MIRROR, defaults.mirror),
-            window_opacity_percent: u32_at(
+            align: match opt_string_at(map, Self::ALIGN).as_deref() {
+                Some("left") => TeleprompterAlign::Left,
+                _ => TeleprompterAlign::Center,
+            },
+            scroll: match opt_string_at(map, Self::SCROLL).as_deref() {
+                Some("voice") => TeleprompterScroll::Voice,
+                _ => TeleprompterScroll::Fixed,
+            },
+            start_with_recording: bool_at(
                 map,
-                Self::WINDOW_OPACITY_PERCENT,
-                defaults.window_opacity_percent,
+                Self::START_WITH_RECORDING,
+                defaults.start_with_recording,
             ),
+            hide_from_sharing: bool_at(map, Self::HIDE_FROM_SHARING, defaults.hide_from_sharing),
+            reading_line: f32_at(map, Self::READING_LINE, defaults.reading_line),
+            frame: map.get(Self::FRAME).and_then(teleprompter_frame_from),
         }
     }
 
@@ -1404,23 +1437,54 @@ impl TeleprompterState {
             Self::LINE_HEIGHT => Value::from(self.line_height),
             Self::SHOW_CUE_MARKERS => Value::Bool(self.show_cue_markers),
             Self::MIRROR => Value::Bool(self.mirror),
-            Self::WINDOW_OPACITY_PERCENT => Value::from(self.window_opacity_percent),
+            Self::ALIGN => Value::from(match self.align {
+                TeleprompterAlign::Center => "center",
+                TeleprompterAlign::Left => "left",
+            }),
+            Self::SCROLL => Value::from(match self.scroll {
+                TeleprompterScroll::Fixed => "fixed",
+                TeleprompterScroll::Voice => "voice",
+            }),
+            Self::START_WITH_RECORDING => Value::Bool(self.start_with_recording),
+            Self::HIDE_FROM_SHARING => Value::Bool(self.hide_from_sharing),
+            Self::READING_LINE => Value::from(self.reading_line),
+            Self::FRAME => match self.frame {
+                Some([x, y, width, height]) => serde_json::json!({
+                    "x": x, "y": y, "width": width, "height": height
+                }),
+                None => Value::Null,
+            },
             _ => Value::Null,
         }
     }
+}
+
+fn teleprompter_frame_from(value: &Value) -> Option<[f32; 4]> {
+    let field = |key: &str| value.get(key)?.as_f64().map(|number| number as f32);
+    let frame = [field("x")?, field("y")?, field("width")?, field("height")?];
+    frame
+        .iter()
+        .all(|number| number.is_finite())
+        .then_some(frame)
+        .filter(|[_, _, width, height]| *width > 0. && *height > 0.)
 }
 
 impl Default for TeleprompterState {
     fn default() -> Self {
         Self {
             script: String::new(),
-            font_size: 30.,
+            font_size: 28.,
             words_per_minute: 150,
             characters_per_minute: 260,
-            line_height: 1.5,
+            line_height: 1.35,
             show_cue_markers: true,
             mirror: false,
-            window_opacity_percent: 92,
+            align: TeleprompterAlign::Center,
+            scroll: TeleprompterScroll::Fixed,
+            start_with_recording: true,
+            hide_from_sharing: true,
+            reading_line: 0.2,
+            frame: None,
         }
     }
 }
@@ -2680,12 +2744,14 @@ mod tests {
         let loaded = TeleprompterState::load();
         assert_eq!(loaded.script, "hello");
         // Everything the section does not carry takes `teleprompterDefaults`.
-        assert_eq!(loaded.font_size, 30.);
+        assert_eq!(loaded.font_size, 28.);
         assert_eq!(loaded.words_per_minute, 150);
-        assert_eq!(loaded.line_height, 1.5);
+        assert_eq!(loaded.line_height, 1.35);
         assert!(loaded.show_cue_markers);
         assert!(!loaded.mirror);
-        assert_eq!(loaded.window_opacity_percent, 92);
+        assert!(loaded.start_with_recording);
+        assert!(loaded.hide_from_sharing);
+        assert_eq!(loaded.frame, None);
 
         let mut next = loaded.clone();
         next.script = "hello there".into();
@@ -2710,6 +2776,47 @@ mod tests {
         assert_eq!(reloaded.script, "hello there");
         assert_eq!(reloaded.font_size, 34.);
         assert!(reloaded.show_cue_markers);
+    }
+
+    #[test]
+    fn the_teleprompter_remembers_its_frame_and_reading_options() {
+        let _store = TempStore::new(
+            "teleprompter-frame-options",
+            Some(
+                r#"{"teleprompter":{"frame":{"x":-1200,"y":0,"width":700,"height":180},"align":"left","scrollMode":"voice","startWithRecording":false,"hideFromSharing":false,"readingLine":0.4}}"#,
+            ),
+        );
+        let loaded = TeleprompterState::load();
+        assert_eq!(loaded.frame, Some([-1200., 0., 700., 180.]));
+        assert_eq!(loaded.align, TeleprompterAlign::Left);
+        assert_eq!(loaded.scroll, TeleprompterScroll::Voice);
+        assert!(!loaded.start_with_recording);
+        assert!(!loaded.hide_from_sharing);
+        assert_eq!(loaded.reading_line, 0.4);
+
+        let mut next = loaded.clone();
+        next.frame = Some([10., 0., 660., 156.]);
+        next.align = TeleprompterAlign::Center;
+        for key in [TeleprompterState::FRAME, TeleprompterState::ALIGN] {
+            assert!(super::set_store_setting(
+                TELEPROMPTER,
+                key,
+                next.value_for(key)
+            ));
+        }
+        let reloaded = TeleprompterState::load();
+        assert_eq!(reloaded.frame, Some([10., 0., 660., 156.]));
+        assert_eq!(reloaded.align, TeleprompterAlign::Center);
+        assert_eq!(reloaded.scroll, TeleprompterScroll::Voice);
+    }
+
+    #[test]
+    fn a_damaged_teleprompter_frame_is_ignored() {
+        let _store = TempStore::new(
+            "teleprompter-bad-frame",
+            Some(r#"{"teleprompter":{"frame":{"x":0,"y":0,"width":0,"height":156}}}"#),
+        );
+        assert_eq!(TeleprompterState::load().frame, None);
     }
 
     #[test]

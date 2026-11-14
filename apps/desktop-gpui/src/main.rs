@@ -669,7 +669,7 @@ fn main() {
                     cx.background_executor()
                         .timer(std::time::Duration::from_millis(1200))
                         .await;
-                    cx.update(app_windows::play_teleprompter);
+                    cx.update(app_windows::toggle_teleprompter_playback);
                 })
                 .detach();
             }
