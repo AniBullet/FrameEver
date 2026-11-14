@@ -305,6 +305,13 @@ pub fn fuzzy_score(query: &str, text: &str) -> Option<u32> {
     (wanted == query.len()).then_some(score)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recording {
+    Off,
+    Running,
+    Paused,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Recents(Vec<String>);
 
@@ -322,6 +329,9 @@ impl Recents {
     }
 
     pub fn note(&mut self, command: Command) {
+        if Command::WHILE_RECORDING.contains(&command) {
+            return;
+        }
         self.note_id(command.id());
     }
 
@@ -344,14 +354,23 @@ pub struct Source {
 impl Source {
     pub fn new(
         surface: Surface,
-        recording: bool,
+        recording: Recording,
         language: Language,
         projects: Vec<Entry>,
         recents: Recents,
     ) -> Self {
+        let paused = recording == Recording::Paused;
+        let recording = recording != Recording::Off;
         let commands = Command::offered(surface, recording)
             .into_iter()
-            .map(|command| Entry::command(command, language))
+            .map(|command| {
+                let mut entry = Entry::command(command, language);
+                if paused && command == Command::PauseRecording {
+                    (entry.name, entry.other_names) = names(n!("Resume"), language);
+                    entry.icon = "icons/play.svg";
+                }
+                entry
+            })
             .collect();
         if recording {
             return Self {
@@ -381,7 +400,7 @@ impl Source {
         }
     }
 
-    fn recent_commands(&self) -> Vec<&Entry> {
+    fn recent_commands(&self) -> (Heading, Vec<&Entry>) {
         let recent: Vec<&Entry> = self
             .recents
             .ids()
@@ -393,9 +412,12 @@ impl Source {
             })
             .collect();
         if recent.is_empty() {
-            self.commands.iter().take(RECENT_LIMIT).collect()
+            (
+                Heading::Scope(Scope::Command),
+                self.commands.iter().take(RECENT_LIMIT).collect(),
+            )
         } else {
-            recent
+            (Heading::RecentCommands, recent)
         }
     }
 }
@@ -485,11 +507,9 @@ impl Palette {
             }]);
         }
         if query.is_empty() && self.scope.is_none() {
+            let (heading, entries) = source.recent_commands();
             return non_empty(vec![
-                Group {
-                    heading: Heading::RecentCommands,
-                    entries: source.recent_commands(),
-                },
+                Group { heading, entries },
                 Group {
                     heading: Heading::RecentProjects,
                     entries: source.projects.iter().take(RECENT_LIMIT).collect(),
@@ -586,7 +606,7 @@ mod tests {
     fn source(surface: Surface, language: Language) -> Source {
         Source::new(
             surface,
-            false,
+            Recording::Off,
             language,
             [
                 "Product demo",
@@ -757,7 +777,7 @@ mod tests {
         for surface in [Surface::Recorder, Surface::Library, Surface::Editor] {
             let source = Source::new(
                 surface,
-                true,
+                Recording::Running,
                 Language::English,
                 vec![project("Product demo")],
                 Recents::from_ids(vec![Command::OpenSettings.id()]),
@@ -818,6 +838,43 @@ mod tests {
     }
 
     #[test]
+    fn while_paused_the_pause_row_reads_resume() {
+        let source = Source::new(
+            Surface::Recorder,
+            Recording::Paused,
+            Language::English,
+            Vec::new(),
+            Recents::default(),
+        );
+        let expected = ["Stop recording", "Resume", "Restart"];
+        assert_eq!(names_in(&Palette::default(), &source), expected);
+        let mut palette = Palette::default();
+        palette.typed("resume", true);
+        assert_eq!(
+            palette.confirm(&source, false),
+            Some(Outcome::Run(Command::PauseRecording))
+        );
+        let chinese = Source::new(
+            Surface::Recorder,
+            Recording::Paused,
+            Language::SimplifiedChinese,
+            Vec::new(),
+            Recents::default(),
+        );
+        assert!(names_in(&Palette::default(), &chinese).contains(&"继续".to_string()));
+    }
+
+    #[test]
+    fn recording_commands_are_not_remembered_as_recent() {
+        let mut recents = Recents::default();
+        recents.note(Command::OpenSettings);
+        for command in Command::WHILE_RECORDING {
+            recents.note(command);
+        }
+        assert_eq!(recents.ids(), [Command::OpenSettings.id()]);
+    }
+
+    #[test]
     fn a_recent_command_from_another_window_is_left_out() {
         let mut source = source(Surface::Recorder, Language::English);
         source.recents.note(Command::GridView);
@@ -833,7 +890,7 @@ mod tests {
         let source = source(Surface::Recorder, Language::English);
         let palette = Palette::default();
         let groups = palette.groups(&source);
-        assert_eq!(groups[0].heading, Heading::RecentCommands);
+        assert_eq!(groups[0].heading, Heading::Scope(Scope::Command));
         assert_eq!(groups[0].entries[0].name, "Start recording");
         assert!(groups[0].entries.len() <= RECENT_LIMIT);
     }

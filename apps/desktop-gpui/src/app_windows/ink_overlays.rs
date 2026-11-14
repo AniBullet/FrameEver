@@ -1,15 +1,29 @@
 use super::*;
 use crate::screen_ink::{InkOverlay, ScreenInk};
 
+pub(crate) fn ink_displays() -> Vec<scap_targets::DisplayId> {
+    if cfg!(test) {
+        return Vec::new();
+    }
+    scap_targets::Display::list()
+        .iter()
+        .map(scap_targets::Display::id)
+        .collect()
+}
+
 pub(crate) fn open_ink_overlays(
     ink: Entity<ScreenInk>,
+    displays: &[scap_targets::DisplayId],
     cx: &mut App,
 ) -> Vec<WindowHandle<InkOverlay>> {
     if cfg!(test) {
         return Vec::new();
     }
     let mut opened = Vec::new();
-    for (index, display) in scap_targets::Display::list().into_iter().enumerate() {
+    for (index, id) in displays.iter().enumerate() {
+        let Some(display) = scap_targets::Display::from_id(id) else {
+            continue;
+        };
         let Some(bounds) = capture_display_bounds(&display) else {
             tracing::warn!(index, "display has no bounds for drawing on screen");
             continue;
@@ -70,6 +84,7 @@ pub(crate) fn set_ink_overlays_interactive(
                 .position(|candidate| candidate.id() == display.id())
         })
         .unwrap_or(0);
+    let mut keyboard = None;
     for (index, handle) in windows.iter().enumerate() {
         let native = handle
             .update(cx, |_, window, _| platform::native_window(window))
@@ -84,10 +99,18 @@ pub(crate) fn set_ink_overlays_interactive(
             handle
                 .update(cx, |overlay, window, cx| overlay.take_keyboard(window, cx))
                 .ok();
+            keyboard = Some(*handle);
         }
     }
     if !interactive {
         return;
+    }
+    if let Some(handle) = keyboard {
+        cx.defer(move |cx| {
+            handle
+                .update(cx, |_, window, _| window.activate_window())
+                .ok();
+        });
     }
     if let Some(controls) = cx
         .try_global::<AppWindows>()

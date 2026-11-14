@@ -991,6 +991,82 @@ mod tests {
     }
 
     #[test]
+    fn an_export_after_a_cut_closes_the_image_up_and_moves_annotations_like_the_preview() {
+        use crate::screenshot_cut::{FrameBand, cut_project, cut_source, layout};
+        let blue = [0, 0, 255, 255];
+        let green = [0, 255, 0, 255];
+        let white = [255, 255, 255, 255];
+        let original: Vec<u8> = (0..48 * 16)
+            .flat_map(|index| match index % 48 {
+                0..16 => blue,
+                16..32 => green,
+                _ => white,
+            })
+            .collect();
+        let mut config = ProjectConfiguration::default();
+        config.background.padding = 0.;
+        let before = layout((48, 16), &config);
+        assert_eq!(before.frame_size, (48., 16.));
+        let mut image =
+            crate::screenshot_annotations::new_image_annotation("images/red.png".into());
+        image.x = 36.;
+        image.y = 4.;
+        image.width = 6.;
+        image.height = 8.;
+        config.annotations.push(image);
+
+        let band = FrameBand {
+            axis: frameever_project::ImageCutAxis::Columns,
+            start: 16.,
+            length: 16.,
+        };
+        let after = cut_project(&mut config, (48, 16), &before.transform, band).unwrap();
+        let frame = Rect {
+            x: 0.,
+            y: 0.,
+            width: f64::from(after.frame_size.0),
+            height: f64::from(after.frame_size.1),
+        };
+        let preview_rect = match &shapes::shape_ops(&config.annotations[0], frame)[..] {
+            [ShapeOp::Image { rect, .. }] => *rect,
+            ops => panic!("{ops:?}"),
+        };
+        assert_eq!(
+            preview_rect,
+            Rect {
+                x: 20.,
+                y: 4.,
+                width: 6.,
+                height: 8.
+            }
+        );
+
+        let (cut, size) = cut_source(&std::sync::Arc::new(original), (48, 16), &config.image_cuts);
+        assert_eq!(size, (32, 16));
+        assert_eq!(after.frame_size, (32., 16.));
+        let doubled = image::imageops::resize(
+            &image::RgbaImage::from_raw(32, 16, cut.to_vec()).unwrap(),
+            64,
+            32,
+            image::imageops::FilterType::Nearest,
+        );
+        let raw = RawFrame {
+            rgba: doubled.into_raw(),
+            width: 64,
+            height: 32,
+            base_width: after.frame_size.0 as u32,
+            base_height: after.frame_size.1 as u32,
+        };
+        let out = composite_with_images(&raw, &config, &red_image(3, 3));
+        assert_eq!((out.width, out.height), (64, 32));
+        assert_eq!(pixel_at(&out, 46, 16), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&out, 16, 16), blue);
+        assert_eq!(pixel_at(&out, 60, 16), white);
+        assert_eq!(pixel_at(&out, 46, 2), white);
+        assert!(out.rgba.chunks_exact(4).all(|pixel| pixel != green));
+    }
+
+    #[test]
     fn mask_only_draw_preserves_straight_alpha_pixels() {
         let original: Vec<u8> = (0..=255u8).flat_map(|alpha| [17, 30, 77, alpha]).collect();
         for scaled in [

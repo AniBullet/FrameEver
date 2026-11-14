@@ -312,7 +312,7 @@ impl ControlsWindow {
                         div()
                             .size(px(14.))
                             .rounded_full()
-                            .bg(crate::screen_ink::ink_swatch(&theme, index)),
+                            .bg(crate::screen_ink::ink_colour(index)),
                     )
                     .tooltip(move |_, cx| {
                         ui::Tooltip::new(&theme, t!("Colour {number}", number = number))

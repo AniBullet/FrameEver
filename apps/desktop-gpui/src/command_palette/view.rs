@@ -6,7 +6,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder, px, svg,
 };
 
-use super::{Command, Entry, Outcome, Palette, Recents, Scope, Source, Surface, Target};
+use super::{Command, Entry, Outcome, Palette, Recents, Recording, Scope, Source, Surface, Target};
 use crate::app_windows;
 use crate::i18n::{t, tc, tr};
 use crate::library::{self, MediaKind};
@@ -518,10 +518,11 @@ pub fn toggle<T: 'static>(
     if slot.close(window, cx) {
         return;
     }
-    let recording = matches!(
-        RecordingSession::global(cx).read(cx).phase,
-        Phase::Recording { .. }
-    );
+    let recording = match RecordingSession::global(cx).read(cx).phase {
+        Phase::Recording { paused: true } => Recording::Paused,
+        Phase::Recording { paused: false } => Recording::Running,
+        _ => Recording::Off,
+    };
     let source = Source::new(
         surface,
         recording,

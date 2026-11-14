@@ -18,15 +18,15 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Cut out", "切割"),
     ("Rounded corners", "圆角"),
     (
-        "This image could not be read. Check that the file still exists.",
+        "Couldn't read this image. Check that the file still exists.",
         "无法读取这张图片。请确认文件仍然存在。",
     ),
     (
-        "This file is not an image FrameEver can read.",
-        "FrameEver 无法读取这个文件，它不是支持的图片。",
+        "Couldn't add this file. FrameEver can't read it as an image.",
+        "无法添加这个文件。FrameEver 无法把它读取为图片。",
     ),
     (
-        "The image could not be copied into the project. Check free disk space.",
+        "Couldn't copy the image into the project. Check free disk space.",
         "无法把图片复制进项目。请检查磁盘剩余空间。",
     ),
     ("Layers", "图层"),

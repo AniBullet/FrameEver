@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use frameever_project::{AnnotationType, ProjectConfiguration};
+use image::ImageDecoder;
 
 use crate::i18n::t;
 
 pub const IMAGES_DIR: &str = "images";
 pub const IMAGE_EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "webp", "bmp"];
 const PREVIEW_MAX_DIMENSION: u32 = 2048;
+const MAX_IMAGE_DIMENSION: u32 = 16384;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedImage {
@@ -36,15 +38,16 @@ pub fn is_image_path(path: &Path) -> bool {
 pub fn import_file(bundle: &Path, source: &Path) -> Result<ImportedImage, String> {
     let bytes = std::fs::read(source).map_err(|error| {
         tracing::error!(path = %source.display(), "image could not be read: {error}");
-        t!("This image could not be read. Check that the file still exists.").to_string()
+        t!("Couldn't read this image. Check that the file still exists.").to_string()
     })?;
     import_bytes(bundle, &bytes)
 }
 
 pub fn import_bytes(bundle: &Path, bytes: &[u8]) -> Result<ImportedImage, String> {
-    let unreadable = || t!("This file is not an image FrameEver can read.").to_string();
+    let unreadable =
+        || t!("Couldn't add this file. FrameEver can't read it as an image.").to_string();
     let format = image::guess_format(bytes).map_err(|_| unreadable())?;
-    let decoded = image::load_from_memory_with_format(bytes, format).map_err(|error| {
+    let (decoded, upright) = decode_upright(bytes, format).map_err(|error| {
         tracing::error!("image could not be decoded: {error}");
         unreadable()
     })?;
@@ -53,6 +56,7 @@ pub fn import_bytes(bundle: &Path, bytes: &[u8]) -> Result<ImportedImage, String
         return Err(unreadable());
     }
     let kept = match format {
+        _ if !upright => None,
         image::ImageFormat::Png => Some("png"),
         image::ImageFormat::Jpeg => Some("jpg"),
         image::ImageFormat::WebP => Some("webp"),
@@ -60,7 +64,7 @@ pub fn import_bytes(bundle: &Path, bytes: &[u8]) -> Result<ImportedImage, String
     };
     let unsaved = |error: std::io::Error| {
         tracing::error!(path = %bundle.display(), "image could not be copied: {error}");
-        t!("The image could not be copied into the project. Check free disk space.").to_string()
+        t!("Couldn't copy the image into the project. Check free disk space.").to_string()
     };
     let dir = bundle.join(IMAGES_DIR);
     std::fs::create_dir_all(&dir).map_err(unsaved)?;
@@ -78,6 +82,27 @@ pub fn import_bytes(bundle: &Path, bytes: &[u8]) -> Result<ImportedImage, String
         file: format!("{IMAGES_DIR}/{name}"),
         size,
     })
+}
+
+fn decode_upright(
+    bytes: &[u8],
+    format: image::ImageFormat,
+) -> image::ImageResult<(image::DynamicImage, bool)> {
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_DIMENSION);
+    limits.max_image_height = Some(MAX_IMAGE_DIMENSION);
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
+    reader.limits(limits);
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut decoded = image::DynamicImage::from_decoder(decoder)?;
+    decoded.apply_orientation(orientation);
+    Ok((
+        decoded,
+        orientation == image::metadata::Orientation::NoTransforms,
+    ))
 }
 
 pub fn image_path(bundle: &Path, file: &str) -> Option<PathBuf> {
@@ -224,6 +249,38 @@ pub(crate) mod tests {
         assert!(imported.file.ends_with(".png"));
         let loaded = load_rgba(&bundle, &imported.file).unwrap();
         assert_eq!(loaded.get_pixel(0, 0).0, [200, 100, 50, 255]);
+    }
+
+    #[test]
+    fn a_photo_is_turned_upright_from_its_exif_orientation() {
+        use image::ImageEncoder;
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = old_project(dir.path());
+        let rotate_90 = vec![
+            0x49, 0x49, 0x2A, 0x00, 0x08, 0, 0, 0, 0x01, 0x00, 0x12, 0x01, 0x03, 0x00, 0x01, 0, 0,
+            0, 0x06, 0x00, 0, 0, 0, 0, 0, 0,
+        ];
+        let pixels = image::RgbImage::from_pixel(8, 4, image::Rgb([30, 60, 90]));
+        let mut jpeg = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new(&mut jpeg);
+        encoder.set_exif_metadata(rotate_90).unwrap();
+        encoder
+            .write_image(&pixels, 8, 4, image::ExtendedColorType::Rgb8)
+            .unwrap();
+
+        let imported = import_bytes(&bundle, &jpeg).unwrap();
+        assert_eq!(imported.size, (4, 8));
+        let loaded = load_rgba(&bundle, &imported.file).unwrap();
+        assert_eq!(loaded.dimensions(), (4, 8));
+    }
+
+    #[test]
+    fn an_image_too_large_to_hold_is_refused_and_nothing_is_copied() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = old_project(dir.path());
+        let wide = png_bytes(MAX_IMAGE_DIMENSION + 1, 1, [0, 0, 0, 255]);
+        assert!(import_bytes(&bundle, &wide).is_err());
+        assert!(!bundle.join(IMAGES_DIR).exists());
     }
 
     #[test]

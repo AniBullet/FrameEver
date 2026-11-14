@@ -6,12 +6,10 @@ use gpui::{
 };
 use lyon_tessellation::{LineCap, LineJoin, StrokeOptions};
 
-use crate::{
-    session::{Phase, RecordingSession},
-    theme::Theme,
-};
+use crate::session::{Phase, RecordingSession};
 
 pub const INK_COLOURS: usize = 3;
+const INK_RGB: [u32; INK_COLOURS] = [0x1F3FD8, 0xD4212D, 0xF5AE39];
 const MIN_STEP: f32 = 1.5;
 const MIN_ARROW: f32 = 6.;
 const ARROW_HEAD: f32 = 14.;
@@ -205,6 +203,7 @@ pub struct ScreenInk {
     ink: Ink,
     active: bool,
     windows: Vec<WindowHandle<InkOverlay>>,
+    displays: Vec<scap_targets::DisplayId>,
     previous_foreground: Option<isize>,
 }
 
@@ -220,6 +219,7 @@ impl ScreenInk {
             ink: Ink::default(),
             active: false,
             windows: Vec::new(),
+            displays: Vec::new(),
             previous_foreground: None,
         });
         let session = RecordingSession::global(cx);
@@ -325,9 +325,21 @@ pub fn set_active(active: bool, cx: &mut App) {
     if ink.read(cx).active == active {
         return;
     }
-    if active && ink.read(cx).windows.is_empty() {
-        let windows = crate::app_windows::open_ink_overlays(ink.clone(), cx);
-        ink.update(cx, |ink, _| ink.windows = windows);
+    if active {
+        let displays = crate::app_windows::ink_displays();
+        let stale = {
+            let ink = ink.read(cx);
+            overlays_outdated(!ink.windows.is_empty(), &ink.displays, &displays)
+        };
+        if stale {
+            let old = ink.update(cx, |ink, _| std::mem::take(&mut ink.windows));
+            remove_overlays(old, cx);
+            let windows = crate::app_windows::open_ink_overlays(ink.clone(), &displays, cx);
+            ink.update(cx, |ink, _| {
+                ink.windows = windows;
+                ink.displays = displays;
+            });
+        }
     }
     let windows = ink.read(cx).windows.clone();
     let previous = if active {
@@ -343,29 +355,32 @@ pub fn set_active(active: bool, cx: &mut App) {
         cx.emit(InkChanged { display: None });
     });
     crate::app_windows::set_ink_overlays_interactive(&windows, active, cx);
-    if !active
-        && !windows.is_empty()
-        && let Some(previous) = previous
+    if !active && let Some(previous) = foreground_to_give_back(true, !windows.is_empty(), previous)
     {
         crate::platform::restore_foreground_window(previous);
     }
 }
 
-fn end(cx: &mut App) {
-    let Some(ink) = ScreenInk::try_global(cx) else {
+fn overlays_outdated<Display: PartialEq>(
+    open: bool,
+    opened_on: &[Display],
+    displays: &[Display],
+) -> bool {
+    !open || opened_on != displays
+}
+
+fn foreground_to_give_back(
+    was_drawing: bool,
+    had_overlays: bool,
+    previous: Option<isize>,
+) -> Option<isize> {
+    previous.filter(|_| was_drawing && had_overlays)
+}
+
+fn remove_overlays(windows: Vec<WindowHandle<InkOverlay>>, cx: &mut App) {
+    if windows.is_empty() {
         return;
-    };
-    let windows = ink.update(cx, |ink, cx| {
-        ink.active = false;
-        ink.previous_foreground = None;
-        ink.ink = Ink {
-            tool: ink.ink.tool(),
-            colour: ink.ink.colour(),
-            ..Ink::default()
-        };
-        cx.notify();
-        std::mem::take(&mut ink.windows)
-    });
+    }
     cx.defer(move |cx| {
         for window in windows {
             window
@@ -373,6 +388,30 @@ fn end(cx: &mut App) {
                 .ok();
         }
     });
+}
+
+fn end(cx: &mut App) {
+    let Some(ink) = ScreenInk::try_global(cx) else {
+        return;
+    };
+    let (windows, previous) = ink.update(cx, |ink, cx| {
+        let previous = ink.previous_foreground.filter(|_| ink.active);
+        ink.active = false;
+        ink.previous_foreground = None;
+        ink.displays.clear();
+        ink.ink = Ink {
+            tool: ink.ink.tool(),
+            colour: ink.ink.colour(),
+            ..Ink::default()
+        };
+        cx.notify();
+        (std::mem::take(&mut ink.windows), previous)
+    });
+    let previous = foreground_to_give_back(previous.is_some(), !windows.is_empty(), previous);
+    remove_overlays(windows, cx);
+    if let Some(previous) = previous {
+        cx.defer(move |_| crate::platform::restore_foreground_window(previous));
+    }
 }
 
 pub struct InkOverlay {
@@ -404,29 +443,20 @@ impl InkOverlay {
 
     pub fn take_keyboard(&self, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
-        window.activate_window();
     }
 }
 
-fn ink_colour(theme: &Theme, colour: usize) -> Hsla {
-    match colour {
-        1 => theme.danger.into(),
-        2 => theme.warning.into(),
-        _ => theme.primary.into(),
-    }
+pub fn ink_colour(colour: usize) -> Hsla {
+    gpui::rgb(INK_RGB[colour.min(INK_COLOURS - 1)]).into()
 }
 
-pub fn ink_swatch(theme: &Theme, colour: usize) -> Hsla {
-    ink_colour(theme, colour)
-}
-
-fn paint_stroke(stroke: &Stroke, theme: &Theme, window: &mut Window) {
+fn paint_stroke(stroke: &Stroke, window: &mut Window) {
     let Some(start) = stroke.points.first().copied() else {
         return;
     };
     let end = stroke.points.last().copied().unwrap_or(start);
     let width = stroke.tool.width();
-    let mut colour = ink_colour(theme, stroke.colour);
+    let mut colour = ink_colour(stroke.colour);
     colour.a = stroke.tool.opacity();
     let mut builder = PathBuilder::stroke(px(width)).with_style(PathStyle::Stroke(
         StrokeOptions::default()
@@ -453,8 +483,7 @@ fn paint_stroke(stroke: &Stroke, theme: &Theme, window: &mut Window) {
 }
 
 impl Render for InkOverlay {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::for_window(window, cx, false);
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let display = self.display;
         let state = self.ink.read(cx);
         let active = state.active;
@@ -505,7 +534,7 @@ impl Render for InkOverlay {
                     |_, _, _| (),
                     move |_, (), window, _| {
                         for stroke in &strokes {
-                            paint_stroke(stroke, &theme, window);
+                            paint_stroke(stroke, window);
                         }
                     },
                 )
@@ -628,6 +657,34 @@ mod tests {
         assert_eq!(ink_action_for_key("escape", false), Some(InkAction::Leave));
         assert_eq!(ink_action_for_key("z", false), None);
         assert_eq!(ink_action_for_key("p", true), None);
+    }
+
+    #[test]
+    fn screen_ink_colours_are_fixed_and_ignore_the_app_theme() {
+        let rgb = |colour| gpui::Rgba::from(ink_colour(colour));
+        let hex = |rgba: gpui::Rgba| {
+            [rgba.r, rgba.g, rgba.b].map(|channel| (channel * 255.).round() as u8)
+        };
+        assert_eq!(hex(rgb(0)), [0x1F, 0x3F, 0xD8]);
+        assert_eq!(hex(rgb(1)), [0xD4, 0x21, 0x2D]);
+        assert_eq!(hex(rgb(2)), [0xF5, 0xAE, 0x39]);
+    }
+
+    #[test]
+    fn screen_ink_gives_the_foreground_back_only_after_drawing_on_open_overlays() {
+        assert_eq!(foreground_to_give_back(true, true, Some(7)), Some(7));
+        assert_eq!(foreground_to_give_back(false, true, Some(7)), None);
+        assert_eq!(foreground_to_give_back(true, false, Some(7)), None);
+        assert_eq!(foreground_to_give_back(true, true, None), None);
+    }
+
+    #[test]
+    fn screen_ink_overlays_are_rebuilt_when_the_displays_change() {
+        let one = [1];
+        let two = [1, 2];
+        assert!(overlays_outdated(false, &one, &one));
+        assert!(overlays_outdated(true, &one, &two));
+        assert!(!overlays_outdated(true, &two, &two));
     }
 
     fn recording(cx: &mut gpui::TestAppContext, phase: Phase) -> Entity<ScreenInk> {

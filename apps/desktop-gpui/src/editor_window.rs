@@ -2642,11 +2642,6 @@ impl EditorWindow {
         }));
     }
 
-    // -- Editing: undo and redo ----------------------------------------------
-
-    /// `projectHistory.undo()` -- reconcile the previous snapshot back over the
-    /// store. The playhead is not moved and the selection is not restored;
-    /// neither is in the snapshot (`editorState` is a separate store).
     fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use crate::command_palette::{Surface, view};
         if self.crop.is_some() {
@@ -2685,6 +2680,11 @@ impl EditorWindow {
         }
     }
 
+    // -- Editing: undo and redo ----------------------------------------------
+
+    /// `projectHistory.undo()` -- reconcile the previous snapshot back over the
+    /// store. The playhead is not moved and the selection is not restored;
+    /// neither is in the snapshot (`editorState` is a separate store).
     fn undo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_frame_controls(window, cx);
         self.end_field_edit(cx);
