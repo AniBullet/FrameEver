@@ -51,9 +51,10 @@ pub enum HotkeyAction {
     ScreenshotWindow,
     ScreenshotArea,
     FocusCameraPreview,
+    DrawOnScreen,
 }
 
-const ACTION_KEYS: [(&str, HotkeyAction); 14] = [
+const ACTION_KEYS: [(&str, HotkeyAction); 15] = [
     ("startStudioRecording", HotkeyAction::StartStudioRecording),
     ("startInstantRecording", HotkeyAction::StartInstantRecording),
     ("stopRecording", HotkeyAction::StopRecording),
@@ -77,7 +78,41 @@ const ACTION_KEYS: [(&str, HotkeyAction); 14] = [
     ("screenshotWindow", HotkeyAction::ScreenshotWindow),
     ("screenshotArea", HotkeyAction::ScreenshotArea),
     ("focusCameraPreview", HotkeyAction::FocusCameraPreview),
+    ("drawOnScreen", HotkeyAction::DrawOnScreen),
 ];
+
+fn registers_now(action: HotkeyAction, recording: bool) -> bool {
+    action != HotkeyAction::DrawOnScreen || recording
+}
+
+fn follow_recording(cx: &mut App) {
+    let session = RecordingSession::global(cx);
+    cx.observe(&session, |session, cx| {
+        let recording = crate::screen_ink::can_draw(session.read(cx).phase);
+        if cx.global::<Hotkeys>().recording == recording {
+            return;
+        }
+        cx.global_mut::<Hotkeys>().recording = recording;
+        if store::hotkeys_raw().contains_key(HotkeyAction::DrawOnScreen.store_key()) {
+            reload(cx);
+        }
+    })
+    .detach();
+}
+
+#[cfg(test)]
+mod draw_shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn draw_shortcut_is_configurable_and_registered_only_while_recording() {
+        let action = HotkeyAction::from_store_key("drawOnScreen");
+        assert_eq!(action, Some(HotkeyAction::DrawOnScreen));
+        assert!(!registers_now(HotkeyAction::DrawOnScreen, false));
+        assert!(registers_now(HotkeyAction::DrawOnScreen, true));
+        assert!(registers_now(HotkeyAction::StopRecording, false));
+    }
+}
 
 #[cfg(test)]
 mod camera_focus_tests {
@@ -120,6 +155,7 @@ struct Hotkeys {
     /// Set while the Shortcuts page records a new combo: a registered combo
     /// would otherwise fire its action instead of reaching the page.
     paused: bool,
+    recording: bool,
 }
 
 impl Global for Hotkeys {}
@@ -156,7 +192,9 @@ pub fn init(cx: &mut App) {
         bindings: Vec::new(),
         unavailable: Vec::new(),
         paused: false,
+        recording: false,
     });
+    follow_recording(cx);
     register_from_store(cx);
 
     let (tx, rx) = flume::unbounded::<GlobalHotKeyEvent>();
@@ -284,6 +322,9 @@ fn register_from_store(cx: &mut App) {
             tracing::warn!(key, "unparseable hotkey binding in the store");
             continue;
         };
+        if !registers_now(action, hotkeys.recording) {
+            continue;
+        }
         if action == HotkeyAction::FocusCameraPreview
             && stored.iter().any(|(other, value)| {
                 other != key
@@ -382,6 +423,7 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
     tracing::info!(?action, "global hotkey");
     match action {
         HotkeyAction::FocusCameraPreview => app_windows::focus_camera_preview(cx),
+        HotkeyAction::DrawOnScreen => crate::screen_ink::toggle(cx),
         HotkeyAction::StartStudioRecording => start_from_hotkey(Mode::Studio, cx),
         HotkeyAction::StartInstantRecording => start_from_hotkey(Mode::Instant, cx),
         HotkeyAction::StopRecording => {
@@ -625,6 +667,7 @@ mod tests {
             bindings: Vec::new(),
             unavailable: Vec::new(),
             paused: false,
+            recording: false,
         };
         assert!(hotkeys.idle());
         hotkeys.release_idle_manager();

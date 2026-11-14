@@ -22,6 +22,7 @@ mod controls_panel;
 mod countdown_panel;
 mod file_drag;
 mod hidden_frame;
+mod ink_overlay;
 mod main_frame;
 mod reduce_motion;
 mod session_end;
@@ -270,6 +271,26 @@ pub(crate) fn flush_camera_capture_frame() -> Result<(), String> {
 
 pub fn set_window_click_through(_native: &NativeWindow, _click_through: bool) -> bool {
     false
+}
+
+pub(crate) fn set_ink_overlay_interactive(
+    native: &NativeWindow,
+    interactive: bool,
+) -> std::io::Result<()> {
+    ink_overlay::set_interactive(native.hwnd(), interactive)
+}
+
+pub(crate) fn foreground_window() -> Option<isize> {
+    let hwnd = unsafe { GetForegroundWindow() };
+    (!hwnd.is_null()).then_some(hwnd as isize)
+}
+
+pub(crate) fn restore_foreground_window(hwnd: isize) {
+    unsafe {
+        if windows_sys::Win32::UI::WindowsAndMessaging::IsWindow(hwnd as HWND) != 0 {
+            SetForegroundWindow(hwnd as HWND);
+        }
+    }
 }
 
 pub fn restore_borderless_style(_native: &NativeWindow) {}
@@ -964,6 +985,52 @@ pub fn reveal_items(items: &[PathBuf]) -> Result<(), String> {
         unsafe { CoUninitialize() };
     }
     result
+}
+
+#[cfg(test)]
+mod ink_overlay_tests {
+    use super::*;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, GWL_EXSTYLE, GetWindowLongPtrW, WS_EX_LAYERED,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    };
+
+    #[test]
+    fn ink_overlay_passes_input_through_until_draw_mode_takes_it() {
+        let class: Vec<u16> = "STATIC ".encode_utf16().collect();
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                class.as_ptr(),
+                std::ptr::null(),
+                WS_POPUP,
+                0,
+                0,
+                64,
+                64,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            )
+        };
+        assert!(!hwnd.is_null());
+        let native = NativeWindow(hwnd as isize);
+        let style = || unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+        let passive = WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE;
+
+        set_ink_overlay_interactive(&native, false).unwrap();
+        assert_eq!(style() & passive, passive);
+        set_ink_overlay_interactive(&native, true).unwrap();
+        assert_eq!(style() & (WS_EX_TRANSPARENT | WS_EX_NOACTIVATE), 0);
+        assert_eq!(
+            style() & (WS_EX_TOOLWINDOW | WS_EX_TOPMOST),
+            WS_EX_TOOLWINDOW | WS_EX_TOPMOST
+        );
+        set_ink_overlay_interactive(&native, false).unwrap();
+        assert_eq!(style() & passive, passive);
+        assert_ne!(unsafe { DestroyWindow(hwnd) }, 0);
+    }
 }
 
 #[cfg(test)]

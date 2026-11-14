@@ -13,7 +13,9 @@ use std::{
     sync::Arc,
 };
 
+mod ink_overlays;
 mod tray_actions;
+pub(crate) use ink_overlays::*;
 pub(crate) use tray_actions::*;
 
 use frameever_recording::sources::screen_capture::ScreenCaptureTarget;

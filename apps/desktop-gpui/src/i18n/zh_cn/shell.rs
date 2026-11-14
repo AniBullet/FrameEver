@@ -320,6 +320,12 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Starting…", "正在开始…"),
     ("Starts in {count}", "{count} 秒后开始"),
     ("Draw on screen", "屏幕画笔"),
+    ("Pen", "画笔"),
+    ("Colour {number}", "颜色 {number}"),
+    (
+        "draw on the screen while recording; what you draw is saved in the video",
+        "录制时在屏幕上画，画的内容会录进视频",
+    ),
     ("Restart this recording?", "重新开始录制？"),
     (
         "What you've recorded so far is discarded. This can't be undone.",

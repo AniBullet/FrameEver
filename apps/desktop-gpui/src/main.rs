@@ -74,6 +74,7 @@ mod platform;
 mod presets;
 mod project_save;
 mod recording;
+mod screen_ink;
 mod screenshot;
 mod screenshot_annotations;
 mod screenshot_crop;
@@ -329,6 +330,7 @@ fn main() {
 
         let session = RecordingSession::init(cx);
         crate::feeds::Feeds::init(cx);
+        crate::screen_ink::ScreenInk::init(cx);
         crate::media_access::MediaAccess::init(cx);
         crate::target_overlay::TargetSelect::init(cx);
 

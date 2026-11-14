@@ -16,6 +16,7 @@ use crate::{
     feeds::Feeds,
     i18n::t,
     recording::RecordingMode,
+    screen_ink::{INK_COLOURS, InkAction, InkTool, ScreenInk},
     session::{Phase, RecordingSession},
     theme::Theme,
     ui,
@@ -42,7 +43,10 @@ pub struct ControlsWindow {
     remember_position: bool,
     last_saved_position: Option<(f64, f64)>,
     position_save_generation: Arc<AtomicU64>,
+    ink: Option<Entity<ScreenInk>>,
 }
+
+const DRAW_STRIP_ROOM: f32 = 44.;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RecordingIssue {
@@ -103,6 +107,14 @@ impl ControlsWindow {
             }
         })
         .detach();
+        let ink = ScreenInk::try_global(cx);
+        if let Some(ink) = &ink {
+            cx.observe_in(ink, window, |this, _, window, cx| {
+                this.fit_height(window, cx);
+                cx.notify();
+            })
+            .detach();
+        }
         let mic_level = Feeds::global(cx).read(cx).mic_level().clone();
         let level_bar = cx.new(|cx| {
             ui::MicrophoneLevel::new(
@@ -132,6 +144,7 @@ impl ControlsWindow {
             remember_position: false,
             last_saved_position: None,
             position_save_generation: Arc::new(AtomicU64::new(0)),
+            ink,
         };
         this.ticking_live = this.timer_is_live(cx);
         this._tick = Self::spawn_tick(window, cx);
@@ -190,6 +203,11 @@ impl ControlsWindow {
                 152.
             } else {
                 0.
+            }
+            + if self.drawing(cx) {
+                DRAW_STRIP_ROOM
+            } else {
+                0.
             };
         if height == self.window_height {
             return;
@@ -203,6 +221,152 @@ impl ControlsWindow {
             crate::app_windows::fit_controls_height(&native, height, available);
         })
         .detach();
+    }
+
+    fn drawing(&self, cx: &gpui::App) -> bool {
+        self.ink.as_ref().is_some_and(|ink| ink.read(cx).active())
+    }
+
+    fn toggle_draw(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !crate::screen_ink::can_draw(self.session.read(cx).phase)
+            || self.session.read(cx).pause_unavailable()
+        {
+            return;
+        }
+        self.options_open = false;
+        self.expanded = None;
+        self.confirmation = None;
+        self.fit_height(window, cx);
+        cx.defer(crate::screen_ink::toggle);
+        cx.notify();
+    }
+
+    fn ink_action(&mut self, action: InkAction, cx: &mut Context<Self>) {
+        if let Some(ink) = &self.ink {
+            ink.update(cx, |ink, cx| ink.apply(action, cx));
+        }
+    }
+
+    fn render_draw_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let (tool, colour) = self
+            .ink
+            .as_ref()
+            .map(|ink| {
+                let ink = ink.read(cx);
+                (ink.ink().tool(), ink.ink().colour())
+            })
+            .unwrap_or((InkTool::Pen, 0));
+        let separator = || {
+            div()
+                .w(px(1.))
+                .h(px(16.))
+                .mx(px(6.))
+                .bg(theme.border)
+                .flex_shrink_0()
+        };
+        let tools = [
+            (InkTool::Pen, "draw-pen", "icons/pencil.svg", t!("Pen"), "P"),
+            (
+                InkTool::Highlighter,
+                "draw-highlighter",
+                "icons/highlighter.svg",
+                t!("Highlighter"),
+                "H",
+            ),
+            (
+                InkTool::Arrow,
+                "draw-arrow",
+                "icons/arrow-up-right.svg",
+                t!("Arrow"),
+                "A",
+            ),
+        ]
+        .map(|(kind, id, icon, label, key)| {
+            self.action_button(id, icon, false)
+                .when(tool == kind, |this| this.bg(theme.selection))
+                .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).keys([key]).view(cx))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.ink_action(InkAction::Tool(kind), cx);
+                }))
+        });
+        let swatches = (0..INK_COLOURS)
+            .map(|index| {
+                let number = index + 1;
+                div()
+                    .id(("draw-colour", index))
+                    .size(px(22.))
+                    .mx(px(1.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .border_2()
+                    .border_color(if colour == index {
+                        theme.foreground
+                    } else {
+                        theme.popover
+                    })
+                    .child(
+                        div()
+                            .size(px(14.))
+                            .rounded_full()
+                            .bg(crate::screen_ink::ink_swatch(&theme, index)),
+                    )
+                    .tooltip(move |_, cx| {
+                        ui::Tooltip::new(&theme, t!("Colour {number}", number = number))
+                            .keys([number.to_string()])
+                            .view(cx)
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.ink_action(InkAction::Colour(index), cx);
+                    }))
+            })
+            .collect::<Vec<_>>();
+        div()
+            .id("draw-strip")
+            .h(px(36.))
+            .mb(px(8.))
+            .flex_shrink_0()
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(2.))
+                    .px(px(4.))
+                    .rounded(px(20.))
+                    .bg(theme.popover)
+                    .border_1()
+                    .border_color(theme.border)
+                    .children(tools)
+                    .child(separator())
+                    .children(swatches)
+                    .child(separator())
+                    .child(
+                        self.action_button("draw-undo", "icons/undo-2.svg", false)
+                            .tooltip(move |_, cx| {
+                                ui::Tooltip::new(&theme, t!("Undo"))
+                                    .keys(["Ctrl", "Z"])
+                                    .view(cx)
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.ink_action(InkAction::Undo, cx);
+                            })),
+                    )
+                    .child(
+                        self.action_button("draw-clear", "icons/eraser.svg", false)
+                            .tooltip(move |_, cx| {
+                                ui::Tooltip::new(&theme, t!("Clear")).keys(["Del"]).view(cx)
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.ink_action(InkAction::Clear, cx);
+                            })),
+                    ),
+            )
     }
 
     fn queue_position_save(&mut self, window: &Window, cx: &mut Context<Self>) {
@@ -1125,8 +1289,14 @@ impl ControlsWindow {
                     }),
             )
             .child(
-                self.action_button("draw", "icons/pencil.svg", true)
-                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Draw on screen")).view(cx)),
+                self.action_button("draw", "icons/pencil.svg", busy)
+                    .when(self.drawing(cx), |this| this.bg(theme.selection))
+                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Draw on screen")).view(cx))
+                    .when(!busy, |this| {
+                        this.on_click(
+                            cx.listener(|this, _, window, cx| this.toggle_draw(window, cx)),
+                        )
+                    }),
             )
             .child(
                 self.action_button("settings", "icons/sliders-horizontal.svg", false)
@@ -1169,6 +1339,9 @@ impl Render for ControlsWindow {
             })
             .when_some(issue, |this, issue| {
                 this.child(self.render_issue(issue, cx))
+            })
+            .when(self.drawing(cx), |this| {
+                this.child(self.render_draw_strip(cx))
             })
             .child(self.render_bar(cx))
     }
@@ -1289,6 +1462,66 @@ mod repaint_tests {
                 Phase::Recording { paused: false }
             );
         });
+    }
+
+    #[gpui::test]
+    fn controls_draw_opens_the_tool_strip_and_closes_other_cards(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            Feeds::init(cx);
+            RecordingSession::init(cx);
+            ScreenInk::init(cx);
+        });
+        let (controls, cx) = cx.add_window_view(|window, cx| {
+            let session = RecordingSession::global(cx);
+            session.update(cx, |session, _| {
+                session.phase = Phase::Recording { paused: false }
+            });
+            ControlsWindow::new(session, false, window, cx)
+        });
+        controls.update_in(cx, |controls, window, cx| {
+            controls.confirm_action(DestructiveAction::Delete, window, cx);
+            controls.toggle_draw(window, cx);
+            assert_eq!(controls.confirmation, None);
+        });
+        cx.run_until_parked();
+        controls.update_in(cx, |controls, _, cx| {
+            assert!(controls.drawing(cx));
+            assert_eq!(
+                controls.window_height,
+                crate::app_windows::CONTROLS_BAR_HEIGHT + DRAW_STRIP_ROOM
+            );
+            controls.ink_action(InkAction::Tool(InkTool::Arrow), cx);
+            controls.ink_action(InkAction::Colour(2), cx);
+            let ink = controls.ink.clone().unwrap();
+            assert_eq!(ink.read(cx).ink().tool(), InkTool::Arrow);
+            assert_eq!(ink.read(cx).ink().colour(), 2);
+            controls.ink_action(InkAction::Leave, cx);
+        });
+        cx.run_until_parked();
+        controls.update_in(cx, |controls, _, cx| {
+            assert!(!controls.drawing(cx));
+            assert_eq!(
+                controls.window_height,
+                crate::app_windows::CONTROLS_BAR_HEIGHT
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn controls_draw_is_unavailable_until_the_recording_runs(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            Feeds::init(cx);
+            RecordingSession::init(cx);
+            ScreenInk::init(cx);
+        });
+        let (controls, cx) = cx.add_window_view(|window, cx| {
+            let session = RecordingSession::global(cx);
+            session.update(cx, |session, _| session.phase = Phase::Starting);
+            ControlsWindow::new(session, false, window, cx)
+        });
+        controls.update_in(cx, |controls, window, cx| controls.toggle_draw(window, cx));
+        cx.run_until_parked();
+        controls.update_in(cx, |controls, _, cx| assert!(!controls.drawing(cx)));
     }
 
     #[test]
