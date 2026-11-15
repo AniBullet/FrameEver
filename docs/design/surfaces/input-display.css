@@ -409,3 +409,42 @@
 .num .input {
 	width: 64px;
 }
+
+.maker-bar {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	min-height: 34px;
+	margin: 8px 0;
+	max-width: 760px;
+}
+
+.flag {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.board {
+	max-width: 760px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: #2a2f36;
+	padding: 8px;
+	line-height: 0;
+	user-select: none;
+	touch-action: none;
+}
+
+.board .k {
+	cursor: move;
+}
+
+.board .io .k[data-sel] > :not(text) {
+	stroke: #ffffff;
+	stroke-width: 2.5;
+}
+
+.maker-bar .input {
+	width: 96px;
+}

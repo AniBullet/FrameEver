@@ -9,6 +9,7 @@ const PRESETS = [
 	["wasd", "WASD + mouse", "WASD 加鼠标", 30],
 	["full", "Keyboard", "整块键盘", 52],
 	["pad", "Gamepad", "手柄", 24],
+	["mine", "My preset", "我的预设", 30],
 ];
 const STOPS = [0, 0.5, 1];
 const MARGIN = 0.03;
@@ -194,11 +195,78 @@ const pad = (kind) => {
 	};
 };
 
+const COLS = 14;
+const ROWS = 5;
+const WIDTHS = [1, 1.5, 2, 4];
+const NAMES = {
+	Space: "Space",
+	ShiftLeft: "Shift",
+	ShiftRight: "Shift",
+	ControlLeft: "Ctrl",
+	ControlRight: "Ctrl",
+	AltLeft: "Alt",
+	AltRight: "Alt",
+	MetaLeft: "Win",
+	MetaRight: "Win",
+	Escape: "Esc",
+	Backspace: "Back",
+	CapsLock: "Caps",
+	ArrowUp: "↑",
+	ArrowDown: "↓",
+	ArrowLeft: "←",
+	ArrowRight: "→",
+};
+const labelFor = (code) =>
+	NAMES[code] ??
+	(code.startsWith("Key")
+		? code.slice(3)
+		: code.startsWith("Digit")
+			? code.slice(5)
+			: code);
+const seed = () =>
+	WASD.flatMap((row, y) => {
+		let x = 0;
+		return row.map(([label, code, w = 1]) => {
+			const placed = { label, code, x, y, w };
+			x += w;
+			return placed;
+		});
+	});
+const m = { keys: seed(), sel: -1, capture: false, mouse: true };
+const mine = () => {
+	if (m.keys.length === 0 && !m.mouse) return { view: [U, U], body: "" };
+	const left = Math.min(...m.keys.map((k) => k.x), COLS);
+	const top = Math.min(...m.keys.map((k) => k.y), ROWS);
+	const width = Math.max(0, ...m.keys.map((k) => k.x + k.w - left)) * U;
+	const height = Math.max(0, ...m.keys.map((k) => k.y + 1 - top)) * U;
+	const total = m.mouse ? Math.max(height, 150) : height;
+	const drop = (total - height) / 2;
+	const keys = m.keys
+		.map((k) =>
+			key((k.x - left) * U, (k.y - top) * U + drop, k.w, k.label, k.code),
+		)
+		.join("");
+	const gap = width > 0 ? 24 : 0;
+	return {
+		view: [width + (m.mouse ? gap + 100 : 0), total],
+		body: `${keys}${m.mouse ? mouse(width + gap, (total - 150) / 2) : ""}`,
+	};
+};
+const freeSlot = () => {
+	for (let y = 0; y < ROWS; y++)
+		for (let x = 0; x < COLS; x++)
+			if (!m.keys.some((k) => k.y === y && x < k.x + k.w && x + 1 > k.x))
+				return { x, y };
+	return { x: 0, y: 0 };
+};
+
 const overlay = (preset) => {
 	const { view, body } =
 		preset === "pad"
 			? pad(s.pad)
-			: keysWithMouse(preset === "full" ? FULL : WASD);
+			: preset === "mine"
+				? mine()
+				: keysWithMouse(preset === "full" ? FULL : WASD);
 	return `<svg class="io ${s.variant}" viewBox="-6 -2 ${view[0] + 12} ${view[1] + 4}" aria-hidden="true">${body}</svg>`;
 };
 
@@ -307,6 +375,8 @@ const paint = (now) => {
 		for (const el of root.querySelectorAll("[data-axis]"))
 			el.setAttribute("width", 46 * state[el.dataset.axis]);
 	}
+	for (const el of document.querySelectorAll("#board [data-code]"))
+		el.classList.toggle("on", live.has(el.dataset.code));
 	requestAnimationFrame(paint);
 };
 
@@ -449,6 +519,30 @@ const renderRows = () => {
 		<div><div class="rowcard"><div class="row"><b>${L("Show input", "显示操作")}</b><span class="grow"></span>${toggle("instant")}</div>${instant}</div><p class="caption">${L("Instant settings. Off by default; the two choices appear only once it is on.", "即时录制设置。默认关闭，打开后才出现两个选项。")}</p></div>`;
 };
 
+const renderBoard = () => {
+	const keys = m.keys
+		.map((k, i) =>
+			key(k.x * U, k.y * U, k.w, k.label, k.code).replace(
+				"<g ",
+				`<g data-i="${i}" ${i === m.sel ? 'data-sel="1" ' : ""}`,
+			),
+		)
+		.join("");
+	document.getElementById("board").innerHTML =
+		`<svg class="io ${s.variant}" viewBox="0 0 ${COLS * U} ${ROWS * U}"><defs><pattern id="dots" width="${U / 2}" height="${U / 2}" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="rgba(255,255,255,0.16)"/></pattern></defs><rect width="${COLS * U}" height="${ROWS * U}" fill="url(#dots)"/>${keys}</svg>`;
+};
+const renderMaker = () => {
+	const flag = (key, en, zh) =>
+		`<label class="flag">${L(en, zh)}<button class="switch ${m[key] ? "on" : ""}" data-mt="${key}" aria-label="${key}"></button></label>`;
+	document.getElementById("maker-bar").innerHTML =
+		`${flag("capture", "Press keys to add", "按键添加")}${flag("mouse", "Mouse", "鼠标")}<span class="grow"></span><button class="btn" data-md="all">${L("Clear", "清空")}</button>`;
+	renderBoard();
+	const picked = m.keys[m.sel];
+	document.getElementById("maker-key").innerHTML = picked
+		? `<input class="input" data-ml value="${picked.label}" aria-label="label"><div class="seg">${WIDTHS.map((w) => `<button data-mw="${w}" class="${picked.w === w ? "on" : ""}">${w}×</button>`).join("")}</div><button class="btn" data-md="one">${L("Delete", "删除")}</button>`
+		: "";
+};
+
 const renderAll = () => {
 	if (!s.manual) s.preset = s.used === "pad" ? "pad" : "wasd";
 	document.getElementById("t-overlay").innerHTML = L(
@@ -471,9 +565,32 @@ const renderAll = () => {
 	renderStage();
 	renderInspector();
 	renderRows();
+	document.getElementById("t-maker").innerHTML = L(
+		"Make a preset",
+		"制作预设",
+	);
+	document.getElementById("l-maker").innerHTML = L(
+		"Switch on Press keys to add and press the keys you want; drag them on the grid. The result is My preset above.",
+		"打开「按键添加」，按下想显示的键；在网格上拖动摆放。结果就是上面的「我的预设」。",
+	);
+	renderMaker();
 };
 
 document.addEventListener("click", (event) => {
+	const made = event.target.closest("[data-mt],[data-mw],[data-md]");
+	if (made) {
+		const { mt, mw, md } = made.dataset;
+		if (mt) m[mt] = !m[mt];
+		if (mw && m.keys[m.sel]) {
+			m.keys[m.sel].w = Number(mw);
+			m.keys[m.sel].x = Math.min(m.keys[m.sel].x, COLS - Number(mw));
+		}
+		if (md === "all") m.keys = [];
+		if (md === "one") m.keys.splice(m.sel, 1);
+		if (md) m.sel = -1;
+		renderAll();
+		return;
+	}
 	const set = event.target.closest("[data-p]");
 	if (set) {
 		const [key, value] = set.dataset.p.split(":");
@@ -562,9 +679,61 @@ window.addEventListener("resize", layout);
 
 const HELD = ["Tab", "Space", "AltLeft", "AltRight", "ContextMenu"];
 window.addEventListener("keydown", (event) => {
-	if (s.demo !== "live") return;
-	if (HELD.includes(event.code)) event.preventDefault();
+	if (event.target.tagName === "INPUT") return;
+	if (m.capture) {
+		event.preventDefault();
+		if (!m.keys.some((k) => k.code === event.code)) {
+			m.keys.push({
+				label: labelFor(event.code),
+				code: event.code,
+				w: 1,
+				...freeSlot(),
+			});
+			m.sel = m.keys.length - 1;
+			renderAll();
+		}
+	} else if (s.demo === "live" && HELD.includes(event.code))
+		event.preventDefault();
 	live.add(event.code);
+});
+document.addEventListener("input", (event) => {
+	if (!event.target.matches("[data-ml]") || !m.keys[m.sel]) return;
+	m.keys[m.sel].label = event.target.value;
+	renderBoard();
+	renderStage();
+	renderInspector();
+});
+document.addEventListener("pointerdown", (event) => {
+	const hit = event.target.closest("#board [data-i]");
+	if (!hit) return;
+	event.preventDefault();
+	m.sel = Number(hit.dataset.i);
+	const moved = m.keys[m.sel];
+	const board = document.getElementById("board").getBoundingClientRect();
+	const unit = board.width / COLS;
+	const start = { x: event.clientX, y: event.clientY, kx: moved.x, ky: moved.y };
+	const move = (e) => {
+		moved.x = Math.min(
+			COLS - moved.w,
+			Math.max(
+				0,
+				Math.round((start.kx + (e.clientX - start.x) / unit) * 2) / 2,
+			),
+		);
+		moved.y = Math.min(
+			ROWS - 1,
+			Math.max(0, Math.round(start.ky + (e.clientY - start.y) / unit)),
+		);
+		renderBoard();
+	};
+	const stop = () => {
+		document.removeEventListener("pointermove", move);
+		document.removeEventListener("pointerup", stop);
+		renderAll();
+	};
+	document.addEventListener("pointermove", move);
+	document.addEventListener("pointerup", stop);
+	renderMaker();
 });
 window.addEventListener("keyup", (event) => live.delete(event.code));
 window.addEventListener("blur", () => live.clear());
@@ -594,6 +763,7 @@ shell({
 	depth: 1,
 	sections: [
 		["overlay", "Styles", "样式"],
+		["maker", "Make a preset", "制作预设"],
 		["disclosure", "Words", "文字"],
 	],
 });
