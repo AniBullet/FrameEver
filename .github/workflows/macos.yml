@@ -59,6 +59,3 @@ jobs:
 
       - name: Test
         run: pnpm fe test --all
-
-      - name: Test the rendering crate on Metal
-        run: pnpm fe test --crate frameever-rendering
