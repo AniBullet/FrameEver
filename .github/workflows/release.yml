@@ -77,9 +77,6 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Test packaging scripts
-        run: node --test scripts/bundle-gpui.test.mjs scripts/prepare-gpui-dependency.test.mjs scripts/fe.test.mjs scripts/privacy.test.mjs
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -96,6 +93,9 @@ jobs:
 
       - name: Prepare native dependencies
         run: pnpm fe setup --ci
+
+      - name: Test packaging scripts
+        run: node --test scripts/bundle-gpui.test.mjs scripts/prepare-gpui-dependency.test.mjs scripts/fe.test.mjs scripts/privacy.test.mjs
 
       - name: Increase pagefile size
         uses: al-cheb/configure-pagefile-action@a3b6ebd6b634da88790d9c58d4b37a7f4a7b8708
@@ -221,9 +221,6 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Test packaging scripts
-        run: node --test scripts/bundle-gpui.test.mjs scripts/prepare-gpui-dependency.test.mjs scripts/fe.test.mjs
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -238,6 +235,9 @@ jobs:
 
       - name: Prepare native dependencies
         run: pnpm fe setup --ci
+
+      - name: Test packaging scripts
+        run: node --test scripts/bundle-gpui.test.mjs scripts/prepare-gpui-dependency.test.mjs scripts/fe.test.mjs
 
       - name: Build the app, disk image and updater archive
         env:
