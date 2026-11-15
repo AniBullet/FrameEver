@@ -742,8 +742,10 @@ function check() {
 	run("cargo", ["check", "--tests"], { cwd: gpuiDir });
 	step("FrameEver Converter");
 	run("cargo", ["check", "-p", CONVERTER_APP, "--tests"], { cwd: gpuiDir });
-	step("Installer front end");
-	run("cargo", ["check", "-p", INSTALLER_APP, "--tests"], { cwd: gpuiDir });
+	if (isWindows) {
+		step("Installer front end");
+		run("cargo", ["check", "-p", INSTALLER_APP, "--tests"], { cwd: gpuiDir });
+	}
 	step("CLI and converter core");
 	run("cargo", [
 		"check",
@@ -771,6 +773,26 @@ export function crateTestArgs(crate, filter, { ignored, optimized }) {
 		...filter,
 		...(ignored ? ["--", "--ignored", "--nocapture"] : []),
 	];
+}
+
+function patchedGpuiTests() {
+	step("Patched gpui tests");
+	const patchedCrates = path.join(root, "..", "gpui-pre-patched", "crates");
+	const patchedCore = path.join(patchedCrates, "gpui").replaceAll("\\", "/");
+	run(
+		"cargo",
+		[
+			"test",
+			"--lib",
+			"--features",
+			"test-support",
+			"--target-dir",
+			path.join(gpuiDir, "target", "gpui-windows"),
+			"--config",
+			`patch.crates-io.gpui-pre.path="${patchedCore}"`,
+		],
+		{ cwd: path.join(patchedCrates, "gpui_windows") },
+	);
 }
 
 function test({ flags, positional }) {
@@ -804,7 +826,8 @@ function test({ flags, positional }) {
 		run("cargo", ["test", "-p", "frameever-utils", "--lib"]);
 		run("cargo", ["test", "-p", "frameever-converter"]);
 		run("cargo", ["test", "-p", CONVERTER_APP], { cwd: gpuiDir });
-		run("cargo", ["test", "-p", INSTALLER_APP], { cwd: gpuiDir });
+		if (isWindows)
+			run("cargo", ["test", "-p", INSTALLER_APP], { cwd: gpuiDir });
 		run("cargo", ["test", "-p", "frameever-export", "--lib"], {
 			env: withFfmpeg(),
 		});
@@ -814,23 +837,7 @@ function test({ flags, positional }) {
 		run("cargo", ["test", "-p", "frameever", "--test", "cli"], {
 			env: withFfmpeg(),
 		});
-		step("Patched gpui tests");
-		const patchedCrates = path.join(root, "..", "gpui-pre-patched", "crates");
-		const patchedCore = path.join(patchedCrates, "gpui").replaceAll("\\", "/");
-		run(
-			"cargo",
-			[
-				"test",
-				"--lib",
-				"--features",
-				"test-support",
-				"--target-dir",
-				path.join(gpuiDir, "target", "gpui-windows"),
-				"--config",
-				`patch.crates-io.gpui-pre.path="${patchedCore}"`,
-			],
-			{ cwd: path.join(patchedCrates, "gpui_windows") },
-		);
+		if (isWindows) patchedGpuiTests();
 		step("Packaging script tests");
 		run(process.execPath, [
 			"--test",

@@ -2,9 +2,6 @@
 use cidre::{arc::R, cv, io, mtl};
 
 #[cfg(target_os = "macos")]
-use foreign_types::ForeignType;
-
-#[cfg(target_os = "macos")]
 use wgpu_hal::api::Metal as MtlApi;
 
 #[derive(Debug)]
@@ -238,19 +235,20 @@ pub fn import_metal_texture_to_wgpu_with_usage(
         view_formats: &[],
     };
 
-    let raw_ptr = metal_texture as *const mtl::Texture as *mut std::ffi::c_void;
-
-    let metal_texture_owned = unsafe {
-        let ptr = raw_ptr as *mut objc2::runtime::AnyObject;
-        objc2::ffi::objc_retain(ptr);
-        metal::Texture::from_ptr(raw_ptr as *mut metal::MTLTexture)
-    };
+    let raw_texture = unsafe {
+        objc2::rc::Retained::retain(
+            (metal_texture as *const mtl::Texture)
+                .cast_mut()
+                .cast::<objc2::runtime::ProtocolObject<dyn objc2_metal::MTLTexture>>(),
+        )
+    }
+    .ok_or(IOSurfaceTextureError::TextureCreationFailed)?;
 
     let hal_texture = unsafe {
         wgpu_hal::metal::Device::texture_from_raw(
-            metal_texture_owned,
+            raw_texture,
             format,
-            metal::MTLTextureType::D2,
+            objc2_metal::MTLTextureType::Type2D,
             1,
             1,
             wgpu_hal::CopyExtent {
@@ -258,9 +256,16 @@ pub fn import_metal_texture_to_wgpu_with_usage(
                 height,
                 depth: 1,
             },
+            None,
         )
     };
 
-    let texture = unsafe { device.create_texture_from_hal::<MtlApi>(hal_texture, &desc) };
+    let texture = unsafe {
+        device.create_texture_from_hal::<MtlApi>(
+            hal_texture,
+            &desc,
+            wgpu::TextureUses::UNINITIALIZED,
+        )
+    };
     Ok(texture)
 }
