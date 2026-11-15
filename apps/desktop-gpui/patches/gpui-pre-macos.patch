@@ -1,0 +1,535 @@
+diff --git a/crates/gpui/src/scene.rs b/crates/gpui/src/scene.rs
+index 6cb3387..cca004b 100644
+--- a/crates/gpui/src/scene.rs
++++ b/crates/gpui/src/scene.rs
+@@ -769,6 +769,8 @@ pub struct PaintSurface {
+     pub order: DrawOrder,
+     pub bounds: Bounds<ScaledPixels>,
+     pub content_mask: ContentMask<ScaledPixels>,
++    pub corner_radii: Corners<ScaledPixels>,
++    pub source_uv: Bounds<f32>,
+     #[cfg(any(target_os = "macos", target_os = "ios"))]
+     pub image_buffer: objc2_core_foundation::CFRetained<objc2_core_video::CVPixelBuffer>,
+ }
+diff --git a/crates/gpui/src/window.rs b/crates/gpui/src/window.rs
+index 214a43f..5800ad4 100644
+--- a/crates/gpui/src/window.rs
++++ b/crates/gpui/src/window.rs
+@@ -5176,17 +5176,49 @@ impl Window {
+         &mut self,
+         bounds: Bounds<Pixels>,
+         image_buffer: CFRetained<CVPixelBuffer>,
++    ) {
++        self.paint_surface_fitted(bounds, bounds, Corners::default(), image_buffer);
++    }
++
++    /// Paint a surface into `bounds`, positioning and scaling it according to `image_bounds`,
++    /// as [`Self::paint_image`] does for images.
++    ///
++    /// The visible region rendered is `bounds.intersect(&image_bounds)`, with `corner_radii`
++    /// applied to it. Bi-planar 4:2:0 full-range and 32-bit BGRA buffers are supported.
++    ///
++    /// This method should only be called as part of the paint phase of element drawing.
++    #[cfg(any(target_os = "macos", target_os = "ios"))]
++    pub fn paint_surface_fitted(
++        &mut self,
++        bounds: Bounds<Pixels>,
++        image_bounds: Bounds<Pixels>,
++        corner_radii: Corners<Pixels>,
++        image_buffer: CFRetained<CVPixelBuffer>,
+     ) {
+         use crate::PaintSurface;
+ 
+         self.invalidator.debug_assert_paint();
+ 
+-        let bounds = self.snap_bounds(bounds);
++        let visible_bounds = bounds.intersect(&image_bounds);
++        if visible_bounds.size.width <= Pixels::ZERO || visible_bounds.size.height <= Pixels::ZERO {
++            return;
++        }
++        if image_bounds.size.width <= Pixels::ZERO || image_bounds.size.height <= Pixels::ZERO {
++            return;
++        }
++
++        let source_uv = surface_source_uv(visible_bounds, image_bounds);
++        let corner_radii = corner_radii
++            .clamp_radii_for_quad_size(visible_bounds.size)
++            .scale(self.scale_factor());
++        let bounds = self.snap_bounds(visible_bounds);
+         let content_mask = self.snapped_content_mask();
+         self.next_frame.scene.insert_primitive(PaintSurface {
+             order: 0,
+             bounds,
+             content_mask,
++            corner_radii,
++            source_uv,
+             image_buffer,
+         });
+     }
+@@ -9979,3 +10011,49 @@ mod inspector_tests {
+         .expect("closed inspector has no bookkeeping and no style overrides");
+     }
+ }
++
++/// The part of a surface's texture, in normalized coordinates, that shows inside
++/// `visible_bounds` when the whole texture is laid out over `image_bounds`.
++#[cfg(any(test, target_os = "macos", target_os = "ios"))]
++fn surface_source_uv(visible_bounds: Bounds<Pixels>, image_bounds: Bounds<Pixels>) -> Bounds<f32> {
++    if visible_bounds == image_bounds {
++        return Bounds {
++            origin: point(0., 0.),
++            size: size(1., 1.),
++        };
++    }
++    Bounds {
++        origin: point(
++            (visible_bounds.origin.x - image_bounds.origin.x) / image_bounds.size.width,
++            (visible_bounds.origin.y - image_bounds.origin.y) / image_bounds.size.height,
++        ),
++        size: size(
++            visible_bounds.size.width / image_bounds.size.width,
++            visible_bounds.size.height / image_bounds.size.height,
++        ),
++    }
++}
++
++#[cfg(test)]
++mod surface_source_uv_tests {
++    use super::*;
++
++    #[test]
++    fn a_surface_that_fills_its_bounds_samples_the_whole_texture() {
++        let bounds = Bounds::new(point(px(10.), px(20.)), size(px(200.), px(100.)));
++        assert_eq!(
++            surface_source_uv(bounds, bounds),
++            Bounds::new(point(0., 0.), size(1., 1.))
++        );
++    }
++
++    #[test]
++    fn a_covered_surface_samples_only_the_visible_middle() {
++        let visible = Bounds::new(point(px(0.), px(0.)), size(px(100.), px(100.)));
++        let image = Bounds::new(point(px(-50.), px(0.)), size(px(200.), px(100.)));
++        assert_eq!(
++            surface_source_uv(visible, image),
++            Bounds::new(point(0.25, 0.), size(0.5, 1.))
++        );
++    }
++}
+diff --git a/crates/gpui_apple/src/metal_renderer.rs b/crates/gpui_apple/src/metal_renderer.rs
+index 862e62a..a780b78 100644
+--- a/crates/gpui_apple/src/metal_renderer.rs
++++ b/crates/gpui_apple/src/metal_renderer.rs
+@@ -3,8 +3,8 @@ use anyhow::{Context as _, Result};
+ use block2::RcBlock;
+ use core_graphics::geometry::CGSize;
+ use gpui::{
+-    AtlasTextureId, Background, Bounds, ContentMask, DevicePixels, PaintSurface, Path, Point,
+-    PrimitiveBatch, ScaledPixels, Scene, Size, point, size,
++    AtlasTextureId, Background, Bounds, ContentMask, Corners, DevicePixels, PaintSurface, Path,
++    Point, PrimitiveBatch, ScaledPixels, Scene, Size, point, size,
+ };
+ #[cfg(any(test, feature = "bench-support", feature = "test-support"))]
+ use image::RgbaImage;
+@@ -20,7 +20,8 @@ use objc2_core_foundation::CFRetained;
+ use objc2_core_video::{
+     CVMetalTexture, CVMetalTextureCache, CVMetalTextureGetTexture, CVPixelBufferGetHeight,
+     CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType, CVPixelBufferGetWidth,
+-    CVPixelBufferGetWidthOfPlane, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, kCVReturnSuccess,
++    CVPixelBufferGetWidthOfPlane, kCVPixelFormatType_32BGRA,
++    kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, kCVReturnSuccess,
+ };
+ use parking_lot::Mutex;
+ 
+@@ -126,6 +127,8 @@ pub struct MetalRenderer {
+     monochrome_sprites_pipeline_state: metal::RenderPipelineState,
+     polychrome_sprites_pipeline_state: metal::RenderPipelineState,
+     surfaces_pipeline_state: metal::RenderPipelineState,
++    bgra_surfaces_pipeline_state: metal::RenderPipelineState,
++    pending_surface_textures: Vec<CFRetained<CVMetalTexture>>,
+     unit_vertices: metal::Buffer,
+     #[allow(clippy::arc_with_non_send_sync)]
+     instance_buffer_pool: Arc<Mutex<InstanceBufferPool>>,
+@@ -387,6 +390,14 @@ impl MetalRenderer {
+             "surface_fragment",
+             MTLPixelFormat::BGRA8Unorm,
+         );
++        let bgra_surfaces_pipeline_state = build_pipeline_state(
++            &device,
++            &library,
++            "bgra_surfaces",
++            "surface_vertex",
++            "surface_bgra_fragment",
++            MTLPixelFormat::BGRA8Unorm,
++        );
+ 
+         let command_queue = device.new_command_queue();
+         let supports_shared_storage = cfg!(target_os = "ios") || is_apple_gpu;
+@@ -427,6 +438,8 @@ impl MetalRenderer {
+             monochrome_sprites_pipeline_state,
+             polychrome_sprites_pipeline_state,
+             surfaces_pipeline_state,
++            bgra_surfaces_pipeline_state,
++            pending_surface_textures: Vec::new(),
+             unit_vertices,
+             instance_buffer_pool,
+             sprite_atlas,
+@@ -593,10 +606,12 @@ impl MetalRenderer {
+ 
+         let instance_buffer_pool = self.instance_buffer_pool.clone();
+         let instance_buffer = Cell::new(Some(writer.finish()));
++        let surface_textures = Cell::new(Some(mem::take(&mut self.pending_surface_textures)));
+         let block = RcBlock::new(move |_: ptr::NonNull<AnyObject>| {
+             if let Some(instance_buffer) = instance_buffer.take() {
+                 instance_buffer_pool.lock().release(instance_buffer);
+             }
++            drop(surface_textures.take());
+         });
+         // SAFETY: Both pointee types are opaque views of the same Objective-C block pointer ABI.
+         unsafe {
+@@ -1220,7 +1235,6 @@ impl MetalRenderer {
+             return;
+         }
+ 
+-        command_encoder.set_render_pipeline_state(&self.surfaces_pipeline_state);
+         command_encoder.set_vertex_buffer(
+             SurfaceInputIndex::Vertices as u64,
+             Some(&self.unit_vertices),
+@@ -1231,6 +1245,11 @@ impl MetalRenderer {
+             Some(&instance_bindings.surfaces.buffer),
+             instance_bindings.surfaces.offset as u64,
+         );
++        command_encoder.set_fragment_buffer(
++            SurfaceInputIndex::Surfaces as u64,
++            Some(&instance_bindings.surfaces.buffer),
++            instance_bindings.surfaces.offset as u64,
++        );
+         command_encoder.set_vertex_bytes(
+             SurfaceInputIndex::ViewportSize as u64,
+             mem::size_of_val(&viewport_size) as u64,
+@@ -1244,12 +1263,7 @@ impl MetalRenderer {
+                 DevicePixels::from(CVPixelBufferGetHeight(image_buffer) as i32),
+             );
+ 
+-            assert_eq!(
+-                CVPixelBufferGetPixelFormatType(image_buffer),
+-                kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+-            );
+-
+-            let plane_texture = |plane, format| unsafe {
++            let plane_texture = |plane, format, width, height| unsafe {
+                 let mut texture = ptr::null_mut();
+                 let status = CVMetalTextureCache::create_texture_from_image(
+                     None,
+@@ -1257,41 +1271,82 @@ impl MetalRenderer {
+                     image_buffer,
+                     None,
+                     format,
+-                    CVPixelBufferGetWidthOfPlane(image_buffer, plane),
+-                    CVPixelBufferGetHeightOfPlane(image_buffer, plane),
++                    width,
++                    height,
+                     plane,
+                     ptr::NonNull::from(&mut texture),
+                 );
+-                assert_eq!(
+-                    status, kCVReturnSuccess,
+-                    "failed to create CoreVideo Metal texture"
+-                );
+-                CFRetained::<CVMetalTexture>::from_raw(
+-                    ptr::NonNull::new(texture).expect("CoreVideo returned a null texture"),
+-                )
++                if status != kCVReturnSuccess {
++                    log::error!("failed to create CoreVideo Metal texture: {status}");
++                    return None;
++                }
++                ptr::NonNull::new(texture).map(|texture| CFRetained::<CVMetalTexture>::from_raw(texture))
+             };
+-            let y_texture = plane_texture(0, objc2_metal::MTLPixelFormat::R8Unorm);
+-            let cb_cr_texture = plane_texture(1, objc2_metal::MTLPixelFormat::RG8Unorm);
++            let metal_texture = |texture: &CFRetained<CVMetalTexture>| unsafe {
++                CVMetalTextureGetTexture(texture).map(|texture| {
++                    metal::TextureRef::from_ptr(objc2::rc::Retained::as_ptr(&texture) as *mut _)
++                        .to_owned()
++                })
++            };
++
++            let pixel_format = CVPixelBufferGetPixelFormatType(image_buffer);
++            if pixel_format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange {
++                let Some(y_texture) = plane_texture(
++                    0,
++                    objc2_metal::MTLPixelFormat::R8Unorm,
++                    CVPixelBufferGetWidthOfPlane(image_buffer, 0),
++                    CVPixelBufferGetHeightOfPlane(image_buffer, 0),
++                ) else {
++                    continue;
++                };
++                let Some(cb_cr_texture) = plane_texture(
++                    1,
++                    objc2_metal::MTLPixelFormat::RG8Unorm,
++                    CVPixelBufferGetWidthOfPlane(image_buffer, 1),
++                    CVPixelBufferGetHeightOfPlane(image_buffer, 1),
++                ) else {
++                    continue;
++                };
++                let (Some(y_metal), Some(cb_cr_metal)) =
++                    (metal_texture(&y_texture), metal_texture(&cb_cr_texture))
++                else {
++                    log::error!("CoreVideo returned no Metal texture for a surface frame");
++                    continue;
++                };
++                command_encoder.set_render_pipeline_state(&self.surfaces_pipeline_state);
++                command_encoder
++                    .set_fragment_texture(SurfaceInputIndex::YTexture as u64, Some(&y_metal));
++                command_encoder
++                    .set_fragment_texture(SurfaceInputIndex::CbCrTexture as u64, Some(&cb_cr_metal));
++                self.pending_surface_textures.push(y_texture);
++                self.pending_surface_textures.push(cb_cr_texture);
++            } else if pixel_format == kCVPixelFormatType_32BGRA {
++                let Some(color_texture) = plane_texture(
++                    0,
++                    objc2_metal::MTLPixelFormat::BGRA8Unorm,
++                    CVPixelBufferGetWidth(image_buffer),
++                    CVPixelBufferGetHeight(image_buffer),
++                ) else {
++                    continue;
++                };
++                let Some(color_metal) = metal_texture(&color_texture) else {
++                    log::error!("CoreVideo returned no Metal texture for a surface frame");
++                    continue;
++                };
++                command_encoder.set_render_pipeline_state(&self.bgra_surfaces_pipeline_state);
++                command_encoder
++                    .set_fragment_texture(SurfaceInputIndex::YTexture as u64, Some(&color_metal));
++                self.pending_surface_textures.push(color_texture);
++            } else {
++                log::error!("unsupported surface pixel format: {pixel_format:#x}");
++                continue;
++            }
+ 
+             command_encoder.set_vertex_bytes(
+                 SurfaceInputIndex::TextureSize as u64,
+                 mem::size_of_val(&texture_size) as u64,
+                 &texture_size as *const Size<DevicePixels> as *const _,
+             );
+-            command_encoder.set_fragment_texture(SurfaceInputIndex::YTexture as u64, unsafe {
+-                let texture = CVMetalTextureGetTexture(&y_texture)
+-                    .expect("CoreVideo returned no Metal texture");
+-                Some(metal::TextureRef::from_ptr(
+-                    objc2::rc::Retained::as_ptr(&texture) as *mut _,
+-                ))
+-            });
+-            command_encoder.set_fragment_texture(SurfaceInputIndex::CbCrTexture as u64, unsafe {
+-                let texture = CVMetalTextureGetTexture(&cb_cr_texture)
+-                    .expect("CoreVideo returned no Metal texture");
+-                Some(metal::TextureRef::from_ptr(
+-                    objc2::rc::Retained::as_ptr(&texture) as *mut _,
+-                ))
+-            });
+ 
+             command_encoder.draw_primitives_instanced_base_instance(
+                 metal::MTLPrimitiveType::Triangle,
+@@ -1498,6 +1553,8 @@ fn write_instances(scene: &Scene, writer: &mut InstanceBufferWriter) -> Result<I
+         surfaces: writer.write_iter(scene.surfaces.iter().map(|surface| SurfaceBounds {
+             bounds: surface.bounds,
+             content_mask: surface.content_mask,
++            corner_radii: surface.corner_radii,
++            source_uv: surface.source_uv,
+         }))?,
+     })
+ }
+@@ -1690,6 +1747,8 @@ pub struct PathSprite {
+ pub struct SurfaceBounds {
+     pub bounds: Bounds<ScaledPixels>,
+     pub content_mask: ContentMask<ScaledPixels>,
++    pub corner_radii: Corners<ScaledPixels>,
++    pub source_uv: Bounds<f32>,
+ }
+ 
+ #[cfg(any(test, feature = "bench-support", feature = "test-support"))]
+@@ -1730,9 +1789,10 @@ mod tests {
+     use super::*;
+     use objc2_core_foundation::{CFDictionary, CFType};
+     use objc2_core_video::{
+-        CVPixelBufferCreate, CVPixelBufferGetBaseAddressOfPlane,
+-        CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
+-        CVPixelBufferUnlockBaseAddress, kCVPixelBufferIOSurfacePropertiesKey,
++        CVPixelBufferCreate, CVPixelBufferGetBaseAddress, CVPixelBufferGetBaseAddressOfPlane,
++        CVPixelBufferGetBytesPerRow, CVPixelBufferGetBytesPerRowOfPlane,
++        CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
++        kCVPixelBufferIOSurfacePropertiesKey,
+     };
+ 
+     #[test]
+@@ -1783,6 +1843,11 @@ mod tests {
+             order: 0,
+             bounds,
+             content_mask: ContentMask { bounds },
++            corner_radii: Corners::default(),
++            source_uv: Bounds {
++                origin: point(0., 0.),
++                size: size(1., 1.),
++            },
+             image_buffer: image_buffer.clone(),
+         });
+         drop(image_buffer);
+@@ -1799,4 +1864,82 @@ mod tests {
+             assert_eq!(*alpha, 255);
+         }
+     }
++
++    #[test]
++    fn render_rounded_cropped_bgra_surface() {
++        let attributes = CFDictionary::from_slices(
++            &[unsafe { kCVPixelBufferIOSurfacePropertiesKey }],
++            &[&*CFDictionary::<CFType, CFType>::empty()],
++        );
++        let mut image_buffer = ptr::null_mut();
++        assert_eq!(
++            unsafe {
++                CVPixelBufferCreate(
++                    None,
++                    32,
++                    16,
++                    kCVPixelFormatType_32BGRA,
++                    Some(attributes.as_opaque()),
++                    ptr::NonNull::from(&mut image_buffer),
++                )
++            },
++            kCVReturnSuccess
++        );
++        let image_buffer =
++            unsafe { CFRetained::from_raw(ptr::NonNull::new(image_buffer).unwrap()) };
++        unsafe {
++            assert_eq!(
++                CVPixelBufferLockBaseAddress(&image_buffer, CVPixelBufferLockFlags::empty()),
++                kCVReturnSuccess
++            );
++            let bytes = CVPixelBufferGetBaseAddress(&image_buffer).cast::<u8>();
++            let row_bytes = CVPixelBufferGetBytesPerRow(&image_buffer);
++            let rows = slice::from_raw_parts_mut(bytes, row_bytes * 16);
++            for row in rows.chunks_mut(row_bytes) {
++                for (column, pixel) in row[..32 * 4].chunks_mut(4).enumerate() {
++                    let bgra = if column < 16 {
++                        [0, 0, 255, 255]
++                    } else {
++                        [255, 0, 0, 255]
++                    };
++                    pixel.copy_from_slice(&bgra);
++                }
++            }
++            assert_eq!(
++                CVPixelBufferUnlockBaseAddress(&image_buffer, CVPixelBufferLockFlags::empty()),
++                kCVReturnSuccess
++            );
++        }
++
++        let bounds = Bounds {
++            origin: Point::default(),
++            size: size(ScaledPixels(16.0), ScaledPixels(16.0)),
++        };
++        let mut scene = Scene::default();
++        scene.insert_primitive(PaintSurface {
++            order: 0,
++            bounds,
++            content_mask: ContentMask { bounds },
++            corner_radii: Corners::all(ScaledPixels(8.0)),
++            source_uv: Bounds {
++                origin: point(0.5, 0.),
++                size: size(0.5, 1.),
++            },
++            image_buffer: image_buffer.clone(),
++        });
++        drop(image_buffer);
++        scene.finish();
++
++        let mut renderer = MetalRenderer::new_headless(Arc::new(Mutex::new(Default::default())));
++        let image = renderer
++            .render_scene_to_image(&scene, size(DevicePixels(16), DevicePixels(16)))
++            .unwrap();
++
++        let image::Rgba([red, _, blue, _]) = *image.get_pixel(8, 8);
++        assert!(blue >= 240 && red <= 16, "centre shows the right half: {red} {blue}");
++        for (x, y) in [(0, 0), (15, 0), (0, 15), (15, 15)] {
++            let image::Rgba([_, _, blue, _]) = *image.get_pixel(x, y);
++            assert!(blue <= 64, "corner ({x}, {y}) is rounded off: {blue}");
++        }
++    }
+ }
+diff --git a/crates/gpui_apple/src/shaders.metal b/crates/gpui_apple/src/shaders.metal
+index 2b52bb9..dfa5a19 100644
+--- a/crates/gpui_apple/src/shaders.metal
++++ b/crates/gpui_apple/src/shaders.metal
+@@ -850,12 +850,14 @@ fragment float4 path_sprite_fragment(
+ struct SurfaceVertexOutput {
+   float4 position [[position]];
+   float2 texture_position;
++  uint surface_id [[flat]];
+   float clip_distance [[clip_distance]][4];
+ };
+ 
+ struct SurfaceFragmentInput {
+   float4 position [[position]];
+   float2 texture_position;
++  uint surface_id [[flat]];
+ };
+ 
+ vertex SurfaceVertexOutput surface_vertex(
+@@ -872,16 +874,31 @@ vertex SurfaceVertexOutput surface_vertex(
+       to_device_position(unit_vertex, surface.bounds, viewport_size);
+   float4 clip_distance = distance_from_clip_rect(unit_vertex, surface.bounds,
+                                                  surface.content_mask.bounds);
+-  // We are going to copy the whole texture, so the texture position corresponds
+-  // to the current vertex of the unit triangle.
+-  float2 texture_position = unit_vertex;
++  float2 texture_position =
++      float2(surface.source_uv.origin.x, surface.source_uv.origin.y) +
++      unit_vertex * float2(surface.source_uv.size.width,
++                           surface.source_uv.size.height);
+   return SurfaceVertexOutput{
+       device_position,
+       texture_position,
++      surface_id,
+       {clip_distance.x, clip_distance.y, clip_distance.z, clip_distance.w}};
+ }
+ 
++float surface_corner_alpha(float2 position, SurfaceBounds surface) {
++  float max_radius = max(
++      max(surface.corner_radii.top_left, surface.corner_radii.top_right),
++      max(surface.corner_radii.bottom_left, surface.corner_radii.bottom_right));
++  if (max_radius <= 0.) {
++    return 1.;
++  }
++  float distance = quad_sdf(position, surface.bounds, surface.corner_radii);
++  return saturate(0.5 - distance);
++}
++
+ fragment float4 surface_fragment(SurfaceFragmentInput input [[stage_in]],
++                                 constant SurfaceBounds *surfaces
++                                 [[buffer(SurfaceInputIndex_Surfaces)]],
+                                  texture2d<float> y_texture
+                                  [[texture(SurfaceInputIndex_YTexture)]],
+                                  texture2d<float> cb_cr_texture
+@@ -896,7 +913,21 @@ fragment float4 surface_fragment(SurfaceFragmentInput input [[stage_in]],
+       y_texture.sample(texture_sampler, input.texture_position).r,
+       cb_cr_texture.sample(texture_sampler, input.texture_position).rg, 1.0);
+ 
+-  return ycbcrToRGBTransform * ycbcr;
++  float4 color = ycbcrToRGBTransform * ycbcr;
++  color.a *= surface_corner_alpha(input.position.xy, surfaces[input.surface_id]);
++  return color;
++}
++
++fragment float4 surface_bgra_fragment(SurfaceFragmentInput input [[stage_in]],
++                                      constant SurfaceBounds *surfaces
++                                      [[buffer(SurfaceInputIndex_Surfaces)]],
++                                      texture2d<float> color_texture
++                                      [[texture(SurfaceInputIndex_YTexture)]]) {
++  constexpr sampler texture_sampler(mag_filter::linear, min_filter::linear);
++  float4 color = float4(
++      color_texture.sample(texture_sampler, input.texture_position).rgb, 1.0);
++  color.a *= surface_corner_alpha(input.position.xy, surfaces[input.surface_id]);
++  return color;
+ }
+ 
+ float4 hsla_to_rgba(Hsla hsla) {

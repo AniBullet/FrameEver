@@ -1642,7 +1642,7 @@ dependencies = [
  "core-graphics2",
  "io-surface",
  "libc",
- "metal 0.33.0",
+ "metal",
 ]
 
 [[package]]
@@ -2948,6 +2948,8 @@ dependencies = [
  "notify",
  "objc2 0.5.3",
  "objc2-app-kit 0.2.2",
+ "objc2-core-foundation",
+ "objc2-core-video",
  "objc2-foundation 0.2.2",
  "parakeet-rs",
  "raw-window-handle",
@@ -3334,7 +3336,6 @@ dependencies = [
  "dirs 7.0.0",
  "ffmpeg-hw-device",
  "ffmpeg-next",
- "foreign-types 0.5.0",
  "frameever-camera-effects",
  "frameever-cursor-info",
  "frameever-enc-ffmpeg",
@@ -3346,8 +3347,8 @@ dependencies = [
  "glyphon",
  "image 0.25.10",
  "log",
- "metal 0.31.0",
  "objc2 0.6.5",
+ "objc2-metal 0.3.2",
  "rayon",
  "reactive_graph",
  "resvg 0.45.1",
@@ -4045,8 +4046,6 @@ dependencies = [
 [[package]]
 name = "gpui-pre-apple"
 version = "0.3.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e97cd068d8134b4e073321b946491760aa1e4511e486084a92e73b9174bff78a"
 dependencies = [
  "anyhow",
  "async-task",
@@ -4068,7 +4067,7 @@ dependencies = [
  "libc",
  "log",
  "mach2 0.6.0",
- "metal 0.33.0",
+ "metal",
  "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-core-text",
@@ -5875,21 +5874,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "metal"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f569fb946490b5743ad69813cb19629130ce9374034abe31614a36402d18f99e"
-dependencies = [
- "bitflags 2.13.2",
- "block",
- "core-graphics-types 0.1.3",
- "foreign-types 0.5.0",
- "log",
- "objc",
- "paste",
 ]
 
 [[package]]

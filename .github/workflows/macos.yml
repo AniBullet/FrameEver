@@ -56,3 +56,7 @@ jobs:
         continue-on-error: true
         working-directory: apps/desktop-gpui
         run: cargo check --workspace --exclude frameever-installer-app --tests --keep-going --message-format short
+
+      - name: Tests
+        continue-on-error: true
+        run: pnpm fe test --all

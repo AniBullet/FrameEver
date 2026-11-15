@@ -239,6 +239,17 @@ mod macos_occlusion;
 
 #[cfg(target_os = "macos")]
 mod mac {
+    pub fn gpui_surface(
+        buffer: &core_video::pixel_buffer::CVPixelBuffer,
+    ) -> objc2_core_foundation::CFRetained<objc2_core_video::CVPixelBuffer> {
+        use core_foundation::base::TCFType;
+        let raw = std::ptr::NonNull::new(
+            buffer.as_concrete_TypeRef() as *mut objc2_core_video::CVPixelBuffer
+        )
+        .expect("a retained CVPixelBuffer is never null");
+        unsafe { objc2_core_foundation::CFRetained::retain(raw) }
+    }
+
     pub fn follow_system_reduce_motion(cx: &mut gpui::App) {
         use objc2_app_kit::{
             NSWorkspace, NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification,

@@ -775,10 +775,15 @@ export function crateTestArgs(crate, filter, { ignored, optimized }) {
 	];
 }
 
+export function patchedGpuiPlatformCrate(platform = process.platform) {
+	return platform === "win32" ? "gpui_windows" : "gpui_apple";
+}
+
 function patchedGpuiTests() {
 	step("Patched gpui tests");
 	const patchedCrates = path.join(root, "..", "gpui-pre-patched", "crates");
 	const patchedCore = path.join(patchedCrates, "gpui").replaceAll("\\", "/");
+	const platformCrate = patchedGpuiPlatformCrate();
 	run(
 		"cargo",
 		[
@@ -787,11 +792,11 @@ function patchedGpuiTests() {
 			"--features",
 			"test-support",
 			"--target-dir",
-			path.join(gpuiDir, "target", "gpui-windows"),
+			path.join(gpuiDir, "target", platformCrate.replace("_", "-")),
 			"--config",
 			`patch.crates-io.gpui-pre.path="${patchedCore}"`,
 		],
-		{ cwd: path.join(patchedCrates, "gpui_windows") },
+		{ cwd: path.join(patchedCrates, platformCrate) },
 	);
 }
 
@@ -837,7 +842,7 @@ function test({ flags, positional }) {
 		run("cargo", ["test", "-p", "frameever", "--test", "cli"], {
 			env: withFfmpeg(),
 		});
-		if (isWindows) patchedGpuiTests();
+		patchedGpuiTests();
 		step("Packaging script tests");
 		run(process.execPath, [
 			"--test",

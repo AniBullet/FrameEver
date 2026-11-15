@@ -1664,7 +1664,7 @@ async fn start_attempt(
                     .await
                     .context("instant recording actor")?,
             );
-            let setup = (|| {
+            let setup = (|| -> anyhow::Result<Arc<Mutex<()>>> {
                 let metadata_lock = Arc::new(Mutex::new(()));
                 persist_in_progress_instant_meta(&project_dir, &metadata_lock)?;
                 Ok(metadata_lock)

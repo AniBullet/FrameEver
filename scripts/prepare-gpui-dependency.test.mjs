@@ -154,6 +154,28 @@ test("prepare unpacks the pinned crates and applies the patch", (t) => {
 	);
 });
 
+test("prepare applies every gpui-pre patch", (t) => {
+	const { patches, prepare, target } = prepareFixture(t);
+	writeFileSync(
+		path.join(patches, "gpui-pre-macos.patch"),
+		[
+			"diff --git a/crates/gpui/src/macos.rs b/crates/gpui/src/macos.rs",
+			"new file mode 100644",
+			"--- /dev/null",
+			"+++ b/crates/gpui/src/macos.rs",
+			"@@ -0,0 +1 @@",
+			"+pub fn on_macos() {}",
+			"",
+		].join("\n"),
+	);
+	const result = prepare();
+	assert.equal(result.status, 0, result.stderr);
+	const source = (file) =>
+		readFileSync(path.join(target, "crates", "gpui", "src", file), "utf8");
+	assert.match(source("lib.rs"), /patched/);
+	assert.match(source("macos.rs"), /on_macos/);
+});
+
 test("prepare leaves a current folder alone and rebuilds a stale one", (t) => {
 	const { patches, prepare, target } = prepareFixture(t);
 	assert.equal(prepare().status, 0);
