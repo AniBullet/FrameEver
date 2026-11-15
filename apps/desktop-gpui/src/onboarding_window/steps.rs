@@ -26,7 +26,7 @@ struct ModeCard {
     tag: &'static str,
 }
 
-const MODE_CARDS: [ModeCard; 3] = [
+const MODE_CARDS: [ModeCard; 2] = [
     ModeCard {
         mode: Mode::Studio,
         icon: "icons/clapperboard.svg",
@@ -41,23 +41,20 @@ const MODE_CARDS: [ModeCard; 3] = [
         title: n!("Instant"),
         tag: n!("A video the moment you stop"),
     },
-    ModeCard {
-        mode: Mode::Screenshot,
-        icon: "icons/image.svg",
-        doodle: &art::SNAP,
-        title: n!("Screenshot"),
-        tag: n!("Capture and annotate"),
-    },
 ];
 
 struct Detail {
-    card: usize,
+    doodle: &'static Doodle,
+    title: &'static str,
+    tag: &'static str,
     body: &'static str,
     ticks: [&'static str; 4],
 }
 
 const STUDIO: Detail = Detail {
-    card: 0,
+    doodle: MODE_CARDS[0].doodle,
+    title: MODE_CARDS[0].title,
+    tag: MODE_CARDS[0].tag,
     body: n!(
         "Screen, camera, microphone and cursor are kept as separate tracks, so you can polish the recording in the editor before you export it."
     ),
@@ -70,7 +67,9 @@ const STUDIO: Detail = Detail {
 };
 
 const INSTANT: Detail = Detail {
-    card: 1,
+    doodle: MODE_CARDS[1].doodle,
+    title: MODE_CARDS[1].title,
+    tag: MODE_CARDS[1].tag,
     body: n!(
         "Instant records straight to an MP4 on this computer. When you stop, it shows up in the library, ready to play or drag into a chat."
     ),
@@ -83,7 +82,9 @@ const INSTANT: Detail = Detail {
 };
 
 const SCREENSHOT: Detail = Detail {
-    card: 2,
+    doodle: &art::SNAP,
+    title: n!("Screenshot"),
+    tag: n!("Capture and annotate"),
     body: n!("Pick an area, mark it up in the screenshot editor, then copy or save the PNG."),
     ticks: [
         n!("A magnifier for pixel-exact edges"),
@@ -279,9 +280,9 @@ impl OnboardingWindow {
             }));
         self.step_content()
             .child(self.heading(
-                t!("Three ways to capture"),
+                t!("Two ways to record"),
                 t!(
-                    "Pick the one you'll use most. You can switch any time at the top of the main window."
+                    "Pick the one you'll use most. You can switch any time at the top of the main window. Screenshots have their own button and shortcuts."
                 ),
             ))
             .child(
@@ -334,7 +335,6 @@ impl OnboardingWindow {
             Step::Screenshot => &SCREENSHOT,
             _ => &STUDIO,
         };
-        let card = &MODE_CARDS[detail.card];
         let side = div()
             .w(px(240.))
             .flex_shrink_0()
@@ -346,14 +346,15 @@ impl OnboardingWindow {
                     .flex()
                     .items_center()
                     .gap(px(12.))
-                    .child(self.doodle_at(card.doodle, 0, 58., 50.))
+                    .child(self.doodle_at(detail.doodle, 0, 58., 50.))
                     .child(
                         div()
                             .flex()
                             .flex_col()
-                            .child(copy(tr(card.title), 20., paper.ink))
+                            .child(copy(tr(detail.title), 20., paper.ink))
                             .child(
-                                copy(tr(card.tag), 12., paper.soft).font_weight(FontWeight::NORMAL),
+                                copy(tr(detail.tag), 12., paper.soft)
+                                    .font_weight(FontWeight::NORMAL),
                             ),
                     ),
             )

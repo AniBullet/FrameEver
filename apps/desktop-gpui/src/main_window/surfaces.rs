@@ -4,7 +4,10 @@ use gpui::{
     transparent_black,
 };
 
-use super::{MainWindow, Mode, Panel, TargetType, app_windows, library_page, shell::Stage};
+use super::{
+    MainWindow, Mode, Panel, PickerPurpose, ScreenCaptureTarget, ScreenshotButton, TargetType,
+    app_windows, library_page, shell::Stage,
+};
 use crate::{doodle, i18n::t, onboarding_doodles, theme::Theme, ui};
 
 const CONTENT_GAP: f32 = 10.;
@@ -283,8 +286,7 @@ impl MainWindow {
                     .rounded(px(6.))
                     .bg(theme.muted)
                     .child(segment(Mode::Instant, "mode-instant", 0))
-                    .child(segment(Mode::Studio, "mode-studio", 1))
-                    .child(segment(Mode::Screenshot, "mode-screenshot", 2)),
+                    .child(segment(Mode::Studio, "mode-studio", 1)),
             )
             .child(
                 self.title_icon("mode-info", "icons/info.svg", t!("Recording mode info"))
@@ -400,6 +402,7 @@ impl MainWindow {
             })
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.start_target = Some(target);
+                this.purpose = PickerPurpose::Record;
                 this.target = if this.target == Some(target) {
                     None
                 } else {
@@ -412,18 +415,17 @@ impl MainWindow {
 
     fn render_start_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let screenshot = self.effective_mode(cx) == Mode::Screenshot;
-        focus_ring(
+        let start = focus_ring(
             div()
                 .id("start")
                 .tab_index(0)
                 .flex()
+                .flex_1()
+                .min_w_0()
                 .items_center()
                 .justify_center()
                 .gap(px(8.))
-                .w_full()
                 .h(px(START_HEIGHT))
-                .flex_shrink_0()
                 .rounded(px(6.))
                 .bg(theme.primary)
                 .text_size(px(13.))
@@ -431,20 +433,98 @@ impl MainWindow {
                 .text_color(theme.primary_foreground)
                 .hover(move |style| style.bg(theme.primary_hover))
                 .child(ui::record_mark(&theme))
-                .child(if screenshot {
-                    t!("Take screenshot")
-                } else {
-                    t!("Start recording")
-                }),
+                .child(t!("Start recording")),
             theme,
         )
-        .on_click(cx.listener(|this, _, _, cx| this.start_from_chosen_target(cx)))
+        .on_click(cx.listener(|this, _, _, cx| this.start_from_chosen_target(cx)));
+        div()
+            .flex()
+            .gap(px(6.))
+            .w_full()
+            .flex_shrink_0()
+            .child(start)
+            .child(self.render_screenshot_button(cx))
+    }
+
+    fn render_screenshot_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let target = self.chosen_target();
+        let enabled = ScreenshotButton::for_target(target) != ScreenshotButton::Unavailable;
+        let button = div()
+            .id("screenshot")
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .justify_center()
+            .size(px(START_HEIGHT))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.secondary)
+            .tooltip(move |_, cx| {
+                ui::Tooltip::new(&theme, ScreenshotButton::tooltip(target)).view(cx)
+            })
+            .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+            .child(
+                svg()
+                    .path("icons/image.svg")
+                    .size(px(16.))
+                    .text_color(if enabled {
+                        theme.secondary_foreground
+                    } else {
+                        theme.faint_foreground
+                    }),
+            );
+        if !enabled {
+            return button.into_any_element();
+        }
+        button
+            .tab_index(0)
+            .hover(move |style| style.bg(theme.secondary_hover))
+            .focus_visible(move |style| style.border_color(theme.ring))
+            .on_click(cx.listener(|this, _, _, cx| this.screenshot_chosen_target(cx)))
+            .into_any_element()
+    }
+
+    fn chosen_target(&self) -> TargetType {
+        self.start_target.unwrap_or(TargetType::Display)
     }
 
     pub(super) fn start_from_chosen_target(&mut self, cx: &mut Context<Self>) {
-        self.target = Some(self.start_target.unwrap_or(TargetType::Display));
+        self.purpose = PickerPurpose::Record;
+        self.target = Some(self.chosen_target());
         self.sync_overlays(cx);
         cx.notify();
+    }
+
+    pub(super) fn screenshot_chosen_target(&mut self, cx: &mut Context<Self>) {
+        let target = self.chosen_target();
+        match ScreenshotButton::for_target(target) {
+            ScreenshotButton::Unavailable => {}
+            ScreenshotButton::Capture => {
+                let id = self
+                    .selected_display
+                    .as_ref()
+                    .map(|display| display.id.clone())
+                    .unwrap_or_else(|| {
+                        scap_targets::Display::get_containing_cursor()
+                            .unwrap_or_else(scap_targets::Display::primary)
+                            .id()
+                    });
+                cx.defer(move |cx| {
+                    crate::screenshot::take_screenshot(ScreenCaptureTarget::Display { id }, cx)
+                });
+            }
+            ScreenshotButton::Pick => {
+                if self.session.read(cx).editor_recording_target().is_some() {
+                    return;
+                }
+                self.purpose = PickerPurpose::Screenshot;
+                self.target = Some(target);
+                self.sync_overlays(cx);
+                cx.notify();
+            }
+        }
     }
 
     fn render_compact_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {

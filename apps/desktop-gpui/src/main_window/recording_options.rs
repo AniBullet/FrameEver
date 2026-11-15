@@ -12,9 +12,8 @@ use gpui::{
 };
 use serde_json::Value;
 
-fn summary(mode: Mode, settings: &GeneralSettings) -> Option<String> {
+fn summary(mode: Mode, settings: &GeneralSettings) -> String {
     let first = match mode {
-        Mode::Screenshot => return None,
         Mode::Studio => match settings.studio_recording_quality {
             StudioQuality::Compatibility => t!("Smaller"),
             StudioQuality::Balanced => t!("Balanced"),
@@ -33,7 +32,7 @@ fn summary(mode: Mode, settings: &GeneralSettings) -> Option<String> {
     if let Some(seconds) = settings.recording_countdown.filter(|seconds| *seconds > 0) {
         result.push_str(&format!(" · {}", t!("{seconds} s", seconds = seconds)));
     }
-    Some(result)
+    result
 }
 
 struct OptionRow {
@@ -52,9 +51,6 @@ impl OptionRow {
 }
 
 fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
-    if mode == Mode::Screenshot {
-        return Vec::new();
-    }
     let numbers = |items: &[(u32, &'static str)]| {
         items
             .iter()
@@ -155,7 +151,10 @@ impl MainWindow {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
-        let summary = summary(self.mode, &GeneralSettings::load())?;
+        if self.session.read(cx).phase != crate::session::Phase::Idle {
+            return None;
+        }
+        let summary = summary(self.mode, &GeneralSettings::load());
         let accessible_label = format!("{}: {summary}", t!("Recording options"));
         let theme = self.theme;
         Some(
@@ -210,7 +209,6 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
         if !self.recording_options_open
-            || self.mode == Mode::Screenshot
             || self.panel.is_some()
             || self.shell.stage() != Stage::Compact
             || self.session.read(cx).phase != crate::session::Phase::Idle
@@ -403,24 +401,14 @@ mod tests {
         settings.max_fps = 30;
         settings.recording_countdown = Some(5);
         settings.instant_mode_max_resolution = 2560;
-        assert_eq!(
-            summary(Mode::Instant, &settings).as_deref(),
-            Some("1440p · 30 FPS · 5 s")
-        );
+        assert_eq!(summary(Mode::Instant, &settings), "1440p · 30 FPS · 5 s");
         settings.max_fps = 60;
         settings.recording_countdown = None;
-        assert_eq!(
-            summary(Mode::Instant, &settings).as_deref(),
-            Some("1440p · 60 FPS")
-        );
-        assert_eq!(summary(Mode::Screenshot, &settings), None);
+        assert_eq!(summary(Mode::Instant, &settings), "1440p · 60 FPS");
         settings.max_fps = 48;
         settings.instant_mode_max_resolution = 2000;
         settings.recording_countdown = Some(7);
-        assert_eq!(
-            summary(Mode::Instant, &settings).as_deref(),
-            Some("2000 px · 48 FPS · 7 s")
-        );
+        assert_eq!(summary(Mode::Instant, &settings), "2000 px · 48 FPS · 7 s");
         settings.recording_countdown = Some(0);
         for (quality, expected) in [
             (StudioQuality::Compatibility, "Smaller · 48 FPS"),
@@ -428,7 +416,7 @@ mod tests {
             (StudioQuality::Ultra, "Maximum · 48 FPS"),
         ] {
             settings.studio_recording_quality = quality;
-            assert_eq!(summary(Mode::Studio, &settings).as_deref(), Some(expected));
+            assert_eq!(summary(Mode::Studio, &settings), expected);
         }
     }
     #[test]
@@ -462,10 +450,7 @@ mod tests {
         assert_eq!(settings.recording_countdown, Some(10));
         assert!(!settings.custom_cursor_capture);
         assert!(!settings.capture_keyboard_events);
-        assert_eq!(
-            summary(Mode::Studio, &settings).as_deref(),
-            Some("Maximum · 25 FPS · 10 s")
-        );
+        assert_eq!(summary(Mode::Studio, &settings), "Maximum · 25 FPS · 10 s");
         choose(Mode::Instant, "instantModeMaxResolution", Value::from(3840));
         choose(Mode::Instant, "recordingAutoStopMinutes", Value::from(15));
         choose(Mode::Instant, "instantClickHighlight", Value::Bool(true));
@@ -480,7 +465,6 @@ mod tests {
             saved["general_settings"]["defaultProjectNameTemplate"],
             "Keep {date}"
         );
-        assert!(rows(Mode::Screenshot, &GeneralSettings::load()).is_empty());
         assert!(
             !rows(Mode::Studio, &GeneralSettings::load())
                 .iter()
@@ -552,9 +536,8 @@ mod tests {
         press(cx, "enter");
         main.update(cx, |main, cx| {
             assert!(main.recording_options_open);
-            main.set_mode(Mode::Screenshot, cx);
+            main.set_mode(Mode::Instant, cx);
             assert!(!main.recording_options_open);
-            assert!(main.render_recording_options_summary(cx).is_none());
             assert!(main.render_recording_options(cx).is_none());
             main.set_mode(Mode::Studio, cx);
             assert!(!main.recording_options_open);
@@ -570,6 +553,9 @@ mod tests {
             cx.notify();
         });
         cx.run_until_parked();
-        main.read_with(cx, |main, _| assert!(!main.recording_options_open));
+        main.update(cx, |main, cx| {
+            assert!(!main.recording_options_open);
+            assert!(main.render_recording_options_summary(cx).is_none());
+        });
     }
 }

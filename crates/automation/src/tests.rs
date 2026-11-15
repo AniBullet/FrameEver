@@ -803,3 +803,16 @@ fn multiple_rules_same_trigger() {
     let matched = evaluate(&store, &Trigger::ScreenshotTaken, &TriggerContext::new());
     assert_eq!(matched.len(), 2);
 }
+
+#[test]
+fn a_rule_holding_screenshot_mode_loads_as_studio() {
+    let condition: Condition =
+        serde_json::from_value(serde_json::json!({"type": "recordingModeIs", "mode": "screenshot"}))
+            .unwrap();
+    assert_eq!(
+        condition,
+        Condition::RecordingModeIs {
+            mode: AutomationRecordingMode::Studio
+        }
+    );
+}

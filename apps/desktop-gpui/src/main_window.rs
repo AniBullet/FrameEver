@@ -32,6 +32,7 @@ use crate::{
     permissions::OSPermission,
     recording,
     session::{Phase, RecordingSession},
+    target_overlay::PickerPurpose,
     target_thumbnails,
     theme::Theme,
     ui,
@@ -183,7 +184,6 @@ fn take_pending_recording_inputs(
 pub enum Mode {
     Instant,
     Studio,
-    Screenshot,
 }
 
 fn effective_recording_mode(preferred: Mode, editor_recording: bool) -> Mode {
@@ -201,15 +201,13 @@ impl Mode {
         match self {
             Self::Instant => "instant",
             Self::Studio => "studio",
-            Self::Screenshot => "screenshot",
         }
     }
 
     pub fn from_slug(slug: &str) -> Option<Self> {
         match slug {
             "instant" => Some(Self::Instant),
-            "studio" => Some(Self::Studio),
-            "screenshot" => Some(Self::Screenshot),
+            "studio" | "screenshot" => Some(Self::Studio),
             _ => None,
         }
     }
@@ -227,7 +225,6 @@ impl Mode {
         match self {
             Self::Instant => "icons/zap.svg",
             Self::Studio => "icons/clapperboard.svg",
-            Self::Screenshot => "icons/image.svg",
         }
     }
 
@@ -238,7 +235,6 @@ impl Mode {
         match self {
             Self::Instant => t!("Instant"),
             Self::Studio => t!("Studio"),
-            Self::Screenshot => t!("Screenshot"),
         }
     }
 
@@ -251,11 +247,6 @@ impl Mode {
             Self::Studio => t!(
                 "Record locally in the highest quality for editing later. Perfect for \
                  creating polished content with effects and transitions."
-            ),
-
-            Self::Screenshot => t!(
-                "Capture and annotate screenshots instantly. Great for quick captures, bug \
-                 reports, and visual communication."
             ),
         }
     }
@@ -408,7 +399,6 @@ impl gpui::RenderOnce for ModeHoverCard {
                     "Saves to your computer and opens the editor when you stop. Choose recording quality in settings."
                 )
             }
-            Mode::Screenshot => t!("Capture and annotate stills."),
         };
         div()
             .flex()
@@ -435,38 +425,36 @@ impl gpui::RenderOnce for ModeHoverCard {
                     .text_color(theme.muted_foreground)
                     .child(description),
             )
-            .when(mode != Mode::Screenshot, |this| {
-                this.child(
-                    div()
-                        .id("mode-quality-settings")
-                        .group("mode-quality-settings")
-                        .tab_index(0)
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .mx(px(-4.))
-                        .px(px(4.))
-                        .py(px(2.))
-                        .rounded(px(4.))
-                        .text_size(px(11.))
-                        .text_color(theme.muted_foreground)
-                        .hover(|style| style.bg(theme.accent).text_color(theme.foreground))
-                        .child(
-                            svg()
-                                .path("icons/settings.svg")
-                                .size(px(14.))
-                                .text_color(theme.muted_foreground)
-                                .group_hover("mode-quality-settings", |style| {
-                                    style.text_color(theme.foreground)
-                                }),
-                        )
-                        .child(t!("Quality settings"))
-                        .on_click(move |_, _, cx| {
-                            cx.stop_propagation();
-                            cx.defer(move |cx| app_windows::open_quality_settings(mode, cx));
-                        }),
-                )
-            })
+            .child(
+                div()
+                    .id("mode-quality-settings")
+                    .group("mode-quality-settings")
+                    .tab_index(0)
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .mx(px(-4.))
+                    .px(px(4.))
+                    .py(px(2.))
+                    .rounded(px(4.))
+                    .text_size(px(11.))
+                    .text_color(theme.muted_foreground)
+                    .hover(|style| style.bg(theme.accent).text_color(theme.foreground))
+                    .child(
+                        svg()
+                            .path("icons/settings.svg")
+                            .size(px(14.))
+                            .text_color(theme.muted_foreground)
+                            .group_hover("mode-quality-settings", |style| {
+                                style.text_color(theme.foreground)
+                            }),
+                    )
+                    .child(t!("Quality settings"))
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        cx.defer(move |cx| app_windows::open_quality_settings(mode, cx));
+                    }),
+            )
     }
 }
 
@@ -476,6 +464,32 @@ pub enum TargetType {
     Window,
     Area,
     CameraOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScreenshotButton {
+    Capture,
+    Pick,
+    Unavailable,
+}
+
+impl ScreenshotButton {
+    pub(crate) fn for_target(target: TargetType) -> Self {
+        match target {
+            TargetType::Display => Self::Capture,
+            TargetType::Window | TargetType::Area => Self::Pick,
+            TargetType::CameraOnly => Self::Unavailable,
+        }
+    }
+
+    pub(crate) fn tooltip(target: TargetType) -> &'static str {
+        match target {
+            TargetType::Display => t!("Screenshot this display"),
+            TargetType::Window => t!("Screenshot this window"),
+            TargetType::Area => t!("Screenshot an area"),
+            TargetType::CameraOnly => t!("Screenshots need a display, window or area"),
+        }
+    }
 }
 
 impl TargetType {
@@ -817,9 +831,10 @@ pub struct MainWindow {
     recording_options_focus: FocusHandle,
     mode_hover: ModeHoverState,
     mode_hover_task: Option<Task<()>>,
-    mode_hover_bounds: [Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>; 3],
+    mode_hover_bounds: [Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>; 2],
     mode_hover_card_bounds: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
     target: Option<TargetType>,
+    purpose: PickerPurpose,
     devices: DeviceSnapshot,
     camera: Option<CameraOption>,
     camera_id: Option<recording::DeviceOrModelID>,
@@ -1102,6 +1117,7 @@ impl MainWindow {
             mode_hover_bounds: std::array::from_fn(|_| Rc::new(Cell::new(None))),
             mode_hover_card_bounds: Rc::new(Cell::new(None)),
             target: None,
+            purpose: PickerPurpose::Record,
             devices: DeviceSnapshot::default(),
             camera: None,
             camera_id: None,
@@ -1823,6 +1839,7 @@ impl MainWindow {
         let request = app_windows::OverlayRequest {
             mode,
             recording_mode: self.effective_mode(cx),
+            purpose: self.purpose,
             // A display picked from the dropdown narrows the overlays to that
             // display; otherwise every display gets one.
             display: match mode {
@@ -1860,6 +1877,7 @@ impl MainWindow {
     /// Called when the overlays are dismissed (Escape, their close button) so
     /// the armed tile stops looking armed.
     pub fn clear_target(&mut self, cx: &mut Context<Self>) {
+        self.purpose = PickerPurpose::Record;
         if self.target.take().is_some() {
             cx.notify();
         }
@@ -1944,13 +1962,10 @@ impl MainWindow {
         }
     }
 
-    /// The recording mode the Mode pill maps to, `None` for Screenshot (that
-    /// path does not go through the recording actors at all).
-    fn recording_mode(&self, cx: &gpui::App) -> Option<recording::RecordingMode> {
+    fn recording_mode(&self, cx: &gpui::App) -> recording::RecordingMode {
         match self.effective_mode(cx) {
-            Mode::Instant => Some(recording::RecordingMode::Instant),
-            Mode::Studio => Some(recording::RecordingMode::Studio),
-            Mode::Screenshot => None,
+            Mode::Instant => recording::RecordingMode::Instant,
+            Mode::Studio => recording::RecordingMode::Studio,
         }
     }
 
@@ -1966,7 +1981,7 @@ impl MainWindow {
     /// one from the dropdown does.
     pub fn auto_record(
         &mut self,
-        mode: Mode,
+        mode: Option<Mode>,
         record_secs: u64,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1974,7 +1989,14 @@ impl MainWindow {
         let overlay = auto_overlay_kind();
         let area = auto_area_rect();
 
-        self.mode = mode;
+        let purpose = match mode {
+            Some(mode) => {
+                self.mode = mode;
+                PickerPurpose::Record
+            }
+            None => PickerPurpose::Screenshot,
+        };
+        self.purpose = purpose;
         self.target = Some(overlay.unwrap_or(TargetType::Display));
         self.system_audio =
             std::env::var("FRAMEEVER_GPUI_AUTO_SYSTEM_AUDIO").is_ok_and(|value| value == "1");
@@ -1985,7 +2007,7 @@ impl MainWindow {
         let pause_wiggle = std::env::var("FRAMEEVER_GPUI_AUTO_PAUSE").is_ok_and(|v| v == "1");
 
         let skip_mic = std::env::var("FRAMEEVER_GPUI_AUTO_NO_MIC").is_ok_and(|v| v == "1")
-            || mode == Mode::Screenshot;
+            || purpose == PickerPurpose::Screenshot;
         if skip_mic {
             self.set_microphone_selection(None, cx);
         }
@@ -2045,7 +2067,7 @@ impl MainWindow {
                 for _ in 0..20 {
                     found = this
                         .update_in(cx, |this, _window, cx| {
-                            this.arm_overlay(TargetType::Window, cx);
+                            this.arm_overlay(TargetType::Window, purpose, cx);
                             this.selected_window
                                 .as_ref()
                                 .is_some_and(|window| window_matches(window, &wanted))
@@ -2080,7 +2102,7 @@ impl MainWindow {
                     let wanted = required_window.clone();
                     let armed = this
                         .update_in(cx, |this, _window, cx| {
-                            this.arm_overlay(kind, cx);
+                            this.arm_overlay(kind, purpose, cx);
                             kind != TargetType::Window
                                 || wanted.as_ref().is_none_or(|wanted| {
                                     this.selected_window
@@ -2148,7 +2170,18 @@ impl MainWindow {
     /// Also the tray's Record Display/Window/Area path: those items are
     /// `crate::open_target_picker(&app, RecordingTargetMode::*)` over there,
     /// which is the same "set the target mode, open the overlays" pair.
-    pub fn arm_overlay(&mut self, kind: TargetType, cx: &mut Context<Self>) {
+    pub fn arm_overlay(
+        &mut self,
+        kind: TargetType,
+        purpose: PickerPurpose,
+        cx: &mut Context<Self>,
+    ) {
+        if purpose == PickerPurpose::Screenshot
+            && self.session.read(cx).editor_recording_target().is_some()
+        {
+            return;
+        }
+        self.purpose = purpose;
         if kind == TargetType::Window {
             self.selected_window = match auto_window_title() {
                 Some(title) => self
@@ -2193,7 +2226,9 @@ impl MainWindow {
                 .timer(std::time::Duration::from_secs(2))
                 .await;
             if this
-                .update_in(cx, |this, _window, cx| this.arm_overlay(kind, cx))
+                .update_in(cx, |this, _window, cx| {
+                    this.arm_overlay(kind, PickerPurpose::Record, cx)
+                })
                 .is_err()
             {
                 return;
@@ -2216,9 +2251,7 @@ impl MainWindow {
         let Some(target) = self.armed_target() else {
             return;
         };
-        if self.effective_mode(cx) == Mode::Screenshot {
-            // Screenshot mode never reaches the recording actors -- the
-            // target goes straight to the capture path (`take_screenshot`).
+        if self.purpose == PickerPurpose::Screenshot {
             cx.defer(move |cx: &mut gpui::App| crate::screenshot::take_screenshot(target, cx));
             return;
         }
@@ -2243,20 +2276,8 @@ impl MainWindow {
         if self.session.read(cx).phase != Phase::Idle || self.checking_storage {
             return;
         }
-        // An armed editor recording target forces Studio before this window's
-        // own mode is consulted -- the front half of the same rule
-        // `start_recording` applies (`src-tauri/src/recording.rs:1492-1494`),
-        // needed here because a Screenshot-mode pill maps to no recording
-        // mode at all and would otherwise bail out of an editor-flow start.
         let editor_flow = self.session.read(cx).editor_recording_target().is_some();
-        let mode = if editor_flow {
-            recording::RecordingMode::Studio
-        } else {
-            match self.recording_mode(cx) {
-                Some(mode) => mode,
-                None => return,
-            }
-        };
+        let mode = self.recording_mode(cx);
         if matches!(target, ScreenCaptureTarget::CameraOnly) && self.camera.is_none() {
             self.session.update(cx, |session, cx| {
                 session.error =
@@ -4817,6 +4838,7 @@ impl MainWindow {
                             cx.listener(move |this, _, _window, cx| {
                                 this.selected_display = Some(chosen.clone());
                                 this.target = Some(TargetType::Display);
+                                this.purpose = PickerPurpose::Record;
                                 this.close_panel(cx);
                                 this.sync_overlays(cx);
                             }),
@@ -4850,6 +4872,7 @@ impl MainWindow {
                             cx.listener(move |this, _, _window, cx| {
                                 this.selected_window = Some(chosen.clone());
                                 this.target = Some(TargetType::Window);
+                                this.purpose = PickerPurpose::Record;
                                 this.close_panel(cx);
                                 this.sync_overlays(cx);
                                 this.focus_selected_window(cx);
@@ -4969,8 +4992,12 @@ impl MainWindow {
         let effective_mode = self.effective_mode(cx);
         let locked = self.session.read(cx).editor_recording_target().is_some();
 
-        div().flex().flex_col().gap(px(8.)).w_full().children(
-            [Mode::Instant, Mode::Studio, Mode::Screenshot].map(|mode| {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .w_full()
+            .children([Mode::Instant, Mode::Studio].map(|mode| {
                 let selected = mode == effective_mode;
 
                 div()
@@ -5043,8 +5070,7 @@ impl MainWindow {
                         this.set_mode(mode, cx);
                         this.close_panel(cx);
                     }))
-            }),
-        )
+            }))
     }
 
     fn render_access_banner(
@@ -5272,7 +5298,6 @@ impl MainWindow {
         let index = match mode {
             Mode::Instant => 0,
             Mode::Studio => 1,
-            Mode::Screenshot => 2,
         };
         let bounds = self.mode_hover_bounds[index].get()?;
         let card_bounds = self.mode_hover_card_bounds.clone();
@@ -5941,10 +5966,54 @@ mod recording_start_permit_tests {
 
     #[test]
     fn editor_recording_mode_does_not_change_the_normal_preference() {
-        for preferred in [Mode::Instant, Mode::Studio, Mode::Screenshot] {
+        for preferred in [Mode::Instant, Mode::Studio] {
             assert_eq!(effective_recording_mode(preferred, true), Mode::Studio);
             assert_eq!(effective_recording_mode(preferred, false), preferred);
         }
+    }
+
+    #[test]
+    fn a_stored_screenshot_mode_reads_as_studio() {
+        assert_eq!(Mode::from_slug("screenshot"), Some(Mode::Studio));
+        assert_eq!(Mode::from_slug("studio"), Some(Mode::Studio));
+        assert_eq!(Mode::from_slug("instant"), Some(Mode::Instant));
+        assert_eq!(Mode::from_slug("gif"), None);
+    }
+
+    #[test]
+    fn the_screenshot_button_follows_the_chosen_source() {
+        assert_eq!(
+            ScreenshotButton::for_target(TargetType::Display),
+            ScreenshotButton::Capture
+        );
+        assert_eq!(
+            ScreenshotButton::for_target(TargetType::Window),
+            ScreenshotButton::Pick
+        );
+        assert_eq!(
+            ScreenshotButton::for_target(TargetType::Area),
+            ScreenshotButton::Pick
+        );
+        assert_eq!(
+            ScreenshotButton::for_target(TargetType::CameraOnly),
+            ScreenshotButton::Unavailable
+        );
+        assert_eq!(
+            ScreenshotButton::tooltip(TargetType::Display),
+            "Screenshot this display"
+        );
+        assert_eq!(
+            ScreenshotButton::tooltip(TargetType::Window),
+            "Screenshot this window"
+        );
+        assert_eq!(
+            ScreenshotButton::tooltip(TargetType::Area),
+            "Screenshot an area"
+        );
+        assert_eq!(
+            ScreenshotButton::tooltip(TargetType::CameraOnly),
+            "Screenshots need a display, window or area"
+        );
     }
 }
 
@@ -6015,10 +6084,10 @@ mod mode_hover_tests {
         assert!(hover.close_if_left(now + MODE_HOVER_CLOSE_DELAY));
         let back = now + MODE_HOVER_CLOSE_DELAY + MODE_HOVER_SKIP_WINDOW;
         assert_eq!(
-            hover.update(Mode::Screenshot, false, true, back),
+            hover.update(Mode::Studio, false, true, back),
             ModeHoverStep::Shown
         );
-        assert_eq!(hover.visible, Some(Mode::Screenshot));
+        assert_eq!(hover.visible, Some(Mode::Studio));
     }
 
     #[test]

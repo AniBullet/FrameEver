@@ -122,11 +122,9 @@ const MAIN_WINDOW_HEIGHT: f32 = 386.;
 #[cfg(target_os = "macos")]
 const MAIN_WINDOW_MATERIAL_RADIUS: f64 = 16.;
 
-fn parse_auto_record(spec: &str) -> Option<(main_window::Mode, u64)> {
+fn parse_auto_record(spec: &str) -> Option<(Option<main_window::Mode>, u64)> {
     if spec == "screenshot" {
-        // A capture has no duration; the harness arms the target, captures,
-        // and the stop half of the driver is a no-op on an idle session.
-        return Some((main_window::Mode::Screenshot, 0));
+        return Some((None, 0));
     }
     let (mode, secs) = spec.split_once(':')?;
     let mode = match mode {
@@ -134,7 +132,7 @@ fn parse_auto_record(spec: &str) -> Option<(main_window::Mode, u64)> {
         "instant" => main_window::Mode::Instant,
         _ => return None,
     };
-    Some((mode, secs.parse().ok()?))
+    Some((Some(mode), secs.parse().ok()?))
 }
 
 /// `FRAMEEVER_GPUI_AUTO_EDITOR`: a `.ever` path, or `1` for the newest studio
@@ -645,7 +643,6 @@ fn main() {
             if let Some(mode) = match mode.as_str() {
                 "instant" => Some(main_window::Mode::Instant),
                 "studio" => Some(main_window::Mode::Studio),
-                "screenshot" => Some(main_window::Mode::Screenshot),
                 _ => None,
             } {
                 app_windows::choose_mode_in_mode_select(mode, cx);

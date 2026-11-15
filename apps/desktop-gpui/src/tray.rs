@@ -27,6 +27,7 @@ use crate::{
     library::{self, MediaKind},
     main_window::{Mode, TargetType},
     menus,
+    target_overlay::PickerPurpose,
 };
 
 /// `MAX_PREVIOUS_ITEMS`.
@@ -91,7 +92,6 @@ fn mode_icon(mode: Mode) -> &'static [u8] {
     match mode {
         Mode::Studio => include_bytes!("../assets/tray/tray-default-icon-studio.png"),
         Mode::Instant => include_bytes!("../assets/tray/tray-default-icon-instant.png"),
-        Mode::Screenshot => include_bytes!("../assets/tray/tray-default-icon-screenshot.png"),
     }
 }
 
@@ -111,7 +111,6 @@ pub enum TrayItem {
     RecordDisplay,
     RecordWindow,
     RecordArea,
-    TakeScreenshot,
     ScreenshotDisplay,
     ScreenshotWindow,
     ScreenshotArea,
@@ -123,7 +122,6 @@ pub enum TrayItem {
     PreviousItem(PathBuf),
     ModeStudio,
     ModeInstant,
-    ModeScreenshot,
     RecordLastArea,
     ScreenshotLastArea,
     StopRecording,
@@ -381,7 +379,6 @@ fn mode_submenu(mode: Mode) -> Entry {
             match target {
                 Mode::Studio => TrayItem::ModeStudio,
                 Mode::Instant => TrayItem::ModeInstant,
-                Mode::Screenshot => TrayItem::ModeScreenshot,
             },
         )
     };
@@ -392,8 +389,16 @@ fn mode_submenu(mode: Mode) -> Entry {
         items: vec![
             label(Mode::Studio, t!("Studio")),
             label(Mode::Instant, t!("Instant")),
-            label(Mode::Screenshot, t!("Screenshot")),
         ],
+    }
+}
+
+fn screenshot_submenu(items: Vec<Entry>) -> Entry {
+    Entry::Submenu {
+        title: t!("Screenshot").into(),
+        enabled: true,
+        icon: menu_icon(SCREENSHOT_ICON),
+        items,
     }
 }
 
@@ -401,44 +406,34 @@ fn mode_submenu(mode: Mode) -> Entry {
 pub fn build_menu(mode: Mode, previous: &[PreviousItem], version: &str) -> Vec<Entry> {
     let mut entries = vec![Entry::item(t!("Open Main Window"), TrayItem::OpenCap)];
 
-    if mode == Mode::Screenshot {
-        entries.push(Entry::icon_item(
+    entries.push(Entry::icon_item(
+        t!("Record Display"),
+        TrayItem::RecordDisplay,
+        DISPLAY_ICON,
+    ));
+    entries.push(Entry::icon_item(
+        t!("Record Window"),
+        TrayItem::RecordWindow,
+        WINDOW_ICON,
+    ));
+    entries.push(Entry::icon_item(
+        t!("Record Area"),
+        TrayItem::RecordArea,
+        AREA_ICON,
+    ));
+    entries.push(screenshot_submenu(vec![
+        Entry::icon_item(
             t!("Screenshot Display"),
             TrayItem::ScreenshotDisplay,
             DISPLAY_ICON,
-        ));
-        entries.push(Entry::icon_item(
+        ),
+        Entry::icon_item(
             t!("Screenshot Window"),
             TrayItem::ScreenshotWindow,
             WINDOW_ICON,
-        ));
-        entries.push(Entry::icon_item(
-            t!("Screenshot Area"),
-            TrayItem::ScreenshotArea,
-            AREA_ICON,
-        ));
-    } else {
-        entries.push(Entry::icon_item(
-            t!("Record Display"),
-            TrayItem::RecordDisplay,
-            DISPLAY_ICON,
-        ));
-        entries.push(Entry::icon_item(
-            t!("Record Window"),
-            TrayItem::RecordWindow,
-            WINDOW_ICON,
-        ));
-        entries.push(Entry::icon_item(
-            t!("Record Area"),
-            TrayItem::RecordArea,
-            AREA_ICON,
-        ));
-        entries.push(Entry::icon_item(
-            t!("Take a Screenshot"),
-            TrayItem::TakeScreenshot,
-            SCREENSHOT_ICON,
-        ));
-    }
+        ),
+        Entry::icon_item(t!("Screenshot Area"), TrayItem::ScreenshotArea, AREA_ICON),
+    ]));
 
     entries.push(Entry::icon_item(
         t!("Import Media..."),
@@ -480,9 +475,7 @@ fn hotkey_action(item: &TrayItem) -> Option<HotkeyAction> {
         TrayItem::RecordDisplay => Some(HotkeyAction::OpenRecordingPickerDisplay),
         TrayItem::RecordWindow => Some(HotkeyAction::OpenRecordingPickerWindow),
         TrayItem::RecordArea => Some(HotkeyAction::OpenRecordingPickerArea),
-        TrayItem::TakeScreenshot | TrayItem::ScreenshotDisplay => {
-            Some(HotkeyAction::ScreenshotDisplay)
-        }
+        TrayItem::ScreenshotDisplay => Some(HotkeyAction::ScreenshotDisplay),
         TrayItem::ScreenshotWindow => Some(HotkeyAction::ScreenshotWindow),
         TrayItem::ScreenshotArea => Some(HotkeyAction::ScreenshotArea),
         _ => None,
@@ -537,13 +530,11 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
             cx.activate(true);
         }
         TrayItem::ScreenshotWindow => {
-            set_mode(Mode::Screenshot, cx);
-            app_windows::arm_target_mode(TargetType::Window, cx);
+            app_windows::arm_target_mode(TargetType::Window, PickerPurpose::Screenshot, cx);
         }
         TrayItem::RecordDisplay
         | TrayItem::RecordWindow
         | TrayItem::RecordArea
-        | TrayItem::TakeScreenshot
         | TrayItem::ScreenshotDisplay
         | TrayItem::ScreenshotArea => {
             if let Some(action) = hotkey_action(&item) {
@@ -574,7 +565,6 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
         }
         TrayItem::ModeStudio => set_mode(Mode::Studio, cx),
         TrayItem::ModeInstant => set_mode(Mode::Instant, cx),
-        TrayItem::ModeScreenshot => set_mode(Mode::Screenshot, cx),
         TrayItem::RecordLastArea => app_windows::tray_capture_last_area(false, cx),
         TrayItem::ScreenshotLastArea => app_windows::tray_capture_last_area(true, cx),
         TrayItem::StopRecording | TrayItem::CancelCountdown => stop_recording(cx),
@@ -766,7 +756,6 @@ fn harness_item(spec: &str, cx: &App) -> Option<TrayItem> {
         "record_display" => TrayItem::RecordDisplay,
         "record_window" => TrayItem::RecordWindow,
         "record_area" => TrayItem::RecordArea,
-        "take_screenshot" => TrayItem::TakeScreenshot,
         "screenshot_display" => TrayItem::ScreenshotDisplay,
         "screenshot_window" => TrayItem::ScreenshotWindow,
         "screenshot_area" => TrayItem::ScreenshotArea,
@@ -776,7 +765,6 @@ fn harness_item(spec: &str, cx: &App) -> Option<TrayItem> {
         "quit" => TrayItem::Quit,
         "mode_studio" => TrayItem::ModeStudio,
         "mode_instant" => TrayItem::ModeInstant,
-        "mode_screenshot" => TrayItem::ModeScreenshot,
         _ => return None,
     })
 }
@@ -1003,12 +991,11 @@ mod mac {
         if std::ptr::eq(png.as_ptr(), STOP_ICON.as_ptr()) {
             return "stop";
         }
-        for mode in [Mode::Studio, Mode::Instant, Mode::Screenshot] {
+        for mode in [Mode::Studio, Mode::Instant] {
             if std::ptr::eq(png.as_ptr(), mode_icon(mode).as_ptr()) {
                 return match mode {
                     Mode::Studio => "studio",
                     Mode::Instant => "instant",
-                    Mode::Screenshot => "screenshot",
                 };
             }
         }
@@ -1587,7 +1574,7 @@ mod tests {
                 "Record Display",
                 "Record Window",
                 "Record Area",
-                "Take a Screenshot",
+                "Screenshot",
                 "Import Media...",
                 "-",
                 "Select Mode",
@@ -1602,63 +1589,54 @@ mod tests {
         );
     }
 
-    /// Screenshot mode relabels the three target rows and drops "Take a
-    /// Screenshot" entirely.
-    #[test]
-    fn screenshot_mode_relabels_the_capture_rows() {
-        let menu = build_menu(Mode::Screenshot, &[], "0.1.0");
-        let titles = titles(&menu);
-        assert_eq!(
-            &titles[..6],
-            &[
-                "Open Main Window",
-                "Screenshot Display",
-                "Screenshot Window",
-                "Screenshot Area",
-                "Import Media...",
-                "-",
-            ]
-        );
-        assert!(!titles.iter().any(|title| title == "Take a Screenshot"));
+    fn submenu(entries: &[Entry], wanted: &str) -> Vec<Entry> {
+        entries
+            .iter()
+            .find_map(|entry| match entry {
+                Entry::Submenu { title, items, .. } if title == wanted => Some(items.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 
-    fn capture_rows(mode: Mode) -> Vec<(String, TrayItem)> {
-        build_menu(mode, &[], "0.1.0")
-            .into_iter()
+    fn rows(entries: &[Entry]) -> Vec<(String, TrayItem)> {
+        entries
+            .iter()
             .filter_map(|entry| match entry {
                 Entry::Item {
                     title,
                     item: Some(item),
                     ..
-                } if matches!(
-                    item,
-                    TrayItem::RecordDisplay
-                        | TrayItem::RecordWindow
-                        | TrayItem::RecordArea
-                        | TrayItem::ScreenshotDisplay
-                        | TrayItem::ScreenshotWindow
-                        | TrayItem::ScreenshotArea
-                ) =>
-                {
-                    Some((title, item))
-                }
+                } => Some((title.clone(), item.clone())),
                 _ => None,
             })
             .collect()
     }
 
     #[test]
-    fn capture_rows_have_one_entry_per_action() {
+    fn the_menu_is_the_same_in_both_modes_apart_from_the_tick() {
+        let without_modes = |mode| {
+            build_menu(mode, &[], "0.1.0")
+                .into_iter()
+                .filter(|entry| !matches!(entry, Entry::Submenu { title, .. } if title == "Select Mode"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(without_modes(Mode::Studio), without_modes(Mode::Instant));
+    }
+
+    #[test]
+    fn screenshot_rows_sit_in_their_own_submenu() {
+        let menu = build_menu(Mode::Studio, &[], "0.1.0");
         assert_eq!(
-            capture_rows(Mode::Studio),
-            vec![
+            rows(&menu)[1..4],
+            [
                 ("Record Display".to_string(), TrayItem::RecordDisplay),
                 ("Record Window".to_string(), TrayItem::RecordWindow),
                 ("Record Area".to_string(), TrayItem::RecordArea),
             ]
         );
         assert_eq!(
-            capture_rows(Mode::Screenshot),
+            rows(&submenu(&menu, "Screenshot")),
             vec![
                 (
                     "Screenshot Display".to_string(),
@@ -1668,24 +1646,6 @@ mod tests {
                 ("Screenshot Area".to_string(), TrayItem::ScreenshotArea),
             ]
         );
-    }
-
-    #[test]
-    fn screenshot_mode_drops_take_a_screenshot_and_recording_mode_keeps_it() {
-        let has = |mode| {
-            build_menu(mode, &[], "0.1.0").iter().any(|entry| {
-                matches!(
-                    entry,
-                    Entry::Item {
-                        item: Some(TrayItem::TakeScreenshot),
-                        ..
-                    }
-                )
-            })
-        };
-        assert!(has(Mode::Studio));
-        assert!(has(Mode::Instant));
-        assert!(!has(Mode::Screenshot));
     }
 
     #[test]
@@ -1700,7 +1660,6 @@ mod tests {
                 HotkeyAction::OpenRecordingPickerWindow,
             ),
             (TrayItem::RecordArea, HotkeyAction::OpenRecordingPickerArea),
-            (TrayItem::TakeScreenshot, HotkeyAction::ScreenshotDisplay),
             (TrayItem::ScreenshotDisplay, HotkeyAction::ScreenshotDisplay),
             (TrayItem::ScreenshotWindow, HotkeyAction::ScreenshotWindow),
             (TrayItem::ScreenshotArea, HotkeyAction::ScreenshotArea),
@@ -1714,13 +1673,14 @@ mod tests {
     fn accelerators(entries: &[Entry]) -> Vec<(String, Accelerator)> {
         entries
             .iter()
-            .filter_map(|entry| match entry {
+            .flat_map(|entry| match entry {
                 Entry::Item {
                     title,
                     accelerator: Some(accelerator),
                     ..
-                } => Some((title.clone(), *accelerator)),
-                _ => None,
+                } => vec![(title.clone(), *accelerator)],
+                Entry::Submenu { items, .. } => accelerators(items),
+                _ => Vec::new(),
             })
             .collect()
     }
@@ -1751,7 +1711,7 @@ mod tests {
         });
         assert_eq!(
             accelerators(&menu),
-            vec![("Take a Screenshot".to_string(), screenshot)],
+            vec![("Screenshot Display".to_string(), screenshot)],
             "a changed shortcut replaces the old one and a removed one disappears"
         );
 
@@ -1790,15 +1750,18 @@ mod tests {
                 "Record Display",
                 "Record Window",
                 "Record Area",
-                "Take a Screenshot",
+                "Screenshot",
                 "Import Media...",
                 "Previous",
                 "Settings",
             ]
         );
-        let screenshot = row_icons(&build_menu(Mode::Screenshot, &[], "0.1.0"));
+        let screenshot = row_icons(&submenu(
+            &build_menu(Mode::Studio, &[], "0.1.0"),
+            "Screenshot",
+        ));
         assert_eq!(
-            screenshot[..3]
+            screenshot
                 .iter()
                 .map(|(title, _)| title.as_str())
                 .collect::<Vec<_>>(),
@@ -1826,18 +1789,8 @@ mod tests {
     #[test]
     fn the_current_mode_is_ticked() {
         for (mode, expected) in [
-            (
-                Mode::Studio,
-                ["\u{2713} Studio", "   Instant", "   Screenshot"],
-            ),
-            (
-                Mode::Instant,
-                ["   Studio", "\u{2713} Instant", "   Screenshot"],
-            ),
-            (
-                Mode::Screenshot,
-                ["   Studio", "   Instant", "\u{2713} Screenshot"],
-            ),
+            (Mode::Studio, ["\u{2713} Studio", "   Instant"]),
+            (Mode::Instant, ["   Studio", "\u{2713} Instant"]),
         ] {
             let Entry::Submenu { items, .. } = mode_submenu(mode) else {
                 panic!("Select Mode is a submenu");
@@ -1915,57 +1868,25 @@ mod tests {
 }
 
 #[cfg(target_os = "windows")]
-pub fn build_surface_menu(mode: Mode, previous: &[PreviousItem], version: &str) -> Vec<Entry> {
+pub fn build_surface_menu(mode: Mode, previous: &[PreviousItem]) -> Vec<Entry> {
     let mut entries = vec![
         Entry::item(t!("Open FrameEver"), TrayItem::OpenCap),
         Entry::item(t!("Open library"), TrayItem::OpenLibrary),
         Entry::Separator,
         mode_submenu(mode),
     ];
-    let legacy = build_menu(mode, &[], version);
-    entries.extend(
-        legacy
-            .into_iter()
-            .filter(|entry| {
-                matches!(
-                    entry,
-                    Entry::Item {
-                        item: Some(
-                            TrayItem::RecordDisplay
-                                | TrayItem::RecordWindow
-                                | TrayItem::RecordArea
-                                | TrayItem::ScreenshotDisplay
-                                | TrayItem::ScreenshotWindow
-                                | TrayItem::ScreenshotArea
-                                | TrayItem::TakeScreenshot
-                        ),
-                        ..
-                    }
-                )
-            })
-            .map(|mut entry| {
-                if let Entry::Item {
-                    title,
-                    item: Some(item),
-                    ..
-                } = &mut entry
-                {
-                    *title = match item {
-                        TrayItem::RecordDisplay => t!("Record display"),
-                        TrayItem::RecordWindow => t!("Record window"),
-                        TrayItem::RecordArea => t!("Record area"),
-                        TrayItem::ScreenshotDisplay => t!("Screenshot display"),
-                        TrayItem::ScreenshotWindow => t!("Screenshot window"),
-                        TrayItem::ScreenshotArea => t!("Screenshot area"),
-                        TrayItem::TakeScreenshot => t!("Take a screenshot"),
-                        _ => unreachable!(),
-                    }
-                    .into();
-                }
-                entry
-            }),
-    );
-    entries.push(Entry::Separator);
+    entries.extend([
+        Entry::icon_item(t!("Record display"), TrayItem::RecordDisplay, DISPLAY_ICON),
+        Entry::icon_item(t!("Record window"), TrayItem::RecordWindow, WINDOW_ICON),
+        Entry::icon_item(t!("Record area"), TrayItem::RecordArea, AREA_ICON),
+        Entry::Separator,
+        screenshot_submenu(vec![
+            Entry::item(t!("Screenshot display"), TrayItem::ScreenshotDisplay),
+            Entry::item(t!("Screenshot window"), TrayItem::ScreenshotWindow),
+            Entry::item(t!("Screenshot area"), TrayItem::ScreenshotArea),
+        ]),
+        Entry::Separator,
+    ]);
     if !previous.is_empty() {
         let mut recent = previous_submenu(previous);
         if let Entry::Submenu { title, items, .. } = &mut recent {
@@ -2002,7 +1923,7 @@ mod surface_tests {
 
     #[test]
     fn tray_surface_omits_empty_recents_and_places_library_after_open() {
-        let menu = build_surface_menu(Mode::Studio, &[], "1.0.0");
+        let menu = build_surface_menu(Mode::Studio, &[]);
         assert!(matches!(
             &menu[1],
             Entry::Item {
@@ -2035,12 +1956,31 @@ pub enum SurfaceState {
 }
 
 #[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LastArea {
+    pub record: bool,
+    pub screenshot: bool,
+}
+
+#[cfg(target_os = "windows")]
+fn is_screenshots(entry: &Entry) -> bool {
+    matches!(entry, Entry::Submenu { items, .. } if items.iter().any(|item| {
+        matches!(
+            item,
+            Entry::Item {
+                item: Some(TrayItem::ScreenshotArea),
+                ..
+            }
+        )
+    }))
+}
+
+#[cfg(target_os = "windows")]
 pub fn build_state_menu(
     mode: Mode,
     previous: &[PreviousItem],
-    version: &str,
     state: &SurfaceState,
-    last_area: bool,
+    last_area: LastArea,
 ) -> Vec<Entry> {
     match state {
         SurfaceState::Setup => vec![
@@ -2087,34 +2027,30 @@ pub fn build_state_menu(
             entries
         }
         SurfaceState::Idle | SurfaceState::Exporting { .. } => {
-            let mut entries = build_surface_menu(mode, previous, version);
-            if last_area {
-                let index = entries
-                    .iter()
-                    .position(|entry| {
-                        matches!(
-                            entry,
-                            Entry::Item {
-                                item: Some(TrayItem::TakeScreenshot),
-                                ..
-                            }
-                        )
-                    })
-                    .unwrap_or(7);
+            let mut entries = build_surface_menu(mode, previous);
+            if last_area.screenshot
+                && let Some(Entry::Submenu { items, .. }) =
+                    entries.iter_mut().find(|entry| is_screenshots(entry))
+            {
+                items.push(Entry::item(
+                    t!("Screenshot last area"),
+                    TrayItem::ScreenshotLastArea,
+                ));
+            }
+            if last_area.record
+                && let Some(index) = entries.iter().position(|entry| {
+                    matches!(
+                        entry,
+                        Entry::Item {
+                            item: Some(TrayItem::RecordArea),
+                            ..
+                        }
+                    )
+                })
+            {
                 entries.insert(
-                    index,
-                    Entry::item(
-                        if mode == Mode::Screenshot {
-                            t!("Screenshot last area")
-                        } else {
-                            t!("Record last area")
-                        },
-                        if mode == Mode::Screenshot {
-                            TrayItem::ScreenshotLastArea
-                        } else {
-                            TrayItem::RecordLastArea
-                        },
-                    ),
+                    index + 1,
+                    Entry::item(t!("Record last area"), TrayItem::RecordLastArea),
                 );
             }
             if let SurfaceState::Exporting { title, percent } = state {
@@ -2145,13 +2081,12 @@ mod surface_state_tests {
         let entries = build_state_menu(
             Mode::Studio,
             &[],
-            "1.0.0",
             &SurfaceState::Recording {
                 paused: false,
                 elapsed: 83,
                 controls_hidden: false,
             },
-            true,
+            LastArea::default(),
         );
         let actions: Vec<_> = entries
             .iter()
@@ -2199,13 +2134,12 @@ mod redesigned_surface_regressions {
         let menu = build_state_menu(
             Mode::Studio,
             &[],
-            "1.0.0",
             &SurfaceState::Recording {
                 paused: true,
                 elapsed: 83,
                 controls_hidden: true,
             },
-            true,
+            LastArea::default(),
         );
         assert_eq!(
             actions(&menu),
@@ -2228,9 +2162,8 @@ mod redesigned_surface_regressions {
             actions(&build_state_menu(
                 Mode::Studio,
                 &[],
-                "1.0.0",
                 &SurfaceState::Starting(3),
-                true
+                LastArea::default()
             )),
             vec![TrayItem::CancelCountdown]
         );
@@ -2238,39 +2171,99 @@ mod redesigned_surface_regressions {
             actions(&build_state_menu(
                 Mode::Studio,
                 &[],
-                "1.0.0",
                 &SurfaceState::Setup,
-                true
+                LastArea::default()
             )),
             vec![TrayItem::RequestPermissions, TrayItem::Quit]
         );
     }
 
+    fn screenshot_actions(entries: &[Entry]) -> Vec<TrayItem> {
+        entries
+            .iter()
+            .find(|entry| is_screenshots(entry))
+            .map(|entry| match entry {
+                Entry::Submenu { items, .. } => actions(items),
+                _ => Vec::new(),
+            })
+            .unwrap_or_default()
+    }
+
     #[test]
-    fn tray_last_area_is_absent_until_saved_and_follows_the_selected_mode() {
-        for mode in [Mode::Studio, Mode::Instant, Mode::Screenshot] {
-            let without = actions(&build_state_menu(
+    fn tray_idle_menu_matches_the_design_in_both_modes() {
+        for mode in [Mode::Studio, Mode::Instant] {
+            let menu = build_state_menu(
                 mode,
                 &[],
-                "1.0.0",
                 &SurfaceState::Idle,
-                false,
-            ));
-            assert!(!without.contains(&TrayItem::RecordLastArea));
-            assert!(!without.contains(&TrayItem::ScreenshotLastArea));
-            let with = actions(&build_state_menu(
-                mode,
-                &[],
-                "1.0.0",
-                &SurfaceState::Idle,
-                true,
-            ));
-            assert!(with.contains(&if mode == Mode::Screenshot {
-                TrayItem::ScreenshotLastArea
-            } else {
-                TrayItem::RecordLastArea
-            }));
+                LastArea {
+                    record: true,
+                    screenshot: true,
+                },
+            );
+            let titles: Vec<_> = menu
+                .iter()
+                .map(|entry| match entry {
+                    Entry::Separator => "-".to_string(),
+                    Entry::Item { title, .. } => title.clone(),
+                    Entry::Submenu { title, .. } => title.clone(),
+                })
+                .collect();
+            assert_eq!(
+                titles,
+                vec![
+                    "Open FrameEver",
+                    "Open library",
+                    "-",
+                    "Select Mode",
+                    "Record display",
+                    "Record window",
+                    "Record area",
+                    "Record last area",
+                    "-",
+                    "Screenshot",
+                    "-",
+                    "Import media…",
+                    "Settings",
+                    "-",
+                    "Quit FrameEver",
+                ]
+            );
+            assert_eq!(
+                screenshot_actions(&menu),
+                vec![
+                    TrayItem::ScreenshotDisplay,
+                    TrayItem::ScreenshotWindow,
+                    TrayItem::ScreenshotArea,
+                    TrayItem::ScreenshotLastArea,
+                ]
+            );
         }
+    }
+
+    #[test]
+    fn tray_last_area_rows_are_absent_until_an_area_is_saved() {
+        let without = build_state_menu(Mode::Studio, &[], &SurfaceState::Idle, LastArea::default());
+        assert!(!actions(&without).contains(&TrayItem::RecordLastArea));
+        assert_eq!(
+            screenshot_actions(&without),
+            vec![
+                TrayItem::ScreenshotDisplay,
+                TrayItem::ScreenshotWindow,
+                TrayItem::ScreenshotArea,
+            ]
+        );
+        let screenshot_only = build_state_menu(
+            Mode::Studio,
+            &[],
+            &SurfaceState::Idle,
+            LastArea {
+                record: false,
+                screenshot: true,
+            },
+        );
+        assert!(!actions(&screenshot_only).contains(&TrayItem::RecordLastArea));
+        assert!(screenshot_actions(&screenshot_only).contains(&TrayItem::ScreenshotLastArea));
     }
 
     #[test]
@@ -2283,7 +2276,7 @@ mod redesigned_surface_regressions {
                 thumbnail: None,
             })
             .collect();
-        let menu = build_surface_menu(Mode::Studio, &previous, "1.0.0");
+        let menu = build_surface_menu(Mode::Studio, &previous);
         let recent = menu
             .iter()
             .find_map(|entry| match entry {
@@ -2311,12 +2304,11 @@ mod redesigned_surface_regressions {
         let menu = build_state_menu(
             Mode::Studio,
             &[],
-            "1.0.0",
             &SurfaceState::Exporting {
                 title: "Demo".into(),
                 percent: 42,
             },
-            false,
+            LastArea::default(),
         );
         assert!(
             matches!(&menu[0], Entry::Item { title, item: Some(TrayItem::ShowExport), .. } if title == "Exporting Demo · 42%")

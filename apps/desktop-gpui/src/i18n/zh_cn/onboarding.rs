@@ -1,7 +1,6 @@
 pub static ENTRIES: &[(&str, &str)] = &[
     ("Instant Mode", "即时模式"),
     ("Studio Mode", "工作室模式"),
-    ("Screenshot Mode", "截图模式"),
     ("Could not save the sound preference.", "无法保存声音设置。"),
     ("Welcome to FrameEver", "欢迎使用帧刻"),
     ("A moment, kept forever.", "一刻，凝成永恒。"),
@@ -146,10 +145,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "已经打开了还在等待？重启帧刻即可生效。",
     ),
     ("Relaunch", "重新启动"),
-    ("Three ways to capture", "三种录制方式"),
+    ("Two ways to record", "两种录制方式"),
     (
-        "Pick the one you'll use most. You can switch any time at the top of the main window.",
-        "选一种你最常用的。之后随时可以在主窗口顶部切换。",
+        "Pick the one you'll use most. You can switch any time at the top of the main window. Screenshots have their own button and shortcuts.",
+        "选一种你最常用的。之后随时可以在主窗口顶部切换。截图有自己的按钮和快捷键。",
     ),
     ("Record, then edit", "先录后剪"),
     ("A video the moment you stop", "停止即得视频"),

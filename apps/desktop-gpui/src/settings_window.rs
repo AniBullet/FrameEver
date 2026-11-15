@@ -312,7 +312,6 @@ impl SettingsWindow {
         match mode {
             Mode::Studio => self.jump_to(Row::StudioQuality, window, cx),
             Mode::Instant => self.jump_to(Row::InstantResolution, window, cx),
-            Mode::Screenshot => {}
         }
     }
 

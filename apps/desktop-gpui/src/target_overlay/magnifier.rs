@@ -7,7 +7,7 @@ use gpui::{
 };
 use image::RgbaImage;
 
-use super::{AreaRect, Mode, OverlayWindow, TargetType, repaint};
+use super::{AreaRect, OverlayWindow, PickerPurpose, TargetType, repaint};
 use crate::i18n::t;
 
 pub(super) enum Capture {
@@ -77,15 +77,15 @@ impl Capture {
     }
 }
 
-fn capture_active(mode: Mode, target: Option<TargetType>, recording: bool) -> bool {
-    mode == Mode::Screenshot && target == Some(TargetType::Area) && !recording
+fn capture_active(purpose: PickerPurpose, target: Option<TargetType>, recording: bool) -> bool {
+    purpose == PickerPurpose::Screenshot && target == Some(TargetType::Area) && !recording
 }
 
 impl OverlayWindow {
     pub(super) fn sync_screenshot_frame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let select = self.select.read(cx);
         let epoch = select.capture_epoch;
-        let active = capture_active(select.recording_mode, select.mode, self.recording_area);
+        let active = capture_active(select.purpose, select.mode, self.recording_area);
         if self.screenshot_frame_epoch != epoch || !active {
             self.screenshot_frame_task = None;
             self.screenshot_frame = Capture::Empty;
@@ -120,7 +120,7 @@ impl OverlayWindow {
             this.update_in(cx, |this, window, cx| {
                 let select = this.select.read(cx);
                 if select.capture_epoch != epoch
-                    || !capture_active(select.recording_mode, select.mode, this.recording_area)
+                    || !capture_active(select.purpose, select.mode, this.recording_area)
                 {
                     return;
                 }
@@ -151,7 +151,7 @@ impl OverlayWindow {
             &target,
             &self.display_id,
             self.display_size,
-            capture_active(select.recording_mode, select.mode, self.recording_area),
+            capture_active(select.purpose, select.mode, self.recording_area),
             self.screenshot_frame_epoch == select.capture_epoch,
         ) {
             Ok(SelectedImage::Wait) => {
@@ -279,6 +279,7 @@ pub(super) fn sample(frame: &RgbaImage, cursor: (f32, f32), display: (f32, f32))
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::main_window::Mode;
 
     #[test]
     fn magnifier_samples_fifteen_original_pixels_at_each_display_scale() {
@@ -377,9 +378,7 @@ mod tests {
         let _reset = ResetStore;
         cx.update(|cx| {
             let select = super::super::TargetSelect::init(cx);
-            select.update(cx, |select, cx| {
-                select.set_recording_mode(Mode::Screenshot, cx)
-            });
+            select.update(cx, |select, cx| select.set_recording_mode(Mode::Studio, cx));
             let epoch = select.read(cx).capture_epoch;
             let frame = RgbaImage::from_pixel(20, 20, image::Rgba([40, 50, 60, 255]));
             let capture = Capture::Ready {
@@ -389,9 +388,7 @@ mod tests {
             select.update(cx, |select, cx| {
                 select.set_recording_mode(Mode::Instant, cx)
             });
-            select.update(cx, |select, cx| {
-                select.set_recording_mode(Mode::Screenshot, cx)
-            });
+            select.update(cx, |select, cx| select.set_recording_mode(Mode::Studio, cx));
             let display_id = "1".parse::<scap_targets::DisplayId>().unwrap();
             let target = ScreenCaptureTarget::Area {
                 screen: display_id.clone(),

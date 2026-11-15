@@ -50,7 +50,11 @@ use area_math::{
 
 const AREA_SELECTION_STORE: &str = "area_selection";
 
-fn usable_last_area(bounds: AreaRect, display_size: (f32, f32), mode: Mode) -> Option<AreaRect> {
+fn usable_last_area(
+    bounds: AreaRect,
+    display_size: (f32, f32),
+    purpose: PickerPurpose,
+) -> Option<AreaRect> {
     [
         bounds.x,
         bounds.y,
@@ -67,17 +71,17 @@ fn usable_last_area(bounds: AreaRect, display_size: (f32, f32), mode: Mode) -> O
             && bounds.y >= 0.
             && bounds.right() <= display_size.0
             && bounds.bottom() <= display_size.1
-            && bounds.is_valid_for(area_min_size(mode))
+            && bounds.is_valid_for(area_min_size(purpose))
     })
 }
 
-pub(crate) fn last_locked_target(mode: Mode) -> Option<ScreenCaptureTarget> {
+pub(crate) fn last_locked_target(purpose: PickerPurpose) -> Option<ScreenCaptureTarget> {
     let (screen_id, bounds) = stored_locked_area()?;
     let display = scap_targets::Display::list()
         .into_iter()
         .find(|display| display.id().to_string() == screen_id)?;
     let size = display.logical_size()?;
-    let bounds = usable_last_area(bounds, (size.width() as f32, size.height() as f32), mode)?;
+    let bounds = usable_last_area(bounds, (size.width() as f32, size.height() as f32), purpose)?;
     Some(ScreenCaptureTarget::Area {
         screen: display.id(),
         bounds: bounds.to_bounds(),
@@ -97,10 +101,13 @@ mod tray_last_area_tests {
             height: 600.,
         };
         assert_eq!(
-            usable_last_area(area, (1920., 1080.), Mode::Studio),
+            usable_last_area(area, (1920., 1080.), PickerPurpose::Record),
             Some(area)
         );
-        assert_eq!(usable_last_area(area, (640., 480.), Mode::Studio), None);
+        assert_eq!(
+            usable_last_area(area, (640., 480.), PickerPurpose::Record),
+            None
+        );
         assert_eq!(
             usable_last_area(
                 AreaRect {
@@ -108,7 +115,7 @@ mod tray_last_area_tests {
                     ..area
                 },
                 (1920., 1080.),
-                Mode::Studio
+                PickerPurpose::Record
             ),
             None
         );
@@ -116,9 +123,22 @@ mod tray_last_area_tests {
             usable_last_area(
                 AreaRect { x: -5., ..area },
                 (1920., 1080.),
-                Mode::Screenshot
+                PickerPurpose::Screenshot
             ),
             None
+        );
+        let small = AreaRect {
+            width: 40.,
+            height: 30.,
+            ..area
+        };
+        assert_eq!(
+            usable_last_area(small, (1920., 1080.), PickerPurpose::Record),
+            None
+        );
+        assert_eq!(
+            usable_last_area(small, (1920., 1080.), PickerPurpose::Screenshot),
+            Some(small)
         );
     }
 }
@@ -145,10 +165,16 @@ const AREA_MIN_SIZE: f32 = 150.;
 /// pixel, not the 150px a recording needs.
 const SCREENSHOT_MIN_SIZE: f32 = 1.;
 
-fn area_min_size(mode: Mode) -> f32 {
-    match mode {
-        Mode::Screenshot => SCREENSHOT_MIN_SIZE,
-        _ => AREA_MIN_SIZE,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickerPurpose {
+    Record,
+    Screenshot,
+}
+
+fn area_min_size(purpose: PickerPurpose) -> f32 {
+    match purpose {
+        PickerPurpose::Screenshot => SCREENSHOT_MIN_SIZE,
+        PickerPurpose::Record => AREA_MIN_SIZE,
     }
 }
 
@@ -273,8 +299,8 @@ pub struct TargetSelect {
     capture_epoch: u64,
     /// `None` when no overlays are up.
     pub mode: Option<TargetType>,
-    /// The recording mode the start cluster labels itself with.
     pub recording_mode: Mode,
+    pub purpose: PickerPurpose,
     pub cursor_display: Option<DisplayId>,
     pub hovered_window: Option<HoveredWindow>,
     /// A window locked in by a click (or seeded from the main window's picker),
@@ -316,6 +342,7 @@ impl TargetSelect {
             capture_epoch: 0,
             mode: None,
             recording_mode: Mode::Instant,
+            purpose: PickerPurpose::Record,
             cursor_display: None,
             hovered_window: None,
             pinned_window: None,
@@ -338,11 +365,13 @@ impl TargetSelect {
         &mut self,
         mode: Option<TargetType>,
         recording_mode: Mode,
+        purpose: PickerPurpose,
         pinned_window: Option<HoveredWindow>,
         cx: &mut Context<Self>,
     ) {
         self.capture_epoch = self.capture_epoch.wrapping_add(1);
         self.recording_mode = recording_mode;
+        self.purpose = purpose;
         self.pinned_window = pinned_window;
         if self.mode.is_none() && mode.is_some() {
             crate::foreign_window::put_back_all(self.take_arranged(), cx.background_executor());
@@ -707,13 +736,9 @@ struct OverlayDeviceMenu {
     choices: Vec<OverlayDeviceChoice>,
 }
 
-/// `menuModes` (`target-select-overlay.tsx:2064-2090`): three check items, in
-/// this order, checked on the current mode. Picking one switches the mode and
-/// never starts a recording.
-const MODE_MENU: [(&str, Mode); 3] = [
+const MODE_MENU: [(&str, Mode); 2] = [
     (n!("Studio Mode"), Mode::Studio),
     (n!("Instant Mode"), Mode::Instant),
-    (n!("Screenshot Mode"), Mode::Screenshot),
 ];
 
 fn mode_menu_items(current: Mode) -> Vec<crate::ui::MenuItem> {
@@ -793,7 +818,7 @@ impl OverlayWindow {
         let locked_area = locked_area_for(
             &display.id(),
             logical,
-            area_min_size(select.read(cx).recording_mode),
+            area_min_size(select.read(cx).purpose),
         );
 
         Self {
@@ -884,7 +909,7 @@ impl OverlayWindow {
             });
         }
         let select = self.select.read(cx);
-        let min = area_min_size(select.recording_mode);
+        let min = area_min_size(select.purpose);
         match select.mode? {
             TargetType::Display => Some(ScreenCaptureTarget::Display {
                 id: self.display_id.clone(),
@@ -934,11 +959,7 @@ impl OverlayWindow {
             }
         }
         tracing::info!(target = ?target.kind_str(), "overlay start pressed");
-        if self.select.read(cx).recording_mode == Mode::Screenshot {
-            // Screenshots never reach the recording actors: the target goes
-            // straight to the capture path, which closes these overlays
-            // itself (`startRecording`'s screenshot branch,
-            // `target-select-overlay.tsx:1995`).
+        if self.select.read(cx).purpose == PickerPurpose::Screenshot {
             self.take_selected_screenshot(target, cx);
             return;
         }
@@ -971,7 +992,7 @@ impl OverlayWindow {
     }
 
     fn sync_area_camera(&self, cx: &mut Context<Self>) {
-        if self.select.read(cx).recording_mode == Mode::Screenshot {
+        if self.select.read(cx).purpose == PickerPurpose::Screenshot {
             return;
         }
         let display = self.display_id.clone();
@@ -1597,7 +1618,7 @@ impl OverlayWindow {
         let visible = self.recording_area || interacting || self.is_active_display(cx);
         let crop = self.crop;
         let shown = self.displayed_crop(window);
-        let min = area_min_size(self.select.read(cx).recording_mode);
+        let min = area_min_size(self.select.read(cx).purpose);
         let valid = crop.is_some_and(|crop| crop.is_valid_for(min));
         let interactive = !self.recording_area;
         let editable = interactive && !self.area_locked;
@@ -1827,7 +1848,7 @@ impl OverlayWindow {
 
     fn render_selection_hint(&self, cx: &App) -> impl IntoElement {
         let theme = self.theme;
-        let screenshot = self.select.read(cx).recording_mode == Mode::Screenshot;
+        let screenshot = self.select.read(cx).purpose == PickerPurpose::Screenshot;
         let key = |label: &'static str| crate::ui::KbdChip::row(&theme, label);
         div()
             .absolute()
@@ -2191,9 +2212,9 @@ impl OverlayWindow {
 
     fn render_bar_start(&self, disabled: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let label: SharedString = match self.select.read(cx).recording_mode {
-            Mode::Screenshot => t!("Take screenshot").into(),
-            Mode::Studio | Mode::Instant => t!("Start recording").into(),
+        let label: SharedString = match self.select.read(cx).purpose {
+            PickerPurpose::Screenshot => t!("Take screenshot").into(),
+            PickerPurpose::Record => t!("Start recording").into(),
         };
         let tooltip = label.clone();
         div()
@@ -2238,6 +2259,7 @@ impl OverlayWindow {
     fn render_bar(&self, body: BarBody, cx: &mut Context<Self>) -> gpui::Div {
         let theme = self.theme;
         let mode = self.select.read(cx).recording_mode;
+        let purpose = self.select.read(cx).purpose;
         let editor_recording = crate::session::RecordingSession::global(cx)
             .read(cx)
             .editor_recording_target()
@@ -2312,7 +2334,13 @@ impl OverlayWindow {
             })
         };
         let valid = match &body {
-            BarBody::AreaEmpty => return bar.child(ratio(self, cx)).child(mode_button(self, cx)),
+            BarBody::AreaEmpty => {
+                let bar = bar.child(ratio(self, cx));
+                return match purpose {
+                    PickerPurpose::Record => bar.child(mode_button(self, cx)),
+                    PickerPurpose::Screenshot => bar,
+                };
+            }
             BarBody::WindowPending => {
                 return bar.child(self.bar_info(t!("Click a window").into(), None));
             }
@@ -2417,9 +2445,9 @@ impl OverlayWindow {
         if body != BarBody::CameraOnly {
             bar = bar.child(self.bar_separator());
         }
-        bar = bar.child(mode_button(self, cx));
-        if mode != Mode::Screenshot {
+        if purpose == PickerPurpose::Record {
             bar = bar
+                .child(mode_button(self, cx))
                 .children(self.render_bar_devices(cx))
                 .child(self.bar_separator());
         }
@@ -2667,7 +2695,7 @@ impl OverlayWindow {
         self.sync_area_camera(cx);
         if matches!(drag, AreaDrag::Draw { .. })
             && !clicked
-            && self.select.read(cx).recording_mode == Mode::Screenshot
+            && self.select.read(cx).purpose == PickerPurpose::Screenshot
             && let Some(target) = self.target(cx)
         {
             self.take_selected_screenshot(target, cx);
@@ -2700,7 +2728,7 @@ impl OverlayWindow {
         if self.area_locked {
             self.unlock_area();
         } else {
-            let min = area_min_size(self.select.read(cx).recording_mode);
+            let min = area_min_size(self.select.read(cx).purpose);
             let Some(crop) = self.crop.filter(|crop| crop.is_valid_for(min)) else {
                 return;
             };
@@ -2772,7 +2800,7 @@ impl OverlayWindow {
         if let Some(ratio) = self.area_ratio {
             bounds = area_with_ratio(bounds, ratio_value(ratio), self.display_size);
         }
-        if !bounds.is_valid_for(area_min_size(self.select.read(cx).recording_mode)) {
+        if !bounds.is_valid_for(area_min_size(self.select.read(cx).purpose)) {
             return;
         }
         self.crop = Some(AreaRect {
@@ -2841,7 +2869,7 @@ impl OverlayWindow {
             area_resized_by(
                 crop,
                 (dx, dy),
-                area_min_size(self.select.read(cx).recording_mode),
+                area_min_size(self.select.read(cx).purpose),
                 self.display_size,
             )
         } else {
@@ -3544,10 +3572,8 @@ mod tests {
             vec![
                 ("Studio Mode".to_string(), false),
                 ("Instant Mode".to_string(), true),
-                ("Screenshot Mode".to_string(), false),
             ],
         );
-        assert_eq!(MODE_MENU[2].1, Mode::Screenshot);
     }
 
     #[test]
@@ -3600,11 +3626,13 @@ mod tests {
     /// not recordable. A screenshot only needs `MIN_SCREENSHOT_SIZE` (1px).
     #[test]
     fn area_validity_matches_the_min_size() {
-        assert!(rect(0., 0., 150., 150.).is_valid_for(area_min_size(Mode::Studio)));
-        assert!(!rect(0., 0., 149., 400.).is_valid_for(area_min_size(Mode::Studio)));
-        assert!(!rect(0., 0., 400., 149.).is_valid_for(area_min_size(Mode::Studio)));
-        assert!(rect(0., 0., 20., 20.).is_valid_for(area_min_size(Mode::Screenshot)));
-        assert!(!rect(0., 0., 0.5, 20.).is_valid_for(area_min_size(Mode::Screenshot)));
+        let record = area_min_size(PickerPurpose::Record);
+        let screenshot = area_min_size(PickerPurpose::Screenshot);
+        assert!(rect(0., 0., 150., 150.).is_valid_for(record));
+        assert!(!rect(0., 0., 149., 400.).is_valid_for(record));
+        assert!(!rect(0., 0., 400., 149.).is_valid_for(record));
+        assert!(rect(0., 0., 20., 20.).is_valid_for(screenshot));
+        assert!(!rect(0., 0., 0.5, 20.).is_valid_for(screenshot));
     }
 
     /// The `ScreenCaptureTarget::Area` bounds are display-relative logical

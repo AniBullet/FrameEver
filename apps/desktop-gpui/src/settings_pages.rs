@@ -629,7 +629,6 @@ fn picker_outcome(mode: crate::main_window::Mode) -> &'static str {
     match mode {
         crate::main_window::Mode::Studio => t!("record it in Studio mode"),
         crate::main_window::Mode::Instant => t!("record it in Instant mode"),
-        crate::main_window::Mode::Screenshot => t!("take a screenshot of it"),
     }
 }
 
@@ -684,7 +683,7 @@ fn shortcut_effect(
             outcome = picker_outcome(mode)
         ),
         "openRecordingPicker" => t!("open FrameEver so you can choose what to record").into(),
-        "cycleRecordingMode" => t!("switch between Studio, Instant and Screenshot mode").into(),
+        "cycleRecordingMode" => t!("switch between Studio and Instant mode").into(),
         "stopRecording" => t!("stop the current recording").into(),
         "togglePauseRecording" => t!("pause the current recording, or resume it").into(),
         "restartRecording" => t!("throw away the current take and start again").into(),

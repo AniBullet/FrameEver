@@ -9,7 +9,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Screenshot display", "截取显示器"),
     ("Screenshot window", "截取窗口"),
     ("Screenshot area", "截取区域"),
-    ("Take a screenshot", "截图"),
     ("Import media…", "导入媒体…"),
     ("Mirror", "镜像"),
     ("Resume", "继续"),
@@ -144,10 +143,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "在本地以最高画质录制，之后再编辑。适合制作带特效和转场的精良内容。",
     ),
     (
-        "Capture and annotate screenshots instantly. Great for quick captures, bug reports, and visual communication.",
-        "即时截图并添加标注。适合快速截取、反馈问题和图示沟通。",
-    ),
-    (
         "No rendering required — the video file is ready the moment you stop.",
         "无需渲染，停止录制时视频文件就已就绪。",
     ),
@@ -155,7 +150,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Saves to your computer and opens the editor when you stop. Choose recording quality in settings.",
         "保存到你的电脑，停止录制后打开编辑器。可在设置中选择录制画质。",
     ),
-    ("Capture and annotate stills.", "截取静态画面并添加标注。"),
     ("{mode} mode", "{mode}模式"),
     ("Quality settings", "画质设置"),
     ("Display", "显示器"),
@@ -464,10 +458,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Highest quality local recording for editing later.",
         "以最高画质在本地录制，方便之后编辑。",
     ),
-    (
-        "Capture and annotate screenshots instantly.",
-        "即时截图并添加标注。",
-    ),
     ("Choose Recording Mode", "选择录制模式"),
     (
         "Select how you want to capture your screen",
@@ -483,7 +473,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Record Display", "录制显示器"),
     ("Record Window", "录制窗口"),
     ("Record Area", "录制区域"),
-    ("Take a Screenshot", "截图"),
     ("Import Media...", "导入媒体…"),
     ("Quit FrameEver", "退出帧刻"),
     ("Request Permissions", "请求权限"),
@@ -591,7 +580,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("10 seconds", "10 秒"),
     ("Studio Mode", "工作室模式"),
     ("Instant Mode", "即时模式"),
-    ("Screenshot Mode", "截图模式"),
     ("Display {id}", "显示器 {id}"),
     (
         "Turn on camera access in Settings…",
@@ -632,6 +620,12 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Window size and focus", "窗口尺寸和专注"),
     ("Focus on", "专注已开"),
     ("Take screenshot", "截图"),
+    ("Screenshot this display", "截取这个显示器"),
+    ("Screenshot this window", "截取这个窗口"),
+    (
+        "Screenshots need a display, window or area",
+        "截图需要选显示器、窗口或区域",
+    ),
     ("Start recording", "开始录制"),
     ("Library", "资源库"),
     ("Open library", "打开资源库"),

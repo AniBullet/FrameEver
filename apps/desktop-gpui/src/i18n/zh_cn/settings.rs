@@ -150,7 +150,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("record it in Studio mode", "以工作室模式录制"),
     ("record it in Instant mode", "以即时模式录制"),
-    ("take a screenshot of it", "对其截图"),
     (", then open the editor when you stop", "，停止后打开编辑器"),
     (
         ", then show it in the library when you stop",
@@ -185,8 +184,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "打开帧刻，选择要录制的内容",
     ),
     (
-        "switch between Studio, Instant and Screenshot mode",
-        "在工作室、即时和截图模式之间切换",
+        "switch between Studio and Instant mode",
+        "在工作室和即时模式之间切换",
     ),
     ("stop the current recording", "停止当前录制"),
     (

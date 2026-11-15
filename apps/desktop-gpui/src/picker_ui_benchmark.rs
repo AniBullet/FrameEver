@@ -41,7 +41,7 @@ pub fn run(main: WindowHandle<MainWindow>, cx: &mut App) {
             }
             let enumeration_ms = started.elapsed().as_secs_f64() * 1000.0;
             let readiness = main.update(cx, |view, _, cx| {
-                view.arm_overlay(kind, cx);
+                view.arm_overlay(kind, crate::target_overlay::PickerPurpose::Record, cx);
                 Feeds::global(cx).read(cx).input_readiness()
             });
             let mut errors = Vec::new();

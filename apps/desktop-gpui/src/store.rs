@@ -1742,6 +1742,7 @@ pub enum CaptureTargetKind {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AutomationRecordingMode {
+    #[serde(alias = "screenshot")]
     Studio,
     Instant,
 }
@@ -2213,6 +2214,13 @@ mod tests {
         settle();
         assert!(set_recording_mode_slug("studio"));
         assert_eq!(recording_mode_slug().as_deref(), Some("studio"));
+
+        settle();
+        assert!(set_recording_mode_slug("screenshot"));
+        assert_eq!(
+            crate::main_window::Mode::from_store(),
+            crate::main_window::Mode::Studio
+        );
 
         settle();
         let mut hotkeys = Map::new();
@@ -3221,5 +3229,23 @@ mod tests {
         general.insert("excludedWindows".to_string(), Value::Array(Vec::new()));
         let cleared = GeneralSettings::from_sections(&general, &Map::new(), &Map::new());
         assert!(cleared.excluded_windows.is_empty());
+    }
+
+    #[test]
+    fn an_automation_rule_holding_screenshot_mode_loads_as_studio() {
+        let condition: Condition = serde_json::from_value(
+            serde_json::json!({"type": "recordingModeIs", "mode": "screenshot"}),
+        )
+        .unwrap();
+        assert_eq!(
+            condition,
+            Condition::RecordingModeIs {
+                mode: AutomationRecordingMode::Studio
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(&condition).unwrap(),
+            serde_json::json!({"type": "recordingModeIs", "mode": "studio"})
+        );
     }
 }

@@ -114,6 +114,7 @@ pub enum CaptureTargetKind {
 #[derive(Serialize, Deserialize, Type, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AutomationRecordingMode {
+    #[serde(alias = "screenshot")]
     Studio,
     Instant,
 }

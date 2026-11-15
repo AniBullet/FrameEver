@@ -13,7 +13,7 @@ use tray_icon::{
 };
 
 use super::{
-    Entry, PreviousItem, SurfaceState, TrayItem, build_state_menu, decorate_accelerators,
+    Entry, LastArea, PreviousItem, SurfaceState, TrayItem, build_state_menu, decorate_accelerators,
     handle_item,
     native::{self, StateIcon},
     popup::{self, TrayPopup},
@@ -25,6 +25,7 @@ use crate::{
     main_window::Mode,
     platform,
     session::{Phase, RecordingSession},
+    target_overlay::PickerPurpose,
 };
 
 const TRAY_ID: &str = "cap-gpui-tray";
@@ -239,9 +240,11 @@ fn live_entries(
     let mut entries = build_state_menu(
         mode,
         previous,
-        crate::menus::app_version(),
         state,
-        app_windows::tray_last_area_available(cx),
+        LastArea {
+            record: app_windows::tray_last_area_available(PickerPurpose::Record),
+            screenshot: app_windows::tray_last_area_available(PickerPurpose::Screenshot),
+        },
     );
     decorate_accelerators(&mut entries, &|action| {
         crate::hotkeys::accelerator(action, cx)
@@ -850,7 +853,7 @@ mod stale_action_tests {
             controls_hidden: false,
         };
         assert!(!permits_action(&state, &TrayItem::Quit));
-        assert!(!permits_action(&state, &TrayItem::ModeScreenshot));
+        assert!(!permits_action(&state, &TrayItem::ModeInstant));
         assert!(!permits_action(&state, &TrayItem::ImportMedia));
         assert!(permits_action(&state, &TrayItem::StopRecording));
         assert!(permits_action(&state, &TrayItem::PauseRecording));

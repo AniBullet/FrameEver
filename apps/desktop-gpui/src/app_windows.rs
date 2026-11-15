@@ -41,7 +41,7 @@ use crate::{
     screenshot_editor::{self, ScreenshotEditorWindow},
     session::{Phase, RecordingSession, StudioEditorPresentation},
     settings_window::{self, Page, SettingsWindow},
-    target_overlay::{AreaRect, HoveredWindow, OverlayWindow, TargetSelect},
+    target_overlay::{AreaRect, HoveredWindow, OverlayWindow, PickerPurpose, TargetSelect},
     teleprompter_window::{self, TeleprompterWindow},
 };
 
@@ -993,9 +993,6 @@ pub fn open_settings_row(row: crate::settings_window::catalog::Row, cx: &mut App
 }
 
 pub fn open_quality_settings(mode: Mode, cx: &mut App) {
-    if mode == Mode::Screenshot {
-        return;
-    }
     open_settings(Page::Recording, cx);
     if let Some(handle) = cx.global::<AppWindows>().settings {
         handle
@@ -1644,6 +1641,7 @@ fn teleprompter_window_number(cx: &mut App) -> Option<isize> {
 pub struct OverlayRequest {
     pub mode: TargetType,
     pub recording_mode: Mode,
+    pub purpose: PickerPurpose,
     /// Restrict the overlays to one display. The Tauri command takes the same
     /// two narrowing inputs (`focused_target`, `specific_display_id`): a
     /// display picked from the main window's dropdown, or the display the
@@ -1788,12 +1786,18 @@ fn open_overlays_core(request: OverlayRequest, cx: &mut App) -> bool {
         .or_else(|| pinned.as_ref().map(|window| window.display_id.clone()));
 
     select.update(cx, |select, cx| {
-        select.arm(Some(request.mode), request.recording_mode, pinned, cx)
+        select.arm(
+            Some(request.mode),
+            request.recording_mode,
+            request.purpose,
+            pinned,
+            cx,
+        )
     });
     sync_camera_presentation(cx);
 
     if request.mode == TargetType::Window
-        || (request.mode == TargetType::Area && request.recording_mode != Mode::Screenshot)
+        || (request.mode == TargetType::Area && request.purpose != PickerPurpose::Screenshot)
     {
         arm_camera_park(request.mode, cx);
     }
@@ -1929,7 +1933,7 @@ fn disarm_target_selection(cx: &mut App) {
     let select = TargetSelect::global(cx);
     select.update(cx, |select, cx| {
         let recording_mode = select.recording_mode;
-        select.arm(None, recording_mode, None, cx);
+        select.arm(None, recording_mode, PickerPurpose::Record, None, cx);
     });
     sync_camera_presentation(cx);
 }
@@ -3472,7 +3476,7 @@ pub fn sync_camera_area(display_id: DisplayId, crop: Option<AreaRect>, cx: &mut 
     }
     let select = TargetSelect::global(cx);
     if select.read(cx).mode != Some(TargetType::Area)
-        || select.read(cx).recording_mode == Mode::Screenshot
+        || select.read(cx).purpose == PickerPurpose::Screenshot
         || cx.global::<AppWindows>().camera_park.released
     {
         return;
@@ -5444,9 +5448,9 @@ pub fn abort_editor_recording_flow(cx: &mut App) {
 /// `crate::open_target_picker(&app, RecordingTargetMode::*)` over there, which
 /// sets the target mode on the main window and opens the overlays; here the
 /// main window owns that state, so it is the same `arm_overlay` the tiles call.
-pub fn arm_target_mode(kind: crate::main_window::TargetType, cx: &mut App) {
+pub fn arm_target_mode(kind: crate::main_window::TargetType, purpose: PickerPurpose, cx: &mut App) {
     let main = cx.global::<AppWindows>().main;
-    main.update(cx, |view, _window, cx| view.arm_overlay(kind, cx))
+    main.update(cx, |view, _window, cx| view.arm_overlay(kind, purpose, cx))
         .ok();
 }
 

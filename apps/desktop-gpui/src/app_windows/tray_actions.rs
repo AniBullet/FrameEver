@@ -48,32 +48,28 @@ pub(crate) fn tray_open_library_item(path: PathBuf, cx: &mut App) {
     cx.activate(true);
 }
 
-pub(crate) fn tray_last_area_available(cx: &App) -> bool {
-    let mode = cx
-        .global::<AppWindows>()
-        .main
-        .read(cx)
-        .map_or(Mode::Studio, MainWindow::mode);
-    crate::target_overlay::last_locked_target(mode).is_some()
+pub(crate) fn tray_last_area_available(purpose: PickerPurpose) -> bool {
+    crate::target_overlay::last_locked_target(purpose).is_some()
 }
 
 pub(crate) fn tray_capture_last_area(screenshot: bool, cx: &mut App) {
     if RecordingSession::global(cx).read(cx).phase != Phase::Idle {
         return;
     }
-    let main = cx.global::<AppWindows>().main;
-    let mode = if screenshot {
-        Mode::Screenshot
+    let purpose = if screenshot {
+        PickerPurpose::Screenshot
     } else {
-        main.read(cx).map_or(Mode::Studio, MainWindow::mode)
+        PickerPurpose::Record
     };
-    let Some(target) = crate::target_overlay::last_locked_target(mode) else {
+    let Some(target) = crate::target_overlay::last_locked_target(purpose) else {
         tracing::warn!("the locked recording area is no longer available");
         return;
     };
     if screenshot {
         crate::screenshot::take_screenshot(target, cx);
     } else {
+        let main = cx.global::<AppWindows>().main;
+        let mode = main.read(cx).map_or(Mode::Studio, MainWindow::mode);
         crate::hotkeys::start_now(main, mode, target, cx);
     }
 }

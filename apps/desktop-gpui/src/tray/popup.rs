@@ -14,6 +14,7 @@ pub struct TrayPopup {
     focus: FocusHandle,
     entries: Vec<Entry>,
     recent: Option<Vec<Entry>>,
+    submenu: Option<String>,
     selected: Option<usize>,
     mode: Mode,
     images: HashMap<Vec<u8>, Arc<Image>>,
@@ -45,6 +46,7 @@ impl TrayPopup {
             focus,
             entries: Vec::new(),
             recent: None,
+            submenu: None,
             selected: None,
             mode: Mode::Studio,
             images: HashMap::new(),
@@ -89,7 +91,10 @@ impl TrayPopup {
         self.warning = warning;
         self.export_progress = export_progress;
         if self.recent.is_some() {
-            self.recent = recent_entries(&self.entries);
+            self.recent = self
+                .submenu
+                .as_deref()
+                .and_then(|title| submenu_items(&self.entries, title));
         }
         self.selected = refreshed_selection(&before, self.selected, self.visible_entries());
         cache_images(&self.entries, &mut self.images);
@@ -109,16 +114,15 @@ impl TrayPopup {
     }
 
     fn change_mode(&mut self, direction: i32, cx: &mut Context<Self>) {
-        let modes = [Mode::Studio, Mode::Instant, Mode::Screenshot];
+        let modes = [Mode::Studio, Mode::Instant];
         let current = modes
             .iter()
             .position(|mode| *mode == self.mode)
             .unwrap_or(0) as i32;
-        self.mode = modes[(current + direction).rem_euclid(3) as usize];
+        self.mode = modes[(current + direction).rem_euclid(modes.len() as i32) as usize];
         let item = match self.mode {
             Mode::Studio => TrayItem::ModeStudio,
             Mode::Instant => TrayItem::ModeInstant,
-            Mode::Screenshot => TrayItem::ModeScreenshot,
         };
         cx.defer(move |cx| super::handle_item(item, cx));
     }
@@ -128,8 +132,9 @@ impl TrayPopup {
             return;
         };
         match entry {
-            Entry::Submenu { items, .. } if !is_modes(&entry) => {
+            Entry::Submenu { items, title, .. } if !is_modes(&entry) => {
                 self.recent = Some(items);
+                self.submenu = Some(title);
                 self.selected = selectable(self.visible_entries()).first().copied();
                 cx.notify();
             }
@@ -149,10 +154,7 @@ impl TrayPopup {
         match key {
             "escape" | "left" if self.recent.is_some() => {
                 self.recent = None;
-                self.selected = self
-                    .entries
-                    .iter()
-                    .position(|entry| matches!(entry, Entry::Submenu { .. }) && !is_modes(entry));
+                self.selected = self.open_submenu_row();
                 cx.notify();
             }
             "escape" => hide(window),
@@ -213,7 +215,7 @@ fn cache_images(entries: &[Entry], images: &mut HashMap<Vec<u8>, Arc<Image>>) {
 }
 
 pub(super) fn is_modes(entry: &Entry) -> bool {
-    matches!(entry, Entry::Submenu { items, .. } if items.iter().all(|entry| matches!(entry, Entry::Item { item: Some(TrayItem::ModeStudio | TrayItem::ModeInstant | TrayItem::ModeScreenshot), .. })))
+    matches!(entry, Entry::Submenu { items, .. } if items.iter().all(|entry| matches!(entry, Entry::Item { item: Some(TrayItem::ModeStudio | TrayItem::ModeInstant), .. })))
 }
 
 fn action(entry: &Entry) -> Option<TrayItem> {
@@ -252,24 +254,25 @@ fn refreshed_selection(
                 .position(|candidate| match (action(previous), action(candidate)) {
                     (Some(previous), Some(candidate)) => previous == candidate,
                     _ if is_modes(previous) => is_modes(candidate),
-                    _ => {
-                        matches!(
-                            (previous, candidate),
-                            (Entry::Submenu { .. }, Entry::Submenu { .. })
-                        ) && !is_modes(candidate)
-                    }
+                    _ => match (previous, candidate) {
+                        (Entry::Submenu { title, .. }, Entry::Submenu { title: other, .. }) => {
+                            title == other
+                        }
+                        _ => false,
+                    },
                 })
         })
         .or_else(|| selectable(after).first().copied())
 }
 
-fn recent_entries(entries: &[Entry]) -> Option<Vec<Entry>> {
+fn submenu_items(entries: &[Entry], wanted: &str) -> Option<Vec<Entry>> {
     entries.iter().find_map(|entry| match entry {
         Entry::Submenu {
             enabled: true,
             items,
+            title,
             ..
-        } if !is_modes(entry) => Some(items.clone()),
+        } if title == wanted => Some(items.clone()),
         _ => None,
     })
 }
@@ -308,6 +311,12 @@ pub(super) fn next_selection(
 }
 
 impl TrayPopup {
+    fn open_submenu_row(&self) -> Option<usize> {
+        self.entries.iter().position(|entry| {
+            matches!(entry, Entry::Submenu { title, .. } if Some(title) == self.submenu.as_ref())
+        })
+    }
+
     fn reveal_selection(&self) {
         if let Some(index) = self.selected {
             if self.recent.is_some() {
@@ -370,14 +379,12 @@ impl TrayPopup {
                             .size(px(14.))
                             .text_color(theme.muted_foreground),
                     )
-                    .child(t!("Recent"))
+                    .child(self.submenu.clone().unwrap_or_default())
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(|this, _, window, cx| {
                             this.recent = None;
-                            this.selected = this.entries.iter().position(|entry| {
-                                matches!(entry, Entry::Submenu { .. }) && !is_modes(entry)
-                            });
+                            this.selected = this.open_submenu_row();
                             this.fit(window, cx);
                             cx.notify();
                         }),
@@ -416,7 +423,6 @@ impl TrayPopup {
                 for (mode, title, item) in [
                     (Mode::Studio, t!("Studio"), TrayItem::ModeStudio),
                     (Mode::Instant, t!("Instant"), TrayItem::ModeInstant),
-                    (Mode::Screenshot, t!("Screenshot"), TrayItem::ModeScreenshot),
                 ] {
                     segments = segments.child(
                         div()
@@ -499,14 +505,20 @@ impl TrayPopup {
                         }),
                 );
             }
-            if recent && let Some(image) = icon.as_ref().and_then(|icon| self.images.get(icon)) {
-                row = row.child(img(image.clone()).size(px(24.)).rounded(px(3.)));
-            } else if let Some(path) = item.and_then(item_icon) {
+            if let Some(path) = item.and_then(item_icon) {
                 row = row.child(svg().path(path).size(px(16.)).text_color(theme.foreground));
+            } else if recent
+                && let Some(image) = icon.as_ref().and_then(|icon| self.images.get(icon))
+            {
+                row = row.child(img(image.clone()).size(px(24.)).rounded(px(3.)));
             } else if submenu {
                 row = row.child(
                     svg()
-                        .path("icons/film.svg")
+                        .path(if super::is_screenshots(entry) {
+                            "icons/image.svg"
+                        } else {
+                            "icons/film.svg"
+                        })
                         .size(px(16.))
                         .text_color(theme.foreground),
                 );
@@ -689,7 +701,6 @@ fn item_icon(item: &TrayItem) -> Option<&'static str> {
         TrayItem::RecordDisplay | TrayItem::ScreenshotDisplay => "icons/monitor.svg",
         TrayItem::RecordWindow | TrayItem::ScreenshotWindow => "icons/app-window.svg",
         TrayItem::RecordArea | TrayItem::ScreenshotArea => "icons/scan.svg",
-        TrayItem::TakeScreenshot => "icons/image.svg",
         TrayItem::ImportMedia => "icons/download.svg",
         TrayItem::OpenSettings => "icons/settings.svg",
         TrayItem::StopRecording => "icons/square.svg",
@@ -753,9 +764,37 @@ mod refresh_tests {
     use super::*;
 
     #[test]
+    fn tray_refresh_keeps_the_selected_submenu_and_its_open_items() {
+        let previous = vec![super::super::PreviousItem {
+            path: "demo.ever".into(),
+            kind: crate::library::MediaKind::Studio,
+            pretty_name: "Demo".into(),
+            thumbnail: None,
+        }];
+        let menu = super::super::build_surface_menu(Mode::Studio, &previous);
+        let row = |title: &str| {
+            menu.iter().position(
+                |entry| matches!(entry, Entry::Submenu { title: found, .. } if found == title),
+            )
+        };
+        let (screenshot, recent) = (row("Screenshot"), row("Recent"));
+        assert!(screenshot.is_some() && recent.is_some() && screenshot != recent);
+        assert_eq!(refreshed_selection(&menu, screenshot, &menu), screenshot);
+        assert_eq!(refreshed_selection(&menu, recent, &menu), recent);
+        assert_eq!(
+            submenu_items(&menu, "Screenshot").map(|items| items.len()),
+            Some(3)
+        );
+        assert_eq!(
+            submenu_items(&menu, "Recent").map(|items| items.len()),
+            Some(3)
+        );
+    }
+
+    #[test]
     fn tray_mode_keyboard_keeps_mode_row_selected_after_refresh() {
-        let studio = super::super::build_surface_menu(Mode::Studio, &[], "1.0.0");
-        let instant = super::super::build_surface_menu(Mode::Instant, &[], "1.0.0");
+        let studio = super::super::build_surface_menu(Mode::Studio, &[]);
+        let instant = super::super::build_surface_menu(Mode::Instant, &[]);
         assert_eq!(refreshed_selection(&studio, Some(3), &instant), Some(3));
     }
 }
@@ -787,20 +826,19 @@ mod layout_tests {
             pretty_name: "Demo".into(),
             thumbnail: None,
         }];
-        let idle = super::super::build_surface_menu(Mode::Studio, &previous, "1.0.0");
-        assert!(recent_entries(&idle).is_some());
+        let idle = super::super::build_surface_menu(Mode::Studio, &previous);
+        assert!(submenu_items(&idle, "Recent").is_some());
         let recording = super::super::build_state_menu(
             Mode::Studio,
             &previous,
-            "1.0.0",
             &super::super::SurfaceState::Recording {
                 paused: false,
                 elapsed: 1,
                 controls_hidden: false,
             },
-            false,
+            super::super::LastArea::default(),
         );
-        assert!(recent_entries(&recording).is_none());
+        assert!(submenu_items(&recording, "Recent").is_none());
         assert_eq!(menu_height(&recording, false, false), 198.);
     }
 

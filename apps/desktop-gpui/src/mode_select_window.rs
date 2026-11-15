@@ -32,7 +32,6 @@ impl Mode {
         match self {
             Self::Instant => t!("A ready-to-play video file the moment you stop."),
             Self::Studio => t!("Highest quality local recording for editing later."),
-            Self::Screenshot => t!("Capture and annotate screenshots instantly."),
         }
     }
 }
@@ -288,8 +287,7 @@ impl Render for ModeSelectWindow {
                             .items_stretch()
                             .gap(px(16.))
                             .child(self.render_card(Mode::Instant, cx))
-                            .child(self.render_card(Mode::Studio, cx))
-                            .child(self.render_card(Mode::Screenshot, cx)),
+                            .child(self.render_card(Mode::Studio, cx)),
                     ),
             );
 
