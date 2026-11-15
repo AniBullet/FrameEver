@@ -39,7 +39,7 @@ jobs:
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: v1-macos
+          prefix-key: v2-macos
           workspaces: |
             . -> target
             apps/desktop-gpui -> target

@@ -31,6 +31,10 @@ export const testdataDir = path.join(gpuiDir, "target", "testdata");
 const testRecordingsDir = path.join(testdataDir, "storage", "Recordings");
 export const distDir = path.join(root, "dist");
 export const target = "x86_64-pc-windows-msvc";
+export function setupTarget(platform = process.platform, arch = process.arch) {
+	if (platform !== "darwin") return target;
+	return `${arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`;
+}
 const ffmpegBin = path.join(root, "target", "ffmpeg", "bin");
 const HARMONYOS_SANS = {
 	url: "https://alliance-communityfile-drcn.dbankcdn.com/FileServer/getFile/cmtyManage/011/111/111/0000000000011111111.20260627152129.89276966309836366526585265125586:50001231000000:2800:A0161E048334FE0271F9F5ECBBD5070D17381C7846125F4D7109DBC7B532C715.zip?needInitFileName=true",
@@ -278,7 +282,7 @@ function setup({ flags }) {
 		"Native dependencies (FFmpeg, ONNX Runtime, DXC) and .cargo/config.toml",
 	);
 	run(process.execPath, [path.join("scripts", "setup.js")], {
-		env: { ...process.env, RUST_TARGET_TRIPLE: target },
+		env: { ...process.env, RUST_TARGET_TRIPLE: setupTarget() },
 	});
 
 	step("Patched gpui crates (../gpui-pre-patched)");
