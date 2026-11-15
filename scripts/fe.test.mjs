@@ -37,6 +37,7 @@ import {
 	patchedGpuiPlatformCrate,
 	SEMVER,
 	setLargeAddressAware,
+	setupTarget,
 	staleIncrementalDirs,
 	stampReleaseDate,
 	stampVersion,
@@ -554,4 +555,10 @@ test("the filled variants name their Lucide source", () => {
 test("patched gpui tests run the platform crate of the machine", () => {
 	assert.equal(patchedGpuiPlatformCrate("win32"), "gpui_windows");
 	assert.equal(patchedGpuiPlatformCrate("darwin"), "gpui_apple");
+});
+
+test("setup prepares native dependencies for the machine it runs on", () => {
+	assert.equal(setupTarget("win32", "x64"), "x86_64-pc-windows-msvc");
+	assert.equal(setupTarget("darwin", "arm64"), "aarch64-apple-darwin");
+	assert.equal(setupTarget("darwin", "x64"), "x86_64-apple-darwin");
 });
