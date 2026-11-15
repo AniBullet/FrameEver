@@ -1214,7 +1214,7 @@ impl Render for CameraPreviewView {
                             bounds,
                             fitted,
                             gpui::Corners::all(px(radius)).clamp_radii_for_quad_size(bounds.size),
-                            crate::platform::gpui_surface(&buffer),
+                            crate::platform::gpui_pixel_buffer(&buffer),
                         );
                         paints.fetch_add(1, Ordering::Relaxed);
                     },

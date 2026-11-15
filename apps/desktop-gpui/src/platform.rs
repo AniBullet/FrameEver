@@ -239,7 +239,7 @@ mod macos_occlusion;
 
 #[cfg(target_os = "macos")]
 mod mac {
-    pub fn gpui_surface(
+    pub fn gpui_pixel_buffer(
         buffer: &core_video::pixel_buffer::CVPixelBuffer,
     ) -> objc2_core_foundation::CFRetained<objc2_core_video::CVPixelBuffer> {
         use core_foundation::base::TCFType;
