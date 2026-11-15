@@ -291,6 +291,8 @@ Validation: both filtered path tests passed, including mixed-separator UNC refus
 
 On 2026-10-25 the checkout was renamed to `D:\_Scripts\GitHub\frameever` (lower case). Claude Code's history and memory were copied to `%USERPROFILE%\.claude\projects\D---Scripts-GitHub-frameever*`; worktrees, `pnpm fe doctor` and memory were checked in the new folder. The first build there is a full rebuild because `target` holds absolute paths.
 
+On 2026-11-16 the checkout moved to `H:\repos\frameever`, with `gpui-pre-patched` beside it in `H:\repos`. `D:` is a hard disk and builds, directory listings and deletes there took minutes; `H:` is an SSD. Everything was copied except `node_modules` and cargo's build output (`debug`, `release`, `x86_64-pc-windows-msvc`, `gpui-windows` and `tmp` under both `target` folders), which were reinstalled and rebuilt. Claude Code's history and memory were copied to `%USERPROFILE%\.claude\projects\H--repos-frameever`, and `CLAUDE_CODE_PLUGIN_DIRS` in the user settings points at the new folder. `pnpm fe doctor` passed there.
+
 ## Owner preferences (also in Claude memory)
 
 - FrameEver is an independent product: no legacy weight from Cap-aniBullet 2.x or Cap; old data only through the converter.
