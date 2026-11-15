@@ -1017,9 +1017,7 @@ export function macAssetNames(version, triple) {
 }
 
 export function macBundleConfig(env) {
-	const bundle = {
-		createUpdaterArtifacts: Boolean(env.TAURI_SIGNING_PRIVATE_KEY),
-	};
+	const bundle = { createUpdaterArtifacts: false };
 	if (!env.APPLE_SIGNING_IDENTITY) bundle.macOS = { signingIdentity: "-" };
 	return { bundle };
 }
@@ -1045,16 +1043,6 @@ function stampRequestedVersion(flags) {
 
 const megabytes = (file) => (statSync(file).size / 1024 / 1024).toFixed(1);
 
-function onlyFile(dir, extension) {
-	const files = existsSync(dir)
-		? readdirSync(dir).filter((name) => name.endsWith(extension))
-		: [];
-	if (files.length !== 1) {
-		fail(`Expected one ${extension} in ${dir}, found ${files.length}`);
-	}
-	return path.join(dir, files[0]);
-}
-
 function packageMacApp({ flags }) {
 	const triple = setupTarget();
 	requireNativeDeps("darwin");
@@ -1078,7 +1066,8 @@ function packageMacApp({ flags }) {
 			"  No APPLE_SIGNING_IDENTITY: signing ad hoc; Gatekeeper asks before the first launch.",
 		);
 	}
-	if (!bundleConfig.bundle.createUpdaterArtifacts) {
+	const signing = Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY);
+	if (!signing) {
 		console.log(
 			"  No TAURI_SIGNING_PRIVATE_KEY: building without an updater archive.",
 		);
@@ -1086,17 +1075,14 @@ function packageMacApp({ flags }) {
 	const configFile = path.join(gpuiDir, "target", "fe-macos.conf.json");
 	mkdirSync(path.dirname(configFile), { recursive: true });
 	writeFileSync(configFile, JSON.stringify(bundleConfig));
-	run(
-		process.execPath,
-		[
-			path.join("scripts", "bundle-gpui.mjs"),
-			triple,
-			"--bundles",
-			"app,dmg",
-			"--config",
-			configFile,
-		],
-	);
+	run(process.execPath, [
+		path.join("scripts", "bundle-gpui.mjs"),
+		triple,
+		"--bundles",
+		"app,dmg",
+		"--config",
+		configFile,
+	]);
 
 	const bundleDir = path.join(gpuiDir, "target", triple, "release", "bundle");
 	const names = macAssetNames(
@@ -1116,11 +1102,15 @@ function packageMacApp({ flags }) {
 	console.log(
 		`\n\u001b[32m✓ ${dmg} (${megabytes(dmg)} MB, ${minutes} min)\u001b[0m`,
 	);
-	if (!bundleConfig.bundle.createUpdaterArtifacts) return;
-	const built = onlyFile(path.join(bundleDir, "macos"), ".app.tar.gz");
-	if (!existsSync(`${built}.sig`)) fail(`No signature for ${built}`);
-	copyFileSync(built, archive);
-	copyFileSync(`${built}.sig`, `${archive}.sig`);
+	if (!signing) return;
+	step("Updater archive and signature");
+	run(
+		"tar",
+		["-czf", archive, "-C", path.join(bundleDir, "macos"), "FrameEver.app"],
+		{ env: { ...process.env, COPYFILE_DISABLE: "1" } },
+	);
+	run("pnpm", ["run", "tauri", "signer", "sign", archive], { cwd: gpuiDir });
+	if (!existsSync(`${archive}.sig`)) fail(`No signature for ${archive}`);
 	console.log(
 		`\u001b[32m✓ ${archive} (${megabytes(archive)} MB) and its updater signature\u001b[0m`,
 	);

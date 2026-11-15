@@ -618,7 +618,7 @@ test("a macOS package is named after its version and architecture", () => {
 	);
 });
 
-test("without an Apple identity the macOS app is signed ad hoc, and only the updater key makes an updater archive", () => {
+test("without an Apple identity the macOS app is signed ad hoc, and the bundler never makes the updater archive", () => {
 	assert.deepEqual(macBundleConfig({}), {
 		bundle: {
 			createUpdaterArtifacts: false,
@@ -630,7 +630,7 @@ test("without an Apple identity the macOS app is signed ad hoc, and only the upd
 			TAURI_SIGNING_PRIVATE_KEY: "key",
 			APPLE_SIGNING_IDENTITY: "Developer ID Application: aniBullet",
 		}),
-		{ bundle: { createUpdaterArtifacts: true } },
+		{ bundle: { createUpdaterArtifacts: false } },
 	);
 });
 
