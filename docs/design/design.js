@@ -19,6 +19,7 @@ window.FE = (() => {
 		["converter", "FrameEver Converter", "FrameEver Converter", true],
 		["installer", "Installer", "安装器", true],
 		["onboarding", "Onboarding", "引导", true],
+		["input-display", "Input display", "操作显示", true],
 	];
 	const state = { ...defaults, at: "" };
 

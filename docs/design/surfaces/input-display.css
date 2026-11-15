@@ -1,0 +1,411 @@
+.tools {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 16px;
+	margin-bottom: 12px;
+}
+
+.tool {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: var(--text-small);
+	color: var(--muted-foreground);
+}
+
+.bench {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 280px;
+	gap: 16px;
+	align-items: start;
+}
+
+@media (max-width: 900px) {
+	.bench {
+		grid-template-columns: 1fr;
+	}
+}
+
+.stage {
+	position: relative;
+	aspect-ratio: 16 / 9;
+	overflow: hidden;
+	border-radius: var(--radius-lg);
+	border: 1px solid var(--border);
+	user-select: none;
+}
+
+.stage.dark {
+	background: #1c2026;
+}
+
+.stage.bright {
+	background: #d5dbe1;
+}
+
+.stage .ground {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 38%;
+}
+
+.stage.dark .ground {
+	background: #272d35;
+}
+
+.stage.bright .ground {
+	background: #b9c2cb;
+}
+
+.stage .block {
+	position: absolute;
+	border-radius: 4px;
+}
+
+.stage.dark .block {
+	background: #343c46;
+}
+
+.stage.bright .block {
+	background: #9aa6b2;
+}
+
+.stage .hud {
+	position: absolute;
+	top: 4%;
+	left: 3%;
+	width: 18%;
+	height: 2.2%;
+	border-radius: 99px;
+}
+
+.stage.dark .hud {
+	background: #4b5561;
+}
+
+.stage.bright .hud {
+	background: #8793a0;
+}
+
+.stage .hint {
+	position: absolute;
+	top: 4%;
+	right: 3%;
+	font-size: var(--text-small);
+	color: #8a94a0;
+}
+
+.io-wrap {
+	position: absolute;
+	line-height: 0;
+}
+
+.io {
+	display: block;
+	width: 100%;
+	height: auto;
+	overflow: visible;
+}
+
+.io.cap {
+	--rest: #181818;
+	--rest-ink: #c4c4c4;
+	--line: transparent;
+	--on: #ffffff;
+	--on-ink: #111111;
+	--body: #3d3d3d;
+	--well: #5a5a5a;
+}
+
+.io.line {
+	--rest: rgba(0, 0, 0, 0.32);
+	--rest-ink: #ffffff;
+	--line: #ffffff;
+	--on: #ffffff;
+	--on-ink: #111111;
+	--body: rgba(0, 0, 0, 0.32);
+	--well: #ffffff;
+}
+
+.io.ghost {
+	--rest: rgba(255, 255, 255, 0.16);
+	--rest-ink: transparent;
+	--line: transparent;
+	--on: #ffffff;
+	--on-ink: #111111;
+	--body: rgba(0, 0, 0, 0.28);
+	--well: rgba(255, 255, 255, 0.3);
+}
+
+.io .k > :not(text) {
+	fill: var(--rest);
+	stroke: var(--line);
+	stroke-width: 1.5;
+	transition: fill 50ms linear;
+}
+
+.io .k text {
+	fill: var(--rest-ink);
+	font: 500 13px Inter, "HarmonyOS Sans SC", "Microsoft YaHei UI", sans-serif;
+	text-anchor: middle;
+	dominant-baseline: central;
+}
+
+.io .k.small text {
+	font-size: 10px;
+}
+
+.io .k.on > :not(text) {
+	fill: var(--on);
+}
+
+.io .k.on text {
+	fill: var(--on-ink);
+}
+
+.io .body {
+	fill: var(--body);
+	stroke: var(--line);
+	stroke-width: 1.5;
+}
+
+.io .well {
+	fill: none;
+	stroke: var(--well);
+	stroke-width: 1.5;
+}
+
+.io .trig-fill {
+	fill: var(--on);
+}
+
+.inspector {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--card);
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.inspector .head,
+.row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 34px;
+}
+
+.inspector .head b,
+.row b {
+	font-weight: 500;
+}
+
+.grow {
+	flex: 1;
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: var(--text-small);
+	color: var(--muted-foreground);
+}
+
+.field .line {
+	display: flex;
+	justify-content: space-between;
+}
+
+.field .slider {
+	cursor: pointer;
+	touch-action: none;
+}
+
+.tiles {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 6px;
+}
+
+.tile {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 6px 6px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background: #2a2f36;
+	color: #d8d8d8;
+	font: inherit;
+	font-size: var(--text-small);
+	cursor: pointer;
+	height: 86px;
+}
+
+.tile .io {
+	max-height: 46px;
+	width: auto;
+	max-width: 100%;
+}
+
+.tile.on {
+	border-color: var(--foreground);
+}
+
+.tile.add {
+	background: transparent;
+	color: var(--muted-foreground);
+	justify-content: center;
+}
+
+.anchor {
+	display: grid;
+	grid-template-columns: repeat(3, 18px);
+	gap: 4px;
+	padding: 6px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	width: max-content;
+}
+
+.anchor button {
+	width: 18px;
+	height: 12px;
+	padding: 0;
+	border: 0;
+	border-radius: 2px;
+	background: var(--border-strong);
+	cursor: pointer;
+}
+
+.anchor button.on {
+	background: var(--foreground);
+}
+
+.rowcard {
+	position: relative;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--card);
+	padding: 4px 12px;
+}
+
+.rowcard .sub {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+	padding: 4px 0 10px;
+}
+
+.ibtn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+
+.ibtn:hover,
+.ibtn.on {
+	background: var(--accent);
+	color: var(--foreground);
+}
+
+.ibtn .i {
+	width: 14px;
+	height: 14px;
+}
+
+.pop {
+	position: absolute;
+	left: 12px;
+	top: 40px;
+	z-index: 5;
+	width: 260px;
+	padding: 10px 12px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-md);
+	background: var(--popover);
+	font-size: var(--text-small);
+}
+
+.pop ul {
+	margin: 0 0 8px;
+	padding-left: 16px;
+}
+
+.pop li {
+	margin-bottom: 4px;
+}
+
+.pop a {
+	color: var(--link);
+	cursor: pointer;
+}
+
+.caption {
+	margin-top: 8px;
+	font-size: var(--text-small);
+	color: var(--muted-foreground);
+}
+
+.io-wrap {
+	cursor: move;
+	outline: 1px solid transparent;
+	outline-offset: 4px;
+}
+
+.io-wrap:hover,
+.io-wrap.held {
+	outline-color: rgba(255, 255, 255, 0.7);
+}
+
+.grip {
+	position: absolute;
+	right: -9px;
+	bottom: -9px;
+	width: 10px;
+	height: 10px;
+	background: #ffffff;
+	border: 1px solid #111111;
+	cursor: nwse-resize;
+	opacity: 0;
+}
+
+.io-wrap:hover .grip,
+.io-wrap.held .grip {
+	opacity: 1;
+}
+
+.field .line {
+	align-items: center;
+}
+
+.exact {
+	display: flex;
+	gap: 8px;
+}
+
+.num {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.num .input {
+	width: 64px;
+}
