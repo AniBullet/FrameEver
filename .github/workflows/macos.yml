@@ -58,4 +58,6 @@ jobs:
         run: pnpm fe check
 
       - name: Test
+        env:
+          FRAMEEVER_VERIFY_FIXTURE_DIR: ${{ runner.temp }}/verify-fixtures
         run: pnpm fe test --all
