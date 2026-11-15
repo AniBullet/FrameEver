@@ -151,10 +151,7 @@ async function main() {
 
 		const ffmpegDir = path.join(targetDir, "ffmpeg");
 		if (!(await fileExists(ffmpegDir)) || downloadedFfmpeg) {
-			await exec(
-				`Expand-Archive -Path "${ffmpegZipPath}" -DestinationPath "${targetDir}" -Force`,
-				{ shell: "powershell.exe" },
-			);
+			await extractZip(ffmpegZipPath, targetDir);
 			await fs.rm(ffmpegDir, { recursive: true, force: true }).catch(() => {});
 			await fs.rename(path.join(targetDir, FFMPEG_ZIP_NAME), ffmpegDir);
 			console.log("Extracted ffmpeg");
@@ -403,10 +400,7 @@ async function setupWindowsOnnxRuntime() {
 
 	if (!(await fileExists(outputPath)) || marker !== asset.name) {
 		await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
-		await exec(
-			`Expand-Archive -Path "${archivePath}" -DestinationPath "${targetDir}" -Force`,
-			{ shell: "powershell.exe" },
-		);
+		await extractZip(archivePath, targetDir);
 		await fs.rm(outputDir, { recursive: true, force: true }).catch(() => {});
 		await fs.mkdir(outputDir, { recursive: true });
 		const libDir = path.join(extractDir, "lib");
@@ -482,10 +476,7 @@ async function setupWindowsDxc() {
 
 	if (currentMarker !== marker || missingAssets.length > 0) {
 		await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
-		await exec(
-			`Expand-Archive -Path "${archivePath}" -DestinationPath "${extractDir}" -Force`,
-			{ shell: "powershell.exe" },
-		);
+		await extractZip(archivePath, extractDir);
 		await fs.rm(outputDir, { recursive: true, force: true }).catch(() => {});
 		await fs.mkdir(outputDir, { recursive: true });
 		for (const file of files)
@@ -541,6 +532,14 @@ async function downloadVerifiedAsset(asset) {
 	}
 
 	return archivePath;
+}
+
+async function extractZip(archive, destination) {
+	await fs.mkdir(destination, { recursive: true });
+	await execFile(
+		path.join(env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"),
+		["-xf", archive, "-C", destination],
+	);
 }
 
 async function download(url, attempts = 3) {
