@@ -14,6 +14,21 @@ How FrameEver's UI text is written in English and Simplified Chinese. `docs/i18n
 - Descriptions: one sentence.
 - Tooltips: the control's name plus its shortcut, not a sentence (`Split  S`).
 
+## Progressive disclosure
+
+The interface holds what the user needs in order to act. It is not the manual.
+
+- A control is its label. Add a one-sentence description only when the label cannot be understood without it.
+- Reasons, how something works, edge cases, privacy and technical detail stay off the surface. They sit one step away: an info button's popover, a Details expander, or the docs.
+- Core content is layered too: the common choice first, the rest collapsed until it is needed.
+- Say it with the control's state, a default or a picture before saying it in words.
+- The test: cover the text. If the user can still do the right thing, the text does not belong on that level.
+
+| Before | After |
+|---|---|
+| Record input. Key presses are saved only on this PC, are read only while recording, and can be cleared in the editor. | Record input [i], with those three points in the popover and a Learn more link |
+| A panel that lists every option of a feature that is switched off | The switch alone; its options appear once it is on |
+
 ## Capitalisation (English)
 
 - Sentence case everywhere: buttons, headings, menus, settings, tabs. Only the first word is capitalised.
