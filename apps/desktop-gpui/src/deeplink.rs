@@ -893,7 +893,7 @@ mod tests {
         );
     }
 
-    /// Screenshot mode parses -- the type is `frameever_recording::RecordingMode`,
+    /// A `screenshot` mode in a link parses -- the type is `frameever_recording::RecordingMode`,
     /// same as the Tauri enum -- and is refused later, at execution.
     #[test]
     fn parses_screenshot_mode() {

@@ -238,7 +238,7 @@ pub static TRACKS: Doodle = Doodle {
     ],
 };
 
-/// Screenshot mode: crop corners around a little landscape.
+/// Screenshot: crop corners around a little landscape.
 pub static SNAP: Doodle = Doodle {
     view: (120., 104.),
     strokes: &[

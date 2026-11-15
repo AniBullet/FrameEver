@@ -1,5 +1,5 @@
 //! Screenshot capture -- `take_screenshot` (`recording.rs:2852-3057` in the
-//! Tauri app), the path Screenshot mode takes instead of the recording
+//! Tauri app), the path a screenshot takes instead of the recording
 //! actors.
 //!
 //! The Tauri command hides the picker overlays, waits 150ms for the fade,
