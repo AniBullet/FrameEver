@@ -20,6 +20,14 @@ _Avoid_: Studio mode file, raw recording
 A recording captured straight to a single playable video, without an editing step.
 _Avoid_: Quick recording, fast mode
 
+**Recording mode**:
+The way a video is recorded: Studio or Instant, and nothing else.
+_Avoid_: Capture mode, Screenshot mode, GIF mode
+
+**Screenshot**:
+A still image captured from a display, window or area; an action of its own beside recording, not a recording mode.
+_Avoid_: Screenshot mode, snapshot, capture
+
 **Studio Sound**:
 FrameEver's voice clean-up for recorded audio: it lowers background noise and evens out loudness. Capitalised as a proper noun in English; 录音棚音质 in Chinese.
 _Avoid_: noise reduction, audio enhancement
@@ -45,8 +53,8 @@ _Avoid_: Skin, theme, layout file
 ## Output
 
 **Export**:
-The video file rendered from a project's edits; the file the user keeps and shares by hand.
-_Avoid_: Render, output file
+The video or GIF file rendered from a project, whole or from a chosen stretch; the file the user keeps and shares by hand. GIF is only ever an export format.
+_Avoid_: Render, output file, GIF recording
 
 **Compressed copy**:
 A smaller re-encoded version of an Instant recording kept beside the original, so the user can switch between or delete either one.

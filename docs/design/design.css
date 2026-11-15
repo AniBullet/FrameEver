@@ -394,6 +394,22 @@ td.dim {
 	height: 40px;
 }
 
+.start-row {
+	display: flex;
+	gap: 8px;
+}
+
+.start-row .primary {
+	flex: 1;
+	min-width: 0;
+}
+
+.start-row .shot {
+	flex: none;
+	width: 40px;
+	padding: 0;
+}
+
 .btn[disabled] {
 	background: var(--muted);
 	border-color: var(--muted);

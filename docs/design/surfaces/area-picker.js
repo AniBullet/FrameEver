@@ -235,7 +235,23 @@ const ratioBtn = (st) =>
 const areaTools = (st) =>
 	`${ratioBtn(st)}${tbBtn("clear", "rotate-ccw", pick("Clear  R", "清除选区  R"), "", st.locked || !st.crop ? "disabled" : "")}${tbBtn("fill", "maximize", pick("Fill display  F", "填满屏幕  F"), "", st.locked ? "disabled" : "")}${tbBtn("lock", st.locked ? "lock" : "lock-open", st.locked ? pick("Unlock area  L", "解锁区域  L") : pick("Lock area  L", "锁定区域  L"), st.locked ? "on" : "", valid(st, st.crop) ? "" : "disabled")}`;
 const modeBtn = (st) =>
-	`<button class="tb-txt" data-a="menu" data-v="mode" title="${pick("Mode", "模式")}">${icon({ studio: "clapperboard", instant: "zap", screenshot: "image" }[st.mode], "sm")}${icon("chevron-down", "sm")}</button>`;
+	st.mode === "screenshot"
+		? ""
+		: `<button class="tb-txt" data-a="menu" data-v="mode" title="${pick("Mode", "模式")}">${icon({ studio: "clapperboard", instant: "zap" }[st.mode], "sm")}${icon("chevron-down", "sm")}</button>`;
+const shotBtn = (st) =>
+	st.mode === "screenshot"
+		? ""
+		: tbBtn(
+				"shot",
+				"image",
+				st.target === "area"
+					? pick("Screenshot this area", "截取这个选区")
+					: st.target === "window"
+						? pick("Screenshot this window", "截取这个窗口")
+						: pick("Screenshot this display", "截取这个显示器"),
+				"",
+				ready(st) ? "" : "disabled",
+			);
 const devices = (st) =>
 	st.mode === "screenshot"
 		? ""
@@ -278,7 +294,7 @@ const bar = (st, t) => {
 			`<span class="tb-info">${L("Click a window", "点击选定窗口")}</span>`,
 		);
 	const tools = devices(st);
-	const inner = `${lead}${st.target === "area" ? areaTools(st) : targetTools(st, t)}${sep()}${modeBtn(st)}${tools}${tools ? sep() : ""}${startBtn(st)}`;
+	const inner = `${lead}${st.target === "area" ? areaTools(st) : targetTools(st, t)}${sep()}${modeBtn(st)}${tools}${tools ? sep() : ""}${shotBtn(st)}${startBtn(st)}`;
 	return `<div class="tb ui anchored" style="${barSpot(st, t)}">${inner}</div>`;
 };
 
@@ -293,7 +309,6 @@ const menuBody = (st) => {
 		return [
 			["studio", "Studio", "工作室"],
 			["instant", "Instant", "即时"],
-			["screenshot", "Screenshot", "截图"],
 		]
 			.map(([v, en, zh]) => menuRow("set-mode", v, L(en, zh), st.mode === v))
 			.join("");
@@ -925,7 +940,7 @@ const renderTools = () => {
 	])}${seg("mode", s.mode, [
 		["studio", "Studio", "工作室"],
 		["instant", "Instant", "即时"],
-		["screenshot", "Screenshot", "截图"],
+		["screenshot", "Opened for a screenshot", "为截图打开"],
 	])}${seg("countdown", String(s.countdown), [
 		["0", "No countdown", "无倒计时"],
 		["3", "3 s", "3 秒"],
@@ -979,7 +994,7 @@ const renderMinis = () => {
 		],
 		["Window picked", "已选定窗口", { target: "window", pinned: "browser" }],
 		["Whole display", "整个显示器", { target: "display" }],
-		["Screenshot mode", "截图模式", { mode: "screenshot" }],
+		["Opened for a screenshot", "为截图打开", { mode: "screenshot" }],
 		["Countdown over an area", "选区上的倒计时", { phase: "countdown" }],
 		[
 			"Countdown, smallest area",
@@ -1031,8 +1046,8 @@ const copy = () => {
 		],
 		"t-states": ["Every state", "所有状态"],
 		"l-states": [
-			"The bar follows the target: below it, above it when there's no room below, and inside it when the target fills the screen. It hides while you drag. For a whole display it sits at the bottom centre.",
-			"控制条跟着目标走：放在下方，下方放不下就到上方，目标占满屏幕时放到里面。拖动时隐藏。选整个显示器时放在底部中央。",
+			"The bar follows the target: below it, above it when there's no room below, and inside it when the target fills the screen. It hides while you drag. For a whole display it sits at the bottom centre. The recording mode is Studio or Instant only. When the picker is open to record, the image button beside Start recording screenshots the same target instead. Opened from a screenshot shortcut, the tray or the main window's screenshot button, the picker freezes the display, shows the magnifier and has one button, Take screenshot, with no mode, camera or microphone.",
+			"控制条跟着目标走：放在下方，下方放不下就到上方，目标占满屏幕时放到里面。拖动时隐藏。选整个显示器时放在底部中央。录制模式只有工作室和即时。为录制打开选择器时，“开始录制”旁边的图片按钮可以改为截取同一个目标。从截图快捷键、托盘或主窗口的截图按钮打开时，选择器会冻结屏幕、显示放大镜，只有“截图”一个按钮，没有模式、摄像头和麦克风。",
 		],
 		"t-shared": ["Rules", "规则"],
 		"l-shared": ["Why it looks and behaves this way.", "为什么这样设计。"],

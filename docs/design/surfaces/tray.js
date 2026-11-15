@@ -11,7 +11,6 @@ const STATES = [
 const MODES = [
 	["studio", "Studio", "Studio"],
 	["instant", "Instant", "即时"],
-	["screenshot", "Screenshot", "截图"],
 ];
 const RECENT = [
 	["Product demo", "产品演示", "clapperboard"],
@@ -50,17 +49,11 @@ const trayIcon = (state, size) => {
 };
 
 const verb = (target) =>
-	s.mode === "screenshot"
-		? {
-				display: ["Screenshot display", "截取显示器"],
-				window: ["Screenshot window", "截取窗口"],
-				area: ["Screenshot area", "截取区域"],
-			}[target]
-		: {
-				display: ["Record display", "录制显示器"],
-				window: ["Record window", "录制窗口"],
-				area: ["Record area", "录制区域"],
-			}[target];
+	({
+		display: ["Record display", "录制显示器"],
+		window: ["Record window", "录制窗口"],
+		area: ["Record area", "录制区域"],
+	})[target];
 const idleRows = () => [
 	{ t: ["Open FrameEver", "打开帧刻"], a: "open", bold: true },
 	{ t: ["Open library", "打开资源库"], a: "library" },
@@ -69,26 +62,11 @@ const idleRows = () => [
 	{ t: verb("display"), a: "display", ic: "monitor" },
 	{ t: verb("window"), a: "window", ic: "app-window" },
 	{ t: verb("area"), a: "area", ic: "scan", key: "Ctrl Shift 4" },
-	{
-		t:
-			s.mode === "screenshot"
-				? ["Screenshot last area", "截取上次区域"]
-				: ["Record last area", "录制上次区域"],
-		a: "last",
-		ic: "rotate-ccw",
-	},
-	...(s.mode === "screenshot"
-		? []
-		: [
-				{
-					t: ["Take a screenshot", "截图"],
-					a: "shot",
-					ic: "image",
-					key: "Ctrl Shift 2",
-				},
-			]),
+	{ t: ["Record last area", "录制上次区域"], a: "last", ic: "rotate-ccw" },
 	{ sep: 1 },
-	...(s.recent ? [{ t: ["Recent", "最近"], sub: 1, ic: "film" }] : []),
+	{ t: ["Screenshot", "截图"], sub: "shot", ic: "image" },
+	{ sep: 1 },
+	...(s.recent ? [{ t: ["Recent", "最近"], sub: "recent", ic: "film" }] : []),
 	{ t: ["Import media…", "导入媒体…"], a: "import", ic: "download" },
 	{ t: ["Settings", "设置"], a: "settings", ic: "settings" },
 	{ sep: 1 },
@@ -157,13 +135,34 @@ const row = (r) => {
 	if (r.exp)
 		return `<button data-a="export"><span class="grow tnum">${L("Exporting Product demo · 42%", "正在导出 产品演示 · 42%")}</span></button><div class="bar"><div class="progress"><i style="width:42%"></i></div></div>`;
 	if (r.sub)
-		return `<button data-sub class="${s.sub ? "hover" : ""}" aria-haspopup="menu">${icon(r.ic)}<span class="grow">${L(...r.t)}</span><span class="chev">${icon("chevron-right", "sm")}</span></button>`;
+		return `<button data-sub="${r.sub}" class="${s.sub === r.sub ? "hover" : ""}" aria-haspopup="menu">${icon(r.ic)}<span class="grow">${L(...r.t)}</span><span class="chev">${icon("chevron-right", "sm")}</span></button>`;
 	return `<button data-a="${r.a}" class="${r.bold ? "bold" : ""}">${r.ic ? icon(r.ic) : ""}<span class="grow">${L(...r.t)}</span>${r.key ? kbd(r.key) : ""}${r.ver ? '<span class="ver tnum">1.0.0</span>' : ""}</button>`;
 };
 const menu = () =>
 	`<div class="menu tm" role="menu">${rows().map(row).join("")}</div>`;
 const recent = () =>
 	`<div class="menu tm" role="menu"><button class="recent-back" data-sub>${icon("chevron-left", "sm")}<span class="grow">${L("Recent", "最近")}</span></button>${RECENT.map(([en, zh, ic]) => `<button data-a="recent"><span class="thumb">${icon(ic, "sm")}</span><span class="grow">${L(en, zh)}</span></button>`).join("")}<hr><button data-a="library"><span class="grow">${L("All in library", "在资源库里查看全部")}</span></button></div>`;
+
+const shots = () =>
+	`<div class="menu tm" role="menu"><button class="recent-back" data-sub>${icon("chevron-left", "sm")}<span class="grow">${L("Screenshot", "截图")}</span></button>${[
+		[
+			"shot",
+			"monitor",
+			"Screenshot display",
+			"截取显示器",
+			"Ctrl Shift 2",
+		],
+		["shot-window", "app-window", "Screenshot window", "截取窗口"],
+		["shot-area", "scan", "Screenshot area", "截取区域"],
+		["shot-last", "rotate-ccw", "Screenshot last area", "截取上次区域"],
+	]
+		.map(
+			([a, ic, en, zh, key]) =>
+				`<button data-a="${a}">${icon(ic)}<span class="grow">${L(en, zh)}</span>${key ? kbd(key) : ""}</button>`,
+		)
+		.join("")}</div>`;
+const side = () =>
+	s.sub === "recent" ? recent() : s.sub === "shot" ? shots() : "";
 
 const results = {
 	open: ["The compact main window opens.", "打开紧凑主窗口。"],
@@ -181,6 +180,18 @@ const results = {
 	shot: [
 		"Takes a screenshot of the display under the cursor.",
 		"截取光标所在的显示器。",
+	],
+	"shot-window": [
+		"The window picker opens for a screenshot.",
+		"打开窗口选择，用来截图。",
+	],
+	"shot-area": [
+		"The area picker opens for a screenshot, with the display frozen.",
+		"打开区域选择并冻结屏幕，用来截图。",
+	],
+	"shot-last": [
+		"The last area is captured, with no picker.",
+		"直接截取上次的区域，不打开选择器。",
 	],
 	recent: [
 		"The library opens with that project selected.",
@@ -273,7 +284,7 @@ const paint = () => {
 		)}`;
 	const stage = document.getElementById("stage");
 	stage.className = `stage win-${s.win}`;
-	stage.innerHTML = `${s.open ? `<div class="anchor ${s.sub ? "sub-open" : ""}">${s.sub ? recent() : ""}${menu()}</div>` : ""}<div class="taskbar"><button id="tray" aria-label="FrameEver">${trayIcon(s.st, 20)}</button><div class="clock tnum">14:32<br>2026/10/31</div></div>`;
+	stage.innerHTML = `${s.open ? `<div class="anchor ${s.sub ? "sub-open" : ""}">${side()}${menu()}</div>` : ""}<div class="taskbar"><button id="tray" aria-label="FrameEver">${trayIcon(s.st, 20)}</button><div class="clock tnum">14:32<br>2026/10/31</div></div>`;
 	document.getElementById("clicks").innerHTML =
 		`<button class="btn" data-click="left">${L("Left click the icon", "左键点图标")}</button><button class="btn" data-click="right">${L("Right click the icon", "右键点图标")}</button><button class="btn ghost" data-click="close">${L("Click elsewhere", "点别处")}</button>`;
 	document.getElementById("line").innerHTML = s.log ? L(...s.log) : "";
@@ -538,7 +549,10 @@ const copy = () => {
 					"Separate items, ported from upstream: display takes it at once, window and area open the picker",
 					"单独的项目，从上游移植：显示器直接截图，窗口和区域打开选择器",
 				],
-				["Kept", "保留"],
+				[
+					"Kept, in the Screenshot submenu with last area. The mode row is Studio and Instant only",
+					"保留，和上次区域一起放进“截图”子菜单。模式只有工作室和即时",
+				],
 			],
 			[
 				["Take a screenshot", "截图"],
@@ -733,11 +747,12 @@ document.addEventListener("click", (event) => {
 	} else if (mode) {
 		s.mode = mode.dataset.mode;
 		s.log = [
-			"The mode changes and the capture rows follow.",
-			"模式切换，下面的捕获行跟着变。",
+			"The recording mode changes. Screenshots stay in their own submenu.",
+			"录制模式切换。截图一直在自己的子菜单里。",
 		];
 	} else if (target.closest("[data-sub]")) {
-		s.sub = !s.sub;
+		const id = target.closest("[data-sub]").dataset.sub;
+		s.sub = id && s.sub !== id ? id : false;
 	} else if (action) {
 		act(action.dataset.a);
 	} else if (target.closest("#tray")) {
