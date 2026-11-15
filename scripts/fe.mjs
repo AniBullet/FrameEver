@@ -137,9 +137,22 @@ function pathKey(env) {
 	return Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
 }
 
-export function withFfmpeg(env = process.env) {
+const macDylibDirs = [
+	path.join(root, "target", "native-deps", "lib"),
+	path.join(root, "target", "Frameworks", "Spacedrive.framework", "Libraries"),
+];
+
+export function withFfmpeg(env = process.env, platform = process.platform) {
 	const key = pathKey(env);
-	return { ...env, [key]: `${ffmpegBin}${path.delimiter}${env[key] ?? ""}` };
+	const withPath = {
+		...env,
+		[key]: `${ffmpegBin}${path.delimiter}${env[key] ?? ""}`,
+	};
+	if (platform !== "darwin") return withPath;
+	const fallback = [...macDylibDirs, env.DYLD_FALLBACK_LIBRARY_PATH]
+		.filter(Boolean)
+		.join(":");
+	return { ...withPath, DYLD_FALLBACK_LIBRARY_PATH: fallback };
 }
 
 export function testProfileEnv(env = process.env) {
