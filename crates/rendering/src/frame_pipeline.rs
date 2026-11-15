@@ -289,14 +289,31 @@ fn surface_allocation_attributes(limit: usize) -> Result<arc::R<cf::Dictionary>,
 }
 
 #[cfg(target_os = "macos")]
+fn pool_pixel_buffer(
+    pool: &cv::PixelBufPool,
+    allocation_attributes: &cf::Dictionary,
+) -> cidre::os::Result<Option<arc::R<cv::PixelBuf>>> {
+    let mut buffer = None;
+    let status = unsafe {
+        pool.create_pixel_buf_with_aux_attributes_in(None, Some(allocation_attributes), &mut buffer)
+    };
+    status.to_result_option(buffer)
+}
+
+#[cfg(target_os = "macos")]
 async fn acquire_surface_buffer<T: Send>(
     owner: &mut T,
-    mut allocate: impl FnMut(&mut T) -> Result<arc::R<cv::PixelBuf>, cidre::os::Error> + Send,
+    mut allocate: impl FnMut(&mut T) -> cidre::os::Result<Option<arc::R<cv::PixelBuf>>> + Send,
 ) -> Result<arc::R<cv::PixelBuf>, RenderingError> {
     let started = Instant::now();
     loop {
         let error = match allocate(owner) {
-            Ok(buffer) => return Ok(buffer),
+            Ok(Some(buffer)) => return Ok(buffer),
+            Ok(None) => {
+                return Err(RenderingError::Surface(
+                    "Surface pool returned no pixel buffer".to_string(),
+                ));
+            }
             Err(error) => error,
         };
         if error != cv::err::WOULD_EXCEED_ALLOCATION_THRESHOLD
@@ -414,10 +431,10 @@ impl Nv12SurfaceRing {
             ));
         }
         let pixel_buffer = acquire_surface_buffer(self, |this| {
-            this.pool
-                .as_ref()
-                .expect("pool checked above")
-                .pixel_buf_with_aux_attrs(Some(&this.allocation_attributes))
+            pool_pixel_buffer(
+                this.pool.as_ref().expect("pool checked above"),
+                &this.allocation_attributes,
+            )
         })
         .await?;
         let io_surface = pixel_buffer
@@ -1371,10 +1388,10 @@ impl RgbaToBgraSurfaceConverter {
             ));
         }
         let pixel_buffer = acquire_surface_buffer(self, |this| {
-            this.pool
-                .as_ref()
-                .expect("pool checked above")
-                .pixel_buf_with_aux_attrs(Some(&this.allocation_attributes))
+            pool_pixel_buffer(
+                this.pool.as_ref().expect("pool checked above"),
+                &this.allocation_attributes,
+            )
         })
         .await?;
         let surface = pixel_buffer
