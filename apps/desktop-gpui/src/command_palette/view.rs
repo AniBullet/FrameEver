@@ -569,6 +569,7 @@ pub fn act(palette: &Entity<CommandPalette>, outcome: &Outcome, cx: &mut App) ->
                     app_windows::open_settings(crate::settings_window::last_page(), cx);
                     cx.activate(true);
                 }),
+                Command::ShowOnboarding => cx.defer(app_windows::show_onboarding_again),
                 Command::OpenStorageFolder => {
                     library::open_with_system(&library::storage().storage_dir(), cx);
                 }

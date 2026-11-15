@@ -640,7 +640,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Your recordings are here", "录好的内容都在这里"),
     ("1 item", "1 项"),
     ("{count} items", "{count} 项"),
-    ("Start Recording", "开始录制"),
     (
         "The selected window is no longer available. Select it again.",
         "所选窗口已不可用，请重新选择。",

@@ -68,13 +68,14 @@ pub enum Command {
     Redo,
     OpenStorageFolder,
     OpenSettings,
+    ShowOnboarding,
     StopRecording,
     PauseRecording,
     RestartRecording,
 }
 
 impl Command {
-    pub const ALL: [Command; 19] = [
+    pub const ALL: [Command; 20] = [
         Command::StartRecording,
         Command::TakeScreenshot,
         Command::ShowLibrary,
@@ -91,6 +92,7 @@ impl Command {
         Command::Redo,
         Command::OpenStorageFolder,
         Command::OpenSettings,
+        Command::ShowOnboarding,
         Command::StopRecording,
         Command::PauseRecording,
         Command::RestartRecording,
@@ -119,6 +121,7 @@ impl Command {
             Command::Redo => n!("Redo"),
             Command::OpenStorageFolder => n!("Open storage folder"),
             Command::OpenSettings => n!("Open settings"),
+            Command::ShowOnboarding => n!("Show onboarding again"),
             Command::StopRecording => n!("Stop recording"),
             Command::PauseRecording => n!("Pause"),
             Command::RestartRecording => n!("Restart"),
@@ -142,6 +145,7 @@ impl Command {
             Command::Redo => "icons/redo-2.svg",
             Command::OpenStorageFolder => "icons/folder-open.svg",
             Command::OpenSettings => "icons/settings.svg",
+            Command::ShowOnboarding => "icons/circle-question-mark.svg",
             Command::StopRecording => "icons/square.svg",
             Command::PauseRecording => "icons/pause.svg",
             Command::RestartRecording => "icons/rotate-ccw.svg",
@@ -167,7 +171,7 @@ impl Command {
     fn offered_on(self, surface: Surface) -> bool {
         use Surface::{Editor, Library, Recorder, ScreenshotEditor};
         match self {
-            Command::StartRecording | Command::TakeScreenshot => {
+            Command::StartRecording | Command::TakeScreenshot | Command::ShowOnboarding => {
                 matches!(surface, Recorder | Library)
             }
             Command::ShowLibrary => surface != Library,
@@ -760,6 +764,9 @@ mod tests {
         assert!(has(Surface::Editor, Command::ExportProject));
         assert!(!has(Surface::Editor, Command::StartRecording));
         assert!(has(Surface::ScreenshotEditor, Command::CopyScreenshot));
+        assert!(has(Surface::Recorder, Command::ShowOnboarding));
+        assert!(has(Surface::Library, Command::ShowOnboarding));
+        assert!(!has(Surface::Editor, Command::ShowOnboarding));
         assert!(!has(Surface::ScreenshotEditor, Command::PlayPause));
         for surface in [
             Surface::Recorder,

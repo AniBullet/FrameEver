@@ -236,6 +236,7 @@ pub struct AppWindows {
     pub camera: Option<WindowHandle<CameraWindow>>,
     pub settings: Option<WindowHandle<SettingsWindow>>,
     pub onboarding: Option<WindowHandle<OnboardingWindow>>,
+    onboarding_again: bool,
     pub mode_select: Option<WindowHandle<ModeSelectWindow>>,
     pub teleprompter: Option<WindowHandle<TeleprompterWindow>>,
     /// One target-select overlay per display, keyed by display so a mode
@@ -394,6 +395,7 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
         camera: None,
         settings: None,
         onboarding: None,
+        onboarding_again: false,
         mode_select: None,
         teleprompter: None,
         overlays: Vec::new(),
@@ -1270,6 +1272,19 @@ pub fn open_onboarding(cx: &mut App) {
     .detach();
     hide_main_and_park_camera_preview(cx);
     crate::tray::refresh_menu(cx);
+}
+
+pub fn show_onboarding_again(cx: &mut App) {
+    if cx.global::<AppWindows>().onboarding.is_none() {
+        cx.global_mut::<AppWindows>().onboarding_again = true;
+    }
+    open_onboarding(cx);
+    cx.activate(true);
+}
+
+pub fn take_onboarding_again(cx: &mut App) -> bool {
+    cx.has_global::<AppWindows>()
+        && std::mem::take(&mut cx.global_mut::<AppWindows>().onboarding_again)
 }
 
 pub fn onboarding_finished(cx: &mut App) {
@@ -2603,6 +2618,7 @@ fn own_windows(cx: &mut App) -> Vec<OwnWindowHandle> {
         camera,
         settings,
         onboarding,
+        onboarding_again: _,
         mode_select,
         teleprompter,
         overlays,
@@ -7066,6 +7082,7 @@ mod countdown_hotkey_tests {
                 camera: None,
                 settings: None,
                 onboarding: None,
+                onboarding_again: false,
                 mode_select: None,
                 teleprompter: None,
                 overlays: Vec::new(),
@@ -7143,6 +7160,7 @@ mod controls_preflight_tests {
                 camera: None,
                 settings: None,
                 onboarding: None,
+                onboarding_again: false,
                 mode_select: None,
                 teleprompter: None,
                 overlays: Vec::new(),

@@ -43,7 +43,7 @@ use crate::{
 
 /// `font-mono` in the TSX resolves to the platform mono stack; the closest
 /// single face per OS, since no mono font is bundled.
-const MONO_FONT: &str = if cfg!(target_os = "macos") {
+pub(crate) const MONO_FONT: &str = if cfg!(target_os = "macos") {
     "Menlo"
 } else if cfg!(target_os = "windows") {
     "Consolas"
@@ -587,11 +587,11 @@ impl SettingsWindow {
 
 const SHORTCUT_SAVED_NOTICE: std::time::Duration = std::time::Duration::from_secs(6);
 
-fn shortcut_label(action: &str) -> &'static str {
+pub(crate) fn shortcut_label(action: &str) -> &'static str {
     tr(catalog::shortcut_label(action))
 }
 
-fn assign_shortcut(
+pub(crate) fn assign_shortcut(
     hotkeys: &mut Map<String, Value>,
     action: &'static str,
     hotkey: &Hotkey,
@@ -791,6 +791,24 @@ fn shortcut_needs_modifier(hotkey: &Hotkey) -> bool {
     !(hotkey.meta || hotkey.ctrl || hotkey.alt) && !is_function_key(&hotkey.code)
 }
 
+pub(crate) fn hotkey_from_keystroke(keystroke: &gpui::Keystroke) -> Result<Hotkey, &'static str> {
+    let code = hotkey_code_for_key(&keystroke.key)
+        .filter(|code| global_hotkey::hotkey::Code::from_str(code).is_ok())
+        .ok_or(UNSUPPORTED_KEY)?;
+    let modifiers = keystroke.modifiers;
+    let hotkey = Hotkey {
+        code,
+        meta: modifiers.platform,
+        ctrl: modifiers.control,
+        alt: modifiers.alt,
+        shift: modifiers.shift,
+    };
+    if shortcut_needs_modifier(&hotkey) {
+        return Err(NEEDS_MODIFIER);
+    }
+    Ok(hotkey)
+}
+
 const NEEDS_MODIFIER: &str = if cfg!(target_os = "macos") {
     n!("Include ⌘, ⌃ or ⌥ so the shortcut doesn't get in the way of typing.")
 } else {
@@ -842,7 +860,7 @@ fn held_modifier_keys(modifiers: gpui::Modifiers) -> Vec<String> {
     keys
 }
 
-fn hotkey_inline_text(hotkey: &Hotkey) -> String {
+pub(crate) fn hotkey_inline_text(hotkey: &Hotkey) -> String {
     let separator = if cfg!(target_os = "macos") { "" } else { "+" };
     hotkey_display_keys(hotkey)
         .iter()
@@ -977,29 +995,14 @@ impl SettingsWindow {
             return true;
         }
 
-        // A code the Tauri app cannot parse must never reach the store: its
-        // `HotkeysStore` deserializes the whole `hotkeys` map strictly
-        // (`serde_json::from_value` in `HotkeysStore::get`), so one bad entry
-        // would silently drop every binding over there.
-        let Some(code) = hotkey_code_for_key(&keystroke.key)
-            .filter(|code| global_hotkey::hotkey::Code::from_str(code).is_ok())
-        else {
-            listening.error = Some(UNSUPPORTED_KEY);
-            cx.notify();
-            return true;
+        let hotkey = match hotkey_from_keystroke(keystroke) {
+            Ok(hotkey) => hotkey,
+            Err(error) => {
+                listening.error = Some(error);
+                cx.notify();
+                return true;
+            }
         };
-        let hotkey = Hotkey {
-            code,
-            meta: modifiers.platform,
-            ctrl: modifiers.control,
-            alt: modifiers.alt,
-            shift: modifiers.shift,
-        };
-        if shortcut_needs_modifier(&hotkey) {
-            listening.error = Some(NEEDS_MODIFIER);
-            cx.notify();
-            return true;
-        }
 
         let moved_from = assign_shortcut(&mut self.pages.hotkeys, action, &hotkey);
         self.pages.listening = None;

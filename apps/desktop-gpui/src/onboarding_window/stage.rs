@@ -313,7 +313,7 @@ impl OnboardingWindow {
             .flex_row()
             .items_center()
             .justify_center()
-            .min_h_full()
+            .flex_grow(1.)
             .px(px(40.))
             .py(px(24.))
             .gap(px(44.))

@@ -103,7 +103,7 @@ impl MainWindow {
             .child(
                 self.title_icon("help", "icons/circle-question-mark.svg", t!("Help & Tour"))
                     .on_click(cx.listener(|_, _, _, cx| {
-                        cx.defer(app_windows::open_onboarding);
+                        cx.defer(app_windows::show_onboarding_again);
                     })),
             )
     }
