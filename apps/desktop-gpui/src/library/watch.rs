@@ -88,6 +88,7 @@ mod tests {
         let project = dir.path().join("Demo.ever");
         std::fs::create_dir(&project).unwrap();
         let watcher = LibraryWatcher::start(&[dir.path().to_path_buf()]).unwrap();
+        drain(&watcher);
 
         std::fs::write(dir.path().join("notes.txt"), b"x").unwrap();
         std::fs::write(project.join("segment.m4s"), b"x").unwrap();

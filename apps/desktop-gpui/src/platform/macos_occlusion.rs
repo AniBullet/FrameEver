@@ -165,6 +165,17 @@ mod tests {
 
     use super::*;
 
+    static TEST_WINDOW_SHIM: OcclusionShim = OcclusionShim::new();
+    static TEST_PANEL_SHIM: OcclusionShim = OcclusionShim::new();
+
+    unsafe extern "C" fn test_window_state(receiver: *mut AnyObject, selector: Sel) -> usize {
+        unsafe { TEST_WINDOW_SHIM.state(receiver, selector) }
+    }
+
+    unsafe extern "C" fn test_panel_state(receiver: *mut AnyObject, selector: Sel) -> usize {
+        unsafe { TEST_PANEL_SHIM.state(receiver, selector) }
+    }
+
     thread_local! {
         static RAW_STATE: Cell<usize> = const { Cell::new(0) };
         static VISIBLE: Cell<bool> = const { Cell::new(true) };
@@ -245,8 +256,8 @@ mod tests {
             );
             let window = inherit("CapOcclusionTestWindow", native_window);
             let panel = inherit("CapOcclusionTestPanel", native_panel);
-            assert!(WINDOW_SHIM.install(window, window_occlusion_state).unwrap());
-            assert!(PANEL_SHIM.install(panel, panel_occlusion_state).unwrap());
+            assert!(TEST_WINDOW_SHIM.install(window, test_window_state).unwrap());
+            assert!(TEST_PANEL_SHIM.install(panel, test_panel_state).unwrap());
 
             let mut inherited_window = window;
             let mut inherited_panel = panel;
@@ -355,13 +366,13 @@ mod tests {
         let classes = classes();
         for _ in 0..10 {
             assert!(
-                !WINDOW_SHIM
-                    .install(classes.window, window_occlusion_state)
+                !TEST_WINDOW_SHIM
+                    .install(classes.window, test_window_state)
                     .unwrap()
             );
             assert!(
-                !PANEL_SHIM
-                    .install(classes.panel, panel_occlusion_state)
+                !TEST_PANEL_SHIM
+                    .install(classes.panel, test_panel_state)
                     .unwrap()
             );
         }
@@ -406,7 +417,7 @@ mod tests {
             );
         }
         let class = builder.register();
-        assert!(state.install(class, window_occlusion_state).is_err());
+        assert!(state.install(class, test_window_state).is_err());
         assert!(state.original.get().is_none());
     }
 
@@ -418,7 +429,7 @@ mod tests {
             NSObject::class(),
             native_window_state,
         );
-        assert!(!state.install(class, window_occlusion_state).unwrap());
+        assert!(!state.install(class, test_window_state).unwrap());
         let instance: Id<NSObject> = unsafe { msg_send_id![class, new] };
         RAW_STATE.set(0x2000);
         let raw: usize = unsafe { msg_send![&*instance, occlusionState] };
@@ -429,7 +440,7 @@ mod tests {
     fn missing_native_method_does_not_install_a_shim() {
         let state = OcclusionShim::new();
         let class = inherit("CapOcclusionTestMissingMethod", NSObject::class());
-        assert!(state.install(class, window_occlusion_state).is_err());
+        assert!(state.install(class, test_window_state).is_err());
         assert!(state.original.get().is_none());
         assert!(class.instance_method(sel!(occlusionState)).is_none());
     }
