@@ -12,7 +12,7 @@ pnpm fe            # 列出全部命令
 
 | 依赖 | 说明 |
 |---|---|
-| Windows 10/11 x64 | 目前只构建和发布 Windows 版；macOS 代码保留到 Windows 1.0.0 之后再做，不支持 Linux |
+| Windows 10/11 x64 | 目前只发布 Windows 版；macOS 版由 CI 在 Apple 芯片的 Mac 上编译和测试（`.github/workflows/macos.yml`），还没在真机上跑过；不支持 Linux |
 | Node.js 20+ 与 pnpm 10 | `npm install -g pnpm@10.5.2` |
 | Rust（rustup） | stable；`pnpm fe setup` 会补装 |
 | Visual Studio 2022 生成工具 | 含“使用 C++ 的桌面开发”、LLVM（clang）组件和 CMake |
