@@ -111,6 +111,7 @@ The page also draws the doodles' idle motion (bob, pulse, march), which the app 
 - **Layout:** `onboarding-scroll` is a flex column and the step wrapper grows (`flex_grow(1.)`, `flex_shrink_0`), so `justify_center` centres short steps and tall ones scroll.
 - Removed: the old Overview, Toggle, "Make FrameEver yours" and FAQ steps, the Cap share card and old demos, 52 zh-CN strings they used, and the `circle-pause`, `circle-stop` and `ellipsis-vertical` icons only those demos drew.
 - Approximations, because gpui has no CSS transforms or box-shadow cutouts: the editor's auto zoom grows the frame instead of scaling it, the spotlight is a filled ellipse on the scrim, and the library expands by width and height from the top left.
+- Known limits from review: the taken-key note shows only after Back, because Continue moves on before the OS answers (as the rule asks); "Show onboarding again" on an onboarding window that is already open only brings it forward, which cannot happen today because the main window and its palette are hidden while onboarding is open.
 - Not checked: the running app against the design page in both languages and themes (owner), a key another program really holds, and Change… with the native folder picker.
 
 ### Motion and hand-drawn touches (AniBullet/FrameEver#89, 2026-10-31)
