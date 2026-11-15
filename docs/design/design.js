@@ -18,6 +18,7 @@ window.FE = (() => {
 		["camera-teleprompter", "Camera and teleprompter", "摄像头和提词器", true],
 		["converter", "FrameEver Converter", "FrameEver Converter", true],
 		["installer", "Installer", "安装器", true],
+		["onboarding", "Onboarding", "引导", true],
 	];
 	const state = { ...defaults, at: "" };
 
