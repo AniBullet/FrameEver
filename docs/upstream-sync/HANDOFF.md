@@ -284,7 +284,6 @@ Validation: both filtered path tests passed, including mixed-separator UNC refus
 - The Claude Desktop pane "FrameEver 开发" (`.claude/skills/frameever-dev`, tracked in the repo) has buttons that call `pnpm fe`.
 - Both workspaces build with Rust stable (`rust-toolchain.toml`). The GPUI manifest is the version source (`1.0.0-dev`); CI stamps the tag's version.
 - Windows long paths are enabled (`LongPathsEnabled = 1`), but MSVC's linker, NSIS and some build scripts still fail past 260 characters. Packaging from a deep folder such as `.claude\worktrees\<name>` can fail; package from the main checkout.
-- Leftover untracked build output from the deleted Tauri app may remain in `apps/desktop/` and `packages/ui-solid/` (`node_modules`, `gen`, `binaries`, `dist`); it is safe to delete. `.claude/worktrees/zed-cap` is the patched gpui checkout used by worktrees and can go once no worktree needs it.
 - In this clone the `upstream` remote has a broken push URL and fetches no tags, and `gh repo set-default` is `AniBullet/FrameEver`; repeat that setup in any new clone (`docs/agents/issue-tracker.md`).
 
 ## Local folder
