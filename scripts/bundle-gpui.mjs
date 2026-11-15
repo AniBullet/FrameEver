@@ -10,7 +10,7 @@ const repoRoot = path.resolve(
 );
 export const gpuiDirectory = path.join(repoRoot, "apps", "desktop-gpui");
 export const gpuiToolchain =
-	process.env.FRAMEEVER_GPUI_RUST_TOOLCHAIN || "1.95.0";
+	process.env.FRAMEEVER_GPUI_RUST_TOOLCHAIN || "1.100.0";
 
 const platformConfigNames = {
 	darwin: "tauri.macos.conf.json",

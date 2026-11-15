@@ -67,10 +67,10 @@ async function main() {
 
 		if (!(await fileExists(nativeDepsTarPath))) {
 			console.log(`Downloading ${nativeDepsTar}`);
-			const nativeDepsBytes = await fetch(`${NATIVE_DEPS_URL}/${nativeDepsTar}`)
-				.then((r) => r.blob())
-				.then((b) => b.arrayBuffer());
-			await fs.writeFile(nativeDepsTarPath, Buffer.from(nativeDepsBytes));
+			await fs.writeFile(
+				nativeDepsTarPath,
+				await download(`${NATIVE_DEPS_URL}/${nativeDepsTar}`),
+			);
 			console.log("Downloaded native deps");
 			downloadedNativeDeps = true;
 		} else console.log(`Using cached ${nativeDepsTar}`);
@@ -144,10 +144,7 @@ async function main() {
 		const ffmpegZip = `ffmpeg-${FFMPEG_VERSION}.zip`;
 		const ffmpegZipPath = path.join(targetDir, ffmpegZip);
 		if (!(await fileExists(ffmpegZipPath))) {
-			const ffmpegZipBytes = await fetch(FFMPEG_ZIP_URL)
-				.then((r) => r.blob())
-				.then((b) => b.arrayBuffer());
-			await fs.writeFile(ffmpegZipPath, Buffer.from(ffmpegZipBytes));
+			await fs.writeFile(ffmpegZipPath, await download(FFMPEG_ZIP_URL));
 			console.log(`Downloaded ${ffmpegZip}`);
 			downloadedFfmpeg = true;
 		} else console.log(`Using cached ${ffmpegZip}`);
@@ -349,10 +346,7 @@ async function setupMacOSOnnxRuntime() {
 
 	if (!(await fileExists(archivePath))) {
 		console.log(`Downloading ${asset.name}`);
-		const bytes = await fetch(url)
-			.then((r) => r.blob())
-			.then((b) => b.arrayBuffer());
-		await fs.writeFile(archivePath, Buffer.from(bytes));
+		await fs.writeFile(archivePath, await download(url));
 		console.log(`Downloaded ${asset.name}`);
 	} else console.log(`Using cached ${asset.name}`);
 
@@ -403,10 +397,7 @@ async function setupWindowsOnnxRuntime() {
 
 	if (!(await fileExists(archivePath))) {
 		console.log(`Downloading ${asset.name}`);
-		const bytes = await fetch(url)
-			.then((r) => r.blob())
-			.then((b) => b.arrayBuffer());
-		await fs.writeFile(archivePath, Buffer.from(bytes));
+		await fs.writeFile(archivePath, await download(url));
 		console.log(`Downloaded ${asset.name}`);
 	} else console.log(`Using cached ${asset.name}`);
 
@@ -550,6 +541,22 @@ async function downloadVerifiedAsset(asset) {
 	}
 
 	return archivePath;
+}
+
+async function download(url, attempts = 3) {
+	for (let attempt = 1; ; attempt += 1) {
+		try {
+			const response = await fetch(url);
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			return Buffer.from(await response.arrayBuffer());
+		} catch (error) {
+			if (attempt === attempts) {
+				throw new Error(`Failed to download ${url}: ${error.message}`);
+			}
+			console.log(`Download failed (${error.message}); trying again`);
+			await new Promise((resolve) => setTimeout(resolve, 5000 * attempt));
+		}
+	}
 }
 
 async function writeFileIfChanged(filePath, contents) {
