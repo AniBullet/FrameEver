@@ -91,6 +91,7 @@ const DESIGN_PAGES = [
   { key: 'design-installer', label: '安装器', path: 'docs\\design\\surfaces\\installer.html' },
   { key: 'design-converter', label: 'Converter', path: 'docs\\design\\surfaces\\converter.html' },
   { key: 'design-onboarding', label: '引导', path: 'docs\\design\\surfaces\\onboarding.html' },
+  { key: 'design-input-display', label: '操作显示', path: 'docs\\design\\surfaces\\input-display.html' },
 ]
 
 const LANGUAGES: { value: AppLanguage; label: string }[] = [
