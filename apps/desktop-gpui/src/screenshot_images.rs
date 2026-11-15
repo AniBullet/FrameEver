@@ -288,6 +288,8 @@ pub(crate) mod tests {
         let bundle = Path::new("Shot.ever");
         assert!(image_path(bundle, "images/a.png").is_some());
         assert!(image_path(bundle, "../a.png").is_none());
+        assert!(image_path(bundle, "/a.png").is_none());
+        #[cfg(windows)]
         assert!(image_path(bundle, "C:\\a.png").is_none());
     }
 

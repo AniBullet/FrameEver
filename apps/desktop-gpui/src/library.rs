@@ -3091,6 +3091,7 @@ mod tests {
         assert_ne!(row_id(first), row_id(second));
     }
 
+    #[cfg(windows)]
     #[test]
     fn shell_paths_lose_the_verbatim_prefix() {
         assert_eq!(

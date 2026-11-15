@@ -219,6 +219,7 @@ fn segments_play_one_after_another_on_one_timeline() {
     assert!(started.elapsed().as_secs_f64() > 0.7);
 }
 
+#[cfg(windows)]
 #[test]
 fn closing_the_player_lets_go_of_the_file() {
     let fixture = Fixture::new(vec![silent_segment(2.)]);
