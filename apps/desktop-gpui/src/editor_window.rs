@@ -654,7 +654,7 @@ impl EditorPreviewFrame {
                 bounds,
                 bounds,
                 corners,
-                crate::platform::gpui_surface(surface),
+                crate::platform::gpui_pixel_buffer(surface),
             ),
         }
     }

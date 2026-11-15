@@ -93,16 +93,12 @@ pub(crate) fn keep_dates(path: &Path, from: &Metadata) -> std::io::Result<()> {
     if let Ok(modified) = from.modified() {
         times = times.set_modified(modified);
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
-        use std::os::windows::fs::FileTimesExt;
-        if let Ok(created) = from.created() {
-            times = times.set_created(created);
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
+        #[cfg(target_os = "macos")]
         use std::os::macos::fs::FileTimesExt;
+        #[cfg(windows)]
+        use std::os::windows::fs::FileTimesExt;
         if let Ok(created) = from.created() {
             times = times.set_created(created);
         }
