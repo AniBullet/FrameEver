@@ -1073,6 +1073,8 @@ const S = {
 	preset: 0,
 	ex: {
 		dest: 0,
+		range: 0,
+		clip: null,
 		format: 0,
 		codec: 0,
 		res: 1,
@@ -1393,7 +1395,22 @@ const optGroup = (key, titleEn, titleZh, opts, disabled = []) =>
 		.join("")}</div>`;
 const exportForm = () => {
 	const gif = S.ex.format === 1;
+	const clip = S.ex.clip === null ? null : clipSegs[S.ex.clip];
+	const clipName = clip
+		? [
+				`${clip.l[0]} · ${fmt(clip.e - clip.s)}`,
+				`${clip.l[1]} · ${fmt(clip.e - clip.s)}`,
+			]
+		: null;
 	return `<div class="ex-form">
+		${
+			clip
+				? optGroup("range", "Range", "范围", [
+						["Whole video", "整个视频"],
+						clipName,
+					])
+				: ""
+		}
 		${optGroup("dest", "Destination", "保存到", [
 			["File", "文件"],
 			["Clipboard", "剪贴板"],
@@ -1453,9 +1470,13 @@ const exportForm = () => {
 	</div>`;
 };
 const stats = (two) => {
-	const size = [24, 64, 310][S.ex.res] * [0.5, 1, 1.6][S.ex.fps % 3];
+	const clip =
+		S.ex.range === 1 && S.ex.clip !== null ? clipSegs[S.ex.clip] : null;
+	const length = clip ? clip.e - clip.s : TOTAL;
+	const size =
+		([24, 64, 310][S.ex.res] * [0.5, 1, 1.6][S.ex.fps % 3] * length) / TOTAL;
 	return `<div class="stats ${two ? "two" : ""}">
-		<div><small>${L("Duration", "时长")}</small><b>${fmt(TOTAL)}</b></div>
+		<div><small>${L("Duration", "时长")}</small><b>${fmt(length)}</b></div>
 		<div><small>${L("Output", "输出")}</small><b>${["1280 × 720", "1920 × 1080", "3840 × 2160"][S.ex.res]}</b></div>
 		<div><small>${L("Estimated size", "预计大小")}</small><b>${Math.round(size)} MB</b></div>
 		<div><small>${L("Export time", "导出时间")}</small><b>${["0:40", "1:12", "3:05"][S.ex.res]}</b></div>
@@ -1534,6 +1555,7 @@ const menus = {
 			<button data-act="close">${icon("arrow-up")}${L("Move clip up", "上移片段")}</button>
 			<button data-act="close">${icon("arrow-down")}${L("Move clip down", "下移片段")}</button>
 			<button data-act="close">${icon("pencil")}${L("Rename clip", "重命名片段")}</button>
+			<button data-act="export-clip">${icon("download")}${L("Export this clip…", "导出这个片段…")}</button>
 			<button class="danger" data-act="close">${icon("trash")}<span class="grow">${L("Delete before playhead", "删除播放头之前的部分")}</span><span class="kbd">Q</span></button>
 			<button class="danger" data-act="close">${icon("trash")}<span class="grow">${L("Delete after playhead", "删除播放头之后的部分")}</span><span class="kbd">W</span></button>
 			<button class="danger" data-act="close">${icon("trash")}<span class="grow">${L("Delete clip", "删除片段")}</span><span class="kbd">Del</span></button>
@@ -1706,6 +1728,16 @@ const act = (el, event) => {
 			S.zoom = Math.min(6, Math.max(1, S.zoom + Number(d.v)));
 			break;
 		case "export":
+			S.ex.clip = S.sel?.track === "video" ? S.sel.i : null;
+			S.ex.range = 0;
+			S.view = "export";
+			S.exStage = "form";
+			S.menu = null;
+			S.sel = null;
+			break;
+		case "export-clip":
+			S.ex.clip = S.menuClip ?? 0;
+			S.ex.range = 1;
 			S.view = "export";
 			S.exStage = "form";
 			S.menu = null;
@@ -2105,6 +2137,13 @@ const renderDocs = () => {
 				"导出选项、估算、进度、取消、完成、失败（详情和导出日志）",
 			],
 			["Export page", "导出页"],
+		],
+		[
+			[
+				"Export only one clip: split around the stretch you want, then choose Export this clip from its menu, or select it and press Export. Range appears on the export page for MP4 and GIF alike",
+				"只导出一个片段：在想要的那一段两头分割，然后在片段菜单里选“导出这个片段”，或者选中它再按“导出”。导出页会出现“范围”，MP4 和 GIF 都能用",
+			],
+			["Clip menu, export page", "片段菜单、导出页"],
 		],
 		[
 			["Turbo export", "Turbo 导出"],

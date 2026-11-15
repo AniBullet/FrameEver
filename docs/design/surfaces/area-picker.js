@@ -148,7 +148,12 @@ const wallPixel = (x, y) => {
 };
 
 const magnifier = (st) => {
-	if (st.mode !== "screenshot" || st.target !== "area" || !st.drag || !st.pointer)
+	if (
+		st.mode !== "screenshot" ||
+		st.target !== "area" ||
+		!st.drag ||
+		!st.pointer
+	)
 		return "";
 	const { x, y } = st.pointer;
 	const left = clamp(x + 142 <= W ? x + 20 : x - 142, 0, W - 122);

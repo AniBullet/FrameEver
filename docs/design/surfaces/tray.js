@@ -145,13 +145,7 @@ const recent = () =>
 
 const shots = () =>
 	`<div class="menu tm" role="menu"><button class="recent-back" data-sub>${icon("chevron-left", "sm")}<span class="grow">${L("Screenshot", "截图")}</span></button>${[
-		[
-			"shot",
-			"monitor",
-			"Screenshot display",
-			"截取显示器",
-			"Ctrl Shift 2",
-		],
+		["shot", "monitor", "Screenshot display", "截取显示器", "Ctrl Shift 2"],
 		["shot-window", "app-window", "Screenshot window", "截取窗口"],
 		["shot-area", "scan", "Screenshot area", "截取区域"],
 		["shot-last", "rotate-ccw", "Screenshot last area", "截取上次区域"],
