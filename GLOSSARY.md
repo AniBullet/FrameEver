@@ -28,6 +28,20 @@ _Avoid_: noise reduction, audio enhancement
 The on-disk folder holding one recording's media tracks, metadata and edit configuration.
 _Avoid_: Recording folder, session
 
+## Input
+
+**Input record**:
+The key presses, mouse buttons, wheel steps and gamepad buttons, sticks and triggers saved with a Studio recording, each with its time. It is user content and stays in the project.
+_Avoid_: Key log, input log, keystrokes
+
+**Input display**:
+A picture of a keyboard, mouse or gamepad drawn over the video whose keys and buttons light up as they were pressed. Off by default; 操作显示 in Chinese.
+_Avoid_: Input overlay, key overlay, keyboard overlay
+
+**Input preset**:
+One look for the input display: a layout of keys and buttons with its artwork. FrameEver ships a few and the user can import more from a folder.
+_Avoid_: Skin, theme, layout file
+
 ## Output
 
 **Export**:
