@@ -117,7 +117,7 @@ index 214a43f..5800ad4 100644
 +    }
 +}
 diff --git a/crates/gpui_apple/src/metal_renderer.rs b/crates/gpui_apple/src/metal_renderer.rs
-index 862e62a..a780b78 100644
+index 862e62a..48f93cf 100644
 --- a/crates/gpui_apple/src/metal_renderer.rs
 +++ b/crates/gpui_apple/src/metal_renderer.rs
 @@ -3,8 +3,8 @@ use anyhow::{Context as _, Result};
@@ -244,15 +244,15 @@ index 862e62a..a780b78 100644
 +                    return None;
 +                }
 +                ptr::NonNull::new(texture).map(|texture| CFRetained::<CVMetalTexture>::from_raw(texture))
-             };
--            let y_texture = plane_texture(0, objc2_metal::MTLPixelFormat::R8Unorm);
--            let cb_cr_texture = plane_texture(1, objc2_metal::MTLPixelFormat::RG8Unorm);
++            };
 +            let metal_texture = |texture: &CFRetained<CVMetalTexture>| unsafe {
 +                CVMetalTextureGetTexture(texture).map(|texture| {
 +                    metal::TextureRef::from_ptr(objc2::rc::Retained::as_ptr(&texture) as *mut _)
 +                        .to_owned()
 +                })
-+            };
+             };
+-            let y_texture = plane_texture(0, objc2_metal::MTLPixelFormat::R8Unorm);
+-            let cb_cr_texture = plane_texture(1, objc2_metal::MTLPixelFormat::RG8Unorm);
 +
 +            let pixel_format = CVPixelBufferGetPixelFormatType(image_buffer);
 +            if pixel_format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange {
@@ -338,7 +338,13 @@ index 862e62a..a780b78 100644
          }))?,
      })
  }
-@@ -1690,6 +1747,8 @@ pub struct PathSprite {
+@@ -1685,11 +1742,13 @@ pub struct PathSprite {
+     pub bounds: Bounds<ScaledPixels>,
+ }
+ 
+-#[derive(Clone, Debug, Eq, PartialEq)]
++#[derive(Clone, Debug, PartialEq)]
+ #[repr(C)]
  pub struct SurfaceBounds {
      pub bounds: Bounds<ScaledPixels>,
      pub content_mask: ContentMask<ScaledPixels>,
