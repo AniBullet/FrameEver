@@ -100,6 +100,13 @@ pub(crate) fn keep_dates(path: &Path, from: &Metadata) -> std::io::Result<()> {
             times = times.set_created(created);
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::macos::fs::FileTimesExt;
+        if let Ok(created) = from.created() {
+            times = times.set_created(created);
+        }
+    }
     open_for_dates(path)?.set_times(times)
 }
 
