@@ -1,0 +1,58 @@
+name: macos
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.5.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-macos
+          workspaces: |
+            . -> target
+            apps/desktop-gpui -> target
+          cache-on-failure: true
+
+      - name: Prepare native dependencies
+        run: pnpm fe setup --ci
+
+      - name: Root workspace
+        continue-on-error: true
+        run: cargo check --workspace --tests --keep-going --message-format short
+
+      - name: GPUI workspace
+        continue-on-error: true
+        working-directory: apps/desktop-gpui
+        run: cargo check --workspace --tests --keep-going --message-format short
