@@ -152,15 +152,6 @@ const MODES = [
 		"A video the moment you stop",
 		"停止即得视频",
 	],
-	[
-		"screenshot",
-		"image",
-		"SNAP",
-		"Screenshot",
-		"截图",
-		"Capture and annotate",
-		"截取并标注",
-	],
 ];
 const DETAIL = {
 	studio: {
@@ -447,7 +438,7 @@ const DEMO = {
 
 const renderModes = () => {
 	const k = MODES.find((m) => m[0] === s.mode);
-	return `${heading("Three ways to capture", "三种录制方式", "Pick the one you'll use most. You can switch any time at the top of the main window.", "选一种你最常用的。之后随时可以在主窗口顶部切换。")}
+	return `${heading("Two ways to record", "两种录制方式", "Pick the one you'll use most. You can switch any time at the top of the main window. Screenshots have their own button and shortcuts.", "选一种你最常用的。之后随时可以在主窗口顶部切换。截图有自己的按钮和快捷键。")}
 	<div class="modes">${MODES.map(
 		([id, , dd, en, zh, ten, tzh], i) =>
 			`<button class="paper mode-card rise ${s.mode === id ? "on" : ""}" data-a="mode" data-v="${id}" style="animation-duration:${700 + i * 100}ms"><span class="pick">${s.mode === id ? icon("check") : ""}</span>${doodle(dd, 96, i * 180)}<span class="name">${pick(en, zh)}</span><span class="tag-line">${pick(ten, tzh)}</span></button>`,
@@ -745,8 +736,8 @@ const sections = () => {
 			[
 				["1 Modes", "1 模式"],
 				[
-					"Studio, Instant and Screenshot, and where to switch",
-					"工作室、即时、截图三种方式，以及在哪切换",
+					"Studio and Instant, and where to switch",
+					"工作室和即时两种方式，以及在哪切换",
 				],
 				["Main window mode row", "主窗口模式切换条"],
 				["Recording mode", "录制模式"],

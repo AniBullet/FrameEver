@@ -312,6 +312,7 @@ const defaults = () => ({
 	preview: false,
 	palette: null,
 	dialog: null,
+	gif: null,
 	toast: null,
 	menu: null,
 	context: null,
@@ -385,10 +386,16 @@ class MainWindow {
 
 	recording() {
 		const { mode, target, items, unseen, firstRun } = this.s;
-		const shot = mode === "screenshot";
-		const startLabel = shot
-			? L("Take screenshot", "截图")
-			: L("Start recording", "开始录制");
+		const startLabel = L("Start recording", "开始录制");
+		const shotTitle = {
+			display: ["Screenshot this display", "截取这个显示器"],
+			window: ["Screenshot this window", "截取这个窗口"],
+			area: ["Screenshot an area", "截取区域"],
+			camera: [
+				"Screenshots need a display, window or area",
+				"截图需要选显示器、窗口或区域",
+			],
+		}[target];
 		const targets = [
 			["display", "monitor", "Display", "显示器"],
 			["window", "app-window", "Window", "窗口"],
@@ -398,16 +405,17 @@ class MainWindow {
 		const foot = `<button class="btn ghost icon" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings")}</button>${firstRun ? `<span class="grow first-hint">${L("Your recordings are here", "录好的内容都在这里")}<span class="hint-arrow">${this.doodle("UP_ARROW", 26)}</span></span>` : `<span class="grow tnum">${L(`${items.length} items`, `${items.length} 项`)}</span>`}<button class="btn ghost" data-a="expand">${L("Library", "资源库")}${unseen ? `<span class="badge klein">${unseen}</span>` : ""}${icon("chevron-right")}</button>`;
 		return `<div class="rec"><div class="rec-main">
 			<div class="mode-row"><div class="seg block">${Object.entries(KIND)
+				.filter(([id]) => id !== "screenshot")
 				.map(
 					([id, k]) =>
-						`<button class="${mode === id ? "on" : ""}" data-a="mode" data-v="${id}">${icon(k.icon, "sm")}${L(...k.name)}<span class="mode-card"><b>${L(`${k.name[0]} mode`, `${k.name[1]}模式`)}</b><span>${L(...k.hint)}</span>${id === "screenshot" ? "" : `<span class="mode-link">${icon("settings", "sm")}${L("Quality settings", "画质设置")}</span>`}</span></button>`,
+						`<button class="${mode === id ? "on" : ""}" data-a="mode" data-v="${id}">${icon(k.icon, "sm")}${L(...k.name)}<span class="mode-card"><b>${L(`${k.name[0]} mode`, `${k.name[1]}模式`)}</b><span>${L(...k.hint)}</span><span class="mode-link">${icon("settings", "sm")}${L("Quality settings", "画质设置")}</span></span></button>`,
 				)
 				.join("")}</div><button class="btn ghost icon" title="${pick("Recording mode info", "录制模式说明")}">${icon("info", "sm")}</button></div>
 			<div class="targets">${targets.map(([id, ic, en, zh]) => `<button class="${target === id ? "on" : ""}" data-a="target" data-v="${id}">${id === "display" || id === "window" ? `<span class="choose">${icon("chevron-down", "sm")}</span>` : ""}${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}</div>
 			<div class="device">${icon("webcam")}<span class="grow">${L("Camera", "摄像头")}</span><em>${L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("mic")}<span class="grow">${L("Microphone", "麦克风")}</span><em>${L("Default", "默认")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("volume-2")}<span class="grow">${L("System audio", "系统声音")}</span><button class="switch on" data-a="toggle"></button></div>
-			<button class="btn primary block tall" data-a="start">${FE.recordGlyph()}${startLabel}</button>
+			<div class="start-row"><button class="btn primary tall" data-a="start">${FE.recordGlyph()}${startLabel}</button><button class="btn tall shot" data-a="shot" ${target === "camera" ? "disabled" : ""} title="${pick(...shotTitle)}" aria-label="${pick(...shotTitle)}">${icon("image")}</button></div>
 		</div><div class="rec-foot">${foot}</div></div>`;
 	}
 
@@ -556,6 +564,7 @@ class MainWindow {
 			instant: [
 				["export", "Export", "导出"],
 				["compress", "Compress", "压缩"],
+				["gif", "Save as GIF", "存为 GIF"],
 			],
 		}[item.kind];
 		const info = [
@@ -578,7 +587,7 @@ class MainWindow {
 		return `<aside class="detail"><div class="detail-scroll">
 			<div class="player">${this.s.playFailed ? `<div class="play-failed"><b>${L("Couldn't play this video", "无法播放此视频")}</b><span>${L("The file may be damaged. Try opening it in another player.", "文件可能已损坏。换个播放器打开试试。")}</span><button class="btn">${L("Try again", "再试一次")}</button></div>` : `<span class="thumb" data-a="preview">${art(item.art)}${unedited ? `<span class="corner tl">${L("Unedited", "未编辑")}</span>` : ""}</span>`}${video ? `<div class="player-bar tnum"><button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play", "sm")}</button><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><span>0:53 / ${item.dur}</span><button class="play-btn">${icon("volume-2", "sm")}</button></div>` : ""}</div>
 			<input class="name-edit" value="${item.name}" aria-label="${pick("Name", "名称")}">
-			<div class="actions">${primary.map(([, en, zh], i) => `<button class="btn ${i === 0 ? "primary" : ""}">${L(en, zh)}</button>`).join("")}</div>
+			<div class="actions">${primary.map(([id, en, zh], i) => `<button class="btn ${i === 0 ? "primary" : ""}" ${id === "gif" ? 'data-a="gif"' : ""}>${L(en, zh)}</button>`).join("")}</div>
 			<dl class="info tnum">${info.map(([label, val]) => `<dt>${L(...label)}</dt><dd>${val}</dd>`).join("")}</dl>
 			${versions}${exports}
 		</div><div class="detail-foot"><button class="btn ghost">${L("Show in folder", "在文件夹中显示")}</button><button class="btn ghost">${L("Copy file", "复制文件")}</button><button class="btn ghost del" data-a="delete">${L("Delete…", "删除…")}</button></div></aside>`;
@@ -787,9 +796,11 @@ class MainWindow {
 	}
 
 	dialog() {
-		const { dialog } = this.s;
-		if (!dialog) return "";
+		const { dialog, gif } = this.s;
 		const items = this.selectedItems();
+		if (gif && items[0])
+			return `<div class="scrim center">${gifDialog(items[0], gif, true)}</div>`;
+		if (!dialog) return "";
 		const one = items.length === 1 ? items[0] : null;
 		return `<div class="scrim center">${deleteDialog(one, items.length, dialog.choice ?? 0, true)}</div>`;
 	}
@@ -797,7 +808,10 @@ class MainWindow {
 	toast() {
 		const { toast } = this.s;
 		if (!toast) return "";
-		return `<div class="win-toast toast"><span class="grow">${toast}</span><button class="btn ghost" data-a="undo">${L("Undo", "撤销")}</button></div>`;
+		const buttons =
+			toast.buttons ??
+			`<button class="btn ghost" data-a="undo">${L("Undo", "撤销")}</button>`;
+		return `<div class="win-toast toast"><span class="grow">${toast.text ?? toast}</span>${buttons}</div>`;
 	}
 
 	contextOverlay() {
@@ -810,7 +824,7 @@ class MainWindow {
 		const many = this.s.selected.length > 1;
 		if (many)
 			return `<div class="menu context" style="${style}"><button>${L("Compress", "压缩")}</button><button>${L("Copy files", "复制文件")}</button><button>${L("Show in folder", "在文件夹中显示")}</button><hr><button class="danger" data-a="delete">${L("Delete…", "删除…")}</button></div>`;
-		return `<div class="menu context" style="${style}"><button><span class="grow">${L("Open", "打开")}</span>${kbd("Enter")}</button><button data-a="preview"><span class="grow">${L("Preview", "预览")}</span>${kbd("Space")}</button><hr><button>${L("Export…", "导出…")}</button><button>${L("Compress", "压缩")}</button><hr><button><span class="grow">${L("Rename", "重命名")}</span>${kbd("F2")}</button><button><span class="grow">${L("Copy file", "复制文件")}</span>${kbd("Ctrl", "C")}</button><button>${L("Show in folder", "在文件夹中显示")}</button><hr><button class="danger" data-a="delete"><span class="grow">${L("Delete…", "删除…")}</span>${kbd("Del")}</button></div>`;
+		return `<div class="menu context" style="${style}"><button><span class="grow">${L("Open", "打开")}</span>${kbd("Enter")}</button><button data-a="preview"><span class="grow">${L("Preview", "预览")}</span>${kbd("Space")}</button><hr><button>${L("Export…", "导出…")}</button><button>${L("Compress", "压缩")}</button>${this.selectedItems()[0]?.kind === "instant" ? `<button data-a="gif">${L("Save as GIF…", "存为 GIF…")}</button>` : ""}<hr><button><span class="grow">${L("Rename", "重命名")}</span>${kbd("F2")}</button><button><span class="grow">${L("Copy file", "复制文件")}</span>${kbd("Ctrl", "C")}</button><button>${L("Show in folder", "在文件夹中显示")}</button><hr><button class="danger" data-a="delete"><span class="grow">${L("Delete…", "删除…")}</span>${kbd("Del")}</button></div>`;
 	}
 
 	render() {
@@ -899,6 +913,32 @@ class MainWindow {
 			?.scrollIntoView({ block: "nearest" });
 	}
 
+	saveGif() {
+		const item = this.selectedItems()[0];
+		const { mb } = gifStats(item, this.s.gif);
+		const file = `${item.name}.gif`;
+		this.set({
+			items: this.s.items.map((other) =>
+				other === item
+					? {
+							...item,
+							exports: [
+								...item.exports,
+								{ file, size: `${mb} MB`, time: ["Just now", "刚刚"] },
+							],
+						}
+					: other,
+			),
+			gif: null,
+			toast: {
+				text: L(`Saved ${file}`, `已保存 ${file}`),
+				buttons: `<button class="btn ghost">${L("Copy", "复制")}</button><button class="btn ghost">${L("Show in folder", "在文件夹中显示")}</button>`,
+			},
+		});
+		clearTimeout(this.toastTimer);
+		this.toastTimer = setTimeout(() => this.set({ toast: null }), 8000);
+	}
+
 	remove() {
 		const gone = this.selectedItems();
 		const first = gone[0];
@@ -985,6 +1025,27 @@ class MainWindow {
 				return this.set({ dialog: null });
 			case "dialog-confirm":
 				return this.remove();
+			case "gif":
+				return this.set({ gif: { a: 20, b: 60, size: 1 }, ...close });
+			case "gif-range": {
+				const box = el.getBoundingClientRect();
+				const at = Math.round(
+					Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)) * 100,
+				);
+				const { gif } = this.s;
+				const start = Math.abs(at - gif.a) <= Math.abs(at - gif.b);
+				return this.set({
+					gif: start
+						? { ...gif, a: Math.min(at, gif.b - 2) }
+						: { ...gif, b: Math.max(at, gif.a + 2) },
+				});
+			}
+			case "gif-size":
+				return this.set({ gif: { ...this.s.gif, size: Number(v) } });
+			case "gif-cancel":
+				return this.set({ gif: null });
+			case "gif-confirm":
+				return this.saveGif();
 			case "undo":
 				return this.set({ items: this.backup, toast: null });
 			case "palette-close":
@@ -1126,6 +1187,7 @@ class MainWindow {
 			return this.host.querySelector('[data-keep="search"]')?.focus();
 		}
 		if (e.key === "Escape") {
+			if (s.gif) return this.set({ gif: null });
 			if (s.dialog) return this.set({ dialog: null });
 			if (s.whole) return this.set({ whole: false });
 			if (s.preview) return this.set({ preview: false });
@@ -1198,6 +1260,51 @@ const deleteDialog = (item, count, choice, live) => {
 	return `<div class="dialog"><h3>${title}</h3><p>${L("Files go to the Recycle Bin.", "文件会移到回收站。")}</p>${keeps}${footer(L("Delete", "删除"))}</div>`;
 };
 
+const clock = (seconds) =>
+	`${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
+const gifSizes = [
+	["Original", "原始", 1],
+	["Half", "一半", 2],
+	["Quarter", "四分之一", 4],
+];
+const gifStats = (item, gif) => {
+	const [minutes, seconds] = item.dur.split(":").map(Number);
+	const total = minutes * 60 + seconds;
+	const from = (total * gif.a) / 100;
+	const to = (total * gif.b) / 100;
+	const [width, height] = item.res.split(" × ").map(Number);
+	const fit = Math.max(1, Math.max(width, height) / 1080);
+	const sizes = gifSizes.map(([, , by]) => [
+		Math.round(width / fit / by / 2) * 2,
+		Math.round(height / fit / by / 2) * 2,
+	]);
+	const [w, h] = sizes[gif.size];
+	const mb = Math.max(0.1, (w * h * 15 * (to - from) * 0.25) / 1e6);
+	return {
+		from,
+		to,
+		sizes,
+		mb: mb >= 10 ? Math.round(mb) : mb.toFixed(1),
+		large: mb > 20,
+	};
+};
+const gifDialog = (item, gif, live) => {
+	const stats = gifStats(item, gif);
+	const on = (name, value) =>
+		live
+			? `data-a="${name}"${value === undefined ? "" : ` data-v="${value}"`}`
+			: "";
+	const seconds = (stats.to - stats.from).toFixed(1);
+	return `<div class="dialog gif-dialog"><h3>${L("Save as GIF", "存为 GIF")}</h3><p>${L(`From “${item.name}”. The recording stays as it is.`, `取自“${item.name}”，录制本身不变。`)}</p>
+		<span class="thumb gif-thumb">${art(item.art)}</span>
+		<div class="gif-range" ${on("gif-range")}><i></i><b style="left:${gif.a}%;right:${100 - gif.b}%"></b><u style="left:${gif.a}%"></u><u style="left:${gif.b}%"></u></div>
+		<div class="gif-times tnum"><span>${clock(stats.from)}</span><span class="grow">${L(`${seconds} s`, `${seconds} 秒`)}</span><span>${clock(stats.to)}</span></div>
+		<div class="subhead">${L("Size", "尺寸")}</div>
+		<div class="seg block">${gifSizes.map(([en, zh], i) => `<button class="${gif.size === i ? "on" : ""}" ${on("gif-size", i)}>${L(en, zh)} <em class="tnum">${stats.sizes[i].join(" × ")}</em></button>`).join("")}</div>
+		<div class="gif-estimate tnum ${stats.large ? "warn" : ""}">${stats.large ? icon("triangle-alert", "sm") : ""}<span>${L(`About ${stats.mb} MB at 15 FPS`, `约 ${stats.mb} MB，15 帧/秒`)}</span>${stats.large ? `<span>${L("Pick a shorter stretch or a smaller size.", "选短一点，或者换小一点的尺寸。")}</span>` : ""}</div>
+		<div class="actions"><button class="btn" ${on("gif-cancel")}>${L("Cancel", "取消")}</button><button class="btn primary" ${on("gif-confirm")}>${L("Save as GIF", "存为 GIF")}</button></div></div>`;
+};
+
 const titles = {
 	live: [
 		"Try it",
@@ -1235,6 +1342,12 @@ const titles = {
 		"Deletes go to the Recycle Bin and show Undo for 8 seconds, also on Ctrl+Z. Exports are never touched. Delete opens the dialog; Shift+Delete skips it. Only Instant recordings with a compressed copy get the three-way choice.",
 		"删除都进回收站，Toast 带“撤销”，留 8 秒，也可以按 Ctrl+Z。导出文件永远保留。Delete 打开弹框，Shift+Delete 跳过弹框。只有带压缩副本的 Instant 录制才有三选一。",
 	],
+	gif: [
+		"Save as GIF",
+		"存为 GIF",
+		"GIF is only an export format. An Instant recording gets it from its details or its right-click menu: choose a stretch with the two handles, pick a size, and read the estimate before saving. It is always 15 FPS; anything finer is the editor's export. The GIF joins the recording's exports, and the toast offers Copy and Show in folder. A Studio recording gets a GIF from the editor's export, which can also export only the selected stretch.",
+		"GIF 只是一种导出格式。即时录制从详情或右键菜单进入：用两个把手选一段，选尺寸，保存前先看预估大小。固定 15 帧/秒，要细调就用编辑器的导出。生成的 GIF 列在这条录制的导出里，提示里可以直接复制或在文件夹中显示。工作室录制在编辑器的导出里得到 GIF，那里也可以只导出选中的一段。",
+	],
 	keys: [
 		"Keyboard",
 		"键盘",
@@ -1257,6 +1370,7 @@ shell({
 		["transition", "Expand and collapse", "展开和收回"],
 		["palette", "Command palette", "命令面板"],
 		["delete", "Delete", "删除"],
+		["gif", "Save as GIF", "存为 GIF"],
 		["keys", "Keyboard", "键盘"],
 	],
 });
@@ -1524,6 +1638,24 @@ document.getElementById("delete-grid").innerHTML = [
 	[
 		L("Several items, and the toast", "多个条目和提示"),
 		`<div class="static-dialog">${deleteDialog(null, 4, 0, false)}</div><div class="toast" style="margin-top:12px"><span class="grow">${L("Deleted 4 items", "已删除 4 项")}</span><button class="btn ghost">${L("Undo", "撤销")}</button></div>`,
+	],
+]
+	.map(([title, body]) => `<div><div class="label">${title}</div>${body}</div>`)
+	.join("");
+
+const gifSource = ITEMS.find((item) => item.kind === "instant");
+document.getElementById("gif-grid").innerHTML = [
+	[
+		L("A short stretch", "一小段"),
+		`<div class="static-dialog">${gifDialog(gifSource, { a: 20, b: 60, size: 1 }, false)}</div>`,
+	],
+	[
+		L("Too large to share easily", "太大，不方便分享"),
+		`<div class="static-dialog">${gifDialog(ITEMS[0], { a: 5, b: 45, size: 0 }, false)}</div>`,
+	],
+	[
+		L("Saved", "保存后"),
+		`<div class="toast"><span class="grow">${L(`Saved ${gifSource.name}.gif`, `已保存 ${gifSource.name}.gif`)}</span><button class="btn ghost">${L("Copy", "复制")}</button><button class="btn ghost">${L("Show in folder", "在文件夹中显示")}</button></div>`,
 	],
 ]
 	.map(([title, body]) => `<div><div class="label">${title}</div>${body}</div>`)

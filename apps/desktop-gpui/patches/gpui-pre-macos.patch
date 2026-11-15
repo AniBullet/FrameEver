@@ -116,6 +116,25 @@ index 214a43f..5800ad4 100644
 +        );
 +    }
 +}
+diff --git a/crates/gpui_apple/Cargo.toml b/crates/gpui_apple/Cargo.toml
+index 9045188..2afa15e 100644
+--- a/crates/gpui_apple/Cargo.toml
++++ b/crates/gpui_apple/Cargo.toml
+@@ -267,6 +267,14 @@ version = "2.0.12"
+ version = "0.28.0"
+ default-features = false
+ 
++[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dev-dependencies.objc2-core-video]
++version = "0.3.2"
++features = [
++    "CVBase",
++    "CVPixelBufferIOSurface",
++]
++default-features = false
++
+ [lints.clippy]
+ dbg_macro = "deny"
+ declare_interior_mutable_const = "deny"
 diff --git a/crates/gpui_apple/src/metal_renderer.rs b/crates/gpui_apple/src/metal_renderer.rs
 index 862e62a..48f93cf 100644
 --- a/crates/gpui_apple/src/metal_renderer.rs

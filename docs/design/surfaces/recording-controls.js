@@ -392,13 +392,9 @@ const optPop = (bottom) => {
 
 const renderOptions = () => {
 	const { mode, open } = opt;
-	const shot = mode === "screenshot";
-	const start = shot
-		? L("Take screenshot", "截图")
-		: L("Start recording", "开始录制");
-	const middle = shot
-		? `<span class="grow tnum">${L("10 items", "10 项")}</span>`
-		: `<button class="sum ${open ? "on" : ""}" data-opt="toggle" title="${pick("Recording options", "录制选项")}">${icon("sliders-horizontal", "sm")}${summary()}</button>`;
+	const start = L("Start recording", "开始录制");
+	const shotTitle = pick("Screenshot this display", "截取这个显示器");
+	const middle = `<button class="sum ${open ? "on" : ""}" data-opt="toggle" title="${pick("Recording options", "录制选项")}">${icon("sliders-horizontal", "sm")}${summary()}</button>`;
 	document.getElementById("opt-stage").innerHTML =
 		`<div class="win" style="height:386px">
 		<div class="titlebar"><span class="mark"></span><span>FrameEver</span></div>
@@ -406,7 +402,6 @@ const renderOptions = () => {
 			<div class="seg block" data-seg="opt-mode">${[
 				["studio", "clapperboard", "Studio", "工作室"],
 				["instant", "zap", "Instant", "即时"],
-				["screenshot", "image", "Screenshot", "截图"],
 			]
 				.map(
 					([id, ic, en, zh]) =>
@@ -426,10 +421,10 @@ const renderOptions = () => {
 			<div class="device">${icon("webcam")}<span class="grow">${L("Camera", "摄像头")}</span><em>${L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("mic")}<span class="grow">${L("Microphone", "麦克风")}</span><em>${L("Default", "默认")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("volume-2")}<span class="grow">${L("System audio", "系统声音")}</span><span class="switch on"></span></div>
-			<button class="btn primary block tall">${FE.recordGlyph()}${start}</button>
+			<div class="start-row"><button class="btn primary tall">${FE.recordGlyph()}${start}</button><button class="btn tall shot" title="${shotTitle}" aria-label="${shotTitle}">${icon("image")}</button></div>
 		</div>
 		<div class="rec-foot" style="margin-top:auto"><button class="btn ghost icon" title="${pick("Settings", "设置")}">${icon("settings")}</button>${middle}<button class="btn ghost">${L("Library", "资源库")}${icon("chevron-right")}</button></div>
-		${open && !shot ? optPop(48) : ""}
+		${open ? optPop(48) : ""}
 	</div>`;
 };
 
@@ -452,8 +447,8 @@ const copy = () => {
 		],
 		"t-options": ["Recording options before you start", "开始前的录制选项"],
 		"l-options": [
-			"The compact window already holds source, camera, microphone and system audio, so the popover carries only what lives on the Recording settings page, with the same names: quality, frame rate, countdown and what's captured, plus auto-stop and, for Instant, click highlight. It opens from a summary in the footer, so the window stays 386 px and always shows what's set. The summary replaces the item count, which the library shows anyway. Open it with Tab and Enter, close it with Esc. Screenshot mode has no options.",
-			"紧凑窗口已经有来源、摄像头、麦克风和系统声音，所以这个浮层只放设置“录制”页里的项目，名称完全一致：画质、帧率、倒计时和捕获内容，再加自动停止和即时录制的点击高亮。它从底栏的摘要打开，所以窗口保持 386 px，并一直显示当前设置。摘要替换的是条目数，资源库里本来就有。Tab 加 Enter 打开，Esc 关闭。截图模式没有这些选项。",
+			"The compact window already holds source, camera, microphone and system audio, so the popover carries only what lives on the Recording settings page, with the same names: quality, frame rate, countdown and what's captured, plus auto-stop and, for Instant, click highlight. It opens from a summary in the footer, so the window stays 386 px and always shows what's set. The summary replaces the item count, which the library shows anyway. Open it with Tab and Enter, close it with Esc. The recording mode is Studio or Instant only. A screenshot is its own button beside Start recording: it captures the chosen source at once and takes none of these options.",
+			"紧凑窗口已经有来源、摄像头、麦克风和系统声音，所以这个浮层只放设置“录制”页里的项目，名称完全一致：画质、帧率、倒计时和捕获内容，再加自动停止和即时录制的点击高亮。它从底栏的摘要打开，所以窗口保持 386 px，并一直显示当前设置。摘要替换的是条目数，资源库里本来就有。Tab 加 Enter 打开，Esc 关闭。录制模式只有工作室和即时。截图是“开始录制”旁边单独的按钮：点一下就截取当前选的来源，不受这些选项影响。",
 		],
 		"t-keys": ["Keyboard", "键盘"],
 		"l-keys": [
@@ -913,7 +908,6 @@ document.addEventListener("click", (event) => {
 		}
 		if (name === "opt-mode") {
 			opt.mode = v;
-			if (v === "screenshot") opt.open = false;
 			renderOptions();
 		}
 		if (["quality", "res", "fps", "countdown", "autostop"].includes(name)) {

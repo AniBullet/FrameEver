@@ -1229,3 +1229,74 @@ main > section .seg {
 	color: var(--foreground);
 	font-size: 12px;
 }
+
+.gif-dialog .gif-thumb {
+	display: block;
+	aspect-ratio: 16 / 9;
+	border-radius: var(--radius-md);
+	overflow: hidden;
+}
+
+.gif-range {
+	position: relative;
+	height: 24px;
+	margin-top: 10px;
+	cursor: pointer;
+}
+
+.gif-range i,
+.gif-range b {
+	position: absolute;
+	top: 10px;
+	height: 4px;
+	border-radius: 2px;
+}
+
+.gif-range i {
+	left: 0;
+	right: 0;
+	background: var(--slider-bar);
+}
+
+.gif-range b {
+	background: var(--primary);
+}
+
+.gif-range u {
+	position: absolute;
+	top: 4px;
+	width: 6px;
+	height: 16px;
+	margin-left: -3px;
+	border-radius: 3px;
+	background: var(--foreground);
+}
+
+.gif-times {
+	display: flex;
+	margin: 2px 0 12px;
+	font-size: var(--text-small);
+	line-height: var(--line-small);
+	color: var(--muted-foreground);
+}
+
+.gif-times .grow {
+	flex: 1;
+	text-align: center;
+	color: var(--foreground);
+}
+
+.gif-estimate {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-top: 10px;
+	font-size: var(--text-small);
+	line-height: var(--line-small);
+	color: var(--muted-foreground);
+}
+
+.gif-estimate.warn {
+	color: var(--warning-text);
+}
