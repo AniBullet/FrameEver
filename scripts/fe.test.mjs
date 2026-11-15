@@ -562,3 +562,20 @@ test("setup prepares native dependencies for the machine it runs on", () => {
 	assert.equal(setupTarget("darwin", "arm64"), "aarch64-apple-darwin");
 	assert.equal(setupTarget("darwin", "x64"), "x86_64-apple-darwin");
 });
+
+test("on macOS the FFmpeg dylibs are found from any target folder", () => {
+	const fallback = withFfmpeg(
+		{ PATH: "/bin", DYLD_FALLBACK_LIBRARY_PATH: "/usr/lib" },
+		"darwin",
+	).DYLD_FALLBACK_LIBRARY_PATH;
+	assert.match(fallback, /target[\\/]native-deps[\\/]lib:/);
+	assert.match(
+		fallback,
+		/target[\\/]Frameworks[\\/]Spacedrive\.framework[\\/]Libraries:/,
+	);
+	assert.match(fallback, /:\/usr\/lib$/);
+	assert.equal(
+		withFfmpeg({ PATH: "/bin" }, "win32").DYLD_FALLBACK_LIBRARY_PATH,
+		undefined,
+	);
+});
