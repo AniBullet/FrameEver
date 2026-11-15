@@ -4835,7 +4835,9 @@ impl ProjectUniforms {
                 let prev_zoomed_size =
                     Self::camera_zoom_factor(&prev_zoom, &prev_scene, base_size, scale_during_zoom);
 
-                let aspect = project.camera.aspect_ratio
+                let aspect = project
+                    .camera
+                    .aspect_ratio
                     .filter(|aspect| aspect.is_finite() && *aspect > 0.)
                     .map_or(frame_size[0] / frame_size[1], |aspect| aspect as f32);
                 let camera_size_for = |scale: f32| match project.camera.shape {
