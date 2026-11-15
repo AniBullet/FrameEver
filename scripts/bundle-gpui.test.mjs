@@ -63,6 +63,29 @@ test("the GPUI app ships as FrameEver, apart from official Cap", () => {
 	assert.notEqual(gpuiConfig.identifier, "so.cap.desktop");
 });
 
+test("the bundle registers the project extension, on macOS as a package", () => {
+	const brand = readFileSync(
+		path.join(repoRoot, "crates", "utils", "src", "brand.rs"),
+		"utf8",
+	);
+	const extension = /pub const PROJECT_EXTENSION: &str = "([^"]+)";/.exec(
+		brand,
+	)?.[1];
+	assert.ok(extension);
+	assert.deepEqual(
+		gpuiConfig.bundle.fileAssociations.map((association) => association.ext),
+		[[extension]],
+	);
+	const plist = readFileSync(path.join(gpuiDirectory, "Info.plist"), "utf8");
+	assert.match(
+		plist,
+		new RegExp(
+			`<key>CFBundleTypeExtensions</key>\\s*<array>\\s*<string>${extension}</string>\\s*</array>`,
+		),
+	);
+	assert.match(plist, /<key>LSTypeIsPackage<\/key>\s*<true\/>/);
+});
+
 test("every committed file the GPUI bundle references exists", () => {
 	const files = [
 		...gpuiConfig.bundle.icon,

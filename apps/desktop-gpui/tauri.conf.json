@@ -40,9 +40,9 @@
 		},
 		"fileAssociations": [
 			{
-				"ext": ["cap"],
+				"ext": ["ever"],
 				"name": "FrameEver Project",
-				"mimeType": "application/x-cap-project",
+				"mimeType": "application/x-frameever-project",
 				"role": "Editor"
 			}
 		],

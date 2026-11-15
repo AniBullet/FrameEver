@@ -7,12 +7,12 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
-				<string>cap</string>
+				<string>ever</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
 			<string>icon.icns</string>
 			<key>CFBundleTypeName</key>
-			<string>FrameEver Recording</string>
+			<string>FrameEver Project</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>

@@ -391,6 +391,14 @@ test("a release stamps the converter with the same version as the app", () => {
 	);
 });
 
+test("a release stamps the CLI with the same version as the app", () => {
+	assert.ok(
+		versionManifests.some((manifest) =>
+			manifest.endsWith(path.join("apps", "cli", "Cargo.toml")),
+		),
+	);
+});
+
 test("a release stamps the installer front end with the same version as the app", () => {
 	assert.ok(
 		versionManifests.some((manifest) =>

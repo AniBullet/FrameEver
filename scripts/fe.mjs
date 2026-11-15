@@ -995,6 +995,7 @@ export const versionManifests = [
 	path.join(gpuiDir, "Cargo.toml"),
 	path.join(gpuiDir, "converter", "Cargo.toml"),
 	path.join(gpuiDir, "installer", "Cargo.toml"),
+	path.join(root, "apps", "cli", "Cargo.toml"),
 ];
 
 export function stampVersion(version, manifests = versionManifests) {
