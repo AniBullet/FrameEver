@@ -4,11 +4,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 target_dir="$repo_root/../gpui-pre-patched"
 pins_file="$repo_root/apps/desktop-gpui/patches/gpui-pre.pins"
-patch_file="$repo_root/apps/desktop-gpui/patches/gpui-pre-windows.patch"
+patch_files=("$repo_root"/apps/desktop-gpui/patches/gpui-pre-*.patch)
 crates_url="${FRAMEEVER_CRATES_URL:-https://static.crates.io/crates}"
 stamp_name=".frameever-prepared"
 
-stamp="$(cat "$pins_file" "$patch_file" | sha256sum | cut -d' ' -f1)"
+stamp="$(cat "$pins_file" "${patch_files[@]}" | sha256sum | cut -d' ' -f1)"
 
 if [[ -e "$target_dir" ]]; then
 	if [[ ! -f "$target_dir/$stamp_name" ]]; then
@@ -40,7 +40,9 @@ while read -r name version checksum directory; do
 	tar -xzf "$archive" --strip-components=1 -C "$temporary_dir/crates/$directory"
 	rm "$archive"
 done < "$pins_file"
-git -C "$temporary_dir" apply "$patch_file"
+for patch_file in "${patch_files[@]}"; do
+	git -C "$temporary_dir" apply "$patch_file"
+done
 rm -rf "$temporary_dir/.git"
 printf '%s' "$stamp" > "$temporary_dir/$stamp_name"
 

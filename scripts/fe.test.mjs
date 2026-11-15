@@ -34,6 +34,7 @@ import {
 	NSIS,
 	parseArgs,
 	parseCargoUpdate,
+	patchedGpuiPlatformCrate,
 	SEMVER,
 	setLargeAddressAware,
 	staleIncrementalDirs,
@@ -548,4 +549,9 @@ test("the filled variants name their Lucide source", () => {
 		{ file: "record-fill", release: "lucide", source: "circle", filled: true },
 		{ file: "blur", release: "tabler", source: "blur", filled: false },
 	]);
+});
+
+test("patched gpui tests run the platform crate of the machine", () => {
+	assert.equal(patchedGpuiPlatformCrate("win32"), "gpui_windows");
+	assert.equal(patchedGpuiPlatformCrate("darwin"), "gpui_apple");
 });

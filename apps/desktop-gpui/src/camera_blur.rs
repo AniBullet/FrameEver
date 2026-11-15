@@ -204,6 +204,7 @@ fn shared_device(runtime: &tokio::runtime::Runtime) -> Option<(wgpu::Device, wgp
                             .using_resolution(adapter.limits()),
                         memory_hints: Default::default(),
                         trace: wgpu::Trace::Off,
+                        experimental_features: wgpu::ExperimentalFeatures::disabled(),
                     })
                     .await
                     .map_err(|error| {

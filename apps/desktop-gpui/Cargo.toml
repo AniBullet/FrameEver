@@ -224,6 +224,8 @@ block2 = "0.5.1"
 raw-window-handle = "0.6"
 core-foundation = "0.10"
 core-video = { version = "0.5.2", features = ["metal"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false }
+objc2-core-video = { version = "0.3.2", default-features = false, features = ["CVBuffer", "CVImageBuffer", "CVPixelBuffer"] }
 # ScreenCaptureKit shareable content, acquired the same way recording.rs in
 # src-tauri does. Same fork/rev/features as the root workspace.
 cidre = { git = "https://github.com/CapSoftware/cidre", rev = "bf84b67079a8", features = [
@@ -253,6 +255,7 @@ hound = "3.5"
 [patch.crates-io]
 gpui-pre = { path = "../../../gpui-pre-patched/crates/gpui" }
 gpui-pre-windows = { path = "../../../gpui-pre-patched/crates/gpui_windows" }
+gpui-pre-apple = { path = "../../../gpui-pre-patched/crates/gpui_apple" }
 
 [profile.dev]
 # gpui is unusably slow when its dependencies are unoptimized; zed/comet both

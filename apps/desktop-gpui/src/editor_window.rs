@@ -650,9 +650,12 @@ impl EditorPreviewFrame {
                 let _ = window.paint_image(bounds, bounds, corners, Arc::clone(image), 0, false);
             }
             #[cfg(target_os = "macos")]
-            Self::Surface(surface) => {
-                window.paint_surface_fitted(bounds, bounds, corners, surface.clone())
-            }
+            Self::Surface(surface) => window.paint_surface_fitted(
+                bounds,
+                bounds,
+                corners,
+                crate::platform::gpui_surface(surface),
+            ),
         }
     }
 }

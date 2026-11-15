@@ -3995,6 +3995,9 @@ impl MainWindow {
         for effect in self.shell.handle(event, screen) {
             match effect {
                 Effect::Snap { placement, hide } => {
+                    let Some(native) = crate::platform::native_window(window) else {
+                        continue;
+                    };
                     cx.spawn_in(window, async move |this, cx| {
                         cx.background_executor().timer(FRAME_SNAP_DELAY).await;
                         crate::platform::place_main_window(&native, placement, hide);
