@@ -54,6 +54,8 @@
 
 从 [Releases](https://github.com/AniBullet/FrameEver/releases/latest) 下载 `FrameEver_<版本>_x64-setup.exe` 并运行。支持 Windows 10 / 11（64 位）。安装后应用会自动检查更新。
 
+macOS（Apple 芯片）有 `FrameEver_<版本>_aarch64.dmg`，没有 Apple 开发者签名，由 CI 编译和打包，还没在真机上验证。第一次打开会被系统拦下：先打开一次，再到“系统设置 → 隐私与安全性”点“仍要打开”；每次更新后要重新授予屏幕录制、摄像头和麦克风权限。
+
 ## 隐私
 
 FrameEver 只在以下情况联网，且不会发送你录制的任何内容：

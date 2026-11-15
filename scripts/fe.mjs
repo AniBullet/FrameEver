@@ -95,9 +95,11 @@ const COMMANDS = {
 	installer:
 		"Run the installer window on test data (nothing is installed). --existing older|same|newer, --update, --uninstall, --lang zh-CN|en, --fallback",
 	package:
-		"Build the Windows installer and FrameEver Converter into dist/. --skip-sidecars, --version <x.y.z>",
+		"Build the Windows installer and FrameEver Converter, or on macOS the disk image and updater archive, into dist/. --skip-sidecars, --version <x.y.z>",
 	release: "Check, tag and push a release: fe release <x.y.z> [--skip-tests]",
 	notes: "Print the CHANGELOG.md section for a version: fe notes <x.y.z>",
+	manifest:
+		"Write dist/latest.json from the signed packages in dist/: fe manifest --version <x.y.z> --repo <owner/name>",
 	deps: "Show Rust dependency updates within version ranges and newer versions needing a manual bump. --apply updates both Cargo.lock files",
 	doctor: "Check the environment and say how to fix anything missing",
 	logs: "Print the app log tail: fe logs [--lines 200] [--grep <text>] [--real]",
@@ -965,13 +967,20 @@ function exportVideo({ flags, positional }) {
 	console.log(`\n\u001b[32m✓ ${output} (${size} MB)\u001b[0m`);
 }
 
-export function missingNativeDeps(base = root) {
-	const required = [
+const nativeDeps = {
+	win32: [
 		["target/ffmpeg/bin", ".dll"],
 		["target/native-deps/dxc", ".dll"],
 		["target/native-deps/onnxruntime/lib", ".dll"],
-	];
-	return required
+	],
+	darwin: [
+		["target/native-deps/Spacedrive.framework", ""],
+		["target/native-deps/onnxruntime/lib", ".dylib"],
+	],
+};
+
+export function missingNativeDeps(base = root, platform = "win32") {
+	return nativeDeps[platform]
 		.filter(([dir, extension]) => {
 			const full = path.join(base, dir);
 			return (
@@ -1001,21 +1010,129 @@ export function stampVersion(version, manifests = versionManifests) {
 
 export const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
-function packageInstaller({ flags }) {
-	if (!isWindows) fail("Packaging targets Windows; run it on Windows.");
-	const missing = [...missingNativeDeps(), ...missingChineseFont()];
+export function macAssetNames(version, triple) {
+	const arch = triple.startsWith("aarch64") ? "aarch64" : "x64";
+	const stem = `FrameEver_${version}_${arch}`;
+	return { dmg: `${stem}.dmg`, archive: `${stem}.app.tar.gz` };
+}
+
+export function macBundleConfig(env) {
+	const bundle = {
+		createUpdaterArtifacts: Boolean(env.TAURI_SIGNING_PRIVATE_KEY),
+	};
+	if (!env.APPLE_SIGNING_IDENTITY) bundle.macOS = { signingIdentity: "-" };
+	return { bundle };
+}
+
+function requireNativeDeps(platform) {
+	const missing = [
+		...missingNativeDeps(root, platform),
+		...missingChineseFont(),
+	];
 	if (missing.length > 0) {
 		fail(
 			`Native dependencies are missing (${missing.join(", ")}). Run: pnpm fe setup`,
 		);
 	}
+}
+
+function stampRequestedVersion(flags) {
+	if (typeof flags.version !== "string") return;
+	if (!SEMVER.test(flags.version)) fail(`Not a version: ${flags.version}`);
+	step(`Version ${flags.version}`);
+	stampVersion(flags.version);
+}
+
+const megabytes = (file) => (statSync(file).size / 1024 / 1024).toFixed(1);
+
+function onlyFile(dir, extension) {
+	const files = existsSync(dir)
+		? readdirSync(dir).filter((name) => name.endsWith(extension))
+		: [];
+	if (files.length !== 1) {
+		fail(`Expected one ${extension} in ${dir}, found ${files.length}`);
+	}
+	return path.join(dir, files[0]);
+}
+
+function packageMacApp({ flags }) {
+	const triple = setupTarget();
+	requireNativeDeps("darwin");
+	stampRequestedVersion(flags);
+	const started = Date.now();
+	if (!flags["skip-sidecars"]) {
+		step("Sidecars (frameever-muxer, frameever-cli)");
+		run("bash", [path.join("scripts", "build-desktop-binaries.sh"), triple], {
+			env: {
+				...process.env,
+				CARGO_PROFILE_RELEASE_DEBUG: "0",
+				CARGO_PROFILE_RELEASE_STRIP: "symbols",
+			},
+		});
+	}
+
+	step("App and disk image");
+	const bundleConfig = macBundleConfig(process.env);
+	if (bundleConfig.bundle.macOS) {
+		console.log(
+			"  No APPLE_SIGNING_IDENTITY: signing ad hoc; Gatekeeper asks before the first launch.",
+		);
+	}
+	if (!bundleConfig.bundle.createUpdaterArtifacts) {
+		console.log(
+			"  No TAURI_SIGNING_PRIVATE_KEY: building without an updater archive.",
+		);
+	}
+	const configFile = path.join(gpuiDir, "target", "fe-macos.conf.json");
+	mkdirSync(path.dirname(configFile), { recursive: true });
+	writeFileSync(configFile, JSON.stringify(bundleConfig));
+	run(
+		process.execPath,
+		[
+			path.join("scripts", "bundle-gpui.mjs"),
+			triple,
+			"--bundles",
+			"app,dmg",
+			"--config",
+			configFile,
+		],
+	);
+
+	const bundleDir = path.join(gpuiDir, "target", triple, "release", "bundle");
+	const names = macAssetNames(
+		manifestVersion(path.join(gpuiDir, "Cargo.toml")),
+		triple,
+	);
+	mkdirSync(distDir, { recursive: true });
+	const dmg = path.join(distDir, names.dmg);
+	const archive = path.join(distDir, names.archive);
+	for (const stale of [dmg, archive, `${archive}.sig`]) {
+		rmSync(stale, { force: true });
+	}
+	const builtDmg = path.join(bundleDir, "dmg", names.dmg);
+	if (!existsSync(builtDmg)) fail(`No disk image at ${builtDmg}`);
+	copyFileSync(builtDmg, dmg);
+	const minutes = ((Date.now() - started) / 60000).toFixed(1);
+	console.log(
+		`\n\u001b[32m✓ ${dmg} (${megabytes(dmg)} MB, ${minutes} min)\u001b[0m`,
+	);
+	if (!bundleConfig.bundle.createUpdaterArtifacts) return;
+	const built = onlyFile(path.join(bundleDir, "macos"), ".app.tar.gz");
+	if (!existsSync(`${built}.sig`)) fail(`No signature for ${built}`);
+	copyFileSync(built, archive);
+	copyFileSync(`${built}.sig`, `${archive}.sig`);
+	console.log(
+		`\u001b[32m✓ ${archive} (${megabytes(archive)} MB) and its updater signature\u001b[0m`,
+	);
+}
+
+function packageInstaller({ flags }) {
+	if (process.platform === "darwin") return packageMacApp({ flags });
+	if (!isWindows) fail("Packaging runs on Windows or macOS.");
+	requireNativeDeps("win32");
 	step("NSIS installer compiler");
 	prepareNsis();
-	if (typeof flags.version === "string") {
-		if (!SEMVER.test(flags.version)) fail(`Not a version: ${flags.version}`);
-		step(`Version ${flags.version}`);
-		stampVersion(flags.version);
-	}
+	stampRequestedVersion(flags);
 	const started = Date.now();
 	if (!flags["skip-sidecars"]) {
 		step("Sidecars (frameever-muxer, frameever-cli)");
@@ -1138,7 +1255,6 @@ function packageInstaller({ flags }) {
 	copyFileSync(converterExe, converterAsset);
 
 	const minutes = ((Date.now() - started) / 60000).toFixed(1);
-	const megabytes = (file) => (statSync(file).size / 1024 / 1024).toFixed(1);
 	console.log(
 		`\n\u001b[32m✓ ${path.join(distDir, path.basename(newest))} (${megabytes(newest)} MB, ${minutes} min)\u001b[0m`,
 	);
@@ -1294,6 +1410,108 @@ function deps({ flags }) {
 	}
 }
 
+export function signatureKeyId(encoded) {
+	const line = Buffer.from(encoded.trim(), "base64")
+		.toString("utf8")
+		.split(/\r?\n/)[1];
+	const id = Buffer.from(line ?? "", "base64")
+		.subarray(2, 10)
+		.toString("hex");
+	if (id.length !== 16) {
+		throw new Error("Not a minisign key or signature");
+	}
+	return id;
+}
+
+const updatePlatforms = [
+	["windows-x86_64", /-setup\.exe$/],
+	["darwin-aarch64", /_aarch64\.app\.tar\.gz$/],
+	["darwin-x86_64", /_x64\.app\.tar\.gz$/],
+];
+
+export function updateManifest({
+	version,
+	notes,
+	pubDate,
+	repo,
+	publicKey,
+	signatures,
+}) {
+	const trusted = signatureKeyId(publicKey);
+	const platforms = {};
+	for (const [name, text] of Object.entries(signatures)) {
+		if (/\s/.test(name)) {
+			throw new Error(
+				`${name} contains spaces, which GitHub rewrites in asset URLs`,
+			);
+		}
+		const platform = updatePlatforms.find(([, pattern]) =>
+			pattern.test(name),
+		)?.[0];
+		if (!platform) throw new Error(`${name} belongs to no platform`);
+		if (platforms[platform]) {
+			throw new Error(`There are two packages for ${platform}`);
+		}
+		const signature = text.replace(/\s/g, "");
+		if (!signature) throw new Error(`The signature of ${name} is empty`);
+		const signed = signatureKeyId(signature);
+		if (signed !== trusted) {
+			throw new Error(
+				`${name} was signed by key ${signed}, but the app trusts ${trusted}`,
+			);
+		}
+		platforms[platform] = {
+			url: `https://github.com/${repo}/releases/download/v${version}/${name}`,
+			signature,
+		};
+	}
+	if (Object.keys(platforms).length === 0) {
+		throw new Error("No signed package to list");
+	}
+	return { version, notes, pub_date: pubDate, platforms };
+}
+
+function manifest({ flags }) {
+	const { version, repo } = flags;
+	if (
+		typeof version !== "string" ||
+		!SEMVER.test(version) ||
+		typeof repo !== "string"
+	) {
+		fail("Usage: pnpm fe manifest --version <x.y.z> --repo <owner/name>");
+	}
+	const publicKey = process.env.FRAMEEVER_UPDATER_PUBKEY;
+	if (!publicKey) fail("FRAMEEVER_UPDATER_PUBKEY is not set");
+	const notesFile = path.join(distDir, "notes.md");
+	if (!existsSync(notesFile) || statSync(notesFile).size === 0) {
+		fail(`${notesFile} is missing; the build job reads it from CHANGELOG.md`);
+	}
+	const signatures = Object.fromEntries(
+		readdirSync(distDir)
+			.filter((name) => name.endsWith(".sig"))
+			.map((name) => [
+				name.slice(0, -".sig".length),
+				readFileSync(path.join(distDir, name), "utf8"),
+			]),
+	);
+	let latest;
+	try {
+		latest = updateManifest({
+			version,
+			notes: readFileSync(notesFile, "utf8"),
+			pubDate: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
+			repo,
+			publicKey,
+			signatures,
+		});
+	} catch (error) {
+		fail(error.message);
+	}
+	const text = `${JSON.stringify(latest, null, 2)}\n`;
+	writeFileSync(path.join(distDir, "latest.json"), text);
+	process.stdout.write(text);
+}
+
 function notes({ positional }) {
 	const version = positional[0];
 	if (!version || !SEMVER.test(version)) fail("Usage: pnpm fe notes <x.y.z>");
@@ -1429,7 +1647,10 @@ function doctor() {
 		"",
 		"Install Git for Windows",
 	);
-	const missing = missingNativeDeps();
+	const missing = missingNativeDeps(
+		root,
+		process.platform === "darwin" ? "darwin" : "win32",
+	);
 	add(
 		"FFmpeg / ONNX Runtime / DXC",
 		missing.length === 0,
@@ -1767,6 +1988,7 @@ const HANDLERS = {
 	package: packageInstaller,
 	release,
 	notes,
+	manifest,
 	deps,
 	doctor,
 	logs,

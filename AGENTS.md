@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-FrameEver · 帧刻 is a local-only screen recorder and editor by aniBullet (`GLOSSARY.md`). Everything it captures, edits and exports stays on the user's machine. It ships on Windows first; macOS code is kept for a later release and Linux is not supported (ADR-0008).
+FrameEver · 帧刻 is a local-only screen recorder and editor by aniBullet (`GLOSSARY.md`). Everything it captures, edits and exports stays on the user's machine. It ships on Windows first; macOS is built, tested and packaged in CI but has not run on a real Mac, and Linux is not supported (ADR-0008).
 
 Read `docs/upstream-sync/HANDOFF.md` first when resuming work: it holds the current state and what is next. The open issues on `AniBullet/FrameEver` are the one list of remaining work (`docs/agents/issue-tracker.md`).
 
@@ -43,7 +43,7 @@ Everything goes through `pnpm fe <command>` (`scripts/fe.mjs`; `pnpm fe` lists t
 | `pnpm fe check` | Compile the GPUI app, FrameEver Converter and the CLI with tests |
 | `pnpm fe lint` / `fmt` | Format check, clippy, translation tests / format |
 | `pnpm fe converter [--lang zh-CN]` | Run FrameEver Converter against a fresh fake 2.x install |
-| `pnpm fe package` | Build the installer and FrameEver Converter into `dist/` |
+| `pnpm fe package` | Build the installer and FrameEver Converter into `dist/`; on macOS, the disk image and updater archive |
 | `pnpm fe design` | Generate `docs/design/tokens.css` and `tokens.js` from `tokens.json` |
 | `pnpm fe icons` | Copy every icon in `assets/icons/sources.json` from its pinned Lucide or Tabler release |
 

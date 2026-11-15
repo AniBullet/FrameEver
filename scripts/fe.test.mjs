@@ -28,6 +28,8 @@ import {
 	installerEnv,
 	installerPayloadEnv,
 	isLargeAddressAware,
+	macAssetNames,
+	macBundleConfig,
 	missingChineseFont,
 	missingNativeDeps,
 	missingNsisFiles,
@@ -38,10 +40,12 @@ import {
 	SEMVER,
 	setLargeAddressAware,
 	setupTarget,
+	signatureKeyId,
 	staleIncrementalDirs,
 	stampReleaseDate,
 	stampVersion,
 	testProfileEnv,
+	updateManifest,
 	vendoredIcon,
 	versionManifests,
 	withFfmpeg,
@@ -577,5 +581,146 @@ test("on macOS the FFmpeg dylibs are found from any target folder", () => {
 	assert.equal(
 		withFfmpeg({ PATH: "/bin" }, "win32").DYLD_FALLBACK_LIBRARY_PATH,
 		undefined,
+	);
+});
+
+test("macOS packaging names its own missing native dependencies", () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "fe-"));
+	assert.deepEqual(missingNativeDeps(dir, "darwin"), [
+		"target/native-deps/Spacedrive.framework",
+		"target/native-deps/onnxruntime/lib",
+	]);
+	mkdirSync(
+		path.join(dir, "target/native-deps/Spacedrive.framework/Libraries"),
+		{
+			recursive: true,
+		},
+	);
+	mkdirSync(path.join(dir, "target/native-deps/onnxruntime/lib"), {
+		recursive: true,
+	});
+	writeFileSync(
+		path.join(dir, "target/native-deps/onnxruntime/lib/libonnxruntime.dylib"),
+		"",
+	);
+	assert.deepEqual(missingNativeDeps(dir, "darwin"), []);
+	rmSync(dir, { recursive: true });
+});
+
+test("a macOS package is named after its version and architecture", () => {
+	assert.deepEqual(macAssetNames("1.0.0", "aarch64-apple-darwin"), {
+		dmg: "FrameEver_1.0.0_aarch64.dmg",
+		archive: "FrameEver_1.0.0_aarch64.app.tar.gz",
+	});
+	assert.equal(
+		macAssetNames("1.0.0-beta.1", "x86_64-apple-darwin").archive,
+		"FrameEver_1.0.0-beta.1_x64.app.tar.gz",
+	);
+});
+
+test("without an Apple identity the macOS app is signed ad hoc, and only the updater key makes an updater archive", () => {
+	assert.deepEqual(macBundleConfig({}), {
+		bundle: {
+			createUpdaterArtifacts: false,
+			macOS: { signingIdentity: "-" },
+		},
+	});
+	assert.deepEqual(
+		macBundleConfig({
+			TAURI_SIGNING_PRIVATE_KEY: "key",
+			APPLE_SIGNING_IDENTITY: "Developer ID Application: aniBullet",
+		}),
+		{ bundle: { createUpdaterArtifacts: true } },
+	);
+});
+
+const minisign = (keyId) =>
+	Buffer.from(
+		`untrusted comment: test\n${Buffer.concat([
+			Buffer.from("Ed"),
+			Buffer.from(keyId, "hex"),
+			Buffer.alloc(32, 1),
+		]).toString("base64")}\n`,
+	).toString("base64");
+
+test("a signature and a public key name the key that made them", () => {
+	assert.equal(
+		signatureKeyId(minisign("7a6f5207b3a2600b")),
+		"7a6f5207b3a2600b",
+	);
+	assert.equal(
+		signatureKeyId(`${minisign("0102030405060708")}\n`),
+		"0102030405060708",
+	);
+});
+
+test("the update manifest lists every platform that was built", () => {
+	const key = "7a6f5207b3a2600b";
+	const manifest = updateManifest({
+		version: "1.0.0",
+		notes: "First release\n",
+		pubDate: "2026-11-15T00:00:00Z",
+		repo: "AniBullet/FrameEver",
+		publicKey: minisign(key),
+		signatures: {
+			"FrameEver_1.0.0_x64-setup.exe": `${minisign(key)}\n`,
+			"FrameEver_1.0.0_aarch64.app.tar.gz": minisign(key),
+		},
+	});
+	assert.deepEqual(manifest, {
+		version: "1.0.0",
+		notes: "First release\n",
+		pub_date: "2026-11-15T00:00:00Z",
+		platforms: {
+			"windows-x86_64": {
+				url: "https://github.com/AniBullet/FrameEver/releases/download/v1.0.0/FrameEver_1.0.0_x64-setup.exe",
+				signature: minisign(key),
+			},
+			"darwin-aarch64": {
+				url: "https://github.com/AniBullet/FrameEver/releases/download/v1.0.0/FrameEver_1.0.0_aarch64.app.tar.gz",
+				signature: minisign(key),
+			},
+		},
+	});
+});
+
+test("the update manifest refuses what an installed app could not use", () => {
+	const key = "7a6f5207b3a2600b";
+	const build = (signatures, publicKey = minisign(key)) =>
+		updateManifest({
+			version: "1.0.0",
+			notes: "Notes",
+			pubDate: "2026-11-15T00:00:00Z",
+			repo: "AniBullet/FrameEver",
+			publicKey,
+			signatures,
+		});
+	assert.throws(
+		() => build({ "FrameEver 1.0.0-setup.exe": minisign(key) }),
+		/spaces/,
+	);
+	assert.throws(() => build({ "FrameEver_1.0.0_x64-setup.exe": " " }), /empty/);
+	assert.throws(
+		() =>
+			build({ "FrameEver_1.0.0_x64-setup.exe": minisign("0102030405060708") }),
+		/signed by key 0102030405060708/,
+	);
+	assert.throws(
+		() =>
+			build({
+				"FrameEver_1.0.0_x64-setup.exe": minisign(key),
+				"FrameEver_1.0.1_x64-setup.exe": minisign(key),
+			}),
+		/two packages for windows-x86_64/,
+	);
+	assert.throws(() => build({ "notes.md": minisign(key) }), /no platform/i);
+	assert.throws(() => build({}), /no signed package/i);
+	assert.throws(
+		() =>
+			build(
+				{ "FrameEver_1.0.0_x64-setup.exe": "bm90IGEga2V5" },
+				"bm90IGEga2V5",
+			),
+		/not a minisign/i,
 	);
 });

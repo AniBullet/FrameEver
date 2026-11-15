@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build as a dry run. Nothing is published.
+        required: true
 
 permissions:
   contents: read
@@ -29,10 +34,12 @@ jobs:
       - name: Read version from tag
         id: version
         shell: bash
+        env:
+          DRY_RUN_VERSION: ${{ inputs.version }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${DRY_RUN_VERSION:-${GITHUB_REF_NAME#v}}"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME is not a semantic version like v3.0.0"
+            echo "::error::$version is not a semantic version like 3.0.0"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -165,46 +172,162 @@ jobs:
             ${{ env.BUNDLE_DIR }}/notes.md
           if-no-files-found: error
 
+  build-macos:
+    runs-on: macos-15
+    timeout-minutes: 240
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read version from tag
+        id: version
+        shell: bash
+        env:
+          DRY_RUN_VERSION: ${{ inputs.version }}
+        run: |
+          version="${DRY_RUN_VERSION:-${GITHUB_REF_NAME#v}}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::$version is not a semantic version like 3.0.0"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check signing configuration
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          FRAMEEVER_UPDATER_PUBKEY: ${{ vars.FRAMEEVER_UPDATER_PUBKEY }}
+        run: |
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            echo "::error::Secret TAURI_SIGNING_PRIVATE_KEY is missing; run scripts/setup-updater-signing.sh"
+            exit 1
+          fi
+          if [[ -z "$FRAMEEVER_UPDATER_PUBKEY" ]]; then
+            echo "::error::Variable FRAMEEVER_UPDATER_PUBKEY is missing; run scripts/setup-updater-signing.sh"
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.5.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test packaging scripts
+        run: node --test scripts/bundle-gpui.test.mjs scripts/prepare-gpui-dependency.test.mjs scripts/fe.test.mjs
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-release-macos
+          workspaces: |
+            . -> target
+            apps/desktop-gpui -> target
+          cache-on-failure: true
+
+      - name: Prepare native dependencies
+        run: pnpm fe setup --ci
+
+      - name: Build the app, disk image and updater archive
+        env:
+          FRAMEEVER_UPDATER_PUBKEY: ${{ vars.FRAMEEVER_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm fe package --version ${{ steps.version.outputs.version }}
+
+      - name: Check the disk image and the updater archive
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          dmg="$BUNDLE_DIR/FrameEver_${VERSION}_aarch64.dmg"
+          archive="$BUNDLE_DIR/FrameEver_${VERSION}_aarch64.app.tar.gz"
+          for file in "$dmg" "$archive" "$archive.sig"; do
+            if [[ ! -s "$file" ]]; then
+              echo "::error::$file is missing or empty"
+              exit 1
+            fi
+          done
+          hdiutil verify "$dmg"
+          work="$RUNNER_TEMP/package-check"
+          mkdir -p "$work"
+          tar -xzf "$archive" -C "$work"
+          app="$work/FrameEver.app"
+          plist="$app/Contents/Info.plist"
+          bundled="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
+          if [[ "$bundled" != "$VERSION" ]]; then
+            echo "::error::The app says version $bundled, not $VERSION"
+            exit 1
+          fi
+          for binary in FrameEver frameever-muxer frameever-cli; do
+            if [[ ! -x "$app/Contents/MacOS/$binary" ]]; then
+              echo "::error::$binary is missing from the app"
+              exit 1
+            fi
+          done
+          codesign --verify --deep --strict "$app"
+          "$app/Contents/MacOS/frameever-cli" --version
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-package
+          path: |
+            ${{ env.BUNDLE_DIR }}/*.dmg
+            ${{ env.BUNDLE_DIR }}/*.app.tar.gz
+            ${{ env.BUNDLE_DIR }}/*.app.tar.gz.sig
+          if-no-files-found: error
+
   publish:
-    needs: build
+    needs: [build, build-macos]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Download installer
         uses: actions/download-artifact@v4
         with:
           name: windows-installer
           path: dist
 
+      - name: Download macOS package
+        if: needs.build-macos.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-package
+          path: dist
+
       - name: Write update manifest
         env:
-          GH_TOKEN: ${{ github.token }}
+          FRAMEEVER_UPDATER_PUBKEY: ${{ vars.FRAMEEVER_UPDATER_PUBKEY }}
           VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          set -euo pipefail
-          installer="$(ls dist/*-setup.exe)"
-          name="$(basename "$installer")"
-          if [[ "$name" == *" "* ]]; then
-            echo "::error::Installer name '$name' contains spaces, which GitHub rewrites in asset URLs"
-            exit 1
-          fi
-          if [[ ! -s dist/notes.md ]]; then
-            echo "::error::dist/notes.md is missing; the build job reads it from CHANGELOG.md"
-            exit 1
-          fi
-          jq -n \
-            --arg version "$VERSION" \
-            --rawfile notes dist/notes.md \
-            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/$name" \
-            --rawfile signature "$installer.sig" \
-            '{version: $version, notes: $notes, pub_date: $pub_date,
-              platforms: {"windows-x86_64": {url: $url, signature: ($signature | gsub("\\s"; ""))}}}' \
-            > dist/latest.json
-          cat dist/latest.json
+        run: node scripts/fe.mjs manifest --version "$VERSION" --repo "$GITHUB_REPOSITORY"
+
+      - name: Keep the update manifest of a dry run
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-manifest
+          path: dist/latest.json
+          if-no-files-found: error
 
       - name: Publish GitHub Release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.build.outputs.version }}
@@ -219,4 +342,5 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --notes-file dist/notes.md \
             "${prerelease[@]}" \
-            dist/*-setup.exe dist/*-setup.exe.sig dist/FrameEver-Converter_*.exe dist/latest.json
+            dist/*-setup.exe dist/*-setup.exe.sig dist/FrameEver-Converter_*.exe \
+            $(ls dist/*.dmg dist/*.app.tar.gz dist/*.app.tar.gz.sig 2>/dev/null) dist/latest.json

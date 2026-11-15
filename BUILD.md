@@ -12,7 +12,7 @@ pnpm fe            # 列出全部命令
 
 | 依赖 | 说明 |
 |---|---|
-| Windows 10/11 x64 | 目前只发布 Windows 版；macOS 版由 CI 在 Apple 芯片的 Mac 上编译和测试（`.github/workflows/macos.yml`），还没在真机上跑过；不支持 Linux |
+| Windows 10/11 x64 | 主要平台。macOS 版由 CI 在 Apple 芯片的 Mac 上编译、测试（`.github/workflows/macos.yml`）和打包（`.github/workflows/release.yml`），没有 Developer ID 签名，还没在真机上跑过；不支持 Linux |
 | Node.js 20+ 与 pnpm 10 | `npm install -g pnpm@10.5.2` |
 | Rust（rustup） | stable；`pnpm fe setup` 会补装 |
 | Visual Studio 2022 生成工具 | 含“使用 C++ 的桌面开发”、LLVM（clang）组件和 CMake |
@@ -65,6 +65,14 @@ pnpm fe package
 - `--version 3.0.0` 会把版本号写进应用再打包（CI 发版时使用）。
 - `--skip-sidecars` 跳过附带程序的编译，只重新打应用和安装包。
 
+### macOS
+
+在 Apple 芯片的 Mac 上，同一条 `pnpm fe package` 编译附带程序和正式版应用，生成 `dist/FrameEver_<版本>_aarch64.dmg`（下载安装用）。设置了 `TAURI_SIGNING_PRIVATE_KEY` 时还会生成 `dist/FrameEver_<版本>_aarch64.app.tar.gz` 和它的 `.sig`（应用内更新用）。macOS 上不打包 FrameEver Converter，也没有 Intel 版。
+
+- 还没有 Apple 开发者账号，所以没有 Developer ID 签名和公证：没设置 `APPLE_SIGNING_IDENTITY` 时应用用临时签名（ad-hoc）。Apple 芯片的 Mac 不运行完全没有签名的程序，临时签名是最低要求。
+- 从浏览器下载的应用第一次打开会被 Gatekeeper 拦下。macOS 15 及以上：先打开一次，再到“系统设置 → 隐私与安全性”点“仍要打开”。也可以在终端运行 `xattr -dr com.apple.quarantine /Applications/FrameEver.app`。
+- macOS 按签名记住屏幕录制、摄像头和麦克风权限，而临时签名每个版本都不同，所以每次更新后要重新授权。有了 Developer ID 签名后不再需要。
+
 ## 发布新版本
 
 先在 [CHANGELOG.md](CHANGELOG.md) 最上面写这个版本的一节，这一节会原样成为 GitHub Release 的说明、应用内的更新提示和“更新日志”页的内容：
@@ -93,7 +101,11 @@ pnpm fe package
 pnpm fe release 3.1.0
 ```
 
-先检查工作区是否干净、标签是否已存在、`CHANGELOG.md` 里有没有这个版本，再跑全部测试，显示将要发布的说明；你确认后，把更新记录的日期改成当天并提交，再推送当前分支和 `v3.1.0` 标签。CI 在开始编译前也会检查 `CHANGELOG.md`，缺少这一节会直接失败。GitHub Actions（`.github/workflows/release.yml`）会用同样的 `pnpm fe setup` 和 `pnpm fe package` 打包、签名，并发布到 GitHub Releases，已安装的用户会收到更新。带 `-` 的版本（如 `3.1.0-beta.1`）发布为预览版。
+先检查工作区是否干净、标签是否已存在、`CHANGELOG.md` 里有没有这个版本，再跑全部测试，显示将要发布的说明；你确认后，把更新记录的日期改成当天并提交，再推送当前分支和 `v3.1.0` 标签。CI 在开始编译前也会检查 `CHANGELOG.md`，缺少这一节会直接失败。GitHub Actions（`.github/workflows/release.yml`）会在 Windows 和 macOS 上用同样的 `pnpm fe setup` 和 `pnpm fe package` 打包、签名，用 `pnpm fe manifest` 生成列出 `windows-x86_64` 和 `darwin-aarch64` 的 `latest.json`，并发布到 GitHub Releases，已安装的用户会收到更新。带 `-` 的版本（如 `3.1.0-beta.1`）发布为预览版。
+
+想只验证打包而不发布，手动运行这个工作流并填一个 `CHANGELOG.md` 里有的版本号：`gh workflow run release.yml -f version=3.1.0`。它照常打两个平台的包，把 `latest.json` 留在构建产物里，不创建 Release。
+
+macOS 打包失败不会拦住 Windows 版：那次 Release 只有 Windows 安装包，`latest.json` 里也只有 `windows-x86_64`，工作流显示失败。
 
 更新签名密钥只需配置一次：`scripts/setup-updater-signing.sh`（用 Git Bash 运行）。
 

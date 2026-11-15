@@ -22,7 +22,8 @@ Everything goes through one entry point, `pnpm fe <command>` (`scripts/fe.mjs`).
 | `pnpm fe fmt` | Format what FrameEver changed |
 | `pnpm fe export h264\|hevc\|av1` | Export the newest test recording to `target/testdata/exports/` |
 | `pnpm fe converter [--lang zh-CN]` | Run FrameEver Converter against a fresh fake Cap-aniBullet 2.x install in `target/testdata/converter/` |
-| `pnpm fe package` | Build the installer and `FrameEver-Converter_<version>_x64.exe` into `dist/` exactly as CI does |
+| `pnpm fe manifest --version <x.y.z> --repo <owner/name>` | Write `dist/latest.json` from the signed packages in `dist/`; refuses a package the app's update key did not sign |
+| `pnpm fe package` | Build the installer and `FrameEver-Converter_<version>_x64.exe` into `dist/` exactly as CI does; on macOS, `FrameEver_<version>_aarch64.dmg` and, with the updater key, the `.app.tar.gz` updater archive |
 
 Test cadence: while iterating run `pnpm fe test <filter>` (an app-only edit rebuilds in about 20 s); run `pnpm fe check` only when you want errors without running anything, since `test` compiles the same code. Run `pnpm fe fmt` after each edit. Run `pnpm fe test --all` and `pnpm fe lint` once per change landing on `main`, after code review and its fixes; for tickets built in parallel, once on the integration branch. An edit in a shared crate (`frameever-project`, `-rendering`, `-recording`, `-editor`, `-export`) rebuilds everything above it, 30–45 s; renaming or upgrading crates rebuilds everything. `dev`, `check`, `test` and `lint` keep the four newest incremental caches per crate and delete older ones.
 
@@ -58,7 +59,7 @@ Environment variables the app reads: `FRAMEEVER_GPUI_APP_DATA_DIR` (also moves t
 
 **FrameEver Converter.** The app never reads older data. Conversion rules live in `crates/converter` with their tests; the wizard flow is `apps/desktop-gpui/converter/src/wizard.rs`, tested in `apps/desktop-gpui/converter/tests/wizard.rs`. `pnpm fe converter` rebuilds the fake install on every run, so a run always starts from unconverted data.
 
-**Packaging.** `pnpm fe package` prints each step. Missing DLL folders → `pnpm fe setup`. The installer is bundled by the Tauri CLI (`apps/desktop-gpui/tauri.conf.json`, packaging only); a bundle error names the file it couldn't find. Without `TAURI_SIGNING_PRIVATE_KEY` it builds an installer without an update signature on purpose. CI runs the same command in `.github/workflows/release.yml`.
+**Packaging.** `pnpm fe package` prints each step. Missing DLL folders → `pnpm fe setup`. The installer is bundled by the Tauri CLI (`apps/desktop-gpui/tauri.conf.json`, packaging only); a bundle error names the file it couldn't find. Without `TAURI_SIGNING_PRIVATE_KEY` it builds an installer without an update signature on purpose. CI runs the same command in `.github/workflows/release.yml`, on Windows and on macOS. On macOS the app is signed ad hoc unless `APPLE_SIGNING_IDENTITY` is set. To package in CI without publishing, run the workflow by hand: `gh workflow run release.yml -f version=<x.y.z>` (a version `CHANGELOG.md` has); `latest.json` is kept as the `update-manifest` artifact.
 
 ## Common errors
 
