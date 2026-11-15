@@ -1,165 +1,131 @@
 # FrameEver 贡献指南
 
-## 项目简介
+FrameEver · 帧刻是纯本地的录屏、截图与剪辑工具，从 [Cap](https://github.com/CapSoftware/Cap) 分出，现在独立开发。欢迎报告问题、提出想法和提交代码。
 
-FrameEver · 帧刻是 aniBullet 的纯本地屏幕录制和编辑应用，最初从 [Cap](https://github.com/CapSoftware/Cap) 分出，现在独立开发。它专注于：
+## 参与方式
 
-- 无时长 / 数量限制的本地录制
-- 录制、编辑、导出都只在本机完成，不上传任何内容
-- 先发布 Windows x64 版，之后再做 macOS
-- 完全免费、开源
+- **报告问题或提建议**：[新建 Issue](https://github.com/AniBullet/FrameEver/issues/new/choose)。请写上版本、系统和复现步骤，有日志更好（位置见[数据位置](#数据位置)）。
+- **提交代码**：先在 Issue 里说明要改什么，确认方向后再开 Pull Request。还没处理的工作都在 [Issues](https://github.com/AniBullet/FrameEver/issues) 里。
 
----
+## 三条底线
 
-## 如何参与
+这三条决定一个改动能不能合并：
 
-- [报告 Bug](https://github.com/AniBullet/FrameEver/issues/new)
-- [发起讨论](https://github.com/AniBullet/FrameEver/discussions)
-- 提交 Pull Request
-
----
+1. **内容不出本机。** 不引入云端 SDK、账号、认证、付费和遥测。允许的联网只有三种：从本仓库的 GitHub Releases 检查和下载更新、下载字幕识别模型、用户自己点开的链接（[ADR-0002](docs/adr/0002-local-only-no-cloud.md)）。
+2. **不丢功能。** 除了云端和账号，Cap 有的功能和交互都要保留。
+3. **界面扁平。** 没有渐变和毛玻璃，颜色取自设计令牌，样子以 [`docs/design`](docs/design) 的设计页为准。
 
 ## 开发环境
 
-### 系统要求
-
 | 依赖 | 版本 |
-|------|------|
+| --- | --- |
 | Node.js | 20+ |
 | pnpm | 10+ |
-| Rust | rustup（stable，`pnpm fe setup` 会补装） |
-| Visual Studio 2022 生成工具 | C++ 桌面开发、LLVM、CMake |
-| Windows | x64 |
+| Rust | stable（`pnpm fe setup` 会补装） |
+| Windows | 10 / 11 x64，Visual Studio 2022 生成工具（C++ 桌面开发、LLVM、CMake） |
+| macOS | Apple 芯片；目前只在 CI 上编译和测试，还没在真机上验证 |
 
-> **注意**：目前只构建和发布 Windows 版。macOS 代码保留，Windows 1.0.0 之后再做；不支持 Linux。
-
-### 快速启动
+不支持 Linux。
 
 ```powershell
 pnpm fe setup     # 准备环境（首次）
-pnpm fe dev       # 用独立的测试数据运行应用（--watch 自动重编译）
-pnpm fe lint      # 合进 main 前检查一次：格式、Clippy、翻译
-pnpm fe package   # 打包安装程序
+pnpm fe doctor    # 检查缺什么、怎么补
+pnpm fe dev       # 用独立的测试数据运行应用（--watch 自动重编译，--lang zh-CN 中文界面）
 ```
 
-详细步骤请参阅 [BUILD.md](BUILD.md)。
-
----
+所有构建、测试和打包都走 `pnpm fe <命令>`，不要用别的构建命令。完整说明见 [BUILD.md](BUILD.md)。
 
 ## 项目结构
 
 ```
 FrameEver/
 ├── apps/
-│   ├── desktop-gpui/       # GPUI 桌面应用（录制、编辑器、资源库、设置）
-│   │   └── converter/      # FrameEver Converter 向导（单独下载）
-│   └── cli/                # 命令行工具 frameever
+│   ├── desktop-gpui/       GPUI 桌面应用：录制、编辑器、资源库、设置
+│   │   └── converter/      FrameEver Converter 向导（单独下载）
+│   └── cli/                命令行工具 frameever
 ├── crates/
-│   ├── recording/          # 核心录制管线
-│   ├── rendering/          # 视频渲染 & 特效
-│   ├── editor/             # 编辑器播放
-│   ├── export/             # 导出 & 编码
-│   ├── project/            # 项目格式
-│   ├── converter/          # FrameEver Converter 转换核心
-│   ├── utils/              # 品牌常量、存储文件夹
-│   ├── camera*/            # 摄像头
-│   └── media*/             # 音视频处理
-├── docs/                   # 决策记录（adr/）、agent 指南、交接文档
-└── scripts/                # pnpm fe 和其他开发脚本
+│   ├── recording/ rendering/ editor/ export/ project/    录制与编辑管线
+│   ├── enc-*/ media*/ video-decode/ muxer*/              编码、解码、封装
+│   ├── scap-*/ camera*/ audio/ cursor-*/                 屏幕、摄像头、音频、光标采集
+│   ├── converter/          FrameEver Converter 转换核心
+│   └── utils/              品牌常量、存储文件夹
+├── docs/                   决策记录（adr/）、设计页（design/）、文案和翻译规则
+└── scripts/                pnpm fe 和其他开发脚本
 ```
 
-术语以 [GLOSSARY.md](GLOSSARY.md) 为准。
-
-### 常用命令
-
-```bash
-pnpm fe dev          # 编译并运行应用
-pnpm fe check        # 编译检查应用、FrameEver Converter 和 CLI
-pnpm fe test --all   # 运行全部测试
-pnpm fe lint         # 格式检查、clippy 和翻译检查
-pnpm fe fmt          # 格式化
-pnpm fe converter    # 用假的 Cap-aniBullet 2.x 数据试运行 FrameEver Converter
-```
-
----
+术语以 [GLOSSARY.md](GLOSSARY.md) 为准：项目、存储文件夹、导出、工作室录制、即时录制、资源库。
 
 ## 数据位置
 
 | 内容 | 位置 |
-|------|------|
+| --- | --- |
 | 项目、截图、导出（存储文件夹） | 默认 `%USERPROFILE%\Videos\FrameEver\`（`Recordings`、`Screenshots`、`Exports`），可在设置里更改 |
 | 设置 | `%APPDATA%\io.github.anibullet.frameever\` |
 | 日志 | `%LOCALAPPDATA%\io.github.anibullet.frameever\logs\` |
 | `pnpm fe dev` 的测试数据 | `apps/desktop-gpui/target/testdata/` |
 
----
+## 写代码
 
-## 代码规范
+完整规范在 [AGENTS.md](AGENTS.md)，要点如下。
 
-完整规范请参阅 [AGENTS.md](AGENTS.md)，核心要点：
+**通用**
 
-### 通用
-- **不写注释** — 代码通过命名和结构自说明
-- 界面文字只有英文和简体中文，每条新文字都要有中文翻译；专有名词在中文界面保持英文（见 [docs/i18n.md](docs/i18n.md)）
-- 纯扁平设计，不用渐变和毛玻璃
+- 不写任何注释，代码靠命名、类型和结构说明自己，解释写进文档
+- 先写测试：Rust 测试放在代码旁（`#[cfg(test)]`）或 crate 的 `tests/`，脚本测试是 `scripts/*.test.mjs`
+- 修 Bug 先复现，再用测试或实测数据证明修好了
 
-### Rust
-- `rustfmt` + workspace clippy lints（`pnpm fe lint`）
-- 模块名 snake_case，crate 名 kebab-case 并以 `frameever-` 开头
-- 禁止 `dbg!()`，正确处理 `Result` / `Option`
+**Rust**
 
-### 脚本
+- `rustfmt` 加工作区的 clippy 规则
+- 模块名 snake_case；crate 名 kebab-case，以 `frameever-` 开头；环境变量以 `FRAMEEVER_` 开头
+- 不用 `dbg!()`，处理每一个 `Result` 和 `Option`
+
+**界面**
+
+- 文字只有英文和简体中文，每条 `t!` 文字都要有中文翻译；专有名词（FrameEver、HEVC、Whisper）在中文界面保持英文（[docs/i18n.md](docs/i18n.md)）
+- 文案的语气和写法见 [docs/copy-style.md](docs/copy-style.md)
+- 图标用 Lucide，Lucide 没有的才用 Tabler
+- 改了样子，就在同一个 PR 里改对应的设计页
+
+**脚本**
+
 - `scripts/*.mjs`：Tab 缩进，Biome 格式化（`pnpm format`），文件名 kebab-case
 
-### 本地优先原则
-- 不引入任何云端 SDK / API
-- 不添加需要联网的功能
-- 不引入账号 / 认证 / 付费相关逻辑
+## 检查
 
----
+| 时机 | 命令 |
+| --- | --- |
+| 每次改动后 | `pnpm fe fmt`，再跑 `pnpm fe test <过滤词>`（根工作区的 crate 用 `--crate <包名>`） |
+| 提交 PR 前 | `pnpm fe test --all` 和 `pnpm fe lint` 各一次 |
 
-## 提交规范
+## 提交
 
-使用 Conventional Commits 格式：
+使用 Conventional Commits 前缀，说明用中文，有对应 Issue 时写上编号：
 
 ```
 feat:     新功能
-fix:      Bug 修复
+fix:      修复
+improve:  改进已有功能
+refactor: 重构，不改变行为
 chore:    构建、依赖、清理
-improve:  功能改进（非新功能）
-refactor: 重构（不影响行为）
-docs:     文档变更
+docs:     文档
 ```
 
-提交说明用中文，有对应 Issue 时写上编号。示例：
 ```
-feat: 新增 HEVC 视频压缩功能（#18）
-fix: 修复区域录制工具条跑到其他屏幕的问题
+feat: 资源库加 Space 预览（#96）
+fix: 修复区域录制控制条跑到其他屏幕的问题
 ```
 
 `git push` 前会自动运行隐私检查（`pnpm fe privacy`），不要绕过。
 
----
+## Pull Request
 
-## Pull Request 要求
+- 一个 PR 只做一件事，说明改了什么、为什么
+- 关联 Issue：`Closes #编号`
+- 界面改动附截图或 GIF
+- 行为变了，同步更新 [CHANGELOG.md](CHANGELOG.md) 里未发布的那一节，必要时更新 README
+- 上游 Cap 只作参考：修复手工移植，不合并，也不要向 `CapSoftware/Cap` 推送或提 Issue
 
-1. **描述清晰** — 说明改动内容和原因
-2. **关联 Issue** — 如有对应 Issue，请在描述中 `Closes #xxx`
-3. **截图 / GIF** — UI 变更必须附图
-4. **保持范围** — 一个 PR 专注一件事
-5. **文档同步** — 行为变更时同步更新 README / CHANGELOG
+## 协议
 
----
-
-## 禁止事项
-
-- ❌ 引入云端依赖或需要联网的功能
-- ❌ 添加用户账号 / 认证 / 付费相关代码
-- ❌ 在代码中添加注释（`//`、`/* */`、`///` 等）
-- ❌ 使用 `dbg!()` 宏
-
----
-
-## 开源协议
-
-贡献的代码将遵循本项目的 **AGPL-3.0** 协议开源。
+贡献的代码以本项目的 **AGPL-3.0** 协议开源（[LICENSE](LICENSE)）；`frameever-camera*` 和 `scap-*` 模块为 MIT 协议（[licenses/LICENSE-MIT](licenses/LICENSE-MIT)）。提交即表示你有权按这些协议授权你的贡献。
