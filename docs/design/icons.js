@@ -34,6 +34,8 @@ window.FRAMEEVER_ICONS = {
 	"arrow-up-wide-narrow":
 		'<path d="m3 8 4-4 4 4"/><path d="M7 4v16"/><path d="M11 12h10"/><path d="M11 16h7"/><path d="M11 20h4"/>',
 	"arrow-up-right": '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>',
+	"arrow-up": '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+	"arrow-down": '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
 	check: '<path d="M20 6 9 17l-5-5"/>',
 	"chevron-down": '<path d="m6 9 6 6 6-6"/>',
 	"chevron-left": '<path d="m15 18-6-6 6-6"/>',
@@ -62,7 +64,8 @@ window.FRAMEEVER_ICONS = {
 	"layout-grid":
 		'<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
 	list: '<path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/>',
-	"import": '<path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4"/>',
+	import:
+		'<path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4"/>',
 	"list-filter": '<path d="M2 5h20"/><path d="M6 12h12"/><path d="M9 19h6"/>',
 	minimize:
 		'<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',

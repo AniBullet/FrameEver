@@ -410,7 +410,9 @@ class MainWindow {
 					([id, k]) =>
 						`<button class="${mode === id ? "on" : ""}" data-a="mode" data-v="${id}">${icon(k.icon, "sm")}${L(...k.name)}<span class="mode-card"><b>${L(`${k.name[0]} mode`, `${k.name[1]}模式`)}</b><span>${L(...k.hint)}</span><span class="mode-link">${icon("settings", "sm")}${L("Quality settings", "画质设置")}</span></span></button>`,
 				)
-				.join("")}</div><button class="btn ghost icon" title="${pick("Recording mode info", "录制模式说明")}">${icon("info", "sm")}</button></div>
+				.join(
+					"",
+				)}</div><button class="btn ghost icon" title="${pick("Recording mode info", "录制模式说明")}">${icon("info", "sm")}</button></div>
 			<div class="targets">${targets.map(([id, ic, en, zh]) => `<button class="${target === id ? "on" : ""}" data-a="target" data-v="${id}">${id === "display" || id === "window" ? `<span class="choose">${icon("chevron-down", "sm")}</span>` : ""}${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}</div>
 			<div class="device">${icon("webcam")}<span class="grow">${L("Camera", "摄像头")}</span><em>${L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("mic")}<span class="grow">${L("Microphone", "麦克风")}</span><em>${L("Default", "默认")}</em>${icon("chevron-down", "sm")}</div>
@@ -1202,8 +1204,7 @@ class MainWindow {
 		}
 		if (e.key === " " && e.target.tagName !== "BUTTON") {
 			e.preventDefault();
-			if (s.selected.length)
-				this.set({ preview: !s.preview, whole: false });
+			if (s.selected.length) this.set({ preview: !s.preview, whole: false });
 		}
 		if (s.preview && e.key === "ArrowLeft") return this.step(-1);
 		if (s.preview && e.key === "ArrowRight") return this.step(1);
@@ -1263,9 +1264,9 @@ const deleteDialog = (item, count, choice, live) => {
 const clock = (seconds) =>
 	`${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
 const gifSizes = [
-	["Original", "原始", 1],
-	["Half", "一半", 2],
-	["Quarter", "四分之一", 4],
+	["Large", "大", 1],
+	["Medium", "中", 2],
+	["Small", "小", 4],
 ];
 const gifStats = (item, gif) => {
 	const [minutes, seconds] = item.dur.split(":").map(Number);
@@ -1298,10 +1299,10 @@ const gifDialog = (item, gif, live) => {
 	return `<div class="dialog gif-dialog"><h3>${L("Save as GIF", "存为 GIF")}</h3><p>${L(`From “${item.name}”. The recording stays as it is.`, `取自“${item.name}”，录制本身不变。`)}</p>
 		<span class="thumb gif-thumb">${art(item.art)}</span>
 		<div class="gif-range" ${on("gif-range")}><i></i><b style="left:${gif.a}%;right:${100 - gif.b}%"></b><u style="left:${gif.a}%"></u><u style="left:${gif.b}%"></u></div>
-		<div class="gif-times tnum"><span>${clock(stats.from)}</span><span class="grow">${L(`${seconds} s`, `${seconds} 秒`)}</span><span>${clock(stats.to)}</span></div>
+		<div class="gif-times tnum">${clock(stats.from)} – ${clock(stats.to)} · ${L(`${seconds} s`, `${seconds} 秒`)}</div>
 		<div class="subhead">${L("Size", "尺寸")}</div>
-		<div class="seg block">${gifSizes.map(([en, zh], i) => `<button class="${gif.size === i ? "on" : ""}" ${on("gif-size", i)}>${L(en, zh)} <em class="tnum">${stats.sizes[i].join(" × ")}</em></button>`).join("")}</div>
-		<div class="gif-estimate tnum ${stats.large ? "warn" : ""}">${stats.large ? icon("triangle-alert", "sm") : ""}<span>${L(`About ${stats.mb} MB at 15 FPS`, `约 ${stats.mb} MB，15 帧/秒`)}</span>${stats.large ? `<span>${L("Pick a shorter stretch or a smaller size.", "选短一点，或者换小一点的尺寸。")}</span>` : ""}</div>
+		<div class="seg block">${gifSizes.map(([en, zh], i) => `<button class="${gif.size === i ? "on" : ""}" ${on("gif-size", i)}>${L(en, zh)}</button>`).join("")}</div>
+		<div class="gif-estimate tnum ${stats.large ? "warn" : ""}">${stats.large ? icon("triangle-alert", "sm") : ""}<span>${stats.sizes[gif.size].join(" × ")} · ${L(`15 FPS · about ${stats.mb} MB`, `15 帧/秒 · 约 ${stats.mb} MB`)}</span>${stats.large ? `<span>${L("Pick a shorter stretch or a smaller size.", "选短一点，或者换小一点的尺寸。")}</span>` : ""}</div>
 		<div class="actions"><button class="btn" ${on("gif-cancel")}>${L("Cancel", "取消")}</button><button class="btn primary" ${on("gif-confirm")}>${L("Save as GIF", "存为 GIF")}</button></div></div>`;
 };
 
@@ -1345,8 +1346,8 @@ const titles = {
 	gif: [
 		"Save as GIF",
 		"存为 GIF",
-		"GIF is only an export format. An Instant recording gets it from its details or its right-click menu: choose a stretch with the two handles, pick a size, and read the estimate before saving. It is always 15 FPS; anything finer is the editor's export. The GIF joins the recording's exports, and the toast offers Copy and Show in folder. A Studio recording gets a GIF from the editor's export, which can also export only the selected stretch.",
-		"GIF 只是一种导出格式。即时录制从详情或右键菜单进入：用两个把手选一段，选尺寸，保存前先看预估大小。固定 15 帧/秒，要细调就用编辑器的导出。生成的 GIF 列在这条录制的导出里，提示里可以直接复制或在文件夹中显示。工作室录制在编辑器的导出里得到 GIF，那里也可以只导出选中的一段。",
+		"GIF is only an export format. An Instant recording gets it from its details or its right-click menu: choose a stretch with the two handles, pick a size, and read the estimate before saving. Large keeps the recording's size up to 1080 px on the long side; Medium and Small are a half and a quarter of that. It is always 15 FPS; anything finer is the editor's export. The GIF joins the recording's exports, and the toast offers Copy and Show in folder. A Studio recording gets a GIF from the editor's export, which can also export only the selected stretch.",
+		"GIF 只是一种导出格式。即时录制从详情或右键菜单进入：用两个把手选一段，选尺寸，保存前先看预估大小。“大”保持录制的尺寸，长边最多 1080 px；“中”和“小”是它的一半和四分之一。固定 15 帧/秒，要细调就用编辑器的导出。生成的 GIF 列在这条录制的导出里，提示里可以直接复制或在文件夹中显示。工作室录制在编辑器的导出里得到 GIF，那里也可以只导出选中的一段。",
 	],
 	keys: [
 		"Keyboard",
@@ -1651,7 +1652,7 @@ document.getElementById("gif-grid").innerHTML = [
 	],
 	[
 		L("Too large to share easily", "太大，不方便分享"),
-		`<div class="static-dialog">${gifDialog(ITEMS[0], { a: 5, b: 45, size: 0 }, false)}</div>`,
+		`<div class="static-dialog">${gifDialog(gifSource, { a: 0, b: 100, size: 0 }, false)}</div>`,
 	],
 	[
 		L("Saved", "保存后"),
@@ -1683,10 +1684,12 @@ document.getElementById("keys-grid").innerHTML =
 		["Thumbnail size", "缩略图大小", "Ctrl =", "Ctrl -"],
 		["Grid, list", "网格、列表", "Ctrl 1", "Ctrl 2"],
 		["Back out one level", "逐层退出", "Esc"],
-	])}<div class="label" style="margin-top:12px">${L("Dragging a Studio project with no export", "拖动没有导出的工作室项目")}</div><div class="drag-notice">${L("Export this project first to drag it out", "先导出这个项目才能拖出")}</div><div class="label" style="margin-top:12px">${L("Dragging a selection with some left out", "拖动部分无法拖出的选择")}</div><div class="drag-notice">${L("Left out 2 with no file to drag", "已略过 2 项没有可拖出文件的项目")}</div><div class="label" style="margin-top:12px">${L("Dragging an Instant recording whose video is missing", "拖动缺少视频的即时录制")}</div><div class="drag-notice">${L("Its file is missing, so it can't be dragged", "找不到它的文件，无法拖出")}</div></div><div class="card"><h3>${L("Window", "窗口")}</h3>${keyRows([
-		["Command palette", "命令面板", "Ctrl K"],
-		["Library, back to recording", "资源库、回到录制", "Ctrl L"],
-	])}<h3 style="margin-top:16px">${L("Preview", "预览")}</h3>${keyRows([
+	])}<div class="label" style="margin-top:12px">${L("Dragging a Studio project with no export", "拖动没有导出的工作室项目")}</div><div class="drag-notice">${L("Export this project first to drag it out", "先导出这个项目才能拖出")}</div><div class="label" style="margin-top:12px">${L("Dragging a selection with some left out", "拖动部分无法拖出的选择")}</div><div class="drag-notice">${L("Left out 2 with no file to drag", "已略过 2 项没有可拖出文件的项目")}</div><div class="label" style="margin-top:12px">${L("Dragging an Instant recording whose video is missing", "拖动缺少视频的即时录制")}</div><div class="drag-notice">${L("Its file is missing, so it can't be dragged", "找不到它的文件，无法拖出")}</div></div><div class="card"><h3>${L("Window", "窗口")}</h3>${keyRows(
+		[
+			["Command palette", "命令面板", "Ctrl K"],
+			["Library, back to recording", "资源库、回到录制", "Ctrl L"],
+		],
+	)}<h3 style="margin-top:16px">${L("Preview", "预览")}</h3>${keyRows([
 		["Previous, next", "上一个、下一个", "←", "→"],
 		["Play, pause", "播放、暂停", "K"],
 		["Back, forward 5 s", "后退、前进 5 秒", "J", "L"],
