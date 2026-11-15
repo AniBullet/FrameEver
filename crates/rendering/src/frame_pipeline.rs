@@ -11,8 +11,6 @@ use crate::{ProjectUniforms, RenderingError};
 use crate::iosurface_texture::{IOSurfaceTextureCache, import_metal_texture_to_wgpu_with_usage};
 #[cfg(target_os = "macos")]
 use cidre::{arc, cf, cv, io, mtl};
-#[cfg(target_os = "macos")]
-use foreign_types::ForeignType;
 
 const GPU_BUFFER_WAIT_TIMEOUT_SECS: u64 = 10;
 const SOFTWARE_GPU_BUFFER_WAIT_TIMEOUT_SECS: u64 = 60;
@@ -873,9 +871,8 @@ impl RgbaToNv12Converter {
             #[cfg(target_os = "macos")]
             Some(PendingNv12Output::Surface(pending)) => {
                 pending.completed = unsafe {
-                    queue.as_hal::<wgpu_hal::api::Metal, _, _>(|queue| {
-                        let queue = queue?.as_raw().lock();
-                        let queue = &*queue.as_ptr().cast::<mtl::CmdQueue>();
+                    queue.as_hal::<wgpu_hal::api::Metal>().and_then(|queue| {
+                        let queue = &*std::ptr::from_ref(queue.as_raw()).cast::<mtl::CmdQueue>();
                         let mut marker = queue.new_cmd_buf()?;
                         let (tx, rx) = oneshot::channel();
                         let mut tx = Some(tx);
@@ -886,7 +883,6 @@ impl RgbaToNv12Converter {
                                         tx.send(buffer.status() == mtl::CmdBufStatus::Completed);
                                 }
                             });
-                        // This queue marker completes after the surface copy without requiring wgpu polling.
                         marker.add_completed_handler(&mut handler);
                         marker.commit();
                         Some(rx)
