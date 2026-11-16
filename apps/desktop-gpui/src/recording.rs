@@ -465,7 +465,9 @@ async fn finish_failed_capture(
     stop: impl Future<Output = anyhow::Result<()>>,
     persist_stopped: impl FnOnce() -> anyhow::Result<()>,
 ) -> (bool, anyhow::Result<PathBuf>) {
-    if let Err(error) = stop.await {
+    if let Err(error) = stop.await
+        && !frameever_recording::instant_recording::capture_stopped_after_failure(&error)
+    {
         return (
             false,
             Err(error.context(t!(
@@ -3279,6 +3281,28 @@ mod failed_capture_tests {
         assert!(!stopped);
         assert!(!written.load(Ordering::SeqCst));
         assert!(format!("{:#}", result.unwrap_err()).contains("cancel failed"));
+    }
+
+    #[tokio::test]
+    async fn stop_after_a_joined_pipeline_failure_confirms_capture_stopped() {
+        let written = AtomicBool::new(false);
+        let (stopped, result) = finish_failed_capture(
+            async {
+                Err(anyhow::Error::new(
+                    frameever_recording::instant_recording::CaptureStoppedAfterFailure::from(
+                        anyhow!("Task mux-video failed: encoder rejected a frame"),
+                    ),
+                ))
+            },
+            || {
+                written.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .await;
+        assert!(stopped);
+        assert!(written.load(Ordering::SeqCst));
+        assert!(format!("{:#}", result.unwrap_err()).contains("local files preserved"));
     }
 
     #[tokio::test]
