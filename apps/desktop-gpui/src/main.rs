@@ -79,6 +79,7 @@ mod picker_benchmark;
 #[cfg(debug_assertions)]
 mod picker_ui_benchmark;
 mod platform;
+mod power;
 mod presets;
 mod project_save;
 mod recorded_time;
@@ -412,6 +413,7 @@ fn main() {
         .detach();
 
         app_windows::init(window_handle, session, cx);
+        power::install(cx);
         #[cfg(target_os = "macos")]
         match platform::install_native_quit_handler() {
             Ok(requests) => {
