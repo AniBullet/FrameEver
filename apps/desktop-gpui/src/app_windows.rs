@@ -2050,21 +2050,26 @@ fn area_overlay_for_recording(
         return None;
     };
     let handle = overlay_handle(Some(screen.clone()), cx)?;
-    handle
+    let (candidate, capture_excluded) = handle
         .update(cx, |view, window, cx| {
             let candidate = view.target(cx)?;
             #[cfg(target_os = "macos")]
             let capture_excluded = platform::window_is_visible(window)
                 && platform::window_number(window).is_some_and(|number| number > 0);
-            #[cfg(not(target_os = "macos"))]
-            let capture_excluded = {
-                let _ = window;
-                false
-            };
-            area_overlay_matches(target, &candidate, capture_excluded).then_some(handle)
+            #[cfg(windows)]
+            let capture_excluded = platform::window_is_visible(window)
+                .then(|| platform::native_window(window))
+                .flatten();
+            Some((candidate, capture_excluded))
         })
         .ok()
-        .flatten()
+        .flatten()?;
+    #[cfg(windows)]
+    let capture_excluded = capture_excluded.is_some_and(|native| {
+        platform::set_window_capture_hidden(&native, true);
+        platform::window_capture_hidden(&native)
+    });
+    area_overlay_matches(target, &candidate, capture_excluded).then_some(handle)
 }
 
 fn close_other_overlays(retained: WindowHandle<OverlayWindow>, cx: &mut App) {
@@ -2312,15 +2317,20 @@ fn start_recording_from_overlay_now(target: ScreenCaptureTarget, cx: &mut App) {
     *focus = CountdownFocus::Automatic;
     focus.remember_app_focus(app_active);
     let excluded = overlay_window_ids(cx);
-    let retained_area =
-        cfg!(target_os = "macos") && matches!(&target, ScreenCaptureTarget::Area { .. });
-    if retained_area {
-        let handle = area_overlay_for_recording(&target, cx).filter(|handle| {
+    let area = matches!(&target, ScreenCaptureTarget::Area { .. });
+    let retained = if area {
+        area_overlay_for_recording(&target, cx).filter(|handle| {
             handle
                 .update(cx, |view, _, cx| view.commit_area_for_recording(cx))
                 .unwrap_or(false)
-        });
-        let Some(handle) = handle else {
+        })
+    } else {
+        None
+    };
+    let retained_area = retained.is_some();
+    match retained {
+        Some(handle) => close_other_overlays(handle, cx),
+        None if area && cfg!(target_os = "macos") => {
             dismiss_target_overlays(cx);
             RecordingSession::global(cx).update(cx, |session, cx| {
                 session.error = Some(
@@ -2330,11 +2340,11 @@ fn start_recording_from_overlay_now(target: ScreenCaptureTarget, cx: &mut App) {
                 cx.notify();
             });
             return;
-        };
-        close_other_overlays(handle, cx);
-    } else {
-        release_camera_park(cx);
-        close_target_overlays(cx);
+        }
+        None => {
+            release_camera_park(cx);
+            close_target_overlays(cx);
+        }
     }
 
     let preparing = main

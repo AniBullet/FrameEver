@@ -7,12 +7,13 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use crate::i18n::t;
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    DefWindowProcW, GetForegroundWindow, GetWindowDisplayAffinity, GetWindowRect, HWND_NOTOPMOST,
-    HWND_TOP, HWND_TOPMOST, IsIconic, IsWindowVisible, IsZoomed, PostMessageW, SW_HIDE,
-    SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, SW_SHOWNOACTIVATE, SWP_ASYNCWINDOWPOS,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
-    SetWindowDisplayAffinity, SetWindowPos, ShowWindowAsync, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
-    WM_CLOSE, WM_NCACTIVATE,
+    DefWindowProcW, GWL_EXSTYLE, GetForegroundWindow, GetWindowDisplayAffinity, GetWindowLongPtrW,
+    GetWindowRect, HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST, IsIconic, IsWindowVisible, IsZoomed,
+    LWA_ALPHA, PostMessageW, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW,
+    SW_SHOWNOACTIVATE, SWP_ASYNCWINDOWPOS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow, SetLayeredWindowAttributes,
+    SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowWindowAsync,
+    WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WM_CLOSE, WM_NCACTIVATE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
 };
 
 use super::{ForcedAppearance, MaterialKind, PanelBehavior};
@@ -225,6 +226,12 @@ pub(crate) fn prepare_countdown_panel(
     countdown_panel::prepare(native.hwnd(), interactive)
 }
 
+pub fn window_capture_hidden(native: &NativeWindow) -> bool {
+    let mut current = WDA_NONE;
+    let read = unsafe { GetWindowDisplayAffinity(native.hwnd(), &mut current) != 0 };
+    read && current == WDA_EXCLUDEFROMCAPTURE
+}
+
 pub fn set_window_capture_hidden(native: &NativeWindow, hidden: bool) -> usize {
     let streamed = hidden
         .then(capture_exclusion::streamed_display_reason)
@@ -265,8 +272,34 @@ pub(crate) fn flush_camera_capture_frame() -> Result<(), String> {
     }
 }
 
-pub fn set_window_click_through(_native: &NativeWindow, _click_through: bool) -> bool {
-    false
+pub fn set_window_click_through(native: &NativeWindow, click_through: bool) -> bool {
+    let hwnd = native.hwnd();
+    let bits = (WS_EX_LAYERED | WS_EX_TRANSPARENT) as isize;
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let wanted = if click_through {
+            style | bits
+        } else {
+            style & !bits
+        };
+        if wanted != style {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, wanted);
+            if click_through {
+                SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+            }
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        (style & bits == bits) == click_through
+    }
 }
 
 pub(crate) fn set_ink_overlay_interactive(
