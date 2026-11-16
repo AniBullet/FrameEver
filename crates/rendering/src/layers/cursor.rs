@@ -792,14 +792,6 @@ fn compute_cursor_idle_opacity(
     let idx = cursor
         .moves
         .partition_point(|e| e.time_ms <= current_time_ms);
-    let has_upcoming_move = cursor
-        .moves
-        .get(idx)
-        .is_some_and(|e| e.time_ms - current_time_ms <= CURSOR_IDLE_RESUME_LOOKAHEAD_MS);
-
-    if has_upcoming_move {
-        return 1.0;
-    }
 
     let last_index = if moves_ordered {
         idx.checked_sub(1)
@@ -809,13 +801,29 @@ fn compute_cursor_idle_opacity(
             .iter()
             .rposition(|event| event.time_ms <= current_time_ms)
     };
+
+    let resting = last_index.map(|index| &cursor.moves[index]);
+    let has_upcoming_move = cursor
+        .moves
+        .get(idx..)
+        .and_then(|later| {
+            later
+                .iter()
+                .find(|next| resting.is_none_or(|resting| !same_position(next, resting)))
+        })
+        .is_some_and(|e| e.time_ms - current_time_ms <= CURSOR_IDLE_RESUME_LOOKAHEAD_MS);
+
+    if has_upcoming_move {
+        return 1.0;
+    }
+
     let Some(last_index) = last_index else {
         return 1.0;
     };
 
-    let last_move = &cursor.moves[last_index];
+    let at_rest_since = &cursor.moves[moves_at_same_position_before(&cursor.moves, last_index)];
 
-    let time_since_move = (current_time_ms - last_move.time_ms).max(0.0);
+    let time_since_move = (current_time_ms - at_rest_since.time_ms).max(0.0);
 
     let fade_out = if time_since_move <= hide_delay_ms {
         1.0
@@ -852,15 +860,19 @@ fn compute_cursor_fade_in(
     current_time_ms: f64,
     hide_delay_ms: f64,
 ) -> f32 {
-    let resume_time = moves
-        .windows(2)
-        .rev()
-        .find(|pair| {
-            let prev = &pair[0];
-            let next = &pair[1];
-            next.time_ms <= current_time_ms && next.time_ms - prev.time_ms > hide_delay_ms
-        })
-        .map(|pair| pair[1].time_ms);
+    let mut resume_time = None;
+    let mut rest_start_ms = None;
+    for pair in moves.windows(2) {
+        let (prev, next) = (&pair[0], &pair[1]);
+        let rest_start = *rest_start_ms.get_or_insert(prev.time_ms);
+        if same_position(prev, next) {
+            continue;
+        }
+        if next.time_ms <= current_time_ms && next.time_ms - rest_start > hide_delay_ms {
+            resume_time = Some(next.time_ms);
+        }
+        rest_start_ms = Some(next.time_ms);
+    }
 
     let Some(resume_time_ms) = resume_time else {
         return 1.0;
@@ -869,6 +881,18 @@ fn compute_cursor_fade_in(
     let time_since_resume = (current_time_ms - resume_time_ms).max(0.0);
 
     smoothstep64(0.0, CURSOR_IDLE_FADE_OUT_MS, time_since_resume) as f32
+}
+
+fn same_position(a: &CursorMoveEvent, b: &CursorMoveEvent) -> bool {
+    a.x == b.x && a.y == b.y
+}
+
+fn moves_at_same_position_before(moves: &[CursorMoveEvent], index: usize) -> usize {
+    let mut start = index;
+    while start > 0 && same_position(&moves[start - 1], &moves[index]) {
+        start -= 1;
+    }
+    start
 }
 
 fn get_click_t(clicks: &[CursorClickEvent], time_ms: f64, clicks_ordered: bool) -> f32 {
@@ -1494,6 +1518,32 @@ mod tests {
             assert_eq!(idle_opacity_both_paths(&cursor, time, 1000.0), expected);
         }
         assert!(idle_opacity_both_paths(&cursor, 1399.999, 1000.0) > 0.0);
+    }
+
+    #[test]
+    fn a_shape_change_under_a_still_pointer_does_not_wake_an_idle_cursor() {
+        let mut shape_changed = cursor_events(&[(0.0, 0.2, 0.2), (3000.0, 0.2, 0.2)]);
+        shape_changed.moves[1].cursor_id = "ibeam".into();
+        let unchanged = cursor_events(&[(0.0, 0.2, 0.2)]);
+        for time in [
+            1000.0, 1200.0, 1400.0, 2500.0, 2800.0, 3000.0, 3100.0, 6000.0,
+        ] {
+            assert_eq!(
+                idle_opacity_both_paths(&shape_changed, time, 1000.0),
+                idle_opacity_both_paths(&unchanged, time, 1000.0),
+                "at {time}ms"
+            );
+        }
+
+        shape_changed.moves.push(move_event(5000.0, 0.5, 0.5));
+        let moved_away = cursor_events(&[(0.0, 0.2, 0.2), (5000.0, 0.5, 0.5)]);
+        for time in [2800.0, 4749.999, 4750.0, 5000.0, 5200.0, 5400.0, 7000.0] {
+            assert_eq!(
+                idle_opacity_both_paths(&shape_changed, time, 1000.0),
+                idle_opacity_both_paths(&moved_away, time, 1000.0),
+                "at {time}ms"
+            );
+        }
     }
 
     #[test]
