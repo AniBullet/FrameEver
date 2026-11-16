@@ -42,4 +42,5 @@ pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("gif quality", "Low", "低"),
     ("gif quality", "Medium", "中"),
     ("gif quality", "High", "高"),
+    ("clip transition", "Transition", "转场"),
 ];
