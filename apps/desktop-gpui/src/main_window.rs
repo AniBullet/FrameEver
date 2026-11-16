@@ -924,6 +924,18 @@ fn discard_still_valid(
     confirmed && phase == Phase::Idle && current == Some(target)
 }
 
+async fn deliver_shell_event(
+    this: &gpui::WeakEntity<MainWindow>,
+    cx: &mut gpui::AsyncWindowContext,
+    event: Event,
+) {
+    let delivered =
+        cx.update(|window, cx| this.update(cx, |this, cx| this.shell_event(event, window, cx)));
+    if let Err(error) = delivered.and_then(|inner| inner) {
+        tracing::warn!(?event, %error, "main window shell event not delivered");
+    }
+}
+
 impl MainWindow {
     pub fn new(
         session: Entity<RecordingSession>,
@@ -4013,10 +4025,7 @@ impl MainWindow {
             if event != Event::Track {
                 cx.spawn_in(window, async move |this, cx| {
                     if crate::platform::restore_minimized_main_window(&native) {
-                        this.update_in(cx, |this, window, cx| {
-                            this.shell_event(event, window, cx);
-                        })
-                        .ok();
+                        deliver_shell_event(&this, cx, event).await;
                     }
                 })
                 .detach();
@@ -4030,10 +4039,7 @@ impl MainWindow {
         if leaving && self.close_library_overlay(window, cx) {
             cx.spawn_in(window, async move |this, cx| {
                 cx.background_executor().timer(FRAME_SNAP_DELAY).await;
-                this.update_in(cx, |this, window, cx| {
-                    this.shell_event(event, window, cx);
-                })
-                .ok();
+                deliver_shell_event(&this, cx, event).await;
             })
             .detach();
             return;
@@ -4048,10 +4054,7 @@ impl MainWindow {
                     cx.spawn_in(window, async move |this, cx| {
                         cx.background_executor().timer(FRAME_SNAP_DELAY).await;
                         crate::platform::place_main_window(&native, placement, hide);
-                        this.update_in(cx, |this, window, cx| {
-                            this.shell_event(Event::FrameSnapped, window, cx);
-                        })
-                        .ok();
+                        deliver_shell_event(&this, cx, Event::FrameSnapped).await;
                     })
                     .detach();
                 }
@@ -4059,10 +4062,7 @@ impl MainWindow {
                     self.transition_started = Instant::now();
                     self.fade_task = Some(cx.spawn_in(window, async move |this, cx| {
                         cx.background_executor().timer(duration).await;
-                        this.update_in(cx, |this, window, cx| {
-                            this.shell_event(Event::FadeFinished, window, cx);
-                        })
-                        .ok();
+                        deliver_shell_event(&this, cx, Event::FadeFinished).await;
                     }));
                 }
                 Effect::Persist => self.save_shell_memory(cx),
