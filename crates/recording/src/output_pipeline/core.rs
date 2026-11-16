@@ -421,6 +421,9 @@ pub enum PipelineHealthEvent {
     CaptureTargetLost {
         target: String,
     },
+    EncoderTailLost {
+        encoder: String,
+    },
 }
 
 pub type HealthSender = tokio::sync::mpsc::Sender<PipelineHealthEvent>;
@@ -484,6 +487,7 @@ pub fn emit_health(tx: &HealthSender, event: PipelineHealthEvent) {
         PipelineHealthEvent::CaptureTargetLost { .. } => {
             health_event(13, "capture_target_lost", &[])
         }
+        PipelineHealthEvent::EncoderTailLost { .. } => health_event(14, "encoder_tail_lost", &[]),
     }
     let _ = tx.try_send(event);
 }
