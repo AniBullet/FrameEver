@@ -515,16 +515,12 @@ fn apply_quit_action(action: QuitAction, cx: &mut App) {
                 message
             });
             tracing::warn!(%message);
-            let detail = format!(
-                "{message}\n\n{}",
-                t!("Everything recorded so far stays in the project's folder.")
-            );
             cx.spawn(async move |cx| {
                 let quit_anyway = platform::confirm_dialog(
-                    &t!("FrameEver is still open"),
-                    &detail,
-                    &t!("Quit anyway"),
-                    &t!("Keep FrameEver open"),
+                    t!("Quit before the recording stops?"),
+                    t!("Everything recorded so far stays in the project's folder."),
+                    t!("Quit"),
+                    t!("Cancel"),
                     true,
                 );
                 if quit_anyway {
