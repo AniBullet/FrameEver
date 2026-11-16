@@ -53,6 +53,7 @@ struct Tray {
     icon_updated: Instant,
     entries: Vec<Entry>,
     popup_id: Option<scap_targets::WindowId>,
+    anchor: Option<[f64; 2]>,
 }
 
 impl Global for Tray {}
@@ -200,6 +201,7 @@ fn create_tray(
         icon_updated: Instant::now(),
         entries: Vec::new(),
         popup_id,
+        anchor: None,
     })
 }
 
@@ -342,6 +344,8 @@ fn show_popup(cx: &mut App) -> gpui::Task<anyhow::Result<()>> {
 
 fn prepare_popup(cx: &mut App) -> anyhow::Result<Option<PreparedPopup>> {
     refresh_menu(cx);
+    let anchor = native::cursor_position();
+    cx.global_mut::<Tray>().anchor = anchor;
     let tray = cx.global::<Tray>();
     let Some(handle) = tray.popup else {
         return Ok(None);
@@ -355,7 +359,7 @@ fn prepare_popup(cx: &mut App) -> anyhow::Result<Option<PreparedPopup>> {
     let warning = platform::window_capture_exclusion_unavailable_reason()
         .map(|_| t!("This menu may appear in recordings on this desktop.").to_string());
     let height = popup::menu_height(&entries, warning.is_some(), export_progress);
-    let (bounds, _) = native::placement(icon, 280., height)?;
+    let bounds = native::placement(icon, anchor, 280., height)?.bounds;
     let started = Instant::now();
     let prepared = handle.update(cx, |view, window, cx| -> anyhow::Result<_> {
         let native_window = platform::native_window(window)
@@ -794,14 +798,17 @@ pub(super) fn fit_popup(
     height: f64,
     cx: &App,
 ) -> anyhow::Result<bool> {
-    let icon = cx
-        .global::<Tray>()
+    let tray = cx.global::<Tray>();
+    let icon = tray
         .icon
         .rect()
         .ok_or_else(|| anyhow::anyhow!("tray icon position unavailable"))?;
-    let (bounds, scale) = native::placement(icon, width, height)?;
-    let (main_bounds, _) = native::placement(icon, 280., height)?;
-    let on_left = main_bounds[0] - bounds[0] >= 280. * scale;
+    let main = native::placement(icon, tray.anchor, 280., height)?;
+    let (bounds, on_left) = native::submenu_frame(
+        main.bounds,
+        (width * main.scale).max(main.bounds[2]),
+        main.work,
+    );
     let native_window = platform::native_window(window)
         .ok_or_else(|| anyhow::anyhow!("tray popup has no native window"))?;
     cx.spawn(async move |_| {

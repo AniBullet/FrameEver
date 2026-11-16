@@ -1,14 +1,16 @@
 use std::{io, mem::size_of};
 
 use windows_sys::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+    Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM},
     Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect},
     UI::{
         HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            GetWindowDisplayAffinity, PostMessageW, WDA_EXCLUDEFROMCAPTURE, WM_CONTEXTMENU,
-            WM_LBUTTONUP, WM_NCDESTROY, WM_RBUTTONDOWN, WM_RBUTTONUP,
+            CalculatePopupWindowPosition, GetCursorPos, GetWindowDisplayAffinity, PostMessageW,
+            TPM_BOTTOMALIGN, TPM_HORIZONTAL, TPM_LEFTALIGN, TPM_RIGHTALIGN, TPM_TOPALIGN,
+            TPM_VERTICAL, TPM_WORKAREA, WDA_EXCLUDEFROMCAPTURE, WM_CONTEXTMENU, WM_LBUTTONUP,
+            WM_NCDESTROY, WM_RBUTTONDOWN, WM_RBUTTONUP,
         },
     },
 };
@@ -68,11 +70,23 @@ pub(super) fn confirmed_exclusion(hwnd: HWND) -> io::Result<()> {
     Ok(())
 }
 
+pub(super) struct Placement {
+    pub bounds: [f64; 4],
+    pub scale: f64,
+    pub work: [f64; 4],
+}
+
+pub(super) fn cursor_position() -> Option<[f64; 2]> {
+    let mut point = POINT::default();
+    (unsafe { GetCursorPos(&mut point) } != 0).then_some([point.x as f64, point.y as f64])
+}
+
 pub(super) fn placement(
     icon: tray_icon::Rect,
+    cursor: Option<[f64; 2]>,
     logical_width: f64,
     logical_height: f64,
-) -> io::Result<([f64; 4], f64)> {
+) -> io::Result<Placement> {
     let rect = RECT {
         left: icon.position.x.round() as i32,
         top: icon.position.y.round() as i32,
@@ -95,32 +109,58 @@ pub(super) fn placement(
         )));
     }
     let scale = f64::from(dpi_x) / 96.;
-    let work = info.rcWork;
-    let work = [
-        work.left as f64,
-        work.top as f64,
-        work.right as f64,
-        work.bottom as f64,
-    ];
+    let work = rect_array(info.rcWork);
     let height = (logical_height * scale)
         .min(work[3] - work[1] - 24. * scale)
         .max(34. * scale);
     let width = (logical_width * scale).min(work[2] - work[0]);
-    let origin = popup_origin(
-        [
-            rect.left as f64,
-            rect.top as f64,
-            rect.right as f64,
-            rect.bottom as f64,
-        ],
+    let request = popup_request(
+        rect_array(rect),
+        cursor,
+        rect_array(info.rcMonitor),
         work,
-        [width, height],
         12. * scale,
     );
-    Ok(([origin[0], origin[1], width, height], scale))
+    let bounds = calculate_popup(&request, [width, height])?;
+    Ok(Placement {
+        bounds,
+        scale,
+        work,
+    })
 }
 
-pub(super) fn popup_origin(icon: [f64; 4], work: [f64; 4], size: [f64; 2], gap: f64) -> [f64; 2] {
+fn rect_array(rect: RECT) -> [f64; 4] {
+    [
+        rect.left as f64,
+        rect.top as f64,
+        rect.right as f64,
+        rect.bottom as f64,
+    ]
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct PopupRequest {
+    pub anchor: [f64; 2],
+    pub flags: u32,
+    pub exclude: [f64; 4],
+}
+
+pub(super) fn popup_request(
+    icon: [f64; 4],
+    cursor: Option<[f64; 2]>,
+    monitor: [f64; 4],
+    work: [f64; 4],
+    gap: f64,
+) -> PopupRequest {
+    let on_icon = |point: &[f64; 2]| {
+        point[0] >= icon[0] - gap
+            && point[0] <= icon[2] + gap
+            && point[1] >= icon[1] - gap
+            && point[1] <= icon[3] + gap
+    };
+    let anchor = cursor
+        .filter(on_icon)
+        .unwrap_or([(icon[0] + icon[2]) / 2., (icon[1] + icon[3]) / 2.]);
     let distances = [
         icon[1] - work[1],
         work[2] - icon[2],
@@ -133,16 +173,96 @@ pub(super) fn popup_origin(icon: [f64; 4], work: [f64; 4], size: [f64; 2], gap: 
         .min_by(|(_, a), (_, b)| a.total_cmp(b))
         .map(|(index, _)| index)
         .unwrap_or(2);
-    let (x, y) = match edge {
-        0 => (icon[2] - size[0], work[1] + gap),
-        1 => (work[2] - gap - size[0], icon[3] - size[1]),
-        3 => (work[0] + gap, icon[3] - size[1]),
-        _ => (icon[2] - size[0], work[3] - gap - size[1]),
+    let (flags, exclude) = match edge {
+        0 => (
+            TPM_LEFTALIGN | TPM_TOPALIGN | TPM_VERTICAL,
+            [
+                monitor[0],
+                monitor[1],
+                monitor[2],
+                icon[3].max(work[1]) + gap,
+            ],
+        ),
+        1 => (
+            TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_HORIZONTAL,
+            [
+                icon[0].min(work[2]) - gap,
+                monitor[1],
+                monitor[2],
+                monitor[3],
+            ],
+        ),
+        3 => (
+            TPM_LEFTALIGN | TPM_TOPALIGN | TPM_HORIZONTAL,
+            [
+                monitor[0],
+                monitor[1],
+                icon[2].max(work[0]) + gap,
+                monitor[3],
+            ],
+        ),
+        _ => (
+            TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_VERTICAL,
+            [
+                monitor[0],
+                icon[1].min(work[3]) - gap,
+                monitor[2],
+                monitor[3],
+            ],
+        ),
     };
-    [
-        x.clamp(work[0], (work[2] - size[0]).max(work[0])),
-        y.clamp(work[1], (work[3] - size[1]).max(work[1])),
-    ]
+    PopupRequest {
+        anchor,
+        flags: flags | TPM_WORKAREA,
+        exclude,
+    }
+}
+
+fn calculate_popup(request: &PopupRequest, size: [f64; 2]) -> io::Result<[f64; 4]> {
+    let anchor = POINT {
+        x: request.anchor[0].round() as i32,
+        y: request.anchor[1].round() as i32,
+    };
+    let size = SIZE {
+        cx: size[0].round() as i32,
+        cy: size[1].round() as i32,
+    };
+    let exclude = RECT {
+        left: request.exclude[0].round() as i32,
+        top: request.exclude[1].round() as i32,
+        right: request.exclude[2].round() as i32,
+        bottom: request.exclude[3].round() as i32,
+    };
+    let mut result = RECT::default();
+    if unsafe { CalculatePopupWindowPosition(&anchor, &size, request.flags, &exclude, &mut result) }
+        == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok([
+        result.left as f64,
+        result.top as f64,
+        (result.right - result.left) as f64,
+        (result.bottom - result.top) as f64,
+    ])
+}
+
+pub(super) fn submenu_frame(main: [f64; 4], total_width: f64, work: [f64; 4]) -> ([f64; 4], bool) {
+    let grows_left = main[0] + total_width > work[2];
+    let x = if grows_left {
+        main[0] + main[2] - total_width
+    } else {
+        main[0]
+    };
+    (
+        [
+            x.clamp(work[0], (work[2] - total_width).max(work[0])),
+            main[1],
+            total_width,
+            main[3],
+        ],
+        grows_left,
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -204,65 +324,118 @@ pub(super) fn icon_pixels(state: StateIcon, size: u32) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    const MONITOR: [f64; 4] = [0., 0., 1920., 1080.];
+
     #[test]
-    fn tray_popup_stays_away_from_taskbars_on_every_edge() {
-        assert_eq!(
-            popup_origin(
-                [1800., 1040., 1820., 1080.],
-                [0., 0., 1920., 1040.],
-                [280., 500.],
-                12.
-            ),
-            [1540., 528.]
+    fn tray_popup_request_excludes_the_taskbar_on_every_edge() {
+        let bottom = popup_request(
+            [1800., 1040., 1820., 1080.],
+            Some([1810., 1060.]),
+            MONITOR,
+            [0., 0., 1920., 1040.],
+            12.,
         );
-        assert_eq!(
-            popup_origin(
-                [1800., 0., 1820., 40.],
-                [0., 40., 1920., 1080.],
-                [280., 500.],
-                12.
-            ),
-            [1540., 52.]
+        assert_eq!(bottom.anchor, [1810., 1060.]);
+        assert_eq!(bottom.exclude, [0., 1028., 1920., 1080.]);
+        assert_eq!(bottom.flags, TPM_BOTTOMALIGN | TPM_VERTICAL | TPM_WORKAREA);
+
+        let top = popup_request(
+            [1800., 0., 1820., 40.],
+            Some([1810., 20.]),
+            MONITOR,
+            [0., 40., 1920., 1080.],
+            12.,
         );
-        assert_eq!(
-            popup_origin(
-                [1880., 900., 1920., 920.],
-                [0., 0., 1880., 1080.],
-                [280., 500.],
-                12.
-            ),
-            [1588., 420.]
+        assert_eq!(top.exclude, [0., 0., 1920., 52.]);
+        assert_eq!(top.flags, TPM_VERTICAL | TPM_WORKAREA);
+
+        let right = popup_request(
+            [1880., 900., 1920., 920.],
+            Some([1900., 910.]),
+            MONITOR,
+            [0., 0., 1880., 1080.],
+            12.,
         );
-        assert_eq!(
-            popup_origin(
-                [0., 900., 40., 920.],
-                [40., 0., 1920., 1080.],
-                [280., 500.],
-                12.
-            ),
-            [52., 420.]
+        assert_eq!(right.exclude, [1868., 0., 1920., 1080.]);
+        assert_eq!(right.flags, TPM_RIGHTALIGN | TPM_WORKAREA);
+
+        let left = popup_request(
+            [0., 900., 40., 920.],
+            Some([20., 910.]),
+            MONITOR,
+            [40., 0., 1920., 1080.],
+            12.,
         );
+        assert_eq!(left.exclude, [0., 0., 52., 1080.]);
+        assert_eq!(left.flags, TPM_WORKAREA);
     }
 
     #[test]
-    fn tray_popup_clamps_on_negative_origin_and_small_displays() {
+    fn tray_popup_request_keeps_clear_of_an_auto_hidden_taskbar() {
+        let request = popup_request(
+            [1800., 1040., 1820., 1080.],
+            Some([1810., 1060.]),
+            MONITOR,
+            MONITOR,
+            12.,
+        );
+        assert_eq!(request.exclude[1], 1028.);
+    }
+
+    #[test]
+    fn tray_popup_request_falls_back_to_the_icon_when_opened_by_keyboard() {
+        let request = popup_request(
+            [1800., 1040., 1820., 1080.],
+            Some([400., 300.]),
+            MONITOR,
+            [0., 0., 1920., 1040.],
+            12.,
+        );
+        assert_eq!(request.anchor, [1810., 1060.]);
+    }
+
+    fn primary_work_area() -> [f64; 4] {
+        let monitor = unsafe {
+            windows_sys::Win32::Graphics::Gdi::MonitorFromPoint(
+                POINT { x: 0, y: 0 },
+                windows_sys::Win32::Graphics::Gdi::MONITOR_DEFAULTTOPRIMARY,
+            )
+        };
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        assert_ne!(unsafe { GetMonitorInfoW(monitor, &mut info) }, 0);
+        rect_array(info.rcWork)
+    }
+
+    #[test]
+    fn tray_popup_opens_from_the_cursor_above_a_bottom_taskbar_and_stays_on_screen() {
+        let work = primary_work_area();
+        let centre = ((work[0] + work[2]) / 2.).round();
+        let icon = [centre - 10., work[3] - 40., centre + 10., work[3]];
+        let request = popup_request(icon, Some([centre, work[3] - 20.]), work, work, 12.);
+        let bounds = calculate_popup(&request, [280., 200.]).unwrap();
+        assert_eq!(bounds, [centre, work[3] - 52. - 200., 280., 200.]);
+
+        let edge = work[2] - 60.;
+        let icon = [edge - 10., work[3] - 40., edge + 10., work[3]];
+        let request = popup_request(icon, Some([edge, work[3] - 20.]), work, work, 12.);
+        let bounds = calculate_popup(&request, [280., 200.]).unwrap();
+        assert_eq!(bounds[0], work[2] - 280.);
+        assert_eq!(bounds[1] + bounds[3], work[3] - 52.);
+    }
+
+    #[test]
+    fn tray_submenu_grows_toward_the_side_with_room_without_moving_the_menu() {
+        let work = [0., 0., 1920., 1040.];
         assert_eq!(
-            popup_origin(
-                [-120., 0., -100., 40.],
-                [-1920., -1040., 0., 0.],
-                [280., 500.],
-                12.
-            ),
-            [-380., -512.]
+            submenu_frame([400., 500., 280., 300.], 564., work),
+            ([400., 500., 564., 300.], false)
         );
         assert_eq!(
-            popup_origin(
-                [280., 240., 300., 280.],
-                [0., 0., 300., 240.],
-                [280., 200.],
-                12.
-            ),
-            [20., 28.]
+            submenu_frame([1600., 500., 280., 300.], 564., work),
+            ([1316., 500., 564., 300.], true)
         );
     }
 
