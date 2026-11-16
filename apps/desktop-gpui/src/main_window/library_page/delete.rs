@@ -137,6 +137,10 @@ impl DeleteState {
     pub(super) fn dialog_open(&self) -> bool {
         self.dialog.is_some()
     }
+
+    pub(super) fn toast_shown(&self) -> bool {
+        self.toast.is_some()
+    }
 }
 
 fn recycle_item(item: &Item, part: Option<Version>) -> Result<Option<Deleted>, String> {

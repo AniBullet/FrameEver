@@ -37,6 +37,7 @@ use gpui::{App, ElementId, RenderImage};
 use crate::i18n::t;
 
 pub mod compress_queue;
+pub mod gif;
 pub mod player;
 pub mod recycle;
 mod versions;

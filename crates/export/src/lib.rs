@@ -1,6 +1,7 @@
 pub mod compress;
 pub mod estimates;
 pub mod gif;
+pub mod instant_gif;
 pub mod mov;
 pub mod mp4;
 pub mod preview;

@@ -79,7 +79,9 @@ gpui::actions!(
         DialogDown,
         DialogNext,
         DialogPrevious,
-        DialogEnter
+        DialogEnter,
+        DialogLeft,
+        DialogRight
     ]
 );
 
@@ -119,6 +121,8 @@ pub fn bind_keys(cx: &mut gpui::App) {
     cx.bind_keys([
         gpui::KeyBinding::new("up", DialogUp, dialog),
         gpui::KeyBinding::new("down", DialogDown, dialog),
+        gpui::KeyBinding::new("left", DialogLeft, dialog),
+        gpui::KeyBinding::new("right", DialogRight, dialog),
         gpui::KeyBinding::new("tab", DialogNext, dialog),
         gpui::KeyBinding::new("shift-tab", DialogPrevious, dialog),
         gpui::KeyBinding::new("enter", DialogEnter, dialog),
@@ -2905,18 +2909,29 @@ impl Render for MainWindow {
             }))
             .on_action(cx.listener(|this, _: &DialogUp, _, cx| {
                 this.step_library_dialog(false, cx);
+                this.step_library_gif(false, cx);
             }))
             .on_action(cx.listener(|this, _: &DialogDown, _, cx| {
                 this.step_library_dialog(true, cx);
+                this.step_library_gif(true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogLeft, _, cx| {
+                this.step_library_gif(false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogRight, _, cx| {
+                this.step_library_gif(true, cx);
             }))
             .on_action(cx.listener(|this, _: &DialogNext, _, cx| {
                 this.tab_library_dialog(true, cx);
+                this.tab_library_gif(true, cx);
             }))
             .on_action(cx.listener(|this, _: &DialogPrevious, _, cx| {
                 this.tab_library_dialog(false, cx);
+                this.tab_library_gif(false, cx);
             }))
             .on_action(cx.listener(|this, _: &DialogEnter, window, cx| {
                 this.enter_library_delete(window, cx);
+                this.enter_library_gif(window, cx);
             }))
             .on_action(cx.listener(|this, _: &LibraryCopy, _, cx| {
                 this.copy_library_file(cx);
@@ -2996,7 +3011,9 @@ impl Render for MainWindow {
             .children(self.render_library_marquee(cx))
             .when(self.shell.shows_library(), |this| {
                 this.children(self.render_library_undo(cx))
+                    .children(self.render_library_gif_toast())
                     .children(self.render_library_dialog(cx))
+                    .children(self.render_library_gif(cx))
             })
             .children(self.palette.view())
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
@@ -3884,7 +3901,7 @@ impl MainWindow {
             return false;
         };
         match step {
-            EscStep::CloseLibraryDialog => self.close_library_dialog(cx),
+            EscStep::CloseLibraryDialog => self.dismiss_library_dialog(cx),
             EscStep::LeaveWholeScreen => self.toggle_library_full_screen(window, cx),
             EscStep::ClosePreview => {
                 self.close_library_overlay(window, cx);

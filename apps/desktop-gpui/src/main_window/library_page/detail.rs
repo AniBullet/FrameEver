@@ -91,7 +91,7 @@ fn alert_copy_failed(error: String, cx: &mut gpui::App) {
     .detach();
 }
 
-fn copy_files(files: &[PathBuf], cx: &mut gpui::App) {
+pub(super) fn copy_files(files: &[PathBuf], cx: &mut gpui::App) {
     if let Err(error) = crate::platform::copy_files_to_clipboard(files, cx) {
         alert_copy_failed(error, cx);
     }
@@ -559,14 +559,29 @@ impl MainWindow {
                     None => t!("Compress").into(),
                 };
                 let idle = entry.compressible && job.is_none();
-                row.child(export(self, true, cx)).child(
-                    self.detail_button("library-detail-compress", label, false, !idle)
-                        .when(idle, |this| {
+                let saves_gif = library::gif::can_save_as_gif(entry);
+                row.child(export(self, true, cx))
+                    .child(
+                        self.detail_button("library-detail-compress", label, false, !idle)
+                            .when(idle, |this| {
+                                this.on_click(cx.listener(|this, _, window, cx| {
+                                    this.compress_library_selection(window, cx);
+                                }))
+                            }),
+                    )
+                    .child(
+                        self.detail_button(
+                            "library-detail-gif",
+                            t!("Save as GIF"),
+                            false,
+                            !saves_gif,
+                        )
+                        .when(saves_gif, |this| {
                             this.on_click(cx.listener(|this, _, window, cx| {
-                                this.compress_library_selection(window, cx);
+                                this.save_library_gif(window, cx);
                             }))
                         }),
-                )
+                    )
             }
             _ => row.child(open_button).child(export(self, false, cx)),
         }

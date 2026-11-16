@@ -2,6 +2,7 @@ mod context;
 mod delete;
 mod detail;
 mod drag_out;
+mod gif;
 mod overlay;
 mod preview;
 mod scrub;
@@ -147,6 +148,7 @@ pub(super) struct LibraryPage {
     overlay_focus: FocusHandle,
     scrub: scrub::ScrubState,
     delete: delete::DeleteState,
+    gif: gif::GifState,
     compress: CompressQueue,
     last_click: Option<PathBuf>,
 }
@@ -197,6 +199,7 @@ impl LibraryPage {
             overlay_focus,
             scrub: scrub::ScrubState::default(),
             delete: delete::DeleteState::default(),
+            gif: gif::GifState::default(),
             compress: CompressQueue::default(),
             last_click: None,
         }
@@ -219,7 +222,7 @@ impl LibraryPage {
     }
 
     pub(super) fn dialog_open(&self) -> bool {
-        self.delete.dialog_open()
+        self.delete.dialog_open() || self.gif.dialog_open()
     }
 
     fn entry(&self, path: &Path) -> Option<&Entry> {

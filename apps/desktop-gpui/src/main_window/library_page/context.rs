@@ -21,6 +21,7 @@ pub(super) enum Command {
     Preview,
     Export,
     Compress,
+    SaveAsGif,
     Rename,
     CopyFile,
     CopyFiles,
@@ -49,6 +50,7 @@ impl Command {
 pub(super) struct ItemActions {
     opens: bool,
     compressible: bool,
+    saves_gif: bool,
     copyable: bool,
 }
 
@@ -64,6 +66,7 @@ impl Target {
         Self::One(ItemActions {
             opens: entry.opens_editor || entry.kind == MediaKind::Instant,
             compressible: entry.compressible,
+            saves_gif: library::gif::can_save_as_gif(entry),
             copyable: library::file_to_share(entry).is_some(),
         })
     }
@@ -103,6 +106,9 @@ pub(super) fn commands(target: Target) -> Vec<Option<Command>> {
                 ]);
                 if actions.compressible {
                     rows.push(Some(Command::Compress));
+                }
+                if actions.saves_gif {
+                    rows.push(Some(Command::SaveAsGif));
                 }
                 rows.push(None);
             }
@@ -308,6 +314,7 @@ impl MainWindow {
             Command::Preview => self.preview_library_lead(window, cx),
             Command::Export => self.export_library_selection(window, cx),
             Command::Compress => self.compress_library_selection(window, cx),
+            Command::SaveAsGif => self.save_library_gif(window, cx),
             Command::Rename => self.rename_library_selection(window, cx),
             Command::CopyFile | Command::CopyFiles => self.copy_library_file(cx),
             Command::Reveal => self.reveal_library_selection(cx),
@@ -331,6 +338,7 @@ impl MainWindow {
             Command::Preview => t!("Preview"),
             Command::Export => t!("Export…"),
             Command::Compress => t!("Compress"),
+            Command::SaveAsGif => t!("Save as GIF…"),
             Command::Rename => t!("Rename"),
             Command::CopyFile => t!("Copy file"),
             Command::CopyFiles => t!("Copy files"),
@@ -503,8 +511,34 @@ mod tests {
         Target::One(ItemActions {
             opens,
             compressible,
+            saves_gif: false,
             copyable,
         })
+    }
+
+    #[test]
+    fn an_instant_recording_offers_save_as_gif_after_compress() {
+        let instant = Target::One(ItemActions {
+            opens: true,
+            compressible: true,
+            saves_gif: true,
+            copyable: true,
+        });
+        assert_eq!(
+            listed(instant),
+            [
+                Command::Open,
+                Command::Preview,
+                Command::Export,
+                Command::Compress,
+                Command::SaveAsGif,
+                Command::Rename,
+                Command::CopyFile,
+                Command::Reveal,
+                Command::Delete,
+            ]
+        );
+        assert!(!listed(one(true, true, true)).contains(&Command::SaveAsGif));
     }
 
     fn listed(target: Target) -> Vec<Command> {

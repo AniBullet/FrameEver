@@ -36,4 +36,8 @@ pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("magnifier", "Zoom", "放大"),
     ("palette hint", "Show in library", "在资源库中显示"),
     ("input display style", "Outline", "线框"),
+    ("gif size", "Size", "尺寸"),
+    ("gif size", "Large", "大"),
+    ("gif size", "Medium", "中"),
+    ("gif size", "Small", "小"),
 ];
