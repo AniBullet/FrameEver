@@ -943,12 +943,10 @@ impl OverlayWindow {
             self.take_selected_screenshot(target, cx);
             return;
         }
-        // Deferred: this runs inside the overlay's own window update and the
-        // orchestrator closes that very window.
         cx.defer(move |cx: &mut App| app_windows::start_recording_from_overlay(target, cx));
     }
 
-    fn screenshot_target(&mut self, cx: &mut Context<Self>) {
+    fn take_target_screenshot(&mut self, cx: &mut Context<Self>) {
         let Some(target) = self.available_target(cx) else {
             return;
         };
@@ -1134,7 +1132,16 @@ enum BarBody {
 }
 
 impl BarBody {
-    fn target(&self) -> TargetType {
+    fn is_ready(&self) -> bool {
+        match self {
+            Self::AreaEmpty | Self::WindowPending | Self::Area { valid: false } => false,
+            Self::Area { valid: true } | Self::Window { .. } | Self::Display | Self::CameraOnly => {
+                true
+            }
+        }
+    }
+
+    fn target_type(&self) -> TargetType {
         match self {
             Self::AreaEmpty | Self::Area { .. } => TargetType::Area,
             Self::WindowPending | Self::Window { .. } => TargetType::Window,
@@ -1177,11 +1184,9 @@ impl BarControls {
                 devices: true,
                 screenshot: (!editor_recording).then(|| BarScreenshot {
                     tooltip: match target {
-                        TargetType::Display => t!("Screenshot this display"),
-                        TargetType::Window => t!("Screenshot this window"),
                         TargetType::Area => t!("Screenshot this area"),
-                        TargetType::CameraOnly => {
-                            t!("Screenshots need a display, window or area")
+                        TargetType::Display | TargetType::Window | TargetType::CameraOnly => {
+                            crate::main_window::ScreenshotButton::tooltip(target)
                         }
                     },
                     enabled: ready && target != TargetType::CameraOnly,
@@ -2338,12 +2343,8 @@ impl OverlayWindow {
             .read(cx)
             .editor_recording_target()
             .is_some();
-        let ready = self.target(cx).is_some()
-            && !matches!(
-                body,
-                BarBody::AreaEmpty | BarBody::WindowPending | BarBody::Area { valid: false }
-            );
-        let controls = BarControls::new(purpose, body.target(), ready, editor_recording);
+        let ready = self.target(cx).is_some() && body.is_ready();
+        let controls = BarControls::new(purpose, body.target_type(), ready, editor_recording);
         let mut bar = div()
             .flex()
             .flex_none()
@@ -2545,7 +2546,7 @@ impl OverlayWindow {
                 .when(screenshot.enabled, |button| {
                     button.on_click(cx.listener(|this, _, _, cx| {
                         cx.stop_propagation();
-                        this.screenshot_target(cx);
+                        this.take_target_screenshot(cx);
                     }))
                 }),
             );
@@ -3729,6 +3730,23 @@ mod tests {
             screenshot(TargetType::CameraOnly, true),
             Some(("Screenshots need a display, window or area", false))
         );
+    }
+
+    #[test]
+    fn a_bar_is_ready_once_its_target_is_picked() {
+        assert!(!BarBody::AreaEmpty.is_ready());
+        assert!(!BarBody::WindowPending.is_ready());
+        assert!(!BarBody::Area { valid: false }.is_ready());
+        assert!(BarBody::Area { valid: true }.is_ready());
+        assert!(
+            BarBody::Window {
+                name: "Notes".into(),
+                size: "800x600".into(),
+            }
+            .is_ready()
+        );
+        assert!(BarBody::Display.is_ready());
+        assert!(BarBody::CameraOnly.is_ready());
     }
 
     #[test]

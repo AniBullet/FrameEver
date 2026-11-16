@@ -325,6 +325,27 @@ impl CameraPark {
         self.area_target = None;
         self.released = false;
     }
+
+    fn release(&mut self) {
+        self.original = None;
+        self.released = true;
+    }
+
+    fn release_for_screenshot(&mut self, purpose: PickerPurpose) {
+        if purpose == PickerPurpose::Screenshot {
+            self.release();
+        }
+    }
+
+    fn close_picker(&mut self) -> Option<(CameraSnapshot, Option<TargetType>)> {
+        let original = self.original;
+        let mode = self.mode;
+        if !self.released {
+            self.invalidate_pending();
+        }
+        self.reset_selection();
+        original.map(|original| (original, mode))
+    }
 }
 
 impl Global for AppWindows {}
@@ -3605,20 +3626,11 @@ pub fn release_camera_park(cx: &mut App) {
     if !cx.has_global::<AppWindows>() {
         return;
     }
-    let park = &mut cx.global_mut::<AppWindows>().camera_park;
-    park.original = None;
-    park.released = true;
+    cx.global_mut::<AppWindows>().camera_park.release();
 }
 
 fn revert_camera_park(cx: &mut App) {
-    let park = &mut cx.global_mut::<AppWindows>().camera_park;
-    let original = park.original;
-    let mode = park.mode;
-    if !park.released {
-        park.invalidate_pending();
-    }
-    park.reset_selection();
-    let Some(original) = original else {
+    let Some((original, mode)) = cx.global_mut::<AppWindows>().camera_park.close_picker() else {
         return;
     };
     let Some(camera) = camera_snapshot(cx).filter(|camera| camera.handle == original.handle) else {
@@ -5788,9 +5800,10 @@ pub fn prepare_for_screenshot_capture(cx: &mut App) -> bool {
     if cx.global::<AppWindows>().overlays.is_empty() {
         return false;
     }
-    // The screenshot branch of `onRecordingStart` nulls the saved camera bounds
-    // just like the recording branch does, so a parked bubble stays parked.
-    release_camera_park(cx);
+    let purpose = TargetSelect::global(cx).read(cx).purpose;
+    cx.global_mut::<AppWindows>()
+        .camera_park
+        .release_for_screenshot(purpose);
     keep_arranged_windows(cx);
     close_target_overlays(cx);
     true
@@ -7071,6 +7084,78 @@ pub(crate) fn open_countdown(
     })
     .detach();
     Some(id)
+}
+
+#[cfg(test)]
+mod camera_park_tests {
+    use super::*;
+
+    const ORIGINAL: AreaRect = AreaRect {
+        x: 1200.,
+        y: 700.,
+        width: 320.,
+        height: 240.,
+    };
+
+    fn parked(mode: TargetType) -> CameraPark {
+        CameraPark {
+            original: Some(CameraSnapshot {
+                handle: WindowHandle::new(gpui::WindowId::from(1)),
+                bounds: ORIGINAL,
+                picker_size: None,
+            }),
+            mode: Some(mode),
+            ..CameraPark::default()
+        }
+    }
+
+    fn restored(park: &mut CameraPark) -> Option<(AreaRect, Option<TargetType>)> {
+        park.close_picker()
+            .map(|(original, mode)| (original.bounds, mode))
+    }
+
+    #[test]
+    fn cancelling_the_picker_puts_the_camera_back() {
+        let mut park = parked(TargetType::Area);
+        assert_eq!(
+            restored(&mut park),
+            Some((ORIGINAL, Some(TargetType::Area)))
+        );
+    }
+
+    #[test]
+    fn a_screenshot_from_a_picker_opened_to_record_puts_the_camera_back() {
+        for mode in [TargetType::Area, TargetType::Window] {
+            let mut park = parked(mode);
+            park.release_for_screenshot(PickerPurpose::Record);
+            assert_eq!(restored(&mut park), Some((ORIGINAL, Some(mode))));
+        }
+    }
+
+    #[test]
+    fn a_screenshot_from_a_picker_opened_for_a_screenshot_leaves_the_camera_parked() {
+        let mut park = parked(TargetType::Window);
+        park.release_for_screenshot(PickerPurpose::Screenshot);
+        assert_eq!(restored(&mut park), None);
+    }
+
+    #[test]
+    fn starting_a_recording_leaves_the_camera_parked() {
+        let mut park = parked(TargetType::Area);
+        park.release();
+        assert_eq!(restored(&mut park), None);
+    }
+
+    #[test]
+    fn closing_the_picker_clears_the_park_for_the_next_one() {
+        let mut park = parked(TargetType::Area);
+        park.release();
+        let epoch = park.epoch;
+        assert_eq!(restored(&mut park), None);
+        assert!(!park.released);
+        assert_eq!(park.mode, None);
+        assert_ne!(park.epoch, epoch);
+    }
 }
 
 #[cfg(test)]
