@@ -90,7 +90,7 @@ const timeLabel = (s) => {
 		return `<span class="rb-time quiet tnum">${L("Resuming…", "正在继续…")}</span>`;
 	if (s.paused)
 		return `<span class="rb-time warn tnum">${icon("pause", "sm solid")}${L("Paused", "已暂停")} <span data-time>${t}</span></span>`;
-	return `<span class="rb-time tnum"><i class="rb-dot"></i><span data-time>${t}</span></span>`;
+	return `<span class="rb-time tnum"><span data-time>${t}</span></span>`;
 };
 
 const askCard = (s) => {

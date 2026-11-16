@@ -596,6 +596,26 @@ impl MainWindow {
                     }))
             })
             .child(self.preview_picture(entry, None, cx))
+            .when(opens, |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top(px(4.))
+                        .right(px(4.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(px(24.))
+                        .rounded(px(4.))
+                        .bg(theme.badge)
+                        .child(
+                            svg()
+                                .path("icons/maximize-2.svg")
+                                .size(px(14.))
+                                .text_color(theme.fixed_white),
+                        ),
+                )
+            })
             .when(unedited && preview.failed.is_none(), |this| {
                 this.child(
                     super::tile_corner(&theme)

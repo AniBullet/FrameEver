@@ -279,6 +279,14 @@ impl MainWindow {
         }
     }
 
+    pub(in crate::main_window) fn open_library_file_externally(&mut self, cx: &mut Context<Self>) {
+        let file = self.library.lead_entry().and_then(library::file_to_share);
+        if let Some(file) = file {
+            self.pause_library_preview(cx);
+            library::open_with_system(&file, cx);
+        }
+    }
+
     pub(super) fn library_files_to_share(&self) -> Vec<PathBuf> {
         library::files_to_share(self.library.selected_entries())
     }

@@ -99,6 +99,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("{month} {year}", "{year} 年 {month}"),
     ("Copy image", "复制图片"),
     ("Show in folder", "在文件夹中显示"),
+    ("Open in default app", "用默认应用打开"),
     ("Today", "今天"),
     ("Yesterday", "昨天"),
     ("Status", "状态"),

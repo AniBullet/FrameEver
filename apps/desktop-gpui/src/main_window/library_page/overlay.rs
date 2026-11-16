@@ -530,6 +530,21 @@ impl MainWindow {
                         })),
                 )
             })
+            .when(library::file_to_share(entry).is_some(), |this| {
+                this.child(
+                    self.detail_button(
+                        "library-overlay-external",
+                        t!("Open in default app"),
+                        false,
+                        false,
+                    )
+                    .flex_none()
+                    .px(px(12.))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_library_file_externally(cx);
+                    })),
+                )
+            })
             .child(
                 self.detail_button("library-overlay-reveal", t!("Show in folder"), false, false)
                     .flex_none()

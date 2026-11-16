@@ -19,6 +19,7 @@ const ROW_HEIGHT: f32 = 32.;
 pub(super) enum Command {
     Open,
     Preview,
+    OpenExternally,
     Export,
     Compress,
     SaveAsGif,
@@ -98,12 +99,11 @@ pub(super) fn commands(target: Target) -> Vec<Option<Command>> {
         Target::One(actions) => {
             let mut rows = Vec::new();
             if actions.opens {
-                rows.extend([
-                    Some(Command::Open),
-                    Some(Command::Preview),
-                    None,
-                    Some(Command::Export),
-                ]);
+                rows.extend([Some(Command::Open), Some(Command::Preview)]);
+                if actions.copyable {
+                    rows.push(Some(Command::OpenExternally));
+                }
+                rows.extend([None, Some(Command::Export)]);
                 if actions.compressible {
                     rows.push(Some(Command::Compress));
                 }
@@ -312,6 +312,7 @@ impl MainWindow {
                 }
             }
             Command::Preview => self.preview_library_lead(window, cx),
+            Command::OpenExternally => self.open_library_file_externally(cx),
             Command::Export => self.export_library_selection(window, cx),
             Command::Compress => self.compress_library_selection(window, cx),
             Command::SaveAsGif => self.save_library_gif(window, cx),
@@ -336,6 +337,7 @@ impl MainWindow {
         match command {
             Command::Open => t!("Open"),
             Command::Preview => t!("Preview"),
+            Command::OpenExternally => t!("Open in default app"),
             Command::Export => t!("Export…"),
             Command::Compress => t!("Compress"),
             Command::SaveAsGif => t!("Save as GIF…"),
@@ -529,6 +531,7 @@ mod tests {
             [
                 Command::Open,
                 Command::Preview,
+                Command::OpenExternally,
                 Command::Export,
                 Command::Compress,
                 Command::SaveAsGif,
@@ -553,6 +556,7 @@ mod tests {
             [
                 Command::Open,
                 Command::Preview,
+                Command::OpenExternally,
                 Command::Export,
                 Command::Rename,
                 Command::CopyFile,
@@ -564,7 +568,9 @@ mod tests {
 
     #[test]
     fn a_studio_project_with_no_export_has_no_file_to_share() {
-        assert!(!listed(one(true, false, false)).contains(&Command::CopyFile));
+        let rows = listed(one(true, false, false));
+        assert!(!rows.contains(&Command::CopyFile));
+        assert!(!rows.contains(&Command::OpenExternally));
     }
 
     #[test]

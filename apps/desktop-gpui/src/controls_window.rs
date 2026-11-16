@@ -720,19 +720,6 @@ impl ControlsWindow {
             } else {
                 self.theme.foreground
             })
-            .when(
-                matches!(session.phase, Phase::Recording { paused: false })
-                    && !session.pause_pending(),
-                |this| {
-                    this.child(
-                        div()
-                            .size(px(8.))
-                            .rounded_full()
-                            .bg(self.theme.recording)
-                            .flex_shrink_0(),
-                    )
-                },
-            )
             .child(label)
     }
 
@@ -1136,7 +1123,7 @@ impl ControlsWindow {
         };
         div()
             .id("recording-confirmation")
-            .h(px(144.))
+            .max_h(px(144.))
             .flex_shrink_0()
             .w_full()
             .p(px(12.))
@@ -1529,7 +1516,8 @@ impl ControlsWindow {
         div()
             .id("recording-issue")
             .w_full()
-            .h(px(if self.issue_details_open { 240. } else { 128. }))
+            .when(self.issue_details_open, |this| this.h(px(240.)))
+            .max_h(px(if self.issue_details_open { 240. } else { 128. }))
             .flex_shrink_0()
             .flex()
             .flex_col()
