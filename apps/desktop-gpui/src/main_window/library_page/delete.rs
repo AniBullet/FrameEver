@@ -314,6 +314,7 @@ impl MainWindow {
             let mut refused: Vec<(Item, String)> = Vec::new();
             let mut held = Vec::new();
             let mut releases = Vec::new();
+            let mut joined = Vec::new();
             let app: &gpui::AsyncApp = cx;
             for item in items {
                 if part.is_some() {
@@ -321,12 +322,14 @@ impl MainWindow {
                     continue;
                 }
                 match app.update(|cx| app_windows::hold_for_library_delete(&item.path, cx)) {
-                    Ok(Some(hold)) => {
-                        releases.extend(hold.release);
-                        held.push(hold.key);
+                    Ok(app_windows::LibraryDeleteHold::Held { key, release }) => {
+                        releases.extend(release);
+                        held.push((key, item.path.clone()));
                         accepted.push(item);
                     }
-                    Ok(None) => {}
+                    Ok(app_windows::LibraryDeleteHold::Joined(outcome)) => {
+                        joined.push((item, outcome));
+                    }
                     Err(reason) => refused.push((item, reason)),
                 }
             }
@@ -354,10 +357,22 @@ impl MainWindow {
                 .await;
             let app: &gpui::AsyncApp = cx;
             app.update(|cx| {
-                for key in &held {
-                    app_windows::finish_library_delete(key, cx);
+                for (key, path) in &held {
+                    let outcome = if failed.iter().any(|item: &Item| item.path == *path) {
+                        Err(t!("Its files may be in use. Close what is using them and try again.").to_string())
+                    } else {
+                        Ok(())
+                    };
+                    app_windows::finish_library_delete(key, outcome, cx);
                 }
             });
+            for (item, outcome) in joined {
+                if let Err(reason) = outcome.await.unwrap_or_else(|_| {
+                    Err(t!("Its files may be in use. Close what is using them and try again.").to_string())
+                }) {
+                    refused.push((item, reason));
+                }
+            }
             this.update(cx, |this, cx| {
                 let gone: Vec<PathBuf> = deleted.iter().map(|(item, _)| item.path.clone()).collect();
                 this.library.compress.forget_waiting(&gone);

@@ -8,7 +8,7 @@
 //! main window whenever the session comes back to rest.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -247,7 +247,7 @@ pub struct AppWindows {
     /// (`windows.rs:3656-3659`). The Tauri app keys its label off an
     /// incrementing id; the path is the identity in both.
     pub editors: Vec<(PathBuf, WindowHandle<EditorWindow>)>,
-    deleting_editors: HashSet<PathBuf>,
+    deleting_editors: DeletingProjects,
     preparing_cleanup: crate::editor_preparing::PreparingCleanupRegistry,
     /// One screenshot editor per `.cap` bundle -- the gpui spelling of
     /// `ScreenshotEditorWindowIds`, keyed by the bundle directory.
@@ -422,7 +422,7 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
         teleprompter: None,
         overlays: Vec::new(),
         editors: Vec::new(),
-        deleting_editors: HashSet::new(),
+        deleting_editors: DeletingProjects::default(),
         preparing_cleanup: crate::editor_preparing::PreparingCleanupRegistry::default(),
         screenshot_editors: Vec::new(),
         main_hidden_for_picker: false,
@@ -5353,7 +5353,7 @@ pub(crate) fn request_editor_deletion(
             let ownership = frameever_recording::upload_resume::UploadLock::acquire(&key)
                 .map_err(|error| t!("This recording is still in use. Finish or cancel what is using it and try again: {error}", error = error))?;
             let windows = cx.global_mut::<AppWindows>();
-            windows.deleting_editors.insert(key.clone());
+            windows.deleting_editors.begin(key.clone());
             windows.editors.retain(|(_, current)| *current != handle);
             let result = handle.update(cx, |view, window, cx| {
                 let instance = view.prepare_for_deletion(cx)?;
@@ -5367,13 +5367,14 @@ pub(crate) fn request_editor_deletion(
                 }
                 Ok(Err(error)) => {
                     let windows = cx.global_mut::<AppWindows>();
-                    windows.deleting_editors.remove(&key);
+                    windows.deleting_editors.finish(&key, Err(error.clone()));
                     windows.editors.push((key.clone(), handle));
                     Err(error)
                 }
                 Err(error) => {
-                    cx.global_mut::<AppWindows>().deleting_editors.remove(&key);
-                    Err(t!("Could not close the editor: {error}", error = error))
+                    let error = t!("Could not close the editor: {error}", error = error);
+                    cx.global_mut::<AppWindows>().deleting_editors.finish(&key, Err(error.clone()));
+                    Err(error)
                 }
             }
         });
@@ -5405,7 +5406,7 @@ pub(crate) fn request_editor_deletion(
             }
         }.unwrap_or_else(|error| Err(t!("Recording deletion failed: {error}", error = error)));
         cx.update(|cx| {
-            cx.global_mut::<AppWindows>().deleting_editors.remove(&key);
+            cx.global_mut::<AppWindows>().deleting_editors.finish(&key, result.clone());
             refresh_library_everywhere(cx);
         });
         if let Err(error) = result {
@@ -5439,7 +5440,7 @@ enum LibraryDeleteStep {
 fn library_delete_step(
     key: &Path,
     active: Option<&Path>,
-    deleting: &HashSet<PathBuf>,
+    deleting: &DeletingProjects,
 ) -> LibraryDeleteStep {
     if active.is_some_and(|active| editor_key(active) == key) {
         return LibraryDeleteStep::RefuseInProgress;
@@ -5450,15 +5451,50 @@ fn library_delete_step(
     LibraryDeleteStep::Proceed
 }
 
-pub(crate) struct LibraryDeleteHold {
-    pub key: PathBuf,
-    pub release: Option<gpui::Task<()>>,
+type DeleteOutcome = Result<(), String>;
+
+#[derive(Default)]
+pub(crate) struct DeletingProjects {
+    running: HashMap<PathBuf, Vec<tokio::sync::oneshot::Sender<DeleteOutcome>>>,
+}
+
+impl DeletingProjects {
+    fn begin(&mut self, key: PathBuf) {
+        self.running.entry(key).or_default();
+    }
+
+    fn contains(&self, key: &Path) -> bool {
+        self.running.contains_key(key)
+    }
+
+    fn join(&mut self, key: &Path) -> Option<tokio::sync::oneshot::Receiver<DeleteOutcome>> {
+        let waiters = self.running.get_mut(key)?;
+        let (send, receive) = tokio::sync::oneshot::channel();
+        waiters.push(send);
+        Some(receive)
+    }
+
+    fn finish(&mut self, key: &Path, outcome: DeleteOutcome) {
+        for waiter in self.running.remove(key).into_iter().flatten() {
+            if waiter.send(outcome.clone()).is_err() {
+                tracing::debug!(path = %key.display(), "a joined delete stopped waiting");
+            }
+        }
+    }
+}
+
+pub(crate) enum LibraryDeleteHold {
+    Held {
+        key: PathBuf,
+        release: Option<gpui::Task<()>>,
+    },
+    Joined(tokio::sync::oneshot::Receiver<DeleteOutcome>),
 }
 
 pub(crate) fn hold_for_library_delete(
     path: &Path,
     cx: &mut App,
-) -> Result<Option<LibraryDeleteHold>, String> {
+) -> Result<LibraryDeleteHold, String> {
     let key = editor_key(path);
     let active = RecordingSession::active_project_dir_in(cx);
     match library_delete_step(
@@ -5469,7 +5505,16 @@ pub(crate) fn hold_for_library_delete(
         LibraryDeleteStep::RefuseInProgress => {
             return Err(t!("This recording is in progress. Stop it before deleting it.").into());
         }
-        LibraryDeleteStep::JoinRunningDelete => return Ok(None),
+        LibraryDeleteStep::JoinRunningDelete => {
+            return cx
+                .global_mut::<AppWindows>()
+                .deleting_editors
+                .join(&key)
+                .map(LibraryDeleteHold::Joined)
+                .ok_or_else(|| {
+                    t!("Its files may be in use. Close what is using them and try again.").into()
+                });
+        }
         LibraryDeleteStep::Proceed => {}
     }
     let editor = cx
@@ -5494,7 +5539,7 @@ pub(crate) fn hold_for_library_delete(
             return Err(reason.into());
         }
         let windows = cx.global_mut::<AppWindows>();
-        windows.deleting_editors.insert(key.clone());
+        windows.deleting_editors.begin(key.clone());
         windows.editors.retain(|(_, current)| *current != handle);
         let closed = handle.update(cx, |view, window, cx| {
             let instance = view.prepare_for_deletion(cx)?;
@@ -5513,19 +5558,22 @@ pub(crate) fn hold_for_library_delete(
             }
             Ok(Err(error)) => {
                 let windows = cx.global_mut::<AppWindows>();
-                windows.deleting_editors.remove(&key);
+                windows.deleting_editors.finish(&key, Err(error.clone()));
                 windows.editors.push((key.clone(), handle));
                 return Err(error);
             }
             Err(error) => {
-                cx.global_mut::<AppWindows>().deleting_editors.remove(&key);
-                return Err(t!("Could not close the editor: {error}", error = error));
+                let error = t!("Could not close the editor: {error}", error = error);
+                cx.global_mut::<AppWindows>()
+                    .deleting_editors
+                    .finish(&key, Err(error.clone()));
+                return Err(error);
             }
         }
     } else {
         cx.global_mut::<AppWindows>()
             .deleting_editors
-            .insert(key.clone());
+            .begin(key.clone());
         if let Some(handle) = screenshot_editor {
             if let Ok(pending) = handle.update(cx, |view, _window, _cx| view.pending_save()) {
                 pending.borrow_mut().discard();
@@ -5536,11 +5584,13 @@ pub(crate) fn hold_for_library_delete(
             screenshot_editor_closed(&key, cx);
         }
     }
-    Ok(Some(LibraryDeleteHold { key, release }))
+    Ok(LibraryDeleteHold::Held { key, release })
 }
 
-pub(crate) fn finish_library_delete(key: &Path, cx: &mut App) {
-    cx.global_mut::<AppWindows>().deleting_editors.remove(key);
+pub(crate) fn finish_library_delete(key: &Path, outcome: Result<(), String>, cx: &mut App) {
+    cx.global_mut::<AppWindows>()
+        .deleting_editors
+        .finish(key, outcome);
 }
 
 async fn delete_after_editor_cleanup(
@@ -6924,7 +6974,7 @@ mod tests {
         std::fs::create_dir_all(&other).unwrap();
         let key = editor_key(&project);
         let spelled = project.join("content").join("..");
-        let none = HashSet::new();
+        let none = DeletingProjects::default();
         assert_eq!(
             library_delete_step(&key, Some(&spelled), &none),
             LibraryDeleteStep::RefuseInProgress
@@ -6937,11 +6987,32 @@ mod tests {
             library_delete_step(&key, None, &none),
             LibraryDeleteStep::Proceed
         );
-        let deleting = HashSet::from([key.clone()]);
+        let mut deleting = DeletingProjects::default();
+        deleting.begin(key.clone());
         assert_eq!(
             library_delete_step(&key, None, &deleting),
             LibraryDeleteStep::JoinRunningDelete
         );
+    }
+
+    #[test]
+    fn a_delete_that_joins_a_running_one_reports_its_outcome() {
+        let mut deleting = DeletingProjects::default();
+        let key = PathBuf::from("Joined.ever");
+        assert!(deleting.join(&key).is_none());
+        deleting.begin(key.clone());
+        let mut first = deleting.join(&key).unwrap();
+        let mut second = deleting.join(&key).unwrap();
+        assert!(first.try_recv().is_err());
+        deleting.finish(&key, Err("in use".into()));
+        assert!(!deleting.contains(&key));
+        assert_eq!(first.try_recv().unwrap(), Err("in use".to_string()));
+        assert_eq!(second.try_recv().unwrap(), Err("in use".to_string()));
+
+        deleting.begin(key.clone());
+        let mut succeeded = deleting.join(&key).unwrap();
+        deleting.finish(&key, Ok(()));
+        assert_eq!(succeeded.try_recv().unwrap(), Ok(()));
     }
 
     #[test]
@@ -7721,7 +7792,7 @@ mod countdown_hotkey_tests {
                 teleprompter: None,
                 overlays: Vec::new(),
                 editors: Vec::new(),
-                deleting_editors: HashSet::new(),
+                deleting_editors: DeletingProjects::default(),
                 preparing_cleanup: crate::editor_preparing::PreparingCleanupRegistry::default(),
                 screenshot_editors: Vec::new(),
                 main_hidden_for_picker: false,
@@ -7800,7 +7871,7 @@ mod controls_preflight_tests {
                 teleprompter: None,
                 overlays: Vec::new(),
                 editors: Vec::new(),
-                deleting_editors: HashSet::new(),
+                deleting_editors: DeletingProjects::default(),
                 preparing_cleanup: crate::editor_preparing::PreparingCleanupRegistry::default(),
                 screenshot_editors: Vec::new(),
                 main_hidden_for_picker: true,
