@@ -946,9 +946,8 @@ fn recover_interrupted_for_editing_in(
         return Ok(false);
     };
     let project_path = library_path.as_path();
-    if let Err(error) = RecoveryManager::restore_interrupted_recovery(project_path) {
-        tracing::warn!(path = %project_path.display(), %error, "could not settle an interrupted recovery before editing");
-    }
+    RecoveryManager::restore_interrupted_recovery(project_path)
+        .map_err(|error| recovery_failure_message(&error, project_path))?;
     let Ok(meta) = RecordingMeta::load_for_project(project_path) else {
         return Ok(false);
     };
@@ -3149,6 +3148,32 @@ mod tests {
             let message = recovery_failure_message(&error, path);
             assert!(message.contains("the disk is full"), "{error}: {message}");
         }
+    }
+
+    #[test]
+    fn opening_stops_when_an_interrupted_recovery_cannot_be_settled() {
+        let root = temp_dir("recovery-unsettled");
+        let recordings = root.join("recordings");
+        std::fs::create_dir_all(&recordings).unwrap();
+        let project = write_incomplete_bundle(
+            &recordings,
+            "unsettled",
+            "FrameEver 2026-11-03 at 11.00.00",
+            "Complete",
+            true,
+        );
+        std::fs::write(project.join(".recovery.lock"), b"not a lock").unwrap();
+
+        let error = recover_interrupted_for_editing_in(
+            std::slice::from_ref(&recordings),
+            &project,
+            None,
+            |_| true,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("Nothing was deleted"), "{error}");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
