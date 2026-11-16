@@ -53,7 +53,7 @@ pub(crate) fn init(cx: &mut App) {
                     tracing::warn!("the installer stopped waiting for an answer");
                 }
                 if answer == Reply::Quitting {
-                    crate::menus::quit(cx);
+                    crate::menus::quit(crate::menus::QuitSource::Installer, cx);
                 }
             });
         }

@@ -472,7 +472,12 @@ impl OnboardingWindow {
         cx.notify();
     }
 
-    pub(super) fn capture_shortcut(&mut self, keystroke: &Keystroke, cx: &mut Context<Self>) {
+    pub(super) fn capture_shortcut(
+        &mut self,
+        keystroke: &Keystroke,
+        shift_held: bool,
+        cx: &mut Context<Self>,
+    ) {
         let Some(index) = self.shortcuts.listening else {
             return;
         };
@@ -486,7 +491,7 @@ impl OnboardingWindow {
                 self.shortcuts.clear(index);
                 self.stop_listening(cx);
             }
-            _ => match settings_pages::hotkey_from_keystroke(keystroke) {
+            _ => match settings_pages::hotkey_from_keystroke(keystroke, shift_held) {
                 Ok(hotkey) => {
                     self.stop_listening(cx);
                     self.shortcuts.set(index, hotkey, &store::hotkeys_raw());

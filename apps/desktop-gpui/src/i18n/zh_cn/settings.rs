@@ -72,6 +72,12 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Recording", "录制"),
     ("Countdown", "倒计时"),
     ("After deleting a recording", "删除录制文件后"),
+    ("When you close the editor", "关闭编辑器时"),
+    ("When you cancel", "取消时"),
+    ("After the last editor closes.", "最后一个编辑器关闭后。"),
+    ("Esc or closing the picker.", "按 Esc 或关闭选择器时。"),
+    ("Show the app", "显示应用"),
+    ("Stay hidden", "保持隐藏"),
     ("Auto zoom on clicks", "点击时自动缩放"),
     (
         "Draw the MacBook notch on screen recordings",

@@ -790,17 +790,52 @@ fn shortcut_needs_modifier(hotkey: &Hotkey) -> bool {
     !(hotkey.meta || hotkey.ctrl || hotkey.alt) && !is_function_key(&hotkey.code)
 }
 
-pub(crate) fn hotkey_from_keystroke(keystroke: &gpui::Keystroke) -> Result<Hotkey, &'static str> {
-    let code = hotkey_code_for_key(&keystroke.key)
+fn unfold_shifted_symbol(key: &str, shift: bool, shift_held: bool) -> (&str, bool) {
+    if shift || !shift_held {
+        return (key, shift);
+    }
+    let base = match key {
+        "!" => "1",
+        "@" => "2",
+        "#" => "3",
+        "$" => "4",
+        "%" => "5",
+        "^" => "6",
+        "&" => "7",
+        "*" => "8",
+        "(" => "9",
+        ")" => "0",
+        "_" => "-",
+        "+" => "=",
+        "{" => "[",
+        "}" => "]",
+        "|" => "\\",
+        ":" => ";",
+        "\"" => "'",
+        "<" => ",",
+        ">" => ".",
+        "?" => "/",
+        "~" => "`",
+        _ => return (key, shift),
+    };
+    (base, true)
+}
+
+pub(crate) fn hotkey_from_keystroke(
+    keystroke: &gpui::Keystroke,
+    shift_held: bool,
+) -> Result<Hotkey, &'static str> {
+    let modifiers = keystroke.modifiers;
+    let (key, shift) = unfold_shifted_symbol(&keystroke.key, modifiers.shift, shift_held);
+    let code = hotkey_code_for_key(key)
         .filter(|code| global_hotkey::hotkey::Code::from_str(code).is_ok())
         .ok_or(UNSUPPORTED_KEY)?;
-    let modifiers = keystroke.modifiers;
     let hotkey = Hotkey {
         code,
         meta: modifiers.platform,
         ctrl: modifiers.control,
         alt: modifiers.alt,
-        shift: modifiers.shift,
+        shift,
     };
     if shortcut_needs_modifier(&hotkey) {
         return Err(NEEDS_MODIFIER);
@@ -994,7 +1029,7 @@ impl SettingsWindow {
             return true;
         }
 
-        let hotkey = match hotkey_from_keystroke(keystroke) {
+        let hotkey = match hotkey_from_keystroke(keystroke, listening.modifiers.shift) {
             Ok(hotkey) => hotkey,
             Err(error) => {
                 listening.error = Some(error);
@@ -4898,6 +4933,41 @@ mod tests {
         // Unbindable keys are consumed but never stored.
         assert_eq!(hotkey_code_for_key("fn"), None);
         assert_eq!(hotkey_code_for_key("escape"), None);
+    }
+
+    #[test]
+    fn shifted_symbols_record_as_their_key_with_shift() {
+        let ctrl_dollar = gpui::Keystroke::parse("ctrl-$").unwrap();
+        assert_eq!(
+            hotkey_from_keystroke(&ctrl_dollar, true),
+            Ok(Hotkey {
+                code: "Digit4".to_string(),
+                meta: false,
+                ctrl: true,
+                alt: false,
+                shift: true,
+            })
+        );
+        assert_eq!(
+            hotkey_from_keystroke(&ctrl_dollar, false),
+            Err(UNSUPPORTED_KEY)
+        );
+
+        for symbol in [
+            "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "{", "}", "|", ":", "\"",
+            "<", ">", "?", "~",
+        ] {
+            let mut keystroke = gpui::Keystroke::parse("ctrl-a").unwrap();
+            keystroke.key = symbol.to_string();
+            let hotkey = hotkey_from_keystroke(&keystroke, true)
+                .unwrap_or_else(|error| panic!("{symbol}: {error}"));
+            assert!(hotkey.shift, "{symbol} should restore Shift");
+        }
+        let shifted_letter = gpui::Keystroke::parse("ctrl-shift-a").unwrap();
+        assert_eq!(
+            hotkey_from_keystroke(&shifted_letter, true).map(|hotkey| hotkey.shift),
+            Ok(true)
+        );
     }
 
     /// Every code the capture can produce parses as a `global_hotkey` `Code`.
