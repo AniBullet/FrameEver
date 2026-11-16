@@ -14,6 +14,67 @@ const PANE = {
   },
 } as const
 
+test('a job runs in the repository even after the folder the pane started in moved', async ($, on) => {
+  const cwds: (string | undefined)[] = []
+  const written: { path: string; text: string }[] = []
+  const copied: string[] = []
+  on('fs.write', (_, e) => {
+    written.push({ path: e.path, text: String(e.text) })
+    return { value: undefined }
+  })
+  on('ui.copy', (_, e) => {
+    copied.push(e.text)
+    return { value: { isCopied: true } }
+  })
+  on('command.register', () => ({ value: { command: 'fe-dev' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1000 }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('session.root', () => ({ value: 'H:\\repos\\frameever' }))
+  on('session.cwd', () => ({ value: 'H:\\repos\\frameever\\apps' }))
+  on('fs.read', (_, e) =>
+    e.path === 'H:\\repos\\frameever\\scripts\\fe.mjs' ? { value: '' } : { deny: 'ENOENT' },
+  )
+  on('process.spawn', async function* (_, e) {
+    cwds.push(e.cwd)
+    return { value: { code: 0, signal: null } }
+  })
+
+  await $.session.start({ cwd: 'D:\\old\\frameever', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'run-check' })
+  expect(cwds).toEqual(['H:\\repos\\frameever'])
+  expect(written[0]?.path).toBe('H:\\repos\\frameever\\apps\\desktop-gpui\\target\\testdata\\fe-pane-last.log')
+  expect(written[0]?.text).toContain('$ pnpm fe check')
+  await ui.press({ key: 'copy-shown' })
+  expect(copied[0]).toContain('$ pnpm fe check')
+  await ui.unmount()
+})
+
+test('a job says which folders it searched when no repository is found', async ($, on) => {
+  let spawned = false
+  on('command.register', () => ({ value: { command: 'fe-dev' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1000 }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('session.root', () => ({ value: 'D:\\old\\frameever' }))
+  on('session.cwd', () => ({ value: 'D:\\old\\frameever' }))
+  on('fs.read', () => ({ deny: 'ENOENT' }))
+  on('process.spawn', async function* () {
+    spawned = true
+    return { value: { code: 0, signal: null } }
+  })
+
+  await $.session.start({ cwd: 'D:\\old\\frameever', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'run-check' })
+  expect(spawned).toBe(false)
+  expect(await ui.find({ type: 'Text', text: /找不到 FrameEver 仓库/ })).toBeTruthy()
+  await ui.unmount()
+})
+
 test('the pane draws every group of buttons on every surface', async ($, on) => {
   on('command.register', () => ({ value: { command: 'fe-dev' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))

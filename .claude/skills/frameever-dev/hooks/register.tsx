@@ -100,6 +100,7 @@ const LANGUAGES: { value: AppLanguage; label: string }[] = [
 ]
 
 const DEV_PID_FILE = 'apps\\desktop-gpui\\target\\testdata\\fe-dev.pid'
+const LAST_JOB_LOG = 'apps\\desktop-gpui\\target\\testdata\\fe-pane-last.log'
 
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, 'g')
 
@@ -121,23 +122,39 @@ async function append($: EngineInterface, id: string, lines: string[]) {
   })
 }
 
-async function resolveRoot($: EngineInterface) {
-  let dir = root.replace(/[\\/]+$/, '')
+async function repoAbove($: EngineInterface, start: string) {
+  let dir = start.replace(/[\\/]+$/, '')
   while (dir) {
     const found = await $.fs.read(`${dir}\\scripts\\fe.mjs`).then(
       () => true,
       () => false,
     )
     if (found) {
-      root = dir
-      return
+      return dir
     }
     const parent = dir.replace(/[\\/][^\\/]*$/, '')
     if (parent === dir) {
-      return
+      return null
     }
     dir = parent
   }
+  return null
+}
+
+async function resolveRoot($: EngineInterface) {
+  const starts = [
+    await $.session.root().catch(() => ''),
+    await $.session.cwd().catch(() => ''),
+    root,
+  ].filter(Boolean)
+  for (const start of starts) {
+    const found = await repoAbove($, start)
+    if (found) {
+      root = found
+      return { found: true as const }
+    }
+  }
+  return { found: false as const, tried: starts }
 }
 
 async function stopApp($: EngineInterface) {
@@ -152,7 +169,22 @@ async function runJob($: EngineInterface, job: Job) {
     await update($, selected, () => job.id)
     return
   }
-  await resolveRoot($)
+  const resolved = await resolveRoot($)
+  if (!resolved.found) {
+    const startedAt = await $.clock.now()
+    await update($, jobs, all => ({
+      ...all,
+      [job.id]: {
+        status: 'failed' as const,
+        startedAt,
+        endedAt: startedAt,
+        lines: [`找不到 FrameEver 仓库（scripts\\fe.mjs），查过：${resolved.tried.join('、')}`],
+      },
+    }))
+    await update($, selected, () => job.id)
+    $.ui.toast(`${job.label}：失败`)
+    return
+  }
   const version = job.needsVersion ? await nextVersion($) : ''
   const args = job.args(await read($, language), version)
   const startedAt = await $.clock.now()
@@ -210,6 +242,11 @@ async function runJob($: EngineInterface, job: Job) {
     const state = all[job.id]
     return state ? { ...all, [job.id]: { ...state, status, endedAt } } : all
   })
+  const finished = (await read($, jobs))[job.id]
+  if (finished) {
+    const text = [`${job.label} · ${STATUS_LABEL[status]}`, ...finished.lines].join('\n')
+    await $.fs.write(`${root}\\${LAST_JOB_LOG}`, text).catch(() => undefined)
+  }
   if (status !== 'stopped') {
     $.ui.toast(`${job.label}：${status === 'passed' ? '完成' : '失败'}`)
   }
@@ -331,6 +368,14 @@ export const register: Register = on => {
                 {shownJob.label} · <Text color={color(output)}>{STATUS_LABEL[output.status]}</Text> ·{' '}
                 {seconds(output)}s
               </Text>
+              <Button
+                key="copy-shown"
+                label="复制日志"
+                dimColor
+                onPress={press => {
+                  void $.ui.copy({ text: output.lines.join('\n'), surface: press.surface })
+                }}
+              />
               {output.status === 'running' && (
                 <Button
                   key="stop-shown"

@@ -502,6 +502,30 @@ export function runCopyPath(binary = appBinary()) {
 	);
 }
 
+export function previousDevAppStops(pidText, copy, windows) {
+	const pid = pidText.trim();
+	const known = /^\d+$/.test(pid);
+	if (!windows) return known ? [["kill", [pid]]] : [];
+	return [
+		...(known ? [["taskkill", ["/F", "/T", "/PID", pid]]] : []),
+		["taskkill", ["/F", "/IM", path.basename(copy)]],
+	];
+}
+
+function stopPreviousDevApp() {
+	const pidText = existsSync(devPidFile)
+		? readFileSync(devPidFile, "utf8")
+		: "";
+	for (const [command, args] of previousDevAppStops(
+		pidText,
+		runCopyPath(),
+		isWindows,
+	)) {
+		spawnSync(command, args, { stdio: "ignore" });
+	}
+	rmSync(devPidFile, { force: true });
+}
+
 function copyForRun() {
 	const copy = runCopyPath();
 	for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -706,6 +730,7 @@ function dev({ flags }) {
 
 	step("Build");
 	if (!cargoBuildDebug()) fail("Build failed");
+	stopPreviousDevApp();
 	let app = launchApp(env);
 	if (!flags.watch) {
 		app.on("exit", (code) => process.exit(code ?? 0));

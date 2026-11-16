@@ -355,6 +355,22 @@ test("watch mode runs a copy so a rebuild can replace the binary", async () => {
 	);
 });
 
+test("a new dev run first stops the previous dev copy, never the installed app", async () => {
+	const { previousDevAppStops } = await import("./fe.mjs");
+	const copy = path.join("debug", "frameever-gpui.fe-run.exe");
+	assert.deepEqual(previousDevAppStops("4242\n", copy, true), [
+		["taskkill", ["/F", "/T", "/PID", "4242"]],
+		["taskkill", ["/F", "/IM", "frameever-gpui.fe-run.exe"]],
+	]);
+	assert.deepEqual(previousDevAppStops("", copy, true), [
+		["taskkill", ["/F", "/IM", "frameever-gpui.fe-run.exe"]],
+	]);
+	assert.deepEqual(
+		previousDevAppStops("4242", "debug/frameever-gpui.fe-run", false),
+		[["kill", ["4242"]]],
+	);
+});
+
 test("each crate keeps its newest incremental caches and drops the rest", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "fe-"));
 	assert.deepEqual(staleIncrementalDirs(path.join(dir, "missing")), []);
