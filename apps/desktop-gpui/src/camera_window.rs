@@ -1135,6 +1135,7 @@ impl CameraPreviewView {
 }
 
 impl Render for CameraPreviewView {
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         #[cfg(target_os = "macos")]
         if self.painted_cutout_frame.as_ref().is_some_and(|painted| {

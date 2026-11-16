@@ -403,6 +403,7 @@ fn screenshot_submenu(items: Vec<Entry>) -> Entry {
 }
 
 /// `build_tray_menu`, minus the onboarding-minimal branch.
+#[cfg(any(test, target_os = "macos"))]
 pub fn build_menu(mode: Mode, previous: &[PreviousItem], version: &str) -> Vec<Entry> {
     let mut entries = vec![Entry::item(t!("Open Main Window"), TrayItem::OpenCap)];
 

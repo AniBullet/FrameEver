@@ -12,7 +12,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "压缩版已就绪 · 小 {percent}%",
     ),
     ("Follow system", "跟随系统"),
-    ("Cutout", "抠像"),
     ("Language", "语言"),
     ("General", "通用"),
     ("Shortcuts", "快捷键"),

@@ -67,7 +67,7 @@ These are denied in the workspace `Cargo.toml` and fail CI:
 - `unused_must_use`: handle every `Result`, `Option` and `#[must_use]` value.
 - `dbg_macro`: use `tracing::debug!` instead of `dbg!`.
 - `let_underscore_future`: await futures instead of `let _ = async_fn()`.
-- `unchecked_duration_subtraction`: `a.saturating_sub(b)` for `Duration`.
+- `unchecked_time_subtraction`: `a.saturating_sub(b)` for `Duration` and `Instant`.
 - `collapsible_if`: `if a && b {}` instead of nested `if`s.
 - `clone_on_copy`: copy `Copy` values instead of `.clone()`.
 - `redundant_closure`: `iter.map(foo)` instead of `iter.map(|x| foo(x))`.

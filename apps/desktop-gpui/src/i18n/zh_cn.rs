@@ -20,7 +20,6 @@ pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("font weight", "Light", "细"),
     ("window menu", "Size", "尺寸"),
     ("strength", "Light", "轻度"),
-    ("strength", "Heavy", "重度"),
     ("segment noun", "audio", "音频"),
     ("segment noun", "caption", "字幕"),
     ("segment noun", "image", "图片"),

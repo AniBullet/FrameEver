@@ -161,6 +161,7 @@ pub fn export_bounds(scaled: &[Annotation], canvas: (u32, u32)) -> ExportBounds 
     }
 }
 
+#[cfg(test)]
 pub fn composite(raw: &RawFrame, config: &ProjectConfiguration) -> Composited {
     composite_with_images(raw, config, &ExportImages::new())
 }

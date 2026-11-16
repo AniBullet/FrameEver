@@ -65,6 +65,3 @@ frameever-verify-expect = { path = "../verify-expect" }
 tempfile = "3"
 pollster = "0.4.0"
 pretty_assertions = "1.4.1"
-
-[build-dependencies]
-build-time = "0.1"

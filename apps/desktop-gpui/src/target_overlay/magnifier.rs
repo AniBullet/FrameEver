@@ -7,7 +7,7 @@ use gpui::{
 };
 use image::RgbaImage;
 
-use super::{AreaRect, OverlayWindow, PickerPurpose, TargetType, repaint};
+use super::{OverlayWindow, PickerPurpose, TargetType, repaint};
 use crate::i18n::t;
 
 pub(super) enum Capture {
@@ -278,6 +278,7 @@ pub(super) fn sample(frame: &RgbaImage, cursor: (f32, f32), display: (f32, f32))
 
 #[cfg(test)]
 mod tests {
+    use super::super::AreaRect;
     use super::*;
     use crate::main_window::Mode;
 

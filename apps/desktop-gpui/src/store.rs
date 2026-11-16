@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::i18n::{t, tc};
+use crate::i18n::t;
 
 /// `CameraPreviewShape` in the web app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -50,17 +50,6 @@ impl BlurMode {
             Self::Light => Self::Heavy,
             Self::Heavy if cfg!(target_os = "macos") => Self::Remove,
             Self::Heavy | Self::Remove => Self::Off,
-        }
-    }
-
-    /// The tiny label under the person glyph: `Light` / `Heavy`, nothing when
-    /// off.
-    pub fn label(self) -> Option<&'static str> {
-        match self {
-            Self::Off => None,
-            Self::Light => Some(tc!("strength", "Light")),
-            Self::Heavy => Some(tc!("strength", "Heavy")),
-            Self::Remove => Some(t!("Cutout")),
         }
     }
 }

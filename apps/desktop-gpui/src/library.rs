@@ -200,6 +200,7 @@ impl RecordingStatus {
     }
 
     /// The tooltip text on the "Recording failed" badge.
+    #[cfg(test)]
     pub fn error(&self) -> Option<&str> {
         match self {
             Self::Failed { error } => Some(error.as_str()),
@@ -238,6 +239,7 @@ pub struct IncompleteRecordingItem {
 }
 
 impl RecordingItem {
+    #[cfg(test)]
     pub fn is_active(&self) -> bool {
         self.status == RecordingStatus::InProgress
     }

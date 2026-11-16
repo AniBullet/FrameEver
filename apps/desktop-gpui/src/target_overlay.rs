@@ -545,6 +545,7 @@ impl AreaRect {
         })
     }
 
+    #[cfg(test)]
     fn scaled(self, scale: f32) -> Self {
         Self {
             x: self.x * scale,

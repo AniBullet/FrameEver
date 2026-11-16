@@ -505,10 +505,12 @@ impl Theme {
         }
     }
 
+    #[cfg(test)]
     pub fn light() -> Self {
         Self::new(Appearance::Light)
     }
 
+    #[cfg(test)]
     pub fn dark() -> Self {
         Self::new(Appearance::Dark)
     }

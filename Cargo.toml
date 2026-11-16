@@ -32,11 +32,6 @@ specta = { version = "=2.0.0-rc.20", features = [
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-nokhwa = { git = "https://github.com/CapSoftware/nokhwa", rev = "b9c8079e82e2", features = [
-    "input-native",
-    "serialize",
-] }
-nokhwa-bindings-macos = { git = "https://github.com/CapSoftware/nokhwa", rev = "b9c8079e82e2" }
 wgpu = { version = "30.0.1", features = ["wgpu-core"] }
 wgpu-hal = "30.0.1"
 wgpu-core = "30.0.1"
@@ -66,8 +61,6 @@ cidre = { git = "https://github.com/CapSoftware/cidre", rev = "bf84b67079a8", fe
 windows = "0.62.2"
 windows-core = "0.62"
 windows-sys = "0.61"
-windows-capture = "1.5.0"
-percent-encoding = "2.3.1"
 sysinfo = "0.39"
 
 # TODO: Reenable these: https://github.com/CapSoftware/Cap/issues/859
@@ -81,7 +74,7 @@ disallowed_methods = "deny"
 disallowed_types = "deny"
 dbg_macro = "deny"
 let_underscore_future = "deny"
-unchecked_duration_subtraction = "deny"
+unchecked_time_subtraction = "deny"
 collapsible_if = "deny"
 clone_on_copy = "deny"
 redundant_closure = "deny"

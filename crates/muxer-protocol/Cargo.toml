@@ -7,3 +7,6 @@ edition = "2024"
 thiserror = { workspace = true }
 byteorder = "1.5"
 crc32fast = "1.4"
+
+[lints]
+workspace = true

@@ -680,7 +680,7 @@ fn accelerator_keys(accelerator: &super::Accelerator) -> Vec<String> {
         (Modifiers::CONTROL, "Ctrl"),
         (Modifiers::ALT, "Alt"),
         (Modifiers::SHIFT, "Shift"),
-        (Modifiers::SUPER, "Win"),
+        (Modifiers::META, "Win"),
     ] {
         if accelerator.modifiers.contains(modifier) {
             keys.push(name.into());

@@ -104,6 +104,7 @@ pub fn restore_original(bundle: &Path) -> std::io::Result<()> {
     swap(bundle, COMPRESSED, ORIGINAL)
 }
 
+#[cfg(test)]
 pub fn delete_compressed(bundle: &Path) -> std::io::Result<()> {
     super::player::release(bundle);
     if matches!(
