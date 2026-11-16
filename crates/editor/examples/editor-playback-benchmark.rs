@@ -647,6 +647,7 @@ async fn main() {
             music: frameever_editor::MusicTracks::new(),
             audio_output: audio_output.clone(),
             telemetry: Some(telemetry.clone()),
+            preview_speed: Default::default(),
         };
 
         let press_instant = Instant::now();

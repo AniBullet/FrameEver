@@ -48,6 +48,12 @@ pub(super) struct FrameControls {
     style_target: Option<StyleFrameTarget>,
 }
 
+impl FrameControls {
+    pub(super) fn is_open(&self) -> bool {
+        self.editing.is_some()
+    }
+}
+
 struct StyleFrameTarget {
     index: usize,
     fingerprint: String,

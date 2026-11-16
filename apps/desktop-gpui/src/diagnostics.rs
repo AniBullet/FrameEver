@@ -708,6 +708,7 @@ fn settings_snapshot() -> Value {
         "updateDownloadPolicy": settings.update_download_policy.as_json(),
         "instanceId": instance_id,
         "editorPreviewQuality": settings.editor_preview_quality.as_json(),
+        "editorPreviewSpeed": settings.editor_preview_speed.as_f64(),
         "captureKeyboardEvents": settings.capture_keyboard_events,
     })
 }

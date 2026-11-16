@@ -393,6 +393,12 @@ pub(crate) struct ClipsState {
     thumbs_inflight: usize,
 }
 
+impl ClipsState {
+    pub(crate) fn has_open_menu(&self) -> bool {
+        self.import_menu.is_some()
+    }
+}
+
 impl Default for ClipsState {
     fn default() -> Self {
         Self {

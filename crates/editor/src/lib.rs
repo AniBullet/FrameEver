@@ -10,6 +10,8 @@ mod preparing_editor;
 mod preparing_handoff;
 mod preparing_playback;
 mod preparing_preview;
+mod preview_speed;
+mod preview_stretch;
 mod segments;
 mod telemetry;
 mod thumbnail;
@@ -56,6 +58,7 @@ pub use preparing_preview::{
     PreparingPreviewExit, PreparingPreviewInput, PreparingPreviewOptions, PreparingPreviewReady,
     PreparingPreviewSegment, PreparingPreviewStopHandle,
 };
+pub use preview_speed::{PreviewSpeed, PreviewSpeedHandle};
 pub use segments::{
     audio_segment_from_decoded, get_audio_segments, load_music_tracks, load_music_tracks_uncached,
 };
