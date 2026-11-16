@@ -46,6 +46,7 @@ mod editor_sidebar;
 mod editor_snapshot;
 mod editor_tabs;
 mod editor_timeline;
+mod editor_voice_eq;
 mod editor_window;
 mod encoder_recovery;
 mod feeds;

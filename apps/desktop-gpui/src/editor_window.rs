@@ -8805,6 +8805,8 @@ impl EditorWindow {
         let muted = edits::clip_is_muted(segment);
         let audio_mode = segment.speed_audio_mode.unwrap_or_default();
         let cursor_hidden = segment.hides_cursor();
+        let voice_eq_summary = crate::editor_voice_eq::voice_eq_summary(segment);
+        let has_microphone = self.summary().is_some_and(|summary| summary.has_microphone);
         let normal_speed = (timescale - 1.0).abs() < f64::EPSILON;
         let title = match self.timeline.clips.get(index).map(|clip| &clip.detail) {
             Some(timeline::SegmentDetail::Clip { name, .. }) => name.clone(),
@@ -9031,6 +9033,35 @@ impl EditorWindow {
                         )),
                     ),
             )
+            .children(has_microphone.then(|| {
+                clip_menu_row(
+                    &theme,
+                    "clip-menu-voice-eq",
+                    "icons/sliders-horizontal.svg",
+                    t!("Voice EQ"),
+                    ClipMenuTrailing::None,
+                    true,
+                    false,
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(11.))
+                        .text_color(Hsla::from(theme.editor.text_3))
+                        .child(voice_eq_summary),
+                )
+                .child(
+                    svg()
+                        .path("icons/chevron-right.svg")
+                        .size(px(14.))
+                        .flex_none()
+                        .text_color(Hsla::from(theme.editor.text_3)),
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.clip_speed = None;
+                    this.open_clip_voice_eq(index, window, cx);
+                }))
+            }))
             .children((index > 0).then(|| {
                 let can_transition = timeline.segments[index - 1]
                     .duration()
@@ -12695,6 +12726,18 @@ impl Render for EditorWindow {
             // {mousemove, mouseup})` is exactly what the pad's own press
             // installs (`ConfigSidebar.tsx:6264-6271`), and its release is
             // what closes the pad's undo bracket.
+            .children(self.voice_eq_dragging().then(|| {
+                ui::Slider::drag_layer(
+                    "voice-eq-drag",
+                    cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                        this.voice_eq_mouse_move(event.position, window, cx);
+                    }),
+                    cx.listener(|this, _: &MouseUpEvent, _window, cx| {
+                        this.voice_eq_mouse_up(cx);
+                    }),
+                )
+                .cursor(gpui::CursorStyle::ClosedHand)
+            }))
             .children(self.pad_dragging().then(|| {
                 ui::Slider::drag_layer(
                     "sidebar-pad-drag",

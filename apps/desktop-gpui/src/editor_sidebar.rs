@@ -685,6 +685,7 @@ pub enum SliderKey {
     Keyboard(KeyboardSlider),
     InputDisplay(crate::editor_input_display::InputDisplaySlider),
     Panel(PanelSlider, usize),
+    VoiceEq(crate::editor_voice_eq::VoiceEqSlider),
 }
 
 /// Which colour the open `NSColorPanel` is editing.
@@ -778,6 +779,7 @@ pub struct SidebarState {
     pads: std::cell::RefCell<HashMap<PadKey, SliderTrack>>,
     /// The live pad drag, and whether it is holding a `history.pause()`.
     pub pad_drag: Option<PadKey>,
+    pub voice_eq: crate::editor_voice_eq::VoiceEqView,
 
     /// `ColorCorrectionSection`'s `adjustOpen` signal -- one per instance, so
     /// the Background tab's and the Camera tab's open independently.
@@ -904,6 +906,7 @@ impl SidebarState {
             tracks: std::cell::RefCell::new(HashMap::new()),
             pads: std::cell::RefCell::new(HashMap::new()),
             pad_drag: None,
+            voice_eq: crate::editor_voice_eq::VoiceEqView::default(),
             grade_adjust: [CollapsibleState::new(false), CollapsibleState::new(false)],
             grade_previews: std::cell::RefCell::new(HashMap::new()),
             camera_shadow_open: CollapsibleState::new(false),
@@ -1259,6 +1262,7 @@ impl EditorWindow {
             SliderKey::Keyboard(slider) => slider.limits(),
             SliderKey::InputDisplay(slider) => slider.limits(),
             SliderKey::Panel(slider, index) => self.panel_slider_limits(slider, index),
+            SliderKey::VoiceEq(slider) => slider.limits(),
         }
     }
 
@@ -1295,6 +1299,7 @@ impl EditorWindow {
             SliderKey::Keyboard(slider) => slider.read(&project),
             SliderKey::InputDisplay(slider) => slider.read(&self.project),
             SliderKey::Panel(slider, index) => self.panel_slider_value(slider, index),
+            SliderKey::VoiceEq(slider) => self.voice_eq_slider_value(slider),
         }
     }
 
@@ -1348,6 +1353,7 @@ impl EditorWindow {
             SliderKey::Panel(slider, index) => {
                 self.apply_panel_slider(slider, index, value, window, cx)
             }
+            SliderKey::VoiceEq(slider) => self.apply_voice_eq_slider(slider, value, window, cx),
         }
     }
 
@@ -3974,6 +3980,9 @@ pub(crate) fn format_slider_value(value: f32, unit: &str) -> String {
         "pct" => format!("{:.1}%", value * 100.),
         // The ripple duration's `${v.toFixed(2)}s`.
         "secs" => format!("{value:.2}s"),
+        "log2hz" => crate::editor_voice_eq::format_hz(value.exp2()),
+        "sdb" => crate::editor_voice_eq::format_gain(value),
+        "q" => format!("{value:.1}"),
         unit => format!("{value:.1}{unit}"),
     }
 }

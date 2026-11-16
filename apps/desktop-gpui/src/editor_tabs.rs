@@ -1722,6 +1722,7 @@ impl EditorWindow {
                 )
                 .into_any_element()
             }))
+            .children(has_microphone.then(|| self.render_voice_eq_group(cx)))
             .children(self.render_sync_offsets(cx).map(|body| {
                 self.folded_group(
                     crate::editor_sidebar::PanelSection::AudioSync,
