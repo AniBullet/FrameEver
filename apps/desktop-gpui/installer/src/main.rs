@@ -1,6 +1,5 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-mod field;
 mod runner;
 mod system;
 mod taskbar;
@@ -37,11 +36,13 @@ use gpui::{
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use crate::field::{FieldEvent, PathField};
+use frameever_installer_app::field::{self, FieldEvent, PathField};
 
 const WIDTH: f32 = 440.;
-const HEIGHT: f32 = 400.;
-const TALL_HEIGHT: f32 = 600.;
+const HEIGHT: f32 = 306.;
+const TALL_HEIGHT: f32 = 500.;
+const CONTENT_GAP: f32 = 24.;
+const LINK_HEIGHT: f32 = 28.;
 const STRIP_WIDTH: f32 = 400.;
 const CAPTION_HEIGHT: f32 = 32.;
 const BODY_TEXT: f32 = 13.5;
@@ -140,6 +141,28 @@ fn native_handle(window: &Window) -> Option<isize> {
     Some(handle.hwnd.get())
 }
 
+fn fit_height(
+    window: &Window,
+) -> impl Fn(Vec<Bounds<gpui::Pixels>>, &mut Window, &mut App) + 'static {
+    let handle = window.window_handle();
+    let current = f32::from(window.viewport_size().height);
+    move |children, _, cx| {
+        let height: f32 = children
+            .iter()
+            .map(|bounds| f32::from(bounds.size.height))
+            .sum();
+        if (height - current).abs() > 0.5 {
+            cx.defer(move |cx| {
+                handle
+                    .update(cx, |_, window, _| {
+                        window.resize(size(px(WIDTH), px(height)))
+                    })
+                    .ok();
+            });
+        }
+    }
+}
+
 fn window_size(screen: &Screen) -> gpui::Size<gpui::Pixels> {
     match &screen.frame {
         Frame::Main { tall, .. } => size(px(WIDTH), px(if *tall { TALL_HEIGHT } else { HEIGHT })),
@@ -199,7 +222,9 @@ impl SetupWindow {
         if key != self.page {
             let page_changed = key.0 != self.page.0;
             self.page = key;
-            window.resize(window_size(&screen));
+            if screen.frame == Frame::Strip {
+                window.resize(window_size(&screen));
+            }
             if page_changed || self.field.read(cx).focus.is_focused(window) {
                 self.epoch += 1;
                 self.bar = (0., 0.);
@@ -479,7 +504,7 @@ fn link(
     .flex_row()
     .items_center()
     .gap(px(4.))
-    .h(px(28.))
+    .h(px(LINK_HEIGHT))
     .px(px(8.))
     .rounded(px(RADIUS_SM))
     .text_size(px(SMALL_TEXT))
@@ -780,9 +805,7 @@ impl SetupWindow {
                                 .flex_1()
                                 .min_w_0()
                                 .h(px(32.))
-                                .px(px(10.))
                                 .flex()
-                                .items_center()
                                 .rounded(px(RADIUS_SM))
                                 .border_1()
                                 .border_color(box_border)
@@ -830,6 +853,7 @@ impl SetupWindow {
         });
         let has_slot =
             location.is_some() || keep.is_some() || !checks.is_empty() || screen.details.is_some();
+        let link_room = screen.hero && screen.progress.is_some();
         let bottom = match screen.progress {
             Some(progress) => div()
                 .w_full()
@@ -855,8 +879,7 @@ impl SetupWindow {
         };
         div()
             .id(SharedString::from(format!("page-{}", self.epoch)))
-            .flex_1()
-            .min_h_0()
+            .flex_none()
             .flex()
             .flex_col()
             .items_center()
@@ -901,15 +924,15 @@ impl SetupWindow {
             })
             .child(
                 div()
-                    .mt_auto()
-                    .pt(px(16.))
+                    .mt(px(CONTENT_GAP))
                     .w_full()
                     .flex()
                     .flex_col()
                     .items_center()
                     .gap(px(6.))
                     .child(bottom)
-                    .children(links),
+                    .children(links)
+                    .when(link_room, |this| this.child(div().h(px(LINK_HEIGHT)))),
             )
             .with_animation(
                 SharedString::from(format!("fade-{}", self.epoch)),
@@ -1031,7 +1054,16 @@ impl Render for SetupWindow {
                 let active = window.is_window_active();
                 let caption = caption(title, self.icon.clone(), locked, palette, active, cx);
                 let page = self.render_main(screen, palette, window, cx);
-                root.child(caption).child(page)
+                root.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_none()
+                        .w_full()
+                        .child(caption)
+                        .child(page)
+                        .on_children_prepainted(fit_height(window)),
+                )
             }
             Frame::Strip => {
                 let strip = self.render_strip(screen, palette, cx);

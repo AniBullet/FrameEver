@@ -49,4 +49,5 @@ windows = { version = "0.62", features = [
 tauri-winres = "0.3.7"
 
 [dev-dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
 tempfile = "3"

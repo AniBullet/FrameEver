@@ -1,4 +1,5 @@
 pub mod command_line;
+pub mod field;
 pub mod flow;
 pub mod i18n;
 #[path = "../../src/instance_control.rs"]

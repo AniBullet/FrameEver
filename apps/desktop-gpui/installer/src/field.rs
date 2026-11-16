@@ -97,6 +97,14 @@ impl PathField {
         }
     }
 
+    pub fn text(&self) -> &str {
+        &self.content
+    }
+
+    pub fn selection(&self) -> Range<usize> {
+        self.selected.clone()
+    }
+
     pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
         if self.content.as_ref() == text {
             return;
@@ -548,10 +556,11 @@ impl Element for FieldText {
         let width = bounds.size.width;
         let caret_x = line.x_for_index(field.cursor());
         let mut scroll = field.scroll.min((line.width - width + px(2.)).max(px(0.)));
-        if caret_x - scroll > width - px(2.) {
+        if !field.focus.is_focused(window) {
+            scroll = px(0.);
+        } else if caret_x - scroll > width - px(2.) {
             scroll = caret_x - width + px(2.);
-        }
-        if caret_x < scroll {
+        } else if caret_x < scroll {
             scroll = caret_x;
         }
         let left = bounds.left() - scroll;
@@ -608,16 +617,17 @@ impl Element for FieldText {
             if let Some(selection) = prepainted.selection.take() {
                 window.paint_quad(selection);
             }
-            if let Err(error) = prepainted.line.paint(
-                point(bounds.left() - scroll, bounds.top()),
-                window.line_height(),
-                TextAlign::Left,
-                None,
-                window,
-                cx,
-            ) {
-                crate::runner::log(format_args!("path field paint: {error}"));
-            }
+            prepainted
+                .line
+                .paint(
+                    point(bounds.left() - scroll, bounds.top()),
+                    window.line_height(),
+                    TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                )
+                .ok();
             if focused && let Some(caret) = prepainted.caret.take() {
                 window.paint_quad(caret);
             }
@@ -635,8 +645,10 @@ impl Render for PathField {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
-            .flex_1()
+            .items_center()
+            .size_full()
             .min_w_0()
+            .px(px(10.))
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus)
             .cursor(CursorStyle::IBeam)

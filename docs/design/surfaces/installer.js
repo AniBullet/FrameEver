@@ -304,7 +304,7 @@ const mainWin = (c) => {
 	const bottom = c.progress
 		? progressBar(c)
 		: `<div class="acts">${c.actions ?? ""}</div>`;
-	return `<div class="win A" style="width:440px;height:${c.tall ? 600 : 400}px">${titlebar(c)}<div class="main fade">${logo(c.hero ? 72 : 40)}<h3>${L(...c.h)}</h3><p class="sub">${L(...c.sub)}</p>${body}<div class="bottom">${bottom}${toggle(c)}${c.left ?? ""}</div></div></div>`;
+	return `<div class="win A" style="width:440px">${titlebar(c)}<div class="main fade">${logo(c.hero ? 72 : 40)}<h3>${L(...c.h)}</h3><p class="sub">${L(...c.sub)}</p>${body}<div class="bottom">${bottom}${toggle(c)}${c.left ?? ""}${c.hero && c.progress ? '<div class="link-room"></div>' : ""}</div></div></div>`;
 };
 const updateWin = (c) =>
 	s.st === "update"
@@ -319,8 +319,8 @@ const narrate = {
 		"按 Enter 就用默认值安装。选项在一次点击之内。没有许可页，也不问语言。",
 	],
 	options: [
-		"The window snaps to 600 px and the options fade in. Checkboxes, not switches: nothing happens until Install. The location can be typed or picked with Change…; space needed updates as it changes, and a path that can't be used says why in place of the space line and disables Install.",
-		"窗口跳到 600 px，选项淡入。用复选框而不是开关：按安装之前什么都不会发生。安装位置可以直接输入，也可以用“更改…”选；改位置时重新计算所需空间，用不了的路径会在空间那一行说明原因，并让安装按钮不可用。",
+		"The window grows to fit the options and they fade in. Checkboxes, not switches: nothing happens until Install. The location can be typed or picked with Change…; space needed updates as it changes, and a path that can't be used says why in place of the space line and disables Install.",
+		"窗口长高到放下选项，选项淡入。用复选框而不是开关：按安装之前什么都不会发生。安装位置可以直接输入，也可以用“更改…”选；改位置时重新计算所需空间，用不了的路径会在空间那一行说明原因，并让安装按钮不可用。",
 	],
 	installing: [
 		"The bar takes the button's place. Real percentage, one bar that never moves back. Close is off while files copy. At 100% FrameEver opens and this window goes.",
@@ -385,16 +385,16 @@ const pageRows = [
 		["Welcome", "欢迎"],
 		["No FrameEver found", "没找到帧刻"],
 		[
-			"440 × 400. 72 px icon, name, one sentence, Install at 40 px, Options below it",
-			"440 × 400。72 px 图标、名字、一句话，40 px 高的安装按钮，下面是选项",
+			"440 wide, as tall as its content. 72 px icon, name, one sentence, Install at 40 px 24 px below it, Options under Install",
+			"宽 440，高度随内容。72 px 图标、名字、一句话，下方 24 px 是 40 px 高的安装按钮，安装下面是选项",
 		],
 	],
 	[
 		["Options", "选项"],
 		["Options pressed", "按下选项"],
 		[
-			"440 × 600. Location with space needed, three checkboxes, all on",
-			"440 × 600。安装位置和所需空间，三个复选框，默认全开",
+			"Grows by the options' height. Location with space needed, three checkboxes, all on",
+			"按选项的高度长高。安装位置和所需空间，三个复选框，默认全开",
 		],
 	],
 	[
@@ -507,8 +507,8 @@ const ruleRows = [
 	[
 		["Motion", "动效"],
 		[
-			"Pages fade in (duration-mid). The bar's width follows real progress with ease-effects, no overshoot. The window snaps, only its content moves. Windows's “Show animations” off means no fades",
-			"页面淡入（duration-mid）。进度条宽度跟随真实进度，用 ease-effects，不回弹。窗口直接跳到新尺寸，只有内容在动。Windows 关闭“显示动画”时不淡入",
+			"Pages fade in (duration-mid). The bar's width follows real progress with ease-effects, no overshoot. The window is as tall as its page, 24 px between the content and the buttons, and snaps to a new page's height; only the content moves. Installing keeps Welcome's height (the Options row stays as empty room) so the bar lands where Install was. Windows's “Show animations” off means no fades",
+			"页面淡入（duration-mid）。进度条宽度跟随真实进度，用 ease-effects，不回弹。窗口高度等于当前页内容，内容和按钮之间 24 px，换页时直接跳到新高度，只有内容在动。安装中保持欢迎页的高度（选项那一行留空），进度条正好落在安装按钮的位置。Windows 关闭“显示动画”时不淡入",
 		],
 	],
 	[
