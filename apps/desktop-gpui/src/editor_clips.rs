@@ -1969,6 +1969,7 @@ impl PreparedMp4Import {
             name: None,
             speed_audio_mode: None,
             hide_cursor: None,
+            voice_eq: None,
             volume: None,
         });
         add_clip_configs(&mut config, index, std::slice::from_ref(&self.segment));
@@ -2462,6 +2463,7 @@ fn full_timeline_for_segments(
                 name: None,
                 speed_audio_mode: None,
                 hide_cursor: None,
+                voice_eq: None,
                 volume: None,
             })
         })
@@ -3067,6 +3069,7 @@ fn full_timeline_for_source_segments(
                 name: None,
                 speed_audio_mode: None,
                 hide_cursor: None,
+                voice_eq: None,
                 volume: None,
             })
         })
@@ -3158,6 +3161,7 @@ fn source_timeline_segments_for_import(
             name: None,
             speed_audio_mode: segment.speed_audio_mode,
             hide_cursor: segment.hide_cursor,
+            voice_eq: segment.voice_eq,
             volume: segment.volume,
         });
     }
@@ -3408,6 +3412,7 @@ pub(crate) fn append_cap_project_to_editor(
                 name: None,
                 speed_audio_mode: source_segment.speed_audio_mode,
                 hide_cursor: source_segment.hide_cursor,
+                voice_eq: source_segment.voice_eq,
                 volume: source_segment.volume,
             });
         }
@@ -3944,6 +3949,7 @@ mod tests {
             name: None,
             speed_audio_mode: None,
             hide_cursor: None,
+            voice_eq: None,
             volume: None,
         }
     }

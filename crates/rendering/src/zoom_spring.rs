@@ -1628,6 +1628,7 @@ mod tests {
                 name: None,
                 speed_audio_mode: None,
                 hide_cursor: None,
+                voice_eq: None,
                 volume: None,
             },
             TimelineSegment {
@@ -1638,6 +1639,7 @@ mod tests {
                 name: None,
                 speed_audio_mode: None,
                 hide_cursor: None,
+                voice_eq: None,
                 volume: None,
             },
         ];
@@ -2096,6 +2098,7 @@ mod tests {
                 name: None,
                 speed_audio_mode: None,
                 hide_cursor: None,
+                voice_eq: None,
                 volume: None,
             }];
             let cursor = CursorEvents {
@@ -2473,6 +2476,7 @@ mod tests {
                 speed_audio_mode: None,
                 volume: None,
                 hide_cursor: None,
+                voice_eq: None,
             });
         }
         project
@@ -2587,6 +2591,7 @@ mod tests {
                 name: None,
                 speed_audio_mode: None,
                 hide_cursor: None,
+                voice_eq: None,
                 volume: None,
             }],
             transitions: vec![],
@@ -2648,6 +2653,7 @@ mod tests {
                     name: None,
                     speed_audio_mode: None,
                     hide_cursor: None,
+                    voice_eq: None,
                     volume: None,
                 },
                 TimelineSegment {
@@ -2658,6 +2664,7 @@ mod tests {
                     name: None,
                     speed_audio_mode: None,
                     hide_cursor: None,
+                    voice_eq: None,
                     volume: None,
                 },
             ],
