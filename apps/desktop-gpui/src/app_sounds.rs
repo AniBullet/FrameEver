@@ -24,6 +24,7 @@ pub enum AppSound {
     StartRecording,
     StopRecording,
     Notification,
+    ChapterMark,
 }
 
 impl AppSound {
@@ -35,7 +36,16 @@ impl AppSound {
             Self::StopRecording => {
                 include_bytes!("../assets/sounds/stop-recording.ogg")
             }
-            Self::Notification => include_bytes!("../assets/sounds/action.ogg"),
+            Self::Notification | Self::ChapterMark => {
+                include_bytes!("../assets/sounds/action.ogg")
+            }
+        }
+    }
+
+    fn volume(self) -> f32 {
+        match self {
+            Self::ChapterMark => 0.45,
+            Self::StartRecording | Self::StopRecording | Self::Notification => 1.0,
         }
     }
 
@@ -57,10 +67,17 @@ impl AppSound {
         device.log_on_drop(false);
         let source = Decoder::new(Cursor::new(self.bytes())).context("decoding app sound")?;
         let player = Player::connect_new(device.mixer());
+        player.set_volume(self.volume());
         player.append(source);
         player.sleep_until_end();
         tracing::debug!(?self, "App sound played");
         Ok(())
+    }
+}
+
+pub fn play_chapter_mark() {
+    if crate::store::chapter_mark_sound_enabled() {
+        AppSound::ChapterMark.play();
     }
 }
 
@@ -75,10 +92,11 @@ mod tests {
     use super::*;
     use rodio::Source as _;
 
-    const SOUNDS: [AppSound; 3] = [
+    const SOUNDS: [AppSound; 4] = [
         AppSound::StartRecording,
         AppSound::StopRecording,
         AppSound::Notification,
+        AppSound::ChapterMark,
     ];
 
     #[test]

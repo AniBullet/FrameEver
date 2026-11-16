@@ -328,10 +328,12 @@ pub fn remove_export(project: &Path, path: &Path) -> std::io::Result<()> {
     write_project_file(project, &document)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChapterMarker {
     pub recorded_at: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 pub fn save_chapter_markers(project: &Path, recorded: &[Duration]) -> std::io::Result<()> {
@@ -342,8 +344,13 @@ pub fn save_chapter_markers(project: &Path, recorded: &[Duration]) -> std::io::R
         .iter()
         .map(|at| ChapterMarker {
             recorded_at: at.as_secs_f64(),
+            name: None,
         })
         .collect();
+    write_chapter_markers(project, &markers)
+}
+
+pub fn write_chapter_markers(project: &Path, markers: &[ChapterMarker]) -> std::io::Result<()> {
     let mut document = read_project_file_for_update(project)?;
     let entries = serde_json::to_value(markers).map_err(std::io::Error::other)?;
     document.insert(CHAPTER_MARKERS_KEY.into(), entries);
@@ -898,8 +905,14 @@ mod tests {
         let record = export_record(video, "mp4", None, 1);
         record_export(&project, &record).unwrap();
         let markers = vec![
-            ChapterMarker { recorded_at: 4.25 },
-            ChapterMarker { recorded_at: 61.5 },
+            ChapterMarker {
+                recorded_at: 4.25,
+                name: None,
+            },
+            ChapterMarker {
+                recorded_at: 61.5,
+                name: None,
+            },
         ];
 
         save_chapter_markers(
@@ -958,8 +971,14 @@ mod tests {
         assert_eq!(
             chapter_markers(&project),
             vec![
-                ChapterMarker { recorded_at: 2.5 },
-                ChapterMarker { recorded_at: 9.0 },
+                ChapterMarker {
+                    recorded_at: 2.5,
+                    name: None
+                },
+                ChapterMarker {
+                    recorded_at: 9.0,
+                    name: None
+                },
             ]
         );
     }
@@ -975,6 +994,34 @@ mod tests {
             std::fs::read(project.join("frameever.json")).unwrap(),
             b"{ not json"
         );
+    }
+
+    #[test]
+    fn named_chapter_markers_written_from_the_editor_survive_reopen_and_can_all_go() {
+        let tree = Tree::new();
+        let project = create_project(&tree.path("Recordings"), "Demo").unwrap();
+        let named = vec![
+            ChapterMarker {
+                recorded_at: 2.0,
+                name: Some("Intro".into()),
+            },
+            ChapterMarker {
+                recorded_at: 8.5,
+                name: None,
+            },
+        ];
+
+        write_chapter_markers(&project, &named).unwrap();
+        assert_eq!(chapter_markers(&project), named);
+        let document: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(project.join("frameever.json")).unwrap())
+                .unwrap();
+        assert_eq!(document["chapterMarkers"][0]["name"], "Intro");
+        assert!(document["chapterMarkers"][1].get("name").is_none());
+
+        write_chapter_markers(&project, &[]).unwrap();
+        assert!(chapter_markers(&project).is_empty());
+        assert_eq!(format_version(&project), Some(FORMAT_VERSION));
     }
 
     #[test]

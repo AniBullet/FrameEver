@@ -22,6 +22,7 @@ const live = {
 	tool: "pencil",
 	issue: null,
 	issueHidden: false,
+	marks: 2,
 };
 const opt = {
 	mode: "studio",
@@ -145,6 +146,11 @@ const warnBtn = (s) =>
 			)
 		: "";
 
+const markBtn = (s) =>
+	s.mode === "studio" && !busy(s)
+		? `<button class="rb-btn mark" data-a="mark" title="${pick("Add chapter mark", "添加章节标记")}" aria-label="${pick("Add chapter mark", "添加章节标记")}">${icon("flag")}${s.marks ? `<span class="mark-count tnum">${s.marks > 99 ? "99+" : s.marks}</span>` : ""}</button>`
+		: "";
+
 const endBtn = (s) =>
 	s.phase === "countdown"
 		? btn("stop", icon("x"), pick("Cancel", "取消"))
@@ -153,7 +159,7 @@ const bar = (
 	s,
 ) => `<div class="rb ${s.paused ? "paused" : ""}" role="toolbar" aria-label="${pick("Recording controls", "录制控制条")}">
 	${grip()}${endBtn(s)}${timeLabel(s)}${sep()}${mic(s)}${pauseBtn(s)}${btn("ask-restart", icon("rotate-ccw"), pick("Restart", "重新开始"), "", busy(s) ? "disabled" : "")}${warnBtn(s)}${sep()}
-	${btn("ask-delete", icon("trash"), pick("Delete", "删除"), "", busy(s) ? "disabled" : "")}${btn("draw", icon("pencil"), pick("Draw on screen", "屏幕画笔"), s.draw ? "on" : "", busy(s) ? "disabled" : "")}${btn("pop", icon("sliders-horizontal"), pick("Recording options", "录制选项"), s.pop ? "on" : "")}</div>`;
+	${btn("ask-delete", icon("trash"), pick("Delete", "删除"), "", busy(s) ? "disabled" : "")}${markBtn(s)}${btn("draw", icon("pencil"), pick("Draw on screen", "屏幕画笔"), s.draw ? "on" : "", busy(s) ? "disabled" : "")}${btn("pop", icon("sliders-horizontal"), pick("Recording options", "录制选项"), s.pop ? "on" : "")}</div>`;
 
 const device = (id, ic, en, zh, value, off, list, s, chosen) => {
 	const locked = off;
@@ -437,13 +443,13 @@ const copy = () => {
 	const text = {
 		"t-live": ["Recording bar", "录制控制条"],
 		"l-live": [
-			"Runs for real: the timer counts, and Pause, Options, Restart, Delete, Draw and Hide all work. Stop comes first with the time beside it, then the actions. The bar never takes focus from what you're recording, and it is left out of the video.",
-			"下面可以真的操作：计时在走，暂停、选项、重新开始、删除、画笔和隐藏都能点。停止在最前，时间紧跟其后，然后是各项操作。控制条不会抢走被录内容的焦点，也不会出现在视频里。",
+			"Runs for real: the timer counts, and Pause, Options, Restart, Delete, Chapter mark, Draw and Hide all work. Stop comes first with the time beside it, then the actions. The bar never takes focus from what you're recording, and it is left out of the video.",
+			"下面可以真的操作：计时在走，暂停、选项、重新开始、删除、章节标记、画笔和隐藏都能点。停止在最前，时间紧跟其后，然后是各项操作。控制条不会抢走被录内容的焦点，也不会出现在视频里。",
 		],
 		"t-states": ["Every state", "所有状态"],
 		"l-states": [
-			"These follow the mode chosen above. Stop is the bar's one solid blue button, with the app icon's white ring and navy gap around a red square, so it pairs with Start recording. Red appears on the recording dot, Stop's square, muted, Delete and errors. Amber means paused or a warning. Green means the microphone is live. Studio shows a level only, because its microphone is an editable track and muted spans would bake in silence. Instant can mute. Everything else is the same in both modes.",
-			"这些状态跟随上面选的模式。停止是控制条上唯一的实色蓝按钮，用应用图标的白环和海军蓝间隙托住红方块，和开始录制成一对。红色用在录制点、停止的方块、静音、删除和错误上。琥珀色表示暂停或警告。绿色表示麦克风正在收音。工作室只显示音量，因为麦克风是可编辑的轨道，中途静音会把静音写死。即时可以静音。其余两种模式相同。",
+			"These follow the mode chosen above. Stop is the bar's one solid blue button, with the app icon's white ring and navy gap around a red square, so it pairs with Start recording. Red appears on the recording dot, Stop's square, muted, Delete and errors. Amber means paused or a warning. Green means the microphone is live. Studio shows a level only, because its microphone is an editable track and muted spans would bake in silence. Instant can mute. Studio adds a flag after Delete that drops a chapter mark at the current recorded time; the marks in this take are counted on its corner, it lights for a moment after each one, and Settings → General can play a quiet sound. Everything else is the same in both modes.",
+			"这些状态跟随上面选的模式。停止是控制条上唯一的实色蓝按钮，用应用图标的白环和海军蓝间隙托住红方块，和开始录制成一对。红色用在录制点、停止的方块、静音、删除和错误上。琥珀色表示暂停或警告。绿色表示麦克风正在收音。工作室只显示音量，因为麦克风是可编辑的轨道，中途静音会把静音写死。即时可以静音。工作室在删除后面多一个旗子，在当前录制时间打一个章节标记；角上数着这次录制的标记数，每打一个会亮一下，设置 → 通用里可以开一声轻提示音。其余两种模式相同。",
 		],
 		"t-options": ["Recording options before you start", "开始前的录制选项"],
 		"l-options": [
@@ -523,7 +529,7 @@ const copy = () => {
 				["Global, new. Instant only", "全局，新增。仅即时"],
 			],
 			[
-				["Add chapter marker", "添加章节标记"],
+				["Add chapter mark", "添加章节标记"],
 				["Not set", "未设置"],
 				["Global, new. Studio only", "全局，新增。仅工作室"],
 			],
@@ -743,8 +749,8 @@ const copy = () => {
 				["Chapter markers", "章节标记"],
 				"OBS Studio",
 				[
-					"Medium: Studio only, a shortcut, a new field in frameever.json and marks on the timeline",
-					"中：仅工作室，一个快捷键，frameever.json 加字段，时间轴加标记",
+					"Medium: Studio only, a shortcut and a flag on the bar, a new field in frameever.json, marks on the timeline and a Chapter marks panel in the editor",
+					"中：仅工作室，一个快捷键和控制条上的旗子，frameever.json 加字段，时间轴加标记，编辑器加章节标记面板",
 				],
 				["Add", "加入"],
 			],
@@ -855,7 +861,13 @@ const renderAll = () => {
 const act = (a, value) => {
 	if (a === "pause") live.paused = !live.paused;
 	if (a === "stop")
-		Object.assign(live, { sec: 0, paused: false, pop: null, draw: false });
+		Object.assign(live, {
+			sec: 0,
+			paused: false,
+			pop: null,
+			draw: false,
+			marks: 0,
+		});
 	if (a === "mute") live.muted = !live.muted;
 	if (a === "pop") Object.assign(live, { pop: !live.pop, open: null });
 	if (a === "open-mic") live.open = live.open === "mic" ? null : "mic";
@@ -871,6 +883,7 @@ const act = (a, value) => {
 	if (a === "ask-yes")
 		Object.assign(live, { ask: null, sec: 0, paused: false });
 	if (a === "draw") Object.assign(live, { draw: !live.draw, pop: null });
+	if (a === "mark") live.marks += 1;
 	if (a === "tool") live.tool = value;
 	if (a === "colour") live.colour = Number(value);
 	if (a === "undo-ink") {

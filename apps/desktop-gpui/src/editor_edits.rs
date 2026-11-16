@@ -2146,6 +2146,14 @@ pub fn generate_zoom_segments_from_clicks(
 /// `output_time` is in the *held* output domain the clip boxes are drawn in;
 /// the first thing the action does is subtract the holds before it, which puts
 /// it back in the gapless recording-flow domain the offsets live in.
+pub fn split_clips_at(timeline: &mut TimelineConfiguration, times: &[f64]) -> bool {
+    let mut split = false;
+    for &time in times {
+        split |= split_clip_segment(timeline, time, None);
+    }
+    split
+}
+
 pub fn split_clip_segment(
     timeline: &mut TimelineConfiguration,
     output_time: f64,
@@ -3753,6 +3761,25 @@ mod tests {
         assert_eq!(right.keys[0].time_offset, 500.0);
         assert_ne!(left.id, right.id);
         assert!(right.id.starts_with("kb-edit-split-"));
+    }
+
+    #[test]
+    fn splitting_at_chapter_marks_cuts_every_clip_under_a_mark_once() {
+        let mut config = two_clip_config();
+        let timeline = config.timeline.as_mut().unwrap();
+
+        assert!(split_clips_at(timeline, &[14.0, 4.0, 10.0]));
+        let spans: Vec<_> = timeline
+            .segments
+            .iter()
+            .map(|segment| (segment.recording_clip, segment.start, segment.end))
+            .collect();
+        assert_eq!(
+            spans,
+            vec![(0, 0., 4.), (0, 4., 10.), (1, 0., 4.), (1, 4., 8.)]
+        );
+        assert!(!split_clips_at(timeline, &[4.0, 14.0]));
+        assert_eq!(timeline.segments.len(), 4);
     }
 
     #[test]
