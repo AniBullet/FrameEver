@@ -1040,7 +1040,10 @@ class MainWindow {
 			case "dialog-confirm":
 				return this.remove();
 			case "gif":
-				return this.set({ gif: { a: 20, b: 60, size: 1 }, ...close });
+				return this.set({
+					gif: { a: 20, b: 60, size: 1, quality: 2 },
+					...close,
+				});
 			case "gif-range": {
 				const box = el.getBoundingClientRect();
 				const at = Math.round(
@@ -1056,6 +1059,8 @@ class MainWindow {
 			}
 			case "gif-size":
 				return this.set({ gif: { ...this.s.gif, size: Number(v) } });
+			case "gif-quality":
+				return this.set({ gif: { ...this.s.gif, quality: Number(v) } });
 			case "gif-cancel":
 				return this.set({ gif: null });
 			case "gif-confirm":
@@ -1280,6 +1285,11 @@ const gifSizes = [
 	["Medium", "中", 2],
 	["Small", "小", 4],
 ];
+const gifQualities = [
+	["Low", "低"],
+	["Medium", "中"],
+	["High", "高"],
+];
 const gifStats = (item, gif) => {
 	const [minutes, seconds] = item.dur.split(":").map(Number);
 	const total = minutes * 60 + seconds;
@@ -1319,6 +1329,8 @@ const gifDialog = (item, gif, live) => {
 		<div class="gif-times tnum">${clock(stats.from)} – ${clock(stats.to)} · ${L(`${seconds} s`, `${seconds} 秒`)}</div>
 		<div class="subhead">${L("Size", "尺寸")}</div>
 		<div class="seg block"${dim}>${gifSizes.map(([en, zh], i) => `<button class="${gif.size === i ? "on" : ""}" ${on("gif-size", i)}>${L(en, zh)}</button>`).join("")}</div>
+		<div class="subhead">${L("Quality", "画质")}</div>
+		<div class="seg block"${dim}>${gifQualities.map(([en, zh], i) => `<button class="${(gif.quality ?? 2) === i ? "on" : ""}" ${on("gif-quality", i)}>${L(en, zh)}</button>`).join("")}</div>
 		<div class="gif-estimate tnum ${stats.large ? "warn" : ""}">${stats.large ? icon("triangle-alert", "sm") : ""}<span>${stats.sizes[gif.size].join(" × ")} · ${L(`15 FPS · about ${stats.size}`, `15 帧/秒 · 约 ${stats.size}`)}</span>${stats.large ? `<span>${L("Pick a shorter stretch or a smaller size.", "选短一点，或者换小一点的尺寸。")}</span>` : ""}</div>
 		<div class="actions"><button class="btn" ${on("gif-cancel")}>${L("Cancel", "取消")}</button>${saving ? `<button class="btn primary" disabled>${L(`Saving… ${gif.saving}%`, `正在保存… ${gif.saving}%`)}</button>` : `<button class="btn primary" ${on("gif-confirm")}>${L("Save as GIF", "存为 GIF")}</button>`}</div></div>`;
 };
@@ -1363,8 +1375,8 @@ const titles = {
 	gif: [
 		"Save as GIF",
 		"存为 GIF",
-		"GIF is only an export format. An Instant recording gets it from its details or its right-click menu: choose a stretch with the two handles, pick a size, and read the estimate before saving. Large keeps the recording's size up to 1080 px on the long side; Medium and Small are a half and a quarter of that. It is always 15 FPS; anything finer is the editor's export. While it saves, the Save button shows the progress and Cancel stops the save and leaves no file. The GIF joins the recording's exports, and the toast offers Copy and Show in folder. A Studio recording gets a GIF from the editor's export, which can also export only the selected stretch.",
-		"GIF 只是一种导出格式。即时录制从详情或右键菜单进入：用两个把手选一段，选尺寸，保存前先看预估大小。“大”保持录制的尺寸，长边最多 1080 px；“中”和“小”是它的一半和四分之一。固定 15 帧/秒，要细调就用编辑器的导出。保存时“存为 GIF”按钮上显示进度，“取消”会停止保存，不留下文件。生成的 GIF 列在这条录制的导出里，提示里可以直接复制或在文件夹中显示。工作室录制在编辑器的导出里得到 GIF，那里也可以只导出选中的一段。",
+		"GIF is only an export format. An Instant recording gets it from its details or its right-click menu: choose a stretch with the two handles, pick a size and a quality, and read the estimate before saving. Large keeps the recording's size up to 1080 px on the long side; Medium and Small are a half and a quarter of that. Quality is Low, Medium or High, the same three the editor's GIF export offers; High is the default. It is always 15 FPS; anything finer is the editor's export. While it saves, the Save button shows the progress and Cancel stops the save and leaves no file. The GIF joins the recording's exports, and the toast offers Copy and Show in folder. A Studio recording gets a GIF from the editor's export, which can also export only the selected stretch.",
+		"GIF 只是一种导出格式。即时录制从详情或右键菜单进入：用两个把手选一段，选尺寸和画质，保存前先看预估大小。“大”保持录制的尺寸，长边最多 1080 px；“中”和“小”是它的一半和四分之一。画质分低、中、高，与编辑器的 GIF 导出相同，默认为高。固定 15 帧/秒，要细调就用编辑器的导出。保存时“存为 GIF”按钮上显示进度，“取消”会停止保存，不留下文件。生成的 GIF 列在这条录制的导出里，提示里可以直接复制或在文件夹中显示。工作室录制在编辑器的导出里得到 GIF，那里也可以只导出选中的一段。",
 	],
 	keys: [
 		"Keyboard",

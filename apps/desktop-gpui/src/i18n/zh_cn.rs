@@ -39,4 +39,7 @@ pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("gif size", "Large", "大"),
     ("gif size", "Medium", "中"),
     ("gif size", "Small", "小"),
+    ("gif quality", "Low", "低"),
+    ("gif quality", "Medium", "中"),
+    ("gif quality", "High", "高"),
 ];

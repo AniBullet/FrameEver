@@ -8,12 +8,59 @@ use tracing::trace;
 
 use crate::{ExportError, ExporterBase, prepare_new_output};
 
+pub const DEFAULT_GIF_QUALITY: u8 = 90;
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Type)]
 pub struct GifQuality {
     /// Encoding quality from 1-100 (default: 90)
     pub quality: Option<u8>,
     /// Whether to prioritize speed over quality (default: false)
     pub fast: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GifQualityPreset {
+    Low,
+    Medium,
+    High,
+}
+
+impl GifQualityPreset {
+    pub const ALL: [Self; 3] = [Self::Low, Self::Medium, Self::High];
+
+    pub fn quality(self) -> GifQuality {
+        GifQuality {
+            quality: Some(match self {
+                Self::Low => 50,
+                Self::Medium => 70,
+                Self::High => DEFAULT_GIF_QUALITY,
+            }),
+            fast: None,
+        }
+    }
+
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::Low => "Low",
+            Self::Medium => "Medium",
+            Self::High => "High",
+        }
+    }
+
+    pub fn from_slug(slug: Option<&str>) -> Self {
+        match slug {
+            Some("Low") => Self::Low,
+            Some("Medium") => Self::Medium,
+            _ => Self::High,
+        }
+    }
+
+    pub(crate) fn encoder_quality(self) -> frameever_enc_gif::GifQuality {
+        frameever_enc_gif::GifQuality {
+            quality: self.quality().quality.unwrap_or(DEFAULT_GIF_QUALITY),
+            fast: false,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Type)]
@@ -105,7 +152,7 @@ impl GifExportSettings {
         let quality = self
             .quality
             .map(|q| frameever_enc_gif::GifQuality {
-                quality: q.quality.unwrap_or(90),
+                quality: q.quality.unwrap_or(DEFAULT_GIF_QUALITY),
                 fast: q.fast.unwrap_or(false),
             })
             .unwrap_or_default();
