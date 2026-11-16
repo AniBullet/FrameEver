@@ -132,7 +132,7 @@ impl ScreenCaptureTarget {
                     let display_bounds = self.display()?.raw_handle().physical_bounds()?;
                     let window_bounds = window.raw_handle().physical_bounds()?;
 
-                    return Some(CursorCropBounds::new_windows(PhysicalBounds::new(
+                    let relative = PhysicalBounds::new(
                         PhysicalPosition::new(
                             window_bounds.position().x() - display_bounds.position().x(),
                             window_bounds.position().y() - display_bounds.position().y(),
@@ -141,7 +141,11 @@ impl ScreenCaptureTarget {
                             window_bounds.size().width(),
                             window_bounds.size().height(),
                         ),
-                    )));
+                    );
+
+                    return Some(CursorCropBounds::new_windows(
+                        window_crop_on_display(relative, display_bounds.size()).unwrap_or(relative),
+                    ));
                 }
             }
             Self::Area { bounds, .. } => {
@@ -320,6 +324,35 @@ pub type CropBounds = LogicalBounds;
 
 #[cfg(windows)]
 pub type CropBounds = PhysicalBounds;
+
+#[cfg(any(windows, test))]
+pub(crate) fn window_crop_on_display(
+    window: PhysicalBounds,
+    display: PhysicalSize,
+) -> Option<PhysicalBounds> {
+    let axis = |position: f64, size: f64, extent: f64| {
+        if !position.is_finite() || !size.is_finite() || !extent.is_finite() {
+            return None;
+        }
+        let start = position.clamp(0.0, extent);
+        let end = (position + size).clamp(0.0, extent);
+        (end - start >= 2.0).then_some((start, end - start))
+    };
+    let (x, width) = axis(
+        window.position().x(),
+        window.size().width(),
+        display.width(),
+    )?;
+    let (y, height) = axis(
+        window.position().y(),
+        window.size().height(),
+        display.height(),
+    )?;
+    Some(PhysicalBounds::new(
+        PhysicalPosition::new(x, y),
+        PhysicalSize::new(width, height),
+    ))
+}
 
 #[cfg(any(windows, test))]
 pub(crate) fn logical_area_to_physical_bounds(
@@ -663,6 +696,44 @@ mod tests {
                 "{width}x{height}"
             );
         }
+    }
+
+    #[test]
+    fn window_crop_stays_on_its_display() {
+        let display = PhysicalSize::new(1920.0, 1080.0);
+        let crop = |x: f64, y: f64, width: f64, height: f64| {
+            window_crop_on_display(
+                PhysicalBounds::new(
+                    PhysicalPosition::new(x, y),
+                    PhysicalSize::new(width, height),
+                ),
+                display,
+            )
+            .map(|bounds| {
+                (
+                    bounds.position().x(),
+                    bounds.position().y(),
+                    bounds.size().width(),
+                    bounds.size().height(),
+                )
+            })
+        };
+
+        assert_eq!(
+            crop(100.0, 50.0, 800.0, 600.0),
+            Some((100.0, 50.0, 800.0, 600.0))
+        );
+        assert_eq!(
+            crop(1000.0, 500.0, 1000.0, 700.0),
+            Some((1000.0, 500.0, 920.0, 580.0))
+        );
+        assert_eq!(
+            crop(-8.0, -8.0, 1936.0, 1096.0),
+            Some((0.0, 0.0, 1920.0, 1080.0))
+        );
+        assert_eq!(crop(1919.0, 0.0, 400.0, 400.0), None);
+        assert_eq!(crop(2000.0, 0.0, 400.0, 400.0), None);
+        assert_eq!(crop(f64::NAN, 0.0, 400.0, 400.0), None);
     }
 
     #[test]

@@ -877,12 +877,12 @@ mod tests {
 
 #[cfg(test)]
 mod gradient_resize_tests {
-    use frameever_project::{
-        AspectRatio, BackgroundSource, CursorEvents, ProjectConfiguration, RecordingMeta, XY,
-    };
     use crate::{
         DecodedSegmentFrames, FrameRenderer, ProjectUniforms, RenderOptions, RenderVideoConstants,
         RendererLayers, ZoomTransformTimeline,
+    };
+    use frameever_project::{
+        AspectRatio, BackgroundSource, CursorEvents, ProjectConfiguration, RecordingMeta, XY,
     };
     use std::sync::Arc;
 

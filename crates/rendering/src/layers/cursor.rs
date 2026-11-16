@@ -801,11 +801,13 @@ fn compute_cursor_idle_opacity(
             .iter()
             .rposition(|event| event.time_ms <= current_time_ms)
     };
+
     let Some(last_index) = last_index else {
         return 1.0;
     };
 
-    let time_since_move = (current_time_ms - cursor.moves[last_index].time_ms).max(0.0);
+    let at_rest_since = moves_at_same_position_before(&cursor.moves, last_index);
+    let time_since_move = (current_time_ms - cursor.moves[at_rest_since].time_ms).max(0.0);
     let fade_out = if time_since_move <= hide_delay_ms {
         1.0
     } else {
@@ -816,9 +818,11 @@ fn compute_cursor_idle_opacity(
         )
     };
 
+    let resting = &cursor.moves[last_index];
     let fade_in = cursor
         .moves
-        .get(idx)
+        .get(idx..)
+        .and_then(|later| later.iter().find(|next| !same_position(next, resting)))
         .map(|next| next.time_ms - current_time_ms)
         .filter(|until_move| *until_move <= CURSOR_IDLE_RESUME_LOOKAHEAD_MS)
         .map_or(0.0, |until_move| {
@@ -835,6 +839,18 @@ fn smoothstep64(edge0: f64, edge1: f64, x: f64) -> f64 {
 
     let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
+}
+
+fn same_position(a: &CursorMoveEvent, b: &CursorMoveEvent) -> bool {
+    a.x == b.x && a.y == b.y
+}
+
+fn moves_at_same_position_before(moves: &[CursorMoveEvent], index: usize) -> usize {
+    let mut start = index;
+    while start > 0 && same_position(&moves[start - 1], &moves[index]) {
+        start -= 1;
+    }
+    start
 }
 
 fn get_click_t(clicks: &[CursorClickEvent], time_ms: f64, clicks_ordered: bool) -> f32 {
@@ -1454,6 +1470,32 @@ mod tests {
             assert_eq!(idle_opacity_both_paths(&cursor, time, 1000.0), expected);
         }
         assert!(idle_opacity_both_paths(&cursor, 1399.999, 1000.0) > 0.0);
+    }
+
+    #[test]
+    fn a_shape_change_under_a_still_pointer_does_not_wake_an_idle_cursor() {
+        let mut shape_changed = cursor_events(&[(0.0, 0.2, 0.2), (3000.0, 0.2, 0.2)]);
+        shape_changed.moves[1].cursor_id = "ibeam".into();
+        let unchanged = cursor_events(&[(0.0, 0.2, 0.2)]);
+        for time in [
+            1000.0, 1200.0, 1400.0, 2500.0, 2800.0, 3000.0, 3100.0, 6000.0,
+        ] {
+            assert_eq!(
+                idle_opacity_both_paths(&shape_changed, time, 1000.0),
+                idle_opacity_both_paths(&unchanged, time, 1000.0),
+                "at {time}ms"
+            );
+        }
+
+        shape_changed.moves.push(move_event(5000.0, 0.5, 0.5));
+        let moved_away = cursor_events(&[(0.0, 0.2, 0.2), (5000.0, 0.5, 0.5)]);
+        for time in [2800.0, 4749.999, 4750.0, 5000.0, 5200.0, 5400.0, 7000.0] {
+            assert_eq!(
+                idle_opacity_both_paths(&shape_changed, time, 1000.0),
+                idle_opacity_both_paths(&moved_away, time, 1000.0),
+                "at {time}ms"
+            );
+        }
     }
 
     #[test]

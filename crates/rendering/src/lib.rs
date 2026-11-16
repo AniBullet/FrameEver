@@ -9699,14 +9699,16 @@ mod project_uniforms_tests {
         let size = XY::new(320, 180);
         constants.options.screen_size = size;
         let events = CursorEvents {
-            moves: [0.0, 3000.0, 3050.0]
+            moves: [(0.0, 0.5), (3000.0, 0.515625), (3050.0, 0.53125)]
                 .into_iter()
-                .map(|time| cursor_move(time, 0.5, 0.5))
+                .map(|(time, x)| cursor_move(time, x, 0.5))
                 .collect(),
             clicks: Vec::new(),
         };
         let mut project = ProjectConfiguration::default();
         project.cursor.raw = true;
+        project.cursor.motion_blur = 0.0;
+        project.cursor.rotation_amount = 0.0;
         project.cursor.set_cursor_type(CursorType::Circle);
         project.cursor.hide_when_idle = true;
         project.cursor.hide_when_idle_delay = 0.5;
