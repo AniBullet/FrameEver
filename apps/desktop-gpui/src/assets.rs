@@ -80,6 +80,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "eye-off.svg",
     "film.svg",
     "flashlight.svg",
+    "external-link.svg",
     "folder.svg",
     "folder-down.svg",
     "folder-open.svg",
@@ -272,6 +273,7 @@ mod tests {
         include_str!("main_window.rs"),
         include_str!("main_window/surfaces.rs"),
         include_str!("main_window/library_page/overlay.rs"),
+        include_str!("main_window/library_page/detail.rs"),
         include_str!("logo.rs"),
         // Not a window: the Recents card's per-kind pill and fallback glyphs
         // are named on `MediaKind`, next to the `Recents.tsx` lines they come

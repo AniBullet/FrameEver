@@ -22,6 +22,7 @@ pub(super) struct DetailState {
     latest_export: Option<PathBuf>,
     details: ProjectDetails,
     task: Option<Task<()>>,
+    details_open: bool,
     pub(super) stale: bool,
     pub(super) preview: preview::PreviewState,
 }
@@ -35,6 +36,7 @@ impl DetailState {
             latest_export: None,
             details: ProjectDetails::default(),
             task: None,
+            details_open: false,
             stale: false,
             preview: preview::PreviewState::default(),
         }
@@ -71,8 +73,25 @@ fn resolution_label(details: &ProjectDetails) -> Option<String> {
     })
 }
 
-fn saved_size(original: u64, compressed: u64) -> String {
-    view::format_size(original.saturating_sub(compressed))
+fn saved_percent(original: u64, compressed: u64) -> u32 {
+    if original == 0 {
+        return 0;
+    }
+    let saved = original.saturating_sub(compressed) as f64 / original as f64;
+    (saved * 100.).round() as u32
+}
+
+fn meta_line(kind: &str, created: &str, duration: Option<String>, size: String) -> String {
+    [
+        Some(kind.to_string()),
+        Some(created.to_string()),
+        duration,
+        Some(size),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
 }
 
 fn copy_failed_alert() -> (&'static str, &'static str) {
@@ -550,84 +569,116 @@ impl MainWindow {
                 )
             }
             (None, MediaKind::Instant) => {
-                let job = self.library.compress.state(&entry.path);
-                let label: SharedString = match job {
-                    Some(JobState::Running { percent }) => {
-                        t!("Compressing… {percent}%", percent = percent).into()
-                    }
-                    Some(JobState::Waiting) => t!("Waiting").into(),
-                    None => t!("Compress").into(),
-                };
-                let idle = entry.compressible && job.is_none();
                 let saves_gif = library::gif::can_save_as_gif(entry);
-                row.child(export(self, true, cx))
-                    .child(
-                        self.detail_button("library-detail-compress", label, false, !idle)
-                            .when(idle, |this| {
-                                this.on_click(cx.listener(|this, _, window, cx| {
-                                    this.compress_library_selection(window, cx);
-                                }))
-                            }),
-                    )
-                    .child(
-                        self.detail_button(
-                            "library-detail-gif",
-                            t!("Save as GIF"),
-                            false,
-                            !saves_gif,
-                        )
+                row.child(export(self, true, cx)).child(
+                    self.detail_button("library-detail-gif", t!("Save as GIF"), false, !saves_gif)
                         .when(saves_gif, |this| {
                             this.on_click(cx.listener(|this, _, window, cx| {
                                 this.save_library_gif(window, cx);
                             }))
                         }),
-                    )
+                )
             }
             _ => row.child(open_button).child(export(self, false, cx)),
         }
     }
 
-    fn render_detail_info(&self, entry: &Entry) -> gpui::Div {
-        let theme = self.theme;
-        let details = &self.library.detail.details;
+    fn render_detail_meta(&self, entry: &Entry) -> gpui::Div {
         let clock = Clock::now();
         let created = format!(
             "{} {}",
             day_label(&clock, entry.created_millis),
             clock.time_of(entry.created_millis)
         );
-        let mut rows: Vec<(&'static str, String)> = vec![
-            (t!("Type"), kind_label(entry.kind).to_string()),
-            (t!("Created"), created),
-        ];
-        if let Some(duration) = entry.duration {
-            rows.push((t!("Duration"), view::format_clock(duration)));
-        }
+        div()
+            .truncate()
+            .text_size(px(12.))
+            .text_color(self.theme.muted_foreground)
+            .child(meta_line(
+                kind_label(entry.kind),
+                &created,
+                entry.duration.map(view::format_clock),
+                view::format_size(entry.size),
+            ))
+    }
+
+    fn render_detail_info(&self, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        let theme = self.theme;
+        let details = &self.library.detail.details;
+        let mut rows: Vec<(&'static str, String)> = Vec::new();
         if let Some(resolution) = resolution_label(details) {
             rows.push((t!("Resolution"), resolution));
         }
-        rows.push((t!("Size"), view::format_size(entry.size)));
         if let Some(tracks) = details.tracks {
             rows.push((t!("Tracks"), tracks_label(tracks)));
         }
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(2.))
-            .text_size(px(12.))
-            .children(rows.into_iter().map(move |(label, value)| {
-                div()
-                    .flex()
-                    .gap(px(10.))
-                    .child(
+        if rows.is_empty() {
+            return None;
+        }
+        let open = self.library.detail.details_open;
+        let toggle = focus_ring(
+            div()
+                .id("library-detail-more")
+                .tab_index(0)
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .h(px(24.))
+                .pl(px(2.))
+                .pr(px(6.))
+                .ml(px(-2.))
+                .rounded(px(4.))
+                .text_size(px(12.))
+                .text_color(theme.muted_foreground)
+                .hover(move |style| style.bg(theme.accent).text_color(theme.foreground))
+                .child(
+                    svg()
+                        .path(if open {
+                            "icons/chevron-down.svg"
+                        } else {
+                            "icons/chevron-right.svg"
+                        })
+                        .size(px(14.))
+                        .text_color(theme.muted_foreground),
+                )
+                .child(t!("Details")),
+            theme,
+        )
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.library.detail.details_open = !this.library.detail.details_open;
+            cx.notify();
+        }));
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .items_start()
+                .gap(px(6.))
+                .child(toggle)
+                .when(open, |this| {
+                    this.child(
                         div()
-                            .w(px(80.))
-                            .flex_shrink_0()
-                            .text_color(theme.muted_foreground)
-                            .child(label),
+                            .w_full()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .text_size(px(12.))
+                            .children(rows.into_iter().map(move |(label, value)| {
+                                div()
+                                    .flex()
+                                    .gap(px(10.))
+                                    .child(
+                                        div()
+                                            .w(px(80.))
+                                            .flex_shrink_0()
+                                            .text_color(theme.muted_foreground)
+                                            .child(label),
+                                    )
+                                    .child(div().flex_1().min_w_0().child(value))
+                            })),
                     )
-                    .child(div().flex_1().min_w_0().child(value))
-            }))
+                }),
+        )
     }
 
     fn subhead(&self, label: &'static str) -> gpui::Div {
@@ -637,6 +688,53 @@ impl MainWindow {
             .font_weight(FontWeight::MEDIUM)
             .text_color(self.theme.muted_foreground)
             .child(label)
+    }
+
+    fn render_detail_compress(&self, entry: &Entry, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        if entry.kind != MediaKind::Instant || entry.screenshot.is_some() {
+            return None;
+        }
+        let theme = self.theme;
+        let job = self.library.compress.state(&entry.path);
+        if !entry.compressible && job.is_none() {
+            return None;
+        }
+        let label: SharedString = match job {
+            Some(JobState::Running { percent }) => {
+                t!("Compressing… {percent}%", percent = percent).into()
+            }
+            Some(JobState::Waiting) => t!("Waiting").into(),
+            None => t!("Compress").into(),
+        };
+        let idle = job.is_none();
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().text_size(px(13.)).child(t!("Compressed copy")))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(theme.muted_foreground)
+                                .child(t!("Not made yet")),
+                        ),
+                )
+                .child(
+                    self.detail_button("library-detail-compress", label, false, !idle)
+                        .flex_none()
+                        .px(px(12.))
+                        .when(idle, |this| {
+                            this.on_click(cx.listener(|this, _, window, cx| {
+                                this.compress_library_selection(window, cx);
+                            }))
+                        }),
+                ),
+        )
     }
 
     fn render_detail_versions(&self, cx: &mut Context<Self>) -> Option<gpui::Div> {
@@ -655,7 +753,7 @@ impl MainWindow {
         let option = |this: &Self,
                       id: &'static str,
                       label: &'static str,
-                      size: u64,
+                      size: String,
                       on: bool,
                       change: fn(&Path) -> std::io::Result<()>,
                       cx: &mut Context<Self>| {
@@ -679,11 +777,7 @@ impl MainWindow {
                     })
                     .when(on, |this| this.bg(theme.secondary))
                     .child(label)
-                    .child(
-                        div()
-                            .text_color(theme.muted_foreground)
-                            .child(view::format_size(size)),
-                    ),
+                    .child(div().text_color(theme.muted_foreground).child(size)),
                 this.theme,
             )
             .when(!on, |this| {
@@ -693,41 +787,65 @@ impl MainWindow {
             })
         };
         Some(
+            div().child(self.subhead(t!("Version"))).child(
+                div()
+                    .flex()
+                    .p(px(2.))
+                    .gap(px(2.))
+                    .rounded(px(6.))
+                    .bg(theme.muted)
+                    .child(option(
+                        self,
+                        "library-version-original",
+                        t!("Original"),
+                        view::format_size(original),
+                        !using_compressed,
+                        library::restore_original,
+                        cx,
+                    ))
+                    .child(option(
+                        self,
+                        "library-version-compressed",
+                        t!("Compressed"),
+                        format!(
+                            "{} · −{}%",
+                            view::format_size(compressed),
+                            saved_percent(original, compressed)
+                        ),
+                        using_compressed,
+                        library::use_compressed,
+                        cx,
+                    )),
+            ),
+        )
+    }
+
+    fn foot_icon(
+        &self,
+        id: &'static str,
+        icon: &'static str,
+        label: &'static str,
+        disabled: bool,
+    ) -> gpui::Stateful<gpui::Div> {
+        let theme = self.theme;
+        focus_ring(
             div()
-                .child(self.subhead(t!("Version")))
-                .child(
-                    div()
-                        .flex()
-                        .p(px(2.))
-                        .gap(px(2.))
-                        .rounded(px(6.))
-                        .bg(theme.muted)
-                        .child(option(
-                            self,
-                            "library-version-original",
-                            t!("Original"),
-                            original,
-                            !using_compressed,
-                            library::restore_original,
-                            cx,
-                        ))
-                        .child(option(
-                            self,
-                            "library-version-compressed",
-                            t!("Compressed"),
-                            compressed,
-                            using_compressed,
-                            library::use_compressed,
-                            cx,
-                        )),
-                )
-                .child(
-                    div()
-                        .mt(px(6.))
-                        .text_size(px(12.))
-                        .text_color(theme.muted_foreground)
-                        .child(t!("Saves {size}", size = saved_size(original, compressed))),
-                ),
+                .id(id)
+                .when(!disabled, |this| this.tab_index(0))
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .justify_center()
+                .size(px(crate::theme::CONTROL_HEIGHT))
+                .rounded(px(6.))
+                .when(disabled, |this| this.opacity(0.5))
+                .when(!disabled, |this| {
+                    this.hover(move |style| style.bg(theme.accent))
+                })
+                .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
+                .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+                .child(svg().path(icon).size(px(16.)).text_color(theme.foreground)),
+            theme,
         )
     }
 
@@ -885,46 +1003,86 @@ impl MainWindow {
                         .child(self.render_library_preview(&entry, cx))
                         .child(
                             div()
-                                .mx(px(-6.))
-                                .rounded(px(4.))
-                                .border_1()
-                                .border_color(gpui::transparent_black())
-                                .hover(move |style| style.border_color(theme.input))
-                                .child(name),
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.))
+                                .child(
+                                    div()
+                                        .mx(px(-6.))
+                                        .rounded(px(4.))
+                                        .border_1()
+                                        .border_color(gpui::transparent_black())
+                                        .hover(move |style| style.border_color(theme.input))
+                                        .child(name),
+                                )
+                                .child(self.render_detail_meta(&entry)),
                         )
                         .child(self.render_detail_actions(&entry, cx))
-                        .child(self.render_detail_info(&entry))
+                        .children(self.render_detail_compress(&entry, cx))
                         .children(self.render_detail_versions(cx))
-                        .children(self.render_detail_exports(&entry, cx)),
+                        .children(self.render_detail_exports(&entry, cx))
+                        .children(self.render_detail_info(cx)),
                 )
                 .child(
                     div()
                         .flex()
                         .flex_shrink_0()
-                        .gap(px(4.))
-                        .p(px(8.))
+                        .items_center()
+                        .gap(px(2.))
+                        .px(px(8.))
+                        .py(px(6.))
                         .border_t_1()
                         .border_color(theme.border)
                         .child(
-                            self.foot_button("library-detail-reveal", t!("Show in folder"), false)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.reveal_library_selection(cx);
-                                })),
+                            self.foot_icon(
+                                "library-detail-copy",
+                                "icons/copy.svg",
+                                t!("Copy file"),
+                                !copyable,
+                            )
+                            .when(copyable, |this| {
+                                this.on_click(cx.listener(|this, _, _, cx| {
+                                    this.copy_library_file(cx);
+                                }))
+                            }),
                         )
                         .child(
-                            self.foot_button("library-detail-copy", t!("Copy file"), !copyable)
-                                .when(copyable, |this| {
-                                    this.on_click(cx.listener(|this, _, _, cx| {
-                                        this.copy_library_file(cx);
-                                    }))
-                                }),
+                            self.foot_icon(
+                                "library-detail-reveal",
+                                "icons/folder-open.svg",
+                                t!("Show in folder"),
+                                false,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.reveal_library_selection(cx);
+                            })),
                         )
                         .child(
-                            self.foot_button("library-detail-delete", t!("Delete…"), false)
-                                .text_color(theme.danger_text)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            self.foot_icon(
+                                "library-detail-external",
+                                "icons/external-link.svg",
+                                t!("Open in default app"),
+                                !copyable,
+                            )
+                            .when(copyable, |this| {
+                                this.on_click(cx.listener(|this, _, _, cx| {
+                                    this.open_library_file_externally(cx);
+                                }))
+                            }),
+                        )
+                        .child(div().flex_1())
+                        .child(
+                            self.foot_icon(
+                                "library-detail-delete",
+                                "icons/trash.svg",
+                                t!("Delete…"),
+                                false,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     this.delete_library_selection(window, cx);
-                                })),
+                                },
+                            )),
                         ),
                 )
                 .into_any_element(),
@@ -1118,6 +1276,31 @@ impl MainWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_meta_line_leaves_out_a_missing_duration() {
+        assert_eq!(
+            meta_line(
+                "Instant",
+                "Today 09:30",
+                Some("0:48".into()),
+                "38 MB".into()
+            ),
+            "Instant · Today 09:30 · 0:48 · 38 MB"
+        );
+        assert_eq!(
+            meta_line("Screenshot", "Yesterday 18:02", None, "1.2 MB".into()),
+            "Screenshot · Yesterday 18:02 · 1.2 MB"
+        );
+    }
+
+    #[test]
+    fn the_saving_is_a_share_of_the_original() {
+        assert_eq!(saved_percent(38_000_000, 9_600_000), 75);
+        assert_eq!(saved_percent(100, 100), 0);
+        assert_eq!(saved_percent(100, 150), 0);
+        assert_eq!(saved_percent(0, 0), 0);
+    }
 
     #[test]
     fn tracks_always_start_with_the_screen() {
