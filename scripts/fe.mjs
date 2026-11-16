@@ -731,14 +731,18 @@ function dev({ flags }) {
 	step("Build");
 	if (!cargoBuildDebug()) fail("Build failed");
 	stopPreviousDevApp();
+	const exitWithApp = (child) =>
+		child.on("exit", (code) => process.exit(code ?? 0));
 	let app = launchApp(env);
+	exitWithApp(app);
 	if (!flags.watch) {
-		app.on("exit", (code) => process.exit(code ?? 0));
 		process.on("SIGINT", () => app.kill());
 		return;
 	}
 
-	console.log("\u001b[36mWatching for changes. Ctrl+C to stop.\u001b[0m");
+	console.log(
+		"\u001b[36mWatching for changes. Close the app or press Ctrl+C to stop.\u001b[0m",
+	);
 	let timer = null;
 	let building = false;
 	let pending = false;
@@ -755,6 +759,7 @@ function dev({ flags }) {
 			app.removeAllListeners("exit");
 			app.kill();
 			app = launchApp(env);
+			exitWithApp(app);
 			console.log("\u001b[32m✓ Relaunched\u001b[0m");
 		} else {
 			console.log(

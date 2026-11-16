@@ -33,7 +33,7 @@ pnpm fe setup
 | 命令 | 作用 |
 |---|---|
 | `pnpm fe dev` | 编译并运行应用。默认使用独立的测试数据（`apps/desktop-gpui/target/testdata/`），不影响你自己的设置和录制 |
-| `pnpm fe dev --watch` | 保存代码后自动重新编译并重启，编译失败时保留正在运行的旧版本 |
+| `pnpm fe dev --watch` | 保存代码后自动重新编译并重启，编译失败时保留正在运行的旧版本；关掉 app 窗口即停止监听 |
 | `pnpm fe dev --lang zh-CN` | 用中文界面启动测试数据（`--lang en` 切回英文） |
 | `pnpm fe dev --real` | 使用你真实的数据运行（谨慎） |
 | `pnpm fe logs` | 查看最近一次运行的日志，`--grep <关键词>` 过滤，`--lines 500` 看更多 |
