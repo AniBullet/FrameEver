@@ -36,6 +36,24 @@ _Avoid_: noise reduction, audio enhancement
 The on-disk folder holding one recording's media tracks, metadata and edit configuration.
 _Avoid_: Recording folder, session
 
+**Chapter mark**:
+A named point in time the user drops while recording or adds in the editor, to find a moment again and split clips at it. 章节标记 in Chinese.
+_Avoid_: Marker, bookmark, recording marker
+
+## Editing
+
+**Editor preset**:
+A saved look for a whole project (background, cursor, camera, captions and the rest) that can be applied to any project or set as the default for new recordings. 编辑器预设 in Chinese.
+_Avoid_: Preset (alone), project template, theme
+
+**Style preset**:
+A saved look for one item on the timeline, such as a text, mask, caption or shape, offered when the user adds or restyles that kind of item. 样式预设 in Chinese.
+_Avoid_: Preset (alone), item template
+
+**Filler word**:
+A hesitation or verbal tic in speech, such as "um", "you know", 嗯 or 那个, that captions can hide and transcript clean-up can cut. 语气词 in Chinese.
+_Avoid_: Filler, disfluency
+
 ## Input
 
 **Input record**:
