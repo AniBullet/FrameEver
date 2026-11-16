@@ -1439,6 +1439,68 @@ pub fn open_mode_select(cx: &mut App) -> bool {
     true
 }
 
+pub fn open_input_preset_maker(
+    editor: WindowHandle<EditorWindow>,
+    seed: crate::input_preset_maker::MakerSeed,
+    cx: &mut App,
+) {
+    use crate::input_preset_maker::{
+        InputPresetMaker, MAKER_WINDOW_HEIGHT, MAKER_WINDOW_TITLE, MAKER_WINDOW_WIDTH,
+    };
+
+    let open = editor
+        .update(cx, |editor, _, _| editor.sidebar.input_maker)
+        .ok()
+        .flatten();
+    if let Some(open) = open
+        && open
+            .update(cx, |view, window, cx| {
+                view.focus_root(window, cx);
+                window.activate_window();
+            })
+            .is_ok()
+    {
+        return;
+    }
+
+    let (bounds, display_id) =
+        opening_window_placement(size(px(MAKER_WINDOW_WIDTH), px(MAKER_WINDOW_HEIGHT)), cx);
+    let handle = cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            display_id,
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some(MAKER_WINDOW_TITLE.into()),
+                appears_transparent: true,
+                traffic_light_position: None,
+            }),
+            kind: WindowKind::Normal,
+            focus: true,
+            show: true,
+            is_resizable: false,
+            is_minimizable: true,
+            ..Default::default()
+        },
+        move |window, cx| cx.new(|cx| InputPresetMaker::new(seed, editor, window, cx)),
+    );
+    let handle = match handle {
+        Ok(handle) => handle,
+        Err(error) => {
+            tracing::error!("preset maker window failed to open: {error:#}");
+            return;
+        }
+    };
+    editor
+        .update(cx, |editor, _, _| editor.sidebar.input_maker = Some(handle))
+        .ok();
+    handle
+        .update(cx, |view, window, cx| {
+            platform::kick_display_link(window);
+            view.focus_root(window, cx);
+        })
+        .ok();
+}
+
 /// The mode select window is going away: same `Destroyed` arm as Upgrade,
 /// which calls `restore_main_and_target_select_windows`.
 pub fn mode_select_closed(cx: &mut App) {

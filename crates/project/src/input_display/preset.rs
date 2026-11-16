@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     gamepad::{STICK_FULL, TRIGGER_FULL, gamepad_buttons},
+    keys::KeyCodeTable,
     record::{DisplayState, Input, WheelStep},
 };
 
@@ -12,6 +13,8 @@ pub const MAX_PRESET_ATLAS_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_PRESET_ATLAS_DIMENSION: u32 = 4096;
 
 const MIDDLE_BUTTON: u8 = 3;
+const UNBOUND_KEY: u16 = 0;
+const UNBOUND_GAMEPAD_BUTTON: u16 = u16::MAX;
 
 const TYPE_TEXTURE: i64 = 0;
 const TYPE_KEYBOARD_KEY: i64 = 1;
@@ -45,12 +48,13 @@ struct ElementFile {
     kind: i64,
     #[serde(default)]
     id: String,
-    pos: [u32; 2],
+    #[serde(default)]
+    pos: [i64; 2],
     mapping: [u32; 4],
     #[serde(default)]
     z_level: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    code: Option<u32>,
+    code: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     side: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -121,8 +125,6 @@ pub enum PresetRefusal {
     NoElements,
     TooManyElements { count: usize },
     UnknownElementType { element: String, type_id: i64 },
-    MissingCode { element: String },
-    CodeOutOfRange { element: String, code: u32 },
     EmptyMapping { element: String },
     MappingOutsideAtlas { element: String },
     MissingAtlas,
@@ -149,15 +151,6 @@ impl std::fmt::Display for PresetRefusal {
             Self::UnknownElementType { element, type_id } => {
                 write!(f, "element \"{element}\" has the unknown type {type_id}")
             }
-            Self::MissingCode { element } => {
-                write!(f, "button \"{element}\" has no key or button code")
-            }
-            Self::CodeOutOfRange { element, code } => {
-                write!(
-                    f,
-                    "button \"{element}\" has the code {code}, which is out of range"
-                )
-            }
             Self::EmptyMapping { element } => {
                 write!(f, "element \"{element}\" maps an empty part of the image")
             }
@@ -183,33 +176,29 @@ impl std::fmt::Display for PresetRefusal {
 impl std::error::Error for PresetRefusal {}
 
 impl ElementKind {
-    fn from_file(element: &ElementFile) -> Result<Self, PresetRefusal> {
+    fn from_file(element: &ElementFile, keys: KeyCodeTable) -> Result<Self, PresetRefusal> {
         let name = || element.id.clone();
-        let code = || {
-            element
-                .code
-                .ok_or(PresetRefusal::MissingCode { element: name() })
-        };
-        let wide_code = || {
-            let code = code()?;
-            u16::try_from(code).map_err(|_| PresetRefusal::CodeOutOfRange {
-                element: name(),
-                code,
-            })
-        };
         Ok(match element.kind {
             TYPE_TEXTURE => Self::Texture,
-            TYPE_KEYBOARD_KEY => Self::KeyboardKey { code: wide_code()? },
-            TYPE_GAMEPAD_BUTTON => Self::GamepadButton { code: wide_code()? },
-            TYPE_MOUSE_BUTTON => {
-                let code = code()?;
-                Self::MouseButton {
-                    button: u8::try_from(code).map_err(|_| PresetRefusal::CodeOutOfRange {
-                        element: name(),
-                        code,
-                    })?,
-                }
-            }
+            TYPE_KEYBOARD_KEY => Self::KeyboardKey {
+                code: element
+                    .code
+                    .and_then(|code| u32::try_from(code).ok())
+                    .and_then(|code| keys.key(code))
+                    .unwrap_or(UNBOUND_KEY),
+            },
+            TYPE_GAMEPAD_BUTTON => Self::GamepadButton {
+                code: element
+                    .code
+                    .and_then(|code| u16::try_from(code).ok())
+                    .unwrap_or(UNBOUND_GAMEPAD_BUTTON),
+            },
+            TYPE_MOUSE_BUTTON => Self::MouseButton {
+                button: element
+                    .code
+                    .and_then(|code| u8::try_from(code).ok())
+                    .unwrap_or(0),
+            },
             TYPE_MOUSE_WHEEL => Self::MouseWheel,
             TYPE_ANALOG_STICK => Self::AnalogStick {
                 right: element.side == Some(SIDE_RIGHT),
@@ -251,10 +240,10 @@ impl ElementKind {
         }
     }
 
-    fn code(&self) -> Option<u32> {
+    fn code(&self) -> Option<i64> {
         match self {
-            Self::KeyboardKey { code } | Self::GamepadButton { code } => Some(u32::from(*code)),
-            Self::MouseButton { button } => Some(u32::from(*button)),
+            Self::KeyboardKey { code } | Self::GamepadButton { code } => Some(i64::from(*code)),
+            Self::MouseButton { button } => Some(i64::from(*button)),
             _ => None,
         }
     }
@@ -427,6 +416,18 @@ impl Element {
 
 impl Preset {
     pub fn parse(json: &str, atlas_size: (u32, u32)) -> Result<Self, PresetRefusal> {
+        Self::read(json, atlas_size, None)
+    }
+
+    pub fn parse_own(json: &str, atlas_size: (u32, u32)) -> Result<Self, PresetRefusal> {
+        Self::read(json, atlas_size, Some(KeyCodeTable::Uiohook13))
+    }
+
+    fn read(
+        json: &str,
+        atlas_size: (u32, u32),
+        keys: Option<KeyCodeTable>,
+    ) -> Result<Self, PresetRefusal> {
         if json.len() > MAX_PRESET_JSON_BYTES {
             return Err(PresetRefusal::JsonTooLarge { bytes: json.len() });
         }
@@ -442,19 +443,29 @@ impl Preset {
                 count: file.elements.len(),
             });
         }
+        let keys = keys.unwrap_or_else(|| {
+            let codes: Vec<u32> = file
+                .elements
+                .iter()
+                .filter(|element| element.kind == TYPE_KEYBOARD_KEY)
+                .filter_map(|element| u32::try_from(element.code?).ok())
+                .collect();
+            KeyCodeTable::detect(&codes)
+        });
+        let place = |value: i64| u32::try_from(value.max(0)).unwrap_or(u32::MAX);
         let mut elements = Vec::with_capacity(file.elements.len());
         let mut extent = (0u32, 0u32);
         for (index, mut source) in file.elements.into_iter().enumerate() {
             if source.id.is_empty() {
                 source.id = format!("#{}", index + 1);
             }
-            let kind = ElementKind::from_file(&source)?;
+            let kind = ElementKind::from_file(&source, keys)?;
             let [u, v, width, height] = source.mapping;
             let element = Element {
                 id: source.id,
                 kind,
-                x: source.pos[0],
-                y: source.pos[1],
+                x: place(source.pos[0]),
+                y: place(source.pos[1]),
                 mapping: SpriteRect {
                     u,
                     v,
@@ -497,7 +508,7 @@ impl Preset {
                 .map(|element| ElementFile {
                     kind: element.kind.type_id(),
                     id: element.id.clone(),
-                    pos: [element.x, element.y],
+                    pos: [i64::from(element.x), i64::from(element.y)],
                     mapping: [
                         element.mapping.u,
                         element.mapping.v,
@@ -810,7 +821,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(Preset::parse(&preset.to_json(), ATLAS), Ok(preset));
+        assert_eq!(Preset::parse_own(&preset.to_json(), ATLAS), Ok(preset));
     }
 
     #[test]
@@ -871,24 +882,100 @@ mod tests {
         );
     }
 
+    const WRITTEN_BY_THE_FORMAT_S_EDITOR: &str = r#"{
+        "default_height": 128, "default_width": 157, "flags": 0,
+        "overlay_height": 30, "overlay_width": 40, "space_h": -20, "space_v": 5, "version": 508,
+        "elements": [
+            { "code": 64, "id": "q", "mapping": [1, 1, 4, 4], "pos": [0, 0], "type": 1, "z_level": 1 },
+            { "code": 70, "id": "w", "mapping": [6, 1, 4, 4], "pos": [5, 0], "type": 1, "z_level": 1 },
+            { "code": 144, "id": "shift", "mapping": [11, 1, 4, 4], "pos": [0, 5], "type": 1, "z_level": 1 },
+            { "code": 0, "id": "unbound", "mapping": [16, 1, 4, 4], "pos": [5, 5], "type": 1, "z_level": 1 },
+            { "code": 5, "id": "side", "mapping": [21, 1, 4, 4], "pos": [10, 5], "type": 3, "z_level": 1 },
+            { "id": "stick", "mapping": [26, 1, 4, 4], "pos": [15, 5], "side": 0, "stick_radius": 40, "type": 5, "z_level": 1 },
+            { "id": "trigger", "mapping": [31, 1, 4, 4], "pos": [20, 5], "direction": 1, "side": 1, "trigger_mode": false, "type": 6, "z_level": 1 },
+            { "id": "dot", "mapping": [36, 1, 4, 4], "pos": [-3, 9], "mouse_radius": 50, "mouse_type": 0, "type": 9, "z_level": 1 }
+        ]
+    }"#;
+
     #[test]
-    fn buttons_without_a_usable_code_and_empty_mappings_are_refused() {
+    fn a_file_in_the_shape_the_format_s_editor_writes_lights_the_right_keys() {
+        use crate::input_display::key_codes::{SHIFT_LEFT, letter};
+
+        let preset = Preset::parse(WRITTEN_BY_THE_FORMAT_S_EDITOR, ATLAS).unwrap();
+        let kinds: Vec<ElementKind> = preset.elements.iter().map(|element| element.kind).collect();
+
         assert_eq!(
-            refusal(&fixture(
-                r#"{ "type": 1, "id": "w", "pos": [0, 0], "mapping": [1, 1, 2, 2] }"#
-            )),
-            PresetRefusal::MissingCode {
-                element: "w".to_string()
-            }
+            kinds,
+            vec![
+                ElementKind::KeyboardKey { code: letter('Q') },
+                ElementKind::KeyboardKey { code: letter('W') },
+                ElementKind::KeyboardKey { code: SHIFT_LEFT },
+                ElementKind::KeyboardKey { code: 0 },
+                ElementKind::MouseButton { button: 5 },
+                ElementKind::AnalogStick {
+                    right: false,
+                    radius: 40
+                },
+                ElementKind::Trigger {
+                    right: true,
+                    fill: FillDirection::Up
+                },
+                ElementKind::MouseMovement,
+            ]
         );
+        assert_eq!((preset.elements[7].x, preset.elements[7].y), (0, 9));
+        let lit = preset.sprites(&held(&[Input::Key(letter('W'))]));
+        assert_eq!(lit[1].source.v, 1 + 4 + STATE_GAP);
+        assert_eq!(lit[0].source.v, 1);
+        assert_eq!(lit[3].source.v, 1);
+    }
+
+    #[test]
+    fn presets_written_with_the_older_code_tables_light_the_same_keys() {
+        use crate::input_display::key_codes::letter;
+
+        for (w, a) in [(0x0057, 0x0041), (0x0011, 0x001E)] {
+            let json = fixture(&format!(
+                r#"{{ "type": 1, "id": "w", "pos": [0, 0], "mapping": [1, 1, 4, 4], "code": {w} }},
+                   {{ "type": 1, "id": "a", "pos": [5, 0], "mapping": [6, 1, 4, 4], "code": {a} }},
+                   {{ "type": 1, "id": "ctrl", "pos": [9, 0], "mapping": [11, 1, 4, 4], "code": {} }}"#,
+                if w == 0x0057 { 0xA011 } else { 0x001D }
+            ));
+            let preset = Preset::parse(&json, ATLAS).unwrap();
+
+            assert_eq!(
+                preset.elements[0].kind,
+                ElementKind::KeyboardKey { code: letter('W') }
+            );
+            assert_eq!(
+                preset.elements[1].kind,
+                ElementKind::KeyboardKey { code: letter('A') }
+            );
+        }
+    }
+
+    #[test]
+    fn buttons_without_a_usable_code_never_light_and_empty_mappings_are_refused() {
+        let unbound = Preset::parse(
+            &fixture(
+                r#"{ "type": 1, "id": "w", "pos": [0, 0], "mapping": [1, 1, 2, 2] },
+                   { "type": 3, "pos": [0, 0], "mapping": [1, 1, 2, 2], "code": 700 },
+                   { "type": 2, "pos": [0, 0], "mapping": [1, 1, 2, 2], "code": -4 }"#,
+            ),
+            ATLAS,
+        )
+        .unwrap();
         assert_eq!(
-            refusal(&fixture(
-                r#"{ "type": 3, "pos": [0, 0], "mapping": [1, 1, 2, 2], "code": 700 }"#
-            )),
-            PresetRefusal::CodeOutOfRange {
-                element: "#1".to_string(),
-                code: 700
-            }
+            unbound
+                .elements
+                .iter()
+                .map(|element| element.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                ElementKind::KeyboardKey { code: 0 },
+                ElementKind::MouseButton { button: 0 },
+                ElementKind::GamepadButton { code: u16::MAX },
+            ]
         );
         assert_eq!(
             refusal(&fixture(

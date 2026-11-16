@@ -151,6 +151,11 @@ impl ExporterBuilder {
     ) -> Result<ExporterBase, ExporterBuildError> {
         type Error = ExporterBuildError;
 
+        if frameever_rendering::input_presets::presets_dir().is_none() {
+            frameever_rendering::input_presets::use_presets_dir(
+                frameever_utils::storage::input_presets_dir(),
+            );
+        }
         let mut project_config = self.load_project_config()?;
 
         let recording_meta =

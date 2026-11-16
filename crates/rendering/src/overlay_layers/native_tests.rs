@@ -929,7 +929,7 @@ async fn input_display_draws_only_inside_its_bounds_and_lights_what_is_held() {
 
     let preset = BuiltinPresetId::WasdMouse;
     let art = preset.art(block.style);
-    let size = Preset::parse(&art.json, (art.atlas_width, art.atlas_height))
+    let size = Preset::parse_own(&art.json, (art.atlas_width, art.atlas_height))
         .map(|preset| (preset.width, preset.height))
         .unwrap();
     let rect = display_rect(

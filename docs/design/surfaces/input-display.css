@@ -259,6 +259,24 @@
 	border-color: var(--foreground);
 }
 
+.tile {
+	position: relative;
+}
+
+.tile .acts {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	display: flex;
+	gap: 2px;
+}
+
+.tile .acts svg {
+	width: 12px;
+	height: 12px;
+	margin: 4px;
+}
+
 .tile.add {
 	background: transparent;
 	color: var(--muted-foreground);
@@ -447,4 +465,8 @@
 
 .maker-bar .input {
 	width: 96px;
+}
+
+.maker-bar .input.name {
+	width: 200px;
 }

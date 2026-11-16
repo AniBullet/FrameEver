@@ -475,7 +475,7 @@ const renderTools = () => {
 const renderInspector = () => {
 	const tiles = PRESETS.map(
 		([id, en, zh]) =>
-			`<button class="tile ${s.preset === id ? "on" : ""}" data-p="preset:${id}">${overlay(id)}<span>${L(en, zh)}</span></button>`,
+			`<button class="tile ${s.preset === id ? "on" : ""}" data-p="preset:${id}">${id === "mine" ? `<span class="acts">${icon("pencil")}${icon("trash")}</span>` : ""}${overlay(id)}<span>${L(en, zh)}</span></button>`,
 	).join("");
 	const anchors = STOPS.flatMap((y) =>
 		STOPS.map(
@@ -490,7 +490,7 @@ const renderInspector = () => {
 		<div class="head"><b>${L("Input display", "操作显示")}</b><span class="grow"></span>${toggle("on")}</div>
 		${
 			s.on
-				? `<div class="tiles">${tiles}<button class="tile add">${L("Import…", "导入…")}</button></div>
+				? `<div class="tiles">${tiles}<button class="tile add">${L("New…", "新建…")}</button><button class="tile add">${L("Import…", "导入…")}</button></div>
 		${seg("variant", VARIANTS).replace('class="seg"', 'class="seg block"')}
 		<div class="field"><div class="line">${L("Position", "位置")}<button class="ibtn ${s.xy ? "on" : ""}" data-t="xy" aria-label="exact">${icon("chevron-down")}</button></div><div class="anchor">${anchors}</div>${exact}</div>
 		<div class="field"><div class="line">${L("Size", "大小")}<span class="tnum">${s.size}%</span></div>${slider("size", 30, 120)}</div>
@@ -541,6 +541,8 @@ const renderMaker = () => {
 	document.getElementById("maker-key").innerHTML = picked
 		? `<input class="input" data-ml value="${picked.label}" aria-label="label"><div class="seg">${WIDTHS.map((w) => `<button data-mw="${w}" class="${picked.w === w ? "on" : ""}">${w}×</button>`).join("")}</div><button class="btn" data-md="one">${L("Delete", "删除")}</button>`
 		: "";
+	document.getElementById("maker-save").innerHTML =
+		`<input class="input name" value="${pick("My preset", "我的预设")}" aria-label="name"><span class="grow"></span><button class="btn">${L("Cancel", "取消")}</button><button class="btn primary">${L("Save", "保存")}</button>`;
 };
 
 const renderAll = () => {
@@ -570,8 +572,8 @@ const renderAll = () => {
 		"制作预设",
 	);
 	document.getElementById("l-maker").innerHTML = L(
-		"Switch on Press keys to add and press the keys you want; drag them on the grid. The result is My preset above.",
-		"打开「按键添加」，按下想显示的键；在网格上拖动摆放。结果就是上面的「我的预设」。",
+		"Opened from New… in the preset list, or from the pencil on a preset you made. Switch on Press keys to add and press the keys you want; drag them on the grid. The result is My preset above.",
+		"从预设列表的「新建…」打开，或者点自己做的预设上的铅笔。打开「按键添加」，按下想显示的键；在网格上拖动摆放。结果就是上面的「我的预设」。",
 	);
 	renderMaker();
 };

@@ -27,6 +27,7 @@ struct AtlasKey {
     preset: String,
     style: InputDisplayStyle,
     scale: u32,
+    generation: u64,
 }
 
 struct Atlas {
@@ -203,10 +204,10 @@ impl InputDisplayLayer {
             output_time,
             f64::from(segment_frames.segment_time),
         );
-        let generation = input_record_generation();
-        if generation != self.records_generation {
+        let records_generation = input_record_generation();
+        if records_generation != self.records_generation {
             self.records.clear();
-            self.records_generation = generation;
+            self.records_generation = records_generation;
         }
         let record = self
             .records
@@ -215,14 +216,20 @@ impl InputDisplayLayer {
         let state = record.state_at(f64::from(segment_frames.recording_time) * 1000.0);
         let preset = preset_for_controller(&block.preset, state.controller);
 
+        let generation = crate::input_presets::generation();
         let mut key = AtlasKey {
             preset: preset.to_string(),
             style: block.style,
             scale: self
                 .atlas
                 .as_ref()
-                .filter(|atlas| atlas.key.preset == preset && atlas.key.style == block.style)
+                .filter(|atlas| {
+                    atlas.key.preset == preset
+                        && atlas.key.style == block.style
+                        && atlas.key.generation == generation
+                })
                 .map_or(1, |atlas| atlas.key.scale),
+            generation,
         };
         self.ensure_atlas(&constants.device, &constants.queue, key.clone());
         let Some(loaded) = self.atlas.as_ref().and_then(|atlas| atlas.loaded.as_ref()) else {

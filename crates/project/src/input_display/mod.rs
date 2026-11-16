@@ -3,6 +3,7 @@ mod clear;
 mod events;
 mod gamepad;
 mod keys;
+mod maker;
 mod placement;
 mod preset;
 mod record;
@@ -13,7 +14,10 @@ pub use events::{INPUT_EVENTS_FILE_NAME, InputEvent, InputEventKind, InputEvents
 pub use gamepad::{
     GamepadAxes, GamepadKind, GamepadSnapshot, STICK_FULL, TRIGGER_FULL, gamepad_buttons,
 };
-pub use keys::{key_code, key_codes};
+pub use keys::{KeyCodeTable, key_code, key_codes, key_label, keystroke_code};
+pub use maker::{
+    MAKER_COLUMNS, MAKER_LABEL_LENGTH, MAKER_NAME_LENGTH, MAKER_ROWS, MAKER_WIDTHS, PresetMaker,
+};
 pub use placement::{
     DisplayRect, INPUT_DISPLAY_SNAP_DISTANCE, INPUT_DISPLAY_SNAP_STOPS, display_rect,
     position_for_origin, size_for_width, snap_position,
