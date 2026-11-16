@@ -1068,11 +1068,13 @@ mod tests {
                 .with_force_ffmpeg_decoder(true)
                 .with_output_path(output.clone())
         };
+        assert!(!output.exists());
         let prepared = settings.prepare(builder()).await.unwrap();
         assert!(matches!(&prepared, PreparedExport::Mp4(_, base) if base.uses_streaming_audio()));
         assert_eq!(prepared.total_frames(30), 30);
         assert_eq!(prepared.export(|_| true).await.unwrap(), output);
         let original = std::fs::read(&output).unwrap();
+        assert!(!original.is_empty());
         let prepared = settings.prepare(builder()).await.unwrap();
         assert!(matches!(&prepared, PreparedExport::Mp4(_, base) if !base.uses_streaming_audio()));
         drop(prepared);
