@@ -15,6 +15,8 @@ const v = {
 	notify: true,
 	mainStart: "close",
 	afterDelete: "nothing",
+	afterEditorClose: "show",
+	afterCancel: "show",
 	instantRes: "1080",
 	studioQ: "balanced",
 	fps: "60",
