@@ -77,6 +77,7 @@ use crate::{
     ui,
 };
 
+mod chapter_marks;
 mod frame;
 mod loading;
 mod scenes;
@@ -375,7 +376,7 @@ pub struct ProjectSummary {
     /// `editorInstance.recordings.segments[i].display.duration` -- the ceiling
     /// a clip's end handle trims out to (`TL/ClipTrack.tsx:1160-1162`).
     pub clip_display_durations: Vec<f64>,
-    pub chapter_markers: Vec<f64>,
+    pub chapter_markers: Vec<frameever_utils::storage::ChapterMarker>,
     /// `editorInstance.recordingDuration` (`lib.rs:3114` =
     /// `recordings.duration()`), the other half of that clamp.
     pub recording_duration: f64,
@@ -537,10 +538,7 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
             .iter()
             .map(|segment| segment.display.duration)
             .collect(),
-        chapter_markers: frameever_utils::storage::chapter_markers(path)
-            .into_iter()
-            .map(|marker| marker.recorded_at)
-            .collect(),
+        chapter_markers: frameever_utils::storage::chapter_markers(path),
         recording_duration: recordings.duration(),
         multiple_clips: multiple_recording_segments,
         has_microphone,
@@ -1526,7 +1524,10 @@ pub struct EditorWindow {
     /// `editorInstance.recordings.segments[i].display.duration`, which the clip
     /// trim clamps read (`TL/ClipTrack.tsx:1160-1162`).
     pub(crate) clip_display_durations: Vec<f64>,
-    chapter_markers: Vec<f64>,
+    chapter_marks: crate::editor_chapter_marks::ChapterMarks,
+    chapter_marks_panel: Option<chapter_marks::ChapterMarksPanel>,
+    chapter_mark_name_input: Entity<ui::TextInputState>,
+    chapter_marks_saved: Arc<std::sync::Mutex<Vec<frameever_utils::storage::ChapterMarker>>>,
     /// `editorInstance.recordingDuration` = `recordings.duration()`.
     recording_duration: f64,
     /// `meta().hasCamera` and "more than one recording clip", the two facts
@@ -2047,6 +2048,16 @@ impl EditorWindow {
                 _ => {}
             },
         ));
+        let chapter_mark_name_input = cx.new(|cx| ui::TextInputState::single_line(window, cx));
+        text_events.push(cx.subscribe_in(
+            &chapter_mark_name_input,
+            window,
+            |this: &mut Self, _input, event: &ui::TextInputEvent, window, cx| match event {
+                ui::TextInputEvent::Confirmed => this.finish_chapter_mark_rename(true, window, cx),
+                ui::TextInputEvent::Cancelled => this.finish_chapter_mark_rename(false, window, cx),
+                _ => {}
+            },
+        ));
         let player_frame_rect = crate::editor_canvas::canvas_rect_cell();
         let preview = cx.new(|_| PreviewFrameView::new(player_frame_rect.clone()));
         let editor = cx.entity();
@@ -2152,7 +2163,10 @@ impl EditorWindow {
             clip_anim: None,
             clip_anim_generation: 0,
             clip_display_durations: Vec::new(),
-            chapter_markers: Vec::new(),
+            chapter_marks: Default::default(),
+            chapter_marks_panel: None,
+            chapter_mark_name_input,
+            chapter_marks_saved: Default::default(),
             recording_duration: 0.0,
             has_camera: false,
             multiple_clips: false,
@@ -2276,7 +2290,8 @@ impl EditorWindow {
     ) {
         self.timeline = summary.timeline.clone();
         self.clip_display_durations = summary.clip_display_durations.clone();
-        self.chapter_markers = summary.chapter_markers.clone();
+        self.chapter_marks =
+            crate::editor_chapter_marks::ChapterMarks::new(summary.chapter_markers.clone());
         self.recording_duration = summary.recording_duration;
         self.has_camera = summary.has_camera;
         self.multiple_clips = summary.multiple_clips;
@@ -3466,7 +3481,7 @@ impl EditorWindow {
     /// transport button is one in the Tauri editor.
     fn chapter_mark_times(&self) -> Vec<f64> {
         timeline::chapter_marker_times(
-            &self.chapter_markers,
+            &self.chapter_marks.recorded_times(),
             &self.clip_display_durations,
             &self.timeline.clips,
         )
@@ -3745,6 +3760,15 @@ impl EditorWindow {
             cx.stop_propagation();
             return;
         }
+        if self.chapter_marks_panel.is_some()
+            && event.keystroke.key.as_str() == "escape"
+            && !ui::text_input_has_focus(window, cx)
+        {
+            self.chapter_marks_panel = None;
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
         if self.add_track.is_some() && event.keystroke.key.as_str() == "escape" {
             self.add_track = None;
             cx.stop_propagation();
@@ -3897,6 +3921,10 @@ impl EditorWindow {
             "c" => {
                 cx.stop_propagation();
                 self.split_at_playhead(window, cx);
+            }
+            "m" => {
+                cx.stop_propagation();
+                self.add_chapter_mark_at_playhead(window, cx);
             }
             "q" => {
                 cx.stop_propagation();
@@ -10891,7 +10919,8 @@ impl EditorWindow {
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.open_add_track(window, cx)),
                             ),
-                    ),
+                    )
+                    .child(self.render_chapter_marks_button(cx)),
             )
             .child(
                 div()
@@ -12613,6 +12642,7 @@ impl Render for EditorWindow {
             .children(self.with_style_controls(|this| this.render_sidebar_menu(cx)))
             .children(self.render_toolbar_menu(cx))
             .children(self.render_add_track_popover(cx))
+            .children(self.render_chapter_marks_panel(cx))
             .children(self.render_clip_speed_popover(window, cx))
             // The config sidebar's sliders take the same layer, for the same
             // reason -- and its release is what closes the undo bracket, so a

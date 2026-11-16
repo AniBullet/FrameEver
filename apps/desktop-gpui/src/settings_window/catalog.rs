@@ -17,6 +17,7 @@ pub enum Row {
     Theme,
     Language,
     Notifications,
+    ChapterMarkSound,
     DockIcon,
     MainWindowStart,
     AfterDelete,
@@ -116,7 +117,7 @@ pub fn shortcut_label(action: &str) -> &'static str {
         "drawOnScreen" => n!("Draw on screen"),
         "focusRecordingControls" => n!("Focus recording controls"),
         "toggleRecordingControls" => n!("Hide or show controls"),
-        "addChapterMarker" => n!("Add chapter marker"),
+        "addChapterMarker" => n!("Add chapter mark"),
         "toggleMicrophoneMute" => n!("Mute"),
         "pushToTalk" => n!("Push to talk"),
         _ => n!("Shortcut"),
@@ -132,6 +133,7 @@ const GENERAL: &[Group] = &[
         title: n!("App"),
         rows: &[
             Row::Notifications,
+            Row::ChapterMarkSound,
             Row::DockIcon,
             Row::MainWindowStart,
             Row::AfterDelete,
@@ -376,6 +378,7 @@ impl Row {
             Row::Theme => n!("Theme"),
             Row::Language => n!("Language"),
             Row::Notifications => n!("Notifications"),
+            Row::ChapterMarkSound => n!("Chapter mark sound"),
             Row::DockIcon => n!("Always show dock icon"),
             Row::MainWindowStart => n!("When recording starts"),
             Row::AfterDelete => n!("After deleting a recording"),
@@ -421,6 +424,11 @@ impl Row {
         Some(match self {
             Row::Language => n!("The tray menu and window titles switch after a restart."),
             Row::Notifications => n!("Saved files, clipboard copies and finished compression."),
+            Row::ChapterMarkSound => {
+                n!(
+                    "Plays when you add a chapter mark while recording. Your microphone can pick it up."
+                )
+            }
             Row::DockIcon => n!("Keep FrameEver in the dock even when no windows are open."),
             Row::MainWindowStart => n!("What the main window does."),
             Row::AfterEditorClose => n!("After the last editor closes."),
@@ -541,6 +549,7 @@ mod tests {
                     "Theme",
                     "Language",
                     "Notifications",
+                    "Chapter mark sound",
                     "When recording starts",
                     "After deleting a recording",
                     "When you close the editor",
@@ -603,7 +612,7 @@ mod tests {
                     "Draw on screen",
                     "Focus recording controls",
                     "Hide or show controls",
-                    "Add chapter marker",
+                    "Add chapter mark",
                     "Mute",
                     "Push to talk",
                 ],

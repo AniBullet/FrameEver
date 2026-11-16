@@ -31,6 +31,7 @@ mod draw_bench;
 mod editor_audio;
 mod editor_bench;
 mod editor_canvas;
+mod editor_chapter_marks;
 mod editor_chrome;
 mod editor_clips;
 mod editor_color;
