@@ -58,7 +58,6 @@ impl GamepadWatch {
     }
 }
 
-#[cfg(any(windows, target_os = "macos"))]
 mod platform {
     use super::{GamepadId, GamepadPoll, MAX_GAMEPADS};
     use frameever_project::input_display::{
@@ -175,26 +174,6 @@ mod platform {
                 unsafe { SDL_CloseGamepad(gamepad) };
             }
             unsafe { SDL_QuitSubSystem(SDL_INIT_GAMEPAD) };
-        }
-    }
-}
-
-#[cfg(not(any(windows, target_os = "macos")))]
-mod platform {
-    use super::{GamepadId, GamepadPoll};
-    use frameever_project::input_display::GamepadSnapshot;
-
-    pub struct Gamepads;
-
-    impl Gamepads {
-        pub fn open() -> Option<Self> {
-            None
-        }
-    }
-
-    impl GamepadPoll for Gamepads {
-        fn poll(&mut self) -> Vec<(GamepadId, GamepadSnapshot)> {
-            Vec::new()
         }
     }
 }
@@ -334,7 +313,6 @@ mod tests {
         assert_eq!(watch.read(), None);
     }
 
-    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn controller_families_are_told_apart_by_what_the_reader_reports() {
         use sdl3_sys::everything::SDL_GamepadType;

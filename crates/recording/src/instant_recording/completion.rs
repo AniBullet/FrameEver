@@ -192,6 +192,7 @@ mod tests {
                 pipeline: Pipeline {
                     video,
                     audio,
+                    input_display: None,
                     video_info,
                     segments_dir,
                     segment_rx: None,

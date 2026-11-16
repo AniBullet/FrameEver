@@ -863,6 +863,8 @@ pub struct SidebarState {
     >,
     pub(crate) input_position_exact: bool,
     pub(crate) input_setup_task: Option<gpui::Task<()>>,
+    pub(crate) input_setup_pending:
+        std::rc::Rc<std::cell::RefCell<crate::editor_input_display::PendingInputSetup>>,
     /// The `h-48` preview for the image and desktop panes, keyed by path so a
     /// stale decode cannot land on a newer selection.
     preview: Option<(PathBuf, Arc<RenderImage>)>,
@@ -932,6 +934,7 @@ impl SidebarState {
             input_shape: Default::default(),
             input_position_exact: false,
             input_setup_task: None,
+            input_setup_pending: Default::default(),
             wallpaper_task: None,
             preview: None,
             preview_task: None,

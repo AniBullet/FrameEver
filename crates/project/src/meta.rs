@@ -694,8 +694,8 @@ impl MultipleSegment {
         data
     }
 
-    pub fn keyboard_events(&self, meta: &RecordingMeta) -> KeyboardEvents {
-        let keyboard_path = self.keyboard.clone().or_else(|| {
+    fn keyboard_events_path(&self, meta: &RecordingMeta) -> Option<RelativePathBuf> {
+        self.keyboard.clone().or_else(|| {
             let display_dir = self.display.path.parent()?;
             let binary = display_dir.join(crate::KEYBOARD_EVENTS_FILE_NAME);
             let binary_full = meta.path(&binary);
@@ -706,9 +706,16 @@ impl MultipleSegment {
             let legacy = display_dir.join(crate::LEGACY_KEYBOARD_EVENTS_FILE_NAME);
             let legacy_full = meta.path(&legacy);
             legacy_full.exists().then_some(legacy)
-        });
+        })
+    }
 
-        let Some(keyboard_path) = keyboard_path else {
+    pub fn has_keyboard_events(&self, meta: &RecordingMeta) -> bool {
+        self.keyboard_events_path(meta)
+            .is_some_and(|path| meta.path(&path).exists())
+    }
+
+    pub fn keyboard_events(&self, meta: &RecordingMeta) -> KeyboardEvents {
+        let Some(keyboard_path) = self.keyboard_events_path(meta) else {
             return KeyboardEvents::default();
         };
 

@@ -13,6 +13,7 @@ pub enum InputEventKind {
     Wheel { up: bool },
     TargetInFront(bool),
     Gamepad(GamepadSnapshot),
+    HeldKey(u16),
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -91,6 +92,10 @@ mod tests {
                             right_trigger: 7,
                         },
                     }),
+                },
+                InputEvent {
+                    time_ms: 0.0,
+                    kind: InputEventKind::HeldKey(0xA010),
                 },
             ],
         }

@@ -1,17 +1,20 @@
-use crate::{click_highlight::ChannelOrder, gamepad::GamepadWatch};
+use crate::{click_highlight::ChannelOrder, gamepad::GamepadWatch, input_reader::TargetFocus};
 use frameever_project::{
     InputDisplay, InputDisplayStyle, XY,
     input_display::{
         BuiltinPresetId, DisplayState, Element, ElementKind, GamepadAxes, GamepadKind,
-        GamepadSnapshot, Input, Preset, TRIGGER_FULL, display_rect, gamepad_buttons, key_code,
-        preset_for_controller,
+        GamepadSnapshot, Input, Preset, TRIGGER_FULL, WindowRule, display_rect, gamepad_buttons,
+        key_code, preset_for_controller,
     },
 };
 use frameever_rendering::input_display::{LoadedPreset, atlas_scale_for, compose, resolve_preset};
 use image::imageops;
 use parking_lot::Mutex;
 use std::{
-    sync::{Arc, Weak},
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -132,6 +135,7 @@ pub fn live_sources() -> Vec<Box<dyn InputSource>> {
 struct Shared {
     settings: InstantInputDisplay,
     state: Mutex<DisplayState>,
+    paused: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -142,7 +146,16 @@ impl LiveInputDisplay {
         Self(Arc::new(Shared {
             settings,
             state: Mutex::new(DisplayState::default()),
+            paused: AtomicBool::new(false),
         }))
+    }
+
+    pub fn set_paused(&self, paused: bool) {
+        let mut state = self.0.state.lock();
+        self.0.paused.store(paused, Ordering::SeqCst);
+        if paused {
+            *state = DisplayState::default();
+        }
     }
 
     pub fn show(&self, state: DisplayState) {
@@ -153,19 +166,28 @@ impl LiveInputDisplay {
         self.0.state.lock().clone()
     }
 
-    pub fn watch(&self, recording: impl Fn() -> bool + Send + 'static) {
-        self.watch_with(live_sources, recording);
+    pub fn watch(
+        &self,
+        target_window: Option<scap_targets::WindowId>,
+        recording: impl Fn() -> bool + Send + 'static,
+    ) {
+        self.watch_with(
+            live_sources,
+            move || TargetFocus::of(target_window.as_ref()),
+            recording,
+        );
     }
 
     pub fn watch_with(
         &self,
         sources: impl FnOnce() -> Vec<Box<dyn InputSource>> + Send + 'static,
+        target: impl FnOnce() -> TargetFocus + Send + 'static,
         recording: impl Fn() -> bool + Send + 'static,
     ) {
         let shared = Arc::downgrade(&self.0);
         let spawned = std::thread::Builder::new()
             .name("live-input-display".into())
-            .spawn(move || watch_sources(shared, sources(), recording));
+            .spawn(move || watch_sources(shared, sources(), target(), recording));
         if let Err(error) = spawned {
             tracing::warn!("input display watcher did not start: {error}");
         }
@@ -183,21 +205,27 @@ impl LiveInputDisplay {
 fn watch_sources(
     shared: Weak<Shared>,
     mut sources: Vec<Box<dyn InputSource>>,
+    mut target: TargetFocus,
     recording: impl Fn() -> bool,
 ) {
+    let mut rule = WindowRule::default();
     loop {
         std::thread::sleep(POLL_INTERVAL);
         let Some(shared) = shared.upgrade() else {
             return;
         };
-        if !recording() {
+        if shared.paused.load(Ordering::SeqCst) || !recording() {
             continue;
         }
-        let mut state = DisplayState::default();
+        let mut polled = DisplayState::default();
         for source in &mut sources {
-            source.read(&mut state);
+            source.read(&mut polled);
         }
-        LiveInputDisplay(shared).show(state);
+        let shown = rule.follow(&polled, target.read().unwrap_or(true));
+        let mut state = shared.state.lock();
+        if !shared.paused.load(Ordering::SeqCst) {
+            *state = shown;
+        }
     }
 }
 
@@ -1079,6 +1107,7 @@ mod tests {
         let started = recording.clone();
         display.watch_with(
             move || vec![Box::new(source) as Box<dyn InputSource>],
+            TargetFocus::none,
             move || started.load(Ordering::SeqCst),
         );
         down.store(true, Ordering::SeqCst);
@@ -1098,6 +1127,77 @@ mod tests {
             std::thread::sleep(POLL_INTERVAL * 6);
             stopped
         }));
+    }
+
+    fn settled(reads: &AtomicUsize) -> usize {
+        let mut last = usize::MAX;
+        assert!(eventually(|| {
+            let now = reads.load(Ordering::SeqCst);
+            let stopped = now == last;
+            last = now;
+            std::thread::sleep(POLL_INTERVAL * 6);
+            stopped
+        }));
+        last
+    }
+
+    #[test]
+    fn nothing_is_read_while_the_recording_is_paused() {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let down = Arc::new(AtomicBool::new(true));
+        let display = display(InputDisplayCorner::BottomLeft);
+        let source = Scripted {
+            reads: reads.clone(),
+            down: down.clone(),
+        };
+        display.watch_with(
+            move || vec![Box::new(source) as Box<dyn InputSource>],
+            TargetFocus::none,
+            || true,
+        );
+        assert!(eventually(|| display.state() == held(&[KEY_W])));
+
+        display.set_paused(true);
+        let while_paused = settled(&reads);
+        assert_eq!(display.state(), DisplayState::default());
+
+        display.set_paused(false);
+        assert!(eventually(|| display.state() == held(&[KEY_W])));
+        assert!(reads.load(Ordering::SeqCst) > while_paused);
+    }
+
+    #[test]
+    fn input_pressed_while_another_window_is_in_front_is_not_drawn() {
+        let down = Arc::new(AtomicBool::new(false));
+        let in_front = Arc::new(AtomicBool::new(false));
+        let display = display(InputDisplayCorner::BottomLeft);
+        let source = Scripted {
+            reads: Arc::new(AtomicUsize::new(0)),
+            down: down.clone(),
+        };
+        let front = in_front.clone();
+        display.watch_with(
+            move || vec![Box::new(source) as Box<dyn InputSource>],
+            move || TargetFocus::scripted(move || Some(front.load(Ordering::SeqCst))),
+            || true,
+        );
+        let stays_empty = || {
+            std::thread::sleep(POLL_INTERVAL * 6);
+            display.state() == DisplayState::default()
+        };
+
+        down.store(true, Ordering::SeqCst);
+        assert!(stays_empty());
+        in_front.store(true, Ordering::SeqCst);
+        assert!(stays_empty());
+        down.store(false, Ordering::SeqCst);
+        std::thread::sleep(POLL_INTERVAL * 6);
+        down.store(true, Ordering::SeqCst);
+        assert!(eventually(|| display.state() == held(&[KEY_W])));
+        in_front.store(false, Ordering::SeqCst);
+        assert!(eventually(|| display.state() == DisplayState::default()));
+        in_front.store(true, Ordering::SeqCst);
+        assert!(eventually(|| display.state() == held(&[KEY_W])));
     }
 
     fn median_micros(mut run: impl FnMut()) -> f64 {

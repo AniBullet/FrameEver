@@ -1019,7 +1019,12 @@ pub fn input_display_setup_in(
     if section.is_empty() {
         return None;
     }
-    serde_json::from_value(Value::Object(section.clone())).ok()
+    let setup: frameever_project::InputDisplay =
+        serde_json::from_value(Value::Object(section.clone())).ok()?;
+    Some(frameever_project::InputDisplay {
+        preset_chosen: false,
+        ..setup
+    })
 }
 
 pub fn input_display_setup() -> Option<frameever_project::InputDisplay> {
@@ -2050,8 +2055,13 @@ mod tests {
             position: frameever_project::XY::new(1., 0.5),
             size: 90.,
             opacity: 40.,
+            preset_chosen: false,
         };
-        let Value::Object(section) = serde_json::to_value(&setup).unwrap() else {
+        let chosen_by_hand = frameever_project::InputDisplay {
+            preset_chosen: true,
+            ..setup.clone()
+        };
+        let Value::Object(section) = serde_json::to_value(&chosen_by_hand).unwrap() else {
             panic!("the setup is stored as an object");
         };
         let remembered = input_display_setup_in(&section);

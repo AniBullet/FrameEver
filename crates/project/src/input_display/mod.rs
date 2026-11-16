@@ -24,12 +24,12 @@ pub use placement::{
 };
 pub use preset::{
     Element, ElementKind, FillDirection, MAX_PRESET_ATLAS_BYTES, MAX_PRESET_ATLAS_DIMENSION,
-    MAX_PRESET_ELEMENTS, MAX_PRESET_JSON_BYTES, Preset, PresetRefusal, STATE_GAP, Sprite,
-    SpriteRect,
+    MAX_PRESET_CANVAS_DIMENSION, MAX_PRESET_ELEMENTS, MAX_PRESET_JSON_BYTES, Preset, PresetRefusal,
+    STATE_GAP, Sprite, SpriteRect,
 };
 pub use record::{
-    DisplayState, Input, InputChange, InputRecord, WHEEL_FLASH_MS, WheelStep, preset_for_recording,
-    take_at,
+    DisplayState, Input, InputChange, InputRecord, WHEEL_FLASH_MS, WheelStep, WindowRule,
+    preset_for_recording, take_at,
 };
 
 use serde::{Deserialize, Serialize};
@@ -65,6 +65,8 @@ pub struct InputDisplay {
     pub position: XY<f64>,
     pub size: f64,
     pub opacity: f64,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub preset_chosen: bool,
 }
 
 impl Default for InputDisplay {
@@ -76,6 +78,7 @@ impl Default for InputDisplay {
             position: XY::new(0.0, 1.0),
             size: INPUT_DISPLAY_DEFAULT_SIZE,
             opacity: INPUT_DISPLAY_OPACITY_RANGE.1,
+            preset_chosen: false,
         }
     }
 }
@@ -125,6 +128,7 @@ mod tests {
             position: XY::new(0.5, 0.25),
             size: 90.0,
             opacity: 40.0,
+            preset_chosen: false,
         };
         let project = ProjectConfiguration {
             input_display: Some(block.clone()),

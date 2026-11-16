@@ -459,7 +459,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Couldn't clear the input record", "无法清除操作记录"),
     (
         "Close anything that has this project's files open, then try again.",
-        "请关闭正在使用这个项目文件的程序，然后重试。",
+        "关闭正在使用这个项目文件的程序，然后重试。",
     ),
     ("WASD + mouse", "WASD 加鼠标"),
     ("Full keyboard", "整块键盘"),
@@ -488,7 +488,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     (
         "Couldn't import this preset. The folder has no preset JSON file. Choose the folder that holds the preset's .json and .png files.",
-        "无法导入这个预设。文件夹里没有预设的 JSON 文件。请选择放着预设 .json 和 .png 文件的文件夹。",
+        "无法导入这个预设。文件夹里没有预设的 JSON 文件。选择放着预设 .json 和 .png 文件的文件夹。",
     ),
     (
         "Couldn't import this preset. The folder has more preset files than FrameEver takes at once. Put the ones you want in their own folder and import that.",
@@ -504,7 +504,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     (
         "Couldn't import this preset. {file} is larger than FrameEver allows. Choose a smaller preset.",
-        "无法导入这个预设。{file} 超过了 FrameEver 允许的大小。请换一个小一些的预设。",
+        "无法导入这个预设。{file} 超过了 FrameEver 允许的大小。换一个小一些的预设。",
     ),
     (
         "Couldn't import this preset. {file} isn't a preset FrameEver can read. Save it again in its preset editor, or choose another preset.",

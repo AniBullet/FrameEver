@@ -34,6 +34,7 @@ pub use completion::CleanInstantRecording;
 struct Pipeline {
     video: OutputPipeline,
     audio: Option<OutputPipeline>,
+    input_display: Option<LiveInputDisplay>,
     video_info: VideoInfo,
     segments_dir: PathBuf,
     segment_rx: Option<
@@ -304,6 +305,9 @@ impl Message<Pause> for Actor {
                 if let Some(ref audio) = pipeline.audio {
                     audio.pause();
                 }
+                if let Some(display) = &pipeline.input_display {
+                    display.set_paused(true);
+                }
                 return ActorState::Paused {
                     pipeline,
                     segment_start_time,
@@ -341,6 +345,9 @@ impl Message<Resume> for Actor {
                 pipeline.video.resume();
                 if let Some(ref audio) = pipeline.audio {
                     audio.resume();
+                }
+                if let Some(display) = &pipeline.input_display {
+                    display.set_paused(false);
                 }
                 return ActorState::Recording {
                     pipeline,
@@ -430,6 +437,7 @@ async fn create_pipeline(
     };
 
     let segment_tx_for_video = segment_channel.as_ref().map(|(tx, _)| tx.clone());
+    let input_display = overlays.input_display.clone();
 
     let video = ScreenCaptureMethod::make_instant_segmented_video_pipeline(
         screen_capture,
@@ -490,6 +498,7 @@ async fn create_pipeline(
     Ok(Pipeline {
         video,
         audio,
+        input_display,
         video_info: VideoInfo::from_raw_ffmpeg(
             screen_info.pixel_format,
             output_resolution.0,
@@ -777,6 +786,7 @@ async fn build_instant_recording_actor(
                 Pipeline {
                     video: cam_pipeline,
                     audio: None,
+                    input_display: None,
                     video_info,
                     segments_dir: content_dir.clone(),
                     segment_rx: None,
@@ -805,7 +815,7 @@ async fn build_instant_recording_actor(
                 .map(LiveInputDisplay::new);
             if let Some(display) = &input_display {
                 let gate = inputs.start_gate.clone();
-                display.watch(move || {
+                display.watch(inputs.capture_target.window(), move || {
                     gate.as_ref()
                         .is_none_or(|gate| gate.armed_instant().is_some())
                 });
@@ -1404,6 +1414,7 @@ mod non_linux_stop_tests {
                 pipeline: Pipeline {
                     video,
                     audio: Some(audio),
+                    input_display: None,
                     video_info,
                     segments_dir: directory.path().join("display"),
                     segment_rx: None,

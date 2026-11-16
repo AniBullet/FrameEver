@@ -1,6 +1,6 @@
 use crate::{
     RecordingStartGate,
-    input_reader::{InputCapture, InputReader, InputSample, push_input_changes, push_key_changes},
+    input_reader::{InputCapture, InputReader, InputTake},
 };
 use frameever_cursor_capture::CursorCropBounds;
 use frameever_cursor_info::CursorShape;
@@ -412,20 +412,8 @@ pub fn spawn_cursor_recorder(
         let crop_bounds = target.crop_bounds;
         let display = target.display;
         let device_state = DeviceState::new();
-        let mut input_reader = InputReader::new(&input);
-        let held_keys = |reading: bool| {
-            if reading {
-                device_state.get_keys()
-            } else {
-                Vec::new()
-            }
-        };
+        let mut input_take: Option<Option<InputTake>> = None;
         let mut last_mouse_state = device_state.get_mouse();
-        let mut last_keys: Vec<device_query::Keycode> = held_keys(input_reader.is_some());
-        let mut last_input = InputSample {
-            buttons: last_mouse_state.button_pressed.clone(),
-            ..Default::default()
-        };
 
         let mut last_position =
             frameever_cursor_capture::RawCursorPosition::from_coords(last_mouse_state.coords);
@@ -471,30 +459,21 @@ pub fn spawn_cursor_recorder(
                 last_position = frameever_cursor_capture::RawCursorPosition::from_coords(
                     last_mouse_state.coords,
                 );
-                last_keys = held_keys(input_reader.is_some());
-                if let Some(reader) = &mut input_reader {
-                    last_input = InputSample {
-                        buttons: reader.sample(&last_mouse_state.button_pressed).buttons,
-                        ..Default::default()
-                    };
-                }
                 continue;
             };
             let elapsed = epoch.elapsed().as_secs_f64() * 1000.0;
             let mouse_state = device_state.get_mouse();
 
-            if let Some(reader) = &mut input_reader {
-                let sample = reader.sample(&mouse_state.button_pressed);
-                push_input_changes(&last_input, &sample, elapsed, &mut response.input_events);
-                last_input = sample;
-                let current_keys = held_keys(true);
-                push_key_changes(
-                    &last_keys,
-                    &current_keys,
+            if let Some(take) =
+                input_take.get_or_insert_with(|| InputReader::new(&input).map(InputTake::new))
+            {
+                take.tick(
                     elapsed,
+                    device_state.get_keys(),
+                    &mouse_state.button_pressed,
+                    &mut response.input_events,
                     &mut response.keyboard_presses,
                 );
-                last_keys = current_keys;
             }
 
             let position =

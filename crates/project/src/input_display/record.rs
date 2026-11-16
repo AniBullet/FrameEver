@@ -7,7 +7,8 @@ use super::{
     keys::key_code,
 };
 use crate::{
-    KeyboardEvents, ProjectConfiguration, RecordingMeta, StudioRecordingMeta, TimelineFrameMapping,
+    CursorClickEvent, KeyboardEvents, ProjectConfiguration, RecordingMeta, StudioRecordingMeta,
+    TimelineFrameMapping,
 };
 
 pub const WHEEL_FLASH_MS: f64 = 120.0;
@@ -78,6 +79,46 @@ impl DisplayState {
 
     pub fn held(&self) -> impl Iterator<Item = Input> + '_ {
         self.held.iter().copied()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct WindowRule {
+    shown: BTreeSet<Input>,
+    polled: BTreeSet<Input>,
+}
+
+impl WindowRule {
+    pub fn change(&mut self, input: Input, down: bool, target_in_front: bool) {
+        if !down {
+            self.shown.remove(&input);
+        } else if target_in_front {
+            self.shown.insert(input);
+        }
+    }
+
+    pub fn follow(&mut self, polled: &DisplayState, target_in_front: bool) -> DisplayState {
+        let follows_presses = |input: &Input| !matches!(input, Input::GamepadButton(_));
+        let now: BTreeSet<Input> = polled.held().filter(follows_presses).collect();
+        for input in self.polled.difference(&now).copied().collect::<Vec<_>>() {
+            self.change(input, false, target_in_front);
+        }
+        for input in now.difference(&self.polled).copied().collect::<Vec<_>>() {
+            self.change(input, true, target_in_front);
+        }
+        self.polled = now;
+        if !target_in_front {
+            return DisplayState {
+                controller: polled.controller,
+                ..Default::default()
+            };
+        }
+        let mut held = self.shown.clone();
+        held.extend(polled.held().filter(|input| !follows_presses(input)));
+        DisplayState {
+            held,
+            ..polled.clone()
+        }
     }
 }
 
@@ -195,6 +236,11 @@ impl InputRecord {
                     focus_changes.push((event.time_ms, in_front));
                 }
                 InputEventKind::Gamepad(snapshot) => gamepad.push((event.time_ms, snapshot)),
+                InputEventKind::HeldKey(code) => changes.push(InputChange {
+                    time_ms: event.time_ms,
+                    input: Input::Key(code),
+                    down: true,
+                }),
             }
         }
         wheel_steps.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -214,7 +260,31 @@ impl InputRecord {
         let Some(segment) = inner.segments.get(take) else {
             return Self::default();
         };
-        Self::from_events(&segment.keyboard_events(meta), &segment.input_events(meta))
+        let record = Self::from_events(&segment.keyboard_events(meta), &segment.input_events(meta));
+        let saved_before_input_events = segment.has_keyboard_events(meta)
+            && !segment
+                .input_events_path(meta)
+                .is_some_and(|path| path.exists());
+        if saved_before_input_events {
+            record.with_clicks(&segment.cursor_events(meta).clicks)
+        } else {
+            record
+        }
+    }
+
+    fn with_clicks(mut self, clicks: &[CursorClickEvent]) -> Self {
+        self.changes.extend(
+            clicks
+                .iter()
+                .filter(|click| click.time_ms.is_finite())
+                .map(|click| InputChange {
+                    time_ms: click.time_ms,
+                    input: Input::MouseButton(click.cursor_num),
+                    down: click.down,
+                }),
+        );
+        self.changes.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
+        self
     }
 
     pub fn is_empty(&self) -> bool {
@@ -240,18 +310,25 @@ impl InputRecord {
     }
 
     pub fn state_at(&self, time_ms: f64) -> DisplayState {
-        let mut state = DisplayState::default();
+        let mut state = DisplayState {
+            controller: self.controller(),
+            ..Default::default()
+        };
         if !self.target_in_front_at(time_ms) {
             return state;
         }
+        let mut rule = WindowRule::default();
         for change in &self.changes {
             if change.time_ms > time_ms {
                 break;
             }
-            if !change.down || self.target_in_front_at(change.time_ms) {
-                state.apply(change.input, change.down);
-            }
+            rule.change(
+                change.input,
+                change.down,
+                self.target_in_front_at(change.time_ms),
+            );
         }
+        state.held = rule.shown;
         let earlier = self
             .wheel_steps
             .partition_point(|(stepped_at, _)| *stepped_at <= time_ms);
@@ -375,6 +452,65 @@ mod tests {
         assert!(InputRecord::for_take(&meta, 7).is_empty());
     }
 
+    fn take_with_clicks_only_in_the_cursor_file(
+        keyboard: bool,
+    ) -> (tempfile::TempDir, RecordingMeta) {
+        let directory = tempfile::tempdir().unwrap();
+        let take = directory.path().join("content/segments/segment-0");
+        std::fs::create_dir_all(&take).unwrap();
+        if keyboard {
+            KeyboardEvents {
+                presses: vec![key("W", 100.0, true)],
+            }
+            .write_to_file(&take.join("keyboard.bin"))
+            .unwrap();
+        }
+        let click = |button: u8, time_ms: f64, down: bool| {
+            serde_json::json!({
+                "active_modifiers": [],
+                "cursor_num": button,
+                "cursor_id": "0",
+                "time_ms": time_ms,
+                "down": down
+            })
+        };
+        std::fs::write(
+            take.join("cursor.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "clicks": [click(1, 120.0, true), click(1, 300.0, false), click(2, 250.0, true)],
+                "moves": []
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let mut meta: RecordingMeta = serde_json::from_value(serde_json::json!({
+            "pretty_name": "older",
+            "segments": [{
+                "display": {"path": "content/segments/segment-0/display.mp4"},
+                "cursor": "content/segments/segment-0/cursor.json"
+            }]
+        }))
+        .unwrap();
+        meta.project_path = directory.path().to_path_buf();
+        (directory, meta)
+    }
+
+    #[test]
+    fn a_recording_from_before_the_input_file_shows_its_saved_clicks() {
+        let (_directory, meta) = take_with_clicks_only_in_the_cursor_file(true);
+        let record = InputRecord::for_take(&meta, 0);
+
+        assert_eq!(held(&record, 200.0), vec![W, LEFT_BUTTON]);
+        assert_eq!(held(&record, 400.0), vec![W, Input::MouseButton(2)]);
+    }
+
+    #[test]
+    fn clicks_alone_are_not_an_input_record() {
+        let (_directory, meta) = take_with_clicks_only_in_the_cursor_file(false);
+
+        assert!(InputRecord::for_take(&meta, 0).is_empty());
+    }
+
     const W: Input = Input::Key(0x57);
     const LEFT_SHIFT: Input = Input::Key(0xA010);
     const LEFT_BUTTON: Input = Input::MouseButton(1);
@@ -487,6 +623,44 @@ mod tests {
     }
 
     #[test]
+    fn live_input_follows_the_recorded_window_like_a_saved_record() {
+        use crate::input_display::gamepad_buttons::SOUTH;
+        let a = Input::Key(0x41);
+        let polled = |inputs: &[Input]| {
+            let mut state = DisplayState::default();
+            for input in inputs {
+                state.apply(*input, true);
+            }
+            state
+        };
+        let shown = |state: DisplayState| state.held().collect::<Vec<_>>();
+        let mut rule = WindowRule::default();
+
+        assert_eq!(shown(rule.follow(&polled(&[W]), true)), vec![W]);
+        assert_eq!(shown(rule.follow(&polled(&[W, a]), false)), vec![]);
+        assert_eq!(shown(rule.follow(&polled(&[W, a]), true)), vec![W]);
+        assert_eq!(shown(rule.follow(&polled(&[W]), true)), vec![W]);
+        assert_eq!(shown(rule.follow(&polled(&[W, a]), true)), vec![a, W]);
+        assert_eq!(shown(rule.follow(&polled(&[a]), false)), vec![]);
+        assert_eq!(shown(rule.follow(&polled(&[a, W]), false)), vec![]);
+        assert_eq!(shown(rule.follow(&polled(&[a, W]), true)), vec![a]);
+
+        let mut playing = polled(&[]);
+        playing.show_gamepad(&GamepadSnapshot {
+            axes: GamepadAxes {
+                right_trigger: 200,
+                ..Default::default()
+            },
+            ..pad(GamepadKind::PlayStation).with_button(SOUTH)
+        });
+        let behind = rule.follow(&playing, false);
+        assert_eq!(shown(behind.clone()), vec![]);
+        assert_eq!(behind.axes, GamepadAxes::default());
+        assert_eq!(behind.controller, Some(GamepadKind::PlayStation));
+        assert_eq!(rule.follow(&playing, true), playing);
+    }
+
+    #[test]
     fn a_recording_without_focus_changes_shows_everything() {
         let record = record(vec![key("W", 100.0, true)], vec![click(1, 100.0, true)]);
 
@@ -563,6 +737,22 @@ mod tests {
     }
 
     #[test]
+    fn a_key_already_held_when_the_take_started_shows_until_its_release() {
+        let record = record(
+            vec![key("W", 300.0, false)],
+            vec![InputEvent {
+                time_ms: 0.0,
+                kind: InputEventKind::HeldKey(0x57),
+            }],
+        );
+
+        assert_eq!(held(&record, 0.0), vec![W]);
+        assert_eq!(held(&record, 299.0), vec![W]);
+        assert_eq!(held(&record, 300.0), vec![]);
+        assert!(record.used_keys_or_mouse());
+    }
+
+    #[test]
     fn a_release_without_a_press_holds_nothing() {
         let record = record(vec![key("W", 100.0, false)], Vec::new());
 
@@ -622,6 +812,8 @@ mod tests {
 
         assert_eq!(held(&record, 150.0), vec![Input::GamepadButton(SOUTH)]);
         assert_eq!(held(&record, 250.0), vec![]);
+        assert_eq!(record.state_at(250.0).axes, GamepadAxes::default());
+        assert_eq!(record.state_at(250.0).controller, Some(GamepadKind::Switch));
         assert_eq!(held(&record, 350.0), vec![Input::GamepadButton(SOUTH)]);
         assert_eq!(record.controller(), Some(GamepadKind::Switch));
     }

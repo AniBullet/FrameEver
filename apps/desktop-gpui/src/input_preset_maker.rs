@@ -9,7 +9,9 @@ use gpui::{
     SharedString, Styled, Subscription, Window, WindowHandle, div, prelude::FluentBuilder, px, rgb,
 };
 
-use crate::{editor_window::EditorWindow, i18n::t, theme::Theme, ui};
+use crate::{
+    editor_input_display::PICTURE_BACKDROP, editor_window::EditorWindow, i18n::t, theme::Theme, ui,
+};
 
 pub const MAKER_WINDOW_WIDTH: f32 = 624.;
 pub const MAKER_WINDOW_HEIGHT: f32 = 460.;
@@ -17,7 +19,6 @@ pub const MAKER_WINDOW_TITLE: &str = concat!(crate::brand::app_name!(), " Preset
 
 const UNIT: f32 = 40.;
 const KEY_GAP: f32 = 4.;
-const BOARD_BACKDROP: u32 = 0x2a2f36;
 const KEY_REST: u32 = 0x181818;
 const KEY_REST_INK: u32 = 0xc4c4c4;
 const KEY_HELD: u32 = 0xffffff;
@@ -296,7 +297,7 @@ impl InputPresetMaker {
             .w(px(UNIT * MAKER_COLUMNS as f32))
             .h(px(UNIT * MAKER_ROWS as f32))
             .rounded(px(8.))
-            .bg(rgb(BOARD_BACKDROP))
+            .bg(rgb(PICTURE_BACKDROP))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| {

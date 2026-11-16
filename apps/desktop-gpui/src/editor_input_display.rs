@@ -4,8 +4,8 @@ use frameever_project::{
     InputDisplay, InputDisplayStyle, ProjectConfiguration, XY,
     input_display::{
         BuiltinPresetId, DisplayState, INPUT_DISPLAY_DEFAULT_SIZE, INPUT_DISPLAY_MARGIN,
-        INPUT_DISPLAY_OPACITY_RANGE, INPUT_DISPLAY_SIZE_RANGE, display_rect, position_for_origin,
-        preset_for_recording, size_for_width, snap_position,
+        INPUT_DISPLAY_OPACITY_RANGE, INPUT_DISPLAY_SIZE_RANGE, INPUT_DISPLAY_SNAP_STOPS,
+        display_rect, position_for_origin, preset_for_recording, size_for_width, snap_position,
     },
 };
 use frameever_rendering::{
@@ -29,8 +29,9 @@ const TILE_COLUMNS: f32 = 2.;
 const TILE_GAP: f32 = 6.;
 const TILE_HEIGHT: f32 = 86.;
 const TILE_PICTURE_HEIGHT: f32 = 46.;
-const TILE_BACKDROP: u32 = 0x2a2f36;
+pub(crate) const PICTURE_BACKDROP: u32 = 0x2a2f36;
 const TILE_INK: u32 = 0xd8d8d8;
+const TILE_ACTION_ICON: f32 = 14.;
 
 pub(crate) type InputThumbnailKey = (String, InputDisplayStyle);
 
@@ -69,6 +70,7 @@ pub(crate) fn import_refusal_message(refusal: &ImportRefusal) -> String {
             PresetRefusal::JsonTooLarge { .. }
             | PresetRefusal::AtlasFileTooLarge { .. }
             | PresetRefusal::AtlasTooLarge { .. }
+            | PresetRefusal::CanvasTooLarge { .. }
             | PresetRefusal::TooManyElements { .. } => t!(
                 "Couldn't import this preset. {file} is larger than FrameEver allows. Choose a smaller preset.",
                 file = file
@@ -88,7 +90,19 @@ pub(crate) const INPUT_PRESETS: [(BuiltinPresetId, &str); 3] = [
 ];
 
 const INPUT_SETUP_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
-const ANCHOR_STOPS: [f64; 3] = [0., 0.5, 1.];
+
+#[derive(Default)]
+pub(crate) struct PendingInputSetup(Option<InputDisplay>);
+
+impl PendingInputSetup {
+    pub(crate) fn queue(&mut self, setup: InputDisplay) {
+        self.0 = Some(setup);
+    }
+
+    pub(crate) fn flush<R>(&mut self, save: impl FnOnce(&InputDisplay) -> R) -> Option<R> {
+        self.0.take().map(|setup| save(&setup))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InputDisplaySlider {
@@ -150,7 +164,10 @@ pub(crate) fn switch_input_display_for_recording(
     }
     if let (true, Some(block), Ok(meta)) = (
         on,
-        project.input_display.as_mut(),
+        project
+            .input_display
+            .as_mut()
+            .filter(|block| !block.preset_chosen),
         frameever_project::RecordingMeta::load_for_project(project_path),
     ) {
         block.preset = preset_for_recording(&meta, &block.preset).to_string();
@@ -162,10 +179,11 @@ pub(crate) fn choose_input_preset(project: &mut ProjectConfiguration, preset: &s
     let block = project
         .input_display
         .get_or_insert_with(InputDisplay::default);
-    if block.preset == preset {
+    if block.preset == preset && block.preset_chosen {
         return false;
     }
     block.preset = preset.to_string();
+    block.preset_chosen = true;
     true
 }
 
@@ -173,6 +191,7 @@ pub(crate) fn after_preset_removed(project: &mut ProjectConfiguration, removed: 
     match project.input_display.as_mut() {
         Some(block) if block.preset == removed => {
             block.preset = BuiltinPresetId::WasdMouse.id().to_string();
+            block.preset_chosen = false;
             true
         }
         _ => false,
@@ -431,8 +450,13 @@ impl EditorWindow {
         let Some(setup) = self.project.input_display.clone() else {
             return;
         };
+        self.sidebar.input_setup_pending.borrow_mut().queue(setup);
+        let pending = self.sidebar.input_setup_pending.clone();
         self.sidebar.input_setup_task = Some(cx.spawn_in(window, async move |_, cx| {
             cx.background_executor().timer(INPUT_SETUP_DEBOUNCE).await;
+            let Some(setup) = pending.borrow_mut().flush(InputDisplay::clone) else {
+                return;
+            };
             let saved = cx
                 .background_executor()
                 .spawn(async move { crate::store::set_input_display_setup(&setup) })
@@ -441,6 +465,18 @@ impl EditorWindow {
                 tracing::warn!("Could not remember the input display setup");
             }
         }));
+    }
+
+    pub(crate) fn flush_input_display_setup(&mut self) {
+        self.sidebar.input_setup_task = None;
+        let saved = self
+            .sidebar
+            .input_setup_pending
+            .borrow_mut()
+            .flush(crate::store::set_input_display_setup);
+        if saved == Some(false) {
+            tracing::warn!("Could not remember the input display setup");
+        }
     }
 
     pub(crate) fn show_input_display_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -556,35 +592,45 @@ impl EditorWindow {
             .rounded(px(6.))
             .border_1()
             .border_color(Hsla::from(theme.border))
-            .children(ANCHOR_STOPS.into_iter().enumerate().map(|(row, y)| {
-                div().flex().flex_row().gap(px(4.)).children(
-                    ANCHOR_STOPS.into_iter().enumerate().map(|(column, x)| {
-                        let chosen = block.position == XY::new(x, y);
-                        div()
-                            .id(SharedString::from(format!(
-                                "input-display-anchor-{column}-{row}"
-                            )))
-                            .w(px(18.))
-                            .h(px(12.))
-                            .rounded(px(2.))
-                            .bg(if chosen {
-                                Hsla::from(theme.foreground)
-                            } else {
-                                Hsla::from(theme.border_strong)
-                            })
-                            .tab_index(0)
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.edit_input_display(
-                                    "input-display-anchor",
-                                    window,
-                                    cx,
-                                    move |project| place_input_display(project, XY::new(x, y)),
-                                );
-                            }))
+            .children(
+                INPUT_DISPLAY_SNAP_STOPS
+                    .into_iter()
+                    .enumerate()
+                    .map(|(row, y)| {
+                        div().flex().flex_row().gap(px(4.)).children(
+                            INPUT_DISPLAY_SNAP_STOPS
+                                .into_iter()
+                                .enumerate()
+                                .map(|(column, x)| {
+                                    let chosen = block.position == XY::new(x, y);
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "input-display-anchor-{column}-{row}"
+                                        )))
+                                        .w(px(18.))
+                                        .h(px(12.))
+                                        .rounded(px(2.))
+                                        .bg(if chosen {
+                                            Hsla::from(theme.foreground)
+                                        } else {
+                                            Hsla::from(theme.border_strong)
+                                        })
+                                        .tab_index(0)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.edit_input_display(
+                                                "input-display-anchor",
+                                                window,
+                                                cx,
+                                                move |project| {
+                                                    place_input_display(project, XY::new(x, y))
+                                                },
+                                            );
+                                        }))
+                                }),
+                        )
                     }),
-                )
-            }));
+            );
         let head = div()
             .flex()
             .flex_row()
@@ -866,6 +912,7 @@ impl EditorWindow {
         cx: &mut Context<Self>,
         act: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> impl IntoElement {
+        let theme = self.theme;
         div()
             .id(SharedString::from(id))
             .size(px(20.))
@@ -875,8 +922,13 @@ impl EditorWindow {
             .rounded(px(4.))
             .tab_index(0)
             .cursor_pointer()
-            .hover(|this| this.bg(gpui::hsla(0., 0., 1., 0.16)))
-            .child(svg().path(icon).size(px(12.)).text_color(rgb(TILE_INK)))
+            .hover(move |this| this.bg(Hsla::from(theme.overlay)))
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(TILE_ACTION_ICON))
+                    .text_color(rgb(TILE_INK)),
+            )
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(|_, _, _, cx| cx.stop_propagation()),
@@ -985,7 +1037,7 @@ impl EditorWindow {
                     .when(selected, |this| {
                         this.border_color(Hsla::from(theme.foreground))
                     })
-                    .bg(rgb(TILE_BACKDROP))
+                    .bg(rgb(PICTURE_BACKDROP))
                     .text_color(rgb(TILE_INK))
                     .child(
                         div()
@@ -1134,6 +1186,10 @@ mod tests {
         let mut project = ProjectConfiguration::default();
         switch_input_display(&mut project, true);
 
+        assert!(choose_input_preset(
+            &mut project,
+            BuiltinPresetId::WasdMouse.id()
+        ));
         assert!(!choose_input_preset(
             &mut project,
             BuiltinPresetId::WasdMouse.id()
@@ -1402,6 +1458,12 @@ mod tests {
                 .map(|block| block.preset.as_str()),
             Some("full-keyboard")
         );
+        assert!(switch_input_display_for_recording(
+            &mut project,
+            true,
+            played.path()
+        ));
+        assert_eq!(preset(&project).as_deref(), Some("full-keyboard"));
 
         let mut remembered = ProjectConfiguration {
             input_display: Some(InputDisplay {
@@ -1424,6 +1486,24 @@ mod tests {
             std::path::Path::new("no-such-project")
         ));
         assert_eq!(preset(&unsaved).as_deref(), Some("wasd-mouse"));
+    }
+
+    #[test]
+    fn a_setup_changed_just_before_closing_is_still_remembered() {
+        let setup = |size: f64| InputDisplay {
+            size,
+            ..Default::default()
+        };
+        let mut pending = PendingInputSetup::default();
+        let mut saved = Vec::new();
+
+        assert!(pending.flush(|setup| saved.push(setup.size)).is_none());
+        pending.queue(setup(40.));
+        pending.queue(setup(80.));
+        assert!(pending.flush(|setup| saved.push(setup.size)).is_some());
+        assert!(pending.flush(|setup| saved.push(setup.size)).is_none());
+
+        assert_eq!(saved, vec![80.]);
     }
 
     #[test]

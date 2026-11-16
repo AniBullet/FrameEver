@@ -11,6 +11,7 @@ pub const MAX_PRESET_ELEMENTS: usize = 512;
 pub const MAX_PRESET_JSON_BYTES: usize = 1024 * 1024;
 pub const MAX_PRESET_ATLAS_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_PRESET_ATLAS_DIMENSION: u32 = 4096;
+pub const MAX_PRESET_CANVAS_DIMENSION: u32 = 4096;
 
 const MIDDLE_BUTTON: u8 = 3;
 const UNBOUND_KEY: u16 = 0;
@@ -131,6 +132,7 @@ pub enum PresetRefusal {
     AtlasFileTooLarge { bytes: usize },
     AtlasTooLarge { width: u32, height: u32 },
     AtlasUnreadable { detail: String },
+    CanvasTooLarge { width: u32, height: u32 },
 }
 
 impl std::fmt::Display for PresetRefusal {
@@ -169,6 +171,10 @@ impl std::fmt::Display for PresetRefusal {
             Self::AtlasUnreadable { detail } => {
                 write!(f, "the preset image is not a readable PNG: {detail}")
             }
+            Self::CanvasTooLarge { width, height } => write!(
+                f,
+                "the preset is {width} x {height} pixels, more than {MAX_PRESET_CANVAS_DIMENSION} on a side"
+            ),
         }
     }
 }
@@ -491,9 +497,14 @@ impl Preset {
             elements.push(element);
         }
         elements.sort_by_key(|element| element.z_level);
+        let width = file.overlay_width.unwrap_or(0).max(extent.0);
+        let height = file.overlay_height.unwrap_or(0).max(extent.1);
+        if width > MAX_PRESET_CANVAS_DIMENSION || height > MAX_PRESET_CANVAS_DIMENSION {
+            return Err(PresetRefusal::CanvasTooLarge { width, height });
+        }
         Ok(Self {
-            width: file.overlay_width.unwrap_or(0).max(extent.0),
-            height: file.overlay_height.unwrap_or(0).max(extent.1),
+            width,
+            height,
             elements,
         })
     }
@@ -1005,6 +1016,41 @@ mod tests {
             PresetRefusal::JsonTooLarge {
                 bytes: padded.len()
             }
+        );
+    }
+
+    #[test]
+    fn a_preset_larger_than_the_allowed_picture_is_refused() {
+        let stored = r#"{ "overlay_width": 4000000000, "overlay_height": 30, "elements": [{ "type": 0, "pos": [0, 0], "mapping": [1, 1, 2, 2] }] }"#;
+        let placed =
+            r#"{ "elements": [{ "type": 0, "pos": [0, 4000000000], "mapping": [1, 1, 2, 2] }] }"#;
+        let edge = format!(
+            r#"{{ "overlay_width": {MAX_PRESET_CANVAS_DIMENSION}, "elements": [{{ "type": 0, "pos": [0, {}], "mapping": [1, 1, 2, 2] }}] }}"#,
+            MAX_PRESET_CANVAS_DIMENSION - 2
+        );
+
+        assert_eq!(
+            refusal(stored),
+            PresetRefusal::CanvasTooLarge {
+                width: 4_000_000_000,
+                height: 30
+            }
+        );
+        assert_eq!(
+            refusal(placed),
+            PresetRefusal::CanvasTooLarge {
+                width: 2,
+                height: 4_000_000_002
+            }
+        );
+        assert_eq!(
+            refusal(placed).to_string(),
+            "the preset is 2 x 4000000002 pixels, more than 4096 on a side"
+        );
+        let preset = Preset::parse(&edge, ATLAS).unwrap();
+        assert_eq!(
+            (preset.width, preset.height),
+            (MAX_PRESET_CANVAS_DIMENSION, MAX_PRESET_CANVAS_DIMENSION)
         );
     }
 }

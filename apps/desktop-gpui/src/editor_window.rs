@@ -2220,6 +2220,7 @@ impl EditorWindow {
     }
 
     pub(crate) fn flush_pending_saves(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        self.flush_input_display_setup();
         self.commit_pretty_name(cx)?;
         self.pending_save.borrow_mut().try_flush().map_err(|error| {
             t!(

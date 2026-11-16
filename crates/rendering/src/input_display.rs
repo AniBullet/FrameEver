@@ -2,12 +2,14 @@ use frameever_project::{
     InputDisplayStyle,
     input_display::{
         BuiltinPresetId, DisplayState, INPUT_DISPLAY_IMPORTED_FRAME_SHARE, KeyLayout,
-        MAX_PRESET_ATLAS_BYTES, MAX_PRESET_ATLAS_DIMENSION, Preset, PresetArt, PresetRefusal,
+        MAX_PRESET_ATLAS_BYTES, MAX_PRESET_ATLAS_DIMENSION, MAX_PRESET_CANVAS_DIMENSION, Preset,
+        PresetArt, PresetRefusal,
     },
 };
 use image::RgbaImage;
 
 pub const MAX_ATLAS_SCALE: u32 = 4;
+pub const MAX_COMPOSED_DIMENSION: u32 = MAX_PRESET_CANVAS_DIMENSION * MAX_ATLAS_SCALE / 2;
 
 #[derive(Clone, Debug)]
 pub struct LoadedPreset {
@@ -135,19 +137,25 @@ pub fn read_preset(json: &[u8], atlas_png: Option<&[u8]>) -> Result<LoadedPreset
 }
 
 pub fn compose(loaded: &LoadedPreset, state: &DisplayState) -> RgbaImage {
-    let scale = loaded.atlas_scale.max(1);
-    let mut output = RgbaImage::new(
-        (loaded.preset.width * scale).max(1),
-        (loaded.preset.height * scale).max(1),
-    );
+    let scale = loaded.atlas_scale.clamp(1, MAX_ATLAS_SCALE);
+    let side = |length: u32| {
+        length
+            .saturating_mul(scale)
+            .clamp(1, MAX_COMPOSED_DIMENSION)
+    };
+    let mut output = RgbaImage::new(side(loaded.preset.width), side(loaded.preset.height));
+    let scaled = |value: u32| value.saturating_mul(scale);
     for sprite in loaded.preset.sprites(state) {
-        for row in 0..sprite.source.height * scale {
-            for column in 0..sprite.source.width * scale {
+        for row in 0..scaled(sprite.source.height).min(loaded.atlas.height()) {
+            for column in 0..scaled(sprite.source.width).min(loaded.atlas.width()) {
                 let (source_x, source_y) = (
-                    sprite.source.u * scale + column,
-                    sprite.source.v * scale + row,
+                    scaled(sprite.source.u).saturating_add(column),
+                    scaled(sprite.source.v).saturating_add(row),
                 );
-                let (x, y) = (sprite.x * scale + column, sprite.y * scale + row);
+                let (x, y) = (
+                    scaled(sprite.x).saturating_add(column),
+                    scaled(sprite.y).saturating_add(row),
+                );
                 if source_x >= loaded.atlas.width()
                     || source_y >= loaded.atlas.height()
                     || x >= output.width()
@@ -483,5 +491,34 @@ mod tests {
         assert_eq!(atlas_scale_for(342, 700.0), 3);
         assert_eq!(atlas_scale_for(342, 9000.0), MAX_ATLAS_SCALE);
         assert!(resolve_preset("missing", InputDisplayStyle::Keycaps, 1).is_none());
+    }
+
+    #[test]
+    fn a_preset_claiming_an_enormous_picture_is_composed_no_larger_than_the_limit() {
+        let mut loaded = read_preset(FIXTURE.as_bytes(), Some(&fixture_atlas())).unwrap();
+        loaded.preset.width = u32::MAX;
+        loaded.preset.height = 3;
+        loaded.atlas_scale = u32::MAX;
+        loaded.preset.elements[1].x = u32::MAX;
+
+        let picture = compose(&loaded, &DisplayState::default());
+
+        assert_eq!(
+            picture.dimensions(),
+            (MAX_COMPOSED_DIMENSION, 3 * MAX_ATLAS_SCALE)
+        );
+    }
+
+    #[test]
+    fn a_preset_file_claiming_an_enormous_picture_is_refused() {
+        let huge = FIXTURE.replace("\"overlay_width\": 20", "\"overlay_width\": 4000000000");
+
+        assert_eq!(
+            read_preset(huge.as_bytes(), Some(&fixture_atlas())).unwrap_err(),
+            PresetRefusal::CanvasTooLarge {
+                width: 4_000_000_000,
+                height: 12
+            }
+        );
     }
 }

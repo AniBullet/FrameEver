@@ -39,10 +39,35 @@ struct OptionRow {
     label: &'static str,
     key: &'static str,
     value: Value,
-    choices: Vec<(&'static str, Value)>,
+    choices: Vec<(SharedString, Value)>,
+    listed_in_menu: bool,
+}
+
+pub(super) type ListedPreset = (String, SharedString);
+
+pub(super) fn listed_user_presets() -> Vec<ListedPreset> {
+    frameever_rendering::input_presets::presets_dir()
+        .map(|dir| frameever_rendering::input_presets::list(&dir))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|preset| (preset.id, preset.name.into()))
+        .collect()
 }
 
 impl OptionRow {
+    fn chosen(&self) -> Option<usize> {
+        self.choices
+            .iter()
+            .position(|(_, value)| *value == self.value)
+    }
+
+    fn menu_items(&self) -> Vec<ui::MenuItem> {
+        self.choices
+            .iter()
+            .map(|(label, value)| ui::MenuItem::new(label.clone(), *value == self.value))
+            .collect()
+    }
+
     fn save(&self, index: usize) -> bool {
         self.choices.get(index).is_some_and(|(_, value)| {
             store::set_store_setting(store::GENERAL_SETTINGS, self.key, value.clone())
@@ -50,11 +75,11 @@ impl OptionRow {
     }
 }
 
-fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
+fn rows(mode: Mode, settings: &GeneralSettings, user_presets: &[ListedPreset]) -> Vec<OptionRow> {
     let numbers = |items: &[(u32, &'static str)]| {
         items
             .iter()
-            .map(|(value, label)| (*label, Value::from(*value)))
+            .map(|(value, label)| (SharedString::from(*label), Value::from(*value)))
             .collect()
     };
     let mut rows = vec![
@@ -64,10 +89,11 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
                 key: "studioRecordingQuality",
                 value: Value::from(settings.studio_recording_quality.as_json()),
                 choices: vec![
-                    (t!("Smaller files"), Value::from("compatibility")),
-                    (t!("Balanced"), Value::from("balanced")),
-                    (t!("Maximum detail"), Value::from("ultra")),
+                    (t!("Smaller files").into(), Value::from("compatibility")),
+                    (t!("Balanced").into(), Value::from("balanced")),
+                    (t!("Maximum detail").into(), Value::from("ultra")),
                 ],
+                listed_in_menu: false,
             }
         } else {
             OptionRow {
@@ -80,6 +106,7 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
                     (2560, "1440p"),
                     (3840, "4K"),
                 ]),
+                listed_in_menu: false,
             }
         },
         OptionRow {
@@ -87,12 +114,14 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
             key: "maxFps",
             value: Value::from(settings.max_fps),
             choices: numbers(&[(24, "24"), (25, "25"), (30, "30"), (60, "60"), (120, "120")]),
+            listed_in_menu: false,
         },
         OptionRow {
             label: Row::Countdown.label(),
             key: "recordingCountdown",
             value: Value::from(settings.recording_countdown.unwrap_or(0)),
             choices: numbers(&[(0, t!("Off")), (3, "3"), (5, "5"), (10, "10")]),
+            listed_in_menu: false,
         },
     ];
     let toggle = |label, key, value| OptionRow {
@@ -100,9 +129,10 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
         key,
         value: Value::Bool(value),
         choices: vec![
-            (t!("Off"), Value::Bool(false)),
-            (t!("On"), Value::Bool(true)),
+            (t!("Off").into(), Value::Bool(false)),
+            (t!("On").into(), Value::Bool(true)),
         ],
+        listed_in_menu: false,
     };
     if mode == Mode::Studio {
         rows.push(toggle(
@@ -121,6 +151,7 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
         key: "recordingAutoStopMinutes",
         value: Value::from(settings.recording_auto_stop_minutes),
         choices: numbers(&[(0, t!("Off")), (5, "5"), (15, "15"), (30, "30")]),
+        listed_in_menu: false,
     });
     if mode == Mode::Instant {
         rows.push(toggle(
@@ -140,8 +171,14 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
                 value: Value::from(settings.instant_input_preset.as_str()),
                 choices: crate::editor_input_display::INPUT_PRESETS
                     .iter()
-                    .map(|(preset, label)| (tr(*label), Value::from(preset.id())))
+                    .map(|(preset, label)| (tr(label).into(), Value::from(preset.id())))
+                    .chain(
+                        user_presets
+                            .iter()
+                            .map(|(id, name)| (name.clone(), Value::from(id.as_str()))),
+                    )
                     .collect(),
+                listed_in_menu: true,
             });
             rows.push(OptionRow {
                 label: t!("Position"),
@@ -149,8 +186,9 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
                 value: Value::from(settings.instant_input_corner.as_json()),
                 choices: store::InstantInputCorner::ALL
                     .iter()
-                    .map(|corner| (corner.label(), Value::from(corner.as_json())))
+                    .map(|corner| (corner.label().into(), Value::from(corner.as_json())))
                     .collect(),
+                listed_in_menu: false,
             });
         }
     }
@@ -167,6 +205,7 @@ impl MainWindow {
             return false;
         }
         self.recording_options_open = false;
+        self.recording_options_menu = None;
         window.focus(&self.recording_options_trigger, cx);
         cx.notify();
         true
@@ -220,6 +259,8 @@ impl MainWindow {
                 if !this.close_recording_options(window, cx) {
                     this.clear_mode_hover();
                     this.recording_options_open = true;
+                    this.recording_options_menu = None;
+                    this.recording_options_presets = listed_user_presets();
                     this.recording_options_save_failed = false;
                     window.focus(&this.recording_options_focus, cx);
                     cx.notify();
@@ -242,23 +283,51 @@ impl MainWindow {
         }
         let theme = self.theme;
         let settings = GeneralSettings::load();
-        let content = rows(self.mode, &settings).into_iter().map(|row| {
-            let key = row.key;
-            let label = tr(row.label);
-            let options = row
-                .choices
-                .iter()
-                .map(|(label, value)| ui::SegmentOption::new(*label, *value == row.value))
-                .collect();
-            div()
-                .flex()
-                .min_h(px(34.))
-                .flex_shrink_0()
-                .items_center()
-                .gap(px(8.))
-                .px(px(8.))
-                .child(div().flex_1().min_w_0().text_size(px(12.)).child(label))
-                .child(
+        let content = rows(self.mode, &settings, &self.recording_options_presets)
+            .into_iter()
+            .map(|row| {
+                let key = row.key;
+                let label = tr(row.label);
+                let line = div()
+                    .flex()
+                    .min_h(px(34.))
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(8.))
+                    .child(div().flex_1().min_w_0().text_size(px(12.)).child(label));
+                if row.listed_in_menu {
+                    let shown = row
+                        .chosen()
+                        .or((!row.choices.is_empty()).then_some(0))
+                        .map(|index| row.choices[index].0.clone())
+                        .unwrap_or_default();
+                    let items = row.menu_items();
+                    return line.child(
+                        div().min_w_0().max_w(px(200.)).child(
+                            ui::Select::settings(
+                                &theme,
+                                SharedString::from(format!("recording-options-{key}")),
+                                shown,
+                            )
+                            .on_click(cx.listener(
+                                move |this, event: &gpui::ClickEvent, _, cx| {
+                                    this.recording_options_menu =
+                                        Some(ui::MenuState::new(event.position(), &items));
+                                    cx.notify();
+                                },
+                            )),
+                        ),
+                    );
+                }
+                let options = row
+                    .choices
+                    .iter()
+                    .map(|(label, value)| {
+                        ui::SegmentOption::new(label.clone(), *value == row.value)
+                    })
+                    .collect();
+                line.child(
                     ui::SegmentedControl::settings(
                         &theme,
                         SharedString::from(format!("recording-options-{key}")),
@@ -277,7 +346,7 @@ impl MainWindow {
                         },
                     )),
                 )
-        });
+            });
         Some(
             div()
                 .id("recording-options-popover")
@@ -364,6 +433,72 @@ impl MainWindow {
                     })),
                 )
                 .into_any_element(),
+        )
+    }
+
+    fn recording_options_menu_row(&self) -> Option<OptionRow> {
+        rows(
+            self.mode,
+            &GeneralSettings::load(),
+            &self.recording_options_presets,
+        )
+        .into_iter()
+        .find(|row| row.listed_in_menu)
+    }
+
+    fn choose_from_recording_options_menu(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.recording_options_menu = None;
+        if let Some(row) = self.recording_options_menu_row() {
+            self.recording_options_save_failed = !row.save(index);
+            if self.recording_options_save_failed {
+                tracing::warn!(key = row.key, "recording option could not be saved");
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn recording_options_menu_key(&mut self, key: &str, cx: &mut Context<Self>) -> bool {
+        let Some(menu) = self
+            .recording_options_menu
+            .as_mut()
+            .filter(|_| self.recording_options_open)
+        else {
+            return false;
+        };
+        match menu.on_key(key) {
+            ui::MenuKey::Commit(index) => self.choose_from_recording_options_menu(index, cx),
+            ui::MenuKey::Dismiss => self.recording_options_menu = None,
+            ui::MenuKey::Moved => {}
+            ui::MenuKey::Ignored => return false,
+        }
+        cx.notify();
+        true
+    }
+
+    pub(super) fn render_recording_options_menu(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let state = self
+            .recording_options_menu
+            .as_ref()
+            .filter(|_| self.recording_options_open)?;
+        let row = self.recording_options_menu_row()?;
+        Some(
+            ui::Menu::plain(
+                &self.theme,
+                "recording-options-menu",
+                row.menu_items(),
+                state,
+            )
+            .on_select(cx.listener(|this, index: &usize, _, cx| {
+                this.choose_from_recording_options_menu(*index, cx);
+            }))
+            .on_dismiss(cx.listener(|this, _, _, cx| {
+                this.recording_options_menu = None;
+                cx.notify();
+            }))
+            .into_any_element(),
         )
     }
 }
@@ -453,7 +588,7 @@ mod tests {
             Value::from("Keep {date}")
         ));
         let choose = |mode, key, value: Value| {
-            let row = rows(mode, &GeneralSettings::load())
+            let row = rows(mode, &GeneralSettings::load(), &[])
                 .into_iter()
                 .find(|row| row.key == key)
                 .unwrap();
@@ -491,7 +626,7 @@ mod tests {
             "Keep {date}"
         );
         assert!(
-            !rows(Mode::Studio, &GeneralSettings::load())
+            !rows(Mode::Studio, &GeneralSettings::load(), &[])
                 .iter()
                 .any(|row| row.key == "instantClickHighlight")
         );
@@ -501,7 +636,7 @@ mod tests {
     fn show_input_is_an_instant_option_whose_two_choices_appear_once_it_is_on() {
         let _store = TestStore::new();
         let keys = |mode| -> Vec<&'static str> {
-            rows(mode, &GeneralSettings::load())
+            rows(mode, &GeneralSettings::load(), &[])
                 .into_iter()
                 .map(|row| row.key)
                 .filter(|key| {
@@ -510,7 +645,7 @@ mod tests {
                 .collect()
         };
         let choose = |key, value: Value| {
-            let row = rows(Mode::Instant, &GeneralSettings::load())
+            let row = rows(Mode::Instant, &GeneralSettings::load(), &[])
                 .into_iter()
                 .find(|row| row.key == key)
                 .unwrap();
@@ -534,7 +669,12 @@ mod tests {
             ]
         );
         assert!(keys(Mode::Studio).is_empty());
-        let corners = rows(Mode::Instant, &GeneralSettings::load())
+        let presets = rows(Mode::Instant, &GeneralSettings::load(), &[])
+            .into_iter()
+            .find(|row| row.key == "instantInputPreset")
+            .unwrap();
+        assert!(presets.listed_in_menu);
+        let corners = rows(Mode::Instant, &GeneralSettings::load(), &[])
             .into_iter()
             .find(|row| row.key == "instantInputCorner")
             .unwrap();
@@ -554,9 +694,68 @@ mod tests {
     }
 
     #[test]
+    fn the_instant_preset_row_offers_presets_the_person_made_or_imported() {
+        let _store = TestStore::new();
+        assert!(store::set_store_setting(
+            store::GENERAL_SETTINGS,
+            "instantShowInput",
+            Value::Bool(true)
+        ));
+        let user = [
+            ("user:p-1".to_string(), SharedString::from("Speedrun")),
+            ("user:p-2".to_string(), SharedString::from("Pixel pad")),
+        ];
+        let row = || {
+            rows(Mode::Instant, &GeneralSettings::load(), &user)
+                .into_iter()
+                .find(|row| row.key == "instantInputPreset")
+                .unwrap()
+        };
+        let listed = |row: &OptionRow| {
+            row.choices
+                .iter()
+                .map(|(label, value)| (label.to_string(), value.as_str().unwrap().to_string()))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            listed(&row())[3..],
+            [
+                ("Speedrun".to_string(), "user:p-1".to_string()),
+                ("Pixel pad".to_string(), "user:p-2".to_string())
+            ]
+        );
+        assert_eq!(
+            listed(&row())[..3]
+                .iter()
+                .map(|(_, id)| id.as_str())
+                .collect::<Vec<_>>(),
+            ["wasd-mouse", "full-keyboard", "gamepad"]
+        );
+        assert_eq!(row().chosen(), Some(0));
+        assert!(row().save(4));
+        assert_eq!(row().chosen(), Some(4));
+        assert_eq!(
+            GeneralSettings::load()
+                .instant_input_display()
+                .unwrap()
+                .preset,
+            "user:p-2"
+        );
+        assert_eq!(
+            row()
+                .menu_items()
+                .iter()
+                .map(|item| item.checked)
+                .collect::<Vec<_>>(),
+            [false, false, false, false, true]
+        );
+    }
+
+    #[test]
     fn recording_options_keep_the_file_when_saving_fails() {
         let fixture = TestStore::new();
-        let row = rows(Mode::Studio, &GeneralSettings::load()).remove(0);
+        let row = rows(Mode::Studio, &GeneralSettings::load(), &[]).remove(0);
         std::fs::write(fixture.0.path().join("store"), b"invalid json").unwrap();
         assert!(!row.save(0));
         assert!(!row.save(usize::MAX));

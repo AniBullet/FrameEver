@@ -827,6 +827,8 @@ pub struct MainWindow {
     mode: Mode,
     recording_options_open: bool,
     recording_options_save_failed: bool,
+    recording_options_presets: Vec<recording_options::ListedPreset>,
+    recording_options_menu: Option<ui::MenuState>,
     recording_options_trigger: FocusHandle,
     recording_options_focus: FocusHandle,
     mode_hover: ModeHoverState,
@@ -1110,6 +1112,8 @@ impl MainWindow {
             mode: Mode::from_store(),
             recording_options_open: false,
             recording_options_save_failed: false,
+            recording_options_presets: Vec::new(),
+            recording_options_menu: None,
             recording_options_trigger: cx.focus_handle().tab_stop(true).tab_index(0),
             recording_options_focus: cx.focus_handle(),
             mode_hover: ModeHoverState::default(),
@@ -2959,6 +2963,7 @@ impl Render for MainWindow {
             )
             .children(self.render_mode_hover(cx))
             .children(self.render_recording_options(cx))
+            .children(self.render_recording_options_menu(cx))
             .when(
                 // The controls bar owns the live-recording UI; this overlay is
                 // the fallback for when the bar window failed to open.
@@ -2995,6 +3000,10 @@ impl Render for MainWindow {
             })
             .children(self.palette.view())
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.recording_options_menu_key(&event.keystroke.key, cx) {
+                    cx.stop_propagation();
+                    return;
+                }
                 if event.keystroke.key == "escape" && this.dismiss_main(false, window, cx) {
                     cx.stop_propagation();
                 }
