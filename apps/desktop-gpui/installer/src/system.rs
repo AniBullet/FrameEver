@@ -39,7 +39,10 @@ pub fn this_machine(app_data: PathBuf) -> System {
     System {
         volume: Box::new(|path: &Path| drive_letter(path).map(|letter| format!("{letter}:"))),
         free_space: Box::new(free_space),
-        holders: Box::new(holders),
+        holders: Box::new(|dir: &Path| {
+            end_idle_mcp_servers(dir);
+            holders(dir)
+        }),
         app: Box::new(move || app_state(&for_app)),
         writable: Box::new(frameever_installer_app::location::writable),
     }
@@ -107,6 +110,28 @@ fn is_frameever_image(path: &Path) -> bool {
                 .iter()
                 .any(|image| name.eq_ignore_ascii_case(image))
         })
+}
+
+fn end_idle_mcp_servers(dir: &Path) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const SCRIPT: &str = r"$cli = Join-Path $env:FRAMEEVER_INSTALL_DIR 'frameever-cli.exe'; Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'frameever-cli.exe' -and $_.ExecutablePath -eq $cli -and $_.CommandLine -match '\smcp\s+serve(\s|$)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Wait-Process -Id $_.ProcessId -Timeout 5 -ErrorAction SilentlyContinue }";
+    if !dir.join("frameever-cli.exe").is_file() {
+        return;
+    }
+    let status = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            SCRIPT,
+        ])
+        .env("FRAMEEVER_INSTALL_DIR", dir)
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+    crate::runner::log(format_args!("ending idle MCP servers: {status:?}"));
 }
 
 fn holders(dir: &Path) -> Vec<Holder> {

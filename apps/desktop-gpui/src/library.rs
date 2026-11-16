@@ -1016,11 +1016,63 @@ pub fn delete_recording_directory_in(dirs: &[PathBuf], path: &Path) -> Result<()
     player::release(path);
     if let Some(canonical_path) = deletable_project(dirs, path)? {
         let _thumbnails = hold_thumbnail_writes()?;
-        std::fs::remove_dir_all(canonical_path)
+        remove_project_whole(&canonical_path)
             .map_err(|error| t!("Failed to delete recording: {error}", error = error))?;
     }
 
     Ok(())
+}
+
+fn remove_project_whole(project: &Path) -> std::io::Result<()> {
+    let name = project
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("the project has no folder name"))?;
+    let mut staged_name = std::ffi::OsString::from(".");
+    staged_name.push(name);
+    staged_name.push(".deleting");
+    let staged = project.with_file_name(staged_name);
+    match std::fs::rename(project, &staged) {
+        Ok(()) => std::fs::remove_dir_all(&staged).inspect_err(|_| {
+            if let Err(error) = std::fs::rename(&staged, project) {
+                tracing::error!(path = %staged.display(), %error, "a half-deleted project could not be put back");
+            }
+        }),
+        Err(error) if every_file_is_deletable(project) => {
+            tracing::info!(path = %project.display(), %error, "removing the project in place");
+            std::fs::remove_dir_all(project)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(windows)]
+fn every_file_is_deletable(project: &Path) -> bool {
+    use std::os::windows::fs::OpenOptionsExt;
+    const DELETE: u32 = 0x0001_0000;
+    const SHARE_ALL: u32 = 0x7;
+    let Ok(entries) = std::fs::read_dir(project) else {
+        return false;
+    };
+    entries.into_iter().all(|entry| {
+        let Ok(entry) = entry else {
+            return false;
+        };
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => every_file_is_deletable(&path),
+            Ok(_) => std::fs::OpenOptions::new()
+                .access_mode(DELETE)
+                .share_mode(SHARE_ALL)
+                .open(&path)
+                .is_ok(),
+            Err(_) => false,
+        }
+    })
+}
+
+#[cfg(not(windows))]
+fn every_file_is_deletable(_project: &Path) -> bool {
+    false
 }
 
 pub fn recycle_project_in(dirs: &[PathBuf], path: &Path) -> Result<Option<Deleted>, String> {
@@ -3549,6 +3601,53 @@ mod tests {
         assert!(is_screenshot_project(&screenshot));
         assert!(!is_screenshot_project(&recording));
         assert!(!is_screenshot_project(&root.path().join("Missing.ever")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_recording_with_a_file_still_held_open_is_deleted_whole_or_not_at_all() {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 1;
+        let root = temp_dir("delete-unit");
+        let recordings = root.join("recordings");
+        std::fs::create_dir_all(&recordings).unwrap();
+        let dirs = vec![recordings.clone()];
+        let bundle = write_studio_bundle(&recordings, "held", 1);
+        std::fs::write(bundle.join("a-first.json"), b"{}").unwrap();
+        let held = bundle.join("z-last.mp4");
+        std::fs::write(&held, b"video").unwrap();
+        let before = std::fs::read_dir(&bundle).unwrap().count();
+        let handle = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(&held)
+            .unwrap();
+        assert!(delete_recording_directory_in(&dirs, &bundle).is_err());
+        assert!(bundle.join("a-first.json").is_file());
+        assert_eq!(std::fs::read_dir(&bundle).unwrap().count(), before);
+        assert_eq!(std::fs::read_dir(&recordings).unwrap().count(), 1);
+        drop(handle);
+        delete_recording_directory_in(&dirs, &bundle).unwrap();
+        assert!(!bundle.exists());
+        assert_eq!(std::fs::read_dir(&recordings).unwrap().count(), 0);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_recording_held_open_by_a_reader_that_allows_deletion_is_still_deleted() {
+        let root = temp_dir("delete-shared");
+        let recordings = root.join("recordings");
+        std::fs::create_dir_all(&recordings).unwrap();
+        let dirs = vec![recordings.clone()];
+        let bundle = write_studio_bundle(&recordings, "shared", 1);
+        let held = bundle.join("output.mp4");
+        std::fs::write(&held, b"video").unwrap();
+        let reader = std::fs::File::open(&held).unwrap();
+        delete_recording_directory_in(&dirs, &bundle).unwrap();
+        drop(reader);
+        assert!(!bundle.exists());
+        assert_eq!(std::fs::read_dir(&recordings).unwrap().count(), 0);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// The three `delete_recording_directory` guards, one test each.

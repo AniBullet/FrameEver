@@ -873,8 +873,27 @@ pub fn available_recording_storage()
 }
 
 pub(crate) fn ensure_finalization_storage(project_path: &std::path::Path) -> anyhow::Result<()> {
-    let storage = frameever_utils::disk_space::recording_storage(project_path)
-        .context("checking storage before saving the recording")?;
+    finalization_storage_verdict(
+        project_path,
+        frameever_utils::disk_space::recording_storage(project_path),
+    )
+}
+
+fn finalization_storage_verdict(
+    project_path: &std::path::Path,
+    storage: std::io::Result<frameever_utils::disk_space::RecordingStorage>,
+) -> anyhow::Result<()> {
+    let storage = match storage {
+        Ok(storage) => storage,
+        Err(error) => {
+            tracing::warn!(
+                path = %project_path.display(),
+                %error,
+                "Could not check storage before saving the recording; saving without the check"
+            );
+            return Ok(());
+        }
+    };
     if !storage.can_finalize() {
         return Err(anyhow!(t!(
             "Low storage. Your recording files are preserved at {path}. Free up space, then recover the recording in FrameEver.",
@@ -2743,6 +2762,43 @@ mod tests {
                 Value::String(json.to_string())
             );
         }
+    }
+
+    #[test]
+    fn a_storage_check_that_cannot_run_does_not_block_the_save() {
+        let directory = tempfile::tempdir().unwrap();
+        finalization_storage_verdict(
+            directory.path(),
+            Err(std::io::Error::other(
+                "The system cannot find the path specified. (0x80070003)",
+            )),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_measured_storage_shortage_still_refuses_the_save() {
+        use frameever_utils::disk_space::{RECORDING_DISK_RESERVE_BYTES, RecordingStorage};
+        let directory = tempfile::tempdir().unwrap();
+        let recording_bytes = 1024 * 1024 * 1024;
+        let needed = recording_bytes * 3 + RECORDING_DISK_RESERVE_BYTES / 2;
+        let error = finalization_storage_verdict(
+            directory.path(),
+            Ok(RecordingStorage {
+                available_bytes: needed,
+                recording_bytes,
+            }),
+        )
+        .unwrap_err();
+        assert!(error.to_string().starts_with("Low storage."), "{error}");
+        finalization_storage_verdict(
+            directory.path(),
+            Ok(RecordingStorage {
+                available_bytes: needed + 1,
+                recording_bytes,
+            }),
+        )
+        .unwrap();
     }
 }
 

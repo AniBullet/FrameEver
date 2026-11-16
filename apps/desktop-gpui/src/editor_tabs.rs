@@ -504,8 +504,16 @@ pub fn caption_at_default_center(settings: &CaptionSettings) -> bool {
 fn caption_reason_customises_style(reason: &str) -> bool {
     !matches!(
         reason,
-        "caption-enabled" | "caption-export" | "caption-position" | "caption-placement"
+        "caption-enabled"
+            | "caption-export"
+            | "caption-position"
+            | "caption-placement"
+            | "caption-filler-words"
     )
+}
+
+fn filler_word_toggle_shown(settings: &CaptionSettings) -> bool {
+    matches!(settings.filler_language.as_deref(), Some("en" | "zh"))
 }
 
 pub fn set_caption_manual_center(settings: &mut CaptionSettings, x: Option<f32>, y: Option<f32>) {
@@ -2919,7 +2927,21 @@ impl EditorWindow {
                     ),
                 )),
             )
-            .child(div().pt(px(8.)).child(action));
+            .child(div().pt(px(8.)).child(action))
+            .children(filler_word_toggle_shown(&settings).then(|| {
+                ui::Subfield::plain(&theme, t!("Show filler words")).child(
+                    ui::Toggle::plain(&theme, "caption-filler-words", settings.show_filler_words)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let next = !caption_settings(&this.project).show_filler_words;
+                            this.set_caption_setting(
+                                "caption-filler-words",
+                                window,
+                                cx,
+                                move |settings| settings.show_filler_words = next,
+                            );
+                        })),
+                )
+            }));
 
         let style = div()
             .flex()
@@ -3796,6 +3818,21 @@ mod tests {
             preset.manual_position.map(|xy| (xy.x, xy.y)),
             Some((0.95, 0.5))
         );
+    }
+
+    #[test]
+    fn showing_filler_words_keeps_the_style_preset_and_needs_a_known_language() {
+        assert!(!caption_reason_customises_style("caption-filler-words"));
+        let shown = |language: Option<&str>| {
+            filler_word_toggle_shown(&CaptionSettings {
+                filler_language: language.map(str::to_string),
+                ..CaptionSettings::default()
+            })
+        };
+        assert!(shown(Some("en")));
+        assert!(shown(Some("zh")));
+        assert!(!shown(Some("de")));
+        assert!(!shown(None));
     }
 
     #[test]

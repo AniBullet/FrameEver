@@ -40,7 +40,9 @@ use frameever_editor::{
 use frameever_project::{
     CaptionSegment, CaptionSettings, CaptionTrackSegment, CaptionWord, CaptionsData,
     ProjectConfiguration, RecordingMeta, StudioRecordingMeta, TimelineConfiguration,
-    TimelineSegment, caption_text_from_words, is_cjk, is_cjk_punctuation,
+    TimelineSegment, caption_text_from_words,
+    filler_words::{self, filler_language},
+    is_cjk, is_cjk_punctuation,
 };
 use frameever_rendering::Video;
 
@@ -58,6 +60,8 @@ use whisper_rs::{
 };
 
 use crate::{editor_timeline::clip_timeline_offsets, store};
+
+mod verbatim;
 
 // ---------------------------------------------------------------------------
 // Model catalogue & shared paths
@@ -1417,6 +1421,9 @@ fn write_wav_16k_mono(mixed_samples: &[f32], output_path: &Path) -> Result<(), S
 // Whisper
 // ---------------------------------------------------------------------------
 
+const ENGLISH_VERBATIM_PROMPT: &str = "So, um, I think, uh, we should start.";
+const CHINESE_VERBATIM_PROMPT: &str = "那我觉得，嗯，我们先，呃，开始吧。";
+
 /// `build_initial_prompt` (`captions.rs:1181-1200`).
 fn build_initial_prompt(language: &str, transcription_hints: &[String]) -> Option<String> {
     let mut normalized = Vec::new();
@@ -1434,14 +1441,19 @@ fn build_initial_prompt(language: &str, transcription_hints: &[String]) -> Optio
         if !normalized.is_empty() {
             prompt.push_str(&format!("专有名词：{}。", normalized.join("、")));
         }
-        Some(prompt)
-    } else if normalized.is_empty() {
-        None
-    } else {
-        Some(format!(
+        prompt.push_str(CHINESE_VERBATIM_PROMPT);
+        return Some(prompt);
+    }
+    let hints = (!normalized.is_empty()).then(|| {
+        format!(
             "Preferred spellings, names, and capitalization for this transcript: {}",
             normalized.join("; ")
-        ))
+        )
+    });
+    match (hints, language == "en") {
+        (Some(hints), true) => Some(format!("{hints}. {ENGLISH_VERBATIM_PROMPT}")),
+        (None, true) => Some(ENGLISH_VERBATIM_PROMPT.to_string()),
+        (hints, false) => hints,
     }
 }
 
@@ -1610,7 +1622,7 @@ fn process_with_whisper(
     context: Arc<WhisperContext>,
     language: &str,
     transcription_hints: &[String],
-) -> Result<Vec<CaptionSegment>, String> {
+) -> Result<HeardWords, String> {
     let mut params = FullParams::new(SamplingStrategy::BeamSearch {
         beam_size: 5,
         patience: 1.0,
@@ -1654,17 +1666,12 @@ fn process_with_whisper(
 
     let num_segments = state.full_n_segments();
 
-    let mut segments = Vec::new();
+    let mut groups = Vec::new();
 
     for i in 0..num_segments {
         let segment = state
             .get_segment(i)
             .ok_or_else(|| format!("Whisper segment {i} is out of range"))?;
-        let start_i64 = segment.start_timestamp();
-        let end_i64 = segment.end_timestamp();
-
-        let start_time = (start_i64 as f32) / 100.0;
-        let end_time = (end_i64 as f32) / 100.0;
 
         let tokens = (0..segment.n_tokens())
             .filter_map(|t| segment.get_token(t))
@@ -1674,35 +1681,21 @@ fn process_with_whisper(
                 Some((bytes, data.t0 as f32 / 100.0, data.t1 as f32 / 100.0))
             });
         let words = normalize_caption_words(whisper_words(tokens));
-        if words.is_empty() {
-            continue;
-        }
-
-        for (chunk_idx, chunk_words) in caption_word_chunks(&words).into_iter().enumerate() {
-            let segment_text = caption_text_from_words(chunk_words);
-            let segment_start = chunk_words
-                .first()
-                .map(|word| word.start)
-                .unwrap_or(start_time);
-            let segment_end = chunk_words.last().map(|word| word.end).unwrap_or(end_time);
-
-            segments.push(CaptionSegment {
-                id: format!("segment-{i}-{chunk_idx}"),
-                start: segment_start,
-                end: segment_end,
-                text: segment_text,
-                words: chunk_words.to_vec(),
-            });
+        if !words.is_empty() {
+            groups.push(words);
         }
     }
 
     tracing::info!(
-        "Whisper produced {} caption segments ({} words)",
-        segments.len(),
-        segments.iter().map(|s| s.words.len()).sum::<usize>()
+        "Whisper produced {} segments ({} words)",
+        groups.len(),
+        groups.iter().map(Vec::len).sum::<usize>()
     );
 
-    Ok(segments)
+    Ok(HeardWords {
+        groups,
+        samples: audio_data_f32,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1743,10 +1736,7 @@ fn parakeet_chunk_ranges(samples: &[f32], sample_rate: usize) -> Vec<std::ops::R
 
 /// `process_with_parakeet` (`captions.rs:1202-1302`).
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
-fn process_with_parakeet(
-    audio_path: &Path,
-    model_dir: &str,
-) -> Result<Vec<CaptionSegment>, String> {
+fn process_with_parakeet(audio_path: &Path, model_dir: &str) -> Result<HeardWords, String> {
     let cached_model = {
         let guard = PARAKEET_CONTEXT
             .lock()
@@ -1806,7 +1796,7 @@ fn process_with_parakeet(
         return Err(no_speech_error());
     }
 
-    let mut tokens = Vec::new();
+    let mut words = Vec::new();
     {
         let mut parakeet = model_arc
             .lock()
@@ -1818,25 +1808,28 @@ fn process_with_parakeet(
                     samples[range].to_vec(),
                     sample_rate,
                     1,
-                    Some(TimestampMode::Words),
+                    Some(TimestampMode::Tokens),
                 )
                 .map_err(|e| format!("Parakeet transcription failed: {e}"))?;
-            tokens.extend(result.tokens.into_iter().map(|token| CaptionWord {
-                text: token.text,
-                start: token.start + offset,
-                end: token.end + offset,
-            }));
+            words.extend(verbatim::words_from_subword_tokens(
+                result.tokens.into_iter().map(|token| CaptionWord {
+                    text: token.text,
+                    start: token.start + offset,
+                    end: token.end + offset,
+                }),
+            ));
         }
     }
 
-    tracing::info!("Parakeet produced {} timed tokens", tokens.len());
+    tracing::info!("Parakeet produced {} words", words.len());
 
-    caption_segments_from_tokens(tokens)
+    Ok(HeardWords {
+        groups: vec![normalize_caption_words(words)],
+        samples,
+    })
 }
 
-/// Parakeet's timed word tokens -> caption segments: drop empty tokens,
-/// normalize the words and chunk them.
-#[cfg(any(test, not(all(target_os = "macos", target_arch = "x86_64"))))]
+#[cfg(test)]
 fn caption_segments_from_tokens(
     tokens: impl IntoIterator<Item = CaptionWord>,
 ) -> Result<Vec<CaptionSegment>, String> {
@@ -1844,37 +1837,55 @@ fn caption_segments_from_tokens(
         tokens
             .into_iter()
             .filter(|token| !token.text.trim().is_empty())
-            .map(|token| CaptionWord {
-                text: token.text.trim().to_string(),
-                start: token.start,
-                end: token.end,
-            })
             .collect(),
     );
-
     if words.is_empty() {
         return Err(no_speech_error());
     }
+    Ok(caption_segments_from_groups(vec![words]))
+}
 
+struct HeardWords {
+    groups: Vec<Vec<CaptionWord>>,
+    samples: Vec<f32>,
+}
+
+fn caption_segments_from_groups(groups: Vec<Vec<CaptionWord>>) -> Vec<CaptionSegment> {
+    let groups: Vec<Vec<CaptionWord>> = groups
+        .into_iter()
+        .filter(|group| !group.is_empty())
+        .collect();
+    let single = groups.len() == 1;
+    let skips_hesitations = filler_language(&groups.concat()).is_some();
     let mut segments = Vec::new();
-    for (chunk_idx, chunk) in caption_word_chunks(&words).into_iter().enumerate() {
-        segments.push(CaptionSegment {
-            id: format!("segment-{chunk_idx}"),
-            start: chunk.first().map_or(0.0, |word| word.start),
-            end: chunk.last().map_or(0.0, |word| word.end),
-            text: caption_text_from_words(chunk),
-            words: chunk.to_vec(),
-        });
+    for (group_index, words) in groups.iter().enumerate() {
+        let hesitations = if skips_hesitations {
+            filler_words::hesitations(words)
+        } else {
+            vec![false; words.len()]
+        };
+        for (chunk_index, chunk) in caption_word_chunks_counting(words, &hesitations)
+            .into_iter()
+            .enumerate()
+        {
+            segments.push(CaptionSegment {
+                id: if single {
+                    format!("segment-{chunk_index}")
+                } else {
+                    format!("segment-{group_index}-{chunk_index}")
+                },
+                start: chunk.first().map_or(0.0, |word| word.start),
+                end: chunk.last().map_or(0.0, |word| word.end),
+                text: caption_text_from_words(chunk),
+                words: chunk.to_vec(),
+            });
+        }
     }
-
-    Ok(segments)
+    segments
 }
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-fn process_with_parakeet(
-    _audio_path: &Path,
-    _model_dir: &str,
-) -> Result<Vec<CaptionSegment>, String> {
+fn process_with_parakeet(_audio_path: &Path, _model_dir: &str) -> Result<HeardWords, String> {
     Err(PARAKEET_UNSUPPORTED_MESSAGE.to_string())
 }
 
@@ -1935,6 +1946,13 @@ pub fn transcribe_blocking(
             release_whisper_context_after_transcription();
             result
         }
+        .map(|heard| {
+            caption_segments_from_groups(verbatim::finish_word_timings(
+                heard.groups,
+                &heard.samples,
+                WHISPER_SAMPLE_RATE,
+            ))
+        })
     })
 }
 
@@ -2100,35 +2118,65 @@ fn normalize_caption_words(words: Vec<CaptionWord>) -> Vec<CaptionWord> {
     normalized
 }
 
-/// `caption_word_chunks` (`captions.rs:851-883`).
+#[cfg(test)]
 fn caption_word_chunks(words: &[CaptionWord]) -> Vec<&[CaptionWord]> {
+    caption_word_chunks_counting(words, &vec![false; words.len()])
+}
+
+fn caption_word_chunks_counting<'a>(
+    words: &'a [CaptionWord],
+    uncounted: &[bool],
+) -> Vec<&'a [CaptionWord]> {
+    let mut counted: Vec<usize> = (0..words.len())
+        .filter(|&index| !uncounted[index])
+        .collect();
+    if counted.is_empty() {
+        counted = (0..words.len()).collect();
+    }
+    let spans = chunk_spans(counted.len(), |index| {
+        caption_boundary_word_is_weak(&words[counted[index]])
+    });
+    let last = spans.len().saturating_sub(1);
+    let mut start = 0;
+    spans
+        .into_iter()
+        .enumerate()
+        .map(|(chunk, range)| {
+            let end = if chunk == last {
+                words.len()
+            } else {
+                counted[range.end - 1] + 1
+            };
+            let slice = &words[start..end];
+            start = end;
+            slice
+        })
+        .collect()
+}
+
+/// `caption_word_chunks` (`captions.rs:851-883`).
+fn chunk_spans(len: usize, weak: impl Fn(usize) -> bool) -> Vec<std::ops::Range<usize>> {
     let mut chunks = Vec::new();
     let mut start = 0;
 
-    while start < words.len() {
-        let remaining = words.len() - start;
+    while start < len {
+        let remaining = len - start;
         if remaining <= TARGET_CAPTION_WORDS_PER_SEGMENT {
-            chunks.push(&words[start..]);
+            chunks.push(start..len);
             break;
         }
 
-        let mut end = (start + TARGET_CAPTION_WORDS_PER_SEGMENT).min(words.len());
-        while end < words.len()
-            && caption_boundary_word_is_weak(&words[end - 1])
-            && end - start < MAX_CAPTION_WORDS_PER_SEGMENT
-        {
+        let mut end = (start + TARGET_CAPTION_WORDS_PER_SEGMENT).min(len);
+        while end < len && weak(end - 1) && end - start < MAX_CAPTION_WORDS_PER_SEGMENT {
             end += 1;
         }
 
-        let remaining_after = words.len() - end;
-        if remaining_after > 0
-            && remaining_after < MIN_FINAL_CAPTION_WORDS
-            && caption_boundary_word_is_weak(&words[end])
-        {
-            end = words.len();
+        let remaining_after = len - end;
+        if remaining_after > 0 && remaining_after < MIN_FINAL_CAPTION_WORDS && weak(end) {
+            end = len;
         }
 
-        chunks.push(&words[start..end]);
+        chunks.push(start..end);
         start = end;
     }
 
@@ -2346,8 +2394,13 @@ pub fn apply_caption_result(
     recording_durations: &[f64],
     recording_duration: f64,
 ) {
+    let words: Vec<CaptionWord> = segments
+        .iter()
+        .flat_map(|segment| segment.words.iter().cloned())
+        .collect();
     let settings = CaptionSettings {
         enabled: true,
+        filler_language: filler_language(&words).map(str::to_string),
         ..project
             .captions
             .as_ref()
@@ -2663,8 +2716,8 @@ mod tests {
         let result = process_with_parakeet(&wav, &model);
         let seconds = started.elapsed().as_secs_f64();
         match result {
-            Ok(segments) => {
-                let words: Vec<&CaptionWord> = segments.iter().flat_map(|s| &s.words).collect();
+            Ok(heard) => {
+                let words: Vec<&CaptionWord> = heard.groups.iter().flatten().collect();
                 println!("parakeet_seconds={seconds:.2} words={}", words.len());
                 if let Ok(path) = std::env::var("FRAMEEVER_PARAKEET_BENCH_WORDS") {
                     let dump: String = words
@@ -2882,19 +2935,158 @@ mod tests {
         ];
         assert_eq!(
             build_initial_prompt("zh", &hints).as_deref(),
-            Some("以下是普通话的句子，使用简体中文和标点符号。专有名词：帧刻、FrameEver。")
+            Some(
+                "以下是普通话的句子，使用简体中文和标点符号。专有名词：帧刻、FrameEver。那我觉得，嗯，我们先，呃，开始吧。"
+            )
         );
         assert_eq!(
             build_initial_prompt("zh", &[]).as_deref(),
-            Some("以下是普通话的句子，使用简体中文和标点符号。")
+            Some("以下是普通话的句子，使用简体中文和标点符号。那我觉得，嗯，我们先，呃，开始吧。")
         );
+    }
+
+    #[test]
+    fn english_whisper_prompt_keeps_filler_words_after_the_hints() {
+        let hints = ["帧刻".to_string(), "FrameEver".to_string()];
         assert_eq!(
             build_initial_prompt("en", &hints).as_deref(),
+            Some(
+                "Preferred spellings, names, and capitalization for this transcript: 帧刻; FrameEver. So, um, I think, uh, we should start."
+            )
+        );
+        assert_eq!(
+            build_initial_prompt("en", &[]).as_deref(),
+            Some("So, um, I think, uh, we should start.")
+        );
+        assert_eq!(
+            build_initial_prompt("de", &hints).as_deref(),
             Some(
                 "Preferred spellings, names, and capitalization for this transcript: 帧刻; FrameEver"
             )
         );
         assert_eq!(build_initial_prompt("auto", &[]), None);
+    }
+
+    fn spoken(texts: &[&str]) -> Vec<CaptionWord> {
+        texts
+            .iter()
+            .enumerate()
+            .map(|(index, text)| word(text, index))
+            .collect()
+    }
+
+    fn segment_texts(segments: &[CaptionSegment]) -> Vec<Vec<&str>> {
+        segments
+            .iter()
+            .map(|segment| {
+                segment
+                    .words
+                    .iter()
+                    .map(|word| word.text.as_str())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn english_captions_do_not_count_hesitations() {
+        let verbatim = spoken(&[
+            "So,",
+            "um,",
+            "I",
+            "think",
+            "we",
+            "should,",
+            "uh,",
+            "start",
+            "with",
+            "the",
+            "dashboard",
+            "today",
+            "please",
+            "now",
+        ]);
+        let segments = caption_segments_from_groups(vec![verbatim]);
+        assert_eq!(
+            segment_texts(&segments),
+            vec![
+                vec!["So,", "um,", "I", "think", "we", "should,", "uh,", "start"],
+                vec!["with", "the", "dashboard", "today", "please", "now"],
+            ]
+        );
+        assert_eq!(segments[0].id, "segment-0");
+        assert_eq!(segments[1].id, "segment-1");
+    }
+
+    #[test]
+    fn chinese_captions_do_not_count_hesitations() {
+        let verbatim = spoken(&[
+            "嗯，", "我们", "觉得", "呃", "应该", "先做", "这个", "功能", "然后", "再来", "发布",
+            "一下",
+        ]);
+        let segments = caption_segments_from_groups(vec![verbatim]);
+        assert_eq!(
+            segment_texts(&segments),
+            vec![
+                vec!["嗯，", "我们", "觉得", "呃", "应该", "先做", "这个", "功能"],
+                vec!["然后", "再来", "发布", "一下"],
+            ]
+        );
+    }
+
+    #[test]
+    fn captions_in_other_languages_count_every_word() {
+        let german = spoken(&[
+            "Er", "kommt", "um", "acht", "und", "bleibt", "bis", "zehn", "Uhr", "heute",
+        ]);
+        let segments = caption_segments_from_groups(vec![german]);
+        assert_eq!(segments[0].words.len(), 6);
+    }
+
+    #[test]
+    fn caption_groups_never_share_a_caption() {
+        let segments = caption_segments_from_groups(vec![
+            spoken(&["Hello", "there"]),
+            Vec::new(),
+            spoken(&["we", "ship", "today"]),
+        ]);
+        assert_eq!(
+            segment_texts(&segments),
+            vec![vec!["Hello", "there"], vec!["we", "ship", "today"]]
+        );
+        assert_eq!(segments[0].id, "segment-0-0");
+        assert_eq!(segments[1].id, "segment-1-0");
+    }
+
+    #[test]
+    fn applied_captions_remember_the_transcript_language() {
+        let caption = |texts: &[&str]| CaptionSegment {
+            id: "segment-0".into(),
+            start: 0.0,
+            end: texts.len() as f32 * 0.5,
+            text: texts.join(" "),
+            words: spoken(texts),
+        };
+        for (texts, expected) in [
+            (
+                &["so", "I", "think", "we", "ship", "the", "app"][..],
+                Some("en"),
+            ),
+            (&["嗯，", "我们", "开始"][..], Some("zh")),
+            (&["Er", "kommt", "um", "acht"][..], None),
+        ] {
+            let mut project = ProjectConfiguration::default();
+            apply_caption_result(&mut project, vec![caption(texts)], &[5.0], 5.0);
+            assert_eq!(
+                project
+                    .captions
+                    .unwrap()
+                    .settings
+                    .filler_language
+                    .as_deref(),
+                expected
+            );
+        }
     }
 
     #[test]
