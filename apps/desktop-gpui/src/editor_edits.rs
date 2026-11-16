@@ -833,6 +833,8 @@ macro_rules! with_track {
     };
 }
 
+mod range_cut;
+pub use range_cut::*;
 mod segment_copy;
 pub use segment_copy::*;
 

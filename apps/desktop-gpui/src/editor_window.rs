@@ -818,8 +818,7 @@ impl Render for EditorSectionView {
                             LoadState::Failed(_)
                         ));
                     }
-                    let sidebar = editor
-                        .with_style_controls(|editor| editor.render_sidebar(cx).into_any_element());
+                    let sidebar = editor.render_side_panel(window, cx);
                     loading::reveal(
                         "editor-sidebar-ready",
                         sidebar,
@@ -1534,7 +1533,7 @@ pub struct EditorWindow {
     clip_anim_generation: u64,
     /// `editorInstance.recordings.segments[i].display.duration`, which the clip
     /// trim clamps read (`TL/ClipTrack.tsx:1160-1162`).
-    clip_display_durations: Vec<f64>,
+    pub(crate) clip_display_durations: Vec<f64>,
     chapter_marks: crate::editor_chapter_marks::ChapterMarks,
     chapter_marks_panel: Option<chapter_marks::ChapterMarksPanel>,
     chapter_mark_name_input: Entity<ui::TextInputState>,
@@ -1659,6 +1658,8 @@ pub struct EditorWindow {
     /// The Clips layout mode (`ClipsSidebar.tsx`): while open, the config
     /// sidebar's column draws the clips sidebar instead.
     pub(crate) clips: crate::editor_clips::ClipsState,
+    pub(crate) transcript: crate::transcript::TranscriptState,
+    pub(crate) panel_window: gpui::AnyWindowHandle,
 }
 
 struct PresetsMenu {
@@ -2232,6 +2233,8 @@ impl EditorWindow {
             caption_sync_signature: None,
             export: None,
             clips: crate::editor_clips::ClipsState::default(),
+            transcript: crate::transcript::TranscriptState::new(cx.focus_handle()),
+            panel_window: window.window_handle(),
         }
     }
 
@@ -2532,7 +2535,7 @@ impl EditorWindow {
         )
     }
 
-    fn edit_timeline_project(
+    pub(crate) fn edit_timeline_project(
         &mut self,
         change: impl FnOnce(&mut ProjectConfiguration) -> bool,
         window: &mut Window,
@@ -2553,7 +2556,7 @@ impl EditorWindow {
     /// `note_transform` exists: a drag's arithmetic is only checkable end to
     /// end if the numbers come out of the running app. Intermediate drag
     /// frames log at `debug`; the line below is the settled one.
-    fn note_edit(&self, reason: &'static str, track: Option<TrackKind>) {
+    pub(crate) fn note_edit(&self, reason: &'static str, track: Option<TrackKind>) {
         let timeline = self.project.timeline.as_ref();
         // The affected track's boxes, four decimals, so a scripted drag's
         // predicted seconds can be checked against what actually landed.
@@ -3243,6 +3246,7 @@ impl EditorWindow {
 
         self.last_playhead_redraw = Instant::now();
         self.invalidate_playback_chrome(window, cx);
+        self.transcript_sync_active(self.playing, cx);
     }
 
     /// The pause half of `handlePlayPauseClick`, also used by the end-of-media
@@ -3376,6 +3380,15 @@ impl EditorWindow {
         }
         self.start_playback(start, cx);
         self.play_until = Some(end);
+        cx.notify();
+    }
+
+    pub(crate) fn play_range(&mut self, from: f64, until: f64, cx: &mut Context<Self>) {
+        if self.playing {
+            self.stop_playback(cx);
+        }
+        self.start_playback(from.max(0.0), cx);
+        self.play_until = Some(until);
         cx.notify();
     }
 
@@ -3968,6 +3981,8 @@ impl EditorWindow {
                 } else if self.selection.is_some() {
                     self.set_selection(None, cx);
                     self.note_edit("deselect", None);
+                } else {
+                    self.panel_escape(window, cx);
                 }
                 window.refresh();
             }
@@ -4376,6 +4391,8 @@ impl EditorWindow {
             self.refresh_image_asset_status();
             cx.notify();
         }
+        let selection = self.selection.clone();
+        self.follow_selection_to_style(selection.as_ref(), cx);
     }
 
     /// A 3D shot arriving in the selection brings its own half of the Look
