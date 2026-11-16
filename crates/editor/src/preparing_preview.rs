@@ -671,7 +671,7 @@ async fn run_preview(
                     cursor_timeline,
                 )
             } else {
-                ProjectUniforms::new(
+                ProjectUniforms::new_with_cursor_event_order(
                     &constants,
                     &project,
                     request.frame_number,
@@ -681,6 +681,7 @@ async fn run_preview(
                     &frames,
                     duration,
                     zoom,
+                    cursor_cache.event_order(&cursor),
                 )
             };
             let layout = uniforms.frame_layout();

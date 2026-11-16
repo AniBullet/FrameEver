@@ -341,16 +341,38 @@ struct CursorTimelineVariant {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct CursorEventOrder {
-    pub moves: bool,
-    pub clicks: bool,
+pub struct CursorEventOrder {
+    pub(crate) moves: bool,
+    pub(crate) clicks: bool,
+}
+
+impl CursorEventOrder {
+    pub fn new(cursor: &CursorEvents) -> Self {
+        Self {
+            moves: cursor.moves.is_sorted_by(|a, b| a.time_ms <= b.time_ms),
+            clicks: cursor
+                .clicks
+                .iter()
+                .try_fold(f64::NEG_INFINITY, |previous, click| {
+                    (previous <= click.time_ms).then_some(click.time_ms)
+                })
+                .is_some(),
+        }
+    }
+
+    pub(crate) fn interpolate_raw(
+        self,
+        cursor: &CursorEvents,
+        time_secs: f32,
+    ) -> Option<InterpolatedCursorPosition> {
+        interpolate_raw_cursor(cursor, (time_secs * 1000.0) as f64, self.moves)
+    }
 }
 
 pub struct PrecomputedCursorTimeline {
     timeline: Vec<SmoothedCursorEvent>,
     raw_cursor: CursorEvents,
-    raw_moves_are_ordered: bool,
-    clicks_are_ordered: bool,
+    event_order: CursorEventOrder,
     has_smoothing: bool,
     variants: Mutex<Vec<CursorTimelineVariant>>,
 }
@@ -361,20 +383,12 @@ impl PrecomputedCursorTimeline {
         smoothing: Option<SpringMassDamperSimulationConfig>,
         click_spring: Option<ClickSpringConfig>,
     ) -> Self {
-        let raw_moves_are_ordered = cursor.moves.is_sorted_by(|a, b| a.time_ms <= b.time_ms);
-        let clicks_are_ordered = cursor
-            .clicks
-            .iter()
-            .try_fold(f64::NEG_INFINITY, |previous, click| {
-                (previous <= click.time_ms).then_some(click.time_ms)
-            })
-            .is_some();
+        let event_order = CursorEventOrder::new(cursor);
         if cursor.moves.is_empty() || smoothing.is_none() {
             return Self {
                 timeline: vec![],
                 raw_cursor: cursor.clone(),
-                raw_moves_are_ordered,
-                clicks_are_ordered,
+                event_order,
                 has_smoothing: false,
                 variants: Mutex::new(Vec::new()),
             };
@@ -393,8 +407,7 @@ impl PrecomputedCursorTimeline {
         Self {
             timeline,
             raw_cursor: CursorEvents::default(),
-            raw_moves_are_ordered,
-            clicks_are_ordered,
+            event_order,
             has_smoothing: true,
             variants: Mutex::new(Vec::new()),
         }
@@ -434,10 +447,7 @@ impl PrecomputedCursorTimeline {
     }
 
     pub(crate) fn event_order(&self) -> CursorEventOrder {
-        CursorEventOrder {
-            moves: self.raw_moves_are_ordered,
-            clicks: self.clicks_are_ordered,
-        }
+        self.event_order
     }
 
     pub fn interpolate(&self, time_secs: f32) -> Option<InterpolatedCursorPosition> {
@@ -445,7 +455,7 @@ impl PrecomputedCursorTimeline {
         if self.has_smoothing {
             interpolate_timeline(&self.timeline, time_ms)
         } else {
-            interpolate_raw_cursor(&self.raw_cursor, time_ms, self.raw_moves_are_ordered)
+            interpolate_raw_cursor(&self.raw_cursor, time_ms, self.event_order.moves)
         }
     }
 
@@ -455,11 +465,7 @@ impl PrecomputedCursorTimeline {
         cursor: &CursorEvents,
         time_secs: f32,
     ) -> Option<InterpolatedCursorPosition> {
-        interpolate_raw_cursor(
-            cursor,
-            (time_secs * 1000.0) as f64,
-            self.raw_moves_are_ordered,
-        )
+        self.event_order.interpolate_raw(cursor, time_secs)
     }
 }
 
