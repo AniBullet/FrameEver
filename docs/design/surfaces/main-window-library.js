@@ -310,6 +310,7 @@ const defaults = () => ({
 	selected: [],
 	anchor: null,
 	preview: false,
+	details: false,
 	palette: null,
 	dialog: null,
 	gif: null,
@@ -565,34 +566,43 @@ class MainWindow {
 			],
 			instant: [
 				["export", "Export", "导出"],
-				["compress", "Compress", "压缩"],
 				["gif", "Save as GIF", "存为 GIF"],
 			],
 		}[item.kind];
+		const meta = [
+			L(...k.name),
+			`${L(...DAY[item.group])} ${item.time}`,
+			item.dur,
+			item.size,
+		]
+			.filter(Boolean)
+			.join(" · ");
 		const info = [
-			[["Type", "类型"], L(...k.name)],
-			[["Created", "时间"], `${L(...DAY[item.group])} ${item.time}`],
-			item.dur && [["Duration", "时长"], item.dur],
 			[
 				["Resolution", "分辨率"],
 				item.fps ? `${item.res} · ${item.fps} fps` : item.res,
 			],
-			[["Size", "大小"], item.size],
 			item.tracks && [["Tracks", "轨道"], L(...item.tracks)],
 		].filter(Boolean);
-		const versions = item.compressed
-			? `<div><div class="subhead">${L("Version", "版本")}</div><div class="seg block"><button class="${item.compressedOnly ? "" : "on"}">${L("Original", "原始")} <em class="tnum">${item.size}</em></button><button class="${item.compressedOnly ? "on" : ""}">${L("Compressed", "压缩")} <em class="tnum">${item.compressed.size}</em></button></div><div class="note" style="margin-top:6px">${L(`Saves ${item.compressed.saved}`, `节省 ${item.compressed.saved}`)}</div></div>`
-			: "";
+		const open = this.s.details;
+		const details = `<div><button class="disclose" data-a="details" aria-expanded="${open}">${icon(open ? "chevron-down" : "chevron-right", "sm")}${L("Details", "详细信息")}</button>${open ? `<dl class="info tnum">${info.map(([label, val]) => `<dt>${L(...label)}</dt><dd>${val}</dd>`).join("")}</dl>` : ""}</div>`;
+		const version =
+			item.kind !== "instant"
+				? ""
+				: item.compressed
+					? `<div><div class="subhead">${L("Version", "版本")}</div><div class="seg block"><button class="${item.compressedOnly ? "" : "on"}">${L("Original", "原始")} <em class="tnum">${item.size}</em></button><button class="${item.compressedOnly ? "on" : ""}">${L("Compressed", "压缩")} <em class="tnum">${item.compressed.size} · −${item.compressed.saved}</em></button></div></div>`
+					: `<div class="version-row"><span class="grow"><b>${L("Compressed copy", "压缩副本")}</b><small>${L("Not made yet", "还没有")}</small></span><button class="btn">${L("Compress", "压缩")}</button></div>`;
 		const exports = item.exports.length
 			? `<div><div class="subhead">${L("Exports", "导出")}</div>${item.exports.map((x) => `<div class="export-row ${x.gone ? "gone" : ""}"><span class="grow"><b>${x.file}</b><small class="tnum">${x.gone ? L("Not found", "找不到") : L(`${x.time[0]} · ${x.size}`, `${x.time[1]} · ${x.size}`)}</small></span><span class="row-actions">${x.gone ? `<button class="btn ghost sq" title="${pick("Remove from list", "从列表移除")}">${icon("x", "sm")}</button>` : `<button class="btn ghost sq" title="${pick("Show in folder", "在文件夹中显示")}">${icon("folder-open", "sm")}</button><button class="btn ghost sq" title="${pick("Copy", "复制")}">${icon("copy", "sm")}</button>`}</span></div>`).join("")}</div>`
 			: "";
+		const tool = (name, en, zh, extra = "") =>
+			`<button class="btn ghost icon ${extra}" title="${pick(en, zh)}" aria-label="${pick(en, zh)}" ${extra === "del" ? 'data-a="delete"' : ""}>${icon(name)}</button>`;
 		return `<aside class="detail"><div class="detail-scroll">
-			<div class="player">${this.s.playFailed ? `<div class="play-failed"><b>${L("Couldn't play this video", "无法播放此视频")}</b><span>${L("The file may be damaged. Try opening it in another player.", "文件可能已损坏。换个播放器打开试试。")}</span><button class="btn">${L("Try again", "再试一次")}</button></div>` : `<span class="thumb" data-a="preview">${art(item.art)}${unedited ? `<span class="corner tl">${L("Unedited", "未编辑")}</span>` : ""}</span>`}${video ? `<div class="player-bar tnum"><button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play", "sm")}</button><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><span>0:53 / ${item.dur}</span><button class="play-btn">${icon("volume-2", "sm")}</button></div>` : ""}</div>
-			<input class="name-edit" value="${item.name}" aria-label="${pick("Name", "名称")}">
+			<div class="player">${this.s.playFailed ? `<div class="play-failed"><b>${L("Couldn't play this video", "无法播放此视频")}</b><span>${L("The file may be damaged. Try opening it in another player.", "文件可能已损坏。换个播放器打开试试。")}</span><button class="btn">${L("Try again", "再试一次")}</button></div>` : `<span class="thumb" data-a="preview">${art(item.art)}${unedited ? `<span class="corner tl">${L("Unedited", "未编辑")}</span>` : ""}<span class="corner tr" title="${pick("Preview  Space", "预览  空格")}">${icon("maximize-2", "sm")}</span></span>`}${video ? `<div class="player-bar tnum"><button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play", "sm")}</button><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><span>0:53 / ${item.dur}</span><button class="play-btn">${icon("volume-2", "sm")}</button></div>` : ""}</div>
+			<div class="head"><input class="name-edit" value="${item.name}" aria-label="${pick("Name", "名称")}"><div class="meta tnum">${meta}</div></div>
 			<div class="actions">${primary.map(([id, en, zh], i) => `<button class="btn ${i === 0 ? "primary" : ""}" ${id === "gif" ? 'data-a="gif"' : ""}>${L(en, zh)}</button>`).join("")}</div>
-			<dl class="info tnum">${info.map(([label, val]) => `<dt>${L(...label)}</dt><dd>${val}</dd>`).join("")}</dl>
-			${versions}${exports}
-		</div><div class="detail-foot"><button class="btn ghost">${L("Show in folder", "在文件夹中显示")}</button><button class="btn ghost">${L("Copy file", "复制文件")}</button><button class="btn ghost del" data-a="delete">${L("Delete…", "删除…")}</button></div></aside>`;
+			${version}${exports}${details}
+		</div><div class="detail-foot">${tool("copy", "Copy file  Ctrl C", "复制文件  Ctrl C")}${tool("folder-open", "Show in folder", "在文件夹中显示")}${tool("external-link", "Open in default app", "用默认应用打开")}<span class="grow"></span>${tool("trash", "Delete…  Del", "删除…  Del", "del")}</div></aside>`;
 	}
 
 	batch(chosen) {
@@ -1011,6 +1021,8 @@ class MainWindow {
 				return this.choose(Number(el.dataset.id), e);
 			case "preview":
 				return this.set({ preview: true, ...close });
+			case "details":
+				return this.set({ details: !this.s.details });
 			case "close-preview":
 				return this.set({ preview: false, whole: false });
 			case "whole":
