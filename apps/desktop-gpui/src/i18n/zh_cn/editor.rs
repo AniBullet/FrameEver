@@ -450,6 +450,17 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("No keyboard segments yet.", "还没有按键片段。"),
     ("Show keyboard", "显示按键"),
     ("Input display", "操作显示"),
+    ("Clear input record", "清除操作记录"),
+    ("Clear the input record?", "清除操作记录？"),
+    (
+        "The input display shows nothing pressed and this project's keyboard segments are removed. This can't be undone.",
+        "操作显示不再显示按下的键，这个项目的按键片段也会移除。此操作无法撤销。",
+    ),
+    ("Couldn't clear the input record", "无法清除操作记录"),
+    (
+        "Close anything that has this project's files open, then try again.",
+        "请关闭正在使用这个项目文件的程序，然后重试。",
+    ),
     ("WASD + mouse", "WASD 加鼠标"),
     ("Full keyboard", "整块键盘"),
     ("Keycaps", "键帽"),

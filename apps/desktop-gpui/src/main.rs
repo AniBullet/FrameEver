@@ -39,6 +39,7 @@ mod editor_edits;
 mod editor_export;
 mod editor_hover_bench;
 mod editor_input_display;
+mod editor_input_record;
 mod editor_panels;
 mod editor_preparing;
 mod editor_sidebar;

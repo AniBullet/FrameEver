@@ -1,0 +1,459 @@
+use frameever_project::{
+    KeyPressEvent,
+    input_display::{InputEvent, InputEventKind},
+};
+
+const WHEEL_NOTCH: i32 = 120;
+const MOUSE_BUTTONS: std::ops::RangeInclusive<usize> = 1..=5;
+
+#[derive(Clone, Default)]
+pub struct InputCapture {
+    pub record: bool,
+    pub target_window: Option<scap_targets::WindowId>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InputSample {
+    pub buttons: Vec<bool>,
+    pub wheel_steps: Vec<bool>,
+    pub target_in_front: Option<bool>,
+}
+
+pub fn push_input_changes(
+    previous: &InputSample,
+    current: &InputSample,
+    time_ms: f64,
+    events: &mut Vec<InputEvent>,
+) {
+    let mut push = |kind| events.push(InputEvent { time_ms, kind });
+    if let Some(in_front) = current.target_in_front
+        && previous.target_in_front != Some(in_front)
+    {
+        push(InputEventKind::TargetInFront(in_front));
+    }
+    for button in MOUSE_BUTTONS {
+        let down = current.buttons.get(button).copied().unwrap_or(false);
+        if down != previous.buttons.get(button).copied().unwrap_or(false) {
+            push(InputEventKind::MouseButton {
+                button: button as u8,
+                down,
+            });
+        }
+    }
+    for up in &current.wheel_steps {
+        push(InputEventKind::Wheel { up: *up });
+    }
+}
+
+pub fn push_key_changes(
+    previous: &[device_query::Keycode],
+    current: &[device_query::Keycode],
+    time_ms: f64,
+    presses: &mut Vec<KeyPressEvent>,
+) {
+    let mut push = |key: &device_query::Keycode, down| {
+        let (display, code) = crate::cursor::keycode_to_string(key);
+        presses.push(KeyPressEvent {
+            key: display,
+            key_code: code,
+            time_ms,
+            down,
+        });
+    };
+    for key in current {
+        if !previous.contains(key) {
+            push(key, true);
+        }
+    }
+    for key in previous {
+        if !current.contains(key) {
+            push(key, false);
+        }
+    }
+}
+
+pub fn wheel_steps(pending: &mut i32, delta: i16) -> impl Iterator<Item = bool> + use<> {
+    if (*pending > 0) != (delta > 0) {
+        *pending = 0;
+    }
+    *pending += i32::from(delta);
+    let steps = *pending / WHEEL_NOTCH;
+    *pending -= steps * WHEEL_NOTCH;
+    std::iter::repeat_n(steps > 0, steps.unsigned_abs() as usize)
+}
+
+pub struct InputReader {
+    wheel: Option<platform::WheelReader>,
+    target: Option<platform::TargetWindow>,
+    target_in_front: Option<bool>,
+}
+
+impl InputReader {
+    pub fn new(capture: &InputCapture) -> Option<Self> {
+        capture.record.then(|| Self {
+            wheel: platform::WheelReader::new(),
+            target: capture
+                .target_window
+                .as_ref()
+                .and_then(platform::TargetWindow::new),
+            target_in_front: None,
+        })
+    }
+
+    pub fn sample(&mut self, buttons: &[bool]) -> InputSample {
+        if let Some(target) = &self.target {
+            self.target_in_front = target.in_front().or(self.target_in_front);
+        }
+        InputSample {
+            buttons: buttons.to_vec(),
+            wheel_steps: self
+                .wheel
+                .as_mut()
+                .map(platform::WheelReader::drain)
+                .unwrap_or_default(),
+            target_in_front: self.target_in_front,
+        }
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    use windows::{
+        Win32::{
+            Foundation::HWND,
+            UI::{
+                Input::{
+                    GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER,
+                    RID_INPUT, RIDEV_INPUTSINK, RIDEV_REMOVE, RIM_TYPEMOUSE,
+                    RegisterRawInputDevices,
+                },
+                WindowsAndMessaging::{
+                    CreateWindowExW, DefWindowProcW, DestroyWindow, GA_ROOTOWNER, GetAncestor,
+                    GetForegroundWindow, HWND_MESSAGE, MSG, PM_REMOVE, PeekMessageW,
+                    WINDOW_EX_STYLE, WINDOW_STYLE, WM_INPUT,
+                },
+            },
+        },
+        core::w,
+    };
+
+    const GENERIC_DESKTOP_PAGE: u16 = 0x01;
+    const MOUSE_USAGE: u16 = 0x02;
+    const WHEEL_FLAG: u16 = 0x0400;
+    const MAX_MESSAGES_PER_DRAIN: usize = 8192;
+
+    pub struct WheelReader {
+        window: HWND,
+        pending: i32,
+    }
+
+    impl WheelReader {
+        pub fn new() -> Option<Self> {
+            let window = unsafe {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("Static"),
+                    None,
+                    WINDOW_STYLE(0),
+                    0,
+                    0,
+                    0,
+                    0,
+                    Some(HWND_MESSAGE),
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .ok()?;
+            let device = RAWINPUTDEVICE {
+                usUsagePage: GENERIC_DESKTOP_PAGE,
+                usUsage: MOUSE_USAGE,
+                dwFlags: RIDEV_INPUTSINK,
+                hwndTarget: window,
+            };
+            let registered = unsafe {
+                RegisterRawInputDevices(&[device], std::mem::size_of::<RAWINPUTDEVICE>() as u32)
+            };
+            if let Err(error) = registered {
+                tracing::warn!(%error, "Wheel steps are not recorded");
+                unsafe { DestroyWindow(window) }.ok();
+                return None;
+            }
+            Some(Self { window, pending: 0 })
+        }
+
+        pub fn drain(&mut self) -> Vec<bool> {
+            let mut steps = Vec::new();
+            let mut message = MSG::default();
+            for _ in 0..MAX_MESSAGES_PER_DRAIN {
+                if !unsafe { PeekMessageW(&mut message, Some(self.window), 0, 0, PM_REMOVE) }
+                    .as_bool()
+                {
+                    break;
+                }
+                if message.message == WM_INPUT
+                    && let Some(delta) = wheel_delta(HRAWINPUT(message.lParam.0 as _))
+                {
+                    steps.extend(super::wheel_steps(&mut self.pending, delta));
+                }
+                unsafe {
+                    DefWindowProcW(
+                        message.hwnd,
+                        message.message,
+                        message.wParam,
+                        message.lParam,
+                    )
+                };
+            }
+            steps
+        }
+    }
+
+    impl Drop for WheelReader {
+        fn drop(&mut self) {
+            let device = RAWINPUTDEVICE {
+                usUsagePage: GENERIC_DESKTOP_PAGE,
+                usUsage: MOUSE_USAGE,
+                dwFlags: RIDEV_REMOVE,
+                hwndTarget: HWND::default(),
+            };
+            unsafe {
+                RegisterRawInputDevices(&[device], std::mem::size_of::<RAWINPUTDEVICE>() as u32)
+                    .ok();
+                DestroyWindow(self.window).ok();
+            }
+        }
+    }
+
+    fn wheel_delta(handle: HRAWINPUT) -> Option<i16> {
+        let mut raw = RAWINPUT::default();
+        let mut size = std::mem::size_of::<RAWINPUT>() as u32;
+        let read = unsafe {
+            GetRawInputData(
+                handle,
+                RID_INPUT,
+                Some(std::ptr::from_mut(&mut raw).cast()),
+                &mut size,
+                std::mem::size_of::<RAWINPUTHEADER>() as u32,
+            )
+        };
+        if read == u32::MAX || raw.header.dwType != RIM_TYPEMOUSE.0 {
+            return None;
+        }
+        let buttons = unsafe { raw.data.mouse.Anonymous.Anonymous };
+        (buttons.usButtonFlags & WHEEL_FLAG != 0).then_some(buttons.usButtonData as i16)
+    }
+
+    pub struct TargetWindow(HWND);
+
+    impl TargetWindow {
+        pub fn new(id: &scap_targets::WindowId) -> Option<Self> {
+            scap_targets::Window::from_id(id)
+                .map(|window| Self(root_owner(window.raw_handle().inner())))
+        }
+
+        pub fn in_front(&self) -> Option<bool> {
+            let foreground = unsafe { GetForegroundWindow() };
+            (!foreground.is_invalid()).then(|| root_owner(foreground) == self.0)
+        }
+    }
+
+    fn root_owner(window: HWND) -> HWND {
+        let owner = unsafe { GetAncestor(window, GA_ROOTOWNER) };
+        if owner.is_invalid() { window } else { owner }
+    }
+}
+
+#[cfg(not(windows))]
+mod platform {
+    pub struct WheelReader;
+
+    impl WheelReader {
+        pub fn new() -> Option<Self> {
+            None
+        }
+
+        pub fn drain(&mut self) -> Vec<bool> {
+            Vec::new()
+        }
+    }
+
+    pub struct TargetWindow;
+
+    impl TargetWindow {
+        pub fn new(_id: &scap_targets::WindowId) -> Option<Self> {
+            None
+        }
+
+        pub fn in_front(&self) -> Option<bool> {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use device_query::Keycode;
+
+    fn sample(buttons: &[usize], wheel_steps: &[bool], in_front: Option<bool>) -> InputSample {
+        let mut pressed = vec![false; 6];
+        for button in buttons {
+            pressed[*button] = true;
+        }
+        InputSample {
+            buttons: pressed,
+            wheel_steps: wheel_steps.to_vec(),
+            target_in_front: in_front,
+        }
+    }
+
+    fn changes(previous: &InputSample, current: &InputSample) -> Vec<InputEventKind> {
+        let mut events = Vec::new();
+        push_input_changes(previous, current, 48.0, &mut events);
+        assert!(events.iter().all(|event| event.time_ms == 48.0));
+        events.into_iter().map(|event| event.kind).collect()
+    }
+
+    #[test]
+    fn every_mouse_button_including_the_side_buttons_records_its_press_and_release() {
+        assert_eq!(
+            changes(&sample(&[1, 2], &[], None), &sample(&[2, 4, 5], &[], None)),
+            vec![
+                InputEventKind::MouseButton {
+                    button: 1,
+                    down: false
+                },
+                InputEventKind::MouseButton {
+                    button: 4,
+                    down: true
+                },
+                InputEventKind::MouseButton {
+                    button: 5,
+                    down: true
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn wheel_steps_are_recorded_in_the_order_they_were_read() {
+        assert_eq!(
+            changes(
+                &sample(&[], &[false], None),
+                &sample(&[], &[true, false], None)
+            ),
+            vec![
+                InputEventKind::Wheel { up: true },
+                InputEventKind::Wheel { up: false }
+            ]
+        );
+    }
+
+    #[test]
+    fn the_target_window_coming_to_the_front_or_leaving_it_is_recorded_once() {
+        let unknown = sample(&[], &[], None);
+        let front = sample(&[], &[], Some(true));
+        let behind = sample(&[], &[], Some(false));
+
+        assert_eq!(
+            changes(&unknown, &front),
+            vec![InputEventKind::TargetInFront(true)]
+        );
+        assert_eq!(changes(&front, &front), vec![]);
+        assert_eq!(
+            changes(&front, &behind),
+            vec![InputEventKind::TargetInFront(false)]
+        );
+        assert_eq!(changes(&unknown, &unknown), vec![]);
+    }
+
+    #[test]
+    fn an_unchanged_sample_records_nothing() {
+        let held = sample(&[1, 3], &[], Some(true));
+
+        assert_eq!(changes(&held, &held), vec![]);
+    }
+
+    #[test]
+    fn a_wheel_notch_is_one_step_and_fine_scrolling_adds_up_to_one() {
+        let mut pending = 0;
+
+        assert_eq!(wheel_steps(&mut pending, 120).collect::<Vec<_>>(), [true]);
+        assert_eq!(
+            wheel_steps(&mut pending, -240).collect::<Vec<_>>(),
+            [false, false]
+        );
+        assert_eq!(wheel_steps(&mut pending, 40).count(), 0);
+        assert_eq!(wheel_steps(&mut pending, 40).count(), 0);
+        assert_eq!(wheel_steps(&mut pending, 40).collect::<Vec<_>>(), [true]);
+        assert_eq!(wheel_steps(&mut pending, 100).count(), 0);
+        assert_eq!(wheel_steps(&mut pending, -100).count(), 0);
+        assert_eq!(wheel_steps(&mut pending, -20).collect::<Vec<_>>(), [false]);
+    }
+
+    fn press(key: &str, key_code: &str, down: bool) -> KeyPressEvent {
+        KeyPressEvent {
+            key: key.to_string(),
+            key_code: key_code.to_string(),
+            time_ms: 32.0,
+            down,
+        }
+    }
+
+    #[test]
+    fn new_keys_go_down_in_held_order_before_released_keys_go_up() {
+        let mut presses = vec![];
+        push_key_changes(
+            &[Keycode::A, Keycode::LShift],
+            &[Keycode::LShift, Keycode::Space, Keycode::B],
+            32.0,
+            &mut presses,
+        );
+
+        assert_eq!(
+            presses,
+            vec![
+                press("Space", "Space", true),
+                press("b", "B", true),
+                press("a", "A", false),
+            ]
+        );
+    }
+
+    #[test]
+    fn held_or_absent_keys_record_nothing() {
+        let mut presses = vec![];
+        push_key_changes(
+            &[Keycode::LMeta, Keycode::A],
+            &[Keycode::LMeta, Keycode::A],
+            32.0,
+            &mut presses,
+        );
+        push_key_changes(&[], &[], 48.0, &mut presses);
+
+        assert!(presses.is_empty());
+    }
+
+    #[test]
+    fn nothing_is_read_when_input_is_not_recorded() {
+        assert!(InputReader::new(&InputCapture::default()).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_wheel_source_registers_drains_and_unregisters_without_a_hook() {
+        let mut reader = InputReader::new(&InputCapture {
+            record: true,
+            target_window: None,
+        })
+        .unwrap();
+
+        assert!(reader.wheel.is_some());
+        let sample = reader.sample(&[false; 6]);
+        assert_eq!(sample.target_in_front, None);
+        drop(reader);
+        assert!(platform::WheelReader::new().is_some());
+    }
+}

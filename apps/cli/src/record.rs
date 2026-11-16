@@ -830,7 +830,7 @@ async fn start_recording(
 
     match params.mode {
         RecordMode::Studio => {
-            let builder = frameever_recording::RecordingDefaults::default()
+            let builder = studio_defaults(&frameever_utils::storage::settings_file())
                 .apply_to_studio_builder(studio_builder, camera_active, params.fps);
 
             builder
@@ -1318,9 +1318,39 @@ fn emit_record_event(format: OutputFormat, event: &RecordEvent<'_>) -> Result<()
     }
 }
 
+fn studio_defaults(settings_file: &Path) -> frameever_recording::RecordingDefaults {
+    frameever_recording::RecordingDefaults {
+        capture_keyboard_events: frameever_utils::storage::records_input(settings_file),
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_studio_recording_follows_the_apps_record_input_switch() {
+        let directory = tempfile::tempdir().unwrap();
+        let settings = directory.path().join("store");
+        assert!(studio_defaults(&settings).capture_keyboard_events);
+
+        std::fs::write(
+            &settings,
+            r#"{"general_settings":{"captureKeyboardEvents":false}}"#,
+        )
+        .unwrap();
+
+        let defaults = studio_defaults(&settings);
+        assert!(!defaults.capture_keyboard_events);
+        assert_eq!(
+            frameever_recording::RecordingDefaults {
+                capture_keyboard_events: true,
+                ..defaults
+            },
+            frameever_recording::RecordingDefaults::default()
+        );
+    }
 
     #[test]
     fn instant_project_is_discoverable_before_capture_with_required_audio_intent() {

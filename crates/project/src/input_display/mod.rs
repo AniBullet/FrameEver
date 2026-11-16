@@ -1,4 +1,6 @@
 mod builtin;
+mod clear;
+mod events;
 mod keys;
 mod maker;
 mod placement;
@@ -6,6 +8,8 @@ mod preset;
 mod record;
 
 pub use builtin::{BuiltinPresetId, KeyLayout, LayoutKey, PresetArt};
+pub use clear::{clear_input_record, has_input_record, input_record_generation};
+pub use events::{INPUT_EVENTS_FILE_NAME, InputEvent, InputEventKind, InputEvents};
 pub use keys::{KeyCodeTable, key_code, key_codes, key_label, keystroke_code};
 pub use maker::{
     MAKER_COLUMNS, MAKER_LABEL_LENGTH, MAKER_NAME_LENGTH, MAKER_ROWS, MAKER_WIDTHS, PresetMaker,
@@ -18,7 +22,9 @@ pub use preset::{
     Element, ElementKind, MAX_PRESET_ATLAS_BYTES, MAX_PRESET_ATLAS_DIMENSION, MAX_PRESET_ELEMENTS,
     MAX_PRESET_JSON_BYTES, Preset, PresetRefusal, STATE_GAP, Sprite, SpriteRect,
 };
-pub use record::{DisplayState, Input, InputChange, InputRecord, WheelStep, take_at};
+pub use record::{
+    DisplayState, Input, InputChange, InputRecord, WHEEL_FLASH_MS, WheelStep, take_at,
+};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;

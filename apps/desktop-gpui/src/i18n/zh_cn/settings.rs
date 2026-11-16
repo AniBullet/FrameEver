@@ -520,7 +520,15 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Maximum frame rate", "最高帧率"),
     ("Confirm without microphone", "无麦克风时确认"),
     ("Separate cursor", "单独捕获光标"),
-    ("Key presses", "按键"),
+    ("Record input", "记录操作输入"),
+    ("About the input record", "关于操作记录"),
+    (
+        "Saved only in this project's folder on this PC",
+        "只保存在这台电脑的项目文件夹里",
+    ),
+    ("Read only while recording", "只在录制期间读取"),
+    ("Clear it any time in the editor", "随时可在编辑器里清除"),
+    ("Learn more", "了解详情"),
     ("Crash recovery", "崩溃恢复"),
     ("Zoom amount", "缩放倍数"),
     ("Name template", "名称模板"),
@@ -553,10 +561,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     (
         "Studio only. Adjust size and smoothing in the editor.",
         "仅工作室。可在编辑器调整大小和平滑度。",
-    ),
-    (
-        "Lets you add keyboard overlays in the editor.",
-        "用于在编辑器添加键盘叠加层。",
     ),
     (
         "Records in fragments, slightly larger while capturing.",

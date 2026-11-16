@@ -1,10 +1,14 @@
 use std::collections::BTreeSet;
 
-use super::keys::key_code;
-use crate::{
-    CursorEvents, KeyboardEvents, ProjectConfiguration, RecordingMeta, StudioRecordingMeta,
-    TimelineFrameMapping,
+use super::{
+    events::{InputEventKind, InputEvents},
+    keys::key_code,
 };
+use crate::{
+    KeyboardEvents, ProjectConfiguration, RecordingMeta, StudioRecordingMeta, TimelineFrameMapping,
+};
+
+pub const WHEEL_FLASH_MS: f64 = 120.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Input {
@@ -30,6 +34,8 @@ pub struct InputChange {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InputRecord {
     changes: Vec<InputChange>,
+    wheel_steps: Vec<(f64, WheelStep)>,
+    focus_changes: Vec<(f64, bool)>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -90,23 +96,53 @@ impl InputRecord {
     pub fn new(mut changes: Vec<InputChange>) -> Self {
         changes.retain(|change| change.time_ms.is_finite());
         changes.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
-        Self { changes }
+        Self {
+            changes,
+            ..Default::default()
+        }
     }
 
-    pub fn from_events(keyboard: &KeyboardEvents, cursor: &CursorEvents) -> Self {
-        let keys = keyboard.presses.iter().filter_map(|press| {
-            Some(InputChange {
-                time_ms: press.time_ms,
-                input: Input::Key(key_code(&press.key_code)?),
-                down: press.down,
+    pub fn from_events(keyboard: &KeyboardEvents, input: &InputEvents) -> Self {
+        let mut changes = keyboard
+            .presses
+            .iter()
+            .filter_map(|press| {
+                Some(InputChange {
+                    time_ms: press.time_ms,
+                    input: Input::Key(key_code(&press.key_code)?),
+                    down: press.down,
+                })
             })
-        });
-        let buttons = cursor.clicks.iter().map(|click| InputChange {
-            time_ms: click.time_ms,
-            input: Input::MouseButton(click.cursor_num),
-            down: click.down,
-        });
-        Self::new(keys.chain(buttons).collect())
+            .collect::<Vec<_>>();
+        let mut wheel_steps = Vec::new();
+        let mut focus_changes = Vec::new();
+        for event in input
+            .events
+            .iter()
+            .filter(|event| event.time_ms.is_finite())
+        {
+            match event.kind {
+                InputEventKind::MouseButton { button, down } => changes.push(InputChange {
+                    time_ms: event.time_ms,
+                    input: Input::MouseButton(button),
+                    down,
+                }),
+                InputEventKind::Wheel { up } => wheel_steps.push((
+                    event.time_ms,
+                    if up { WheelStep::Up } else { WheelStep::Down },
+                )),
+                InputEventKind::TargetInFront(in_front) => {
+                    focus_changes.push((event.time_ms, in_front));
+                }
+            }
+        }
+        wheel_steps.sort_by(|a, b| a.0.total_cmp(&b.0));
+        focus_changes.sort_by(|a, b| a.0.total_cmp(&b.0));
+        Self {
+            wheel_steps,
+            focus_changes,
+            ..Self::new(changes)
+        }
     }
 
     pub fn for_take(meta: &RecordingMeta, take: usize) -> Self {
@@ -116,35 +152,50 @@ impl InputRecord {
         let Some(segment) = inner.segments.get(take) else {
             return Self::default();
         };
-        let clicks = segment
-            .cursor
-            .as_ref()
-            .and_then(|path| CursorEvents::load_clicks_from_file(&meta.path(path)).ok())
-            .unwrap_or_default();
-        Self::from_events(
-            &segment.keyboard_events(meta),
-            &CursorEvents {
-                clicks,
-                moves: Vec::new(),
-            },
-        )
+        Self::from_events(&segment.keyboard_events(meta), &segment.input_events(meta))
     }
 
     pub fn is_empty(&self) -> bool {
-        self.changes.is_empty()
+        self.changes.is_empty() && self.wheel_steps.is_empty()
     }
 
     pub fn changes(&self) -> &[InputChange] {
         &self.changes
     }
 
+    fn target_in_front_at(&self, time_ms: f64) -> bool {
+        let earlier = self
+            .focus_changes
+            .partition_point(|(changed_at, _)| *changed_at <= time_ms);
+        earlier
+            .checked_sub(1)
+            .and_then(|index| self.focus_changes.get(index))
+            .is_none_or(|(_, in_front)| *in_front)
+    }
+
     pub fn state_at(&self, time_ms: f64) -> DisplayState {
         let mut state = DisplayState::default();
+        if !self.target_in_front_at(time_ms) {
+            return state;
+        }
         for change in &self.changes {
             if change.time_ms > time_ms {
                 break;
             }
-            state.apply(change.input, change.down);
+            if !change.down || self.target_in_front_at(change.time_ms) {
+                state.apply(change.input, change.down);
+            }
+        }
+        let earlier = self
+            .wheel_steps
+            .partition_point(|(stepped_at, _)| *stepped_at <= time_ms);
+        if let Some((stepped_at, step)) = earlier
+            .checked_sub(1)
+            .and_then(|index| self.wheel_steps.get(index))
+            && time_ms - stepped_at < WHEEL_FLASH_MS
+            && self.target_in_front_at(*stepped_at)
+        {
+            state.wheel = *step;
         }
         state
     }
@@ -153,7 +204,10 @@ impl InputRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CursorClickEvent, KeyPressEvent, ProjectConfiguration, RecordingMeta};
+    use crate::{
+        KeyPressEvent, ProjectConfiguration, RecordingMeta,
+        input_display::{INPUT_EVENTS_FILE_NAME, InputEvent},
+    };
 
     fn two_take_project(transitions: serde_json::Value) -> ProjectConfiguration {
         ProjectConfiguration {
@@ -202,10 +256,21 @@ mod tests {
         }
         .write_to_file(&take.join("keyboard.bin"))
         .unwrap();
+        InputEvents {
+            events: vec![click(2, 150.0, true)],
+        }
+        .write_to_file(&take.join(INPUT_EVENTS_FILE_NAME))
+        .unwrap();
         std::fs::write(
             take.join("cursor.json"),
             serde_json::to_vec(&serde_json::json!({
-                "clicks": [click(2, 150.0, true)],
+                "clicks": [{
+                    "active_modifiers": [],
+                    "cursor_num": 1,
+                    "cursor_id": "0",
+                    "time_ms": 10.0,
+                    "down": true
+                }],
                 "moves": []
             }))
             .unwrap(),
@@ -245,24 +310,109 @@ mod tests {
         }
     }
 
-    fn click(button: u8, time_ms: f64, down: bool) -> CursorClickEvent {
-        CursorClickEvent {
-            active_modifiers: Vec::new(),
-            cursor_num: button,
-            cursor_id: "0".to_string(),
+    fn click(button: u8, time_ms: f64, down: bool) -> InputEvent {
+        InputEvent {
             time_ms,
-            down,
+            kind: InputEventKind::MouseButton { button, down },
         }
     }
 
-    fn record(presses: Vec<KeyPressEvent>, clicks: Vec<CursorClickEvent>) -> InputRecord {
-        InputRecord::from_events(
-            &KeyboardEvents { presses },
-            &CursorEvents {
-                clicks,
-                moves: Vec::new(),
-            },
-        )
+    fn wheel(time_ms: f64, up: bool) -> InputEvent {
+        InputEvent {
+            time_ms,
+            kind: InputEventKind::Wheel { up },
+        }
+    }
+
+    fn in_front(time_ms: f64, in_front: bool) -> InputEvent {
+        InputEvent {
+            time_ms,
+            kind: InputEventKind::TargetInFront(in_front),
+        }
+    }
+
+    fn record(presses: Vec<KeyPressEvent>, events: Vec<InputEvent>) -> InputRecord {
+        InputRecord::from_events(&KeyboardEvents { presses }, &InputEvents { events })
+    }
+
+    #[test]
+    fn a_wheel_step_flashes_briefly_in_its_direction() {
+        let record = record(Vec::new(), vec![wheel(1000.0, true), wheel(2000.0, false)]);
+
+        assert_eq!(record.state_at(999.0).wheel, WheelStep::None);
+        assert_eq!(record.state_at(1000.0).wheel, WheelStep::Up);
+        assert_eq!(record.state_at(1119.0).wheel, WheelStep::Up);
+        assert_eq!(record.state_at(1120.0).wheel, WheelStep::None);
+        assert_eq!(record.state_at(2050.0).wheel, WheelStep::Down);
+        assert!(!record.is_empty());
+    }
+
+    #[test]
+    fn side_buttons_are_held_like_the_other_buttons() {
+        let record = record(
+            Vec::new(),
+            vec![
+                click(4, 10.0, true),
+                click(5, 20.0, true),
+                click(4, 30.0, false),
+            ],
+        );
+
+        assert_eq!(
+            held(&record, 25.0),
+            vec![Input::MouseButton(4), Input::MouseButton(5)]
+        );
+        assert_eq!(held(&record, 35.0), vec![Input::MouseButton(5)]);
+    }
+
+    #[test]
+    fn input_pressed_while_another_window_was_in_front_is_not_shown() {
+        let record = record(
+            vec![
+                key("W", 100.0, true),
+                key("W", 200.0, false),
+                key("A", 1100.0, true),
+                key("A", 1200.0, false),
+                key("W", 2100.0, true),
+            ],
+            vec![
+                in_front(0.0, true),
+                in_front(1000.0, false),
+                click(1, 1150.0, true),
+                wheel(1150.0, true),
+                click(1, 1180.0, false),
+                in_front(2000.0, true),
+            ],
+        );
+
+        assert_eq!(held(&record, 150.0), vec![W]);
+        assert_eq!(held(&record, 1150.0), vec![]);
+        assert_eq!(record.state_at(1160.0).wheel, WheelStep::None);
+        assert_eq!(held(&record, 2150.0), vec![W]);
+    }
+
+    #[test]
+    fn a_key_held_across_a_window_switch_follows_the_window() {
+        let record = record(
+            vec![
+                key("W", 100.0, true),
+                key("A", 1500.0, true),
+                key("LShift", 2500.0, true),
+            ],
+            vec![in_front(1000.0, false), in_front(2000.0, true)],
+        );
+
+        assert_eq!(held(&record, 500.0), vec![W]);
+        assert_eq!(held(&record, 1600.0), vec![]);
+        assert_eq!(held(&record, 2100.0), vec![W]);
+        assert_eq!(held(&record, 2600.0), vec![W, LEFT_SHIFT]);
+    }
+
+    #[test]
+    fn a_recording_without_focus_changes_shows_everything() {
+        let record = record(vec![key("W", 100.0, true)], vec![click(1, 100.0, true)]);
+
+        assert_eq!(held(&record, 150.0), vec![W, LEFT_BUTTON]);
     }
 
     fn held(record: &InputRecord, time_ms: f64) -> Vec<Input> {

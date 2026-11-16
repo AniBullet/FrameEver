@@ -111,7 +111,7 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
             settings.custom_cursor_capture,
         ));
         rows.push(toggle(
-            Row::KeyPresses.label(),
+            Row::RecordInput.label(),
             "captureKeyboardEvents",
             settings.capture_keyboard_events,
         ));

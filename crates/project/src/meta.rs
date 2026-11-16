@@ -723,6 +723,22 @@ impl MultipleSegment {
         }
     }
 
+    pub fn input_events_path(&self, meta: &RecordingMeta) -> Option<PathBuf> {
+        let path = self
+            .display
+            .path
+            .parent()?
+            .join(crate::input_display::INPUT_EVENTS_FILE_NAME);
+        Some(meta.path(&path))
+    }
+
+    pub fn input_events(&self, meta: &RecordingMeta) -> crate::input_display::InputEvents {
+        self.input_events_path(meta)
+            .filter(|path| path.exists())
+            .and_then(|path| crate::input_display::InputEvents::load_from_file(&path).ok())
+            .unwrap_or_default()
+    }
+
     pub fn latest_start_time(&self) -> Option<f64> {
         let mut value = self.display.start_time?;
 

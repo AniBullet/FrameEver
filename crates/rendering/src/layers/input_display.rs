@@ -3,7 +3,9 @@ use std::{collections::HashMap, sync::Arc};
 use bytemuck::{Pod, Zeroable};
 use frameever_project::{
     InputDisplayStyle,
-    input_display::{DisplayRect, InputRecord, Sprite, display_rect, take_at},
+    input_display::{
+        DisplayRect, InputRecord, Sprite, display_rect, input_record_generation, take_at,
+    },
 };
 use wgpu::util::DeviceExt;
 
@@ -50,6 +52,7 @@ pub struct InputDisplayLayer {
     vertex_count: u32,
     drawn: Option<Drawn>,
     records: HashMap<usize, Arc<InputRecord>>,
+    records_generation: u64,
     has_content: bool,
 }
 
@@ -107,6 +110,7 @@ impl InputDisplayLayer {
             vertex_count: 0,
             drawn: None,
             records: HashMap::new(),
+            records_generation: input_record_generation(),
             has_content: false,
         }
     }
@@ -238,6 +242,11 @@ impl InputDisplayLayer {
             output_time,
             f64::from(segment_frames.segment_time),
         );
+        let generation = input_record_generation();
+        if generation != self.records_generation {
+            self.records.clear();
+            self.records_generation = generation;
+        }
         let record = self
             .records
             .entry(take)
