@@ -518,6 +518,18 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Regenerate Captions", "重新生成字幕"),
     ("Generate Captions", "生成字幕"),
     ("{model} model downloaded", "{model} 模型已下载"),
+    (
+        "No speech found in this recording",
+        "此录制内容中未发现语音",
+    ),
+    ("Recommended model updated", "推荐模型已更新"),
+    ("Horizontal position", "水平位置"),
+    ("Vertical position", "垂直位置"),
+    ("Reset position", "重置位置"),
+    (
+        "We recommend the new version. It is more accurate and catches short recordings the old one missed.",
+        "推荐使用新版本。它更准确，还能转写旧版本漏掉的短录制内容。",
+    ),
     ("Deleting...", "正在删除…"),
     (
         "Downloading {model}... {percent}%",

@@ -76,7 +76,7 @@ pub use frame_pipeline::{GpuOutputFormat, Nv12RenderedFrame, RenderedFrame, Shar
 #[cfg(target_os = "macos")]
 pub use frame_pipeline::{PendingSurface, RgbaToBgraSurfaceConverter};
 pub use frame_windows::FrameWindows;
-pub use layers::{BackgroundTextureCache, clean_background_path, new_font_system};
+pub use layers::{BackgroundTextureCache, CaptionFrameBox, clean_background_path, new_font_system};
 pub use managed_segment::{
     ManagedRecordingSegmentDecoders, ManagedSegmentDecoderStatus, ManagedSegmentStopHandles,
     ManagedSegmentVideoError, ManagedSegmentVideoExit, ManagedSegmentVideoInput,
@@ -223,19 +223,66 @@ pub fn create_wgpu_instance_sync() -> wgpu::Instance {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
     #[cfg(target_os = "windows")]
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+    let instance = match DX12_SHADER_COMPILER.get() {
+        Some((compiler, _)) => dx12_instance(compiler.clone()),
+        None => {
+            let bundled = bundled_dxc_compiler();
+            let uses_dxc = !matches!(bundled, wgpu::Dx12Compiler::Fxc);
+            let (instance, compiler) = dx12_instance_with_fxc_fallback(bundled);
+            let fxc_fallback = uses_dxc && matches!(compiler, wgpu::Dx12Compiler::Fxc);
+            let _ = DX12_SHADER_COMPILER.set((compiler, fxc_fallback));
+            instance
+        }
+    };
+
+    instance
+}
+
+#[cfg(target_os = "windows")]
+static DX12_SHADER_COMPILER: std::sync::OnceLock<(wgpu::Dx12Compiler, bool)> =
+    std::sync::OnceLock::new();
+
+fn software_adapters_unusable() -> bool {
+    #[cfg(target_os = "windows")]
+    let unusable = DX12_SHADER_COMPILER
+        .get()
+        .is_some_and(|(_, fxc_fallback)| *fxc_fallback);
+    #[cfg(not(target_os = "windows"))]
+    let unusable = false;
+
+    unusable
+}
+
+#[cfg(target_os = "windows")]
+fn dx12_instance(shader_compiler: wgpu::Dx12Compiler) -> wgpu::Instance {
+    wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::DX12,
         backend_options: wgpu::BackendOptions {
             dx12: wgpu::Dx12BackendOptions {
-                shader_compiler: bundled_dxc_compiler(),
+                shader_compiler,
                 ..Default::default()
             },
             ..Default::default()
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
+    })
+}
 
-    instance
+#[cfg(target_os = "windows")]
+fn dx12_instance_with_fxc_fallback(
+    compiler: wgpu::Dx12Compiler,
+) -> (wgpu::Instance, wgpu::Dx12Compiler) {
+    let instance = dx12_instance(compiler.clone());
+    let has_dx12 = unsafe { instance.as_hal::<wgpu_hal::api::Dx12>() }.is_some();
+    if has_dx12 || matches!(compiler, wgpu::Dx12Compiler::Fxc) {
+        return (instance, compiler);
+    }
+
+    tracing::warn!("DX12 with bundled DXC failed to initialise; retrying with FXC");
+    (
+        dx12_instance(wgpu::Dx12Compiler::Fxc),
+        wgpu::Dx12Compiler::Fxc,
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -2511,6 +2558,9 @@ pub async fn create_shared_device() -> Result<SharedWgpuDevice, RenderingError> 
             .ok()
     };
 
+    let hardware_adapter = hardware_adapter.filter(|adapter| {
+        !software_adapters_unusable() || !is_software_wgpu_adapter(&adapter.get_info())
+    });
     let (adapter, is_software_adapter) = if let Some(adapter) = hardware_adapter {
         let adapter_info = adapter.get_info();
         let is_software = is_software_wgpu_adapter(&adapter_info);
@@ -2533,6 +2583,10 @@ pub async fn create_shared_device() -> Result<SharedWgpuDevice, RenderingError> 
 
         (adapter, is_software)
     } else {
+        if software_adapters_unusable() {
+            tracing::warn!("No hardware GPU adapter found, and software rendering crashes on FXC");
+            return Err(RenderingError::NoAdapter);
+        }
         tracing::warn!("No hardware GPU adapter found, attempting software fallback");
         let software_adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -3488,6 +3542,7 @@ pub struct FrameLayout {
     pub display: [f32; 4],
     pub camera: Option<[f32; 4]>,
     pub output_size: [u32; 2],
+    pub caption: Option<CaptionFrameBox>,
 }
 
 /// Unzoomed placement of the display card in output-frame pixels. Without a
@@ -3517,6 +3572,7 @@ impl ProjectUniforms {
             display: self.display_outer_bounds,
             camera: self.camera.as_ref().map(|c| c.target_bounds),
             output_size: [self.output_size.0, self.output_size.1],
+            caption: None,
         }
     }
 
@@ -7872,6 +7928,10 @@ fn join_layer<T>(handle: std::thread::ScopedJoinHandle<'_, T>) -> T {
 }
 
 impl RendererLayers {
+    pub fn caption_frame_box(&self) -> Option<CaptionFrameBox> {
+        self.overlays.as_ref()?.captions.frame_box()
+    }
+
     fn reset_frame_state(&mut self) {
         self.display.reset_frame_state();
         self.camera.reset_frame_state();
@@ -9634,6 +9694,98 @@ mod project_uniforms_tests {
     }
 
     #[tokio::test]
+    async fn idle_hidden_cursor_never_flashes_while_resuming() {
+        let mut constants = cursor_test_constants().await;
+        let size = XY::new(320, 180);
+        constants.options.screen_size = size;
+        let events = CursorEvents {
+            moves: [0.0, 3000.0, 3050.0]
+                .into_iter()
+                .map(|time| cursor_move(time, 0.5, 0.5))
+                .collect(),
+            clicks: Vec::new(),
+        };
+        let mut project = ProjectConfiguration::default();
+        project.cursor.raw = true;
+        project.cursor.set_cursor_type(CursorType::Circle);
+        project.cursor.hide_when_idle = true;
+        project.cursor.hide_when_idle_delay = 0.5;
+        project.timeline = Some(
+            serde_json::from_value(serde_json::json!({
+                "segments": [{ "start": 0.0, "end": 4.0, "timescale": 1.0 }],
+                "zoomSegments": []
+            }))
+            .unwrap(),
+        );
+        let cursor = PrecomputedCursorTimeline::new(&events, None, None);
+        let zoom = ZoomTransformTimeline::from_project(&project, &events, 4.0, size);
+        let mut hidden_project = project.clone();
+        hidden_project.cursor.hide = true;
+        let project = Arc::new(project);
+        let hidden_project = Arc::new(hidden_project);
+        let source = DecodedFrame::new(vec![160; 320 * 180 * 4], size.x, size.y);
+        let mut renderer = FrameRenderer::new(&constants);
+        let mut layers = RendererLayers::new(&constants.device, &constants.queue);
+        let mut render = async |project: &Arc<ProjectConfiguration>, frame_number: u32| {
+            let time = frame_number as f32 / 60.0;
+            let frames = DecodedSegmentFrames {
+                screen_size: size,
+                screen_frame: Some(source.clone()),
+                camera_frame: None,
+                segment_time: time,
+                recording_time: time,
+                segment_has_camera: false,
+            };
+            let uniforms = ProjectUniforms::new_with_precomputed_cursor(
+                &constants,
+                project,
+                frame_number,
+                60,
+                size,
+                &events,
+                &frames,
+                4.0,
+                &zoom,
+                &cursor,
+            );
+            renderer
+                .render_immediate(frames, uniforms, &events, true, &mut layers)
+                .await
+                .unwrap()
+                .data
+        };
+        let background = render(&hidden_project, 180).await;
+        let mut coverage = Vec::new();
+        for frame_number in 160..=212 {
+            let frame = render(&project, frame_number).await;
+            let drawn: u64 = frame
+                .iter()
+                .zip(background.iter())
+                .map(|(a, b)| u64::from(a.abs_diff(*b)))
+                .sum();
+            coverage.push((frame_number, drawn));
+        }
+        assert_eq!(coverage[0].1, 0, "the cursor must start idle-hidden");
+        let full = coverage.last().unwrap().1;
+        assert!(full > 0, "the fixture must draw a cursor");
+        for pair in coverage.windows(2) {
+            assert!(
+                pair[1].1 >= pair[0].1,
+                "cursor coverage fell from {} at frame {} to {} at frame {}",
+                pair[0].1,
+                pair[0].0,
+                pair[1].1,
+                pair[1].0,
+            );
+        }
+        let at_resume = coverage.iter().find(|(frame, _)| *frame == 180).unwrap().1;
+        assert_eq!(
+            at_resume, full,
+            "the cursor must be fully visible when it moves"
+        );
+    }
+
+    #[tokio::test]
     #[ignore]
     async fn benchmark_idle_cursor_frame_preparation() {
         let mut constants = cursor_test_constants().await;
@@ -10382,5 +10534,36 @@ mod initial_decode_recovery_tests {
 
         assert!(times.iter().all(|time| *time >= 0.0));
         assert!(times.last().copied().unwrap_or_default() >= 0.0);
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod dx12_compiler_fallback_tests {
+    use super::*;
+
+    #[test]
+    fn unloadable_dxc_falls_back_to_fxc() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let dxc_path = dir.path().join("dxcompiler.dll");
+        std::fs::write(&dxc_path, b"").expect("write dxcompiler.dll");
+        let broken = wgpu::Dx12Compiler::DynamicDxc {
+            dxc_path: dxc_path.to_string_lossy().into_owned(),
+        };
+
+        let (instance, compiler) = dx12_instance_with_fxc_fallback(broken);
+        assert!(matches!(compiler, wgpu::Dx12Compiler::Fxc));
+        assert!(unsafe { instance.as_hal::<wgpu_hal::api::Dx12>() }.is_some());
+    }
+
+    #[test]
+    fn loadable_bundled_dxc_is_kept() {
+        let compiler = bundled_dxc_compiler();
+        if matches!(compiler, wgpu::Dx12Compiler::Fxc) {
+            return;
+        }
+
+        let (instance, kept) = dx12_instance_with_fxc_fallback(compiler);
+        assert!(matches!(kept, wgpu::Dx12Compiler::DynamicDxc { .. }));
+        assert!(unsafe { instance.as_hal::<wgpu_hal::api::Dx12>() }.is_some());
     }
 }

@@ -508,16 +508,19 @@ impl PendingConfigSave {
     }
 
     pub fn flush(&mut self) {
-        let (Some(path), Some(config)) = (self.path.clone(), self.config.take()) else {
+        let (Some(path), Some(config)) = (self.path.as_ref(), self.config.as_ref()) else {
             return;
         };
-        if crate::screenshot_cut::uses_current_format(&config)
-            && let Err(error) = frameever_utils::storage::stamp_format_version(&path)
+        if crate::screenshot_cut::uses_current_format(config)
+            && let Err(error) = frameever_utils::storage::stamp_format_version(path)
         {
             tracing::error!(path = %path.display(), "failed to stamp the project format: {error}");
         }
-        match config.write(&path) {
-            Ok(()) => tracing::debug!(path = %path.display(), "screenshot config written"),
+        match config.write(path) {
+            Ok(()) => {
+                tracing::debug!(path = %path.display(), "screenshot config written");
+                self.config = None;
+            }
             Err(error) => {
                 tracing::error!(path = %path.display(), "failed to persist screenshot config: {error}")
             }
@@ -856,6 +859,7 @@ struct Toast {
 struct PanDrag {
     start: Point<Pixels>,
     origin: (f32, f32),
+    button: MouseButton,
 }
 
 /// The measured geometry `Preview.tsx` derives from the container's bounds.
@@ -1062,6 +1066,15 @@ impl ScreenshotEditorWindow {
             this.hex_inputs.insert(target, input);
         }
         this.init_annotation_inputs(window, cx);
+        cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active()
+                && let Some(dialog) = this.crop.as_mut()
+                && dialog.state.keys.release()
+            {
+                cx.notify();
+            }
+        })
+        .detach();
 
         this
     }
@@ -1277,14 +1290,18 @@ impl ScreenshotEditorWindow {
         }
     }
 
-    fn undo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn undo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.end_slider(cx);
+        self.finish_annotation_history_edit(window, cx);
         let Some(config) = self.history.undo().cloned() else {
             return;
         };
         self.apply_history(config, window, cx);
     }
 
-    fn redo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn redo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.end_slider(cx);
+        self.finish_annotation_history_edit(window, cx);
         let Some(config) = self.history.redo().cloned() else {
             return;
         };
@@ -2007,6 +2024,7 @@ impl ScreenshotEditorWindow {
         self.panning = Some(PanDrag {
             start: event.position,
             origin: self.pan,
+            button: event.button,
         });
         cx.notify();
     }
@@ -4315,9 +4333,10 @@ impl Render for ScreenshotEditorWindow {
                     }),
                 ))
             })
-            .when(self.panning.is_some(), |root| {
-                root.child(ui::Slider::drag_layer(
+            .when_some(self.panning.map(|drag| drag.button), |root, button| {
+                root.child(ui::Slider::drag_layer_for(
                     "screenshot-pan-drag",
+                    button,
                     cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                         this.preview_mouse_move(event, window, cx);
                     }),
@@ -4935,6 +4954,38 @@ mod tests {
         // The 8px floor keeps a gentle tick moving (`Preview.tsx:306`).
         assert_eq!(ctrl_wheel_zoom_step(1.), 8. * 0.005);
         assert_eq!(ctrl_wheel_zoom_step(-1.), -8. * 0.005);
+    }
+
+    #[test]
+    fn failed_screenshot_save_keeps_edits_for_the_close_time_retry() {
+        let root = tempfile::tempdir().unwrap();
+        let config_path = root.path().join("project-config.json");
+        let original = ProjectConfiguration::default();
+        original.write(root.path()).unwrap();
+        let mut edited = original.clone();
+        edited.background.padding = 42.;
+        let mut pending = PendingConfigSave {
+            path: Some(root.path().to_path_buf()),
+            config: Some(edited.clone()),
+        };
+        let backup = root.path().join("saved-config.json");
+        std::fs::rename(&config_path, &backup).unwrap();
+        std::fs::create_dir(&config_path).unwrap();
+
+        pending.flush();
+        assert!(pending.config.is_some(), "failed saves must stay pending");
+        assert_eq!(
+            serde_json::to_value(pending.config.as_ref().unwrap()).unwrap(),
+            serde_json::to_value(&edited).unwrap()
+        );
+
+        std::fs::remove_dir(&config_path).unwrap();
+        std::fs::rename(&backup, &config_path).unwrap();
+        pending.flush();
+        assert!(pending.config.is_none());
+        let written: ProjectConfiguration =
+            serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+        assert_eq!(written.background.padding, 42.);
     }
 
     fn new_screenshot_config() -> ProjectConfiguration {

@@ -1402,7 +1402,7 @@ impl SettingsWindow {
                 })
                 .into_any_element(),
             Row::ZoomAmount => {
-                let zoom = settings.default_zoom_amount.unwrap_or(1.5);
+                let zoom = settings.new_zoom_amount();
                 let theme = self.theme;
                 div()
                     .id("zoom-amount")
@@ -1410,7 +1410,7 @@ impl SettingsWindow {
                     .rounded(px(6.))
                     .focus_visible(move |style| style.bg(theme.selection))
                     .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                        let current = this.settings.default_zoom_amount.unwrap_or(1.5);
+                        let current = this.settings.new_zoom_amount();
                         if let Some(value) = ui::keyboard_slider_value(
                             event.keystroke.key.as_str(),
                             current,
@@ -2588,7 +2588,7 @@ impl SettingsWindow {
                 }),
                 cx.listener(|this, _, _window, cx| {
                     this.slider_dragging = false;
-                    let value = this.settings.default_zoom_amount.unwrap_or(1.5);
+                    let value = this.settings.new_zoom_amount();
                     this.write(
                         "defaultZoomAmount",
                         Value::from(f64::from(ui::snap_to_step(value, ZOOM_MIN, ZOOM_MAX, 0.1))),

@@ -610,7 +610,7 @@ const groups = {
 				"Model",
 				"模型",
 				O(
-					["Recommended · ~640MB", "推荐 · ~640MB"],
+					["Recommended · ~870MB", "推荐 · ~870MB"],
 					["High accuracy · ~2.4GB", "高精度 · ~2.4GB"],
 					["Small · 466MB", "小 · 466MB"],
 					["Medium · 1.5GB", "中 · 1.5GB"],
@@ -675,6 +675,14 @@ const groups = {
 			"位置和动画",
 			[
 				se("capPos", "Position", "位置", [["Manual", "手动"], ...positions], 5),
+				{
+					whenIs: ["capPos", 0, 5],
+					rows: [
+						sl("capX", "Horizontal position", "水平位置", 0, 100, 50, "%", 0.1),
+						sl("capY", "Vertical position", "垂直位置", 0, 100, 85, "%", 0.1),
+						bt("Reset position", "重置位置"),
+					],
+				},
 				se(
 					"capAnim",
 					"Animation style",
@@ -1426,6 +1434,10 @@ const eqRows = () => {
 };
 
 const row = (c) => {
+	if (c.whenIs !== undefined) {
+		const [k, v, d] = c.whenIs;
+		return (S.v[k] ?? d) === v ? c.rows.map(row).join("") : "";
+	}
 	if (c.when !== undefined) {
 		return (S.v[c.when] ?? false) ||
 			(c.when === "cursor" && S.v.cursor === undefined) ||
@@ -2678,6 +2690,27 @@ const renderDocs = () => {
 			[
 				"Each lane says how to add its first segment. Zoom offers Add zooms automatically; 3D offers Auto scene. No clips yet draws TICK.",
 				"每条轨道说明如何添加第一段。缩放提供自动添加，3D 提供自动场景。“还没有片段”画 TICK。",
+			],
+		],
+		[
+			["Manual captions", "手动字幕"],
+			[
+				"With Position set to Manual, the caption on the preview is a canvas box: drag it with centre, thirds and safe-margin guides, or nudge it with the arrow keys (Shift for 10 px). Horizontal and vertical position take a typed percentage; Reset position returns it to bottom centre.",
+				"位置设为手动时，预览里的字幕是画布上的一个框：拖动时有中线、三分线和安全边距参考线，也可以用方向键微调（按住 Shift 一次 10 px）。水平和垂直位置可以直接输入百分比，“重置位置”回到底部居中。",
+			],
+		],
+		[
+			["No speech", "没有语音"],
+			[
+				'Captions › Transcription says "No speech found in this recording" in muted text under Regenerate captions. It is not an error; regenerating clears it.',
+				"字幕 › 转写在“重新生成字幕”下方用次要文字显示“此录制内容中未发现语音”。这不是错误，重新生成后消失。",
+			],
+		],
+		[
+			["Recommended model updated", "推荐模型已更新"],
+			[
+				'Someone with the old Recommended download sees "Recommended model updated" and why it is worth it above the download button.',
+				"装着旧版推荐模型的用户会在下载按钮上方看到“推荐模型已更新”和更新的理由。",
 			],
 		],
 		[

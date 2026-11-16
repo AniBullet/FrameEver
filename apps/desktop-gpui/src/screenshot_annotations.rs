@@ -2171,11 +2171,30 @@ impl ScreenshotEditorWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        self.finish_annotation_gesture(true, window, cx)
+    }
+
+    pub(crate) fn finish_annotation_history_edit(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.end_annotation_slider(cx);
+        self.finish_annotation_gesture(false, window, cx);
+        self.finish_reorder(window, cx);
+    }
+
+    fn finish_annotation_gesture(
+        &mut self,
+        edit_text: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let Some(gesture) = self.annotation_state.gesture.take() else {
             return false;
         };
         match gesture {
-            Gesture::Create(creating) => self.finish_create(creating, window, cx),
+            Gesture::Create(creating) => self.finish_create(creating, edit_text, window, cx),
             Gesture::Move(dragging) | Gesture::Resize(dragging) => {
                 self.finish_drag(dragging, window, cx)
             }
@@ -2190,7 +2209,13 @@ impl ScreenshotEditorWindow {
         true
     }
 
-    fn finish_create(&mut self, creating: Creating, window: &mut Window, cx: &mut Context<Self>) {
+    fn finish_create(
+        &mut self,
+        creating: Creating,
+        edit_text: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let mut annotation = creating.temp;
 
         if annotation.annotation_type == AnnotationType::Draw {
@@ -2281,7 +2306,7 @@ impl ScreenshotEditorWindow {
         self.selected_annotation = Some(id.clone());
         self.commit_annotations(window, cx);
 
-        if is_text {
+        if is_text && edit_text {
             self.begin_text_edit(id, window, cx);
         }
     }
@@ -2671,7 +2696,7 @@ impl ScreenshotEditorWindow {
                 *live = temp;
             }
         }
-        self.finish_create(creating, window, cx);
+        self.finish_create(creating, true, window, cx);
         true
     }
 
@@ -5135,6 +5160,85 @@ fn mask_region(mask: &Annotation, rect: Rect, frame: (u32, u32)) -> Option<(u32,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod history_interruption {
+        use super::*;
+        use crate::editor_edits::ProjectHistory;
+
+        fn rectangle() -> Annotation {
+            shape(AnnotationType::Rectangle, 100., 100., 50., 30.)
+        }
+
+        fn active_drag(editor: &mut ScreenshotEditorWindow, resize: bool, offset: f64) {
+            let mut drag = Dragging {
+                id: "a".into(),
+                handle: resize.then_some(Handle::E),
+                start: (100., 100.),
+                original: editor.project.annotations[0].clone(),
+                moved: false,
+            };
+            if resize {
+                editor.drag_resize(&drag, (100. + offset, 100.), false);
+                editor.annotation_state.gesture = Some(Gesture::Resize(drag));
+            } else {
+                editor.drag_move(&mut drag, (100. + offset, 100.));
+                editor.annotation_state.gesture = Some(Gesture::Move(drag));
+            }
+        }
+
+        fn geometry(editor: &ScreenshotEditorWindow) -> (f64, f64) {
+            let annotation = &editor.project.annotations[0];
+            (annotation.x, annotation.width)
+        }
+
+        #[gpui::test]
+        fn active_move_and_resize_undo_before_prior_history(cx: &mut gpui::TestAppContext) {
+            for resize in [false, true] {
+                for prior in [false, true] {
+                    let bundle = tempfile::tempdir().unwrap();
+                    let path = bundle.path().to_path_buf();
+                    let (editor, cx) = cx.add_window_view(move |window, cx| {
+                        ScreenshotEditorWindow::new(path.clone(), window, cx)
+                    });
+                    editor.update_in(cx, |editor, window, cx| {
+                        editor.set_error("history fixture".into(), cx);
+                        editor.project = frameever_project::ProjectConfiguration {
+                            annotations: vec![rectangle()],
+                            background: frameever_project::BackgroundConfiguration {
+                                padding: 0.,
+                                rounding: 0.,
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        };
+                        editor.history = ProjectHistory::new(editor.project.clone());
+                        editor.frame_size = (800., 600.);
+                        editor.image_size = Some((800, 600));
+                        if prior {
+                            editor.project.background.rounding = 12.;
+                            editor.history.record(&editor.project);
+                        }
+                        active_drag(editor, resize, 30.);
+                        editor.undo(window, cx);
+                        assert_eq!(
+                            editor.project.background.rounding,
+                            if prior { 12. } else { 0. }
+                        );
+                        assert_eq!(geometry(editor), (100., 50.));
+                        assert!(editor.annotation_state.gesture.is_none());
+                        assert!(editor.history.can_redo());
+                        assert!(!editor.annotation_mouse_up(window, cx));
+                        editor.redo(window, cx);
+                        assert_eq!(
+                            geometry(editor),
+                            if resize { (100., 80.) } else { (130., 50.) }
+                        );
+                    });
+                    drop(bundle);
+                }
+            }
+        }
+    }
 
     #[test]
     fn the_toolbar_groups_tools_as_the_design_page_does() {

@@ -14,6 +14,8 @@ mod segments;
 mod telemetry;
 mod thumbnail;
 
+#[cfg(feature = "test-hooks")]
+pub use audio::set_progressive_audio_allocation_limit;
 pub use audio::{AudioRenderer, AudioSegment, MusicTracks};
 #[cfg(feature = "test-hooks")]
 pub use audio_output::OfflineAudioSink;

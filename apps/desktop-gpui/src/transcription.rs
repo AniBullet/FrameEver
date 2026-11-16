@@ -164,16 +164,23 @@ fn model_files_present(model: &str) -> bool {
     if !is_parakeet_model(model) {
         return path.exists();
     }
-    if !supports_parakeet() || !path.is_dir() {
-        return false;
-    }
-    let has_vocab = path.join("vocab.txt").exists();
-    let has_full_model = path.join("encoder-model.onnx").exists()
-        && path.join("encoder-model.onnx.data").exists()
-        && path.join("decoder_joint-model.onnx").exists();
-    let has_int8_model = path.join("encoder-model.int8.onnx").exists()
-        && path.join("decoder_joint-model.int8.onnx").exists();
-    has_vocab && (has_full_model || has_int8_model)
+    supports_parakeet() && parakeet_model_installed(&path)
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn parakeet_model_installed(dir: &Path) -> bool {
+    parakeet_model_files_for_dir(dir)
+        .iter()
+        .all(|(filename, _)| dir.join(filename).is_file())
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn parakeet_model_installed(_dir: &Path) -> bool {
+    false
+}
+
+fn parakeet_model_outdated(dir: &Path) -> bool {
+    dir.join("encoder-model.int8.onnx").is_file() && !parakeet_model_installed(dir)
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +212,8 @@ struct Hub {
     deleting: Option<String>,
     generating: HashSet<PathBuf>,
     generation_errors: HashMap<PathBuf, String>,
+    no_speech: HashSet<PathBuf>,
+    recommended_outdated: bool,
 }
 
 impl Hub {
@@ -236,6 +245,8 @@ pub struct CaptionsUiSnapshot {
     pub deleting: Option<String>,
     pub generating: bool,
     pub generation_error: Option<String>,
+    pub no_speech: bool,
+    pub recommended_outdated: bool,
 }
 
 pub fn ui_snapshot(project_path: &Path) -> CaptionsUiSnapshot {
@@ -246,6 +257,8 @@ pub fn ui_snapshot(project_path: &Path) -> CaptionsUiSnapshot {
         deleting: hub.deleting.clone(),
         generating: hub.generating.contains(project_path),
         generation_error: hub.generation_errors.get(project_path).cloned(),
+        no_speech: hub.no_speech.contains(project_path),
+        recommended_outdated: hub.recommended_outdated,
     }
 }
 
@@ -268,7 +281,10 @@ pub fn refresh_downloaded_models() {
         .filter(|model| model_files_present(model))
         .map(|model| (*model).to_string())
         .collect();
-    hub().downloaded = Some(downloaded);
+    let recommended_outdated = supports_parakeet() && parakeet_model_outdated(&model_path("best"));
+    let mut hub = hub();
+    hub.downloaded = Some(downloaded);
+    hub.recommended_outdated = recommended_outdated;
 }
 
 pub fn begin_download(model: &str) -> bool {
@@ -384,6 +400,7 @@ pub fn begin_generation(project_path: &Path) -> bool {
         return false;
     }
     hub.generation_errors.remove(project_path);
+    hub.no_speech.remove(project_path);
     hub.generating.insert(project_path.to_path_buf());
     true
 }
@@ -391,6 +408,7 @@ pub fn begin_generation(project_path: &Path) -> bool {
 pub fn finish_generation(project_path: &Path, error: Option<String>) {
     let mut hub = hub();
     hub.generating.remove(project_path);
+    hub.no_speech.remove(project_path);
     match error {
         Some(message) => {
             hub.generation_errors
@@ -400,6 +418,17 @@ pub fn finish_generation(project_path: &Path, error: Option<String>) {
             hub.generation_errors.remove(project_path);
         }
     }
+}
+
+pub fn finish_generation_without_speech(project_path: &Path) {
+    let mut hub = hub();
+    hub.generating.remove(project_path);
+    hub.generation_errors.remove(project_path);
+    hub.no_speech.insert(project_path.to_path_buf());
+}
+
+pub fn no_speech_error() -> String {
+    t!("No speech detected in the audio").to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -520,9 +549,9 @@ async fn total_content_length(urls: &[&str]) -> u64 {
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 const PARAKEET_TDT_INT8_MODEL_FILES: &[(&str, &[&str])] = &[
     (
-        "encoder-model.int8.onnx",
+        "encoder-model.onnx",
         &[
-            "https://github.com/CapSoftware/transcription-models/releases/download/parakeet-tdt-v1/encoder-model.int8.onnx",
+            "https://github.com/CapSoftware/transcription-models/releases/download/parakeet-tdt-v2/encoder-model.q8.onnx",
         ],
     ),
     (
@@ -584,7 +613,7 @@ const PARAKEET_MODEL_CLEANUP_FILES: &[&str] = &[
 /// `PARAKEET_KNOWN_PART_SIZES` (`captions.rs:2308-2316`).
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 const PARAKEET_KNOWN_PART_SIZES: &[(&str, u64)] = &[
-    ("encoder-model.int8.onnx", 652_183_999),
+    ("encoder-model.q8.onnx", 895_802_223),
     ("decoder_joint-model.int8.onnx", 18_202_004),
     ("encoder-model.onnx", 41_770_866),
     ("encoder-model.onnx.data.part0", 1_300_000_000),
@@ -1774,7 +1803,7 @@ fn process_with_parakeet(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to read audio file: {e}"))?;
     if samples.is_empty() {
-        return Err(t!("No speech detected in the audio").to_string());
+        return Err(no_speech_error());
     }
 
     let mut tokens = Vec::new();
@@ -1824,7 +1853,7 @@ fn caption_segments_from_tokens(
     );
 
     if words.is_empty() {
-        return Err(t!("No speech detected in the audio").to_string());
+        return Err(no_speech_error());
     }
 
     let mut segments = Vec::new();
@@ -1933,7 +1962,7 @@ fn transcribe_project_with(
 
     let segments = result?;
     if segments.is_empty() {
-        return Err(t!("No speech detected in the audio").to_string());
+        return Err(no_speech_error());
     }
     Ok(segments)
 }
@@ -2393,6 +2422,120 @@ mod verify_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+    fn install(root: &Path, dir: &str, files: &[&str]) -> PathBuf {
+        let dir = root.join(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for file in files {
+            std::fs::write(dir.join(file), b"x").unwrap();
+        }
+        dir
+    }
+
+    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+    #[test]
+    fn recommended_parakeet_needs_the_float_activation_encoder() {
+        let root = tempfile::tempdir().unwrap();
+        let dynamic_int8 = install(
+            root.path(),
+            "old/parakeet-best",
+            &[
+                "encoder-model.int8.onnx",
+                "decoder_joint-model.int8.onnx",
+                "vocab.txt",
+            ],
+        );
+        assert!(!parakeet_model_installed(&dynamic_int8));
+
+        let recommended = install(
+            root.path(),
+            "new/parakeet-best",
+            &[
+                "encoder-model.onnx",
+                "decoder_joint-model.int8.onnx",
+                "vocab.txt",
+            ],
+        );
+        assert!(parakeet_model_installed(&recommended));
+        let encoder_urls = PARAKEET_TDT_INT8_MODEL_FILES
+            .iter()
+            .find(|(file, _)| *file == "encoder-model.onnx")
+            .map(|(_, urls)| *urls)
+            .unwrap();
+        assert!(
+            encoder_urls
+                .iter()
+                .all(|url| parakeet_known_part_size(url).is_some() && !url.contains(".int8."))
+        );
+
+        let full = install(
+            root.path(),
+            "full/parakeet-best-max",
+            &[
+                "encoder-model.onnx",
+                "encoder-model.onnx.data",
+                "decoder_joint-model.onnx",
+                "vocab.txt",
+            ],
+        );
+        assert!(parakeet_model_installed(&full));
+        std::fs::remove_file(full.join("encoder-model.onnx.data")).unwrap();
+        assert!(!parakeet_model_installed(&full));
+    }
+
+    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+    #[test]
+    fn update_note_shows_only_for_the_old_recommended_download() {
+        let root = tempfile::tempdir().unwrap();
+        let old = install(
+            root.path(),
+            "old/parakeet-best",
+            &[
+                "encoder-model.int8.onnx",
+                "decoder_joint-model.int8.onnx",
+                "vocab.txt",
+            ],
+        );
+        let current = install(
+            root.path(),
+            "current/parakeet-best",
+            &[
+                "encoder-model.onnx",
+                "decoder_joint-model.int8.onnx",
+                "vocab.txt",
+            ],
+        );
+
+        assert!(parakeet_model_outdated(&old));
+        assert!(!parakeet_model_outdated(&current));
+        assert!(!parakeet_model_outdated(
+            &root.path().join("fresh/parakeet-best")
+        ));
+        assert!(!parakeet_model_outdated(&install(
+            root.path(),
+            "empty/parakeet-best",
+            &[]
+        )));
+    }
+
+    #[test]
+    fn hearing_no_speech_is_an_empty_state_not_an_error() {
+        let path = PathBuf::from("/tmp/frameever-no-speech-state-test.ever");
+        assert!(begin_generation(&path));
+        finish_generation_without_speech(&path);
+        let snapshot = ui_snapshot(&path);
+        assert!(snapshot.no_speech && !snapshot.generating);
+        assert_eq!(snapshot.generation_error, None);
+
+        assert!(begin_generation(&path));
+        assert!(!ui_snapshot(&path).no_speech);
+        finish_generation(&path, Some("boom".to_string()));
+        let snapshot = ui_snapshot(&path);
+        assert!(!snapshot.no_speech);
+        assert_eq!(snapshot.generation_error.as_deref(), Some("boom"));
+        finish_generation(&path, None);
+    }
 
     fn engine(model: &str, language: &str) -> CaptionEngine {
         CaptionEngine {
