@@ -876,7 +876,6 @@ pub const DEFAULT_EXCLUDED_WINDOW_TITLES: &[&str] = &[
     concat!(crate::brand::app_name!(), " Camera"),
     concat!(crate::brand::app_name!(), " Mode Selection"),
     concat!(crate::brand::app_name!(), " Teleprompter"),
-    crate::input_preset_maker::MAKER_WINDOW_TITLE,
 ];
 
 pub const OTHER_APP_WINDOWS_EXCLUDABLE: bool = cfg!(target_os = "macos");
