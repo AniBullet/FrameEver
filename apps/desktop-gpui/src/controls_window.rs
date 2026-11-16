@@ -3,7 +3,7 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use gpui::{
@@ -60,6 +60,20 @@ pub struct ControlsWindow {
 }
 
 const DRAW_STRIP_ROOM: f32 = 44.;
+const CHAPTER_MARK_ACKNOWLEDGEMENT: Duration = Duration::from_millis(900);
+
+fn chapter_mark_lit(added_at: Option<Instant>, now: Instant) -> bool {
+    added_at
+        .is_some_and(|added| now.saturating_duration_since(added) < CHAPTER_MARK_ACKNOWLEDGEMENT)
+}
+
+fn chapter_mark_badge(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1..=99 => Some(count.to_string()),
+        _ => Some("99+".to_string()),
+    }
+}
 
 const OPTIONS_WIDTH: f32 = 300.;
 const TIME_MIN_WIDTH: f32 = 68.;
@@ -644,6 +658,60 @@ impl ControlsWindow {
         } else {
             theme.foreground
         }))
+    }
+
+    fn render_chapter_mark(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let session = self.session.read(cx);
+        let lit = chapter_mark_lit(session.chapter_mark_added_at(), Instant::now());
+        let badge = chapter_mark_badge(session.chapter_mark_count());
+        let shortcut: Vec<String> = crate::store::hotkeys_raw()
+            .get("addChapterMarker")
+            .and_then(crate::store::hotkey_from_value)
+            .map(|hotkey| {
+                crate::settings_pages::hotkey_display_keys(&hotkey)
+                    .iter()
+                    .map(|key| crate::settings_pages::hotkey_key_text(key).to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.action_button(
+            "chapter-mark",
+            "icons/flag.svg",
+            false,
+            Control::ChapterMark,
+        )
+        .relative()
+        .when(lit, |this| this.bg(theme.selection))
+        .children(badge.map(|badge| {
+            div()
+                .absolute()
+                .top(px(1.))
+                .right(px(0.))
+                .min_w(px(13.))
+                .h(px(13.))
+                .px(px(3.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(if lit {
+                    theme.primary
+                } else {
+                    theme.muted_foreground
+                })
+                .text_size(px(9.))
+                .line_height(px(13.))
+                .font_weight(FontWeight::BOLD)
+                .text_color(theme.background)
+                .child(SharedString::from(badge))
+        }))
+        .tooltip(move |_, cx| {
+            ui::Tooltip::new(&theme, t!("Add chapter mark"))
+                .keys(shortcut.clone())
+                .view(cx)
+        })
+        .on_click(cx.listener(|this, _, window, cx| this.press(Control::ChapterMark, window, cx)))
     }
 
     fn render_stop(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1305,6 +1373,10 @@ impl ControlsWindow {
             (Control::Restart, !busy),
             (Control::Issue, self.issue(cx).is_some()),
             (Control::Delete, !busy),
+            (
+                Control::ChapterMark,
+                self.session.read(cx).chapter_marks_available(),
+            ),
             (Control::Draw, !busy),
             (Control::Options, true),
         ]);
@@ -1333,6 +1405,10 @@ impl ControlsWindow {
             Control::Delete => self.confirm_action(DestructiveAction::Delete, window, cx),
             Control::Issue | Control::DismissIssue => self.toggle_issue_card(window, cx),
             Control::Draw => self.toggle_draw(window, cx),
+            Control::ChapterMark => {
+                self.session
+                    .update(cx, |session, cx| session.add_chapter_marker(cx));
+            }
             Control::Options => self.toggle_options(window, cx),
             Control::Stop => {
                 if self.can_stop(cx) {
@@ -1750,6 +1826,9 @@ impl ControlsWindow {
                         }))
                     }),
             )
+            .when(self.session.read(cx).chapter_marks_available(), |this| {
+                this.child(self.render_chapter_mark(cx))
+            })
             .child(
                 self.action_button("draw", "icons/pencil.svg", busy, Control::Draw)
                     .when(self.drawing(cx), |this| this.bg(theme.selection))
@@ -2114,6 +2193,23 @@ mod repaint_tests {
             recording_time_label(Phase::Stopping, None, false, elapsed, None),
             "Saving…"
         );
+    }
+
+    #[test]
+    fn the_chapter_mark_button_lights_briefly_and_counts_the_take() {
+        let pressed = Instant::now();
+        assert!(chapter_mark_lit(
+            Some(pressed),
+            pressed + Duration::from_millis(300)
+        ));
+        assert!(!chapter_mark_lit(
+            Some(pressed),
+            pressed + Duration::from_secs(1)
+        ));
+        assert!(!chapter_mark_lit(None, pressed));
+        assert_eq!(chapter_mark_badge(0), None);
+        assert_eq!(chapter_mark_badge(3).as_deref(), Some("3"));
+        assert_eq!(chapter_mark_badge(120).as_deref(), Some("99+"));
     }
 
     #[test]

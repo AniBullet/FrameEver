@@ -148,6 +148,7 @@ pub struct DecodedFrame {
     matrix: YuvMatrix,
     y_stride: u32,
     uv_stride: u32,
+    ffmpeg_backing: Option<Arc<::ffmpeg::frame::Video>>,
     #[cfg(target_os = "macos")]
     image_buf_backing: Option<Arc<SendableImageBuf>>,
     #[cfg(target_os = "windows")]
@@ -230,7 +231,8 @@ impl SendableImageBuf {
 
 #[derive(Clone)]
 pub(crate) struct DecodedFrameStorageIdentity {
-    data: Weak<Vec<u8>>,
+    data: Option<Weak<Vec<u8>>>,
+    ffmpeg_backing: Option<Weak<::ffmpeg::frame::Video>>,
     width: u32,
     height: u32,
     format: PixelFormat,
@@ -240,7 +242,18 @@ pub(crate) struct DecodedFrameStorageIdentity {
 
 impl DecodedFrameStorageIdentity {
     pub(crate) fn matches(&self, other: &Self) -> bool {
-        self.data.ptr_eq(&other.data)
+        let same_storage = match (&self.data, &other.data) {
+            (Some(data), Some(other_data)) => data.ptr_eq(other_data),
+            (None, None) => true,
+            _ => false,
+        };
+        let same_ffmpeg_backing = match (&self.ffmpeg_backing, &other.ffmpeg_backing) {
+            (Some(backing), Some(other_backing)) => backing.ptr_eq(other_backing),
+            (None, None) => true,
+            _ => false,
+        };
+        same_storage
+            && same_ffmpeg_backing
             && self.width == other.width
             && self.height == other.height
             && self.format == other.format
@@ -252,7 +265,7 @@ impl DecodedFrameStorageIdentity {
 impl fmt::Debug for DecodedFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DecodedFrame")
-            .field("data_len", &self.data.len())
+            .field("data_len", &self.byte_len())
             .field("width", &self.width)
             .field("height", &self.height)
             .field("format", &self.format)
@@ -272,6 +285,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride: width * 4,
             uv_stride: 0,
+            ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
@@ -288,6 +302,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride: width * 4,
             uv_stride: 0,
+            ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
@@ -304,6 +319,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
@@ -326,11 +342,63 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
             d3d11_texture_backing: None,
         }
+    }
+
+    fn with_ffmpeg_backing(
+        frame: Arc<::ffmpeg::frame::Video>,
+        width: u32,
+        height: u32,
+        format: PixelFormat,
+        y_stride: u32,
+        uv_stride: u32,
+    ) -> Self {
+        Self {
+            data: Arc::new(Vec::new()),
+            width,
+            height,
+            format,
+            matrix: YuvMatrix::Bt601,
+            y_stride,
+            uv_stride,
+            ffmpeg_backing: Some(frame),
+            #[cfg(target_os = "macos")]
+            image_buf_backing: None,
+            #[cfg(target_os = "windows")]
+            d3d11_texture_backing: None,
+        }
+    }
+
+    pub(crate) fn new_nv12_with_ffmpeg_frame(
+        frame: Arc<::ffmpeg::frame::Video>,
+        width: u32,
+        height: u32,
+        y_stride: u32,
+        uv_stride: u32,
+    ) -> Self {
+        Self::with_ffmpeg_backing(frame, width, height, PixelFormat::Nv12, y_stride, uv_stride)
+    }
+
+    pub(crate) fn new_yuv420p_with_ffmpeg_frame(
+        frame: Arc<::ffmpeg::frame::Video>,
+        width: u32,
+        height: u32,
+        y_stride: u32,
+        uv_stride: u32,
+    ) -> Self {
+        Self::with_ffmpeg_backing(
+            frame,
+            width,
+            height,
+            PixelFormat::Yuv420p,
+            y_stride,
+            uv_stride,
+        )
     }
 
     #[cfg(target_os = "macos")]
@@ -349,6 +417,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            ffmpeg_backing: None,
             image_buf_backing: Some(Arc::new(SendableImageBuf::new(image_buf))),
         }
     }
@@ -368,6 +437,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
@@ -390,6 +460,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
             #[cfg(target_os = "windows")]
@@ -407,6 +478,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride: width,
             uv_stride: width,
+            ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
             d3d11_texture_backing: Some(Arc::new(SendableD3D11Texture::new(texture))),
@@ -428,6 +500,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride: width,
             uv_stride: width,
+            ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
             d3d11_texture_backing: Some(Arc::new(SendableD3D11Texture::new_with_handle(
@@ -523,7 +596,11 @@ impl DecodedFrame {
 
     pub(crate) fn storage_identity(&self) -> DecodedFrameStorageIdentity {
         DecodedFrameStorageIdentity {
-            data: Arc::downgrade(&self.data),
+            data: self
+                .ffmpeg_backing
+                .is_none()
+                .then(|| Arc::downgrade(&self.data)),
+            ffmpeg_backing: self.ffmpeg_backing.as_ref().map(Arc::downgrade),
             width: self.width,
             height: self.height,
             format: self.format,
@@ -532,7 +609,17 @@ impl DecodedFrame {
         }
     }
 
+    fn ffmpeg_plane(&self, index: usize, stride: u32, height: u32) -> Option<&[u8]> {
+        let frame = self.ffmpeg_backing.as_ref()?;
+        let size = (stride as usize).checked_mul(height as usize)?;
+        frame.data(index).get(..size)
+    }
+
     pub fn y_plane(&self) -> Option<&[u8]> {
+        if self.ffmpeg_backing.is_some() {
+            return self.ffmpeg_plane(0, self.y_stride, self.height);
+        }
+
         match self.format {
             PixelFormat::Nv12 | PixelFormat::Yuv420p => {
                 let y_size = self
@@ -546,6 +633,13 @@ impl DecodedFrame {
     }
 
     pub fn uv_plane(&self) -> Option<&[u8]> {
+        if self.ffmpeg_backing.is_some() {
+            return match self.format {
+                PixelFormat::Nv12 => self.ffmpeg_plane(1, self.uv_stride, self.height.div_ceil(2)),
+                _ => None,
+            };
+        }
+
         match self.format {
             PixelFormat::Nv12 => {
                 let y_size = self
@@ -559,6 +653,15 @@ impl DecodedFrame {
     }
 
     pub fn u_plane(&self) -> Option<&[u8]> {
+        if self.ffmpeg_backing.is_some() {
+            return match self.format {
+                PixelFormat::Yuv420p => {
+                    self.ffmpeg_plane(1, self.uv_stride, self.height.div_ceil(2))
+                }
+                _ => None,
+            };
+        }
+
         match self.format {
             PixelFormat::Yuv420p => {
                 let y_size = self
@@ -577,6 +680,15 @@ impl DecodedFrame {
     }
 
     pub fn v_plane(&self) -> Option<&[u8]> {
+        if self.ffmpeg_backing.is_some() {
+            return match self.format {
+                PixelFormat::Yuv420p => {
+                    self.ffmpeg_plane(2, self.uv_stride, self.height.div_ceil(2))
+                }
+                _ => None,
+            };
+        }
+
         match self.format {
             PixelFormat::Yuv420p => {
                 let y_size = self
@@ -1765,6 +1877,61 @@ mod tests {
             !original
                 .storage_identity()
                 .matches(&distinct.storage_identity())
+        );
+    }
+
+    #[test]
+    fn ffmpeg_backed_storage_identity_follows_the_shared_planes() {
+        let width = 4;
+        let height = 4;
+        let backing = Arc::new(::ffmpeg::frame::Video::new(
+            ::ffmpeg::format::Pixel::NV12,
+            width,
+            height,
+        ));
+        let y_stride = backing.stride(0) as u32;
+        let uv_stride = backing.stride(1) as u32;
+        let first = DecodedFrame::new_nv12_with_ffmpeg_frame(
+            Arc::clone(&backing),
+            width,
+            height,
+            y_stride,
+            uv_stride,
+        );
+        let repeated = DecodedFrame::new_nv12_with_ffmpeg_frame(
+            Arc::clone(&backing),
+            width,
+            height,
+            y_stride,
+            uv_stride,
+        );
+        let distinct = DecodedFrame::new_nv12_with_ffmpeg_frame(
+            Arc::new(::ffmpeg::frame::Video::new(
+                ::ffmpeg::format::Pixel::NV12,
+                width,
+                height,
+            )),
+            width,
+            height,
+            y_stride,
+            uv_stride,
+        );
+
+        assert!(
+            first
+                .storage_identity()
+                .matches(&repeated.storage_identity())
+        );
+        assert!(
+            !first
+                .storage_identity()
+                .matches(&distinct.storage_identity())
+        );
+        assert!(
+            !first.storage_identity().matches(
+                &DecodedFrame::new_nv12(vec![0; 24], width, height, y_stride, uv_stride)
+                    .storage_identity()
+            )
         );
     }
 

@@ -1283,6 +1283,18 @@ impl SettingsWindow {
                     },
                 )
                 .into_any_element(),
+            Row::ChapterMarkSound => self
+                .toggle(
+                    "chapter-mark-sound",
+                    settings.chapter_mark_sound,
+                    cx,
+                    |this, cx| {
+                        this.settings.chapter_mark_sound = !this.settings.chapter_mark_sound;
+                        let value = this.settings.chapter_mark_sound;
+                        this.write_bool(crate::store::CHAPTER_MARK_SOUND_KEY, value, cx);
+                    },
+                )
+                .into_any_element(),
             Row::DockIcon => self
                 .toggle(
                     "hide-dock-icon",

@@ -683,4 +683,9 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Rules you add appear here.", "你添加的规则会显示在这里。"),
     ("Add rule", "添加规则"),
+    ("Chapter mark sound", "章节标记提示音"),
+    (
+        "Plays when you add a chapter mark while recording. Your microphone can pick it up.",
+        "录制中添加章节标记时播放。麦克风可能会录进去。",
+    ),
 ];

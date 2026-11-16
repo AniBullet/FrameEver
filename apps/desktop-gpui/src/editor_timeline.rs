@@ -1677,41 +1677,63 @@ pub fn chapter_marker_times(
     clip_durations: &[f64],
     clips: &[Segment],
 ) -> Vec<f64> {
-    let recorded_total: f64 = clip_durations.iter().sum();
     let mut times: Vec<f64> = recorded
         .iter()
-        .filter_map(|&at| {
-            let at = at.min(recorded_total);
-            let mut clip_start = 0.0;
-            clip_durations
-                .iter()
-                .enumerate()
-                .find_map(|(recording_clip, &duration)| {
-                    let offset = at - clip_start;
-                    clip_start += duration;
-                    if !(0.0..=duration).contains(&offset) {
-                        return None;
-                    }
-                    clips.iter().find_map(|clip| match &clip.detail {
-                        SegmentDetail::Clip {
-                            recording_clip: clip_recording,
-                            source_start,
-                            source_duration,
-                            timescale,
-                            ..
-                        } if *clip_recording as usize == recording_clip
-                            && (*source_start..=source_start + source_duration)
-                                .contains(&offset) =>
-                        {
-                            Some(clip.start + (offset - source_start) / timescale)
-                        }
-                        _ => None,
-                    })
-                })
-        })
+        .filter_map(|&at| chapter_mark_time(at, clip_durations, clips))
         .collect();
     times.sort_by(f64::total_cmp);
     times
+}
+
+pub fn chapter_mark_time(recorded: f64, clip_durations: &[f64], clips: &[Segment]) -> Option<f64> {
+    let recorded_total: f64 = clip_durations.iter().sum();
+    let at = recorded.min(recorded_total);
+    let mut clip_start = 0.0;
+    clip_durations
+        .iter()
+        .enumerate()
+        .find_map(|(recording_clip, &duration)| {
+            let offset = at - clip_start;
+            clip_start += duration;
+            if !(0.0..=duration).contains(&offset) {
+                return None;
+            }
+            clips.iter().find_map(|clip| match &clip.detail {
+                SegmentDetail::Clip {
+                    recording_clip: clip_recording,
+                    source_start,
+                    source_duration,
+                    timescale,
+                    ..
+                } if *clip_recording as usize == recording_clip
+                    && (*source_start..=source_start + source_duration).contains(&offset) =>
+                {
+                    Some(clip.start + (offset - source_start) / timescale)
+                }
+                _ => None,
+            })
+        })
+}
+
+pub fn recorded_time_at(time: f64, clip_durations: &[f64], clips: &[Segment]) -> Option<f64> {
+    clips.iter().find_map(|clip| match &clip.detail {
+        SegmentDetail::Clip {
+            recording_clip,
+            source_start,
+            source_duration,
+            timescale,
+            ..
+        } if (clip.start..=clip.end).contains(&time) => {
+            let recording_clip = *recording_clip as usize;
+            let duration = *clip_durations.get(recording_clip)?;
+            let offset = (source_start + (time - clip.start) * timescale)
+                .clamp(*source_start, source_start + source_duration)
+                .min(duration);
+            let clip_start: f64 = clip_durations[..recording_clip].iter().sum();
+            Some(clip_start + offset)
+        }
+        _ => None,
+    })
 }
 
 /// `effectiveToOutput` (`ED/timeline-holds.ts:54-64`) -- a gapless
@@ -4519,6 +4541,24 @@ mod tests {
             vec![10.0]
         );
         assert!(chapter_marker_times(&[3.0], &[], &model.clips).is_empty());
+    }
+    #[test]
+    fn a_timeline_time_maps_back_to_the_recorded_time_under_it() {
+        let model = chapter_model(serde_json::json!([
+            { "recordingSegment": 0, "timescale": 1.0, "start": 2.0, "end": 6.0 },
+            { "recordingSegment": 0, "timescale": 2.0, "start": 8.0, "end": 10.0 },
+            { "recordingSegment": 1, "timescale": 1.0, "start": 0.0, "end": 8.0 }
+        ]));
+        let durations = [10.0, 8.0];
+
+        assert_eq!(recorded_time_at(1.0, &durations, &model.clips), Some(3.0));
+        assert_eq!(recorded_time_at(4.5, &durations, &model.clips), Some(9.0));
+        assert_eq!(recorded_time_at(7.0, &durations, &model.clips), Some(12.0));
+        assert_eq!(recorded_time_at(13.5, &durations, &model.clips), None);
+        assert_eq!(
+            chapter_marker_times(&[3.0, 9.0, 12.0], &durations, &model.clips),
+            vec![1.0, 4.5, 7.0]
+        );
     }
 
     #[test]

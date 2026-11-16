@@ -1059,8 +1059,7 @@ impl H264Encoder {
         let frame_to_send = if let Some(converter) = &mut self.converter {
             let pts = frame.pts();
             let converted = self.converted_frame_pool.as_mut().unwrap();
-            converter
-                .run(&frame, converted)
+            super::convert_or_scale(&frame, converted, converter)
                 .map_err(QueueFrameError::Converter)?;
             converted.set_pts(pts);
             converted as &frame::Video
@@ -1089,8 +1088,7 @@ impl H264Encoder {
             let converted = converted_frame.get_or_insert_with(|| {
                 frame::Video::new(self.output_format, self.output_width, self.output_height)
             });
-            converter
-                .run(frame, converted)
+            super::convert_or_scale(frame, converted, converter)
                 .map_err(QueueFrameError::Converter)?;
             converted.set_pts(pts);
             converted as &frame::Video
@@ -1368,7 +1366,7 @@ fn get_codec_and_options(
             }
             "h264_nvenc" => {
                 if is_export {
-                    options.set("preset", "p5");
+                    options.set("preset", "p4");
                     options.set("tune", "hq");
                     options.set("rc", "vbr");
                     options.set("spatial-aq", "1");
@@ -1868,6 +1866,27 @@ mod self_test_tests {
 
         let realtime = videotoolbox_options(false);
         assert_eq!(realtime.get("g"), None);
+    }
+
+    #[test]
+    fn nvenc_export_and_realtime_both_use_preset_p4() {
+        ffmpeg::init().ok();
+        let config =
+            VideoInfo::from_raw(frameever_media_info::RawVideoFormat::Nv12, 1920, 1080, 60);
+        for is_export in [true, false] {
+            let Some((_, options)) = get_codec_and_options(
+                &config,
+                H264Preset::Medium,
+                Some(&["h264_nvenc"]),
+                is_export,
+                None,
+            )
+            .into_iter()
+            .find(|(codec, _)| codec.name() == "h264_nvenc") else {
+                return;
+            };
+            assert_eq!(options.get("preset"), Some("p4"), "export {is_export}");
+        }
     }
 }
 

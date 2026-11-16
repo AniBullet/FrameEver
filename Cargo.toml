@@ -97,6 +97,9 @@ opt-level = 2
 [profile.dev.package.frameever-audio]
 opt-level = 2
 
+[profile.dev.package.frameever-enc-ffmpeg]
+opt-level = 1
+
 # The verification suite decodes markers from every output pixel it reads;
 # unoptimised it spends minutes in its own loops.
 [profile.dev.package.frameever-verify]
@@ -112,6 +115,9 @@ debug = 0
 incremental = false
 
 [profile.ci-verify.package."*"]
+opt-level = 1
+
+[profile.ci-verify.package.frameever-enc-ffmpeg]
 opt-level = 1
 
 [profile.ci-verify.package.frameever-verify]
