@@ -160,6 +160,14 @@
 	font-size: var(--text-small);
 }
 
+.opts .path .input.invalid:not(:focus-within) {
+	border-color: var(--danger);
+}
+
+.opts small.danger {
+	color: var(--danger-text);
+}
+
 .opts small,
 .small {
 	display: block;

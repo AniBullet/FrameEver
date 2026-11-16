@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod field;
 mod runner;
 mod system;
 mod taskbar;
@@ -27,7 +28,7 @@ use frameever_installer_app::{
 };
 use frameever_utils::{brand::APP_NAME, storage};
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, AppContext, AssetSource, Bounds, Context,
+    Animation, AnimationExt, AnyElement, App, AppContext, AssetSource, Bounds, Context, Entity,
     FocusHandle, FontWeight, Image, ImageFormat, InteractiveElement, IntoElement, KeyBinding,
     KeyDownEvent, ParentElement, PathPromptOptions, Render, Rgba, SharedString,
     StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowBackgroundAppearance,
@@ -35,6 +36,8 @@ use gpui::{
     px, relative, size, svg, transparent_black,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+use crate::field::{FieldEvent, PathField};
 
 const WIDTH: f32 = 440.;
 const HEIGHT: f32 = 400.;
@@ -120,6 +123,7 @@ struct SetupWindow {
     app_data: PathBuf,
     focus: FocusHandle,
     primary: FocusHandle,
+    field: Entity<PathField>,
     icon: Arc<Image>,
     taskbar: Option<taskbar::Taskbar>,
     page: (flow::Page, bool, bool),
@@ -196,11 +200,15 @@ impl SetupWindow {
             let page_changed = key.0 != self.page.0;
             self.page = key;
             window.resize(window_size(&screen));
-            if page_changed {
+            if page_changed || self.field.read(cx).focus.is_focused(window) {
                 self.epoch += 1;
                 self.bar = (0., 0.);
                 window.focus(&self.primary, cx);
             }
+        }
+        if let Some(location) = &screen.location {
+            self.field
+                .update(cx, |field, cx| field.set_text(&location.path, cx));
         }
         let percent = screen
             .progress
@@ -349,6 +357,14 @@ impl SetupWindow {
     }
 }
 
+fn field_colors(palette: Palette) -> field::Colors {
+    field::Colors {
+        text: palette.foreground,
+        caret: palette.foreground,
+        selection: palette.selection,
+    }
+}
+
 fn focus_ring<E: InteractiveElement + Styled>(element: E, palette: Palette) -> E {
     element
         .border_1()
@@ -379,7 +395,15 @@ fn button(
     cx: &mut Context<SetupWindow>,
 ) -> AnyElement {
     let action = button.action;
+    let disabled = button.disabled;
     let (bg, border, text, hover, active) = match button.style {
+        _ if disabled => (
+            palette.muted,
+            palette.muted,
+            palette.faint_foreground,
+            palette.muted,
+            palette.muted,
+        ),
         Style::Primary => (
             palette.primary,
             palette.primary,
@@ -419,13 +443,18 @@ fn button(
         .text_color(text)
         .text_size(px(BODY_TEXT))
         .font_weight(FontWeight::MEDIUM)
-        .cursor_pointer()
-        .tab_index(0)
-        .hover(move |style| style.bg(hover))
-        .active(move |style| style.bg(active))
-        .focus_visible(move |style| style.border_color(palette.ring).border_2())
-        .child(button.label)
-        .on_click(cx.listener(move |this, _, window, cx| this.act(action, window, cx)));
+        .when(!disabled, |this| {
+            this.cursor_pointer()
+                .tab_index(0)
+                .hover(move |style| style.bg(hover))
+                .active(move |style| style.bg(active))
+                .focus_visible(move |style| style.border_color(palette.ring).border_2())
+                .on_click(cx.listener(move |this, _, window, cx| this.act(action, window, cx)))
+        })
+        .child(button.label);
+    if disabled {
+        return element.into_any_element();
+    }
     let element = activate_keys(element, action, cx);
     match primary_focus {
         Some(focus) if matches!(button.style, Style::Primary | Style::Danger) => {
@@ -695,6 +724,7 @@ impl SetupWindow {
         &mut self,
         screen: Screen,
         palette: Palette,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let has_buttons = !screen.buttons.is_empty();
@@ -714,7 +744,19 @@ impl SetupWindow {
             .into_iter()
             .map(|it| check_row(it, palette, cx))
             .collect();
+        let field_focused = self.field.read(cx).focus.is_focused(window);
+        self.field
+            .update(cx, |field, _| field.set_colors(field_colors(palette)));
+        let field = self.field.clone();
         let location = screen.location.map(|location| {
+            let invalid = location.error.is_some();
+            let box_border = if field_focused {
+                palette.ring
+            } else if invalid {
+                palette.danger
+            } else {
+                palette.input
+            };
             div()
                 .flex()
                 .flex_col()
@@ -743,13 +785,11 @@ impl SetupWindow {
                                 .items_center()
                                 .rounded(px(RADIUS_SM))
                                 .border_1()
-                                .border_color(palette.input)
+                                .border_color(box_border)
                                 .bg(palette.background)
                                 .text_size(px(SMALL_TEXT))
                                 .overflow_hidden()
-                                .whitespace_nowrap()
-                                .text_ellipsis()
-                                .child(location.path),
+                                .child(field),
                         )
                         .child(button(location.change, false, false, None, palette, cx)),
                 )
@@ -757,8 +797,12 @@ impl SetupWindow {
                     div()
                         .text_size(px(SMALL_TEXT))
                         .line_height(px(16.))
-                        .text_color(palette.muted_foreground)
-                        .child(location.space),
+                        .text_color(if invalid {
+                            palette.danger_text
+                        } else {
+                            palette.muted_foreground
+                        })
+                        .child(location.error.unwrap_or(location.space)),
                 )
         });
         let keep = screen.keep.map(|text| {
@@ -986,7 +1030,7 @@ impl Render for SetupWindow {
                 let locked = screen.locked;
                 let active = window.is_window_active();
                 let caption = caption(title, self.icon.clone(), locked, palette, active, cx);
-                let page = self.render_main(screen, palette, cx);
+                let page = self.render_main(screen, palette, window, cx);
                 root.child(caption).child(page)
             }
             Frame::Strip => {
@@ -1102,12 +1146,27 @@ fn open_window(setup: Setup, app_data: PathBuf, cx: &mut App) -> Result<(), Stri
         ..Default::default()
     };
     cx.open_window(options, move |window, cx| {
-        let view = cx.new(|cx| {
+        let view = cx.new(|cx: &mut Context<SetupWindow>| {
             cx.observe_window_appearance(window, |_, _, cx| cx.notify())
                 .detach();
             let focus = cx.focus_handle();
             let primary = cx.focus_handle();
             window.focus(&primary, cx);
+            let typed = flow.location().display().to_string();
+            let colors = field_colors(Palette::for_appearance(window.appearance()));
+            let field = cx.new(|cx| PathField::new(&typed, colors, cx));
+            cx.subscribe_in(&field, window, |this, _, event, window, cx| match event {
+                FieldEvent::Changed(text) => {
+                    this.flow.location_typed(text);
+                    this.sync(window, cx);
+                }
+                FieldEvent::Submit => {
+                    if let Some(action) = this.flow.primary() {
+                        this.act(action, window, cx);
+                    }
+                }
+            })
+            .detach();
             let taskbar = native_handle(window).and_then(taskbar::Taskbar::new);
             let page = (flow.page(), false, false);
             SetupWindow {
@@ -1115,6 +1174,7 @@ fn open_window(setup: Setup, app_data: PathBuf, cx: &mut App) -> Result<(), Stri
                 app_data,
                 focus,
                 primary,
+                field,
                 icon: Arc::new(Image::from_bytes(ImageFormat::Png, APP_ICON.to_vec())),
                 taskbar,
                 page,
@@ -1219,6 +1279,7 @@ fn main() {
             KeyBinding::new("tab", FocusNext, Some(KEY_CONTEXT)),
             KeyBinding::new("shift-tab", FocusPrevious, Some(KEY_CONTEXT)),
         ]);
+        cx.bind_keys(field::bindings());
         if let Err(error) = open_window(setup, app_data, cx) {
             runner::log(format_args!("window: {error}"));
             std::process::exit(run_fallback(&for_failure));

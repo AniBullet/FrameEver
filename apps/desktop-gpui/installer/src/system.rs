@@ -41,6 +41,7 @@ pub fn this_machine(app_data: PathBuf) -> System {
         free_space: Box::new(free_space),
         holders: Box::new(holders),
         app: Box::new(move || app_state(&for_app)),
+        writable: Box::new(frameever_installer_app::location::writable),
     }
 }
 

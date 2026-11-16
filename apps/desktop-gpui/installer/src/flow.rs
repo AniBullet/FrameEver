@@ -9,6 +9,7 @@ use crate::{
     command_line::{Launch, Mode, install_arguments},
     i18n::{self, Language},
     instance_control::Reply,
+    location::{self, Problem},
     measure::{Bar, Need, format_size, needs},
     version::{Existing, compare},
 };
@@ -57,6 +58,7 @@ pub struct System {
     pub free_space: PathProbe<u64>,
     pub holders: Box<dyn Fn(&Path) -> Vec<Holder>>,
     pub app: Box<dyn Fn() -> AppState>,
+    pub writable: Box<dyn Fn(&Path) -> bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +150,7 @@ pub struct Button {
     pub label: String,
     pub action: Action,
     pub style: Style,
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +173,7 @@ pub struct Location {
     pub label: String,
     pub path: String,
     pub space: String,
+    pub error: Option<String>,
     pub change: Button,
 }
 
@@ -245,6 +249,8 @@ pub struct Flow {
     intent: Intent,
     options_open: bool,
     location: PathBuf,
+    typed: String,
+    problem: Option<Problem>,
     desktop: bool,
     start_menu: bool,
     path: bool,
@@ -364,6 +370,7 @@ impl Flow {
             .map(|it| it.dir.clone())
             .or_else(|| setup.launch.dir.clone())
             .unwrap_or_else(|| setup.default_dir.clone());
+        let typed = location.display().to_string();
         Self {
             setup,
             system,
@@ -373,6 +380,8 @@ impl Flow {
             intent,
             options_open: false,
             location,
+            typed,
+            problem: None,
             desktop: true,
             start_menu: true,
             path: true,
@@ -445,6 +454,28 @@ impl Flow {
                 ("needed", &format_size(shortfall.needed)),
             ],
         )
+    }
+
+    fn problem_sentence(&self, problem: &Problem) -> String {
+        match problem {
+            Problem::ReservedName(name) => self.tr_fmt(
+                "Windows doesn't allow {name} as a folder name.",
+                &[("name", name)],
+            ),
+            Problem::Empty => self.tr("Enter a folder to install to."),
+            Problem::Relative => self.tr_fmt(
+                "Enter a full path, like {example}.",
+                &[("example", &r"D:\Apps\FrameEver")],
+            ),
+            Problem::Characters => self.tr_fmt(
+                "Folder names can't contain {characters}",
+                &[("characters", &r#"< > : " | ? *"#)],
+            ),
+            Problem::WholeDrive => self.tr("Choose a folder, not a whole drive."),
+            Problem::NotWritable => {
+                self.tr("FrameEver can't write to this folder. Choose another one.")
+            }
+        }
     }
 
     fn recording_sentence(&self) -> String {
@@ -556,6 +587,7 @@ impl Flow {
             return None;
         }
         match action {
+            Action::Install if self.problem.is_some() => None,
             Action::Install => {
                 self.intent = Intent::Install;
                 self.options_open = false;
@@ -563,6 +595,9 @@ impl Flow {
             }
             Action::ToggleOptions if self.page == Page::Welcome => {
                 self.options_open = !self.options_open;
+                if self.problem.take().is_some() {
+                    self.typed = self.location.display().to_string();
+                }
                 None
             }
             Action::Toggle(choice) => {
@@ -613,9 +648,23 @@ impl Flow {
     }
 
     pub fn location_picked(&mut self, picked: &Path) {
-        if self.fresh() {
-            self.location = install_location(picked);
+        let picked = install_location(picked).display().to_string();
+        self.location_typed(&picked);
+    }
+
+    pub fn location_typed(&mut self, text: &str) {
+        if !self.fresh() {
+            return;
         }
+        self.typed = text.to_string();
+        self.problem = match location::parse(text) {
+            Ok(path) if (self.system.writable)(&path) => {
+                self.location = path;
+                None
+            }
+            Ok(_) => Some(Problem::NotWritable),
+            Err(problem) => Some(problem),
+        };
     }
 
     pub fn app_closed(&mut self, closed: Closed) -> Option<Effect> {
@@ -708,6 +757,7 @@ impl Flow {
             .buttons
             .iter()
             .find(|button| matches!(button.style, Style::Primary | Style::Danger))
+            .filter(|button| !button.disabled)
             .map(|button| button.action)
     }
 
@@ -735,6 +785,7 @@ impl Flow {
             label: self.tr(label),
             action,
             style,
+            disabled: false,
         }
     }
 
@@ -857,7 +908,9 @@ impl Flow {
                 screen.hero = true;
                 screen.heading = self.name();
                 screen.sentence = self.tagline();
-                screen.buttons = vec![self.button("Install", Action::Install, Style::Primary)];
+                let mut install = self.button("Install", Action::Install, Style::Primary);
+                install.disabled = self.problem.is_some();
+                screen.buttons = vec![install];
                 screen.links.push(Link {
                     label: self.tr("Options"),
                     action: Action::ToggleOptions,
@@ -870,8 +923,9 @@ impl Flow {
                     };
                     screen.location = Some(Location {
                         label: self.tr("Install location"),
-                        path: self.location.display().to_string(),
+                        path: self.typed.clone(),
                         space: self.space_line(),
+                        error: self.problem.as_ref().map(|it| self.problem_sentence(it)),
                         change: self.button("Change…", Action::ChangeLocation, Style::Secondary),
                     });
                     screen.checks = vec![
@@ -929,11 +983,13 @@ impl Flow {
                         label: self.tr_fmt("Install {version}", &[("version", &version)]),
                         action: Action::Install,
                         style: Style::Secondary,
+                        disabled: false,
                     },
                     Button {
                         label: self.tr_fmt("Keep {installed}", &[("installed", &installed)]),
                         action: Action::Close,
                         style: Style::Primary,
+                        disabled: false,
                     },
                 ];
             }

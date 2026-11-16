@@ -3,6 +3,7 @@ pub mod flow;
 pub mod i18n;
 #[path = "../../src/instance_control.rs"]
 pub mod instance_control;
+pub mod location;
 pub mod measure;
 #[path = "../../src/theme/motion.rs"]
 pub mod motion;

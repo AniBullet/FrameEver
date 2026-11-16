@@ -52,6 +52,58 @@ const s = {
 	path: true,
 	delSettings: false,
 	timer: null,
+	location: "C:\\Users\\you\\AppData\\Local\\FrameEver",
+};
+const DEFAULT_LOCATION = s.location;
+const escapeAttr = (text) =>
+	text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+const locationError = () => {
+	const text = s.location
+		.trim()
+		.replace(/^"+|"+$/g, "")
+		.replace(/\//g, "\\");
+	if (!text) return ["Enter a folder to install to.", "输入要安装到的文件夹。"];
+	const relative = [
+		"Enter a full path, like D:\\Apps\\FrameEver.",
+		"输入完整路径，例如 D:\\Apps\\FrameEver。",
+	];
+	const match = /^([A-Za-z]:\\|\\\\[^\\]+\\[^\\]+\\?)(.*)$/.exec(text);
+	if (!match) return relative;
+	const parts = match[2].split("\\").filter((part) => part && part !== ".");
+	if (parts.includes("..")) return relative;
+	if (parts.some((part) => /[<>:"|?*\u0000-\u001f]/.test(part)))
+		return [
+			"Folder names can't contain < > : \" | ? *",
+			'文件夹名不能包含 < > : " | ? *',
+		];
+	const reserved = parts.find(
+		(part) =>
+			/^(con|prn|aux|nul|com[1-9]|lpt[1-9])\s*(\.|$)/i.test(part) ||
+			/[. ]$/.test(part),
+	);
+	if (reserved)
+		return [
+			`Windows doesn't allow ${reserved} as a folder name.`,
+			`Windows 不允许用 ${reserved} 作文件夹名。`,
+		];
+	if (!parts.length)
+		return [
+			"Choose a folder, not a whole drive.",
+			"选一个文件夹，而不是整个磁盘。",
+		];
+	if (/^c:\\(program files|windows)/i.test(text))
+		return [
+			"FrameEver can't write to this folder. Choose another one.",
+			"帧刻无法写入这个文件夹。换一个文件夹。",
+		];
+	return null;
+};
+const locationLine = () => {
+	const error = locationError();
+	if (error) return L(...error);
+	return /^c:/i.test(s.location.trim().replace(/^"+/, ""))
+		? L("Needs 380 MB · 58 GB free", "需要 380 MB · 可用 58 GB")
+		: L("Needs 380 MB · 500 GB free", "需要 380 MB · 可用 500 GB");
 };
 const VERSION = "1.0.0";
 const TAGLINE = [
@@ -67,7 +119,7 @@ const check = (on) =>
 const option = (key, en, zh, noteEn, noteZh) =>
 	`<label class="opt" data-toggle="${key}" tabindex="0">${check(s[key])}<span>${L(en, zh)}${noteEn ? `<small>${L(noteEn, noteZh)}</small>` : ""}</span></label>`;
 const optionsBody = () =>
-	`<div class="opts"><div><div class="label">${L("Install location", "安装位置")}</div><div class="path"><label class="input"><input id="install-path" value="%LocalAppData%\\Programs\\FrameEver" aria-label="Install location"></label><button class="btn">${L("Change…", "更改…")}</button></div><small style="margin-top:4px" class="tnum">${L("Needs 380 MB · 58 GB free", "需要 380 MB · 可用 58 GB")}</small></div>${option("desktop", "Desktop shortcut", "桌面快捷方式")}${option("start", "Start menu shortcut", "开始菜单快捷方式")}${option("path", "Add frameever to PATH", "把 frameever 加入 PATH", "Run the CLI from any terminal.", "在任意终端里运行 CLI。")}</div>`;
+	`<div class="opts"><div><div class="label">${L("Install location", "安装位置")}</div><div class="path"><label class="input${locationError() ? " invalid" : ""}"><input id="install-path" value="${escapeAttr(s.location)}" aria-label="Install location" spellcheck="false"></label><button class="btn">${L("Change…", "更改…")}</button></div><small id="install-path-line" style="margin-top:4px" class="tnum${locationError() ? " danger" : ""}">${locationLine()}</small></div>${option("desktop", "Desktop shortcut", "桌面快捷方式")}${option("start", "Start menu shortcut", "开始菜单快捷方式")}${option("path", "Add frameever to PATH", "把 frameever 加入 PATH", "Run the CLI from any terminal.", "在任意终端里运行 CLI。")}</div>`;
 const details = () =>
 	s.details
 		? '<div class="err fade">NSIS exit code 2 · %TEMP%\\frameever-setup\\install.log</div>'
@@ -97,7 +149,7 @@ const model = () => {
 			h: NAME,
 			sub: TAGLINE,
 			body: optionsBody(),
-			actions: btn("primary", "Install", "安装", "installing"),
+			actions: `<button class="btn primary" id="install-button" data-go="installing"${locationError() ? " disabled" : ""}>${L("Install", "安装")}</button>`,
 			toggle: "welcome",
 			tall: true,
 		},
@@ -267,8 +319,8 @@ const narrate = {
 		"按 Enter 就用默认值安装。选项在一次点击之内。没有许可页，也不问语言。",
 	],
 	options: [
-		"The window snaps to 600 px and the options fade in. Checkboxes, not switches: nothing happens until Install. Space needed updates when the location changes.",
-		"窗口跳到 600 px，选项淡入。用复选框而不是开关：按安装之前什么都不会发生。改位置时重新计算所需空间。",
+		"The window snaps to 600 px and the options fade in. Checkboxes, not switches: nothing happens until Install. The location can be typed or picked with Change…; space needed updates as it changes, and a path that can't be used says why in place of the space line and disables Install.",
+		"窗口跳到 600 px，选项淡入。用复选框而不是开关：按安装之前什么都不会发生。安装位置可以直接输入，也可以用“更改…”选；改位置时重新计算所需空间，用不了的路径会在空间那一行说明原因，并让安装按钮不可用。",
 	],
 	installing: [
 		"The bar takes the button's place. Real percentage, one bar that never moves back. Close is off while files copy. At 100% FrameEver opens and this window goes.",
@@ -446,6 +498,13 @@ const ruleRows = [
 		],
 	],
 	[
+		["Install location", "安装位置"],
+		[
+			"A text field with Change… beside it. A typed path is used as written (quotes, a trailing backslash and forward slashes are tidied); a picked folder gets FrameEver appended unless it is already named so. Checked as you type and after Change…: empty, relative (Apps, \\Apps, D:Apps, ..), a character Windows forbids, a reserved name (CON, NUL, COM1…) or one ending in a dot or space, a whole drive, or a folder FrameEver can't create a file in each get one line in danger text where the space line was, and Install is disabled. Closing Options with a bad path goes back to the last good one",
+			"文本框，旁边是“更改…”。输入的路径按原样使用（去掉引号和末尾反斜杠，正斜杠换成反斜杠）；选择的文件夹如果不叫 FrameEver 就在后面加上。输入时和用“更改…”选完后都检查：空、相对路径（Apps、\\Apps、D:Apps、..）、含 Windows 不允许的字符、保留名（CON、NUL、COM1…）或以点、空格结尾、整个磁盘、或帧刻无法在里面建文件的文件夹，都在原来空间那一行用危险色说明一句，并让安装按钮不可用。路径有误时收起选项，会回到上一个可用的路径",
+		],
+	],
+	[
 		["Motion", "动效"],
 		[
 			"Pages fade in (duration-mid). The bar's width follows real progress with ease-effects, no overshoot. The window snaps, only its content moves. Windows's “Show animations” off means no fades",
@@ -496,12 +555,18 @@ const ruleRows = [
 	],
 ];
 const keyRows = [
-	["Enter", ["The primary button", "主按钮"]],
+	[
+		"Enter",
+		[
+			"The primary button, also from the location field. Nothing while Install is disabled",
+			"主按钮，在安装位置输入框里也一样。安装按钮不可用时无效",
+		],
+	],
 	[
 		"Esc",
 		[
-			"Cancel, or close options. Nothing while files copy",
-			"取消，或收起选项。复制文件时无效",
+			"Cancel, or close options (a bad location goes back to the last good one). Nothing while files copy",
+			"取消，或收起选项（位置有误时回到上一个可用的路径）。复制文件时无效",
 		],
 	],
 	[
@@ -842,12 +907,30 @@ const render = () => {
 	);
 	draw();
 };
+let goodLocation = DEFAULT_LOCATION;
 const go = (st) => {
+	if (st !== "options" && locationError()) s.location = goodLocation;
 	s.st = st;
 	s.details = false;
 	tick();
 	render();
 };
+document.addEventListener("input", (event) => {
+	if (event.target.id !== "install-path") return;
+	s.location = event.target.value;
+	const error = locationError();
+	if (!error) goodLocation = s.location;
+	event.target.parentElement.classList.toggle("invalid", Boolean(error));
+	const line = document.getElementById("install-path-line");
+	line.classList.toggle("danger", Boolean(error));
+	line.innerHTML = locationLine();
+	document.getElementById("install-button").disabled = Boolean(error);
+});
+document.addEventListener("keydown", (event) => {
+	if (event.target.id !== "install-path") return;
+	if (event.key === "Enter" && !locationError()) go("installing");
+	if (event.key === "Escape") go("welcome");
+});
 document.addEventListener("click", (event) => {
 	const toggleEl = event.target.closest("[data-toggle]");
 	if (toggleEl) {

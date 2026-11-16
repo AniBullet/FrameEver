@@ -23,6 +23,7 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features =
 raw-window-handle = "0.6"
 semver = "1"
 serde_json = "1"
+unicode-segmentation = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

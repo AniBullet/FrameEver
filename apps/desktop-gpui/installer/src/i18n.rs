@@ -100,6 +100,27 @@ static ZH_CN: &[(&str, &str)] = &[
         "需要 {needed} · 可用 {free}",
     ),
     ("Needs {needed}", "需要 {needed}"),
+    ("Enter a folder to install to.", "输入要安装到的文件夹。"),
+    (
+        "Enter a full path, like {example}.",
+        "输入完整路径，例如 {example}。",
+    ),
+    (
+        "Folder names can't contain {characters}",
+        "文件夹名不能包含 {characters}",
+    ),
+    (
+        "Choose a folder, not a whole drive.",
+        "选一个文件夹，而不是整个磁盘。",
+    ),
+    (
+        "Windows doesn't allow {name} as a folder name.",
+        "Windows 不允许用 {name} 作文件夹名。",
+    ),
+    (
+        "FrameEver can't write to this folder. Choose another one.",
+        "帧刻无法写入这个文件夹。换一个文件夹。",
+    ),
     ("Desktop shortcut", "桌面快捷方式"),
     ("Start menu shortcut", "开始菜单快捷方式"),
     ("Add frameever to PATH", "把 frameever 加入 PATH"),

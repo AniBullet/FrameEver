@@ -23,6 +23,7 @@ struct Machine {
     free: Rc<RefCell<Vec<(String, u64)>>>,
     app: Rc<RefCell<AppState>>,
     holders: Rc<RefCell<Vec<Holder>>>,
+    read_only: Rc<RefCell<Vec<String>>>,
 }
 
 impl Machine {
@@ -34,6 +35,7 @@ impl Machine {
             ])),
             app: Rc::new(RefCell::new(AppState::Absent)),
             holders: Rc::new(RefCell::new(Vec::new())),
+            read_only: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -41,6 +43,7 @@ impl Machine {
         let free = self.free.clone();
         let app = self.app.clone();
         let holders = self.holders.clone();
+        let read_only = self.read_only.clone();
         System {
             volume: Box::new(|path: &Path| {
                 let text = path.to_string_lossy();
@@ -57,7 +60,15 @@ impl Machine {
             }),
             holders: Box::new(move |_| holders.borrow().clone()),
             app: Box::new(move || *app.borrow()),
+            writable: Box::new(move |path: &Path| {
+                let text = path.to_string_lossy().to_string();
+                !read_only.borrow().iter().any(|it| text.starts_with(it))
+            }),
         }
+    }
+
+    fn read_only(&self, prefix: &str) {
+        self.read_only.borrow_mut().push(prefix.into());
     }
 
     fn set_app(&self, state: AppState) {
@@ -190,14 +201,143 @@ fn a_picked_folder_gets_the_app_folder_and_moves_the_space_check() {
             "C:\\Users\\me\\AppData\\Local\\FrameEver"
         )))
     );
+    flow.location_typed(r"D:\Apps\Frame*");
     flow.location_picked(Path::new("D:\\Apps"));
     assert_eq!(flow.location(), Path::new("D:\\Apps\\FrameEver"));
+    assert_eq!(flow.screen().location.unwrap().path, r"D:\Apps\FrameEver");
+    assert!(!flow.screen().buttons[0].disabled);
     assert_eq!(
         flow.screen().location.unwrap().space,
         "Needs 380 MB · 500 GB free"
     );
     flow.location_picked(Path::new("E:\\frameever"));
     assert_eq!(flow.location(), Path::new("E:\\frameever"));
+}
+
+#[test]
+fn a_typed_location_is_installed_to_as_written() {
+    let machine = Machine::new();
+    let mut flow = flow(Mode::Install, None, &machine);
+    flow.act(Action::ToggleOptions);
+    flow.location_typed(r#" "D:\Tools\FrameEver\" "#);
+    let location = flow.screen().location.unwrap();
+    assert_eq!(location.path, r#" "D:\Tools\FrameEver\" "#);
+    assert_eq!(location.error, None);
+    assert_eq!(location.space, "Needs 380 MB · 500 GB free");
+    assert_eq!(flow.primary(), Some(Action::Install));
+    let Job::Install { dir, arguments, .. } = run_job(flow.act(Action::Install)) else {
+        panic!("install job expected");
+    };
+    assert_eq!(dir, PathBuf::from(r"D:\Tools\FrameEver"));
+    assert_eq!(arguments, vec!["/S", r"/D=D:\Tools\FrameEver"]);
+}
+
+#[test]
+fn a_location_that_cannot_be_installed_to_says_why_and_disables_install() {
+    let machine = Machine::new();
+    machine.read_only(r"C:\Program Files");
+    let mut flow = flow(Mode::Install, None, &machine);
+    flow.act(Action::ToggleOptions);
+    for (typed, error) in [
+        ("", "Enter a folder to install to."),
+        (
+            r"Apps\FrameEver",
+            r"Enter a full path, like D:\Apps\FrameEver.",
+        ),
+        (
+            r"\Apps\FrameEver",
+            r"Enter a full path, like D:\Apps\FrameEver.",
+        ),
+        (r"D:Apps", r"Enter a full path, like D:\Apps\FrameEver."),
+        (
+            r"D:\Apps\..\FrameEver",
+            r"Enter a full path, like D:\Apps\FrameEver.",
+        ),
+        (
+            r"D:\Apps\Frame?Ever",
+            r#"Folder names can't contain < > : " | ? *"#,
+        ),
+        (r"D:\", "Choose a folder, not a whole drive."),
+        (
+            r"D:\Apps\con",
+            "Windows doesn't allow con as a folder name.",
+        ),
+        (
+            r"D:\Apps\FrameEver.",
+            "Windows doesn't allow FrameEver. as a folder name.",
+        ),
+        (
+            r"D:\COM1.txt\FrameEver",
+            "Windows doesn't allow COM1.txt as a folder name.",
+        ),
+        (
+            r"C:\Program Files\FrameEver",
+            "FrameEver can't write to this folder. Choose another one.",
+        ),
+    ] {
+        flow.location_typed(typed);
+        let screen = flow.screen();
+        let location = screen.location.unwrap();
+        assert_eq!(location.path, typed);
+        assert_eq!(location.error.as_deref(), Some(error), "{typed:?}");
+        assert!(screen.buttons[0].disabled, "{typed:?}");
+        assert_eq!(flow.primary(), None);
+        assert_eq!(flow.act(Action::Install), None);
+        assert_eq!(flow.page(), Page::Welcome);
+    }
+    flow.location_typed("D:/Apps/FrameEver");
+    let screen = flow.screen();
+    assert_eq!(screen.location.unwrap().error, None);
+    assert!(!screen.buttons[0].disabled);
+    assert_eq!(flow.location(), Path::new(r"D:\Apps\FrameEver"));
+}
+
+#[test]
+fn a_picked_folder_that_cannot_be_written_says_so_too() {
+    let machine = Machine::new();
+    machine.read_only(r"C:\Program Files");
+    let mut flow = flow(Mode::Install, None, &machine);
+    flow.act(Action::ToggleOptions);
+    flow.location_picked(Path::new(r"C:\Program Files"));
+    let screen = flow.screen();
+    let location = screen.location.unwrap();
+    assert_eq!(location.path, r"C:\Program Files\FrameEver");
+    assert_eq!(
+        location.error.as_deref(),
+        Some("FrameEver can't write to this folder. Choose another one.")
+    );
+    assert!(screen.buttons[0].disabled);
+    assert_eq!(flow.act(Action::Install), None);
+}
+
+#[test]
+fn closing_options_on_a_bad_location_goes_back_to_the_last_good_one() {
+    let machine = Machine::new();
+    let mut flow = flow(Mode::Install, None, &machine);
+    flow.act(Action::ToggleOptions);
+    flow.location_typed(r"E:\FrameEver");
+    flow.location_typed(r"E:\Frame|Ever");
+    flow.act(Action::ToggleOptions);
+    assert!(!flow.screen().buttons[0].disabled);
+    flow.act(Action::ToggleOptions);
+    let location = flow.screen().location.unwrap();
+    assert_eq!(location.path, r"E:\FrameEver");
+    assert_eq!(location.error, None);
+    assert_eq!(
+        run_job(flow.act(Action::Install)),
+        run_job_for(r"E:\FrameEver")
+    );
+}
+
+fn run_job_for(dir: &str) -> Job {
+    Job::Install {
+        dir: PathBuf::from(dir),
+        arguments: vec!["/S".into(), format!("/D={dir}")],
+        fresh: true,
+        desktop: true,
+        start_menu: true,
+        path: true,
+    }
 }
 
 #[test]
