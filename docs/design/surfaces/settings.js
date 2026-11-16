@@ -119,6 +119,16 @@ const sections = [
 						kit: "switch",
 					},
 					{
+						k: "chapterMarkSound",
+						en: "Chapter mark sound",
+						zh: "章节标记提示音",
+						den: "Plays when you add a chapter mark while recording. Your microphone can pick it up.",
+						dzh: "录制中添加章节标记时播放。麦克风可能会录进去。",
+						c: "switch",
+						was: ["Upstream · General · Recording", "上游 · 通用 · 录制"],
+						kit: "switch",
+					},
+					{
 						k: "mainStart",
 						en: "When recording starts",
 						zh: "开始录制时",

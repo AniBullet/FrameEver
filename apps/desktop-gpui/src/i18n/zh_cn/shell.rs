@@ -336,7 +336,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "hide the recording controls, or show them again",
         "隐藏录制控制条，或重新显示",
     ),
-    ("Add chapter marker", "添加章节标记"),
+    ("Add chapter mark", "添加章节标记"),
     (
         "mark this moment in a Studio recording; it shows on the editor timeline",
         "在工作室录制中标记此刻，标记会显示在编辑器时间轴上",

@@ -5,6 +5,7 @@ pub(super) enum Control {
     Restart,
     Issue,
     Delete,
+    ChapterMark,
     Draw,
     Options,
     Stop,
