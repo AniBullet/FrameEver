@@ -97,6 +97,12 @@ impl AutomationHost for CliAutomationHost {
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {e}"))?;
         }
+        if dst.exists()
+            && crate::file_identity::is_same_file(src, &dst)
+                .map_err(|e| format!("Failed to compare source and destination: {e}"))?
+        {
+            return Ok(());
+        }
         std::fs::copy(src, &dst).map_err(|e| format!("Failed to copy file: {e}"))?;
         tracing::info!(dst = %dst.display(), "automation: saved file");
         Ok(())
@@ -183,7 +189,7 @@ impl AutomationHost for CliAutomationHost {
             .or(ctx.output_path.as_ref())
             .or(ctx.project_path.as_ref())
             .ok_or("No path available to reveal")?;
-        open_path_or_url(&path.to_string_lossy())
+        reveal_path(path)
     }
 
     async fn open_file(&self, ctx: &TriggerContext) -> Result<(), String> {
@@ -359,16 +365,52 @@ pub(crate) fn open_path_or_url(target: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to open: {e}"))
 }
 
+fn reveal_command(path: &Path) -> Result<std::process::Command, String> {
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| format!("Failed to resolve path: {error}"))?
+            .join(path)
+    };
+
+    #[cfg(target_os = "macos")]
+    let cmd = {
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg("-R").arg(&path);
+        cmd
+    };
+    #[cfg(target_os = "windows")]
+    let cmd = {
+        let mut cmd = std::process::Command::new("explorer");
+        cmd.arg("/select,").arg(&path);
+        cmd
+    };
+
+    Ok(cmd)
+}
+
+fn reveal_path(path: &Path) -> Result<(), String> {
+    reveal_command(path)?
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Failed to reveal: {error}"))
+}
+
 async fn run_trigger(trigger: Trigger, ctx: TriggerContext) {
     let Some(store) = load_store() else {
         return;
     };
+    run_trigger_with_store(&store, trigger, ctx).await;
+}
+
+async fn run_trigger_with_store(store: &AutomationsStore, trigger: Trigger, ctx: TriggerContext) {
     if store.rules.is_empty() {
         return;
     }
 
     let host = CliAutomationHost;
-    let results = frameever_automation::run(&host, &store, &trigger, &ctx).await;
+    let results = frameever_automation::run(&host, store, &trigger, &ctx).await;
     for result in &results {
         for action in &result.action_results {
             if let Some(error) = &action.error {
@@ -398,26 +440,55 @@ pub async fn run_screenshot(path: &Path, target: &ScreenCaptureTarget) {
 }
 
 pub async fn run_recording_finished(project_path: &Path, mode: AutomationRecordingMode) {
-    if load_store().is_none() {
+    let Some(store) = load_store() else {
         return;
-    }
-
+    };
     let trigger = match mode {
         AutomationRecordingMode::Studio => Trigger::StudioRecordingFinished,
         AutomationRecordingMode::Instant => Trigger::InstantRecordingFinished,
     };
+    let ctx = recording_finished_context(project_path, mode, &store);
+    run_trigger_with_store(&store, trigger, ctx).await;
+}
 
+fn recording_finished_context(
+    project_path: &Path,
+    mode: AutomationRecordingMode,
+    store: &AutomationsStore,
+) -> TriggerContext {
     let mut ctx = TriggerContext::new()
         .with_project_path(project_path.to_path_buf())
         .with_recording_mode(mode);
 
-    if let Ok(meta) = frameever_project::RecordingMeta::load_for_project(project_path)
-        && let Some(sharing) = meta.sharing
-    {
-        ctx = ctx.with_share_link(sharing.link).with_share_id(sharing.id);
-    }
+    let needs_duration = mode == AutomationRecordingMode::Studio
+        && store.rules.iter().any(|rule| {
+            rule.enabled
+                && rule.trigger == Trigger::StudioRecordingFinished
+                && rule.conditions.iter().any(|condition| {
+                    matches!(
+                        condition,
+                        frameever_automation::Condition::DurationAtLeast { .. }
+                            | frameever_automation::Condition::DurationAtMost { .. }
+                    )
+                })
+        });
 
-    run_trigger(trigger, ctx).await;
+    if let Ok(meta) = frameever_project::RecordingMeta::load_for_project(project_path) {
+        if needs_duration
+            && let Some(studio) = meta.studio_meta()
+            && let Ok(recordings) =
+                frameever_rendering::ProjectRecordingsMeta::new(&project_path.to_path_buf(), studio)
+        {
+            let duration = recordings.duration();
+            if duration > 0.0 {
+                ctx = ctx.with_duration(duration);
+            }
+        }
+        if let Some(sharing) = meta.sharing {
+            ctx = ctx.with_share_link(sharing.link).with_share_id(sharing.id);
+        }
+    }
+    ctx
 }
 
 /// `frameever automations list` — print the automation rules shared with FrameEver.
@@ -523,6 +594,141 @@ mod tests {
                 "FRAMEEVER_SHARE_LINK"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn studio_recording_duration_conditions_use_recorded_media() {
+        use frameever_automation::{Action, AutomationRule, Condition, MatchMode};
+
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("display.mp4"),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../crates/video-decode/tests/fixtures/h264-no-reordering.mp4"
+            )),
+        )
+        .unwrap();
+        std::fs::write(
+            temp.path().join("recording-meta.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "pretty_name": "duration test",
+                "sharing": {"id": "example", "link": "https://example.test/s/example"},
+                "segments": [{"display": {"path": "display.mp4", "fps": 30}}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let rule = |id: &str, condition| AutomationRule {
+            id: id.to_string(),
+            name: id.to_string(),
+            enabled: true,
+            trigger: Trigger::StudioRecordingFinished,
+            match_mode: MatchMode::All,
+            conditions: vec![condition],
+            actions: vec![Action::SkipEditor],
+        };
+        let store = AutomationsStore {
+            version: 1,
+            rules: vec![
+                rule("long-enough", Condition::DurationAtLeast { secs: 2.0 }),
+                rule("short-enough", Condition::DurationAtMost { secs: 4.0 }),
+                rule("too-long", Condition::DurationAtLeast { secs: 4.0 }),
+                rule("too-short", Condition::DurationAtMost { secs: 2.0 }),
+            ],
+        };
+
+        let ctx = recording_finished_context(temp.path(), AutomationRecordingMode::Studio, &store);
+        let matched =
+            frameever_automation::evaluate(&store, &Trigger::StudioRecordingFinished, &ctx);
+        let ids = matched
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, ["long-enough", "short-enough"]);
+        assert_eq!(ctx.share_id.as_deref(), Some("example"));
+
+        let mut disabled = store.clone();
+        for rule in &mut disabled.rules {
+            rule.enabled = false;
+        }
+        let ctx =
+            recording_finished_context(temp.path(), AutomationRecordingMode::Studio, &disabled);
+        assert!(ctx.duration_secs.is_none());
+        let ctx = recording_finished_context(temp.path(), AutomationRecordingMode::Instant, &store);
+        assert!(ctx.duration_secs.is_none());
+        std::fs::remove_file(temp.path().join("display.mp4")).unwrap();
+        let ctx = recording_finished_context(temp.path(), AutomationRecordingMode::Studio, &store);
+        assert!(ctx.duration_secs.is_none());
+    }
+
+    #[test]
+    fn reveal_selects_the_file_in_the_file_manager() {
+        let file = Path::new("relative folder").join("capture.png");
+        let absolute = std::env::current_dir().unwrap().join(&file);
+        let cmd = reveal_command(&file).unwrap();
+        let args: Vec<_> = cmd.get_args().collect();
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(cmd.get_program(), "open");
+            assert_eq!(args, [std::ffi::OsStr::new("-R"), absolute.as_os_str()]);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(cmd.get_program(), "explorer");
+            assert_eq!(
+                args,
+                [std::ffi::OsStr::new("/select,"), absolute.as_os_str()]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn save_to_location_keeps_a_screenshot_already_at_the_destination() {
+        for filename_template in [None, Some("capture.png"), Some("capture-link.png")] {
+            let temp = tempfile::tempdir().unwrap();
+            let source = temp.path().join("capture.png");
+            let contents = b"owned screenshot must survive";
+            std::fs::write(&source, contents).unwrap();
+            std::fs::hard_link(&source, temp.path().join("capture-link.png")).unwrap();
+            let ctx = TriggerContext::new().with_image_path(source.clone());
+
+            CliAutomationHost
+                .save_to_location(&ctx, temp.path().to_str().unwrap(), filename_template)
+                .await
+                .unwrap();
+
+            assert_eq!(std::fs::read(&source).unwrap(), contents);
+            assert_eq!(
+                std::fs::read(temp.path().join("capture-link.png")).unwrap(),
+                contents
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn save_to_location_copies_and_replaces_a_distinct_destination() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("capture.png");
+        let destination = temp.path().join("saved");
+        let ctx = TriggerContext::new()
+            .with_image_path(source.clone())
+            .with_window_title("Capture".to_string());
+
+        for contents in [b"original screenshot", b"updated screenshot!"] {
+            std::fs::write(&source, contents).unwrap();
+            CliAutomationHost
+                .save_to_location(&ctx, destination.to_str().unwrap(), Some("{window}.png"))
+                .await
+                .unwrap();
+
+            assert_eq!(std::fs::read(&source).unwrap(), contents);
+            assert_eq!(
+                std::fs::read(destination.join("Capture.png")).unwrap(),
+                contents
+            );
+        }
     }
 
     #[tokio::test]

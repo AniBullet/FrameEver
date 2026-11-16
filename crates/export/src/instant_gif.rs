@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::ExportRange;
+use crate::{ExportRange, gif::GifQualityPreset};
 
 pub const FPS: u32 = 15;
 
@@ -47,6 +47,7 @@ pub fn save_gif(
     output: &Path,
     range: ExportRange,
     size: GifSize,
+    quality: GifQualityPreset,
     mut progress: impl FnMut(u32, u32) -> bool,
 ) -> Result<(), GifFailure> {
     if !video.is_file() {
@@ -87,11 +88,12 @@ pub fn save_gif(
         std::fs::create_dir_all(parent).map_err(not_writable("create the folder"))?;
     }
     let staged = crate::prepare_new_output(output).map_err(not_writable("stage the GIF"))?;
-    let encoder = frameever_enc_gif::GifEncoderWrapper::new(
+    let encoder = frameever_enc_gif::GifEncoderWrapper::new_with_quality(
         staged.as_ref().map_or(output, AsRef::as_ref),
         width,
         height,
         FPS,
+        quality.encoder_quality(),
     )
     .map_err(not_writable("start the GIF"))?;
 
@@ -283,6 +285,27 @@ mod tests {
     const SOURCE_FRAMES: u64 = 60;
 
     fn instant_recording(directory: &Path) -> PathBuf {
+        recording_with(directory, |index, frame| {
+            frame.data_mut(0).fill(40 + (index * 3) as u8);
+        })
+    }
+
+    fn noisy_instant_recording(directory: &Path) -> PathBuf {
+        let mut state = 7u64;
+        recording_with(directory, move |_, frame| {
+            for byte in frame.data_mut(0) {
+                state = state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                *byte = (state >> 56) as u8;
+            }
+        })
+    }
+
+    fn recording_with(
+        directory: &Path,
+        mut paint: impl FnMut(u64, &mut ffmpeg::frame::Video),
+    ) -> PathBuf {
         ffmpeg::init().ok();
         let project = directory.join("Instant.ever");
         std::fs::create_dir_all(project.join("content")).unwrap();
@@ -308,8 +331,8 @@ mod tests {
         .unwrap();
         for index in 0..SOURCE_FRAMES {
             let mut frame = ffmpeg::frame::Video::new(ffmpeg::format::Pixel::NV12, 320, 240);
-            frame.data_mut(0).fill(40 + (index * 3) as u8);
             frame.data_mut(1).fill(128);
+            paint(index, &mut frame);
             file.queue_video_frame(
                 frame,
                 Duration::from_nanos(index * 1_000_000_000 / SOURCE_FPS),
@@ -384,6 +407,7 @@ mod tests {
             &whole,
             WHOLE,
             GifSize::Large,
+            GifQualityPreset::High,
             |done, total| {
                 reports.push((done, total));
                 true
@@ -398,6 +422,7 @@ mod tests {
                 end: 1.4,
             },
             GifSize::Large,
+            GifQualityPreset::High,
             |_, _| true,
         )
         .unwrap();
@@ -437,13 +462,47 @@ mod tests {
 
         let sizes = GifSize::ALL.map(|size| {
             let output = directory.path().join(format!("{size:?}.gif"));
-            save_gif(&video(&project), &output, short, size, |_, _| true).unwrap();
+            save_gif(
+                &video(&project),
+                &output,
+                short,
+                size,
+                GifQualityPreset::High,
+                |_, _| true,
+            )
+            .unwrap();
             let frames = gif_frames(&output);
             assert_eq!(frames.len(), 3);
             frames[0].buffer().dimensions()
         });
 
         assert_eq!(sizes, [(320, 240), (160, 120), (80, 60)]);
+    }
+
+    #[test]
+    fn a_lower_quality_gives_a_smaller_gif() {
+        let directory = tempfile::tempdir().unwrap();
+        let project = noisy_instant_recording(directory.path());
+        let short = ExportRange {
+            start: 0.0,
+            end: 0.4,
+        };
+
+        let bytes = GifQualityPreset::ALL.map(|quality| {
+            let output = directory.path().join(format!("{quality:?}.gif"));
+            save_gif(
+                &video(&project),
+                &output,
+                short,
+                GifSize::Large,
+                quality,
+                |_, _| true,
+            )
+            .unwrap();
+            std::fs::metadata(&output).unwrap().len()
+        });
+
+        assert!(bytes[0] < bytes[1] && bytes[1] < bytes[2], "{bytes:?}");
     }
 
     #[test]
@@ -458,6 +517,7 @@ mod tests {
             &exports.join("cancelled.gif"),
             WHOLE,
             GifSize::Small,
+            GifQualityPreset::High,
             |done, _| done < 2,
         )
         .unwrap_err();
@@ -484,6 +544,7 @@ mod tests {
                 end: 2.0,
             },
             GifSize::Medium,
+            GifQualityPreset::High,
             |_, _| true,
         )
         .unwrap();
@@ -517,6 +578,7 @@ mod tests {
                     end: seconds,
                 },
                 size,
+                GifQualityPreset::High,
                 |_, _| true,
             )
             .unwrap();
@@ -541,7 +603,14 @@ mod tests {
         let blocked = directory.path().join("blocked");
         std::fs::write(&blocked, b"a file where the folder should be").unwrap();
         let save = |video: &Path, output: &Path, range| {
-            save_gif(video, output, range, GifSize::Small, |_, _| true)
+            save_gif(
+                video,
+                output,
+                range,
+                GifSize::Small,
+                GifQualityPreset::High,
+                |_, _| true,
+            )
         };
 
         assert_eq!(

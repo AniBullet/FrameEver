@@ -1316,6 +1316,9 @@ const S = {
 		res: 1,
 		fps: 1,
 		quality: 3,
+		gres: 1,
+		gfps: 2,
+		gquality: 2,
 		optimize: false,
 		adv: false,
 		cursor: false,
@@ -1900,42 +1903,50 @@ const exportForm = () => {
 					])
 		}
 		${gif ? "" : `<p class="note">${S.ex.codec === 0 ? L("Plays almost everywhere.", "几乎到处都能播放。") : S.ex.codec === 1 ? L("Smaller files. Most recent devices play it.", "文件更小，较新的设备都能播放。") : L("Smallest files. Takes longer to encode.", "文件最小，编码更慢。")}</p>`}
-		${optGroup(
-			"res",
-			"Resolution",
-			"分辨率",
-			[
-				["720p", "720p"],
-				["1080p", "1080p"],
-				["4K", "4K"],
-			],
-			gif ? [2] : [],
-		)}
-		${optGroup(
-			"fps",
-			"Frame rate",
-			"帧率",
+		${
 			gif
-				? [
+				? optGroup("gres", "Resolution", "分辨率", [
+						["480p", "480p"],
+						["720p", "720p"],
+						["1080p", "1080p"],
+					])
+				: optGroup("res", "Resolution", "分辨率", [
+						["720p", "720p"],
+						["1080p", "1080p"],
+						["4K", "4K"],
+					])
+		}
+		${
+			gif
+				? optGroup("gfps", "Frame rate", "帧率", [
+						["5", "5"],
 						["10", "10"],
 						["15", "15"],
 						["20", "20"],
 						["25", "25"],
 						["30", "30"],
-					]
-				: [
+					])
+				: optGroup("fps", "Frame rate", "帧率", [
 						["15", "15"],
 						["30", "30"],
 						["60", "60"],
-					],
-		)}
-		${optGroup("quality", "Quality", "画质", [
-			["Potato", "土豆"],
-			["Web", "网页"],
-			["Social", "社交"],
-			["Maximum", "最高"],
-		])}
-		<div class="row-sw"><span>${L("Optimize file size", "优化文件大小")}</span><button class="switch ${S.ex.optimize ? "on" : ""}" data-act="ext" data-k="optimize" aria-label="optimize"></button></div>
+					])
+		}
+		${
+			gif
+				? optGroup("gquality", "Quality", "画质", [
+						["Low", "低"],
+						["Medium", "中"],
+						["High", "高"],
+					])
+				: optGroup("quality", "Quality", "画质", [
+						["Potato", "土豆"],
+						["Web", "网页"],
+						["Social", "社交"],
+						["Maximum", "最高"],
+					])
+		}
+		${gif ? "" : `<div class="row-sw"><span>${L("Optimize file size", "优化文件大小")}</span><button class="switch ${S.ex.optimize ? "on" : ""}" data-act="ext" data-k="optimize" aria-label="optimize"></button></div>`}
 		<div class="grp ${S.ex.adv ? "" : "shut"}" style="margin:6px -14px 0;border-bottom:0;border-top:1px solid var(--border)"><button data-act="ext" data-k="adv">${L("Advanced", "高级")}${icon("chevron-down")}</button>
 		${S.ex.adv ? `<div class="grp-body"><div class="row-sw"><span>${L("Export cursor only", "仅导出光标")}</span><button class="switch ${S.ex.cursor ? "on" : ""}" data-act="ext" data-k="cursor" aria-label="cursor"></button></div>${row(sl("bpp", "Bits per pixel", "每像素比特数", 0.02, 0.5, 0.15, "", 0.01))}</div>` : ""}</div>
 	</div>`;
@@ -2960,6 +2971,13 @@ const renderDocs = () => {
 			[
 				"Export options, estimates, progress, cancel, finished, failed (Details and Export logs)",
 				"导出选项、估算、进度、取消、完成、失败（详情和导出日志）",
+			],
+			["Export page", "导出页"],
+		],
+		[
+			[
+				"GIF export: Low, Medium and High quality, 5 to 30 FPS, 480p to 1080p; the preview shows the frame at the chosen quality",
+				"GIF 导出：低、中、高三档画质，5 到 30 帧/秒，480p 到 1080p；预览按所选画质显示画面",
 			],
 			["Export page", "导出页"],
 		],
