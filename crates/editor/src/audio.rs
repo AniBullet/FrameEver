@@ -271,7 +271,7 @@ impl AudioRenderer {
             let frame_start = self.elapsed_samples;
             let (written, mut buf) = self.render_timeline_frame_raw(samples, project, timeline)?;
             let joins = crate::join_fade::hard_cut_joins(timeline, Self::SAMPLE_RATE);
-            crate::join_fade::apply_join_fades(&mut buf, frame_start, &joins);
+            crate::join_fade::apply_join_fades(&mut buf, frame_start, &joins, usize::from(Self::CHANNELS));
 
             if !self.music.is_empty() && !timeline.audio_segments.is_empty() {
                 mix_music(&self.music, timeline, frame_start, written, &mut buf);
@@ -427,6 +427,7 @@ impl AudioRenderer {
                     output,
                     self.elapsed_samples + span_offset,
                     &joins,
+                    usize::from(Self::CHANNELS),
                 );
                 emit(written + span_offset, output)?;
                 span_offset += count;

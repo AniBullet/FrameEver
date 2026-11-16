@@ -41,8 +41,14 @@ fn fade_gain(distance: usize) -> f32 {
     0.5 - 0.5 * (std::f32::consts::PI * t).cos()
 }
 
-pub(crate) fn apply_join_fades(samples: &mut [f32], start: usize, joins: &[usize]) {
-    let frames = samples.len() / 2;
+pub(crate) fn apply_join_fades(
+    samples: &mut [f32],
+    start: usize,
+    joins: &[usize],
+    channels: usize,
+) {
+    let channels = channels.max(1);
+    let frames = samples.len() / channels;
     let end = start + frames;
     let first = joins.partition_point(|join| join + JOIN_FADE_SAMPLES <= start);
     for &join in &joins[first..] {
@@ -58,9 +64,10 @@ pub(crate) fn apply_join_fades(samples: &mut [f32], start: usize, joins: &[usize
                 position - join + 1
             };
             let gain = fade_gain(distance);
-            let index = (position - start) * 2;
-            samples[index] *= gain;
-            samples[index + 1] *= gain;
+            let index = (position - start) * channels;
+            for sample in &mut samples[index..index + channels] {
+                *sample *= gain;
+            }
         }
     }
 }
@@ -141,10 +148,10 @@ mod tests {
     fn fades_reach_silence_at_the_join_and_are_chunking_independent() {
         let joins = [1_000usize];
         let mut whole = vec![1.0f32; 4_000];
-        apply_join_fades(&mut whole, 0, &joins);
+        apply_join_fades(&mut whole, 0, &joins, 2);
         let mut pieces = vec![1.0f32; 4_000];
         for (index, chunk) in pieces.chunks_mut(2 * 137).enumerate() {
-            apply_join_fades(chunk, index * 137, &joins);
+            apply_join_fades(chunk, index * 137, &joins, 2);
         }
         assert_eq!(whole, pieces);
         assert!(whole[999 * 2] < 0.001 && whole[1_000 * 2] < 0.001);
@@ -164,10 +171,37 @@ mod tests {
     #[test]
     fn joins_at_the_buffer_edges_do_not_panic() {
         let mut samples = vec![1.0f32; 20];
-        apply_join_fades(&mut samples, 0, &[0, 3, 10, 9_999]);
-        apply_join_fades(&mut samples, 1_000_000, &[0, 3]);
-        apply_join_fades(&mut [], 5, &[5]);
+        apply_join_fades(&mut samples, 0, &[0, 3, 10, 9_999], 2);
+        apply_join_fades(&mut samples, 1_000_000, &[0, 3], 2);
+        apply_join_fades(&mut [], 5, &[5], 2);
         assert!(samples[0] < 0.01);
+    }
+
+    #[test]
+    fn mono_fades_touch_every_sample_of_the_frame_once() {
+        let joins = [100usize];
+        let mut mono = vec![1.0f32; 400];
+        apply_join_fades(&mut mono, 0, &joins, 1);
+        let mut stereo = vec![1.0f32; 800];
+        apply_join_fades(&mut stereo, 0, &joins, 2);
+        let left = stereo.chunks(2).map(|frame| frame[0]).collect::<Vec<_>>();
+        assert_eq!(mono, left);
+        assert!(mono[99] < 0.001 && mono[100] < 0.001);
+        assert_eq!(mono[399], 1.0);
+    }
+
+    #[test]
+    fn a_join_after_a_fullscreen_text_hold_lands_after_the_hold() {
+        let mut timeline = timeline(vec![segment(0, 0.0, 2.6), segment(0, 3.0, 4.0)]);
+        let mut hold = serde_json::from_value::<frameever_project::TextSegment>(
+            serde_json::json!({ "start": 1.0, "end": 1.5, "layout": "fullscreen" }),
+        )
+        .unwrap();
+        timeline.text_segments.push(hold.clone());
+        hold.start = 3.0;
+        hold.end = 4.0;
+        timeline.text_segments.push(hold);
+        assert_eq!(hard_cut_joins(&timeline, 48_000), [196_800]);
     }
 
     #[test]

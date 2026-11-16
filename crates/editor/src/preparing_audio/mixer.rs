@@ -436,7 +436,12 @@ impl PreparingAudioMixer {
         }
         if let Some(timeline) = self.sources.project.timeline.as_ref() {
             let joins = crate::join_fade::hard_cut_joins(timeline, AudioData::SAMPLE_RATE);
-            crate::join_fade::apply_join_fades(&mut samples, self.position, &joins);
+            crate::join_fade::apply_join_fades(
+                &mut samples,
+                self.position,
+                &joins,
+                usize::from(crate::audio::AudioRenderer::CHANNELS),
+            );
         }
         self.sources.check_terminal()?;
         let start_frame = self.position;
