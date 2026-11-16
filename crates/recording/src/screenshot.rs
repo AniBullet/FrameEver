@@ -1682,10 +1682,22 @@ mod screenshot_pixel_tests {
             let mut after = Vec::new();
             for _ in 0..15 {
                 let start = Instant::now();
-                black_box(reference_rgb(&data, width, height, stride, ChannelOrder::Bgra));
+                black_box(reference_rgb(
+                    &data,
+                    width,
+                    height,
+                    stride,
+                    ChannelOrder::Bgra,
+                ));
                 before.push(start.elapsed().as_secs_f64() * 1000.);
                 let start = Instant::now();
-                black_box(rgb_from_rgba(&data, width, height, stride, ChannelOrder::Bgra));
+                black_box(rgb_from_rgba(
+                    &data,
+                    width,
+                    height,
+                    stride,
+                    ChannelOrder::Bgra,
+                ));
                 after.push(start.elapsed().as_secs_f64() * 1000.);
             }
             println!(

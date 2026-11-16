@@ -8,6 +8,7 @@ pub mod diagnostics;
 pub mod feeds;
 pub mod fragmentation;
 pub mod frame_overlays;
+pub mod gamepad;
 pub mod input_reader;
 pub mod instant_recording;
 pub mod live_input_display;

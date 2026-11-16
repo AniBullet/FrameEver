@@ -355,7 +355,10 @@ impl ScreenCaptureConfig<Direct3DCapture> {
     pub async fn to_sources(
         &self,
     ) -> anyhow::Result<(VideoSourceConfig, Option<SystemAudioSourceConfig>)> {
-        let crop_bounds = self.config.crop_bounds.filter(|_| self.config.window.is_none());
+        let crop_bounds = self
+            .config
+            .crop_bounds
+            .filter(|_| self.config.window.is_none());
         let mut settings = scap_direct3d::Settings {
             pixel_format: Direct3DCapture::PIXEL_FORMAT,
             crop: crop_bounds.map(|b| {

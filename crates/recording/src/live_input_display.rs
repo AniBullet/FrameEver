@@ -1,8 +1,10 @@
-use crate::click_highlight::ChannelOrder;
+use crate::{click_highlight::ChannelOrder, gamepad::GamepadWatch};
 use frameever_project::{
     InputDisplay, InputDisplayStyle, XY,
     input_display::{
-        BuiltinPresetId, DisplayState, ElementKind, Input, Preset, display_rect, key_code,
+        BuiltinPresetId, DisplayState, Element, ElementKind, GamepadAxes, GamepadKind,
+        GamepadSnapshot, Input, Preset, TRIGGER_FULL, display_rect, gamepad_buttons, key_code,
+        preset_for_controller,
     },
 };
 use frameever_rendering::input_display::{LoadedPreset, atlas_scale_for, compose, resolve_preset};
@@ -102,8 +104,29 @@ fn hold(state: &mut DisplayState, keys: &[device_query::Keycode], buttons: &[boo
     }
 }
 
+pub struct Gamepad(GamepadWatch);
+
+impl Gamepad {
+    pub fn new(watch: GamepadWatch) -> Self {
+        Self(watch)
+    }
+}
+
+impl InputSource for Gamepad {
+    fn read(&mut self, state: &mut DisplayState) {
+        if let Some(snapshot) = self.0.read() {
+            state.show_gamepad(&snapshot);
+        }
+        state.controller = self.0.controller();
+    }
+}
+
 pub fn live_sources() -> Vec<Box<dyn InputSource>> {
-    vec![Box::new(KeyboardAndMouse::new())]
+    let mut sources: Vec<Box<dyn InputSource>> = vec![Box::new(KeyboardAndMouse::new())];
+    if let Some(watch) = GamepadWatch::connected() {
+        sources.push(Box::new(Gamepad::new(watch)));
+    }
+    sources
 }
 
 struct Shared {
@@ -180,10 +203,12 @@ fn watch_sources(
 
 fn loaded_preset(
     settings: &InstantInputDisplay,
+    controller: Option<GamepadKind>,
     frame: (u32, u32),
 ) -> Option<(LoadedPreset, Rect)> {
+    let preset = preset_for_controller(&settings.preset, controller);
     let resolve = |scale| {
-        resolve_preset(&settings.preset, settings.style, scale)
+        resolve_preset(preset, settings.style, scale)
             .or_else(|| resolve_preset(BuiltinPresetId::WasdMouse.id(), settings.style, scale))
     };
     let loaded = resolve(1)?;
@@ -246,6 +271,16 @@ fn every_input(preset: &Preset) -> DisplayState {
     for button in MOUSE_BUTTONS {
         state.apply(Input::MouseButton(button), true);
     }
+    state.show_gamepad(&GamepadSnapshot {
+        buttons: (1 << gamepad_buttons::COUNT) - 1,
+        axes: GamepadAxes {
+            left_trigger: TRIGGER_FULL,
+            right_trigger: TRIGGER_FULL,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    state.controller = None;
     state
 }
 
@@ -258,51 +293,97 @@ fn fitted(loaded: &LoadedPreset, state: &DisplayState, rect: Rect) -> Vec<u8> {
     imageops::resize(&composed, width, height, imageops::FilterType::Triangle).into_raw()
 }
 
+struct Knobs {
+    sticks: Vec<Element>,
+    released: Vec<u8>,
+    pressed: Vec<u8>,
+}
+
 struct Prepared {
     frame: (u32, u32),
     rect: Rect,
+    controller: Option<GamepadKind>,
     preset: Preset,
     released: Vec<u8>,
     pressed: Vec<u8>,
+    knobs: Option<Knobs>,
     picture: Vec<u8>,
     shown: DisplayState,
 }
 
+fn is_stick(element: &Element) -> bool {
+    matches!(element.kind, ElementKind::AnalogStick { .. })
+}
+
 impl Prepared {
-    fn new(settings: &InstantInputDisplay, frame: (u32, u32)) -> Option<Self> {
-        let (loaded, rect) = loaded_preset(settings, frame)?;
+    fn new(
+        settings: &InstantInputDisplay,
+        controller: Option<GamepadKind>,
+        frame: (u32, u32),
+    ) -> Option<Self> {
+        let (mut loaded, rect) = loaded_preset(settings, controller, frame)?;
+        let everything = every_input(&loaded.preset);
+        let (sticks, still): (Vec<Element>, Vec<Element>) =
+            std::mem::take(&mut loaded.preset.elements)
+                .into_iter()
+                .partition(is_stick);
+        let knobs = (!sticks.is_empty()).then(|| {
+            loaded.preset.elements = sticks.clone();
+            Knobs {
+                released: fitted(&loaded, &DisplayState::default(), rect),
+                pressed: fitted(&loaded, &everything, rect),
+                sticks,
+            }
+        });
+        loaded.preset.elements = still;
         let released = fitted(&loaded, &DisplayState::default(), rect);
-        let pressed = fitted(&loaded, &every_input(&loaded.preset), rect);
-        Some(Self {
+        let pressed = fitted(&loaded, &everything, rect);
+        let mut prepared = Self {
             frame,
             rect,
+            controller,
             picture: released.clone(),
             released,
             pressed,
+            knobs,
             preset: loaded.preset,
             shown: DisplayState::default(),
-        })
+        };
+        prepared.draw(&DisplayState::default());
+        Some(prepared)
+    }
+
+    fn shows(&self, settings: &InstantInputDisplay, controller: Option<GamepadKind>) -> bool {
+        preset_for_controller(&settings.preset, controller)
+            == preset_for_controller(&settings.preset, self.controller)
     }
 
     fn show(&mut self, state: DisplayState) {
         if state == self.shown {
             return;
         }
+        self.draw(&state);
+        self.shown = state;
+    }
+
+    fn scale(&self) -> (f64, f64) {
+        (
+            self.rect.width as f64 / f64::from(self.preset.width.max(1)),
+            self.rect.height as f64 / f64::from(self.preset.height.max(1)),
+        )
+    }
+
+    fn draw(&mut self, state: &DisplayState) {
         self.picture.copy_from_slice(&self.released);
         let resting = self.preset.sprites(&DisplayState::default());
-        let lit = self.preset.sprites(&state);
-        let across = self.rect.width as f64 / f64::from(self.preset.width.max(1));
-        let down = self.rect.height as f64 / f64::from(self.preset.height.max(1));
+        let lit = self.preset.sprites(state);
+        let (across, down) = self.scale();
         let span = |start: u32, length: u32, scale: f64, limit: usize| {
             let from = ((f64::from(start) * scale).floor() as usize).min(limit);
             let to = ((f64::from(start + length) * scale).ceil() as usize).min(limit);
             from..to
         };
-        for (lit, _) in lit
-            .iter()
-            .zip(&resting)
-            .filter(|(lit, resting)| lit.source != resting.source)
-        {
+        for lit in lit.iter().filter(|lit| !resting.contains(lit)) {
             let columns = span(lit.x, lit.source.width, across, self.rect.width);
             for row in span(lit.y, lit.source.height, down, self.rect.height) {
                 let line = row * self.rect.width * 4;
@@ -310,7 +391,80 @@ impl Prepared {
                 self.picture[range.clone()].copy_from_slice(&self.pressed[range]);
             }
         }
-        self.shown = state;
+        let Some(knobs) = &self.knobs else {
+            return;
+        };
+        for stick in &knobs.sticks {
+            let ElementKind::AnalogStick { right, .. } = stick.kind else {
+                continue;
+            };
+            let click = if right {
+                gamepad_buttons::RIGHT_STICK
+            } else {
+                gamepad_buttons::LEFT_STICK
+            };
+            let layer = if state.is_held(Input::GamepadButton(click)) {
+                &knobs.pressed
+            } else {
+                &knobs.released
+            };
+            let (dx, dy) = stick.stick_offset(state).unwrap_or_default();
+            let shift = (
+                (f64::from(dx) * across).round() as isize,
+                (f64::from(dy) * down).round() as isize,
+            );
+            let columns = span(
+                stick.x.saturating_sub(1),
+                stick.mapping.width + 2,
+                across,
+                self.rect.width,
+            );
+            let rows = span(
+                stick.y.saturating_sub(1),
+                stick.mapping.height + 2,
+                down,
+                self.rect.height,
+            );
+            lay_over(
+                &mut self.picture,
+                layer,
+                (self.rect.width, self.rect.height),
+                (columns, rows),
+                shift,
+            );
+        }
+    }
+}
+
+fn lay_over(
+    picture: &mut [u8],
+    layer: &[u8],
+    (width, height): (usize, usize),
+    (columns, rows): (std::ops::Range<usize>, std::ops::Range<usize>),
+    (shift_x, shift_y): (isize, isize),
+) {
+    for row in rows {
+        let Some(target_row) = row.checked_add_signed(shift_y).filter(|row| *row < height) else {
+            continue;
+        };
+        for column in columns.clone() {
+            let Some(target_column) = column
+                .checked_add_signed(shift_x)
+                .filter(|column| *column < width)
+            else {
+                continue;
+            };
+            let source = &layer[(row * width + column) * 4..][..4];
+            let keep = 255 - u32::from(source[3]);
+            if keep == 255 {
+                continue;
+            }
+            let target = &mut picture[(target_row * width + target_column) * 4..][..4];
+            for (target, source) in target.iter_mut().zip(source) {
+                *target =
+                    (u32::from(*source) + (u32::from(*target) * keep + 127) / 255).min(255) as u8;
+            }
+        }
     }
 }
 
@@ -324,7 +478,7 @@ impl Painter {
     pub(crate) fn prepare(&mut self, frame: (u32, u32)) {
         if self.prepared_for != Some(frame) {
             self.prepared_for = Some(frame);
-            self.prepared = Prepared::new(&self.display.0.settings, frame);
+            self.prepared = Prepared::new(&self.display.0.settings, None, frame);
         }
     }
 
@@ -348,6 +502,14 @@ impl Painter {
 
     pub(crate) fn paint(&mut self, pixels: &mut [u8], stride: usize, order: ChannelOrder) {
         let state = self.display.state();
+        let settings = &self.display.0.settings;
+        if let Some(stale) = self
+            .prepared
+            .as_ref()
+            .filter(|prepared| !prepared.shows(settings, state.controller))
+        {
+            self.prepared = Prepared::new(settings, state.controller, stale.frame);
+        }
         let Some(prepared) = &mut self.prepared else {
             return;
         };
@@ -665,6 +827,193 @@ mod tests {
             })
             .collect();
         assert_ne!(pictures[0], pictures[1]);
+    }
+
+    fn gamepad_display() -> LiveInputDisplay {
+        LiveInputDisplay::new(InstantInputDisplay {
+            preset: BuiltinPresetId::Gamepad.id().into(),
+            ..Default::default()
+        })
+    }
+
+    fn gamepad(kind: GamepadKind, axes: GamepadAxes, buttons: &[u16]) -> DisplayState {
+        let mut state = DisplayState::default();
+        state.show_gamepad(&buttons.iter().fold(
+            GamepadSnapshot {
+                kind,
+                axes,
+                ..Default::default()
+            },
+            |snapshot, button| snapshot.with_button(*button),
+        ));
+        state
+    }
+
+    fn part(id: &str, grow: f64) -> (f64, f64, f64, f64) {
+        let loaded = resolve_preset("gamepad", InputDisplayStyle::default(), 1).unwrap();
+        let element = loaded
+            .preset
+            .elements
+            .iter()
+            .find(|element| element.id == id)
+            .unwrap();
+        let width = f64::from(FRAME.0) * BuiltinPresetId::Gamepad.frame_share();
+        let scale = width / f64::from(loaded.preset.width);
+        let margin = f64::from(FRAME.0) * 0.03;
+        let top = f64::from(FRAME.1) - margin - f64::from(loaded.preset.height) * scale;
+        (
+            margin + (f64::from(element.x) - grow) * scale - 2.0,
+            top + (f64::from(element.y) - grow) * scale - 2.0,
+            margin + (f64::from(element.x + element.mapping.width) + grow) * scale + 2.0,
+            top + (f64::from(element.y + element.mapping.height) + grow) * scale + 2.0,
+        )
+    }
+
+    fn inside(points: &[(u32, u32)], (left, top, right, bottom): (f64, f64, f64, f64)) -> bool {
+        points.iter().all(|(x, y)| {
+            f64::from(*x) >= left
+                && f64::from(*x) <= right
+                && f64::from(*y) >= top
+                && f64::from(*y) <= bottom
+        })
+    }
+
+    #[test]
+    fn a_pushed_stick_moves_in_the_recorded_frame_and_comes_back() {
+        let display = gamepad_display();
+        let resting = captured(&display);
+        let pushed = |left_stick| {
+            display.show(gamepad(
+                GamepadKind::Xbox,
+                GamepadAxes {
+                    left_stick,
+                    ..Default::default()
+                },
+                &[],
+            ));
+            captured(&display)
+        };
+        let right = differing(&resting, &pushed([127, 0]));
+        let left = differing(&resting, &pushed([-127, 0]));
+        let centre = |points: &[(u32, u32)]| {
+            points.iter().map(|(x, _)| f64::from(*x)).sum::<f64>() / points.len() as f64
+        };
+
+        assert!(right.len() > 20, "{}", right.len());
+        assert!(inside(&right, part("stick-left", 9.0)));
+        assert!(inside(&left, part("stick-left", 9.0)));
+        assert_ne!(right, left);
+        assert!(differing(&pushed([127, 0]), &pushed([-127, 0])).len() > 20);
+        assert!(centre(&differing(&pushed([0, 0]), &pushed([127, 0]))) > centre(&left) - 20.0);
+        assert!(differing(&resting, &pushed([0, 0])).is_empty());
+    }
+
+    #[test]
+    fn a_trigger_fills_further_the_further_it_is_pulled() {
+        let display = gamepad_display();
+        let resting = captured(&display);
+        let pulled = |right_trigger| {
+            display.show(gamepad(
+                GamepadKind::Xbox,
+                GamepadAxes {
+                    right_trigger,
+                    ..Default::default()
+                },
+                &[],
+            ));
+            differing(&resting, &captured(&display))
+        };
+        let (half, full) = (pulled(128), pulled(255));
+        let reach = |points: &[(u32, u32)]| points.iter().map(|(x, _)| *x).max().unwrap();
+
+        assert!(!half.is_empty());
+        assert!(full.len() > half.len() + half.len() / 2);
+        assert!(reach(&full) > reach(&half) + 5);
+        assert!(inside(&full, part("trigger-right", 0.0)));
+        assert!(pulled(0).is_empty());
+    }
+
+    #[test]
+    fn gamepad_buttons_light_and_a_clicked_stick_lights_where_it_is() {
+        let display = gamepad_display();
+        let resting = captured(&display);
+        display.show(gamepad(
+            GamepadKind::Xbox,
+            GamepadAxes::default(),
+            &[gamepad_buttons::SOUTH],
+        ));
+        let south = differing(&resting, &captured(&display));
+        display.show(gamepad(
+            GamepadKind::Xbox,
+            GamepadAxes::default(),
+            &[gamepad_buttons::RIGHT_STICK],
+        ));
+        let clicked = differing(&resting, &captured(&display));
+
+        assert!(south.len() > 10);
+        assert!(inside(&south, part("face-south", 0.0)));
+        assert!(clicked.len() > 20);
+        assert!(inside(&clicked, part("stick-right", 0.0)));
+    }
+
+    #[test]
+    fn the_picture_takes_the_layout_of_the_controller_in_use() {
+        let xbox = captured(&gamepad_display());
+        let shown = gamepad_display();
+        let mut baker = overlays(&shown).baker().unwrap();
+        let now = Instant::now();
+        let mut first = black_frame(ffmpeg::format::Pixel::RGBA);
+        baker.captured(&mut first, now);
+        shown.show(gamepad(
+            GamepadKind::PlayStation,
+            GamepadAxes::default(),
+            &[],
+        ));
+        let playstation = baker.repeated(&first, now).unwrap();
+        let wasd = display_with_controller(GamepadKind::PlayStation);
+
+        assert!(differing(&first, &xbox).is_empty());
+        assert!(differing(&playstation, &xbox).len() > 50);
+        assert_eq!(painted(&playstation), painted(&xbox));
+        assert!(differing(&wasd, &captured(&display(InputDisplayCorner::BottomLeft))).is_empty());
+    }
+
+    fn display_with_controller(controller: GamepadKind) -> ffmpeg::frame::Video {
+        let display = display(InputDisplayCorner::BottomLeft);
+        display.show(gamepad(controller, GamepadAxes::default(), &[]));
+        captured(&display)
+    }
+
+    #[test]
+    fn a_gamepad_that_is_read_shows_in_the_display_state() {
+        use crate::gamepad::testing::Scripted;
+        let pushed = GamepadSnapshot {
+            kind: GamepadKind::Switch,
+            axes: GamepadAxes {
+                right_stick: [0, -127],
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .with_button(gamepad_buttons::LEFT_SHOULDER);
+        let mut source = Gamepad::new(GamepadWatch::new(
+            Scripted::default()
+                .then(&[(1, GamepadSnapshot::default())])
+                .then(&[(1, pushed)]),
+        ));
+        let mut before = DisplayState::default();
+        source.read(&mut before);
+        let mut after = DisplayState::default();
+        source.read(&mut after);
+
+        assert_eq!(before.held().count(), 0);
+        assert_eq!(before.controller, Some(GamepadKind::Xbox));
+        assert_eq!(
+            after.held().collect::<Vec<_>>(),
+            vec![Input::GamepadButton(gamepad_buttons::LEFT_SHOULDER)]
+        );
+        assert_eq!(after.axes, pushed.axes);
+        assert_eq!(after.controller, Some(GamepadKind::Switch));
     }
 
     #[test]

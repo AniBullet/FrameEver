@@ -1,6 +1,7 @@
+use crate::gamepad::GamepadWatch;
 use frameever_project::{
     KeyPressEvent,
-    input_display::{InputEvent, InputEventKind},
+    input_display::{GamepadSnapshot, InputEvent, InputEventKind},
 };
 
 const WHEEL_NOTCH: i32 = 120;
@@ -17,6 +18,7 @@ pub struct InputSample {
     pub buttons: Vec<bool>,
     pub wheel_steps: Vec<bool>,
     pub target_in_front: Option<bool>,
+    pub gamepad: Option<GamepadSnapshot>,
 }
 
 pub fn push_input_changes(
@@ -42,6 +44,11 @@ pub fn push_input_changes(
     }
     for up in &current.wheel_steps {
         push(InputEventKind::Wheel { up: *up });
+    }
+    if let Some(gamepad) = current.gamepad
+        && previous.gamepad != Some(gamepad)
+    {
+        push(InputEventKind::Gamepad(gamepad));
     }
 }
 
@@ -86,6 +93,7 @@ pub struct InputReader {
     wheel: Option<platform::WheelReader>,
     target: Option<platform::TargetWindow>,
     target_in_front: Option<bool>,
+    gamepad: Option<GamepadWatch>,
 }
 
 impl InputReader {
@@ -97,7 +105,13 @@ impl InputReader {
                 .as_ref()
                 .and_then(platform::TargetWindow::new),
             target_in_front: None,
+            gamepad: GamepadWatch::connected(),
         })
+    }
+
+    pub fn with_gamepads(mut self, gamepad: GamepadWatch) -> Self {
+        self.gamepad = Some(gamepad);
+        self
     }
 
     pub fn sample(&mut self, buttons: &[bool]) -> InputSample {
@@ -112,6 +126,7 @@ impl InputReader {
                 .map(platform::WheelReader::drain)
                 .unwrap_or_default(),
             target_in_front: self.target_in_front,
+            gamepad: self.gamepad.as_mut().and_then(GamepadWatch::read),
         }
     }
 }
@@ -306,7 +321,115 @@ mod tests {
             buttons: pressed,
             wheel_steps: wheel_steps.to_vec(),
             target_in_front: in_front,
+            gamepad: None,
         }
+    }
+
+    #[test]
+    fn a_gamepad_is_recorded_whenever_what_it_reads_changes() {
+        use frameever_project::input_display::{GamepadAxes, GamepadKind, gamepad_buttons};
+        let with = |gamepad| InputSample {
+            gamepad,
+            ..sample(&[], &[], None)
+        };
+        let idle = GamepadSnapshot {
+            kind: GamepadKind::PlayStation,
+            ..Default::default()
+        };
+        let pressed = idle.with_button(gamepad_buttons::SOUTH);
+        let pulled = GamepadSnapshot {
+            axes: GamepadAxes {
+                right_trigger: 90,
+                ..Default::default()
+            },
+            ..pressed
+        };
+
+        assert_eq!(changes(&with(None), &with(None)), vec![]);
+        assert_eq!(
+            changes(&with(None), &with(Some(pressed))),
+            vec![InputEventKind::Gamepad(pressed)]
+        );
+        assert_eq!(changes(&with(Some(pressed)), &with(Some(pressed))), vec![]);
+        assert_eq!(
+            changes(&with(Some(pressed)), &with(Some(pulled))),
+            vec![InputEventKind::Gamepad(pulled)]
+        );
+        assert_eq!(
+            changes(&with(Some(pulled)), &with(Some(idle))),
+            vec![InputEventKind::Gamepad(idle)]
+        );
+        assert_eq!(changes(&with(Some(idle)), &with(None)), vec![]);
+    }
+
+    #[test]
+    fn the_capture_loop_saves_what_the_gamepads_read_and_the_editor_shows_it() {
+        use crate::gamepad::testing::Scripted;
+        use frameever_project::{
+            KeyboardEvents,
+            input_display::{
+                GamepadAxes, GamepadKind, Input, InputEvents, InputRecord, gamepad_buttons,
+            },
+        };
+        let idle = GamepadSnapshot {
+            kind: GamepadKind::Switch,
+            ..Default::default()
+        };
+        let pushed = GamepadSnapshot {
+            axes: GamepadAxes {
+                left_stick: [127, 0],
+                left_trigger: 255,
+                ..Default::default()
+            },
+            ..idle.with_button(gamepad_buttons::DPAD_UP)
+        };
+        let mut reader = InputReader::new(&InputCapture {
+            record: true,
+            target_window: None,
+        })
+        .unwrap()
+        .with_gamepads(GamepadWatch::new(
+            Scripted::default()
+                .then(&[(3, idle)])
+                .then(&[(3, pushed)])
+                .then(&[(3, pushed)])
+                .then(&[(3, idle)]),
+        ));
+        let mut events = Vec::new();
+        let mut last = InputSample::default();
+        for tick in 0..4 {
+            let sample = InputSample {
+                wheel_steps: Vec::new(),
+                ..reader.sample(&[false; 6])
+            };
+            push_input_changes(&last, &sample, f64::from(tick) * 16.0, &mut events);
+            last = sample;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("input.bin");
+        InputEvents { events }.write_to_file(&path).unwrap();
+        let saved = InputEvents::load_from_file(&path).unwrap();
+
+        assert_eq!(
+            saved
+                .events
+                .iter()
+                .map(|event| (event.time_ms, event.kind))
+                .collect::<Vec<_>>(),
+            vec![
+                (16.0, InputEventKind::Gamepad(pushed)),
+                (48.0, InputEventKind::Gamepad(idle)),
+            ]
+        );
+        let record = InputRecord::from_events(&KeyboardEvents::default(), &saved);
+        let shown = record.state_at(20.0);
+        assert_eq!(
+            shown.held().collect::<Vec<_>>(),
+            vec![Input::GamepadButton(gamepad_buttons::DPAD_UP)]
+        );
+        assert_eq!(shown.axes, pushed.axes);
+        assert_eq!(shown.controller, Some(GamepadKind::Switch));
+        assert_eq!(record.state_at(50.0).axes, GamepadAxes::default());
     }
 
     fn changes(previous: &InputSample, current: &InputSample) -> Vec<InputEventKind> {
