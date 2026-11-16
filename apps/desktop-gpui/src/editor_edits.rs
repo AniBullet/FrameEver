@@ -29,7 +29,7 @@ use frameever_project::{
     AudioTrackSegment, Camera3DProperties, Camera3DSegment, CaptionTrackSegment,
     ClipSpeedAudioMode, CursorClickEvent, GlideDirection, KeyboardTrackSegment, MaskKind,
     MaskSegment, OverlayTrack, ProjectConfiguration, SceneMode, SceneSegment, ShapeSegment,
-    TextSegment, TimelineConfiguration, TimelineSegment, XY, ZoomMode, ZoomSegment,
+    TextSegment, TimelineConfiguration, TimelineSegment, VoiceEq, XY, ZoomMode, ZoomSegment,
     mask_effect_contract,
 };
 
@@ -1885,6 +1885,7 @@ pub fn ensure_timeline(project: &mut ProjectConfiguration, clip_display_duration
                 name: None,
                 speed_audio_mode: None,
                 hide_cursor: None,
+                voice_eq: None,
                 volume: None,
             })
             .collect(),
@@ -2735,6 +2736,24 @@ pub fn clip_is_muted(segment: &TimelineSegment) -> bool {
     }
 }
 
+pub fn set_clip_voice_eq(
+    timeline: &mut TimelineConfiguration,
+    indices: &[usize],
+    voice_eq: Option<VoiceEq>,
+) -> bool {
+    let voice_eq = voice_eq.map(|voice_eq| voice_eq.sanitized());
+    let mut changed = false;
+    for index in indices {
+        if let Some(segment) = timeline.segments.get_mut(*index)
+            && segment.voice_eq != voice_eq
+        {
+            segment.voice_eq = voice_eq;
+            changed = true;
+        }
+    }
+    changed
+}
+
 pub fn set_clip_volume(timeline: &mut TimelineConfiguration, index: usize, volume: f64) -> bool {
     if !volume.is_finite() {
         return false;
@@ -2906,6 +2925,7 @@ pub fn merge_clip_segments(
     left.speed_audio_mode = settings.speed_audio_mode;
     left.volume = settings.volume;
     left.hide_cursor = settings.hide_cursor;
+    left.voice_eq = settings.voice_eq;
 
     // `transitionsAfterClipMerge`: the merged boundary's transition is gone,
     // everything past it shifts down one.
@@ -2931,6 +2951,31 @@ mod tests {
 
     fn config(json: serde_json::Value) -> ProjectConfiguration {
         serde_json::from_value(json).expect("fixture parses")
+    }
+
+    #[test]
+    fn voice_eq_lands_sanitized_on_the_target_clips_only() {
+        let mut project = config(serde_json::json!({
+            "timeline": {
+                "segments": [
+                    { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 2.0 },
+                    { "recordingSegment": 0, "timescale": 1.0, "start": 2.0, "end": 4.0 },
+                    { "recordingSegment": 0, "timescale": 1.0, "start": 4.0, "end": 6.0 }
+                ],
+                "zoomSegments": []
+            }
+        }));
+        let timeline = project.timeline.as_mut().unwrap();
+        let mut loud = VoiceEq::default();
+        loud.high_mid.gain_db = 40.0;
+        assert!(set_clip_voice_eq(timeline, &[0, 2, 9], Some(loud)));
+        let stored = timeline.segments[0].voice_eq.unwrap();
+        assert_eq!(stored.high_mid.gain_db, VoiceEq::GAIN_RANGE.1);
+        assert_eq!(timeline.segments[2].voice_eq, Some(stored));
+        assert_eq!(timeline.segments[1].voice_eq, None);
+        assert!(!set_clip_voice_eq(timeline, &[0, 2], Some(loud)));
+        assert!(set_clip_voice_eq(timeline, &[0], None));
+        assert_eq!(timeline.segments[0].voice_eq, None);
     }
 
     fn zoom_fixture() -> ProjectConfiguration {
@@ -3165,6 +3210,7 @@ mod tests {
                 timescale: 1.,
                 muted: false,
                 cursor_hidden: false,
+                voice_eq: false,
                 volume: 1.,
                 recording_clip: 0,
                 holds: Arc::from(&[][..]),

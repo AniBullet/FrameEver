@@ -281,6 +281,7 @@ pub struct EditorInstance {
     pub export_active: AtomicBool,
     runtime_handle: tokio::runtime::Handle,
     audio_output: Arc<crate::AudioOutput>,
+    preview_speed: crate::PreviewSpeedHandle,
 }
 
 impl EditorInstance {
@@ -457,6 +458,7 @@ impl EditorInstance {
                             name: None,
                             speed_audio_mode: None,
                             hide_cursor: None,
+                            voice_eq: None,
                             volume: None,
                         }],
                         _ => {
@@ -492,6 +494,7 @@ impl EditorInstance {
                             name: None,
                             speed_audio_mode: None,
                             hide_cursor: None,
+                            voice_eq: None,
                             volume: None,
                         })
                     })
@@ -690,6 +693,7 @@ impl EditorInstance {
             playback_epoch: AtomicU64::new(0),
             runtime_handle: tokio::runtime::Handle::current(),
             audio_output,
+            preview_speed: crate::PreviewSpeedHandle::default(),
         });
 
         this.state.lock().await.preview_task =
@@ -815,6 +819,7 @@ impl EditorInstance {
             export_active: AtomicBool::new(false),
             runtime_handle: self.runtime_handle.clone(),
             audio_output: self.audio_output.clone(),
+            preview_speed: self.preview_speed.clone(),
         });
         next.state.lock().await.preview_task =
             Some(next.clone().spawn_preview_renderer(preview_rx));
@@ -973,6 +978,7 @@ impl EditorInstance {
                 project: self.project_config.0.subscribe(),
                 audio_output: self.audio_output.clone(),
                 telemetry: None,
+                preview_speed: self.preview_speed.clone(),
             };
             let playback_handle = if let Some(adoption) = adoption {
                 playback
@@ -1043,6 +1049,14 @@ impl EditorInstance {
             prev.stop();
         }
         Ok(owned_handle)
+    }
+
+    pub fn set_preview_speed(&self, speed: crate::PreviewSpeed) {
+        self.preview_speed.set(speed);
+    }
+
+    pub fn preview_speed(&self) -> crate::PreviewSpeed {
+        self.preview_speed.get()
     }
 
     /// True while a playback engine is live. Epoch-guarded against restart

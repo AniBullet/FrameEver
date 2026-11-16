@@ -972,6 +972,7 @@ pub struct GeneralSettings {
     pub update_download_policy: UpdateDownloadPolicy,
     pub editor_preview_quality: EditorPreviewQuality,
     pub editor_sidebar_width: Option<f32>,
+    pub editor_preview_speed: frameever_editor::PreviewSpeed,
     /// The Experimental page's two toggles. Both default false the way the
     /// page shows them (`!!settings.enableNativeCameraPreview` /
     /// `!!settings.outOfProcessMuxer` in experimental.tsx).
@@ -994,6 +995,7 @@ pub const RECORDING_START_SAFETY: &str = "recording_start_safety";
 /// recordings start with Studio Sound on. Defaults on; the editor's Audio tab
 /// and the Recording settings card both write it.
 pub const AUDIO_ENHANCEMENT: &str = "audio_enhancement";
+pub const EDITOR_PREVIEW_SPEED_KEY: &str = "editorPreviewSpeed";
 pub const STUDIO_SOUND_BY_DEFAULT_KEY: &str = "enabledByDefault";
 
 pub fn studio_sound_by_default() -> bool {
@@ -1423,6 +1425,11 @@ impl GeneralSettings {
             update_download_policy: enum_at(general, "updateDownloadPolicy"),
             editor_preview_quality: enum_at(general, "editorPreviewQuality"),
             editor_sidebar_width: opt_f32_at(general, "editorSidebarWidth"),
+            editor_preview_speed: general
+                .get(EDITOR_PREVIEW_SPEED_KEY)
+                .and_then(Value::as_f64)
+                .and_then(frameever_editor::PreviewSpeed::from_f64)
+                .unwrap_or_default(),
             enable_native_camera_preview: bool_at(general, "enableNativeCameraPreview", false),
             out_of_process_muxer: bool_at(general, "outOfProcessMuxer", false),
             confirm_without_microphone: bool_at(
@@ -3484,6 +3491,31 @@ mod tests {
             ..Default::default()
         };
         assert!(bundle_first.matches(Some("com.cap.desktop"), None, Some("Wrong")));
+    }
+
+    #[test]
+    fn editor_preview_speed_reads_offered_steps_and_falls_back_to_normal() {
+        let read = |value: Option<Value>| {
+            let mut general = Map::new();
+            if let Some(value) = value {
+                general.insert(EDITOR_PREVIEW_SPEED_KEY.to_string(), value);
+            }
+            GeneralSettings::from_sections(&general, &Map::new(), &Map::new())
+                .editor_preview_speed
+                .as_f64()
+        };
+        assert_eq!(read(None), 1.0);
+        for speed in frameever_editor::PreviewSpeed::ALL {
+            assert_eq!(
+                read(Some(serde_json::json!(speed.as_f64()))),
+                speed.as_f64()
+            );
+        }
+        assert_eq!(read(Some(serde_json::json!(2))), 2.0);
+        assert_eq!(read(Some(serde_json::json!(2.5))), 1.0);
+        assert_eq!(read(Some(serde_json::json!(-1))), 1.0);
+        assert_eq!(read(Some(serde_json::json!("2"))), 1.0);
+        assert_eq!(read(Some(Value::Null)), 1.0);
     }
 
     /// Key absent -> the default exclusion list (the Rust struct's serde

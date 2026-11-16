@@ -3,15 +3,16 @@ use ffmpeg::{
     ChannelLayout, filter, format as avformat, frame::Audio as FFAudio, software::resampling,
 };
 use frameever_audio::{
-    AudioData, AudioRendererTrack, DecodedAudio, FromSampleBytes, StereoMode, VoiceAudio,
-    VoiceEnhancer, VoiceSource, cast_bytes_to_f32_slice, cast_f32_slice_to_bytes,
-    high_quality_resampler_options,
+    AudioData, AudioRendererTrack, DeclickStrength, DecodedAudio, FromSampleBytes, StereoMode,
+    ToneFilter, VoiceAudio, VoiceEnhancer, VoiceSource, VoiceTone, VoiceToneSettings,
+    cast_bytes_to_f32_slice, cast_f32_slice_to_bytes, high_quality_resampler_options,
 };
 use frameever_media::MediaError;
 use frameever_media_info::AudioInfo;
 use frameever_project::{
     AudioConfiguration, ClipOffsets, ClipSpeedAudioMode, ClipTransitionType, ProjectConfiguration,
-    TimelineConfiguration, TimelineFrameMapping, TimelineSource, VoiceIsolation,
+    TimelineConfiguration, TimelineFrameMapping, TimelineSegment, TimelineSource, VoiceDeclick,
+    VoiceIsolation,
 };
 use ringbuf::{
     HeapRb,
@@ -149,6 +150,7 @@ struct SpeedAudioProcessorKey {
     mic_stereo_mode: u8,
     mic_offset_bits: u32,
     system_offset_bits: u32,
+    voice_tone: Option<VoiceToneSettings>,
 }
 
 struct SpeedAudioProcessorSlot {
@@ -174,6 +176,12 @@ struct SpeedAudioProcessor {
     timescale: f64,
     flushed: bool,
     voice_enhancement: VoiceEnhancementCache,
+}
+
+#[derive(Clone, Copy)]
+struct ClipAudio<'a> {
+    data: &'a [AudioSegment],
+    voice_tone: Option<VoiceToneSettings>,
 }
 
 impl AudioRenderer {
@@ -296,6 +304,7 @@ impl AudioRenderer {
                 let rendered = sources.render(
                     project,
                     self.cursor.clip_index,
+                    None,
                     self.cursor.samples + written,
                     count,
                     &mut output[..count * 2],
@@ -360,6 +369,7 @@ impl AudioRenderer {
                             sources.render(
                                 project,
                                 source.segment.recording_clip,
+                                segment_voice_tone(source.segment),
                                 self.playhead_to_samples(source.source_time) + span_offset,
                                 count,
                                 output,
@@ -384,6 +394,7 @@ impl AudioRenderer {
                             sources.render(
                                 project,
                                 outgoing.segment.recording_clip,
+                                segment_voice_tone(outgoing.segment),
                                 self.playhead_to_samples(outgoing.source_time) + span_offset,
                                 count,
                                 outgoing_buffer,
@@ -394,6 +405,7 @@ impl AudioRenderer {
                             sources.render(
                                 project,
                                 incoming.segment.recording_clip,
+                                segment_voice_tone(incoming.segment),
                                 self.playhead_to_samples(incoming.source_time) + span_offset,
                                 count,
                                 incoming_buffer,
@@ -684,7 +696,7 @@ impl AudioRenderer {
         out_offset: usize,
         out: &mut [f32],
     ) -> usize {
-        self.render_chunk_at_cursor(project, self.cursor, samples, out_offset, out)
+        self.render_chunk_at_cursor(project, self.cursor, None, samples, out_offset, out)
     }
 
     fn render_segment_chunk(
@@ -700,7 +712,8 @@ impl AudioRenderer {
                 return 0;
             }
             let cursor = source_cursor(source, self.playhead_to_samples(source.source_time));
-            self.render_chunk_at_cursor(project, cursor, samples, out_offset, out)
+            let voice_tone = segment_voice_tone(source.segment);
+            self.render_chunk_at_cursor(project, cursor, voice_tone, samples, out_offset, out)
         } else {
             self.render_speed_audio_chunk(project, source, samples, out_offset, out)
         };
@@ -755,6 +768,7 @@ impl AudioRenderer {
             mic_stereo_mode: project_stereo_mode_key(&project.audio.mic_stereo_mode),
             mic_offset_bits: offsets.mic.to_bits(),
             system_offset_bits: offsets.system_audio.to_bits(),
+            voice_tone: segment_voice_tone(source.segment),
         };
         let requested_source_sample = source.source_time * Self::SAMPLE_RATE as f64;
         self.speed_audio_use_counter = self.speed_audio_use_counter.saturating_add(1);
@@ -798,7 +812,10 @@ impl AudioRenderer {
 
         let result = match &mut slot.state {
             SpeedAudioProcessorState::Ready(processor) => processor.render(
-                &self.data,
+                ClipAudio {
+                    data: &self.data,
+                    voice_tone: key.voice_tone,
+                },
                 project,
                 requested_source_sample,
                 samples,
@@ -826,12 +843,16 @@ impl AudioRenderer {
         &mut self,
         project: &ProjectConfiguration,
         cursor: AudioRendererCursor,
+        voice_tone: Option<VoiceToneSettings>,
         samples: usize,
         out_offset: usize,
         out: &mut [f32],
     ) -> usize {
         render_audio_data_chunk(
-            &self.data,
+            ClipAudio {
+                data: &self.data,
+                voice_tone,
+            },
             project,
             cursor,
             samples,
@@ -859,8 +880,58 @@ fn source_cursor(source: TimelineSource<'_>, samples: usize) -> AudioRendererCur
     }
 }
 
+pub fn voice_eq_filters(voice_eq: &frameever_project::VoiceEq) -> [Option<ToneFilter>; 5] {
+    let voice_eq = voice_eq.sanitized();
+    let (low, low_mid, high_mid, high) = (
+        voice_eq.low,
+        voice_eq.low_mid,
+        voice_eq.high_mid,
+        voice_eq.high,
+    );
+    [
+        voice_eq.high_pass.then_some(ToneFilter::HighPass {
+            hz: voice_eq.high_pass_hz,
+        }),
+        Some(ToneFilter::LowShelf {
+            hz: low.hz,
+            gain_db: low.gain_db,
+        }),
+        Some(ToneFilter::Bell {
+            hz: low_mid.hz,
+            gain_db: low_mid.gain_db,
+            q: low_mid.q,
+        }),
+        Some(ToneFilter::Bell {
+            hz: high_mid.hz,
+            gain_db: high_mid.gain_db,
+            q: high_mid.q,
+        }),
+        Some(ToneFilter::HighShelf {
+            hz: high.hz,
+            gain_db: high.gain_db,
+        }),
+    ]
+}
+
+pub(crate) fn segment_voice_tone(segment: &TimelineSegment) -> Option<VoiceToneSettings> {
+    let voice_eq = segment.active_voice_eq()?;
+    let settings = VoiceToneSettings {
+        filters: if voice_eq.shapes_tone() {
+            voice_eq_filters(&voice_eq)
+        } else {
+            [None; 5]
+        },
+        declick: match voice_eq.declick {
+            VoiceDeclick::Off => None,
+            VoiceDeclick::Light => Some(DeclickStrength::Light),
+            VoiceDeclick::Strong => Some(DeclickStrength::Strong),
+        },
+    };
+    settings.is_active().then_some(settings)
+}
+
 fn render_audio_data_chunk(
-    data: &[AudioSegment],
+    clip: ClipAudio<'_>,
     project: &ProjectConfiguration,
     cursor: AudioRendererCursor,
     samples: usize,
@@ -868,6 +939,7 @@ fn render_audio_data_chunk(
     out: &mut [f32],
     enhancement: &mut VoiceEnhancementCache,
 ) -> usize {
+    let ClipAudio { data, voice_tone } = clip;
     let Some(segment) = data.get(cursor.clip_index as usize) else {
         return 0;
     };
@@ -918,7 +990,10 @@ fn render_audio_data_chunk(
         })
         .collect::<Vec<_>>();
 
-    if !project.audio.improve || project.audio.mute {
+    let isolation =
+        (project.audio.improve && !project.audio.mute).then_some(project.audio.isolation);
+    let voice_tone = voice_tone.filter(|_| !project.audio.mute);
+    if isolation.is_none() && voice_tone.is_none() {
         return frameever_audio::render_audio(
             &track_datas,
             cursor.samples,
@@ -949,13 +1024,14 @@ fn render_audio_data_chunk(
                 if start >= end || start >= data.data.sample_count() {
                     return None;
                 }
-                Some(enhancement.render(
+                enhancement.render(
                     (clip_key, index),
                     data.data,
                     start,
                     end.saturating_sub(start),
-                    project.audio.isolation,
-                ))
+                    isolation,
+                    voice_tone,
+                )
             })
             .collect::<Vec<_>>();
         let sources = track_datas
@@ -986,9 +1062,12 @@ fn render_audio_data_chunk(
     samples
 }
 
+type VoiceEnhancementKey = (usize, usize, VoiceIsolation, Option<VoiceToneSettings>);
+
 #[derive(Default)]
 struct VoiceEnhancementCache {
-    slots: Vec<((usize, usize, VoiceIsolation), VoiceEnhancer)>,
+    slots: Vec<(VoiceEnhancementKey, VoiceEnhancer)>,
+    tones: Vec<((usize, usize), VoiceTone)>,
 }
 
 impl VoiceEnhancementCache {
@@ -998,14 +1077,21 @@ impl VoiceEnhancementCache {
         source: &DecodedAudio,
         start: usize,
         count: usize,
-        isolation: VoiceIsolation,
-    ) -> VoiceAudio {
-        let key = (key.0, key.1, isolation);
+        isolation: Option<VoiceIsolation>,
+        voice_tone: Option<VoiceToneSettings>,
+    ) -> Option<VoiceAudio> {
+        let Some(isolation) = isolation else {
+            return voice_tone.map(|voice_tone| {
+                self.tone(key, source.channels(), voice_tone)
+                    .render(source, start, count)
+            });
+        };
+        let key = (key.0, key.1, isolation, voice_tone);
         let index = self
             .slots
             .iter()
             .position(|(candidate, state)| *candidate == key && state.is_contiguous(start));
-        let slot = if let Some(index) = index {
+        let mut slot = if let Some(index) = index {
             self.slots.remove(index)
         } else {
             (
@@ -1020,12 +1106,41 @@ impl VoiceEnhancementCache {
         if self.slots.len() == 4 {
             self.slots.remove(0);
         }
+        let audio = match voice_tone {
+            Some(voice_tone) => {
+                let range = slot.1.source_range(start, count);
+                let toned = self
+                    .tone((key.0, key.1), source.channels(), voice_tone)
+                    .render(source, range.start, range.len());
+                slot.1.render(&toned, start, count)
+            }
+            None => slot.1.render(source, start, count),
+        };
         self.slots.push(slot);
-        self.slots
-            .last_mut()
-            .unwrap()
-            .1
-            .render(source, start, count)
+        Some(audio)
+    }
+
+    fn tone(
+        &mut self,
+        key: (usize, usize),
+        channels: u16,
+        settings: VoiceToneSettings,
+    ) -> &mut VoiceTone {
+        let index = match self
+            .tones
+            .iter()
+            .position(|(candidate, tone)| *candidate == key && tone.settings() == settings)
+        {
+            Some(index) => index,
+            None => {
+                if self.tones.len() == 4 {
+                    self.tones.remove(0);
+                }
+                self.tones.push((key, VoiceTone::new(channels, settings)));
+                self.tones.len() - 1
+            }
+        };
+        &mut self.tones[index].1
     }
 }
 
@@ -1118,7 +1233,7 @@ impl SpeedAudioProcessor {
 
     fn render(
         &mut self,
-        data: &[AudioSegment],
+        clip: ClipAudio<'_>,
         project: &ProjectConfiguration,
         requested_source_sample: f64,
         samples: usize,
@@ -1128,7 +1243,7 @@ impl SpeedAudioProcessor {
         let target_samples = samples.saturating_add(self.discard_output_samples);
         while self.pending.len() / 2 < target_samples {
             if self.input_samples < self.segment_end_samples {
-                self.feed_input(data, project)?;
+                self.feed_input(clip, project)?;
             } else if !self.flushed {
                 let mut source = self.graph.get("in").ok_or(ffmpeg::Error::InvalidData)?;
                 source.source().flush()?;
@@ -1157,7 +1272,7 @@ impl SpeedAudioProcessor {
 
     fn feed_input(
         &mut self,
-        data: &[AudioSegment],
+        clip: ClipAudio<'_>,
         project: &ProjectConfiguration,
     ) -> Result<(), ffmpeg::Error> {
         let samples = SPEED_AUDIO_INPUT_BLOCK_SAMPLES
@@ -1165,7 +1280,7 @@ impl SpeedAudioProcessor {
         self.input_data.resize(samples * 2, 0.0);
         self.input_data.fill(0.0);
         render_audio_data_chunk(
-            data,
+            clip,
             project,
             AudioRendererCursor {
                 clip_index: self.recording_clip,
@@ -1804,6 +1919,41 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> PrerenderedAudioBuffer<T> {
             PrerenderedAudioBufferMode::Streaming(source) => source.fill(buffer),
         }
     }
+
+    pub(crate) fn read_frame(&self) -> usize {
+        match &self.mode {
+            PrerenderedAudioBufferMode::Progressive(buffer) => {
+                buffer.read_position / buffer.channels
+            }
+            PrerenderedAudioBufferMode::Streaming(buffer) => buffer.read_position / buffer.channels,
+        }
+    }
+
+    pub(crate) fn sample_rate(&self) -> u32 {
+        match &self.mode {
+            PrerenderedAudioBufferMode::Progressive(buffer) => buffer.sample_rate,
+            PrerenderedAudioBufferMode::Streaming(buffer) => buffer.sample_rate,
+        }
+    }
+}
+
+impl<T: FromSampleBytes + cpal::FromSample<f32>> crate::preview_stretch::StretchSource
+    for PrerenderedAudioBuffer<T>
+{
+    fn read_frame(&self) -> usize {
+        PrerenderedAudioBuffer::read_frame(self)
+    }
+
+    fn read(&mut self, out: &mut [f32]) {
+        match &mut self.mode {
+            PrerenderedAudioBufferMode::Progressive(source) => {
+                source.fill_with(out, 0.0, std::convert::identity)
+            }
+            PrerenderedAudioBufferMode::Streaming(source) => {
+                source.fill_with(out, 0.0, std::convert::identity)
+            }
+        }
+    }
 }
 
 impl<T: FromSampleBytes + cpal::FromSample<f32>> ProgressiveAudioBuffer<T> {
@@ -1965,6 +2115,10 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> ProgressiveAudioBuffer<T> {
     }
 
     pub fn fill(&mut self, buffer: &mut [T]) {
+        self.fill_with(buffer, T::EQUILIBRIUM, <T as cpal::Sample>::from_sample);
+    }
+
+    fn fill_with<U: Copy>(&mut self, buffer: &mut [U], silence: U, convert: impl Fn(f32) -> U) {
         let samples = &self.timeline.samples;
         let available = samples.len().saturating_sub(self.read_position);
         let to_copy = buffer.len().min(available);
@@ -1982,18 +2136,16 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> ProgressiveAudioBuffer<T> {
                     idx < wrap_end
                 };
                 *slot = if rendered {
-                    <T as cpal::Sample>::from_sample(f32::from_bits(
-                        samples[idx].load(Ordering::Relaxed),
-                    ))
+                    convert(f32::from_bits(samples[idx].load(Ordering::Relaxed)))
                 } else {
-                    T::EQUILIBRIUM
+                    silence
                 };
             }
             self.read_position += to_copy;
         }
 
         if to_copy < buffer.len() {
-            buffer[to_copy..].fill(T::EQUILIBRIUM);
+            buffer[to_copy..].fill(silence);
         }
     }
 }
@@ -2225,18 +2377,22 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> StreamingAudioBuffer<T> {
     }
 
     fn fill(&mut self, buffer: &mut [T]) {
+        self.fill_with(buffer, T::EQUILIBRIUM, T::from_sample);
+    }
+
+    fn fill_with<U: Copy>(&mut self, buffer: &mut [U], silence: U, convert: impl Fn(f32) -> U) {
         let generation = self.timeline.published_generation.load(Ordering::Acquire);
         let start = self.timeline.published_start.load(Ordering::Acquire);
         let end = self.timeline.published_end.load(Ordering::Acquire);
         for (offset, sample) in buffer.iter_mut().enumerate() {
             let position = self.read_position + offset;
             *sample = if generation == self.generation && position >= start && position < end {
-                T::from_sample(f32::from_bits(
+                convert(f32::from_bits(
                     self.timeline.samples[position % self.timeline.samples.len()]
                         .load(Ordering::Relaxed),
                 ))
             } else {
-                T::EQUILIBRIUM
+                silence
             };
         }
         self.read_position = self.read_position.saturating_add(buffer.len());
@@ -2702,6 +2858,7 @@ mod tests {
                         name: None,
                         speed_audio_mode: None,
                         hide_cursor: None,
+                        voice_eq: None,
                         volume: None,
                     },
                     TimelineSegment {
@@ -2712,6 +2869,7 @@ mod tests {
                         name: None,
                         speed_audio_mode: None,
                         hide_cursor: None,
+                        voice_eq: None,
                         volume: None,
                     },
                     TimelineSegment {
@@ -2722,6 +2880,7 @@ mod tests {
                         name: None,
                         speed_audio_mode: None,
                         hide_cursor: None,
+                        voice_eq: None,
                         volume: None,
                     },
                     TimelineSegment {
@@ -2732,6 +2891,7 @@ mod tests {
                         name: None,
                         speed_audio_mode: None,
                         hide_cursor: None,
+                        voice_eq: None,
                         volume: None,
                     },
                     TimelineSegment {
@@ -2742,6 +2902,7 @@ mod tests {
                         name: None,
                         speed_audio_mode: None,
                         hide_cursor: None,
+                        voice_eq: None,
                         volume: None,
                     },
                     TimelineSegment {
@@ -2752,6 +2913,7 @@ mod tests {
                         name: None,
                         speed_audio_mode: None,
                         hide_cursor: None,
+                        voice_eq: None,
                         volume: None,
                     },
                 ],
@@ -3202,6 +3364,119 @@ mod tests {
     }
 
     /// One clip per second `section_values`, on a timeline made of `segments`.
+    fn voice_eq_fixture() -> (TempDir, AudioRenderer, ProjectConfiguration) {
+        let _ = ffmpeg::init();
+        let dir = tempfile::tempdir().unwrap();
+        let clip_path = dir.path().join("voice.wav");
+        write_sine_wav(&clip_path, 180.0, 6.0);
+        let data = vec![AudioSegment {
+            tracks: vec![
+                AudioSegmentTrack::new(
+                    Arc::new(AudioData::from_file(&clip_path).unwrap()),
+                    gain,
+                    stereo,
+                    no_offset,
+                )
+                .with_microphone_enhancement(),
+            ],
+        }];
+        let renderer = AudioRenderer::new(data);
+        let mut fast = segment(0, 2.0, 3.5, 1.5);
+        fast.speed_audio_mode = Some(ClipSpeedAudioMode::MaintainPitch);
+        let (_, _, mut project) = single_clip_fixture(&[0], Vec::new());
+        project.timeline.as_mut().unwrap().segments =
+            vec![segment(0, 0.0, 2.0, 1.0), fast, segment(0, 3.5, 5.0, 1.0)];
+        (dir, renderer, project)
+    }
+
+    fn voice_eq(
+        preset: frameever_project::VoiceEqPreset,
+        declick: VoiceDeclick,
+    ) -> frameever_project::VoiceEq {
+        frameever_project::VoiceEq {
+            declick,
+            ..frameever_project::VoiceEq::from_preset(preset)
+        }
+    }
+
+    fn play(
+        renderer: &AudioRenderer,
+        project: &ProjectConfiguration,
+        duration_secs: f64,
+        samples: usize,
+    ) -> Vec<f32> {
+        let mut playback = PrerenderedAudioBuffer::<f32>::new(
+            renderer.data.clone(),
+            MusicTracks::new(),
+            project,
+            AudioRenderer::info(),
+            duration_secs,
+            0.0,
+        );
+        let mut stream = vec![0.0; samples];
+        for block in stream.chunks_mut(1024) {
+            assert!(playback.wait_until_ready(std::time::Duration::from_secs(5)));
+            playback.fill(block);
+        }
+        stream
+    }
+
+    #[test]
+    fn voice_eq_sounds_the_same_in_preview_and_export_including_a_sped_up_clip() {
+        let (_dir, mut renderer, mut project) = voice_eq_fixture();
+        let plain = render_export_audio(&mut renderer, &project, 30, 120);
+        {
+            let segments = &mut project.timeline.as_mut().unwrap().segments;
+            segments[0].voice_eq = Some(voice_eq(
+                frameever_project::VoiceEqPreset::Broadcast,
+                VoiceDeclick::Strong,
+            ));
+            segments[1].voice_eq = Some(voice_eq(
+                frameever_project::VoiceEqPreset::Warm,
+                VoiceDeclick::Off,
+            ));
+        }
+        let export = render_export_audio(&mut renderer, &project, 30, 120);
+        assert_eq!(
+            export,
+            render_export_audio(
+                &mut AudioRenderer::new(renderer.data.clone()),
+                &project,
+                30,
+                120
+            ),
+            "a reused renderer must pick up the new voice eq"
+        );
+
+        let second = AudioData::SAMPLE_RATE as usize * 2;
+        let first_clip = 0..second * 2;
+        let fast_clip = second * 2..second * 3;
+        let last_clip = second * 3 + second / 4..second * 4;
+        assert_ne!(export[first_clip.clone()], plain[first_clip]);
+        assert!(mean_abs(&plain[fast_clip.clone()]) > 0.01);
+        assert_ne!(
+            export[fast_clip.clone()],
+            plain[fast_clip],
+            "voice eq must change the sped-up clip"
+        );
+        assert_eq!(
+            export[last_clip.clone()],
+            plain[last_clip],
+            "a clip without voice eq is untouched"
+        );
+
+        for duration_secs in [4.5, 3600.0] {
+            let preview = play(&renderer, &project, duration_secs, export.len());
+            assert!(
+                preview
+                    .iter()
+                    .zip(&export)
+                    .all(|(preview, export)| preview.to_bits() == export.to_bits()),
+                "duration {duration_secs}: preview differs from export"
+            );
+        }
+    }
+
     fn single_clip_fixture(
         section_values: &[i16],
         segments: Vec<TimelineSegment>,
@@ -3256,6 +3531,7 @@ mod tests {
             name: None,
             speed_audio_mode: None,
             hide_cursor: None,
+            voice_eq: None,
             volume: None,
         }
     }

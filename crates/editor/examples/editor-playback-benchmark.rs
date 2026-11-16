@@ -363,6 +363,7 @@ async fn load_recording(
                     name: None,
                     speed_audio_mode: None,
                     hide_cursor: None,
+                    voice_eq: None,
                     volume: None,
                 }]
             }
@@ -384,6 +385,7 @@ async fn load_recording(
                         name: None,
                         speed_audio_mode: None,
                         hide_cursor: None,
+                        voice_eq: None,
                         volume: None,
                     })
                 })
@@ -646,6 +648,7 @@ async fn main() {
             music: frameever_editor::MusicTracks::new(),
             audio_output: audio_output.clone(),
             telemetry: Some(telemetry.clone()),
+            preview_speed: Default::default(),
         };
 
         let press_instant = Instant::now();
