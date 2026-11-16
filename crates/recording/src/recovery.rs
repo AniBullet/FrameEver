@@ -27,13 +27,9 @@ use crate::studio_recording::CompletedRecording;
 mod prefix;
 mod preparing_observer;
 mod preparing_projection;
-#[cfg(unix)]
 mod retirement;
 
-#[cfg(unix)]
 type PreparingRecoveryLock = retirement::RecoveryLease;
-#[cfg(not(unix))]
-type PreparingRecoveryLock = RecoveryLock;
 
 pub use preparing_observer::{
     LivePreparingStudioSources, PreparingAudioLease, PreparingAudioTrack, PreparingSidecarKind,
@@ -370,7 +366,6 @@ impl RecoveryManager {
             RecoveryLock::acquire,
             preparing,
         )?;
-        #[cfg(unix)]
         if unread && let Some(workspace) = published_workspace.into_inner() {
             let retired = RecoveryLock::acquire(project_path)
                 .and_then(|_lock| retirement::retire_unread_originals(project_path, &workspace));
@@ -378,8 +373,6 @@ impl RecoveryManager {
                 warn!(path = %workspace.display(), %error, "Original media backup retained");
             }
         }
-        #[cfg(not(unix))]
-        let _ = (unread, published_workspace);
         Ok(true)
     }
 
@@ -1522,7 +1515,6 @@ impl RecoveryManager {
             elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
             "Studio finalization complete"
         );
-        #[cfg(unix)]
         if matches!(purpose, RecoveryPurpose::Finalize)
             && preparing_source.is_some()
             && let HeldRecoveryLock::Shared(lease) = &lock
@@ -3436,7 +3428,6 @@ enum HeldRecoveryLock {
 impl HeldRecoveryLock {
     fn new(lock: RecoveryLock, preparing: bool) -> Self {
         if preparing {
-            #[cfg(unix)]
             let lock = retirement::RecoveryLease::new(lock);
             Self::Shared(Arc::new(lock))
         } else {
@@ -3554,6 +3545,19 @@ impl RecoveryLock {
             return Err(error);
         }
         Ok(lock)
+    }
+}
+
+impl RecoveryLock {
+    fn owned_by_this_process(&self) -> bool {
+        #[cfg(unix)]
+        {
+            self.owner_pid == unsafe { libc::getpid() }
+        }
+        #[cfg(not(unix))]
+        {
+            true
+        }
     }
 }
 
@@ -5858,7 +5862,6 @@ mod clean_studio_snapshot_tests {
         assert_preparing_entry_point_matches_ordinary(PreparingEntryCase::Supported);
     }
 
-    #[cfg(unix)]
     #[test]
     fn preparing_retirement_preserves_every_encoded_video_packet() {
         fn packets(path: &Path) -> Vec<Vec<u8>> {
@@ -6107,7 +6110,6 @@ mod clean_studio_snapshot_tests {
         assert!(RecoveryLock::acquire(project).is_ok());
     }
 
-    #[cfg(unix)]
     #[test]
     fn a_stop_without_a_preparing_editor_retires_the_original_media_backup() {
         let directory = playable_studio_project(StudioRecordingStatus::NeedsRemux);
@@ -6251,9 +6253,7 @@ mod clean_studio_snapshot_tests {
                     .starts_with(".recovery-")
             })
             .unwrap();
-        // A stop without a preparing editor retires the original backup once
-        // the published tracks above are in place (unix only, for now).
-        assert_eq!(backup.join("original-segments").exists(), !cfg!(unix));
+        assert!(!backup.join("original-segments").exists());
     }
 
     #[test]
