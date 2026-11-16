@@ -164,7 +164,10 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(project.with_preset(preset).input_display, Some(block.clone()));
+        assert_eq!(
+            project.with_preset(preset).input_display,
+            Some(block.clone())
+        );
         assert_eq!(
             ProjectConfiguration::default()
                 .with_preset(project)

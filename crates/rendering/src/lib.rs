@@ -44,13 +44,13 @@ pub mod decoder;
 pub mod frame_chrome;
 mod frame_pipeline;
 mod frame_windows;
+pub mod input_display;
 #[cfg(target_os = "macos")]
 pub mod iosurface_texture;
 mod layers;
 mod managed_segment;
 mod mask;
 pub mod notch_shape;
-pub mod input_display;
 mod overlay_layers;
 mod project_recordings;
 mod readiness;

@@ -73,7 +73,8 @@ pub fn take_at(project: &ProjectConfiguration, output_time: f64, source_time: f6
         Some(TimelineFrameMapping::Transition {
             outgoing, incoming, ..
         }) => {
-            if (outgoing.source_time - source_time).abs() < (incoming.source_time - source_time).abs()
+            if (outgoing.source_time - source_time).abs()
+                < (incoming.source_time - source_time).abs()
             {
                 outgoing
             } else {

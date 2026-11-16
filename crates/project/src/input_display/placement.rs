@@ -1,4 +1,6 @@
-use super::{INPUT_DISPLAY_DEFAULT_SIZE, INPUT_DISPLAY_MARGIN, INPUT_DISPLAY_SIZE_RANGE, InputDisplay};
+use super::{
+    INPUT_DISPLAY_DEFAULT_SIZE, INPUT_DISPLAY_MARGIN, INPUT_DISPLAY_SIZE_RANGE, InputDisplay,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DisplayRect {
@@ -99,12 +101,7 @@ mod tests {
 
     #[test]
     fn values_outside_their_ranges_are_clamped() {
-        let rect = display_rect(
-            &block(7.0, f64::NAN, 5000.0),
-            (400, 200),
-            0.3,
-            (2000, 1000),
-        );
+        let rect = display_rect(&block(7.0, f64::NAN, 5000.0), (400, 200), 0.3, (2000, 1000));
 
         assert_eq!((rect.width, rect.x, rect.y), (1200.0, 740.0, 60.0));
     }

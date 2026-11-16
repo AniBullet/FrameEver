@@ -129,7 +129,10 @@ impl std::fmt::Display for PresetRefusal {
                 write!(f, "button \"{element}\" has no key or button code")
             }
             Self::CodeOutOfRange { element, code } => {
-                write!(f, "button \"{element}\" has the code {code}, which is out of range")
+                write!(
+                    f,
+                    "button \"{element}\" has the code {code}, which is out of range"
+                )
             }
             Self::EmptyMapping { element } => {
                 write!(f, "element \"{element}\" maps an empty part of the image")
@@ -158,7 +161,11 @@ impl std::error::Error for PresetRefusal {}
 impl ElementKind {
     fn from_file(element: &ElementFile) -> Result<Self, PresetRefusal> {
         let name = || element.id.clone();
-        let code = || element.code.ok_or(PresetRefusal::MissingCode { element: name() });
+        let code = || {
+            element
+                .code
+                .ok_or(PresetRefusal::MissingCode { element: name() })
+        };
         let wide_code = || {
             let code = code()?;
             u16::try_from(code).map_err(|_| PresetRefusal::CodeOutOfRange {
@@ -391,12 +398,10 @@ mod tests {
         format!(r#"{{ "overlay_width": 40, "overlay_height": 30, "elements": [{elements}] }}"#)
     }
 
-    const KEY_W: &str =
-        r#"{ "type": 1, "id": "w", "pos": [10, 4], "mapping": [1, 1, 12, 10], "z_level": 1, "code": 87 }"#;
+    const KEY_W: &str = r#"{ "type": 1, "id": "w", "pos": [10, 4], "mapping": [1, 1, 12, 10], "z_level": 1, "code": 87 }"#;
     const BODY: &str =
         r#"{ "type": 0, "id": "body", "pos": [0, 0], "mapping": [20, 1, 30, 20], "z_level": 0 }"#;
-    const LEFT_BUTTON: &str =
-        r#"{ "type": 3, "id": "left", "pos": [2, 2], "mapping": [1, 30, 8, 9], "z_level": 2, "code": 1 }"#;
+    const LEFT_BUTTON: &str = r#"{ "type": 3, "id": "left", "pos": [2, 2], "mapping": [1, 30, 8, 9], "z_level": 2, "code": 1 }"#;
     const WHEEL: &str =
         r#"{ "type": 4, "id": "wheel", "pos": [12, 2], "mapping": [1, 55, 4, 6], "z_level": 2 }"#;
 
@@ -522,8 +527,11 @@ mod tests {
 
     #[test]
     fn a_preset_written_back_reads_the_same() {
-        let preset =
-            Preset::parse(&fixture(&[KEY_W, BODY, LEFT_BUTTON, WHEEL].join(",")), ATLAS).unwrap();
+        let preset = Preset::parse(
+            &fixture(&[KEY_W, BODY, LEFT_BUTTON, WHEEL].join(",")),
+            ATLAS,
+        )
+        .unwrap();
 
         assert_eq!(Preset::parse(&preset.to_json(), ATLAS), Ok(preset));
     }
@@ -562,7 +570,8 @@ mod tests {
 
     #[test]
     fn a_mapping_whose_pressed_sprite_leaves_the_image_is_refused() {
-        let fits = r#"{ "type": 1, "id": "w", "pos": [0, 0], "mapping": [1, 40, 12, 10], "code": 87 }"#;
+        let fits =
+            r#"{ "type": 1, "id": "w", "pos": [0, 0], "mapping": [1, 40, 12, 10], "code": 87 }"#;
         let pressed_outside =
             r#"{ "type": 1, "id": "w", "pos": [0, 0], "mapping": [1, 45, 12, 10], "code": 87 }"#;
         let wheel_outside =

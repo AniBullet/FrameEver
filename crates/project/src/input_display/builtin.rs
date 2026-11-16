@@ -317,8 +317,8 @@ fn mouse_parts(origin_x: u32, origin_y: u32, palette: &Palette) -> Vec<Part> {
             fill.fill()
         )
     };
-    let button = |id: &str, button: u8, left: u32, top: u32, width: u32, height: u32, body: &str| {
-        Part {
+    let button =
+        |id: &str, button: u8, left: u32, top: u32, width: u32, height: u32, body: &str| Part {
             id: id.to_string(),
             kind: ElementKind::MouseButton { button },
             x: origin_x + left,
@@ -330,8 +330,7 @@ fn mouse_parts(origin_x: u32, origin_y: u32, palette: &Palette) -> Vec<Part> {
                 shape(left, top, body, &palette.rest),
                 shape(left, top, body, &palette.on),
             ],
-        }
-    };
+        };
     let side = MOUSE_SIDE_OVERHANG;
     let wheel_up = r#"path d="M45 33 V25 a7 7 0 0 1 14 0 V33 Z""#;
     let wheel_down = r#"path d="M45 35 V43 a7 7 0 0 0 14 0 V35 Z""#;
@@ -451,7 +450,8 @@ impl KeyLayout {
 
         let mut svg = String::new();
         let mut elements = Vec::with_capacity(parts.len());
-        let (mut cursor_x, mut cursor_y, mut row_height, mut atlas_width) = (1u32, 1u32, 0u32, 0u32);
+        let (mut cursor_x, mut cursor_y, mut row_height, mut atlas_width) =
+            (1u32, 1u32, 0u32, 0u32);
         for part in parts {
             let (columns, rows) = part.kind.states();
             let cell_width = part.width * columns + STATE_GAP * (columns - 1);

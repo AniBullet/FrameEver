@@ -244,17 +244,19 @@ pub enum SidebarTab {
     Audio,
     Cursor,
     Keyboard,
+    InputDisplay,
     Captions,
 }
 
 impl SidebarTab {
-    pub const ALL: [SidebarTab; 8] = [
+    pub const ALL: [SidebarTab; 9] = [
         Self::Background,
         Self::Screen,
         Self::Camera,
         Self::Audio,
         Self::Cursor,
         Self::Keyboard,
+        Self::InputDisplay,
         Self::Captions,
         Self::Clips,
     ];
@@ -268,6 +270,7 @@ impl SidebarTab {
             Self::Audio => "icons/volume-2.svg",
             Self::Cursor => "icons/mouse-pointer-2.svg",
             Self::Keyboard => "icons/keyboard.svg",
+            Self::InputDisplay => "icons/gamepad-2.svg",
             Self::Captions => "icons/captions.svg",
         }
     }
@@ -284,6 +287,7 @@ impl SidebarTab {
             Self::Audio => n!("Audio"),
             Self::Cursor => n!("Cursor"),
             Self::Keyboard => n!("Keyboard"),
+            Self::InputDisplay => n!("Input display"),
             Self::Captions => n!("Captions"),
         }
     }
@@ -843,6 +847,9 @@ pub struct SidebarState {
     /// first and each tile replaces its own as it decodes.
     wallpapers: HashMap<&'static str, Arc<RenderImage>>,
     wallpaper_task: Option<gpui::Task<()>>,
+    pub(crate) input_thumbnails:
+        HashMap<crate::editor_input_display::InputThumbnailKey, Arc<RenderImage>>,
+    pub(crate) input_thumbnail_task: Option<gpui::Task<()>>,
     /// The `h-48` preview for the image and desktop panes, keyed by path so a
     /// stale decode cannot land on a newer selection.
     preview: Option<(PathBuf, Arc<RenderImage>)>,
@@ -903,6 +910,8 @@ impl SidebarState {
             color_drag: None,
             color_paused: false,
             wallpapers: HashMap::new(),
+            input_thumbnails: HashMap::new(),
+            input_thumbnail_task: None,
             wallpaper_task: None,
             preview: None,
             preview_task: None,
@@ -1031,6 +1040,9 @@ impl EditorWindow {
         self.end_field_edit(cx);
         self.sidebar.tab = tab;
         self.clips.open = tab == SidebarTab::Clips;
+        if tab == SidebarTab::InputDisplay {
+            self.ensure_input_thumbnails(window, cx);
+        }
         self.sidebar.scroll.set_offset(gpui::point(px(0.), px(0.)));
         cx.notify();
         window.refresh();
@@ -2497,7 +2509,7 @@ impl EditorWindow {
 
 /// The sidebar card's inner content width: 416 minus its 1px borders minus the
 /// panel's `p-4`. Fixed, because the column is `w-104 min-w-104 flex-none`.
-const CONTENT_WIDTH: f32 = 340. - 2. - 32.;
+pub(crate) const CONTENT_WIDTH: f32 = 340. - 2. - 32.;
 /// Six 34px-tall tiles across the pane.
 const WALLPAPER_COLUMNS: f32 = 6.;
 const WALLPAPER_GAP: f32 = 6.;
@@ -2615,6 +2627,7 @@ impl EditorWindow {
             SidebarTab::Audio => self.render_audio_tab(cx),
             SidebarTab::Cursor => self.render_cursor_tab(cx),
             SidebarTab::Keyboard => self.render_keyboard_tab(cx),
+            SidebarTab::InputDisplay => self.render_input_display_tab(cx),
             SidebarTab::Captions => self.render_captions_tab(cx),
         };
 
@@ -4218,6 +4231,7 @@ mod tests {
                 "Audio",
                 "Cursor",
                 "Keyboard",
+                "Input display",
                 "Captions",
                 "Clips"
             ]

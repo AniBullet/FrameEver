@@ -7,7 +7,7 @@ const VARIANTS = [
 ];
 const PRESETS = [
 	["wasd", "WASD + mouse", "WASD 加鼠标", 30],
-	["full", "Keyboard", "整块键盘", 52],
+	["full", "Full keyboard", "整块键盘", 52],
 	["pad", "Gamepad", "手柄", 24],
 	["mine", "My preset", "我的预设", 30],
 ];
@@ -434,7 +434,6 @@ const renderStage = () => {
 
 const renderTools = () => {
 	document.getElementById("tools").innerHTML = [
-		tool("Style", "样式", seg("variant", VARIANTS)),
 		tool(
 			"Devices used in this recording",
 			"这段录制里用过的设备",
@@ -492,6 +491,7 @@ const renderInspector = () => {
 		${
 			s.on
 				? `<div class="tiles">${tiles}<button class="tile add">${L("Import…", "导入…")}</button></div>
+		${seg("variant", VARIANTS).replace('class="seg"', 'class="seg block"')}
 		<div class="field"><div class="line">${L("Position", "位置")}<button class="ibtn ${s.xy ? "on" : ""}" data-t="xy" aria-label="exact">${icon("chevron-down")}</button></div><div class="anchor">${anchors}</div>${exact}</div>
 		<div class="field"><div class="line">${L("Size", "大小")}<span class="tnum">${s.size}%</span></div>${slider("size", 30, 120)}</div>
 		<div class="field"><div class="line">${L("Opacity", "不透明度")}<span class="tnum">${s.opacity}%</span></div>${slider("opacity", 20, 100)}</div>`

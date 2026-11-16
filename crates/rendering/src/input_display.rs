@@ -140,13 +140,26 @@ pub fn compose(loaded: &LoadedPreset, state: &DisplayState) -> RgbaImage {
                 let keep = 255 - u32::from(source[3]);
                 let target = output.get_pixel_mut(x, y);
                 for (target, source) in target.0.iter_mut().zip(source) {
-                    *target =
-                        (u32::from(source) + (u32::from(*target) * keep + 127) / 255).min(255) as u8;
+                    *target = (u32::from(source) + (u32::from(*target) * keep + 127) / 255).min(255)
+                        as u8;
                 }
             }
         }
     }
     output
+}
+
+pub fn straighten_alpha(image: &mut RgbaImage) {
+    for pixel in image.pixels_mut() {
+        let alpha = u32::from(pixel[3]);
+        if alpha == 0 {
+            pixel.0 = [0, 0, 0, 0];
+            continue;
+        }
+        for channel in &mut pixel.0[..3] {
+            *channel = ((u32::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -287,6 +300,19 @@ mod tests {
                 assert!(lit(&held) > lit(&released) + 500, "{id:?} {style:?}");
             }
         }
+    }
+
+    #[test]
+    fn straightened_pixels_carry_their_full_colour() {
+        let mut image = RgbaImage::from_fn(3, 1, |x, _| {
+            image::Rgba([[128, 0, 64, 128], [0, 0, 0, 0], [9, 200, 255, 255]][x as usize])
+        });
+
+        straighten_alpha(&mut image);
+
+        assert_eq!(image.get_pixel(0, 0).0, [255, 0, 128, 128]);
+        assert_eq!(image.get_pixel(1, 0).0, [0, 0, 0, 0]);
+        assert_eq!(image.get_pixel(2, 0).0, [9, 200, 255, 255]);
     }
 
     #[test]

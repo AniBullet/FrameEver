@@ -114,10 +114,6 @@ impl InputDisplayLayer {
         self.has_content
     }
 
-    pub fn forget_records(&mut self) {
-        self.records.clear();
-    }
-
     fn ensure_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, key: AtlasKey) {
         if self.atlas.as_ref().is_some_and(|atlas| atlas.key == key) {
             return;

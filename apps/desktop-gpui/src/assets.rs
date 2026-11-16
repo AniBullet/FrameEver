@@ -83,6 +83,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "folder.svg",
     "folder-down.svg",
     "folder-open.svg",
+    "gamepad-2.svg",
     "gauge.svg",
     "gem.svg",
     "globe.svg",
