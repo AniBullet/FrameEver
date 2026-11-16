@@ -346,20 +346,28 @@ pub fn pick_and_import_media(cx: &mut App) {
 /// bundle, transcodes on a worker thread, and reports through [`ActiveImports`].
 pub fn import_video_from_path(source_path: PathBuf, cx: &mut App) {
     tracing::info!(source = %source_path.display(), "starting video import");
-    spawn_import(cx, move |tx| run_video_import(&source_path, &tx));
+    spawn_import(cx, show_import_error, move |tx| {
+        run_video_import(&source_path, &tx)
+    });
 }
 
 /// `start_image_import`: decodes on a worker thread and writes a screenshot
 /// bundle under `<app data>/screenshots`.
 pub fn import_image_from_path(source_path: PathBuf, cx: &mut App) {
     tracing::info!(source = %source_path.display(), "starting image import");
-    spawn_import(cx, move |tx| run_image_import(&source_path, &tx));
+    spawn_import(cx, show_import_error, move |tx| {
+        run_image_import(&source_path, &tx)
+    });
 }
 
 /// One worker thread plus its foreground drain. A dedicated thread rather
 /// than the background executor because a transcode holds it for the whole
 /// conversion -- `tokio::task::spawn_blocking`'s role in the Tauri version.
-fn spawn_import(cx: &mut App, work: impl FnOnce(flume::Sender<ImportProgress>) + Send + 'static) {
+fn spawn_import(
+    cx: &mut App,
+    report_failure: fn(ImportKind, &str),
+    work: impl FnOnce(flume::Sender<ImportProgress>) + Send + 'static,
+) {
     let (tx, rx) = flume::unbounded::<ImportProgress>();
     let in_flight = InFlightImport::begin();
     let worker = std::thread::Builder::new()
@@ -381,26 +389,31 @@ fn spawn_import(cx: &mut App, work: impl FnOnce(flume::Sender<ImportProgress>) +
             if !matches!(update.stage, ImportStage::Complete | ImportStage::Failed) {
                 unfinished.push(update.clone());
             }
-            drain_progress(update, cx);
+            drain_progress(update, report_failure, cx);
         }
         for mut update in unfinished {
             update.stage = ImportStage::Failed;
             update.progress = 0.0;
-            update.message = t!("The import stopped unexpectedly").to_string();
-            drain_progress(update, cx);
+            update.message =
+                t!("The import stopped unexpectedly. Try importing the file again.").to_string();
+            drain_progress(update, report_failure, cx);
         }
     })
     .detach();
 }
 
-fn drain_progress(update: ImportProgress, cx: &mut gpui::AsyncApp) {
+fn drain_progress(
+    update: ImportProgress,
+    report_failure: fn(ImportKind, &str),
+    cx: &mut gpui::AsyncApp,
+) {
     let failed = update.stage == ImportStage::Failed;
     let cancelled = failed && update.message == IMPORT_CANCELLED;
     let kind = update.kind;
     let message = update.message.clone();
     cx.update(|cx| apply_progress(update, cx));
     if failed && !cancelled {
-        show_import_error(kind, &message);
+        report_failure(kind, &message);
     }
 }
 
@@ -437,12 +450,9 @@ fn show_import_error(kind: ImportKind, message: &str) {
         ImportKind::Image => "image",
     };
     tracing::error!("failed to import {media}: {message}");
-    if cfg!(test) {
-        return;
-    }
     show_error_dialog(match kind {
-        ImportKind::Video => t!("Failed to import video: {message}", message = message),
-        ImportKind::Image => t!("Failed to import image: {message}", message = message),
+        ImportKind::Video => t!("Couldn't import this video. {message}", message = message),
+        ImportKind::Image => t!("Couldn't import this image. {message}", message = message),
     });
 }
 
@@ -609,7 +619,11 @@ fn run_video_import(source_path: &Path, tx: &flume::Sender<ImportProgress>) {
                     tracing::warn!("could not mark the import failed: {save_error:?}");
                 }
             }
-            sink.send(ImportStage::Failed, 0.0, &error);
+            sink.send(
+                ImportStage::Failed,
+                0.0,
+                t!("Its format may not be supported. Try another file; the logs have the details."),
+            );
             return;
         }
     };
@@ -2404,8 +2418,12 @@ mod tests {
         let baseline = ACTIVE_IMPORT_WORKERS.load(Ordering::Acquire);
         let root = temp_dir("worker-panic");
         let project_path = root.join("Imported Video.ever");
+        static REPORTED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+        fn record_failure(_kind: ImportKind, message: &str) {
+            REPORTED.lock().unwrap().push(message.to_string());
+        }
         cx.update(|cx| {
-            spawn_import(cx, move |tx| {
+            spawn_import(cx, record_failure, move |tx| {
                 tx.send(ImportProgress {
                     kind: ImportKind::Video,
                     project_path,
@@ -2430,6 +2448,10 @@ mod tests {
             assert!(imports_snapshot(cx).is_empty());
             assert!(!imports_in_flight(cx));
         });
+        assert_eq!(
+            *REPORTED.lock().unwrap(),
+            [t!("The import stopped unexpectedly. Try importing the file again.").to_string()]
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -361,15 +361,22 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Media Files", "媒体文件"),
     ("Unsupported media file.", "不支持的媒体文件。"),
     (
-        "Failed to import video: {message}",
-        "无法导入视频：{message}",
+        "Couldn't import this video. {message}",
+        "无法导入此视频。{message}",
     ),
     (
-        "Failed to import image: {message}",
-        "无法导入图片：{message}",
+        "Couldn't import this image. {message}",
+        "无法导入此图片。{message}",
+    ),
+    (
+        "Its format may not be supported. Try another file; the logs have the details.",
+        "可能不支持它的格式。换一个文件试试；详细信息在日志里。",
     ),
     ("Import Error", "导入出错"),
-    ("The import stopped unexpectedly", "导入意外中止了"),
+    (
+        "The import stopped unexpectedly. Try importing the file again.",
+        "导入意外中止了。请重新导入这个文件。",
+    ),
     (
         "This recording is in progress. Stop it before deleting it.",
         "这个录制还在进行中。请先停止再删除。",
