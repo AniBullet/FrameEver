@@ -84,6 +84,8 @@ impl MovExportSettings {
             VideoInfo::from_raw(RawVideoFormat::Rgba, output_size.0, output_size.1, fps);
 
         let sample_timing = base.sample_timing.clone();
+        let frame_windows = base.frame_windows(fps);
+        let renumbered = frame_windows.is_some();
         let encoder_thread = tokio::task::spawn_blocking(move || {
             let mut mov_encoder = MOVFile::init(mov_output_path.clone(), |output| {
                 ProResEncoder::builder(video_info).build(output)
@@ -104,7 +106,7 @@ impl MovExportSettings {
 
                 fill_rgba_frame(&mut reusable_frame, &frame)
                     .map_err(|e| ExportError::Other(format!("Failed to prepare frame: {e}")))?;
-                let encoded_frame = if sample_timing.is_some() {
+                let encoded_frame = if renumbered {
                     frame_count
                 } else {
                     frame_number
@@ -156,7 +158,7 @@ impl MovExportSettings {
             fps,
             self.resolution_base,
             &base.recordings,
-            base.sample_windows.clone(),
+            frame_windows,
         )
         .then(|f| async { f.map_err(|v| v.to_string()) });
 

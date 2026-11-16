@@ -16,7 +16,8 @@ use serde::Serialize;
 use specta::Type;
 
 use crate::{
-    ExporterBase, make_cursor_only_project, settings::ExportSettings, synthesize_default_timeline,
+    ExportRange, ExporterBase, make_cursor_only_project, settings::ExportSettings,
+    synthesize_default_timeline,
 };
 
 #[derive(Clone, Debug, Serialize, Type)]
@@ -124,6 +125,7 @@ pub async fn estimate_export(
     editor: Arc<EditorInstance>,
     project: ProjectConfiguration,
     settings: ExportSettings,
+    range: Option<ExportRange>,
     cancel: Arc<AtomicBool>,
     mut on_estimate: impl FnMut(ExportEstimates) + Send,
 ) -> Result<ExportEstimates, String> {
@@ -171,10 +173,22 @@ pub async fn estimate_export(
     }) {
         return Err("An export clip is still preparing".into());
     }
-    let total_frames = (duration * f64::from(settings.fps())).ceil() as u32;
+    let timeline_frames = (duration * f64::from(settings.fps())).ceil() as u32;
+    let frames = range.map_or(0..timeline_frames, |range| {
+        range.frames(settings.fps(), timeline_frames)
+    });
+    let total_frames = frames.end - frames.start;
+    if total_frames == 0 {
+        return Err("No frames to estimate".into());
+    }
+    let duration = if range.is_some() {
+        f64::from(total_frames) / f64::from(settings.fps())
+    } else {
+        duration
+    };
     let mut hasher = DefaultHasher::new();
     editor.project_path.hash(&mut hasher);
-    serde_json::to_vec(&(&project, settings))
+    serde_json::to_vec(&(&project, settings, range))
         .map_err(|error| error.to_string())?
         .hash(&mut hasher);
     let key = hasher.finish();
@@ -246,7 +260,8 @@ pub async fn estimate_export(
     }
     let setup_seconds = setup_started.elapsed().as_secs_f64();
     let plan = sample_plan(settings);
-    let windows = sample_windows(
+    let windows = sample_windows_from(
+        frames.start,
         total_frames,
         plan.window_frames,
         plan.windows,
@@ -287,6 +302,7 @@ pub async fn estimate_export(
         streaming_audio: None,
         streaming_output: None,
         audio_cancellation: None,
+        range: None,
         sample_windows: Some(windows.clone()),
         sample_timing: Some(timing.clone()),
     };
@@ -486,6 +502,22 @@ fn sample_windows(
                 let start = index * stratum + (stratum - count) / 2;
                 start..start + count
             }))
+            .collect(),
+    )
+}
+
+fn sample_windows_from(
+    first_frame: u32,
+    total_frames: u32,
+    window_frames: u32,
+    window_count: u32,
+    leading_window: bool,
+) -> FrameWindows {
+    FrameWindows::new(
+        sample_windows(total_frames, window_frames, window_count, leading_window)
+            .windows()
+            .iter()
+            .map(|window| window.start + first_frame..window.end + first_frame)
             .collect(),
     )
 }
@@ -867,6 +899,27 @@ mod tests {
         assert!(path.exists());
         drop(timing);
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn samples_of_a_range_stay_inside_it() {
+        let windows = sample_windows_from(600, 900, 32, 4, true);
+        assert_eq!(windows.first(), Some(600));
+        assert_eq!(windows.len(), 128);
+        assert!(
+            windows
+                .windows()
+                .iter()
+                .all(|window| window.start >= 600 && window.end <= 1500)
+        );
+        assert_eq!(
+            sample_windows_from(600, 40, 32, 4, true).windows(),
+            [600..640]
+        );
+        assert_eq!(
+            sample_windows_from(0, 900, 32, 4, true),
+            sample_windows(900, 32, 4, true)
+        );
     }
 
     #[test]

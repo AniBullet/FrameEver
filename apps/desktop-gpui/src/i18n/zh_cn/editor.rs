@@ -5,6 +5,9 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Through black", "黑场过渡"),
     ("Move clip up", "上移片段"),
     ("Move clip down", "下移片段"),
+    ("Export this clip…", "导出这个片段…"),
+    ("Range", "范围"),
+    ("Whole video", "整个视频"),
     ("Click ripple", "点击波纹"),
     (
         "Clip is too short for a transition.",

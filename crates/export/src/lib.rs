@@ -4,7 +4,10 @@ pub mod gif;
 pub mod mov;
 pub mod mp4;
 pub mod preview;
+pub mod range;
 pub mod settings;
+
+pub use range::ExportRange;
 
 pub fn validate_output_path(path: &std::path::Path) -> Result<(), String> {
     let bytes = path.as_os_str().as_encoded_bytes();
@@ -99,9 +102,15 @@ pub struct ExporterBuilder {
     config: Option<ProjectConfiguration>,
     output_path: Option<PathBuf>,
     force_ffmpeg_decoder: bool,
+    range: Option<ExportRange>,
 }
 
 impl ExporterBuilder {
+    pub fn with_range(mut self, range: Option<ExportRange>) -> Self {
+        self.range = range;
+        self
+    }
+
     pub fn with_config(mut self, config: ProjectConfiguration) -> Self {
         self.config = Some(config);
         self
@@ -200,7 +209,10 @@ impl ExporterBuilder {
             studio_meta,
             &project_config,
         );
-        if duration.is_nan() || duration <= 0.0 {
+        if duration.is_nan()
+            || duration <= 0.0
+            || self.range.is_some_and(|range| !range.overlaps(duration))
+        {
             return Err(Error::NothingToExport);
         }
 
@@ -209,7 +221,9 @@ impl ExporterBuilder {
             .unwrap_or_else(|| recording_meta.output_path());
         let streaming_output = prepare_streaming_output(
             &output_path,
-            cancellation.is_some() && ExportAudioRenderer::eligible(&project_config, studio_meta),
+            cancellation.is_some()
+                && self.range.is_none()
+                && ExportAudioRenderer::eligible(&project_config, studio_meta),
         );
         let stream_audio = streaming_output.is_some();
 
@@ -292,6 +306,7 @@ impl ExporterBuilder {
             streaming_audio,
             streaming_output,
             audio_cancellation,
+            range: self.range,
             sample_windows: None,
             sample_timing: None,
         })
@@ -495,12 +510,20 @@ pub struct ExporterBase {
     streaming_audio: Option<ExportAudioRenderer>,
     streaming_output: Option<mp4::TemporaryExportOutput>,
     audio_cancellation: Option<ExportAudioCancellation>,
+    range: Option<ExportRange>,
     sample_windows: Option<frameever_rendering::FrameWindows>,
     sample_timing: Option<Arc<estimates::SampleTiming>>,
 }
 
 impl ExporterBase {
     pub fn total_frames(&self, fps: u32) -> u32 {
+        let timeline_frames = self.timeline_frames(fps);
+        self.range.map_or(timeline_frames, |range| {
+            range.frame_count(fps, timeline_frames)
+        })
+    }
+
+    fn timeline_frames(&self, fps: u32) -> u32 {
         let duration = frameever_rendering::get_duration(
             &self.recordings,
             &self.recording_meta,
@@ -511,12 +534,23 @@ impl ExporterBase {
         (fps as f64 * duration).ceil() as u32
     }
 
+    fn frame_windows(&self, fps: u32) -> Option<frameever_rendering::FrameWindows> {
+        self.sample_windows.clone().or_else(|| {
+            self.range.map(|range| {
+                frameever_rendering::FrameWindows::new(vec![
+                    range.frames(fps, self.timeline_frames(fps)),
+                ])
+            })
+        })
+    }
+
     pub fn builder(project_path: PathBuf) -> ExporterBuilder {
         ExporterBuilder {
             project_path,
             config: None,
             output_path: None,
             force_ffmpeg_decoder: false,
+            range: None,
         }
     }
 }

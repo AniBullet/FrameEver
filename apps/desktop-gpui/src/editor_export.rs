@@ -13,7 +13,7 @@ use frameever_export::preview::{
     ExportPreviewSettings, render_preview_with_config, render_preview_with_editor,
 };
 use frameever_export::settings::ExportSettings;
-use frameever_export::{ExporterBase, make_cursor_only_project};
+use frameever_export::{ExportRange, ExporterBase, make_cursor_only_project};
 use frameever_project::{BackgroundSource, XY};
 use frameever_utils::export_resources::{
     DiskBudget, ExportResources, estimated_working_bytes, is_resource_stop,
@@ -21,10 +21,12 @@ use frameever_utils::export_resources::{
 use frameever_utils::storage::ExportRecord;
 use gpui::{
     Context, FontWeight, Hsla, InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, RenderImage, StatefulInteractiveElement, Styled, Window, div, img,
-    prelude::FluentBuilder, px, svg,
+    MouseUpEvent, ParentElement, RenderImage, SharedString, StatefulInteractiveElement, Styled,
+    Window, div, img, prelude::FluentBuilder, px, svg,
 };
 
+use crate::editor_edits::Selection;
+use crate::editor_timeline::{Segment, SegmentDetail, TrackKind};
 use crate::editor_window::EditorWindow;
 use crate::i18n::{n, t, tr};
 use crate::store::{self, ExportPrefs};
@@ -39,6 +41,7 @@ const STAGE_PADDING_X: f32 = 24.;
 const STAGE_VERTICAL_CHROME: f32 = 16. + 22. + 14. + 18. + STATS_HEIGHT + 20.;
 const STATS_HEIGHT: f32 = 44.;
 const SEGMENT_HEIGHT: f32 = 26.;
+const RANGE_NAME_LENGTH: usize = 15;
 const COMPRESSION_PRESETS: [(ExportCompression, &str); 4] = [
     (ExportCompression::Potato, n!("Potato")),
     (ExportCompression::Web, n!("Web")),
@@ -170,6 +173,57 @@ impl ExportPhase {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ExportClip {
+    pub name: SharedString,
+    pub range: ExportRange,
+}
+
+impl ExportClip {
+    fn from_segment(segment: &Segment) -> Option<Self> {
+        let SegmentDetail::Clip { name, .. } = &segment.detail else {
+            return None;
+        };
+        Some(Self {
+            name: name.clone(),
+            range: ExportRange {
+                start: segment.start,
+                end: segment.end,
+            },
+        })
+    }
+
+    fn label(&self) -> String {
+        let name = if self.name.chars().count() > RANGE_NAME_LENGTH {
+            let shortened: String = self.name.chars().take(RANGE_NAME_LENGTH).collect();
+            format!("{shortened}…")
+        } else {
+            self.name.to_string()
+        };
+        format!(
+            "{name} · {}",
+            format_duration(self.range.end - self.range.start)
+        )
+    }
+}
+
+pub(crate) fn selected_clip(selection: Option<&Selection>) -> Option<usize> {
+    match selection {
+        Some(Selection {
+            track: TrackKind::Clip,
+            indices,
+        }) if indices.len() == 1 => Some(indices[0]),
+        _ => None,
+    }
+}
+
+fn preview_time_in_range(time: f64, range: Option<ExportRange>) -> f64 {
+    match range {
+        Some(range) if !(range.start..range.end).contains(&time) => range.start,
+        _ => time,
+    }
+}
+
 pub struct PreviewStats {
     pub width: u32,
     pub height: u32,
@@ -189,6 +243,8 @@ pub struct ExportUi {
     pub custom_bpp: Option<f32>,
     pub force_ffmpeg: bool,
     pub advanced_open: bool,
+    clip: Option<ExportClip>,
+    clip_only: bool,
     pub preview: Option<Arc<RenderImage>>,
     pub preview_stats: Option<PreviewStats>,
     pub preview_error: Option<String>,
@@ -262,6 +318,8 @@ impl ExportUi {
             custom_bpp: prefs.custom_bpp,
             force_ffmpeg: prefs.force_ffmpeg_decoder,
             advanced_open: prefs.advanced_open,
+            clip: None,
+            clip_only: false,
             preview: None,
             preview_stats: None,
             preview_error: None,
@@ -309,6 +367,30 @@ impl ExportUi {
             organization_id: None,
         };
         store::update(|state| state.export = Some(prefs));
+    }
+
+    fn offer_clip(&mut self, clip: Option<ExportClip>, chosen: bool) {
+        self.clip_only = chosen && clip.is_some();
+        self.clip = clip;
+    }
+
+    fn range(&self) -> Option<ExportRange> {
+        self.clip
+            .as_ref()
+            .filter(|_| self.clip_only)
+            .map(|clip| clip.range)
+    }
+
+    fn range_labels(&self) -> Option<[String; 2]> {
+        self.clip
+            .as_ref()
+            .map(|clip| [t!("Whole video").to_string(), clip.label()])
+    }
+
+    fn frames_to_export(&self, timeline_frames: u32) -> u32 {
+        self.range().map_or(timeline_frames, |range| {
+            range.frame_count(self.fps, timeline_frames)
+        })
     }
 
     fn bpp(&self) -> f32 {
@@ -438,10 +520,39 @@ fn decode_jpeg_bytes(bytes: &[u8]) -> Option<Arc<RenderImage>> {
 
 impl EditorWindow {
     pub(crate) fn open_export(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let clip = selected_clip(self.selection.as_ref()).and_then(|index| self.export_clip(index));
+        self.open_export_offering(clip, false, window, cx);
+    }
+
+    pub(crate) fn open_clip_export(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let clip = self.export_clip(index);
+        self.open_export_offering(clip, true, window, cx);
+    }
+
+    fn export_clip(&self, index: usize) -> Option<ExportClip> {
+        self.timeline
+            .clips
+            .get(index)
+            .and_then(ExportClip::from_segment)
+    }
+
+    fn open_export_offering(
+        &mut self,
+        clip: Option<ExportClip>,
+        chosen: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.playing {
             self.toggle_play_from_crop(cx);
         }
         let mut ui = ExportUi::load();
+        ui.offer_clip(clip, chosen);
         if has_transparent_background(&self.project) {
             ui.format = ExportFormatKind::Gif;
             if ui.resolution == ExportResolution::P4k {
@@ -543,6 +654,8 @@ impl EditorWindow {
         ui.preview_stats = None;
         let estimate_cancel = ui.estimate_cancel.clone();
         let estimate_settings = ui.estimate_settings();
+        let range = ui.range();
+        let time = preview_time_in_range(time, range);
         let estimate_instance = instance.clone();
         let estimate_project = project.clone();
         let (width, height) = ui.resolution.size();
@@ -620,6 +733,7 @@ impl EditorWindow {
                         instance,
                         estimate_project,
                         estimate_settings,
+                        range,
                         estimate_cancel,
                         move |estimate| {
                             let _ = estimate_tx.send(estimate);
@@ -690,6 +804,7 @@ impl EditorWindow {
         let custom_bpp = ui.custom_bpp;
         let optimize = ui.optimize_filesize;
         let force = ui.force_ffmpeg;
+        let range = ui.range();
         let project_path = self.project_path.clone();
         let project = self.project.clone();
         ui.cancel = Arc::new(AtomicBool::new(false));
@@ -809,6 +924,7 @@ impl EditorWindow {
                     custom_bpp,
                     optimize,
                     force,
+                    range,
                     save_path.clone(),
                     progress_tx,
                     export_cancel,
@@ -1081,7 +1197,7 @@ impl EditorWindow {
                 if ui.fps == 0 {
                     0.0
                 } else {
-                    stats.total_frames as f64 / ui.fps as f64
+                    ui.frames_to_export(stats.total_frames) as f64 / ui.fps as f64
                 }
             })
             .unwrap_or(0.0);
@@ -1273,6 +1389,10 @@ impl EditorWindow {
                     .overflow_y_scroll()
                     .p(px(16.))
                     .gap(px(20.))
+                    .children(
+                        ui.range_labels()
+                            .map(|labels| self.export_range_field(ui, labels, cx)),
+                    )
                     .child(self.export_destination_field(ui, cx))
                     .child(self.export_format_field(ui, format_locked, cx))
                     .when(
@@ -1354,6 +1474,38 @@ impl EditorWindow {
             .icon(icon)
             .icon_size(px(14.))
             .gap(px(8.))
+    }
+
+    fn export_range_field(
+        &self,
+        ui: &ExportUi,
+        labels: [String; 2],
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let theme = self.theme;
+        self.export_section(t!("Range"), "icons/scissors.svg")
+            .child(
+                ui::SegmentedControl::editor(
+                    &theme,
+                    "export-range",
+                    labels
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, label)| {
+                            ui::SegmentOption::new(label, ui.clip_only == (index == 1))
+                        })
+                        .collect(),
+                )
+                .stretch()
+                .item_height(px(SEGMENT_HEIGHT))
+                .on_select(cx.listener(|this, index: &usize, window, cx| {
+                    if let Some(ui) = this.export.as_mut() {
+                        ui.clip_only = *index == 1;
+                    }
+                    this.refresh_export_preview(window, cx);
+                    cx.notify();
+                })),
+            )
     }
 
     fn export_destination_field(&self, ui: &ExportUi, cx: &mut Context<Self>) -> impl IntoElement {
@@ -2295,6 +2447,7 @@ async fn run_export(
     custom_bpp: Option<f32>,
     optimize: bool,
     force: bool,
+    range: Option<ExportRange>,
     save_path: Option<PathBuf>,
     progress_tx: flume::Sender<(u32, u32)>,
     cancel: Arc<AtomicBool>,
@@ -2308,7 +2461,9 @@ async fn run_export(
         frameever_export::validate_output_path(path)
             .map_err(|_| t!("Export output must be a local file path").to_string())?;
     }
-    let mut builder = ExporterBase::builder(project_path).with_force_ffmpeg_decoder(force);
+    let mut builder = ExporterBase::builder(project_path)
+        .with_force_ffmpeg_decoder(force)
+        .with_range(range);
     if cursor_only {
         builder = builder.with_config(make_cursor_only_project(project));
     } else {
@@ -2390,8 +2545,14 @@ async fn run_export(
 
 #[cfg(test)]
 mod tests {
-    use super::{ExportDestination, ExportPhase, ExportUi, cancel_matching_export};
+    use super::{
+        ExportClip, ExportDestination, ExportPhase, ExportUi, cancel_matching_export,
+        preview_time_in_range, selected_clip,
+    };
+    use crate::editor_edits::Selection;
+    use crate::editor_timeline::TrackKind;
     use crate::store::ExportPrefs;
+    use frameever_export::ExportRange;
     use std::path::PathBuf;
     use std::sync::{
         Arc,
@@ -2459,6 +2620,106 @@ mod tests {
             advanced_open: false,
             organization_id: None,
         })
+    }
+
+    fn intro() -> ExportClip {
+        ExportClip {
+            name: "Intro".into(),
+            range: ExportRange {
+                start: 2.0,
+                end: 5.0,
+            },
+        }
+    }
+
+    #[test]
+    fn the_range_is_exported_only_when_the_clip_was_chosen() {
+        let mut ui = clipboard_export();
+        assert!(ui.range_labels().is_none());
+        assert_eq!(ui.range(), None);
+
+        ui.offer_clip(Some(intro()), false);
+        assert_eq!(
+            ui.range_labels(),
+            Some(["Whole video".to_string(), "Intro · 0:03".to_string()])
+        );
+        assert_eq!(ui.range(), None);
+
+        ui.offer_clip(Some(intro()), true);
+        assert_eq!(
+            ui.range(),
+            Some(ExportRange {
+                start: 2.0,
+                end: 5.0
+            })
+        );
+
+        ui.clip_only = false;
+        assert_eq!(ui.range(), None);
+
+        ui.offer_clip(None, true);
+        assert!(ui.range_labels().is_none());
+        assert_eq!(ui.range(), None);
+    }
+
+    #[test]
+    fn the_duration_describes_the_chosen_range() {
+        let mut ui = clipboard_export();
+        ui.fps = 30;
+        assert_eq!(ui.frames_to_export(300), 300);
+        ui.offer_clip(Some(intro()), false);
+        assert_eq!(ui.frames_to_export(300), 300);
+        ui.offer_clip(Some(intro()), true);
+        assert_eq!(ui.frames_to_export(300), 90);
+    }
+
+    #[test]
+    fn a_long_clip_name_is_shortened_in_the_range_choice() {
+        let mut ui = clipboard_export();
+        ui.offer_clip(
+            Some(ExportClip {
+                name: "A walkthrough of the settings page".into(),
+                range: ExportRange {
+                    start: 0.0,
+                    end: 75.0,
+                },
+            }),
+            true,
+        );
+        assert_eq!(ui.range_labels().unwrap()[1], "A walkthrough o… · 1:15");
+    }
+
+    #[test]
+    fn the_preview_frame_comes_from_inside_the_chosen_range() {
+        let range = Some(ExportRange {
+            start: 2.0,
+            end: 5.0,
+        });
+        assert_eq!(preview_time_in_range(3.5, range), 3.5);
+        assert_eq!(preview_time_in_range(0.5, range), 2.0);
+        assert_eq!(preview_time_in_range(5.0, range), 2.0);
+        assert_eq!(preview_time_in_range(9.0, range), 2.0);
+        assert_eq!(preview_time_in_range(9.0, None), 9.0);
+    }
+
+    #[test]
+    fn only_one_selected_clip_offers_a_range() {
+        assert_eq!(selected_clip(None), None);
+        assert_eq!(
+            selected_clip(Some(&Selection::single(TrackKind::Clip, 2))),
+            Some(2)
+        );
+        assert_eq!(
+            selected_clip(Some(&Selection {
+                track: TrackKind::Clip,
+                indices: vec![0, 1],
+            })),
+            None
+        );
+        assert_eq!(
+            selected_clip(Some(&Selection::single(TrackKind::Zoom, 0))),
+            None
+        );
     }
 
     #[test]

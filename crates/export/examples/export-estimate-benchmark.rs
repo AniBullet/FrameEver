@@ -78,6 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         editor.clone(),
         project.clone(),
         settings,
+        None,
         cancel.clone(),
         |estimate| {
             updates.push(serde_json::json!({
@@ -113,9 +114,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let estimate = estimate?;
     let cached_started = Instant::now();
-    let cached = estimate_export(editor.clone(), project.clone(), settings, cancel, |_| {
-        panic!("A cached estimate should not sample again");
-    })
+    let cached = estimate_export(
+        editor.clone(),
+        project.clone(),
+        settings,
+        None,
+        cancel,
+        |_| {
+            panic!("A cached estimate should not sample again");
+        },
+    )
     .await?;
     let cached_seconds = cached_started.elapsed().as_secs_f64();
     assert_eq!(

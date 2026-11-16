@@ -1438,7 +1438,7 @@ pub struct EditorWindow {
 
     // -- Timeline -----------------------------------------------------------
     /// Every track the strip draws.
-    timeline: TimelineModel,
+    pub(crate) timeline: TimelineModel,
     /// The viewport, the hover ghost and the hovered track.
     view: TimelineView,
     playback_follow: timeline::PlaybackFollow,
@@ -8712,6 +8712,7 @@ impl EditorWindow {
         let merge_next =
             edits::clip_merge_blocker(&timeline.segments, index, edits::ClipMergeDirection::Next);
         let can_delete = timeline.segments.len() > 1;
+        let export_ready = self.project_ready();
         let side_blockers = [edits::ClipSide::Left, edits::ClipSide::Right].map(|side| {
             (
                 side,
@@ -9110,7 +9111,24 @@ impl EditorWindow {
                             this.start_clip_rename(index, window, cx);
                         }))
                         .into_any_element(),
-                    }),
+                    })
+                    .child(
+                        clip_menu_row(
+                            &theme,
+                            "clip-menu-export",
+                            "icons/download.svg",
+                            t!("Export this clip…"),
+                            ClipMenuTrailing::None,
+                            export_ready,
+                            false,
+                        )
+                        .when(export_ready, |this| {
+                            this.on_click(cx.listener(move |this, _, window, cx| {
+                                this.clip_speed = None;
+                                this.open_clip_export(index, window, cx);
+                            }))
+                        }),
+                    ),
             )
             .child(divider())
             .children(side_blockers.into_iter().map(|(side, blocker)| {

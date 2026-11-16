@@ -360,6 +360,8 @@ impl Mp4ExportSettings {
     ) -> Result<PathBuf, String> {
         let pipeline_start = std::time::Instant::now();
         let sample_timing = base.sample_timing.clone();
+        let frame_windows = base.frame_windows(fps);
+        let renumbered = frame_windows.is_some();
         let output_path = base.output_path.clone();
         let mut streaming_audio = base.streaming_audio.take();
         let audio_control = base.audio_cancellation.take();
@@ -535,7 +537,7 @@ impl Mp4ExportSettings {
                         ExportAudioTimeline {
                             project: project_for_audio,
                             fps,
-                            sampled: sample_timing.is_some(),
+                            sampled: renumbered,
                         },
                         move || {
                             worker_cancellation.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed))
@@ -720,7 +722,7 @@ impl Mp4ExportSettings {
             fps,
             self.resolution_base,
             &base.recordings,
-            base.sample_windows.clone(),
+            frame_windows,
             stop_after_frames_sent,
             nv12_render_startup_breakdown_ms,
             audio_cancellation.is_some(),
