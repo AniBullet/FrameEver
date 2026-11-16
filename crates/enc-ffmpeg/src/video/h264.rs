@@ -14,6 +14,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::base::{EncoderBase, PacketSink};
 use crate::video::force_software_encoder;
 use crate::video::h264_packet::H264PacketEncoder;
+use crate::video::hardware_crash::{self, HardwareEncoderSession};
 #[cfg(target_os = "macos")]
 use crate::video::videotoolbox_hw::VideoToolboxHwFrames;
 use std::sync::Arc;
@@ -172,7 +173,9 @@ impl H264EncoderBuilder {
         for (codec, encoder_options) in candidates {
             let codec_name = codec.name().to_string();
 
-            if is_hardware_h264(&codec_name)
+            let hardware_session =
+                is_hardware_h264(&codec_name).then(|| HardwareEncoderSession::begin(&codec_name));
+            if hardware_session.is_some()
                 && let Err(reason) = cached_hardware_self_test(
                     codec,
                     &encoder_options,
@@ -206,6 +209,7 @@ impl H264EncoderBuilder {
                 Ok(mut encoder) => {
                     let is_hardware = is_hardware_h264(&codec_name);
                     encoder.software_fallback = Some(Box::new(self.clone()));
+                    encoder.hardware_session = hardware_session;
                     let fps =
                         input_config.frame_rate.0 as f32 / input_config.frame_rate.1.max(1) as f32;
                     if is_hardware {
@@ -305,6 +309,7 @@ impl H264EncoderBuilder {
             software_fallback: None,
             #[cfg(test)]
             injected_failure: None,
+            hardware_session: None,
         })
     }
 
@@ -468,6 +473,7 @@ impl H264EncoderBuilder {
             software_fallback: None,
             #[cfg(test)]
             injected_failure: None,
+            hardware_session: None,
         })
     }
 
@@ -506,7 +512,9 @@ impl H264EncoderBuilder {
         for (codec, encoder_options) in candidates {
             let codec_name = codec.name().to_string();
 
-            if is_hardware_h264(&codec_name)
+            let hardware_session =
+                is_hardware_h264(&codec_name).then(|| HardwareEncoderSession::begin(&codec_name));
+            if hardware_session.is_some()
                 && let Err(reason) = cached_hardware_self_test(
                     codec,
                     &encoder_options,
@@ -536,7 +544,8 @@ impl H264EncoderBuilder {
                 self.external_conversion,
                 self.crf,
             ) {
-                Ok(encoder) => {
+                Ok(mut encoder) => {
+                    encoder.hardware_session = hardware_session;
                     let fps =
                         input_config.frame_rate.0 as f32 / input_config.frame_rate.1.max(1) as f32;
                     debug!(
@@ -861,6 +870,7 @@ pub struct H264Encoder {
     software_fallback: Option<Box<H264EncoderBuilder>>,
     #[cfg(test)]
     injected_failure: Option<InjectedCodecFailure>,
+    hardware_session: Option<HardwareEncoderSession>,
 }
 
 #[cfg(test)]
@@ -953,6 +963,7 @@ impl H264Encoder {
             .ok_or(H264EncoderError::CodecNotFound)?;
         let opened = builder.open_software(self.output_width, self.output_height)?;
         self.encoder = opened.encoder;
+        self.hardware_session = None;
         self.converter = opened.converter;
         self.converted_frame_pool = opened.converted_frame_pool;
         self.output_format = opened.output_format;
@@ -1333,14 +1344,16 @@ fn get_codec_and_options(
 
     let crf_str = crf.map(|v| v.to_string());
 
-    for encoder_name in encoder_priority {
+    for encoder_name in without_crashed_encoders(encoder_priority, |name| {
+        hardware_crash::hardware_encoder_disabled(name)
+    }) {
         let Some(codec) = encoder::find_by_name(encoder_name) else {
             continue;
         };
 
         let mut options = Dictionary::new();
 
-        match *encoder_name {
+        match encoder_name {
             "h264_videotoolbox" => {
                 if is_export {
                     options.set("realtime", "false");
@@ -1746,8 +1759,54 @@ fn get_bitrate(width: u32, height: u32, frame_rate: f32, bpp: f32) -> usize {
 
 const MAX_BITRATE: usize = 1_000_000_000;
 
+fn without_crashed_encoders<'a>(
+    priority: &[&'a str],
+    disabled: impl Fn(&str) -> bool,
+) -> Vec<&'a str> {
+    priority
+        .iter()
+        .copied()
+        .filter(|name| {
+            let skip = is_hardware_h264(name) && disabled(name);
+            if skip {
+                info!(encoder = %name, "Skipping hardware H264 encoder disabled after it crashed FrameEver");
+            }
+            !skip
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod crashed_encoder_tests {
+    use super::without_crashed_encoders;
+
+    #[test]
+    fn a_crashed_hardware_encoder_falls_through_to_the_next_candidate() {
+        let nvidia = ["h264_nvenc", "h264_mf", "h264_qsv", "h264_amf", "libx264"];
+        let crashed = |names: &'static [&'static str]| move |name: &str| names.contains(&name);
+
+        assert_eq!(without_crashed_encoders(&nvidia, crashed(&[])), nvidia);
+        assert_eq!(
+            without_crashed_encoders(&nvidia, crashed(&["h264_mf"])),
+            ["h264_nvenc", "h264_qsv", "h264_amf", "libx264"]
+        );
+        assert_eq!(
+            without_crashed_encoders(
+                &nvidia,
+                crashed(&["h264_nvenc", "h264_mf", "h264_qsv", "h264_amf"])
+            ),
+            ["libx264"]
+        );
+        assert_eq!(
+            without_crashed_encoders(&["h264_mf", "libx264"], crashed(&["libx264", "h264_mf"])),
+            ["libx264"]
+        );
+    }
+}
+
 #[cfg(test)]
 mod self_test_tests {
+
     use super::*;
 
     fn yuv420p_frame(y: u8, u: u8, v: u8) -> frame::Video {

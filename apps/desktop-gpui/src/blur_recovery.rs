@@ -4,7 +4,7 @@ use crate::crash_capture::{self, UncleanEnd};
 
 const DISABLED_BY_CRASH: &str = "cameraBlurDisabledByCrash";
 
-pub fn configure(previous: Option<UncleanEnd>) {
+pub fn configure(previous: Option<&UncleanEnd>) {
     frameever_camera_effects::set_blur_session_observer(|active| {
         if active {
             crash_capture::enter_blur_session();
@@ -53,7 +53,7 @@ pub fn configure(previous: Option<UncleanEnd>) {
 
 fn next_disabled_version(
     stored: Option<&str>,
-    previous: Option<UncleanEnd>,
+    previous: Option<&UncleanEnd>,
     current: &str,
 ) -> Option<String> {
     if previous.is_some_and(|previous| previous.blur_active) {
@@ -70,8 +70,13 @@ mod tests {
 
     #[test]
     fn only_a_death_with_blur_disables_it_and_an_update_retries() {
-        let with_blur = Some(UncleanEnd { blur_active: true });
-        let without_blur = Some(UncleanEnd { blur_active: false });
+        let blur = UncleanEnd {
+            blur_active: true,
+            ..Default::default()
+        };
+        let no_blur = UncleanEnd::default();
+        let with_blur = Some(&blur);
+        let without_blur = Some(&no_blur);
 
         assert_eq!(next_disabled_version(None, None, "0.6.2"), None);
         assert_eq!(next_disabled_version(None, without_blur, "0.6.2"), None);
