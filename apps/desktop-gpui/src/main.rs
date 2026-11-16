@@ -47,6 +47,7 @@ mod editor_snapshot;
 mod editor_tabs;
 mod editor_timeline;
 mod editor_window;
+mod encoder_recovery;
 mod feeds;
 mod foreign_window;
 mod hotkeys;
@@ -79,6 +80,7 @@ mod picker_benchmark;
 #[cfg(debug_assertions)]
 mod picker_ui_benchmark;
 mod platform;
+mod power;
 mod presets;
 mod project_save;
 mod recorded_time;
@@ -286,7 +288,8 @@ fn main() {
 
     single_instance::acquire();
     let previous_session = crash_capture::begin_session(&diagnostics::logs_dir());
-    blur_recovery::configure(previous_session);
+    encoder_recovery::configure(previous_session.as_ref());
+    blur_recovery::configure(previous_session.as_ref());
     i18n::init(store::GeneralSettings::load().language.as_deref());
     frameever_rendering::input_presets::use_presets_dir(
         frameever_utils::storage::input_presets_dir(),
@@ -412,6 +415,7 @@ fn main() {
         .detach();
 
         app_windows::init(window_handle, session, cx);
+        power::install(cx);
         #[cfg(target_os = "macos")]
         match platform::install_native_quit_handler() {
             Ok(requests) => {

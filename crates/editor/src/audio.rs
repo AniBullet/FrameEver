@@ -1481,17 +1481,41 @@ struct ProgressiveTimeline {
 }
 
 impl ProgressiveTimeline {
-    /// `AtomicU32` has the same size, alignment and bit validity as `u32`
-    /// (documented guarantee), so a zeroed `u32` allocation — which the
-    /// allocator can hand out as untouched zero pages, unlike constructing
-    /// millions of atomics one by one — can be reinterpreted directly.
-    fn allocate_samples(len: usize) -> Box<[AtomicU32]> {
-        let raw = vec![0u32; len].into_boxed_slice();
-        unsafe { Box::from_raw(Box::into_raw(raw) as *mut [AtomicU32]) }
+    fn allocate_samples(len: usize) -> Option<Box<[AtomicU32]>> {
+        if len == 0 {
+            return Some(Box::default());
+        }
+        let layout = std::alloc::Layout::array::<AtomicU32>(len).ok()?;
+        if progressive_allocation_blocked(layout.size()) {
+            return None;
+        }
+        let ptr = unsafe { std::alloc::alloc_zeroed(layout) }.cast::<AtomicU32>();
+        if ptr.is_null() {
+            return None;
+        }
+        Some(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len)) })
     }
 }
 
 const MAX_PROGRESSIVE_BUFFER_BYTES: usize = 512 * 1024 * 1024;
+
+#[cfg(any(test, feature = "test-hooks"))]
+static PROGRESSIVE_ALLOCATION_LIMIT_BYTES: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+#[cfg(any(test, feature = "test-hooks"))]
+pub fn set_progressive_audio_allocation_limit(bytes: Option<usize>) {
+    PROGRESSIVE_ALLOCATION_LIMIT_BYTES.store(bytes.unwrap_or(usize::MAX), Ordering::SeqCst);
+}
+
+#[cfg(any(test, feature = "test-hooks"))]
+fn progressive_allocation_blocked(bytes: usize) -> bool {
+    bytes > PROGRESSIVE_ALLOCATION_LIMIT_BYTES.load(Ordering::SeqCst)
+}
+
+#[cfg(not(any(test, feature = "test-hooks")))]
+fn progressive_allocation_blocked(_bytes: usize) -> bool {
+    false
+}
 
 fn output_sample_index(secs: f64, sample_rate: u32, channels: usize, limit: usize) -> usize {
     if !(secs.is_finite() && secs > 0.0) {
@@ -1628,8 +1652,8 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> PrerenderedAudioBuffer<T> {
         );
         let estimated_memory_bytes = progressive_buffer_bytes(estimated_output_samples);
 
-        let mode = if estimated_memory_bytes <= MAX_PROGRESSIVE_BUFFER_BYTES {
-            PrerenderedAudioBufferMode::Progressive(ProgressiveAudioBuffer::new(
+        let (segments, music) = if estimated_memory_bytes <= MAX_PROGRESSIVE_BUFFER_BYTES {
+            match ProgressiveAudioBuffer::new(
                 segments,
                 music,
                 project,
@@ -1637,7 +1661,21 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> PrerenderedAudioBuffer<T> {
                 duration_secs,
                 start_playhead_secs,
                 estimated_output_samples,
-            ))
+            ) {
+                Ok(buffer) => {
+                    return Self {
+                        mode: PrerenderedAudioBufferMode::Progressive(buffer),
+                    };
+                }
+                Err(inputs) => {
+                    warn!(
+                        duration_secs = duration_secs,
+                        estimated_memory_mb = estimated_memory_bytes / (1024 * 1024),
+                        "Could not allocate the playback audio buffer, using bounded streaming audio renderer"
+                    );
+                    inputs
+                }
+            }
         } else {
             info!(
                 duration_secs = duration_secs,
@@ -1645,16 +1683,18 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> PrerenderedAudioBuffer<T> {
                 max_memory_mb = MAX_PROGRESSIVE_BUFFER_BYTES / (1024 * 1024),
                 "Using bounded streaming audio renderer for long playback"
             );
-            PrerenderedAudioBufferMode::Streaming(Box::new(StreamingAudioBuffer::new(
+            (segments, music)
+        };
+
+        Self {
+            mode: PrerenderedAudioBufferMode::Streaming(Box::new(StreamingAudioBuffer::new(
                 segments,
                 music,
                 project.clone(),
                 output_info,
                 start_playhead_secs,
-            )))
-        };
-
-        Self { mode }
+            ))),
+        }
     }
 
     pub(crate) fn bounded(
@@ -1775,7 +1815,7 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> ProgressiveAudioBuffer<T> {
         duration_secs: f64,
         start_playhead_secs: f64,
         estimated_output_samples: usize,
-    ) -> Self {
+    ) -> Result<Self, (Vec<AudioSegment>, MusicTracks)> {
         // Clamp output info for FFmpeg compatibility (max 8 channels)
         let output_info = output_info.for_ffmpeg_output();
         // The producer renders f32 at the device rate/channel count; the
@@ -1784,14 +1824,6 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> ProgressiveAudioBuffer<T> {
             AudioData::SAMPLE_FORMAT,
             output_info.sample_rate,
             output_info.channels as u16,
-        );
-
-        info!(
-            duration_secs = duration_secs,
-            sample_rate = output_info.sample_rate,
-            channels = output_info.channels,
-            start_playhead_secs = start_playhead_secs,
-            "Starting progressive audio pre-render"
         );
 
         let pass1_start_secs = (start_playhead_secs - Self::START_PREROLL_SECS)
@@ -1820,8 +1852,18 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> ProgressiveAudioBuffer<T> {
         );
         let ready_at_index = start_index.saturating_add(ready_window_samples);
 
+        let Some(samples) = ProgressiveTimeline::allocate_samples(estimated_output_samples) else {
+            return Err((segments, music));
+        };
+        info!(
+            duration_secs = duration_secs,
+            sample_rate = output_info.sample_rate,
+            channels = output_info.channels,
+            start_playhead_secs = start_playhead_secs,
+            "Starting progressive audio pre-render"
+        );
         let timeline = Arc::new(ProgressiveTimeline {
-            samples: ProgressiveTimeline::allocate_samples(estimated_output_samples),
+            samples,
             primary_start,
             primary_end: AtomicUsize::new(primary_start),
             wrap_end: AtomicUsize::new(0),
@@ -1843,14 +1885,14 @@ impl<T: FromSampleBytes + cpal::FromSample<f32>> ProgressiveAudioBuffer<T> {
             ready_tx,
         );
 
-        Self {
+        Ok(Self {
             timeline,
             ready_rx,
             read_position: 0,
             sample_rate: output_info.sample_rate,
             channels: output_info.channels,
             _format: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Blocks until the initial window around the start position is rendered
@@ -2763,6 +2805,49 @@ mod tests {
             .saturating_mul(std::mem::size_of::<u32>())
             .max(1);
         let duration_secs = (MAX_PROGRESSIVE_BUFFER_BYTES / bytes_per_second) as f64 + 2.0;
+
+        let buffer = PrerenderedAudioBuffer::<f32>::new(
+            Vec::new(),
+            MusicTracks::new(),
+            &ProjectConfiguration::default(),
+            output_info,
+            duration_secs,
+            0.0,
+        );
+
+        assert!(matches!(
+            &buffer.mode,
+            PrerenderedAudioBufferMode::Streaming(_)
+        ));
+    }
+
+    struct ProgressiveAllocationLimit;
+
+    impl ProgressiveAllocationLimit {
+        fn set(bytes: usize) -> Self {
+            set_progressive_audio_allocation_limit(Some(bytes));
+            Self
+        }
+    }
+
+    impl Drop for ProgressiveAllocationLimit {
+        fn drop(&mut self) {
+            set_progressive_audio_allocation_limit(None);
+        }
+    }
+
+    #[test]
+    fn failed_progressive_allocation_falls_back_to_streaming_audio() {
+        let _ = ffmpeg::init();
+        let output_info = AudioRenderer::info();
+        let duration_secs = 600.0;
+        let bytes = progressive_buffer_bytes(progressive_buffer_samples(
+            duration_secs,
+            output_info.sample_rate,
+            output_info.channels,
+        ));
+        assert!(bytes <= MAX_PROGRESSIVE_BUFFER_BYTES);
+        let _limit = ProgressiveAllocationLimit::set(bytes / 2);
 
         let buffer = PrerenderedAudioBuffer::<f32>::new(
             Vec::new(),

@@ -217,7 +217,7 @@ fn needs_remux_recordings_of_every_size_validate_and_remux_in_order() {
         );
         assert_eq!(RecoveryManager::remux_if_needed(&project).unwrap(), true);
         assert_eq!(remuxed_frames(&project), recorded, "{fragments}");
-        assert_eq!(original_backups(&project).is_empty(), cfg!(unix));
+        assert!(original_backups(&project).is_empty());
         assert!(!project.join(RECOVERY_PUBLICATION).exists());
     }
 }
@@ -622,7 +622,7 @@ fn a_remux_while_another_open_holds_the_project_changes_nothing() {
         "{results:?}"
     );
     assert_eq!(remuxed_frames(&project), recorded);
-    assert_eq!(original_backups(&project).is_empty(), cfg!(unix));
+    assert!(original_backups(&project).is_empty());
     assert!(!project.join(RECOVERY_PUBLICATION).exists());
 }
 

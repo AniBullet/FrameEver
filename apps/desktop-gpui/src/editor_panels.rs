@@ -2587,6 +2587,8 @@ pub enum FieldKey {
     Crop(crate::editor_crop::CropField),
     InputDisplayX,
     InputDisplayY,
+    CaptionManualX,
+    CaptionManualY,
 }
 
 impl FieldKey {
@@ -2670,6 +2672,18 @@ impl EditorWindow {
         if let FieldKey::Crop(field) = key {
             let state = self.crop.as_ref()?;
             out.push_str(&ui::format_number(field.read(state.real())));
+            return Some(());
+        }
+        if matches!(key, FieldKey::CaptionManualX | FieldKey::CaptionManualY) {
+            let (x, y) = crate::editor_tabs::caption_manual_center(
+                &self.project.captions.as_ref()?.settings,
+            );
+            let value = if key == FieldKey::CaptionManualX {
+                x
+            } else {
+                y
+            };
+            out.push_str(&crate::editor_tabs::caption_percent_text(value));
             return Some(());
         }
         if matches!(key, FieldKey::InputDisplayX | FieldKey::InputDisplayY) {
@@ -2972,6 +2986,23 @@ impl EditorWindow {
                         segment.end = value;
                     }
                     true
+                });
+            }
+            FieldKey::CaptionManualX | FieldKey::CaptionManualY => {
+                if !final_commit {
+                    return;
+                }
+                let Some(value) = ui::parse_number(&text) else {
+                    return;
+                };
+                let value = value.clamp(0., 100.) as f32;
+                let horizontal = key == FieldKey::CaptionManualX;
+                self.set_caption_placement(window, cx, move |settings| {
+                    if horizontal {
+                        crate::editor_tabs::set_caption_manual_center(settings, Some(value), None);
+                    } else {
+                        crate::editor_tabs::set_caption_manual_center(settings, None, Some(value));
+                    }
                 });
             }
             FieldKey::InputDisplayX | FieldKey::InputDisplayY => {
@@ -6182,7 +6213,9 @@ impl EditorWindow {
 
 /// `formatTime` -- the `M:SS` clock the timing cards print.
 fn format_time(seconds: f64) -> String {
-    let seconds = seconds.max(0.);
+    let seconds: f64 = format!("{:.1}", seconds.max(0.))
+        .parse()
+        .unwrap_or_default();
     let minutes = (seconds / 60.).floor() as u32;
     let rest = seconds - f64::from(minutes) * 60.;
     format!("{minutes}:{rest:04.1}")
@@ -8050,11 +8083,21 @@ impl EditorWindow {
                 }
             }
             None => match self.sidebar.tab {
-                crate::editor_sidebar::SidebarTab::Captions => colors.extend([
-                    ColorTarget::CaptionColor,
-                    ColorTarget::CaptionBackground,
-                    ColorTarget::CaptionHighlight,
-                ]),
+                crate::editor_sidebar::SidebarTab::Captions => {
+                    colors.extend([
+                        ColorTarget::CaptionColor,
+                        ColorTarget::CaptionBackground,
+                        ColorTarget::CaptionHighlight,
+                    ]);
+                    if self
+                        .project
+                        .captions
+                        .as_ref()
+                        .is_some_and(|captions| captions.settings.position == "manual")
+                    {
+                        fields.extend([FieldKey::CaptionManualX, FieldKey::CaptionManualY]);
+                    }
+                }
                 crate::editor_sidebar::SidebarTab::Keyboard => {
                     colors.extend([ColorTarget::KeyboardColor, ColorTarget::KeyboardBackground])
                 }
@@ -8238,6 +8281,13 @@ mod tests {
         assert_eq!(format_time(0.), "0:00.0");
         assert_eq!(format_time(9.25), "0:09.2");
         assert_eq!(format_time(75.5), "1:15.5");
+    }
+
+    #[test]
+    fn the_timing_cards_carry_a_rounded_up_minute() {
+        assert_eq!(format_time(59.94), "0:59.9");
+        assert_eq!(format_time(59.96), "1:00.0");
+        assert_eq!(format_time(119.97), "2:00.0");
     }
 
     // -- Text presets ------------------------------------------------------

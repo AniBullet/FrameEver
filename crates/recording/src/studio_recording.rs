@@ -233,6 +233,7 @@ pub struct Actor {
     // Resolved once at recording start: the display can be disconnected, or its
     // mode changed, by the time the recording stops.
     display_notch: Option<frameever_project::DisplayNotch>,
+    pretty_name: Option<String>,
 }
 
 impl Actor {
@@ -474,6 +475,7 @@ impl Actor {
             self.segment_factory.fragmented,
             self.display_notch,
             known_failure,
+            self.pretty_name.as_deref(),
         )
         .await;
         let recording = match recording {
@@ -1535,6 +1537,7 @@ pub struct ActorBuilder {
     #[cfg(target_os = "macos")]
     excluded_windows: Vec<scap_targets::WindowId>,
     start_gate: Option<RecordingStartGate>,
+    pretty_name: Option<String>,
 }
 
 impl ActorBuilder {
@@ -1555,6 +1558,7 @@ impl ActorBuilder {
             #[cfg(target_os = "macos")]
             excluded_windows: Vec::new(),
             start_gate: None,
+            pretty_name: None,
         }
     }
 
@@ -1565,6 +1569,11 @@ impl ActorBuilder {
 
     pub fn with_window_only(mut self, window_only: bool) -> Self {
         self.window_only = window_only;
+        self
+    }
+
+    pub fn with_pretty_name(mut self, pretty_name: impl Into<String>) -> Self {
+        self.pretty_name = Some(pretty_name.into());
         self
     }
 
@@ -1648,6 +1657,7 @@ impl ActorBuilder {
             self.use_oop_muxer,
             self.max_fps,
             self.quality,
+            self.pretty_name,
         );
         #[cfg(windows)]
         {
@@ -1681,6 +1691,7 @@ async fn spawn_studio_recording_actor(
     use_oop_muxer: bool,
     max_fps: u32,
     quality: crate::StudioQuality,
+    pretty_name: Option<String>,
 ) -> anyhow::Result<ActorHandle> {
     use frameever_utils::operation_diagnostics::{Field, Operation};
     let mut diagnostic = Operation::start(
@@ -1760,7 +1771,7 @@ async fn spawn_studio_recording_actor(
     );
 
     if fragmented || cfg!(windows) {
-        write_in_progress_meta(&recording_dir)?;
+        write_in_progress_meta(&recording_dir, pretty_name.as_deref())?;
     }
 
     let index = 0;
@@ -1796,6 +1807,7 @@ async fn spawn_studio_recording_actor(
         segments: Vec::new(),
         completion_tx: completion_tx.clone(),
         display_notch: crate::capture_pipeline::resolve_display_notch(&base_inputs.capture_target),
+        pretty_name,
     });
 
     Ok(ActorHandle {
@@ -2043,6 +2055,7 @@ async fn stop_recording(
     fragmented: bool,
     display_notch: Option<frameever_project::DisplayNotch>,
     known_failure: Option<String>,
+    pretty_name: Option<&str>,
 ) -> anyhow::Result<CompletedRecording> {
     use frameever_project::*;
 
@@ -2306,7 +2319,7 @@ async fn stop_recording(
         );
     }
 
-    let persisted_meta = persist_final_recording_meta(&recording_dir, &meta)?;
+    let persisted_meta = persist_final_recording_meta(&recording_dir, &meta, pretty_name)?;
     let bounded_meta = if required_track_failure.is_none() {
         BoundedStoppedStudioMeta::new(persisted_meta)
     } else {
@@ -2917,19 +2930,23 @@ fn persist_failed_recording(recording_dir: &Path, error: &str) -> anyhow::Result
         .context("persist failed Studio metadata")
 }
 
+fn recording_pretty_name(pretty_name: Option<&str>) -> String {
+    pretty_name.map(str::to_owned).unwrap_or_else(|| {
+        chrono::Local::now()
+            .format("FrameEver %Y-%m-%d at %H.%M.%S")
+            .to_string()
+    })
+}
+
 fn persist_final_recording_meta(
     recording_dir: &Path,
     studio_meta: &StudioRecordingMeta,
+    pretty_name: Option<&str>,
 ) -> anyhow::Result<RecordingMeta> {
-    use chrono::Local;
-
-    let pretty_name = Local::now()
-        .format("FrameEver %Y-%m-%d at %H.%M.%S")
-        .to_string();
     let recording_meta = RecordingMeta {
         platform: Some(Platform::default()),
         project_path: recording_dir.to_path_buf(),
-        pretty_name,
+        pretty_name: recording_pretty_name(pretty_name),
         sharing: None,
         inner: RecordingMetaInner::Studio(Box::new(studio_meta.clone())),
         upload: None,
@@ -2974,17 +2991,11 @@ fn write_segment_start_times(segment_dir: &Path, times: &SegmentStartTimes) -> s
     Ok(())
 }
 
-fn write_in_progress_meta(recording_dir: &Path) -> anyhow::Result<()> {
-    use chrono::Local;
-
-    let pretty_name = Local::now()
-        .format("FrameEver %Y-%m-%d at %H.%M.%S")
-        .to_string();
-
+fn write_in_progress_meta(recording_dir: &Path, pretty_name: Option<&str>) -> anyhow::Result<()> {
     let meta = RecordingMeta {
         platform: Some(Platform::default()),
         project_path: recording_dir.to_path_buf(),
-        pretty_name,
+        pretty_name: recording_pretty_name(pretty_name),
         sharing: None,
         inner: RecordingMetaInner::Studio(Box::new(StudioRecordingMeta::MultipleSegments {
             inner: MultipleSegments {
@@ -3299,6 +3310,7 @@ mod tests {
                     segments,
                     completion_tx,
                     display_notch: None,
+                    pretty_name: None,
                 });
                 let result = actor.ask(Stop).await;
                 if fail_metadata {
@@ -3376,6 +3388,7 @@ mod tests {
             segments: Vec::new(),
             completion_tx,
             display_notch: None,
+            pretty_name: None,
         };
         let error = anyhow::Error::new(StudioCaptureStoppedError::new(anyhow!(
             "pause found unusable media"
@@ -3396,7 +3409,7 @@ mod tests {
     async fn pause_media_failure_replays_as_acknowledged_terminal_error() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join("content")).unwrap();
-        write_in_progress_meta(temp.path()).unwrap();
+        write_in_progress_meta(temp.path(), None).unwrap();
         std::fs::write(temp.path().join("content/partial.m4s"), b"partial").unwrap();
         let handle = terminal_failure_handle(temp.path());
         assert!(matches!(
@@ -3498,6 +3511,7 @@ mod tests {
             }],
             completion_tx,
             display_notch: None,
+            pretty_name: None,
         });
         ActorHandle {
             recording_dir: path.to_path_buf(),
@@ -3513,7 +3527,7 @@ mod tests {
     async fn prior_optional_join_timeout_cannot_ack_after_final_metadata() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join("content")).unwrap();
-        write_in_progress_meta(temp.path()).unwrap();
+        write_in_progress_meta(temp.path(), None).unwrap();
         std::fs::write(temp.path().join("content/partial.m4s"), b"partial").unwrap();
         let handle = prior_unconfirmed_optional_stop_handle(temp.path());
 
@@ -3573,7 +3587,7 @@ mod tests {
         }
 
         fn paused_handle(path: &Path, prepare: ResumeTestFactory) -> ActorHandle {
-            write_in_progress_meta(path).unwrap();
+            write_in_progress_meta(path, None).unwrap();
             let (completion_tx, completion_rx) = watch::channel(None);
             let target = screen_capture::ScreenCaptureTarget::CameraOnly;
             let mut factory = SegmentPipelineFactory::new(
@@ -3645,6 +3659,7 @@ mod tests {
                 segments,
                 completion_tx,
                 display_notch: None,
+                pretty_name: None,
             });
             ActorHandle {
                 recording_dir: path.to_path_buf(),
@@ -4399,6 +4414,7 @@ mod tests {
             false,
             None,
             None,
+            None,
         )
         .await
         .expect("recording should stop");
@@ -4615,6 +4631,7 @@ mod tests {
             false,
             None,
             None,
+            None,
         )
         .await;
         assert!(result.is_err());
@@ -4682,6 +4699,7 @@ mod tests {
                     vec![segment],
                     Default::default(),
                     fragmented,
+                    None,
                     None,
                     None,
                 )
@@ -4763,7 +4781,7 @@ mod tests {
     async fn windows_actual_encoder_join_timeout_preserves_failed_without_acknowledgement() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join("content")).unwrap();
-        write_in_progress_meta(temp.path()).unwrap();
+        write_in_progress_meta(temp.path(), None).unwrap();
         std::fs::write(temp.path().join("content/partial.m4s"), b"partial").unwrap();
         let (release, held) = std::sync::mpsc::channel();
         let (exited, mut joined) = tokio::sync::oneshot::channel();
@@ -4838,7 +4856,7 @@ mod tests {
         role: RecordingTrackKind,
     ) -> (Actor, flume::Sender<TestVideoFrame>) {
         std::fs::create_dir_all(recording_dir.join("content")).unwrap();
-        write_in_progress_meta(recording_dir).unwrap();
+        write_in_progress_meta(recording_dir, None).unwrap();
         std::fs::write(
             recording_dir.join("content/partial.m4s"),
             b"retained-real-output",
@@ -4940,6 +4958,7 @@ mod tests {
                 segments: Vec::new(),
                 completion_tx,
                 display_notch: None,
+                pretty_name: None,
             },
             screen_tx,
         )
@@ -5177,6 +5196,7 @@ mod windows_cancel_tests {
             segments: Vec::new(),
             completion_tx,
             display_notch: None,
+            pretty_name: None,
         }
     }
 
@@ -5423,7 +5443,7 @@ mod clean_stop_receipt_tests {
         let RecordingMetaInner::Studio(studio) = &metadata.inner else {
             unreachable!();
         };
-        let persisted = persist_final_recording_meta(directory.path(), studio).unwrap();
+        let persisted = persist_final_recording_meta(directory.path(), studio, None).unwrap();
         let expected = serde_json::to_vec_pretty(&persisted).unwrap();
         assert_eq!(
             std::fs::read(directory.path().join("recording-meta.json")).unwrap(),
@@ -5444,6 +5464,56 @@ mod clean_stop_receipt_tests {
         assert_eq!(
             std::fs::read(directory.path().join("project-config.json")).unwrap(),
             serde_json::to_vec_pretty(claim.configuration()).unwrap()
+        );
+    }
+}
+
+#[cfg(test)]
+mod pretty_name_tests {
+    use super::*;
+
+    #[test]
+    fn recording_metadata_keeps_the_given_project_name() {
+        let name = "Untitled (Window) 2026-11-06 03.29 PM";
+        let temp = tempfile::tempdir().unwrap();
+
+        write_in_progress_meta(temp.path(), Some(name)).unwrap();
+        assert_eq!(
+            RecordingMeta::load_for_project(temp.path())
+                .unwrap()
+                .pretty_name,
+            name
+        );
+
+        let studio_meta = StudioRecordingMeta::MultipleSegments {
+            inner: MultipleSegments {
+                segments: Vec::new(),
+                cursors: frameever_project::Cursors::default(),
+                status: Some(StudioRecordingStatus::Complete),
+            },
+        };
+        let persisted =
+            persist_final_recording_meta(temp.path(), &studio_meta, Some(name)).unwrap();
+        assert_eq!(persisted.pretty_name, name);
+        assert_eq!(
+            RecordingMeta::load_for_project(temp.path())
+                .unwrap()
+                .pretty_name,
+            name
+        );
+    }
+
+    #[test]
+    fn recording_metadata_without_a_project_name_uses_the_date_and_time() {
+        let temp = tempfile::tempdir().unwrap();
+        write_in_progress_meta(temp.path(), None).unwrap();
+        let name = RecordingMeta::load_for_project(temp.path())
+            .unwrap()
+            .pretty_name;
+        let date_time = name.strip_prefix("FrameEver ").unwrap();
+        assert!(
+            chrono::NaiveDateTime::parse_from_str(date_time, "%Y-%m-%d at %H.%M.%S").is_ok(),
+            "{name}"
         );
     }
 }

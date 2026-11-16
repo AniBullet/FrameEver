@@ -340,6 +340,11 @@ impl QuitGate {
         self.exit_committed = false;
     }
 
+    fn quit_anyway(&mut self) {
+        self.pending = None;
+        self.exit_committed = true;
+    }
+
     fn request(&mut self, phase: Phase) -> Option<(u64, QuitAction)> {
         if self.exit_committed || self.pending.is_some() {
             return None;
@@ -405,6 +410,11 @@ impl QuitGate {
 struct QuitCoordinator {
     gate: QuitGate,
     observer: Option<Subscription>,
+    error_at_request: Option<String>,
+}
+
+fn quit_stop_failed(error: Option<&str>, error_at_request: Option<&str>) -> bool {
+    error.is_some() && error != error_at_request
 }
 
 impl Global for QuitCoordinator {}
@@ -442,6 +452,7 @@ pub fn quit(source: QuitSource, cx: &mut App) {
         apply_quit_action(action, cx);
         return;
     }
+    cx.global_mut::<QuitCoordinator>().error_at_request = session.read(cx).error.clone();
 
     tracing::info!("quit requested during a recording; stopping it first");
     let observer = cx.observe(&session, move |_, cx| {
@@ -459,7 +470,10 @@ pub fn quit(source: QuitSource, cx: &mut App) {
 fn advance_pending_quit(generation: u64, timed_out: bool, cx: &mut App) {
     let session = RecordingSession::global(cx);
     let phase = session.read(cx).phase;
-    let failed = session.read(cx).error.is_some();
+    let failed = quit_stop_failed(
+        session.read(cx).error.as_deref(),
+        cx.global::<QuitCoordinator>().error_at_request.as_deref(),
+    );
     let action = cx
         .global_mut::<QuitCoordinator>()
         .gate
@@ -501,12 +515,31 @@ fn apply_quit_action(action: QuitAction, cx: &mut App) {
                 message
             });
             tracing::warn!(%message);
-            cx.spawn(async move |_| {
-                platform::alert_dialog(t!("FrameEver is still open"), &message)
+            let detail = format!(
+                "{message}\n\n{}",
+                t!("Everything recorded so far stays in the project's folder.")
+            );
+            cx.spawn(async move |cx| {
+                let quit_anyway = platform::confirm_dialog(
+                    &t!("FrameEver is still open"),
+                    &detail,
+                    &t!("Quit anyway"),
+                    &t!("Keep FrameEver open"),
+                    true,
+                );
+                if quit_anyway {
+                    cx.update(quit_with_unconfirmed_recording);
+                }
             })
             .detach();
         }
     }
+}
+
+fn quit_with_unconfirmed_recording(cx: &mut App) {
+    tracing::warn!("quitting with an unconfirmed recording stop; its files are kept for recovery");
+    cx.global_mut::<QuitCoordinator>().gate.quit_anyway();
+    apply_quit_action(QuitAction::Exit, cx);
 }
 
 // -- The dock icon -----------------------------------------------------------
@@ -689,6 +722,50 @@ mod tests {
         assert_eq!(
             gate.advance(generation, Phase::Idle, false, true),
             QuitAction::Wait
+        );
+    }
+
+    #[test]
+    fn quit_anyway_after_an_unconfirmed_stop_commits_the_exit() {
+        let mut gate = QuitGate::default();
+        let (generation, _) = gate.request(Phase::Recording { paused: false }).unwrap();
+        assert_eq!(
+            gate.advance(generation, Phase::Stopping, false, true),
+            QuitAction::TimedOut
+        );
+        assert!(gate.recording_start_allowed());
+
+        gate.quit_anyway();
+
+        assert!(!gate.recording_start_allowed());
+        assert!(gate.request(Phase::Idle).is_none());
+    }
+
+    #[test]
+    fn an_error_from_before_quit_does_not_fail_the_stop() {
+        let pause_error = "Pause failed. Use Stop if recording cannot continue safely.";
+        assert!(!quit_stop_failed(None, None));
+        assert!(!quit_stop_failed(Some(pause_error), Some(pause_error)));
+        assert!(quit_stop_failed(Some("Stop task failed."), None));
+        assert!(quit_stop_failed(
+            Some("Stop task failed."),
+            Some(pause_error)
+        ));
+
+        let mut gate = QuitGate::default();
+        let (generation, action) = gate.request(Phase::Recording { paused: false }).unwrap();
+        assert_eq!(action, QuitAction::Stop);
+        for phase in [Phase::Recording { paused: false }, Phase::Stopping] {
+            let failed = quit_stop_failed(Some(pause_error), Some(pause_error));
+            assert_eq!(
+                gate.advance(generation, phase, failed, false),
+                QuitAction::Wait
+            );
+        }
+        let failed = quit_stop_failed(Some(pause_error), Some(pause_error));
+        assert_eq!(
+            gate.advance(generation, Phase::Idle, failed, false),
+            QuitAction::Exit
         );
     }
 

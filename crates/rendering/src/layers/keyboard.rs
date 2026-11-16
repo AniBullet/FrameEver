@@ -57,11 +57,19 @@ const BOUNCE_OFFSET_PIXELS: f32 = 6.0;
 const MIN_OVERLAY_GAP: f32 = 15.0;
 
 fn shares_caption_lane(
-    caption_position: CaptionPosition,
+    caption_layout: CaptionOverlayLayout,
     keyboard_position: KeyboardPosition,
+    keyboard_left: f32,
+    keyboard_width: f32,
 ) -> bool {
+    if caption_layout.position == CaptionPosition::Manual {
+        let caption_left = caption_layout.rect[0];
+        let caption_right = caption_left + caption_layout.rect[2];
+        return keyboard_left < caption_right + MIN_OVERLAY_GAP
+            && caption_left < keyboard_left + keyboard_width + MIN_OVERLAY_GAP;
+    }
     matches!(
-        (caption_position, keyboard_position),
+        (caption_layout.position, keyboard_position),
         (CaptionPosition::TopLeft, KeyboardPosition::TopLeft)
             | (CaptionPosition::TopCenter, KeyboardPosition::TopCenter)
             | (CaptionPosition::TopRight, KeyboardPosition::TopRight)
@@ -100,17 +108,17 @@ fn resolve_keyboard_position(
 }
 
 fn resolve_background_top(
-    current_top: f32,
-    box_height: f32,
+    keyboard: [f32; 4],
     frame_height: f32,
     keyboard_position: KeyboardPosition,
     caption_layout: Option<CaptionOverlayLayout>,
 ) -> f32 {
+    let [left, current_top, width, box_height] = keyboard;
     let Some(caption_layout) = caption_layout else {
         return current_top;
     };
 
-    if !shares_caption_lane(caption_layout.position, keyboard_position) {
+    if !shares_caption_lane(caption_layout, keyboard_position, left, width) {
         return current_top;
     }
 
@@ -407,8 +415,12 @@ impl KeyboardLayer {
         let background_alpha =
             ((settings.background_opacity as f32 / 100.0) * fade_opacity).clamp(0.0, 1.0);
 
-        let font_size_base = active.segment.font_size_override.unwrap_or(settings.size) as f32;
-        let font_size = font_size_base * (height as f32 / 1080.0);
+        let Some(font_size) = super::captions::scaled_font_size(
+            active.segment.font_size_override.unwrap_or(settings.size),
+            height,
+        ) else {
+            return;
+        };
         let wrap_width = (width as f32 - margin * 2.0).max(font_size);
 
         let font_family = match settings.font.as_str() {
@@ -489,8 +501,12 @@ impl KeyboardLayer {
         let max_background_top = (height as f32 - box_height).max(0.0);
         let base_background_top = (center_y - box_height / 2.0).clamp(0.0, max_background_top);
         let background_top = resolve_background_top(
-            (base_background_top + bounce_offset as f32).clamp(0.0, max_background_top),
-            box_height,
+            [
+                background_left,
+                (base_background_top + bounce_offset as f32).clamp(0.0, max_background_top),
+                box_width,
+                box_height,
+            ],
             height as f32,
             position,
             caption_layout,
@@ -793,8 +809,7 @@ mod tests {
         };
 
         let resolved_top = resolve_background_top(
-            720.0,
-            120.0,
+            [100.0, 720.0, 400.0, 120.0],
             1080.0,
             KeyboardPosition::AboveCaptions,
             Some(caption_layout),
@@ -811,8 +826,7 @@ mod tests {
         };
 
         let resolved_top = resolve_background_top(
-            90.0,
-            80.0,
+            [100.0, 90.0, 400.0, 80.0],
             1080.0,
             KeyboardPosition::TopCenter,
             Some(caption_layout),
@@ -829,14 +843,35 @@ mod tests {
         };
 
         let resolved_top = resolve_background_top(
-            720.0,
-            120.0,
+            [1400.0, 720.0, 400.0, 120.0],
             1080.0,
             KeyboardPosition::BottomRight,
             Some(caption_layout),
         );
 
         assert_eq!(resolved_top, 720.0);
+    }
+
+    #[test]
+    fn keyboard_stays_clear_of_manual_captions_it_would_overlap() {
+        let keyboard = [760.0, 760.0, 400.0, 100.0];
+        let manual = |rect| {
+            Some(CaptionOverlayLayout {
+                rect,
+                position: CaptionPosition::Manual,
+            })
+        };
+        let resolve =
+            |position, caption| resolve_background_top(keyboard, 1080.0, position, caption);
+
+        let overlapping = manual([700.0, 780.0, 520.0, 60.0]);
+        assert_eq!(resolve(KeyboardPosition::AboveCaptions, overlapping), 665.0);
+        assert_eq!(resolve(KeyboardPosition::TopCenter, overlapping), 855.0);
+
+        let beside = manual([96.0, 780.0, 520.0, 60.0]);
+        assert_eq!(resolve(KeyboardPosition::AboveCaptions, beside), 760.0);
+        let above = manual([700.0, 60.0, 520.0, 60.0]);
+        assert_eq!(resolve(KeyboardPosition::AboveCaptions, above), 760.0);
     }
 }
 

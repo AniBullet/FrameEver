@@ -45,7 +45,7 @@ use std::rc::Rc;
 
 use crate::{editor_timeline::TrackKind, editor_window::EditorWindow, i18n::t};
 use frameever_project::{CameraXPosition, CameraYPosition, OverlayTrackKind, SceneMode, XY};
-use frameever_rendering::FrameLayout;
+use frameever_rendering::{CaptionFrameBox, FrameLayout};
 use gpui::{
     AnyElement, Bounds, Context, CursorStyle, FontWeight, Hsla, InteractiveElement, IntoElement,
     MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, SharedString,
@@ -103,6 +103,7 @@ pub enum SnapLineKind {
     Margin,
     ElementEdge,
     ElementCenter,
+    Third,
 }
 
 impl SnapLineKind {
@@ -440,6 +441,49 @@ pub struct PlayerFrame {
 
 pub type CanvasRect = Rc<Cell<Option<PlayerFrame>>>;
 
+pub const CAPTION_SAFE_MARGIN: f64 = 0.05;
+
+pub const CAPTION_DEFAULT_CENTER: (f64, f64) = (0.5, 0.85);
+
+pub fn caption_snap_targets(others: &[NormRect]) -> SnapTargets {
+    let mut targets = build_snap_targets(others, Some((CAPTION_SAFE_MARGIN, CAPTION_SAFE_MARGIN)));
+    for pos in [1. / 3., 2. / 3.] {
+        let line = SnapLine {
+            pos,
+            kind: SnapLineKind::Third,
+            reference: None,
+        };
+        targets.v.push(line);
+        targets.h.push(line);
+    }
+    targets
+}
+
+pub fn caption_rest_rect(center: (f64, f64), size: (f64, f64)) -> NormRect {
+    let (w, h) = size;
+    NormRect {
+        x: (center.0 - w / 2.).clamp(0., (1. - w).max(0.)),
+        y: (center.1 - h / 2.).clamp(0., (1. - h).max(0.)),
+        w,
+        h,
+    }
+}
+
+pub fn caption_canvas_rect(
+    layout: &FrameLayout,
+    manual_position: Option<XY<f32>>,
+) -> Option<NormRect> {
+    let caption = layout.caption.filter(CaptionFrameBox::is_manual)?;
+    let drawn = norm_rect(caption.bounds, layout);
+    if drawn.w <= 0. || drawn.h <= 0. {
+        return None;
+    }
+    let center = manual_position.map_or(CAPTION_DEFAULT_CENTER, |position| {
+        (f64::from(position.x), f64::from(position.y))
+    });
+    Some(caption_rest_rect(center, (drawn.w, drawn.h)))
+}
+
 /// `editorState.canvasSelection` (`CanvasElementsOverlay.tsx:252`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanvasSelection {
@@ -449,6 +493,7 @@ pub enum CanvasSelection {
     Text(usize),
     Image(usize),
     InputDisplay,
+    Captions,
 }
 
 impl CanvasSelection {
@@ -460,6 +505,7 @@ impl CanvasSelection {
             Self::Text(_) => t!("Text").into(),
             Self::Image(_) => t!("Image").into(),
             Self::InputDisplay => t!("Input display").into(),
+            Self::Captions => t!("Captions").into(),
         }
     }
 
@@ -471,6 +517,7 @@ impl CanvasSelection {
             Self::Text(index) => format!("canvas-text-{index}").into(),
             Self::Image(index) => format!("canvas-image-{index}").into(),
             Self::InputDisplay => "canvas-input-display".into(),
+            Self::Captions => "canvas-captions".into(),
         }
     }
 
@@ -546,6 +593,28 @@ impl EditorWindow {
 
     fn show_camera(&self) -> bool {
         self.canvas_overlay_visible() && !self.pane_scene() && self.camera_rect().is_some()
+    }
+
+    fn caption_rect(&self) -> Option<NormRect> {
+        let layout = self.frame_layout.as_ref()?;
+        let captions = self.project.captions.as_ref()?;
+        caption_canvas_rect(layout, captions.settings.manual_position)
+    }
+
+    fn show_captions(&self) -> bool {
+        self.canvas_overlay_visible() && self.caption_rect().is_some()
+    }
+
+    fn write_caption_center(&mut self, center: XY<f64>, cx: &mut Context<Self>) {
+        let Some(captions) = self.project.captions.as_mut() else {
+            return;
+        };
+        let next = XY::new(center.x as f32, center.y as f32);
+        if captions.settings.manual_position == Some(next) {
+            return;
+        }
+        captions.settings.manual_position = Some(next);
+        self.project_changed_live(cx);
     }
 
     /// `displayDraggable()` (`:249`): the rendered display rect is
@@ -653,6 +722,9 @@ impl EditorWindow {
                 });
             }
         }
+        if exclude == CanvasSelection::Captions {
+            return caption_snap_targets(&rects);
+        }
         let wants_margin = matches!(exclude, CanvasSelection::Display | CanvasSelection::Camera);
         build_snap_targets(&rects, wants_margin.then(|| classic_margin(layout)))
     }
@@ -687,7 +759,8 @@ impl EditorWindow {
             | CanvasSelection::Mask(_)
             | CanvasSelection::Text(_)
             | CanvasSelection::Image(_)
-            | CanvasSelection::InputDisplay => true,
+            | CanvasSelection::InputDisplay
+            | CanvasSelection::Captions => true,
         };
         if element == CanvasSelection::InputDisplay {
             self.show_input_display_tab(window, cx);
@@ -728,6 +801,7 @@ impl EditorWindow {
             | CanvasSelection::Text(_)
             | CanvasSelection::Image(_)
             | CanvasSelection::InputDisplay => true,
+            CanvasSelection::Captions => false,
         };
         if !resizable {
             return;
@@ -936,7 +1010,7 @@ impl EditorWindow {
                     self.canvas_overlay_rect = Some(rect);
                     self.write_overlay_rect(element, rect, cx);
                 }
-                CanvasSelection::InputDisplay => {}
+                CanvasSelection::InputDisplay | CanvasSelection::Captions => {}
             }
             let _ = (window, output_w, output_h);
             return;
@@ -958,6 +1032,7 @@ impl EditorWindow {
                 };
                 overlay_drag_center(bounds, size, delta, &targets, shift)
             }
+            CanvasSelection::Captions => camera_drag_center(start, size, delta, &targets, shift),
             CanvasSelection::InputDisplay => return,
         };
         self.snap_guides = guides;
@@ -979,6 +1054,7 @@ impl EditorWindow {
                 self.canvas_overlay_rect = Some(optimistic);
                 self.write_overlay_rect(element, optimistic, cx);
             }
+            CanvasSelection::Captions => self.write_caption_center(center, cx),
             CanvasSelection::InputDisplay => {}
         }
         let _ = window;
@@ -1028,6 +1104,15 @@ impl EditorWindow {
                 CanvasSelection::Image(index) => {
                     tracing::info!(index, "canvas image drag");
                 }
+                CanvasSelection::Captions => tracing::info!(
+                    position = ?self
+                        .project
+                        .captions
+                        .as_ref()
+                        .and_then(|captions| captions.settings.manual_position)
+                        .map(|p| format!("{:.6},{:.6}", p.x, p.y)),
+                    "canvas captions drag"
+                ),
                 CanvasSelection::InputDisplay => {
                     tracing::info!("canvas input display drag");
                     self.remember_input_display(window, cx);
@@ -1074,6 +1159,9 @@ impl EditorWindow {
         if matches!(selected, CanvasSelection::Camera) && !self.show_camera() {
             return false;
         }
+        if matches!(selected, CanvasSelection::Captions) && !self.show_captions() {
+            return false;
+        }
         let size = (
             f64::from(f32::from(canvas.size.width)),
             f64::from(f32::from(canvas.size.height)),
@@ -1087,6 +1175,7 @@ impl EditorWindow {
             CanvasSelection::Mask(_) | CanvasSelection::Text(_) | CanvasSelection::Image(_) => {
                 overlay_nudge_center(rect, direction, shift)
             }
+            CanvasSelection::Captions => camera_nudge_center(rect, size, direction, shift),
             CanvasSelection::InputDisplay => return false,
         };
         let optimistic = NormRect {
@@ -1107,6 +1196,7 @@ impl EditorWindow {
                 self.canvas_overlay_rect = Some(optimistic);
                 self.write_overlay_rect(selected, optimistic, cx);
             }
+            CanvasSelection::Captions => self.write_caption_center(center, cx),
             CanvasSelection::InputDisplay => {}
         }
         self.schedule_save(window, cx);
@@ -1189,6 +1279,7 @@ impl EditorWindow {
             CanvasSelection::Display => self.display_rect(),
             CanvasSelection::Camera => self.camera_rect(),
             CanvasSelection::InputDisplay => self.input_display_canvas_rect(),
+            CanvasSelection::Captions => self.caption_rect(),
             CanvasSelection::Image(index) => {
                 if self
                     .canvas_drag
@@ -1459,6 +1550,12 @@ impl EditorWindow {
                 cx,
             ));
         }
+        if self.show_captions()
+            && let Some(rect) = self.caption_rect()
+        {
+            layer =
+                layer.child(self.render_element_box(CanvasSelection::Captions, rect, (cw, ch), cx));
+        }
         for guide in &self.snap_guides {
             let color = self.theme.recording;
             layer = layer.child(match guide.axis {
@@ -1514,7 +1611,9 @@ impl EditorWindow {
             | CanvasSelection::Text(_)
             | CanvasSelection::Image(_)
             | CanvasSelection::InputDisplay => (true, true, None),
+            CanvasSelection::Captions => (true, false, None),
         };
+        let has_handles = element != CanvasSelection::Captions;
 
         let left = rect.x as f32 * canvas.0;
         let top = rect.y as f32 * canvas.1;
@@ -1564,6 +1663,10 @@ impl EditorWindow {
                     this.begin_canvas_move(element, event, window, cx);
                 }),
             );
+
+        if element == CanvasSelection::Captions {
+            box_el = box_el.occlude();
+        }
 
         if show {
             let label_left = (6. - left).max(6.);
@@ -1638,7 +1741,10 @@ impl EditorWindow {
                 (1, -1, CursorStyle::ResizeUpRightDownLeft),
                 (-1, 1, CursorStyle::ResizeUpRightDownLeft),
                 (1, 1, CursorStyle::ResizeUpLeftDownRight),
-            ] {
+            ]
+            .into_iter()
+            .filter(|_| has_handles)
+            {
                 let hx = if dir_x < 0 {
                     if flush.0 { 0. } else { -6. }
                 } else if flush.2 {
@@ -1995,6 +2101,77 @@ mod tests {
             display,
             camera: None,
             output_size: [width, height],
+            caption: None,
+        }
+    }
+
+    fn caption_layout(width: u32, height: u32, bounds: [f32; 4], position: &str) -> FrameLayout {
+        FrameLayout {
+            caption: Some(CaptionFrameBox::new(bounds, position)),
+            ..layout(width, height, [0., 0., width as f32, height as f32])
+        }
+    }
+
+    fn near(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-6
+    }
+
+    #[test]
+    fn only_a_manual_caption_takes_clicks() {
+        let bounds = [700., 870., 1220., 930.];
+        for preset in [
+            "top-left",
+            "top-center",
+            "top-right",
+            "bottom-left",
+            "bottom-center",
+            "bottom-right",
+        ] {
+            let layout = caption_layout(1920, 1080, bounds, preset);
+            assert_eq!(caption_canvas_rect(&layout, Some(XY::new(0.5, 0.5))), None);
+        }
+        assert_eq!(caption_canvas_rect(&layout(1920, 1080, bounds), None), None);
+        let manual = caption_layout(1920, 1080, bounds, "manual");
+        assert!(caption_canvas_rect(&manual, None).is_some());
+        let empty = caption_layout(1920, 1080, [900., 900., 900., 900.], "manual");
+        assert_eq!(caption_canvas_rect(&empty, None), None);
+    }
+
+    #[test]
+    fn the_caption_hit_box_covers_the_drawn_caption() {
+        let canvas = Bounds {
+            origin: gpui::point(px(40.), px(20.)),
+            size: gpui::size(px(960.), px(540.)),
+        };
+        let layout = caption_layout(1920, 1080, [576., 186., 1056., 246.], "manual");
+        let rect = caption_canvas_rect(&layout, Some(XY::new(0.425, 0.2))).unwrap();
+        assert!(near(rect.x, 576. / 1920.));
+        assert!(near(rect.y, 186. / 1080.));
+        assert!(near(rect.w, 480. / 1920.));
+        assert!(near(rect.h, 60. / 1080.));
+        assert!(rect_contains(
+            canvas,
+            rect,
+            gpui::point(px(40. + 0.425 * 960.), px(20. + 0.2 * 540.))
+        ));
+        assert!(!rect_contains(
+            canvas,
+            rect,
+            gpui::point(px(40. + 0.425 * 960.), px(20. + 0.5 * 540.))
+        ));
+    }
+
+    #[test]
+    fn a_caption_snaps_to_thirds_and_the_safe_margin() {
+        let targets = caption_snap_targets(&[]);
+        for pos in [
+            1. / 3.,
+            2. / 3.,
+            CAPTION_SAFE_MARGIN,
+            1. - CAPTION_SAFE_MARGIN,
+        ] {
+            assert!(targets.v.iter().any(|line| near(line.pos, pos)), "{pos}");
+            assert!(targets.h.iter().any(|line| near(line.pos, pos)), "{pos}");
         }
     }
 
