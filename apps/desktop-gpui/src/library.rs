@@ -880,16 +880,38 @@ fn is_storage_full(error: &frameever_recording::recovery::RecoveryError) -> bool
         error => error,
     });
     while let Some(error) = current {
-        if error
-            .downcast_ref::<std::io::Error>()
-            .is_some_and(|io| io.kind() == std::io::ErrorKind::StorageFull)
-            || error.to_string().contains("No space left on device")
-        {
+        if error_reports_storage_full(error) {
             return true;
         }
         current = error.source();
     }
     false
+}
+
+fn error_reports_storage_full(error: &(dyn std::error::Error + 'static)) -> bool {
+    const WINDOWS_DISK_FULL: [i32; 2] = [112, 39];
+    const STORAGE_FULL_WORDING: [&str; 2] = [
+        "No space left on device",
+        "There is not enough space on the disk",
+    ];
+    let io_full = error.downcast_ref::<std::io::Error>().is_some_and(|io| {
+        io.kind() == std::io::ErrorKind::StorageFull
+            || (cfg!(windows)
+                && io
+                    .raw_os_error()
+                    .is_some_and(|code| WINDOWS_DISK_FULL.contains(&code)))
+    });
+    let ffmpeg_full = matches!(
+        error.downcast_ref::<ffmpeg::Error>(),
+        Some(ffmpeg::Error::Other { errno }) if *errno == ffmpeg::error::ENOSPC
+    );
+    if io_full || ffmpeg_full {
+        return true;
+    }
+    let text = error.to_string();
+    STORAGE_FULL_WORDING
+        .iter()
+        .any(|wording| text.contains(wording))
 }
 
 pub fn recover_interrupted_for_editing(
@@ -3101,6 +3123,32 @@ mod tests {
             message.starts_with("Couldn't rebuild this recording"),
             "{message}"
         );
+    }
+
+    #[test]
+    fn a_full_disk_reported_by_windows_or_ffmpeg_gets_the_free_space_advice() {
+        use frameever_enc_ffmpeg::remux::RemuxError;
+        use frameever_recording::recovery::RecoveryError;
+        let path = Path::new("/recordings/FrameEver 2026-11-03 at 15.51.00.ever");
+        let mut errors = vec![
+            RecoveryError::VideoConcat(RemuxError::Ffmpeg(ffmpeg::Error::Other {
+                errno: ffmpeg::error::ENOSPC,
+            })),
+            RecoveryError::UnplayableVideo("There is not enough space on the disk.".into()),
+            RecoveryError::RequiredTrackFailure(
+                "display: There is not enough space on the disk. (os error 112)".into(),
+            ),
+        ];
+        if cfg!(windows) {
+            errors.push(RecoveryError::Io(std::io::Error::from_raw_os_error(112)));
+            errors.push(RecoveryError::MediaMerge(RemuxError::Io(
+                std::io::Error::from_raw_os_error(39),
+            )));
+        }
+        for error in errors {
+            let message = recovery_failure_message(&error, path);
+            assert!(message.contains("the disk is full"), "{error}: {message}");
+        }
     }
 
     #[test]
