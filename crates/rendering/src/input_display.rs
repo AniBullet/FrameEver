@@ -18,6 +18,20 @@ pub struct LoadedPreset {
     pub atlas: RgbaImage,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PresetShape {
+    pub size: (u32, u32),
+    pub frame_share: f64,
+}
+
+pub fn preset_shape(id: &str) -> Option<PresetShape> {
+    let builtin = BuiltinPresetId::from_id(id)?;
+    Some(PresetShape {
+        size: builtin.layout().size(),
+        frame_share: builtin.frame_share(),
+    })
+}
+
 pub fn atlas_scale_for(preset_width: u32, drawn_width: f64) -> u32 {
     let scale = (drawn_width / f64::from(preset_width.max(1))).ceil();
     if scale.is_finite() {
@@ -300,6 +314,22 @@ mod tests {
                 assert!(lit(&held) > lit(&released) + 500, "{id:?} {style:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_preset_tells_its_shape_without_being_drawn() {
+        for id in BuiltinPresetId::ALL {
+            let loaded = builtin_preset(id, InputDisplayStyle::Ghost, 1).unwrap();
+
+            assert_eq!(
+                preset_shape(id.id()),
+                Some(PresetShape {
+                    size: (loaded.preset.width, loaded.preset.height),
+                    frame_share: loaded.frame_share,
+                })
+            );
+        }
+        assert_eq!(preset_shape("missing"), None);
     }
 
     #[test]
