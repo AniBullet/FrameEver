@@ -1084,6 +1084,26 @@ fn blur_mode_json(blur: crate::store::BlurMode) -> &'static str {
     }
 }
 
+fn match_input_preset_to_recording(
+    config: &mut serde_json::Map<String, serde_json::Value>,
+    project_path: &std::path::Path,
+) {
+    let Some(block) = config
+        .get_mut("inputDisplay")
+        .filter(|block| block["enabled"] == true)
+    else {
+        return;
+    };
+    let (Some(preset), Ok(meta)) = (
+        block["preset"].as_str(),
+        frameever_project::RecordingMeta::load_for_project(project_path),
+    ) else {
+        return;
+    };
+    let matched = frameever_project::input_display::preset_for_recording(&meta, preset).to_string();
+    block["preset"] = matched.into();
+}
+
 fn apply_input_display_setup(project_path: &std::path::Path) -> std::io::Result<()> {
     let setup = crate::store::input_display_setup();
     let path = project_path.join("project-config.json");
@@ -1097,6 +1117,7 @@ fn apply_input_display_setup(project_path: &std::path::Path) -> std::io::Result<
     if !crate::store::start_with_input_display_setup(object, setup.as_ref()) {
         return Ok(());
     }
+    match_input_preset_to_recording(object, project_path);
     let temp = path.with_extension(format!("input-display-{}.tmp", crate::store::new_uuid_v4()));
     let result = std::fs::write(&temp, serde_json::to_vec_pretty(&config)?)
         .and_then(|()| std::fs::rename(&temp, path));

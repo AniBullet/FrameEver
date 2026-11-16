@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::{
+    builtin::BuiltinPresetId,
     events::{InputEventKind, InputEvents},
     gamepad::{GamepadAxes, GamepadKind, GamepadSnapshot},
     keys::key_code,
@@ -105,7 +106,38 @@ pub fn take_at(project: &ProjectConfiguration, output_time: f64, source_time: f6
     source.segment.recording_clip as usize
 }
 
+pub fn preset_for_recording<'a>(meta: &RecordingMeta, preset: &'a str) -> &'a str {
+    let takes = match meta.studio_meta() {
+        Some(StudioRecordingMeta::MultipleSegments { inner }) => inner.segments.len(),
+        _ => 0,
+    };
+    let records: Vec<InputRecord> = (0..takes)
+        .map(|take| InputRecord::for_take(meta, take))
+        .collect();
+    let shows_gamepad =
+        BuiltinPresetId::from_id(preset).is_some_and(|preset| preset.controller().is_some());
+    if records.iter().any(InputRecord::used_gamepad) {
+        if shows_gamepad {
+            preset
+        } else {
+            BuiltinPresetId::Gamepad.id()
+        }
+    } else if shows_gamepad && records.iter().any(InputRecord::used_keys_or_mouse) {
+        BuiltinPresetId::WasdMouse.id()
+    } else {
+        preset
+    }
+}
+
 impl InputRecord {
+    pub fn used_gamepad(&self) -> bool {
+        self.controller().is_some()
+    }
+
+    pub fn used_keys_or_mouse(&self) -> bool {
+        !self.changes.is_empty() || !self.wheel_steps.is_empty()
+    }
+
     pub fn new(mut changes: Vec<InputChange>) -> Self {
         changes.retain(|change| change.time_ms.is_finite());
         changes.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
@@ -592,6 +624,60 @@ mod tests {
         assert_eq!(held(&record, 250.0), vec![]);
         assert_eq!(held(&record, 350.0), vec![Input::GamepadButton(SOUTH)]);
         assert_eq!(record.controller(), Some(GamepadKind::Switch));
+    }
+
+    fn recording(takes: &[Vec<InputEvent>]) -> (tempfile::TempDir, RecordingMeta) {
+        let directory = tempfile::tempdir().unwrap();
+        let mut segments = Vec::new();
+        for (index, events) in takes.iter().enumerate() {
+            let folder = format!("content/segments/segment-{index}");
+            let take = directory.path().join(&folder);
+            std::fs::create_dir_all(&take).unwrap();
+            InputEvents {
+                events: events.clone(),
+            }
+            .write_to_file(&take.join(INPUT_EVENTS_FILE_NAME))
+            .unwrap();
+            segments
+                .push(serde_json::json!({"display": {"path": format!("{folder}/display.mp4")}}));
+        }
+        let mut meta: RecordingMeta = serde_json::from_value(serde_json::json!({
+            "pretty_name": "devices",
+            "segments": segments
+        }))
+        .unwrap();
+        meta.project_path = directory.path().to_path_buf();
+        (directory, meta)
+    }
+
+    #[test]
+    fn a_recording_that_used_a_gamepad_gets_the_gamepad_preset() {
+        use crate::input_display::gamepad_buttons::SOUTH;
+        let pressed = InputEvent {
+            time_ms: 100.0,
+            kind: InputEventKind::Gamepad(pad(GamepadKind::PlayStation).with_button(SOUTH)),
+        };
+        let resting = InputEvent {
+            time_ms: 100.0,
+            kind: InputEventKind::Gamepad(pad(GamepadKind::Xbox)),
+        };
+        let (_played, with_gamepad) = recording(&[vec![click(1, 10.0, true)], vec![pressed]]);
+        let (_typed, with_mouse) = recording(&[vec![click(1, 10.0, true), resting]]);
+        let (_silent, without_input) = recording(&[Vec::new()]);
+
+        assert_eq!(preset_for_recording(&with_gamepad, "wasd-mouse"), "gamepad");
+        assert_eq!(preset_for_recording(&with_gamepad, "my-preset"), "gamepad");
+        assert_eq!(preset_for_recording(&with_gamepad, "gamepad"), "gamepad");
+        assert_eq!(preset_for_recording(&with_mouse, "gamepad"), "wasd-mouse");
+        assert_eq!(
+            preset_for_recording(&with_mouse, "full-keyboard"),
+            "full-keyboard"
+        );
+        assert_eq!(preset_for_recording(&without_input, "gamepad"), "gamepad");
+        assert_eq!(
+            preset_for_recording(&without_input, "my-preset"),
+            "my-preset"
+        );
     }
 
     #[test]

@@ -3308,6 +3308,7 @@ dependencies = [
  "scap-screencapturekit",
  "scap-targets",
  "screencapturekit 0.3.6",
+ "sdl3-sys",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -8444,6 +8445,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rpkg-config"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a2d2f3481209a6b42eec2fbb49063fb4e8d35b57023401495d4fe0f85c817f0"
+
+[[package]]
 name = "rust-embed"
 version = "8.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8914,6 +8921,26 @@ dependencies = [
  "objc-foundation",
  "objc_id",
  "once_cell",
+]
+
+[[package]]
+name = "sdl3-src"
+version = "3.4.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc5181b85760f18170dbc15b27b00d5aaaa003058bb14333ec7dd280665ef3a4"
+
+[[package]]
+name = "sdl3-sys"
+version = "0.7.3+SDL-3.4.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e68da4d2bcf29a81a1ea71ec27b93bb27151d649c2b186eb5988ad4dcb17d11"
+dependencies = [
+ "cc",
+ "cmake",
+ "pkg-config",
+ "rpkg-config",
+ "sdl3-src",
+ "vcpkg",
 ]
 
 [[package]]

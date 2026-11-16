@@ -24,7 +24,8 @@ pub use preset::{
     SpriteRect,
 };
 pub use record::{
-    DisplayState, Input, InputChange, InputRecord, WHEEL_FLASH_MS, WheelStep, take_at,
+    DisplayState, Input, InputChange, InputRecord, WHEEL_FLASH_MS, WheelStep, preset_for_recording,
+    take_at,
 };
 
 use serde::{Deserialize, Serialize};

@@ -463,6 +463,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("WASD + mouse", "WASD 加鼠标"),
     ("Full keyboard", "整块键盘"),
+    ("Gamepad", "手柄"),
     ("Keycaps", "键帽"),
     ("Ghost", "幽灵"),
     ("Beta", "测试版"),

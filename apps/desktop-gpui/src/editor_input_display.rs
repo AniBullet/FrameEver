@@ -5,7 +5,7 @@ use frameever_project::{
     input_display::{
         BuiltinPresetId, DisplayState, INPUT_DISPLAY_DEFAULT_SIZE, INPUT_DISPLAY_MARGIN,
         INPUT_DISPLAY_OPACITY_RANGE, INPUT_DISPLAY_SIZE_RANGE, display_rect, position_for_origin,
-        size_for_width, snap_position,
+        preset_for_recording, size_for_width, snap_position,
     },
 };
 use frameever_rendering::input_display::PresetShape;
@@ -31,9 +31,10 @@ const TILE_INK: u32 = 0xd8d8d8;
 
 pub(crate) type InputThumbnailKey = (BuiltinPresetId, InputDisplayStyle);
 
-pub(crate) const INPUT_PRESETS: [(BuiltinPresetId, &str); 2] = [
+pub(crate) const INPUT_PRESETS: [(BuiltinPresetId, &str); 3] = [
     (BuiltinPresetId::WasdMouse, n!("WASD + mouse")),
     (BuiltinPresetId::FullKeyboard, n!("Full keyboard")),
+    (BuiltinPresetId::Gamepad, n!("Gamepad")),
 ];
 
 const INPUT_SETUP_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
@@ -86,6 +87,24 @@ pub(crate) fn switch_input_display(project: &mut ProjectConfiguration, on: bool)
         .input_display
         .get_or_insert_with(InputDisplay::default)
         .enabled = on;
+    true
+}
+
+pub(crate) fn switch_input_display_for_recording(
+    project: &mut ProjectConfiguration,
+    on: bool,
+    project_path: &std::path::Path,
+) -> bool {
+    if !switch_input_display(project, on) {
+        return false;
+    }
+    if let (true, Some(block), Ok(meta)) = (
+        on,
+        project.input_display.as_mut(),
+        frameever_project::RecordingMeta::load_for_project(project_path),
+    ) {
+        block.preset = preset_for_recording(&meta, &block.preset).to_string();
+    }
     true
 }
 
@@ -574,8 +593,9 @@ impl EditorWindow {
         let section = ui::Field::section(&theme, t!("Input display")).value(
             ui::Toggle::plain(&theme, "input-display-enabled", on)
                 .on_click(cx.listener(move |this, _, window, cx| {
+                    let project_path = this.project_path.clone();
                     this.edit_input_display("input-display-enabled", window, cx, move |project| {
-                        switch_input_display(project, !on)
+                        switch_input_display_for_recording(project, !on, &project_path)
                     });
                     this.ensure_input_thumbnails(window, cx);
                 }))
@@ -701,6 +721,10 @@ impl EditorWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use frameever_project::input_display::{
+        GamepadSnapshot, INPUT_EVENTS_FILE_NAME, InputEvent, InputEventKind, InputEvents,
+        gamepad_buttons,
+    };
 
     #[test]
     fn switching_on_starts_from_the_default_setup() {
@@ -945,6 +969,98 @@ mod tests {
         let block = project.shown_input_display().unwrap();
         assert_eq!(block.position, XY::new(0., 0.));
         assert_eq!((block.size, block.opacity), (90., 20.));
+    }
+
+    fn recorded_project(events: Vec<InputEvent>) -> tempfile::TempDir {
+        let directory = tempfile::tempdir().unwrap();
+        let take = directory.path().join("content/segments/segment-0");
+        std::fs::create_dir_all(&take).unwrap();
+        InputEvents { events }
+            .write_to_file(&take.join(INPUT_EVENTS_FILE_NAME))
+            .unwrap();
+        std::fs::write(
+            directory.path().join("recording-meta.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "pretty_name": "played",
+                "segments": [{"display": {"path": "content/segments/segment-0/display.mp4"}}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        directory
+    }
+
+    #[test]
+    fn switching_on_for_a_recording_that_used_a_gamepad_picks_the_gamepad_preset() {
+        let played = recorded_project(vec![InputEvent {
+            time_ms: 40.0,
+            kind: InputEventKind::Gamepad(
+                GamepadSnapshot::default().with_button(gamepad_buttons::SOUTH),
+            ),
+        }]);
+        let typed = recorded_project(vec![InputEvent {
+            time_ms: 40.0,
+            kind: InputEventKind::MouseButton {
+                button: 1,
+                down: true,
+            },
+        }]);
+        let preset = |project: &ProjectConfiguration| {
+            project
+                .shown_input_display()
+                .map(|block| block.preset.clone())
+        };
+
+        let mut project = ProjectConfiguration::default();
+        assert!(switch_input_display_for_recording(
+            &mut project,
+            true,
+            played.path()
+        ));
+        assert_eq!(preset(&project).as_deref(), Some("gamepad"));
+
+        assert!(choose_input_preset(&mut project, "full-keyboard"));
+        assert!(!switch_input_display_for_recording(
+            &mut project,
+            true,
+            played.path()
+        ));
+        assert_eq!(preset(&project).as_deref(), Some("full-keyboard"));
+
+        assert!(switch_input_display_for_recording(
+            &mut project,
+            false,
+            played.path()
+        ));
+        assert_eq!(
+            project
+                .input_display
+                .as_ref()
+                .map(|block| block.preset.as_str()),
+            Some("full-keyboard")
+        );
+
+        let mut remembered = ProjectConfiguration {
+            input_display: Some(InputDisplay {
+                preset: "gamepad".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(switch_input_display_for_recording(
+            &mut remembered,
+            true,
+            typed.path()
+        ));
+        assert_eq!(preset(&remembered).as_deref(), Some("wasd-mouse"));
+
+        let mut unsaved = ProjectConfiguration::default();
+        assert!(switch_input_display_for_recording(
+            &mut unsaved,
+            true,
+            std::path::Path::new("no-such-project")
+        ));
+        assert_eq!(preset(&unsaved).as_deref(), Some("wasd-mouse"));
     }
 
     #[test]

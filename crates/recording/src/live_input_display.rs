@@ -1135,10 +1135,18 @@ mod tests {
                 let mut down = false;
                 let changing_frame = median_micros(|| {
                     down = !down;
-                    display.show(if down {
-                        held(&[KEY_W, Input::MouseButton(1)])
-                    } else {
-                        DisplayState::default()
+                    display.show(match (down, preset.controller()) {
+                        (true, Some(controller)) => gamepad(
+                            controller,
+                            GamepadAxes {
+                                left_stick: [127, -60],
+                                right_trigger: 200,
+                                ..Default::default()
+                            },
+                            &[gamepad_buttons::SOUTH],
+                        ),
+                        (true, None) => held(&[KEY_W, Input::MouseButton(1)]),
+                        (false, _) => DisplayState::default(),
                     });
                     baker.captured(&mut frame, now);
                 });
