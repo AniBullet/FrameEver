@@ -683,7 +683,7 @@ mod tests {
                     style,
                     theme,
                     "github.com/AniBullet/FrameEver",
-                    "FrameEver Recording",
+                    frameever_utils::brand::DEFAULT_RECORDING_NAME,
                     w,
                     h,
                     content_h,

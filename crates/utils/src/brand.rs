@@ -6,6 +6,7 @@ macro_rules! app_name {
 }
 
 pub const APP_NAME: &str = app_name!();
+pub const DEFAULT_RECORDING_NAME: &str = concat!(app_name!(), " Recording");
 pub const APP_ID: &str = "io.github.anibullet.frameever";
 pub const URL_SCHEME: &str = "frameever";
 pub const CLI_COMMAND: &str = "frameever";

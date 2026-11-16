@@ -103,7 +103,7 @@ fn persist_meta(recording: &instant_recording::CompletedRecording) -> Result<(),
         .file_stem()
         .and_then(|name| name.to_str())
         .filter(|name| !name.is_empty())
-        .unwrap_or("FrameEver Recording")
+        .unwrap_or(frameever_utils::brand::DEFAULT_RECORDING_NAME)
         .to_string();
     let meta = match &recording.meta {
         InstantRecordingMeta::InProgress { .. } => InstantRecordingMeta::Failed {

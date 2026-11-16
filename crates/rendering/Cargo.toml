@@ -59,6 +59,7 @@ windows = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+frameever-utils = { path = "../utils" }
 frameever-media-info = { path = "../media-info" }
 frameever-video-decode = { path = "../video-decode", features = ["scripted"] }
 frameever-verify-expect = { path = "../verify-expect" }

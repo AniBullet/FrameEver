@@ -2603,6 +2603,7 @@ dependencies = [
  "frameever-flags",
  "frameever-media-info",
  "frameever-project",
+ "frameever-utils",
  "frameever-verify-expect",
  "frameever-video-decode",
  "futures",
