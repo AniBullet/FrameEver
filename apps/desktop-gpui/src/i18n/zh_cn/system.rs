@@ -311,13 +311,16 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "只能恢复未完成的工作室录制",
     ),
     (
-        "Recording is not waiting for recovery",
-        "这段录制不需要恢复",
+        "Couldn't recover this recording. No video was saved before it stopped. Its files are still in {path}.",
+        "无法恢复这段录制。停止前没有保存任何视频，文件仍在 {path}。",
     ),
-    ("No recoverable segments found", "没有找到可恢复的片段"),
     (
-        "Failed to recover recording: {error}",
-        "无法恢复录制：{error}",
+        "Couldn't recover this recording because the disk is full. Free up some space, then try again. Nothing was deleted; the files are in {path}.",
+        "磁盘已满，无法恢复这段录制。请释放一些空间后再试。没有删除任何内容，文件在 {path}。",
+    ),
+    (
+        "Couldn't rebuild this recording. Nothing was deleted; the original files are in {path}.",
+        "无法重建这段录制。没有删除任何内容，原始文件在 {path}。",
     ),
     (
         "Recovered recording has no display segments",
