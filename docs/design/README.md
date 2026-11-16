@@ -10,7 +10,7 @@ The single visual source of truth for FrameEver's UI. Open `index.html` by doubl
 | `tokens.css`, `tokens.js` | Generated from `tokens.json` by `pnpm fe design`. Never edit them by hand; a script test fails when they drift |
 | `design.css` | Component styles shared by every page |
 | `design.js` | The page shell (navigation and toggles), token helpers and the hand-drawn doodles (`FE.doodle`) |
-| `icons.js` | The Lucide glyphs these pages use, named as in `apps/desktop-gpui/assets/icons/sources.json` where the app draws them |
+| `icons.js` | The Lucide glyphs these pages use, named as in `apps/desktop-gpui/assets/icons/sources.json` and copied from the pinned release |
 | `index.html` | Tokens and components |
 | `surfaces/<surface>.html` | One page per surface, with its own `.css` and `.js` when it needs them |
 
@@ -31,12 +31,19 @@ The bar at the top sets theme (dark by default), language and scale (100, 150, 2
 
 ## Landing a surface
 
-1. A surface prototype ticket explores on its own `prototype/<name>` branch, with several variants if needed.
-2. The owner picks one.
-3. Only the chosen variant is tidied into `surfaces/<surface>.html` on the final tokens and merged to main. Reuse `design.css` and the shell, and add the page to `surfaces` in `design.js` by setting it to `true`.
-4. Close the ticket with a link to the page.
+1. Read the background first: the Klein blue lists in `index.html`, `docs/copy-style.md`, `GLOSSARY.md`, the tickets that touched the surface, and upstream's code for it (`upstream/main`). Then compare with the most popular open-source products that have the same surface.
+2. Build the page directly in `surfaces/<surface>.html` of the main checkout, with its own `.css` and `.js`. No prototype branch, worktree or ignored folder. Reuse `design.css` and the shell; a new page is added to `surfaces` in `design.js` and to the "设计页" row of the dev pane.
+3. Load the page in a browser in both themes and both languages and check the console. `pnpm fe test` and `pnpm fe lint` do not load these pages, and `FE.icon` throws on a name `icons.js` lacks, which leaves the page empty.
+4. Close the ticket with a link to the page. The owner reviews it there; changes go in as new commits on the same files.
 
-Each surface ticket edits its own files, so they can run in parallel. A shared style goes into `design.css`; a token goes into `tokens.json`. Rejected variants stay on their branch.
+A shared style goes into `design.css`; a token goes into `tokens.json`.
+
+## Rules for a surface page
+
+- Every capability the surface has upstream keeps a place, cloud and account features aside. The page ends with a "Where everything went" table that names the place of each one; implementation tickets check against it.
+- The surface holds controls and state, not the manual (`docs/copy-style.md`, "Progressive disclosure"). What a hint would say goes into a tooltip, a popover or that table.
+- Icons: only names listed in `apps/desktop-gpui/assets/icons/sources.json`, with the path data copied from the pinned file in `apps/desktop-gpui/assets/icons/`. A test keeps an icon out of that list until the app draws it, so a design that needs a new glyph names it in its ticket and uses a listed one until the feature lands.
+- A page shows the states a press can reach; what it cannot show (drags, hover-only controls, shortcuts) is written in its tables.
 
 ## During implementation
 

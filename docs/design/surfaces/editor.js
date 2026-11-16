@@ -64,6 +64,17 @@ const ti = (k, opts, val = 0, four = false) => ({
 	four,
 });
 const gr = (en, zh, rows, opt = {}) => ({ en, zh, rows, ...opt });
+const st = (k, en, zh, val, step, min, max, unit = "") => ({
+	t: "st",
+	k,
+	en,
+	zh,
+	val,
+	step,
+	min,
+	max,
+	unit,
+});
 const O = (...pairs) => pairs;
 const positions = O(
 	["Top left", "左上"],
@@ -186,8 +197,116 @@ const bgBodies = {
 	],
 };
 
+const SPEEDS = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "1.75x", "2x", "3x"];
+const TRANSITIONS = O(
+	["Cross dissolve", "交叉溶解"],
+	["Dip to black", "黑场过渡"],
+	["Dip to white", "白场过渡"],
+	["Push left", "向左推入"],
+	["Push right", "向右推入"],
+	["Push up", "向上推入"],
+	["Push down", "向下推入"],
+	["Wipe left", "向左擦除"],
+	["Wipe right", "向右擦除"],
+	["Wipe up", "向上擦除"],
+	["Wipe down", "向下擦除"],
+	["Zoom", "缩放"],
+);
+const SHAPES = O(
+	["Arrow", "箭头", "arrow-up-right"],
+	["Line", "直线", "slash"],
+	["Rectangle", "矩形", "square"],
+	["Ellipse", "椭圆", "circle"],
+	["Highlight", "高亮", "highlighter"],
+	["Step", "步骤", "hash"],
+);
+const SP_KINDS = {
+	text: ["text", "文字"],
+	mask: ["masks", "遮罩"],
+	captions: ["captions", "字幕"],
+	style: ["style segments", "样式段落"],
+	shape: ["shapes", "形状"],
+};
+const FILLERS = O(
+	["Hesitations", "迟疑音"],
+	["Filler phrases", "口头禅"],
+	["Repeated words", "重复词"],
+	["False starts", "改口"],
+);
+const PAUSES = [
+	{ at: 19, len: 2.4 },
+	{ at: 49.6, len: 1.8 },
+	{ at: 95, len: 1.2 },
+];
+const EQ_PRESETS = O(
+	["Off", "关闭"],
+	["Natural", "自然"],
+	["Clear", "清晰"],
+	["Warm", "温暖"],
+	["Bright", "明亮"],
+	["Broadcast", "广播"],
+);
+const EQ_BANDS = O(
+	["Low cut", "低切"],
+	["Low", "低频"],
+	["Low-mid", "中低频"],
+	["High-mid", "中高频"],
+	["High", "高频"],
+);
+const EQ_CURVES = [
+	[80, 0, 0, 0, 0],
+	[70, 1, -1, 1.5, 1],
+	[90, -1, -2.5, 3, 2],
+	[60, 3, 1, -1, -2],
+	[80, -1, -1, 2.5, 4.5],
+	[80, 4, -3, 3, 2],
+];
+const EQ_HZ = [80, 120, 400, 3000, 9000];
+const txBuild = (paragraphs) => {
+	const words = [];
+	paragraphs.forEach(([at, text], p) => {
+		text.split(" ").forEach((raw, n) => {
+			const mark = "~^=-".includes(raw[0]) ? raw[0] : "";
+			words.push({
+				p,
+				at: at + n * 0.8,
+				text: raw.slice(mark.length).replace("_", " "),
+				kind: mark ? "~^=".indexOf(mark) : -1,
+				cut: mark === "-",
+			});
+		});
+	});
+	return words;
+};
+const TX = {
+	en: txBuild([
+		[
+			4,
+			"So ~um today I want to show you the new library. It keeps every recording you make in one place.",
+		],
+		[
+			30,
+			"Now open the library and ^you_know pick the =the recording from this morning. ~Uh you can rename it, or drag it straight into another app.",
+		],
+		[
+			52,
+			"-That -is -it. Export when you are ready and the file stays on this PC.",
+		],
+	]),
+	zh: txBuild([
+		[
+			4,
+			"那么 ~嗯 今天 给你 看看 新的 资源库。 它把 你录的 每一段 都放在 一个地方。",
+		],
+		[
+			30,
+			"现在 打开 资源库， ^那个 选中 今天 =今天 早上的 录制。 ~呃 你可以 给它 重命名， 也可以 直接 拖到 别的 应用里。",
+		],
+		[52, "-就这样。 准备好了 就导出， 文件 留在 这台 电脑上。"],
+	]),
+};
+
 const TABS = {
-	clips: { icon: "film", en: "Clips", zh: "片段" },
 	background: { icon: "image", en: "Background", zh: "背景" },
 	screen: { icon: "monitor", en: "Screen", zh: "画面" },
 	camera: { icon: "webcam", en: "Camera", zh: "摄像头" },
@@ -347,6 +466,7 @@ const groups = {
 				],
 			},
 		]),
+		gr("Voice EQ", "人声 EQ", [{ t: "eq" }]),
 		gr(
 			"Sync",
 			"同步",
@@ -507,9 +627,11 @@ const groups = {
 				),
 			),
 			bt("Regenerate captions", "重新生成字幕"),
+			tg("capFill", "Show filler words", "显示语气词"),
 			{ t: "link", en: "Delete model", zh: "删除模型" },
 		]),
 		gr("Style", "样式", [
+			{ t: "sp", kind: "captions" },
 			ti(
 				"capPreset",
 				O(
@@ -618,6 +740,7 @@ const SEL = {
 				tg("tAa", "AA", "AA"),
 			]),
 			gr("Style presets", "样式预设", [
+				{ t: "sp", kind: "text" },
 				sg(
 					"tPre",
 					O(
@@ -764,6 +887,7 @@ const SEL = {
 		zh: "遮罩",
 		g: () => [
 			gr("Mask", "遮罩", [
+				{ t: "sp", kind: "mask" },
 				sg("mK", O(["Sensitive", "敏感信息"], ["Highlight", "高亮"])),
 				tg("mOn", "Enabled", "启用", true),
 				sg("mE", O(["Blur", "模糊"], ["Pixelate", "像素化"])),
@@ -911,6 +1035,7 @@ const SEL = {
 		zh: "样式",
 		g: () => [
 			gr("Style", "样式", [
+				{ t: "sp", kind: "style" },
 				{ t: "input", en: "Name", zh: "名称", ph: "Style 1" },
 				tg("yOn", "Enabled", "启用", true),
 				nt(
@@ -943,6 +1068,75 @@ const SEL = {
 				{ shut: true },
 			),
 		],
+	},
+	shape: {
+		en: "Shape",
+		zh: "形状",
+		g: () => {
+			const kind = S.v.shK ?? 0;
+			const boxed = kind === 2 || kind === 3;
+			return [
+				gr("Shape", "形状", [{ t: "sp", kind: "shape" }, ti("shK", SHAPES)]),
+				gr("Stroke", "描边", [
+					sw("Color", "颜色", "#FF4766"),
+					sl("shW", "Width", "粗细", 1, 40, 6),
+				]),
+				...(boxed
+					? [
+							gr("Fill", "填充", [
+								tg("shF", "Fill", "填充"),
+								{
+									when: "shF",
+									rows: [
+										sw("Color", "颜色", "#FF4766"),
+										sl("shFo", "Opacity", "不透明度", 0, 100, 20, "%"),
+									],
+								},
+								...(kind === 2
+									? [sl("shR", "Corner radius", "圆角", 0, 100, 12)]
+									: []),
+							]),
+						]
+					: []),
+				...(kind === 0
+					? [
+							gr("Arrowhead", "箭头", [
+								sg(
+									"shH",
+									O(["Filled", "实心"], ["Open", "空心"], ["Double", "双向"]),
+								),
+							]),
+						]
+					: []),
+				...(kind === 5
+					? [gr("Step", "步骤", [st("shN", "Number", "编号", 1, 1, 1, 99)])]
+					: []),
+				gr("Look", "外观", [
+					sl("shS", "Shadow", "阴影", 0, 100, 0),
+					sl("shO", "Opacity", "不透明度", 0, 100, 100, "%"),
+				]),
+				gr(
+					"Animation",
+					"动画",
+					[
+						sg("shIO", O(["In", "入场"], ["Out", "出场"])),
+						ti(
+							"shA",
+							O(
+								["None", "无"],
+								["Fade", "淡入淡出"],
+								["Scale", "缩放"],
+								["Draw on", "描绘"],
+							),
+							1,
+							true,
+						),
+						sl("shD", "Duration", "时长", 0, 2, 0.3, " s", 0.05),
+					],
+					{ shut: true },
+				),
+			];
+		},
 	},
 };
 
@@ -988,6 +1182,17 @@ const TRACKS = [
 		zh: "文字",
 		tool: "overlays",
 		segs: [{ s: 4, e: 14, l: ["Product demo", "Product demo"] }],
+	},
+	{
+		id: "shape",
+		icon: "arrow-up-right",
+		en: "Shape",
+		zh: "形状",
+		tool: "overlays",
+		segs: [
+			{ s: 36, e: 46, l: ["Arrow", "箭头"], kind: 0 },
+			{ s: 48, e: 58, l: ["Step 1", "步骤 1"], kind: 5 },
+		],
 	},
 	{
 		id: "audio",
@@ -1066,7 +1271,30 @@ const S = {
 	display: null,
 	v: {},
 	shut: {},
-	shown: new Set(["video", "zoom", "captions", "text", "audio"]),
+	shown: new Set(["video", "zoom", "captions", "shape", "audio"]),
+	side: "style",
+	speed: 2,
+	trs: { 1: { kind: 0 }, 2: null },
+	trAt: 1,
+	shapeTool: null,
+	sp: {
+		kind: "text",
+		list: [{ n: ["Title card", "标题卡"] }, { n: ["Callout", "标注"] }],
+		on: null,
+		def: null,
+		sub: null,
+		fresh: false,
+	},
+	tx: {
+		empty: false,
+		search: false,
+		hit: 0,
+		clean: null,
+		cats: [true, true, true, true],
+		keep: new Set(),
+		sel: null,
+		shortened: false,
+	},
 	zoom: 1,
 	quality: 1,
 	aspect: 0,
@@ -1091,6 +1319,111 @@ const shut = (g) => S.shut[g.en + g.zh] ?? Boolean(g.shut);
 const display = () => S.display ?? "fit";
 const percent = (value, min, max) =>
 	((Number(value) - Number(min)) / (Number(max) - Number(min))) * 100;
+S.sp.def = S.sp.list[0];
+const inspected = () => (S.sel && S.sel.track !== "video" ? S.sel : null);
+const tx = () => TX[FE.state.lang === "en" ? "en" : "zh"];
+const txRange = () =>
+	S.tx.sel
+		? [Math.min(...S.tx.sel), Math.min(Math.max(...S.tx.sel), tx().length - 1)]
+		: null;
+const txQuery = () => pick("library", "资源库");
+const txMatches = () =>
+	tx()
+		.map((w, i) => (w.text.toLowerCase().includes(txQuery()) ? i : -1))
+		.filter((i) => i >= 0);
+const txFillers = () =>
+	tx()
+		.map((w, i) => ({ w, i }))
+		.filter(({ w }) => w.kind >= 0 && !w.cut && S.tx.cats[w.kind]);
+const pauses = () =>
+	S.tx.shortened ? [] : PAUSES.filter((p) => p.len > (S.v.pzL ?? 1));
+const eqPreset = () => S.v.eqPreset ?? 3;
+const eqBand = () => S.v.eqBand ?? 1;
+const eqHz = (b) =>
+	S.v[`eqF${eqPreset()}${b}`] ?? (b ? EQ_HZ[b] : EQ_CURVES[eqPreset()][0]);
+const eqGain = (b) => S.v[`eqG${eqPreset()}${b}`] ?? EQ_CURVES[eqPreset()][b];
+const eqQ = (b) => S.v[`eqQ${eqPreset()}${b}`] ?? 1;
+const eqCustom = () =>
+	Object.keys(S.v).some((key) =>
+		["F", "G", "Q"].some((part) => key.startsWith(`eq${part}${eqPreset()}`)),
+	);
+const eqX = (hz) => (Math.log(hz / 20) / Math.log(1000)) * 312;
+const eqY = (db) => 66 - (db / 15) * 60;
+const eqResponse = (hz) => {
+	let db = -12 * Math.max(0, Math.log2(eqHz(0) / hz));
+	for (let b = 1; b < 5; b += 1) {
+		const octaves = Math.log2(hz / eqHz(b));
+		db += eqGain(b) * Math.exp(-((octaves * eqQ(b)) ** 2));
+	}
+	return Math.max(-15, Math.min(15, db));
+};
+const eqGraph = () => {
+	const points = [];
+	for (let i = 0; i <= 96; i += 1) {
+		const hz = 20 * 1000 ** (i / 96);
+		points.push(
+			`${((i / 96) * 312).toFixed(1)},${eqY(eqResponse(hz)).toFixed(1)}`,
+		);
+	}
+	const grid = [100, 1000, 10000]
+		.map(
+			(hz, i) =>
+				`<path class="grid" d="M${eqX(hz).toFixed(1)} 6V126"/><text x="${eqX(hz).toFixed(1)}" y="144">${["100", "1k", "10k"][i]}</text>`,
+		)
+		.join("");
+	const handles = EQ_BANDS.map((band, b) => {
+		const hz = eqHz(b);
+		return `<circle class="${eqBand() === b ? "on" : ""}" data-act="set" data-k="eqBand" data-v="${b}" cx="${eqX(hz).toFixed(1)}" cy="${eqY(eqResponse(hz)).toFixed(1)}" r="5"><title>${pick(band[0], band[1])}</title></circle>`;
+	}).join("");
+	return `<svg class="eq" id="eq-graph" viewBox="0 0 312 150" role="img" aria-label="${pick("Voice EQ curve", "人声 EQ 曲线")}">${grid}<path class="grid" d="M0 6H312M0 126H312"/><path class="zero" d="M0 66H312"/><polyline class="curve" points="${points.join(" ")}"/>${handles}</svg>`;
+};
+const eqRows = () => {
+	const clip = S.sel?.track === "video" ? S.sel.i + 1 : null;
+	const p = eqPreset();
+	const b = eqBand();
+	const scope = `<div class="f"><span>${L("Applies to", "应用于")}</span><div class="ctl"><span class="tag">${clip ? L(`Clip ${clip}`, `片段 ${clip}`) : L("All clips", "所有片段")}</span>${eqCustom() ? `<span class="tag">${L("Custom", "自定义")}</span>` : ""}</div></div>`;
+	if (p === 0) return scope + row(ti("eqPreset", EQ_PRESETS, 3));
+	const declick = `<div class="f"><span>${L("De-click", "去口水音")}</span><div class="ctl"><div class="seg-row">${O(
+		["Off", "关闭"],
+		["Light", "轻度"],
+		["Strong", "强力"],
+	)
+		.map(
+			(o, i) =>
+				`<button class="${(S.v.eqClick ?? 0) === i ? "on" : ""}" data-act="set" data-k="eqClick" data-v="${i}">${L(o[0], o[1])}</button>`,
+		)
+		.join("")}</div></div></div>`;
+	return [
+		scope,
+		eqCustom()
+			? row(ti("eqPreset", EQ_PRESETS, 3)).replace("tile on", "tile")
+			: row(ti("eqPreset", EQ_PRESETS, 3)),
+		eqGraph(),
+		row(sg("eqBand", EQ_BANDS, 1)),
+		row(
+			sl(
+				`eqF${p}${b}`,
+				"Frequency (Hz)",
+				"频率（Hz）",
+				20,
+				20000,
+				eqHz(b),
+				"",
+				10,
+			),
+		),
+		...(b
+			? [
+					row(
+						sl(`eqG${p}${b}`, "Gain", "增益", -15, 15, eqGain(b), " dB", 0.5),
+					),
+					row(sl(`eqQ${p}${b}`, "Q", "Q", 0.3, 6, 1, "", 0.1)),
+				]
+			: []),
+		declick,
+		...(clip ? [row(bt("Apply to all", "应用到全部"))] : []),
+	].join("");
+};
 
 const row = (c) => {
 	if (c.when !== undefined) {
@@ -1114,7 +1447,17 @@ const row = (c) => {
 		case "sg":
 			return `<div class="seg-row">${c.opts.map((o, i) => `<button class="${val(c) === i ? "on" : ""}" data-act="set" data-k="${c.k}" data-v="${i}">${L(o[0], o[1])}</button>`).join("")}</div>`;
 		case "ti":
-			return `<div class="tiles ${c.four ? "four" : ""}">${c.opts.map((o, i) => `<button class="tile ${val(c) === i ? "on" : ""}" data-act="set" data-k="${c.k}" data-v="${i}">${L(o[0], o[1])}</button>`).join("")}</div>`;
+			return `<div class="tiles ${c.four ? "four" : ""}">${c.opts.map((o, i) => `<button class="tile ${val(c) === i ? "on" : ""}" data-act="set" data-k="${c.k}" data-v="${i}">${o[2] ? icon(o[2]) : ""}${L(o[0], o[1])}</button>`).join("")}</div>`;
+		case "eq":
+			return eqRows();
+		case "sp": {
+			const name = S.sp.on?.n ?? ["Custom style", "自定义样式"];
+			return `<button class="pick sp ${S.menu === "sp" ? "on" : ""}" data-act="menu" data-m="sp" data-kind="${c.kind}" title="${pick("Style presets", "样式预设")}">${icon("palette")}<span>${L(name[0], name[1])}</span>${icon("chevron-down")}</button>`;
+		}
+		case "st": {
+			const v = val(c);
+			return `<div class="f"><span>${L(c.en, c.zh)}</span><div class="ctl stepper"><button class="ib" data-act="step" data-k="${c.k}" data-by="${-c.step}" data-min="${c.min}" data-max="${c.max}" data-d="${c.val}" aria-label="${pick("Decrease", "减少")}">${icon("minus")}</button><b class="tnum">${Number(v).toFixed(c.step < 1 ? 1 : 0)}${c.unit}</b><button class="ib" data-act="step" data-k="${c.k}" data-by="${c.step}" data-min="${c.min}" data-max="${c.max}" data-d="${c.val}" aria-label="${pick("Increase", "增加")}">${icon("plus")}</button></div></div>`;
+		}
 		case "sw":
 			return `<div class="f"><span>${L(c.en, c.zh)}</span><div class="ctl"><span class="swatch"><i style="background:${c.color}"></i>${c.color}</span></div></div>`;
 		case "nt":
@@ -1191,19 +1534,117 @@ const clipsPanel = () => `<div class="grp-body" style="padding-top:8px">
 	<p class="note">${L("Drag to reorder. Rename and delete are on each row.", "拖动排序。重命名和删除在每一行上。")}</p>
 </div>`;
 const panelBody = () => {
-	if (S.sel) {
-		const def = SEL[S.sel.track] ?? SEL.zoom;
+	const sel = inspected();
+	if (sel) {
+		const def = SEL[sel.track] ?? SEL.zoom;
 		return def.g().map(group).join("");
 	}
-	if (S.tab === "clips") return clipsPanel();
 	return groups[S.tab]().map(group).join("");
 };
 const panel = () => {
-	const def = S.sel ? (SEL[S.sel.track] ?? SEL.zoom) : TABS[S.tab];
-	const head = S.sel
+	const sel = inspected();
+	const def = sel ? (SEL[sel.track] ?? SEL.zoom) : TABS[S.tab];
+	const head = sel
 		? `<b>${L(def.en, def.zh)}</b><button class="ib" data-act="delete-sel" title="${pick("Delete", "删除")}">${icon("trash")}</button><button class="ib" data-act="deselect">${L("Done", "完成")}</button>`
 		: `<b>${L(def.en, def.zh)}</b>`;
 	return `<div class="panel"><div class="panel-head">${head}</div><div class="panel-body" id="panel-body">${panelBody()}</div></div>`;
+};
+const txRow = (at, text, more = "") =>
+	`<div class="tx-row"><span class="stamp tnum">${fmt(at)}</span><span class="grow">${text}</span><button class="ib" data-act="tx-listen" data-v="${at}" title="${pick("Listen", "试听")}">${icon("play")}</button>${more}</div>`;
+const cleanUp = () => {
+	const words = tx();
+	const onPauses = S.tx.clean === "pauses";
+	const tabs = `<div class="seg block">${[
+		["fillers", "Filler words", "语气词"],
+		["pauses", "Pauses", "停顿"],
+	]
+		.map(
+			([v, en, zh]) =>
+				`<button class="${S.tx.clean === v ? "on" : ""}" data-act="tx-tab" data-v="${v}">${L(en, zh)}</button>`,
+		)
+		.join("")}</div>`;
+	if (onPauses) {
+		const list = pauses();
+		const saved = list
+			.reduce((sum, p) => sum + p.len - (S.v.pzK ?? 0.5), 0)
+			.toFixed(1);
+		return `<div class="tx-clean">${tabs}
+			${row(st("pzL", "Pauses longer than", "停顿长于", 1, 0.1, 0.3, 5, " s"))}
+			${row(st("pzK", "Shorten to", "缩短到", 0.5, 0.1, 0.1, 2, " s"))}
+			${
+				list.length
+					? `${list.map((p) => txRow(p.at, `<span class="tnum">${p.len.toFixed(1)} s</span>`)).join("")}<p class="note tnum">${L(`${list.length} ${list.length === 1 ? "pause" : "pauses"}, saves ${saved} s`, `${list.length} 处停顿，节省 ${saved} s`)}</p><button class="line-btn" data-act="tx-shorten">${L("Shorten", "缩短")}</button>`
+					: `<p class="note">${L("No pauses that long", "没有这么长的停顿")}</p>`
+			}</div>`;
+	}
+	const counts = FILLERS.map(
+		(_, kind) => words.filter((w) => w.kind === kind && !w.cut).length,
+	);
+	const listed = txFillers();
+	const going = listed.filter(({ i }) => !S.tx.keep.has(i));
+	return `<div class="tx-clean">${tabs}
+		<div class="seg-row">${FILLERS.map((f, kind) => `<button class="${S.tx.cats[kind] ? "on" : ""}" data-act="tx-cat" data-v="${kind}">${L(f[0], f[1])} ${counts[kind]}</button>`).join("")}</div>
+		${
+			listed.length
+				? `${listed
+						.map(({ w, i }) =>
+							txRow(
+								w.at,
+								`${words[i - 1]?.p === w.p ? words[i - 1].text : ""} <mark>${w.text}</mark> ${words[i + 1]?.p === w.p ? words[i + 1].text : ""}`,
+								`<button class="check ${S.tx.keep.has(i) ? "" : "on"}" data-act="tx-keep" data-i="${i}" aria-label="${S.tx.keep.has(i) ? pick("Remove this one", "移除这一处") : pick("Keep this one", "保留这一处")}">${icon("check", "sm")}</button>`,
+							),
+						)
+						.join(
+							"",
+						)}<button class="line-btn" data-act="tx-remove" ${going.length ? "" : "disabled"}>${L(`Remove ${going.length}`, `移除 ${going.length} 处`)}</button>`
+				: `<p class="note">${L("No filler words left", "没有语气词了")}</p>`
+		}</div>`;
+};
+const transcript = () => {
+	const words = tx();
+	const title = `<b>${L("Transcript", "转写")}${S.tx.empty ? "" : `<small>${L(`${words.length} words`, `${words.length} 个词`)}</small>`}</b>`;
+	if (S.tx.empty)
+		return `<div class="panel"><div class="panel-head">${title}</div><div class="side-empty">${icon("scan-text", "lg")}<p>${L("Words spoken in this recording appear here.", "这段录制里说的话会出现在这里。")}</p><button class="line-btn" data-pact="tx-empty" data-v="false">${L("Transcribe", "转写")}</button></div></div>`;
+	const range = txRange();
+	const matches = S.tx.search ? txMatches() : [];
+	const hit = matches[S.tx.hit % Math.max(1, matches.length)];
+	const now = words.reduce(
+		(best, w, i) => (w.at <= S.t && S.t - w.at < 1.6 ? i : best),
+		-1,
+	);
+	const word = (w, i) =>
+		`<span class="w ${w.cut ? "cut" : ""} ${range && i >= range[0] && i <= range[1] ? "sel" : ""} ${i === now ? "now" : ""} ${S.tx.clean === "fillers" && w.kind >= 0 && !w.cut ? "fill" : ""} ${matches.includes(i) ? "hit" : ""} ${i === hit ? "at" : ""}" data-act="word" data-i="${i}">${w.text}</span>`;
+	const paragraphs = [0, 1, 2]
+		.map((p) => {
+			const own = words.map((w, i) => ({ w, i })).filter(({ w }) => w.p === p);
+			return `<div class="tx-p"><span class="stamp tnum">${fmt(own[0].w.at)}</span><p>${own.map(({ w, i }) => word(w, i)).join(pick(" ", ""))}</p></div>`;
+		})
+		.join("");
+	const search = S.tx.search
+		? `<div class="tx-bar"><div class="input">${icon("search")}<input value="${txQuery()}" aria-label="${pick("Find in transcript", "在转写中查找")}"></div><span class="tnum">${matches.length ? L(`${(S.tx.hit % matches.length) + 1} of ${matches.length}`, `${(S.tx.hit % matches.length) + 1}/${matches.length}`) : L("No matches", "无匹配")}</span><button class="ib" data-act="tx-step" data-v="-1" title="${pick("Previous match", "上一个")}  Shift+Enter">${icon("chevron-up")}</button><button class="ib" data-act="tx-step" data-v="1" title="${pick("Next match", "下一个")}  Enter">${icon("chevron-down")}</button><button class="ib" data-act="tx-cut-matches" title="${pick("Cut all matches", "剪掉全部匹配")}">${icon("scissors")}</button></div>`
+		: "";
+	let foot = "";
+	if (range) {
+		const picked = words.slice(range[0], range[1] + 1);
+		const count = picked.length;
+		foot = `<div class="tx-foot"><span class="grow tnum">${L(`${count} ${count === 1 ? "word" : "words"} · ${(count * 0.8).toFixed(1)} s`, `${count} 个词 · ${(count * 0.8).toFixed(1)} s`)}</span><button class="ib" data-act="tx-cut">${picked.every((w) => w.cut) ? `${icon("rotate-ccw")}${L("Restore", "恢复")}` : `${icon("scissors")}${L("Cut", "剪掉")}`}<span class="kbd">Del</span></button></div>`;
+	}
+	return `<div class="panel"><div class="panel-head">${title}<button class="ib ${S.tx.search ? "on" : ""}" data-act="tx-search" title="${pick("Find", "查找")}  Ctrl+F">${icon("search")}</button><button class="ib ${S.tx.clean ? "on" : ""}" data-act="tx-clean">${icon("eraser")}${L("Clean up", "清理")}</button></div>${search}${S.tx.clean ? cleanUp() : ""}<div class="panel-body tx-body" id="panel-body">${paragraphs}</div>${foot}</div>`;
+};
+const SIDE = [
+	["style", "Style", "样式"],
+	["transcript", "Transcript", "转写"],
+	["clips", "Clips", "片段"],
+];
+const side = () => {
+	const tab = inspected() ? "style" : S.side;
+	const body =
+		tab === "style"
+			? `${rail()}${panel()}`
+			: tab === "transcript"
+				? transcript()
+				: `<div class="panel"><div class="panel-head"><b>${L("Clips", "片段")}<small>${L(`${clipSegs.length} clips`, `${clipSegs.length} 个片段`)}</small></b></div><div class="panel-body" id="panel-body">${clipsPanel()}</div></div>`;
+	return `<div class="side"><div class="side-tabs"><div class="seg block">${SIDE.map(([v, en, zh]) => `<button class="${tab === v ? "on" : ""}" data-act="side" data-v="${v}">${L(en, zh)}</button>`).join("")}</div></div><div class="side-body">${body}</div></div>`;
 };
 
 const titlebar = () => `<div class="titlebar">
@@ -1231,6 +1672,7 @@ const toolbar = () => `<div class="toolbar">
 	<button class="ib ${S.menu === "aspect" ? "on" : ""}" data-act="menu" data-m="aspect">${icon("proportions")}${L(...aspects[S.aspect])}${icon("chevron-down")}</button>
 	<button class="ib" data-act="dialog" data-d="crop">${icon("crop")}${L("Crop", "裁剪")}</button>
 	<button class="ib ${S.menu === "snapshot" ? "on" : ""}" data-act="menu" data-m="snapshot" title="${pick("Snapshot", "快照")}">${icon("image")}${L("Snapshot", "快照")}${icon("chevron-down")}</button>
+	<button class="ib ${S.menu === "shapes" || S.shapeTool !== null ? "on" : ""}" data-act="menu" data-m="shapes" title="${pick("Draw a shape", "绘制形状")}">${icon(S.shapeTool === null ? "arrow-up-right" : SHAPES[S.shapeTool][2])}${L("Shapes", "形状")}${icon("chevron-down")}</button>
 	<span class="grow"></span>
 	<button class="ib" title="${pick("Full-screen preview (F)", "全屏预览（F）")}">${icon("maximize")}</button>
 	<span class="lbl">${L("Preview", "预览")}</span>
@@ -1245,8 +1687,20 @@ const toolbar = () => `<div class="toolbar">
 		)
 		.join("")}</div>`}
 </div>`;
+const shapeLayer = () => {
+	if (!S.shown.has("shape")) return "";
+	const on = S.sel?.track === "shape" ? S.sel.i : null;
+	const handle = (x, y) =>
+		`<rect class="handle" x="${x - 3}" y="${y - 3}" width="6" height="6"/>`;
+	return `<svg class="shapes" viewBox="0 0 320 180" aria-hidden="true">
+		<path class="ink" d="M214 40 181 55.6"/><path class="ink solid" d="M176 58l10.7-.7-3.4-7.2z"/>
+		<circle class="ink solid" cx="232" cy="32" r="9"/><text x="232" y="35.5">1</text>
+		${on === 0 ? handle(214, 40) + handle(176, 58) : ""}
+		${on === 1 ? `<rect class="box" x="223" y="23" width="18" height="18"/>${handle(223, 23)}${handle(241, 23)}${handle(223, 41)}${handle(241, 41)}` : ""}
+	</svg>`;
+};
 const canvas = () =>
-	`<div class="canvas" id="canvas"><div class="screen">${scene}</div><div class="bubble"></div><div class="cap-line">${L("Now open the library", "现在打开资源库")}</div></div>`;
+	`<div class="canvas ${S.shapeTool === null ? "" : "draw"}" id="canvas"><div class="screen">${scene}</div><div class="bubble"></div>${shapeLayer()}<div class="cap-line">${L("Now open the library", "现在打开资源库")}</div></div>`;
 const stage = () => `<div class="stage">${canvas()}</div>`;
 const applyPreview = (root = document) => {
 	const canvases = root.querySelectorAll(".canvas");
@@ -1273,7 +1727,7 @@ const transport = () => `<div class="transport">
 		<button class="play" data-act="play" title="Space">${icon(S.playing ? "pause" : "play")}</button>
 		<button class="ib" data-act="seek" data-v="${TOTAL}" title="${pick("Jump to end", "跳到结尾")}">${icon("skip-forward")}</button>
 	</span>
-	<span class="grow"></span>
+	<span class="grow end"><button class="ib speed ${S.menu === "speed" || S.speed !== 2 ? "on" : ""}" data-act="menu" data-m="speed" title="${pick("Preview speed", "预览速度")}  &lt; &gt;">${SPEEDS[S.speed]}</button></span>
 </div>`;
 const tlTools = () => `<div class="tl-tools">
 	<button class="ib ${S.split ? "on" : ""}" data-act="split" title="S">${icon("scissors")}${S.split ? L("Done splitting", "完成分割") : L("Split", "分割")}</button>
@@ -1308,13 +1762,20 @@ const laneSegs = (t) =>
 						: "";
 					const clip = t.id === "video";
 					const body = clip
-						? `<span class="strip"></span><span class="strip-wave">${wave()}</span><b class="chip">${L(seg.l[0], seg.l[1])}</b>`
+						? `<span class="strip"></span><span class="strip-wave">${wave()}</span><b class="chip">${L(seg.l[0], seg.l[1])}${eqPreset() ? icon("sliders-horizontal") : ""}</b>`
 						: `${t.id === "audio" ? wave() : ""}<b>${seg.l[0] ? L(seg.l[0], seg.l[1]) : ""}</b>`;
 					return `<button class="seg-b ${on ? "on" : ""} ${tiny ? "tiny" : ""} ${clip ? "clip" : ""}" data-act="select" data-track="${t.id}" data-i="${i}" style="${fill}left:${(seg.s / TOTAL) * 100}%;width:calc(${((seg.e - seg.s) / TOTAL) * 100}% - 1px)">${body}</button>`;
 				})
 				.join("") +
 			(t.id === "video"
-				? `<i class="tr-mark" style="left:${(clipSegs[1].s / TOTAL) * 100}%"></i>`
+				? [1, 2]
+						.map((i) => {
+							const left = `left:${(clipSegs[i].s / TOTAL) * 100}%`;
+							return S.trs[i]
+								? `<button class="tr-mark ${S.menu === "transition" && S.trAt === i ? "on" : ""}" data-act="tr" data-i="${i}" style="${left}" title="${pick(...TRANSITIONS[S.trs[i].kind])}"></button>`
+								: `<button class="tr-add" data-act="tr" data-i="${i}" style="${left}" title="${pick("Add transition", "添加转场")}">${icon("plus")}</button>`;
+						})
+						.join("")
 				: "");
 const TRACK_FILL = {
 	zoom: "zoom",
@@ -1322,6 +1783,7 @@ const TRACK_FILL = {
 	text: "text",
 	audio: "audio",
 	keyboard: "input",
+	shape: "input",
 	style: "style",
 	image: "input",
 	mask: "mask",
@@ -1368,19 +1830,16 @@ const rail = () =>
 		"cursor",
 		"keyboard",
 		"captions",
-		"|",
-		"clips",
 	]
 		.map((id) => {
-			if (id === "|") return '<span class="hr"></span>';
 			const tab = TABS[id];
-			return `<button class="${!S.sel && S.tab === id ? "on" : ""}" data-act="tab" data-v="${id}" title="${pick(tab.en, tab.zh)}" aria-label="${pick(tab.en, tab.zh)}">${icon(tab.icon)}</button>`;
+			return `<button class="${!inspected() && S.tab === id ? "on" : ""}" data-act="tab" data-v="${id}" title="${pick(tab.en, tab.zh)}" aria-label="${pick(tab.en, tab.zh)}">${icon(tab.icon)}</button>`;
 		})
 		.join("")}</div>`;
 const layout = () => `<div class="ed-body"><div class="col">
 	<div class="row-top">
 		<div class="player">${toolbar()}${stage()}${transport()}</div>
-		${rail()}${panel()}
+		${side()}
 	</div>
 	<div class="grip"></div>${timeline(260)}
 </div></div>`;
@@ -1521,6 +1980,51 @@ const menus = {
 					`<button class="${S.shown.has(t.id) ? "on" : ""}" data-act="toggle-track" data-v="${t.id}">${icon(t.icon)}${L(t.en, t.zh)}</button>`,
 			)
 			.join("")}</div></div>`,
+	speed: () =>
+		`<div class="pop menu" style="right:394px;bottom:314px;min-width:96px;width:96px">${SPEEDS.map((s, i) => `<button data-act="speed-set" data-v="${i}"><span class="grow tnum">${s}</span>${S.speed === i ? icon("check") : ""}</button>`).join("")}</div>`,
+	shapes: () =>
+		`<div class="pop menu" style="left:300px;top:84px;width:240px"><div class="tiles">${SHAPES.map((k, i) => `<button class="tile ${S.shapeTool === i ? "on" : ""}" data-act="shape-tool" data-v="${i}">${icon(k[2])}${L(k[0], k[1])}</button>`).join("")}</div></div>`,
+	transition: () => {
+		const at = S.trAt;
+		const left = Math.round(
+			Math.min(900, Math.max(8, 96 + 1167 * (clipSegs[at].s / TOTAL) - 162)),
+		);
+		return `<div class="pop menu" style="left:${left}px;bottom:204px;width:324px">
+			<div class="t">${L("Transition", "转场")}</div>
+			<div class="tiles four">${TRANSITIONS.map((k, i) => `<button class="tile ${S.trs[at]?.kind === i ? "on" : ""}" data-act="tr-kind" data-v="${i}"><span class="tt k${i}"><i></i><i></i></span>${L(k[0], k[1])}</button>`).join("")}</div>
+			<div class="box">${row(sl(`trD${at}`, "Duration", "时长", 0.1, 2, 0.5, " s", 0.05))}</div><hr>
+			<button class="danger" data-act="tr-remove">${icon("trash")}${L("Remove transition", "移除转场")}</button>
+		</div>`;
+	},
+	sp: () => {
+		const noun = SP_KINDS[S.sp.kind];
+		const top = { text: 400, captions: 520 }[S.sp.kind] ?? 196;
+		const rows = S.sp.list.length
+			? S.sp.list
+					.map(
+						(p, i) =>
+							`<div class="sp-row"><button data-act="sp" data-do="apply" data-v="${i}">${S.sp.on === p ? icon("check") : '<span class="gap"></span>'}<span class="grow">${L(p.n[0], p.n[1])}</span>${S.sp.def === p ? `<span class="badge plain">${L("Default", "默认")}</span>` : ""}</button><button class="more ${S.sp.sub === i ? "on" : ""}" data-act="sp" data-do="sub" data-v="${i}" aria-label="${pick("More", "更多")}">${icon("chevron-right")}</button></div>`,
+					)
+					.join("")
+			: `<p class="note">${L("Style presets you save appear here.", "保存的样式预设会出现在这里。")}</p>`;
+		const target = S.sp.sub === null ? null : S.sp.list[S.sp.sub];
+		const sub = target
+			? `<div class="pop menu" style="right:290px;top:${top + S.sp.sub * 30}px;min-width:208px;width:208px">
+				<button data-act="sp" data-do="apply" data-v="${S.sp.sub}">${icon("check")}${L("Apply", "应用")}</button>
+				<button data-act="sp" data-do="sub" data-v="${S.sp.sub}">${icon("refresh-cw")}${L("Update style", "更新样式")}</button>
+				<button data-act="sp" data-do="default" data-v="${S.sp.sub}">${icon("circle-check")}${S.sp.def === target ? L("Remove as default", "取消默认") : L("Set as default", "设为默认")}</button>
+				<button data-act="sp" data-do="move" data-by="-1" data-v="${S.sp.sub}" ${S.sp.sub === 0 ? "disabled" : ""}>${icon("arrow-up")}${L("Move up", "上移")}</button>
+				<button data-act="sp" data-do="move" data-by="1" data-v="${S.sp.sub}" ${S.sp.sub === S.sp.list.length - 1 ? "disabled" : ""}>${icon("arrow-down")}${L("Move down", "下移")}</button>
+				<button data-act="dialog" data-d="spRename">${icon("pencil")}${L("Rename", "重命名")}</button>
+				<button class="danger" data-act="dialog" data-d="spDelete">${icon("trash")}${L("Delete", "删除")}</button>
+			</div>`
+			: "";
+		return `<div class="pop menu" style="right:12px;top:${top}px;width:272px">${rows}<hr>
+			${S.sp.kind === "captions" ? "" : `<button data-act="close">${icon("layers")}${L("Apply to all (3)", "应用到全部（3）")}</button>`}
+			<button data-act="dialog" data-d="spName">${icon("save")}${L("Save style preset", "保存样式预设")}</button>
+			<button data-act="sp" data-do="fresh">${icon(S.sp.fresh ? "check" : "circle-check")}${L(`Use for new ${noun[0]}`, `用于新${noun[1]}`)}</button>
+		</div>${sub}`;
+	},
 	clip: () => {
 		const c = clipSegs[S.menuClip ?? 0];
 		return `<div class="pop menu" style="left:300px;bottom:150px;width:300px">
@@ -1536,19 +2040,13 @@ const menus = {
 						`<button class="${(S.v.clipAud ?? 1) === i ? "on" : ""}" data-act="set" data-k="clipAud" data-v="${i}">${L(o[0], o[1])}</button>`,
 				)
 				.join("")}</div></div>
-			<div class="t">${L("Transition from previous clip", "与上一片段的转场")}</div><div class="box"><div class="seg-row">${[
-				["None", "无"],
-				["Cross fade", "交叉淡化"],
-				["Through black", "黑场过渡"],
-			]
-				.map(
-					(o, i) =>
-						`<button class="${(S.v.clipTr ?? 1) === i ? "on" : ""}" data-act="set" data-k="clipTr" data-v="${i}">${L(o[0], o[1])}</button>`,
-				)
-				.join(
-					"",
-				)}</div>${row(sl("clipTrD", "Duration", "时长", 0.1, 2, 0.5, " s", 0.05))}</div>
 			<div class="t">${L("Cursor", "光标")}</div><div class="box">${row(tg("clipCur", "Hide cursor", "隐藏光标"))}</div><hr>
+			<button data-act="voice-eq">${icon("sliders-horizontal")}<span class="grow">${L("Voice EQ", "人声 EQ")}</span><em>${L(...EQ_PRESETS[eqPreset()])}</em>${icon("chevron-right")}</button>
+			${
+				S.menuClip
+					? `<button data-act="tr" data-i="${S.menuClip}"><span class="tr-glyph"></span><span class="grow">${L("Transition", "转场")}</span><em>${S.trs[S.menuClip] ? L(...TRANSITIONS[S.trs[S.menuClip].kind]) : L("None", "无")}</em>${icon("chevron-right")}</button>`
+					: ""
+			}<hr>
 			<button data-act="close">${icon("scissors")}<span class="grow">${L("Split at playhead", "在播放头处分割")}</span><span class="kbd">C</span></button>
 			<button data-act="close">${L("Merge with previous clip", "与上一片段合并")}</button>
 			<button data-act="close">${L("Merge with next clip", "与下一片段合并")}</button>
@@ -1565,6 +2063,11 @@ const menus = {
 const dialogs = {
 	delete: () =>
 		`<div class="scrim"><div class="dialog"><h3>${L("Delete recording?", "删除录制？")}</h3><p>${L("It goes to the Recycle Bin. Exports stay where they are.", "它会进入回收站，导出的文件不受影响。")}</p><div class="actions"><button class="btn" data-act="close">${L("Keep", "保留")}</button><button class="btn danger" data-act="close">${L("Delete recording", "删除录制")}</button></div></div></div>`,
+	spName: (title = ["Save style preset", "保存样式预设"]) =>
+		`<div class="scrim"><div class="dialog"><h3>${L(...title)}</h3><div class="input"><input value="${pick("My style", "我的样式")}" aria-label="${pick("Name", "名称")}"></div><div class="actions"><button class="btn" data-act="close">${L("Cancel", "取消")}</button><button class="btn primary" data-act="close">${L("Save", "保存")}</button></div></div></div>`,
+	spRename: () => dialogs.spName(["Rename style preset", "重命名样式预设"]),
+	spDelete: () =>
+		`<div class="scrim"><div class="dialog"><h3>${L("Delete style preset?", "删除样式预设？")}</h3><p>${L("Items that use this style keep it. This can't be undone.", "已使用这个样式的内容会保留它。删除后无法恢复。")}</p><div class="actions"><button class="btn" data-act="close">${L("Cancel", "取消")}</button><button class="btn danger" data-act="sp" data-do="delete">${L("Delete style preset", "删除样式预设")}</button></div></div></div>`,
 	crop: () =>
 		`<div class="scrim"><div class="dialog" style="width:560px"><h3>${L("Crop", "裁剪")}</h3><div class="thumb">${scene}</div><div class="crop-stage">${["Free", "1:1", "2:1", "3:2", "4:3", "9:16", "16:9", "16:10", "21:9"].map((r, i) => `<span class="tag ${i === 0 ? "on" : ""}">${r === "Free" ? L("Free", "自由") : r}</span>`).join("")}</div><div class="actions"><button class="btn" data-act="close">${L("Cancel", "取消")}</button><button class="btn primary" data-act="close">${L("Save", "保存")}</button></div></div></div>`,
 };
@@ -1599,6 +2102,19 @@ const renderViewRow = () => {
 								`<button class="${S.noClips === v ? "on" : ""}" data-pact="clips" data-v="${v}">${L(en, zh)}</button>`,
 						)
 						.join("")}</div>`
+		}
+		${
+			S.view !== "export" && S.side === "transcript" && !inspected()
+				? `<div class="seg">${[
+						[false, "Transcribed", "已转写"],
+						[true, "No transcript yet", "还没有转写"],
+					]
+						.map(
+							([v, en, zh]) =>
+								`<button class="${S.tx.empty === v ? "on" : ""}" data-pact="tx-empty" data-v="${v}">${L(en, zh)}</button>`,
+						)
+						.join("")}</div>`
+				: ""
 		}
 		${S.view === "export" ? `<div class="seg">${stateOpts.map(([v, en, zh]) => `<button class="${S.exStage === v ? "on" : ""}" data-pact="exst" data-v="${v}">${L(en, zh)}</button>`).join("")}</div>` : ""}`;
 };
@@ -1655,9 +2171,124 @@ const act = (el, event) => {
 			}
 			S.sel = { track: d.track, i: Number(d.i) };
 			S.menu = null;
+			S.side = "style";
+			if (d.track === "shape")
+				S.v.shK = TRACKS.find((t) => t.id === "shape").segs[S.sel.i].kind;
 			event.stopPropagation();
 			break;
 		}
+		case "side":
+			S.side = d.v;
+			S.sel = null;
+			S.menu = null;
+			break;
+		case "speed-set":
+			S.speed = Number(d.v);
+			S.menu = null;
+			break;
+		case "shape-tool":
+			S.shapeTool = S.shapeTool === Number(d.v) ? null : Number(d.v);
+			S.shown.add("shape");
+			S.menu = null;
+			break;
+		case "voice-eq":
+			S.side = "style";
+			S.tab = "audio";
+			S.menu = null;
+			break;
+		case "tr": {
+			const i = Number(d.i);
+			S.trs[i] ??= { kind: 0 };
+			S.trAt = i;
+			S.menu = "transition";
+			break;
+		}
+		case "tr-kind":
+			S.trs[S.trAt].kind = Number(d.v);
+			break;
+		case "tr-remove":
+			S.trs[S.trAt] = null;
+			S.menu = null;
+			break;
+		case "sp": {
+			const i = Number(d.v);
+			const preset = S.sp.list[d.do === "delete" ? S.sp.sub : i];
+			if (d.do === "sub") S.sp.sub = S.sp.sub === i ? null : i;
+			if (d.do === "apply") {
+				S.sp.on = preset;
+				S.menu = null;
+			}
+			if (d.do === "default") S.sp.def = S.sp.def === preset ? null : preset;
+			if (d.do === "fresh") S.sp.fresh = !S.sp.fresh;
+			if (d.do === "move") {
+				const to = i + Number(d.by);
+				[S.sp.list[i], S.sp.list[to]] = [S.sp.list[to], S.sp.list[i]];
+				S.sp.sub = to;
+			}
+			if (d.do === "delete") {
+				S.sp.list = S.sp.list.filter((p) => p !== preset);
+				if (S.sp.on === preset) S.sp.on = null;
+				if (S.sp.def === preset) S.sp.def = null;
+				S.sp.sub = null;
+				S.dialog = null;
+				S.menu = "sp";
+			}
+			break;
+		}
+		case "step": {
+			const cur = S.v[d.k] ?? Number(d.d);
+			S.v[d.k] = Math.min(
+				Number(d.max),
+				Math.max(Number(d.min), Math.round((cur + Number(d.by)) * 10) / 10),
+			);
+			break;
+		}
+		case "word": {
+			const i = Number(d.i);
+			S.tx.sel = event.shiftKey && S.tx.sel ? [S.tx.sel[0], i] : [i, i];
+			S.t = tx()[i].at;
+			S.playing = false;
+			break;
+		}
+		case "tx-cut":
+			cutSelection();
+			break;
+		case "tx-search":
+			S.tx.search = !S.tx.search;
+			S.tx.hit = 0;
+			break;
+		case "tx-step": {
+			const count = Math.max(1, txMatches().length);
+			S.tx.hit = (S.tx.hit + Number(d.v) + count) % count;
+			break;
+		}
+		case "tx-cut-matches":
+			for (const i of txMatches()) tx()[i].cut = true;
+			break;
+		case "tx-clean":
+			S.tx.clean = S.tx.clean ? null : "fillers";
+			break;
+		case "tx-tab":
+			S.tx.clean = d.v;
+			break;
+		case "tx-cat":
+			S.tx.cats[Number(d.v)] = !S.tx.cats[Number(d.v)];
+			break;
+		case "tx-keep": {
+			const i = Number(d.i);
+			if (S.tx.keep.has(i)) S.tx.keep.delete(i);
+			else S.tx.keep.add(i);
+			break;
+		}
+		case "tx-remove":
+			for (const { w, i } of txFillers()) if (!S.tx.keep.has(i)) w.cut = true;
+			break;
+		case "tx-shorten":
+			S.tx.shortened = true;
+			break;
+		case "tx-listen":
+			S.t = Math.max(0, Number(d.v) - 1.5);
+			break;
 		case "deselect":
 		case "delete-sel":
 			S.sel = null;
@@ -1678,6 +2309,9 @@ const act = (el, event) => {
 		}
 		case "set":
 			S.v[d.k] = Number(d.v);
+			if (d.k === "eqPreset")
+				for (const key of Object.keys(S.v))
+					if (/^eq[FGQ]\d\d$/.test(key)) delete S.v[key];
 			break;
 		case "swatch":
 			S.v.c1 = d.a;
@@ -1691,6 +2325,8 @@ const act = (el, event) => {
 		}
 		case "menu":
 			S.menu = S.menu === d.m ? null : d.m;
+			if (d.kind) S.sp.kind = d.kind;
+			S.sp.sub = null;
 			break;
 		case "aspect":
 			S.aspect = Number(d.v);
@@ -1705,6 +2341,7 @@ const act = (el, event) => {
 			break;
 		case "dialog":
 			S.dialog = d.d;
+			S.menu = null;
 			break;
 		case "toggle-track":
 			if (S.shown.has(d.v)) S.shown.delete(d.v);
@@ -1761,6 +2398,16 @@ const act = (el, event) => {
 	}
 	render();
 };
+const cutSelection = () => {
+	const range = txRange();
+	if (!range) return;
+	const picked = tx().slice(range[0], range[1] + 1);
+	const restore = picked.every((w) => w.cut);
+	for (const w of picked) w.cut = !restore;
+};
+const stepSpeed = (by) => {
+	S.speed = Math.min(SPEEDS.length - 1, Math.max(0, S.speed + by));
+};
 let exTimer = null;
 const setStage = (stage) => {
 	clearInterval(exTimer);
@@ -1798,6 +2445,7 @@ const pact = (el) => {
 	if (d.pact === "display") S.display = d.v;
 	if (d.pact === "exst") setStage(d.v);
 	if (d.pact === "clips") S.noClips = d.v === "true";
+	if (d.pact === "tx-empty") S.tx.empty = d.v === "true";
 	render();
 };
 
@@ -1825,6 +2473,7 @@ document.addEventListener("input", (event) => {
 	S.v[key] = value;
 	el.style.setProperty("--p", `${percent(el.value, el.min, el.max)}%`);
 	el.nextElementSibling.textContent = `${value}${el.dataset.unit}`;
+	if (key.startsWith("eq")) return render();
 	applyPreview();
 });
 document.addEventListener("keydown", (event) => {
@@ -1839,12 +2488,23 @@ document.addEventListener("keydown", (event) => {
 		S.split = !S.split;
 		render();
 	}
+	if (event.key === "<" || event.key === ">") {
+		stepSpeed(event.key === ">" ? 1 : -1);
+		render();
+	}
+	if (event.key === "Delete" && S.side === "transcript" && S.tx.sel) {
+		cutSelection();
+		render();
+	}
 	if (event.key === "Escape") {
 		if (S.dialog || S.menu) {
 			S.dialog = null;
 			S.menu = null;
 		} else if (S.split) S.split = false;
-		else S.sel = null;
+		else if (S.shapeTool !== null) S.shapeTool = null;
+		else if (S.sel) S.sel = null;
+		else if (S.tx.sel) S.tx.sel = null;
+		else S.side = "style";
 		render();
 	}
 });
@@ -1858,8 +2518,8 @@ const renderDocs = () => {
 	const heads = {
 		"t-live": ["Editor", "编辑器"],
 		"l-live": [
-			"The chosen layout: preview and inspector on top, a full-width timeline below, export on its own page. Press a segment to swap the inspector, a video clip for its menu, Export for the export page.",
-			"选定的布局：上面是预览和检查器，下面是全宽时间轴，导出是整页。按段落切换检查器，按视频片段打开菜单，按“导出”进入导出页。",
+			"The chosen layout: preview and side panel on top, a full-width timeline below, export on its own page. Press a segment for its settings, a video clip for its menu, a cut between clips for its transition, Export for the export page.",
+			"选定的布局：上面是预览和侧边面板，下面是全宽时间轴，导出是整页。按段落看它的设置，按视频片段打开菜单，按片段之间的切点设置转场，按“导出”进入导出页。",
 		],
 		"t-layout": ["Layout", "布局"],
 		"l-layout": [
@@ -1895,8 +2555,8 @@ const renderDocs = () => {
 		[
 			["Preview toolbar", "预览工具栏"],
 			[
-				"40 high: aspect ratio, crop, snapshot (saves the frame at the playhead to the library as a screenshot, or copies it), preview quality, full-screen preview (F, Esc returns; Space plays, arrows step frames)",
-				"40 高：宽高比、裁剪、快照（把播放头处的帧存进资源库成为截图，或复制它）、预览画质、全屏预览（F 进入，Esc 返回；空格播放，方向键逐帧）",
+				"40 high: aspect ratio, crop, snapshot (saves the frame at the playhead to the library as a screenshot, or copies it), shapes, preview quality, full-screen preview (F, Esc returns; Space plays, arrows step frames)",
+				"40 高：宽高比、裁剪、快照（把播放头处的帧存进资源库成为截图，或复制它）、形状、预览画质、全屏预览（F 进入，Esc 返回；空格播放，方向键逐帧）",
 			],
 		],
 		[
@@ -1906,15 +2566,15 @@ const renderDocs = () => {
 		[
 			["Transport", "播放条"],
 			[
-				"44 high, under the preview and centred on it: clock, jump to start, play, jump to end",
-				"44 高，在预览下方并与预览居中：时间码、跳到开头、播放、跳到结尾",
+				"44 high, under the preview and centred on it: clock, jump to start, play, jump to end, and preview speed at the right end (46 × 24, tinted when it is not 1x)",
+				"44 高，在预览下方并与预览居中：时间码、跳到开头、播放、跳到结尾，右端是预览速度（46 × 24，不是 1x 时加底色）",
 			],
 		],
 		[
-			["Inspector", "检查器"],
+			["Side panel", "侧边面板"],
 			[
-				"46 icon rail plus a panel 340 by default, dragged from its left edge up to 560 (arrow keys too), remembered; about 445 of content height",
-				"46 宽图标栏加默认 340 宽面板，拖左边缘最宽到 560（也可用方向键），会记住宽度；内容高度约 445",
+				"386 by default, dragged from its left edge up to 720 while the preview keeps 480 (arrow keys too), remembered and shared by its three tabs. A 40 high switcher (Style, Transcript, Clips) sits on top; Style is the 46 icon rail plus the inspector, Transcript and Clips use the full width. The editor always opens on Style, and Esc returns to it",
+				"默认 386 宽，拖左边缘最宽到 720，预览至少保留 480（也可用方向键），三个页签共用并记住这个宽度。顶部是 40 高的切换条（样式、转写、片段）；样式页是 46 宽图标栏加检查器，转写和片段页用满整个宽度。编辑器总是从样式页打开，按 Esc 回到样式页",
 			],
 		],
 		[
@@ -1936,8 +2596,8 @@ const renderDocs = () => {
 		[
 			["Video track", "视频轨"],
 			[
-				"58 high: filmstrip above an 18 px waveform, name chip top left, diamond at a transition",
-				"58 高：上方画面条，下方 18 px 波形，左上角名称，转场处有菱形标记",
+				"58 high: filmstrip above an 18 px waveform, name chip top left with a sliders glyph when the clip has a Voice EQ. A cut shows an 18 px plus while the lane is hovered; a transition shows a 12 px diamond that opens its popover, and its two edges drag its length",
+				"58 高：上方画面条，下方 18 px 波形，左上角名称，片段有人声 EQ 时名称后带滑块图标。鼠标在轨道上时切点显示 18 px 加号；有转场的切点显示 12 px 菱形，按它打开转场弹窗，拖它的两条边改时长",
 			],
 		],
 		[
@@ -1947,8 +2607,8 @@ const renderDocs = () => {
 		[
 			["Thin tracks", "细轨道"],
 			[
-				"26 high: zoom, captions, text, keyboard, style, image, mask, 3D, scene",
-				"26 高：缩放、字幕、文字、按键、样式、图片、遮罩、3D、场景",
+				"26 high: zoom, captions, text, shape, keyboard, style, image, mask, 3D, scene",
+				"26 高：缩放、字幕、文字、形状、按键、样式、图片、遮罩、3D、场景",
 			],
 		],
 		[
@@ -1970,6 +2630,13 @@ const renderDocs = () => {
 			[
 				"One keyframe about every two seconds (at most 180 per recording), decoded in the background; a muted clip shows it at half opacity",
 				"约每两秒取一个关键帧（每段录制最多 180 帧），在后台解码；静音片段的画面条为半透明",
+			],
+		],
+		[
+			["Chapter marks", "章节标记"],
+			[
+				"On the ruler: a 2 px line with an 8 px square head in muted foreground",
+				"在标尺上：2 px 竖线加 8 px 方头，用次要前景色",
 			],
 		],
 		[
@@ -2065,7 +2732,7 @@ const renderDocs = () => {
 				"Clips: list, reorder, rename, delete, record a new clip, import",
 				"片段：列表、排序、重命名、删除、录制新片段、导入",
 			],
-			["Clips tab (was a header toggle)", "片段页（原在标题栏开关）"],
+			["Side panel › Clips", "侧边面板 › 片段"],
 		],
 		[
 			[
@@ -2073,8 +2740,8 @@ const renderDocs = () => {
 				"缩放、文字、字幕、按键、音频、遮罩、场景、3D 镜头、图片、样式段落",
 			],
 			[
-				"Inspector when selected; Tab to a track, Enter or Left/Right selects an existing segment",
-				"选中后在检查器；Tab 到轨道，Enter 或左右键选择已有段落",
+				"Inspector when selected, from any side panel tab (the panel switches to Style); Tab to a track, Enter or Left/Right selects an existing segment",
+				"选中后在检查器，在侧边面板的任何页签都一样（面板会切到样式页）；Tab 到轨道，Enter 或左右键选择已有段落",
 			],
 		],
 		[
@@ -2083,8 +2750,8 @@ const renderDocs = () => {
 		],
 		[
 			[
-				"Clip speed, volume, mute, pitch, hide cursor, split, merge, rename, delete before or after the playhead, delete",
-				"片段速度、音量、静音、音调、隐藏光标、分割、合并、重命名、删除播放头前后部分、删除",
+				"Clip speed, volume, mute, pitch, hide cursor, Voice EQ, transition, split, merge, rename, delete before or after the playhead, delete",
+				"片段速度、音量、静音、音调、隐藏光标、人声 EQ、转场、分割、合并、重命名、删除播放头前后部分、删除",
 			],
 			[
 				"Clip menu (also from Clips › Clip options)",
@@ -2092,8 +2759,133 @@ const renderDocs = () => {
 			],
 		],
 		[
-			["Clip transitions: add, change, remove", "片段转场：添加、更改、删除"],
-			["Clip menu, ported from upstream", "片段菜单，从上游移植"],
+			[
+				"Transitions: twelve kinds (cross dissolve, dip to black or white, push and wipe in four directions, zoom), duration, remove",
+				"转场：十二种（交叉溶解、黑场或白场过渡、四个方向的推入和擦除、缩放）、时长、移除",
+			],
+			[
+				"Transition popover, 324 wide above the cut. Opened by the plus at a cut (adds a 0.5 s cross dissolve first), the diamond, or Transition in the clip menu. Dragging a clip onto the one before it makes one too",
+				"转场弹窗，324 宽，在切点上方。按切点的加号（先加一个 0.5 s 的交叉溶解）、菱形或片段菜单里的“转场”打开。把片段拖到前一个片段上也会生成转场",
+			],
+		],
+		[
+			[
+				"Voice EQ: presets (off, natural, clear, warm, bright, broadcast), curve with five points, frequency, gain and Q per band, de-click",
+				"人声 EQ：预设（关闭、自然、清晰、温暖、明亮、广播）、五个控制点的曲线、每个频段的频率、增益和 Q、去口水音",
+			],
+			[
+				"Audio › Voice EQ. It applies to all clips, or to the selected clip (Voice EQ in the clip menu goes there). Off shows the presets only. A changed curve selects no preset. Drag a point, scroll over it to widen or narrow it, double-click to reset it",
+				"音频 › 人声 EQ。应用于所有片段，或选中的那个片段（片段菜单里的“人声 EQ”会跳到这里）。关闭时只显示预设。改过曲线后不选中任何预设。拖动控制点，在点上滚动改变宽度，双击重置",
+			],
+		],
+		[
+			["Preview speed: 0.5x to 3x", "预览速度：0.5x 到 3x"],
+			[
+				"Transport, right end; < and > step it. Remembered between projects; audio keeps its pitch. Preview only: exports are unchanged",
+				"播放条右端；< 和 > 逐档调整。换项目也记住；声音保持音调。只影响预览，导出不变",
+			],
+		],
+		[
+			[
+				"Transcript: click a word to jump to it, select words and cut them from the video, restore cut words, find, cut all matches",
+				"转写：按一个词跳到那里，选中若干词从视频里剪掉，恢复剪掉的词，查找，剪掉全部匹配",
+			],
+			[
+				"Side panel › Transcript. Drag or Shift-click selects; the footer shows the selection with Cut or Restore (Delete). Cut words stay, struck through; the word at the playhead is underlined",
+				"侧边面板 › 转写。拖动或 Shift 加点击来选择；底部显示选中内容和“剪掉”或“恢复”（Delete）。剪掉的词保留并加删除线；播放头所在的词有下划线",
+			],
+		],
+		[
+			[
+				"Clean up: filler words by kind, each one reviewed and heard before it goes; pauses longer than a length, shortened to another",
+				"清理：按类别列出语气词，每一处都能先看先听再移除；长于某个时长的停顿，缩短到另一个时长",
+			],
+			[
+				"Transcript › Clean up, two tabs. Filler words are underlined in the text while it is open",
+				"转写 › 清理，两个页签。打开时正文里的语气词带虚线下划线",
+			],
+		],
+		[
+			[
+				"Transcript keys and clicks: double-click selects a sentence, triple-click a paragraph, Ctrl+A all; Ctrl+C copies; Enter plays the selection; Delete or Backspace cuts; pressing a cut word restores its whole run",
+				"转写的按键和点击：双击选一句，三击选一段，Ctrl+A 全选；Ctrl+C 复制；Enter 播放选中部分；Delete 或 Backspace 剪掉；按一个已剪掉的词恢复它所在的整段",
+			],
+			["Transcript text", "转写正文"],
+		],
+		[
+			[
+				"Transcript states: not transcribed yet (one line and Transcribe, which reads Transcribing… while it runs), no audio to transcribe, model not downloaded (Download with a percentage)",
+				"转写的状态：还没有转写（一行说明和“转写”按钮，进行中显示“正在转写…”）、没有可转写的音频、模型未下载（“下载”并显示百分比）",
+			],
+			["Transcript tab, in place of the text", "转写页，占正文的位置"],
+		],
+		[
+			[
+				"Cuts that could not be made (they touch a transition, a full-screen text holds the frame, or it is the last clip) and cut words that cannot be restored from here",
+				"没能剪掉的地方（碰到转场、全屏文字定住了画面，或者是最后一个片段），以及在这里恢复不了的已剪掉的词",
+			],
+			[
+				"One line in the transcript footer, saying what was skipped and what to do",
+				"转写底部的一行，说明跳过了什么、接下来怎么做",
+			],
+		],
+		[
+			[
+				"Filler word kinds: hesitations (um, uh, 嗯, 呃), filler phrases (you know, 那个, 就是), repeated words, false starts",
+				"语气词类别：迟疑音（um、uh、嗯、呃）、口头禅（you know、那个、就是）、重复词、改口",
+			],
+			[
+				"Clean up › Filler words: one chip per kind with its count; examples in each chip's tooltip",
+				"清理 › 语气词：每类一个带数量的标签，例子在标签的提示里",
+			],
+		],
+		[
+			[
+				"Voice EQ scope: all clips, one clip, several selected clips, clips with different settings",
+				"人声 EQ 的范围：所有片段、一个片段、选中的多个片段、设置不一致的片段",
+			],
+			[
+				"The tag beside Applies to: All clips, Clip 2, 3 clips, or Mixed (a change then applies to all of them). A changed curve adds a Custom tag and selects no preset",
+				"“应用于”旁的标签：所有片段、片段 2、3 个片段，或“不一致”（这时改动会应用到全部）。改过曲线后多一个“自定义”标签，不选中任何预设",
+			],
+		],
+		[
+			[
+				"Style preset feedback: applied to all, used for new items, a font that is not installed, a failed save",
+				"样式预设的反馈：已应用到全部、已用于新内容、字体未安装、保存失败",
+			],
+			[
+				"The menu row turns to a check for the first two; a warning glyph on the style preset's row with the fallback font in its tooltip; \"Couldn't save style presets. Try again.\" as an error message",
+				"前两种是菜单行变成对勾；字体未安装时样式预设那一行有警告图标，提示里写替代字体；保存失败时提示“无法保存样式预设。再试一次。”",
+			],
+		],
+		[
+			["Show filler words in captions", "在字幕里显示语气词"],
+			["Captions › Transcription", "字幕 › 转写"],
+		],
+		[
+			[
+				"Style presets: apply, save, update, set as default, reorder, rename, delete, apply to all, use for new items",
+				"样式预设：应用、保存、更新、设为默认、排序、重命名、删除、应用到全部、用于新内容",
+			],
+			[
+				"The style preset button at the top of the text, mask, style segment and shape inspectors and of Captions › Style. It names the style preset in use, or Custom style. Each row's arrow opens its own menu",
+				"文字、遮罩、样式段落和形状检查器顶部，以及字幕 › 样式顶部的样式预设按钮。按钮上是正在用的样式预设名，或“自定义样式”。每一行的箭头打开它自己的菜单",
+			],
+		],
+		[
+			[
+				"Shapes: arrow, line, rectangle, ellipse, highlight, step",
+				"形状：箭头、直线、矩形、椭圆、高亮、步骤",
+			],
+			[
+				"Shapes on the preview toolbar arms a tool: drag on the preview to draw, click to place one, Esc to stop. Shapes live on the Shape track and are moved and resized on the preview; a line has a handle at each end, a box has eight",
+				"预览工具栏的“形状”选好工具后：在预览上拖动来画，点击直接放一个，Esc 结束。形状在形状轨道上，在预览里移动和调整大小；直线两端各有一个手柄，方框有八个",
+			],
+		],
+		[
+			["Chapter marks", "章节标记"],
+			["Timeline ruler", "时间轴标尺"],
 		],
 		[
 			["Aspect ratio, crop, preview quality", "宽高比、裁剪、预览画质"],
@@ -2175,6 +2967,8 @@ document.documentElement.style.setProperty(
 );
 renderDocs();
 onChange(() => {
+	S.tx.sel = null;
+	S.tx.keep.clear();
 	renderDocs();
 	render();
 });

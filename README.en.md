@@ -52,8 +52,12 @@ No second app, and no editing skills needed.
 
 - **Auto zoom** follows the cursor and enlarges what matters
 - Backgrounds, rounded corners, shadows, cursor styling and a key display
-- Split, delete and copy clips on the timeline, add transitions, step frame by frame
+- Split, delete and copy clips on the timeline, step frame by frame; press a cut to add one of twelve transitions
 - **Local captions**: Whisper or Parakeet, offline, editable line by line
+- **Edit by text**: delete words in the transcript and the video is cut with them; clear filler words and long pauses in one pass
+- Arrows, boxes, highlights and numbered steps drawn straight onto the picture
+- Voice EQ and de-click for a cleaner voice, and a preview you can speed up or slow down
+- Save the look of a text, mask, caption or shape as a style preset and reuse it
 - Export MP4 (H.264 / HEVC / AV1) or GIF; HEVC and AV1 files are a third to a quarter the size of H.264
 
 ## Keep
