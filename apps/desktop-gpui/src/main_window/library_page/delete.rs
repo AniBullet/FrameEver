@@ -12,6 +12,8 @@ use crate::library::{
 };
 
 const UNDO_HOLD: Duration = Duration::from_secs(8);
+const RECYCLE_RETRIES: u32 = 3;
+const RECYCLE_RETRY_DELAY: Duration = Duration::from_millis(250);
 const DIALOG_WIDTH: f32 = 420.;
 const TOAST_WIDTH: f32 = 340.;
 const TOAST_BOTTOM: f32 = 44.;
@@ -153,7 +155,18 @@ impl DeleteState {
 fn recycle_item(item: &Item, part: Option<Version>) -> Result<Option<Deleted>, String> {
     match part {
         Some(version) => library::recycle::recycle_version(&item.path, version).map(Some),
-        None => library::recycle_project(&item.path),
+        None => {
+            let mut attempt = 0;
+            loop {
+                match library::recycle_project(&item.path) {
+                    Err(_) if attempt < RECYCLE_RETRIES => {
+                        attempt += 1;
+                        std::thread::sleep(RECYCLE_RETRY_DELAY);
+                    }
+                    result => return result,
+                }
+            }
+        }
     }
 }
 
@@ -297,6 +310,30 @@ impl MainWindow {
         self.rebuild_library(cx);
         cx.spawn_in(window, async move |this, cx| {
             let total = items.len();
+            let mut accepted = Vec::new();
+            let mut refused: Vec<(Item, String)> = Vec::new();
+            let mut held = Vec::new();
+            let mut releases = Vec::new();
+            let app: &gpui::AsyncApp = cx;
+            for item in items {
+                if part.is_some() {
+                    accepted.push(item);
+                    continue;
+                }
+                match app.update(|cx| app_windows::hold_for_library_delete(&item.path, cx)) {
+                    Ok(Some(hold)) => {
+                        releases.extend(hold.release);
+                        held.push(hold.key);
+                        accepted.push(item);
+                    }
+                    Ok(None) => {}
+                    Err(reason) => refused.push((item, reason)),
+                }
+            }
+            let items = accepted;
+            for release in releases {
+                release.await;
+            }
             let (deleted, failed) = cx
                 .background_executor()
                 .spawn(async move {
@@ -315,17 +352,26 @@ impl MainWindow {
                     (deleted, failed)
                 })
                 .await;
+            let app: &gpui::AsyncApp = cx;
+            app.update(|cx| {
+                for key in &held {
+                    app_windows::finish_library_delete(key, cx);
+                }
+            });
             this.update(cx, |this, cx| {
                 let gone: Vec<PathBuf> = deleted.iter().map(|(item, _)| item.path.clone()).collect();
                 this.library.compress.forget_waiting(&gone);
                 cx.defer(app_windows::refresh_library_everywhere);
             })
             .ok();
+            let reason = match (refused.as_slice(), failed.is_empty()) {
+                ([(_, reason)], true) => reason.clone(),
+                _ => t!("Its files may be in use. Close what is using them and try again.").to_string(),
+            };
+            let mut failed = failed;
+            failed.extend(refused.into_iter().map(|(item, _)| item));
             if !failed.is_empty() {
-                crate::platform::alert_dialog(
-                    &failure_title(&failed, total),
-                    t!("Its files may be in use. Close what is using them and try again."),
-                );
+                crate::platform::alert_dialog(&failure_title(&failed, total), &reason);
             }
             if deleted.is_empty() {
                 return;

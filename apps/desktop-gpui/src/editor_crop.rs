@@ -968,6 +968,12 @@ pub struct KeyNudge {
 }
 
 impl KeyNudge {
+    pub fn release(&mut self) -> bool {
+        let held = !self.keys.is_empty();
+        *self = Self::default();
+        held
+    }
+
     /// `delta = shift ? 10 : 2` (`:965`), in **container** pixels.
     pub fn delta(&self) -> f64 {
         if self.shift { 10. } else { 2. }
@@ -3396,6 +3402,20 @@ fn editor_alignment_guides(guides: CropGuides, w: f32, h: f32) -> gpui::Div {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn releasing_a_key_nudge_forgets_every_held_key() {
+        let mut nudge = super::KeyNudge {
+            shift: true,
+            ..Default::default()
+        };
+        nudge.keys.insert("right");
+        nudge.keys.insert("up");
+        assert!(nudge.release());
+        assert!(nudge.keys.is_empty());
+        assert!(!nudge.shift);
+        assert!(!nudge.release());
+    }
+
     use super::*;
 
     // -- The coordinate spaces ----------------------------------------------

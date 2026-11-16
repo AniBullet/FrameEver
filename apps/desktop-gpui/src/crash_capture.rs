@@ -16,9 +16,16 @@ const MAX_STDERR_FILE_BYTES: u64 = 8 * 1024 * 1024;
 static CRASH_LOG: OnceLock<File> = OnceLock::new();
 static SESSION: Mutex<Option<Session>> = Mutex::new(None);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UncleanEnd {
     pub blur_active: bool,
+    pub hardware_encoders: Vec<String>,
+    pub native_crash: Option<NativeCrash>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeCrash {
+    pub module: Option<String>,
 }
 
 pub fn install(logs_dir: &Path) {
@@ -44,8 +51,10 @@ pub fn install(logs_dir: &Path) {
 pub fn begin_session(logs_dir: &Path) -> Option<UncleanEnd> {
     let previous = report_previous_session(logs_dir);
     capture_stderr(logs_dir);
-    previous.map(|marker| UncleanEnd {
+    previous.map(|(marker, crash_log)| UncleanEnd {
         blur_active: marker_has_blur(&marker),
+        hardware_encoders: marker_hardware_encoders(&marker),
+        native_crash: previous_native_crash(&crash_log),
     })
 }
 
@@ -77,6 +86,18 @@ pub fn exit_blur_session() {
         });
 }
 
+pub fn enter_hardware_encoder(name: &str) {
+    if let Some(session) = lock_session().as_mut() {
+        session.enter_encoder(name);
+    }
+}
+
+pub fn exit_hardware_encoder(name: &str) {
+    if let Some(session) = lock_session().as_mut() {
+        session.exit_encoder(name);
+    }
+}
+
 fn lock_session() -> std::sync::MutexGuard<'static, Option<Session>> {
     SESSION
         .lock()
@@ -89,6 +110,7 @@ struct Session {
     blur_depth: u32,
     blur_generation: u64,
     blur_armed: bool,
+    encoders: Vec<(String, u32)>,
 }
 
 impl Session {
@@ -99,13 +121,45 @@ impl Session {
             blur_depth: 0,
             blur_generation: 0,
             blur_armed: false,
+            encoders: Vec::new(),
         };
         session.write().then_some(session)
     }
 
     fn write(&self) -> bool {
         let blur = if self.blur_armed { " blur=1" } else { "" };
-        std::fs::write(&self.path, format!("{}{blur}\n", self.header)).is_ok()
+        let encoders = if self.encoders.is_empty() {
+            String::new()
+        } else {
+            let names: Vec<&str> = self
+                .encoders
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect();
+            format!(" hwenc={}", names.join(","))
+        };
+        std::fs::write(&self.path, format!("{}{blur}{encoders}\n", self.header)).is_ok()
+    }
+
+    fn enter_encoder(&mut self, name: &str) {
+        match self.encoders.iter_mut().find(|(live, _)| live == name) {
+            Some((_, count)) => *count += 1,
+            None => {
+                self.encoders.push((name.to_owned(), 1));
+                self.write();
+            }
+        }
+    }
+
+    fn exit_encoder(&mut self, name: &str) {
+        let Some(index) = self.encoders.iter().position(|(live, _)| live == name) else {
+            return;
+        };
+        self.encoders[index].1 -= 1;
+        if self.encoders[index].1 == 0 {
+            self.encoders.remove(index);
+            self.write();
+        }
     }
 
     fn enter_blur(&mut self) {
@@ -135,6 +189,53 @@ fn marker_has_blur(marker: &str) -> bool {
     marker.split_whitespace().any(|field| field == "blur=1")
 }
 
+fn marker_hardware_encoders(marker: &str) -> Vec<String> {
+    marker
+        .split_whitespace()
+        .filter_map(|field| field.strip_prefix("hwenc="))
+        .flat_map(|names| names.split(','))
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn previous_native_crash(crash_log: &str) -> Option<NativeCrash> {
+    let since_last_report = crash_log
+        .rfind(PREVIOUS_SESSION_ENDED)
+        .and_then(|index| crash_log[index..].find('\n').map(|end| index + end))
+        .map_or(crash_log, |end| &crash_log[end..]);
+    let line = since_last_report
+        .lines()
+        .map(str::trim)
+        .rfind(|line| line.starts_with("native crash:"))?;
+    let module = line
+        .rsplit_once(" in ")
+        .and_then(|(_, module)| module.split_once("+0x"))
+        .map(|(module, _)| module.to_owned())
+        .filter(|module| !module.is_empty());
+    Some(NativeCrash { module })
+}
+
+fn read_crash_log(logs_dir: &Path) -> String {
+    const TAIL: u64 = 64 * 1024;
+    let tail = |path: PathBuf| {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+        let mut bytes = Vec::new();
+        if let Ok(mut file) = File::open(path) {
+            let length = file.metadata().map_or(0, |metadata| metadata.len());
+            if file
+                .seek(SeekFrom::Start(length.saturating_sub(TAIL)))
+                .is_ok()
+                && file.take(TAIL).read_to_end(&mut bytes).is_err()
+            {
+                bytes.clear();
+            }
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    tail(logs_dir.join(format!("{CRASH_FILE}-previous"))) + &tail(logs_dir.join(CRASH_FILE))
+}
+
 fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
@@ -145,15 +246,15 @@ fn record(text: &str) {
     }
 }
 
-fn report_previous_session(logs_dir: &Path) -> Option<String> {
+const PREVIOUS_SESSION_ENDED: &str = "previous session ended without a clean quit";
+
+fn report_previous_session(logs_dir: &Path) -> Option<(String, String)> {
     let marker = logs_dir.join(SESSION_FILE);
-    let previous = previous_session(std::fs::read_to_string(&marker).ok().as_deref());
-    if let Some(previous) = &previous {
+    let previous = previous_session(std::fs::read_to_string(&marker).ok().as_deref())
+        .map(|previous| (previous, read_crash_log(logs_dir)));
+    if let Some((previous, _)) = &previous {
         tracing::error!(previous = %previous, "the previous FrameEver session ended without a clean quit");
-        record(&format!(
-            "{} previous session ended without a clean quit: {previous}\n",
-            now()
-        ));
+        record(&format!("{} {PREVIOUS_SESSION_ENDED}: {previous}\n", now()));
     }
     let header = format!(
         "pid={} started={} version={}",
@@ -564,8 +665,82 @@ mod native {
 
 #[cfg(test)]
 mod marker_tests {
-    use super::{Session, marker_has_blur, previous_session, trim_if_over};
+    use super::{
+        NativeCrash, Session, marker_hardware_encoders, marker_has_blur, previous_native_crash,
+        previous_session, trim_if_over,
+    };
     use std::io::Write as _;
+
+    #[test]
+    fn the_marker_names_live_hardware_encoders_until_they_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(super::SESSION_FILE);
+        let header = "pid=41 started=2026-10-25T00:00:00.000Z version=0.6.2".to_string();
+        let mut session = Session::create(path.clone(), header).unwrap();
+        let live = || marker_hardware_encoders(&std::fs::read_to_string(&path).unwrap());
+        assert!(live().is_empty());
+
+        session.enter_encoder("h264_mf");
+        session.enter_encoder("h264_mf");
+        session.enter_encoder("h264_nvenc");
+        assert_eq!(live(), ["h264_mf", "h264_nvenc"]);
+        session.exit_encoder("h264_nvenc");
+        session.exit_encoder("h264_mf");
+        assert_eq!(live(), ["h264_mf"]);
+        session.enter_blur();
+        assert!(marker_has_blur(&std::fs::read_to_string(&path).unwrap()));
+        assert_eq!(live(), ["h264_mf"]);
+        session.exit_encoder("h264_mf");
+        session.exit_encoder("h264_mf");
+        assert!(live().is_empty());
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .starts_with("pid=41 started=")
+        );
+    }
+
+    #[test]
+    fn only_the_previous_sessions_native_crash_is_read() {
+        let intel = "native crash: unhandled exception 0xc0000005 at 0x00007ffda598ccd0 in mfx_mft_h264ve_64.dll+0x0013ccd0\r\n";
+        let reported = "2026-11-01T14:54:57.910Z previous session ended without a clean quit: pid=13204 started=2026-11-01T14:53:29.189Z version=0.6.2\n";
+        let mfx = Some(NativeCrash {
+            module: Some("mfx_mft_h264ve_64.dll".into()),
+        });
+
+        assert_eq!(previous_native_crash(""), None);
+        assert_eq!(previous_native_crash(intel), mfx);
+        assert_eq!(previous_native_crash(&format!("{intel}{reported}")), None);
+        assert_eq!(
+            previous_native_crash(&format!("{intel}{reported}{intel}")),
+            mfx
+        );
+        assert_eq!(
+            previous_native_crash(&format!(
+                "{reported}2026-11-01T15:00:00.000Z panic thread=main at x.rs:1:1: boom\n"
+            )),
+            None
+        );
+        assert_eq!(
+            previous_native_crash(
+                "native crash: unhandled exception 0xc0000005 at 0x0000000000000010\r\n"
+            ),
+            Some(NativeCrash { module: None })
+        );
+    }
+
+    #[test]
+    fn hardware_encoders_are_read_from_the_marker() {
+        assert!(marker_hardware_encoders("pid=1 started=x version=0.6.2 blur=1").is_empty());
+        assert_eq!(
+            marker_hardware_encoders("pid=1 started=x version=0.6.2 hwenc=h264_mf"),
+            ["h264_mf"]
+        );
+        assert_eq!(
+            marker_hardware_encoders("pid=1 started=x version=0.6.2 blur=1 hwenc=h264_mf,h264_qsv"),
+            ["h264_mf", "h264_qsv"]
+        );
+    }
 
     #[test]
     fn any_marker_left_behind_is_an_unclean_end() {

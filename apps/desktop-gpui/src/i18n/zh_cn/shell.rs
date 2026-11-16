@@ -514,6 +514,12 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "无法确认录制已结束，已取消退出。帧刻会保持打开。请点击停止，然后再退出。",
     ),
     (
+        "Everything recorded so far stays in the project's folder.",
+        "目前录到的内容都会保留在项目文件夹里。",
+    ),
+    ("Quit anyway", "仍然退出"),
+    ("Keep FrameEver open", "保持帧刻打开"),
+    (
         "Finish your recording, export, import, or transcription task before updating.",
         "请先完成录制、导出、导入或转写任务，再进行更新。",
     ),

@@ -288,7 +288,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Failed to save project config: {error}",
         "无法保存项目设置：{error}",
     ),
-    ("FrameEver Recording", "帧刻录制"),
     ("Import Error", "导入出错"),
     (
         "Failed to import clip: {message}",

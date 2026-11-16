@@ -199,6 +199,15 @@ impl Slider {
         on_move: impl Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static,
         on_up: impl Fn(&MouseUpEvent, &mut Window, &mut App) + 'static,
     ) -> gpui::Stateful<gpui::Div> {
+        Self::drag_layer_for(id, MouseButton::Left, on_move, on_up)
+    }
+
+    pub fn drag_layer_for(
+        id: impl Into<ElementId>,
+        button: MouseButton,
+        on_move: impl Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static,
+        on_up: impl Fn(&MouseUpEvent, &mut Window, &mut App) + 'static,
+    ) -> gpui::Stateful<gpui::Div> {
         // The release can land outside the window -- gpui element listeners
         // are hitbox-gated, so without the `_out` pair the drag would survive
         // its own mouse-up and keep tracking on re-entry.
@@ -211,14 +220,12 @@ impl Slider {
             .left_0()
             .size_full()
             .on_mouse_move(move |event, window, cx| {
-                if event.dragging() {
+                if event.pressed_button == Some(button) {
                     on_move(event, window, cx);
                 }
             })
-            .on_mouse_up(MouseButton::Left, move |event, window, cx| {
-                on_up(event, window, cx)
-            })
-            .on_mouse_up_out(MouseButton::Left, move |event, window, cx| {
+            .on_mouse_up(button, move |event, window, cx| on_up(event, window, cx))
+            .on_mouse_up_out(button, move |event, window, cx| {
                 on_up_out(event, window, cx)
             })
     }
@@ -368,6 +375,63 @@ pub fn value_at(
 
 #[cfg(test)]
 mod tests {
+    mod drag_layer {
+        use gpui::{
+            Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled,
+            VisualTestContext, Window, div, point, px,
+        };
+        use std::{cell::RefCell, rc::Rc};
+
+        struct Layer {
+            button: MouseButton,
+            log: Rc<RefCell<Vec<&'static str>>>,
+        }
+
+        impl Render for Layer {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let moves = self.log.clone();
+                let ups = self.log.clone();
+                div()
+                    .size_full()
+                    .child(super::super::Slider::drag_layer_for(
+                        "drag-layer-test",
+                        self.button,
+                        move |_, _, _| moves.borrow_mut().push("move"),
+                        move |_, _, _| ups.borrow_mut().push("up"),
+                    ))
+            }
+        }
+
+        fn draw(cx: &mut VisualTestContext) {
+            cx.update(|window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+            });
+        }
+
+        #[gpui::test]
+        fn a_drag_layer_follows_and_ends_with_its_own_button(cx: &mut gpui::TestAppContext) {
+            for (button, other) in [
+                (MouseButton::Middle, MouseButton::Left),
+                (MouseButton::Left, MouseButton::Middle),
+            ] {
+                let log = Rc::new(RefCell::new(Vec::new()));
+                let shared = log.clone();
+                let (_, cx) = cx.add_window_view(move |_, _| Layer {
+                    button,
+                    log: shared,
+                });
+                draw(cx);
+                cx.simulate_mouse_move(point(px(20.), px(20.)), other, Modifiers::default());
+                cx.simulate_mouse_up(point(px(20.), px(20.)), other, Modifiers::default());
+                assert!(log.borrow().is_empty(), "{button:?}");
+                cx.simulate_mouse_move(point(px(30.), px(20.)), button, Modifiers::default());
+                cx.simulate_mouse_up(point(px(30.), px(20.)), button, Modifiers::default());
+                assert_eq!(*log.borrow(), ["move", "up"], "{button:?}");
+            }
+        }
+    }
+
     #[test]
     fn editor_layout_keyboard_sliders_follow_steps_and_endpoints() {
         assert_eq!(

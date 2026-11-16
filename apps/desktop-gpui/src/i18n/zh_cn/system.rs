@@ -369,6 +369,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "无法导入图片：{message}",
     ),
     ("Import Error", "导入出错"),
+    ("The import stopped unexpectedly", "导入意外中止了"),
+    (
+        "This recording is in progress. Stop it before deleting it.",
+        "这个录制还在进行中。请先停止再删除。",
+    ),
     ("Analyzing video file...", "正在分析视频文件…"),
     (
         "Video format not supported or file is corrupted",

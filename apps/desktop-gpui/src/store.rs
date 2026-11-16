@@ -286,6 +286,9 @@ fn read_store(path: &std::path::Path) -> Option<Map<String, Value>> {
             return None;
         }
     };
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        return Some(Map::new());
+    }
     match serde_json::from_slice::<Value>(&bytes) {
         Ok(Value::Object(map)) => Some(map),
         Ok(_) => {
@@ -919,6 +922,8 @@ pub struct GeneralSettings {
     pub window_capture_style: WindowCaptureStyle,
     pub focus_center: bool,
     pub post_deletion_behaviour: PostDeletionBehaviour,
+    pub keep_main_hidden_after_editor: bool,
+    pub keep_main_hidden_on_cancel: bool,
     pub delete_instant_recordings_after_upload: bool,
     pub crash_recovery_recording: bool,
     pub auto_compress_instant: bool,
@@ -1285,6 +1290,10 @@ impl PostInstantBehaviour {
 }
 
 impl GeneralSettings {
+    pub fn new_zoom_amount(&self) -> f32 {
+        self.default_zoom_amount.unwrap_or(1.5)
+    }
+
     pub fn instant_input_display(
         &self,
     ) -> Option<frameever_recording::live_input_display::InstantInputDisplay> {
@@ -1342,6 +1351,8 @@ impl GeneralSettings {
             window_capture_style: enum_at(general, "windowCaptureStyle"),
             focus_center: bool_at(general, "focusCenter", false),
             post_deletion_behaviour: enum_at(general, "postDeletionBehaviour"),
+            keep_main_hidden_after_editor: bool_at(general, "keepMainHiddenAfterEditor", false),
+            keep_main_hidden_on_cancel: bool_at(general, "keepMainHiddenOnCancel", false),
             delete_instant_recordings_after_upload: bool_at(
                 general,
                 "deleteInstantRecordingsAfterUpload",
@@ -2826,16 +2837,56 @@ mod tests {
     /// token and every preset.
     #[test]
     fn a_corrupt_store_is_never_overwritten() {
-        let store = TempStore::new("corrupt", Some("{ this is not json"));
-        assert!(!super::set_store_setting(
-            GENERAL_SETTINGS,
-            "hideDockIcon",
-            Value::Bool(true)
-        ));
-        assert_eq!(
-            std::fs::read_to_string(&store.path).unwrap(),
-            "{ this is not json"
+        for contents in ["{ this is not json", r#"{"auth":"token""#, "null", "[]"] {
+            let store = TempStore::new("corrupt", Some(contents));
+            assert!(!super::set_store_setting(
+                GENERAL_SETTINGS,
+                "hideDockIcon",
+                Value::Bool(true)
+            ));
+            assert_eq!(std::fs::read_to_string(&store.path).unwrap(), contents);
+        }
+    }
+
+    #[test]
+    fn the_main_window_comes_back_after_the_editor_and_a_cancel_unless_asked_to_stay_hidden() {
+        let _store = TempStore::new("stay-hidden-default", Some("{}"));
+        let settings = GeneralSettings::load();
+        assert!(!settings.keep_main_hidden_after_editor);
+        assert!(!settings.keep_main_hidden_on_cancel);
+        drop(_store);
+
+        let _store = TempStore::new(
+            "stay-hidden-set",
+            Some(
+                r#"{"general_settings":{"keepMainHiddenAfterEditor":true,"keepMainHiddenOnCancel":true}}"#,
+            ),
         );
+        let settings = GeneralSettings::load();
+        assert!(settings.keep_main_hidden_after_editor);
+        assert!(settings.keep_main_hidden_on_cancel);
+    }
+
+    #[test]
+    fn an_empty_store_file_counts_as_an_empty_store() {
+        for contents in ["", " \t\r\n"] {
+            let store = TempStore::new("empty-store", Some(contents));
+            assert!(!has_completed_startup());
+            assert!(!has_completed_onboarding());
+            assert!(set_has_completed_startup(true));
+            assert!(set_has_completed_onboarding(true));
+            assert!(has_completed_startup());
+            assert!(has_completed_onboarding());
+            assert_eq!(
+                store.read(),
+                serde_json::json!({
+                    "general_settings": {
+                        "hasCompletedStartup": true,
+                        "hasCompletedOnboarding": true
+                    }
+                })
+            );
+        }
     }
 
     /// Every value the page can read back has to survive the round trip, and
@@ -2876,6 +2927,7 @@ mod tests {
         assert!(settings.instant_click_highlight);
         assert!(!settings.custom_cursor_capture);
         assert_eq!(settings.default_zoom_amount, Some(2.5));
+        assert_eq!(settings.new_zoom_amount(), 2.5);
         assert_eq!(settings.max_fps, 120);
         assert_eq!(settings.excluded_windows.len(), 1);
         assert_eq!(settings.excluded_windows[0].primary_label(), "FrameEver");
@@ -2885,6 +2937,7 @@ mod tests {
         assert!(settings.confirm_without_microphone);
         assert!(settings.studio_sound_by_default);
         assert_eq!(settings.instant_mode_max_resolution, 1920);
+        assert_eq!(GeneralSettings::default().new_zoom_amount(), 1.5);
         assert_eq!(GeneralSettings::default().recording_auto_stop_minutes, 0);
         assert!(!GeneralSettings::default().instant_click_highlight);
     }

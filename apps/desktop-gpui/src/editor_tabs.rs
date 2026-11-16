@@ -153,8 +153,8 @@ pub static CAPTION_MODELS: &[CaptionModel] = &[
     CaptionModel {
         name: "best",
         label: n!("Recommended"),
-        model_name: "parakeet-tdt-0.6b-v3 int8",
-        size: "~640MB",
+        model_name: "parakeet-tdt-0.6b-v3 8-bit",
+        size: "~870MB",
         description: n!("Best balance for most recordings"),
     },
     CaptionModel {
@@ -464,6 +464,81 @@ pub enum CaptionSlider {
     Size,
     BackgroundOpacity,
     FadeDuration,
+    ManualX,
+    ManualY,
+}
+
+pub fn caption_position_center(position: &str) -> (f32, f32) {
+    match position {
+        "top-left" => (0.05, 0.08),
+        "top-center" | "top" => (0.5, 0.08),
+        "top-right" => (0.95, 0.08),
+        "bottom-left" => (0.05, 0.85),
+        "bottom-right" => (0.95, 0.85),
+        _ => (0.5, 0.85),
+    }
+}
+
+pub fn caption_manual_center(settings: &CaptionSettings) -> (f32, f32) {
+    settings.manual_position.map_or_else(
+        || caption_position_center(&settings.position),
+        |xy| (xy.x, xy.y),
+    )
+}
+
+pub fn caption_percent_text(fraction: f32) -> String {
+    ui::format_number((f64::from(fraction) * 1000.).round() / 10.)
+}
+
+pub fn reset_caption_manual_center(settings: &mut CaptionSettings) {
+    let (x, y) = crate::editor_canvas::CAPTION_DEFAULT_CENTER;
+    settings.position = "manual".to_string();
+    settings.manual_position = Some(frameever_project::XY::new(x as f32, y as f32));
+}
+
+pub fn caption_at_default_center(settings: &CaptionSettings) -> bool {
+    let (x, y) = crate::editor_canvas::CAPTION_DEFAULT_CENTER;
+    caption_manual_center(settings) == (x as f32, y as f32)
+}
+
+fn caption_reason_customises_style(reason: &str) -> bool {
+    !matches!(
+        reason,
+        "caption-enabled"
+            | "caption-export"
+            | "caption-position"
+            | "caption-placement"
+            | "caption-filler-words"
+    )
+}
+
+fn filler_word_toggle_shown(settings: &CaptionSettings) -> bool {
+    matches!(settings.filler_language.as_deref(), Some("en" | "zh"))
+}
+
+pub fn set_caption_manual_center(settings: &mut CaptionSettings, x: Option<f32>, y: Option<f32>) {
+    let (current_x, current_y) = caption_manual_center(settings);
+    let fraction = |value: f32| (value / 100.).clamp(0., 1.);
+    settings.position = "manual".to_string();
+    settings.manual_position = Some(frameever_project::XY::new(
+        x.map_or(current_x, fraction),
+        y.map_or(current_y, fraction),
+    ));
+}
+
+pub fn set_caption_position(
+    settings: &mut CaptionSettings,
+    position: &str,
+    on_screen: Option<(frameever_rendering::CaptionFrameBox, (f32, f32))>,
+) {
+    if position == "manual" && settings.position != "manual" {
+        let (x, y) = on_screen
+            .filter(|(caption, _)| caption.is_at(&settings.position))
+            .map(|(_, center)| center)
+            .unwrap_or_else(|| caption_position_center(&settings.position));
+        settings.manual_position = Some(frameever_project::XY::new(x, y));
+    }
+    settings.position = position.to_string();
 }
 
 impl CaptionSlider {
@@ -473,6 +548,7 @@ impl CaptionSlider {
             Self::BackgroundOpacity => (0., 100., 1.),
             // `value={[getSetting("fadeDuration") * 100]}` over 0..50.
             Self::FadeDuration => (0., 50., 1.),
+            Self::ManualX | Self::ManualY => (0., 100., 0.1),
         }
     }
 
@@ -482,6 +558,8 @@ impl CaptionSlider {
             Self::Size => settings.size as f32,
             Self::BackgroundOpacity => settings.background_opacity as f32,
             Self::FadeDuration => settings.fade_duration * 100.,
+            Self::ManualX => caption_manual_center(&settings).0 * 100.,
+            Self::ManualY => caption_manual_center(&settings).1 * 100.,
         }
     }
 }
@@ -913,9 +991,16 @@ impl EditorWindow {
                 let Some((value, _)) = CAPTION_POSITIONS.get(index) else {
                     return;
                 };
-                let value = value.to_string();
+                let on_screen = self.frame_layout.and_then(|layout| {
+                    let caption = layout.caption?;
+                    let rect = crate::editor_canvas::norm_rect(caption.bounds, &layout);
+                    Some((
+                        caption,
+                        ((rect.x + rect.w / 2.) as f32, (rect.y + rect.h / 2.) as f32),
+                    ))
+                });
                 self.set_caption_setting("caption-position", window, cx, move |settings| {
-                    settings.position = value
+                    set_caption_position(settings, value, on_screen)
                 });
             }
             SidebarMenu::CaptionAnimation => {
@@ -981,15 +1066,33 @@ impl EditorWindow {
         self.edit_project(reason, window, cx, |project| {
             with_caption_settings(project, |settings| {
                 change(settings);
-                // `STYLE_PRESET_KEYS` knocks the grade to "custom"
-                // (`CaptionsTab.tsx:326-336`). Every setter routed through here
-                // is one of those keys except the two `enabled`-style ones,
-                // which are handled by their own call sites.
-                if reason != "caption-enabled" && reason != "caption-export" {
+                if caption_reason_customises_style(reason) {
                     settings.preset = "custom".to_string();
                 }
             })
         });
+    }
+
+    fn caption_position_row(
+        &self,
+        name: impl Into<SharedString>,
+        slider: CaptionSlider,
+        field: crate::editor_panels::FieldKey,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        ui::Field::editor_row(&self.theme, name)
+            .child(self.slider_flex(SliderKey::Caption(slider), "%", cx))
+            .value(self.render_number_field(field, "%", 56.))
+            .into_any_element()
+    }
+
+    pub(crate) fn set_caption_placement(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        change: impl FnOnce(&mut CaptionSettings),
+    ) {
+        self.set_caption_setting("caption-placement", window, cx, change);
     }
 
     pub(crate) fn set_keyboard_setting(
@@ -1102,10 +1205,18 @@ impl EditorWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.set_caption_setting("caption-slider", window, cx, move |settings| match slider {
+        let reason = match slider {
+            CaptionSlider::ManualX | CaptionSlider::ManualY => "caption-placement",
+            CaptionSlider::Size
+            | CaptionSlider::BackgroundOpacity
+            | CaptionSlider::FadeDuration => "caption-slider",
+        };
+        self.set_caption_setting(reason, window, cx, move |settings| match slider {
             CaptionSlider::Size => settings.size = value.round() as u32,
             CaptionSlider::BackgroundOpacity => settings.background_opacity = value.round() as u32,
             CaptionSlider::FadeDuration => settings.fade_duration = value / 100.,
+            CaptionSlider::ManualX => set_caption_manual_center(settings, Some(value), None),
+            CaptionSlider::ManualY => set_caption_manual_center(settings, None, Some(value)),
         });
     }
 
@@ -2682,6 +2793,14 @@ impl EditorWindow {
                         .text_color(error_color)
                         .child(error),
                 );
+            } else if snapshot.no_speech {
+                column = column.child(
+                    div()
+                        .id("caption-no-speech")
+                        .text_size(px(12.))
+                        .text_color(Hsla::from(theme.muted_foreground))
+                        .child(SharedString::from(t!("No speech found in this recording"))),
+                );
             }
             column
         } else {
@@ -2708,7 +2827,32 @@ impl EditorWindow {
                     .label(t!("Download {model} Model", model = tr(model.label)))
             };
 
-            let mut column = div().flex().flex_col().gap(px(8.)).child(download_button);
+            let mut column = div().flex().flex_col().gap(px(8.));
+            if model.name == "best" && snapshot.recommended_outdated {
+                column = column.child(
+                    div()
+                        .id("caption-model-updated")
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(Hsla::from(theme.foreground))
+                                .child(SharedString::from(t!("Recommended model updated"))),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(Hsla::from(theme.muted_foreground))
+                                .child(SharedString::from(t!(
+                                    "We recommend the new version. It is more accurate and catches short recordings the old one missed."
+                                ))),
+                        ),
+                );
+            }
+            column = column.child(download_button);
             if is_downloading {
                 column = column
                     .child(
@@ -2783,7 +2927,21 @@ impl EditorWindow {
                     ),
                 )),
             )
-            .child(div().pt(px(8.)).child(action));
+            .child(div().pt(px(8.)).child(action))
+            .children(filler_word_toggle_shown(&settings).then(|| {
+                ui::Subfield::plain(&theme, t!("Show filler words")).child(
+                    ui::Toggle::plain(&theme, "caption-filler-words", settings.show_filler_words)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let next = !caption_settings(&this.project).show_filler_words;
+                            this.set_caption_setting(
+                                "caption-filler-words",
+                                window,
+                                cx,
+                                move |settings| settings.show_filler_words = next,
+                            );
+                        })),
+                )
+            }));
 
         let style = div()
             .flex()
@@ -2926,6 +3084,45 @@ impl EditorWindow {
                     cx,
                 )),
             )
+            .children((settings.position == "manual").then(|| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.))
+                    .child(self.caption_position_row(
+                        t!("Horizontal position"),
+                        CaptionSlider::ManualX,
+                        crate::editor_panels::FieldKey::CaptionManualX,
+                        cx,
+                    ))
+                    .child(self.caption_position_row(
+                        t!("Vertical position"),
+                        CaptionSlider::ManualY,
+                        crate::editor_panels::FieldKey::CaptionManualY,
+                        cx,
+                    ))
+                    .child(
+                        div().flex().flex_row().justify_end().child(
+                            ui::Button::plain(
+                                &theme,
+                                "caption-reset-position",
+                                ui::ButtonVariant::Gray,
+                                ui::ButtonSize::Sm,
+                            )
+                            .label(t!("Reset position"))
+                            .disabled(caption_at_default_center(&settings))
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
+                                    this.set_caption_placement(
+                                        window,
+                                        cx,
+                                        reset_caption_manual_center,
+                                    );
+                                },
+                            )),
+                        ),
+                    )
+            }))
             .child(
                 ui::Field::section(&theme, t!("Animation")).child(
                     div()
@@ -3290,6 +3487,11 @@ impl EditorWindow {
                         );
                     });
                 }
+                Err(error) if error == transcription::no_speech_error() => {
+                    tracing::info!("caption generation heard no speech");
+                    transcription::finish_generation_without_speech(&project_path);
+                    let _ = this.update(cx, |_, cx| cx.notify());
+                }
                 Err(error) => {
                     tracing::error!("caption generation failed: {error}");
                     transcription::finish_generation(
@@ -3547,6 +3749,147 @@ impl EditorWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_caption_position_starts_at_the_caption_on_screen() {
+        let mut settings = CaptionSettings {
+            position: "bottom-left".into(),
+            ..CaptionSettings::default()
+        };
+        let on_screen = frameever_rendering::CaptionFrameBox::new([0.; 4], "bottom-left");
+        set_caption_position(&mut settings, "manual", Some((on_screen, (0.21, 0.84))));
+        assert_eq!(
+            settings.manual_position.map(|xy| (xy.x, xy.y)),
+            Some((0.21, 0.84))
+        );
+
+        let mut settings = CaptionSettings {
+            position: "top-right".into(),
+            ..CaptionSettings::default()
+        };
+        let elsewhere = frameever_rendering::CaptionFrameBox::new([0.; 4], "bottom-left");
+        set_caption_position(&mut settings, "manual", Some((elsewhere, (0.21, 0.84))));
+        assert_eq!(
+            settings.manual_position.map(|xy| (xy.x, xy.y)),
+            Some((0.95, 0.08))
+        );
+    }
+
+    #[test]
+    fn manual_caption_position_starts_at_the_preset_and_moves() {
+        let mut settings = CaptionSettings {
+            position: "top-center".into(),
+            ..CaptionSettings::default()
+        };
+        set_caption_position(&mut settings, "manual", None);
+        assert_eq!(settings.position, "manual");
+        assert_eq!(
+            settings.manual_position.map(|xy| (xy.x, xy.y)),
+            Some((0.5, 0.08))
+        );
+
+        set_caption_manual_center(&mut settings, Some(20.), None);
+        set_caption_manual_center(&mut settings, None, Some(130.));
+        assert_eq!(
+            settings.manual_position.map(|xy| (xy.x, xy.y)),
+            Some((0.2, 1.0))
+        );
+        let mut project = ProjectConfiguration::default();
+        project.captions = Some(CaptionsData {
+            settings: settings.clone(),
+            ..CaptionsData::default()
+        });
+        assert_eq!(CaptionSlider::ManualX.read(&project), 20.);
+        assert_eq!(CaptionSlider::ManualY.read(&project), 100.);
+
+        set_caption_position(&mut settings, "manual", None);
+        assert_eq!(
+            settings.manual_position.map(|xy| (xy.x, xy.y)),
+            Some((0.2, 1.0))
+        );
+
+        let mut preset = CaptionSettings {
+            position: "bottom-right".into(),
+            ..CaptionSettings::default()
+        };
+        set_caption_manual_center(&mut preset, None, Some(50.));
+        assert_eq!(preset.position, "manual");
+        assert_eq!(
+            preset.manual_position.map(|xy| (xy.x, xy.y)),
+            Some((0.95, 0.5))
+        );
+    }
+
+    #[test]
+    fn showing_filler_words_keeps_the_style_preset_and_needs_a_known_language() {
+        assert!(!caption_reason_customises_style("caption-filler-words"));
+        let shown = |language: Option<&str>| {
+            filler_word_toggle_shown(&CaptionSettings {
+                filler_language: language.map(str::to_string),
+                ..CaptionSettings::default()
+            })
+        };
+        assert!(shown(Some("en")));
+        assert!(shown(Some("zh")));
+        assert!(!shown(Some("de")));
+        assert!(!shown(None));
+    }
+
+    #[test]
+    fn moving_the_captions_keeps_the_style_preset() {
+        for reason in ["caption-position", "caption-placement"] {
+            assert!(!caption_reason_customises_style(reason));
+        }
+        for reason in ["caption-slider", "caption-font", "caption-animation"] {
+            assert!(caption_reason_customises_style(reason));
+        }
+    }
+
+    #[test]
+    fn reset_position_returns_manual_captions_to_bottom_centre() {
+        let mut settings = CaptionSettings {
+            position: "manual".into(),
+            manual_position: Some(frameever_project::XY::new(0.2, 0.3)),
+            ..CaptionSettings::default()
+        };
+        assert!(!caption_at_default_center(&settings));
+        reset_caption_manual_center(&mut settings);
+        assert_eq!(settings.position, "manual");
+        assert_eq!(
+            settings.manual_position.map(|xy| (xy.x, xy.y)),
+            Some((0.5, 0.85))
+        );
+        assert!(caption_at_default_center(&settings));
+
+        let unset = CaptionSettings {
+            position: "manual".into(),
+            ..CaptionSettings::default()
+        };
+        assert!(caption_at_default_center(&unset));
+    }
+
+    #[test]
+    fn manual_position_fields_read_a_tenth_of_a_percent() {
+        assert_eq!(caption_percent_text(0.5), "50");
+        assert_eq!(caption_percent_text(0.423_7), "42.4");
+        assert_eq!(caption_percent_text(0.0), "0");
+        assert_eq!(caption_percent_text(1.0), "100");
+        assert_eq!(caption_percent_text(0.333_333_34), "33.3");
+
+        let mut settings = CaptionSettings {
+            position: "manual".into(),
+            ..CaptionSettings::default()
+        };
+        set_caption_manual_center(&mut settings, Some(33.3), Some(150.));
+        assert_eq!(
+            caption_percent_text(caption_manual_center(&settings).0),
+            "33.3"
+        );
+        assert_eq!(
+            caption_percent_text(caption_manual_center(&settings).1),
+            "100"
+        );
+    }
 
     #[test]
     fn every_tab_slider_has_the_range_its_call_site_declares() {

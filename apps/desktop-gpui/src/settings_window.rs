@@ -64,6 +64,8 @@ pub(crate) enum MenuKind {
     Countdown,
     MainWindowStart,
     PostDeletion,
+    AfterEditorClose,
+    AfterCancel,
     MaxFps,
     AfterScreenshot,
     AfterStudio,
@@ -95,6 +97,24 @@ const MAX_FPS_OPTIONS: &[(u32, &str)] = &[
     (60, n!("60 FPS (Recommended)")),
     (120, n!("120 FPS")),
 ];
+
+const STAY_HIDDEN_OPTIONS: [(bool, &str); 2] =
+    [(false, n!("Show the app")), (true, n!("Stay hidden"))];
+
+fn stay_hidden_label(stay_hidden: bool) -> String {
+    STAY_HIDDEN_OPTIONS
+        .iter()
+        .find(|(value, _)| *value == stay_hidden)
+        .map(|(_, label)| tr(label).to_string())
+        .unwrap_or_default()
+}
+
+fn stay_hidden_items(current: bool) -> Vec<ui::MenuItem> {
+    STAY_HIDDEN_OPTIONS
+        .iter()
+        .map(|(value, label)| ui::MenuItem::new(tr(label), *value == current))
+        .collect()
+}
 
 const COUNTDOWN_OPTIONS: &[(u32, &str)] = &[
     (0, n!("Off")),
@@ -524,6 +544,10 @@ impl SettingsWindow {
                 enum_items(self.settings.main_window_recording_start_behaviour)
             }
             MenuKind::PostDeletion => enum_items(self.settings.post_deletion_behaviour),
+            MenuKind::AfterEditorClose => {
+                stay_hidden_items(self.settings.keep_main_hidden_after_editor)
+            }
+            MenuKind::AfterCancel => stay_hidden_items(self.settings.keep_main_hidden_on_cancel),
             MenuKind::AfterScreenshot => enum_items(self.settings.post_screenshot_behaviour),
             MenuKind::AfterStudio => enum_items(self.settings.post_studio_recording_behaviour),
             MenuKind::AfterInstant => enum_items(self.settings.post_instant_recording_behaviour),
@@ -567,6 +591,18 @@ impl SettingsWindow {
                 if let Some(value) = PostDeletionBehaviour::ALL.get(index) {
                     self.settings.post_deletion_behaviour = *value;
                     self.write_enum("postDeletionBehaviour", *value, cx);
+                }
+            }
+            MenuKind::AfterEditorClose => {
+                if let Some((value, _)) = STAY_HIDDEN_OPTIONS.get(index) {
+                    self.settings.keep_main_hidden_after_editor = *value;
+                    self.write_bool("keepMainHiddenAfterEditor", *value, cx);
+                }
+            }
+            MenuKind::AfterCancel => {
+                if let Some((value, _)) = STAY_HIDDEN_OPTIONS.get(index) {
+                    self.settings.keep_main_hidden_on_cancel = *value;
+                    self.write_bool("keepMainHiddenOnCancel", *value, cx);
                 }
             }
             MenuKind::AfterScreenshot => {
@@ -1276,6 +1312,22 @@ impl SettingsWindow {
                     cx,
                 )
                 .into_any_element(),
+            Row::AfterEditorClose => self
+                .select(
+                    "after-editor-close",
+                    stay_hidden_label(settings.keep_main_hidden_after_editor),
+                    MenuKind::AfterEditorClose,
+                    cx,
+                )
+                .into_any_element(),
+            Row::AfterCancel => self
+                .select(
+                    "after-cancel",
+                    stay_hidden_label(settings.keep_main_hidden_on_cancel),
+                    MenuKind::AfterCancel,
+                    cx,
+                )
+                .into_any_element(),
             Row::StudioQuality => self.render_studio_quality(cx),
             Row::InstantResolution => self.render_instant_resolution(cx),
             Row::MaxFps => {
@@ -1402,7 +1454,7 @@ impl SettingsWindow {
                 })
                 .into_any_element(),
             Row::ZoomAmount => {
-                let zoom = settings.default_zoom_amount.unwrap_or(1.5);
+                let zoom = settings.new_zoom_amount();
                 let theme = self.theme;
                 div()
                     .id("zoom-amount")
@@ -1410,7 +1462,7 @@ impl SettingsWindow {
                     .rounded(px(6.))
                     .focus_visible(move |style| style.bg(theme.selection))
                     .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                        let current = this.settings.default_zoom_amount.unwrap_or(1.5);
+                        let current = this.settings.new_zoom_amount();
                         if let Some(value) = ui::keyboard_slider_value(
                             event.keystroke.key.as_str(),
                             current,
@@ -2588,7 +2640,7 @@ impl SettingsWindow {
                 }),
                 cx.listener(|this, _, _window, cx| {
                     this.slider_dragging = false;
-                    let value = this.settings.default_zoom_amount.unwrap_or(1.5);
+                    let value = this.settings.new_zoom_amount();
                     this.write(
                         "defaultZoomAmount",
                         Value::from(f64::from(ui::snap_to_step(value, ZOOM_MIN, ZOOM_MAX, 0.1))),

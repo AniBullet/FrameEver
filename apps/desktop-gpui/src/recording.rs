@@ -124,17 +124,23 @@ async fn finalize_studio(
             .meta
             .camera_path()
             .and_then(|_| camera_snapshot.and_then(|snapshot| snapshot.placement));
+        let preset_applied = apply_default_preset_to_project_config(
+            &project_path,
+            &crate::presets::PresetsStore::load(),
+        );
         apply_camera_preview_to_project_config(
             &project_path,
             camera_snapshot.map_or_else(current_camera_blur, |snapshot| snapshot.blur),
             placement,
             completed.meta.camera_path().and(camera_snapshot),
         );
-        let library = serde_json::from_value(serde_json::Value::Object(
-            crate::store::store_section("animated_gradients"),
-        ))
-        .unwrap_or_default();
-        apply_animated_gradient_to_project_config(&project_path, &capture_target, &library);
+        if !preset_applied {
+            let library = serde_json::from_value(serde_json::Value::Object(
+                crate::store::store_section("animated_gradients"),
+            ))
+            .unwrap_or_default();
+            apply_animated_gradient_to_project_config(&project_path, &capture_target, &library);
+        }
         if crate::store::studio_sound_by_default()
             && let Err(error) = enable_studio_sound(&project_path)
         {
@@ -865,8 +871,27 @@ pub fn available_recording_storage()
 }
 
 pub(crate) fn ensure_finalization_storage(project_path: &std::path::Path) -> anyhow::Result<()> {
-    let storage = frameever_utils::disk_space::recording_storage(project_path)
-        .context("checking storage before saving the recording")?;
+    finalization_storage_verdict(
+        project_path,
+        frameever_utils::disk_space::recording_storage(project_path),
+    )
+}
+
+fn finalization_storage_verdict(
+    project_path: &std::path::Path,
+    storage: std::io::Result<frameever_utils::disk_space::RecordingStorage>,
+) -> anyhow::Result<()> {
+    let storage = match storage {
+        Ok(storage) => storage,
+        Err(error) => {
+            tracing::warn!(
+                path = %project_path.display(),
+                %error,
+                "Could not check storage before saving the recording; saving without the check"
+            );
+            return Ok(());
+        }
+    };
     if !storage.can_finalize() {
         return Err(anyhow!(t!(
             "Low storage. Your recording files are preserved at {path}. Free up space, then recover the recording in FrameEver.",
@@ -1016,6 +1041,7 @@ pub(crate) fn preparing_presentation(
         project,
         camera_snapshot.map_or_else(current_camera_blur, |snapshot| snapshot.blur),
         &library,
+        &crate::presets::PresetsStore::load(),
     )?;
     if crate::store::studio_sound_by_default() {
         config.audio.improve = true;
@@ -1048,14 +1074,42 @@ fn preparing_presentation_for(
     project: &frameever_project::ProjectConfiguration,
     blur: crate::store::BlurMode,
     library: &frameever_project::AnimatedGradientLibrary,
+    presets: &crate::presets::PresetsStore,
 ) -> Result<frameever_project::ProjectConfiguration, String> {
-    if blur != crate::store::BlurMode::Off || project.camera.background_blur.is_active() {
+    if blur != crate::store::BlurMode::Off {
         return Err("Camera blur requires ordinary editor loading".into());
     }
-    if library.selected && library.last_used.is_some() {
+    let preset = presets.apply_default(project);
+    if preset.is_none() && library.selected && library.last_used.is_some() {
         return Err("Animated-gradient preferences require ordinary editor loading".into());
     }
-    Ok(project.clone())
+    let mut project = preset.unwrap_or_else(|| project.clone());
+    project.camera.background_blur = frameever_project::BackgroundBlurConfig::default();
+    Ok(project)
+}
+
+fn apply_default_preset_to_project_config(
+    project_dir: &std::path::Path,
+    presets: &crate::presets::PresetsStore,
+) -> bool {
+    if presets.default.is_none() {
+        return false;
+    }
+    let project = match frameever_project::ProjectConfiguration::load(project_dir) {
+        Ok(project) => project,
+        Err(error) => {
+            tracing::warn!(path = %project_dir.display(), "could not read new project config: {error}");
+            return false;
+        }
+    };
+    let Some(project) = presets.apply_default(&project) else {
+        return false;
+    };
+    if let Err(error) = project.write(project_dir) {
+        tracing::warn!(path = %project_dir.display(), "could not apply the default preset: {error}");
+        return false;
+    }
+    true
 }
 
 /// The camera preview bubble's current blur mode.
@@ -1383,13 +1437,7 @@ fn persist_instant_meta(
             InstantRecordingMeta, Platform, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
         };
 
-        let pretty_name = completed
-            .project_path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .filter(|name| !name.is_empty())
-            .unwrap_or("FrameEver Recording")
-            .to_string();
+        let pretty_name = project_pretty_name(&completed.project_path);
         let meta = match &completed.meta {
             InstantRecordingMeta::InProgress { .. } => InstantRecordingMeta::Failed {
                 error: "instant recording stopped before completion".to_string(),
@@ -1419,12 +1467,7 @@ fn persist_in_progress_instant_meta(
     metadata_lock: &Mutex<()>,
 ) -> anyhow::Result<()> {
     with_instant_metadata_lock(metadata_lock, || {
-        let pretty_name = project_path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .filter(|name| !name.is_empty())
-            .unwrap_or("FrameEver Recording")
-            .to_string();
+        let pretty_name = project_pretty_name(project_path);
 
         let meta = frameever_project::RecordingMeta {
             platform: Some(frameever_project::Platform::default()),
@@ -1657,7 +1700,8 @@ async fn start_attempt(
             let mut builder = defaults.apply_to_studio_builder(
                 studio_recording::Actor::builder(project_dir.clone(), config.target.clone())
                     .with_system_audio(config.system_audio)
-                    .with_window_only(window_only),
+                    .with_window_only(window_only)
+                    .with_pretty_name(project_pretty_name(&project_dir)),
                 camera_lock.is_some(),
                 None,
             );
@@ -1939,13 +1983,21 @@ fn format_recording_project_name(
         .unwrap_or(crate::store::DEFAULT_PROJECT_NAME_TEMPLATE)
         .replace("{recording_mode}", recording_mode)
         .replace("{mode}", mode)
-        .replace("{target_kind}", target_kind)
-        .replace("{target_name}", &target_name);
+        .replace("{target_kind}", target_kind);
     let formatted = replace_datetime_template_token(&formatted, "date", "%Y-%m-%d", datetime);
     let formatted = replace_datetime_template_token(&formatted, "time", "%I:%M %p", datetime);
     let formatted =
         replace_datetime_template_token(&formatted, "moment", "%Y-%m-%d %H:%M", datetime);
-    replace_random_template_tokens(&formatted)
+    replace_random_template_tokens(&formatted).replace("{target_name}", &target_name)
+}
+
+fn project_pretty_name(project_path: &std::path::Path) -> String {
+    project_path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("FrameEver Recording")
+        .to_string()
 }
 
 fn replace_random_template_tokens(input: &str) -> String {
@@ -2001,8 +2053,14 @@ fn replace_datetime_template_token(
         if token == name {
             output.push_str(&datetime.format(default_format).to_string());
         } else if let Some(custom_format) = token.strip_prefix(&format!("{name}:")) {
+            use std::fmt::Write as _;
             let format = frameever_utils::moment_format_to_chrono(custom_format);
-            output.push_str(&datetime.format(&format).to_string());
+            let mut rendered = String::new();
+            if write!(rendered, "{}", datetime.format(&format)).is_ok() {
+                output.push_str(&rendered);
+            } else {
+                output.push_str(&candidate[..=end]);
+            }
         } else {
             output.push_str(&candidate[..=end]);
         }
@@ -2058,6 +2116,135 @@ mod tests {
             ),
             format!("studio-{}...-{{unknown}}", "x".repeat(180))
         );
+    }
+
+    #[test]
+    fn recording_project_names_keep_a_custom_format_chrono_cannot_render() {
+        let timestamp = chrono::Local
+            .with_ymd_and_hms(2026, 8, 25, 9, 15, 0)
+            .single()
+            .unwrap();
+
+        assert_eq!(
+            format_recording_project_name(
+                Some("{date:YYYY 100%}-{moment:YYYY %Q}-{time:HH.mm}"),
+                "Example Window",
+                "Window",
+                RecordingMode::Studio,
+                timestamp,
+            ),
+            "{date:YYYY 100%}-{moment:YYYY %Q}-09.15"
+        );
+    }
+
+    #[test]
+    fn recording_project_names_keep_placeholders_in_the_window_title() {
+        let timestamp = chrono::Local
+            .with_ymd_and_hms(2026, 8, 25, 9, 15, 0)
+            .single()
+            .unwrap();
+
+        assert_eq!(
+            format_recording_project_name(
+                Some("{target_name} {date}"),
+                "Notes {date} {time:100%} {random}",
+                "Window",
+                RecordingMode::Studio,
+                timestamp,
+            ),
+            "Notes {date} {time:100%} {random} 2026-08-25"
+        );
+    }
+
+    #[test]
+    fn studio_and_instant_projects_are_named_by_the_project_name_template() {
+        let base = temp_project("pretty-name");
+        let timestamp = chrono::Local
+            .with_ymd_and_hms(2026, 11, 6, 15, 29, 14)
+            .single()
+            .unwrap();
+        let name = format_recording_project_name(
+            Some("{target_name} ({target_kind}) {date} {time:hh.mm A}"),
+            "Untitled",
+            "Window",
+            RecordingMode::Studio,
+            timestamp,
+        );
+        let project = create_named_project(&base, &name).unwrap();
+
+        assert_eq!(
+            project_pretty_name(&project),
+            "Untitled (Window) 2026-11-06 03.29 PM"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    fn default_preset_store(config: serde_json::Value) -> crate::presets::PresetsStore {
+        crate::presets::PresetsStore {
+            presets: vec![
+                crate::presets::PresetEntry {
+                    name: "Other".into(),
+                    config: serde_json::json!({ "background": { "padding": 5.0 } }),
+                },
+                crate::presets::PresetEntry {
+                    name: "Mine".into(),
+                    config,
+                },
+            ],
+            default: Some(1),
+        }
+    }
+
+    #[test]
+    fn a_new_recording_opens_with_the_default_preset_and_keeps_its_timeline() {
+        let dir = temp_project("default-preset");
+        let recorded: frameever_project::ProjectConfiguration =
+            serde_json::from_value(serde_json::json!({
+                "timeline": {
+                    "segments": [{ "recordingSegment": 1, "start": 0.5, "end": 3.0, "timescale": 1.0 }],
+                    "zoomSegments": []
+                },
+                "clips": [{ "index": 0, "offsets": { "mic": -0.125 } }]
+            }))
+            .unwrap();
+        recorded.write(&dir).unwrap();
+        let mut styled = frameever_project::ProjectConfiguration::default();
+        styled.background.padding = 24.0;
+        styled.camera.size = 45.0;
+        let presets = default_preset_store(crate::presets::preset_config(&styled));
+
+        assert!(apply_default_preset_to_project_config(&dir, &presets));
+
+        let opened = frameever_project::ProjectConfiguration::load(&dir).unwrap();
+        assert_eq!(opened.background.padding, 24.0);
+        assert_eq!(opened.camera.size, 45.0);
+        assert_eq!(
+            serde_json::to_value(&opened.timeline).unwrap(),
+            serde_json::to_value(&recorded.timeline).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&opened.clips).unwrap(),
+            serde_json::to_value(&recorded.clips).unwrap()
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn no_usable_default_preset_leaves_a_new_recording_untouched() {
+        let dir = temp_project("no-default-preset");
+        frameever_project::ProjectConfiguration::default()
+            .write(&dir)
+            .unwrap();
+        let original = std::fs::read(dir.join("project-config.json")).unwrap();
+        let mut presets = default_preset_store(serde_json::json!({ "background": 42 }));
+        assert!(!apply_default_preset_to_project_config(&dir, &presets));
+        presets.default = None;
+        assert!(!apply_default_preset_to_project_config(&dir, &presets));
+        assert_eq!(
+            std::fs::read(dir.join("project-config.json")).unwrap(),
+            original
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -2573,6 +2760,43 @@ mod tests {
                 Value::String(json.to_string())
             );
         }
+    }
+
+    #[test]
+    fn a_storage_check_that_cannot_run_does_not_block_the_save() {
+        let directory = tempfile::tempdir().unwrap();
+        finalization_storage_verdict(
+            directory.path(),
+            Err(std::io::Error::other(
+                "The system cannot find the path specified. (0x80070003)",
+            )),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_measured_storage_shortage_still_refuses_the_save() {
+        use frameever_utils::disk_space::{RECORDING_DISK_RESERVE_BYTES, RecordingStorage};
+        let directory = tempfile::tempdir().unwrap();
+        let recording_bytes = 1024 * 1024 * 1024;
+        let needed = recording_bytes * 3 + RECORDING_DISK_RESERVE_BYTES / 2;
+        let error = finalization_storage_verdict(
+            directory.path(),
+            Ok(RecordingStorage {
+                available_bytes: needed,
+                recording_bytes,
+            }),
+        )
+        .unwrap_err();
+        assert!(error.to_string().starts_with("Low storage."), "{error}");
+        finalization_storage_verdict(
+            directory.path(),
+            Ok(RecordingStorage {
+                available_bytes: needed + 1,
+                recording_bytes,
+            }),
+        )
+        .unwrap();
     }
 }
 
@@ -3284,6 +3508,7 @@ mod preparing_presentation_tests {
             &project,
             crate::store::BlurMode::Off,
             &frameever_project::AnimatedGradientLibrary::default(),
+            &crate::presets::PresetsStore::default(),
         )
         .unwrap();
         assert_eq!(
@@ -3302,6 +3527,7 @@ mod preparing_presentation_tests {
                     &project,
                     blur,
                     &frameever_project::AnimatedGradientLibrary::default(),
+                    &crate::presets::PresetsStore::default(),
                 )
                 .is_err()
             );
@@ -3312,8 +3538,69 @@ mod preparing_presentation_tests {
             ..Default::default()
         };
         assert!(
-            preparing_presentation_for(&project, crate::store::BlurMode::Off, &library).is_err()
+            preparing_presentation_for(
+                &project,
+                crate::store::BlurMode::Off,
+                &library,
+                &crate::presets::PresetsStore::default(),
+            )
+            .is_err()
         );
         assert_eq!(serde_json::to_value(project).unwrap(), original);
+    }
+
+    #[test]
+    fn a_default_preset_saved_with_blur_follows_the_live_blur_toggle() {
+        let mut blurred = frameever_project::ProjectConfiguration::default();
+        blurred.camera.background_blur.mode = frameever_project::BackgroundBlurMode::Heavy;
+        let presets = crate::presets::PresetsStore {
+            presets: vec![crate::presets::PresetEntry {
+                name: "Blurred".into(),
+                config: crate::presets::preset_config(&blurred),
+            }],
+            default: Some(0),
+        };
+        let shown = preparing_presentation_for(
+            &frameever_project::ProjectConfiguration::default(),
+            crate::store::BlurMode::Off,
+            &frameever_project::AnimatedGradientLibrary::default(),
+            &presets,
+        )
+        .unwrap();
+        assert!(!shown.camera.background_blur.is_active());
+    }
+
+    #[test]
+    fn the_preparing_preview_shows_the_default_preset_instead_of_the_gradient() {
+        let project: frameever_project::ProjectConfiguration =
+            serde_json::from_value(serde_json::json!({
+                "timeline": {
+                    "segments": [{ "recordingSegment": 1, "start": 0.5, "end": 3.0, "timescale": 1.0 }],
+                    "zoomSegments": []
+                }
+            }))
+            .unwrap();
+        let mut styled = frameever_project::ProjectConfiguration::default();
+        styled.background.padding = 24.0;
+        let presets = crate::presets::PresetsStore {
+            presets: vec![crate::presets::PresetEntry {
+                name: "Mine".into(),
+                config: crate::presets::preset_config(&styled),
+            }],
+            default: Some(0),
+        };
+        let library = frameever_project::AnimatedGradientLibrary {
+            selected: true,
+            last_used: Some(frameever_project::AnimatedGradientConfig::default()),
+            ..Default::default()
+        };
+        let shown =
+            preparing_presentation_for(&project, crate::store::BlurMode::Off, &library, &presets)
+                .unwrap();
+        assert_eq!(shown.background.padding, 24.0);
+        assert_eq!(
+            serde_json::to_value(&shown.timeline).unwrap(),
+            serde_json::to_value(&project.timeline).unwrap()
+        );
     }
 }

@@ -603,6 +603,7 @@ impl EditorWindow {
         if self.clip_segments().len() < 2 {
             return;
         }
+        self.commit_clip_rename(window, cx);
         self.edit_project("clip-delete", window, cx, move |project| {
             project
                 .timeline
@@ -2028,24 +2029,28 @@ impl PreparedMp4Import {
     }
 }
 
-/// `getExistingRecordingPickerOptions` (`ED/existing-recording-picker.ts`):
-/// a `.cap` filter on macOS (bundles are packages there), a directory picker
-/// on Windows, both rooted at the recordings directory where the dialog
-/// supports one.
-async fn pick_existing_recording_path(_cx: &mut gpui::AsyncWindowContext) -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        crate::platform::open_image_panel(&[frameever_utils::brand::PROJECT_EXTENSION])
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExistingRecordingPicker {
+    Package,
+    Folder,
+}
+
+const fn existing_recording_picker(macos: bool) -> ExistingRecordingPicker {
+    if macos {
+        ExistingRecordingPicker::Package
+    } else {
+        ExistingRecordingPicker::Folder
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        rfd::FileDialog::new()
+}
+
+async fn pick_existing_recording_path(_cx: &mut gpui::AsyncWindowContext) -> Option<PathBuf> {
+    match existing_recording_picker(cfg!(target_os = "macos")) {
+        ExistingRecordingPicker::Package => {
+            crate::platform::open_image_panel(&[frameever_utils::brand::PROJECT_EXTENSION])
+        }
+        ExistingRecordingPicker::Folder => rfd::FileDialog::new()
             .set_directory(crate::recording::recordings_dir())
-            .add_filter(
-                t!("FrameEver Recording"),
-                &[frameever_utils::brand::PROJECT_EXTENSION],
-            )
-            .pick_file()
+            .pick_folder(),
     }
 }
 
@@ -3428,6 +3433,40 @@ mod tests {
     use super::*;
     use gpui::{point, size};
 
+    #[gpui::test]
+    fn deleting_a_clip_ends_a_live_rename_first(cx: &mut gpui::TestAppContext) {
+        for (renamed, deleted) in [(1, 0), (2, 1), (2, 2), (0, 2)] {
+            let project = tempfile::tempdir().unwrap();
+            let path = project.path().to_path_buf();
+            let (editor, cx) =
+                cx.add_window_view(move |window, cx| EditorWindow::new(path.clone(), window, cx));
+            editor.update_in(cx, |editor, window, cx| {
+                editor.project.timeline = Some(
+                    serde_json::from_value(serde_json::json!({
+                        "segments": [
+                            {"recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 2.0},
+                            {"recordingSegment": 0, "timescale": 1.0, "start": 2.0, "end": 4.0},
+                            {"recordingSegment": 0, "timescale": 1.0, "start": 4.0, "end": 6.0}
+                        ],
+                        "zoomSegments": []
+                    }))
+                    .unwrap(),
+                );
+                editor.history.record(&editor.project);
+                editor.start_clip_rename(renamed, window, cx);
+                assert_eq!(editor.clips.editing, Some(renamed));
+                let input = editor.clips.rename_input.clone().unwrap();
+                input.update(cx, |input, cx| input.set_text("Intro".to_string(), cx));
+                editor.delete_clip(deleted, window, cx);
+                assert_eq!(
+                    editor.clips.editing, None,
+                    "rename of clip {renamed} still live after deleting clip {deleted}"
+                );
+            });
+            drop(project);
+        }
+    }
+
     #[test]
     fn split_thumbnails_use_requested_time_inside_keyframe_interval() {
         let fixture = ImportFixture::new(include_bytes!("../test-data/clip-thumbnail-gop.mp4"));
@@ -3598,6 +3637,68 @@ mod tests {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.root).unwrap();
         }
+    }
+
+    #[test]
+    fn existing_recording_is_picked_as_a_folder_except_on_macos() {
+        assert_eq!(
+            existing_recording_picker(true),
+            ExistingRecordingPicker::Package
+        );
+        assert_eq!(
+            existing_recording_picker(false),
+            ExistingRecordingPicker::Folder
+        );
+    }
+
+    #[test]
+    fn picked_folder_imports_only_when_it_is_a_project() {
+        let target = ImportFixture::new(MP4_WITHOUT_AUDIO);
+        let source = target.root.join("source.ever");
+        let source_segment = source.join("content/segments/segment-0");
+        std::fs::create_dir_all(&source_segment).unwrap();
+        std::fs::write(source_segment.join("display.mp4"), MP4_WITHOUT_AUDIO).unwrap();
+        std::fs::copy(
+            target.project.join("recording-meta.json"),
+            source.join("recording-meta.json"),
+        )
+        .unwrap();
+
+        let plain_folder = target.root.join("Holiday photos");
+        std::fs::create_dir(&plain_folder).unwrap();
+        let before = target.project_bytes();
+        let not_a_project = t!("Select a FrameEver project folder").to_string();
+        for (picked, expected) in [
+            (plain_folder.as_path(), not_a_project.clone()),
+            (source_segment.as_path(), not_a_project.clone()),
+            (target.root.as_path(), not_a_project.clone()),
+            (
+                target.project.as_path(),
+                t!("Cannot import a recording into itself").to_string(),
+            ),
+        ] {
+            assert_eq!(
+                append_cap_project_to_editor(&target.project, picked).unwrap_err(),
+                expected,
+                "picked {}",
+                picked.display()
+            );
+        }
+        assert_eq!(target.project_bytes(), before);
+
+        assert_eq!(
+            append_cap_project_to_editor(&target.project, &source).unwrap(),
+            1
+        );
+        let meta = RecordingMeta::load_for_project(&target.project).unwrap();
+        let RecordingMetaInner::Studio(studio) = &meta.inner else {
+            panic!("target stopped being a studio recording");
+        };
+        let StudioRecordingMeta::MultipleSegments { inner } = studio.as_ref() else {
+            panic!("target is not multi-segment");
+        };
+        assert_eq!(inner.segments.len(), 2);
+        assert!(meta.path(&inner.segments[1].display.path).is_file());
     }
 
     #[test]

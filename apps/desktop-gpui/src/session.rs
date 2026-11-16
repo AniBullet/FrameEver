@@ -286,6 +286,7 @@ pub struct RecordingSession {
     /// (`openEditor` by default) the way the Tauri app does.
     pub finished_studio: Option<std::path::PathBuf>,
     pub finished_instant: Option<std::path::PathBuf>,
+    pub deleted_recording: bool,
     preparing_studio_editor: Option<PreparingStudioEditor>,
     /// `EditorRecordingTarget` (`src-tauri/src/windows.rs:3679-3697`): the
     /// open editor project a "Record a new clip" capture must land back in.
@@ -345,6 +346,7 @@ impl RecordingSession {
             changing_input: false,
             finished_studio: None,
             finished_instant: None,
+            deleted_recording: false,
             preparing_studio_editor: None,
             editor_recording_target: None,
             clock: None,
@@ -1623,10 +1625,19 @@ impl RecordingSession {
 
         let task = gpui_tokio::Tokio::spawn(cx, active.cancel_and_delete());
         cx.spawn(async move |this, cx| {
-            if let Ok(Err(error)) = task.await {
-                tracing::error!("delete recording: {error:#}");
-            }
-            this.update(cx, |this, cx| this.finish(cx)).ok();
+            let deleted = match task.await {
+                Ok(Ok(())) => true,
+                Ok(Err(error)) => {
+                    tracing::error!("delete recording: {error:#}");
+                    false
+                }
+                Err(_) => false,
+            };
+            this.update(cx, |this, cx| {
+                this.deleted_recording = deleted;
+                this.finish(cx);
+            })
+            .ok();
         })
         .detach();
     }
@@ -1709,6 +1720,7 @@ impl RecordingSession {
                 match result {
                     Ok((true, Ok(_))) => {
                         this.active = None;
+                        this.deleted_recording = restart.is_none();
                         this.finish(cx);
                         if let Some(config) = restart {
                             this.start(config, cx);
