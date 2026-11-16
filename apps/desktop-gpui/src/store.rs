@@ -922,6 +922,8 @@ pub struct GeneralSettings {
     pub window_capture_style: WindowCaptureStyle,
     pub focus_center: bool,
     pub post_deletion_behaviour: PostDeletionBehaviour,
+    pub keep_main_hidden_after_editor: bool,
+    pub keep_main_hidden_on_cancel: bool,
     pub delete_instant_recordings_after_upload: bool,
     pub crash_recovery_recording: bool,
     pub auto_compress_instant: bool,
@@ -1345,6 +1347,8 @@ impl GeneralSettings {
             window_capture_style: enum_at(general, "windowCaptureStyle"),
             focus_center: bool_at(general, "focusCenter", false),
             post_deletion_behaviour: enum_at(general, "postDeletionBehaviour"),
+            keep_main_hidden_after_editor: bool_at(general, "keepMainHiddenAfterEditor", false),
+            keep_main_hidden_on_cancel: bool_at(general, "keepMainHiddenOnCancel", false),
             delete_instant_recordings_after_upload: bool_at(
                 general,
                 "deleteInstantRecordingsAfterUpload",
@@ -2838,6 +2842,25 @@ mod tests {
             ));
             assert_eq!(std::fs::read_to_string(&store.path).unwrap(), contents);
         }
+    }
+
+    #[test]
+    fn the_main_window_comes_back_after_the_editor_and_a_cancel_unless_asked_to_stay_hidden() {
+        let _store = TempStore::new("stay-hidden-default", Some("{}"));
+        let settings = GeneralSettings::load();
+        assert!(!settings.keep_main_hidden_after_editor);
+        assert!(!settings.keep_main_hidden_on_cancel);
+        drop(_store);
+
+        let _store = TempStore::new(
+            "stay-hidden-set",
+            Some(
+                r#"{"general_settings":{"keepMainHiddenAfterEditor":true,"keepMainHiddenOnCancel":true}}"#,
+            ),
+        );
+        let settings = GeneralSettings::load();
+        assert!(settings.keep_main_hidden_after_editor);
+        assert!(settings.keep_main_hidden_on_cancel);
     }
 
     #[test]
