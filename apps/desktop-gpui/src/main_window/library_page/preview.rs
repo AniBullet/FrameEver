@@ -507,6 +507,7 @@ impl MainWindow {
         &self,
         entry: &Entry,
         still: Option<Arc<RenderImage>>,
+        actual_size: Option<f32>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
@@ -548,6 +549,20 @@ impl MainWindow {
                             this.toggle_library_preview(window, cx);
                         })),
                 )
+                .into_any_element()
+        } else if let Some((image, scale)) = image.clone().zip(actual_size) {
+            let pixels = image.size(0);
+            let (width, height) = super::overlay::actual_size_of(
+                (u32::from(pixels.width), u32::from(pixels.height)),
+                scale,
+            );
+            div()
+                .flex()
+                .size_full()
+                .items_center()
+                .justify_center()
+                .overflow_hidden()
+                .child(img(image).flex_none().w(px(width)).h(px(height)))
                 .into_any_element()
         } else if let Some(image) = image {
             img(image)
@@ -595,7 +610,7 @@ impl MainWindow {
                         this.open_library_overlay(&path, window, cx);
                     }))
             })
-            .child(self.preview_picture(entry, None, cx))
+            .child(self.preview_picture(entry, None, None, cx))
             .when(opens, |this| {
                 this.child(
                     div()

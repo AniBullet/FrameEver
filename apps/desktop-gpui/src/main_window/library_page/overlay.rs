@@ -22,6 +22,7 @@ const FOOT: f32 = 56.;
 const SIDE: f32 = 44.;
 const STEP_ICON: f32 = 16.;
 const WHOLE_SCREEN_ICON: f32 = 14.;
+const ACTUAL_SIZE_BOUNDS: (u32, u32) = (u32::MAX, u32::MAX);
 const CONTROLS_HOLD: Duration = Duration::from_millis(2500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +35,7 @@ pub(super) enum PreviewKey {
     Forward,
     Mute,
     WholeScreen,
+    ActualSize,
 }
 
 impl PreviewKey {
@@ -65,11 +67,20 @@ pub(super) fn preview_key(keystroke: &Keystroke, on_overlay: bool) -> Option<Pre
         "l" => Some(PreviewKey::Forward),
         "m" => Some(PreviewKey::Mute),
         "f" => Some(PreviewKey::WholeScreen),
+        "z" => Some(PreviewKey::ActualSize),
         _ => None,
     }
 }
 
-pub(super) fn stage_pixels(full_screen: bool, viewport: (f32, f32), scale: f32) -> (u32, u32) {
+pub(super) fn stage_pixels(
+    full_screen: bool,
+    actual_size: bool,
+    viewport: (f32, f32),
+    scale: f32,
+) -> (u32, u32) {
+    if actual_size {
+        return ACTUAL_SIZE_BOUNDS;
+    }
     let (width, height) = if full_screen {
         viewport
     } else {
@@ -84,6 +95,10 @@ pub(super) fn stage_pixels(full_screen: bool, viewport: (f32, f32), scale: f32) 
     )
 }
 
+pub(super) fn actual_size_of(image: (u32, u32), scale: f32) -> (f32, f32) {
+    (image.0 as f32 / scale, image.1 as f32 / scale)
+}
+
 fn progress(elapsed: Duration, total: Duration) -> f32 {
     (elapsed.as_secs_f32() / total.as_secs_f32()).min(1.)
 }
@@ -93,6 +108,7 @@ pub(super) struct Overlay {
     from: Option<Bounds<Pixels>>,
     closed_at: Option<Instant>,
     full_screen: bool,
+    actual_size: bool,
     controls_until: Instant,
     controls_task: Option<Task<()>>,
     still: Option<(PathBuf, Arc<RenderImage>)>,
@@ -107,6 +123,7 @@ impl Overlay {
             from,
             closed_at: None,
             full_screen: false,
+            actual_size: false,
             controls_until: now,
             controls_task: None,
             still: None,
@@ -200,6 +217,13 @@ impl MainWindow {
         self.library.overlay.as_ref().is_some_and(Overlay::is_open)
     }
 
+    pub(in crate::main_window) fn library_actual_size(&self) -> bool {
+        self.library
+            .overlay
+            .as_ref()
+            .is_some_and(|overlay| overlay.is_open() && overlay.actual_size)
+    }
+
     pub(in crate::main_window) fn library_full_screen(&self) -> bool {
         self.library
             .overlay
@@ -257,6 +281,7 @@ impl MainWindow {
                 let viewport = window.viewport_size();
                 stage_pixels(
                     overlay.full_screen,
+                    overlay.actual_size,
                     (f32::from(viewport.width), f32::from(viewport.height)),
                     scale,
                 )
@@ -353,6 +378,15 @@ impl MainWindow {
         cx.notify();
     }
 
+    fn toggle_library_actual_size(&mut self, cx: &mut Context<Self>) {
+        let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
+            return;
+        };
+        overlay.actual_size = !overlay.actual_size;
+        self.wake_overlay_controls(cx);
+        cx.notify();
+    }
+
     fn wake_overlay_controls(&mut self, cx: &mut Context<Self>) {
         let Some(overlay) = &mut self.library.overlay else {
             return;
@@ -434,6 +468,7 @@ impl MainWindow {
             PreviewKey::Forward => self.skip_library_preview(true, window, cx),
             PreviewKey::Mute => self.toggle_library_mute(cx),
             PreviewKey::WholeScreen => self.toggle_library_full_screen(window, cx),
+            PreviewKey::ActualSize => self.toggle_library_actual_size(cx),
         }
     }
 
@@ -595,6 +630,11 @@ impl MainWindow {
         } else {
             ("icons/maximize.svg", t!("Whole screen"))
         };
+        let (size_icon, size_label) = if self.library_actual_size() {
+            ("icons/ratio.svg", t!("Fit to window"))
+        } else {
+            ("icons/scan.svg", t!("Actual size"))
+        };
         let duration = self.library_preview_length(entry);
         div()
             .flex()
@@ -614,6 +654,18 @@ impl MainWindow {
                     .child(self.preview_seek(duration, cx))
                     .child(self.preview_mute_button(cx))
             })
+            .child(
+                self.preview_button(
+                    "library-overlay-actual-size",
+                    size_icon,
+                    WHOLE_SCREEN_ICON,
+                    size_label,
+                    &["Z"],
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_library_actual_size(cx);
+                })),
+            )
             .child(
                 self.preview_button(
                     "library-overlay-whole",
@@ -650,7 +702,8 @@ impl MainWindow {
             size: size(viewport.width, viewport.height - top),
         };
         let area = overlay.area(whole, now, cx.reduce_motion());
-        let picture = self.preview_picture(entry, overlay.still_of(&entry.path), cx);
+        let actual_size = overlay.actual_size.then(|| window.scale_factor());
+        let picture = self.preview_picture(entry, overlay.still_of(&entry.path), actual_size, cx);
         let controls = overlay.shows_controls(preview.playing, now);
         let full_screen = overlay.full_screen;
         let root = div()
@@ -762,6 +815,7 @@ mod tests {
         assert_eq!(key("l", true), Some(PreviewKey::Forward));
         assert_eq!(key("m", true), Some(PreviewKey::Mute));
         assert_eq!(key("f", true), Some(PreviewKey::WholeScreen));
+        assert_eq!(key("z", true), Some(PreviewKey::ActualSize));
         assert_eq!(key("space", true), Some(PreviewKey::Close));
     }
 
@@ -795,16 +849,34 @@ mod tests {
 
     #[test]
     fn the_stage_decodes_at_the_pixels_it_covers() {
-        assert_eq!(stage_pixels(true, (1920., 1080.), 1.5), (2880, 1620));
+        assert_eq!(stage_pixels(true, false, (1920., 1080.), 1.5), (2880, 1620));
         assert_eq!(
-            stage_pixels(false, (1000., 700.), 2.),
+            stage_pixels(false, false, (1000., 700.), 2.),
             (1824, (560. * 2.) as u32)
         );
     }
 
     #[test]
     fn a_window_too_small_for_the_chrome_still_asks_for_a_pixel() {
-        assert_eq!(stage_pixels(false, (10., 10.), 1.), (1, 1));
+        assert_eq!(stage_pixels(false, false, (10., 10.), 1.), (1, 1));
+    }
+
+    #[test]
+    fn actual_size_decodes_every_source_pixel_in_any_window() {
+        assert_eq!(
+            stage_pixels(false, true, (1000., 700.), 2.),
+            ACTUAL_SIZE_BOUNDS
+        );
+        assert_eq!(
+            stage_pixels(true, true, (1920., 1080.), 1.),
+            ACTUAL_SIZE_BOUNDS
+        );
+    }
+
+    #[test]
+    fn actual_size_draws_one_source_pixel_per_screen_pixel() {
+        assert_eq!(actual_size_of((1920, 1080), 1.), (1920., 1080.));
+        assert_eq!(actual_size_of((1920, 1080), 1.5), (1280., 720.));
     }
 
     #[test]
