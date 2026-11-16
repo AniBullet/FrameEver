@@ -83,7 +83,6 @@ impl CountdownWindow {
                 }
                 window.remove_window();
             } else {
-                window.request_animation_frame();
                 cx.notify();
             }
         })
@@ -264,6 +263,32 @@ mod tests {
             countdown_frame(Phase::Idle, Some(3), true),
             CountdownFrame::Hidden
         );
+    }
+
+    #[gpui::test]
+    fn a_countdown_tick_redraws_the_window_without_panicking(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            crate::feeds::Feeds::init(cx);
+            RecordingSession::init(cx);
+        });
+        let (countdown, cx) = cx.add_window_view(|window, cx| {
+            CountdownWindow::new(
+                RecordingSession::global(cx),
+                3,
+                Bounds::new(point(px(0.), px(0.)), gpui::size(px(800.), px(600.))),
+                px(600.),
+                true,
+                window,
+                cx,
+            )
+        });
+        cx.update(|_, cx| {
+            RecordingSession::global(cx).update(cx, |session, cx| session.count_down_from(2, cx));
+        });
+        cx.run_until_parked();
+        countdown.read_with(cx, |countdown, _| {
+            assert_eq!(countdown.frame, CountdownFrame::Number(2));
+        });
     }
 
     #[test]

@@ -560,6 +560,13 @@ impl RecordingSession {
         self.countdown_cue_started
     }
 
+    #[cfg(test)]
+    pub(crate) fn count_down_from(&mut self, remaining: u32, cx: &mut Context<Self>) {
+        self.phase = Phase::Starting;
+        self.countdown_remaining = Some(remaining);
+        cx.notify();
+    }
+
     pub fn skip_countdown(&mut self, _cx: &mut Context<Self>) {
         if self.phase == Phase::Starting
             && self
