@@ -1744,11 +1744,15 @@ pub fn chapter_mark_time(recorded: f64, clip_durations: &[f64], clips: &[Segment
                     source_start,
                     source_duration,
                     timescale,
+                    holds,
                     ..
                 } if *clip_recording as usize == recording_clip
                     && (*source_start..=source_start + source_duration).contains(&offset) =>
                 {
-                    Some(clip.start + (offset - source_start) / timescale)
+                    Some(effective_to_output(
+                        holds,
+                        clip.start + (offset - source_start) / timescale,
+                    ))
                 }
                 _ => None,
             })
@@ -1762,11 +1766,13 @@ pub fn recorded_time_at(time: f64, clip_durations: &[f64], clips: &[Segment]) ->
             source_start,
             source_duration,
             timescale,
+            holds,
             ..
         } if (clip.start..=clip.end).contains(&time) => {
             let recording_clip = *recording_clip as usize;
             let duration = *clip_durations.get(recording_clip)?;
-            let offset = (source_start + (time - clip.start) * timescale)
+            let played = time - clip.start - held_time_before(holds, time);
+            let offset = (source_start + played * timescale)
                 .clamp(*source_start, source_start + source_duration)
                 .min(duration);
             let clip_start: f64 = clip_durations[..recording_clip].iter().sum();
@@ -1780,6 +1786,13 @@ pub fn recorded_time_at(time: f64, clip_durations: &[f64], clips: &[Segment]) ->
 /// recording-flow timestamp placed back into output time, landing after every
 /// hold it passed. Rust's own copy is private
 /// (`configuration.rs:1866-1878`), so this is the four-line transcription.
+fn held_time_before(holds: &[(f64, f64)], time: f64) -> f64 {
+    holds
+        .iter()
+        .map(|(start, end)| (time.min(*end) - start).max(0.0))
+        .sum()
+}
+
 fn effective_to_output(holds: &[(f64, f64)], effective: f64) -> f64 {
     let mut output = effective;
     for (start, end) in holds {
@@ -4641,6 +4654,30 @@ mod tests {
         );
         assert!(chapter_marker_times(&[3.0], &[], &model.clips).is_empty());
     }
+    #[test]
+    fn chapter_marks_skip_the_fullscreen_text_hold_inside_a_clip() {
+        let config: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": {
+                "segments": [
+                    { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0 }
+                ],
+                "zoomSegments": [],
+                "textSegments": [{ "start": 2.0, "end": 4.0, "layout": "fullscreen" }]
+            }
+        }))
+        .unwrap();
+        let model = TimelineModel::build(&config, false, false);
+        let durations = [10.0];
+
+        assert_eq!(recorded_time_at(1.0, &durations, &model.clips), Some(1.0));
+        assert_eq!(recorded_time_at(3.0, &durations, &model.clips), Some(2.0));
+        assert_eq!(recorded_time_at(5.0, &durations, &model.clips), Some(3.0));
+        assert_eq!(
+            chapter_marker_times(&[1.0, 3.0, 8.0], &durations, &model.clips),
+            vec![1.0, 5.0, 10.0]
+        );
+    }
+
     #[test]
     fn a_timeline_time_maps_back_to_the_recorded_time_under_it() {
         let model = chapter_model(serde_json::json!([
