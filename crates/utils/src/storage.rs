@@ -186,6 +186,21 @@ pub fn default_storage_dir() -> PathBuf {
         .join(STORAGE_DIR_NAME)
 }
 
+pub fn storage_folder_in(picked: &Path) -> PathBuf {
+    let named = picked
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case(STORAGE_DIR_NAME));
+    let used = [RECORDINGS_DIR_NAME, SCREENSHOTS_DIR_NAME]
+        .iter()
+        .any(|name| picked.join(name).is_dir());
+    if named || used {
+        picked.to_path_buf()
+    } else {
+        picked.join(STORAGE_DIR_NAME)
+    }
+}
+
 pub fn is_project(path: &Path) -> bool {
     path.is_dir()
         && path
@@ -639,6 +654,20 @@ mod tests {
         assert_eq!(storage.screenshots_dir(), tree.path("isolated/Screenshots"));
         assert_eq!(storage.known_dirs(ProjectKind::Recording), vec![isolated]);
         assert!(storage.known_dirs(ProjectKind::Screenshot).is_empty());
+    }
+
+    #[test]
+    fn a_picked_folder_gets_its_own_storage_folder_unless_it_already_is_one() {
+        let tree = Tree::new();
+        let plain = tree.dir("Media");
+        assert_eq!(storage_folder_in(&plain), plain.join(STORAGE_DIR_NAME));
+
+        let named = tree.dir("Elsewhere/frameever");
+        assert_eq!(storage_folder_in(&named), named);
+
+        let used = tree.dir("Old");
+        tree.dir("Old/Recordings");
+        assert_eq!(storage_folder_in(&used), used);
     }
 
     #[test]

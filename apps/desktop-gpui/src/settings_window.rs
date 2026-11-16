@@ -921,6 +921,52 @@ impl SettingsWindow {
                     .overflow_y_scroll()
                     .children(nav),
             )
+            .child(
+                div()
+                    .id("settings-sidebar-version")
+                    .tab_index(0)
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(8.))
+                    .mx(px(10.))
+                    .mb(px(10.))
+                    .px(px(8.))
+                    .py(px(6.))
+                    .rounded(px(8.))
+                    .cursor_pointer()
+                    .border_1()
+                    .border_color(transparent_black())
+                    .focus_visible(move |style| style.border_color(theme.ring))
+                    .hover(|style| style.bg(theme.settings_hover()))
+                    .child(crate::logo::app_icon(20.))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .truncate()
+                                    .child(concat!("FrameEver v", env!("CARGO_PKG_VERSION"))),
+                            )
+                            .children(sidebar_update_label(&crate::updates::status(cx)).map(
+                                |label| {
+                                    div()
+                                        .text_size(px(11.))
+                                        .truncate()
+                                        .text_color(theme.link)
+                                        .child(label)
+                                },
+                            )),
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.clear_search(cx);
+                        this.set_page(Page::About, window, cx);
+                    })),
+            )
     }
 
     fn render_content(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1829,7 +1875,9 @@ impl SettingsWindow {
                             return;
                         };
                         this.update(cx, |this, cx| {
-                            this.settings.storage.choose_storage_folder(Some(path));
+                            this.settings.storage.choose_storage_folder(Some(
+                                frameever_utils::storage::storage_folder_in(&path),
+                            ));
                             this.write_storage(cx);
                         })
                         .ok();
@@ -2607,9 +2655,52 @@ fn format_project_name(template: &str) -> String {
         .replace("{time}", "09:41 AM")
 }
 
+fn sidebar_update_label(status: &crate::updates::UpdateStatus) -> Option<String> {
+    use crate::updates::UpdateStatus;
+    match status {
+        UpdateStatus::Idle => None,
+        UpdateStatus::Checking => Some(t!("Checking…").to_string()),
+        UpdateStatus::Downloading {
+            version,
+            fraction: Some(fraction),
+        } => Some(
+            t!(
+                "Downloading {version}… {percent}%",
+                version = version,
+                percent = (fraction * 100.).round() as u32
+            )
+            .to_string(),
+        ),
+        UpdateStatus::Downloading { version, .. } => {
+            Some(t!("Downloading {version}…", version = version).to_string())
+        }
+        UpdateStatus::Installing { version } => {
+            Some(t!("Installing {version}…", version = version).to_string())
+        }
+        UpdateStatus::Ready { .. } | UpdateStatus::Installed { .. } => {
+            Some(t!("Restart to update").to_string())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_sidebar_names_an_update_only_while_one_is_in_progress_or_ready() {
+        use crate::updates::UpdateStatus;
+        let version = semver::Version::new(1, 2, 3);
+        assert_eq!(sidebar_update_label(&UpdateStatus::Idle), None);
+        assert!(sidebar_update_label(&UpdateStatus::Checking).is_some());
+        let downloading = sidebar_update_label(&UpdateStatus::Downloading {
+            version: version.clone(),
+            fraction: Some(0.5),
+        })
+        .unwrap();
+        assert!(downloading.contains("1.2.3") && downloading.contains("50"));
+        assert!(sidebar_update_label(&UpdateStatus::Ready { version }).is_some());
+    }
 
     #[test]
     fn default_exclusions_are_covered_by_title() {

@@ -554,7 +554,9 @@ impl OnboardingWindow {
             };
             this.update(cx, |this, cx| {
                 let mut storage = store::GeneralSettings::load().storage;
-                storage.choose_storage_folder(Some(path));
+                storage.choose_storage_folder(Some(frameever_utils::storage::storage_folder_in(
+                    &path,
+                )));
                 let saved = storage
                     .general_settings_entries()
                     .into_iter()

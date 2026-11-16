@@ -2399,6 +2399,8 @@ fn parse_changelog(text: &str) -> Vec<ChangelogEntry> {
     entries
 }
 
+const CHANGELOG_PREVIEW_PARAGRAPHS: usize = 6;
+
 struct MarkdownParagraph {
     text: String,
     heading: bool,
@@ -2443,44 +2445,55 @@ impl SettingsWindow {
         let theme = self.theme;
         let entries = parse_changelog(CHANGELOG);
         let total = entries.len();
-        let shown = if self.changelog_all() { total } else { 1 };
-        let entries =
-            entries
-                .into_iter()
-                .take(shown)
-                .enumerate()
-                .map(|(index, entry)| {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(6.))
-                        .p(px(12.))
-                        .when(index > 0, |this| {
-                            this.border_t_1().border_color(theme.settings_border())
-                        })
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_baseline()
-                                .gap(px(8.))
-                                .child(
+        let all = self.changelog_all();
+        let shown = if all { total } else { 1 };
+        let paragraphs = if all {
+            usize::MAX
+        } else {
+            CHANGELOG_PREVIEW_PARAGRAPHS
+        };
+        let longer = entries.first().is_some_and(|entry| {
+            markdown_paragraphs(&entry.content).len() > CHANGELOG_PREVIEW_PARAGRAPHS
+        });
+        let entries = entries
+            .into_iter()
+            .take(shown)
+            .enumerate()
+            .map(|(index, entry)| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .p(px(12.))
+                    .when(index > 0, |this| {
+                        this.border_t_1().border_color(theme.settings_border())
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_baseline()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(entry.version.clone()),
+                            )
+                            .when(!entry.date.is_empty(), |this| {
+                                this.child(
                                     div()
-                                        .text_size(px(13.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(entry.version.clone()),
+                                        .text_size(px(12.))
+                                        .text_color(theme.settings_muted())
+                                        .child(entry.date.clone()),
                                 )
-                                .when(!entry.date.is_empty(), |this| {
-                                    this.child(
-                                        div()
-                                            .text_size(px(12.))
-                                            .text_color(theme.settings_muted())
-                                            .child(entry.date.clone()),
-                                    )
-                                }),
-                        )
-                        .children(markdown_paragraphs(&entry.content).into_iter().map(
-                            |paragraph| {
+                            }),
+                    )
+                    .children(
+                        markdown_paragraphs(&entry.content)
+                            .into_iter()
+                            .take(paragraphs)
+                            .map(|paragraph| {
                                 div()
                                     .text_size(px(12.))
                                     .line_height(px(18.))
@@ -2490,14 +2503,14 @@ impl SettingsWindow {
                                             .text_color(theme.settings_text())
                                     })
                                     .child(paragraph.text)
-                            },
-                        ))
-                });
+                            }),
+                    )
+            });
         self.card(false)
             .flex()
             .flex_col()
             .children(entries)
-            .when(total > 1, |this| {
+            .when(total > 1 || longer, |this| {
                 this.child(
                     div()
                         .p(px(8.))
@@ -5047,6 +5060,13 @@ mod tests {
         assert_eq!(format_secs(5.), "5");
         assert_eq!(format_secs(300.), "300");
         assert_eq!(format_secs(2.5), "2.5");
+    }
+
+    #[test]
+    fn the_latest_changelog_entry_is_longer_than_its_preview() {
+        let entries = parse_changelog(CHANGELOG);
+        let latest = markdown_paragraphs(&entries[0].content);
+        assert!(latest.len() > CHANGELOG_PREVIEW_PARAGRAPHS);
     }
 
     #[test]
