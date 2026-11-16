@@ -30,6 +30,7 @@ use crate::{
 };
 
 pub mod catalog;
+mod record_input;
 
 pub use catalog::{Page, Row};
 
@@ -165,7 +166,10 @@ fn is_stacked(row: Row) -> bool {
 }
 
 fn is_bare(row: Row) -> bool {
-    matches!(row, Row::Rules | Row::Version | Row::Changelog)
+    matches!(
+        row,
+        Row::Rules | Row::Version | Row::Changelog | Row::RecordInput
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,6 +182,7 @@ pub struct SettingsWindow {
     pub(crate) page: Page,
     pub(crate) settings: GeneralSettings,
     menu: Option<OpenMenu>,
+    record_input_info: bool,
     page_scroll: ScrollHandle,
     jump_anchor: ScrollAnchor,
     jump_pending: bool,
@@ -246,6 +251,7 @@ impl SettingsWindow {
             project_name: stored_template,
             settings,
             menu: None,
+            record_input_info: false,
             jump_anchor: ScrollAnchor::for_handle(page_scroll.clone()),
             page_scroll,
             jump_pending: false,
@@ -1277,19 +1283,7 @@ impl SettingsWindow {
                     },
                 )
                 .into_any_element(),
-            Row::KeyPresses => self
-                .toggle(
-                    "capture-keyboard",
-                    settings.capture_keyboard_events,
-                    cx,
-                    |this, cx| {
-                        this.settings.capture_keyboard_events =
-                            !this.settings.capture_keyboard_events;
-                        let value = this.settings.capture_keyboard_events;
-                        this.write_bool("captureKeyboardEvents", value, cx);
-                    },
-                )
-                .into_any_element(),
+            Row::RecordInput => self.render_record_input_row(cx),
             Row::CrashRecovery => self
                 .toggle(
                     "crash-recovery",

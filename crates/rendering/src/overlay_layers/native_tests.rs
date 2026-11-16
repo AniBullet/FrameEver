@@ -811,27 +811,33 @@ async fn input_constants(path: &Path) -> RenderVideoConstants {
     }
     .write_to_file(&take.join("keyboard.bin"))
     .unwrap();
-    std::fs::write(
-        take.join("cursor.json"),
-        serde_json::to_vec(&serde_json::json!({
-            "clicks": [
-                {"active_modifiers": [], "cursor_num": 1, "cursor_id": "0", "time_ms": 2200.0, "down": true},
-                {"active_modifiers": [], "cursor_num": 1, "cursor_id": "0", "time_ms": 2400.0, "down": false}
-            ],
-            "moves": []
-        }))
-        .unwrap(),
-    )
+    let event = |time_ms: f64, kind| frameever_project::input_display::InputEvent { time_ms, kind };
+    let button = |button: u8, down: bool| {
+        frameever_project::input_display::InputEventKind::MouseButton { button, down }
+    };
+    frameever_project::input_display::InputEvents {
+        events: vec![
+            event(2200.0, button(1, true)),
+            event(2400.0, button(1, false)),
+            event(2600.0, button(4, true)),
+            event(2800.0, button(4, false)),
+            event(
+                3000.0,
+                frameever_project::input_display::InputEventKind::Wheel { up: true },
+            ),
+        ],
+    }
+    .write_to_file(&take.join("input.bin"))
     .unwrap();
     let mut metadata: RecordingMeta = serde_json::from_value(serde_json::json!({
         "pretty_name": "input display",
         "segments": [{
-            "display": {"path": "content/segments/segment-0/display.mp4", "fps": 30},
-            "cursor": "content/segments/segment-0/cursor.json"
+            "display": {"path": "content/segments/segment-0/display.mp4", "fps": 30}
         }]
     }))
     .unwrap();
     metadata.project_path = path.to_path_buf();
+    metadata.save_for_project().unwrap();
     let studio = metadata.studio_meta().unwrap().clone();
     RenderVideoConstants::new_with_options(
         RenderOptions {
@@ -913,6 +919,9 @@ async fn input_display_draws_only_inside_its_bounds_and_lights_what_is_held() {
     let key_let_go = render_at(&constants, &shown, &mut layers, 2.1).await;
     let button_held = render_at(&constants, &shown, &mut layers, 2.3).await;
     let all_let_go = render_at(&constants, &shown, &mut layers, 2.5).await;
+    let side_button_held = render_at(&constants, &shown, &mut layers, 2.7).await;
+    let wheel_stepped = render_at(&constants, &shown, &mut layers, 3.05).await;
+    let wheel_at_rest = render_at(&constants, &shown, &mut layers, 3.3).await;
     let without_later = render_at(&constants, &project(), &mut layers, 1.5).await;
 
     assert_eq!(pixels(&without), pixels(&off));
@@ -957,6 +966,44 @@ async fn input_display_draws_only_inside_its_bounds_and_lights_what_is_held() {
     assert!(centre(&key) < centre(&button));
     assert_eq!(pixels(&released), pixels(&key_let_go));
     assert_eq!(pixels(&released), pixels(&all_let_go));
+
+    let side_button = changed_pixels(&released, &side_button_held);
+    let wheel = changed_pixels(&released, &wheel_stepped);
+    assert!(
+        side_button.len() > 20,
+        "only {} pixels lit for the side button",
+        side_button.len()
+    );
+    assert!(
+        wheel.len() > 10,
+        "only {} pixels lit for the wheel",
+        wheel.len()
+    );
+    assert!(side_button.iter().chain(&wheel).all(inside));
+    assert_ne!(side_button, button);
+    assert_eq!(pixels(&released), pixels(&wheel_at_rest));
+}
+
+#[tokio::test]
+async fn input_display_shows_nothing_pressed_once_the_input_record_is_cleared() {
+    let directory = tempfile::tempdir().unwrap();
+    let constants = input_constants(directory.path()).await;
+    let mut layers = RendererLayers::new(&constants.device, &constants.queue);
+    let shown = with_input_display(frameever_project::InputDisplay {
+        enabled: true,
+        size: 120.0,
+        ..Default::default()
+    });
+
+    let released = render_at(&constants, &shown, &mut layers, 0.5).await;
+    let key_held = render_at(&constants, &shown, &mut layers, 1.5).await;
+    assert_ne!(pixels(&released), pixels(&key_held));
+
+    let mut metadata = RecordingMeta::load_for_project(directory.path()).unwrap();
+    frameever_project::input_display::clear_input_record(&mut metadata).unwrap();
+
+    let after = render_at(&constants, &shown, &mut layers, 1.5).await;
+    assert_eq!(pixels(&released), pixels(&after));
 }
 
 #[tokio::test]

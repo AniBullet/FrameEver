@@ -209,7 +209,7 @@ fn build() -> Guide {
             ),
             cmd(
                 "project inspect",
-                "Print project metadata + editor config. `meta` is RecordingMeta (snake_case passthrough).",
+                "Print project metadata + editor config. `meta` is RecordingMeta (snake_case passthrough). The input record and typed text are never returned.",
                 OutputMode::SingleJson,
                 &[],
             ),
@@ -221,7 +221,7 @@ fn build() -> Guide {
             ),
             cmd(
                 "project config get|set",
-                "Read/replace a project's editor configuration (project-config.json).",
+                "Read/replace a project's editor configuration (project-config.json). Keyboard segments are returned without their typed text; `set` keeps the text of segments whose id the project already has.",
                 OutputMode::SingleJson,
                 &[],
             ),

@@ -1466,6 +1466,7 @@ pub struct EditorWindow {
     pub(crate) project: ProjectConfiguration,
     /// `projectHistory` (`ED/context.ts:1724`).
     pub(crate) history: ProjectHistory,
+    pub(crate) input_record_present: std::cell::OnceCell<bool>,
     /// `editorState.timeline.selection`.
     pub(crate) selection: Option<Selection>,
     segment_clipboard: Option<edits::SegmentClipboard>,
@@ -2105,6 +2106,7 @@ impl EditorWindow {
             zoom_slider_drag: false,
             project: ProjectConfiguration::default(),
             history: ProjectHistory::new(ProjectConfiguration::default()),
+            input_record_present: std::cell::OnceCell::new(),
             selection: None,
             segment_clipboard: None,
             split_mode: false,
@@ -10052,6 +10054,15 @@ impl EditorWindow {
                     .disabled(!self.visual_ready())
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.delete_recording(window, cx);
+                    })),
+            )
+            .child(
+                ui::EditorButton::plain(&theme, "clear-input-record")
+                    .left_icon("icons/eraser.svg")
+                    .tooltip(&theme, t!("Clear input record"))
+                    .disabled(!self.visual_ready() || !self.has_input_record())
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.clear_input_record_clicked(window, cx);
                     })),
             );
         let actions = crate::editor_chrome::title_bar_group()

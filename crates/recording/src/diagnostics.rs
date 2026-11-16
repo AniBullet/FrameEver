@@ -1306,6 +1306,60 @@ mod tests {
     }
 
     #[test]
+    fn a_recording_digest_carries_nothing_from_the_input_record() {
+        use frameever_project::{
+            KeyPressEvent, KeyboardEvents,
+            input_display::{InputEvent, InputEventKind, InputEvents},
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        write_recording(
+            temp.path(),
+            "typed.ever",
+            r#"{
+                "pretty_name": "Typed",
+                "segments": [{
+                    "display": {
+                        "path": "content/segments/segment-0/display.mp4",
+                        "fps": 60,
+                        "start_time": 0.0
+                    },
+                    "cursor": "content/segments/segment-0/cursor.json",
+                    "keyboard": "content/segments/segment-0/keyboard.bin"
+                }]
+            }"#,
+        );
+        let take = temp.path().join("typed.ever/content/segments/segment-0");
+        std::fs::create_dir_all(&take).unwrap();
+        KeyboardEvents {
+            presses: vec![KeyPressEvent {
+                key: "q".into(),
+                key_code: "Q".into(),
+                time_ms: 10.0,
+                down: true,
+            }],
+        }
+        .write_to_file(&take.join("keyboard.bin"))
+        .unwrap();
+        InputEvents {
+            events: vec![InputEvent {
+                time_ms: 20.0,
+                kind: InputEventKind::Wheel { up: true },
+            }],
+        }
+        .write_to_file(&take.join("input.bin"))
+        .unwrap();
+
+        let digests = collect_recent_recordings(temp.path(), 5);
+        assert_eq!(digests.len(), 1);
+        let json = serde_json::to_string(&digests).unwrap().to_lowercase();
+
+        for absent in ["keyboard", "input", "cursor", "wheel", "\"q\"", "key_code"] {
+            assert!(!json.contains(absent), "{absent} is in the digest: {json}");
+        }
+    }
+
+    #[test]
     fn digests_recent_recordings_and_survives_corrupt_entries() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();

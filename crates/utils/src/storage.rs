@@ -152,6 +152,21 @@ pub fn settings_file() -> PathBuf {
     env_path(SETTINGS_FILE_ENV).unwrap_or_else(|| app_data_dir().join(SETTINGS_FILE_NAME))
 }
 
+pub const RECORD_INPUT_KEY: &str = "captureKeyboardEvents";
+
+pub fn records_input(settings_file: &Path) -> bool {
+    std::fs::read(settings_file)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|document| {
+            document
+                .get("general_settings")?
+                .get(RECORD_INPUT_KEY)?
+                .as_bool()
+        })
+        .unwrap_or(true)
+}
+
 pub fn storage_override() -> Option<PathBuf> {
     env_path(STORAGE_DIR_ENV)
 }
@@ -484,6 +499,30 @@ mod tests {
             storage_path: Some(storage_path),
             previous_storage_paths: previous,
         }
+    }
+
+    #[test]
+    fn input_is_recorded_unless_the_settings_switch_is_off() {
+        let tree = Tree::new();
+        let settings = tree.path("store");
+        assert!(records_input(&settings));
+
+        std::fs::write(&settings, r#"{"general_settings":{"theme":"dark"}}"#).unwrap();
+        assert!(records_input(&settings));
+
+        std::fs::write(
+            &settings,
+            r#"{"general_settings":{"captureKeyboardEvents":false}}"#,
+        )
+        .unwrap();
+        assert!(!records_input(&settings));
+
+        std::fs::write(
+            &settings,
+            r#"{"general_settings":{"captureKeyboardEvents":true}}"#,
+        )
+        .unwrap();
+        assert!(records_input(&settings));
     }
 
     #[test]

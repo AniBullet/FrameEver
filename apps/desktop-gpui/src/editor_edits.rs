@@ -231,6 +231,12 @@ impl ProjectHistory {
         self.entries.get(self.entries.len() - self.count - 1)
     }
 
+    pub fn forget_typed_text(&mut self) {
+        for entry in &mut self.entries {
+            *entry = std::mem::take(entry).without_typed_text();
+        }
+    }
+
     #[cfg(test)]
     fn depth(&self) -> usize {
         self.entries.len()

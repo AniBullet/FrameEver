@@ -864,6 +864,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_report_says_only_whether_input_is_recorded() {
+        let snapshot = settings_snapshot();
+        let about_input = snapshot
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(name, _)| {
+                let name = name.to_lowercase();
+                ["input", "key", "mouse", "wheel", "gamepad", "press"]
+                    .iter()
+                    .any(|word| name.contains(word))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(about_input.len(), 1, "{about_input:?}");
+        assert_eq!(about_input[0].0, "captureKeyboardEvents");
+        assert!(about_input[0].1.is_boolean());
+    }
+
+    #[test]
     fn the_issue_link_carries_only_a_template_and_the_app_version() {
         let url = url::Url::parse(&issue_report_url()).unwrap();
         assert_eq!(url.host_str(), Some("github.com"));

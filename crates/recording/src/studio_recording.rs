@@ -137,6 +137,7 @@ fn persist_segment_input_events(
     response: CursorActorResponse,
     cursor_path: Option<&Path>,
     keyboard_path: Option<&Path>,
+    input_path: Option<&Path>,
     failure: &mut Option<anyhow::Error>,
 ) -> (Cursors, u32) {
     if let Some(path) = cursor_path {
@@ -159,6 +160,18 @@ fn persist_segment_input_events(
         .write_to_file(path)
         .map_err(anyhow::Error::msg)
         .with_context(|| format!("Could not save keyboard events to {}", path.display()));
+        accumulate_finalization_error(failure, result);
+    }
+
+    if !response.input_events.is_empty()
+        && let Some(path) = input_path
+    {
+        let result = frameever_project::input_display::InputEvents {
+            events: response.input_events,
+        }
+        .write_to_file(path)
+        .map_err(anyhow::Error::msg)
+        .with_context(|| format!("Could not save input events to {}", path.display()));
         accumulate_finalization_error(failure, result);
     }
 
@@ -270,6 +283,7 @@ impl Actor {
                 res,
                 cursor.output_path.as_deref(),
                 cursor.keyboard_output_path.as_deref(),
+                cursor.input_output_path.as_deref(),
                 &mut media_error,
             )
         } else {
@@ -1327,6 +1341,7 @@ impl Pipeline {
 struct CursorPipeline {
     output_path: Option<PathBuf>,
     keyboard_output_path: Option<PathBuf>,
+    input_output_path: Option<PathBuf>,
     actor: CursorActor,
 }
 
@@ -2819,6 +2834,10 @@ async fn create_segment_pipeline(
                 } else {
                     None
                 };
+                let input_output_path =
+                    dir.join(frameever_project::input_display::INPUT_EVENTS_FILE_NAME);
+                let input_incremental_output =
+                    (fragmented && keyboard_capture).then(|| input_output_path.clone());
 
                 let cursor_display = cursor_display.ok_or(CreateSegmentPipelineError::NoDisplay)?;
 
@@ -2835,12 +2854,18 @@ async fn create_segment_pipeline(
                     IncrementalCaptureOutputs {
                         cursor: incremental_output,
                         keyboard: keyboard_incremental_output,
+                        input: input_incremental_output,
+                    },
+                    crate::input_reader::InputCapture {
+                        record: keyboard_capture,
+                        target_window: base_inputs.capture_target.window(),
                     },
                 );
 
                 Ok::<_, CreateSegmentPipelineError>(CursorPipeline {
                     output_path: custom_cursor_capture.then_some(cursor_output_path),
                     keyboard_output_path: keyboard_capture.then_some(keyboard_output_path),
+                    input_output_path: keyboard_capture.then_some(input_output_path),
                     actor: cursor,
                 })
             })
@@ -3004,7 +3029,49 @@ mod tests {
                 time_ms: 125.0,
                 down: true,
             }],
+            input_events: vec![frameever_project::input_display::InputEvent {
+                time_ms: 140.0,
+                kind: frameever_project::input_display::InputEventKind::MouseButton {
+                    button: 4,
+                    down: true,
+                },
+            }],
         }
+    }
+
+    #[test]
+    fn sidecar_saves_the_input_events_beside_the_keyboard_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("input.bin");
+        let response = sidecar_response();
+        let expected = response.input_events.clone();
+        let mut failure = None;
+
+        persist_segment_input_events(response, None, None, Some(&input), &mut failure);
+
+        assert!(failure.is_none());
+        assert_eq!(
+            frameever_project::input_display::InputEvents::load_from_file(&input)
+                .unwrap()
+                .events,
+            expected
+        );
+    }
+
+    #[test]
+    fn sidecar_with_record_input_off_saves_no_input_record() {
+        let temp = tempfile::tempdir().unwrap();
+        let cursor = temp.path().join("cursor.json");
+        let mut failure = None;
+
+        persist_segment_input_events(sidecar_response(), Some(&cursor), None, None, &mut failure);
+
+        assert!(failure.is_none());
+        let saved = std::fs::read_dir(temp.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(saved, ["cursor.json"]);
     }
 
     #[test]
@@ -3018,6 +3085,7 @@ mod tests {
             response,
             Some(temp.path()),
             Some(&keyboard),
+            None,
             &mut failure,
         );
 
@@ -3039,6 +3107,7 @@ mod tests {
             sidecar_response(),
             Some(&cursor),
             Some(temp.path()),
+            None,
             &mut failure,
         );
 
@@ -3059,6 +3128,7 @@ mod tests {
             sidecar_response(),
             Some(temp.path()),
             Some(temp.path()),
+            None,
             &mut failure,
         );
         let error = anyhow::Error::new(StudioCaptureStoppedError::new(failure.unwrap()));
@@ -3091,7 +3161,7 @@ mod tests {
         .write_to_file(&expected_keyboard)
         .unwrap();
         let mut failure = None;
-        persist_segment_input_events(response, Some(&cursor), Some(&keyboard), &mut failure);
+        persist_segment_input_events(response, Some(&cursor), Some(&keyboard), None, &mut failure);
         assert!(failure.is_none());
         assert_eq!(std::fs::read_to_string(cursor).unwrap(), expected_cursor);
         assert_eq!(
@@ -3106,7 +3176,14 @@ mod tests {
         let mut response = sidecar_response();
         response.keyboard_presses.clear();
         let mut failure = Some(anyhow!("retained media error"));
-        persist_segment_input_events(response, None, Some(temp.path()), &mut failure);
+        response.input_events.clear();
+        persist_segment_input_events(
+            response,
+            None,
+            Some(temp.path()),
+            Some(temp.path()),
+            &mut failure,
+        );
         assert_eq!(failure.unwrap().to_string(), "retained media error");
         assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
     }
