@@ -1201,7 +1201,7 @@ fn get_codec_and_options(
             }
             "h264_nvenc" => {
                 if is_export {
-                    options.set("preset", "p5");
+                    options.set("preset", "p4");
                     options.set("tune", "hq");
                     options.set("rc", "vbr");
                     options.set("spatial-aq", "1");
@@ -1655,6 +1655,27 @@ mod self_test_tests {
 
         let realtime = videotoolbox_options(false);
         assert_eq!(realtime.get("g"), None);
+    }
+
+    #[test]
+    fn nvenc_export_and_realtime_both_use_preset_p4() {
+        ffmpeg::init().ok();
+        let config =
+            VideoInfo::from_raw(frameever_media_info::RawVideoFormat::Nv12, 1920, 1080, 60);
+        for is_export in [true, false] {
+            let Some((_, options)) = get_codec_and_options(
+                &config,
+                H264Preset::Medium,
+                Some(&["h264_nvenc"]),
+                is_export,
+                None,
+            )
+            .into_iter()
+            .find(|(codec, _)| codec.name() == "h264_nvenc") else {
+                return;
+            };
+            assert_eq!(options.get("preset"), Some("p4"), "export {is_export}");
+        }
     }
 }
 
