@@ -98,7 +98,7 @@ fn use_for_new(kind: PresetKind) -> &'static str {
         PresetKind::Text => t!("Use for new text"),
         PresetKind::Mask => t!("Use for new masks"),
         PresetKind::Captions => t!("Use for new captions"),
-        PresetKind::Style => t!("Use for new style segments"),
+        PresetKind::Style => t!("Use for new styles"),
         PresetKind::Shape => t!("Use for new shapes"),
     }
 }

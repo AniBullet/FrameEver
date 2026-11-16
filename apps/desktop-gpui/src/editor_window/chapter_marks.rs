@@ -315,7 +315,7 @@ impl EditorWindow {
             .child(
                 ui::EditorButton::plain(&theme, "chapter-marks-split")
                     .left_icon("icons/scissors.svg")
-                    .label(t!("Split clips at chapter marks"))
+                    .label(t!("Split at marks"))
                     .disabled(marks.is_empty())
                     .on_click(
                         cx.listener(|this, _, window, cx| this.split_at_chapter_marks(window, cx)),

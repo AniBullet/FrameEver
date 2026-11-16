@@ -761,7 +761,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Use for new text", "用于新文字"),
     ("Use for new masks", "用于新遮罩"),
     ("Use for new captions", "用于新字幕"),
-    ("Use for new style segments", "用于新样式段落"),
+    ("Use for new styles", "用于新样式"),
     ("Update style", "更新样式"),
     ("Remove as default", "取消默认"),
     ("Move up", "上移"),

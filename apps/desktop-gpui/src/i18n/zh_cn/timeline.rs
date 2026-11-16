@@ -532,7 +532,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "No chapter marks yet. Press M to add one at the playhead.",
         "还没有章节标记。按 M 在播放头处添加。",
     ),
-    ("Split clips at chapter marks", "在章节标记处分割片段"),
+    ("Split at marks", "按标记分割"),
     ("Cut from the timeline", "已从时间轴剪掉"),
     ("Move to playhead", "移到播放头"),
 ];

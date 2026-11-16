@@ -224,7 +224,7 @@ const SP_KINDS = {
 	text: ["text", "文字"],
 	mask: ["masks", "遮罩"],
 	captions: ["captions", "字幕"],
-	style: ["style segments", "样式段落"],
+	style: ["styles", "样式"],
 	shape: ["shapes", "形状"],
 };
 const FILLERS = O(
@@ -2010,7 +2010,7 @@ const menus = {
 				`<div class="mark-row"><span class="tnum">${fmt(s)}</span><span class="grow">${i === 0 ? L("Intro", "开场") : L(`Chapter mark ${i + 1}`, `章节标记 ${i + 1}`)}</span><button class="ib" data-act="close" title="${pick("Rename", "重命名")}">${icon("pencil")}</button><button class="ib" data-act="close" title="${pick("Move to playhead", "移到播放头")}">${icon("arrow-left-right")}</button><button class="ib" data-act="close" title="${pick("Delete", "删除")}">${icon("trash")}</button></div>`,
 		).join(
 			"",
-		)}<hr><button data-act="close">${icon("scissors")}<span class="grow">${L("Split clips at chapter marks", "在章节标记处分割片段")}</span></button></div>`,
+		)}<hr><button data-act="close">${icon("scissors")}<span class="grow">${L("Split at marks", "按标记分割")}</span></button></div>`,
 	speed: () =>
 		`<div class="pop menu" style="right:394px;bottom:314px;min-width:96px;width:96px">${SPEEDS.map((s, i) => `<button data-act="speed-set" data-v="${i}"><span class="grow tnum">${s}</span>${S.speed === i ? icon("check") : ""}</button>`).join("")}</div>`,
 	shapes: () =>
@@ -2666,7 +2666,7 @@ const renderDocs = () => {
 		[
 			["Chapter marks", "章节标记"],
 			[
-				"On the ruler: a 2 px line with an 8 px square head in muted foreground. Chapter marks on the timeline toolbar opens the list: click a row to jump there, rename, move to the playhead or delete (Undo stays in the list until the next change), and Split clips at chapter marks. M adds one at the playhead, Shift+↑/↓ walk them",
+				"On the ruler: a 2 px line with an 8 px square head in muted foreground. Chapter marks on the timeline toolbar opens the list: click a row to jump there, rename, move to the playhead or delete (Undo stays in the list until the next change), and Split at marks. M adds one at the playhead, Shift+↑/↓ walk them",
 				"在标尺上：2 px 竖线加 8 px 方头，用次要前景色。时间轴工具栏的“章节标记”打开列表：点一行跳过去，可重命名、移到播放头或删除（删除后列表里留着“撤销”，直到下一次改动），底部“在章节标记处分割片段”。M 在播放头处加一个，Shift+↑/↓ 逐个跳",
 			],
 		],
