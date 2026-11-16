@@ -54,7 +54,7 @@ frameever export <path.ever> --output out.mp4 --json   # H.264 by default; --cod
 - `export`: render a `.ever` project to a video file.
 - `screenshot`: capture a still of a screen or window.
 - `targets`: list screens, windows, cameras and microphones.
-- `project inspect` / `validate` / `config get|set`: inspect and edit `.ever` projects.
+- `project inspect` / `validate` / `config get|set`: inspect and edit `.ever` projects. They never return the input record, and keyboard segments come back without their typed text (`config set` keeps the text of segments the project already has).
 - `recordings list`: list `.ever` recordings in the FrameEver library.
 - `update`: ask FrameEver to check GitHub Releases for a signed update and install it.
 - `doctor` / `version` / `guide`: diagnostics, version, and the agent capability manifest.

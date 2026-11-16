@@ -7,6 +7,7 @@ pub mod defaults;
 pub mod diagnostics;
 pub mod feeds;
 pub mod fragmentation;
+pub mod input_reader;
 pub mod instant_recording;
 pub mod log_redaction;
 pub mod memory_profiling;

@@ -918,6 +918,158 @@ fn clean_error_has_no_debug_quotes() {
     assert!(!err.contains("Error: \""), "stderr had debug quotes: {err}");
 }
 
+const TYPED_TEXT: &str = "hunter2";
+
+fn write_project_with_input(project: &Path) {
+    use frameever_project::{
+        KeyPressEvent, KeyboardEvents,
+        input_display::{InputEvent, InputEventKind, InputEvents},
+    };
+
+    let take = project.join("content/segments/segment-0");
+    std::fs::create_dir_all(&take).unwrap();
+    std::fs::write(take.join("display.mp4"), b"fake").unwrap();
+    KeyboardEvents {
+        presses: TYPED_TEXT
+            .chars()
+            .enumerate()
+            .map(|(index, letter)| KeyPressEvent {
+                key: letter.to_string(),
+                key_code: letter.to_uppercase().to_string(),
+                time_ms: 100.0 * index as f64,
+                down: true,
+            })
+            .collect(),
+    }
+    .write_to_file(&take.join("keyboard.bin"))
+    .unwrap();
+    InputEvents {
+        events: vec![
+            InputEvent {
+                time_ms: 40.0,
+                kind: InputEventKind::MouseButton {
+                    button: 4,
+                    down: true,
+                },
+            },
+            InputEvent {
+                time_ms: 60.0,
+                kind: InputEventKind::Wheel { up: true },
+            },
+        ],
+    }
+    .write_to_file(&take.join("input.bin"))
+    .unwrap();
+    std::fs::write(
+        project.join("recording-meta.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "pretty_name": "Input Project",
+            "segments": [{
+                "display": { "path": "content/segments/segment-0/display.mp4", "fps": 30 },
+                "keyboard": "content/segments/segment-0/keyboard.bin"
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("project-config.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "inputDisplay": { "enabled": true, "preset": "wasd-mouse" },
+            "timeline": {
+                "segments": [{ "recordingSegment": 0, "start": 0.0, "end": 4.0, "timescale": 1.0 }],
+                "zoomSegments": [],
+                "keyboardSegments": [{
+                    "id": "kb-1",
+                    "start": 0.5,
+                    "end": 1.5,
+                    "displayText": TYPED_TEXT,
+                    "keys": [{ "key": "h", "timeOffset": 0.0 }]
+                }]
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+fn assert_carries_no_input(output: &Output) {
+    assert!(output.status.success(), "stderr: {}", stderr(output));
+    let printed = stdout(output).to_lowercase();
+    for leaked in [
+        TYPED_TEXT,
+        "displaytext",
+        "timeoffset",
+        "presses",
+        "key_code",
+        "keycode",
+        "time_ms",
+        "timems",
+        "mousebutton",
+        "wheel",
+    ] {
+        assert!(
+            !printed.contains(leaked),
+            "{leaked} left through the CLI: {printed}"
+        );
+    }
+}
+
+#[test]
+fn project_commands_return_no_input_events_or_typed_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("input.ever");
+    write_project_with_input(&project);
+    let path = project.to_str().unwrap();
+
+    let inspect = run(&["project", "inspect", path, "--format", "json"]);
+    assert_carries_no_input(&inspect);
+    let inspected = parse_json(&inspect);
+    assert_eq!(inspected["config"]["inputDisplay"]["enabled"], true);
+    assert_eq!(
+        inspected["config"]["timeline"]["keyboardSegments"][0]["id"],
+        "kb-1"
+    );
+
+    let config = run(&["project", "config", "get", path]);
+    assert_carries_no_input(&config);
+    assert_eq!(
+        parse_json(&config)["timeline"]["keyboardSegments"][0]["start"],
+        0.5
+    );
+
+    assert_carries_no_input(&run(&["project", "validate", path, "--format", "json"]));
+    assert_carries_no_input(&run(&["project", "inspect", path]));
+}
+
+#[test]
+fn setting_the_config_it_got_keeps_the_typed_text_in_the_project() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("input.ever");
+    write_project_with_input(&project);
+    let path = project.to_str().unwrap();
+
+    let mut config = parse_json(&run(&["project", "config", "get", path]));
+    config["timeline"]["keyboardSegments"][0]["end"] = serde_json::json!(2.5);
+    let set = run(&[
+        "project",
+        "config",
+        "set",
+        path,
+        "--settings-json",
+        &config.to_string(),
+    ]);
+    assert!(set.status.success(), "stderr: {}", stderr(&set));
+
+    let saved: Value =
+        serde_json::from_slice(&std::fs::read(project.join("project-config.json")).unwrap())
+            .unwrap();
+    let segment = &saved["timeline"]["keyboardSegments"][0];
+    assert_eq!(segment["displayText"], TYPED_TEXT);
+    assert_eq!(segment["keys"][0]["key"], "h");
+    assert_eq!(segment["end"], 2.5);
+}
+
 fn write_single_segment_meta(project: &Path) {
     std::fs::create_dir_all(project).unwrap();
     let meta = serde_json::json!({

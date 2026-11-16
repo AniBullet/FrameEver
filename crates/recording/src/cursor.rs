@@ -1,8 +1,12 @@
-use crate::RecordingStartGate;
+use crate::{
+    RecordingStartGate,
+    input_reader::{InputCapture, InputReader, InputSample, push_input_changes, push_key_changes},
+};
 use frameever_cursor_capture::CursorCropBounds;
 use frameever_cursor_info::CursorShape;
 use frameever_project::{
     CursorClickEvent, CursorEvents, CursorMoveEvent, KeyPressEvent, KeyboardEvents, XY,
+    input_display::{InputEvent, InputEvents},
 };
 use frameever_timestamp::Timestamps;
 use futures::{FutureExt, future::Shared};
@@ -35,6 +39,7 @@ pub struct CursorActorResponse {
     pub moves: Vec<CursorMoveEvent>,
     pub clicks: Vec<CursorClickEvent>,
     pub keyboard_presses: Vec<KeyPressEvent>,
+    pub input_events: Vec<InputEvent>,
 }
 
 pub struct CursorActor {
@@ -48,6 +53,7 @@ pub struct CursorActor {
 pub struct IncrementalCaptureOutputs {
     pub cursor: Option<PathBuf>,
     pub keyboard: Option<PathBuf>,
+    pub input: Option<PathBuf>,
 }
 
 pub struct CursorCaptureTarget {
@@ -88,6 +94,7 @@ fn flush_cursor_data(output_path: &Path, moves: &[CursorMoveEvent], clicks: &[Cu
 struct IncrementalSnapshot {
     cursor: Option<(Vec<CursorMoveEvent>, Vec<CursorClickEvent>)>,
     keyboard: Option<Vec<KeyPressEvent>>,
+    input: Option<Vec<InputEvent>>,
 }
 
 impl IncrementalSnapshot {
@@ -101,6 +108,10 @@ impl IncrementalSnapshot {
                 .keyboard
                 .as_ref()
                 .map(|_| response.keyboard_presses.clone()),
+            input: outputs
+                .input
+                .as_ref()
+                .map(|_| response.input_events.clone()),
         }
     }
 
@@ -110,6 +121,9 @@ impl IncrementalSnapshot {
         }
         if let (Some(path), Some(presses)) = (&outputs.keyboard, &self.keyboard) {
             flush_keyboard_data(path, presses);
+        }
+        if let (Some(path), Some(events)) = (&outputs.input, self.input) {
+            flush_input_data(path, events);
         }
     }
 }
@@ -238,7 +252,17 @@ fn flush_keyboard_data(output_path: &Path, presses: &[KeyPressEvent]) {
     }
 }
 
-fn keycode_to_string(key: &device_query::Keycode) -> (String, String) {
+fn flush_input_data(output_path: &Path, events: Vec<InputEvent>) {
+    if let Err(e) = (InputEvents { events }).write_to_file(output_path) {
+        tracing::error!(
+            "Failed to write input data to {}: {}",
+            output_path.display(),
+            e
+        );
+    }
+}
+
+pub(crate) fn keycode_to_string(key: &device_query::Keycode) -> (String, String) {
     use device_query::Keycode;
     let (display, code) = match key {
         Keycode::Key0 => ("0", "Key0"),
@@ -358,6 +382,7 @@ fn input_epoch(start_gate: Option<&RecordingStartGate>, start_time: Timestamps) 
 }
 
 #[tracing::instrument(name = "cursor", skip_all)]
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_cursor_recorder(
     target: CursorCaptureTarget,
     cursors_dir: PathBuf,
@@ -366,6 +391,7 @@ pub fn spawn_cursor_recorder(
     start_time: Timestamps,
     start_gate: Option<RecordingStartGate>,
     incremental_outputs: IncrementalCaptureOutputs,
+    input: InputCapture,
 ) -> CursorActor {
     use device_query::{DeviceQuery, DeviceState};
     use std::time::Duration;
@@ -386,8 +412,20 @@ pub fn spawn_cursor_recorder(
         let crop_bounds = target.crop_bounds;
         let display = target.display;
         let device_state = DeviceState::new();
+        let mut input_reader = InputReader::new(&input);
+        let held_keys = |reading: bool| {
+            if reading {
+                device_state.get_keys()
+            } else {
+                Vec::new()
+            }
+        };
         let mut last_mouse_state = device_state.get_mouse();
-        let mut last_keys: Vec<device_query::Keycode> = device_state.get_keys();
+        let mut last_keys: Vec<device_query::Keycode> = held_keys(input_reader.is_some());
+        let mut last_input = InputSample {
+            buttons: last_mouse_state.button_pressed.clone(),
+            ..Default::default()
+        };
 
         let mut last_position =
             frameever_cursor_capture::RawCursorPosition::from_coords(last_mouse_state.coords);
@@ -400,10 +438,12 @@ pub fn spawn_cursor_recorder(
             moves: vec![],
             clicks: vec![],
             keyboard_presses: vec![],
+            input_events: vec![],
         };
 
-        let has_incremental_outputs =
-            incremental_outputs.cursor.is_some() || incremental_outputs.keyboard.is_some();
+        let has_incremental_outputs = incremental_outputs.cursor.is_some()
+            || incremental_outputs.keyboard.is_some()
+            || incremental_outputs.input.is_some();
         let writer = CursorFileWriter::spawn(incremental_outputs.clone())
             .inspect_err(|e| error!("Failed to start cursor writer, writing inline: {e}"))
             .ok();
@@ -431,11 +471,31 @@ pub fn spawn_cursor_recorder(
                 last_position = frameever_cursor_capture::RawCursorPosition::from_coords(
                     last_mouse_state.coords,
                 );
-                last_keys = device_state.get_keys();
+                last_keys = held_keys(input_reader.is_some());
+                if let Some(reader) = &mut input_reader {
+                    last_input = InputSample {
+                        buttons: reader.sample(&last_mouse_state.button_pressed).buttons,
+                        ..Default::default()
+                    };
+                }
                 continue;
             };
             let elapsed = epoch.elapsed().as_secs_f64() * 1000.0;
             let mouse_state = device_state.get_mouse();
+
+            if let Some(reader) = &mut input_reader {
+                let sample = reader.sample(&mouse_state.button_pressed);
+                push_input_changes(&last_input, &sample, elapsed, &mut response.input_events);
+                last_input = sample;
+                let current_keys = held_keys(true);
+                push_key_changes(
+                    &last_keys,
+                    &current_keys,
+                    elapsed,
+                    &mut response.keyboard_presses,
+                );
+                last_keys = current_keys;
+            }
 
             let position =
                 frameever_cursor_capture::RawCursorPosition::from_coords(mouse_state.coords);
@@ -530,34 +590,6 @@ pub fn spawn_cursor_recorder(
             }
 
             last_mouse_state = mouse_state;
-
-            let current_keys = device_state.get_keys();
-
-            for key in &current_keys {
-                if !last_keys.contains(key) {
-                    let (display, code) = keycode_to_string(key);
-                    response.keyboard_presses.push(KeyPressEvent {
-                        key: display,
-                        key_code: code,
-                        time_ms: elapsed,
-                        down: true,
-                    });
-                }
-            }
-
-            for key in &last_keys {
-                if !current_keys.contains(key) {
-                    let (display, code) = keycode_to_string(key);
-                    response.keyboard_presses.push(KeyPressEvent {
-                        key: display,
-                        key_code: code,
-                        time_ms: elapsed,
-                        down: false,
-                    });
-                }
-            }
-
-            last_keys = current_keys;
 
             if has_incremental_outputs && last_flush.elapsed() >= flush_interval {
                 let snapshot = || IncrementalSnapshot::capture(&incremental_outputs, &response);
@@ -1287,6 +1319,14 @@ mod incremental_writer_tests {
                     down: i % 2 == 0,
                 })
                 .collect(),
+            input_events: (0..events / 10)
+                .map(|i| InputEvent {
+                    time_ms: i as f64 * 160.0,
+                    kind: frameever_project::input_display::InputEventKind::Wheel {
+                        up: i % 2 == 0,
+                    },
+                })
+                .collect(),
         }
     }
 
@@ -1294,6 +1334,7 @@ mod incremental_writer_tests {
         IncrementalCaptureOutputs {
             cursor: Some(dir.join(format!("{name}-cursor.json"))),
             keyboard: Some(dir.join(format!("{name}-keyboard.bin"))),
+            input: Some(dir.join(format!("{name}-input.bin"))),
         }
     }
 
@@ -1313,10 +1354,17 @@ mod incremental_writer_tests {
         for (a, b) in [
             (&inline.cursor, &threaded.cursor),
             (&inline.keyboard, &threaded.keyboard),
+            (&inline.input, &threaded.input),
         ] {
             let (a, b) = (a.as_ref().unwrap(), b.as_ref().unwrap());
             assert_eq!(std::fs::read(a).unwrap(), std::fs::read(b).unwrap());
         }
+        assert_eq!(
+            InputEvents::load_from_file(threaded.input.as_ref().unwrap())
+                .unwrap()
+                .events,
+            full.input_events
+        );
     }
 
     #[cfg(unix)]
@@ -1334,6 +1382,7 @@ mod incremental_writer_tests {
         let outputs = IncrementalCaptureOutputs {
             cursor: Some(fifo.clone()),
             keyboard: Some(dir.path().join("keyboard.bin")),
+            input: None,
         };
 
         // Opening a FIFO for writing blocks until a reader arrives, which
@@ -1392,6 +1441,7 @@ mod incremental_writer_tests {
         let writer = CursorFileWriter::spawn(IncrementalCaptureOutputs {
             cursor: None,
             keyboard: None,
+            input: None,
         })
         .unwrap();
         let missing = dir.path().join("missing").join("cursor_0.png");
@@ -1414,6 +1464,7 @@ mod incremental_writer_tests {
         let writer = CursorFileWriter::spawn(IncrementalCaptureOutputs {
             cursor: None,
             keyboard: None,
+            input: None,
         })
         .unwrap();
         let cursors_dir = dir.path().join("cursors");
@@ -1462,6 +1513,7 @@ mod cursor_image_tests {
             moves: vec![],
             clicks: vec![],
             keyboard_presses: vec![],
+            input_events: vec![],
         }
     }
 

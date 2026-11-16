@@ -17,7 +17,76 @@ pub struct ProjectInspection {
     pub name: String,
     pub recording_type: &'static str,
     pub meta: RecordingMeta,
-    pub config: frameever_project::ProjectConfiguration,
+    pub config: serde_json::Value,
+}
+
+const KEYBOARD_SEGMENTS_FIELD: &str = "keyboardSegments";
+const TYPED_TEXT_FIELDS: [&str; 2] = ["displayText", "keys"];
+
+pub fn withhold_typed_text(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            for (name, child) in fields.iter_mut() {
+                match child {
+                    serde_json::Value::Array(segments) if name == KEYBOARD_SEGMENTS_FIELD => {
+                        for segment in segments.iter_mut().filter_map(|s| s.as_object_mut()) {
+                            for field in TYPED_TEXT_FIELDS {
+                                segment.remove(field);
+                            }
+                        }
+                    }
+                    _ => withhold_typed_text(child),
+                }
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(withhold_typed_text),
+        _ => {}
+    }
+}
+
+fn config_without_typed_text(
+    config: &frameever_project::ProjectConfiguration,
+) -> Result<serde_json::Value, String> {
+    let mut value = serde_json::to_value(config)
+        .map_err(|e| format!("Failed to serialize project config: {e}"))?;
+    withhold_typed_text(&mut value);
+    Ok(value)
+}
+
+fn keep_typed_text(
+    incoming: &mut serde_json::Value,
+    existing: &frameever_project::ProjectConfiguration,
+) {
+    let Some(segments) = incoming
+        .get_mut("timeline")
+        .and_then(|timeline| timeline.get_mut(KEYBOARD_SEGMENTS_FIELD))
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    let existing = existing
+        .timeline
+        .as_ref()
+        .map(|timeline| timeline.keyboard_segments.as_slice())
+        .unwrap_or_default();
+    for segment in segments.iter_mut().filter_map(|s| s.as_object_mut()) {
+        if segment.contains_key(TYPED_TEXT_FIELDS[0]) {
+            continue;
+        }
+        let Some(kept) = segment
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|id| existing.iter().find(|existing| existing.id == id))
+            .and_then(|kept| serde_json::to_value(kept).ok())
+        else {
+            continue;
+        };
+        for field in TYPED_TEXT_FIELDS {
+            if let Some(value) = kept.get(field) {
+                segment.insert(field.to_string(), value.clone());
+            }
+        }
+    }
 }
 
 pub fn config_get(project_path: PathBuf) -> Result<(), String> {
@@ -29,7 +98,7 @@ pub fn config_get(project_path: PathBuf) -> Result<(), String> {
             .map_err(|e| format!("Failed to build default project config: {e}"))?,
         Err(e) => return Err(format!("Failed to load project config: {e}")),
     };
-    crate::write_json(&config)
+    crate::write_json(&config_without_typed_text(&config)?)
 }
 
 pub fn config_set(
@@ -37,7 +106,12 @@ pub fn config_set(
     settings_json: &str,
     format: OutputFormat,
 ) -> Result<(), String> {
-    let config: frameever_project::ProjectConfiguration = serde_json::from_str(settings_json)
+    let mut incoming: serde_json::Value = serde_json::from_str(settings_json)
+        .map_err(|e| format!("Invalid project config JSON: {e}"))?;
+    if let Ok(existing) = frameever_project::ProjectConfiguration::load(&project_path) {
+        keep_typed_text(&mut incoming, &existing);
+    }
+    let config: frameever_project::ProjectConfiguration = serde_json::from_value(incoming)
         .map_err(|e| format!("Invalid project config JSON: {e}"))?;
     // write() validates internally before its atomic temp-file-then-rename.
     config
@@ -53,7 +127,7 @@ pub fn inspect(project_path: PathBuf, format: OutputFormat) -> Result<(), String
     let meta = RecordingMeta::load_for_project(&project_path)
         .map_err(|e| format!("Failed to load recording meta: {e}"))?;
     let output_path = meta.output_path();
-    let config = meta.project_config();
+    let config = config_without_typed_text(&meta.project_config())?;
 
     match format {
         OutputFormat::Text => {

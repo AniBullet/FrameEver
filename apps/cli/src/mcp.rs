@@ -164,7 +164,10 @@ async fn run_cli(args: Vec<String>) -> Result<Value, String> {
 
 fn tool_result(result: Result<Value, String>) -> CallToolResult {
     match result {
-        Ok(value) => CallToolResult::structured(value),
+        Ok(mut value) => {
+            crate::project::withhold_typed_text(&mut value);
+            CallToolResult::structured(value)
+        }
         Err(error) => CallToolResult::structured_error(json!({ "error": error })),
     }
 }
@@ -361,6 +364,57 @@ mod tests {
         assert_eq!(redacted["windows"][0].get("name"), None);
         assert_eq!(redacted["windows"][0]["ownerName"], "Excel");
         assert_eq!(redacted["screens"][0]["name"], "Display 1");
+    }
+
+    #[test]
+    fn tool_results_carry_no_typed_text() {
+        let result = tool_result(Ok(json!({
+            "projectPath": "demo.ever",
+            "config": {
+                "timeline": {
+                    "keyboardSegments": [{
+                        "id": "kb-1",
+                        "start": 0.5,
+                        "end": 1.5,
+                        "displayText": "hunter2",
+                        "keys": [{ "key": "h", "timeOffset": 0.0 }]
+                    }]
+                }
+            }
+        })));
+
+        let sent = serde_json::to_string(&result).unwrap();
+        assert!(!sent.contains("hunter2"));
+        assert!(!sent.contains("displayText"));
+        assert!(!sent.contains("timeOffset"));
+        assert!(sent.contains("kb-1"));
+        assert!(sent.contains("demo.ever"));
+    }
+
+    #[test]
+    fn no_tool_reads_a_projects_contents() {
+        let mut names = LocalMcpServer::new()
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<Vec<_>>();
+        names.sort();
+
+        assert_eq!(
+            names,
+            [
+                "doctor",
+                "export",
+                "project_validate",
+                "record_start",
+                "record_status",
+                "record_stop",
+                "recordings_list",
+                "screenshot",
+                "targets"
+            ]
+        );
     }
 
     #[test]
