@@ -42,6 +42,7 @@ mod editor_input_display;
 mod editor_input_record;
 mod editor_panels;
 mod editor_preparing;
+mod editor_side_panel;
 mod editor_sidebar;
 mod editor_snapshot;
 mod editor_tabs;

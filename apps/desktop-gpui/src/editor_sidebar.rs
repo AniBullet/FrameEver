@@ -237,7 +237,6 @@ const UNPLACED_NOTCH: NotchConfiguration = NotchConfiguration {
 /// here either.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarTab {
-    Clips,
     Background,
     Screen,
     Camera,
@@ -249,7 +248,7 @@ pub enum SidebarTab {
 }
 
 impl SidebarTab {
-    pub const ALL: [SidebarTab; 9] = [
+    pub const ALL: [SidebarTab; 8] = [
         Self::Background,
         Self::Screen,
         Self::Camera,
@@ -258,12 +257,10 @@ impl SidebarTab {
         Self::Keyboard,
         Self::InputDisplay,
         Self::Captions,
-        Self::Clips,
     ];
 
     pub fn icon(self) -> &'static str {
         match self {
-            Self::Clips => "icons/clapperboard.svg",
             Self::Screen => "icons/monitor.svg",
             Self::Background => "icons/image.svg",
             Self::Camera => "icons/webcam.svg",
@@ -280,7 +277,6 @@ impl SidebarTab {
     #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
-            Self::Clips => n!("Clips"),
             Self::Screen => n!("Screen"),
             Self::Background => n!("Background"),
             Self::Camera => n!("Camera"),
@@ -1060,14 +1056,10 @@ impl EditorWindow {
         // `KSelect` menu, and a field's history bracket.
         self.dismiss_frame_controls(cx);
         self.close_color_picker(cx);
-        if self.clips.open {
-            self.close_clips(window, cx);
-        }
         self.sidebar.style_target = None;
         self.sidebar.menu = None;
         self.end_field_edit(cx);
         self.sidebar.tab = tab;
-        self.clips.open = tab == SidebarTab::Clips;
         if tab == SidebarTab::InputDisplay {
             self.ensure_input_thumbnails(window, cx);
         }
@@ -2586,18 +2578,10 @@ impl EditorWindow {
                         this.select_sidebar_tab(index, window, cx)
                     }),
                 )
-                .when(tab == SidebarTab::Clips, |this| {
-                    this.mt(px(8.))
-                        .pt(px(8.))
-                        .border_t_1()
-                        .border_color(theme.border)
-                })
                 .into_any_element()
             })
             .collect();
-        let body = if self.clips.open {
-            self.render_clips_body(cx).into_any_element()
-        } else if let Some((index, group)) = self.sidebar.style_target {
+        let body = if let Some((index, group)) = self.sidebar.style_target {
             self.render_style_group(index, group, cx)
         } else if self.audio_picker.is_some() {
             self.render_audio_library(cx)
@@ -2655,7 +2639,6 @@ impl EditorWindow {
 
     fn render_tab_body(&self, cx: &mut Context<Self>) -> AnyElement {
         let content: AnyElement = match self.sidebar.tab {
-            SidebarTab::Clips => div().into_any_element(),
             SidebarTab::Screen => self.render_screen_tab(cx).into_any_element(),
             SidebarTab::Background => self.render_background_tab(cx).into_any_element(),
             SidebarTab::Camera => self.render_camera_tab(cx),
@@ -4184,6 +4167,13 @@ impl EditorWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(panel) = crate::editor_side_panel::PanelTab::from_name(name)
+            .filter(|panel| *panel != crate::editor_side_panel::PanelTab::Style)
+        {
+            self.set_panel_tab(panel, window, cx);
+            tracing::info!(tab = ?self.panel_tab(), "auto editor panel tab");
+            return;
+        }
         let Some(index) = SidebarTab::ALL
             .iter()
             .position(|tab| tab.label().eq_ignore_ascii_case(name))
@@ -4256,7 +4246,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn editor_layout_inventory_keeps_clips_background_and_screen_reachable() {
+    fn editor_layout_inventory_keeps_background_and_screen_reachable() {
         assert_eq!(
             SidebarTab::ALL.map(SidebarTab::label).as_slice(),
             [
@@ -4267,8 +4257,7 @@ mod tests {
                 "Cursor",
                 "Keyboard",
                 "Input display",
-                "Captions",
-                "Clips"
+                "Captions"
             ]
         );
     }

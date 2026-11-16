@@ -3,10 +3,7 @@ use std::ops::Range;
 use frameever_project::TimelineConfiguration;
 
 use super::energy::{EnergyEnvelope, HOP_SECONDS};
-use super::model::{
-    TranscriptDoc, TranscriptEdl, build_mappings, hole_around, kept_ranges, merge_ranges,
-    recording_offsets,
-};
+use super::model::{TranscriptDoc, TranscriptEdl, build_mappings, merge_ranges, recording_offsets};
 use crate::editor_edits::{self, RangeCut};
 pub const TAIL_GUARD: f64 = 0.04;
 pub const ONSET_GUARD: f64 = 0.02;

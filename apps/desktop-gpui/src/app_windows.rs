@@ -4718,6 +4718,10 @@ fn load_editor_waveforms(
         let Ok((mic, system)) = task.await else {
             return;
         };
+        let transcript_audio = crate::transcript::TranscriptAudio {
+            mic: mic.clone(),
+            system: system.clone(),
+        };
         let peaks = cx
             .background_executor()
             .spawn(async move {
@@ -4744,7 +4748,8 @@ fn load_editor_waveforms(
                 system = peaks.1.iter().filter(|peaks| !peaks.is_empty()).count(),
                 "editor waveforms ready"
             );
-            view.set_waveforms(peaks.0, peaks.1, window, cx)
+            view.set_waveforms(peaks.0, peaks.1, window, cx);
+            view.set_transcript_audio(transcript_audio, cx);
         });
     })
     .detach();
