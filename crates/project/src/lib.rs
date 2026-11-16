@@ -2,6 +2,7 @@ mod animated_gradient;
 mod caption_timing;
 mod configuration;
 pub mod cursor;
+pub mod input_display;
 pub mod keyboard;
 mod meta;
 
@@ -12,6 +13,7 @@ pub use caption_timing::{
 };
 pub use configuration::*;
 pub use cursor::*;
+pub use input_display::{InputDisplay, InputDisplayStyle};
 pub use keyboard::*;
 pub use meta::*;
 

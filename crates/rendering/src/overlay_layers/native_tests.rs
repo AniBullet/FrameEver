@@ -534,6 +534,10 @@ fn every_overlay() -> ProjectConfiguration {
         project.captions = project.captions.or(overlay.captions);
         project.keyboard = project.keyboard.or(overlay.keyboard);
     }
+    project.input_display = Some(frameever_project::InputDisplay {
+        enabled: true,
+        ..Default::default()
+    });
     project
 }
 
@@ -791,4 +795,222 @@ async fn layers_sharing_a_pass_render_like_one_pass_per_layer() {
             "{name} renders differently when its layers share a pass"
         );
     }
+}
+
+async fn input_constants(path: &Path) -> RenderVideoConstants {
+    let take = path.join("content/segments/segment-0");
+    std::fs::create_dir_all(&take).unwrap();
+    let press = |time_ms: f64, down: bool| frameever_project::KeyPressEvent {
+        key: "w".to_string(),
+        key_code: "W".to_string(),
+        time_ms,
+        down,
+    };
+    frameever_project::KeyboardEvents {
+        presses: vec![press(1000.0, true), press(2000.0, false)],
+    }
+    .write_to_file(&take.join("keyboard.bin"))
+    .unwrap();
+    std::fs::write(
+        take.join("cursor.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "clicks": [
+                {"active_modifiers": [], "cursor_num": 1, "cursor_id": "0", "time_ms": 2200.0, "down": true},
+                {"active_modifiers": [], "cursor_num": 1, "cursor_id": "0", "time_ms": 2400.0, "down": false}
+            ],
+            "moves": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut metadata: RecordingMeta = serde_json::from_value(serde_json::json!({
+        "pretty_name": "input display",
+        "segments": [{
+            "display": {"path": "content/segments/segment-0/display.mp4", "fps": 30},
+            "cursor": "content/segments/segment-0/cursor.json"
+        }]
+    }))
+    .unwrap();
+    metadata.project_path = path.to_path_buf();
+    let studio = metadata.studio_meta().unwrap().clone();
+    RenderVideoConstants::new_with_options(
+        RenderOptions {
+            screen_size: XY::new(WIDTH, HEIGHT),
+            camera_size: None,
+            preserve_screen_alpha: false,
+        },
+        metadata,
+        studio,
+    )
+    .await
+    .expect("Native overlay tests require a real WGPU adapter and device")
+}
+
+fn with_input_display(block: frameever_project::InputDisplay) -> ProjectConfiguration {
+    ProjectConfiguration {
+        input_display: Some(block),
+        ..project()
+    }
+}
+
+async fn render_at(
+    constants: &RenderVideoConstants,
+    project: &ProjectConfiguration,
+    layers: &mut RendererLayers,
+    seconds: f32,
+) -> RenderedFrame {
+    let segment_frames = DecodedSegmentFrames {
+        segment_time: seconds,
+        recording_time: seconds,
+        ..frames()
+    };
+    render_for(
+        constants,
+        project,
+        layers,
+        (seconds * 30.0).round() as u32,
+        XY::new(320, 240),
+        segment_frames,
+    )
+    .await
+    .0
+}
+
+fn changed_pixels(a: &RenderedFrame, b: &RenderedFrame) -> Vec<(u32, u32)> {
+    assert_eq!((a.width, a.height), (b.width, b.height));
+    pixels(a)
+        .chunks_exact(4)
+        .zip(pixels(b).chunks_exact(4))
+        .enumerate()
+        .filter(|(_, (a, b))| a != b)
+        .map(|(index, _)| (index as u32 % a.width, index as u32 / a.width))
+        .collect()
+}
+
+#[tokio::test]
+async fn input_display_draws_only_inside_its_bounds_and_lights_what_is_held() {
+    use frameever_project::input_display::{BuiltinPresetId, Preset, display_rect};
+
+    let directory = tempfile::tempdir().unwrap();
+    let constants = input_constants(directory.path()).await;
+    let mut layers = RendererLayers::new(&constants.device, &constants.queue);
+    let block = frameever_project::InputDisplay {
+        enabled: true,
+        size: 120.0,
+        position: frameever_project::XY::new(0.5, 0.5),
+        ..Default::default()
+    };
+    let shown = with_input_display(block.clone());
+    let switched_off = with_input_display(frameever_project::InputDisplay {
+        enabled: false,
+        ..block.clone()
+    });
+
+    let without = render_at(&constants, &project(), &mut layers, 0.5).await;
+    let off = render_at(&constants, &switched_off, &mut layers, 0.5).await;
+    let released = render_at(&constants, &shown, &mut layers, 0.5).await;
+    let key_held = render_at(&constants, &shown, &mut layers, 1.5).await;
+    let key_let_go = render_at(&constants, &shown, &mut layers, 2.1).await;
+    let button_held = render_at(&constants, &shown, &mut layers, 2.3).await;
+    let all_let_go = render_at(&constants, &shown, &mut layers, 2.5).await;
+    let without_later = render_at(&constants, &project(), &mut layers, 1.5).await;
+
+    assert_eq!(pixels(&without), pixels(&off));
+    assert_eq!(pixels(&without), pixels(&without_later));
+
+    let preset = BuiltinPresetId::WasdMouse;
+    let art = preset.art(block.style);
+    let size = Preset::parse(&art.json, (art.atlas_width, art.atlas_height))
+        .map(|preset| (preset.width, preset.height))
+        .unwrap();
+    let rect = display_rect(
+        &block,
+        size,
+        preset.frame_share(),
+        (released.width, released.height),
+    );
+    let inside = |(x, y): &(u32, u32)| {
+        f64::from(*x) >= rect.x.floor() - 1.0
+            && f64::from(*x) <= (rect.x + rect.width).ceil()
+            && f64::from(*y) >= rect.y.floor() - 1.0
+            && f64::from(*y) <= (rect.y + rect.height).ceil()
+    };
+
+    let drawn = changed_pixels(&without, &released);
+    assert!(drawn.len() > 1000, "only {} pixels drawn", drawn.len());
+    assert!(drawn.iter().all(inside));
+    for frame in [&key_held, &button_held] {
+        assert!(changed_pixels(&without, frame).iter().all(inside));
+    }
+
+    let key = changed_pixels(&released, &key_held);
+    let button = changed_pixels(&released, &button_held);
+    assert!(key.len() > 50, "only {} pixels lit for the key", key.len());
+    assert!(
+        button.len() > 50,
+        "only {} pixels lit for the button",
+        button.len()
+    );
+    let centre = |points: &[(u32, u32)]| {
+        points.iter().map(|(x, _)| f64::from(*x)).sum::<f64>() / points.len() as f64
+    };
+    assert!(centre(&key) < centre(&button));
+    assert_eq!(pixels(&released), pixels(&key_let_go));
+    assert_eq!(pixels(&released), pixels(&all_let_go));
+}
+
+#[tokio::test]
+async fn input_display_follows_its_opacity_position_style_and_preset() {
+    let directory = tempfile::tempdir().unwrap();
+    let constants = input_constants(directory.path()).await;
+    let mut layers = RendererLayers::new(&constants.device, &constants.queue);
+    let block = frameever_project::InputDisplay {
+        enabled: true,
+        size: 120.0,
+        ..Default::default()
+    };
+    let without = render_at(&constants, &project(), &mut layers, 0.5).await;
+    let base = render_at(
+        &constants,
+        &with_input_display(block.clone()),
+        &mut layers,
+        0.5,
+    )
+    .await;
+    for changed in [
+        frameever_project::InputDisplay {
+            opacity: 20.0,
+            ..block.clone()
+        },
+        frameever_project::InputDisplay {
+            position: frameever_project::XY::new(1.0, 0.0),
+            ..block.clone()
+        },
+        frameever_project::InputDisplay {
+            style: frameever_project::InputDisplayStyle::Outline,
+            ..block.clone()
+        },
+        frameever_project::InputDisplay {
+            preset: "full-keyboard".to_string(),
+            ..block.clone()
+        },
+    ] {
+        let frame = render_at(&constants, &with_input_display(changed), &mut layers, 0.5).await;
+        assert_ne!(pixels(&frame), pixels(&without));
+        assert_ne!(pixels(&frame), pixels(&base));
+    }
+    let unknown = render_at(
+        &constants,
+        &with_input_display(frameever_project::InputDisplay {
+            preset: "not-a-preset".to_string(),
+            ..block.clone()
+        }),
+        &mut layers,
+        0.5,
+    )
+    .await;
+    let again = render_at(&constants, &with_input_display(block), &mut layers, 0.5).await;
+
+    assert_eq!(pixels(&unknown), pixels(&without));
+    assert_eq!(pixels(&again), pixels(&base));
 }

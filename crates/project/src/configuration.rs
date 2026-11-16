@@ -2692,6 +2692,8 @@ pub struct ProjectConfiguration {
     pub overlay_order: Vec<OverlayTrack>,
     pub captions: Option<CaptionsData>,
     pub keyboard: Option<KeyboardData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_display: Option<crate::InputDisplay>,
     pub clips: Vec<ClipConfiguration>,
     pub annotations: Vec<Annotation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2764,6 +2766,7 @@ impl Default for ProjectConfiguration {
             overlay_order: Vec::new(),
             captions: Default::default(),
             keyboard: Default::default(),
+            input_display: None,
             clips: Default::default(),
             annotations: Default::default(),
             image_cuts: Default::default(),
@@ -2795,6 +2798,7 @@ impl ProjectConfiguration {
         preset.text_size_version = self.text_size_version;
         preset.text_anim_version = self.text_anim_version;
         preset.overlay_order = self.overlay_order.clone();
+        preset.input_display = self.input_display.clone();
         preset.clips = self.clips.clone();
         preset
     }

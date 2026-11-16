@@ -398,6 +398,7 @@ pub fn make_cursor_only_project(mut project_config: ProjectConfiguration) -> Pro
     clear_background_pixels(&mut project_config.background);
     project_config.captions = None;
     project_config.keyboard = None;
+    project_config.input_display = None;
 
     if let Some(timeline) = project_config.timeline.as_mut() {
         timeline.mask_segments.clear();
@@ -519,6 +520,19 @@ impl ExporterBase {
 mod cursor_only_tests {
     use super::*;
     use frameever_project::TextLayout;
+
+    #[test]
+    fn cursor_only_leaves_out_the_input_display() {
+        let project = ProjectConfiguration {
+            input_display: Some(frameever_project::InputDisplay {
+                enabled: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        assert!(make_cursor_only_project(project).input_display.is_none());
+    }
 
     #[test]
     fn cursor_only_preserves_style_geometry_without_image_or_background_pixels() {

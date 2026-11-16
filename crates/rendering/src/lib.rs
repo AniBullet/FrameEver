@@ -50,6 +50,7 @@ mod layers;
 mod managed_segment;
 mod mask;
 pub mod notch_shape;
+pub mod input_display;
 mod overlay_layers;
 mod project_recordings;
 mod readiness;
@@ -8291,6 +8292,10 @@ impl RendererLayers {
                 constants,
                 overlays.captions.active_layout(),
             );
+
+            overlays
+                .input_display
+                .prepare(constants, uniforms, segment_frames);
         }
 
         Ok(())
@@ -8472,6 +8477,10 @@ impl RendererLayers {
                 constants,
                 overlays.captions.active_layout(),
             );
+
+            overlays
+                .input_display
+                .prepare(constants, uniforms, segment_frames);
             timings.keyboard_prepare_duration = start.elapsed();
         }
 
@@ -8722,6 +8731,12 @@ impl RendererLayers {
         }
 
         if let Some(overlays) = &self.overlays {
+            if overlays.input_display.has_content() {
+                overlays
+                    .input_display
+                    .render(passes.pass(session.current_texture_view(), load));
+            }
+
             if overlays.keyboard.has_content() {
                 overlays
                     .keyboard

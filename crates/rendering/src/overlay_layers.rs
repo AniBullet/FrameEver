@@ -1,6 +1,6 @@
 use crate::{
     ProjectConfiguration, RenderingError,
-    layers::{CaptionsLayer, ImageLayer, KeyboardLayer, TextLayer},
+    layers::{CaptionsLayer, ImageLayer, InputDisplayLayer, KeyboardLayer, TextLayer},
     readiness,
 };
 
@@ -9,6 +9,7 @@ pub(super) struct OverlayLayers {
     pub(super) images: ImageLayer,
     pub(super) captions: CaptionsLayer,
     pub(super) keyboard: KeyboardLayer,
+    pub(super) input_display: InputDisplayLayer,
 }
 
 impl OverlayLayers {
@@ -18,6 +19,9 @@ impl OverlayLayers {
             images: readiness::measure("layers.images", || ImageLayer::new(device)),
             captions: readiness::measure("layers.captions", || CaptionsLayer::new(device, queue)),
             keyboard: readiness::measure("layers.keyboard", || KeyboardLayer::new(device, queue)),
+            input_display: readiness::measure("layers.input_display", || {
+                InputDisplayLayer::new(device)
+            }),
         }
     }
 

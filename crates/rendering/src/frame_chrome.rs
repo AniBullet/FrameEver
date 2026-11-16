@@ -576,7 +576,7 @@ pub fn chrome_svg(
     }
 }
 
-fn chrome_fontdb() -> Arc<resvg::usvg::fontdb::Database> {
+pub(crate) fn chrome_fontdb() -> Arc<resvg::usvg::fontdb::Database> {
     static FONTDB: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
     FONTDB
         .get_or_init(|| {
