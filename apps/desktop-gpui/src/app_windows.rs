@@ -5614,6 +5614,48 @@ pub fn controls_window_height(issue: bool, options: bool) -> f32 {
     CONTROLS_BAR_HEIGHT + issue_room + options_room
 }
 
+const AREA_CONTROLS_GAP: f32 = 12.;
+
+fn area_bar_bounds(area: Bounds<Pixels>, work: Bounds<Pixels>) -> Bounds<Pixels> {
+    let bar = px(CONTROLS_BAR_HEIGHT);
+    let gap = px(AREA_CONTROLS_GAP);
+    let below = area.bottom() + gap;
+    let above = area.origin.y - gap - bar;
+    let y = if below + bar <= work.bottom() {
+        below
+    } else if above >= work.origin.y {
+        above
+    } else {
+        area.bottom() - px(TARGET_CONTROLS_OFFSET_Y as f32) - bar
+    };
+    let x = area.origin.x + (area.size.width - px(CONTROLS_WIDTH)) / 2.;
+    fit_window_bounds(
+        Bounds {
+            origin: point(x, y),
+            size: size(px(CONTROLS_WIDTH), bar),
+        },
+        work,
+    )
+}
+
+fn area_bounds_on_screen(config: &StartConfig) -> Option<Bounds<Pixels>> {
+    use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
+    let ScreenCaptureTarget::Area { bounds, .. } = &config.target else {
+        return None;
+    };
+    let display = capture_display_bounds(&config.target.display()?)?;
+    Some(Bounds {
+        origin: point(
+            display.origin.x + px(bounds.position().x() as f32),
+            display.origin.y + px(bounds.position().y() as f32),
+        ),
+        size: size(
+            px(bounds.size().width() as f32),
+            px(bounds.size().height() as f32),
+        ),
+    })
+}
+
 fn remembered_controls_bounds(
     remembered: Option<(f64, f64)>,
     mut preferred: Bounds<Pixels>,
@@ -5707,9 +5749,11 @@ fn open_controls(
         .display()
         .or_else(scap_targets::Display::get_containing_cursor)
         .or_else(|| Some(scap_targets::Display::primary()));
+    let area = area_bounds_on_screen(config);
     let remembered = crate::store::load()
         .controls_position
-        .filter(|(x, y)| x.is_finite() && y.is_finite());
+        .filter(|(x, y)| x.is_finite() && y.is_finite())
+        .filter(|_| area.is_none());
     let remembered_display = remembered.and_then(|(x, y)| {
         cx.displays().into_iter().find(|display| {
             display
@@ -5725,9 +5769,11 @@ fn open_controls(
         .as_ref()
         .map(|display| display.visible_bounds())
         .or_else(|| display_work_area(display.as_ref(), cx));
-    let bounds = available
-        .map(|available| remembered_controls_bounds(remembered, bounds, available))
-        .unwrap_or(bounds);
+    let bounds = match (area, available) {
+        (Some(area), Some(available)) => area_bar_bounds(area, inset_work_area(available)),
+        (None, Some(available)) => remembered_controls_bounds(remembered, bounds, available),
+        (_, None) => bounds,
+    };
     let has_microphone = config.microphone.is_some();
 
     let handle = cx.open_window(
@@ -6168,6 +6214,46 @@ mod tests {
                 next: AfterRecording::ShowMain
             }
         );
+    }
+
+    fn rect(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
+        Bounds {
+            origin: point(px(x), px(y)),
+            size: size(px(width), px(height)),
+        }
+    }
+
+    #[test]
+    fn the_bar_sits_centred_just_below_a_recorded_area() {
+        let work = rect(0., 0., 1920., 1040.);
+        let bar = area_bar_bounds(rect(400., 200., 800., 400.), work);
+        assert_eq!(bar.size, size(px(CONTROLS_WIDTH), px(CONTROLS_BAR_HEIGHT)));
+        assert_eq!(bar.origin.x, px(800. - CONTROLS_WIDTH / 2.));
+        assert_eq!(bar.origin.y, px(612.));
+    }
+
+    #[test]
+    fn an_area_on_the_bottom_edge_gets_the_bar_above_it() {
+        let work = rect(0., 0., 1920., 1040.);
+        let bar = area_bar_bounds(rect(400., 600., 800., 440.), work);
+        assert_eq!(bar.origin.y, px(600. - 12. - CONTROLS_BAR_HEIGHT));
+    }
+
+    #[test]
+    fn a_whole_screen_area_keeps_the_bar_inside_near_its_bottom() {
+        let work = rect(0., 0., 1920., 1040.);
+        let bar = area_bar_bounds(rect(0., 0., 1920., 1080.), work);
+        assert_eq!(bar.bottom(), px(1080. - 48.).min(work.bottom()));
+        assert!(bar.origin.y >= work.origin.y);
+    }
+
+    #[test]
+    fn an_area_against_a_side_edge_keeps_the_bar_on_its_own_display() {
+        let work = rect(-1920., 0., 1920., 1040.);
+        let bar = area_bar_bounds(rect(-1920., 100., 200., 200.), work);
+        assert_eq!(bar.origin.x, work.origin.x);
+        let bar = area_bar_bounds(rect(-150., 100., 150., 200.), work);
+        assert_eq!(bar.right(), work.right());
     }
 
     #[test]
