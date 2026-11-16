@@ -3353,7 +3353,7 @@ impl EditorWindow {
     /// -- reattach the progress poller. Deferred out of render because it
     /// mutates the sidebar state, and keyed by entity so it runs once per
     /// window.
-    fn ensure_captions_init(&self, cx: &mut Context<Self>) {
+    pub(crate) fn ensure_captions_init(&self, cx: &mut Context<Self>) {
         static INITIALISED: LazyLock<Mutex<HashSet<EntityId>>> =
             LazyLock::new(|| Mutex::new(HashSet::new()));
         if !INITIALISED
@@ -3426,7 +3426,7 @@ impl EditorWindow {
 
     /// `downloadModel` (`CaptionsTab.tsx:643-690`). The download runs on the
     /// tokio runtime and survives this window; the poll task repaints.
-    fn start_caption_model_download(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn start_caption_model_download(&mut self, cx: &mut Context<Self>) {
         let model = self.selected_caption_model().name;
         if !transcription::begin_download(model) {
             return;
@@ -3455,7 +3455,11 @@ impl EditorWindow {
     /// `generateCaptions` (`CaptionsTab.tsx:715-757`): transcribe on the
     /// tokio blocking pool, then apply the result through one `edit_project`
     /// write so a regenerate is a single undo entry.
-    fn generate_captions_clicked(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn generate_captions_clicked(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(summary) = self.summary() else {
             return;
         };

@@ -18,6 +18,7 @@ pub static TABLES: &[&[(&str, &str)]] = &[
 
 pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("font weight", "Light", "细"),
+    ("transcript", "Cut", "剪掉"),
     ("window menu", "Size", "尺寸"),
     ("strength", "Light", "轻度"),
     ("segment noun", "audio", "音频"),
@@ -44,4 +45,5 @@ pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("gif quality", "Low", "低"),
     ("gif quality", "Medium", "中"),
     ("gif quality", "High", "高"),
+    ("clip transition", "Transition", "转场"),
 ];

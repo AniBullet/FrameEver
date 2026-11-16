@@ -396,6 +396,19 @@ pub fn store_section(section: &str) -> Map<String, Value> {
         .unwrap_or_default()
 }
 
+pub const CHAPTER_MARK_SOUND_KEY: &str = "chapterMarkSound";
+
+pub fn chapter_mark_sound_enabled() -> bool {
+    cached_store(&tauri_store_path())
+        .and_then(|store| {
+            store
+                .get(GENERAL_SETTINGS)
+                .and_then(Value::as_object)
+                .map(|settings| bool_at(settings, CHAPTER_MARK_SOUND_KEY, false))
+        })
+        .unwrap_or(false)
+}
+
 pub fn notification_sounds_enabled() -> bool {
     cached_store(&tauri_store_path())
         .and_then(|store| {
@@ -941,6 +954,7 @@ pub struct GeneralSettings {
     pub post_deletion_behaviour: PostDeletionBehaviour,
     pub keep_main_hidden_after_editor: bool,
     pub keep_main_hidden_on_cancel: bool,
+    pub chapter_mark_sound: bool,
     pub delete_instant_recordings_after_upload: bool,
     pub crash_recovery_recording: bool,
     pub auto_compress_instant: bool,
@@ -1370,6 +1384,7 @@ impl GeneralSettings {
             post_deletion_behaviour: enum_at(general, "postDeletionBehaviour"),
             keep_main_hidden_after_editor: bool_at(general, "keepMainHiddenAfterEditor", false),
             keep_main_hidden_on_cancel: bool_at(general, "keepMainHiddenOnCancel", false),
+            chapter_mark_sound: bool_at(general, CHAPTER_MARK_SOUND_KEY, false),
             delete_instant_recordings_after_upload: bool_at(
                 general,
                 "deleteInstantRecordingsAfterUpload",
@@ -2863,6 +2878,21 @@ mod tests {
             ));
             assert_eq!(std::fs::read_to_string(&store.path).unwrap(), contents);
         }
+    }
+
+    #[test]
+    fn the_chapter_mark_sound_is_off_until_turned_on() {
+        let _store = TempStore::new("chapter-mark-sound-default", Some("{}"));
+        assert!(!chapter_mark_sound_enabled());
+        assert!(!GeneralSettings::load().chapter_mark_sound);
+        drop(_store);
+
+        let _store = TempStore::new(
+            "chapter-mark-sound-on",
+            Some(r#"{"general_settings":{"chapterMarkSound":true}}"#),
+        );
+        assert!(chapter_mark_sound_enabled());
+        assert!(GeneralSettings::load().chapter_mark_sound);
     }
 
     #[test]
