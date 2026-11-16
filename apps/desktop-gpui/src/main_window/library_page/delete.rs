@@ -152,7 +152,11 @@ impl DeleteState {
     }
 }
 
-fn recycle_item(item: &Item, part: Option<Version>) -> Result<Option<Deleted>, String> {
+async fn recycle_item(
+    item: &Item,
+    part: Option<Version>,
+    executor: &gpui::BackgroundExecutor,
+) -> Result<Option<Deleted>, String> {
     match part {
         Some(version) => library::recycle::recycle_version(&item.path, version).map(Some),
         None => {
@@ -161,7 +165,7 @@ fn recycle_item(item: &Item, part: Option<Version>) -> Result<Option<Deleted>, S
                 match library::recycle_project(&item.path) {
                     Err(_) if attempt < RECYCLE_RETRIES => {
                         attempt += 1;
-                        std::thread::sleep(RECYCLE_RETRY_DELAY);
+                        executor.timer(RECYCLE_RETRY_DELAY).await;
                     }
                     result => return result,
                 }
@@ -337,13 +341,14 @@ impl MainWindow {
             for release in releases {
                 release.await;
             }
+            let executor = cx.background_executor().clone();
             let (deleted, failed) = cx
                 .background_executor()
                 .spawn(async move {
                     let mut deleted = Vec::new();
                     let mut failed = Vec::new();
                     for item in items {
-                        match recycle_item(&item, part) {
+                        match recycle_item(&item, part, &executor).await {
                             Ok(Some(record)) => deleted.push((item, record)),
                             Ok(None) => {}
                             Err(error) => {
