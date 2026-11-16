@@ -534,8 +534,11 @@ pub fn toggle<T: 'static>(
     let events = cx.subscribe_in(&view, window, on_event);
     let weak = view.downgrade();
     slot.open(view, events, window, cx);
+    let active = crate::session::RecordingSession::active_project_dir_in(cx);
     cx.spawn(async move |_, cx| {
-        let entries = cx.background_spawn(async { library::list_entries() }).await;
+        let entries = cx
+            .background_spawn(async move { library::list_entries(active.as_deref()) })
+            .await;
         weak.update(cx, |view, cx| view.set_library(entries, cx))
             .ok();
     })
