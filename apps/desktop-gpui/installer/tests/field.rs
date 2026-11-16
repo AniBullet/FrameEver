@@ -68,3 +68,54 @@ fn changing_only_the_drive_letter_reports_the_new_path(cx: &mut TestAppContext) 
         &PATH[1..]
     );
 }
+
+struct Host {
+    field: Entity<PathField>,
+}
+
+impl gpui::Render for Host {
+    fn render(
+        &mut self,
+        _: &mut gpui::Window,
+        _: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        use gpui::{ParentElement, Styled, div, px};
+        div()
+            .size_full()
+            .pl(px(60.))
+            .pt(px(40.))
+            .child(div().w(px(120.)).h(px(32.)).child(self.field.clone()))
+    }
+}
+
+#[gpui::test]
+fn a_drag_that_leaves_the_box_keeps_selecting(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, MouseButton, point, px};
+    cx.update(|cx| cx.bind_keys(field::bindings()));
+    let (host, cx) = cx.add_window_view(|_, cx| Host {
+        field: cx.new(|cx| PathField::new(PATH, colors(), cx)),
+    });
+    let field = host.read_with(cx, |it, _| it.field.clone());
+    cx.run_until_parked();
+    let inside = point(px(170.), px(56.));
+    cx.simulate_mouse_down(inside, MouseButton::Left, Modifiers::none());
+    let anchor = field.read_with(cx, |it, _| it.selection().end);
+    cx.simulate_mouse_move(
+        point(px(20.), px(56.)),
+        Some(MouseButton::Left),
+        Modifiers::none(),
+    );
+    cx.simulate_mouse_move(
+        point(px(2.), px(56.)),
+        Some(MouseButton::Left),
+        Modifiers::none(),
+    );
+    cx.simulate_mouse_up(point(px(2.), px(56.)), MouseButton::Left, Modifiers::none());
+    let selection = field.read_with(cx, |it, _| it.selection());
+    assert!(anchor > 0, "the click landed in the text");
+    assert_eq!(selection.end, anchor);
+    assert!(
+        selection.start < anchor,
+        "dragging left past the box selects to the left: {selection:?}"
+    );
+}
