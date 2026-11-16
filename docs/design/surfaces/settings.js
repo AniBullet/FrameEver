@@ -158,8 +158,8 @@ const sections = [
 						k: "afterEditorClose",
 						en: "When you close the editor",
 						zh: "关闭编辑器时",
-						den: "After the last editor closes.",
-						dzh: "最后一个编辑器关闭后。",
+						den: "Applies once the last editor window closes.",
+						dzh: "在最后一个编辑器窗口关闭后生效。",
 						c: "select",
 						opts: [
 							["show", "Show the app", "显示应用"],
@@ -173,8 +173,8 @@ const sections = [
 						k: "afterCancel",
 						en: "When you cancel",
 						zh: "取消时",
-						den: "Esc or closing the picker.",
-						dzh: "按 Esc 或关闭选择器时。",
+						den: "Applies when you press Esc or close the picker.",
+						dzh: "按 Esc 或关闭选择器时生效。",
 						c: "select",
 						opts: [
 							["show", "Show the app", "显示应用"],

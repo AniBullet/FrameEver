@@ -431,8 +431,8 @@ impl Row {
             }
             Row::DockIcon => n!("Keep FrameEver in the dock even when no windows are open."),
             Row::MainWindowStart => n!("What the main window does."),
-            Row::AfterEditorClose => n!("After the last editor closes."),
-            Row::AfterCancel => n!("Esc or closing the picker."),
+            Row::AfterEditorClose => n!("Applies once the last editor window closes."),
+            Row::AfterCancel => n!("Applies when you press Esc or close the picker."),
             Row::InstantResolution => n!("The most Instant recordings are saved at."),
             Row::MaxFps => n!("Higher rates can drop frames on some PCs."),
             Row::ConfirmMicrophone => n!("Ask first if no microphone is selected or available."),
