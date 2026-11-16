@@ -713,10 +713,11 @@ impl MainWindow {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .h_full()
+                                    .self_stretch()
+                                    .relative()
                                     .rounded(px(6.))
                                     .overflow_hidden()
-                                    .child(picture),
+                                    .child(div().absolute().inset_0().child(picture)),
                             )
                             .child(self.overlay_step_button(
                                 "library-overlay-next",
