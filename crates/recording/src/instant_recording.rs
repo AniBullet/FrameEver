@@ -9,6 +9,8 @@ use crate::{
     },
     click_highlight::ClickHighlights,
     feeds::microphone::MicrophoneFeedLock,
+    frame_overlays::FrameOverlays,
+    live_input_display::{InstantInputDisplay, LiveInputDisplay},
     output_pipeline::{self, OutputPipeline},
     resolution_limits::ensure_even,
     sources::screen_capture::{ScreenCaptureConfig, ScreenCaptureTarget},
@@ -405,7 +407,7 @@ async fn create_pipeline(
     max_output_size: Option<u32>,
     start_time: Timestamps,
     start_gate: Option<RecordingStartGate>,
-    click_highlight: Option<ClickHighlights>,
+    overlays: FrameOverlays,
 ) -> anyhow::Result<Pipeline> {
     // Instant merges its screen and audio tracks by timestamp, and gated
     // audio starts at the arm point, so the screen must start there too.
@@ -436,7 +438,7 @@ async fn create_pipeline(
         start_time,
         start_gate.clone(),
         segment_tx_for_video,
-        click_highlight,
+        overlays,
     )
     .await?;
 
@@ -515,6 +517,7 @@ pub struct ActorBuilder {
     max_fps: u32,
     window_only: bool,
     click_highlight: bool,
+    input_display: Option<InstantInputDisplay>,
     #[cfg(target_os = "macos")]
     excluded_windows: Vec<scap_targets::WindowId>,
     start_gate: Option<RecordingStartGate>,
@@ -532,6 +535,7 @@ impl ActorBuilder {
             max_fps: crate::defaults::DEFAULT_INSTANT_MODE_FPS,
             window_only: false,
             click_highlight: false,
+            input_display: None,
             #[cfg(target_os = "macos")]
             excluded_windows: Vec::new(),
             start_gate: None,
@@ -557,6 +561,11 @@ impl ActorBuilder {
 
     pub fn with_click_highlight(mut self, click_highlight: bool) -> Self {
         self.click_highlight = click_highlight;
+        self
+    }
+
+    pub fn with_input_display(mut self, input_display: Option<InstantInputDisplay>) -> Self {
+        self.input_display = input_display;
         self
     }
 
@@ -610,6 +619,7 @@ impl ActorBuilder {
             self.max_output_size,
             self.max_fps,
             self.click_highlight,
+            self.input_display,
         )
         .await
     }
@@ -621,8 +631,15 @@ pub async fn spawn_instant_recording_actor(
     max_output_size: Option<u32>,
     max_fps: u32,
 ) -> anyhow::Result<ActorHandle> {
-    spawn_instant_recording_actor_inner(recording_dir, inputs, max_output_size, max_fps, false)
-        .await
+    spawn_instant_recording_actor_inner(
+        recording_dir,
+        inputs,
+        max_output_size,
+        max_fps,
+        false,
+        None,
+    )
+    .await
 }
 
 async fn spawn_instant_recording_actor_inner(
@@ -631,6 +648,7 @@ async fn spawn_instant_recording_actor_inner(
     max_output_size: Option<u32>,
     max_fps: u32,
     click_highlight: bool,
+    input_display: Option<InstantInputDisplay>,
 ) -> anyhow::Result<ActorHandle> {
     let startup = build_instant_recording_actor(
         recording_dir,
@@ -638,6 +656,7 @@ async fn spawn_instant_recording_actor_inner(
         max_output_size,
         max_fps,
         click_highlight,
+        input_display,
     );
     #[cfg(windows)]
     {
@@ -655,6 +674,7 @@ async fn build_instant_recording_actor(
     max_output_size: Option<u32>,
     max_fps: u32,
     click_highlight: bool,
+    input_display: Option<InstantInputDisplay>,
 ) -> anyhow::Result<ActorHandle> {
     use frameever_utils::operation_diagnostics::{Field, Operation};
     let mut diagnostic = Operation::start(
@@ -780,6 +800,16 @@ async fn build_instant_recording_actor(
             if let Some(highlights) = &click_highlight {
                 highlights.watch();
             }
+            let input_display = input_display
+                .filter(|_| cfg!(windows))
+                .map(LiveInputDisplay::new);
+            if let Some(display) = &input_display {
+                let gate = inputs.start_gate.clone();
+                display.watch(move || {
+                    gate.as_ref()
+                        .is_none_or(|gate| gate.armed_instant().is_some())
+                });
+            }
 
             #[cfg(target_os = "macos")]
             let max_capture_size = max_output_size.and_then(|max_output_size| {
@@ -836,7 +866,10 @@ async fn build_instant_recording_actor(
                 max_output_size,
                 timestamps,
                 inputs.start_gate.clone(),
-                click_highlight,
+                FrameOverlays {
+                    click_highlight,
+                    input_display,
+                },
             )
             .await?;
 
