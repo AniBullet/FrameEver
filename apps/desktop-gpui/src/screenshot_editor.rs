@@ -924,6 +924,7 @@ pub struct ScreenshotEditorWindow {
     ready: bool,
     pending_save: Rc<RefCell<PendingConfigSave>>,
     save_task: Option<gpui::Task<()>>,
+    renderer: Option<gpui::Task<()>>,
 
     // -- Chrome state --------------------------------------------------------
     pub(crate) tool: Tool,
@@ -1008,6 +1009,7 @@ impl ScreenshotEditorWindow {
             ready: false,
             pending_save: Rc::new(RefCell::new(PendingConfigSave::default())),
             save_task: None,
+            renderer: None,
 
             tool: Tool::Select,
             selected_annotation: None,
@@ -1159,6 +1161,14 @@ impl ScreenshotEditorWindow {
         }
         self.refresh_mask_overlays(window, cx);
         cx.notify();
+    }
+
+    pub(crate) fn prepare_for_deletion(&mut self) -> Option<gpui::Task<()>> {
+        self.pending_save.borrow_mut().discard();
+        self.save_task = None;
+        self.config_tx = None;
+        self.export_tx = None;
+        self.renderer.take()
     }
 
     pub fn pending_save(&self) -> Rc<RefCell<PendingConfigSave>> {
@@ -4648,13 +4658,20 @@ pub fn load_screenshot_project(
             return;
         }
 
-        cx.update(|cx| {
-            gpui_tokio::Tokio::spawn(
+        let attached = handle.update(cx, |view, _window, cx| {
+            let running = gpui_tokio::Tokio::spawn(
                 cx,
                 run_still_renderer(source, config_rx, export_rx, frame_tx, setup_tx),
-            )
-            .detach();
+            );
+            view.renderer = Some(cx.background_spawn(async move {
+                if running.await.is_err() {
+                    tracing::warn!("the screenshot renderer ended early");
+                }
+            }));
         });
+        if attached.is_err() {
+            return;
+        }
 
         if let Ok(Err(message)) = setup_rx.recv_async().await {
             handle
@@ -4753,6 +4770,48 @@ mod tests {
         cx.simulate_keystrokes("tab");
         editor.update_in(cx, |editor, window, _cx| {
             assert!(!editor.focus.is_focused(window));
+        });
+    }
+
+    #[gpui::test]
+    fn deleting_waits_for_the_still_renderer_to_let_go(cx: &mut gpui::TestAppContext) {
+        let bundle = tempfile::tempdir().unwrap();
+        let path = bundle.path().to_path_buf();
+        let (editor, cx) = cx.add_window_view(move |window, cx| {
+            ScreenshotEditorWindow::new(path.clone(), window, cx)
+        });
+        let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let release = editor.update_in(cx, |editor, _window, cx| {
+            let (config_tx, mut config_rx) = tokio::sync::watch::channel(ConfigUpdate {
+                revision: 0,
+                config: ProjectConfiguration::default(),
+            });
+            let renderer_released = released.clone();
+            editor.config_tx = Some(config_tx);
+            editor.renderer = Some(cx.background_spawn(async move {
+                while config_rx.changed().await.is_ok() {}
+                renderer_released.store(true, std::sync::atomic::Ordering::SeqCst);
+            }));
+            editor.pending_save.borrow_mut().config = Some(ProjectConfiguration::default());
+            editor.prepare_for_deletion()
+        });
+        let release = release.expect("a loaded screenshot hands back its renderer");
+        let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let release_finished = finished.clone();
+        let renderer_released = released.clone();
+        editor.update_in(cx, |_editor, _window, cx| {
+            cx.background_spawn(async move {
+                release.await;
+                assert!(renderer_released.load(std::sync::atomic::Ordering::SeqCst));
+                release_finished.store(true, std::sync::atomic::Ordering::SeqCst);
+            })
+            .detach();
+        });
+        cx.run_until_parked();
+        assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
+        editor.update_in(cx, |editor, _window, _cx| {
+            assert!(editor.config_tx.is_none() && editor.export_tx.is_none());
+            assert!(editor.pending_save.borrow().config.is_none());
         });
     }
 

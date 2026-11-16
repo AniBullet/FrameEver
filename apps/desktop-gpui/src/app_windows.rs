@@ -5575,12 +5575,14 @@ pub(crate) fn hold_for_library_delete(
             .deleting_editors
             .begin(key.clone());
         if let Some(handle) = screenshot_editor {
-            if let Ok(pending) = handle.update(cx, |view, _window, _cx| view.pending_save()) {
-                pending.borrow_mut().discard();
-            }
-            handle
-                .update(cx, |_, window, _| window.remove_window())
-                .ok();
+            release = handle
+                .update(cx, |view, window, _| {
+                    let renderer = view.prepare_for_deletion();
+                    window.remove_window();
+                    renderer
+                })
+                .ok()
+                .flatten();
             screenshot_editor_closed(&key, cx);
         }
     }
