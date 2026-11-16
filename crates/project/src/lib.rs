@@ -2,6 +2,7 @@ mod animated_gradient;
 mod caption_timing;
 mod configuration;
 pub mod cursor;
+pub mod filler_words;
 pub mod input_display;
 pub mod keyboard;
 mod meta;
