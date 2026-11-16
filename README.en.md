@@ -103,6 +103,18 @@ A `RunCommand` automation rule runs a command you wrote, so its network use is u
 
 </details>
 
+## Input record
+
+A Studio recording saves which keys, mouse buttons and wheel steps you pressed, and when. The editor uses this input record to light them up on a keyboard and mouse picture (the input display) and to make keyboard segments.
+
+- **Where it is kept.** In two files in each take's folder inside the project, `keyboard.bin` and `input.bin`, on this PC. FrameEver never sends them anywhere. The `frameever` command and the AI-agent tools do not return them, or the text of keyboard segments. A diagnostic report says only whether the switch is on.
+- **When it is read.** Only while a recording runs. FrameEver asks Windows which keys and buttons are down about 60 times a second, and reads wheel steps from Windows Raw Input. It installs no keyboard hook and no driver, and injects nothing into other programs.
+- **One window.** When you record a single window, the input display shows only what you pressed while that window was in front.
+- **Switching it off.** Settings → Recording → Record input. With it off, a new recording reads and saves no input, from the app or from the `frameever` command.
+- **Clearing it.** In the editor's title bar, Clear input record removes it from that project, together with the project's keyboard segments, and keeps the recording. This can't be undone.
+
+An exported video contains only what the input display drew. Mouse clicks that drive the cursor effects belong to the cursor data saved by Separate cursor, not to the input record.
+
 ## Download
 
 | Platform | Status |

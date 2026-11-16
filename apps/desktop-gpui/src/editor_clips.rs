@@ -3249,6 +3249,19 @@ fn copy_source_segment(
         target_project_path,
         target_relative_dir,
     )?;
+    if let Some(input) = source_segment
+        .input_events_path(source_meta)
+        .filter(|path| path.is_file())
+    {
+        copy_file_to_relative(
+            &input,
+            target_project_path,
+            &format!(
+                "{target_relative_dir}/{}",
+                frameever_project::input_display::INPUT_EVENTS_FILE_NAME
+            ),
+        )?;
+    }
 
     Ok(MultipleSegment {
         display,
