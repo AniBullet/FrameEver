@@ -27,7 +27,7 @@ pub struct PresetShape {
 pub fn preset_shape(id: &str) -> Option<PresetShape> {
     let builtin = BuiltinPresetId::from_id(id)?;
     Some(PresetShape {
-        size: builtin.layout().size(),
+        size: builtin.size(),
         frame_share: builtin.frame_share(),
     })
 }
@@ -179,7 +179,10 @@ pub fn straighten_alpha(image: &mut RgbaImage) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frameever_project::input_display::{Input, key_code};
+    use frameever_project::input_display::preset_for_controller;
+    use frameever_project::input_display::{
+        GamepadAxes, GamepadKind, GamepadSnapshot, Input, gamepad_buttons, key_code,
+    };
 
     const FIXTURE: &str = r#"{
         "overlay_width": 20,
@@ -295,7 +298,19 @@ mod tests {
             for style in InputDisplayStyle::ALL {
                 let loaded = builtin_preset(id, style, 1).unwrap();
                 let released = compose(&loaded, &DisplayState::default());
-                let held = compose(&loaded, &pressed("W"));
+                let held = compose(
+                    &loaded,
+                    &match id.controller() {
+                        Some(_) => gamepad(
+                            GamepadAxes {
+                                left_trigger: 255,
+                                ..Default::default()
+                            },
+                            &[gamepad_buttons::SOUTH],
+                        ),
+                        None => pressed("W"),
+                    },
+                );
                 let lit = |image: &RgbaImage| {
                     image
                         .pixels()
@@ -314,6 +329,111 @@ mod tests {
                 assert!(lit(&held) > lit(&released) + 500, "{id:?} {style:?}");
             }
         }
+    }
+
+    fn gamepad(axes: GamepadAxes, buttons: &[u16]) -> DisplayState {
+        let mut state = DisplayState::default();
+        state.show_gamepad(&buttons.iter().fold(
+            GamepadSnapshot {
+                axes,
+                ..Default::default()
+            },
+            |snapshot, button| snapshot.with_button(*button),
+        ));
+        state
+    }
+
+    fn white(image: &RgbaImage, left: u32, top: u32, right: u32, bottom: u32) -> usize {
+        (top..bottom)
+            .flat_map(|y| (left..right).map(move |x| (x, y)))
+            .filter(|(x, y)| image.get_pixel(*x, *y).0 == [255, 255, 255, 255])
+            .count()
+    }
+
+    #[test]
+    fn a_trigger_fills_from_the_left_by_how_far_it_is_pulled() {
+        let loaded =
+            builtin_preset(BuiltinPresetId::Gamepad, InputDisplayStyle::Keycaps, 1).unwrap();
+        let pulled = |right_trigger| {
+            compose(
+                &loaded,
+                &gamepad(
+                    GamepadAxes {
+                        right_trigger,
+                        ..Default::default()
+                    },
+                    &[],
+                ),
+            )
+        };
+        let (left_half, right_half) = ((285, 5, 307, 25), (309, 5, 331, 25));
+        let lit = |image: &RgbaImage, (left, top, right, bottom): (u32, u32, u32, u32)| {
+            white(image, left, top, right, bottom)
+        };
+
+        assert_eq!(lit(&pulled(0), left_half), 0);
+        assert!(lit(&pulled(128), left_half) > 250);
+        assert_eq!(lit(&pulled(128), right_half), 0);
+        assert!(lit(&pulled(255), right_half) > 250);
+        assert_eq!(white(&pulled(255), 0, 0, 200, 30), 0);
+    }
+
+    #[test]
+    fn a_pushed_stick_is_drawn_away_from_its_centre() {
+        let loaded =
+            builtin_preset(BuiltinPresetId::Gamepad, InputDisplayStyle::Keycaps, 1).unwrap();
+        let knob = [24, 24, 24, 255];
+        let knob_columns = |image: &RgbaImage| {
+            let columns: Vec<u32> = (90..152)
+                .filter(|x| image.get_pixel(*x, 109).0 == knob)
+                .collect();
+            (*columns.first().unwrap(), *columns.last().unwrap())
+        };
+        let pushed = |left_stick| {
+            compose(
+                &loaded,
+                &gamepad(
+                    GamepadAxes {
+                        left_stick,
+                        ..Default::default()
+                    },
+                    &[],
+                ),
+            )
+        };
+
+        let (rest_left, rest_right) = knob_columns(&pushed([0, 0]));
+        assert_eq!(
+            knob_columns(&pushed([127, 0])),
+            (rest_left + 9, rest_right + 9)
+        );
+        assert_eq!(
+            knob_columns(&pushed([-127, 0])),
+            (rest_left - 9, rest_right - 9)
+        );
+        assert_eq!(pushed([0, 0]), compose(&loaded, &DisplayState::default()));
+    }
+
+    #[test]
+    fn each_controller_draws_its_own_picture() {
+        let picture = |id: &str| {
+            compose(
+                &resolve_preset(id, InputDisplayStyle::Outline, 1).unwrap(),
+                &DisplayState::default(),
+            )
+        };
+        let xbox = picture(preset_for_controller("gamepad", Some(GamepadKind::Xbox)));
+        let playstation = picture(preset_for_controller(
+            "gamepad",
+            Some(GamepadKind::PlayStation),
+        ));
+        let switch = picture(preset_for_controller("gamepad", Some(GamepadKind::Switch)));
+
+        assert_eq!(xbox.dimensions(), playstation.dimensions());
+        assert_ne!(xbox, playstation);
+        assert_ne!(xbox, switch);
+        assert_ne!(playstation, switch);
+        assert_eq!(xbox, picture("gamepad"));
     }
 
     #[test]

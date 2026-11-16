@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use super::keys::key_code;
+use super::{
+    gamepad::{GamepadAxes, GamepadKind, GamepadSnapshot},
+    keys::key_code,
+};
 use crate::{
     CursorEvents, KeyboardEvents, ProjectConfiguration, RecordingMeta, StudioRecordingMeta,
     TimelineFrameMapping,
@@ -10,6 +13,7 @@ use crate::{
 pub enum Input {
     Key(u16),
     MouseButton(u8),
+    GamepadButton(u16),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -30,12 +34,15 @@ pub struct InputChange {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InputRecord {
     changes: Vec<InputChange>,
+    gamepad: Vec<(f64, GamepadSnapshot)>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DisplayState {
     held: BTreeSet<Input>,
     pub wheel: WheelStep,
+    pub axes: GamepadAxes,
+    pub controller: Option<GamepadKind>,
 }
 
 impl DisplayState {
@@ -50,6 +57,14 @@ impl DisplayState {
     pub fn with_wheel(mut self, wheel: WheelStep) -> Self {
         self.wheel = wheel;
         self
+    }
+
+    pub fn show_gamepad(&mut self, snapshot: &GamepadSnapshot) {
+        for button in snapshot.pressed() {
+            self.held.insert(Input::GamepadButton(button));
+        }
+        self.axes = snapshot.axes;
+        self.controller = Some(snapshot.kind);
     }
 
     pub fn is_held(&self, input: Input) -> bool {
@@ -90,7 +105,24 @@ impl InputRecord {
     pub fn new(mut changes: Vec<InputChange>) -> Self {
         changes.retain(|change| change.time_ms.is_finite());
         changes.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
-        Self { changes }
+        Self {
+            changes,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_gamepad(mut self, mut snapshots: Vec<(f64, GamepadSnapshot)>) -> Self {
+        snapshots.retain(|(time_ms, _)| time_ms.is_finite());
+        snapshots.sort_by(|a, b| a.0.total_cmp(&b.0));
+        self.gamepad = snapshots;
+        self
+    }
+
+    pub fn controller(&self) -> Option<GamepadKind> {
+        self.gamepad
+            .iter()
+            .find(|(_, snapshot)| !snapshot.is_idle())
+            .map(|(_, snapshot)| snapshot.kind)
     }
 
     pub fn from_events(keyboard: &KeyboardEvents, cursor: &CursorEvents) -> Self {
@@ -131,7 +163,11 @@ impl InputRecord {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.changes.is_empty()
+        self.changes.is_empty() && self.gamepad.is_empty()
+    }
+
+    pub fn gamepad(&self) -> &[(f64, GamepadSnapshot)] {
+        &self.gamepad
     }
 
     pub fn changes(&self) -> &[InputChange] {
@@ -146,6 +182,16 @@ impl InputRecord {
             }
             state.apply(change.input, change.down);
         }
+        let earlier = self
+            .gamepad
+            .partition_point(|(changed_at, _)| *changed_at <= time_ms);
+        if let Some((_, snapshot)) = earlier
+            .checked_sub(1)
+            .and_then(|index| self.gamepad.get(index))
+        {
+            state.show_gamepad(snapshot);
+        }
+        state.controller = self.controller();
         state
     }
 }
@@ -153,6 +199,7 @@ impl InputRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input_display::{GamepadAxes, GamepadKind, GamepadSnapshot};
     use crate::{CursorClickEvent, KeyPressEvent, ProjectConfiguration, RecordingMeta};
 
     fn two_take_project(transitions: serde_json::Value) -> ProjectConfiguration {
@@ -340,6 +387,68 @@ mod tests {
 
         assert_eq!(held(&record, 200.0), vec![]);
         assert!(!record.is_empty());
+    }
+
+    fn pad(kind: GamepadKind) -> GamepadSnapshot {
+        GamepadSnapshot {
+            kind,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn gamepad_buttons_sticks_and_triggers_show_as_last_read() {
+        use crate::input_display::gamepad_buttons::{DPAD_LEFT, SOUTH};
+        let pushed = GamepadAxes {
+            left_stick: [-127, 40],
+            right_trigger: 200,
+            ..Default::default()
+        };
+        let record = InputRecord::new(Vec::new()).with_gamepad(vec![
+            (
+                300.0,
+                GamepadSnapshot {
+                    axes: pushed,
+                    ..pad(GamepadKind::Xbox).with_button(SOUTH)
+                },
+            ),
+            (100.0, pad(GamepadKind::Xbox).with_button(DPAD_LEFT)),
+            (500.0, pad(GamepadKind::Xbox)),
+            (f64::NAN, pad(GamepadKind::Xbox).with_button(SOUTH)),
+        ]);
+
+        assert_eq!(held(&record, 50.0), vec![]);
+        assert_eq!(held(&record, 100.0), vec![Input::GamepadButton(DPAD_LEFT)]);
+        assert_eq!(record.state_at(100.0).axes, GamepadAxes::default());
+        assert_eq!(held(&record, 499.0), vec![Input::GamepadButton(SOUTH)]);
+        assert_eq!(record.state_at(499.0).axes, pushed);
+        assert_eq!(held(&record, 500.0), vec![]);
+        assert_eq!(record.state_at(500.0).axes, GamepadAxes::default());
+        assert!(!record.is_empty());
+    }
+
+    #[test]
+    fn a_record_names_the_controller_that_first_produced_input() {
+        use crate::input_display::gamepad_buttons::NORTH;
+        let played = InputRecord::new(Vec::new()).with_gamepad(vec![
+            (0.0, pad(GamepadKind::Switch)),
+            (200.0, pad(GamepadKind::PlayStation).with_button(NORTH)),
+            (400.0, pad(GamepadKind::Xbox).with_button(NORTH)),
+        ]);
+        let untouched =
+            InputRecord::new(Vec::new()).with_gamepad(vec![(0.0, pad(GamepadKind::Switch))]);
+
+        assert_eq!(played.controller(), Some(GamepadKind::PlayStation));
+        assert_eq!(
+            played.state_at(10.0).controller,
+            Some(GamepadKind::PlayStation)
+        );
+        assert_eq!(untouched.controller(), None);
+        assert_eq!(untouched.state_at(10.0).controller, None);
+        assert_eq!(
+            record(vec![key("W", 0.0, true)], Vec::new()).controller(),
+            None
+        );
     }
 
     #[test]

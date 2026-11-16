@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use super::record::{DisplayState, Input, WheelStep};
+use super::{
+    gamepad::{STICK_FULL, TRIGGER_FULL, gamepad_buttons},
+    record::{DisplayState, Input, WheelStep},
+};
 
 pub const STATE_GAP: u32 = 3;
 pub const MAX_PRESET_ELEMENTS: usize = 512;
@@ -20,6 +23,12 @@ const TYPE_TRIGGER: i64 = 6;
 const TYPE_GAMEPAD_ID: i64 = 7;
 const TYPE_DPAD: i64 = 8;
 const TYPE_MOUSE_MOVEMENT: i64 = 9;
+
+const SIDE_RIGHT: u8 = 1;
+const DIRECTION_UP: u8 = 1;
+const DIRECTION_DOWN: u8 = 2;
+const DIRECTION_LEFT: u8 = 3;
+const DIRECTION_RIGHT: u8 = 4;
 
 #[derive(Serialize, Deserialize)]
 struct PresetFile {
@@ -42,6 +51,12 @@ struct ElementFile {
     z_level: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     code: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    side: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stick_radius: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    direction: Option<u8>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,6 +67,15 @@ pub struct SpriteRect {
     pub height: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FillDirection {
+    #[default]
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElementKind {
     Texture,
@@ -59,8 +83,8 @@ pub enum ElementKind {
     GamepadButton { code: u16 },
     MouseButton { button: u8 },
     MouseWheel,
-    AnalogStick,
-    Trigger,
+    AnalogStick { right: bool, radius: u16 },
+    Trigger { right: bool, fill: FillDirection },
     GamepadId,
     DPad,
     MouseMovement,
@@ -187,8 +211,19 @@ impl ElementKind {
                 }
             }
             TYPE_MOUSE_WHEEL => Self::MouseWheel,
-            TYPE_ANALOG_STICK => Self::AnalogStick,
-            TYPE_TRIGGER => Self::Trigger,
+            TYPE_ANALOG_STICK => Self::AnalogStick {
+                right: element.side == Some(SIDE_RIGHT),
+                radius: element.stick_radius.unwrap_or(0),
+            },
+            TYPE_TRIGGER => Self::Trigger {
+                right: element.side == Some(SIDE_RIGHT),
+                fill: match element.direction {
+                    Some(DIRECTION_DOWN) => FillDirection::Down,
+                    Some(DIRECTION_LEFT) => FillDirection::Left,
+                    Some(DIRECTION_RIGHT) => FillDirection::Right,
+                    _ => FillDirection::Up,
+                },
+            },
             TYPE_GAMEPAD_ID => Self::GamepadId,
             TYPE_DPAD => Self::DPad,
             TYPE_MOUSE_MOVEMENT => Self::MouseMovement,
@@ -208,8 +243,8 @@ impl ElementKind {
             Self::GamepadButton { .. } => TYPE_GAMEPAD_BUTTON,
             Self::MouseButton { .. } => TYPE_MOUSE_BUTTON,
             Self::MouseWheel => TYPE_MOUSE_WHEEL,
-            Self::AnalogStick => TYPE_ANALOG_STICK,
-            Self::Trigger => TYPE_TRIGGER,
+            Self::AnalogStick { .. } => TYPE_ANALOG_STICK,
+            Self::Trigger { .. } => TYPE_TRIGGER,
             Self::GamepadId => TYPE_GAMEPAD_ID,
             Self::DPad => TYPE_DPAD,
             Self::MouseMovement => TYPE_MOUSE_MOVEMENT,
@@ -224,14 +259,42 @@ impl ElementKind {
         }
     }
 
+    fn side(&self) -> Option<u8> {
+        match self {
+            Self::AnalogStick { right, .. } | Self::Trigger { right, .. } => Some(u8::from(*right)),
+            _ => None,
+        }
+    }
+
+    fn stick_radius(&self) -> Option<u16> {
+        match self {
+            Self::AnalogStick { radius, .. } => Some(*radius),
+            _ => None,
+        }
+    }
+
+    fn direction(&self) -> Option<u8> {
+        match self {
+            Self::Trigger { fill, .. } => Some(match fill {
+                FillDirection::Up => DIRECTION_UP,
+                FillDirection::Down => DIRECTION_DOWN,
+                FillDirection::Left => DIRECTION_LEFT,
+                FillDirection::Right => DIRECTION_RIGHT,
+            }),
+            _ => None,
+        }
+    }
+
     pub(super) fn states(&self) -> (u32, u32) {
         match self {
-            Self::KeyboardKey { .. } | Self::GamepadButton { .. } | Self::MouseButton { .. } => {
-                (1, 2)
-            }
+            Self::KeyboardKey { .. }
+            | Self::GamepadButton { .. }
+            | Self::MouseButton { .. }
+            | Self::AnalogStick { .. }
+            | Self::Trigger { .. } => (1, 2),
             Self::MouseWheel | Self::GamepadId => (4, 1),
             Self::DPad => (9, 1),
-            Self::Texture | Self::AnalogStick | Self::Trigger | Self::MouseMovement => (1, 1),
+            Self::Texture | Self::MouseMovement => (1, 1),
         }
     }
 }
@@ -258,14 +321,65 @@ impl Element {
         }
     }
 
-    fn sprite(&self, state: &DisplayState) -> SpriteRect {
-        match self.kind {
+    pub fn stick_offset(&self, state: &DisplayState) -> Option<(i32, i32)> {
+        let ElementKind::AnalogStick { right, radius } = self.kind else {
+            return None;
+        };
+        let [x, y] = if right {
+            state.axes.right_stick
+        } else {
+            state.axes.left_stick
+        };
+        let travel =
+            |axis: i8| (f64::from(axis) / f64::from(STICK_FULL) * f64::from(radius)).round() as i32;
+        Some((travel(x), travel(y)))
+    }
+
+    fn filled(&self, fill: FillDirection, amount: u8) -> Option<Sprite> {
+        let pressed = self.state_sprite(0, 1);
+        let share = |length: u32| {
+            (f64::from(length) * f64::from(amount) / f64::from(TRIGGER_FULL)).round() as u32
+        };
+        let (width, height) = match fill {
+            FillDirection::Up | FillDirection::Down => (pressed.width, share(pressed.height)),
+            FillDirection::Left | FillDirection::Right => (share(pressed.width), pressed.height),
+        };
+        let (skip_x, skip_y) = match fill {
+            FillDirection::Up => (0, pressed.height - height),
+            FillDirection::Left => (pressed.width - width, 0),
+            FillDirection::Down | FillDirection::Right => (0, 0),
+        };
+        (width > 0 && height > 0).then_some(Sprite {
+            source: SpriteRect {
+                u: pressed.u + skip_x,
+                v: pressed.v + skip_y,
+                width,
+                height,
+            },
+            x: self.x + skip_x,
+            y: self.y + skip_y,
+        })
+    }
+
+    fn sprites(&self, state: &DisplayState) -> impl Iterator<Item = Sprite> + use<> {
+        let at_rest = |source| Sprite {
+            source,
+            x: self.x,
+            y: self.y,
+        };
+        let held = |input| u32::from(state.is_held(input));
+        let (first, second) = match self.kind {
             ElementKind::KeyboardKey { code } => {
-                self.state_sprite(0, u32::from(state.is_held(Input::Key(code))))
+                (at_rest(self.state_sprite(0, held(Input::Key(code)))), None)
             }
-            ElementKind::MouseButton { button } => {
-                self.state_sprite(0, u32::from(state.is_held(Input::MouseButton(button))))
-            }
+            ElementKind::MouseButton { button } => (
+                at_rest(self.state_sprite(0, held(Input::MouseButton(button)))),
+                None,
+            ),
+            ElementKind::GamepadButton { code } => (
+                at_rest(self.state_sprite(0, held(Input::GamepadButton(code)))),
+                None,
+            ),
             ElementKind::MouseWheel => {
                 let column = if state.is_held(Input::MouseButton(MIDDLE_BUTTON)) {
                     1
@@ -276,16 +390,38 @@ impl Element {
                         WheelStep::Down => 3,
                     }
                 };
-                self.state_sprite(column, 0)
+                (at_rest(self.state_sprite(column, 0)), None)
+            }
+            ElementKind::AnalogStick { right, .. } => {
+                let click = if right {
+                    gamepad_buttons::RIGHT_STICK
+                } else {
+                    gamepad_buttons::LEFT_STICK
+                };
+                let (dx, dy) = self.stick_offset(state).unwrap_or_default();
+                (
+                    Sprite {
+                        source: self.state_sprite(0, held(Input::GamepadButton(click))),
+                        x: self.x.saturating_add_signed(dx),
+                        y: self.y.saturating_add_signed(dy),
+                    },
+                    None,
+                )
+            }
+            ElementKind::Trigger { right, fill } => {
+                let amount = if right {
+                    state.axes.right_trigger
+                } else {
+                    state.axes.left_trigger
+                };
+                (at_rest(self.mapping), self.filled(fill, amount))
             }
             ElementKind::Texture
-            | ElementKind::GamepadButton { .. }
-            | ElementKind::AnalogStick
-            | ElementKind::Trigger
             | ElementKind::GamepadId
             | ElementKind::DPad
-            | ElementKind::MouseMovement => self.mapping,
-        }
+            | ElementKind::MouseMovement => (at_rest(self.mapping), None),
+        };
+        std::iter::once(first).chain(second)
     }
 }
 
@@ -370,6 +506,9 @@ impl Preset {
                     ],
                     z_level: element.z_level,
                     code: element.kind.code(),
+                    side: element.kind.side(),
+                    stick_radius: element.kind.stick_radius(),
+                    direction: element.kind.direction(),
                 })
                 .collect(),
         };
@@ -379,11 +518,7 @@ impl Preset {
     pub fn sprites(&self, state: &DisplayState) -> Vec<Sprite> {
         self.elements
             .iter()
-            .map(|element| Sprite {
-                source: element.sprite(state),
-                x: element.x,
-                y: element.y,
-            })
+            .flat_map(|element| element.sprites(state))
             .collect()
     }
 }
@@ -391,6 +526,7 @@ impl Preset {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input_display::{GamepadAxes, GamepadSnapshot};
 
     const ATLAS: (u32, u32) = (64, 64);
 
@@ -505,6 +641,136 @@ mod tests {
         );
     }
 
+    const LEFT_STICK: &str = r#"{ "type": 5, "id": "ls", "pos": [20, 20], "mapping": [1, 1, 6, 6], "side": 0, "stick_radius": 10 }"#;
+    const RIGHT_TRIGGER: &str = r#"{ "type": 6, "id": "rt", "pos": [4, 2], "mapping": [20, 1, 20, 8], "side": 1, "direction": 4 }"#;
+    const SOUTH: &str =
+        r#"{ "type": 2, "id": "a", "pos": [30, 10], "mapping": [50, 1, 5, 5], "code": 0 }"#;
+
+    fn gamepad(axes: GamepadAxes, buttons: &[u16]) -> DisplayState {
+        let mut state = DisplayState::default();
+        state.show_gamepad(&buttons.iter().fold(
+            GamepadSnapshot {
+                axes,
+                ..Default::default()
+            },
+            |snapshot, button| snapshot.with_button(*button),
+        ));
+        state
+    }
+
+    #[test]
+    fn a_stick_moves_by_how_far_it_is_pushed_and_lights_when_clicked() {
+        let preset = Preset::parse(&fixture(LEFT_STICK), ATLAS).unwrap();
+        let drawn = |axes: GamepadAxes, buttons: &[u16]| {
+            let sprite = preset.sprites(&gamepad(axes, buttons))[0];
+            (sprite.x, sprite.y, sprite.source.v)
+        };
+        let left = |left_stick| GamepadAxes {
+            left_stick,
+            ..Default::default()
+        };
+
+        assert_eq!(drawn(GamepadAxes::default(), &[]), (20, 20, 1));
+        assert_eq!(drawn(left([127, 0]), &[]), (30, 20, 1));
+        assert_eq!(drawn(left([-64, 127]), &[]), (15, 30, 1));
+        assert_eq!(
+            drawn(left([0, 0]), &[gamepad_buttons::LEFT_STICK]),
+            (20, 20, 10)
+        );
+        assert_eq!(
+            drawn(
+                GamepadAxes {
+                    right_stick: [127, 127],
+                    ..Default::default()
+                },
+                &[gamepad_buttons::RIGHT_STICK]
+            ),
+            (20, 20, 1)
+        );
+    }
+
+    #[test]
+    fn a_trigger_fills_by_how_far_it_is_pulled() {
+        let preset = Preset::parse(&fixture(RIGHT_TRIGGER), ATLAS).unwrap();
+        let pulled = |right_trigger| {
+            preset.sprites(&gamepad(
+                GamepadAxes {
+                    right_trigger,
+                    left_trigger: 255,
+                    ..Default::default()
+                },
+                &[],
+            ))
+        };
+        let empty = Sprite {
+            source: SpriteRect {
+                u: 20,
+                v: 1,
+                width: 20,
+                height: 8,
+            },
+            x: 4,
+            y: 2,
+        };
+        let fill = |width| Sprite {
+            source: SpriteRect {
+                u: 20,
+                v: 12,
+                width,
+                height: 8,
+            },
+            x: 4,
+            y: 2,
+        };
+
+        assert_eq!(pulled(0), vec![empty]);
+        assert_eq!(pulled(128), vec![empty, fill(10)]);
+        assert_eq!(pulled(255), vec![empty, fill(20)]);
+    }
+
+    #[test]
+    fn a_trigger_can_fill_from_any_side() {
+        let filled = |direction: u8| {
+            let json =
+                RIGHT_TRIGGER.replace(r#""direction": 4"#, &format!(r#""direction": {direction}"#));
+            let preset = Preset::parse(&fixture(&json), ATLAS).unwrap();
+            let fill = preset.sprites(&gamepad(
+                GamepadAxes {
+                    right_trigger: 64,
+                    ..Default::default()
+                },
+                &[],
+            ))[1];
+            (
+                fill.x,
+                fill.y,
+                fill.source.u,
+                fill.source.v,
+                fill.source.width,
+                fill.source.height,
+            )
+        };
+
+        assert_eq!(filled(1), (4, 8, 20, 18, 20, 2));
+        assert_eq!(filled(2), (4, 2, 20, 12, 20, 2));
+        assert_eq!(filled(3), (19, 2, 35, 12, 5, 8));
+        assert_eq!(filled(4), (4, 2, 20, 12, 5, 8));
+    }
+
+    #[test]
+    fn a_gamepad_button_lights_while_it_is_held() {
+        let preset = Preset::parse(&fixture(SOUTH), ATLAS).unwrap();
+        let row = |buttons: &[u16]| {
+            preset.sprites(&gamepad(GamepadAxes::default(), buttons))[0]
+                .source
+                .v
+        };
+
+        assert_eq!(row(&[]), 1);
+        assert_eq!(row(&[gamepad_buttons::EAST]), 1);
+        assert_eq!(row(&[gamepad_buttons::SOUTH]), 9);
+    }
+
     #[test]
     fn every_documented_element_kind_is_read() {
         let elements = (0..=9)
@@ -528,7 +794,18 @@ mod tests {
     #[test]
     fn a_preset_written_back_reads_the_same() {
         let preset = Preset::parse(
-            &fixture(&[KEY_W, BODY, LEFT_BUTTON, WHEEL].join(",")),
+            &fixture(
+                &[
+                    KEY_W,
+                    BODY,
+                    LEFT_BUTTON,
+                    WHEEL,
+                    LEFT_STICK,
+                    RIGHT_TRIGGER,
+                    SOUTH,
+                ]
+                .join(","),
+            ),
             ATLAS,
         )
         .unwrap();

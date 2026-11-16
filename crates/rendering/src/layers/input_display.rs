@@ -3,7 +3,9 @@ use std::{collections::HashMap, sync::Arc};
 use bytemuck::{Pod, Zeroable};
 use frameever_project::{
     InputDisplayStyle,
-    input_display::{DisplayRect, InputRecord, Sprite, display_rect, take_at},
+    input_display::{
+        DisplayRect, InputRecord, Sprite, display_rect, preset_for_controller, take_at,
+    },
 };
 use wgpu::util::DeviceExt;
 
@@ -192,13 +194,26 @@ impl InputDisplayLayer {
         if output_size.0 == 0 || output_size.1 == 0 {
             return;
         }
+        let output_time = uniforms.frame_number as f64 / uniforms.frame_rate.max(1) as f64;
+        let take = take_at(
+            &uniforms.project,
+            output_time,
+            f64::from(segment_frames.segment_time),
+        );
+        let record = self
+            .records
+            .entry(take)
+            .or_insert_with(|| Arc::new(InputRecord::for_take(&constants.recording_meta, take)));
+        let state = record.state_at(f64::from(segment_frames.recording_time) * 1000.0);
+        let preset = preset_for_controller(&block.preset, state.controller);
+
         let mut key = AtlasKey {
-            preset: block.preset.clone(),
+            preset: preset.to_string(),
             style: block.style,
             scale: self
                 .atlas
                 .as_ref()
-                .filter(|atlas| atlas.key.preset == block.preset && atlas.key.style == block.style)
+                .filter(|atlas| atlas.key.preset == preset && atlas.key.style == block.style)
                 .map_or(1, |atlas| atlas.key.scale),
         };
         self.ensure_atlas(&constants.device, &constants.queue, key.clone());
@@ -224,18 +239,6 @@ impl InputDisplayLayer {
         else {
             return;
         };
-
-        let output_time = uniforms.frame_number as f64 / uniforms.frame_rate.max(1) as f64;
-        let take = take_at(
-            &uniforms.project,
-            output_time,
-            f64::from(segment_frames.segment_time),
-        );
-        let record = self
-            .records
-            .entry(take)
-            .or_insert_with(|| Arc::new(InputRecord::for_take(&constants.recording_meta, take)));
-        let state = record.state_at(f64::from(segment_frames.recording_time) * 1000.0);
 
         constants.queue.write_buffer(
             &self.opacity,
