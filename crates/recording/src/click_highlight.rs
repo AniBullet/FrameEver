@@ -1,3 +1,4 @@
+use crate::frame_overlays::FrameBaker;
 use frameever_utils::brand::ANNOTATION_AMBER as AMBER;
 use parking_lot::Mutex;
 use std::{
@@ -76,14 +77,14 @@ pub enum ChannelOrder {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Disc {
+pub(crate) struct Disc {
     center: (f32, f32),
     radius: f32,
     opacity: f32,
 }
 
 impl Disc {
-    fn bounds(&self, frame: (u32, u32)) -> Option<(usize, usize, usize, usize)> {
+    pub(crate) fn bounds(&self, frame: (u32, u32)) -> Option<(usize, usize, usize, usize)> {
         let reach = self.radius + 1.0;
         let left = (self.center.0 - reach).floor().max(0.0);
         let top = (self.center.1 - reach).floor().max(0.0);
@@ -97,7 +98,13 @@ impl Disc {
         ))
     }
 
-    fn paint(&self, pixels: &mut [u8], stride: usize, frame: (u32, u32), order: ChannelOrder) {
+    pub(crate) fn paint(
+        &self,
+        pixels: &mut [u8],
+        stride: usize,
+        frame: (u32, u32),
+        order: ChannelOrder,
+    ) {
         let Some((left, top, right, bottom)) = self.bounds(frame) else {
             return;
         };
@@ -155,7 +162,7 @@ impl ClickHighlights {
         clicks.push_back((at, cursor));
     }
 
-    fn discs(&self, now: Instant, frame: (u32, u32)) -> Vec<Disc> {
+    pub(crate) fn discs(&self, now: Instant, frame: (u32, u32)) -> Vec<Disc> {
         let mut clicks = self.0.clicks.lock();
         clicks.retain(|(pressed, _)| now.saturating_duration_since(*pressed) < PULSE);
         let radius = self.0.area.radius(self.0.scale_factor, frame);
@@ -173,10 +180,7 @@ impl ClickHighlights {
     }
 
     pub fn baker(&self) -> FrameBaker {
-        FrameBaker {
-            highlights: self.clone(),
-            patches: Vec::new(),
-        }
+        FrameBaker::new(Some(self.clone()), None)
     }
 
     pub fn watch(&self) {
@@ -209,102 +213,6 @@ fn watch_buttons(shared: Weak<Shared>) {
             ClickHighlights(shared).press(Instant::now(), mouse.coords);
         }
         previous = mouse.button_pressed;
-    }
-}
-
-struct Patch {
-    left: usize,
-    top: usize,
-    width: usize,
-    pixels: Vec<u8>,
-}
-
-impl Patch {
-    fn save(pixels: &[u8], stride: usize, bounds: (usize, usize, usize, usize)) -> Self {
-        let (left, top, right, bottom) = bounds;
-        let width = (right - left) * 4;
-        let mut saved = Vec::with_capacity(width * (bottom - top));
-        for y in top..bottom {
-            let start = y * stride + left * 4;
-            saved.extend_from_slice(&pixels[start..start + width]);
-        }
-        Self {
-            left,
-            top,
-            width,
-            pixels: saved,
-        }
-    }
-
-    fn restore(&self, pixels: &mut [u8], stride: usize) {
-        for (row, saved) in self.pixels.chunks(self.width).enumerate() {
-            let start = (self.top + row) * stride + self.left * 4;
-            if let Some(target) = pixels.get_mut(start..start + self.width) {
-                target.copy_from_slice(saved);
-            }
-        }
-    }
-}
-
-pub struct FrameBaker {
-    highlights: ClickHighlights,
-    patches: Vec<Patch>,
-}
-
-fn channel_order(frame: &ffmpeg::frame::Video) -> Option<ChannelOrder> {
-    match frame.format() {
-        ffmpeg::format::Pixel::RGBA => Some(ChannelOrder::Rgba),
-        ffmpeg::format::Pixel::BGRA => Some(ChannelOrder::Bgra),
-        _ => None,
-    }
-}
-
-impl FrameBaker {
-    pub fn captured(&mut self, frame: &mut ffmpeg::frame::Video, now: Instant) {
-        self.patches.clear();
-        let discs = self.highlights.discs(now, (frame.width(), frame.height()));
-        self.paint(frame, &discs);
-    }
-
-    pub fn repeated(
-        &mut self,
-        last: &ffmpeg::frame::Video,
-        now: Instant,
-    ) -> Option<ffmpeg::frame::Video> {
-        let size = (last.width(), last.height());
-        let discs = self.highlights.discs(now, size);
-        if self.patches.is_empty() && discs.is_empty() {
-            return None;
-        }
-        let mut frame = last.clone();
-        let stride = frame.stride(0);
-        let pixels = frame.data_mut(0);
-        for patch in self.patches.drain(..) {
-            patch.restore(pixels, stride);
-        }
-        self.paint(&mut frame, &discs);
-        Some(frame)
-    }
-
-    fn paint(&mut self, frame: &mut ffmpeg::frame::Video, discs: &[Disc]) {
-        let Some(order) = channel_order(frame) else {
-            return;
-        };
-        let size = (frame.width(), frame.height());
-        if discs.is_empty() {
-            return;
-        }
-        let stride = frame.stride(0);
-        let pixels = frame.data_mut(0);
-        self.patches.extend(
-            discs
-                .iter()
-                .filter_map(|disc| disc.bounds(size))
-                .map(|bounds| Patch::save(pixels, stride, bounds)),
-        );
-        for disc in discs {
-            disc.paint(pixels, stride, size, order);
-        }
     }
 }
 

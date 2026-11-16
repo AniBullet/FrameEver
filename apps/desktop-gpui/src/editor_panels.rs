@@ -2585,6 +2585,8 @@ pub enum FieldKey {
     /// why they are the one key whose value comes from outside
     /// `project.timeline`.
     Crop(crate::editor_crop::CropField),
+    InputDisplayX,
+    InputDisplayY,
 }
 
 impl FieldKey {
@@ -2668,6 +2670,16 @@ impl EditorWindow {
         if let FieldKey::Crop(field) = key {
             let state = self.crop.as_ref()?;
             out.push_str(&ui::format_number(field.read(state.real())));
+            return Some(());
+        }
+        if matches!(key, FieldKey::InputDisplayX | FieldKey::InputDisplayY) {
+            let position = self.project.shown_input_display()?.position;
+            let share = if key == FieldKey::InputDisplayX {
+                position.x
+            } else {
+                position.y
+            };
+            out.push_str(&ui::format_number((share * 100.).round()));
             return Some(());
         }
         let timeline = self.project.timeline.as_ref()?;
@@ -2960,6 +2972,28 @@ impl EditorWindow {
                         segment.end = value;
                     }
                     true
+                });
+            }
+            FieldKey::InputDisplayX | FieldKey::InputDisplayY => {
+                if !final_commit {
+                    return;
+                }
+                let Some(value) = ui::parse_number(&text) else {
+                    return;
+                };
+                let horizontal = key == FieldKey::InputDisplayX;
+                self.edit_input_display("input-display-position", window, cx, move |project| {
+                    let Some(mut position) =
+                        project.shown_input_display().map(|block| block.position)
+                    else {
+                        return false;
+                    };
+                    if horizontal {
+                        position.x = value / 100.;
+                    } else {
+                        position.y = value / 100.;
+                    }
+                    crate::editor_input_display::place_input_display(project, position)
                 });
             }
             FieldKey::SyncOffset(clip, kind) => {
@@ -8023,6 +8057,11 @@ impl EditorWindow {
                 ]),
                 crate::editor_sidebar::SidebarTab::Keyboard => {
                     colors.extend([ColorTarget::KeyboardColor, ColorTarget::KeyboardBackground])
+                }
+                crate::editor_sidebar::SidebarTab::InputDisplay => {
+                    if self.sidebar.input_position_exact {
+                        fields.extend([FieldKey::InputDisplayX, FieldKey::InputDisplayY]);
+                    }
                 }
                 crate::editor_sidebar::SidebarTab::Audio => {
                     if let Some(summary) = self.summary() {

@@ -140,6 +140,9 @@ async fn finalize_studio(
         {
             tracing::warn!(%error, "Could not apply the Studio Sound default");
         }
+        if let Err(error) = apply_input_display_setup(&project_path) {
+            tracing::warn!(%error, "Could not apply the remembered input display setup");
+        }
         Ok::<_, anyhow::Error>(completed)
     })
     .await
@@ -1018,6 +1021,9 @@ pub(crate) fn preparing_presentation(
         config.audio.improve = true;
         config.audio.isolation = crate::store::studio_sound_isolation();
     }
+    if config.input_display.is_none() {
+        config.input_display = crate::store::input_display_setup();
+    }
     if let Some(placement) = camera_snapshot.and_then(|snapshot| snapshot.placement) {
         placement.apply(&mut config.camera);
     }
@@ -1076,6 +1082,28 @@ fn blur_mode_json(blur: crate::store::BlurMode) -> &'static str {
         crate::store::BlurMode::Heavy => "heavy",
         crate::store::BlurMode::Remove => "remove",
     }
+}
+
+fn apply_input_display_setup(project_path: &std::path::Path) -> std::io::Result<()> {
+    let setup = crate::store::input_display_setup();
+    let path = project_path.join("project-config.json");
+    let mut config: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+    let object = config.as_object_mut().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Project configuration is not an object",
+        )
+    })?;
+    if !crate::store::start_with_input_display_setup(object, setup.as_ref()) {
+        return Ok(());
+    }
+    let temp = path.with_extension(format!("input-display-{}.tmp", crate::store::new_uuid_v4()));
+    let result = std::fs::write(&temp, serde_json::to_vec_pretty(&config)?)
+        .and_then(|()| std::fs::rename(&temp, path));
+    if result.is_err() {
+        std::fs::remove_file(temp).ok();
+    }
+    result
 }
 
 fn enable_studio_sound(project_path: &std::path::Path) -> std::io::Result<()> {
@@ -1641,7 +1669,8 @@ async fn start_attempt(
                     .with_system_audio(config.system_audio)
                     .with_window_only(window_only)
                     .with_max_output_size(instant_max_resolution)
-                    .with_click_highlight(settings.instant_click_highlight);
+                    .with_click_highlight(settings.instant_click_highlight)
+                    .with_input_display(settings.instant_input_display());
             if let Some(gate) = config.start_gate.clone() {
                 builder = builder.with_start_gate(gate);
             }

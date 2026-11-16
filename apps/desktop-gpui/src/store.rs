@@ -627,6 +627,27 @@ settings_enum! {
 }
 
 settings_enum! {
+    InstantInputCorner {
+        TopLeft = "topLeft", t!("Top left");
+        TopRight = "topRight", t!("Top right");
+        BottomLeft = "bottomLeft", t!("Bottom left");
+        BottomRight = "bottomRight", t!("Bottom right");
+    }
+    default = BottomLeft
+}
+
+impl From<InstantInputCorner> for frameever_recording::live_input_display::InputDisplayCorner {
+    fn from(corner: InstantInputCorner) -> Self {
+        match corner {
+            InstantInputCorner::TopLeft => Self::TopLeft,
+            InstantInputCorner::TopRight => Self::TopRight,
+            InstantInputCorner::BottomLeft => Self::BottomLeft,
+            InstantInputCorner::BottomRight => Self::BottomRight,
+        }
+    }
+}
+
+settings_enum! {
     /// `StudioRecordingQuality`, whose Rust default is `balanced`.
     StudioQuality {
         Compatibility = "compatibility", t!("Compatibility");
@@ -898,6 +919,9 @@ pub struct GeneralSettings {
     pub recording_countdown: Option<u32>,
     pub recording_auto_stop_minutes: u32,
     pub instant_click_highlight: bool,
+    pub instant_show_input: bool,
+    pub instant_input_preset: String,
+    pub instant_input_corner: InstantInputCorner,
     pub main_window_recording_start_behaviour: MainWindowStartBehaviour,
     pub post_studio_recording_behaviour: PostStudioBehaviour,
     pub post_screenshot_behaviour: PostScreenshotBehaviour,
@@ -986,6 +1010,42 @@ pub fn set_studio_sound_defaults(
     section.insert("isolation".into(), serde_json::to_value(isolation).unwrap());
     set_store_value(AUDIO_ENHANCEMENT, Value::Object(section))
 }
+pub const INPUT_DISPLAY: &str = "input_display";
+
+pub fn input_display_setup_in(
+    section: &Map<String, Value>,
+) -> Option<frameever_project::InputDisplay> {
+    if section.is_empty() {
+        return None;
+    }
+    serde_json::from_value(Value::Object(section.clone())).ok()
+}
+
+pub fn input_display_setup() -> Option<frameever_project::InputDisplay> {
+    input_display_setup_in(&store_section(INPUT_DISPLAY))
+}
+
+pub fn set_input_display_setup(setup: &frameever_project::InputDisplay) -> bool {
+    serde_json::to_value(setup).is_ok_and(|value| set_store_value(INPUT_DISPLAY, value))
+}
+
+pub fn start_with_input_display_setup(
+    config: &mut Map<String, Value>,
+    setup: Option<&frameever_project::InputDisplay>,
+) -> bool {
+    let Some(setup) = setup else {
+        return false;
+    };
+    if config.contains_key("inputDisplay") {
+        return false;
+    }
+    let Ok(value) = serde_json::to_value(setup) else {
+        return false;
+    };
+    config.insert("inputDisplay".into(), value);
+    true
+}
+
 /// `RecordingSettingsStore::KEY` (`src-tauri/src/recording_settings.rs:37`) --
 /// the section the tray's Select Mode submenu reads and writes.
 pub const RECORDING_SETTINGS: &str = "recording_settings";
@@ -1229,6 +1289,18 @@ impl PostInstantBehaviour {
 }
 
 impl GeneralSettings {
+    pub fn instant_input_display(
+        &self,
+    ) -> Option<frameever_recording::live_input_display::InstantInputDisplay> {
+        self.instant_show_input.then(|| {
+            frameever_recording::live_input_display::InstantInputDisplay {
+                preset: self.instant_input_preset.clone(),
+                style: Default::default(),
+                corner: self.instant_input_corner.into(),
+            }
+        })
+    }
+
     pub fn load() -> Self {
         let store = cached_store(&tauri_store_path()).unwrap_or_default();
         let empty = Map::new();
@@ -1256,6 +1328,15 @@ impl GeneralSettings {
             recording_countdown: opt_u32_at(general, "recordingCountdown"),
             recording_auto_stop_minutes: u32_at(general, "recordingAutoStopMinutes", 0),
             instant_click_highlight: bool_at(general, "instantClickHighlight", false),
+            instant_show_input: bool_at(general, "instantShowInput", false),
+            instant_input_preset: opt_string_at(general, "instantInputPreset").unwrap_or_else(
+                || {
+                    frameever_project::input_display::BuiltinPresetId::WasdMouse
+                        .id()
+                        .to_string()
+                },
+            ),
+            instant_input_corner: enum_at(general, "instantInputCorner"),
             main_window_recording_start_behaviour: enum_at(
                 general,
                 "mainWindowRecordingStartBehaviour",
@@ -1947,6 +2028,60 @@ mod post_instant_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_fresh_install_remembers_no_input_display_setup() {
+        use serde_json::{Map, Value, json};
+
+        assert_eq!(input_display_setup_in(&Map::new()), None);
+        let mut config = Map::new();
+        assert!(!start_with_input_display_setup(&mut config, None));
+        assert_eq!(Value::Object(config), json!({}));
+    }
+
+    #[test]
+    fn a_new_project_starts_with_the_remembered_input_display_setup() {
+        use serde_json::{Map, Value, json};
+
+        let setup = frameever_project::InputDisplay {
+            enabled: true,
+            preset: "full-keyboard".into(),
+            style: frameever_project::InputDisplayStyle::Ghost,
+            position: frameever_project::XY::new(1., 0.5),
+            size: 90.,
+            opacity: 40.,
+        };
+        let Value::Object(section) = serde_json::to_value(&setup).unwrap() else {
+            panic!("the setup is stored as an object");
+        };
+        let remembered = input_display_setup_in(&section);
+        assert_eq!(remembered, Some(setup.clone()));
+
+        let mut config = Map::new();
+        assert!(start_with_input_display_setup(
+            &mut config,
+            remembered.as_ref()
+        ));
+        let project: frameever_project::ProjectConfiguration =
+            serde_json::from_value(Value::Object(config.clone())).unwrap();
+        assert_eq!(project.shown_input_display(), Some(&setup));
+
+        let switched_off = frameever_project::InputDisplay {
+            enabled: false,
+            ..setup
+        };
+        assert!(!start_with_input_display_setup(
+            &mut config,
+            Some(&switched_off)
+        ));
+        let mut config = Map::new();
+        assert!(start_with_input_display_setup(
+            &mut config,
+            Some(&switched_off)
+        ));
+        assert_eq!(config["inputDisplay"]["enabled"], json!(false));
+        assert_eq!(config["inputDisplay"]["preset"], json!("full-keyboard"));
+    }
+
     #[test]
     fn only_frameever_window_rules_count_as_own() {
         let title = |title: &str| WindowExclusion {
@@ -2751,6 +2886,44 @@ mod tests {
         assert_eq!(settings.instant_mode_max_resolution, 1920);
         assert_eq!(GeneralSettings::default().recording_auto_stop_minutes, 0);
         assert!(!GeneralSettings::default().instant_click_highlight);
+    }
+
+    #[test]
+    fn instant_recordings_show_input_only_when_the_setting_is_on() {
+        use frameever_recording::live_input_display::{InputDisplayCorner, InstantInputDisplay};
+        let shown = |general: &str| {
+            let _store = TempStore::new(
+                "instant-input",
+                Some(&format!(r#"{{ "general_settings": {general} }}"#)),
+            );
+            GeneralSettings::load().instant_input_display()
+        };
+        assert_eq!(GeneralSettings::default().instant_input_display(), None);
+        assert_eq!(shown("{}"), None);
+        assert_eq!(
+            shown(r#"{ "instantShowInput": true }"#),
+            Some(InstantInputDisplay {
+                preset: "wasd-mouse".into(),
+                style: Default::default(),
+                corner: InputDisplayCorner::BottomLeft,
+            })
+        );
+        assert_eq!(
+            shown(
+                r#"{ "instantShowInput": true, "instantInputPreset": "full-keyboard", "instantInputCorner": "topRight" }"#
+            ),
+            Some(InstantInputDisplay {
+                preset: "full-keyboard".into(),
+                style: Default::default(),
+                corner: InputDisplayCorner::TopRight,
+            })
+        );
+        assert_eq!(
+            shown(
+                r#"{ "instantShowInput": false, "instantInputPreset": "full-keyboard", "instantInputCorner": "topRight" }"#
+            ),
+            None
+        );
     }
 
     /// The teleprompter's own section: defaults when absent, and a per-key

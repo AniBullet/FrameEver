@@ -448,6 +448,7 @@ pub enum CanvasSelection {
     Mask(usize),
     Text(usize),
     Image(usize),
+    InputDisplay,
 }
 
 impl CanvasSelection {
@@ -458,6 +459,7 @@ impl CanvasSelection {
             Self::Mask(_) => t!("Mask").into(),
             Self::Text(_) => t!("Text").into(),
             Self::Image(_) => t!("Image").into(),
+            Self::InputDisplay => t!("Input display").into(),
         }
     }
 
@@ -468,6 +470,7 @@ impl CanvasSelection {
             Self::Mask(index) => format!("canvas-mask-{index}").into(),
             Self::Text(index) => format!("canvas-text-{index}").into(),
             Self::Image(index) => format!("canvas-image-{index}").into(),
+            Self::InputDisplay => "canvas-input-display".into(),
         }
     }
 
@@ -683,8 +686,12 @@ impl EditorWindow {
             CanvasSelection::Camera
             | CanvasSelection::Mask(_)
             | CanvasSelection::Text(_)
-            | CanvasSelection::Image(_) => true,
+            | CanvasSelection::Image(_)
+            | CanvasSelection::InputDisplay => true,
         };
+        if element == CanvasSelection::InputDisplay {
+            self.show_input_display_tab(window, cx);
+        }
         if !draggable {
             cx.notify();
             return;
@@ -717,7 +724,10 @@ impl EditorWindow {
         let resizable = match element {
             CanvasSelection::Display => self.display_draggable(),
             CanvasSelection::Camera => self.camera_resizable(),
-            CanvasSelection::Mask(_) | CanvasSelection::Text(_) | CanvasSelection::Image(_) => true,
+            CanvasSelection::Mask(_)
+            | CanvasSelection::Text(_)
+            | CanvasSelection::Image(_)
+            | CanvasSelection::InputDisplay => true,
         };
         if !resizable {
             return;
@@ -825,6 +835,11 @@ impl EditorWindow {
             f64::from(f32::from(canvas.size.width)),
             f64::from(f32::from(canvas.size.height)),
         );
+        if element == CanvasSelection::InputDisplay {
+            let direction = resize.as_ref().map(|resize| (resize.0, resize.1));
+            self.drag_input_display(start, direction, size, delta, shift, cx);
+            return;
+        }
         if let Some((
             dir_x,
             dir_y,
@@ -921,6 +936,7 @@ impl EditorWindow {
                     self.canvas_overlay_rect = Some(rect);
                     self.write_overlay_rect(element, rect, cx);
                 }
+                CanvasSelection::InputDisplay => {}
             }
             let _ = (window, output_w, output_h);
             return;
@@ -942,6 +958,7 @@ impl EditorWindow {
                 };
                 overlay_drag_center(bounds, size, delta, &targets, shift)
             }
+            CanvasSelection::InputDisplay => return,
         };
         self.snap_guides = guides;
         let optimistic = NormRect {
@@ -962,6 +979,7 @@ impl EditorWindow {
                 self.canvas_overlay_rect = Some(optimistic);
                 self.write_overlay_rect(element, optimistic, cx);
             }
+            CanvasSelection::InputDisplay => {}
         }
         let _ = window;
     }
@@ -1010,6 +1028,10 @@ impl EditorWindow {
                 CanvasSelection::Image(index) => {
                     tracing::info!(index, "canvas image drag");
                 }
+                CanvasSelection::InputDisplay => {
+                    tracing::info!("canvas input display drag");
+                    self.remember_input_display(window, cx);
+                }
             }
         }
         cx.notify();
@@ -1056,12 +1078,16 @@ impl EditorWindow {
             f64::from(f32::from(canvas.size.width)),
             f64::from(f32::from(canvas.size.height)),
         );
+        if selected == CanvasSelection::InputDisplay {
+            return self.nudge_input_display(rect, size, direction, shift, window, cx);
+        }
         let center = match selected {
             CanvasSelection::Display => display_nudge_center(rect, size, direction, shift),
             CanvasSelection::Camera => camera_nudge_center(rect, size, direction, shift),
             CanvasSelection::Mask(_) | CanvasSelection::Text(_) | CanvasSelection::Image(_) => {
                 overlay_nudge_center(rect, direction, shift)
             }
+            CanvasSelection::InputDisplay => return false,
         };
         let optimistic = NormRect {
             x: center.x - rect.w / 2.,
@@ -1081,6 +1107,7 @@ impl EditorWindow {
                 self.canvas_overlay_rect = Some(optimistic);
                 self.write_overlay_rect(selected, optimistic, cx);
             }
+            CanvasSelection::InputDisplay => {}
         }
         self.schedule_save(window, cx);
         true
@@ -1161,6 +1188,7 @@ impl EditorWindow {
         match element {
             CanvasSelection::Display => self.display_rect(),
             CanvasSelection::Camera => self.camera_rect(),
+            CanvasSelection::InputDisplay => self.input_display_canvas_rect(),
             CanvasSelection::Image(index) => {
                 if self
                     .canvas_drag
@@ -1423,6 +1451,14 @@ impl EditorWindow {
                 }
             }
         }
+        if let Some(rect) = self.input_display_canvas_rect() {
+            layer = layer.child(self.render_element_box(
+                CanvasSelection::InputDisplay,
+                rect,
+                (cw, ch),
+                cx,
+            ));
+        }
         for guide in &self.snap_guides {
             let color = self.theme.recording;
             layer = layer.child(match guide.axis {
@@ -1474,9 +1510,10 @@ impl EditorWindow {
                 (!self.camera_resizable())
                     .then_some(t!("Camera size follows the zoom — drag to move")),
             ),
-            CanvasSelection::Mask(_) | CanvasSelection::Text(_) | CanvasSelection::Image(_) => {
-                (true, true, None)
-            }
+            CanvasSelection::Mask(_)
+            | CanvasSelection::Text(_)
+            | CanvasSelection::Image(_)
+            | CanvasSelection::InputDisplay => (true, true, None),
         };
 
         let left = rect.x as f32 * canvas.0;

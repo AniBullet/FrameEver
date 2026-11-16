@@ -128,6 +128,31 @@ fn rows(mode: Mode, settings: &GeneralSettings) -> Vec<OptionRow> {
             "instantClickHighlight",
             settings.instant_click_highlight,
         ));
+        rows.push(toggle(
+            t!("Show input"),
+            "instantShowInput",
+            settings.instant_show_input,
+        ));
+        if settings.instant_show_input {
+            rows.push(OptionRow {
+                label: t!("Preset"),
+                key: "instantInputPreset",
+                value: Value::from(settings.instant_input_preset.as_str()),
+                choices: crate::editor_input_display::INPUT_PRESETS
+                    .iter()
+                    .map(|(preset, label)| (tr(*label), Value::from(preset.id())))
+                    .collect(),
+            });
+            rows.push(OptionRow {
+                label: t!("Position"),
+                key: "instantInputCorner",
+                value: Value::from(settings.instant_input_corner.as_json()),
+                choices: store::InstantInputCorner::ALL
+                    .iter()
+                    .map(|corner| (corner.label(), Value::from(corner.as_json())))
+                    .collect(),
+            });
+        }
     }
     rows
 }
@@ -470,6 +495,62 @@ mod tests {
                 .iter()
                 .any(|row| row.key == "instantClickHighlight")
         );
+    }
+
+    #[test]
+    fn show_input_is_an_instant_option_whose_two_choices_appear_once_it_is_on() {
+        let _store = TestStore::new();
+        let keys = |mode| -> Vec<&'static str> {
+            rows(mode, &GeneralSettings::load())
+                .into_iter()
+                .map(|row| row.key)
+                .filter(|key| {
+                    key.starts_with("instantShowInput") || key.starts_with("instantInput")
+                })
+                .collect()
+        };
+        let choose = |key, value: Value| {
+            let row = rows(Mode::Instant, &GeneralSettings::load())
+                .into_iter()
+                .find(|row| row.key == key)
+                .unwrap();
+            let index = row
+                .choices
+                .iter()
+                .position(|(_, candidate)| *candidate == value)
+                .unwrap();
+            assert!(row.save(index));
+        };
+        assert_eq!(keys(Mode::Instant), ["instantShowInput"]);
+        assert!(keys(Mode::Studio).is_empty());
+        assert_eq!(GeneralSettings::load().instant_input_display(), None);
+        choose("instantShowInput", Value::Bool(true));
+        assert_eq!(
+            keys(Mode::Instant),
+            [
+                "instantShowInput",
+                "instantInputPreset",
+                "instantInputCorner"
+            ]
+        );
+        assert!(keys(Mode::Studio).is_empty());
+        let corners = rows(Mode::Instant, &GeneralSettings::load())
+            .into_iter()
+            .find(|row| row.key == "instantInputCorner")
+            .unwrap();
+        assert_eq!(corners.choices.len(), 4);
+        assert_eq!(corners.value, Value::from("bottomLeft"));
+        choose("instantInputPreset", Value::from("full-keyboard"));
+        choose("instantInputCorner", Value::from("topRight"));
+        let shown = GeneralSettings::load().instant_input_display().unwrap();
+        assert_eq!(shown.preset, "full-keyboard");
+        assert_eq!(
+            shown.corner,
+            frameever_recording::live_input_display::InputDisplayCorner::TopRight
+        );
+        choose("instantShowInput", Value::Bool(false));
+        assert_eq!(keys(Mode::Instant), ["instantShowInput"]);
+        assert_eq!(GeneralSettings::load().instant_input_display(), None);
     }
 
     #[test]
