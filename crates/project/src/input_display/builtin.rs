@@ -409,9 +409,17 @@ fn mouse_parts(origin_x: u32, origin_y: u32, palette: &Palette) -> Vec<Part> {
     ]
 }
 
+struct LayoutExtent {
+    keys_height: u32,
+    mouse_height: u32,
+    content_height: u32,
+    mouse_x: u32,
+    width: u32,
+    height: u32,
+}
+
 impl KeyLayout {
-    pub fn art(&self, style: InputDisplayStyle) -> PresetArt {
-        let palette = Palette::of(style);
+    fn extent(&self) -> LayoutExtent {
         let keys_width = self
             .keys
             .iter()
@@ -426,27 +434,54 @@ impl KeyLayout {
             .unwrap_or(0);
         let mouse_height = if self.mouse { MOUSE_HEIGHT } else { 0 };
         let content_height = keys_height.max(mouse_height);
+        let mouse_x = if keys_width == 0 {
+            0
+        } else {
+            keys_width + MOUSE_GAP - MOUSE_SIDE_OVERHANG
+        };
+        let width = if self.mouse {
+            mouse_x + MOUSE_SIDE_OVERHANG + MOUSE_WIDTH + 2 * BLEED
+        } else {
+            keys_width.saturating_sub(KEY_GAP as u32) + 2 * BLEED
+        };
+        LayoutExtent {
+            keys_height,
+            mouse_height,
+            content_height,
+            mouse_x,
+            width,
+            height: content_height + 2 * BLEED,
+        }
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        let extent = self.extent();
+        (extent.width, extent.height)
+    }
+
+    pub fn art(&self, style: InputDisplayStyle) -> PresetArt {
+        let palette = Palette::of(style);
+        let LayoutExtent {
+            keys_height,
+            mouse_height,
+            content_height,
+            mouse_x,
+            width,
+            height,
+        } = self.extent();
         let mut parts: Vec<Part> = self
             .keys
             .iter()
             .enumerate()
             .map(|(index, key)| key_part(index, key, (content_height - keys_height) / 2, &palette))
             .collect();
-        let mut width = keys_width.saturating_sub(KEY_GAP as u32) + 2 * BLEED;
         if self.mouse {
-            let origin_x = if keys_width == 0 {
-                0
-            } else {
-                keys_width + MOUSE_GAP - MOUSE_SIDE_OVERHANG
-            };
             parts.extend(mouse_parts(
-                origin_x,
+                mouse_x,
                 (content_height - mouse_height) / 2,
                 &palette,
             ));
-            width = origin_x + MOUSE_SIDE_OVERHANG + MOUSE_WIDTH + 2 * BLEED;
         }
-        let height = content_height + 2 * BLEED;
 
         let mut svg = String::new();
         let mut elements = Vec::with_capacity(parts.len());
@@ -659,6 +694,24 @@ mod tests {
                     assert!(apart_x || apart_y, "{a:?} {b:?}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_layout_knows_its_size_without_being_drawn() {
+        let mut layouts: Vec<KeyLayout> = BuiltinPresetId::ALL.map(BuiltinPresetId::layout).into();
+        layouts.push(KeyLayout {
+            mouse: false,
+            ..BuiltinPresetId::WasdMouse.layout()
+        });
+        layouts.push(KeyLayout {
+            keys: Vec::new(),
+            mouse: true,
+        });
+        for layout in layouts {
+            let preset = read(&layout.art(InputDisplayStyle::Outline));
+
+            assert_eq!(layout.size(), (preset.width, preset.height));
         }
     }
 

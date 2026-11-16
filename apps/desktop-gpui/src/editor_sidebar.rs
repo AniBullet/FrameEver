@@ -683,6 +683,7 @@ pub enum SliderKey {
     Cursor(CursorSlider),
     Caption(CaptionSlider),
     Keyboard(KeyboardSlider),
+    InputDisplay(crate::editor_input_display::InputDisplaySlider),
     Panel(PanelSlider, usize),
 }
 
@@ -850,6 +851,14 @@ pub struct SidebarState {
     pub(crate) input_thumbnails:
         HashMap<crate::editor_input_display::InputThumbnailKey, Arc<RenderImage>>,
     pub(crate) input_thumbnail_task: Option<gpui::Task<()>>,
+    pub(crate) input_shape: std::cell::RefCell<
+        Option<(
+            String,
+            Option<frameever_rendering::input_display::PresetShape>,
+        )>,
+    >,
+    pub(crate) input_position_exact: bool,
+    pub(crate) input_setup_task: Option<gpui::Task<()>>,
     /// The `h-48` preview for the image and desktop panes, keyed by path so a
     /// stale decode cannot land on a newer selection.
     preview: Option<(PathBuf, Arc<RenderImage>)>,
@@ -912,6 +921,9 @@ impl SidebarState {
             wallpapers: HashMap::new(),
             input_thumbnails: HashMap::new(),
             input_thumbnail_task: None,
+            input_shape: Default::default(),
+            input_position_exact: false,
+            input_setup_task: None,
             wallpaper_task: None,
             preview: None,
             preview_task: None,
@@ -1021,7 +1033,12 @@ impl EditorWindow {
 
     /// The tab rail's click: clear any selection, then switch tab and put the
     /// scroll body back to the top (`:632-650`).
-    fn select_sidebar_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn select_sidebar_tab(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(tab) = SidebarTab::ALL.get(index).copied() else {
             return;
         };
@@ -1229,6 +1246,7 @@ impl EditorWindow {
             SliderKey::Cursor(slider) => slider.limits(),
             SliderKey::Caption(slider) => slider.limits(),
             SliderKey::Keyboard(slider) => slider.limits(),
+            SliderKey::InputDisplay(slider) => slider.limits(),
             SliderKey::Panel(slider, index) => self.panel_slider_limits(slider, index),
         }
     }
@@ -1264,6 +1282,7 @@ impl EditorWindow {
             SliderKey::Cursor(slider) => slider.read(&project),
             SliderKey::Caption(slider) => slider.read(&project),
             SliderKey::Keyboard(slider) => slider.read(&project),
+            SliderKey::InputDisplay(slider) => slider.read(&self.project),
             SliderKey::Panel(slider, index) => self.panel_slider_value(slider, index),
         }
     }
@@ -1310,6 +1329,11 @@ impl EditorWindow {
             SliderKey::Cursor(slider) => self.apply_cursor_slider(slider, value, window, cx),
             SliderKey::Caption(slider) => self.apply_caption_slider(slider, value, window, cx),
             SliderKey::Keyboard(slider) => self.apply_keyboard_slider(slider, value, window, cx),
+            SliderKey::InputDisplay(slider) => {
+                self.edit_input_display("input-display-slider", window, cx, move |project| {
+                    slider.write(project, value)
+                })
+            }
             SliderKey::Panel(slider, index) => {
                 self.apply_panel_slider(slider, index, value, window, cx)
             }

@@ -6,7 +6,10 @@ mod record;
 
 pub use builtin::{BuiltinPresetId, KeyLayout, LayoutKey, PresetArt};
 pub use keys::{key_code, key_codes};
-pub use placement::{DisplayRect, display_rect};
+pub use placement::{
+    DisplayRect, INPUT_DISPLAY_SNAP_DISTANCE, INPUT_DISPLAY_SNAP_STOPS, display_rect,
+    position_for_origin, size_for_width, snap_position,
+};
 pub use preset::{
     Element, ElementKind, MAX_PRESET_ATLAS_BYTES, MAX_PRESET_ATLAS_DIMENSION, MAX_PRESET_ELEMENTS,
     MAX_PRESET_JSON_BYTES, Preset, PresetRefusal, STATE_GAP, Sprite, SpriteRect,
