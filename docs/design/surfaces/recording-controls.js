@@ -152,8 +152,8 @@ const endBtn = (s) =>
 const bar = (
 	s,
 ) => `<div class="rb ${s.paused ? "paused" : ""}" role="toolbar" aria-label="${pick("Recording controls", "录制控制条")}">
-	${grip()}${timeLabel(s)}${mic(s)}${pauseBtn(s)}${btn("ask-restart", icon("rotate-ccw"), pick("Restart", "重新开始"), "", busy(s) ? "disabled" : "")}${warnBtn(s)}${sep()}
-	${btn("ask-delete", icon("trash"), pick("Delete", "删除"), "", busy(s) ? "disabled" : "")}${btn("draw", icon("pencil"), pick("Draw on screen", "屏幕画笔"), s.draw ? "on" : "", busy(s) ? "disabled" : "")}${btn("pop", icon("sliders-horizontal"), pick("Recording options", "录制选项"), s.pop ? "on" : "")}${sep()}${endBtn(s)}</div>`;
+	${grip()}${endBtn(s)}${timeLabel(s)}${sep()}${mic(s)}${pauseBtn(s)}${btn("ask-restart", icon("rotate-ccw"), pick("Restart", "重新开始"), "", busy(s) ? "disabled" : "")}${warnBtn(s)}${sep()}
+	${btn("ask-delete", icon("trash"), pick("Delete", "删除"), "", busy(s) ? "disabled" : "")}${btn("draw", icon("pencil"), pick("Draw on screen", "屏幕画笔"), s.draw ? "on" : "", busy(s) ? "disabled" : "")}${btn("pop", icon("sliders-horizontal"), pick("Recording options", "录制选项"), s.pop ? "on" : "")}</div>`;
 
 const device = (id, ic, en, zh, value, off, list, s, chosen) => {
 	const locked = off;
@@ -437,8 +437,8 @@ const copy = () => {
 	const text = {
 		"t-live": ["Recording bar", "录制控制条"],
 		"l-live": [
-			"Runs for real: the timer counts, and Pause, Options, Restart, Delete, Draw and Hide all work. Time comes first, actions next, Stop at the far end. The bar never takes focus from what you're recording, and it is left out of the video.",
-			"下面可以真的操作：计时在走，暂停、选项、重新开始、删除、画笔和隐藏都能点。时间在前，操作居中，停止在最后。控制条不会抢走被录内容的焦点，也不会出现在视频里。",
+			"Runs for real: the timer counts, and Pause, Options, Restart, Delete, Draw and Hide all work. Stop comes first with the time beside it, then the actions. The bar never takes focus from what you're recording, and it is left out of the video.",
+			"下面可以真的操作：计时在走，暂停、选项、重新开始、删除、画笔和隐藏都能点。停止在最前，时间紧跟其后，然后是各项操作。控制条不会抢走被录内容的焦点，也不会出现在视频里。",
 		],
 		"t-states": ["Every state", "所有状态"],
 		"l-states": [
@@ -564,8 +564,8 @@ const copy = () => {
 				["Stop, elapsed time", "停止、计时"],
 				["Ours: one red button", "我们：同一个红色按钮"],
 				[
-					"Stop moves to the far end, blue with the app icon's ring and a red square, so a click on the time can't end the take",
-					"停止移到最后，蓝底加图标同款圆环和红方块，点时间不会误停",
+					"Stop stays first, beside the time, as its own blue button with the app icon's ring and a red square, so a click on the time can't end the take",
+					"停止留在最前、紧挨时间，是单独的蓝底按钮，带图标同款圆环和红方块，点时间不会误停",
 				],
 			],
 			[
@@ -769,8 +769,8 @@ const copy = () => {
 			[
 				'<a href="https://github.com/AniBullet/FrameEver/issues/28">Visual direction</a>',
 				[
-					"The chosen Klein Field bar is the starting point: time first, actions next, Stop last",
-					"选定的克莱因场控制条是起点：时间在前，操作居中，停止在最后",
+					"The chosen Klein Field bar is the starting point; the owner moved Stop back to the front, beside the time, on 2026-11-16",
+					"选定的克莱因场控制条是起点；2026-11-16 所有者把停止移回最前，紧挨时间",
 				],
 			],
 			[

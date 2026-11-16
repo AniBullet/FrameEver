@@ -47,7 +47,7 @@ use crate::{
 
 /// Matches the Tauri `InProgressRecording` window and
 /// `fake_window.rs` position math.
-pub const CONTROLS_WIDTH: f32 = 432.;
+pub const CONTROLS_WIDTH: f32 = 384.;
 pub const CONTROLS_HEIGHT: f32 = 150.;
 pub const CONTROLS_BAR_HEIGHT: f32 = 60.;
 pub const CONTROLS_OPTIONS_HEIGHT: f32 = 240.;

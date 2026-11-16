@@ -62,6 +62,7 @@ pub struct ControlsWindow {
 const DRAW_STRIP_ROOM: f32 = 44.;
 
 const OPTIONS_WIDTH: f32 = 300.;
+const TIME_MIN_WIDTH: f32 = 68.;
 
 fn source_label(target: &ScreenCaptureTarget) -> Option<&'static str> {
     match target {
@@ -707,9 +708,7 @@ impl ControlsWindow {
             session.auto_stop_countdown(),
         );
         div()
-            .min_w(px(50.))
-            .flex_1()
-            .min_w_0()
+            .min_w(px(TIME_MIN_WIDTH))
             .truncate()
             .px(px(6.))
             .flex()
@@ -1313,6 +1312,7 @@ impl ControlsWindow {
         }
         let busy = self.busy(cx);
         groups.push(vec![
+            (Control::Stop, self.can_stop(cx)),
             (Control::Microphone, self.can_mute(cx)),
             (Control::Pause, !busy),
             (Control::Restart, !busy),
@@ -1320,7 +1320,6 @@ impl ControlsWindow {
             (Control::Delete, !busy),
             (Control::Draw, !busy),
             (Control::Options, true),
-            (Control::Stop, self.can_stop(cx)),
         ]);
         groups
     }
@@ -1663,7 +1662,7 @@ impl ControlsWindow {
         div()
             .h(px(36.))
             .flex_shrink_0()
-            .w_full()
+            .max_w_full()
             .flex()
             .items_center()
             .gap(px(2.))
@@ -1696,7 +1695,16 @@ impl ControlsWindow {
                             .text_color(theme.muted_foreground),
                     ),
             )
+            .child(self.render_stop(cx))
             .child(self.render_time(cx))
+            .child(
+                div()
+                    .w(px(1.))
+                    .h(px(20.))
+                    .mx(px(3.))
+                    .bg(theme.border)
+                    .flex_shrink_0(),
+            )
             .child(self.render_microphone(cx))
             .child(
                 self.action_button(
@@ -1740,8 +1748,8 @@ impl ControlsWindow {
             .child(
                 div()
                     .w(px(1.))
-                    .h(px(16.))
-                    .mx(px(6.))
+                    .h(px(20.))
+                    .mx(px(3.))
                     .bg(theme.border)
                     .flex_shrink_0(),
             )
@@ -1779,15 +1787,6 @@ impl ControlsWindow {
                     cx.listener(|this, _, window, cx| this.press(Control::Options, window, cx)),
                 ),
             )
-            .child(
-                div()
-                    .w(px(1.))
-                    .h(px(16.))
-                    .mx(px(6.))
-                    .bg(theme.border)
-                    .flex_shrink_0(),
-            )
-            .child(self.render_stop(cx))
     }
 }
 
@@ -1827,7 +1826,7 @@ impl Render for ControlsWindow {
             .when(self.drawing(cx), |this| {
                 this.child(self.render_draw_strip(cx))
             })
-            .child(self.render_bar(cx))
+            .child(div().flex().justify_center().child(self.render_bar(cx)))
     }
 }
 
@@ -2016,20 +2015,20 @@ mod repaint_tests {
         controls.update_in(cx, |controls, window, cx| {
             assert_eq!(controls.focused, None);
             controls.take_keyboard_focus(window, cx);
-            assert_eq!(controls.focused, Some(Control::Pause));
-            assert!(controls.handle_key("right", false, window, cx));
-            assert_eq!(controls.focused, Some(Control::Restart));
-            controls.handle_key("end", false, window, cx);
             assert_eq!(controls.focused, Some(Control::Stop));
-            controls.handle_key("home", false, window, cx);
+            assert!(controls.handle_key("right", false, window, cx));
             assert_eq!(controls.focused, Some(Control::Pause));
+            controls.handle_key("end", false, window, cx);
+            assert_eq!(controls.focused, Some(Control::Options));
+            controls.handle_key("home", false, window, cx);
+            assert_eq!(controls.focused, Some(Control::Stop));
 
             controls.focused = Some(Control::Delete);
             controls.handle_key("enter", false, window, cx);
             assert_eq!(controls.confirmation, Some(DestructiveAction::Delete));
             assert_eq!(controls.focused, Some(Control::CancelAction));
             controls.handle_key("tab", false, window, cx);
-            assert_eq!(controls.focused, Some(Control::Pause));
+            assert_eq!(controls.focused, Some(Control::Stop));
             controls.handle_key("tab", true, window, cx);
             assert_eq!(controls.focused, Some(Control::CancelAction));
 
