@@ -3055,11 +3055,11 @@ mod tests {
         let root = temp_dir("recovery-failed-scan");
         let recordings = root.join("recordings");
         std::fs::create_dir_all(&recordings).unwrap();
-        let failed_meta = r#"{"pretty_name":"Cap 2026-11-03 at 15.51.00","sharing":null,"segments":[],"status":{"status":"Failed","error":"stop_pipeline: display: Task capture-video failed: Capture setup cancelled"}}"#;
+        let failed_meta = r#"{"pretty_name":"FrameEver 2026-11-03 at 15.51.00","sharing":null,"segments":[],"status":{"status":"Failed","error":"stop_pipeline: display: Task capture-video failed: Capture setup cancelled"}}"#;
         let failed = write_incomplete_bundle(
             &recordings,
             "failed",
-            "Cap 2026-11-03 at 15.51.00",
+            "FrameEver 2026-11-03 at 15.51.00",
             "InProgress",
             true,
         );
@@ -3067,7 +3067,7 @@ mod tests {
         let empty = write_incomplete_bundle(
             &recordings,
             "failed-empty",
-            "Cap 2026-11-03 at 15.52.00",
+            "FrameEver 2026-11-03 at 15.52.00",
             "InProgress",
             false,
         );
@@ -3084,7 +3084,7 @@ mod tests {
     fn a_full_disk_inside_a_track_rebuild_gets_the_free_space_advice() {
         use frameever_enc_ffmpeg::remux::RemuxError;
         use frameever_recording::recovery::RecoveryError;
-        let path = Path::new("/recordings/Cap.cap");
+        let path = Path::new("/recordings/FrameEver 2026-11-03 at 15.51.00.ever");
         let full = || std::io::Error::from(std::io::ErrorKind::StorageFull);
         for error in [
             RecoveryError::Io(full()),
@@ -3116,7 +3116,7 @@ mod tests {
         let complete = write_incomplete_bundle(
             &recordings,
             "complete",
-            "Cap 2026-11-03 at 10.00.00",
+            "FrameEver 2026-11-03 at 10.00.00",
             "Complete",
             true,
         );
@@ -3128,7 +3128,7 @@ mod tests {
         let live = write_incomplete_bundle(
             &recordings,
             "live",
-            "Cap 2026-11-03 at 10.01.00",
+            "FrameEver 2026-11-03 at 10.01.00",
             "InProgress",
             true,
         );
@@ -3145,7 +3145,7 @@ mod tests {
         let foreign = write_incomplete_bundle(
             &outside,
             "foreign",
-            "Cap 2026-11-03 at 10.02.00",
+            "FrameEver 2026-11-03 at 10.02.00",
             "InProgress",
             true,
         );
@@ -3157,7 +3157,7 @@ mod tests {
         let empty = write_incomplete_bundle(
             &recordings,
             "empty",
-            "Cap 2026-11-03 at 10.03.00",
+            "FrameEver 2026-11-03 at 10.03.00",
             "InProgress",
             false,
         );
@@ -3168,7 +3168,7 @@ mod tests {
         let damaged = write_incomplete_bundle(
             &recordings,
             "damaged",
-            "Cap 2026-11-03 at 10.04.00",
+            "FrameEver 2026-11-03 at 10.04.00",
             "InProgress",
             true,
         );
@@ -3223,7 +3223,7 @@ mod tests {
         let bundle = write_bundle(
             recordings,
             name,
-            r#"{"pretty_name":"Cap 2026-11-10 at 09.00.00","sharing":null,"segments":[{"display":{"path":"content/segments/segment-0/display","fps":30}}],"status":{"status":"NeedsRemux"}}"#,
+            r#"{"pretty_name":"FrameEver 2026-11-10 at 09.00.00","sharing":null,"segments":[{"display":{"path":"content/segments/segment-0/display","fps":30}}],"status":{"status":"NeedsRemux"}}"#,
         );
         let display = bundle.join("content/segments/segment-0/display");
         std::fs::create_dir_all(&display).unwrap();
