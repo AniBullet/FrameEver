@@ -917,7 +917,7 @@ class MainWindow {
 
 	saveGif() {
 		const item = this.selectedItems()[0];
-		const { mb } = gifStats(item, this.s.gif);
+		const { size } = gifStats(item, this.s.gif);
 		const file = `${item.name}.gif`;
 		this.set({
 			items: this.s.items.map((other) =>
@@ -926,7 +926,7 @@ class MainWindow {
 							...item,
 							exports: [
 								...item.exports,
-								{ file, size: `${mb} MB`, time: ["Just now", "刚刚"] },
+								{ file, size, time: ["Just now", "刚刚"] },
 							],
 						}
 					: other,
@@ -1280,13 +1280,16 @@ const gifStats = (item, gif) => {
 		Math.round(height / fit / by / 2) * 2,
 	]);
 	const [w, h] = sizes[gif.size];
-	const mb = Math.max(0.1, (w * h * 15 * (to - from) * 0.25) / 1e6);
+	const bytes = Math.max(1e5, w * h * 15 * (to - from) * 0.06);
 	return {
 		from,
 		to,
 		sizes,
-		mb: mb >= 10 ? Math.round(mb) : mb.toFixed(1),
-		large: mb > 20,
+		size:
+			bytes >= 1048576
+				? `${Math.round(bytes / 1048576)} MB`
+				: `${Math.ceil(bytes / 1024)} KB`,
+		large: bytes > 2e7,
 	};
 };
 const gifDialog = (item, gif, live) => {
@@ -1296,14 +1299,16 @@ const gifDialog = (item, gif, live) => {
 			? `data-a="${name}"${value === undefined ? "" : ` data-v="${value}"`}`
 			: "";
 	const seconds = (stats.to - stats.from).toFixed(1);
-	return `<div class="dialog gif-dialog"><h3>${L("Save as GIF", "存为 GIF")}</h3><p>${L(`From “${item.name}”. The recording stays as it is.`, `取自“${item.name}”，录制本身不变。`)}</p>
+	const saving = gif.saving !== undefined;
+	const dim = saving ? ' style="opacity:.5"' : "";
+	return `<div class="dialog gif-dialog"><h3>${L("Save as GIF", "存为 GIF")}</h3><p>${L(`The recording “${item.name}” stays as it is.`, `录制“${item.name}”本身不变。`)}</p>
 		<span class="thumb gif-thumb">${art(item.art)}</span>
-		<div class="gif-range" ${on("gif-range")}><i></i><b style="left:${gif.a}%;right:${100 - gif.b}%"></b><u style="left:${gif.a}%"></u><u style="left:${gif.b}%"></u></div>
+		<div class="gif-range" ${on("gif-range")}${dim}><i></i><b style="left:${gif.a}%;right:${100 - gif.b}%"></b><u style="left:${gif.a}%"></u><u style="left:${gif.b}%"></u></div>
 		<div class="gif-times tnum">${clock(stats.from)} – ${clock(stats.to)} · ${L(`${seconds} s`, `${seconds} 秒`)}</div>
 		<div class="subhead">${L("Size", "尺寸")}</div>
-		<div class="seg block">${gifSizes.map(([en, zh], i) => `<button class="${gif.size === i ? "on" : ""}" ${on("gif-size", i)}>${L(en, zh)}</button>`).join("")}</div>
-		<div class="gif-estimate tnum ${stats.large ? "warn" : ""}">${stats.large ? icon("triangle-alert", "sm") : ""}<span>${stats.sizes[gif.size].join(" × ")} · ${L(`15 FPS · about ${stats.mb} MB`, `15 帧/秒 · 约 ${stats.mb} MB`)}</span>${stats.large ? `<span>${L("Pick a shorter stretch or a smaller size.", "选短一点，或者换小一点的尺寸。")}</span>` : ""}</div>
-		<div class="actions"><button class="btn" ${on("gif-cancel")}>${L("Cancel", "取消")}</button><button class="btn primary" ${on("gif-confirm")}>${L("Save as GIF", "存为 GIF")}</button></div></div>`;
+		<div class="seg block"${dim}>${gifSizes.map(([en, zh], i) => `<button class="${gif.size === i ? "on" : ""}" ${on("gif-size", i)}>${L(en, zh)}</button>`).join("")}</div>
+		<div class="gif-estimate tnum ${stats.large ? "warn" : ""}">${stats.large ? icon("triangle-alert", "sm") : ""}<span>${stats.sizes[gif.size].join(" × ")} · ${L(`15 FPS · about ${stats.size}`, `15 帧/秒 · 约 ${stats.size}`)}</span>${stats.large ? `<span>${L("Pick a shorter stretch or a smaller size.", "选短一点，或者换小一点的尺寸。")}</span>` : ""}</div>
+		<div class="actions"><button class="btn" ${on("gif-cancel")}>${L("Cancel", "取消")}</button>${saving ? `<button class="btn primary" disabled>${L(`Saving… ${gif.saving}%`, `正在保存… ${gif.saving}%`)}</button>` : `<button class="btn primary" ${on("gif-confirm")}>${L("Save as GIF", "存为 GIF")}</button>`}</div></div>`;
 };
 
 const titles = {
@@ -1346,8 +1351,8 @@ const titles = {
 	gif: [
 		"Save as GIF",
 		"存为 GIF",
-		"GIF is only an export format. An Instant recording gets it from its details or its right-click menu: choose a stretch with the two handles, pick a size, and read the estimate before saving. Large keeps the recording's size up to 1080 px on the long side; Medium and Small are a half and a quarter of that. It is always 15 FPS; anything finer is the editor's export. The GIF joins the recording's exports, and the toast offers Copy and Show in folder. A Studio recording gets a GIF from the editor's export, which can also export only the selected stretch.",
-		"GIF 只是一种导出格式。即时录制从详情或右键菜单进入：用两个把手选一段，选尺寸，保存前先看预估大小。“大”保持录制的尺寸，长边最多 1080 px；“中”和“小”是它的一半和四分之一。固定 15 帧/秒，要细调就用编辑器的导出。生成的 GIF 列在这条录制的导出里，提示里可以直接复制或在文件夹中显示。工作室录制在编辑器的导出里得到 GIF，那里也可以只导出选中的一段。",
+		"GIF is only an export format. An Instant recording gets it from its details or its right-click menu: choose a stretch with the two handles, pick a size, and read the estimate before saving. Large keeps the recording's size up to 1080 px on the long side; Medium and Small are a half and a quarter of that. It is always 15 FPS; anything finer is the editor's export. While it saves, the Save button shows the progress and Cancel stops the save and leaves no file. The GIF joins the recording's exports, and the toast offers Copy and Show in folder. A Studio recording gets a GIF from the editor's export, which can also export only the selected stretch.",
+		"GIF 只是一种导出格式。即时录制从详情或右键菜单进入：用两个把手选一段，选尺寸，保存前先看预估大小。“大”保持录制的尺寸，长边最多 1080 px；“中”和“小”是它的一半和四分之一。固定 15 帧/秒，要细调就用编辑器的导出。保存时“存为 GIF”按钮上显示进度，“取消”会停止保存，不留下文件。生成的 GIF 列在这条录制的导出里，提示里可以直接复制或在文件夹中显示。工作室录制在编辑器的导出里得到 GIF，那里也可以只导出选中的一段。",
 	],
 	keys: [
 		"Keyboard",
@@ -1653,6 +1658,10 @@ document.getElementById("gif-grid").innerHTML = [
 	[
 		L("Too large to share easily", "太大，不方便分享"),
 		`<div class="static-dialog">${gifDialog(gifSource, { a: 0, b: 100, size: 0 }, false)}</div>`,
+	],
+	[
+		L("Saving", "保存中"),
+		`<div class="static-dialog">${gifDialog(gifSource, { a: 20, b: 60, size: 1, saving: 42 }, false)}</div>`,
 	],
 	[
 		L("Saved", "保存后"),

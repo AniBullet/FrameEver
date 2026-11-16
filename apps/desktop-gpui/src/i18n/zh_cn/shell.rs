@@ -761,11 +761,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Save as GIF", "存为 GIF"),
     ("Save as GIF…", "存为 GIF…"),
     (
-        "From “{name}”. The recording stays as it is.",
-        "取自“{name}”，录制本身不变。",
+        "The recording “{name}” stays as it is.",
+        "录制“{name}”本身不变。",
     ),
     ("{seconds} s", "{seconds} 秒"),
-    ("15 FPS · about {size} MB", "15 帧/秒 · 约 {size} MB"),
+    ("about {size}", "约 {size}"),
     (
         "Pick a shorter stretch or a smaller size.",
         "选短一点，或者换小一点的尺寸。",
@@ -776,6 +776,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     (
         "The video of this recording is missing. Put it back and try again.",
         "这条录制的视频文件不见了。把它放回原处，然后再试一次。",
+    ),
+    (
+        "The exports folder can't be written to. Check it has space and try again.",
+        "无法写入导出文件夹。检查它的剩余空间，然后再试一次。",
     ),
     ("Compress", "压缩"),
     ("Compressed", "压缩"),

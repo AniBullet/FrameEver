@@ -220,13 +220,10 @@ impl ExporterBuilder {
         let output_path = self
             .output_path
             .unwrap_or_else(|| recording_meta.output_path());
-        let streaming_output = prepare_streaming_output(
-            &output_path,
-            cancellation.is_some()
-                && self.range.is_none()
-                && ExportAudioRenderer::eligible(&project_config, studio_meta),
-        );
-        let stream_audio = streaming_output.is_some();
+        let streaming_output = prepare_streaming_output(&output_path, cancellation.is_some());
+        let stream_audio = streaming_output.is_some()
+            && self.range.is_none()
+            && ExportAudioRenderer::eligible(&project_config, studio_meta);
 
         let render_constants = Arc::new(
             RenderVideoConstants::new(
@@ -522,6 +519,13 @@ impl ExporterBase {
         self.range.map_or(timeline_frames, |range| {
             range.frame_count(fps, timeline_frames)
         })
+    }
+
+    fn require_frames(&self, fps: u32) -> Result<(), String> {
+        if self.total_frames(fps) == 0 {
+            return Err(ExporterBuildError::NothingToExport.to_string());
+        }
+        Ok(())
     }
 
     fn timeline_frames(&self, fps: u32) -> u32 {

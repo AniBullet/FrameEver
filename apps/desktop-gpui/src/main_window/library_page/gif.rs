@@ -14,10 +14,10 @@ use gpui::{
     canvas, div, img, prelude::FluentBuilder, px, svg,
 };
 
-use super::{MainWindow, focus_ring, library, t, ui, view};
+use super::{MainWindow, delete::ButtonTone, focus_ring, library, t, ui, view};
 use crate::{
     i18n::tc,
-    library::gif::{CANCELLED, GifSize, GifSource, estimated_bytes, is_large},
+    library::gif::{FPS, GifFailure, GifSize, GifSource, estimated_bytes, is_large},
 };
 
 const DIALOG_WIDTH: f32 = 420.;
@@ -149,15 +149,6 @@ struct GifDialog {
     percent: Option<u32>,
 }
 
-fn megabytes(bytes: u64) -> String {
-    let megabytes = bytes as f64 / 1e6;
-    if megabytes >= 10.0 {
-        format!("{megabytes:.0}")
-    } else {
-        format!("{megabytes:.1}")
-    }
-}
-
 fn size_label(size: GifSize) -> &'static str {
     match size {
         GifSize::Large => tc!("gif size", "Large"),
@@ -166,11 +157,25 @@ fn size_label(size: GifSize) -> &'static str {
     }
 }
 
-fn failure_message(project: &Path) -> &'static str {
-    if library::instant_output_path(project).is_file() {
-        t!("Check the folder has space and try again.")
-    } else {
-        t!("The video of this recording is missing. Put it back and try again.")
+fn failure_message(failure: &GifFailure) -> Option<&'static str> {
+    match failure {
+        GifFailure::Cancelled => None,
+        GifFailure::VideoMissing => Some(t!(
+            "The video of this recording is missing. Put it back and try again."
+        )),
+        GifFailure::VideoUnreadable(_) => Some(t!(
+            "The file may be damaged. Try opening it in another player."
+        )),
+        GifFailure::FolderNotWritable(_) => Some(t!(
+            "The exports folder can't be written to. Check it has space and try again."
+        )),
+    }
+}
+
+fn report_failure(project: &Path, failure: &GifFailure) {
+    if let Some(message) = failure_message(failure) {
+        tracing::error!(path = %project.display(), "saving the GIF failed: {failure:?}");
+        crate::platform::alert_dialog(t!("Couldn't save the GIF"), message);
     }
 }
 
@@ -218,11 +223,9 @@ impl GifDialog {
     fn estimate_label(&self) -> String {
         let (width, height) = self.pixels();
         format!(
-            "{width} × {height} · {}",
-            t!(
-                "15 FPS · about {size} MB",
-                size = megabytes(self.estimate())
-            )
+            "{width} × {height} · {} · {}",
+            t!("{fps} FPS", fps = FPS),
+            t!("about {size}", size = view::format_size(self.estimate()))
         )
     }
 
@@ -326,17 +329,12 @@ impl MainWindow {
                 .background_executor()
                 .spawn(async move { library::gif::source(&project) })
                 .await;
-            let Some(source) = source else {
-                tracing::error!(path = %entry.path.display(), "the video could not be read for a GIF");
-                crate::platform::alert_dialog(
-                    t!("Couldn't save the GIF"),
-                    if library::instant_output_path(&entry.path).is_file() {
-                        t!("The file may be damaged. Try opening it in another player.")
-                    } else {
-                        failure_message(&entry.path)
-                    },
-                );
-                return;
+            let source = match source {
+                Ok(source) => source,
+                Err(failure) => {
+                    report_failure(&entry.path, &failure);
+                    return;
+                }
             };
             this.update_in(cx, |this, window, cx| {
                 let focus = this
@@ -478,14 +476,8 @@ impl MainWindow {
                 cx.notify();
             })
             .ok();
-            if let Err(error) = result
-                && error != CANCELLED
-            {
-                tracing::error!(path = %project.display(), "saving the GIF failed: {error}");
-                crate::platform::alert_dialog(
-                    t!("Couldn't save the GIF"),
-                    failure_message(&project),
-                );
+            if let Err(failure) = result {
+                report_failure(&project, &failure);
             }
         })
         .detach();
@@ -551,44 +543,6 @@ impl MainWindow {
             dialog.stretch.move_to(handle, fraction);
             cx.notify();
         }
-    }
-
-    fn gif_button(
-        &self,
-        id: &'static str,
-        label: impl Into<SharedString>,
-        primary: bool,
-        focused: bool,
-        disabled: bool,
-    ) -> gpui::Stateful<gpui::Div> {
-        let theme = self.theme;
-        div()
-            .id(id)
-            .flex()
-            .items_center()
-            .h(px(crate::theme::CONTROL_HEIGHT))
-            .px(px(12.))
-            .rounded(px(6.))
-            .text_size(px(13.))
-            .font_weight(FontWeight::MEDIUM)
-            .border_2()
-            .border_color(gpui::transparent_black())
-            .when(focused, |this| this.border_color(theme.ring))
-            .when(disabled, |this| this.opacity(0.5))
-            .when(!disabled, |this| this.cursor_pointer())
-            .when(primary, |this| {
-                this.bg(theme.primary)
-                    .text_color(theme.primary_foreground)
-                    .when(!disabled, |this| {
-                        this.hover(move |style| style.bg(theme.primary_hover))
-                    })
-            })
-            .when(!primary, |this| {
-                this.bg(theme.secondary)
-                    .text_color(theme.foreground)
-                    .hover(move |style| style.bg(theme.accent))
-            })
-            .child(label.into())
     }
 
     fn render_gif_range(&self, dialog: &GifDialog, cx: &mut Context<Self>) -> impl IntoElement {
@@ -781,7 +735,7 @@ impl MainWindow {
                                 .text_size(px(13.))
                                 .text_color(theme.muted_foreground)
                                 .child(t!(
-                                    "From “{name}”. The recording stays as it is.",
+                                    "The recording “{name}” stays as it is.",
                                     name = dialog.name
                                 )),
                         )
@@ -824,10 +778,10 @@ impl MainWindow {
                                 .gap(px(8.))
                                 .mt(px(16.))
                                 .child(
-                                    self.gif_button(
+                                    self.dialog_button(
                                         "library-gif-cancel",
                                         t!("Cancel"),
-                                        false,
+                                        ButtonTone::Plain,
                                         dialog.focus == DialogFocus::Cancel,
                                         false,
                                     )
@@ -838,10 +792,10 @@ impl MainWindow {
                                     )),
                                 )
                                 .child(
-                                    self.gif_button(
+                                    self.dialog_button(
                                         "library-gif-save",
                                         dialog.save_label(),
-                                        true,
+                                        ButtonTone::Primary,
                                         dialog.focus == DialogFocus::Save,
                                         saving,
                                     )
@@ -974,7 +928,7 @@ mod tests {
         assert_eq!(dialog.size, GifSize::Medium);
         assert_eq!(dialog.focus, DialogFocus::Save);
         assert_eq!(dialog.times_label(), "0:00 – 0:12 · 12.0 s");
-        assert_eq!(dialog.estimate_label(), "540 × 304 · 15 FPS · about 7.4 MB");
+        assert_eq!(dialog.estimate_label(), "540 × 304 · 15 FPS · about 2 MB");
         assert!(!dialog.is_large());
     }
 
@@ -1048,23 +1002,20 @@ mod tests {
 
     #[test]
     fn the_estimate_follows_the_stretch_and_the_size_and_warns_when_large() {
-        let mut dialog = dialog(30.0, (1920, 1080));
+        let mut dialog = dialog(60.0, (1920, 1080));
 
         dialog.size = GifSize::Large;
-        assert_eq!(dialog.estimate_label(), "1080 × 608 · 15 FPS · about 74 MB");
+        assert_eq!(dialog.estimate_label(), "1080 × 608 · 15 FPS · about 34 MB");
         assert!(dialog.is_large());
 
         dialog.size = GifSize::Small;
-        assert_eq!(dialog.estimate_label(), "270 × 152 · 15 FPS · about 4.6 MB");
+        assert_eq!(dialog.estimate_label(), "270 × 152 · 15 FPS · about 2 MB");
         assert!(!dialog.is_large());
 
         dialog.size = GifSize::Large;
         dialog.stretch.move_to(Handle::End, 0.1);
-        assert_eq!(dialog.times_label(), "0:00 – 0:03 · 3.0 s");
-        assert_eq!(
-            dialog.estimate_label(),
-            "1080 × 608 · 15 FPS · about 7.4 MB"
-        );
+        assert_eq!(dialog.times_label(), "0:00 – 0:06 · 6.0 s");
+        assert_eq!(dialog.estimate_label(), "1080 × 608 · 15 FPS · about 3 MB");
         assert!(!dialog.is_large());
     }
 
@@ -1139,19 +1090,19 @@ mod tests {
     }
 
     #[test]
-    fn a_failure_says_whether_the_video_is_gone_or_the_folder_is_the_problem() {
-        let directory = tempfile::tempdir().unwrap();
-        let project = directory.path().join("Demo.ever");
-        std::fs::create_dir_all(project.join("content")).unwrap();
-
+    fn a_failure_says_what_went_wrong_and_what_to_do() {
         assert_eq!(
-            failure_message(&project),
-            "The video of this recording is missing. Put it back and try again."
+            failure_message(&GifFailure::VideoMissing),
+            Some("The video of this recording is missing. Put it back and try again.")
         );
-        std::fs::write(project.join("content/output.mp4"), b"video").unwrap();
         assert_eq!(
-            failure_message(&project),
-            "Check the folder has space and try again."
+            failure_message(&GifFailure::VideoUnreadable("moov atom not found".into())),
+            Some("The file may be damaged. Try opening it in another player.")
         );
+        assert_eq!(
+            failure_message(&GifFailure::FolderNotWritable("access denied".into())),
+            Some("The exports folder can't be written to. Check it has space and try again.")
+        );
+        assert_eq!(failure_message(&GifFailure::Cancelled), None);
     }
 }

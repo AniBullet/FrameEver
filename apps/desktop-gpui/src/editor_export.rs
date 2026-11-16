@@ -18,7 +18,6 @@ use frameever_project::{BackgroundSource, XY};
 use frameever_utils::export_resources::{
     DiskBudget, ExportResources, estimated_working_bytes, is_resource_stop,
 };
-use frameever_utils::storage::ExportRecord;
 use gpui::{
     Context, FontWeight, Hsla, InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, ParentElement, RenderImage, SharedString, StatefulInteractiveElement, Styled,
@@ -369,8 +368,8 @@ impl ExportUi {
         store::update(|state| state.export = Some(prefs));
     }
 
-    fn offer_clip(&mut self, clip: Option<ExportClip>, chosen: bool) {
-        self.clip_only = chosen && clip.is_some();
+    fn offer_clip(&mut self, clip: Option<ExportClip>, clip_only: bool) {
+        self.clip_only = clip_only && clip.is_some();
         self.clip = clip;
     }
 
@@ -544,15 +543,16 @@ impl EditorWindow {
     fn open_export_offering(
         &mut self,
         clip: Option<ExportClip>,
-        chosen: bool,
+        clip_only: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.playing {
             self.toggle_play_from_crop(cx);
         }
+        self.selection = None;
         let mut ui = ExportUi::load();
-        ui.offer_clip(clip, chosen);
+        ui.offer_clip(clip, clip_only);
         if has_transparent_background(&self.project) {
             ui.format = ExportFormatKind::Gif;
             if ui.resolution == ExportResolution::P4k {
@@ -967,15 +967,7 @@ impl EditorWindow {
                     } else {
                         library::record_export(
                             &record_project,
-                            &ExportRecord {
-                                path: path.clone(),
-                                format: ext.to_string(),
-                                codec: recorded_codec,
-                                exported_at: std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs(),
-                            },
+                            &library::export_record(path.clone(), ext, recorded_codec),
                             notify_file_save,
                         );
                         if notify_file_save {
@@ -2700,6 +2692,53 @@ mod tests {
         assert_eq!(preview_time_in_range(5.0, range), 2.0);
         assert_eq!(preview_time_in_range(9.0, range), 2.0);
         assert_eq!(preview_time_in_range(9.0, None), 9.0);
+    }
+
+    #[gpui::test]
+    fn opening_the_export_page_clears_the_selection_and_remembers_the_clip(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let project = tempfile::tempdir().unwrap();
+        let path = project.path().to_path_buf();
+        let (editor, cx) = cx.add_window_view(move |window, cx| {
+            crate::editor_window::EditorWindow::new(path.clone(), window, cx)
+        });
+        editor.update_in(cx, |editor, window, cx| {
+            editor.set_error("export fixture".into(), window, cx);
+            editor.project.timeline = Some(
+                serde_json::from_value(serde_json::json!({
+                    "segments": [
+                        { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0 },
+                        { "recordingSegment": 1, "timescale": 1.0, "start": 0.0, "end": 8.0 }
+                    ],
+                    "zoomSegments": []
+                }))
+                .unwrap(),
+            );
+            editor.timeline =
+                crate::editor_timeline::TimelineModel::build(&editor.project, false, false);
+            for open in [
+                (|editor, window, cx| editor.open_export(window, cx))
+                    as fn(
+                        &mut crate::editor_window::EditorWindow,
+                        &mut gpui::Window,
+                        &mut gpui::Context<crate::editor_window::EditorWindow>,
+                    ),
+                |editor, window, cx| editor.open_clip_export(1, window, cx),
+            ] {
+                editor.selection = Some(Selection::single(TrackKind::Clip, 1));
+                open(editor, window, cx);
+                assert_eq!(editor.selection(), None);
+                let ui = editor.export.take().unwrap();
+                assert_eq!(
+                    ui.clip.as_ref().map(|clip| clip.range),
+                    Some(ExportRange {
+                        start: 10.0,
+                        end: 18.0,
+                    })
+                );
+            }
+        });
     }
 
     #[test]

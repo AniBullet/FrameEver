@@ -1,8 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use frameever_export::ExportRange;
-pub use frameever_export::instant_gif::{CANCELLED, GifSize, estimated_bytes, is_large};
-use frameever_utils::storage::ExportRecord;
+pub use frameever_export::instant_gif::{FPS, GifFailure, GifSize, estimated_bytes, is_large};
 
 const UNNAMED: &str = "Recording";
 
@@ -18,11 +17,18 @@ pub struct GifSource {
     pub seconds: f64,
 }
 
-pub fn source(project: &Path) -> Option<GifSource> {
+pub fn source(project: &Path) -> Result<GifSource, GifFailure> {
     let video = super::instant_output_path(project);
-    let (pixels, _) = super::video_shape(&video)?;
-    let seconds = super::media_duration(&video).filter(|seconds| *seconds > 0.0)?;
-    Some(GifSource { pixels, seconds })
+    if !video.is_file() {
+        return Err(GifFailure::VideoMissing);
+    }
+    let unreadable = |what: &str| GifFailure::VideoUnreadable(what.to_string());
+    let (pixels, _) =
+        super::video_shape(&video).ok_or_else(|| unreadable("the video has no picture size"))?;
+    let seconds = super::media_duration(&video)
+        .filter(|seconds| *seconds > 0.0)
+        .ok_or_else(|| unreadable("the video has no length"))?;
+    Ok(GifSource { pixels, seconds })
 }
 
 fn gif_path(exports: &Path, name: &str) -> Result<PathBuf, String> {
@@ -40,8 +46,8 @@ pub fn save_as_gif(
     range: ExportRange,
     size: GifSize,
     progress: impl FnMut(u32, u32) -> bool,
-) -> Result<PathBuf, String> {
-    let output = gif_path(exports, name)?;
+) -> Result<PathBuf, GifFailure> {
+    let output = gif_path(exports, name).map_err(GifFailure::FolderNotWritable)?;
     frameever_export::instant_gif::save_gif(
         &super::instant_output_path(project),
         &output,
@@ -51,15 +57,7 @@ pub fn save_as_gif(
     )?;
     super::record_export(
         project,
-        &ExportRecord {
-            path: output.clone(),
-            format: "gif".to_string(),
-            codec: None,
-            exported_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        },
+        &super::export_record(output.clone(), "gif", None),
         false,
     );
     Ok(output)
@@ -204,12 +202,12 @@ mod tests {
         assert!(!offered("Studio"));
         assert_eq!(
             source(&instant),
-            Some(GifSource {
+            Ok(GifSource {
                 pixels: (320, 240),
                 seconds: 1.0,
             })
         );
-        assert_eq!(source(&lost), None);
+        assert_eq!(source(&lost), Err(GifFailure::VideoMissing));
     }
 
     #[test]
@@ -237,9 +235,39 @@ mod tests {
             |_, _| true,
         );
 
-        assert_eq!(cancelled, Err(CANCELLED.to_string()));
-        assert!(failed.is_err_and(|error| error != CANCELLED));
+        assert_eq!(cancelled, Err(GifFailure::Cancelled));
+        assert_eq!(failed, Err(GifFailure::VideoMissing));
         assert_eq!(std::fs::read_dir(&exports).unwrap().count(), 0);
+        assert!(frameever_utils::storage::exports(&project).is_empty());
+    }
+
+    #[test]
+    fn a_failed_gif_says_whether_the_video_or_the_exports_folder_is_the_problem() {
+        let directory = tempfile::tempdir().unwrap();
+        let recordings = directory.path().join("Recordings");
+        let project = instant_recording(&recordings, "Demo");
+        let blocked = directory.path().join("Exports");
+        std::fs::write(&blocked, b"a file where the folder should be").unwrap();
+        let save = |exports: &Path| {
+            save_as_gif(
+                &project,
+                "Demo",
+                exports,
+                HALF_A_SECOND,
+                GifSize::Small,
+                |_, _| true,
+            )
+        };
+
+        assert!(matches!(
+            save(&blocked),
+            Err(GifFailure::FolderNotWritable(_))
+        ));
+        std::fs::write(project.join("content/output.mp4"), b"not a video").unwrap();
+        assert!(matches!(
+            save(&directory.path().join("Elsewhere")),
+            Err(GifFailure::VideoUnreadable(_))
+        ));
         assert!(frameever_utils::storage::exports(&project).is_empty());
     }
 

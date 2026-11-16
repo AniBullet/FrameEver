@@ -116,6 +116,18 @@ pub fn export_dialog_folder() -> PathBuf {
     storage_from(&general).export_dialog_folder(last_export_folder(&general).as_deref())
 }
 
+pub fn export_record(path: PathBuf, format: &str, codec: Option<String>) -> ExportRecord {
+    ExportRecord {
+        path,
+        format: format.to_string(),
+        codec,
+        exported_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    }
+}
+
 pub fn record_export(project: &Path, record: &ExportRecord, remember_folder: bool) {
     if let Err(error) = frameever_utils::storage::record_export(project, record) {
         tracing::warn!(%error, project = %project.display(), "Could not record the export");

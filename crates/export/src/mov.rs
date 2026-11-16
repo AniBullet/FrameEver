@@ -60,6 +60,7 @@ impl MovExportSettings {
         if self.fps == 0 {
             return Err("Export frame rate must be at least 1 fps".to_string());
         }
+        base.require_frames(self.fps)?;
         let meta = &base.studio_meta;
 
         let (tx_image_data, mut video_rx) = tokio::sync::mpsc::channel::<(RenderedFrame, u32)>(4);

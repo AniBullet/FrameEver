@@ -73,6 +73,7 @@ impl GifExportSettings {
         base: ExporterBase,
         mut on_progress: impl FnMut(u32) -> bool + Send + 'static,
     ) -> Result<PathBuf, String> {
+        base.require_frames(self.fps)?;
         let meta = &base.studio_meta;
 
         let (tx_image_data, mut video_rx) = tokio::sync::mpsc::channel::<(RenderedFrame, u32)>(4);

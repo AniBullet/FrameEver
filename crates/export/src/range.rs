@@ -1,7 +1,6 @@
-use serde::{Deserialize, Serialize};
-use specta::Type;
+use serde::Serialize;
 
-#[derive(Serialize, Deserialize, Type, Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
 pub struct ExportRange {
     pub start: f64,
     pub end: f64,
@@ -230,21 +229,45 @@ mod tests {
         .await
         .unwrap();
         let expected = base.total_frames(FPS);
-        let path = Box::pin(
-            Mp4ExportSettings {
-                fps: FPS,
-                resolution_base: XY::new(64, 64),
-                compression: crate::mp4::ExportCompression::Maximum,
-                custom_bpp: None,
-                force_ffmpeg_decoder: false,
-                optimize_filesize: false,
-                codec: crate::mp4::ExportCodec::H264,
-            }
-            .export_prepared(base, |_| true),
+        let path = Box::pin(mp4_settings().export_prepared(base, |_| true))
+            .await
+            .unwrap();
+        (expected, path)
+    }
+
+    fn mp4_settings() -> Mp4ExportSettings {
+        Mp4ExportSettings {
+            fps: FPS,
+            resolution_base: XY::new(64, 64),
+            compression: crate::mp4::ExportCompression::Maximum,
+            custom_bpp: None,
+            force_ffmpeg_decoder: false,
+            optimize_filesize: false,
+            codec: crate::mp4::ExportCodec::H264,
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires ffmpeg and a wgpu adapter"]
+    async fn a_cancelled_mp4_of_a_clip_leaves_no_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let project = directory.path().join("project.ever");
+        two_second_recording(&project);
+        let output = directory.path().join("clip.mp4");
+        let base = Box::pin(
+            ExporterBase::builder(project)
+                .with_config(ProjectConfiguration::default())
+                .with_output_path(output.clone())
+                .with_range(Some(CLIP))
+                .build_for_mp4(Default::default()),
         )
         .await
         .unwrap();
-        (expected, path)
+
+        let result = Box::pin(mp4_settings().export_prepared(base, |frame| frame < 5)).await;
+
+        assert!(result.is_err(), "{result:?}");
+        assert!(!output.exists());
     }
 
     #[tokio::test]
@@ -357,6 +380,70 @@ mod tests {
             result,
             Err(crate::ExporterBuildError::NothingToExport)
         ));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires ffmpeg and a wgpu adapter"]
+    async fn a_clip_shorter_than_one_frame_is_nothing_to_export() {
+        let directory = tempfile::tempdir().unwrap();
+        let project = directory.path().join("project.ever");
+        two_second_recording(&project);
+        let between_frames = Some(ExportRange {
+            start: 0.31,
+            end: 0.39,
+        });
+        let builder = |name: &str| {
+            ExporterBase::builder(project.clone())
+                .with_config(ProjectConfiguration::default())
+                .with_output_path(directory.path().join(name))
+                .with_range(between_frames)
+        };
+        let nothing = Err(crate::ExporterBuildError::NothingToExport.to_string());
+
+        let gif = Box::pin(
+            GifExportSettings {
+                fps: FPS,
+                resolution_base: XY::new(64, 64),
+                quality: None,
+            }
+            .export(
+                Box::pin(builder("short.gif").build_video_only())
+                    .await
+                    .unwrap(),
+                |_| true,
+            ),
+        )
+        .await;
+        let mov = Box::pin(
+            crate::mov::MovExportSettings {
+                fps: FPS,
+                resolution_base: XY::new(64, 64),
+                cursor_only: false,
+            }
+            .export(
+                Box::pin(builder("short.mov").build_video_only())
+                    .await
+                    .unwrap(),
+                |_| true,
+            ),
+        )
+        .await;
+        let mp4 = Box::pin(
+            mp4_settings().export_prepared(
+                Box::pin(builder("short.mp4").build_for_mp4(Default::default()))
+                    .await
+                    .unwrap(),
+                |_| true,
+            ),
+        )
+        .await;
+
+        assert_eq!(gif, nothing);
+        assert_eq!(mov, nothing);
+        assert_eq!(mp4, nothing);
+        for name in ["short.gif", "short.mov", "short.mp4"] {
+            assert!(!directory.path().join(name).exists(), "{name}");
+        }
     }
 
     #[test]

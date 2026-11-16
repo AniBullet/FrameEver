@@ -17,6 +17,13 @@ const TOAST_WIDTH: f32 = 340.;
 const TOAST_BOTTOM: f32 = 44.;
 const CHOICES: [Option<Version>; 3] = [Some(Version::Compressed), Some(Version::Original), None];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ButtonTone {
+    Plain,
+    Primary,
+    Danger,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Item {
     path: PathBuf,
@@ -392,12 +399,13 @@ impl MainWindow {
         .detach();
     }
 
-    fn dialog_button(
+    pub(super) fn dialog_button(
         &self,
         id: &'static str,
-        label: &'static str,
-        danger: bool,
+        label: impl Into<SharedString>,
+        tone: ButtonTone,
         focused: bool,
+        disabled: bool,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
         div()
@@ -407,23 +415,34 @@ impl MainWindow {
             .h(px(crate::theme::CONTROL_HEIGHT))
             .px(px(12.))
             .rounded(px(6.))
-            .cursor_pointer()
             .text_size(px(13.))
             .font_weight(FontWeight::MEDIUM)
             .border_2()
             .border_color(gpui::transparent_black())
             .when(focused, |this| this.border_color(theme.ring))
-            .when(danger, |this| {
-                this.bg(theme.danger)
-                    .text_color(theme.danger_foreground)
-                    .hover(move |style| style.bg(theme.danger_hover))
-            })
-            .when(!danger, |this| {
-                this.bg(theme.secondary)
+            .when(disabled, |this| this.opacity(0.5))
+            .when(!disabled, |this| this.cursor_pointer())
+            .map(|this| match tone {
+                ButtonTone::Plain => this
+                    .bg(theme.secondary)
                     .text_color(theme.foreground)
-                    .hover(move |style| style.bg(theme.accent))
+                    .when(!disabled, |this| {
+                        this.hover(move |style| style.bg(theme.accent))
+                    }),
+                ButtonTone::Primary => this
+                    .bg(theme.primary)
+                    .text_color(theme.primary_foreground)
+                    .when(!disabled, |this| {
+                        this.hover(move |style| style.bg(theme.primary_hover))
+                    }),
+                ButtonTone::Danger => this
+                    .bg(theme.danger)
+                    .text_color(theme.danger_foreground)
+                    .when(!disabled, |this| {
+                        this.hover(move |style| style.bg(theme.danger_hover))
+                    }),
             })
-            .child(label)
+            .child(label.into())
     }
 
     fn render_delete_choice(
@@ -587,8 +606,9 @@ impl MainWindow {
                                     self.dialog_button(
                                         "library-delete-cancel",
                                         t!("Cancel"),
-                                        false,
+                                        ButtonTone::Plain,
                                         dialog.focus == DialogFocus::Cancel,
+                                        false,
                                     )
                                     .on_click(cx.listener(
                                         |this, _, _, cx| {
@@ -600,8 +620,9 @@ impl MainWindow {
                                     self.dialog_button(
                                         "library-delete-confirm",
                                         t!("Delete"),
-                                        true,
+                                        ButtonTone::Danger,
                                         dialog.focus == DialogFocus::Delete,
+                                        false,
                                     )
                                     .on_click(cx.listener(
                                         |this, _, window, cx| {

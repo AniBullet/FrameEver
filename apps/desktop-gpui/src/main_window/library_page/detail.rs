@@ -331,15 +331,7 @@ impl MainWindow {
                     library::copy_file_to_path(&source, &dest)?;
                     library::record_export(
                         &project,
-                        &frameever_utils::storage::ExportRecord {
-                            path: dest,
-                            format: "mp4".to_string(),
-                            codec: None,
-                            exported_at: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs(),
-                        },
+                        &library::export_record(dest, "mp4", None),
                         true,
                     );
                     Ok::<(), String>(())

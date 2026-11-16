@@ -5,7 +5,7 @@ use crate::ExportRange;
 pub const FPS: u32 = 15;
 
 const LONG_SIDE_LIMIT: f64 = 1080.0;
-const ESTIMATED_BYTES_PER_PIXEL: f64 = 0.25;
+const ESTIMATED_BYTES_PER_PIXEL: f64 = 0.06;
 const SMALLEST_ESTIMATE: f64 = 100_000.0;
 const LARGE_BYTES: u64 = 20_000_000;
 
@@ -24,20 +24,23 @@ pub fn is_large(bytes: u64) -> bool {
     bytes > LARGE_BYTES
 }
 
-pub const CANCELLED: &str = "GIF cancelled";
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GifFailure {
+    Cancelled,
+    VideoMissing,
+    VideoUnreadable(String),
+    FolderNotWritable(String),
+}
+
+fn unreadable(what: &str) -> impl Fn(ffmpeg::Error) -> GifFailure + '_ {
+    move |error| GifFailure::VideoUnreadable(format!("{what}: {error}"))
+}
+
+fn not_writable<E: std::fmt::Display>(what: &str) -> impl Fn(E) -> GifFailure + '_ {
+    move |error| GifFailure::FolderNotWritable(format!("{what}: {error}"))
+}
 
 const TIME_TOLERANCE: f64 = 1e-4;
-
-pub fn video_size(video: &Path) -> Option<(u32, u32)> {
-    let input = ffmpeg::format::input(video).ok()?;
-    let stream = input.streams().best(ffmpeg::media::Type::Video)?;
-    let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
-        .ok()?
-        .decoder()
-        .video()
-        .ok()?;
-    Some((decoder.width(), decoder.height()))
-}
 
 pub fn save_gif(
     video: &Path,
@@ -45,13 +48,15 @@ pub fn save_gif(
     range: ExportRange,
     size: GifSize,
     mut progress: impl FnMut(u32, u32) -> bool,
-) -> Result<(), String> {
-    let mut input = ffmpeg::format::input(video)
-        .map_err(|error| format!("Could not open the video: {error}"))?;
+) -> Result<(), GifFailure> {
+    if !video.is_file() {
+        return Err(GifFailure::VideoMissing);
+    }
+    let mut input = ffmpeg::format::input(video).map_err(unreadable("open the video"))?;
     let stream = input
         .streams()
         .best(ffmpeg::media::Type::Video)
-        .ok_or_else(|| "The file has no video".to_string())?;
+        .ok_or_else(|| GifFailure::VideoUnreadable("the file has no video".to_string()))?;
     let stream_index = stream.index();
     let time_base = f64::from(stream.time_base());
     let stream_start = match stream.start_time() {
@@ -60,11 +65,13 @@ pub fn save_gif(
     };
     let seconds = input.duration() as f64 / f64::from(ffmpeg::ffi::AV_TIME_BASE);
     if seconds > 0.0 && range.start >= seconds {
-        return Err("The stretch starts after the end of the video".to_string());
+        return Err(GifFailure::VideoUnreadable(
+            "the stretch starts after the end of the video".to_string(),
+        ));
     }
     let mut decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
         .and_then(|context| context.decoder().video())
-        .map_err(|error| format!("Could not decode the video: {error}"))?;
+        .map_err(unreadable("decode the video"))?;
     let (width, height) = size.pixels((decoder.width(), decoder.height()));
     let total = frame_count(range);
 
@@ -73,20 +80,20 @@ pub fn save_gif(
             * f64::from(ffmpeg::ffi::AV_TIME_BASE)) as i64;
         input
             .seek(position, ..position)
-            .map_err(|error| format!("Could not find the start of the stretch: {error}"))?;
+            .map_err(unreadable("find the start of the stretch"))?;
     }
 
     if let Some(parent) = output.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        std::fs::create_dir_all(parent).map_err(not_writable("create the folder"))?;
     }
-    let staged = crate::prepare_new_output(output)?;
+    let staged = crate::prepare_new_output(output).map_err(not_writable("stage the GIF"))?;
     let encoder = frameever_enc_gif::GifEncoderWrapper::new(
         staged.as_ref().map_or(output, AsRef::as_ref),
         width,
         height,
         FPS,
     )
-    .map_err(|error| format!("Could not start the GIF: {error}"))?;
+    .map_err(not_writable("start the GIF"))?;
 
     let mut frames = StretchFrames {
         encoder,
@@ -104,7 +111,7 @@ pub fn save_gif(
     let mut receive = |decoder: &mut ffmpeg::decoder::Video,
                        frames: &mut StretchFrames,
                        progress: &mut dyn FnMut(u32, u32) -> bool|
-     -> Result<(), String> {
+     -> Result<(), GifFailure> {
         while !frames.is_full() && decoder.receive_frame(&mut incoming).is_ok() {
             let time = incoming
                 .timestamp()
@@ -116,7 +123,7 @@ pub fn save_gif(
     };
 
     if !progress(0, total) {
-        return Err(CANCELLED.to_string());
+        return Err(GifFailure::Cancelled);
     }
     for (stream, packet) in input.packets() {
         if frames.is_full() {
@@ -127,7 +134,7 @@ pub fn save_gif(
         }
         decoder
             .send_packet(&packet)
-            .map_err(|error| format!("Could not decode the video: {error}"))?;
+            .map_err(unreadable("decode the video"))?;
         receive(&mut decoder, &mut frames, &mut progress)?;
     }
     decoder.send_eof().ok();
@@ -137,11 +144,11 @@ pub fn save_gif(
     frames
         .encoder
         .finish()
-        .map_err(|error| format!("Could not finish the GIF: {error}"))?;
+        .map_err(not_writable("finish the GIF"))?;
     if let Some(staged) = staged {
         staged
             .persist_noclobber(output)
-            .map_err(|error| error.to_string())?;
+            .map_err(not_writable("move the GIF into place"))?;
     }
     progress(total, total);
     Ok(())
@@ -173,7 +180,7 @@ impl StretchFrames {
         incoming: &mut ffmpeg::frame::Video,
         time: f64,
         progress: &mut dyn FnMut(u32, u32) -> bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), GifFailure> {
         while self.held.is_some() && !self.is_full() && self.next_time() < time - TIME_TOLERANCE {
             self.write_held(progress)?;
         }
@@ -183,9 +190,11 @@ impl StretchFrames {
         Ok(())
     }
 
-    fn fill(&mut self, progress: &mut dyn FnMut(u32, u32) -> bool) -> Result<(), String> {
+    fn fill(&mut self, progress: &mut dyn FnMut(u32, u32) -> bool) -> Result<(), GifFailure> {
         if self.held.is_none() {
-            return Err("The video has no frames in that stretch".to_string());
+            return Err(GifFailure::VideoUnreadable(
+                "the video has no frames in that stretch".to_string(),
+            ));
         }
         while !self.is_full() {
             self.write_held(progress)?;
@@ -193,7 +202,7 @@ impl StretchFrames {
         Ok(())
     }
 
-    fn write_held(&mut self, progress: &mut dyn FnMut(u32, u32) -> bool) -> Result<(), String> {
+    fn write_held(&mut self, progress: &mut dyn FnMut(u32, u32) -> bool) -> Result<(), GifFailure> {
         let Some(held) = &self.held else {
             return Ok(());
         };
@@ -210,22 +219,22 @@ impl StretchFrames {
                         height,
                         ffmpeg::software::scaling::Flags::BICUBIC,
                     )
-                    .map_err(|error| format!("Could not resize the video: {error}"))?,
+                    .map_err(unreadable("resize the video"))?,
                 );
             }
             if let Some(scaler) = &mut self.scaler {
                 scaler
                     .run(held, &mut self.scaled)
-                    .map_err(|error| format!("Could not resize a frame: {error}"))?;
+                    .map_err(unreadable("resize a frame"))?;
             }
             self.scaled_is_held = true;
         }
         self.encoder
             .add_frame(self.scaled.data(0), self.scaled.stride(0))
-            .map_err(|error| format!("Could not add a frame to the GIF: {error}"))?;
+            .map_err(not_writable("add a frame to the GIF"))?;
         self.written += 1;
         if !progress(self.written.min(self.total - 1), self.total) {
-            return Err(CANCELLED.to_string());
+            return Err(GifFailure::Cancelled);
         }
         Ok(())
     }
@@ -309,6 +318,17 @@ mod tests {
         }
         file.finish().unwrap();
         project
+    }
+
+    fn video_size(video: &Path) -> Option<(u32, u32)> {
+        let input = ffmpeg::format::input(video).ok()?;
+        let stream = input.streams().best(ffmpeg::media::Type::Video)?;
+        let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
+            .ok()?
+            .decoder()
+            .video()
+            .ok()?;
+        Some((decoder.width(), decoder.height()))
     }
 
     fn video(project: &Path) -> PathBuf {
@@ -442,7 +462,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert_eq!(error, CANCELLED);
+        assert_eq!(error, GifFailure::Cancelled);
         assert_eq!(std::fs::read_dir(&exports).unwrap().count(), 0);
     }
 
@@ -511,35 +531,46 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_video_or_a_stretch_past_its_end_is_an_error_and_writes_nothing() {
+    fn a_failure_says_whether_the_video_or_the_folder_is_the_problem_and_writes_nothing() {
         let directory = tempfile::tempdir().unwrap();
         let project = instant_recording(directory.path());
         let exports = directory.path().join("Exports");
         std::fs::create_dir_all(&exports).unwrap();
+        let damaged = project.join("content/damaged.mp4");
+        std::fs::write(&damaged, b"not a video").unwrap();
+        let blocked = directory.path().join("blocked");
+        std::fs::write(&blocked, b"a file where the folder should be").unwrap();
+        let save = |video: &Path, output: &Path, range| {
+            save_gif(video, output, range, GifSize::Small, |_, _| true)
+        };
 
-        assert!(
-            save_gif(
+        assert_eq!(
+            save(
                 &project.join("content/gone.mp4"),
                 &exports.join("gone.gif"),
-                WHOLE,
-                GifSize::Small,
-                |_, _| true,
-            )
-            .is_err()
+                WHOLE
+            ),
+            Err(GifFailure::VideoMissing)
         );
-        assert!(
-            save_gif(
+        assert!(matches!(
+            save(&damaged, &exports.join("damaged.gif"), WHOLE),
+            Err(GifFailure::VideoUnreadable(_))
+        ));
+        assert!(matches!(
+            save(
                 &video(&project),
                 &exports.join("past.gif"),
                 ExportRange {
                     start: 5.0,
                     end: 6.0,
                 },
-                GifSize::Small,
-                |_, _| true,
-            )
-            .is_err()
-        );
+            ),
+            Err(GifFailure::VideoUnreadable(_))
+        ));
+        assert!(matches!(
+            save(&video(&project), &blocked.join("blocked.gif"), WHOLE),
+            Err(GifFailure::FolderNotWritable(_))
+        ));
         assert_eq!(std::fs::read_dir(&exports).unwrap().count(), 0);
     }
 
@@ -557,14 +588,15 @@ mod tests {
 
     #[test]
     fn the_estimate_grows_with_pixels_and_seconds_and_warns_above_20_mb() {
-        assert_eq!(estimated_bytes((540, 304), 10.0), 6_156_000);
-        assert_eq!(estimated_bytes((1080, 608), 10.0), 24_624_000);
-        assert_eq!(estimated_bytes((270, 152), 2.5), 384_750);
+        assert_eq!(estimated_bytes((540, 304), 10.0), 1_477_440);
+        assert_eq!(estimated_bytes((1080, 608), 10.0), 5_909_760);
+        assert_eq!(estimated_bytes((1080, 608), 40.0), 23_639_040);
+        assert_eq!(estimated_bytes((270, 152), 5.0), 184_680);
         assert_eq!(estimated_bytes((2, 2), 0.1), 100_000);
 
-        assert!(!is_large(6_156_000));
+        assert!(!is_large(5_909_760));
         assert!(!is_large(20_000_000));
-        assert!(is_large(24_624_000));
+        assert!(is_large(23_639_040));
     }
 
     #[test]

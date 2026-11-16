@@ -277,6 +277,7 @@ impl Mp4ExportSettings {
         base: ExporterBase,
         on_progress: impl FnMut(u32) -> bool + Send + 'static,
     ) -> Result<PathBuf, String> {
+        base.require_frames(self.fps)?;
         info!("Exporting mp4 with settings: {:?}", &self);
         info!("Expected to render {} frames", base.total_frames(self.fps));
 
@@ -537,7 +538,7 @@ impl Mp4ExportSettings {
                         ExportAudioTimeline {
                             project: project_for_audio,
                             fps,
-                            sampled: renumbered,
+                            renumbered,
                         },
                         move || {
                             worker_cancellation.as_ref().is_some_and(|cancel| cancel.load(Ordering::Relaxed))
@@ -773,15 +774,15 @@ impl Mp4ExportSettings {
             {
                 return Err("Export cancelled".to_string());
             }
-            if let Some(temporary_output) = temporary_output {
-                Arc::try_unwrap(temporary_output)
-                    .map_err(|_| "Export output is still in use".to_string())?
-                    .persist_noclobber(&output_path)
-                    .map_err(|error| error.to_string())?;
-            }
         } else {
             tokio::try_join!(encoder_thread, render_video_task)
                 .map_err(Mp4PipelineError::message)?;
+        }
+        if let Some(temporary_output) = temporary_output {
+            Arc::try_unwrap(temporary_output)
+                .map_err(|_| "Export output is still in use".to_string())?
+                .persist_noclobber(&output_path)
+                .map_err(|error| error.to_string())?;
         }
 
         Ok(output_path)
@@ -981,7 +982,7 @@ enum ExportAudioSource {
 struct ExportAudioTimeline {
     project: ProjectConfiguration,
     fps: u32,
-    sampled: bool,
+    renumbered: bool,
 }
 
 struct ExportAudioJob {
@@ -1024,7 +1025,7 @@ impl ExportAudioWorker {
                 let ExportAudioTimeline {
                     project,
                     fps,
-                    sampled,
+                    renumbered,
                 } = timeline;
                 let mut queue = PacketQueue::new(stream_time_base);
                 let sample_rate = u64::from(AudioRenderer::SAMPLE_RATE);
@@ -1040,14 +1041,14 @@ impl ExportAudioWorker {
                         ExportAudioSource::Renderer(audio) => {
                             if rendered_frames == 0 {
                                 audio.set_playhead(
-                                    if sampled {
+                                    if renumbered {
                                         job.timeline_frame as f64 / fps as f64
                                     } else {
                                         0.0
                                     },
                                     &project,
                                 );
-                            } else if sampled
+                            } else if renumbered
                                 && last_timeline_frame
                                     .is_some_and(|last| job.timeline_frame != last + 1)
                             {
@@ -1510,7 +1511,7 @@ async fn export_render_to_channel(
     let (tx_image_data, mut video_rx) = tokio::sync::mpsc::channel::<(Nv12RenderedFrame, u32)>(8);
 
     let screenshot_project_path = frame_windows.is_none().then_some(project_path);
-    let sampling = frame_windows.is_some();
+    let renumbered = frame_windows.is_some();
 
     let render_result = {
         let render_future = Box::pin(frameever_rendering::render_video_to_channel_nv12(
@@ -1581,7 +1582,7 @@ async fn export_render_to_channel(
                 }
 
                 let mut export_frame = nv12_from_rendered_frame(frame);
-                if sampling {
+                if renumbered {
                     export_frame.frame_number = frame_count;
                 }
 
