@@ -296,3 +296,69 @@ fn display_filters_edited_text_and_wordless_captions() {
     assert_eq!(shown.text, "okay then");
     assert_eq!((shown.start, shown.end), (4.0, 6.0));
 }
+
+use FillerKind::{FalseStart, RepeatedWord};
+
+#[test]
+fn repeated_words_mark_every_copy_but_the_last() {
+    assert_eq!(
+        found(&["I", "I", "think", "we", "we", "we", "should", "go"]),
+        kinds_and_text(&[
+            (RepeatedWord, &["I"]),
+            (RepeatedWord, &["we"]),
+            (RepeatedWord, &["we"]),
+        ])
+    );
+}
+
+#[test]
+fn repeated_phrases_are_found_through_hesitations() {
+    assert_eq!(
+        found(&["I", "want", "to,", "um,", "I", "want", "to", "show", "you"]),
+        kinds_and_text(&[
+            (RepeatedWord, &["I", "want", "to,"]),
+            (Hesitation, &["um,"])
+        ])
+    );
+}
+
+#[test]
+fn intentional_doubles_and_repeats_across_a_sentence_are_kept() {
+    for sentence in [
+        &["it", "is", "very", "very", "fast"][..],
+        &["she", "had", "had", "enough"],
+        &["call", "nine", "one", "one"],
+        &["Go.", "Go", "now."],
+    ] {
+        assert!(
+            found(sentence)
+                .iter()
+                .all(|(kind, _)| *kind != RepeatedWord),
+            "{sentence:?}"
+        );
+    }
+}
+
+#[test]
+fn cut_off_fragments_and_restarted_clauses_are_false_starts() {
+    assert_eq!(
+        found(&["we", "need", "the", "wh-", "the", "settings"]),
+        kinds_and_text(&[(FalseStart, &["the", "wh-"])])
+    );
+    assert_eq!(
+        found(&["we", "should,", "um,", "we", "need", "to", "restart"]),
+        kinds_and_text(&[(FalseStart, &["we", "should,"]), (Hesitation, &["um,"])])
+    );
+    assert_eq!(
+        found(&["I", "think,", "um,", "I", "can", "fix", "it"]),
+        kinds_and_text(&[(Hesitation, &["um,"])])
+    );
+}
+
+#[test]
+fn chinese_repeated_words_are_found() {
+    assert_eq!(
+        found(&["我", "我", "觉得", "可以"]),
+        kinds_and_text(&[(RepeatedWord, &["我"])])
+    );
+}

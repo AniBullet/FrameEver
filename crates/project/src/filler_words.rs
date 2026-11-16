@@ -6,6 +6,26 @@ use crate::{CaptionTrackSegment, CaptionWord, caption_text_from_words, is_cjk};
 pub enum FillerKind {
     Hesitation,
     FillerPhrase,
+    RepeatedWord,
+    FalseStart,
+}
+
+impl FillerKind {
+    pub const ALL: [Self; 4] = [
+        Self::Hesitation,
+        Self::FillerPhrase,
+        Self::RepeatedWord,
+        Self::FalseStart,
+    ];
+
+    fn priority(self) -> u8 {
+        match self {
+            Self::Hesitation => 0,
+            Self::RepeatedWord => 1,
+            Self::FalseStart => 2,
+            Self::FillerPhrase => 3,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -285,8 +305,8 @@ pub fn caption_display_segment(
     }))
 }
 
-pub fn detect_filler_words(words: &[CaptionWord]) -> Vec<FillerWord> {
-    let words: Vec<Word> = words
+pub fn detect_filler_words(captions: &[CaptionWord]) -> Vec<FillerWord> {
+    let words: Vec<Word> = captions
         .iter()
         .map(|word| Word {
             norm: normalize_word(&word.text),
@@ -313,14 +333,11 @@ pub fn detect_filler_words(words: &[CaptionWord]) -> Vec<FillerWord> {
         }
     }
 
-    let mut found = Vec::new();
+    let mut candidates = repeats::repeats_and_false_starts(captions, &hesitations);
     let mut at = 0;
     while at < words.len() {
         if hesitations[at] {
-            found.push(FillerWord {
-                kind: FillerKind::Hesitation,
-                words: at..at + 1,
-            });
+            candidates.push((FillerKind::Hesitation, at..at + 1));
             at += 1;
             continue;
         }
@@ -328,17 +345,39 @@ pub fn detect_filler_words(words: &[CaptionWord]) -> Vec<FillerWord> {
             .or_else(|| chinese_phrase_at(&words, &hesitations, at))
         {
             Some(last) => {
-                found.push(FillerWord {
-                    kind: FillerKind::FillerPhrase,
-                    words: at..last + 1,
-                });
+                candidates.push((FillerKind::FillerPhrase, at..last + 1));
                 at = last + 1;
             }
             None => at += 1,
         }
     }
+    candidates.sort_by_key(|(kind, range)| (kind.priority(), range.start, range.end));
+    let mut taken = vec![false; words.len()];
+    let mut kept: Vec<FillerWord> = Vec::new();
+    for (kind, range) in candidates {
+        if taken[range.clone()].iter().any(|taken| *taken) {
+            continue;
+        }
+        taken[range.clone()].fill(true);
+        kept.push(FillerWord { kind, words: range });
+    }
+    kept.sort_by_key(|filler| filler.words.start);
+    let mut found: Vec<FillerWord> = Vec::with_capacity(kept.len());
+    for filler in kept {
+        match found.last_mut() {
+            Some(previous)
+                if previous.kind == FillerKind::FalseStart
+                    && filler.kind == FillerKind::FalseStart
+                    && previous.words.end == filler.words.start =>
+            {
+                previous.words.end = filler.words.end;
+            }
+            _ => found.push(filler),
+        }
+    }
     found
 }
 
+mod repeats;
 #[cfg(test)]
 mod tests;

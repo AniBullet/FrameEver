@@ -107,6 +107,7 @@ mod target_thumbnails;
 mod teleprompter;
 mod teleprompter_window;
 mod theme;
+mod transcript;
 mod transcription;
 mod tray;
 mod ui;
