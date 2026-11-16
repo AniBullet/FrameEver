@@ -153,7 +153,6 @@ const CLIP_WAVE_BAND: f32 = 18.;
 const MUSIC_WAVE_HEIGHT: f32 = 16.;
 const MUSIC_WAVE_BOTTOM: f32 = 3.;
 const MUSIC_LABEL_TOP: f32 = 5.;
-const TRANSITION_MARK_SIZE: f32 = 14.;
 const CHAPTER_MARK_WIDTH: f32 = 2.;
 const CHAPTER_MARK_CAP: f32 = 8.;
 const SEGMENT_PADDING_LEFT: f32 = 10.;
@@ -2872,7 +2871,6 @@ fn render_segment(
     if let SegmentDetail::Clip {
         holds,
         recording_clip,
-        transition_in,
         muted,
         ..
     } = &segment.detail
@@ -2908,10 +2906,6 @@ fn render_segment(
             let hold_x = ((hold_start - segment.start) / secs_per_pixel) as f32;
             let hold_width = ((hold_end - hold_start) / secs_per_pixel) as f32;
             fill = fill.child(render_hold(theme, color, hold_x, hold_width, width, height));
-        }
-        if let Some(overlap) = transition_in {
-            let center = (*overlap / 2. / secs_per_pixel) as f32;
-            fill = fill.child(render_transition_mark(theme, center, width, height));
         }
     }
 
@@ -3251,37 +3245,6 @@ fn rounded_segment_overlay(
                 .rounded(px(SEGMENT_RADIUS))
                 .bg(color),
         )
-}
-
-fn render_transition_mark(
-    theme: &Theme,
-    center: f32,
-    segment_width: f32,
-    height: f32,
-) -> impl IntoElement {
-    let half = TRANSITION_MARK_SIZE / 2.;
-    let center = center.clamp(half + 1., (segment_width - half - 1.).max(half + 1.));
-    let ink = Hsla::from(theme.foreground);
-    gpui::canvas(
-        |bounds, _window, _cx| bounds,
-        move |_, bounds, window, _cx| {
-            let mut builder = gpui::PathBuilder::fill();
-            let point =
-                |x: f32, y: f32| gpui::point(bounds.origin.x + px(x), bounds.origin.y + px(y));
-            builder.move_to(point(half, 0.));
-            builder.line_to(point(TRANSITION_MARK_SIZE, half));
-            builder.line_to(point(half, TRANSITION_MARK_SIZE));
-            builder.line_to(point(0., half));
-            builder.close();
-            if let Ok(path) = builder.build() {
-                window.paint_path(path, ink);
-            }
-        },
-    )
-    .absolute()
-    .left(px(center - half))
-    .top(px(height / 2. - half))
-    .size(px(TRANSITION_MARK_SIZE))
 }
 
 /// The paused window a fullscreen text segment inserts inside a clip

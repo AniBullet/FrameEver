@@ -1386,15 +1386,14 @@ fn mix_transition_audio_at(
     {
         let progress = (progress + (sample_offset + sample_index) as f64 * progress_per_sample)
             .clamp(0.0, 1.0);
-        let (outgoing_gain, incoming_gain) = match kind {
-            ClipTransitionType::CrossFade => {
-                let angle = progress * std::f64::consts::FRAC_PI_2;
-                (angle.cos() as f32, angle.sin() as f32)
-            }
-            ClipTransitionType::FadeThroughBlack => (
+        let (outgoing_gain, incoming_gain) = if kind.dips() {
+            (
                 (1.0 - progress * 2.0).max(0.0) as f32,
                 (progress * 2.0 - 1.0).max(0.0) as f32,
-            ),
+            )
+        } else {
+            let angle = progress * std::f64::consts::FRAC_PI_2;
+            (angle.cos() as f32, angle.sin() as f32)
         };
         output_frame[0] = (outgoing_frame[0] * outgoing_gain + incoming_frame[0] * incoming_gain)
             .clamp(-1.0, 1.0);
@@ -3682,6 +3681,20 @@ mod tests {
         let stream = render_export_audio(&mut renderer, &project, 30, 45);
 
         assert!(left_at_time(&stream, 0.75).abs() < 0.0001);
+    }
+
+    #[test]
+    fn every_dip_reaches_silence_and_every_moving_kind_keeps_power_at_midpoint() {
+        for kind in ClipTransitionType::ALL {
+            let (_dir, mut renderer, project) = transition_fixture(kind);
+            let stream = render_export_audio(&mut renderer, &project, 30, 45);
+            let midpoint = left_at_time(&stream, 0.75).abs();
+            if kind.dips() {
+                assert!(midpoint < 0.0001, "{kind:?}: {midpoint}");
+            } else {
+                assert!(midpoint > 0.01, "{kind:?}: {midpoint}");
+            }
+        }
     }
 
     #[test]

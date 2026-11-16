@@ -81,6 +81,7 @@ mod chapter_marks;
 mod frame;
 mod loading;
 mod scenes;
+mod transitions;
 
 // ---------------------------------------------------------------------------
 // Window geometry
@@ -1316,6 +1317,13 @@ enum DragKind {
     ClipTrimEnd {
         end: f64,
     },
+    TransitionDuration {
+        index: usize,
+        initial: f64,
+        grow: f64,
+        kind: frameever_project::ClipTransitionType,
+        from_body: bool,
+    },
     /// `TL/ZoomTrack.tsx:188-295`: a press on bare zoom track, which becomes a
     /// segment either on the first move (dragged to length) or on release
     /// (the default one-`minDuration` box).
@@ -1509,6 +1517,8 @@ pub struct EditorWindow {
     pub(crate) generating_keyboard: bool,
     pub(crate) keyboard_generation_message: Option<String>,
     clip_speed: Option<ClipSpeedMenu>,
+    transition_popover: Option<transitions::TransitionPopover>,
+    transition_drag_base: Option<TimelineConfiguration>,
     timeline_scroll: gpui::ScrollHandle,
     minimap_drag: Option<timeline::MinimapDrag>,
     /// Magnetic edges for the live drag: playhead, clip cuts and every other
@@ -2160,6 +2170,8 @@ impl EditorWindow {
             generating_keyboard: false,
             keyboard_generation_message: None,
             clip_speed: None,
+            transition_popover: None,
+            transition_drag_base: None,
             timeline_scroll: gpui::ScrollHandle::new(),
             minimap_drag: None,
             drag_snap_targets: Vec::new(),
@@ -2353,6 +2365,7 @@ impl EditorWindow {
     /// carried across.
     fn rebuild_timeline(&mut self, cx: &mut Context<Self>) {
         dismiss_indexed_sidebar_menu(&mut self.sidebar.menu);
+        self.close_stale_transition_popover();
         let mic = std::mem::take(&mut self.timeline.mic_waveforms);
         let system = std::mem::take(&mut self.timeline.system_waveforms);
         let waveform_paths = self.timeline.waveform_paths.clone();
@@ -3788,6 +3801,12 @@ impl EditorWindow {
             cx.notify();
             return;
         }
+        if self.transition_popover.is_some() && event.keystroke.key.as_str() == "escape" {
+            self.transition_popover = None;
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
         if self.sidebar.color_picker.is_some() && event.keystroke.key.as_str() == "escape" {
             self.close_color_picker(cx);
             cx.stop_propagation();
@@ -4648,30 +4667,14 @@ impl EditorWindow {
             Some(DragKind::ClipTrimStart { .. } | DragKind::ClipTrimEnd { .. })
         );
         let Some(drag_kind) = kind_of_drag else {
-            // A clip body press: select on release, nothing else.
-            self.drag = Some(Drag {
-                track: kind,
+            self.press_clip_body(
                 index,
-                kind: DragKind::Move {
-                    start,
-                    end,
-                    bounds: DragBounds { min: 0., max: 0. },
-                },
-                down_x: f32::from(event.position.x),
-                origin_x: None,
-                moved: false,
-                // 4px, the clip body's own promotion (`TL/ClipTrack.tsx:875`).
-                // Nothing happens past it here -- the transition drag is not
-                // reproduced -- but the threshold still decides whether the
-                // release selects.
-                threshold: 4.,
-                selects_on_click: true,
-                shift: modifiers.0,
-                multi: modifiers.1,
+                (start, end),
+                f32::from(event.position.x),
+                modifiers,
                 press_time,
-                paused: false,
-            });
-            cx.notify();
+                cx,
+            );
             return;
         };
 
@@ -5124,7 +5127,11 @@ impl EditorWindow {
         };
         // The promotion: `Math.abs(event.clientX - downEvent.clientX) > 2`,
         // capturing `initialMouseX` the first time it holds.
-        if (x - drag.down_x).abs() > drag.threshold && !drag.moved {
+        let starts_nothing = matches!(
+            drag.kind,
+            DragKind::TransitionDuration { initial, from_body: true, .. } if initial <= 0.
+        ) && x > drag.down_x;
+        if (x - drag.down_x).abs() > drag.threshold && !drag.moved && !starts_nothing {
             drag.moved = true;
             if drag.origin_x.is_none() {
                 drag.origin_x = Some(x);
@@ -5200,6 +5207,17 @@ impl EditorWindow {
                     cx,
                 ) {
                     self.set_preview_time(next);
+                }
+            }
+            DragKind::TransitionDuration {
+                index,
+                initial,
+                grow,
+                kind,
+                ..
+            } => {
+                if drag.moved {
+                    self.drag_transition(index, (initial, grow * delta), kind, cx);
                 }
             }
             DragKind::ClipTrimStart { start } => {
@@ -6271,6 +6289,9 @@ impl EditorWindow {
             self.clip_draft = None;
             return;
         };
+        if matches!(drag.kind, DragKind::TransitionDuration { .. }) {
+            self.finish_transition_drag(drag.moved);
+        }
 
         // The ghost trim's single commit, before the history resume below so
         // the resumed snapshot records the committed config.
@@ -6327,7 +6348,9 @@ impl EditorWindow {
 
         if matches!(
             drag.kind,
-            DragKind::ClipTrimStart { .. } | DragKind::ClipTrimEnd { .. }
+            DragKind::ClipTrimStart { .. }
+                | DragKind::ClipTrimEnd { .. }
+                | DragKind::TransitionDuration { .. }
         ) {
             self.on_handle_released(cx);
         }
@@ -6335,6 +6358,7 @@ impl EditorWindow {
         self.note_edit(
             match (drag.moved, drag.kind) {
                 (_, DragKind::CreateZoom { .. }) => "create",
+                (true, DragKind::TransitionDuration { .. }) => "clip-transition",
                 (true, DragKind::Move { .. }) => "move",
                 (true, _) => "trim",
                 (false, _) => "select",
@@ -6533,6 +6557,10 @@ impl EditorWindow {
     /// them in reverse and refuses to empty itself, and the scene track's
     /// action takes one index at a time for the same reason.
     pub(crate) fn delete_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.transition_popover.is_some() {
+            self.remove_open_transition(window, cx);
+            return;
+        }
         let Some(selection) = self.selection.clone() else {
             return;
         };
@@ -9091,7 +9119,7 @@ impl EditorWindow {
                 .child(
                     div()
                         .flex_none()
-                        .text_size(px(11.))
+                        .text_size(px(11.5))
                         .text_color(Hsla::from(theme.editor.text_3))
                         .child(voice_eq_summary),
                 )
@@ -9107,79 +9135,7 @@ impl EditorWindow {
                     this.open_clip_voice_eq(index, window, cx);
                 }))
             }))
-            .children((index > 0).then(|| {
-                let can_transition = timeline.segments[index - 1]
-                    .duration()
-                    .min(timeline.segments[index].duration())
-                    >= 0.1;
-                let transition = timeline.effective_transition(index);
-                let selected = match transition.map(|transition| transition.kind) {
-                    None => 0,
-                    Some(frameever_project::ClipTransitionType::CrossFade) => 1,
-                    Some(frameever_project::ClipTransitionType::FadeThroughBlack) => 2,
-                };
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .child(clip_menu_section(&theme, t!("Incoming transition")))
-                    .child(
-                        ui::SegmentedControl::editor(
-                            &theme,
-                            "clip-transition",
-                            [t!("None"), t!("Cross fade"), t!("Through black")]
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, label)| {
-                                    ui::SegmentOption::new(label, i == selected)
-                                        .disabled(i > 0 && !can_transition)
-                                })
-                                .collect(),
-                        )
-                        .stretch()
-                        .item_height(px(32.))
-                        .item_padding(px(2.), px(0.))
-                        .text_size(px(11.))
-                        .on_select(cx.listener(
-                            move |this, choice: &usize, window, cx| {
-                                let value = match choice {
-                                    1 => Some((
-                                        frameever_project::ClipTransitionType::CrossFade,
-                                        transition.map_or(0.5, |value| value.duration),
-                                    )),
-                                    2 => Some((
-                                        frameever_project::ClipTransitionType::FadeThroughBlack,
-                                        transition.map_or(0.5, |value| value.duration),
-                                    )),
-                                    _ => None,
-                                };
-                                this.edit_project("clip-transition", window, cx, |project| {
-                                    project.timeline.as_mut().is_some_and(|timeline| {
-                                        crate::editor_clips::set_clip_transition(
-                                            timeline, index, value,
-                                        )
-                                    })
-                                });
-                            },
-                        )),
-                    )
-                    .children((!can_transition).then(|| {
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme.muted_foreground)
-                            .child(t!("Clip is too short for a transition."))
-                    }))
-                    .children(transition.map(|_| {
-                        self.slider_field(
-                            t!("Duration"),
-                            crate::editor_sidebar::SliderKey::ClipTransition(index),
-                            "secs",
-                            cx,
-                        )
-                        .into_any_element()
-                    }))
-                    .into_any_element()
-            }))
+            .children(self.render_clip_menu_transition_row(index, menu.anchor, window, cx))
             .children(
                 [(true, t!("Move clip up")), (false, t!("Move clip down"))]
                     .into_iter()
@@ -11698,6 +11654,10 @@ impl EditorWindow {
                     // session-dismiss X, shown while cursor data exists.
                     .children(
                         (kind == TrackKind::Clip)
+                            .then(|| self.render_transition_overlays(model, viewport_width, cx)),
+                    )
+                    .children(
+                        (kind == TrackKind::Clip)
                             .then(|| self.render_clip_speed_overlays(model, viewport_width, cx)),
                     )
                     // The empty zoom lane's prompt, as the same dashed row
@@ -12390,7 +12350,8 @@ impl Render for EditorWindow {
                 DragKind::TrimStart { .. }
                 | DragKind::TrimEnd { .. }
                 | DragKind::ClipTrimStart { .. }
-                | DragKind::ClipTrimEnd { .. } => gpui::CursorStyle::ResizeLeftRight,
+                | DragKind::ClipTrimEnd { .. }
+                | DragKind::TransitionDuration { .. } => gpui::CursorStyle::ResizeLeftRight,
                 DragKind::CreateZoom { .. } => gpui::CursorStyle::Arrow,
             })
             .or(self
@@ -12843,6 +12804,7 @@ impl Render for EditorWindow {
             .children(self.render_add_track_popover(cx))
             .children(self.render_chapter_marks_panel(cx))
             .children(self.render_clip_speed_popover(window, cx))
+            .children(self.render_transition_popover(cx))
             // The config sidebar's sliders take the same layer, for the same
             // reason -- and its release is what closes the undo bracket, so a
             // drag that ends outside the 32px row still records exactly one

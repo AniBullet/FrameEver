@@ -318,4 +318,32 @@ mod tests {
         assert_eq!(removed[0].recording_clip, 1);
         assert_eq!(removed[0].volume, Some(0.5));
     }
+
+    #[test]
+    fn every_transition_kind_made_by_a_drag_refuses_a_cut_next_to_it_and_keeps_its_kind() {
+        for kind in ClipTransitionType::ALL {
+            let mut project = two_recordings();
+            let base = project.timeline.clone().unwrap();
+            let timeline = project.timeline.as_mut().unwrap();
+            *timeline = crate::editor_clips::apply_dragged_transition(&base, 1, kind, Some(0.5));
+            let before = bounds(timeline);
+            assert_eq!(
+                cut_clip_range(timeline, 0, 9.5, 9.8),
+                RangeCut::Transition,
+                "{kind:?}"
+            );
+            assert_eq!(
+                cut_clip_range(timeline, 1, 0.2, 0.8),
+                RangeCut::Transition,
+                "{kind:?}"
+            );
+            assert_eq!(bounds(timeline), before);
+            assert_eq!(cut_clip_range(timeline, 0, 2.0, 3.0), RangeCut::Applied);
+            let moved = timeline.effective_transition(2).unwrap();
+            assert_eq!((moved.kind, moved.duration), (kind, 0.5));
+            let reopened: TimelineConfiguration =
+                serde_json::from_value(serde_json::to_value(&*timeline).unwrap()).unwrap();
+            assert_eq!(reopened.effective_transition(2).unwrap().kind, kind);
+        }
+    }
 }

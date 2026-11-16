@@ -169,4 +169,21 @@ mod tests {
         apply_join_fades(&mut [], 5, &[5]);
         assert!(samples[0] < 0.01);
     }
+
+    #[test]
+    fn no_transition_kind_is_a_join_and_later_joins_land_after_its_overlap() {
+        for kind in ClipTransitionType::ALL {
+            let mut timeline = timeline(vec![
+                segment(0, 0.0, 2.0),
+                segment(0, 3.0, 5.0),
+                segment(0, 6.0, 7.0),
+            ]);
+            timeline.transitions.push(ClipTransition {
+                segment_index: 1,
+                kind,
+                duration: 0.5,
+            });
+            assert_eq!(hard_cut_joins(&timeline, 48_000), [168_000], "{kind:?}");
+        }
+    }
 }

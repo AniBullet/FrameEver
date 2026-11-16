@@ -280,6 +280,57 @@ pub(crate) fn drop_clip_transition(
     set_clip_transition(timeline, segment_index, None)
 }
 
+pub(crate) fn max_transition_duration(
+    timeline: &TimelineConfiguration,
+    segment_index: usize,
+) -> f64 {
+    let (Some(previous), Some(current)) = (
+        segment_index
+            .checked_sub(1)
+            .and_then(|previous| timeline.segments.get(previous)),
+        timeline.segments.get(segment_index),
+    ) else {
+        return 0.;
+    };
+    previous.duration().min(current.duration()) / 2.
+}
+
+pub(crate) fn can_add_transition(timeline: &TimelineConfiguration, segment_index: usize) -> bool {
+    segment_index > 0
+        && max_transition_duration(timeline, segment_index)
+            >= frameever_project::MIN_CLIP_TRANSITION_DURATION
+}
+
+pub(crate) fn dragged_transition_duration(initial: f64, grow_by: f64, maximum: f64) -> Option<f64> {
+    let minimum = frameever_project::MIN_CLIP_TRANSITION_DURATION;
+    if !maximum.is_finite() || maximum < minimum {
+        return None;
+    }
+    let requested = initial + grow_by;
+    if !requested.is_finite() || requested < minimum / 2. {
+        return None;
+    }
+    Some(requested.clamp(minimum, maximum))
+}
+
+pub(crate) fn apply_dragged_transition(
+    base: &TimelineConfiguration,
+    segment_index: usize,
+    kind: frameever_project::ClipTransitionType,
+    duration: Option<f64>,
+) -> TimelineConfiguration {
+    let mut timeline = base.clone();
+    match duration {
+        Some(duration) => {
+            set_clip_transition(&mut timeline, segment_index, Some((kind, duration)));
+        }
+        None => {
+            drop_clip_transition(&mut timeline, segment_index);
+        }
+    }
+    timeline
+}
+
 /// `moveClip` (`ClipsSidebar.tsx:639-690`): reorder `timeline.segments`,
 /// remapping the transitions that survive and -- for each one that does not --
 /// rippling every other track across the boundary the removed overlap used to
@@ -4332,5 +4383,137 @@ mod tests {
         assert!(normalized_relative("../outside.mp4", "video").is_err());
         assert!(normalized_relative("a/../../outside.mp4", "video").is_err());
         assert!(normalized_relative("C:/windows.mp4", "video").is_err());
+    }
+
+    fn zoom_at(start: f64, end: f64) -> frameever_project::ZoomSegment {
+        frameever_project::ZoomSegment {
+            start,
+            end,
+            amount: 1.5,
+            mode: frameever_project::ZoomMode::Auto,
+            glide_direction: Default::default(),
+            glide_speed: 0.5,
+            instant_animation: false,
+            edge_snap_ratio: 0.25,
+        }
+    }
+
+    #[test]
+    fn a_transition_drag_grows_from_nothing_and_is_held_to_the_room() {
+        let min = frameever_project::MIN_CLIP_TRANSITION_DURATION;
+        assert_eq!(dragged_transition_duration(0.0, 0.3, 2.0), Some(0.3));
+        assert_eq!(dragged_transition_duration(0.5, 0.25, 2.0), Some(0.75));
+        assert_eq!(dragged_transition_duration(0.5, 9.0, 2.0), Some(2.0));
+        assert_eq!(dragged_transition_duration(0.0, min * 0.6, 2.0), Some(min));
+        assert_eq!(dragged_transition_duration(0.0, min * 0.4, 2.0), None);
+        assert_eq!(dragged_transition_duration(0.5, -0.49, 2.0), None);
+        assert_eq!(dragged_transition_duration(0.5, -3.0, 2.0), None);
+        assert_eq!(dragged_transition_duration(0.0, 0.3, min * 0.9), None);
+        assert_eq!(dragged_transition_duration(0.0, f64::NAN, 2.0), None);
+        assert_eq!(dragged_transition_duration(0.0, 0.3, f64::NAN), None);
+    }
+
+    #[test]
+    fn the_two_halves_of_a_split_clip_take_a_transition() {
+        let mut config = timeline(vec![segment(0, 0.0, 10.0)]);
+        assert!(edits::split_clip_segment(&mut config, 4.0, None));
+        assert_eq!(config.segments.len(), 2);
+        assert_eq!(config.segments[0].end, config.segments[1].start);
+        assert!(can_add_transition(&config, 1));
+        assert!(!can_add_transition(&config, 0));
+
+        let kind = frameever_project::ClipTransitionType::PushLeft;
+        let dragged = apply_dragged_transition(&config, 1, kind, Some(0.5));
+        let transition = dragged.effective_transition(1).unwrap();
+        assert_eq!((transition.kind, transition.duration), (kind, 0.5));
+        assert_eq!(dragged.duration(), 9.5);
+        match dragged.get_frame_mapping(3.75) {
+            Some(frameever_project::TimelineFrameMapping::Transition {
+                outgoing,
+                incoming,
+                ..
+            }) => {
+                assert_eq!(outgoing.segment_index, 0);
+                assert_eq!(incoming.segment_index, 1);
+                assert_eq!(outgoing.source_time, 3.75);
+                assert_eq!(incoming.source_time, 4.25);
+            }
+            other => panic!("expected a transition, got {other:?}"),
+        }
+
+        let mut split_again = apply_dragged_transition(&config, 1, kind, Some(0.5));
+        assert!(edits::split_clip_segment(&mut split_again, 7.0, None));
+        assert_eq!(split_again.transitions.len(), 1);
+        assert_eq!(split_again.transitions[0].segment_index, 1);
+        assert!(can_add_transition(&split_again, 2));
+    }
+
+    #[test]
+    fn clips_from_different_recordings_and_reordered_clips_take_a_transition() {
+        let mut config = timeline(vec![
+            segment(0, 0.0, 6.0),
+            segment(1, 0.0, 6.0),
+            segment(2, 2.0, 9.0),
+        ]);
+        let kind = frameever_project::ClipTransitionType::WipeRight;
+        for index in [1, 2] {
+            assert!(can_add_transition(&config, index));
+            let dragged = apply_dragged_transition(&config, index, kind, Some(1.0));
+            assert_eq!(dragged.effective_transition(index).unwrap().kind, kind);
+        }
+        assert!(move_clip(&mut config, 2, 0));
+        assert_eq!(config.segments[0].recording_clip, 2);
+        for index in [1, 2] {
+            assert!(can_add_transition(&config, index));
+            let dragged = apply_dragged_transition(&config, index, kind, Some(1.0));
+            assert_eq!(dragged.effective_transition(index).unwrap().duration, 1.0);
+        }
+    }
+
+    #[test]
+    fn a_wandering_transition_drag_lands_like_one_change() {
+        let mut base = timeline(vec![segment(0, 0.0, 10.0), segment(1, 0.0, 10.0)]);
+        base.zoom_segments = vec![zoom_at(9.8, 11.0), zoom_at(15.0, 18.0)];
+        base.scene_segments = vec![frameever_project::SceneSegment {
+            start: 10.0,
+            end: 14.0,
+            mode: frameever_project::SceneMode::CameraOnly,
+            split_layout: None,
+            transition_in: 0.3,
+            transition_out: 0.3,
+        }];
+        let kind = frameever_project::ClipTransitionType::Zoom;
+        let mut live = base.clone();
+        for step in [0.2, 1.4, 3.0, 4.5, 0.1, 0.7] {
+            live = apply_dragged_transition(&base, 1, kind, Some(step));
+        }
+        let mut direct = base.clone();
+        assert!(set_clip_transition(&mut direct, 1, Some((kind, 0.7))));
+        let bounds = |config: &TimelineConfiguration| {
+            (
+                config
+                    .zoom_segments
+                    .iter()
+                    .map(|zoom| (zoom.start, zoom.end))
+                    .collect::<Vec<_>>(),
+                config
+                    .scene_segments
+                    .iter()
+                    .map(|scene| (scene.start, scene.end))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        assert_eq!(bounds(&live), bounds(&direct));
+        assert_eq!(live.transitions, direct.transitions);
+
+        let (zooms, scenes) = bounds(&live);
+        assert!(zooms.iter().all(|(start, end)| end > start));
+        assert_eq!(scenes.len(), 1);
+        assert!((scenes[0].0 - 9.3).abs() < 1e-9 && (scenes[0].1 - 13.3).abs() < 1e-9);
+
+        let removed = apply_dragged_transition(&live, 1, kind, None);
+        assert!(removed.transitions.is_empty());
+        let restored = apply_dragged_transition(&base, 1, kind, None);
+        assert_eq!(bounds(&restored), bounds(&base));
     }
 }

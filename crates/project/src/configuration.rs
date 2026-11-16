@@ -13,6 +13,9 @@ use specta::Type;
 
 use crate::DisplayNotch;
 
+#[cfg(test)]
+mod clip_transition_tests;
+
 #[derive(Type, Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum AspectRatio {
@@ -2021,21 +2024,128 @@ pub const MIN_CLIP_TRANSITION_DURATION: f64 = 0.05;
 /// (and to fade back in before leaving the hidden run).
 pub const CLIP_CURSOR_FADE_SECS: f64 = 0.3;
 
-#[derive(Type, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Type, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 pub enum ClipTransitionType {
     #[default]
     CrossFade,
     FadeThroughBlack,
+    FadeThroughWhite,
+    PushLeft,
+    PushRight,
+    PushUp,
+    PushDown,
+    WipeLeft,
+    WipeRight,
+    WipeUp,
+    WipeDown,
+    Zoom,
 }
 
-#[derive(Type, Serialize, Deserialize, Clone, Copy, Debug)]
-#[serde(rename_all = "camelCase")]
+impl ClipTransitionType {
+    pub const ALL: [Self; 12] = [
+        Self::CrossFade,
+        Self::FadeThroughBlack,
+        Self::FadeThroughWhite,
+        Self::PushLeft,
+        Self::PushRight,
+        Self::PushUp,
+        Self::PushDown,
+        Self::WipeLeft,
+        Self::WipeRight,
+        Self::WipeUp,
+        Self::WipeDown,
+        Self::Zoom,
+    ];
+
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            Self::CrossFade => "cross-fade",
+            Self::FadeThroughBlack => "fade-through-black",
+            Self::FadeThroughWhite => "fade-through-white",
+            Self::PushLeft => "push-left",
+            Self::PushRight => "push-right",
+            Self::PushUp => "push-up",
+            Self::PushDown => "push-down",
+            Self::WipeLeft => "wipe-left",
+            Self::WipeRight => "wipe-right",
+            Self::WipeUp => "wipe-up",
+            Self::WipeDown => "wipe-down",
+            Self::Zoom => "zoom",
+        }
+    }
+
+    pub fn from_wire_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.wire_name() == name)
+    }
+
+    pub fn legacy_fallback(self) -> Self {
+        match self {
+            Self::FadeThroughBlack | Self::FadeThroughWhite => Self::FadeThroughBlack,
+            _ => Self::CrossFade,
+        }
+    }
+
+    pub fn dips(self) -> bool {
+        matches!(self, Self::FadeThroughBlack | Self::FadeThroughWhite)
+    }
+}
+
+#[derive(Type, Clone, Copy, Debug, PartialEq)]
 pub struct ClipTransition {
     pub segment_index: u32,
-    #[serde(rename = "type")]
     pub kind: ClipTransitionType,
     pub duration: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipTransitionOut {
+    segment_index: u32,
+    #[serde(rename = "type")]
+    legacy_kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effect: Option<&'static str>,
+    duration: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipTransitionIn {
+    segment_index: u32,
+    #[serde(rename = "type", default)]
+    legacy_kind: Option<String>,
+    #[serde(default)]
+    effect: Option<String>,
+    duration: f64,
+}
+
+impl Serialize for ClipTransition {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let legacy = self.kind.legacy_fallback();
+        ClipTransitionOut {
+            segment_index: self.segment_index,
+            legacy_kind: legacy.wire_name(),
+            effect: (legacy != self.kind).then(|| self.kind.wire_name()),
+            duration: self.duration,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ClipTransition {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = ClipTransitionIn::deserialize(deserializer)?;
+        let parse = |name: Option<&str>| name.and_then(ClipTransitionType::from_wire_name);
+        let kind = parse(wire.effect.as_deref())
+            .or_else(|| parse(wire.legacy_kind.as_deref()))
+            .unwrap_or_default();
+        Ok(Self {
+            segment_index: wire.segment_index,
+            kind,
+            duration: wire.duration,
+        })
+    }
 }
 
 fn deserialize_clip_transitions<'de, D>(deserializer: D) -> Result<Vec<ClipTransition>, D::Error>
