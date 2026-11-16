@@ -202,6 +202,7 @@ mod tests {
             total_pause_duration: Duration::ZERO,
             pause_started_at: None,
             terminal_stop_error: None,
+            terminal_capture_stopped: false,
         });
         Fixture {
             actor,
