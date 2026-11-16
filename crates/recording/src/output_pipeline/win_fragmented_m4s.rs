@@ -6,7 +6,7 @@ use super::frame_pacing::{FramePacer, Paced};
 use super::win::reference_video_frame;
 use crate::{
     AudioFrame, AudioMuxer, Muxer, SharedPauseState, TaskPool, VideoMuxer,
-    click_highlight::ClickHighlights,
+    frame_overlays::FrameOverlays,
     output_pipeline::{NativeCameraFrame, camera_frame_to_ffmpeg},
     screen_capture,
 };
@@ -217,7 +217,7 @@ pub struct WindowsFragmentedM4SMuxer {
         std::sync::mpsc::Sender<frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>,
     >,
     health_tx: SharedHealthSender,
-    click_highlight: Option<ClickHighlights>,
+    overlays: FrameOverlays,
 }
 
 pub struct WindowsFragmentedM4SMuxerConfig {
@@ -231,7 +231,7 @@ pub struct WindowsFragmentedM4SMuxerConfig {
     pub segment_tx: Option<
         std::sync::mpsc::Sender<frameever_enc_ffmpeg::segmented_stream::SegmentCompletedEvent>,
     >,
-    pub click_highlight: Option<ClickHighlights>,
+    pub overlays: FrameOverlays,
 }
 
 impl Default for WindowsFragmentedM4SMuxerConfig {
@@ -245,7 +245,7 @@ impl Default for WindowsFragmentedM4SMuxerConfig {
             shared_pause_state: None,
             disk_space_callback: None,
             segment_tx: None,
-            click_highlight: None,
+            overlays: FrameOverlays::default(),
         }
     }
 }
@@ -292,7 +292,7 @@ impl Muxer for WindowsFragmentedM4SMuxer {
             disk_space_callback: config.disk_space_callback,
             segment_tx: config.segment_tx,
             health_tx: SharedHealthSender::new(),
-            click_highlight: config.click_highlight,
+            overlays: config.overlays,
         };
 
         muxer.start_encoder()?;
@@ -368,10 +368,10 @@ impl WindowsFragmentedM4SMuxer {
         let health_tx = self.health_tx.clone();
         let base_path = self.base_path.clone();
         let pause_flag = self.pause.flag();
-        let mut baker = self
-            .click_highlight
-            .take()
-            .map(|highlights| highlights.baker());
+        let mut baker = std::mem::take(&mut self.overlays).baker();
+        if let Some(baker) = &mut baker {
+            baker.expect_frames_of((video_config.width, video_config.height));
+        }
         let encoder_handle = std::thread::Builder::new()
             .name("win-m4s-segment-encoder".to_string())
             .spawn(move || {

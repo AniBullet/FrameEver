@@ -1641,7 +1641,8 @@ async fn start_attempt(
                     .with_system_audio(config.system_audio)
                     .with_window_only(window_only)
                     .with_max_output_size(instant_max_resolution)
-                    .with_click_highlight(settings.instant_click_highlight);
+                    .with_click_highlight(settings.instant_click_highlight)
+                    .with_input_display(settings.instant_input_display());
             if let Some(gate) = config.start_gate.clone() {
                 builder = builder.with_start_gate(gate);
             }

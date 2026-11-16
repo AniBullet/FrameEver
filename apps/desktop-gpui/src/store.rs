@@ -627,6 +627,27 @@ settings_enum! {
 }
 
 settings_enum! {
+    InstantInputCorner {
+        TopLeft = "topLeft", t!("Top left");
+        TopRight = "topRight", t!("Top right");
+        BottomLeft = "bottomLeft", t!("Bottom left");
+        BottomRight = "bottomRight", t!("Bottom right");
+    }
+    default = BottomLeft
+}
+
+impl From<InstantInputCorner> for frameever_recording::live_input_display::InputDisplayCorner {
+    fn from(corner: InstantInputCorner) -> Self {
+        match corner {
+            InstantInputCorner::TopLeft => Self::TopLeft,
+            InstantInputCorner::TopRight => Self::TopRight,
+            InstantInputCorner::BottomLeft => Self::BottomLeft,
+            InstantInputCorner::BottomRight => Self::BottomRight,
+        }
+    }
+}
+
+settings_enum! {
     /// `StudioRecordingQuality`, whose Rust default is `balanced`.
     StudioQuality {
         Compatibility = "compatibility", t!("Compatibility");
@@ -898,6 +919,9 @@ pub struct GeneralSettings {
     pub recording_countdown: Option<u32>,
     pub recording_auto_stop_minutes: u32,
     pub instant_click_highlight: bool,
+    pub instant_show_input: bool,
+    pub instant_input_preset: String,
+    pub instant_input_corner: InstantInputCorner,
     pub main_window_recording_start_behaviour: MainWindowStartBehaviour,
     pub post_studio_recording_behaviour: PostStudioBehaviour,
     pub post_screenshot_behaviour: PostScreenshotBehaviour,
@@ -1229,6 +1253,18 @@ impl PostInstantBehaviour {
 }
 
 impl GeneralSettings {
+    pub fn instant_input_display(
+        &self,
+    ) -> Option<frameever_recording::live_input_display::InstantInputDisplay> {
+        self.instant_show_input.then(|| {
+            frameever_recording::live_input_display::InstantInputDisplay {
+                preset: self.instant_input_preset.clone(),
+                style: Default::default(),
+                corner: self.instant_input_corner.into(),
+            }
+        })
+    }
+
     pub fn load() -> Self {
         let store = cached_store(&tauri_store_path()).unwrap_or_default();
         let empty = Map::new();
@@ -1256,6 +1292,15 @@ impl GeneralSettings {
             recording_countdown: opt_u32_at(general, "recordingCountdown"),
             recording_auto_stop_minutes: u32_at(general, "recordingAutoStopMinutes", 0),
             instant_click_highlight: bool_at(general, "instantClickHighlight", false),
+            instant_show_input: bool_at(general, "instantShowInput", false),
+            instant_input_preset: opt_string_at(general, "instantInputPreset").unwrap_or_else(
+                || {
+                    frameever_project::input_display::BuiltinPresetId::WasdMouse
+                        .id()
+                        .to_string()
+                },
+            ),
+            instant_input_corner: enum_at(general, "instantInputCorner"),
             main_window_recording_start_behaviour: enum_at(
                 general,
                 "mainWindowRecordingStartBehaviour",
@@ -2751,6 +2796,44 @@ mod tests {
         assert_eq!(settings.instant_mode_max_resolution, 1920);
         assert_eq!(GeneralSettings::default().recording_auto_stop_minutes, 0);
         assert!(!GeneralSettings::default().instant_click_highlight);
+    }
+
+    #[test]
+    fn instant_recordings_show_input_only_when_the_setting_is_on() {
+        use frameever_recording::live_input_display::{InputDisplayCorner, InstantInputDisplay};
+        let shown = |general: &str| {
+            let _store = TempStore::new(
+                "instant-input",
+                Some(&format!(r#"{{ "general_settings": {general} }}"#)),
+            );
+            GeneralSettings::load().instant_input_display()
+        };
+        assert_eq!(GeneralSettings::default().instant_input_display(), None);
+        assert_eq!(shown("{}"), None);
+        assert_eq!(
+            shown(r#"{ "instantShowInput": true }"#),
+            Some(InstantInputDisplay {
+                preset: "wasd-mouse".into(),
+                style: Default::default(),
+                corner: InputDisplayCorner::BottomLeft,
+            })
+        );
+        assert_eq!(
+            shown(
+                r#"{ "instantShowInput": true, "instantInputPreset": "full-keyboard", "instantInputCorner": "topRight" }"#
+            ),
+            Some(InstantInputDisplay {
+                preset: "full-keyboard".into(),
+                style: Default::default(),
+                corner: InputDisplayCorner::TopRight,
+            })
+        );
+        assert_eq!(
+            shown(
+                r#"{ "instantShowInput": false, "instantInputPreset": "full-keyboard", "instantInputCorner": "topRight" }"#
+            ),
+            None
+        );
     }
 
     /// The teleprompter's own section: defaults when absent, and a per-key

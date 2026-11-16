@@ -238,7 +238,7 @@ fn flush_keyboard_data(output_path: &Path, presses: &[KeyPressEvent]) {
     }
 }
 
-fn keycode_to_string(key: &device_query::Keycode) -> (String, String) {
+pub(crate) fn keycode_to_string(key: &device_query::Keycode) -> (String, String) {
     use device_query::Keycode;
     let (display, code) = match key {
         Keycode::Key0 => ("0", "Key0"),

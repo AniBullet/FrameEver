@@ -1,6 +1,6 @@
 use crate::{
     SharedPauseState, StudioQuality,
-    click_highlight::ClickHighlights,
+    frame_overlays::FrameOverlays,
     output_pipeline::*,
     sources::screen_capture::{self, CropBounds, ScreenCaptureFormat, ScreenCaptureTarget},
 };
@@ -76,7 +76,7 @@ pub trait MakeCapturePipeline: ScreenCaptureFormat + std::fmt::Debug + 'static {
         start_time: Timestamps,
         start_gate: Option<RecordingStartGate>,
         segment_tx: Option<std::sync::mpsc::Sender<SegmentCompletedEvent>>,
-        click_highlight: Option<ClickHighlights>,
+        overlays: FrameOverlays,
     ) -> anyhow::Result<OutputPipeline>
     where
         Self: Sized;
@@ -212,7 +212,7 @@ impl MakeCapturePipeline for screen_capture::CMSampleBufferCapture {
         start_time: Timestamps,
         start_gate: Option<RecordingStartGate>,
         segment_tx: Option<std::sync::mpsc::Sender<SegmentCompletedEvent>>,
-        _click_highlight: Option<ClickHighlights>,
+        _overlays: FrameOverlays,
     ) -> anyhow::Result<OutputPipeline> {
         OutputPipeline::builder(segments_dir)
             .with_video::<screen_capture::VideoSource>(screen_capture)
@@ -320,7 +320,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
                         shared_pause_state,
                         disk_space_callback: None,
                         segment_tx: None,
-                        click_highlight: None,
+                        overlays: FrameOverlays::default(),
                     })
                     .await
             }
@@ -356,7 +356,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
         start_time: Timestamps,
         start_gate: Option<RecordingStartGate>,
         segment_tx: Option<std::sync::mpsc::Sender<SegmentCompletedEvent>>,
-        click_highlight: Option<ClickHighlights>,
+        overlays: FrameOverlays,
     ) -> anyhow::Result<OutputPipeline> {
         OutputPipeline::builder(segments_dir)
             .with_video::<screen_capture::VideoSource>(screen_capture)
@@ -371,7 +371,7 @@ impl MakeCapturePipeline for screen_capture::Direct3DCapture {
                 shared_pause_state: None,
                 disk_space_callback: None,
                 segment_tx,
-                click_highlight,
+                overlays,
             })
             .await
     }
