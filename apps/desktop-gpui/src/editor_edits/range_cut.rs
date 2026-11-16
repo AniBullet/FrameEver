@@ -137,6 +137,7 @@ pub fn ripple_insert_output_tracks(
 ) {
     ripple_track(&mut timeline.style_segments, boundary, shift);
     ripple_track(&mut timeline.image_segments, boundary, shift);
+    ripple_track(&mut timeline.shape_segments, boundary, shift);
     ripple_track(&mut timeline.zoom_segments, boundary, shift);
     ripple_track(&mut timeline.scene_segments, boundary, shift);
     ripple_track(&mut timeline.text_segments, boundary, shift);

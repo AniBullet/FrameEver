@@ -5272,6 +5272,17 @@ mod shape_track_tests {
     }
 
     #[test]
+    fn restoring_a_cut_moves_shapes_back() {
+        let mut project = shape_project();
+        let timeline = project.timeline.as_mut().unwrap();
+        ripple_insert_output_tracks(timeline, 3., 2.);
+        let arrow = &timeline.shape_segments[0];
+        assert_eq!((arrow.start, arrow.end), (2., 10.));
+        let badge = &timeline.shape_segments[1];
+        assert_eq!((badge.start, badge.end), (6., 8.));
+    }
+
+    #[test]
     fn shape_lanes_delete_and_renumber() {
         let mut project = shape_project();
         let timeline = project.timeline.as_mut().unwrap();
