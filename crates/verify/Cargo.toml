@@ -33,6 +33,7 @@ cidre = { workspace = true }
 frameever-recording = { path = "../recording", features = ["test-utils"] }
 frameever-editor = { path = "../editor", features = ["test-hooks"] }
 frameever-audio = { path = "../audio" }
+frameever-enc-ffmpeg = { path = "../enc-ffmpeg" }
 frameever-export = { path = "../export" }
 frameever-rendering = { path = "../rendering" }
 cpal = { workspace = true }

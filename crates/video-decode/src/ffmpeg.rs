@@ -266,7 +266,7 @@ pub fn open_fragmented_input(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("read fragmented directory / {error}"))?;
     fragments.retain(|path| path.extension().is_some_and(|extension| extension == "m4s"));
-    fragments.sort();
+    frameever_enc_ffmpeg::fragment_order::sort_fragment_paths(&mut fragments);
     if fragments.is_empty() {
         return Err(format!(
             "no .m4s segments found in fragmented directory: {}",
@@ -626,6 +626,42 @@ mod tests {
     }
 
     #[test]
+    fn fragmented_decoder_reads_past_fragment_999_in_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("segments");
+        encode_segments(&source);
+        let expected = frames(&mut FFmpegDecoder::new(&source, None).unwrap());
+        let mut fragments = std::fs::read_dir(&source)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "m4s"))
+            .collect::<Vec<_>>();
+        frameever_enc_ffmpeg::fragment_order::sort_fragment_paths(&mut fragments);
+        let first_index = 1000 - fragments.len() as u64 / 2;
+        let renamed = fragments
+            .iter()
+            .zip(first_index..)
+            .map(|(path, index)| (path, source.join(format!("segment_{index:03}.m4s.renamed"))))
+            .collect::<Vec<_>>();
+        for (from, to) in &renamed {
+            std::fs::rename(from, to).unwrap();
+        }
+        for (_, to) in &renamed {
+            std::fs::rename(to, to.with_extension("")).unwrap();
+        }
+        assert!(source.join("segment_999.m4s").is_file());
+        assert!(source.join("segment_1000.m4s").is_file());
+
+        let actual = frames(&mut FFmpegDecoder::new(&source, None).unwrap());
+        assert!(
+            actual
+                .windows(2)
+                .all(|pair| pair[1].0.unwrap() > pair[0].0.unwrap())
+        );
+        assert_eq!(actual.len(), expected.len());
+        assert_eq!(actual, expected);
+    }
+
     fn software_decoder_opens_with_frame_threads() {
         let directory = tempfile::tempdir().unwrap();
         let source = directory.path().join("segments");

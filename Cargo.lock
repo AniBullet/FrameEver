@@ -2738,6 +2738,7 @@ dependencies = [
  "frameever-camera-windows",
  "frameever-editor",
  "frameever-enc-avfoundation",
+ "frameever-enc-ffmpeg",
  "frameever-export",
  "frameever-media-info",
  "frameever-mediafoundation-utils",
