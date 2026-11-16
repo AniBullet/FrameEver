@@ -559,7 +559,9 @@ fn instant_project_is_refused() {
         Ok(Vec::new())
     });
     match result {
-        Err(message) if !called && message.contains("Only studio recordings") => {
+        Err(TranscriptionError::Failed(message))
+            if !called && message.contains("Only studio recordings") =>
+        {
             case.note(format!("refused before the engine ran: {message}"));
         }
         other => case.problem(
@@ -635,7 +637,7 @@ fn segmentation_case(id: &str, unicode: bool) {
         );
         let reference = reference_segments(&tokens);
         match caption_segments_from_tokens(tokens.clone()) {
-            Err(e) if reference.is_empty() && e.contains("No speech") => empty += 1,
+            Ok(product) if reference.is_empty() && product.is_empty() => empty += 1,
             Err(e) => {
                 failed += 1;
                 case.problem(

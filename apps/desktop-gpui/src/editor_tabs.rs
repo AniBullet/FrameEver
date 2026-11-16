@@ -3482,11 +3482,17 @@ impl EditorWindow {
                     transcription::transcribe_blocking(&task_path, model, language)
                 })
                 .await
-                .map_err(|error| format!("Transcription task panicked: {error}"))?
+                .map_err(|error| {
+                    transcription::TranscriptionError::Failed(format!(
+                        "Transcription task panicked: {error}"
+                    ))
+                })?
             });
             let result = match task.await {
                 Ok(result) => result,
-                Err(error) => Err(format!("Transcription task failed: {error}")),
+                Err(error) => Err(transcription::TranscriptionError::Failed(format!(
+                    "Transcription task failed: {error}"
+                ))),
             };
 
             match result {
@@ -3502,12 +3508,12 @@ impl EditorWindow {
                         );
                     });
                 }
-                Err(error) if error == transcription::no_speech_error() => {
+                Err(transcription::TranscriptionError::NoSpeech) => {
                     tracing::info!("caption generation heard no speech");
                     transcription::finish_generation_without_speech(&project_path);
                     let _ = this.update(cx, |_, cx| cx.notify());
                 }
-                Err(error) => {
+                Err(transcription::TranscriptionError::Failed(error)) => {
                     tracing::error!("caption generation failed: {error}");
                     transcription::finish_generation(
                         &project_path,

@@ -431,8 +431,29 @@ pub fn finish_generation_without_speech(project_path: &Path) {
     hub.no_speech.insert(project_path.to_path_buf());
 }
 
-pub fn no_speech_error() -> String {
-    t!("No speech detected in the audio").to_string()
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TranscriptionError {
+    NoSpeech,
+    Failed(String),
+}
+
+impl std::fmt::Display for TranscriptionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoSpeech => f.write_str(t!("No speech detected in the audio")),
+            Self::Failed(message) => f.write_str(message),
+        }
+    }
+}
+
+fn heard_segments(
+    result: Result<Vec<CaptionSegment>, String>,
+) -> Result<Vec<CaptionSegment>, TranscriptionError> {
+    let segments = result.map_err(TranscriptionError::Failed)?;
+    if segments.is_empty() {
+        return Err(TranscriptionError::NoSpeech);
+    }
+    Ok(segments)
 }
 
 // ---------------------------------------------------------------------------
@@ -1793,7 +1814,10 @@ fn process_with_parakeet(audio_path: &Path, model_dir: &str) -> Result<HeardWord
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to read audio file: {e}"))?;
     if samples.is_empty() {
-        return Err(no_speech_error());
+        return Ok(HeardWords {
+            groups: Vec::new(),
+            samples,
+        });
     }
 
     let mut words = Vec::new();
@@ -1840,7 +1864,7 @@ fn caption_segments_from_tokens(
             .collect(),
     );
     if words.is_empty() {
-        return Err(no_speech_error());
+        return Ok(Vec::new());
     }
     Ok(caption_segments_from_groups(vec![words]))
 }
@@ -1901,12 +1925,12 @@ pub fn transcribe_blocking(
     project_path: &Path,
     model: &str,
     language: &str,
-) -> Result<Vec<CaptionSegment>, String> {
+) -> Result<Vec<CaptionSegment>, TranscriptionError> {
     if !project_path.exists() {
-        return Err(format!(
+        return Err(TranscriptionError::Failed(format!(
             "Video file not found at path: {}",
             project_path.display()
-        ));
+        )));
     }
     let usable = |model: &str| model_files_present(model) && !hub().downloading(model);
 
@@ -1961,14 +1985,15 @@ pub fn transcribe_blocking(
 fn transcribe_project_with(
     project_path: &Path,
     engine: impl FnOnce(&Path) -> Result<Vec<CaptionSegment>, String>,
-) -> Result<Vec<CaptionSegment>, String> {
+) -> Result<Vec<CaptionSegment>, TranscriptionError> {
     let temp_dir = std::env::temp_dir().join(format!(
         "cap-gpui-transcription-{}-{}",
         std::process::id(),
         TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
-    std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("Failed to create temporary directory: {e}"))?;
+    std::fs::create_dir_all(&temp_dir).map_err(|e| {
+        TranscriptionError::Failed(format!("Failed to create temporary directory: {e}"))
+    })?;
     let audio_path = temp_dir.join("audio.wav");
 
     let result = (|| {
@@ -1978,11 +2003,7 @@ fn transcribe_project_with(
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 
-    let segments = result?;
-    if segments.is_empty() {
-        return Err(no_speech_error());
-    }
-    Ok(segments)
+    heard_segments(result)
 }
 
 /// `resolve_audio_extraction_source` (`captions.rs:221-243`), directory arm
@@ -2478,6 +2499,19 @@ mod verify_tests;
 mod tests {
     use super::*;
 
+    #[test]
+    fn hearing_nothing_is_no_speech_and_an_engine_error_is_a_failure_whatever_it_says() {
+        assert_eq!(
+            heard_segments(Ok(Vec::new())).err(),
+            Some(TranscriptionError::NoSpeech)
+        );
+        let worded_like_no_speech = t!("No speech detected in the audio").to_string();
+        assert_eq!(
+            heard_segments(Err(worded_like_no_speech.clone())).err(),
+            Some(TranscriptionError::Failed(worded_like_no_speech))
+        );
+    }
+
     #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
     fn install(root: &Path, dir: &str, files: &[&str]) -> PathBuf {
         let dir = root.join(dir);
@@ -2743,8 +2777,10 @@ mod tests {
         let language =
             std::env::var("FRAMEEVER_CAPTIONS_LANGUAGE").expect("FRAMEEVER_CAPTIONS_LANGUAGE");
         let started = std::time::Instant::now();
-        let segments = transcribe_blocking(&project_path, &model, &language)
-            .unwrap_or_else(|error| panic!("{}", caption_generation_error_message(&error)));
+        let segments =
+            transcribe_blocking(&project_path, &model, &language).unwrap_or_else(|error| {
+                panic!("{}", caption_generation_error_message(&error.to_string()))
+            });
         let mut project = ProjectConfiguration::load(&project_path).expect("project-config.json");
         let source_end = segments
             .last()
