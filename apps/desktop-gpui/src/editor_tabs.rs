@@ -2949,8 +2949,18 @@ impl EditorWindow {
             .gap(px(16.))
             .when(!has_captions, |this| this.opacity(0.5))
             .child(
-                ui::Field::section(&theme, t!("Style"))
-                    .child(self.render_caption_presets(&settings, cx)),
+                ui::Field::section(&theme, t!("Style")).child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(10.))
+                        .child(self.render_style_presets_button(
+                            crate::style_presets::PresetKind::Captions,
+                            &[0],
+                            cx,
+                        ))
+                        .child(self.render_caption_presets(&settings, cx)),
+                ),
             )
             .child(
                 ui::Field::section(&theme, t!("Font Settings")).child(
@@ -3520,7 +3530,9 @@ impl EditorWindow {
         cx: &mut Context<Self>,
     ) {
         let recording_durations = recording_durations.to_vec();
+        let style_presets = crate::style_presets::PresetLibrary::load();
         self.edit_project("caption-generate", window, cx, move |project| {
+            crate::style_presets::seed_default_captions(&style_presets, project);
             transcription::apply_caption_result(
                 project,
                 segments,

@@ -80,6 +80,7 @@ use crate::{
 mod frame;
 mod loading;
 mod scenes;
+mod style_preset_ui;
 
 // ---------------------------------------------------------------------------
 // Window geometry
@@ -1644,6 +1645,7 @@ pub struct EditorWindow {
     presets_menu: Option<PresetsMenu>,
     preset_dialog: Option<PresetDialog>,
     caption_sync_signature: Option<u64>,
+    style_presets: style_preset_ui::StylePresetsState,
     pub(crate) export: Option<ExportUi>,
     /// The Clips layout mode (`ClipsSidebar.tsx`): while open, the config
     /// sidebar's column draws the clips sidebar instead.
@@ -1671,6 +1673,7 @@ enum PresetDialog {
     Rename { index: usize },
     Delete { index: usize },
 }
+    Style(style_preset_ui::StyleDialog),
 
 /// The add-track tray, computed once when it opens. It slides out of the
 /// gutter's right edge with its bottom on the ruler's baseline (Kobalte
@@ -2204,6 +2207,7 @@ impl EditorWindow {
             presets_menu: None,
             preset_dialog: None,
             caption_sync_signature: None,
+            style_presets: style_preset_ui::StylePresetsState::load(),
             export: None,
             clips: crate::editor_clips::ClipsState::default(),
         }
@@ -3670,7 +3674,8 @@ impl EditorWindow {
             menu: self.crop.is_some()
                 || self.sidebar.menu.is_some()
                 || self.toolbar_menu.is_some()
-                || self.presets_menu.is_some(),
+                || self.presets_menu.is_some()
+                || self.style_presets.menu_open(),
             lane_reorder: self.lane_reorder.is_some(),
         };
         if let Some(frames) = playhead_step_frames(&event.keystroke, arrow_owners) {
@@ -3750,11 +3755,14 @@ impl EditorWindow {
             return;
         }
         if event.keystroke.key.as_str() == "escape"
-            && (self.presets_menu.is_some() || self.preset_dialog.is_some())
+            && (self.presets_menu.is_some()
+                || self.preset_dialog.is_some()
+                || self.style_presets.menu_open())
         {
             self.presets_menu = None;
             self.preset_dialog = None;
             cx.stop_propagation();
+            self.style_presets.close_menu();
             cx.notify();
             return;
         }
@@ -4300,6 +4308,7 @@ impl EditorWindow {
     pub(crate) fn set_selection(&mut self, selection: Option<Selection>, cx: &mut Context<Self>) {
         if self.selection != selection {
             self.dismiss_frame_controls(cx);
+            self.style_presets.close_menu();
             self.end_field_edit(cx);
             self.close_color_picker(cx);
             self.sidebar.menu = None;
@@ -6171,16 +6180,12 @@ impl EditorWindow {
         }
         let mut index = 0;
         let inserted = self.edit(
+        let text = self.preset_text_segment(start, end, lane);
+        let mask = self.preset_mask_segment(start, end, lane);
             |timeline| {
                 index = match kind {
-                    TrackKind::Text => edits::insert_text_segment(
-                        timeline,
-                        edits::default_text_segment(start, end, lane),
-                    ),
-                    TrackKind::Mask => edits::insert_mask_segment(
-                        timeline,
-                        edits::default_mask_segment(start, end, lane),
-                    ),
+                    TrackKind::Text => edits::insert_text_segment(timeline, text),
+                    TrackKind::Mask => edits::insert_mask_segment(timeline, mask),
                     TrackKind::Scene => edits::insert_scene_segment(
                         timeline,
                         edits::default_scene_segment(start, end),
@@ -7758,6 +7763,11 @@ impl EditorWindow {
                 }
             }
         }
+            PresetDialog::Style(dialog) => {
+                if !self.commit_style_dialog(dialog, &name, window, cx) {
+                    return;
+                }
+            }
         self.preset_dialog = None;
         let focus = self.focus.clone();
         window.focus(&focus, cx);
@@ -7955,16 +7965,12 @@ impl EditorWindow {
         };
 
         let inserted = self.edit(
+        let text = self.preset_text_segment(start, end, lane);
+        let mask = self.preset_mask_segment(start, end, lane);
             |timeline| {
                 let index = match kind {
-                    TrackKind::Text => edits::insert_text_segment(
-                        timeline,
-                        edits::default_text_segment(start, end, lane),
-                    ),
-                    TrackKind::Mask => edits::insert_mask_segment(
-                        timeline,
-                        edits::default_mask_segment(start, end, lane),
-                    ),
+                    TrackKind::Text => edits::insert_text_segment(timeline, text),
+                    TrackKind::Mask => edits::insert_mask_segment(timeline, mask),
                     _ => return false,
                 };
                 let _ = index;
@@ -8032,16 +8038,9 @@ impl EditorWindow {
         self.tracks.style = self.tracks.style.max(lane + 1);
         let mut index = 0;
         if self.edit(
+        let segment = self.preset_style_segment(start, end, lane);
             |timeline| {
-                index = edits::insert_style_segment(
-                    timeline,
-                    frameever_project::StyleSegment {
-                        start,
-                        end,
-                        track: lane,
-                        ..Default::default()
-                    },
-                );
+                index = edits::insert_style_segment(timeline, segment);
                 true
             },
             window,
@@ -9828,13 +9827,20 @@ impl EditorWindow {
         let theme = self.theme;
 
         let (title, primary, danger) = match dialog {
+        let mut style_body = None;
             PresetDialog::Create { .. } => (t!("Create Preset"), t!("Create"), false),
+            PresetDialog::Style(style) => {
+                let (title, primary, danger, body) = self.style_dialog_parts(style);
+                style_body = Some(body);
+                (title, primary, danger)
+            }
             PresetDialog::Rename { .. } => (t!("Rename Preset"), t!("Rename"), false),
             PresetDialog::Delete { .. } => (t!("Delete Preset"), t!("Delete"), true),
         };
 
         let body: gpui::AnyElement = match dialog {
             PresetDialog::Delete { index } => div()
+            PresetDialog::Style(_) => style_body.unwrap_or_else(|| div().into_any_element()),
                 .text_size(px(14.))
                 .text_color(Hsla::from(theme.editor.text_2))
                 .child(SharedString::from(t!(
@@ -12615,6 +12621,7 @@ impl Render for EditorWindow {
             .children(self.with_style_controls(|this| this.render_color_picker_popover(cx)))
             .children(self.render_presets_menu(cx))
             .children(self.render_preset_dialog(cx))
+            .children(self.render_style_presets_menu(cx))
             // The clips overlays: import menu, record modal, and the card
             // drag's window-wide layer with its floating ghost.
             .children(self.render_clips_overlays(cx))

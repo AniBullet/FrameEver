@@ -102,6 +102,7 @@ mod single_instance;
 #[cfg(debug_assertions)]
 mod snapshot;
 mod store;
+mod style_presets;
 mod target_overlay;
 mod target_thumbnails;
 mod teleprompter;

@@ -450,6 +450,23 @@ pub fn set_store_value(section: &str, value: Value) -> bool {
     })
 }
 
+pub fn update_store_section(
+    section: &str,
+    mutate: impl FnOnce(&mut Map<String, Value>) -> bool,
+) -> bool {
+    update_store(|store| {
+        let mut current = match store.get(section) {
+            Some(Value::Object(map)) => map.clone(),
+            _ => Map::new(),
+        };
+        if !mutate(&mut current) {
+            return false;
+        }
+        store.insert(section.to_string(), Value::Object(current));
+        true
+    })
+}
+
 /// Reads, mutates and rewrites the store as one step, so two writers cannot
 /// both start from the same snapshot and drop each other's changes. Returning
 /// false from `mutate` leaves the file untouched.

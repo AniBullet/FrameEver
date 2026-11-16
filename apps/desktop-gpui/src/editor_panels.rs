@@ -3964,7 +3964,8 @@ impl EditorWindow {
         };
 
         let body: AnyElement = match selection.track {
-            TrackKind::Style => self.stacked_panel(
+            TrackKind::Style => self.preset_panel(
+                crate::style_presets::PresetKind::Style,
                 "style",
                 "style",
                 count(timeline.style_segments.len()),
@@ -4016,7 +4017,8 @@ impl EditorWindow {
                     })
                     .into_any_element()
             }
-            TrackKind::Text => self.stacked_panel(
+            TrackKind::Text => self.preset_panel(
+                crate::style_presets::PresetKind::Text,
                 "text",
                 "text",
                 count(timeline.text_segments.len()),
@@ -4037,7 +4039,8 @@ impl EditorWindow {
                 cx,
                 |this, index, cx| this.render_audio_panel(index, cx),
             ),
-            TrackKind::Mask => self.stacked_panel(
+            TrackKind::Mask => self.preset_panel(
+                crate::style_presets::PresetKind::Mask,
                 "mask",
                 "mask",
                 count(timeline.mask_segments.len()),
@@ -4105,7 +4108,7 @@ impl EditorWindow {
     }
 
     /// The shared Done / count / Delete row.
-    fn panel_header(
+    pub(crate) fn panel_header(
         &self,
         id: &'static str,
         noun: &'static str,
@@ -4124,7 +4127,7 @@ impl EditorWindow {
 
     /// `<div class="p-4 rounded-lg border border-gray-200">` -- the wrapper
     /// every per-segment panel sits in.
-    fn panel_card(&self, content: AnyElement) -> AnyElement {
+    pub(crate) fn panel_card(&self, content: AnyElement) -> AnyElement {
         div()
             .p(px(16.))
             .rounded(px(8.))
