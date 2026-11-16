@@ -3,6 +3,7 @@ mod atomic;
 mod automation;
 mod doctor;
 mod export;
+mod file_identity;
 mod guide;
 mod mcp;
 mod project;
