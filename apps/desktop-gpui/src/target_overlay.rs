@@ -935,9 +935,29 @@ impl OverlayWindow {
     /// the main window's start path (which opens the bar, hides the main
     /// window and starts the engine).
     pub fn start_recording(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(target) = self.target(cx) else {
+        let Some(target) = self.available_target(cx) else {
             return;
         };
+        tracing::info!(target = ?target.kind_str(), "overlay start pressed");
+        if self.select.read(cx).purpose == PickerPurpose::Screenshot {
+            self.take_selected_screenshot(target, cx);
+            return;
+        }
+        // Deferred: this runs inside the overlay's own window update and the
+        // orchestrator closes that very window.
+        cx.defer(move |cx: &mut App| app_windows::start_recording_from_overlay(target, cx));
+    }
+
+    fn screenshot_target(&mut self, cx: &mut Context<Self>) {
+        let Some(target) = self.available_target(cx) else {
+            return;
+        };
+        tracing::info!(target = ?target.kind_str(), "overlay screenshot pressed");
+        self.take_selected_screenshot(target, cx);
+    }
+
+    fn available_target(&mut self, cx: &mut Context<Self>) -> Option<ScreenCaptureTarget> {
+        let target = self.target(cx)?;
         if let ScreenCaptureTarget::Window { id } = &target {
             let window = scap_targets::Window::from_id(id);
             let expected_title = crate::main_window::auto_window_title();
@@ -955,17 +975,10 @@ impl OverlayWindow {
                     "refusing unavailable or unexpected recording window"
                 );
                 cx.defer(app_windows::reject_unavailable_window);
-                return;
+                return None;
             }
         }
-        tracing::info!(target = ?target.kind_str(), "overlay start pressed");
-        if self.select.read(cx).purpose == PickerPurpose::Screenshot {
-            self.take_selected_screenshot(target, cx);
-            return;
-        }
-        // Deferred: this runs inside the overlay's own window update and the
-        // orchestrator closes that very window.
-        cx.defer(move |cx: &mut App| app_windows::start_recording_from_overlay(target, cx));
+        Some(target)
     }
 
     fn dismiss(&mut self, cx: &mut Context<Self>) {
@@ -1118,6 +1131,65 @@ enum BarBody {
     Window { name: String, size: String },
     Display,
     CameraOnly,
+}
+
+impl BarBody {
+    fn target(&self) -> TargetType {
+        match self {
+            Self::AreaEmpty | Self::Area { .. } => TargetType::Area,
+            Self::WindowPending | Self::Window { .. } => TargetType::Window,
+            Self::Display => TargetType::Display,
+            Self::CameraOnly => TargetType::CameraOnly,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BarScreenshot {
+    tooltip: &'static str,
+    enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BarControls {
+    mode_menu: bool,
+    devices: bool,
+    screenshot: Option<BarScreenshot>,
+    start: &'static str,
+}
+
+impl BarControls {
+    fn new(
+        purpose: PickerPurpose,
+        target: TargetType,
+        ready: bool,
+        editor_recording: bool,
+    ) -> Self {
+        match purpose {
+            PickerPurpose::Screenshot => Self {
+                mode_menu: false,
+                devices: false,
+                screenshot: None,
+                start: t!("Take screenshot"),
+            },
+            PickerPurpose::Record => Self {
+                mode_menu: true,
+                devices: true,
+                screenshot: (!editor_recording).then(|| BarScreenshot {
+                    tooltip: match target {
+                        TargetType::Display => t!("Screenshot this display"),
+                        TargetType::Window => t!("Screenshot this window"),
+                        TargetType::Area => t!("Screenshot this area"),
+                        TargetType::CameraOnly => {
+                            t!("Screenshots need a display, window or area")
+                        }
+                    },
+                    enabled: ready && target != TargetType::CameraOnly,
+                }),
+                start: t!("Start recording"),
+            },
+        }
+    }
 }
 
 impl OverlayWindow {
@@ -2210,12 +2282,14 @@ impl OverlayWindow {
         cx.notify();
     }
 
-    fn render_bar_start(&self, disabled: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_bar_start(
+        &self,
+        label: &'static str,
+        disabled: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let theme = self.theme;
-        let label: SharedString = match self.select.read(cx).purpose {
-            PickerPurpose::Screenshot => t!("Take screenshot").into(),
-            PickerPurpose::Record => t!("Start recording").into(),
-        };
+        let label: SharedString = label.into();
         let tooltip = label.clone();
         div()
             .id("bar-start")
@@ -2264,6 +2338,12 @@ impl OverlayWindow {
             .read(cx)
             .editor_recording_target()
             .is_some();
+        let ready = self.target(cx).is_some()
+            && !matches!(
+                body,
+                BarBody::AreaEmpty | BarBody::WindowPending | BarBody::Area { valid: false }
+            );
+        let controls = BarControls::new(purpose, body.target(), ready, editor_recording);
         let mut bar = div()
             .flex()
             .flex_none()
@@ -2333,12 +2413,13 @@ impl OverlayWindow {
                 }))
             })
         };
-        let valid = match &body {
+        match &body {
             BarBody::AreaEmpty => {
                 let bar = bar.child(ratio(self, cx));
-                return match purpose {
-                    PickerPurpose::Record => bar.child(mode_button(self, cx)),
-                    PickerPurpose::Screenshot => bar,
+                return if controls.mode_menu {
+                    bar.child(mode_button(self, cx))
+                } else {
+                    bar
                 };
             }
             BarBody::WindowPending => {
@@ -2404,7 +2485,6 @@ impl OverlayWindow {
                             }))
                         }),
                     );
-                *valid
             }
             BarBody::Window { name, size } => {
                 let focus = self.select.read(cx).focus_window;
@@ -2431,28 +2511,46 @@ impl OverlayWindow {
                             )),
                         )
                     });
-                true
             }
             BarBody::Display => {
                 let detail = self
                     .physical_size
                     .map(|(width, height)| format!("{width} × {height}"));
                 bar = bar.child(self.bar_info(self.display_name.clone().into(), detail));
-                true
             }
-            BarBody::CameraOnly => true,
-        };
+            BarBody::CameraOnly => {}
+        }
         if body != BarBody::CameraOnly {
             bar = bar.child(self.bar_separator());
         }
-        if purpose == PickerPurpose::Record {
-            bar = bar
-                .child(mode_button(self, cx))
-                .children(self.render_bar_devices(cx))
-                .child(self.bar_separator());
+        if controls.mode_menu {
+            bar = bar.child(mode_button(self, cx));
         }
-        let ready = valid && self.target(cx).is_some();
-        bar.child(self.render_bar_start(!ready, cx))
+        if controls.devices {
+            bar = bar.children(self.render_bar_devices(cx));
+        }
+        if controls.mode_menu || controls.devices {
+            bar = bar.child(self.bar_separator());
+        }
+        if let Some(screenshot) = controls.screenshot {
+            bar = bar.child(
+                self.bar_button(
+                    "bar-screenshot",
+                    "icons/image.svg",
+                    screenshot.tooltip.into(),
+                    None,
+                    false,
+                    !screenshot.enabled,
+                )
+                .when(screenshot.enabled, |button| {
+                    button.on_click(cx.listener(|this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.screenshot_target(cx);
+                    }))
+                }),
+            );
+        }
+        bar.child(self.render_bar_start(controls.start, !ready, cx))
     }
 }
 
@@ -3574,6 +3672,72 @@ mod tests {
                 ("Instant Mode".to_string(), true),
             ],
         );
+    }
+
+    #[test]
+    fn a_bar_opened_to_record_has_the_mode_menu_devices_and_a_screenshot_button() {
+        let bar = BarControls::new(PickerPurpose::Record, TargetType::Area, true, false);
+        assert!(bar.mode_menu);
+        assert!(bar.devices);
+        assert_eq!(bar.start, "Start recording");
+        assert_eq!(
+            bar.screenshot,
+            Some(BarScreenshot {
+                tooltip: "Screenshot this area",
+                enabled: true,
+            })
+        );
+    }
+
+    #[test]
+    fn a_bar_opened_for_a_screenshot_has_one_button_and_no_mode_menu_or_devices() {
+        for target in [TargetType::Display, TargetType::Window, TargetType::Area] {
+            for ready in [false, true] {
+                let bar = BarControls::new(PickerPurpose::Screenshot, target, ready, false);
+                assert!(!bar.mode_menu);
+                assert!(!bar.devices);
+                assert_eq!(bar.screenshot, None);
+                assert_eq!(bar.start, "Take screenshot");
+            }
+        }
+    }
+
+    #[test]
+    fn the_bar_screenshot_button_names_its_target_and_waits_for_a_valid_one() {
+        let screenshot = |target, ready| {
+            BarControls::new(PickerPurpose::Record, target, ready, false)
+                .screenshot
+                .map(|button| (button.tooltip, button.enabled))
+        };
+        assert_eq!(
+            screenshot(TargetType::Display, true),
+            Some(("Screenshot this display", true))
+        );
+        assert_eq!(
+            screenshot(TargetType::Window, true),
+            Some(("Screenshot this window", true))
+        );
+        assert_eq!(
+            screenshot(TargetType::Window, false),
+            Some(("Screenshot this window", false))
+        );
+        assert_eq!(
+            screenshot(TargetType::Area, false),
+            Some(("Screenshot this area", false))
+        );
+        assert_eq!(
+            screenshot(TargetType::CameraOnly, true),
+            Some(("Screenshots need a display, window or area", false))
+        );
+    }
+
+    #[test]
+    fn a_bar_recording_a_clip_for_the_editor_has_no_screenshot_button() {
+        let bar = BarControls::new(PickerPurpose::Record, TargetType::Area, true, true);
+        assert!(bar.mode_menu);
+        assert!(bar.devices);
+        assert_eq!(bar.screenshot, None);
+        assert_eq!(bar.start, "Start recording");
     }
 
     #[test]

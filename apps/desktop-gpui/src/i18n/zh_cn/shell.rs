@@ -622,6 +622,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Take screenshot", "截图"),
     ("Screenshot this display", "截取这个显示器"),
     ("Screenshot this window", "截取这个窗口"),
+    ("Screenshot this area", "截取这个选区"),
     (
         "Screenshots need a display, window or area",
         "截图需要选显示器、窗口或区域",
