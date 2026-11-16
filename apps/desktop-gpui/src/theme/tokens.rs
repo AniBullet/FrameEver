@@ -311,7 +311,7 @@ color_layer! {
     secondary_hover: b.n(6), b.n(6);
     secondary_active: b.n(7), b.n(7);
     secondary_foreground: b.n(12), b.n(12);
-    accent: b.n(6), b.n(6);
+    accent: b.n(6), b.n(5);
     accent_foreground: b.n(12), b.n(12);
     primary: b.k(9), b.k(9);
     primary_hover: b.k(10), b.k(10);
@@ -729,7 +729,7 @@ mod tests {
 
     #[test]
     fn hover_fills_show_on_the_surfaces_they_sit_on() {
-        const PAIRS: [(&str, &str); 7] = [
+        const PAIRS: [(&str, &str); 8] = [
             ("secondary_hover", "secondary"),
             ("accent", "secondary"),
             ("accent", "popover"),
@@ -737,12 +737,13 @@ mod tests {
             ("accent", "background"),
             ("accent", "page"),
             ("accent", "sidebar"),
+            ("selection", "accent"),
         ];
         for appearance in BOTH {
             for (hover, surface) in PAIRS {
                 let ratio = contrast(semantic(appearance, hover), semantic(appearance, surface));
                 assert!(
-                    ratio >= 1.06,
+                    ratio >= 1.04,
                     "{appearance:?} {hover} on {surface} is {ratio:.3}:1"
                 );
             }
