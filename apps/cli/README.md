@@ -50,8 +50,8 @@ frameever export <path.ever> --output out.mp4 --json   # H.264 by default; --cod
 
 ## Commands
 
-- `record start` / `stop` / `status`: record in the foreground or with `--detach`, and manage sessions.
-- `export`: render a `.ever` project to a video file.
+- `record start` / `stop` / `status`: record in the foreground or with `--detach`, and manage sessions. The project folder is created only once the devices are ready, `--detach` needs a UTF-8 path, `stop --timeout` takes a finite number of seconds from 0, and `stop` without `--id` picks the one recording that is still running.
+- `export`: render a `.ever` project to a video file. MP4 output always gets the `.mp4` extension, and `--settings-json` is checked like the flags (fps and resolution above zero).
 - `screenshot`: capture a still of a screen or window.
 - `targets`: list screens, windows, cameras and microphones.
 - `project inspect` / `validate` / `config get|set`: inspect and edit `.ever` projects. They never return the input record, and keyboard segments come back without their typed text (`config set` keeps the text of segments the project already has).
@@ -66,7 +66,7 @@ frameever export <path.ever> --output out.mp4 --json   # H.264 by default; --cod
 ## Automations
 
 Rules made in Settings → Automations are shared with the CLI, which runs them after `screenshot` and
-when a recording finishes. Save, export, reveal, open, run command, apply preset and delete run here;
+when a recording finishes. Save, export, reveal, open, run command, apply preset and delete run here (save never copies a file onto itself or a hard link to it, reveal selects the file in its folder, and duration conditions work for Studio recordings);
 clipboard, OCR, notification and open-editor actions need the desktop app and are skipped. Uploads and
 webhooks were removed in FrameEver. See the active rules with `frameever automations list --json`.
 

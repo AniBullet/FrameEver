@@ -255,10 +255,6 @@ fn automation_mode(mode: RecordMode) -> frameever_automation::AutomationRecordin
 
 async fn run_detached(params: RecordParams, format: OutputFormat) -> Result<(), String> {
     let recording_id = new_recording_id();
-    // Validate the target up front so a bad --screen/--window fails fast with a clear message rather
-    // than surfacing later from the background worker's log.
-    resolve_target(&params)?;
-
     let path = resolve_path(&params, &recording_id)?;
     let path = if path.is_absolute() {
         path
@@ -267,6 +263,15 @@ async fn run_detached(params: RecordParams, format: OutputFormat) -> Result<(), 
             .map_err(|e| format!("Could not determine current directory: {e}"))?
             .join(path)
     };
+
+    if path.to_str().is_none() {
+        return Err(
+            "Detached recording paths must be valid UTF-8; choose a different path or working directory"
+                .to_string(),
+        );
+    }
+
+    resolve_target(&params)?;
 
     let exe = std::env::current_exe()
         .map_err(|e| format!("Could not locate the frameever executable: {e}"))?;
@@ -481,6 +486,7 @@ impl RecordStopArgs {
     }
 
     async fn run_inner(self, format: OutputFormat) -> Result<(), String> {
+        let timeout = stop_timeout(self.timeout)?;
         let session = resolve_session(self.id.as_deref(), self.path.as_deref())?;
         let id = session.recording_id.clone();
 
@@ -496,9 +502,11 @@ impl RecordStopArgs {
             return Ok(());
         }
 
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or_else(|| "--timeout is too large".to_string())?;
         session::request_stop(&id)?;
 
-        let deadline = Instant::now() + Duration::from_secs_f64(self.timeout.max(0.0));
         loop {
             let current = session::read_session(&id).unwrap_or_else(|_| session.clone());
             match current.status {
@@ -560,6 +568,11 @@ impl RecordStopArgs {
     }
 }
 
+fn stop_timeout(timeout: f64) -> Result<Duration, String> {
+    Duration::try_from_secs_f64(timeout)
+        .map_err(|_| "--timeout must be finite, non-negative, and representable".to_string())
+}
+
 fn cleanup_session(id: &str, project_path: &Path) {
     if let Err(error) = session::archive_log(id, project_path) {
         debug!("{error}");
@@ -594,10 +607,17 @@ fn resolve_session(id: Option<&str>, path: Option<&Path>) -> Result<Session, Str
             .ok_or_else(|| format!("No recording session found for path {}", path.display()));
     }
 
-    let mut active: Vec<Session> = sessions
+    select_active_session(sessions)
+}
+
+fn select_active_session(sessions: Vec<Session>) -> Result<Session, String> {
+    let (mut active, inactive): (Vec<Session>, Vec<Session>) = sessions
         .into_iter()
         .filter(|s| s.status == SessionStatus::Recording)
-        .collect();
+        .partition(|session| session::process_alive(session.pid));
+    if active.is_empty() {
+        active = inactive;
+    }
     match active.len() {
         0 => Err(
             "No active recording sessions. Start one with `frameever record start --detach`"
@@ -739,19 +759,13 @@ async fn start_recording(
     target: ScreenCaptureTarget,
     path: PathBuf,
 ) -> Result<ActorHandle, String> {
-    let upload_lock = prepare_recording_project(
-        &path,
-        params.mode,
-        params.mic.is_some() || params.system_audio,
-    )?;
-
     #[cfg(target_os = "macos")]
     let target_for_shareable_content = target.clone();
     let camera_only_target = matches!(target, ScreenCaptureTarget::CameraOnly);
     let mut studio_builder = studio_recording::Actor::builder(path.clone(), target.clone())
         .with_system_audio(params.system_audio);
-    let mut instant_builder =
-        instant_recording::Actor::builder(path, target).with_system_audio(params.system_audio);
+    let mut instant_builder = instant_recording::Actor::builder(path.clone(), target)
+        .with_system_audio(params.system_audio);
     let mut camera_active = false;
     let camera_recorded =
         !(cfg!(target_os = "macos") && params.mode == RecordMode::Instant && !camera_only_target);
@@ -827,6 +841,12 @@ async fn start_recording(
         studio_builder = studio_builder.with_mic_feed(lock.clone());
         instant_builder = instant_builder.with_mic_feed(lock);
     }
+
+    let upload_lock = prepare_recording_project(
+        &path,
+        params.mode,
+        params.mic.is_some() || params.system_audio,
+    )?;
 
     match params.mode {
         RecordMode::Studio => {
@@ -1328,6 +1348,134 @@ fn studio_defaults(settings_file: &Path) -> frameever_recording::RecordingDefaul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn camera_only_params(mode: RecordMode, path: PathBuf, mic: Option<String>) -> RecordParams {
+        RecordParams {
+            target: RecordTargets {
+                screen: None,
+                window: None,
+            },
+            mode,
+            camera: None,
+            mic,
+            system_audio: false,
+            path: Some(path),
+            fps: None,
+            duration: Some(1.0),
+        }
+    }
+
+    #[test]
+    fn stop_timeout_accepts_zero_and_rejects_invalid_timeouts() {
+        assert_eq!(stop_timeout(0.0).unwrap(), Duration::ZERO);
+        assert_eq!(stop_timeout(1.5).unwrap(), Duration::from_millis(1500));
+        for timeout in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY, f64::MAX] {
+            assert!(stop_timeout(timeout).is_err(), "timeout: {timeout}");
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_stop_timeout_is_rejected_before_session_lookup() {
+        let args = RecordStopArgs {
+            id: Some(format!("missing-{}", Uuid::new_v4())),
+            path: None,
+            timeout: -1.0,
+            format: OutputFormat::Text,
+        };
+        let error = args.run_inner(OutputFormat::Text).await.unwrap_err();
+        assert!(error.contains("--timeout"), "{error}");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn detached_recording_rejects_non_utf8_path_before_starting() {
+        use std::os::windows::ffi::OsStringExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let mut name: Vec<u16> = "capture-".encode_utf16().collect();
+        name.push(0xD800);
+        name.extend(".ever".encode_utf16());
+        let path = root.path().join(std::ffi::OsString::from_wide(&name));
+        let mut params = camera_only_params(RecordMode::Studio, path.clone(), None);
+        params.duration = None;
+
+        let error = run_detached(params.clone(), OutputFormat::Text)
+            .await
+            .unwrap_err();
+        assert!(error.contains("valid UTF-8"), "{error}");
+        assert!(!path.exists());
+
+        params.path = Some(root.path().join("capture-记录.ever"));
+        let error = run_detached(params, OutputFormat::Text).await.unwrap_err();
+        assert!(error.contains("No target specified"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn invalid_microphone_does_not_reserve_recording_path() {
+        let root = tempfile::tempdir().unwrap();
+        for mode in [RecordMode::Studio, RecordMode::Instant] {
+            let path = root.path().join(format!("{mode}.ever"));
+            let params = camera_only_params(
+                mode,
+                path.clone(),
+                Some(format!("missing-microphone-{}", Uuid::new_v4())),
+            );
+
+            for _ in 0..2 {
+                let error = start_recording(&params, ScreenCaptureTarget::CameraOnly, path.clone())
+                    .await
+                    .err()
+                    .unwrap();
+                assert!(error.contains("Microphone 'missing-microphone-"), "{error}");
+                assert!(
+                    !path.exists(),
+                    "failed {mode} startup reserved {}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stale_sessions_do_not_hide_the_only_running_recording() {
+        let mut worker = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--list")
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let dead_pid = worker.id();
+        worker.wait().unwrap();
+        assert!(!session::process_alive(dead_pid));
+        let interrupted = Session {
+            recording_id: "interrupted".to_string(),
+            pid: dead_pid,
+            path: PathBuf::from("interrupted.ever"),
+            status: SessionStatus::Recording,
+            started_at: Some(1),
+            recording_meta_exists: None,
+            error: None,
+        };
+        let current = Session {
+            recording_id: "current".to_string(),
+            pid: std::process::id(),
+            path: PathBuf::from("current.ever"),
+            ..interrupted.clone()
+        };
+        let selected = select_active_session(vec![interrupted.clone(), current.clone()]).unwrap();
+        assert_eq!(selected.recording_id, "current");
+        let selected = select_active_session(vec![interrupted]).unwrap();
+        assert_eq!(selected.recording_id, "interrupted");
+        let other = Session {
+            recording_id: "other".to_string(),
+            ..current.clone()
+        };
+        assert!(
+            select_active_session(vec![current, other])
+                .err()
+                .unwrap()
+                .contains("Multiple active recordings")
+        );
+    }
 
     #[test]
     fn a_studio_recording_follows_the_apps_record_input_switch() {
