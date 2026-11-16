@@ -198,7 +198,7 @@ pub fn free_bytes_for_path(path: &Path) -> io::Result<u64> {
     use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
     use windows::core::PCWSTR;
 
-    let probe_path = resolve_existing_ancestor(path);
+    let probe_path = extended_length_path(existing_directory(path));
     let mut wide: Vec<u16> = probe_path.as_os_str().encode_wide().collect();
     if wide.last().copied() != Some(0) {
         wide.push(0);
@@ -219,6 +219,51 @@ pub fn free_bytes_for_path(path: &Path) -> io::Result<u64> {
     }
 
     Ok(free_bytes_available_to_caller)
+}
+
+#[cfg(windows)]
+fn extended_length_path(path: PathBuf) -> PathBuf {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Component, Prefix};
+
+    const LEGACY_MAX_PATH: usize = 248;
+
+    let Ok(absolute) = std::path::absolute(&path) else {
+        return path;
+    };
+    let units: Vec<u16> = absolute.as_os_str().encode_wide().collect();
+    if units.len() + 1 < LEGACY_MAX_PATH {
+        return path;
+    }
+    let (prefix, rest) = match absolute.components().next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(_) => (r"\\?\", &units[..]),
+            Prefix::UNC(..) => (r"\\?\UNC\", &units[2..]),
+            _ => return path,
+        },
+        _ => return path,
+    };
+    let end = rest
+        .iter()
+        .rposition(|unit| *unit != u16::from(b'\\'))
+        .map_or(0, |last| last + 1);
+    let mut extended = OsString::from(prefix);
+    extended.push(OsString::from_wide(&rest[..end]));
+    PathBuf::from(extended)
+}
+
+#[cfg(windows)]
+fn existing_directory(path: &Path) -> PathBuf {
+    let existing = resolve_existing_ancestor(path);
+    if existing.is_dir() {
+        return existing;
+    }
+    match existing.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        Some(_) => PathBuf::from("."),
+        None => existing,
+    }
 }
 
 fn resolve_existing_ancestor(path: &Path) -> std::path::PathBuf {
@@ -427,5 +472,122 @@ mod tests {
         let nested = dir.path().join("nope").join("also-nope").join("nada");
         let bytes = free_bytes_for_path(&nested).expect("should fall back to existing ancestor");
         assert!(bytes > 0);
+    }
+
+    #[cfg(windows)]
+    fn utf16_len(path: &Path) -> usize {
+        use std::os::windows::ffi::OsStrExt;
+        path.as_os_str().encode_wide().count()
+    }
+
+    #[cfg(windows)]
+    fn directory_of_length(base: &Path, length: usize) -> PathBuf {
+        let mut path = base.to_path_buf();
+        while utf16_len(&path) < length {
+            let room = length - utf16_len(&path) - 1;
+            assert!(room >= 1, "{} is too long for {length}", base.display());
+            path.push("p".repeat(if room == 101 { 99 } else { room.min(100) }));
+        }
+        assert_eq!(utf16_len(&path), length);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[cfg(windows)]
+    fn failing_lengths(
+        base: &Path,
+        lengths: impl IntoIterator<Item = usize>,
+        path_for: impl Fn(PathBuf) -> PathBuf,
+    ) -> Vec<String> {
+        lengths
+            .into_iter()
+            .filter_map(|length| {
+                let path = path_for(directory_of_length(base, length));
+                match free_bytes_for_path(&path) {
+                    Ok(bytes) if bytes > 0 => None,
+                    Ok(bytes) => Some(format!("{length} characters: {bytes} bytes")),
+                    Err(error) => Some(format!("{length} characters: {error}")),
+                }
+            })
+            .collect()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn paths_below_the_legacy_limit_reach_the_query_as_written() {
+        let longest_unchanged = format!(r"C:\{}", "p".repeat(243));
+        for path in [
+            r"C:\",
+            r"C:\Users\someone\Videos\FrameEver",
+            r"C:/Users/someone/Videos/FrameEver",
+            r"C:\Users\someone\Videos\FrameEver\",
+            r"E:\",
+            r"\\server\share\",
+            r"\\server\share\recordings",
+            r"\\?\C:\Users\someone",
+            longest_unchanged.as_str(),
+        ] {
+            assert_eq!(
+                extended_length_path(PathBuf::from(path)).as_os_str(),
+                std::ffi::OsStr::new(path)
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn paths_at_the_legacy_limit_use_the_extended_length_form() {
+        let name = "p".repeat(244);
+        for (path, expected) in [
+            (format!(r"C:\{name}"), format!(r"\\?\C:\{name}")),
+            (format!(r"C:\{name}\"), format!(r"\\?\C:\{name}")),
+            (format!(r"C:/a/../{name}/b"), format!(r"\\?\C:\{name}\b")),
+            (
+                format!(r"\\server\share\{name}"),
+                format!(r"\\?\UNC\server\share\{name}"),
+            ),
+            (format!(r"\\?\C:\{name}"), format!(r"\\?\C:\{name}")),
+        ] {
+            assert_eq!(
+                extended_length_path(PathBuf::from(&path)).as_os_str(),
+                std::ffi::OsStr::new(&expected),
+                "{path}"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn free_bytes_for_directories_up_to_and_past_max_path() {
+        let root = tempfile::tempdir().unwrap();
+        let failed = failing_lengths(root.path(), (240..=300).chain([400, 1000]), |directory| {
+            directory
+        });
+        assert!(failed.is_empty(), "{failed:#?}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn free_bytes_for_a_long_directory_written_with_a_trailing_separator() {
+        let root = tempfile::tempdir().unwrap();
+        let failed = failing_lengths(root.path(), [246, 247, 258, 259, 260, 272], |directory| {
+            let mut written = directory.into_os_string();
+            written.push("\\");
+            PathBuf::from(written)
+        });
+        assert!(failed.is_empty(), "{failed:#?}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn free_bytes_for_an_existing_file() {
+        let root = tempfile::tempdir().unwrap();
+        let export = root.path().join("export.mp4");
+        std::fs::write(&export, [0; 16]).unwrap();
+        assert!(free_bytes_for_path(&export).unwrap() > 0);
+
+        let long = directory_of_length(root.path(), 286).join("export.mp4");
+        std::fs::write(&long, [0; 16]).unwrap();
+        assert!(free_bytes_for_path(&long).unwrap() > 0);
     }
 }

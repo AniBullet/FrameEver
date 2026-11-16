@@ -5,11 +5,24 @@ SetCompressorDictSize 128
 
 SetFont /LANG=2052 "Microsoft YaHei UI" 9
 
+!macro EndFrameEverMcpServers
+  Push $0
+  System::Call 'kernel32::SetEnvironmentVariable(t "FRAMEEVER_INSTALL_DIR", t "$INSTDIR")i'
+  nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$cli = Join-Path $$env:FRAMEEVER_INSTALL_DIR 'frameever-cli.exe'; Get-CimInstance Win32_Process | Where-Object { $$_.Name -eq 'frameever-cli.exe' -and $$_.ExecutablePath -eq $$cli -and $$_.CommandLine -match '\smcp\s+serve(\s|$$)' } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue; Wait-Process -Id $$_.ProcessId -Timeout 5 -ErrorAction SilentlyContinue }"`
+  Pop $0
+  Pop $0
+!macroend
+
 ; Cap 0.6.0 ran its GPUI app as cap-gpui.exe next to Cap.exe. The template
 ; only closes Cap.exe before copying files, so a running cap-gpui.exe would keep
 ; the shared FFmpeg DLLs locked and stop the update with a file-in-use error.
 !macro NSIS_HOOK_PREINSTALL
   !insertmacro CheckIfAppIsRunning "cap-gpui.exe" "${PRODUCTNAME}"
+  !insertmacro EndFrameEverMcpServers
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  !insertmacro EndFrameEverMcpServers
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL

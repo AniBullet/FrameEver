@@ -557,7 +557,7 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
             app_windows::open_onboarding(cx);
             cx.activate(true);
         }
-        TrayItem::Quit => menus::quit(cx),
+        TrayItem::Quit => menus::quit(menus::QuitSource::Tray, cx),
         TrayItem::PreviousItem(path) => {
             #[cfg(target_os = "windows")]
             app_windows::tray_open_library_item(path, cx);

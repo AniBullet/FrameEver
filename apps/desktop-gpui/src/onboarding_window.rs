@@ -468,7 +468,7 @@ impl OnboardingWindow {
         let key = &event.keystroke;
         if self.shortcuts.listening.is_some() {
             cx.stop_propagation();
-            self.capture_shortcut(key, cx);
+            self.capture_shortcut(key, window.modifiers().shift, cx);
             return;
         }
         if key.modifiers.platform && key.key == "w" {

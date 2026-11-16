@@ -96,7 +96,7 @@ pub fn init(cx: &mut App) {
     });
     cx.on_action(|_: &HideSelf, cx: &mut App| cx.hide());
     cx.on_action(|_: &HideOthers, cx: &mut App| cx.hide_other_apps());
-    cx.on_action(|_: &Quit, cx: &mut App| quit(cx));
+    cx.on_action(|_: &Quit, cx: &mut App| quit(QuitSource::AppMenu, cx));
     cx.on_action(|_: &CloseWindow, cx: &mut App| close_key_window(cx));
     cx.on_action(|_: &Minimize, cx: &mut App| with_key_native(cx, platform::minimize_native));
     cx.on_action(|_: &Zoom, cx: &mut App| with_key_native(cx, platform::zoom_native));
@@ -414,7 +414,22 @@ pub(crate) fn recording_start_allowed(cx: &App) -> bool {
         .is_none_or(|coordinator| coordinator.gate.recording_start_allowed())
 }
 
-pub fn quit(cx: &mut App) {
+#[derive(Clone, Copy, Debug)]
+pub enum QuitSource {
+    AppMenu,
+    Tray,
+    #[cfg(target_os = "macos")]
+    NativeTermination,
+    #[cfg(target_os = "macos")]
+    NativeQuitHandlerUnavailable,
+    Installer,
+    UpdateInstaller,
+    UpdateRelaunchFailed,
+    Relaunch,
+}
+
+pub fn quit(source: QuitSource, cx: &mut App) {
+    tracing::info!(?source, "quit requested");
     let session = RecordingSession::global(cx);
     if !cx.has_global::<QuitCoordinator>() {
         cx.set_global(QuitCoordinator::default());

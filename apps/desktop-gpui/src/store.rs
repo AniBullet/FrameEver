@@ -286,6 +286,9 @@ fn read_store(path: &std::path::Path) -> Option<Map<String, Value>> {
             return None;
         }
     };
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        return Some(Map::new());
+    }
     match serde_json::from_slice::<Value>(&bytes) {
         Ok(Value::Object(map)) => Some(map),
         Ok(_) => {
@@ -2826,16 +2829,37 @@ mod tests {
     /// token and every preset.
     #[test]
     fn a_corrupt_store_is_never_overwritten() {
-        let store = TempStore::new("corrupt", Some("{ this is not json"));
-        assert!(!super::set_store_setting(
-            GENERAL_SETTINGS,
-            "hideDockIcon",
-            Value::Bool(true)
-        ));
-        assert_eq!(
-            std::fs::read_to_string(&store.path).unwrap(),
-            "{ this is not json"
-        );
+        for contents in ["{ this is not json", r#"{"auth":"token""#, "null", "[]"] {
+            let store = TempStore::new("corrupt", Some(contents));
+            assert!(!super::set_store_setting(
+                GENERAL_SETTINGS,
+                "hideDockIcon",
+                Value::Bool(true)
+            ));
+            assert_eq!(std::fs::read_to_string(&store.path).unwrap(), contents);
+        }
+    }
+
+    #[test]
+    fn an_empty_store_file_counts_as_an_empty_store() {
+        for contents in ["", " \t\r\n"] {
+            let store = TempStore::new("empty-store", Some(contents));
+            assert!(!has_completed_startup());
+            assert!(!has_completed_onboarding());
+            assert!(set_has_completed_startup(true));
+            assert!(set_has_completed_onboarding(true));
+            assert!(has_completed_startup());
+            assert!(has_completed_onboarding());
+            assert_eq!(
+                store.read(),
+                serde_json::json!({
+                    "general_settings": {
+                        "hasCompletedStartup": true,
+                        "hasCompletedOnboarding": true
+                    }
+                })
+            );
+        }
     }
 
     /// Every value the page can read back has to survive the round trip, and
