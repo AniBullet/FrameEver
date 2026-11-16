@@ -10027,7 +10027,7 @@ mod project_uniforms_tests {
         let size = XY::new(320, 180);
         constants.options.screen_size = size;
         let events = CursorEvents {
-            moves: [(0.0, 0.5), (3000.0, 0.515625), (3050.0, 0.53125)]
+            moves: [(0.0, 0.5), (3000.0, 0.5 + 1e-9), (3050.0, 0.5 + 2e-9)]
                 .into_iter()
                 .map(|(time, x)| cursor_move(time, x, 0.5))
                 .collect(),
