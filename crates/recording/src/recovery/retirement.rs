@@ -1,5 +1,7 @@
+#[cfg(unix)]
+use std::fs::File;
 use std::{
-    fs::{self, File},
+    fs,
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -35,14 +37,7 @@ impl RecoveryLease {
             receipt: read_recovery_publication(&workspace.join(RECOVERY_PUBLICATION_RECEIPT))?,
         };
         retirement.validate()?;
-        sync_directories(&project.join("content/segments"))?;
-        for directory in [
-            project.join("content"),
-            project.to_path_buf(),
-            workspace.to_path_buf(),
-        ] {
-            File::open(directory)?.sync_all()?;
-        }
+        sync_publication(project, workspace)?;
         *self.retirement.lock().map_err(|_| {
             RecoveryError::Validation("Original media retirement lease poisoned".into())
         })? = Some(retirement);
@@ -55,7 +50,7 @@ impl Drop for RecoveryLease {
         if self
             .lock
             .as_ref()
-            .is_none_or(|lock| lock.owner_pid != unsafe { libc::getpid() })
+            .is_none_or(|lock| !lock.owned_by_this_process())
         {
             return;
         }
@@ -90,15 +85,20 @@ pub(super) fn retire_unread_originals(
         receipt: read_recovery_publication(&workspace.join(RECOVERY_PUBLICATION_RECEIPT))?,
     };
     retirement.validate()?;
+    sync_publication(project, workspace)?;
+    retirement.remove_originals()
+}
+
+fn sync_publication(project: &Path, workspace: &Path) -> Result<(), RecoveryError> {
     sync_directories(&project.join("content/segments"))?;
     for directory in [
         project.join("content"),
         project.to_path_buf(),
         workspace.to_path_buf(),
     ] {
-        File::open(directory)?.sync_all()?;
+        sync_directory(&directory)?;
     }
-    retirement.remove_originals()
+    Ok(())
 }
 
 struct OriginalMediaRetirement {
@@ -149,8 +149,8 @@ impl OriginalMediaRetirement {
 
     fn remove_originals(&self) -> Result<(), RecoveryError> {
         self.validate()?;
-        fs::remove_dir_all(self.workspace.join("original-segments"))?;
-        File::open(&self.workspace)?.sync_all()?;
+        remove_backup(&self.workspace.join("original-segments"))?;
+        sync_directory(&self.workspace)?;
         tracing::info!(path = %self.workspace.display(), "Retired original media after final preparing reader closed");
         Ok(())
     }
@@ -166,8 +166,43 @@ fn sync_directories(path: &Path) -> Result<(), RecoveryError> {
             sync_directories(&entry.path())?;
         }
     }
-    File::open(path)?.sync_all()?;
+    sync_directory(path)?;
     Ok(())
+}
+
+fn sync_directory(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        File::open(path)?.sync_all()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+fn remove_backup(path: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        let mut attempt = 0;
+        loop {
+            match fs::remove_dir_all(path) {
+                Ok(()) => return Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) if attempt < 4 => {
+                    attempt += 1;
+                    tracing::debug!(%error, attempt, "Original media backup busy; retrying removal");
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        fs::remove_dir_all(path)
+    }
 }
 
 #[cfg(test)]
@@ -307,6 +342,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn replacing_backup_with_a_link_preserves_the_link_target() {
         let (_temporary, project, workspace) = fixture();

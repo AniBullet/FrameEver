@@ -388,10 +388,16 @@ fn import_wanted(tab: Tab, kind: crate::import::ImportKind) -> bool {
 
 impl MainWindow {
     pub(super) fn refresh_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let active = crate::session::RecordingSession::active_project_dir_in(cx);
         self.library.scan_task = Some(cx.spawn_in(window, async move |this, cx| {
             let (entries, dirs) = cx
                 .background_executor()
-                .spawn(async { (library::list_entries(), library::watched_dirs()) })
+                .spawn(async move {
+                    (
+                        library::list_entries(active.as_deref()),
+                        library::watched_dirs(),
+                    )
+                })
                 .await;
             this.update_in(cx, |this, window, cx| {
                 this.set_library_entries(entries, dirs, window, cx);

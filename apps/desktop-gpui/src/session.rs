@@ -378,6 +378,22 @@ impl RecordingSession {
         cx.global::<SessionGlobal>().0.clone()
     }
 
+    pub fn active_project_dir(&self) -> Option<&std::path::Path> {
+        self.active
+            .as_ref()
+            .map(|active| active.project_dir.as_path())
+    }
+
+    pub fn active_project_dir_in(cx: &App) -> Option<std::path::PathBuf> {
+        cx.try_global::<SessionGlobal>().and_then(|session| {
+            session
+                .0
+                .read(cx)
+                .active_project_dir()
+                .map(std::path::Path::to_path_buf)
+        })
+    }
+
     /// True while a recording is in flight. Tolerates the global not being
     /// installed yet (reporting idle) so callers can gate on it from windows
     /// that may open before the session exists.

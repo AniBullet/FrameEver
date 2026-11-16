@@ -280,6 +280,7 @@ impl DashAudioSegmentEncoder {
                     break;
                 }
             };
+            sync_file(&segment_path);
             let duration = self.presentation_duration(index, metadata.duration);
 
             self.completed_segments.push(AudioSegmentInfo {

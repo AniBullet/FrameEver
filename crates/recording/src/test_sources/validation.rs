@@ -241,7 +241,7 @@ impl RecordingValidator {
             }
         }
 
-        fragments.sort();
+        frameever_enc_ffmpeg::fragment_order::sort_fragment_paths(&mut fragments);
 
         result.fragments_checked = fragments.len();
 

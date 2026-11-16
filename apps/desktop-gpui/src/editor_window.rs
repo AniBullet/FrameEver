@@ -326,6 +326,15 @@ pub fn letterbox(container: (f32, f32), frame: (f32, f32)) -> (f32, f32) {
     }
 }
 
+fn canvas_hit_layout(layout: FrameLayout, overlay_live: bool) -> FrameLayout {
+    FrameLayout {
+        caption: layout
+            .caption
+            .filter(|caption| overlay_live && caption.is_manual()),
+        ..layout
+    }
+}
+
 fn frame_layout_requires_editor_invalidation(
     first_frame: bool,
     playing: bool,
@@ -547,6 +556,10 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
 
 const NO_AUTO_ZOOM_CLICKS_MESSAGE: &str =
     n!("No clicks found to zoom into. Drag across the lane to add one.");
+
+fn new_zoom_amount() -> f64 {
+    f64::from(crate::store::GeneralSettings::load().new_zoom_amount())
+}
 
 fn load_recording_clicks(
     project_path: &std::path::Path,
@@ -1928,6 +1941,11 @@ impl EditorWindow {
         crate::theme::bind_window(window, cx);
         cx.observe_window_activation(window, |this, window, cx| {
             if !window.is_window_active() {
+                if let Some(crop) = this.crop.as_mut()
+                    && crop.keys.release()
+                {
+                    cx.notify();
+                }
                 let minimap_canceled = this.minimap_drag.take().is_some();
                 let lane_reorder_canceled = this.lane_reorder.is_some();
                 if lane_reorder_canceled {
@@ -2703,6 +2721,7 @@ impl EditorWindow {
         self.close_frame_controls(window, cx);
         self.end_field_edit(cx);
         self.close_color_picker(cx);
+        self.end_timeline_gesture(window, cx);
         let Some(config) = self.history.undo().cloned() else {
             return;
         };
@@ -2714,6 +2733,7 @@ impl EditorWindow {
         self.close_frame_controls(window, cx);
         self.end_field_edit(cx);
         self.close_color_picker(cx);
+        self.end_timeline_gesture(window, cx);
         let Some(config) = self.history.redo().cloned() else {
             return;
         };
@@ -2744,6 +2764,9 @@ impl EditorWindow {
             || crate::editor_sidebar::is_none_background(&self.project)
                 != crate::editor_sidebar::is_none_background(&config);
         self.project = config;
+        let restored = TrackLanes::from_project(&self.project, self.has_camera);
+        self.tracks.caption = restored.caption;
+        self.tracks.keyboard = restored.keyboard;
         self.synchronize_caption_track(false);
         self.rebuild_timeline(cx);
         if self.animated_gradient_config().is_some() {
@@ -4296,6 +4319,12 @@ impl EditorWindow {
                     _ => None,
                 }
             });
+            if selection.is_some()
+                && self.audio_import_pending != Some(self.audio_picker_generation)
+            {
+                self.audio_picker = None;
+                self.audio_picker_request = None;
+            }
             self.selection = selection;
             self.refresh_image_asset_status();
             cx.notify();
@@ -4864,6 +4893,21 @@ impl EditorWindow {
             self.history.resume(&config);
         }
         cx.notify();
+    }
+
+    fn end_timeline_gesture(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.drag.is_some_and(|drag| drag.moved) {
+            self.drag_mouse_up(window, cx);
+        } else if let Some(drag) = self.drag.take() {
+            self.drag_snap_targets = Vec::new();
+            self.drag_snap_time = None;
+            self.clip_draft = None;
+            if drag.paused {
+                let config = self.project.clone();
+                self.history.resume(&config);
+            }
+        }
+        self.cancel_lane_reorder(cx);
     }
 
     fn cancel_lane_reorder(&mut self, cx: &mut Context<Self>) {
@@ -5999,11 +6043,7 @@ impl EditorWindow {
         self.auto_zoom_message = None;
         cx.notify();
         let path = self.project_path.clone();
-        let amount = f64::from(
-            crate::store::GeneralSettings::load()
-                .default_zoom_amount
-                .unwrap_or(edits::DEFAULT_AUTO_ZOOM_AMOUNT as f32),
-        );
+        let amount = new_zoom_amount();
         cx.spawn_in(window, async move |this, cx| {
             let clicks = cx
                 .background_executor()
@@ -6062,9 +6102,7 @@ impl EditorWindow {
                         timeline,
                         crate::editor_panels::new_camera3d_shot(start, end),
                     ),
-                    _ => {
-                        edits::insert_zoom_segment(timeline, start, end, edits::DEFAULT_ZOOM_AMOUNT)
-                    }
+                    _ => edits::insert_zoom_segment(timeline, start, end, new_zoom_amount()),
                 };
                 true
             },
@@ -6844,7 +6882,11 @@ impl EditorWindow {
         }
         let handoff_target = self.transport.as_ref().and(self.ordinary_handoff_frame);
         let first_frame = self.latest_frame.is_none();
-        let layout_changed = self.frame_layout != Some(frame.layout);
+        let overlay_live = self.player_panel_hovered || self.canvas_drag.is_some();
+        let layout_changed = self
+            .frame_layout
+            .map(|layout| canvas_hit_layout(layout, overlay_live))
+            != Some(canvas_hit_layout(frame.layout, overlay_live));
         if self.frame_layout.map(|layout| layout.output_size) != Some(frame.layout.output_size) {
             tracing::info!(
                 output_size = ?frame.layout.output_size,
@@ -12837,6 +12879,31 @@ mod tests {
     }
 
     #[test]
+    fn new_zooms_start_at_the_zoom_amount_settings_shows() {
+        let settings = tempfile::tempdir().unwrap();
+        let store = settings.path().join("store");
+        for (contents, expected) in [
+            (r#"{ "general_settings": {} }"#, 1.5),
+            (
+                r#"{ "general_settings": { "defaultZoomAmount": null } }"#,
+                1.5,
+            ),
+            (
+                r#"{ "general_settings": { "defaultZoomAmount": 2.5 } }"#,
+                2.5,
+            ),
+        ] {
+            std::fs::write(&store, contents).unwrap();
+            crate::store::set_test_tauri_store_path(Some(store.clone()));
+            let shown = crate::store::GeneralSettings::load().new_zoom_amount();
+            let amount = new_zoom_amount();
+            crate::store::set_test_tauri_store_path(None);
+            assert_eq!(f64::from(shown), expected, "{contents}");
+            assert_eq!(amount, expected, "{contents}");
+        }
+    }
+
+    #[test]
     #[ignore = "set FRAMEEVER_AUTO_ZOOM_BENCH_PROJECT to a disposable recording bundle"]
     fn auto_zoom_click_loading_benchmark() {
         let path = PathBuf::from(std::env::var_os("FRAMEEVER_AUTO_ZOOM_BENCH_PROJECT").unwrap());
@@ -13751,6 +13818,41 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn only_a_manual_caption_box_changes_the_canvas_layout() {
+        let base = FrameLayout {
+            display: [0., 0., 1920., 1080.],
+            camera: None,
+            output_size: [1920, 1080],
+            caption: None,
+        };
+        let preset = |bounds| FrameLayout {
+            caption: Some(frameever_rendering::CaptionFrameBox::new(
+                bounds,
+                "bottom-center",
+            )),
+            ..base
+        };
+        let manual = |bounds| FrameLayout {
+            caption: Some(frameever_rendering::CaptionFrameBox::new(bounds, "manual")),
+            ..base
+        };
+        assert_eq!(canvas_hit_layout(preset([0., 0., 10., 10.]), true), base);
+        assert_eq!(
+            canvas_hit_layout(preset([0., 0., 10., 10.]), true),
+            canvas_hit_layout(preset([5., 5., 50., 20.]), true)
+        );
+        assert_ne!(
+            canvas_hit_layout(manual([0., 0., 10., 10.]), true),
+            canvas_hit_layout(manual([5., 5., 50., 20.]), true)
+        );
+        assert_ne!(canvas_hit_layout(manual([0., 0., 10., 10.]), true), base);
+        assert_eq!(
+            canvas_hit_layout(manual([0., 0., 10., 10.]), false),
+            canvas_hit_layout(manual([5., 5., 50., 20.]), false)
+        );
+    }
+
     /// Every failure `EditorInstance::new` would return, plus the one it would
     /// panic on, has to come back as a message.
     #[test]
@@ -14022,6 +14124,234 @@ mod tests {
             }
             assert_eq!(serde_json::to_value(&editor.project).unwrap(), before);
         });
+    }
+
+    #[gpui::test]
+    fn selecting_a_segment_closes_the_audio_library(cx: &mut gpui::TestAppContext) {
+        let project = tempfile::tempdir().unwrap();
+        let path = project.path().to_path_buf();
+        let (editor, cx) =
+            cx.add_window_view(move |window, cx| EditorWindow::new(path.clone(), window, cx));
+        editor.update_in(cx, |editor, window, cx| {
+            editor.set_error("audio library fixture".into(), window, cx);
+            editor.project.timeline = Some(
+                serde_json::from_value(serde_json::json!({
+                    "segments": [], "zoomSegments": [], "styleSegments": [
+                        {"start": 1, "end": 2, "track": 0}
+                    ]
+                }))
+                .unwrap(),
+            );
+            editor.timeline = timeline::TimelineModel::build(&editor.project, false, false);
+            editor.open_audio_picker(0, cx);
+            assert!(editor.audio_picker.is_some());
+            editor.set_selection(Some(Selection::single(TrackKind::Style, 0)), cx);
+            assert!(editor.audio_picker.is_none());
+            assert!(editor.audio_picker_request.is_none());
+        });
+    }
+
+    mod timeline_history {
+        use super::*;
+
+        fn fixture(
+            cx: &mut gpui::TestAppContext,
+        ) -> (
+            Entity<EditorWindow>,
+            &mut gpui::VisualTestContext,
+            tempfile::TempDir,
+        ) {
+            let project = tempfile::tempdir().unwrap();
+            let path = project.path().to_path_buf();
+            let (editor, cx) =
+                cx.add_window_view(move |window, cx| EditorWindow::new(path.clone(), window, cx));
+            editor.update_in(cx, |editor, window, cx| {
+                editor.set_error("timeline history fixture".into(), window, cx);
+            });
+            (editor, cx, project)
+        }
+
+        fn zoom_segments(editor: &EditorWindow) -> Vec<(f64, f64)> {
+            editor
+                .project
+                .timeline
+                .as_ref()
+                .map(|timeline| {
+                    timeline
+                        .zoom_segments
+                        .iter()
+                        .map(|segment| (segment.start, segment.end))
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+
+        fn two_zooms(editor: &mut EditorWindow) {
+            editor.project.timeline = Some(
+                serde_json::from_value(serde_json::json!({
+                    "segments": [{"recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0}],
+                    "zoomSegments": [
+                        {"start": 1.0, "end": 2.0, "amount": 1.5, "mode": "auto"},
+                        {"start": 6.0, "end": 7.0, "amount": 1.5, "mode": "auto"}
+                    ]
+                }))
+                .unwrap(),
+            );
+            editor.history.record(&editor.project);
+        }
+
+        fn press_zoom(editor: &mut EditorWindow, index: usize, moved: bool) {
+            let (start, end) = zoom_segments(editor)[index];
+            editor.history.pause();
+            editor.drag = Some(Drag {
+                track: TrackKind::Zoom,
+                index,
+                kind: DragKind::Move {
+                    start,
+                    end,
+                    bounds: DragBounds {
+                        min: -10.,
+                        max: 10.,
+                    },
+                },
+                down_x: 100.,
+                origin_x: moved.then_some(100.),
+                moved,
+                threshold: 2.,
+                selects_on_click: true,
+                shift: false,
+                multi: false,
+                press_time: start,
+                paused: true,
+            });
+        }
+
+        #[gpui::test]
+        fn undo_during_a_segment_drag_reverts_that_drag(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _project) = fixture(cx);
+            editor.update_in(cx, |editor, window, cx| {
+                two_zooms(editor);
+                press_zoom(editor, 1, true);
+                editor.edit_live(
+                    |timeline| edits::move_segment(timeline, TrackKind::Zoom, 1, 4.0, 5.0),
+                    cx,
+                );
+                editor.undo(window, cx);
+                assert!(editor.drag.is_none());
+                assert_eq!(zoom_segments(editor), [(1.0, 2.0), (6.0, 7.0)]);
+                assert!(editor.history.can_redo());
+                editor.drag_mouse_move(400., true, window, cx);
+                editor.drag_mouse_up(window, cx);
+                assert_eq!(zoom_segments(editor), [(1.0, 2.0), (6.0, 7.0)]);
+                assert!(editor.history.can_redo());
+                editor.redo(window, cx);
+                assert_eq!(zoom_segments(editor), [(1.0, 2.0), (4.0, 5.0)]);
+                editor.undo(window, cx);
+                editor.undo(window, cx);
+                assert!(zoom_segments(editor).is_empty());
+            });
+        }
+
+        #[gpui::test]
+        fn undo_during_a_press_drops_it_and_undoes_the_last_edit(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _project) = fixture(cx);
+            editor.update_in(cx, |editor, window, cx| {
+                two_zooms(editor);
+                press_zoom(editor, 1, false);
+                editor.undo(window, cx);
+                assert!(editor.drag.is_none());
+                assert!(zoom_segments(editor).is_empty());
+                assert!(editor.history.can_redo());
+                editor.drag_mouse_move(400., true, window, cx);
+                editor.drag_mouse_up(window, cx);
+                assert!(zoom_segments(editor).is_empty());
+                assert!(editor.history.can_redo());
+                assert!(editor.selection.is_none());
+            });
+        }
+
+        fn shows_row(editor: &EditorWindow, kind: TrackKind) -> bool {
+            editor.timeline.rows.iter().any(|row| row.kind == kind)
+        }
+
+        #[gpui::test]
+        fn undo_and_redo_bring_caption_and_keyboard_rows_back_with_their_overlay(
+            cx: &mut gpui::TestAppContext,
+        ) {
+            let (editor, cx, _project) = fixture(cx);
+            editor.update_in(cx, |editor, window, cx| {
+                editor.project.timeline = Some(
+                    serde_json::from_value(serde_json::json!({
+                        "segments": [{"recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0}],
+                        "zoomSegments": [],
+                        "captionSegments": [{"id": "c", "start": 1.0, "end": 2.0, "text": "hi"}],
+                        "keyboardSegments": [{"id": "k", "start": 3.0, "end": 4.0, "displayText": "A"}]
+                    }))
+                    .unwrap(),
+                );
+                let mut captions = frameever_project::CaptionsData::default();
+                captions.settings.enabled = true;
+                editor.project.captions = Some(captions);
+                let mut keyboard = frameever_project::KeyboardData::default();
+                keyboard.settings.enabled = true;
+                editor.project.keyboard = Some(keyboard);
+                editor.tracks = TrackLanes::from_project(&editor.project, editor.has_camera);
+                editor.history.record(&editor.project);
+                editor.rebuild_timeline(cx);
+                assert!(shows_row(editor, TrackKind::Caption));
+                assert!(shows_row(editor, TrackKind::Keyboard));
+                for kind in [TrackKind::Caption, TrackKind::Keyboard] {
+                    editor.delete_single_track(kind, window, cx);
+                    editor.history.record(&editor.project);
+                    editor.rebuild_timeline(cx);
+                }
+                assert!(!shows_row(editor, TrackKind::Caption));
+                assert!(!shows_row(editor, TrackKind::Keyboard));
+
+                editor.undo(window, cx);
+                assert!(editor.project.keyboard.as_ref().unwrap().settings.enabled);
+                assert!(shows_row(editor, TrackKind::Keyboard));
+                assert!(!shows_row(editor, TrackKind::Caption));
+                editor.undo(window, cx);
+                assert!(editor.project.captions.as_ref().unwrap().settings.enabled);
+                assert!(shows_row(editor, TrackKind::Caption));
+                assert!(shows_row(editor, TrackKind::Keyboard));
+                editor.redo(window, cx);
+                editor.redo(window, cx);
+                assert!(!editor.project.keyboard.as_ref().unwrap().settings.enabled);
+                assert!(!shows_row(editor, TrackKind::Caption));
+                assert!(!shows_row(editor, TrackKind::Keyboard));
+            });
+        }
+
+        #[gpui::test]
+        fn undo_during_a_lane_reorder_cancels_it(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _project) = fixture(cx);
+            editor.update_in(cx, |editor, window, cx| {
+                two_zooms(editor);
+                editor.history.pause();
+                editor.lane_reorder = Some(LaneReorder {
+                    source: TrackRow {
+                        kind: TrackKind::Text,
+                        lane: 1,
+                    },
+                    target_index: 0,
+                    down_x: 0.,
+                    down_y: 0.,
+                    pointer_x: 0.,
+                    pointer_y: 0.,
+                    dragging: true,
+                    paused: true,
+                    autoscroll_pending: false,
+                });
+                editor.undo(window, cx);
+                assert!(editor.lane_reorder.is_none());
+                assert!(zoom_segments(editor).is_empty());
+                editor.project.background.padding = 12.;
+                editor.history.record(&editor.project);
+                assert!(!editor.history.can_redo(), "history is no longer paused");
+            });
+        }
     }
 
     #[gpui::test]

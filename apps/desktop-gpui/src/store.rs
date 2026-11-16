@@ -1285,6 +1285,10 @@ impl PostInstantBehaviour {
 }
 
 impl GeneralSettings {
+    pub fn new_zoom_amount(&self) -> f32 {
+        self.default_zoom_amount.unwrap_or(1.5)
+    }
+
     pub fn instant_input_display(
         &self,
     ) -> Option<frameever_recording::live_input_display::InstantInputDisplay> {
@@ -2876,6 +2880,7 @@ mod tests {
         assert!(settings.instant_click_highlight);
         assert!(!settings.custom_cursor_capture);
         assert_eq!(settings.default_zoom_amount, Some(2.5));
+        assert_eq!(settings.new_zoom_amount(), 2.5);
         assert_eq!(settings.max_fps, 120);
         assert_eq!(settings.excluded_windows.len(), 1);
         assert_eq!(settings.excluded_windows[0].primary_label(), "FrameEver");
@@ -2885,6 +2890,7 @@ mod tests {
         assert!(settings.confirm_without_microphone);
         assert!(settings.studio_sound_by_default);
         assert_eq!(settings.instant_mode_max_resolution, 1920);
+        assert_eq!(GeneralSettings::default().new_zoom_amount(), 1.5);
         assert_eq!(GeneralSettings::default().recording_auto_stop_minutes, 0);
         assert!(!GeneralSettings::default().instant_click_highlight);
     }

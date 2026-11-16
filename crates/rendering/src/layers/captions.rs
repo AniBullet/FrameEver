@@ -98,6 +98,58 @@ pub struct CaptionOverlayLayout {
     pub position: CaptionPosition,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CaptionFrameBox {
+    pub bounds: [f32; 4],
+    position: CaptionPosition,
+}
+
+impl CaptionFrameBox {
+    pub fn new(bounds: [f32; 4], position: &str) -> Self {
+        Self {
+            bounds,
+            position: CaptionPosition::from_str(position),
+        }
+    }
+
+    pub fn is_manual(&self) -> bool {
+        self.position == CaptionPosition::Manual
+    }
+
+    pub fn is_at(&self, position: &str) -> bool {
+        self.position == CaptionPosition::from_str(position)
+    }
+}
+
+pub(crate) fn caption_box_origin(
+    position: CaptionPosition,
+    manual: Option<XY<f32>>,
+    box_size: (f32, f32),
+    frame: (f32, f32),
+) -> (f32, f32) {
+    let (box_width, box_height) = box_size;
+    let (width, height) = frame;
+    let margin = width * 0.05;
+    let max_left = (width - box_width).max(0.0);
+    let max_top = (height - box_height).max(0.0);
+    let manual = manual.filter(|_| position == CaptionPosition::Manual);
+    let left = match (position, manual) {
+        (_, Some(manual)) => {
+            (manual.x.clamp(0.0, 1.0) * width - box_width / 2.0).clamp(0.0, max_left)
+        }
+        (CaptionPosition::TopLeft | CaptionPosition::BottomLeft, _) => margin,
+        (CaptionPosition::TopRight | CaptionPosition::BottomRight, _) => {
+            (width - margin - box_width).max(0.0)
+        }
+        _ => ((width - box_width) / 2.0).max(0.0),
+    };
+    let center_y = match manual {
+        Some(manual) => manual.y.clamp(0.0, 1.0) * height,
+        None => height * position.y_factor(),
+    };
+    (left, (center_y - box_height / 2.0).clamp(0.0, max_top))
+}
+
 const BASE_TEXT_OPACITY: f32 = 0.8;
 const BOUNCE_OFFSET_PIXELS: f32 = 8.0;
 // Safety net for caption segments whose trailing word end was stretched across a
@@ -261,6 +313,20 @@ fn calculate_word_highlight(
     0.0
 }
 
+fn caption_text_left(buffer: &Buffer, content_left: f32, render_scale: f32) -> f32 {
+    let min_x = LayoutRunIter::new(buffer)
+        .flat_map(|run| run.glyphs)
+        .map(|glyph| glyph.x)
+        .reduce(f32::min)
+        .unwrap_or(0.0);
+    content_left - min_x * render_scale
+}
+
+pub(crate) fn scaled_font_size(size: u32, output_height: u32) -> Option<f32> {
+    let font_size = size as f32 * (output_height as f32 / 1080.0);
+    (font_size > 0.0).then_some(font_size)
+}
+
 #[derive(PartialEq)]
 struct ShapedCaptionText {
     text: String,
@@ -294,6 +360,7 @@ pub struct CaptionsLayer {
     output_size: (u32, u32),
     has_caption: bool,
     active_layout: Option<CaptionOverlayLayout>,
+    frame_box: Option<CaptionFrameBox>,
 }
 
 impl CaptionsLayer {
@@ -439,6 +506,7 @@ impl CaptionsLayer {
             output_size: (0, 0),
             has_caption: false,
             active_layout: None,
+            frame_box: None,
         }
     }
 
@@ -462,6 +530,7 @@ impl CaptionsLayer {
     ) {
         self.has_caption = false;
         self.active_layout = None;
+        self.frame_box = None;
         self.background_scissor = None;
         self.highlight_scissor = None;
         self.has_highlight = false;
@@ -616,7 +685,9 @@ impl CaptionsLayer {
             * fade_opacity)
             .clamp(0.0, 1.0);
 
-        let font_size = caption_data.settings.size as f32 * (height as f32 / 1080.0);
+        let Some(font_size) = scaled_font_size(caption_data.settings.size, height) else {
+            return;
+        };
         let wrap_width = (width as f32 - margin * 2.0).max(font_size);
         let new_buffer = |font_system: &mut FontSystem| {
             let mut buffer = Buffer::new(font_system, Metrics::new(font_size, font_size * 1.2));
@@ -816,39 +887,12 @@ impl CaptionsLayer {
         let box_width = (text_width + padding * 2.0).min(available_width).max(1.0);
         let box_height = (text_height + padding * 2.0).min(height as f32).max(1.0);
 
-        let background_left = if position == CaptionPosition::Manual {
-            caption_data
-                .settings
-                .manual_position
-                .map(|manual_position| {
-                    (manual_position.x.clamp(0.0, 1.0) * width as f32 - box_width / 2.0)
-                        .clamp(0.0, (width as f32 - box_width).max(0.0))
-                })
-                .unwrap_or_else(|| ((width as f32 - box_width) / 2.0).max(0.0))
-        } else {
-            match position {
-                CaptionPosition::TopLeft | CaptionPosition::BottomLeft => margin,
-                CaptionPosition::TopRight | CaptionPosition::BottomRight => {
-                    (width as f32 - margin - box_width).max(0.0)
-                }
-                CaptionPosition::TopCenter | CaptionPosition::BottomCenter => {
-                    ((width as f32 - box_width) / 2.0).max(0.0)
-                }
-                CaptionPosition::Manual => ((width as f32 - box_width) / 2.0).max(0.0),
-            }
-        };
-
-        let center_y = if position == CaptionPosition::Manual {
-            caption_data
-                .settings
-                .manual_position
-                .map(|manual_position| manual_position.y.clamp(0.0, 1.0) * height as f32)
-                .unwrap_or_else(|| height as f32 * CaptionPosition::BottomCenter.y_factor())
-        } else {
-            height as f32 * position.y_factor()
-        };
-        let base_background_top =
-            (center_y - box_height / 2.0).clamp(0.0, (height as f32 - box_height).max(0.0));
+        let (background_left, base_background_top) = caption_box_origin(
+            position,
+            caption_data.settings.manual_position,
+            (box_width, box_height),
+            (width as f32, height as f32),
+        );
         let background_top = (base_background_top + bounce_offset as f32)
             .clamp(0.0, (height as f32 - box_height).max(0.0));
 
@@ -863,13 +907,14 @@ impl CaptionsLayer {
         let draw_text_width = text_width * anim_scale;
         let draw_text_height = text_height * anim_scale;
 
-        let text_left = draw_box_left + padding * anim_scale;
+        let content_left = draw_box_left + padding * anim_scale;
+        let text_left = caption_text_left(&self.text_buffer, content_left, render_scale);
         let text_top = draw_box_top + padding * anim_scale;
 
         let bounds = TextBounds {
-            left: (text_left - 2.0).floor() as i32,
+            left: (content_left - 2.0).floor() as i32,
             top: (text_top - 2.0).floor() as i32,
-            right: (text_left + draw_text_width + 2.0).ceil() as i32,
+            right: (content_left + draw_text_width + 2.0).ceil() as i32,
             bottom: (text_top + draw_text_height + 2.0).ceil() as i32,
         };
 
@@ -952,6 +997,15 @@ impl CaptionsLayer {
         ];
 
         self.active_layout = Some(CaptionOverlayLayout { rect, position });
+        self.frame_box = Some(CaptionFrameBox {
+            bounds: [
+                background_left,
+                base_background_top,
+                background_left + box_width,
+                base_background_top + box_height,
+            ],
+            position,
+        });
 
         let background_uniforms = CaptionBackgroundUniforms {
             rect,
@@ -1072,6 +1126,10 @@ impl CaptionsLayer {
 
     pub fn active_layout(&self) -> Option<CaptionOverlayLayout> {
         self.active_layout
+    }
+
+    pub fn frame_box(&self) -> Option<CaptionFrameBox> {
+        self.frame_box
     }
 
     pub fn render(&self, pass: &mut wgpu::RenderPass<'_>) {
@@ -1199,6 +1257,186 @@ mod tests {
         word_byte_range,
     };
     use frameever_project::{CaptionTrackSegment, CaptionWord};
+
+    fn box_at(frame: (f32, f32)) -> (f32, f32) {
+        let scale = frame.1 / 1080.0;
+        (520.0 * scale, 60.0 * scale)
+    }
+
+    fn normalised_center(
+        position: super::CaptionPosition,
+        manual: Option<frameever_project::XY<f32>>,
+        frame: (f32, f32),
+    ) -> (f32, f32) {
+        let size = box_at(frame);
+        let (left, top) = super::caption_box_origin(position, manual, size, frame);
+        (
+            (left + size.0 / 2.0) / frame.0,
+            (top + size.1 / 2.0) / frame.1,
+        )
+    }
+
+    #[test]
+    fn a_manual_caption_lands_on_the_same_fraction_at_every_resolution() {
+        use frameever_project::XY;
+        let spots = [XY::new(0.5, 0.5), XY::new(0.3, 0.2), XY::new(0.62, 0.9)];
+        for aspect in [
+            [(1280.0, 720.0), (1920.0, 1080.0), (3840.0, 2160.0)],
+            [(720.0, 1280.0), (1080.0, 1920.0), (2160.0, 3840.0)],
+            [(720.0, 720.0), (1080.0, 1080.0), (2160.0, 2160.0)],
+        ] {
+            for spot in spots {
+                let centers = aspect.map(|frame| {
+                    normalised_center(super::CaptionPosition::Manual, Some(spot), frame)
+                });
+                for center in centers {
+                    assert!(
+                        (center.0 - centers[0].0).abs() < 1e-5,
+                        "{aspect:?} {spot:?}"
+                    );
+                    assert!(
+                        (center.1 - centers[0].1).abs() < 1e-5,
+                        "{aspect:?} {spot:?}"
+                    );
+                }
+            }
+        }
+        let center = normalised_center(
+            super::CaptionPosition::Manual,
+            Some(XY::new(0.3, 0.2)),
+            (1920.0, 1080.0),
+        );
+        assert!((center.0 - 0.3).abs() < 1e-6);
+        assert!((center.1 - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_manual_caption_near_an_edge_stays_inside_the_frame() {
+        use frameever_project::XY;
+        for frame in [(1920.0, 1080.0), (1080.0, 1920.0), (1440.0, 1080.0)] {
+            let size = box_at(frame);
+            for spot in [
+                XY::new(0.0, 0.0),
+                XY::new(1.0, 1.0),
+                XY::new(0.0, 1.0),
+                XY::new(-3.0, 7.0),
+            ] {
+                let (left, top) = super::caption_box_origin(
+                    super::CaptionPosition::Manual,
+                    Some(spot),
+                    size,
+                    frame,
+                );
+                assert!(
+                    left >= 0.0 && left + size.0 <= frame.0 + 1e-3,
+                    "{frame:?} {spot:?}"
+                );
+                assert!(
+                    top >= 0.0 && top + size.1 <= frame.1 + 1e-3,
+                    "{frame:?} {spot:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn presets_ignore_the_manual_centre() {
+        use super::CaptionPosition;
+        let frame = (1920.0, 1080.0);
+        let size = (400.0, 80.0);
+        let manual = Some(frameever_project::XY::new(0.1, 0.1));
+        let expected = [
+            (CaptionPosition::TopLeft, (96.0, 1080.0 * 0.08 - 40.0)),
+            (CaptionPosition::TopCenter, (760.0, 1080.0 * 0.08 - 40.0)),
+            (CaptionPosition::TopRight, (1424.0, 1080.0 * 0.08 - 40.0)),
+            (CaptionPosition::BottomLeft, (96.0, 1080.0 * 0.85 - 40.0)),
+            (CaptionPosition::BottomCenter, (760.0, 1080.0 * 0.85 - 40.0)),
+            (CaptionPosition::BottomRight, (1424.0, 1080.0 * 0.85 - 40.0)),
+        ];
+        for (position, origin) in expected {
+            assert_eq!(
+                super::caption_box_origin(position, manual, size, frame),
+                origin
+            );
+            assert_eq!(
+                super::caption_box_origin(position, None, size, frame),
+                origin
+            );
+        }
+        assert_eq!(
+            super::caption_box_origin(CaptionPosition::Manual, None, size, frame),
+            super::caption_box_origin(CaptionPosition::BottomCenter, None, size, frame)
+        );
+    }
+
+    #[test]
+    fn the_frame_box_knows_its_placement() {
+        let manual = super::CaptionFrameBox::new([0.0, 0.0, 10.0, 10.0], "manual");
+        assert!(manual.is_manual());
+        assert!(manual.is_at("manual"));
+        let preset = super::CaptionFrameBox::new([0.0, 0.0, 10.0, 10.0], "top");
+        assert!(!preset.is_manual());
+        assert!(preset.is_at("top-center"));
+        assert!(!preset.is_at("bottom-center"));
+    }
+
+    #[test]
+    fn a_zero_text_size_has_no_font_size() {
+        use super::scaled_font_size;
+        assert_eq!(scaled_font_size(0, 1080), None);
+        assert_eq!(scaled_font_size(48, 0), None);
+        assert_eq!(scaled_font_size(48, 1080), Some(48.0));
+        assert_eq!(scaled_font_size(48, 540), Some(24.0));
+    }
+
+    #[test]
+    fn caption_glyphs_fit_the_content_box_in_both_directions() {
+        use super::caption_text_left;
+        use glyphon::{Attrs, Buffer, Family, Metrics, Shaping, Weight};
+
+        let mut fonts = super::super::new_font_system();
+        for text in [
+            "سلام دنیا این یک متن آزمایشی است",
+            "مرحبا بالعالم",
+            "سلام Cap 123 دنیا",
+            "Hello world",
+        ] {
+            for wrap_width in [80.0_f32, 1800.0] {
+                let mut buffer = Buffer::new(&mut fonts, Metrics::new(48.0, 57.6));
+                buffer.set_size(Some(wrap_width), None);
+                buffer.set_wrap(glyphon::Wrap::None);
+                buffer.set_text(
+                    text,
+                    &Attrs::new().family(Family::SansSerif).weight(Weight::BOLD),
+                    Shaping::Advanced,
+                    None,
+                );
+                buffer.shape_until_scroll(&mut fonts, false);
+                let runs = buffer.layout_runs().collect::<Vec<_>>();
+                assert_eq!(runs.len(), 1);
+                assert!(!runs[0].glyphs.is_empty());
+                let width = runs[0].line_w;
+                for scale in [0.35, 0.72, 1.0, 1.08] {
+                    let content_left = 200.0;
+                    let left = caption_text_left(&buffer, content_left, scale);
+                    if text == "Hello world" {
+                        assert_eq!(left, content_left);
+                    }
+                    let mut min_x = f32::INFINITY;
+                    for glyph in runs[0].glyphs {
+                        let x = left + glyph.x * scale;
+                        min_x = min_x.min(x);
+                        assert!(x >= content_left - 0.001, "{text}: {x}");
+                        assert!(
+                            x + glyph.w * scale <= content_left + width * scale + 0.001,
+                            "{text}: {x}"
+                        );
+                    }
+                    assert!((min_x - content_left).abs() < 0.001, "{text}: {min_x}");
+                }
+            }
+        }
+    }
 
     fn segment(start: f64, end: f64, words: Vec<CaptionWord>) -> CaptionTrackSegment {
         CaptionTrackSegment {

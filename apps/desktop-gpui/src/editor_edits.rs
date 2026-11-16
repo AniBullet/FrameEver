@@ -621,6 +621,13 @@ impl TrackSegmentOps for CaptionTrackSegment {
 }
 
 impl TrackSegmentOps for KeyboardTrackSegment {
+    fn trim_start_to(&mut self, value: f64) {
+        let shift = (self.start - value) * 1000.0;
+        for key in &mut self.keys {
+            key.time_offset += shift;
+        }
+        self.start = value;
+    }
     fn start(&self) -> f64 {
         self.start
     }
@@ -1560,9 +1567,6 @@ pub fn insert_zoom_segment(
     index
 }
 
-/// `generalSettings.data?.defaultZoomAmount ?? 1.5` (`TL/ZoomTrack.tsx:226`).
-pub const DEFAULT_ZOOM_AMOUNT: f64 = 1.5;
-
 pub const MIN_AUDIO_SEGMENT_DURATION: f64 = 0.5;
 
 pub fn used_lane_count<T: TrackSegmentOps>(segments: &[T]) -> u32 {
@@ -2008,9 +2012,6 @@ pub fn clip_trim_end(
 // ---------------------------------------------------------------------------
 // Auto zoom
 // ---------------------------------------------------------------------------
-
-/// `DEFAULT_AUTO_ZOOM_AMOUNT` (`src-tauri/src/recording.rs:3704`).
-pub const DEFAULT_AUTO_ZOOM_AMOUNT: f64 = 2.0;
 
 pub fn generate_zoom_segments_for_timeline(
     clicks_by_clip: &[Vec<CursorClickEvent>],
@@ -2559,6 +2560,7 @@ pub fn set_clip_segment_timescale(
 
     let old_duration = clip_timeline_duration(timeline);
     let old_offsets = editor_timeline::clip_timeline_offsets(timeline);
+    let holds = timeline.hold_windows();
     let incoming_duration = timeline
         .effective_transition(index)
         .map_or(0.0, |transition| transition.duration);
@@ -2572,9 +2574,10 @@ pub fn set_clip_segment_timescale(
     let old_next_boundary = old_offsets.get(index + 1).copied().unwrap_or(old_duration);
     let new_next_boundary = new_offsets.get(index + 1).copied().unwrap_or(new_duration);
 
+    let effective = |time: f64| time - held_time_before(&holds, time);
     let shift = |time: f64| {
         timeline_shift_after_clip_duration_change(
-            time,
+            effective(time),
             old_offsets[index],
             new_offsets[index],
             absolute_start,
@@ -2599,14 +2602,24 @@ pub fn set_clip_segment_timescale(
         segment.start += shift(segment.start);
         segment.end += shift(segment.end);
     }
-    let bends = [old_offsets[index], absolute_start, old_next_boundary];
+    let retimed = old_offsets[index]..=old_next_boundary;
+    let bends: Vec<f64> = [old_offsets[index], absolute_start, old_next_boundary]
+        .map(|bend| effective_to_output(&holds, bend))
+        .into_iter()
+        .chain(
+            holds
+                .iter()
+                .flat_map(|&(start, end)| [start, end])
+                .filter(|&edge| retimed.contains(&effective(edge))),
+        )
+        .collect();
     for segment in &mut timeline.mask_segments {
         let old_start = segment.start;
         let start_shift = shift(old_start);
         segment.start += start_shift;
         segment.end += shift(segment.end);
         let keyframes = &mut segment.keyframes;
-        let relative_bends = bends.map(|bend| bend - old_start);
+        let relative_bends: Vec<f64> = bends.iter().map(|bend| bend - old_start).collect();
         split_keyframes_at(
             &mut keyframes.position,
             &relative_bends,
@@ -3669,6 +3682,42 @@ mod tests {
     }
 
     #[test]
+    fn trimming_keyboard_start_preserves_keypress_times() {
+        let mut project = config(serde_json::json!({
+            "timeline": {
+                "segments": [],
+                "zoomSegments": [],
+                "keyboardSegments": [{
+                    "id": "typed", "start": 2.0, "end": 6.0, "displayText": "ab",
+                    "keys": [
+                        { "key": "a", "timeOffset": 0.0 },
+                        { "key": "b", "timeOffset": 2000.0 }
+                    ]
+                }]
+            }
+        }));
+        let timeline = project.timeline.as_mut().unwrap();
+        let original = serde_json::to_value(&timeline.keyboard_segments[0]).unwrap();
+        for start in [3.0, 1.0, 2.0] {
+            assert!(set_segment_start(timeline, TrackKind::Keyboard, 0, start));
+            let segment = &timeline.keyboard_segments[0];
+            assert_eq!(segment.start + segment.keys[0].time_offset / 1000.0, 2.0);
+            assert_eq!(segment.start + segment.keys[1].time_offset / 1000.0, 4.0);
+            assert_eq!(segment.end, 6.0);
+            assert_eq!(segment.display_text, "ab");
+        }
+        assert_eq!(
+            serde_json::to_value(&timeline.keyboard_segments[0]).unwrap(),
+            original
+        );
+        assert!(!set_segment_start(timeline, TrackKind::Keyboard, 0, 2.0));
+        assert!(move_segment(timeline, TrackKind::Keyboard, 0, 5.0, 9.0));
+        let segment = &timeline.keyboard_segments[0];
+        assert_eq!(segment.keys[0].time_offset, 0.0);
+        assert_eq!(segment.keys[1].time_offset, 2000.0);
+    }
+
+    #[test]
     fn splitting_a_keyboard_segment_partitions_and_rebases_keys() {
         let mut project = config(serde_json::json!({
             "timeline": {
@@ -4328,7 +4377,7 @@ mod tests {
     fn a_new_zoom_segment_lands_in_time_order() {
         let mut config = zoom_fixture();
         let timeline = config.timeline.as_mut().unwrap();
-        let index = insert_zoom_segment(timeline, 10., 11.5, DEFAULT_ZOOM_AMOUNT);
+        let index = insert_zoom_segment(timeline, 10., 11.5, 1.5);
         assert_eq!(index, 1);
         assert_eq!(timeline.zoom_segments[1].start, 10.);
         assert_eq!(timeline.zoom_segments[1].amount, 1.5);
@@ -4413,6 +4462,98 @@ mod tests {
         assert_eq!(keyboard.keys[0].time_offset, 500.0);
         assert_eq!(keyboard.keys[1].time_offset, 2500.0);
         assert!(!set_clip_segment_timescale(timeline, 0, 2.0));
+    }
+
+    #[test]
+    fn clip_speed_changes_ripple_tracks_past_fullscreen_holds() {
+        let mut project = config(serde_json::json!({
+            "timeline": {
+                "segments": [
+                    { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0 },
+                    { "recordingSegment": 1, "timescale": 1.0, "start": 0.0, "end": 10.0 }
+                ],
+                "zoomSegments": [
+                    { "start": 11.0, "end": 12.0, "amount": 1.5, "mode": "auto" },
+                    { "start": 20.0, "end": 21.0, "amount": 1.5, "mode": "auto" }
+                ],
+                "textSegments": [
+                    { "start": 0.0, "end": 3.0, "track": 0, "content": "intro", "layout": "fullscreen" },
+                    { "start": 23.0, "end": 25.0, "track": 0, "content": "outro", "layout": "fullscreen" }
+                ],
+                "maskSegments": [{
+                    "start": 11.0, "end": 17.0, "maskType": "sensitive",
+                    "center": { "x": 0.5, "y": 0.5 }, "size": { "x": 0.2, "y": 0.2 },
+                    "keyframes": { "intensity": [
+                        { "time": 0.0, "value": 0.0 },
+                        { "time": 6.0, "value": 1.0 }
+                    ] }
+                }]
+            }
+        }));
+        let timeline = project.timeline.as_mut().unwrap();
+
+        assert!(set_clip_segment_timescale(timeline, 1, 2.0));
+
+        let zooms: Vec<_> = timeline
+            .zoom_segments
+            .iter()
+            .map(|segment| (segment.start, segment.end))
+            .collect();
+        assert_eq!(zooms, [(11.0, 12.0), (16.5, 17.0)]);
+        let texts: Vec<_> = timeline
+            .text_segments
+            .iter()
+            .map(|segment| (segment.start, segment.end))
+            .collect();
+        assert_eq!(texts, [(0.0, 3.0), (18.0, 20.0)]);
+        let mask = &timeline.mask_segments[0];
+        assert_eq!((mask.start, mask.end), (11.0, 15.0));
+        let intensity: Vec<_> = mask
+            .keyframes
+            .intensity
+            .iter()
+            .map(|key| (key.time, key.value))
+            .collect();
+        assert_eq!(intensity, [(0.0, 0.0), (2.0, 1.0 / 3.0), (4.0, 1.0)]);
+    }
+
+    #[test]
+    fn clip_speed_changes_split_mask_keyframes_at_hold_edges() {
+        let mut project = config(serde_json::json!({
+            "timeline": {
+                "segments": [
+                    { "recordingSegment": 0, "timescale": 1.0, "start": 0.0, "end": 10.0 },
+                    { "recordingSegment": 1, "timescale": 1.0, "start": 0.0, "end": 10.0 }
+                ],
+                "zoomSegments": [],
+                "textSegments": [
+                    { "start": 14.0, "end": 16.0, "track": 0, "content": "title", "layout": "fullscreen" }
+                ],
+                "maskSegments": [{
+                    "start": 12.0, "end": 20.0, "maskType": "sensitive",
+                    "center": { "x": 0.5, "y": 0.5 }, "size": { "x": 0.2, "y": 0.2 },
+                    "keyframes": { "intensity": [
+                        { "time": 0.0, "value": 0.0 },
+                        { "time": 8.0, "value": 1.0 }
+                    ] }
+                }]
+            }
+        }));
+        let timeline = project.timeline.as_mut().unwrap();
+
+        assert!(set_clip_segment_timescale(timeline, 1, 2.0));
+
+        let text = &timeline.text_segments[0];
+        assert_eq!((text.start, text.end), (12.0, 14.0));
+        let mask = &timeline.mask_segments[0];
+        assert_eq!((mask.start, mask.end), (11.0, 16.0));
+        let intensity: Vec<_> = mask
+            .keyframes
+            .intensity
+            .iter()
+            .map(|key| (key.time, key.value))
+            .collect();
+        assert_eq!(intensity, [(0.0, 0.0), (1.0, 0.25), (3.0, 0.5), (5.0, 1.0)]);
     }
 
     #[test]

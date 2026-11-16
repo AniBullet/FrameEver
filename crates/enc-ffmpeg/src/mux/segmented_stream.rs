@@ -618,6 +618,7 @@ impl SegmentedVideoEncoder {
                     break;
                 }
             };
+            sync_file(&segment_path);
 
             self.completed_segments.push(VideoSegmentInfo {
                 path: segment_path.clone(),
