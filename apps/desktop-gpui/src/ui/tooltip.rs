@@ -28,6 +28,8 @@ use crate::{
 /// `openDelay={200}`.
 pub const TOOLTIP_SHOW_DELAY: Duration = Duration::from_millis(200);
 
+const CURSOR_CLEARANCE: (f32, f32) = (4., 20.);
+
 /// A tooltip body. Build it with [`Tooltip::view`] and hand that to
 /// `.tooltip(..)`.
 pub struct Tooltip {
@@ -75,24 +77,29 @@ impl Render for Tooltip {
         let keys = self.keys.clone();
 
         div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(6.))
-            .min_w(px(24.))
-            .px(px(6.))
-            .py(px(4.))
-            .rounded(px(6.))
-            .border_1()
-            .border_color(border)
-            .bg(bg)
-            .text_size(px(12.))
-            .text_color(text)
-            .font_weight(FontWeight::MEDIUM)
-            .child(self.label.clone())
-            .children(
-                keys.into_iter()
-                    .map(|key| KbdChip::tooltip(&theme, key.as_ref())),
+            .pl(px(CURSOR_CLEARANCE.0))
+            .pt(px(CURSOR_CLEARANCE.1))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(6.))
+                    .min_w(px(24.))
+                    .px(px(6.))
+                    .py(px(4.))
+                    .rounded(px(6.))
+                    .border_1()
+                    .border_color(border)
+                    .bg(bg)
+                    .text_size(px(12.))
+                    .text_color(text)
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(self.label.clone())
+                    .children(
+                        keys.into_iter()
+                            .map(|key| KbdChip::tooltip(&theme, key.as_ref())),
+                    ),
             )
     }
 }

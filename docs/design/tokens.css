@@ -65,10 +65,10 @@
 	--muted-foreground: var(--neutral-11);
 	--faint-foreground: var(--neutral-9);
 	--secondary: var(--neutral-4);
-	--secondary-hover: var(--neutral-5);
+	--secondary-hover: var(--neutral-6);
 	--secondary-active: var(--neutral-7);
 	--secondary-foreground: var(--neutral-12);
-	--accent: var(--neutral-4);
+	--accent: var(--neutral-6);
 	--accent-foreground: var(--neutral-12);
 	--primary: var(--klein-9);
 	--primary-hover: var(--klein-10);
@@ -221,10 +221,10 @@
 	--muted-foreground: var(--neutral-11);
 	--faint-foreground: var(--neutral-9);
 	--secondary: var(--neutral-4);
-	--secondary-hover: var(--neutral-5);
+	--secondary-hover: var(--neutral-6);
 	--secondary-active: var(--neutral-7);
 	--secondary-foreground: var(--neutral-12);
-	--accent: var(--neutral-4);
+	--accent: var(--neutral-6);
 	--accent-foreground: var(--neutral-12);
 	--primary: var(--klein-9);
 	--primary-hover: var(--klein-10);

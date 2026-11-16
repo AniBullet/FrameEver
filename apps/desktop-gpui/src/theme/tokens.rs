@@ -308,10 +308,10 @@ color_layer! {
     muted_foreground: b.n(11), b.n(11);
     faint_foreground: b.n(9), b.n(9);
     secondary: b.n(4), b.n(4);
-    secondary_hover: b.n(5), b.n(5);
+    secondary_hover: b.n(6), b.n(6);
     secondary_active: b.n(7), b.n(7);
     secondary_foreground: b.n(12), b.n(12);
-    accent: b.n(4), b.n(4);
+    accent: b.n(6), b.n(6);
     accent_foreground: b.n(12), b.n(12);
     primary: b.k(9), b.k(9);
     primary_hover: b.k(10), b.k(10);
@@ -725,6 +725,28 @@ mod tests {
             }
         }
         walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets"));
+    }
+
+    #[test]
+    fn hover_fills_show_on_the_surfaces_they_sit_on() {
+        const PAIRS: [(&str, &str); 7] = [
+            ("secondary_hover", "secondary"),
+            ("accent", "secondary"),
+            ("accent", "popover"),
+            ("accent", "card"),
+            ("accent", "background"),
+            ("accent", "page"),
+            ("accent", "sidebar"),
+        ];
+        for appearance in BOTH {
+            for (hover, surface) in PAIRS {
+                let ratio = contrast(semantic(appearance, hover), semantic(appearance, surface));
+                assert!(
+                    ratio >= 1.06,
+                    "{appearance:?} {hover} on {surface} is {ratio:.3}:1"
+                );
+            }
+        }
     }
 
     #[test]

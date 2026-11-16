@@ -1739,7 +1739,7 @@ impl MainWindow {
                 self.surface_button("library-no-match-clear", t!("Clear filters"))
                     .bg(theme.secondary)
                     .text_color(theme.foreground)
-                    .hover(move |style| style.bg(theme.accent))
+                    .hover(move |style| style.bg(theme.secondary_hover))
                     .on_click(cx.listener(|this, _, _, cx| this.clear_library_filters(cx))),
             )
     }

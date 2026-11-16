@@ -488,7 +488,7 @@ impl MainWindow {
                     this.bg(theme.secondary)
                         .text_color(theme.foreground)
                         .when(!disabled, |this| {
-                            this.hover(move |style| style.bg(theme.accent))
+                            this.hover(move |style| style.bg(theme.secondary_hover))
                         })
                 })
                 .child(div().truncate().child(label.into())),
