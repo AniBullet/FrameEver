@@ -1,9 +1,20 @@
 use std::path::{Path, PathBuf};
 
 use frameever_export::ExportRange;
+pub use frameever_export::gif::GifQualityPreset;
 pub use frameever_export::instant_gif::{FPS, GifFailure, GifSize, estimated_bytes, is_large};
 
+use crate::i18n::tc;
+
 const UNNAMED: &str = "Recording";
+
+pub fn quality_label(quality: GifQualityPreset) -> &'static str {
+    match quality {
+        GifQualityPreset::Low => tc!("gif quality", "Low"),
+        GifQualityPreset::Medium => tc!("gif quality", "Medium"),
+        GifQualityPreset::High => tc!("gif quality", "High"),
+    }
+}
 
 pub fn can_save_as_gif(entry: &super::view::Entry) -> bool {
     entry.kind == super::MediaKind::Instant
@@ -45,6 +56,7 @@ pub fn save_as_gif(
     exports: &Path,
     range: ExportRange,
     size: GifSize,
+    quality: GifQualityPreset,
     progress: impl FnMut(u32, u32) -> bool,
 ) -> Result<PathBuf, GifFailure> {
     let output = gif_path(exports, name).map_err(GifFailure::FolderNotWritable)?;
@@ -53,6 +65,7 @@ pub fn save_as_gif(
         &output,
         range,
         size,
+        quality,
         progress,
     )?;
     super::record_export(
@@ -123,6 +136,7 @@ mod tests {
             &exports,
             HALF_A_SECOND,
             GifSize::Small,
+            GifQualityPreset::High,
             |_, _| true,
         )
         .unwrap();
@@ -132,6 +146,7 @@ mod tests {
             &exports,
             HALF_A_SECOND,
             GifSize::Small,
+            GifQualityPreset::High,
             |_, _| true,
         )
         .unwrap();
@@ -223,6 +238,7 @@ mod tests {
             &exports,
             HALF_A_SECOND,
             GifSize::Small,
+            GifQualityPreset::High,
             |done, _| done < 2,
         );
         std::fs::remove_file(project.join("content/output.mp4")).unwrap();
@@ -232,6 +248,7 @@ mod tests {
             &exports,
             HALF_A_SECOND,
             GifSize::Small,
+            GifQualityPreset::High,
             |_, _| true,
         );
 
@@ -255,6 +272,7 @@ mod tests {
                 exports,
                 HALF_A_SECOND,
                 GifSize::Small,
+                GifQualityPreset::High,
                 |_, _| true,
             )
         };

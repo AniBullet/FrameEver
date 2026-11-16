@@ -10,6 +10,7 @@ frameever-project = { path = "../../crates/project" }
 frameever-recording = { path = "../../crates/recording" }
 frameever-editor = { path = "../../crates/editor" }
 frameever-export = { path = "../../crates/export" }
+frameever-rendering = { path = "../../crates/rendering" }
 frameever-media-info = { path = "../../crates/media-info" }
 frameever-timestamp = { path = "../../crates/timestamp" }
 frameever-utils = { path = "../../crates/utils" }
@@ -41,6 +42,9 @@ workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(not(unix))'.dependencies]
+same-file = "1.0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [

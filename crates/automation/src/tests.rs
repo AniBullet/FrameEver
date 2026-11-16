@@ -744,6 +744,24 @@ fn shell_command_line_escapes_embedded_quotes() {
 }
 
 #[test]
+fn sanitized_unicode_title_fits_a_filename_without_splitting_characters() {
+    let title = "界".repeat(100);
+    let sanitized = sanitize_filename_component(&title);
+    assert_eq!(sanitized, "界".repeat(42));
+    assert_eq!(
+        sanitize_filename_component(&format!("{}界", "a".repeat(127))),
+        "a".repeat(127)
+    );
+
+    let dir = std::env::temp_dir().join(format!("frameever-automation-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    let result = std::fs::write(dir.join(format!("{sanitized}.png")), b"capture");
+    let cleanup = std::fs::remove_dir_all(&dir);
+    result.unwrap();
+    cleanup.unwrap();
+}
+
+#[test]
 fn sanitize_filename_component_neutralizes_traversal_and_reserved_chars() {
     assert_eq!(
         sanitize_filename_component("../../etc/passwd"),

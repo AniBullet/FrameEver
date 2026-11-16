@@ -274,10 +274,11 @@ impl Mp4ExportSettings {
 
     async fn export_inner(
         self,
-        base: ExporterBase,
+        mut base: ExporterBase,
         on_progress: impl FnMut(u32) -> bool + Send + 'static,
     ) -> Result<PathBuf, String> {
         base.require_frames(self.fps)?;
+        base.output_path.set_extension("mp4");
         info!("Exporting mp4 with settings: {:?}", &self);
         info!("Expected to render {} frames", base.total_frames(self.fps));
 

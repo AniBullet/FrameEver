@@ -17,7 +17,10 @@ use gpui::{
 use super::{MainWindow, delete::ButtonTone, focus_ring, library, t, ui, view};
 use crate::{
     i18n::tc,
-    library::gif::{FPS, GifFailure, GifSize, GifSource, estimated_bytes, is_large},
+    library::gif::{
+        FPS, GifFailure, GifQualityPreset, GifSize, GifSource, estimated_bytes, is_large,
+        quality_label,
+    },
 };
 
 const DIALOG_WIDTH: f32 = 420.;
@@ -120,14 +123,16 @@ enum DialogFocus {
     Start,
     End,
     Size,
+    Quality,
     Cancel,
     Save,
 }
 
-const STOPS: [DialogFocus; 5] = [
+const STOPS: [DialogFocus; 6] = [
     DialogFocus::Start,
     DialogFocus::End,
     DialogFocus::Size,
+    DialogFocus::Quality,
     DialogFocus::Cancel,
     DialogFocus::Save,
 ];
@@ -145,6 +150,7 @@ struct GifDialog {
     source: GifSource,
     stretch: Stretch,
     size: GifSize,
+    quality: GifQualityPreset,
     focus: DialogFocus,
     percent: Option<u32>,
 }
@@ -187,6 +193,7 @@ impl GifDialog {
             source,
             stretch: Stretch::whole(source.seconds),
             size: GifSize::Medium,
+            quality: GifQualityPreset::High,
             focus: DialogFocus::Save,
             percent: None,
         }
@@ -260,17 +267,9 @@ impl GifDialog {
         match self.focus {
             DialogFocus::Start => self.stretch.nudge(Handle::Start, forward),
             DialogFocus::End => self.stretch.nudge(Handle::End, forward),
-            DialogFocus::Size => {
-                let at = GifSize::ALL
-                    .iter()
-                    .position(|size| *size == self.size)
-                    .unwrap_or(0);
-                let next = if forward {
-                    (at + 1).min(GifSize::ALL.len() - 1)
-                } else {
-                    at.saturating_sub(1)
-                };
-                self.size = GifSize::ALL[next];
+            DialogFocus::Size => self.size = step_through(&GifSize::ALL, self.size, forward),
+            DialogFocus::Quality => {
+                self.quality = step_through(&GifQualityPreset::ALL, self.quality, forward)
             }
             DialogFocus::Cancel | DialogFocus::Save => {}
         }
@@ -285,6 +284,19 @@ impl GifDialog {
             _ => DialogAnswer::Save,
         })
     }
+}
+
+fn step_through<T: Copy + PartialEq>(options: &[T], current: T, forward: bool) -> T {
+    let at = options
+        .iter()
+        .position(|option| *option == current)
+        .unwrap_or(0);
+    let next = if forward {
+        (at + 1).min(options.len() - 1)
+    } else {
+        at.saturating_sub(1)
+    };
+    options[next]
 }
 
 struct SavedToast {
@@ -421,6 +433,7 @@ impl MainWindow {
         let name = dialog.name.clone();
         let range = dialog.stretch.range();
         let size = dialog.size;
+        let quality = dialog.quality;
         let cancel = Arc::new(AtomicBool::new(false));
         self.library.gif.cancel = Some(cancel.clone());
         self.library.gif.dragging = None;
@@ -437,6 +450,7 @@ impl MainWindow {
                     &exports,
                     range,
                     size,
+                    quality,
                     |done, total| {
                         progress_tx.send(done * 100 / total.max(1)).is_ok()
                             && !job_cancel.load(Ordering::Relaxed)
@@ -605,7 +619,15 @@ impl MainWindow {
             .child(handle(end, dialog.focus == DialogFocus::End))
     }
 
-    fn render_gif_sizes(&self, dialog: &GifDialog, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_gif_choice(
+        &self,
+        dialog: &GifDialog,
+        id: &'static str,
+        stop: DialogFocus,
+        labels: Vec<(&'static str, bool)>,
+        pick: fn(&mut GifDialog, usize),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let theme = self.theme;
         let saving = dialog.saving();
         div()
@@ -616,14 +638,11 @@ impl MainWindow {
             .bg(theme.muted)
             .border_1()
             .border_color(gpui::transparent_black())
-            .when(dialog.focus == DialogFocus::Size, |this| {
-                this.border_color(theme.ring)
-            })
+            .when(dialog.focus == stop, |this| this.border_color(theme.ring))
             .when(saving, |this| this.opacity(0.5))
-            .children(GifSize::ALL.into_iter().enumerate().map(|(index, size)| {
-                let on = dialog.size == size;
+            .children(labels.into_iter().enumerate().map(|(index, (label, on))| {
                 div()
-                    .id(("library-gif-size", index))
+                    .id((id, index))
                     .flex()
                     .flex_1()
                     .min_w_0()
@@ -642,14 +661,42 @@ impl MainWindow {
                         this.cursor_pointer()
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if let Some(dialog) = &mut this.library.gif.dialog {
-                                    dialog.size = size;
-                                    dialog.focus = DialogFocus::Size;
+                                    pick(dialog, index);
+                                    dialog.focus = stop;
                                 }
                                 cx.notify();
                             }))
                     })
-                    .child(size_label(size))
+                    .child(label)
             }))
+    }
+
+    fn render_gif_sizes(&self, dialog: &GifDialog, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_gif_choice(
+            dialog,
+            "library-gif-size",
+            DialogFocus::Size,
+            GifSize::ALL
+                .iter()
+                .map(|size| (size_label(*size), dialog.size == *size))
+                .collect(),
+            |dialog, index| dialog.size = GifSize::ALL[index],
+            cx,
+        )
+    }
+
+    fn render_gif_qualities(&self, dialog: &GifDialog, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_gif_choice(
+            dialog,
+            "library-gif-quality",
+            DialogFocus::Quality,
+            GifQualityPreset::ALL
+                .iter()
+                .map(|quality| (quality_label(*quality), dialog.quality == *quality))
+                .collect(),
+            |dialog, index| dialog.quality = GifQualityPreset::ALL[index],
+            cx,
+        )
     }
 
     fn render_gif_estimate(&self, dialog: &GifDialog) -> impl IntoElement {
@@ -770,6 +817,16 @@ impl MainWindow {
                                 .child(tc!("gif size", "Size")),
                         )
                         .child(self.render_gif_sizes(dialog, cx))
+                        .child(
+                            div()
+                                .mt(px(12.))
+                                .mb(px(6.))
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme.muted_foreground)
+                                .child(t!("Quality")),
+                        )
+                        .child(self.render_gif_qualities(dialog, cx))
                         .child(self.render_gif_estimate(dialog))
                         .child(
                             div()
@@ -915,7 +972,7 @@ mod tests {
     }
 
     #[test]
-    fn the_dialog_opens_on_the_whole_recording_at_medium_with_save_focused() {
+    fn the_dialog_opens_on_the_whole_recording_at_medium_size_and_high_quality_with_save_focused() {
         let dialog = dialog(12.0, (1920, 1080));
 
         assert_eq!(
@@ -926,6 +983,7 @@ mod tests {
             }
         );
         assert_eq!(dialog.size, GifSize::Medium);
+        assert_eq!(dialog.quality, GifQualityPreset::High);
         assert_eq!(dialog.focus, DialogFocus::Save);
         assert_eq!(dialog.times_label(), "0:00 – 0:12 · 12.0 s");
         assert_eq!(dialog.estimate_label(), "540 × 304 · 15 FPS · about 2 MB");
@@ -1020,11 +1078,12 @@ mod tests {
     }
 
     #[test]
-    fn tab_walks_the_handles_the_sizes_and_the_buttons_and_arrows_change_the_focused_one() {
+    fn tab_walks_the_handles_the_sizes_the_qualities_and_the_buttons_and_arrows_change_the_focused_one()
+     {
         let mut dialog = dialog(10.0, (800, 600));
 
         let mut walked = Vec::new();
-        for _ in 0..5 {
+        for _ in 0..6 {
             dialog.tab(true);
             walked.push(dialog.focus);
         }
@@ -1034,6 +1093,7 @@ mod tests {
                 DialogFocus::Start,
                 DialogFocus::End,
                 DialogFocus::Size,
+                DialogFocus::Quality,
                 DialogFocus::Cancel,
                 DialogFocus::Save,
             ]
@@ -1068,6 +1128,15 @@ mod tests {
         dialog.step(false);
         dialog.step(false);
         assert_eq!(dialog.size, GifSize::Large);
+
+        dialog.focus = DialogFocus::Quality;
+        dialog.step(true);
+        assert_eq!(dialog.quality, GifQualityPreset::High);
+        dialog.step(false);
+        assert_eq!(dialog.quality, GifQualityPreset::Medium);
+        dialog.step(false);
+        dialog.step(false);
+        assert_eq!(dialog.quality, GifQualityPreset::Low);
     }
 
     #[test]

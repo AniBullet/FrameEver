@@ -152,6 +152,8 @@ pub struct ExportPrefs {
     pub advanced_open: bool,
     #[serde(default)]
     pub organization_id: Option<String>,
+    #[serde(default)]
+    pub gif_quality: Option<String>,
 }
 
 pub fn app_data_dir() -> PathBuf {
