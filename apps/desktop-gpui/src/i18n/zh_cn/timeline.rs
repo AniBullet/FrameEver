@@ -518,4 +518,21 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Footage was cut between them", "两者之间的画面已被剪掉"),
     ("Match the clip speeds first", "请先让两个片段的速度一致"),
     ("OK", "确定"),
+    ("Chapter marks", "章节标记"),
+    ("Chapter marks · {count}", "章节标记 · {count}"),
+    ("Chapter mark", "章节标记"),
+    ("Chapter mark {number}", "章节标记 {number}"),
+    ("No recording under the playhead", "播放头下没有录制画面"),
+    ("A chapter mark is already here", "这里已有章节标记"),
+    (
+        "No clip to split at the chapter marks",
+        "章节标记处没有可分割的片段",
+    ),
+    (
+        "No chapter marks yet. Press M to add one at the playhead.",
+        "还没有章节标记。按 M 在播放头处添加。",
+    ),
+    ("Split clips at chapter marks", "在章节标记处分割片段"),
+    ("Cut from the timeline", "已从时间轴剪掉"),
+    ("Move to playhead", "移到播放头"),
 ];

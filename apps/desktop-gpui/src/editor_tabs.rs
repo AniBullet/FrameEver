@@ -504,8 +504,16 @@ pub fn caption_at_default_center(settings: &CaptionSettings) -> bool {
 fn caption_reason_customises_style(reason: &str) -> bool {
     !matches!(
         reason,
-        "caption-enabled" | "caption-export" | "caption-position" | "caption-placement"
+        "caption-enabled"
+            | "caption-export"
+            | "caption-position"
+            | "caption-placement"
+            | "caption-filler-words"
     )
+}
+
+fn filler_word_toggle_shown(settings: &CaptionSettings) -> bool {
+    matches!(settings.filler_language.as_deref(), Some("en" | "zh"))
 }
 
 pub fn set_caption_manual_center(settings: &mut CaptionSettings, x: Option<f32>, y: Option<f32>) {
@@ -2920,7 +2928,21 @@ impl EditorWindow {
                     ),
                 )),
             )
-            .child(div().pt(px(8.)).child(action));
+            .child(div().pt(px(8.)).child(action))
+            .children(filler_word_toggle_shown(&settings).then(|| {
+                ui::Subfield::plain(&theme, t!("Show filler words")).child(
+                    ui::Toggle::plain(&theme, "caption-filler-words", settings.show_filler_words)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let next = !caption_settings(&this.project).show_filler_words;
+                            this.set_caption_setting(
+                                "caption-filler-words",
+                                window,
+                                cx,
+                                move |settings| settings.show_filler_words = next,
+                            );
+                        })),
+                )
+            }));
 
         let style = div()
             .flex()
@@ -3322,7 +3344,7 @@ impl EditorWindow {
     /// -- reattach the progress poller. Deferred out of render because it
     /// mutates the sidebar state, and keyed by entity so it runs once per
     /// window.
-    fn ensure_captions_init(&self, cx: &mut Context<Self>) {
+    pub(crate) fn ensure_captions_init(&self, cx: &mut Context<Self>) {
         static INITIALISED: LazyLock<Mutex<HashSet<EntityId>>> =
             LazyLock::new(|| Mutex::new(HashSet::new()));
         if !INITIALISED
@@ -3395,7 +3417,7 @@ impl EditorWindow {
 
     /// `downloadModel` (`CaptionsTab.tsx:643-690`). The download runs on the
     /// tokio runtime and survives this window; the poll task repaints.
-    fn start_caption_model_download(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn start_caption_model_download(&mut self, cx: &mut Context<Self>) {
         let model = self.selected_caption_model().name;
         if !transcription::begin_download(model) {
             return;
@@ -3424,7 +3446,11 @@ impl EditorWindow {
     /// `generateCaptions` (`CaptionsTab.tsx:715-757`): transcribe on the
     /// tokio blocking pool, then apply the result through one `edit_project`
     /// write so a regenerate is a single undo entry.
-    fn generate_captions_clicked(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn generate_captions_clicked(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(summary) = self.summary() else {
             return;
         };
@@ -3797,6 +3823,21 @@ mod tests {
             preset.manual_position.map(|xy| (xy.x, xy.y)),
             Some((0.95, 0.5))
         );
+    }
+
+    #[test]
+    fn showing_filler_words_keeps_the_style_preset_and_needs_a_known_language() {
+        assert!(!caption_reason_customises_style("caption-filler-words"));
+        let shown = |language: Option<&str>| {
+            filler_word_toggle_shown(&CaptionSettings {
+                filler_language: language.map(str::to_string),
+                ..CaptionSettings::default()
+            })
+        };
+        assert!(shown(Some("en")));
+        assert!(shown(Some("zh")));
+        assert!(!shown(Some("de")));
+        assert!(!shown(None));
     }
 
     #[test]

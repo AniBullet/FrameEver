@@ -1193,6 +1193,40 @@ input.zoomer {
 	background: var(--primary);
 }
 
+.ed .menu .marks-head,
+.ed .menu .mark-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 32px;
+	padding: 0 4px 0 10px;
+}
+
+.ed .menu .marks-head b {
+	flex: 1;
+	font-weight: 600;
+}
+
+.ed .menu .mark-row .tnum {
+	min-width: 40px;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+}
+
+.ed .menu .mark-row .grow {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ed .menu .mark-row .ib,
+.ed .menu .marks-head .ib {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	justify-content: center;
+}
+
 .ed .menu.pop {
 	max-height: 480px;
 }

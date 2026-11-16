@@ -300,6 +300,7 @@ pub struct RecordingSession {
     editor_recording_target: Option<std::path::PathBuf>,
     clock: Option<RecordedClock>,
     chapter_markers: Option<ChapterMarkerLog>,
+    chapter_mark_added_at: Option<Instant>,
     auto_stop_limit: Option<Duration>,
     auto_stop_monitor: Option<Task<()>>,
     storage_monitor: Option<Task<()>>,
@@ -351,6 +352,7 @@ impl RecordingSession {
             editor_recording_target: None,
             clock: None,
             chapter_markers: None,
+            chapter_mark_added_at: None,
             auto_stop_limit: None,
             auto_stop_monitor: None,
             storage_monitor: None,
@@ -441,7 +443,32 @@ impl RecordingSession {
             count,
             "chapter marker added"
         );
+        self.chapter_mark_added_at = Some(Instant::now());
+        crate::app_sounds::play_chapter_mark();
         gpui_tokio::Tokio::spawn(cx, async move { log.save_or_log() }).detach();
+        cx.notify();
+    }
+
+    pub fn chapter_marks_available(&self) -> bool {
+        self.chapter_markers.is_some()
+            && chapter_marker_at(
+                self.mode(),
+                self.phase,
+                self.editor_recording_target.is_some(),
+                self.clock,
+                Instant::now(),
+            )
+            .is_some()
+    }
+
+    pub fn chapter_mark_count(&self) -> usize {
+        self.chapter_markers
+            .as_ref()
+            .map_or(0, ChapterMarkerLog::count)
+    }
+
+    pub fn chapter_mark_added_at(&self) -> Option<Instant> {
+        self.chapter_mark_added_at
     }
 
     pub fn auto_stop_countdown(&self) -> Option<Duration> {
@@ -2390,6 +2417,10 @@ impl ChapterMarkerLog {
         frameever_utils::storage::save_chapter_markers(&self.project, markers)
     }
 
+    fn count(&self) -> usize {
+        self.locked().as_ref().map_or(0, Vec::len)
+    }
+
     fn close(&self) -> Vec<Duration> {
         self.locked().take().unwrap_or_default()
     }
@@ -2482,8 +2513,14 @@ mod chapter_marker_tests {
         assert_eq!(
             chapter_markers(&project),
             vec![
-                ChapterMarker { recorded_at: 3.0 },
-                ChapterMarker { recorded_at: 9.0 },
+                ChapterMarker {
+                    recorded_at: 3.0,
+                    name: None
+                },
+                ChapterMarker {
+                    recorded_at: 9.0,
+                    name: None
+                },
             ]
         );
     }
@@ -2504,9 +2541,18 @@ mod chapter_marker_tests {
         assert_eq!(
             chapter_markers(&project),
             vec![
-                ChapterMarker { recorded_at: 2.0 },
-                ChapterMarker { recorded_at: 5.0 },
-                ChapterMarker { recorded_at: 11.0 },
+                ChapterMarker {
+                    recorded_at: 2.0,
+                    name: None
+                },
+                ChapterMarker {
+                    recorded_at: 5.0,
+                    name: None
+                },
+                ChapterMarker {
+                    recorded_at: 11.0,
+                    name: None
+                },
             ]
         );
     }
@@ -2526,6 +2572,19 @@ mod chapter_marker_tests {
         late_save.save().unwrap();
 
         assert!(!project.join("frameever.json").exists());
+    }
+
+    #[test]
+    fn the_bar_counts_the_marks_of_the_take_until_it_ends() {
+        let log = ChapterMarkerLog::new(std::path::PathBuf::from("unused.ever"));
+        assert_eq!(log.count(), 0);
+        log.add(secs(2));
+        log.add(secs(7));
+        assert_eq!(log.count(), 2);
+
+        assert_eq!(log.close().len(), 2);
+        assert_eq!(log.count(), 0);
+        assert_eq!(log.add(secs(9)), 0);
     }
 
     #[test]

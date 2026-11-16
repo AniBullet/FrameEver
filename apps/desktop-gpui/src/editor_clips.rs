@@ -468,9 +468,6 @@ impl EditorWindow {
             self.commit_clip_rename(window, cx);
         }
         self.clips.open = false;
-        if self.sidebar.tab == crate::editor_sidebar::SidebarTab::Clips {
-            self.sidebar.tab = crate::editor_sidebar::SidebarTab::Background;
-        }
         self.clips.import_menu = None;
         self.clips.drag = None;
         self.clips.drop_index = None;

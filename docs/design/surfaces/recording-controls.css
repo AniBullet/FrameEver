@@ -118,6 +118,24 @@
 		color var(--duration-fast) var(--ease-effects);
 }
 
+.rb-btn.mark {
+	position: relative;
+}
+.mark-count {
+	position: absolute;
+	top: 1px;
+	right: 0;
+	min-width: 13px;
+	height: 13px;
+	padding: 0 3px;
+	border-radius: 999px;
+	background: var(--muted-foreground);
+	color: var(--background);
+	font-size: 9px;
+	font-weight: 700;
+	line-height: 13px;
+	text-align: center;
+}
 .rb-btn:hover {
 	background: var(--accent);
 	color: var(--foreground);
