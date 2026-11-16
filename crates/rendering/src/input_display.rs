@@ -25,7 +25,9 @@ pub struct PresetShape {
 }
 
 pub fn preset_shape(id: &str) -> Option<PresetShape> {
-    let builtin = BuiltinPresetId::from_id(id)?;
+    let Some(builtin) = BuiltinPresetId::from_id(id) else {
+        return crate::input_presets::shape(&crate::input_presets::presets_dir()?, id);
+    };
     Some(PresetShape {
         size: builtin.layout().size(),
         frame_share: builtin.frame_share(),
@@ -59,7 +61,10 @@ pub fn layout_preset(
 }
 
 pub fn resolve_preset(id: &str, style: InputDisplayStyle, scale: u32) -> Option<LoadedPreset> {
-    builtin_preset(BuiltinPresetId::from_id(id)?, style, scale).ok()
+    match BuiltinPresetId::from_id(id) {
+        Some(builtin) => builtin_preset(builtin, style, scale).ok(),
+        None => crate::input_presets::load(&crate::input_presets::presets_dir()?, id, style, scale),
+    }
 }
 
 fn drawn_preset(
@@ -68,7 +73,7 @@ fn drawn_preset(
     scale: u32,
 ) -> Result<LoadedPreset, PresetRefusal> {
     let scale = scale.clamp(1, MAX_ATLAS_SCALE);
-    let preset = Preset::parse(&art.json, (art.atlas_width, art.atlas_height))?;
+    let preset = Preset::parse_own(&art.json, (art.atlas_width, art.atlas_height))?;
     let unreadable = |detail: String| PresetRefusal::AtlasUnreadable { detail };
     let options = resvg::usvg::Options {
         fontdb: crate::frame_chrome::chrome_fontdb(),

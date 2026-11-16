@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use super::{
     InputDisplayStyle,
     keys::key_codes,
@@ -16,7 +18,7 @@ const MOUSE_SIDE_OVERHANG: u32 = 4;
 const ATLAS_ROW_WIDTH: u32 = 1024;
 const FONT_FAMILY: &str = "Inter, 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LayoutKey {
     pub label: String,
     pub code: u16,
@@ -25,9 +27,11 @@ pub struct LayoutKey {
     pub width: f64,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct KeyLayout {
+    #[serde(default)]
     pub keys: Vec<LayoutKey>,
+    #[serde(default)]
     pub mouse: bool,
 }
 
@@ -454,6 +458,13 @@ impl KeyLayout {
         }
     }
 
+    pub fn frame_share(&self) -> f64 {
+        let reference = BuiltinPresetId::WasdMouse;
+        let share = reference.frame_share() * f64::from(self.size().0)
+            / f64::from(reference.layout().size().0.max(1));
+        share.clamp(0.06, 0.6)
+    }
+
     pub fn size(&self) -> (u32, u32) {
         let extent = self.extent();
         (extent.width, extent.height)
@@ -546,7 +557,7 @@ mod tests {
     use crate::input_display::{DisplayState, Input, key_code};
 
     fn read(art: &PresetArt) -> Preset {
-        Preset::parse(&art.json, (art.atlas_width, art.atlas_height)).unwrap()
+        Preset::parse_own(&art.json, (art.atlas_width, art.atlas_height)).unwrap()
     }
 
     fn key_count(preset: &Preset) -> usize {
@@ -695,6 +706,32 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_made_layout_draws_its_keys_as_large_as_the_built_in_ones() {
+        let wasd = BuiltinPresetId::WasdMouse.layout();
+        let single = KeyLayout {
+            keys: vec![wasd.keys[1].clone()],
+            mouse: false,
+        };
+
+        assert_eq!(wasd.frame_share(), BuiltinPresetId::WasdMouse.frame_share());
+        let per_pixel = |layout: &KeyLayout| layout.frame_share() / f64::from(layout.size().0);
+        assert!((per_pixel(&single) - per_pixel(&wasd)).abs() < 1e-3);
+        assert_eq!(BuiltinPresetId::FullKeyboard.layout().frame_share(), 0.6);
+    }
+
+    #[test]
+    fn a_layout_round_trips_through_its_file() {
+        let layout = BuiltinPresetId::WasdMouse.layout();
+        let json = serde_json::to_string(&layout).unwrap();
+
+        assert_eq!(serde_json::from_str::<KeyLayout>(&json).unwrap(), layout);
+        assert_eq!(
+            serde_json::from_str::<KeyLayout>("{}").unwrap(),
+            KeyLayout::default()
+        );
     }
 
     #[test]

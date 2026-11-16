@@ -8,7 +8,10 @@ use frameever_project::{
         size_for_width, snap_position,
     },
 };
-use frameever_rendering::input_display::PresetShape;
+use frameever_rendering::{
+    input_display::PresetShape,
+    input_presets::{ImportRefusal, UserPreset},
+};
 use gpui::{
     AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
     RenderImage, SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, div, img,
@@ -29,7 +32,54 @@ const TILE_PICTURE_HEIGHT: f32 = 46.;
 const TILE_BACKDROP: u32 = 0x2a2f36;
 const TILE_INK: u32 = 0xd8d8d8;
 
-pub(crate) type InputThumbnailKey = (BuiltinPresetId, InputDisplayStyle);
+pub(crate) type InputThumbnailKey = (String, InputDisplayStyle);
+
+const THUMBNAIL_WIDTH: u32 = 320;
+
+pub(crate) struct InputImportError {
+    pub message: SharedString,
+    pub details: SharedString,
+    pub open: bool,
+}
+
+pub(crate) fn import_refusal_message(refusal: &ImportRefusal) -> String {
+    use frameever_project::input_display::PresetRefusal;
+    match refusal {
+        ImportRefusal::FolderUnreadable { .. } => t!(
+            "Couldn't import this preset. FrameEver couldn't read that folder. Check that it still exists and try again."
+        )
+        .to_string(),
+        ImportRefusal::NoPresetFile => t!(
+            "Couldn't import this preset. The folder has no preset JSON file. Choose the folder that holds the preset's .json and .png files."
+        )
+        .to_string(),
+        ImportRefusal::TooManyPresetFiles { .. } => t!(
+            "Couldn't import this preset. The folder has more preset files than FrameEver takes at once. Put the ones you want in their own folder and import that."
+        )
+        .to_string(),
+        ImportRefusal::NotSaved { .. } => t!(
+            "Couldn't import this preset. FrameEver couldn't save it. Check free disk space and try again."
+        )
+        .to_string(),
+        ImportRefusal::File { file, refusal } => match refusal {
+            PresetRefusal::MissingAtlas => t!(
+                "Couldn't import this preset. {file} has no image beside it. Put its .png file in the same folder and try again.",
+                file = file
+            ),
+            PresetRefusal::JsonTooLarge { .. }
+            | PresetRefusal::AtlasFileTooLarge { .. }
+            | PresetRefusal::AtlasTooLarge { .. }
+            | PresetRefusal::TooManyElements { .. } => t!(
+                "Couldn't import this preset. {file} is larger than FrameEver allows. Choose a smaller preset.",
+                file = file
+            ),
+            _ => t!(
+                "Couldn't import this preset. {file} isn't a preset FrameEver can read. Save it again in its preset editor, or choose another preset.",
+                file = file
+            ),
+        },
+    }
+}
 
 pub(crate) const INPUT_PRESETS: [(BuiltinPresetId, &str); 2] = [
     (BuiltinPresetId::WasdMouse, n!("WASD + mouse")),
@@ -98,6 +148,16 @@ pub(crate) fn choose_input_preset(project: &mut ProjectConfiguration, preset: &s
     }
     block.preset = preset.to_string();
     true
+}
+
+pub(crate) fn after_preset_removed(project: &mut ProjectConfiguration, removed: &str) -> bool {
+    match project.input_display.as_mut() {
+        Some(block) if block.preset == removed => {
+            block.preset = BuiltinPresetId::WasdMouse.id().to_string();
+            true
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn choose_input_style(
@@ -294,12 +354,46 @@ pub(crate) fn input_resize(
     )
 }
 
-fn thumbnail(key: InputThumbnailKey) -> Option<Arc<RenderImage>> {
-    let loaded = frameever_rendering::input_display::builtin_preset(key.0, key.1, 1).ok()?;
+fn thumbnail(preset: &str, style: InputDisplayStyle) -> Option<Arc<RenderImage>> {
+    let loaded = frameever_rendering::input_display::resolve_preset(preset, style, 1)?;
     let mut picture =
         frameever_rendering::input_display::compose(&loaded, &DisplayState::default());
+    if picture.width() > THUMBNAIL_WIDTH {
+        let height = (u64::from(picture.height()) * u64::from(THUMBNAIL_WIDTH)
+            / u64::from(picture.width()))
+        .max(1) as u32;
+        picture = image::imageops::thumbnail(&picture, THUMBNAIL_WIDTH, height);
+    }
     frameever_rendering::input_display::straighten_alpha(&mut picture);
     Some(library::rgba_to_render_image(picture))
+}
+
+fn listed_presets() -> (Vec<UserPreset>, Vec<(InputThumbnailKey, Arc<RenderImage>)>) {
+    let presets = frameever_rendering::input_presets::presets_dir()
+        .map(|dir| frameever_rendering::input_presets::list(&dir))
+        .unwrap_or_default();
+    let mut pictures = Vec::new();
+    for (preset, _) in INPUT_PRESETS {
+        for style in InputDisplayStyle::ALL {
+            if let Some(picture) = thumbnail(preset.id(), style) {
+                pictures.push(((preset.id().to_string(), style), picture));
+            }
+        }
+    }
+    for preset in &presets {
+        if preset.layout.is_some() {
+            for style in InputDisplayStyle::ALL {
+                if let Some(picture) = thumbnail(&preset.id, style) {
+                    pictures.push(((preset.id.clone(), style), picture));
+                }
+            }
+        } else if let Some(picture) = thumbnail(&preset.id, InputDisplayStyle::default()) {
+            for style in InputDisplayStyle::ALL {
+                pictures.push(((preset.id.clone(), style), picture.clone()));
+            }
+        }
+    }
+    (presets, pictures)
 }
 
 impl EditorWindow {
@@ -540,31 +634,238 @@ impl EditorWindow {
     }
 
     pub(crate) fn ensure_input_thumbnails(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let wanted: Vec<InputThumbnailKey> = INPUT_PRESETS
-            .iter()
-            .flat_map(|(preset, _)| InputDisplayStyle::ALL.map(|style| (*preset, style)))
-            .filter(|key| !self.sidebar.input_thumbnails.contains_key(key))
-            .collect();
-        if wanted.is_empty() || self.sidebar.input_thumbnail_task.is_some() {
+        let generation = frameever_rendering::input_presets::generation();
+        if self.sidebar.input_presets_seen == Some(generation)
+            || self.sidebar.input_thumbnail_task.is_some()
+        {
             return;
         }
         self.sidebar.input_thumbnail_task = Some(cx.spawn_in(window, async move |this, cx| {
-            let pictures = cx
+            let (presets, pictures) = cx
                 .background_executor()
-                .spawn(async move {
-                    wanted
-                        .into_iter()
-                        .filter_map(|key| thumbnail(key).map(|picture| (key, picture)))
-                        .collect::<Vec<_>>()
-                })
+                .spawn(async move { listed_presets() })
                 .await;
-            this.update(cx, |this, cx| {
-                this.sidebar.input_thumbnails.extend(pictures);
+            this.update_in(cx, |this, window, cx| {
+                this.sidebar.input_user_presets = presets;
+                this.sidebar.input_thumbnails = pictures.into_iter().collect();
+                this.sidebar.input_presets_seen = Some(generation);
                 this.sidebar.input_thumbnail_task = None;
+                this.sidebar.input_shape.replace(None);
                 cx.notify();
+                this.ensure_input_thumbnails(window, cx);
             })
             .ok();
         }));
+    }
+
+    pub(crate) fn input_preset_saved(
+        &mut self,
+        preset: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sidebar.input_shape.replace(None);
+        self.edit_input_display("input-display-preset", window, cx, move |project| {
+            choose_input_preset(project, &preset)
+        });
+        self.ensure_input_thumbnails(window, cx);
+        self.publish_project();
+        cx.notify();
+    }
+
+    fn open_input_preset_maker(
+        &mut self,
+        preset: Option<UserPreset>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(editor) = window.window_handle().downcast::<Self>() else {
+            return;
+        };
+        let seed = match preset {
+            Some(preset) => crate::input_preset_maker::MakerSeed {
+                editing: Some(preset.id),
+                name: preset.name,
+                layout: preset.layout,
+            },
+            None => crate::input_preset_maker::MakerSeed {
+                editing: None,
+                name: t!("My preset").to_string(),
+                layout: None,
+            },
+        };
+        cx.defer(move |cx| crate::app_windows::open_input_preset_maker(editor, seed, cx));
+    }
+
+    fn import_input_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else {
+                return;
+            };
+            let Some(folder) = paths.into_iter().next() else {
+                return;
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let dir =
+                        frameever_rendering::input_presets::presets_dir().ok_or_else(|| {
+                            ImportRefusal::NotSaved {
+                                detail: "the app data folder is not known".to_string(),
+                            }
+                        })?;
+                    frameever_rendering::input_presets::import_folder(&dir, &folder)
+                })
+                .await;
+            this.update_in(cx, |this, window, cx| {
+                this.input_preset_imported(result, window, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn input_preset_imported(
+        &mut self,
+        result: Result<Vec<String>, ImportRefusal>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Ok(imported) => {
+                self.sidebar.input_import_error = None;
+                if let Some(preset) = imported.into_iter().next() {
+                    self.edit_input_display("input-display-preset", window, cx, move |project| {
+                        choose_input_preset(project, &preset)
+                    });
+                }
+            }
+            Err(refusal) => {
+                tracing::warn!(%refusal, "input preset import refused");
+                self.sidebar.input_import_error = Some(InputImportError {
+                    message: import_refusal_message(&refusal).into(),
+                    details: refusal.to_string().into(),
+                    open: false,
+                });
+            }
+        }
+        self.ensure_input_thumbnails(window, cx);
+        cx.notify();
+    }
+
+    fn remove_input_preset(&mut self, preset: String, window: &mut Window, cx: &mut Context<Self>) {
+        cx.spawn_in(window, async move |this, cx| {
+            if !crate::platform::confirm_dialog(
+                t!("Remove this preset?"),
+                t!(
+                    "Projects that use it show no input display until you choose another preset. This can't be undone."
+                ),
+                t!("Remove preset"),
+                t!("Cancel"),
+                true,
+            ) {
+                return;
+            }
+            let removed = cx
+                .background_executor()
+                .spawn({
+                    let preset = preset.clone();
+                    async move {
+                        frameever_rendering::input_presets::presets_dir().is_some_and(|dir| {
+                            frameever_rendering::input_presets::remove(&dir, &preset).is_ok()
+                        })
+                    }
+                })
+                .await;
+            this.update_in(cx, |this, window, cx| {
+                if removed {
+                    this.edit_input_display(
+                        "input-display-preset-removed",
+                        window,
+                        cx,
+                        move |project| after_preset_removed(project, &preset),
+                    );
+                }
+                this.ensure_input_thumbnails(window, cx);
+                this.publish_project();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn render_input_import_error(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let theme = self.theme;
+        let error = self.sidebar.input_import_error.as_ref()?;
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .items_start()
+                .gap(px(6.))
+                .text_size(px(12.))
+                .text_color(Hsla::from(theme.foreground))
+                .child(error.message.clone())
+                .child(
+                    ui::Button::plain(
+                        &theme,
+                        "input-display-import-details",
+                        ui::ButtonVariant::Gray,
+                        ui::ButtonSize::Sm,
+                    )
+                    .label(t!("Details"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(error) = this.sidebar.input_import_error.as_mut() {
+                            error.open = !error.open;
+                        }
+                        cx.notify();
+                    })),
+                )
+                .when(error.open, |this| {
+                    this.child(
+                        div()
+                            .w_full()
+                            .text_color(Hsla::from(theme.muted_foreground))
+                            .child(error.details.clone()),
+                    )
+                })
+                .into_any_element(),
+        )
+    }
+
+    fn render_input_tile_action(
+        &self,
+        id: String,
+        icon: &'static str,
+        cx: &mut Context<Self>,
+        act: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) -> impl IntoElement {
+        div()
+            .id(SharedString::from(id))
+            .size(px(20.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.))
+            .tab_index(0)
+            .cursor_pointer()
+            .hover(|this| this.bg(gpui::hsla(0., 0., 1., 0.16)))
+            .child(svg().path(icon).size(px(12.)).text_color(rgb(TILE_INK)))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                cx.stop_propagation();
+                act(this, window, cx);
+            }))
     }
 
     pub(crate) fn render_input_display_tab(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -589,44 +890,83 @@ impl EditorWindow {
             / TILE_COLUMNS)
             .floor()
             - 1.;
-        let tiles = div()
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .gap(px(TILE_GAP))
-            .children(INPUT_PRESETS.iter().map(|(preset, label)| {
-                let preset = *preset;
-                let selected = block.preset == preset.id();
-                let picture = self
-                    .sidebar
-                    .input_thumbnails
-                    .get(&(preset, block.style))
-                    .cloned();
-                div()
-                    .id(SharedString::from(format!("input-preset-{}", preset.id())))
-                    .w(px(cell))
-                    .h(px(TILE_HEIGHT))
-                    .flex()
-                    .flex_col()
-                    .items_center()
+        let tile = |id: String| {
+            div()
+                .id(SharedString::from(id))
+                .relative()
+                .w(px(cell))
+                .h(px(TILE_HEIGHT))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(6.))
+                .pt(px(8.))
+                .px(px(6.))
+                .pb(px(6.))
+                .rounded(px(8.))
+                .border_1()
+                .border_color(Hsla::from(theme.border))
+                .text_size(px(12.))
+                .font_weight(FontWeight::NORMAL)
+                .tab_index(0)
+                .cursor_pointer()
+        };
+        let listed = INPUT_PRESETS
+            .iter()
+            .map(|(preset, label)| (preset.id().to_string(), SharedString::from(tr(label)), None))
+            .chain(self.sidebar.input_user_presets.iter().map(|preset| {
+                (
+                    preset.id.clone(),
+                    SharedString::from(preset.name.clone()),
+                    Some(preset),
+                )
+            }));
+        let mut tiles = div().flex().flex_row().flex_wrap().gap(px(TILE_GAP));
+        for (preset, label, user) in listed {
+            let selected = block.preset == preset;
+            let picture = self
+                .sidebar
+                .input_thumbnails
+                .get(&(preset.clone(), block.style))
+                .cloned();
+            let mut actions = div()
+                .absolute()
+                .top(px(2.))
+                .right(px(2.))
+                .flex()
+                .flex_row()
+                .gap(px(2.));
+            if let Some(user) = user {
+                if user.layout.is_some() {
+                    let edited = user.clone();
+                    actions = actions.child(self.render_input_tile_action(
+                        format!("input-preset-edit-{preset}"),
+                        "icons/pencil.svg",
+                        cx,
+                        move |this, window, cx| {
+                            this.open_input_preset_maker(Some(edited.clone()), window, cx);
+                        },
+                    ));
+                }
+                let removed = preset.clone();
+                actions = actions.child(self.render_input_tile_action(
+                    format!("input-preset-remove-{preset}"),
+                    "icons/trash.svg",
+                    cx,
+                    move |this, window, cx| {
+                        this.remove_input_preset(removed.clone(), window, cx);
+                    },
+                ));
+            }
+            let chosen = preset.clone();
+            tiles = tiles.child(
+                tile(format!("input-preset-{preset}"))
                     .justify_between()
-                    .gap(px(6.))
-                    .pt(px(8.))
-                    .px(px(6.))
-                    .pb(px(6.))
-                    .rounded(px(8.))
-                    .border_1()
-                    .border_color(if selected {
-                        Hsla::from(theme.foreground)
-                    } else {
-                        Hsla::from(theme.border)
+                    .when(selected, |this| {
+                        this.border_color(Hsla::from(theme.foreground))
                     })
                     .bg(rgb(TILE_BACKDROP))
                     .text_color(rgb(TILE_INK))
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::NORMAL)
-                    .tab_index(0)
-                    .cursor_pointer()
                     .child(
                         div()
                             .w_full()
@@ -640,16 +980,38 @@ impl EditorWindow {
                                     .object_fit(gpui::ObjectFit::Contain)
                             })),
                     )
-                    .child(tr(label))
+                    .child(div().max_w_full().truncate().child(label))
+                    .child(actions)
                     .on_click(cx.listener(move |this, _, window, cx| {
+                        let chosen = chosen.clone();
                         this.edit_input_display(
                             "input-display-preset",
                             window,
                             cx,
-                            move |project| choose_input_preset(project, preset.id()),
+                            move |project| choose_input_preset(project, &chosen),
                         );
-                    }))
-            }));
+                    })),
+            );
+        }
+        let tiles = tiles
+            .child(
+                tile("input-preset-new".to_string())
+                    .justify_center()
+                    .text_color(Hsla::from(theme.muted_foreground))
+                    .child(t!("New…"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_input_preset_maker(None, window, cx);
+                    })),
+            )
+            .child(
+                tile("input-preset-import".to_string())
+                    .justify_center()
+                    .text_color(Hsla::from(theme.muted_foreground))
+                    .child(t!("Import…"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.import_input_preset(window, cx);
+                    })),
+            );
 
         let styles = ui::SegmentedControl::editor(
             &theme,
@@ -679,6 +1041,7 @@ impl EditorWindow {
                         this.min_h(px(TILE_HEIGHT))
                     })
                     .child(tiles)
+                    .children(self.render_input_import_error(cx))
                     .child(styles)
                     .child(self.render_input_position(&block, cx))
                     .child(self.slider_field(
@@ -948,10 +1311,73 @@ mod tests {
     }
 
     #[test]
+    fn removing_the_preset_a_project_uses_falls_back_to_a_built_in_one() {
+        let mut project = ProjectConfiguration::default();
+        assert!(!after_preset_removed(&mut project, "user:p-1"));
+        assert!(project.input_display.is_none());
+
+        switch_input_display(&mut project, true);
+        choose_input_preset(&mut project, "user:p-1");
+        assert!(!after_preset_removed(&mut project, "user:p-2"));
+        assert!(after_preset_removed(&mut project, "user:p-1"));
+
+        let block = project.shown_input_display().unwrap();
+        assert_eq!(block.preset, BuiltinPresetId::WasdMouse.id());
+    }
+
+    #[test]
+    fn a_refused_import_says_what_happened_and_what_to_do_next() {
+        use frameever_project::input_display::PresetRefusal;
+
+        let file = |refusal| ImportRefusal::File {
+            file: "wasd.json".to_string(),
+            refusal,
+        };
+        let messages = [
+            import_refusal_message(&ImportRefusal::NoPresetFile),
+            import_refusal_message(&ImportRefusal::FolderUnreadable {
+                detail: "os error 5".to_string(),
+            }),
+            import_refusal_message(&ImportRefusal::TooManyPresetFiles { count: 99 }),
+            import_refusal_message(&ImportRefusal::NotSaved {
+                detail: "os error 112".to_string(),
+            }),
+            import_refusal_message(&file(PresetRefusal::MissingAtlas)),
+            import_refusal_message(&file(PresetRefusal::AtlasTooLarge {
+                width: 9000,
+                height: 1,
+            })),
+            import_refusal_message(&file(PresetRefusal::JsonUnreadable {
+                detail: "EOF while parsing".to_string(),
+            })),
+        ];
+
+        for message in &messages {
+            assert!(
+                message.starts_with("Couldn't import this preset. "),
+                "{message}"
+            );
+            assert!(message.matches(". ").count() >= 2, "{message}");
+            assert!(
+                !message.contains("os error") && !message.contains("EOF"),
+                "{message}"
+            );
+        }
+        assert!(messages[4].contains("wasd.json has no image beside it"));
+        assert!(messages[5].contains("wasd.json is larger than FrameEver allows"));
+        assert!(messages[6].contains("wasd.json isn't a preset FrameEver can read"));
+        let unique: std::collections::BTreeSet<&String> = messages.iter().collect();
+        assert_eq!(unique.len(), messages.len());
+    }
+
+    #[test]
     fn every_listed_preset_has_a_thumbnail_in_every_style() {
         for (preset, _) in INPUT_PRESETS {
             for style in InputDisplayStyle::ALL {
-                assert!(thumbnail((preset, style)).is_some(), "{preset:?} {style:?}");
+                assert!(
+                    thumbnail(preset.id(), style).is_some(),
+                    "{preset:?} {style:?}"
+                );
             }
         }
         assert_eq!(

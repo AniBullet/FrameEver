@@ -851,6 +851,10 @@ pub struct SidebarState {
     pub(crate) input_thumbnails:
         HashMap<crate::editor_input_display::InputThumbnailKey, Arc<RenderImage>>,
     pub(crate) input_thumbnail_task: Option<gpui::Task<()>>,
+    pub(crate) input_user_presets: Vec<frameever_rendering::input_presets::UserPreset>,
+    pub(crate) input_presets_seen: Option<u64>,
+    pub(crate) input_import_error: Option<crate::editor_input_display::InputImportError>,
+    pub(crate) input_maker: Option<gpui::WindowHandle<crate::input_preset_maker::InputPresetMaker>>,
     pub(crate) input_shape: std::cell::RefCell<
         Option<(
             String,
@@ -921,6 +925,10 @@ impl SidebarState {
             wallpapers: HashMap::new(),
             input_thumbnails: HashMap::new(),
             input_thumbnail_task: None,
+            input_user_presets: Vec::new(),
+            input_presets_seen: None,
+            input_import_error: None,
+            input_maker: None,
             input_shape: Default::default(),
             input_position_exact: false,
             input_setup_task: None,

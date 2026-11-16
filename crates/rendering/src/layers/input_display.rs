@@ -24,6 +24,7 @@ struct AtlasKey {
     preset: String,
     style: InputDisplayStyle,
     scale: u32,
+    generation: u64,
 }
 
 struct Atlas {
@@ -192,14 +193,20 @@ impl InputDisplayLayer {
         if output_size.0 == 0 || output_size.1 == 0 {
             return;
         }
+        let generation = crate::input_presets::generation();
         let mut key = AtlasKey {
             preset: block.preset.clone(),
             style: block.style,
             scale: self
                 .atlas
                 .as_ref()
-                .filter(|atlas| atlas.key.preset == block.preset && atlas.key.style == block.style)
+                .filter(|atlas| {
+                    atlas.key.preset == block.preset
+                        && atlas.key.style == block.style
+                        && atlas.key.generation == generation
+                })
                 .map_or(1, |atlas| atlas.key.scale),
+            generation,
         };
         self.ensure_atlas(&constants.device, &constants.queue, key.clone());
         let Some(loaded) = self.atlas.as_ref().and_then(|atlas| atlas.loaded.as_ref()) else {

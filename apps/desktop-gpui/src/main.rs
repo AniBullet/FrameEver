@@ -52,6 +52,7 @@ mod hotkeys;
 mod http;
 mod i18n;
 mod import;
+mod input_preset_maker;
 mod installer;
 #[cfg(any(windows, target_os = "macos"))]
 mod installer_control;
@@ -286,6 +287,9 @@ fn main() {
     let previous_session = crash_capture::begin_session(&diagnostics::logs_dir());
     blur_recovery::configure(previous_session);
     i18n::init(store::GeneralSettings::load().language.as_deref());
+    frameever_rendering::input_presets::use_presets_dir(
+        frameever_utils::storage::input_presets_dir(),
+    );
 
     #[cfg(target_os = "macos")]
     platform::install_appkit_exception_guards();

@@ -122,6 +122,7 @@ pub const APP_DATA_DIR_ENV: &str = "FRAMEEVER_GPUI_APP_DATA_DIR";
 pub const SETTINGS_FILE_ENV: &str = "FRAMEEVER_GPUI_TAURI_STORE";
 pub const STORAGE_DIR_ENV: &str = "FRAMEEVER_GPUI_STORAGE_DIR";
 const SETTINGS_FILE_NAME: &str = "store";
+const INPUT_PRESETS_DIR_NAME: &str = "input-presets";
 
 fn env_path(name: &str) -> Option<PathBuf> {
     std::env::var(name)
@@ -146,6 +147,10 @@ fn app_data_root() -> PathBuf {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."))
     }
+}
+
+pub fn input_presets_dir() -> PathBuf {
+    app_data_dir().join(INPUT_PRESETS_DIR_NAME)
 }
 
 pub fn settings_file() -> PathBuf {

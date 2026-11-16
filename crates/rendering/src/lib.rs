@@ -45,6 +45,7 @@ pub mod frame_chrome;
 mod frame_pipeline;
 mod frame_windows;
 pub mod input_display;
+pub mod input_presets;
 #[cfg(target_os = "macos")]
 pub mod iosurface_texture;
 mod layers;

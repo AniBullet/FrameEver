@@ -454,6 +454,50 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Full keyboard", "整块键盘"),
     ("Keycaps", "键帽"),
     ("Ghost", "幽灵"),
+    ("New…", "新建…"),
+    ("Import…", "导入…"),
+    ("My preset", "我的预设"),
+    ("Preset name", "预设名称"),
+    ("Press keys to add", "按键添加"),
+    ("Mouse", "鼠标"),
+    (
+        "Couldn't save this preset. Try again.",
+        "无法保存这个预设。再试一次。",
+    ),
+    ("Remove this preset?", "移除这个预设？"),
+    (
+        "Projects that use it show no input display until you choose another preset. This can't be undone.",
+        "用到它的项目在换成别的预设之前不显示操作。此操作无法撤销。",
+    ),
+    ("Remove preset", "移除预设"),
+    (
+        "Couldn't import this preset. FrameEver couldn't read that folder. Check that it still exists and try again.",
+        "无法导入这个预设。FrameEver 读不到这个文件夹。确认它还在，然后再试一次。",
+    ),
+    (
+        "Couldn't import this preset. The folder has no preset JSON file. Choose the folder that holds the preset's .json and .png files.",
+        "无法导入这个预设。文件夹里没有预设的 JSON 文件。请选择放着预设 .json 和 .png 文件的文件夹。",
+    ),
+    (
+        "Couldn't import this preset. The folder has more preset files than FrameEver takes at once. Put the ones you want in their own folder and import that.",
+        "无法导入这个预设。文件夹里的预设文件超过了一次能导入的数量。把想要的预设单独放进一个文件夹再导入。",
+    ),
+    (
+        "Couldn't import this preset. FrameEver couldn't save it. Check free disk space and try again.",
+        "无法导入这个预设。FrameEver 没能保存它。检查磁盘剩余空间，然后再试一次。",
+    ),
+    (
+        "Couldn't import this preset. {file} has no image beside it. Put its .png file in the same folder and try again.",
+        "无法导入这个预设。{file} 旁边没有图片。把它的 .png 文件放进同一个文件夹，然后再试一次。",
+    ),
+    (
+        "Couldn't import this preset. {file} is larger than FrameEver allows. Choose a smaller preset.",
+        "无法导入这个预设。{file} 超过了 FrameEver 允许的大小。请换一个小一些的预设。",
+    ),
+    (
+        "Couldn't import this preset. {file} isn't a preset FrameEver can read. Save it again in its preset editor, or choose another preset.",
+        "无法导入这个预设。FrameEver 读不了 {file}。在它的预设编辑器里重新保存，或者换一个预设。",
+    ),
     ("Beta", "测试版"),
     ("Generating...", "正在生成…"),
     ("Regenerate Captions", "重新生成字幕"),
