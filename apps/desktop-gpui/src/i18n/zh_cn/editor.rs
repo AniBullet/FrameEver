@@ -516,6 +516,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Beta", "测试版"),
     ("Generating...", "正在生成…"),
     ("Regenerate Captions", "重新生成字幕"),
+    ("Show filler words", "显示语气词"),
     ("Generate Captions", "生成字幕"),
     ("{model} model downloaded", "{model} 模型已下载"),
     (

@@ -145,6 +145,9 @@ pub fn preset_config(project: &ProjectConfiguration) -> Value {
         if let Some(captions) = map.get_mut("captions").and_then(Value::as_object_mut) {
             captions.insert("segments".into(), Value::Array(Vec::new()));
             captions.remove("sourceTimed");
+            if let Some(settings) = captions.get_mut("settings").and_then(Value::as_object_mut) {
+                settings.remove("fillerLanguage");
+            }
         }
     }
     value
@@ -161,6 +164,37 @@ pub fn apply_preset(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presets_neither_save_nor_replace_the_transcript_language() {
+        let mut chinese = ProjectConfiguration::default();
+        chinese.captions = Some(frameever_project::CaptionsData {
+            settings: frameever_project::CaptionSettings {
+                filler_language: Some("zh".into()),
+                size: 40,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        let preset = preset_config(&chinese);
+        assert!(
+            preset["captions"]["settings"]
+                .get("fillerLanguage")
+                .is_none()
+        );
+
+        let mut german = chinese.clone();
+        german.captions.as_mut().unwrap().settings.filler_language = None;
+        let mut stale = preset.clone();
+        stale["captions"]["settings"]["fillerLanguage"] = json!("en");
+        let applied = apply_preset(&stale, &german).unwrap();
+        assert_eq!(applied.captions.unwrap().settings.filler_language, None);
+
+        let applied = apply_preset(&preset, &chinese).unwrap();
+        let settings = applied.captions.unwrap().settings;
+        assert_eq!(settings.filler_language.as_deref(), Some("zh"));
+        assert_eq!(settings.size, 40);
+    }
 
     fn store_with(names: &[&str], default: Option<usize>) -> PresetsStore {
         PresetsStore {
