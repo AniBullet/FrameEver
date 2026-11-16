@@ -325,6 +325,7 @@ mod tests {
                 camera3d_segments: Vec::new(),
                 style_segments: Vec::new(),
                 image_segments: Vec::new(),
+                shape_segments: Vec::new(),
             }),
             overlay_order: vec![frameever_project::OverlayTrack {
                 kind: frameever_project::OverlayTrackKind::Image,

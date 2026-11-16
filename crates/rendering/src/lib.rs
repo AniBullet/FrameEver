@@ -58,6 +58,7 @@ mod readiness;
 mod recorded_cursor_assets;
 mod scene;
 mod segment_timing;
+mod shape;
 pub mod spring_mass_damper;
 mod takeover;
 mod text;
@@ -132,6 +133,8 @@ use camera3d::{Camera3DFrame, interpolate_camera3d};
 pub use cursor_interpolation::PrecomputedCursorTimeline;
 use mask::interpolate_masks;
 use scene::*;
+pub use shape::PreparedShape;
+use shape::prepare_shapes;
 use takeover::InterpolatedTakeover;
 pub use takeover::TakeoverDisplayMorph;
 use text::{PreparedText, prepare_texts};
@@ -3011,6 +3014,7 @@ pub struct ProjectUniforms {
     pub motion_blur_amount: f32,
     pub masks: Vec<PreparedMask>,
     pub texts: Vec<PreparedText>,
+    pub shapes: Vec<PreparedShape>,
     /// Effective 3D camera state for this frame; `None` when the frame is
     /// outside every 3d segment (the warp and blur passes are skipped).
     pub camera3d: Option<Camera3DFrame>,
@@ -5250,6 +5254,18 @@ impl ProjectUniforms {
             })
             .unwrap_or_default();
 
+        let shapes = project
+            .timeline
+            .as_ref()
+            .map(|timeline| {
+                prepare_shapes(
+                    XY::new(output_size.0, output_size.1),
+                    timeline_time,
+                    &timeline.shape_segments,
+                )
+            })
+            .unwrap_or_default();
+
         Self {
             output_size,
             cursor_size: project.cursor.size as f32,
@@ -5278,6 +5294,7 @@ impl ProjectUniforms {
             motion_blur_amount: cursor_motion_blur,
             masks,
             texts,
+            shapes,
             camera3d,
             camera3d_zoom,
             screen_color_grade,
@@ -8322,6 +8339,12 @@ impl RendererLayers {
 
         if let Some(overlays) = &mut self.overlays {
             overlays.images.prepare(constants, uniforms).await;
+            overlays.shapes.prepare(
+                &constants.device,
+                &constants.queue,
+                uniforms.output_size,
+                &uniforms.shapes,
+            );
 
             if uniforms.project.overlay_order.is_empty() {
                 overlays.text.prepare(
@@ -8503,6 +8526,12 @@ impl RendererLayers {
         if let Some(overlays) = &mut self.overlays {
             let start = Instant::now();
             overlays.images.prepare(constants, uniforms).await;
+            overlays.shapes.prepare(
+                &constants.device,
+                &constants.queue,
+                uniforms.output_size,
+                &uniforms.shapes,
+            );
 
             if uniforms.project.overlay_order.is_empty() {
                 overlays.text.prepare(
@@ -8753,6 +8782,12 @@ impl RendererLayers {
                         .render(passes.pass(session.current_texture_view(), load));
                 }
 
+                if overlays.shapes.has_content() {
+                    overlays
+                        .shapes
+                        .render(passes.pass(session.current_texture_view(), load));
+                }
+
                 if !uniforms.texts.is_empty() {
                     overlays
                         .text
@@ -8786,7 +8821,13 @@ impl RendererLayers {
                             overlay.track,
                         );
                     }
-                    OverlayTrackKind::Text | OverlayTrackKind::Image => {}
+                    OverlayTrackKind::Shape if overlays.shapes.has_track(overlay.track) => {
+                        overlays.shapes.render_track(
+                            passes.pass(session.current_texture_view(), load),
+                            overlay.track,
+                        );
+                    }
+                    OverlayTrackKind::Text | OverlayTrackKind::Image | OverlayTrackKind::Shape => {}
                 }
             }
         }

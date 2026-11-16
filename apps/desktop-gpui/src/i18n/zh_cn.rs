@@ -21,6 +21,8 @@ pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("window menu", "Size", "尺寸"),
     ("strength", "Light", "轻度"),
     ("segment noun", "audio", "音频"),
+    ("segment noun", "shape", "形状"),
+    ("arrowhead", "Open", "空心"),
     ("segment noun", "caption", "字幕"),
     ("segment noun", "image", "图片"),
     ("segment noun", "keyboard", "按键"),

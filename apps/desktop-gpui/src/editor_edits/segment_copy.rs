@@ -1,6 +1,7 @@
 use frameever_project::{
     AudioTrackSegment, Camera3DSegment, CaptionTrackSegment, ImageSegment, KeyboardTrackSegment,
-    MaskSegment, SceneSegment, StyleSegment, TextSegment, TimelineConfiguration, ZoomSegment,
+    MaskSegment, SceneSegment, ShapeSegment, StyleSegment, TextSegment, TimelineConfiguration,
+    ZoomSegment,
 };
 
 use super::{Selection, TrackSegmentOps, sort_track, split_id};
@@ -29,6 +30,7 @@ impl PastedSegment for StyleSegment {}
 impl PastedSegment for ImageSegment {}
 impl PastedSegment for TextSegment {}
 impl PastedSegment for MaskSegment {}
+impl PastedSegment for ShapeSegment {}
 impl PastedSegment for AudioTrackSegment {}
 
 impl PastedSegment for Camera3DSegment {
@@ -94,6 +96,10 @@ macro_rules! with_track_pair {
             }
             TrackKind::Mask => {
                 let ($segments, $copies) = (&mut $target.mask_segments, &$source.mask_segments);
+                $body
+            }
+            TrackKind::Shape => {
+                let ($segments, $copies) = (&mut $target.shape_segments, &$source.shape_segments);
                 $body
             }
             TrackKind::Audio => {

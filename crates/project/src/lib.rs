@@ -6,6 +6,7 @@ pub mod filler_words;
 pub mod input_display;
 pub mod keyboard;
 mod meta;
+mod shapes;
 
 pub use animated_gradient::*;
 pub use caption_timing::{
@@ -17,6 +18,7 @@ pub use cursor::*;
 pub use input_display::{InputDisplay, InputDisplayStyle};
 pub use keyboard::*;
 pub use meta::*;
+pub use shapes::*;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;

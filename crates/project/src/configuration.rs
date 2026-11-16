@@ -1857,6 +1857,8 @@ pub struct TimelineConfiguration {
     pub style_segments: Vec<StyleSegment>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub image_segments: Vec<ImageSegment>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shape_segments: Vec<crate::ShapeSegment>,
     // Explicit rename: the digit boundary makes rename_all's camelCase output
     // easy to second-guess, and the editor TypeScript hardcodes this name.
     #[serde(default, rename = "camera3dSegments")]
@@ -2679,6 +2681,7 @@ pub enum OverlayTrackKind {
     Mask,
     Image,
     Text,
+    Shape,
 }
 
 #[derive(Type, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -2845,6 +2848,14 @@ impl ProjectConfiguration {
                 OverlayTrackKind::Text,
                 timeline
                     .text_segments
+                    .iter()
+                    .map(|segment| segment.track)
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                OverlayTrackKind::Shape,
+                timeline
+                    .shape_segments
                     .iter()
                     .map(|segment| segment.track)
                     .collect::<Vec<_>>(),
@@ -3347,6 +3358,7 @@ mod tests {
             audio_segments: Vec::new(),
             style_segments: Vec::new(),
             image_segments: Vec::new(),
+            shape_segments: Vec::new(),
             camera3d_segments: Vec::new(),
         }
     }
@@ -4715,6 +4727,7 @@ mod tests {
                 audio_segments: Vec::new(),
                 style_segments: Vec::new(),
                 image_segments: Vec::new(),
+                shape_segments: Vec::new(),
                 camera3d_segments: Vec::new(),
             }),
             ..Default::default()
@@ -4824,6 +4837,7 @@ mod tests {
                 audio_segments: Vec::new(),
                 style_segments: Vec::new(),
                 image_segments: Vec::new(),
+                shape_segments: Vec::new(),
                 camera3d_segments: Vec::new(),
             }),
             ..Default::default()
@@ -5104,6 +5118,42 @@ mod overlay_order_tests {
 
     fn layer(kind: OverlayTrackKind, track: u32) -> OverlayTrack {
         OverlayTrack { kind, track }
+    }
+
+    #[test]
+    fn shape_tracks_stack_between_text_and_masks_by_default() {
+        let project: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": {
+                "segments": [],
+                "zoomSegments": [],
+                "textSegments": [{"start": 0.0, "end": 1.0}],
+                "maskSegments": [{
+                    "start": 0.0, "end": 1.0, "maskType": "sensitive",
+                    "center": {"x": 0.5, "y": 0.5}, "size": {"x": 0.2, "y": 0.2}
+                }],
+                "shapeSegments": [{"start": 0.0, "end": 1.0}, {"start": 0.0, "end": 1.0, "track": 1}]
+            }
+        }))
+        .unwrap();
+        assert_eq!(
+            project.overlay_tracks(),
+            [
+                layer(OverlayTrackKind::Text, 0),
+                layer(OverlayTrackKind::Shape, 1),
+                layer(OverlayTrackKind::Shape, 0),
+                layer(OverlayTrackKind::Mask, 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn projects_without_shapes_save_no_shape_field() {
+        let project: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": {"segments": [], "zoomSegments": []}
+        }))
+        .unwrap();
+        let json = serde_json::to_value(&project).unwrap();
+        assert!(json["timeline"].get("shapeSegments").is_none());
     }
 
     #[test]

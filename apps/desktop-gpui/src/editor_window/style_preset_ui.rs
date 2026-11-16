@@ -8,7 +8,7 @@ use gpui::{
 use super::{EditorWindow, POPOVER_WINDOW_INSET, PresetDialog};
 use crate::i18n::t;
 use crate::style_presets::{
-    CaptionStyle, MaskStyle, PresetKind, PresetLibrary, PresetTarget, StylePresets,
+    CaptionStyle, MaskStyle, PresetKind, PresetLibrary, PresetTarget, ShapeStyle, StylePresets,
     StyleTrackStyle, TextStyle, apply_to_all, apply_to_items,
 };
 use crate::ui;
@@ -36,6 +36,10 @@ macro_rules! with_kind {
             }
             PresetKind::Style => {
                 type $S = StyleTrackStyle;
+                $body
+            }
+            PresetKind::Shape => {
+                type $S = ShapeStyle;
                 $body
             }
         }
@@ -95,6 +99,7 @@ fn use_for_new(kind: PresetKind) -> &'static str {
         PresetKind::Mask => t!("Use for new masks"),
         PresetKind::Captions => t!("Use for new captions"),
         PresetKind::Style => t!("Use for new style segments"),
+        PresetKind::Shape => t!("Use for new shapes"),
     }
 }
 
@@ -1087,6 +1092,24 @@ impl EditorWindow {
         track: u32,
     ) -> frameever_project::MaskSegment {
         crate::style_presets::new_mask_segment(&self.style_presets.library, start, end, track)
+    }
+
+    pub(crate) fn preset_shape_segment(
+        &self,
+        kind: frameever_project::ShapeKind,
+        start: f64,
+        end: f64,
+        center: frameever_project::XY<f64>,
+        aspect: f64,
+    ) -> frameever_project::ShapeSegment {
+        crate::style_presets::new_shape_segment(
+            &self.style_presets.library,
+            kind,
+            start,
+            end,
+            center,
+            aspect,
+        )
     }
 
     pub(crate) fn preset_style_segment(

@@ -519,6 +519,7 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
             camera3d_segments: Vec::new(),
             style_segments: Vec::new(),
             image_segments: Vec::new(),
+            shape_segments: Vec::new(),
         });
     }
 
@@ -1424,7 +1425,7 @@ pub struct EditorWindow {
     /// `editorState.playing`.
     pub(crate) playing: bool,
     /// `editorState.playbackTime`, in seconds.
-    playhead: f64,
+    pub(crate) playhead: f64,
     last_playhead_redraw: Instant,
     /// Whether the current play epoch has applied at least one engine sample.
     /// Every path that (re)starts the engine clears it -- `start_playback`,
@@ -1454,7 +1455,7 @@ pub struct EditorWindow {
     /// Every track the strip draws.
     pub(crate) timeline: TimelineModel,
     /// The viewport, the hover ghost and the hovered track.
-    view: TimelineView,
+    pub(crate) view: TimelineView,
     playback_follow: timeline::PlaybackFollow,
     /// `onMount`'s `checkBounds` runs once, when the timeline first has a
     /// width (`TL/index.tsx:689-703`). There is no mount hook here, so the
@@ -1527,7 +1528,7 @@ pub struct EditorWindow {
     clip_anim_generation: u64,
     /// `editorInstance.recordings.segments[i].display.duration`, which the clip
     /// trim clamps read (`TL/ClipTrack.tsx:1160-1162`).
-    clip_display_durations: Vec<f64>,
+    pub(crate) clip_display_durations: Vec<f64>,
     chapter_markers: Vec<f64>,
     /// `editorInstance.recordingDuration` = `recordings.duration()`.
     recording_duration: f64,
@@ -1644,8 +1645,9 @@ pub struct EditorWindow {
     /// exactly as the Solid dialogs replace the dropdown.
     presets_menu: Option<PresetsMenu>,
     preset_dialog: Option<PresetDialog>,
-    caption_sync_signature: Option<u64>,
     style_presets: style_preset_ui::StylePresetsState,
+    pub(crate) shapes: crate::editor_shapes::ShapesState,
+    caption_sync_signature: Option<u64>,
     pub(crate) export: Option<ExportUi>,
     /// The Clips layout mode (`ClipsSidebar.tsx`): while open, the config
     /// sidebar's column draws the clips sidebar instead.
@@ -1672,8 +1674,8 @@ enum PresetDialog {
     Create { default: bool },
     Rename { index: usize },
     Delete { index: usize },
-}
     Style(style_preset_ui::StyleDialog),
+}
 
 /// The add-track tray, computed once when it opens. It slides out of the
 /// gutter's right edge with its bottom on the ruler's baseline (Kobalte
@@ -2206,8 +2208,9 @@ impl EditorWindow {
             sidebar_resize: None,
             presets_menu: None,
             preset_dialog: None,
-            caption_sync_signature: None,
             style_presets: style_preset_ui::StylePresetsState::load(),
+            shapes: Default::default(),
+            caption_sync_signature: None,
             export: None,
             clips: crate::editor_clips::ClipsState::default(),
         }
@@ -2529,7 +2532,7 @@ impl EditorWindow {
     /// `note_transform` exists: a drag's arithmetic is only checkable end to
     /// end if the numbers come out of the running app. Intermediate drag
     /// frames log at `debug`; the line below is the settled one.
-    fn note_edit(&self, reason: &'static str, track: Option<TrackKind>) {
+    pub(crate) fn note_edit(&self, reason: &'static str, track: Option<TrackKind>) {
         let timeline = self.project.timeline.as_ref();
         // The affected track's boxes, four decimals, so a scripted drag's
         // predicted seconds can be checked against what actually landed.
@@ -2759,6 +2762,8 @@ impl EditorWindow {
         self.sidebar.image_asset_status = None;
         self.canvas_selection = None;
         self.canvas_drag = None;
+        self.shapes.drag = None;
+        self.shapes.hover = None;
         let previous_animated_gradient = self.animated_gradient_config().cloned();
         let animated_background_changed = self.animated_gradient_config()
             != match &config.background.source {
@@ -3635,6 +3640,40 @@ impl EditorWindow {
             return;
         }
 
+        if (self.shapes.tool.is_some() || self.shapes.menu.is_some())
+            && event.keystroke.key == "escape"
+            && !event.is_held
+        {
+            self.arm_shape_tool(None, cx);
+            cx.stop_propagation();
+            window.refresh();
+            return;
+        }
+        if !event.keystroke.modifiers.platform
+            && !event.keystroke.modifiers.control
+            && !event.keystroke.modifiers.alt
+            && !ui::text_input_has_focus(window, cx)
+            && self.canvas_overlay_visible()
+            && self
+                .selection
+                .as_ref()
+                .is_some_and(|selection| selection.track == TrackKind::Shape)
+        {
+            let direction = match event.keystroke.key.as_str() {
+                "left" => Some((-1., 0.)),
+                "right" => Some((1., 0.)),
+                "up" => Some((0., -1.)),
+                "down" => Some((0., 1.)),
+                _ => None,
+            };
+            if let Some(direction) = direction
+                && self.shape_nudge(direction, event.keystroke.modifiers.shift, window, cx)
+            {
+                cx.stop_propagation();
+                window.refresh();
+                return;
+            }
+        }
         // The canvas arrow-key nudge is scoped outside `useEditorShortcuts`
         // precisely so held keys repeat (`CanvasElementsOverlay.tsx:561-565`),
         // so it is the one editor shortcut that runs on a repeat.
@@ -3761,8 +3800,8 @@ impl EditorWindow {
         {
             self.presets_menu = None;
             self.preset_dialog = None;
-            cx.stop_propagation();
             self.style_presets.close_menu();
+            cx.stop_propagation();
             cx.notify();
             return;
         }
@@ -4265,7 +4304,7 @@ impl EditorWindow {
     // -- Editing: the pointer ------------------------------------------------
 
     /// `secsPerPixel()` (`TL/context.ts:91-92`), over the clip track's own box.
-    fn secs_per_pixel(&self, viewport_width: f32) -> f64 {
+    pub(crate) fn secs_per_pixel(&self, viewport_width: f32) -> f64 {
         self.view
             .transform
             .secs_per_pixel(timeline::content_width(viewport_width))
@@ -4307,8 +4346,8 @@ impl EditorWindow {
     /// `setEditorState("timeline", "selection", ...)`.
     pub(crate) fn set_selection(&mut self, selection: Option<Selection>, cx: &mut Context<Self>) {
         if self.selection != selection {
-            self.dismiss_frame_controls(cx);
             self.style_presets.close_menu();
+            self.dismiss_frame_controls(cx);
             self.end_field_edit(cx);
             self.close_color_picker(cx);
             self.sidebar.menu = None;
@@ -4487,7 +4526,10 @@ impl EditorWindow {
                 } else if kind == TrackKind::Audio {
                     cx.stop_propagation();
                     self.open_audio_picker(lane, cx);
-                } else if matches!(kind, TrackKind::Text | TrackKind::Mask | TrackKind::Scene) {
+                } else if matches!(
+                    kind,
+                    TrackKind::Text | TrackKind::Shape | TrackKind::Mask | TrackKind::Scene
+                ) {
                     cx.stop_propagation();
                     let time = if kind == TrackKind::Scene {
                         let Some(time) = timeline::preview_time_from_x(
@@ -4655,6 +4697,7 @@ impl EditorWindow {
             TrackKind::Style
                 | TrackKind::Image
                 | TrackKind::Text
+                | TrackKind::Shape
                 | TrackKind::Mask
                 | TrackKind::Audio
         )
@@ -5014,6 +5057,7 @@ impl EditorWindow {
             TrackKind::Caption,
             TrackKind::Keyboard,
             TrackKind::Text,
+            TrackKind::Shape,
             TrackKind::Mask,
             TrackKind::Audio,
             TrackKind::Zoom,
@@ -5802,7 +5846,15 @@ impl EditorWindow {
         self.persist_sidebar_width();
     }
 
-    fn preferred_timeline_height(&self) -> f32 {
+    pub(crate) fn preferred_timeline_height(&self) -> f32 {
+        if let Some(height) = self
+            .shapes
+            .drag
+            .as_ref()
+            .and_then(|drag| drag.timeline_height)
+        {
+            return height;
+        }
         self.timeline_height_override.unwrap_or_else(|| {
             DEFAULT_TIMELINE_HEIGHT
                 + self.initial_timeline_hug.map_or(0., |initial| {
@@ -6166,6 +6218,15 @@ impl EditorWindow {
                     .collect();
                 edits::find_placement(&lane_segments, time, length, total)
             }
+            TrackKind::Shape => {
+                let lane_segments: Vec<_> = timeline
+                    .shape_segments
+                    .iter()
+                    .filter(|segment| segment.track == lane)
+                    .cloned()
+                    .collect();
+                edits::find_placement(&lane_segments, time, length, total)
+            }
             TrackKind::Scene => timeline::new_scene_segment(&self.timeline, time),
             _ => None,
         };
@@ -6175,17 +6236,22 @@ impl EditorWindow {
         match kind {
             TrackKind::Text => self.tracks.text = self.tracks.text.max(lane + 1),
             TrackKind::Mask => self.tracks.mask = self.tracks.mask.max(lane + 1),
+            TrackKind::Shape => self.tracks.shape = self.tracks.shape.max(lane + 1),
             TrackKind::Scene => self.tracks.scene = true,
             _ => {}
         }
         let mut index = 0;
-        let inserted = self.edit(
         let text = self.preset_text_segment(start, end, lane);
         let mask = self.preset_mask_segment(start, end, lane);
+        let shape = self.new_shape_segment(start, end, lane);
+        let reveal = (kind == TrackKind::Shape)
+            .then_some((shape.animation_in_duration, shape.animation_out_duration));
+        let inserted = self.edit(
             |timeline| {
                 index = match kind {
                     TrackKind::Text => edits::insert_text_segment(timeline, text),
                     TrackKind::Mask => edits::insert_mask_segment(timeline, mask),
+                    TrackKind::Shape => edits::insert_shape_segment(timeline, shape),
                     TrackKind::Scene => edits::insert_scene_segment(
                         timeline,
                         edits::default_scene_segment(start, end),
@@ -6201,7 +6267,13 @@ impl EditorWindow {
             return;
         }
         self.set_selection(Some(Selection::single(kind, index)), cx);
-        self.seek_to_time(time.clamp(start, end), cx);
+        let target = match reveal {
+            Some((animation_in, animation_out)) => {
+                crate::editor_shapes::reveal_time(time, start, end, animation_in, animation_out)
+            }
+            None => time.clamp(start, end),
+        };
+        self.seek_to_time(target, cx);
         self.view.preview_time = None;
         self.audio_picker = None;
         self.note_edit("add-track", Some(kind));
@@ -6534,6 +6606,7 @@ impl EditorWindow {
             TrackKind::Image => &mut self.tracks.image,
             TrackKind::Text => &mut self.tracks.text,
             TrackKind::Mask => &mut self.tracks.mask,
+            TrackKind::Shape => &mut self.tracks.shape,
             TrackKind::Audio => &mut self.tracks.audio,
             _ => return,
         };
@@ -6543,6 +6616,7 @@ impl EditorWindow {
             (TrackKind::Image, Some(timeline)) => edits::used_lane_count(&timeline.image_segments),
             (TrackKind::Text, Some(timeline)) => edits::used_lane_count(&timeline.text_segments),
             (TrackKind::Mask, Some(timeline)) => edits::used_lane_count(&timeline.mask_segments),
+            (TrackKind::Shape, Some(timeline)) => edits::used_lane_count(&timeline.shape_segments),
             (TrackKind::Audio, Some(timeline)) => edits::used_lane_count(&timeline.audio_segments),
             _ => 0,
         };
@@ -6552,6 +6626,7 @@ impl EditorWindow {
             TrackKind::Image => self.tracks.image = next,
             TrackKind::Text => self.tracks.text = next,
             TrackKind::Mask => self.tracks.mask = next,
+            TrackKind::Shape => self.tracks.shape = next,
             TrackKind::Audio => self.tracks.audio = next,
             _ => {}
         }
@@ -7762,12 +7837,12 @@ impl EditorWindow {
                     tracing::warn!("the presets store could not be written");
                 }
             }
-        }
             PresetDialog::Style(dialog) => {
                 if !self.commit_style_dialog(dialog, &name, window, cx) {
                     return;
                 }
             }
+        }
         self.preset_dialog = None;
         let focus = self.focus.clone();
         window.focus(&focus, cx);
@@ -7870,6 +7945,7 @@ impl EditorWindow {
             TrackKind::Text | TrackKind::Mask => {
                 self.add_overlay_segment(kind, window, cx);
             }
+            TrackKind::Shape => self.add_shape_at_playhead(window, cx),
             _ => {}
         }
         cx.notify();
@@ -7964,9 +8040,9 @@ impl EditorWindow {
             self.tracks.mask
         };
 
-        let inserted = self.edit(
         let text = self.preset_text_segment(start, end, lane);
         let mask = self.preset_mask_segment(start, end, lane);
+        let inserted = self.edit(
             |timeline| {
                 let index = match kind {
                     TrackKind::Text => edits::insert_text_segment(timeline, text),
@@ -8037,8 +8113,8 @@ impl EditorWindow {
         };
         self.tracks.style = self.tracks.style.max(lane + 1);
         let mut index = 0;
-        if self.edit(
         let segment = self.preset_style_segment(start, end, lane);
+        if self.edit(
             |timeline| {
                 index = edits::insert_style_segment(timeline, segment);
                 true
@@ -8372,6 +8448,7 @@ impl EditorWindow {
             "keyboard" => TrackKind::Keyboard,
             "text" => TrackKind::Text,
             "mask" => TrackKind::Mask,
+            "shape" => TrackKind::Shape,
             "audio" => TrackKind::Audio,
             "scene" => TrackKind::Scene,
             "3d" => TrackKind::ThreeD,
@@ -9826,21 +9903,21 @@ impl EditorWindow {
         let dialog = self.preset_dialog?;
         let theme = self.theme;
 
-        let (title, primary, danger) = match dialog {
         let mut style_body = None;
-            PresetDialog::Create { .. } => (t!("Create Preset"), t!("Create"), false),
+        let (title, primary, danger) = match dialog {
             PresetDialog::Style(style) => {
                 let (title, primary, danger, body) = self.style_dialog_parts(style);
                 style_body = Some(body);
                 (title, primary, danger)
             }
+            PresetDialog::Create { .. } => (t!("Create Preset"), t!("Create"), false),
             PresetDialog::Rename { .. } => (t!("Rename Preset"), t!("Rename"), false),
             PresetDialog::Delete { .. } => (t!("Delete Preset"), t!("Delete"), true),
         };
 
         let body: gpui::AnyElement = match dialog {
-            PresetDialog::Delete { index } => div()
             PresetDialog::Style(_) => style_body.unwrap_or_else(|| div().into_any_element()),
+            PresetDialog::Delete { index } => div()
                 .text_size(px(14.))
                 .text_color(Hsla::from(theme.editor.text_2))
                 .child(SharedString::from(t!(
@@ -10419,6 +10496,7 @@ impl EditorWindow {
                         this.open_toolbar_menu(ToolbarMenu::Snapshot, *bounds, window, cx);
                     })),
             )
+            .child(self.render_shape_tool_button(narrow, cx))
     }
 
     /// The preview-resolution control: a segmented `Full | Half | Quarter`.
@@ -11359,6 +11437,7 @@ impl EditorWindow {
                 TrackKind::Clip => None,
                 TrackKind::Caption | TrackKind::Keyboard => Some(t!("Delete")),
                 TrackKind::Text
+                | TrackKind::Shape
                 | TrackKind::Mask
                 | TrackKind::Audio
                 | TrackKind::Style
@@ -11740,6 +11819,7 @@ impl EditorWindow {
                                                     this.delete_single_track(kind, window, cx);
                                                 }
                                                 TrackKind::Text
+                                                | TrackKind::Shape
                                                 | TrackKind::Mask
                                                 | TrackKind::Audio
                                                 | TrackKind::Style
@@ -12583,6 +12663,18 @@ impl Render for EditorWindow {
                 )
                 .cursor(cursor)
             }))
+            .children(self.shapes.drag.as_ref().map(|drag| {
+                ui::Slider::drag_layer(
+                    "canvas-shape-drag",
+                    cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                        this.shape_drag_move(event, window, cx);
+                    }),
+                    cx.listener(|this, _: &MouseUpEvent, window, cx| {
+                        this.shape_drag_up(window, cx);
+                    }),
+                )
+                .cursor(drag.cursor())
+            }))
             // The open `KSelect` menu, painted last of all so it is over the
             // sidebar and the drag layers alike.
             .children(
@@ -12602,6 +12694,7 @@ impl Render for EditorWindow {
             .children(self.with_style_controls(|this| this.render_sidebar_menu(cx)))
             .children(self.render_toolbar_menu(cx))
             .children(self.render_add_track_popover(cx))
+            .children(self.render_shape_tool_popover(cx))
             .children(self.render_clip_speed_popover(window, cx))
             // The config sidebar's sliders take the same layer, for the same
             // reason -- and its release is what closes the undo bracket, so a
@@ -12620,8 +12713,8 @@ impl Render for EditorWindow {
             }))
             .children(self.with_style_controls(|this| this.render_color_picker_popover(cx)))
             .children(self.render_presets_menu(cx))
-            .children(self.render_preset_dialog(cx))
             .children(self.render_style_presets_menu(cx))
+            .children(self.render_preset_dialog(cx))
             // The clips overlays: import menu, record modal, and the card
             // drag's window-wide layer with its floating ghost.
             .children(self.render_clips_overlays(cx))
@@ -13128,6 +13221,7 @@ mod tests {
                 camera3d_segments: Vec::new(),
                 style_segments: Vec::new(),
                 image_segments: Vec::new(),
+                shape_segments: Vec::new(),
             }),
             captions: Some(frameever_project::CaptionsData {
                 segments: vec![frameever_project::CaptionSegment {
@@ -13241,6 +13335,7 @@ mod tests {
                 camera3d_segments: Vec::new(),
                 style_segments: Vec::new(),
                 image_segments: Vec::new(),
+                shape_segments: Vec::new(),
             }),
             captions: Some(frameever_project::CaptionsData {
                 segments: vec![frameever_project::CaptionSegment {
@@ -13514,6 +13609,7 @@ mod tests {
             timeline: Some(TimelineConfiguration {
                 style_segments: Vec::new(),
                 image_segments: Vec::new(),
+                shape_segments: Vec::new(),
                 segments: Vec::new(),
                 transitions: Vec::new(),
                 zoom_segments: Vec::new(),
@@ -14067,6 +14163,7 @@ mod tests {
         TimelineConfiguration {
             style_segments: Vec::new(),
             image_segments: Vec::new(),
+            shape_segments: Vec::new(),
             segments: Vec::new(),
             transitions: Vec::new(),
             zoom_segments: Vec::new(),

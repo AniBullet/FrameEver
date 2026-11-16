@@ -204,7 +204,11 @@ pub fn build_snap_targets(others: &[NormRect], margin: Option<(f64, f64)>) -> Sn
 
 /// `snapAxis` (`snapping.ts:83-106`). Centre lines carry a `threshold * 0.15`
 /// cost bias so they win ties against edges.
-fn snap_axis(anchors: &[f64], lines: &[SnapLine], threshold: f64) -> Option<(f64, SnapLine)> {
+pub(crate) fn snap_axis(
+    anchors: &[f64],
+    lines: &[SnapLine],
+    threshold: f64,
+) -> Option<(f64, SnapLine)> {
     let mut best: Option<(f64, SnapLine)> = None;
     let mut best_cost = f64::INFINITY;
     for line in lines {
@@ -229,7 +233,7 @@ fn snap_axis(anchors: &[f64], lines: &[SnapLine], threshold: f64) -> Option<(f64
 }
 
 /// `guideFor` (`snapping.ts:108-125`).
-fn guide_for(axis: GuideAxis, line: SnapLine, moving: NormRect) -> SnapGuide {
+pub(crate) fn guide_for(axis: GuideAxis, line: SnapLine, moving: NormRect) -> SnapGuide {
     let Some((ref_start, ref_end)) = line.reference else {
         return SnapGuide {
             axis,
@@ -659,8 +663,35 @@ impl EditorWindow {
     /// `useCanvasSnapTargets()` (`:70-129`): every other visible element's
     /// edges and centres, the frame's own, and the classic camera margin.
     pub(crate) fn canvas_snap_targets(&self, exclude: CanvasSelection) -> SnapTargets {
+        self.canvas_snap_targets_moving(Some(exclude), &[])
+    }
+
+    pub(crate) fn canvas_snap_targets_moving(
+        &self,
+        exclude: Option<CanvasSelection>,
+        moving_shapes: &[usize],
+    ) -> SnapTargets {
         let mut rects: Vec<NormRect> = Vec::new();
         let Some(layout) = self.frame_layout.as_ref() else {
+            return build_snap_targets(&rects, None);
+        };
+        let t = self.preview_or_playhead();
+        for index in self.visible_shape_order(t) {
+            if moving_shapes.contains(&index) {
+                continue;
+            }
+            if let Some(segment) = self
+                .project
+                .timeline
+                .as_ref()
+                .and_then(|timeline| timeline.shape_segments.get(index))
+            {
+                rects.push(crate::editor_shapes::shape_bounds(segment));
+            }
+        }
+        let Some(exclude) = exclude else {
+            rects.push(norm_rect(layout.display, layout));
+            rects.extend(layout.camera.map(|camera| norm_rect(camera, layout)));
             return build_snap_targets(&rects, None);
         };
         if exclude != CanvasSelection::Display {
@@ -671,7 +702,6 @@ impl EditorWindow {
         {
             rects.push(norm_rect(camera, layout));
         }
-        let t = self.preview_or_playhead();
         if let Some(timeline) = self.project.timeline.as_ref() {
             for (index, segment) in timeline.image_segments.iter().enumerate() {
                 if exclude == CanvasSelection::Image(index)
@@ -1061,6 +1091,7 @@ impl EditorWindow {
     }
 
     pub(crate) fn canvas_mouse_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.shape_drag_up(window, cx);
         let Some(drag) = self.canvas_drag.take() else {
             return;
         };
@@ -1274,7 +1305,7 @@ impl EditorWindow {
         }
     }
 
-    fn element_rect(&self, element: CanvasSelection) -> Option<NormRect> {
+    pub(crate) fn element_rect(&self, element: CanvasSelection) -> Option<NormRect> {
         match element {
             CanvasSelection::Display => self.display_rect(),
             CanvasSelection::Camera => self.camera_rect(),
@@ -1424,7 +1455,10 @@ impl EditorWindow {
     /// inside `size()` (`Player.tsx:636`), not the player pane.
     pub(crate) fn render_canvas_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.canvas_overlay_visible()
-            || (!self.player_panel_hovered && self.canvas_drag.is_none())
+            || (!self.player_panel_hovered
+                && self.canvas_drag.is_none()
+                && self.shapes.drag.is_none()
+                && self.shapes.tool.is_none())
         {
             return None;
         }
@@ -1518,6 +1552,7 @@ impl EditorWindow {
                             }
                         }
                     }
+                    OverlayTrackKind::Shape => {}
                     OverlayTrackKind::Text => {
                         for (index, segment) in timeline
                             .text_segments
@@ -1556,6 +1591,9 @@ impl EditorWindow {
             layer =
                 layer.child(self.render_element_box(CanvasSelection::Captions, rect, (cw, ch), cx));
         }
+        if let Some(shapes) = self.render_shapes_layer(cx) {
+            layer = layer.child(shapes);
+        }
         for guide in &self.snap_guides {
             let color = self.theme.recording;
             layer = layer.child(match guide.axis {
@@ -1588,7 +1626,10 @@ impl EditorWindow {
     ) -> AnyElement {
         let theme = self.theme;
         let selected = self.canvas_selection == Some(element);
-        let hovered = self.hovered_canvas == Some(element);
+        let hovered = self.hovered_canvas == Some(element)
+            && !self.hovering_visible_shape()
+            && self.shapes.tool.is_none()
+            && self.shapes.drag.is_none();
         let dragging = self
             .canvas_drag
             .as_ref()

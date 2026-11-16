@@ -1,12 +1,13 @@
 use crate::{
     ProjectConfiguration, RenderingError,
-    layers::{CaptionsLayer, ImageLayer, InputDisplayLayer, KeyboardLayer, TextLayer},
+    layers::{CaptionsLayer, ImageLayer, InputDisplayLayer, KeyboardLayer, ShapeLayer, TextLayer},
     readiness,
 };
 
 pub(super) struct OverlayLayers {
     pub(super) text: TextLayer,
     pub(super) images: ImageLayer,
+    pub(super) shapes: ShapeLayer,
     pub(super) captions: CaptionsLayer,
     pub(super) keyboard: KeyboardLayer,
     pub(super) input_display: InputDisplayLayer,
@@ -17,6 +18,7 @@ impl OverlayLayers {
         Self {
             text: readiness::measure("layers.text", || TextLayer::new(device, queue)),
             images: readiness::measure("layers.images", || ImageLayer::new(device)),
+            shapes: readiness::measure("layers.shapes", || ShapeLayer::new(device)),
             captions: readiness::measure("layers.captions", || CaptionsLayer::new(device, queue)),
             keyboard: readiness::measure("layers.keyboard", || KeyboardLayer::new(device, queue)),
             input_display: readiness::measure("layers.input_display", || {
@@ -38,6 +40,7 @@ impl OverlayLayers {
             || project.timeline.as_ref().is_some_and(|timeline| {
                 !timeline.text_segments.is_empty()
                     || !timeline.image_segments.is_empty()
+                    || !timeline.shape_segments.is_empty()
                     || !timeline.caption_segments.is_empty()
                     || !timeline.keyboard_segments.is_empty()
             })
@@ -85,7 +88,21 @@ mod tests {
 
     #[test]
     fn every_declared_overlay_source_requires_the_bundle() {
-        let mutations: [fn(&mut ProjectConfiguration); 9] = [
+        let mutations: [fn(&mut ProjectConfiguration); 11] = [
+            |project| {
+                project.overlay_order.push(frameever_project::OverlayTrack {
+                    kind: frameever_project::OverlayTrackKind::Shape,
+                    track: 0,
+                });
+            },
+            |project| {
+                project.timeline.as_mut().unwrap().shape_segments.push(
+                    frameever_project::ShapeSegment {
+                        enabled: false,
+                        ..Default::default()
+                    },
+                );
+            },
             |project| project.captions = Some(Default::default()),
             |project| project.keyboard = Some(Default::default()),
             |project| project.hidden_text_segments.push(0),
