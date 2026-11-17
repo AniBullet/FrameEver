@@ -15,6 +15,7 @@ use std::{
 };
 
 use frameever_installer_app::{
+    app_icon::app_icon,
     command_line::{Fallback, Mode, fallback, parse, relaunch_arguments, uninstaller_passthrough},
     flow::{
         self, Action, Button, Check, EXIT_BUSY, EXIT_FAILED, Effect, Flow, Frame, Installed, Job,
@@ -28,11 +29,11 @@ use frameever_installer_app::{
 use frameever_utils::{brand::APP_NAME, storage};
 use gpui::{
     Animation, AnimationExt, AnyElement, App, AppContext, AssetSource, Bounds, Context, Entity,
-    FocusHandle, FontWeight, Image, ImageFormat, InteractiveElement, IntoElement, KeyBinding,
-    KeyDownEvent, ParentElement, PathPromptOptions, Render, Rgba, SharedString,
-    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowControlArea, WindowKind, WindowOptions, div, img, prelude::FluentBuilder,
-    px, relative, size, svg, transparent_black,
+    FocusHandle, FontWeight, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent,
+    ParentElement, PathPromptOptions, Render, Rgba, SharedString, StatefulInteractiveElement,
+    Styled, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
+    WindowKind, WindowOptions, div, prelude::FluentBuilder, px, relative, size, svg,
+    transparent_black,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -80,8 +81,31 @@ const ICONS: &[(&str, &[u8])] = &[
         "icons/shield-check.svg",
         include_bytes!("../../assets/icons/shield-check.svg"),
     ),
+    (
+        "icons/logo-tile.svg",
+        include_bytes!("../../assets/icons/logo-tile.svg"),
+    ),
+    (
+        "icons/logo-clip-top.svg",
+        include_bytes!("../../assets/icons/logo-clip-top.svg"),
+    ),
+    (
+        "icons/logo-clip-bottom.svg",
+        include_bytes!("../../assets/icons/logo-clip-bottom.svg"),
+    ),
+    (
+        "icons/logo-record.svg",
+        include_bytes!("../../assets/icons/logo-record.svg"),
+    ),
+    (
+        "icons/logo-record-gap.svg",
+        include_bytes!("../../assets/icons/logo-record-gap.svg"),
+    ),
+    (
+        "icons/logo-record-dot.svg",
+        include_bytes!("../../assets/icons/logo-record-dot.svg"),
+    ),
 ];
-const APP_ICON: &[u8] = include_bytes!("../../icons/128x128@2x.png");
 const FONTS: &[&[u8]] = &[
     include_bytes!("../../assets/fonts/Inter-Regular.ttf"),
     include_bytes!("../../assets/fonts/Inter-Medium.ttf"),
@@ -125,7 +149,6 @@ struct SetupWindow {
     focus: FocusHandle,
     primary: FocusHandle,
     field: Entity<PathField>,
-    icon: Arc<Image>,
     taskbar: Option<taskbar::Taskbar>,
     page: (flow::Page, bool, bool),
     epoch: usize,
@@ -609,7 +632,6 @@ fn details_box(text: String, palette: Palette) -> impl IntoElement {
 
 fn caption(
     title: String,
-    icon: Arc<Image>,
     locked: bool,
     palette: Palette,
     active: bool,
@@ -659,7 +681,7 @@ fn caption(
                 .gap(px(8.))
                 .pl(px(10.))
                 .window_control_area(WindowControlArea::Drag)
-                .child(img(icon).size(px(16.)).rounded(px(4.)))
+                .child(app_icon(16.))
                 .child(
                     div()
                         .text_size(px(SMALL_TEXT))
@@ -887,11 +909,7 @@ impl SetupWindow {
             .pt(px(20.))
             .pb(px(20.))
             .text_center()
-            .child(
-                img(self.icon.clone())
-                    .size(px(if screen.hero { 72. } else { 40. }))
-                    .rounded(px(if screen.hero { 16. } else { 9. })),
-            )
+            .child(app_icon(if screen.hero { 72. } else { 40. }))
             .child(
                 div()
                     .mt(px(12.))
@@ -975,7 +993,7 @@ impl SetupWindow {
                     .flex_row()
                     .items_center()
                     .gap(px(12.))
-                    .child(img(self.icon.clone()).size(px(32.)).rounded(px(7.)))
+                    .child(app_icon(32.))
                     .child(
                         div()
                             .flex_1()
@@ -1052,7 +1070,7 @@ impl Render for SetupWindow {
             Frame::Main { title, .. } => {
                 let locked = screen.locked;
                 let active = window.is_window_active();
-                let caption = caption(title, self.icon.clone(), locked, palette, active, cx);
+                let caption = caption(title, locked, palette, active, cx);
                 let page = self.render_main(screen, palette, window, cx);
                 root.child(
                     div()
@@ -1207,7 +1225,6 @@ fn open_window(setup: Setup, app_data: PathBuf, cx: &mut App) -> Result<(), Stri
                 focus,
                 primary,
                 field,
-                icon: Arc::new(Image::from_bytes(ImageFormat::Png, APP_ICON.to_vec())),
                 taskbar,
                 page,
                 epoch: 0,

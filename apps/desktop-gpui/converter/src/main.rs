@@ -9,6 +9,7 @@ use std::{
 
 use frameever_converter::{Progress, Report, Target};
 use frameever_converter_app::{
+    app_icon::app_icon,
     i18n, system,
     theme::Palette,
     wizard::{
@@ -18,11 +19,11 @@ use frameever_converter_app::{
 };
 use gpui::{
     Animation, AnimationExt, AnyElement, App, AppContext, AssetSource, Bounds, Context,
-    FocusHandle, FontWeight, Image, ImageFormat, InteractiveElement, IntoElement, KeyBinding,
-    KeyDownEvent, ParentElement, PathBuilder, PathPromptOptions, Render, Rgba, SharedString,
+    FocusHandle, FontWeight, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent,
+    ParentElement, PathBuilder, PathPromptOptions, Render, Rgba, SharedString,
     StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowControlArea, WindowOptions, canvas, div, img, point,
-    prelude::FluentBuilder, px, size, svg, transparent_black,
+    WindowBounds, WindowControlArea, WindowOptions, canvas, div, point, prelude::FluentBuilder, px,
+    size, svg, transparent_black,
 };
 use lyon_tessellation::{LineCap, LineJoin, StrokeOptions};
 
@@ -85,8 +86,31 @@ const ICONS: &[(&str, &[u8])] = &[
         "icons/triangle-alert.svg",
         include_bytes!("../../assets/icons/triangle-alert.svg"),
     ),
+    (
+        "icons/logo-tile.svg",
+        include_bytes!("../../assets/icons/logo-tile.svg"),
+    ),
+    (
+        "icons/logo-clip-top.svg",
+        include_bytes!("../../assets/icons/logo-clip-top.svg"),
+    ),
+    (
+        "icons/logo-clip-bottom.svg",
+        include_bytes!("../../assets/icons/logo-clip-bottom.svg"),
+    ),
+    (
+        "icons/logo-record.svg",
+        include_bytes!("../../assets/icons/logo-record.svg"),
+    ),
+    (
+        "icons/logo-record-gap.svg",
+        include_bytes!("../../assets/icons/logo-record-gap.svg"),
+    ),
+    (
+        "icons/logo-record-dot.svg",
+        include_bytes!("../../assets/icons/logo-record-dot.svg"),
+    ),
 ];
-const APP_ICON: &[u8] = include_bytes!("../../assets/dock-icon.png");
 const FONTS: &[&[u8]] = &[
     include_bytes!("../../assets/fonts/Inter-Regular.ttf"),
     include_bytes!("../../assets/fonts/Inter-Medium.ttf"),
@@ -115,7 +139,6 @@ struct Running {
 
 struct ConverterWindow {
     wizard: Wizard,
-    icon: Arc<Image>,
     focus: FocusHandle,
 }
 
@@ -817,13 +840,7 @@ impl Render for ConverterWindow {
             .text_size(px(BODY_TEXT))
             .line_height(px(20.))
             .font_family(i18n::ui_font())
-            .child(caption(
-                self.icon.clone(),
-                palette,
-                window.is_window_active(),
-                converting,
-                cx,
-            ))
+            .child(caption(palette, window.is_window_active(), converting, cx))
             .child(steps(&screen.steps, palette))
             .child(
                 div()
@@ -901,7 +918,6 @@ fn steps(steps: &[(String, StepState)], palette: Palette) -> impl IntoElement {
 }
 
 fn caption(
-    icon: Arc<Image>,
     palette: Palette,
     active: bool,
     converting: bool,
@@ -948,7 +964,7 @@ fn caption(
                 .gap(px(8.))
                 .pl(px(16.))
                 .window_control_area(WindowControlArea::Drag)
-                .child(img(icon).size(px(20.)).rounded(px(5.)))
+                .child(app_icon(20.))
                 .child(
                     div()
                         .text_size(px(SMALL_TEXT))
@@ -1032,7 +1048,6 @@ fn main() {
                     window.focus(&focus, cx);
                     ConverterWindow {
                         wizard: Wizard::new(target, system::this_machine()),
-                        icon: Arc::new(Image::from_bytes(ImageFormat::Png, APP_ICON.to_vec())),
                         focus,
                     }
                 });

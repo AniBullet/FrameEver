@@ -276,6 +276,7 @@ mod tests {
         include_str!("main_window/library_page/overlay.rs"),
         include_str!("main_window/library_page/detail.rs"),
         include_str!("logo.rs"),
+        include_str!("app_icon.rs"),
         // Not a window: the Recents card's per-kind pill and fallback glyphs
         // are named on `MediaKind`, next to the `Recents.tsx` lines they come
         // from, so the table has to scan here too.

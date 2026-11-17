@@ -4,24 +4,29 @@ use crate::theme::Theme;
 
 const RING_SIZE: f32 = 18.;
 const RING_WIDTH: f32 = 1.5;
+const GAP_SIZE: f32 = RING_SIZE - 2. * RING_WIDTH;
 const SQUARE_SIZE: f32 = 8.;
 const SQUARE_RADIUS: f32 = 2.;
 
-fn ring(theme: &Theme) -> Div {
+fn disc(size: f32) -> Div {
     div()
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
-        .size(px(RING_SIZE))
+        .size(px(size))
         .rounded_full()
-        .border(px(RING_WIDTH))
-        .border_color(theme.primary_foreground)
-        .bg(theme.record_gap)
+}
+
+fn ring(theme: &Theme, centre: Div) -> Div {
+    disc(RING_SIZE)
+        .bg(theme.primary_foreground)
+        .child(disc(GAP_SIZE).bg(theme.record_gap).child(centre))
 }
 
 pub fn record_mark(theme: &Theme) -> Div {
-    ring(theme).child(
+    ring(
+        theme,
         div()
             .size(px(SQUARE_SIZE))
             .rounded_full()
@@ -30,7 +35,8 @@ pub fn record_mark(theme: &Theme) -> Div {
 }
 
 pub fn stop_mark(theme: &Theme) -> Div {
-    ring(theme).child(
+    ring(
+        theme,
         div()
             .size(px(SQUARE_SIZE))
             .rounded(px(SQUARE_RADIUS))

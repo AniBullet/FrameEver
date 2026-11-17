@@ -1,3 +1,5 @@
+#[path = "../../src/app_icon.rs"]
+pub mod app_icon;
 pub mod command_line;
 pub mod field;
 pub mod flow;
