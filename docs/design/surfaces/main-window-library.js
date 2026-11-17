@@ -310,7 +310,6 @@ const defaults = () => ({
 	selected: [],
 	anchor: null,
 	preview: false,
-	details: false,
 	palette: null,
 	dialog: null,
 	gif: null,
@@ -584,8 +583,7 @@ class MainWindow {
 			],
 			item.tracks && [["Tracks", "轨道"], L(...item.tracks)],
 		].filter(Boolean);
-		const open = this.s.details;
-		const details = `<div><button class="disclose" data-a="details" aria-expanded="${open}">${icon(open ? "chevron-down" : "chevron-right", "sm")}${L("Details", "详细信息")}</button>${open ? `<dl class="info tnum">${info.map(([label, val]) => `<dt>${L(...label)}</dt><dd>${val}</dd>`).join("")}</dl>` : ""}</div>`;
+		const details = `<div><div class="subhead">${L("Details", "详细信息")}</div><dl class="info tnum">${info.map(([label, val]) => `<dt>${L(...label)}</dt><dd>${val}</dd>`).join("")}</dl></div>`;
 		const version =
 			item.kind !== "instant"
 				? ""
@@ -601,8 +599,9 @@ class MainWindow {
 			<div class="player">${this.s.playFailed ? `<div class="play-failed"><b>${L("Couldn't play this video", "无法播放此视频")}</b><span>${L("The file may be damaged. Try opening it in another player.", "文件可能已损坏。换个播放器打开试试。")}</span><button class="btn">${L("Try again", "再试一次")}</button></div>` : `<span class="thumb" data-a="preview">${art(item.art)}${unedited ? `<span class="corner tl">${L("Unedited", "未编辑")}</span>` : ""}<span class="corner tr" title="${pick("Preview  Space", "预览  空格")}">${icon("maximize-2", "sm")}</span></span>`}${video ? `<div class="player-bar tnum"><button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play", "sm")}</button><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><span>0:53 / ${item.dur}</span><button class="play-btn">${icon("volume-2", "sm")}</button></div>` : ""}</div>
 			<div class="head"><input class="name-edit" value="${item.name}" aria-label="${pick("Name", "名称")}"><div class="meta tnum">${meta}</div></div>
 			<div class="actions">${primary.map(([id, en, zh], i) => `<button class="btn ${i === 0 ? "primary" : ""}" ${id === "gif" ? 'data-a="gif"' : ""}>${L(en, zh)}</button>`).join("")}</div>
+			<div class="detail-tools">${tool("copy", "Copy file  Ctrl C", "复制文件  Ctrl C")}${tool("folder-open", "Show in folder", "在文件夹中显示")}${tool("external-link", "Open in default app", "用默认应用打开")}<span class="grow"></span>${tool("trash", "Delete…  Del", "删除…  Del", "del")}</div>
 			${version}${exports}${details}
-		</div><div class="detail-foot">${tool("copy", "Copy file  Ctrl C", "复制文件  Ctrl C")}${tool("folder-open", "Show in folder", "在文件夹中显示")}${tool("external-link", "Open in default app", "用默认应用打开")}<span class="grow"></span>${tool("trash", "Delete…  Del", "删除…  Del", "del")}</div></aside>`;
+		</div></aside>`;
 	}
 
 	batch(chosen) {
@@ -621,8 +620,9 @@ class MainWindow {
 				<button class="btn">${icon("folder-open")}${L("Show in folder", "在文件夹中显示")}</button>
 				<button class="btn">${icon("copy")}${L("Copy files", "复制文件")}</button>
 				<button class="btn" data-a="delete">${icon("trash")}${L("Delete…", "删除…")}</button>
+				<button class="btn ghost" data-a="clear-selection">${L("Clear selection", "取消选择")}</button>
 			</div>
-		</div><div class="detail-foot"><button class="btn ghost" data-a="clear-selection">${L("Clear selection", "取消选择")}</button></div></aside>`;
+		</div></aside>`;
 	}
 
 	library() {
@@ -1021,8 +1021,6 @@ class MainWindow {
 				return this.choose(Number(el.dataset.id), e);
 			case "preview":
 				return this.set({ preview: true, ...close });
-			case "details":
-				return this.set({ details: !this.s.details });
 			case "close-preview":
 				return this.set({ preview: false, whole: false });
 			case "whole":

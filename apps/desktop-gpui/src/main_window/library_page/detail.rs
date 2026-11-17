@@ -22,7 +22,6 @@ pub(super) struct DetailState {
     latest_export: Option<PathBuf>,
     details: ProjectDetails,
     task: Option<Task<()>>,
-    details_open: bool,
     pub(super) stale: bool,
     pub(super) preview: preview::PreviewState,
 }
@@ -36,7 +35,6 @@ impl DetailState {
             latest_export: None,
             details: ProjectDetails::default(),
             task: None,
-            details_open: false,
             stale: false,
             preview: preview::PreviewState::default(),
         }
@@ -602,7 +600,7 @@ impl MainWindow {
             ))
     }
 
-    fn render_detail_info(&self, cx: &mut Context<Self>) -> Option<gpui::Div> {
+    fn render_detail_info(&self) -> Option<gpui::Div> {
         let theme = self.theme;
         let details = &self.library.detail.details;
         let mut rows: Vec<(&'static str, String)> = Vec::new();
@@ -615,69 +613,32 @@ impl MainWindow {
         if rows.is_empty() {
             return None;
         }
-        let open = self.library.detail.details_open;
-        let toggle = focus_ring(
-            div()
-                .id("library-detail-more")
-                .tab_index(0)
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .h(px(24.))
-                .pl(px(2.))
-                .pr(px(6.))
-                .ml(px(-2.))
-                .rounded(px(4.))
-                .text_size(px(12.))
-                .text_color(theme.muted_foreground)
-                .hover(move |style| style.bg(theme.accent).text_color(theme.foreground))
-                .child(
-                    svg()
-                        .path(if open {
-                            "icons/chevron-down.svg"
-                        } else {
-                            "icons/chevron-right.svg"
-                        })
-                        .size(px(14.))
-                        .text_color(theme.muted_foreground),
-                )
-                .child(t!("Details")),
-            theme,
-        )
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.library.detail.details_open = !this.library.detail.details_open;
-            cx.notify();
-        }));
         Some(
             div()
                 .flex()
                 .flex_col()
-                .items_start()
-                .gap(px(6.))
-                .child(toggle)
-                .when(open, |this| {
-                    this.child(
-                        div()
-                            .w_full()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .text_size(px(12.))
-                            .children(rows.into_iter().map(move |(label, value)| {
-                                div()
-                                    .flex()
-                                    .gap(px(10.))
-                                    .child(
-                                        div()
-                                            .w(px(80.))
-                                            .flex_shrink_0()
-                                            .text_color(theme.muted_foreground)
-                                            .child(label),
-                                    )
-                                    .child(div().flex_1().min_w_0().child(value))
-                            })),
-                    )
-                }),
+                .child(self.subhead(t!("Details")))
+                .child(
+                    div()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .text_size(px(12.))
+                        .children(rows.into_iter().map(move |(label, value)| {
+                            div()
+                                .flex()
+                                .gap(px(10.))
+                                .child(
+                                    div()
+                                        .w(px(80.))
+                                        .flex_shrink_0()
+                                        .text_color(theme.muted_foreground)
+                                        .child(label),
+                                )
+                                .child(div().flex_1().min_w_0().child(value))
+                        })),
+                ),
         )
     }
 
@@ -981,6 +942,62 @@ impl MainWindow {
         .radius(px(4.))
         .text_size(px(15.))
         .font_weight(FontWeight::SEMIBOLD);
+        let tools = div()
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(2.))
+            .mt(px(-4.))
+            .mx(px(-6.))
+            .child(
+                self.foot_icon(
+                    "library-detail-copy",
+                    "icons/copy.svg",
+                    t!("Copy file"),
+                    !copyable,
+                )
+                .when(copyable, |this| {
+                    this.on_click(cx.listener(|this, _, _, cx| {
+                        this.copy_library_file(cx);
+                    }))
+                }),
+            )
+            .child(
+                self.foot_icon(
+                    "library-detail-reveal",
+                    "icons/folder-open.svg",
+                    t!("Show in folder"),
+                    false,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.reveal_library_selection(cx);
+                })),
+            )
+            .child(
+                self.foot_icon(
+                    "library-detail-external",
+                    "icons/external-link.svg",
+                    t!("Open in default app"),
+                    !copyable,
+                )
+                .when(copyable, |this| {
+                    this.on_click(cx.listener(|this, _, _, cx| {
+                        this.open_library_file_externally(cx);
+                    }))
+                }),
+            )
+            .child(div().flex_1())
+            .child(
+                self.foot_icon(
+                    "library-detail-delete",
+                    "icons/trash.svg",
+                    t!("Delete…"),
+                    false,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.delete_library_selection(window, cx);
+                })),
+            );
         Some(
             div()
                 .flex()
@@ -1018,72 +1035,11 @@ impl MainWindow {
                                 .child(self.render_detail_meta(&entry)),
                         )
                         .child(self.render_detail_actions(&entry, cx))
+                        .child(tools)
                         .children(self.render_detail_compress(&entry, cx))
                         .children(self.render_detail_versions(cx))
                         .children(self.render_detail_exports(&entry, cx))
-                        .children(self.render_detail_info(cx)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_shrink_0()
-                        .items_center()
-                        .gap(px(2.))
-                        .px(px(8.))
-                        .py(px(6.))
-                        .border_t_1()
-                        .border_color(theme.border)
-                        .child(
-                            self.foot_icon(
-                                "library-detail-copy",
-                                "icons/copy.svg",
-                                t!("Copy file"),
-                                !copyable,
-                            )
-                            .when(copyable, |this| {
-                                this.on_click(cx.listener(|this, _, _, cx| {
-                                    this.copy_library_file(cx);
-                                }))
-                            }),
-                        )
-                        .child(
-                            self.foot_icon(
-                                "library-detail-reveal",
-                                "icons/folder-open.svg",
-                                t!("Show in folder"),
-                                false,
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.reveal_library_selection(cx);
-                            })),
-                        )
-                        .child(
-                            self.foot_icon(
-                                "library-detail-external",
-                                "icons/external-link.svg",
-                                t!("Open in default app"),
-                                !copyable,
-                            )
-                            .when(copyable, |this| {
-                                this.on_click(cx.listener(|this, _, _, cx| {
-                                    this.open_library_file_externally(cx);
-                                }))
-                            }),
-                        )
-                        .child(div().flex_1())
-                        .child(
-                            self.foot_icon(
-                                "library-detail-delete",
-                                "icons/trash.svg",
-                                t!("Delete…"),
-                                false,
-                            )
-                            .on_click(cx.listener(
-                                |this, _, window, cx| {
-                                    this.delete_library_selection(window, cx);
-                                },
-                            )),
-                        ),
+                        .children(self.render_detail_info()),
                 )
                 .into_any_element(),
         )
@@ -1253,21 +1209,20 @@ impl MainWindow {
                                         this.delete_library_selection(window, cx);
                                     },
                                 )),
+                            )
+                            .child(
+                                self.foot_button(
+                                    "library-batch-clear",
+                                    t!("Clear selection"),
+                                    false,
+                                )
+                                .flex_none()
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.clear_library_selection(cx);
+                                    },
+                                )),
                             ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_shrink_0()
-                    .p(px(8.))
-                    .border_t_1()
-                    .border_color(theme.border)
-                    .child(
-                        self.foot_button("library-batch-clear", t!("Clear selection"), false)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.clear_library_selection(cx);
-                            })),
                     ),
             )
     }

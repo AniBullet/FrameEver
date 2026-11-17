@@ -880,20 +880,18 @@ main > section .seg {
 	border-radius: var(--radius-sm);
 }
 
-.detail-foot {
+.detail-tools {
 	display: flex;
 	align-items: center;
 	gap: 2px;
-	padding: 6px 8px;
-	border-top: 1px solid var(--border);
-	flex: none;
+	margin: -4px -6px 0;
 }
 
-.detail-foot .grow {
+.detail-tools .grow {
 	flex: 1;
 }
 
-.detail-foot .btn.del:hover {
+.detail-tools .btn.del:hover {
 	color: var(--danger-text);
 }
 
@@ -933,30 +931,6 @@ main > section .seg {
 	font-size: var(--text-small);
 	line-height: var(--line-small);
 	color: var(--muted-foreground);
-}
-
-.disclose {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	height: 24px;
-	padding: 0 6px 0 2px;
-	margin-left: -2px;
-	border: 0;
-	border-radius: var(--radius-sm);
-	background: transparent;
-	color: var(--muted-foreground);
-	font: inherit;
-	font-size: var(--text-small);
-}
-
-.disclose:hover {
-	background: var(--accent);
-	color: var(--foreground);
-}
-
-.disclose + .info {
-	margin-top: 6px;
 }
 
 .batch-title {
