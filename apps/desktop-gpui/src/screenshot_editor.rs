@@ -2262,8 +2262,12 @@ impl ScreenshotEditorWindow {
                 );
                 return;
             }
-            cx.update(|_, cx| crate::app_windows::close_screenshot_editor_after_delete(&bundle, cx))
-                .ok();
+            cx.update(move |_, cx| {
+                cx.defer(move |cx| {
+                    crate::app_windows::close_screenshot_editor_after_delete(&bundle, cx)
+                })
+            })
+            .ok();
         })
         .detach();
     }
