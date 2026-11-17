@@ -388,7 +388,7 @@ const overlay = (st) => {
 	if (st.phase === "closed")
 		return `<div class="closed ui"><button class="btn" data-a="reopen">${L("Open the picker again", "重新打开选择器")}</button></div>`;
 	if (st.phase === "recording")
-		return `${st.target !== "display" && t ? marks(t) : ""}${recBar(st)}`;
+		return `${st.target === "area" && t ? `<div class="rec-scrim">${scrim(t)}</div>` : ""}${st.target !== "display" && t ? marks(t) : ""}${recBar(st)}`;
 	const cd = st.phase === "countdown" || st.phase === "starting";
 	let h = st.target === "display" ? "" : scrim(t);
 	if (st.other)
@@ -1135,12 +1135,12 @@ const copy = () => {
 			],
 			[
 				[
-					"The overlay stays through the countdown, then goes. During recording an area keeps a still white frame all the way round, just outside it, and no scrim",
-					"倒计时期间覆盖层还在，之后消失。录制选区时在选区外侧留一圈静止的白色描边，没有遮罩",
+					"The overlay stays through the countdown, then goes. During recording an area keeps a still white frame all the way round, just outside it, and the scrim at half strength",
+					"倒计时期间覆盖层还在，之后消失。录制选区时在选区外侧留一圈静止的白色描边，遮罩减到一半",
 				],
 				[
-					"Today's scrim stays dark over your whole screen while you work. A thin frame shows the whole edge without getting in the way; four corner marks alone were too easy to miss",
-					"现在的遮罩在你操作时一直压暗整个屏幕。一圈细描边能标出完整的边界，又不碍事；只有四个角标太容易看漏",
+					"A line alone gets lost on busy content such as tables and code; only darkening the outside works on anything, which is what Cap and Screenpresso do. Half the picker's scrim tells inside from outside and leaves the rest of the screen readable. Four corner marks alone were too easy to miss",
+					"只靠一条线，在表格、代码这类密集画面上会被淹没；只有压暗外面才对任何画面都有效，Cap 和 Screenpresso 都这么做。用选择器遮罩的一半就能分出里外，外面的内容仍然看得清。只有四个角标太容易看漏",
 				],
 			],
 			[

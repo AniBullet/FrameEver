@@ -634,3 +634,10 @@ main {
 .marks {
 	isolation: isolate;
 }
+
+.rec-scrim {
+	position: absolute;
+	inset: 0;
+	opacity: 0.5;
+	pointer-events: none;
+}

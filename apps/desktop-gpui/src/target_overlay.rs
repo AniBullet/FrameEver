@@ -1743,7 +1743,13 @@ impl OverlayWindow {
 
         if self.recording_area {
             if let Some(shown) = shown {
-                root = root.child(recording_frame(shown, &self.theme));
+                root = root
+                    .children(scrim(
+                        Some(shown),
+                        self.display_size,
+                        recording_scrim(&self.theme),
+                    ))
+                    .child(recording_frame(shown, &self.theme));
             }
             return root;
         }
@@ -3546,6 +3552,11 @@ fn scrim(target: Option<AreaRect>, display: (f32, f32), color: Hsla) -> Vec<gpui
 }
 
 const RECORDING_FRAME_WIDTH: f32 = 4.;
+const RECORDING_SCRIM_SHARE: f32 = 0.5;
+
+fn recording_scrim(theme: &Theme) -> Hsla {
+    Theme::with_alpha(theme.overlay, theme.overlay.a * RECORDING_SCRIM_SHARE)
+}
 
 fn recording_frame_bounds(target: AreaRect) -> AreaRect {
     AreaRect {
@@ -3623,6 +3634,17 @@ fn request_media_access(permission: crate::permissions::OSPermission, cx: &mut A
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_recording_scrim_is_half_as_dark_as_the_picker_scrim() {
+        for theme in [Theme::light(), Theme::dark()] {
+            let picker: Hsla = theme.overlay.into();
+            let recording = super::recording_scrim(&theme);
+
+            assert!((recording.a - picker.a / 2.).abs() < 1e-4);
+            assert!(recording.a > 0.25);
+        }
+    }
+
     #[test]
     fn the_recording_frame_runs_all_the_way_round_just_outside_the_area() {
         let area = super::AreaRect {
