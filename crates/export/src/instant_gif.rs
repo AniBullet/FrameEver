@@ -436,10 +436,10 @@ mod tests {
             .map(|frame| Duration::from(frame.delay()).as_secs_f64())
             .sum();
         assert!((seconds - 1.0).abs() < 0.08, "{seconds}");
+        let brightnesses: Vec<i64> = whole.iter().map(brightness).collect();
         assert!(
-            whole
-                .windows(2)
-                .all(|pair| brightness(&pair[0]) < brightness(&pair[1]))
+            brightnesses.windows(2).all(|pair| pair[0] < pair[1]),
+            "{brightnesses:?}"
         );
         for (index, frame) in stretch.iter().enumerate() {
             let nearest = (0..whole.len())
