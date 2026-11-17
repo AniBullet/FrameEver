@@ -17,6 +17,7 @@ pub enum Row {
     Theme,
     Language,
     Notifications,
+    RecordingSounds,
     ChapterMarkSound,
     DockIcon,
     MainWindowStart,
@@ -133,6 +134,7 @@ const GENERAL: &[Group] = &[
         title: n!("App"),
         rows: &[
             Row::Notifications,
+            Row::RecordingSounds,
             Row::ChapterMarkSound,
             Row::DockIcon,
             Row::MainWindowStart,
@@ -378,6 +380,7 @@ impl Row {
             Row::Theme => n!("Theme"),
             Row::Language => n!("Language"),
             Row::Notifications => n!("Notifications"),
+            Row::RecordingSounds => n!("Recording sounds"),
             Row::ChapterMarkSound => n!("Chapter mark sound"),
             Row::DockIcon => n!("Always show dock icon"),
             Row::MainWindowStart => n!("When recording starts"),
@@ -424,6 +427,9 @@ impl Row {
         Some(match self {
             Row::Language => n!("The tray menu and window titles switch after a restart."),
             Row::Notifications => n!("Saved files, clipboard copies and finished compression."),
+            Row::RecordingSounds => {
+                n!("Plays when a recording starts or stops and when you take a screenshot.")
+            }
             Row::ChapterMarkSound => {
                 n!(
                     "Plays when you add a chapter mark while recording. Your microphone can pick it up."
@@ -549,6 +555,7 @@ mod tests {
                     "Theme",
                     "Language",
                     "Notifications",
+                    "Recording sounds",
                     "Chapter mark sound",
                     "When recording starts",
                     "After deleting a recording",

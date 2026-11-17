@@ -8,8 +8,21 @@ mod recording_start_sound;
 
 pub use recording_start_sound::StartCue;
 
-pub fn prime_recording_start_sound() -> StartCue {
-    recording_start_sound::prime(AppSound::StartRecording.bytes())
+pub fn prime_recording_start_sound() -> Option<StartCue> {
+    crate::store::recording_sounds_enabled()
+        .then(|| recording_start_sound::prime(AppSound::StartRecording.bytes()))
+}
+
+pub fn play_recording_stop() {
+    if crate::store::recording_sounds_enabled() {
+        AppSound::StopRecording.play();
+    }
+}
+
+pub fn play_screenshot() {
+    if crate::store::recording_sounds_enabled() {
+        AppSound::Notification.play();
+    }
 }
 
 pub async fn play_recording_start_sound(

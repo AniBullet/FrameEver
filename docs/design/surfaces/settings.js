@@ -121,6 +121,16 @@ const sections = [
 						kit: "switch",
 					},
 					{
+						k: "recordingSounds",
+						en: "Recording sounds",
+						zh: "录制提示音",
+						den: "Plays when a recording starts or stops and when you take a screenshot.",
+						dzh: "开始录制、结束录制和截图时播放。",
+						c: "switch",
+						was: ["New in FrameEver", "FrameEver 新增"],
+						kit: "switch",
+					},
+					{
 						k: "chapterMarkSound",
 						en: "Chapter mark sound",
 						zh: "章节标记提示音",

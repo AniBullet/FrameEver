@@ -14,7 +14,6 @@ use std::{
 use frameever_utils::disk_space::{DiskSpaceStatus, RecordingStorageMonitor};
 use gpui::{App, AppContext as _, Context, Entity, Global, Task};
 
-use crate::app_sounds::AppSound;
 use crate::i18n::t;
 use crate::recorded_time::{
     RecordedClock, auto_stop_countdown, auto_stop_limit, auto_stop_time_left,
@@ -678,7 +677,7 @@ impl RecordingSession {
             ..config
         };
         self.start_gate = Some(start_gate);
-        self.start_cue = Some(crate::app_sounds::prime_recording_start_sound());
+        self.start_cue = crate::app_sounds::prime_recording_start_sound();
         self.discard_primed(cx);
         self.primed_ready = Some(tokio::sync::watch::channel(false).0);
         self.pause_control.invalidate();
@@ -1455,7 +1454,7 @@ impl RecordingSession {
                         && current.finalization.same_job(&pending.finalization)
                     {
                         current.capture_stopped = true;
-                        stop_sound.call_once(|| AppSound::StopRecording.play());
+                        stop_sound.call_once(crate::app_sounds::play_recording_stop);
                         tracing::info!(path = %current.project_path.display(), "Studio capture stopped; editor preparation can begin");
                         cx.notify();
                     }
@@ -1521,7 +1520,7 @@ impl RecordingSession {
                         // never does that, so it goes with the placeholder it
                         // was standing in for.
                         tracing::info!(dir = %project_dir.display(), "recording finished");
-                        stop_sound.call_once(|| AppSound::StopRecording.play());
+                        stop_sound.call_once(crate::app_sounds::play_recording_stop);
                         if low_storage {
                             this.storage_notice = Some(t!("Recording stopped because storage is low. Your recording was saved.").into());
                         }

@@ -1283,6 +1283,18 @@ impl SettingsWindow {
                     },
                 )
                 .into_any_element(),
+            Row::RecordingSounds => self
+                .toggle(
+                    "recording-sounds",
+                    settings.recording_sounds,
+                    cx,
+                    |this, cx| {
+                        this.settings.recording_sounds = !this.settings.recording_sounds;
+                        let value = this.settings.recording_sounds;
+                        this.write_bool(crate::store::RECORDING_SOUNDS_KEY, value, cx);
+                    },
+                )
+                .into_any_element(),
             Row::ChapterMarkSound => self
                 .toggle(
                     "chapter-mark-sound",

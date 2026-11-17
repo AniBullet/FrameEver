@@ -409,6 +409,19 @@ pub fn chapter_mark_sound_enabled() -> bool {
         .unwrap_or(false)
 }
 
+pub const RECORDING_SOUNDS_KEY: &str = "recordingSounds";
+
+pub fn recording_sounds_enabled() -> bool {
+    cached_store(&tauri_store_path())
+        .and_then(|store| {
+            store
+                .get(GENERAL_SETTINGS)
+                .and_then(Value::as_object)
+                .map(|settings| bool_at(settings, RECORDING_SOUNDS_KEY, true))
+        })
+        .unwrap_or(true)
+}
+
 pub fn notification_sounds_enabled() -> bool {
     cached_store(&tauri_store_path())
         .and_then(|store| {
@@ -955,6 +968,7 @@ pub struct GeneralSettings {
     pub keep_main_hidden_after_editor: bool,
     pub keep_main_hidden_on_cancel: bool,
     pub chapter_mark_sound: bool,
+    pub recording_sounds: bool,
     pub delete_instant_recordings_after_upload: bool,
     pub crash_recovery_recording: bool,
     pub auto_compress_instant: bool,
@@ -1387,6 +1401,7 @@ impl GeneralSettings {
             keep_main_hidden_after_editor: bool_at(general, "keepMainHiddenAfterEditor", false),
             keep_main_hidden_on_cancel: bool_at(general, "keepMainHiddenOnCancel", false),
             chapter_mark_sound: bool_at(general, CHAPTER_MARK_SOUND_KEY, false),
+            recording_sounds: bool_at(general, RECORDING_SOUNDS_KEY, true),
             delete_instant_recordings_after_upload: bool_at(
                 general,
                 "deleteInstantRecordingsAfterUpload",
@@ -2885,6 +2900,25 @@ mod tests {
             ));
             assert_eq!(std::fs::read_to_string(&store.path).unwrap(), contents);
         }
+    }
+
+    #[test]
+    fn recording_sounds_are_on_until_turned_off() {
+        for (name, contents) in [
+            ("recording-sounds-empty", "{}"),
+            ("recording-sounds-default", r#"{"general_settings":{}}"#),
+        ] {
+            let _store = TempStore::new(name, Some(contents));
+            assert!(recording_sounds_enabled(), "{contents}");
+            assert!(GeneralSettings::load().recording_sounds, "{contents}");
+        }
+
+        let _store = TempStore::new(
+            "recording-sounds-off",
+            Some(r#"{"general_settings":{"recordingSounds":false}}"#),
+        );
+        assert!(!recording_sounds_enabled());
+        assert!(!GeneralSettings::load().recording_sounds);
     }
 
     #[test]

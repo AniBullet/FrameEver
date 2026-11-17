@@ -91,7 +91,7 @@ async fn write_capture(
     target: ScreenCaptureTarget,
     image: image::DynamicImage,
 ) -> anyhow::Result<PathBuf> {
-    crate::app_sounds::AppSound::Notification.play();
+    crate::app_sounds::play_screenshot();
 
     let base = crate::library::screenshots_dir();
     std::fs::create_dir_all(&base)
