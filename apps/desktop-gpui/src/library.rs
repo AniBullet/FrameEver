@@ -1285,6 +1285,10 @@ pub fn project_count() -> usize {
 
 /// Delete the `.ever` bundle that owns `path` (the PNG or the directory).
 pub fn delete_screenshot(path: &Path) -> Result<(), String> {
+    delete_screenshot_in(path, &storage().known_dirs(ProjectKind::Screenshot))
+}
+
+fn delete_screenshot_in(path: &Path, known_dirs: &[PathBuf]) -> Result<(), String> {
     let bundle = if path.is_dir() {
         path.to_path_buf()
     } else {
@@ -1292,6 +1296,7 @@ pub fn delete_screenshot(path: &Path) -> Result<(), String> {
             .map(Path::to_path_buf)
             .ok_or_else(|| t!("Invalid path").to_string())?
     };
+    let bundle = dunce::simplified(&bundle).to_path_buf();
 
     if bundle
         .components()
@@ -1300,7 +1305,6 @@ pub fn delete_screenshot(path: &Path) -> Result<(), String> {
         return Err(t!("Invalid path").to_string());
     }
 
-    let known_dirs = storage().known_dirs(ProjectKind::Screenshot);
     let Some(screenshots) = known_dirs.iter().find(|dir| bundle.starts_with(dir)) else {
         return Err(t!("Path is not inside the screenshots directory").to_string());
     };
@@ -1910,6 +1914,34 @@ pub fn bundle_thumbnail_path(project_dir: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_screenshot_opened_by_its_resolved_path_is_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let screenshots = directory.path().join("Screenshots");
+        let bundle = screenshots.join("Display.ever");
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(bundle.join("original.png"), b"png").unwrap();
+        let resolved = bundle.canonicalize().unwrap();
+
+        super::delete_screenshot_in(&resolved, &[screenshots.clone()]).unwrap();
+
+        assert!(!bundle.exists());
+        assert!(screenshots.exists());
+    }
+
+    #[test]
+    fn a_folder_outside_the_screenshots_folder_is_not_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let screenshots = directory.path().join("Screenshots");
+        let elsewhere = directory.path().join("Elsewhere.ever");
+        std::fs::create_dir_all(&screenshots).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+
+        assert!(super::delete_screenshot_in(&elsewhere, &[screenshots]).is_err());
+
+        assert!(elsewhere.exists());
+    }
+
     use super::*;
 
     #[test]

@@ -2236,6 +2236,7 @@ impl ScreenshotEditorWindow {
     /// `Header.tsx`'s delete (`remove(path)` then close).
     fn delete_screenshot(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let bundle = self.bundle.clone();
+        let name = self.pretty_name.clone();
         cx.spawn_in(window, async move |_this, cx| {
             if !crate::platform::confirm_dialog(
                 "FrameEver",
@@ -2255,6 +2256,10 @@ impl ScreenshotEditorWindow {
                 .await;
             if let Err(error) = deleted {
                 tracing::error!(path = %bundle.display(), "deleting the screenshot failed: {error}");
+                crate::platform::alert_dialog(
+                    "FrameEver",
+                    &t!("Couldn't delete “{name}”", name = name),
+                );
                 return;
             }
             cx.update(|_, cx| crate::app_windows::close_screenshot_editor_after_delete(&bundle, cx))
