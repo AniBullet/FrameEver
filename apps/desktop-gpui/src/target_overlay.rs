@@ -1743,7 +1743,7 @@ impl OverlayWindow {
 
         if self.recording_area {
             if let Some(shown) = shown {
-                root = root.children(corner_marks(shown, &self.theme));
+                root = root.child(recording_frame(shown, &self.theme));
             }
             return root;
         }
@@ -3545,44 +3545,35 @@ fn scrim(target: Option<AreaRect>, display: (f32, f32), color: Hsla) -> Vec<gpui
     }
 }
 
-fn corner_marks(target: AreaRect, theme: &Theme) -> Vec<gpui::AnyElement> {
-    let white: Hsla = theme.fixed_white.into();
+const RECORDING_FRAME_WIDTH: f32 = 4.;
+
+fn recording_frame_bounds(target: AreaRect) -> AreaRect {
+    AreaRect {
+        x: target.x - RECORDING_FRAME_WIDTH,
+        y: target.y - RECORDING_FRAME_WIDTH,
+        width: target.width + 2. * RECORDING_FRAME_WIDTH,
+        height: target.height + 2. * RECORDING_FRAME_WIDTH,
+    }
+}
+
+fn recording_frame(target: AreaRect, theme: &Theme) -> impl IntoElement {
+    let bounds = recording_frame_bounds(target);
     let shade = edge_shade(theme);
-    [(false, false), (true, false), (false, true), (true, true)]
-        .into_iter()
-        .map(|(right, bottom)| {
-            let x = if right {
-                target.right() - 12.
-            } else {
-                target.x - 2.
-            };
-            let y = if bottom {
-                target.bottom() - 12.
-            } else {
-                target.y - 2.
-            };
-            let arm = |size: f32, inset: f32, color: Hsla| {
-                div()
-                    .absolute()
-                    .left(px(inset))
-                    .top(px(inset))
-                    .size(px(size))
-                    .border_color(color)
-                    .when(right, |this| this.border_r_2())
-                    .when(!right, |this| this.border_l_2())
-                    .when(bottom, |this| this.border_b_2())
-                    .when(!bottom, |this| this.border_t_2())
-            };
+    div()
+        .absolute()
+        .left(px(bounds.x))
+        .top(px(bounds.y))
+        .w(px(bounds.width))
+        .h(px(bounds.height))
+        .border_1()
+        .border_color(shade)
+        .child(
             div()
-                .absolute()
-                .left(px(x - 3.))
-                .top(px(y - 3.))
-                .size(px(20.))
-                .child(arm(20., 0., shade))
-                .child(arm(14., 3., white))
-                .into_any_element()
-        })
-        .collect()
+                .size_full()
+                .border_2()
+                .border_color(theme.fixed_white)
+                .child(div().size_full().border_1().border_color(shade)),
+        )
 }
 
 fn focus_ring(window: AreaRect, theme: &Theme) -> impl IntoElement {
@@ -3632,6 +3623,23 @@ fn request_media_access(permission: crate::permissions::OSPermission, cx: &mut A
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_recording_frame_runs_all_the_way_round_just_outside_the_area() {
+        let area = super::AreaRect {
+            x: 100.,
+            y: 60.,
+            width: 640.,
+            height: 360.,
+        };
+
+        let frame = super::recording_frame_bounds(area);
+
+        assert_eq!(
+            (frame.x, frame.y, frame.width, frame.height),
+            (96., 56., 648., 368.)
+        );
+    }
+
     use super::*;
 
     #[test]

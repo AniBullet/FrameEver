@@ -380,21 +380,8 @@ const countdown = (st, t) => {
 	return `<div class="cd" style="left:${cx}px;top:${cy}px"><div class="cd-mark"><div class="cd-ring">${n ? `<span class="cd-n" data-n="${n}">${n}</span>` : `<i class="cd-dot"></i>`}</div></div>${n ? cdCaption() : ""}</div>`;
 };
 
-const marks = (t) => {
-	const corners = [
-		["left", "top"],
-		["right", "top"],
-		["left", "bottom"],
-		["right", "bottom"],
-	];
-	return `<div class="marks">${corners
-		.map(([a, b]) => {
-			const x = a === "left" ? t.x - 2 : t.x + t.w - 12;
-			const y = b === "top" ? t.y - 2 : t.y + t.h - 12;
-			return `<i style="left:${x}px;top:${y}px;border-${a}-width:2px;border-${b}-width:2px"></i>`;
-		})
-		.join("")}</div>`;
-};
+const marks = (t) =>
+	`<div class="marks"><i style="left:${t.x - 4}px;top:${t.y - 4}px;width:${t.w + 8}px;height:${t.h + 8}px"></i></div>`;
 
 const overlay = (st) => {
 	const t = rectOf(st);
@@ -1148,12 +1135,12 @@ const copy = () => {
 			],
 			[
 				[
-					"The overlay stays through the countdown, then goes. During recording an area gets four still corner marks and no scrim",
-					"倒计时期间覆盖层还在，之后消失。录制选区时只留四个静止的角标，没有遮罩",
+					"The overlay stays through the countdown, then goes. During recording an area keeps a still white frame all the way round, just outside it, and no scrim",
+					"倒计时期间覆盖层还在，之后消失。录制选区时在选区外侧留一圈静止的白色描边，没有遮罩",
 				],
 				[
-					"Today's scrim stays dark over your whole screen while you work. The marks show the edge without getting in the way",
-					"现在的遮罩在你操作时一直压暗整个屏幕。角标能标出边界，又不碍事",
+					"Today's scrim stays dark over your whole screen while you work. A thin frame shows the whole edge without getting in the way; four corner marks alone were too easy to miss",
+					"现在的遮罩在你操作时一直压暗整个屏幕。一圈细描边能标出完整的边界，又不碍事；只有四个角标太容易看漏",
 				],
 			],
 			[
