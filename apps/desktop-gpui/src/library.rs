@@ -1305,7 +1305,13 @@ fn delete_screenshot_in(path: &Path, known_dirs: &[PathBuf]) -> Result<(), Strin
         return Err(t!("Invalid path").to_string());
     }
 
-    let Some(screenshots) = known_dirs.iter().find(|dir| bundle.starts_with(dir)) else {
+    let holds_bundle = |dir: &&PathBuf| {
+        bundle.starts_with(dir.as_path())
+            || dir
+                .canonicalize()
+                .is_ok_and(|resolved| bundle.starts_with(dunce::simplified(&resolved)))
+    };
+    let Some(screenshots) = known_dirs.iter().find(holds_bundle) else {
         return Err(t!("Path is not inside the screenshots directory").to_string());
     };
 
