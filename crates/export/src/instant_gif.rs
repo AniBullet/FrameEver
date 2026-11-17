@@ -325,7 +325,11 @@ mod tests {
             "source",
             project.join("content/output.mp4"),
             false,
-            |output| H264Encoder::builder(info).build(output),
+            |output| {
+                H264Encoder::builder(info)
+                    .with_encoder_priority_override(&["libx264"])
+                    .build(output)
+            },
             |_| None,
         )
         .unwrap();
