@@ -1306,6 +1306,7 @@ impl MainWindow {
             .bg(theme.popover)
             .text_size(px(12.))
             .text_color(theme.popover_foreground)
+            .occlude()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_library_menu(cx)))
     }
 

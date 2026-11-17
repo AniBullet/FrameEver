@@ -452,6 +452,7 @@ impl MainWindow {
             .bg(theme.popover)
             .text_size(px(12.))
             .text_color(theme.popover_foreground)
+            .occlude()
             .child(
                 canvas(
                     move |bounds, _, _| panels.borrow_mut().push(bounds),
@@ -542,6 +543,92 @@ mod tests {
             ]
         );
         assert!(!listed(one(true, true, true)).contains(&Command::SaveAsGif));
+    }
+
+    fn recording(name: &str) -> Entry {
+        Entry {
+            path: std::path::PathBuf::from(format!("{name}.ever")),
+            kind: MediaKind::Studio,
+            name: name.to_owned(),
+            size: 0,
+            duration: None,
+            created_millis: 0.,
+            exports: Vec::new(),
+            compression: crate::library::view::Compression::None,
+            compressible: false,
+            clip_count: 1,
+            thumbnail: None,
+            thumbnail_version: None,
+            screenshot: None,
+            opens_editor: false,
+        }
+    }
+
+    fn draw(cx: &mut gpui::VisualTestContext) {
+        cx.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+    }
+
+    #[gpui::test]
+    fn a_command_picked_over_blank_space_still_runs(cx: &mut gpui::TestAppContext) {
+        let session = cx.update(|cx| {
+            crate::feeds::Feeds::init(cx);
+            crate::media_access::MediaAccess::init(cx);
+            crate::target_overlay::TargetSelect::init(cx);
+            crate::session::RecordingSession::init(cx)
+        });
+        let (main, cx) = cx.add_window_view(move |window, cx| MainWindow::new(session, window, cx));
+        main.update(cx, |main, _| {
+            use crate::main_window::shell::{Event, Frame, Screen};
+            let frame = Frame {
+                x: 0.,
+                y: 0.,
+                width: 1920.,
+                height: 1080.,
+            };
+            let screen = Screen {
+                frame,
+                work_area: frame,
+                scale: 1.,
+                maximized: false,
+            };
+            for event in [Event::Expand, Event::FrameSnapped, Event::FadeFinished] {
+                main.shell.handle(event, screen);
+            }
+        });
+        let held = recording("held");
+        let path = held.path.clone();
+        main.update_in(cx, |main, _, cx| {
+            main.library.entries = Some(vec![held]);
+            main.rebuild_library(cx);
+        });
+        draw(cx);
+        let tile = main
+            .read_with(cx, |main, _| {
+                main.library.drawn.borrow().get(&path).copied()
+            })
+            .expect("the recording is drawn");
+        let blank = point(tile.left(), tile.bottom() + px(60.));
+        main.update(cx, |main, cx| main.open_library_item_menu(&path, blank, cx));
+        draw(cx);
+        let panel = main
+            .read_with(cx, |main, _| {
+                main.library
+                    .context
+                    .as_ref()
+                    .and_then(|menu| menu.panels.borrow().first().copied())
+            })
+            .expect("the menu is drawn");
+        let delete_row = point(panel.center().x, panel.bottom() - px(4. + ROW_HEIGHT / 2.));
+
+        cx.simulate_click(delete_row, gpui::Modifiers::none());
+
+        main.read_with(cx, |main, _| {
+            assert!(main.library.context.is_none());
+            assert!(main.library.delete.dialog_open());
+        });
     }
 
     fn listed(target: Target) -> Vec<Command> {
