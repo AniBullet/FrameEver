@@ -391,8 +391,7 @@ impl ScreenCaptureConfig<Direct3DCapture> {
         }
 
         if let Ok(true) = scap_direct3d::Settings::can_min_update_interval() {
-            settings.min_update_interval =
-                Some(Duration::from_secs_f64(1.0 / self.config.fps as f64));
+            settings.min_update_interval = Some(EVERY_COMPOSITOR_UPDATE);
         }
 
         settings.fps = Some(self.config.fps);
@@ -464,6 +463,7 @@ enum VideoControl {
     RecreateDevice,
 }
 
+const EVERY_COMPOSITOR_UPDATE: Duration = Duration::from_millis(1);
 const MAX_CAPTURE_RESTARTS: u32 = 3;
 const RESTART_DELAY: Duration = Duration::from_secs(1);
 
@@ -554,10 +554,6 @@ fn create_d3d_capturer(
                     return Err(windows::core::Error::new(windows::Win32::Foundation::E_INVALIDARG, "Empty screen frame"));
                 }
 
-                // WGC delivers a frame per screen update — up to the monitor
-                // refresh rate on systems without MinUpdateInterval support —
-                // so cap delivery at the nominal rate before any conversion
-                // or channel work.
                 if let Some(gate) = cadence_gate.as_mut()
                     && !gate.admit(capture_time.Duration)
                 {
@@ -705,10 +701,6 @@ impl output_pipeline::VideoSource for VideoSource {
         let scaling_logged: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
         let scaled_frame_count: Arc<AtomicU32> = Arc::new(AtomicU32::new(0));
 
-        // Belt-and-braces alongside WGC's MinUpdateInterval: on systems where
-        // that API is unsupported (or silently ineffective) the gate keeps
-        // high-refresh monitors from recording far more frames than the
-        // nominal rate. For sources at or below nominal it admits everything.
         let cadence_interval_hns = if std::env::var("FRAMEEVER_DISABLE_CAPTURE_CADENCE").is_ok() {
             info!("Capture cadence gate disabled via FRAMEEVER_DISABLE_CAPTURE_CADENCE");
             None

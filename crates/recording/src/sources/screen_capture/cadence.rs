@@ -206,6 +206,24 @@ mod tests {
     }
 
     #[test]
+    fn a_100hz_desktop_holds_the_nominal_rate_within_one_refresh_of_even() {
+        let refresh = 10_000;
+        let mut gate = FrameCadenceGate::new(NOMINAL_60FPS);
+        let timestamps: Vec<i64> = (0..6_000).map(|i| i * refresh).collect();
+        let admitted = run_source(&mut gate, &timestamps);
+
+        let seconds = (timestamps.last().unwrap() - timestamps[0]) as f64 / 1_000_000.0;
+        let rate = (admitted.len() - 1) as f64 / seconds;
+        assert!((59.0..=60.5).contains(&rate), "admitted {rate:.2} fps");
+
+        let widest = admitted.windows(2).map(|w| w[1] - w[0]).max().unwrap();
+        assert!(
+            widest <= NOMINAL_60FPS + refresh,
+            "widest admitted interval {widest} us"
+        );
+    }
+
+    #[test]
     fn first_frame_after_idle_is_admitted_immediately() {
         let mut gate = FrameCadenceGate::new(NOMINAL_60FPS);
         // Animate fast enough to enter decimation…
