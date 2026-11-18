@@ -1185,10 +1185,10 @@ const openCards = [
 		],
 	],
 	[
-		["What happens to the main window", "主窗口怎么办"],
+		["What happens to the other windows", "其他窗口怎么办"],
 		[
-			"Compact main window hides while settings is open and comes back when it closes, because it is an on-top panel. An expanded main window stays where it is, as an ordinary window behind settings.",
-			"紧凑态是置顶面板，设置打开时隐藏，关闭后回来。展开态是普通窗口，留在设置后面不动。",
+			"Nothing hides. The recording window stays where it is and stops being on top while settings is open, so it never covers settings; it is on top again when settings closes. The library stays where it is.",
+			"什么都不隐藏。录制窗口留在原处，设置开着时暂时不置顶，不会盖住设置；设置关闭后恢复置顶。资源库留在原处不动。",
 		],
 	],
 	[

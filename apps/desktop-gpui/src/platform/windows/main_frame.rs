@@ -14,8 +14,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWL_STYLE, GetClientRect, GetWindowLongPtrW, GetWindowRect, HTBORDER, HTBOTTOM, HTBOTTOMLEFT,
     HTBOTTOMRIGHT, HTCAPTION, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, HWND_NOTOPMOST,
     HWND_TOPMOST, IsIconic, IsZoomed, MINMAXINFO, SW_HIDE, SW_MAXIMIZE, SW_RESTORE,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-    WM_GETMINMAXINFO, WM_NCDESTROY, WM_NCHITTEST, WS_MAXIMIZEBOX,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowLongPtrW, SetWindowPos,
+    ShowWindow, WM_GETMINMAXINFO, WM_NCDESTROY, WM_NCHITTEST, WS_MAXIMIZEBOX,
 };
 
 use super::NativeWindow;
@@ -228,6 +228,21 @@ fn set_client_frame(hwnd: HWND, frame: Frame, on_top: bool) {
             frame.width.round() as i32 + insets.left + insets.right,
             frame.height.round() as i32 + insets.top + insets.bottom,
             SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+    }
+}
+
+pub fn keep_on_top(native: &NativeWindow, on_top: bool) {
+    let insert_after = if on_top { HWND_TOPMOST } else { HWND_NOTOPMOST };
+    unsafe {
+        SetWindowPos(
+            native.hwnd(),
+            insert_after,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
         );
     }
 }

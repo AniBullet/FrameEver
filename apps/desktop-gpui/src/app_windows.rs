@@ -794,7 +794,23 @@ fn shell_request(request: Request, cx: &mut App) {
         }
         Action::HideRecorder => hide_main_window(cx),
         Action::MinimiseRecorder => minimize_main_window(cx),
+        Action::LowerRecorder => keep_main_window_on_top(false, cx),
+        Action::RaiseRecorder => keep_main_window_on_top(true, cx),
     }
+}
+
+fn keep_main_window_on_top(on_top: bool, cx: &mut App) {
+    let main = cx.global::<AppWindows>().main;
+    let native = main
+        .update(cx, |_, window, _| platform::native_window(window))
+        .ok()
+        .flatten();
+    cx.spawn(async move |_| {
+        if let Some(native) = &native {
+            platform::keep_shell_window_on_top(native, on_top);
+        }
+    })
+    .detach();
 }
 
 pub fn show_library(cx: &mut App) {
@@ -1289,11 +1305,8 @@ pub(crate) fn refresh_settings(cx: &mut App) {
     }
 }
 
-/// Open the settings window on a page, and hide the main window.
-///
-/// The header gear in `new-main/index.tsx` is
-/// `await commands.showWindow({ Settings: { page: "general" } });
-/// getCurrentWindow().hide();` -- both halves, in that order. Must be reached
+/// Open the settings window on a page. The recording window stays where it
+/// is and only stops being on top until settings closes. Must be reached
 /// through `cx.defer` from anything inside an entity update: opening a window
 /// paints it synchronously and would double-lease the caller.
 pub fn open_settings(page: Page, cx: &mut App) {
@@ -1313,7 +1326,7 @@ pub fn open_settings(page: Page, cx: &mut App) {
             }
         })
         .detach();
-        hide_main_and_park_camera_preview(cx);
+        shell_request(Request::OpenSettings, cx);
         return;
     }
 
@@ -1430,7 +1443,7 @@ pub fn open_settings(page: Page, cx: &mut App) {
     })
     .detach();
 
-    hide_main_and_park_camera_preview(cx);
+    shell_request(Request::OpenSettings, cx);
 }
 
 /// Close the settings window from our side (Cmd-W). The close button goes
@@ -1597,10 +1610,16 @@ pub fn onboarding_is_open(cx: &App) -> bool {
 fn restore_after_settings(cx: &mut App) {
     // A Shortcuts row may have been recording when the window went away.
     crate::hotkeys::resume(cx);
+    shell_request(Request::CloseSettings, cx);
     // Not while recording: the main window is deliberately hidden then, and
     // the session observer brings it back when the recording ends.
+    let main = cx.global::<AppWindows>().main;
+    let main_visible = main
+        .update(cx, |_, window, _| platform::window_is_visible(window))
+        .unwrap_or(false);
     if RecordingSession::global(cx).read(cx).phase == Phase::Idle
         && !cx.global::<AppWindows>().main_closed_by_user
+        && !main_visible
     {
         show_main_window(cx);
         return;

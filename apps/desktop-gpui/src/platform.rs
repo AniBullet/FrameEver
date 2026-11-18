@@ -973,6 +973,8 @@ mod mac {
 
     pub fn allow_as_capture_target(_native: &NativeWindow) {}
 
+    pub fn keep_shell_window_on_top(_native: &NativeWindow, _on_top: bool) {}
+
     pub fn place_shell_window(
         _native: &NativeWindow,
         _placement: crate::main_window::shell::Placement,

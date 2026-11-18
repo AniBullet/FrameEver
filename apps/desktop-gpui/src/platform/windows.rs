@@ -133,8 +133,9 @@ pub fn install_main_window_frame_policy(native: &NativeWindow) -> std::io::Resul
 
 pub use file_drag::drag_files_out;
 pub use main_frame::{
-    install as install_main_window_limits, launch_screen as shell_launch_screen,
-    place as place_shell_window, screen as shell_window_screen,
+    install as install_main_window_limits, keep_on_top as keep_shell_window_on_top,
+    launch_screen as shell_launch_screen, place as place_shell_window,
+    screen as shell_window_screen,
 };
 
 pub fn allow_as_capture_target(native: &NativeWindow) {

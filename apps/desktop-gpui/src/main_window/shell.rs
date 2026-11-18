@@ -49,6 +49,8 @@ pub enum Request {
     CloseRecorder,
     Switch { from: ShellWindow },
     StartRecording(MainWindowStartBehaviour),
+    OpenSettings,
+    CloseSettings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +61,8 @@ pub enum Action {
     ShowRecorder,
     HideRecorder,
     MinimiseRecorder,
+    LowerRecorder,
+    RaiseRecorder,
 }
 
 pub fn route(request: Request, library_open: bool) -> Action {
@@ -81,6 +85,8 @@ pub fn route(request: Request, library_open: bool) -> Action {
         Request::CloseRecorder => Action::HideRecorder,
         Request::StartRecording(MainWindowStartBehaviour::Minimise) => Action::MinimiseRecorder,
         Request::StartRecording(MainWindowStartBehaviour::Close) => Action::HideRecorder,
+        Request::OpenSettings => Action::LowerRecorder,
+        Request::CloseSettings => Action::RaiseRecorder,
     }
 }
 
@@ -311,13 +317,15 @@ mod tests {
             Action::OpenLibrary | Action::FrontLibrary | Action::CloseLibrary => {
                 ShellWindow::Library
             }
-            Action::ShowRecorder | Action::HideRecorder | Action::MinimiseRecorder => {
-                ShellWindow::Recorder
-            }
+            Action::ShowRecorder
+            | Action::HideRecorder
+            | Action::MinimiseRecorder
+            | Action::LowerRecorder
+            | Action::RaiseRecorder => ShellWindow::Recorder,
         }
     }
 
-    const REQUESTS: [Request; 8] = [
+    const REQUESTS: [Request; 10] = [
         Request::OpenLibrary,
         Request::CloseLibrary,
         Request::ShowRecorder,
@@ -330,6 +338,8 @@ mod tests {
         },
         Request::StartRecording(MainWindowStartBehaviour::Close),
         Request::StartRecording(MainWindowStartBehaviour::Minimise),
+        Request::OpenSettings,
+        Request::CloseSettings,
     ];
 
     #[test]
@@ -351,12 +361,28 @@ mod tests {
                     Request::ShowRecorder
                     | Request::CloseRecorder
                     | Request::StartRecording(_)
+                    | Request::OpenSettings
+                    | Request::CloseSettings
                     | Request::Switch {
                         from: ShellWindow::Library,
                     } => ShellWindow::Recorder,
                 };
                 assert_eq!(acted_on(route(request, library_open)), expected);
             }
+        }
+    }
+
+    #[test]
+    fn settings_lowers_the_recorder_while_open_and_never_hides_a_window() {
+        for library_open in [false, true] {
+            assert_eq!(
+                route(Request::OpenSettings, library_open),
+                Action::LowerRecorder
+            );
+            assert_eq!(
+                route(Request::CloseSettings, library_open),
+                Action::RaiseRecorder
+            );
         }
     }
 
