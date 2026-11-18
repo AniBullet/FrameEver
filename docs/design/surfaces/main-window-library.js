@@ -320,15 +320,14 @@ const defaults = () => ({
 	items: ITEMS,
 	unseen: 0,
 	playing: false,
-	anim: null,
 	firstRun: false,
 	firstLine: false,
 });
 
 class MainWindow {
-	constructor(host, initial = {}, timing = {}) {
+	constructor(host, initial = {}, hooks = {}) {
 		this.host = host;
-		this.timing = timing;
+		this.hooks = hooks;
 		this.s = { ...defaults(), ...initial };
 		this.drawn = new Set();
 		host.addEventListener("click", (e) => this.click(e));
@@ -376,12 +375,12 @@ class MainWindow {
 
 	titlebar() {
 		const { expanded } = this.s;
-		return `<div class="titlebar">${expanded ? `<button class="btn ghost back" data-a="collapse" title="${pick("Back to recording", "回到录制")}  Ctrl+L">${icon("chevron-left", "sm")}${L("Record", "录制")}</button>` : `<span class="mark"></span><span>FrameEver</span>`}<span class="spacer"></span>
+		return `<div class="titlebar"><span class="mark"></span><span>${expanded ? L("Library", "资源库") : "FrameEver"}</span><span class="spacer"></span>
 			${expanded ? "" : `<button class="caption" title="${pick("Teleprompter", "提词器")}">${icon("scan-text", "sm")}</button><button class="caption" title="${pick("Help & Tour", "帮助和引导")}">${icon("circle-question-mark", "sm")}</button>`}
 			${expanded ? `<button class="caption" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings", "sm")}</button>` : ""}
 			<button class="caption" title="${pick("Minimize", "最小化")}">${captionGlyph.minimize}</button>
 			${expanded ? `<button class="caption" title="${pick("Maximize", "最大化")}">${captionGlyph.maximize}</button>` : ""}
-			<button class="caption close" data-a="close" title="${pick("Hide to tray", "隐藏到托盘")}">${captionGlyph.close}</button></div>`;
+			<button class="caption close" data-a="close" title="${expanded ? pick("Close", "关闭") : pick("Hide to tray", "隐藏到托盘")}">${captionGlyph.close}</button></div>`;
 	}
 
 	recording() {
@@ -626,8 +625,7 @@ class MainWindow {
 	}
 
 	library() {
-		const { anim } = this.s;
-		return `<div class="library ${anim ?? ""}">${this.toolbar()}${this.filterRow()}<div class="lib-body"><div class="lib-main"><div class="items" tabindex="-1" style="--tile:${this.s.tile}px">${this.items()}</div>${this.statusBar()}</div>${this.detail()}</div></div>`;
+		return `<div class="library">${this.toolbar()}${this.filterRow()}<div class="lib-body"><div class="lib-main"><div class="items" tabindex="-1" style="--tile:${this.s.tile}px">${this.items()}</div>${this.statusBar()}</div>${this.detail()}</div></div>`;
 	}
 
 	preview() {
@@ -664,10 +662,10 @@ class MainWindow {
 			{ icon: "image", label: ["Take screenshot", "截图"] },
 			expanded
 				? {
-						icon: "chevron-left",
-						label: ["Back to recording", "回到录制"],
+						icon: "circle",
+						label: ["Show recording window", "显示录制窗口"],
 						keys: ["Ctrl", "L"],
-						act: "collapse",
+						act: "show-main",
 					}
 				: {
 						icon: "chevron-right",
@@ -844,12 +842,7 @@ class MainWindow {
 		const keep = document.activeElement?.dataset?.keep;
 		const had = this.host.contains(document.activeElement);
 		const scroll = this.host.querySelector(".items")?.scrollTop ?? 0;
-		const times = [];
-		if (this.timing.expand) times.push(`--expand-time:${this.timing.expand}ms`);
-		if (this.timing.collapse)
-			times.push(`--collapse-time:${this.timing.collapse}ms`);
-		this.host.innerHTML = `<div class="win ${expanded ? "expanded" : ""}" tabindex="0" style="${times.join(";")}">${this.titlebar()}<div class="win-body">${expanded ? this.library() : this.recording()}</div>${this.preview()}${this.palette()}${this.dialog()}${this.toast()}${this.contextOverlay()}</div>`;
-		this.s.anim = null;
+		this.host.innerHTML = `<div class="win ${expanded ? "expanded" : ""}" tabindex="0">${this.titlebar()}<div class="win-body">${expanded ? this.library() : this.recording()}</div>${this.preview()}${this.palette()}${this.dialog()}${this.toast()}${this.contextOverlay()}</div>`;
 		if (this.s.palette) this.s.palette.fresh = false;
 		const items = this.host.querySelector(".items");
 		if (items) items.scrollTop = scroll;
@@ -864,25 +857,14 @@ class MainWindow {
 		}
 	}
 
-	expand() {
-		this.set({
-			expanded: true,
-			unseen: 0,
-			firstRun: false,
-			anim: this.timing.calm ? "calm-in" : "in",
-			palette: null,
-		});
+	openLibrary(select) {
+		this.set({ unseen: 0, firstRun: false, palette: null });
+		this.hooks.openLibrary?.(select);
 	}
 
-	collapse() {
-		const library = this.host.querySelector(".library");
-		this.s.palette = null;
-		if (!library) return;
-		library.classList.add("out");
-		setTimeout(
-			() => this.set({ expanded: false, selected: [], preview: false }),
-			this.timing.collapse ?? tokens.motion.duration.collapse,
-		);
+	showMain() {
+		this.set({ palette: null });
+		this.hooks.showMain?.();
 	}
 
 	choose(id, event) {
@@ -986,9 +968,11 @@ class MainWindow {
 				el.classList.toggle("on");
 				return;
 			case "expand":
-				return this.expand();
-			case "collapse":
-				return this.collapse();
+				return this.openLibrary();
+			case "show-main":
+				return this.showMain();
+			case "close":
+				return this.hooks.close?.();
 			case "type":
 				return this.set({ type: v, ...close });
 			case "view":
@@ -1110,17 +1094,17 @@ class MainWindow {
 		const groups = this.paletteRows();
 		const row = groups.flatMap((g) => g.rows)[index];
 		if (!row) return;
+		if (row.project && !this.s.expanded) return this.openLibrary(row.project);
 		if (row.project) {
 			this.set({
 				palette: null,
-				expanded: true,
 				selected: [row.project],
 				anchor: row.project,
 			});
 			return;
 		}
-		if (row.act === "expand") return this.expand();
-		if (row.act === "collapse") return this.collapse();
+		if (row.act === "expand") return this.openLibrary();
+		if (row.act === "show-main") return this.showMain();
 		if (row.act === "grid" || row.act === "list")
 			return this.set({ view: row.act, palette: null });
 		this.set({ palette: null });
@@ -1188,7 +1172,7 @@ class MainWindow {
 		}
 		if (ctrl && e.key.toLowerCase() === "l") {
 			e.preventDefault();
-			return s.expanded ? this.collapse() : this.expand();
+			return s.expanded ? this.showMain() : this.openLibrary();
 		}
 		if (!s.expanded) return;
 		if (ctrl && e.key === "1") {
@@ -1337,32 +1321,32 @@ const titles = {
 	live: [
 		"Try it",
 		"试一试",
-		"One window, working. It starts compact and only records. Library turns the same window into the library, and “Record” at the top left goes back. Click, Ctrl- and Shift-click tiles; arrows, Enter, Space, Delete, Ctrl+K, Ctrl+L, Ctrl+1/2, Ctrl+F and Esc all work once the window has focus.",
-		"一个能用的窗口。启动时是紧凑态，只负责录制；点“资源库”，同一个窗口变成资源库；左上角的“录制”回来。单击、Ctrl 或 Shift 点击图块；窗口获得焦点后，方向键、Enter、Space、Delete、Ctrl+K、Ctrl+L、Ctrl+1/2、Ctrl+F 和 Esc 都可以用。",
+		"Two windows, working. The recording window is small and only records. Library opens the library in its own window beside it, and each closes by itself: closing the library leaves the recording window, closing the recording window hides it to the tray. The two tray buttons under the windows bring either one back. Click, Ctrl- and Shift-click tiles; arrows, Enter, Space, Delete, Ctrl+K, Ctrl+L, Ctrl+1/2, Ctrl+F and Esc all work once the window has focus.",
+		"两个能用的窗口。录制窗口很小，只负责录制；点“资源库”，资源库在旁边开成自己的窗口。两个窗口各关各的：关资源库，录制窗口还在；关录制窗口，它藏进托盘。窗口下面的两个托盘按钮可以把任意一个叫回来。单击、Ctrl 或 Shift 点击图块；窗口获得焦点后，方向键、Enter、Space、Delete、Ctrl+K、Ctrl+L、Ctrl+1/2、Ctrl+F 和 Esc 都可以用。",
 	],
 	states: [
 		"Library states",
 		"资源库的各种状态",
-		"Each tab opens the expanded window in one state, and each is still interactive. Compressed copies apply to Instant only; exports show inside their project, never as their own tile. Sort by date, name, size or duration, either way round, from the sort menu. In the list, click a column to sort by it and again to reverse it; type has the tabs instead. A new sort starts newest, A to Z, largest or longest first, and the sort survives a restart. Only date sorting groups by date.",
-		"每个标签打开展开态的一种状态，都可以继续操作。压缩副本只用于 Instant 录制；导出显示在所属项目里，不单独成卡片。排序菜单可按日期、名称、大小或时长排序，升序降序都行。列表里点列头按这一列排序，再点一次反过来；类型用上面的分段筛选，不排序。换排序依据时默认最新、A 到 Z、最大或最长在前，排序跨启动记住。只有按日期排序时才分组。",
+		"Each tab opens the library window in one state, and each is still interactive. Compressed copies apply to Instant only; exports show inside their project, never as their own tile. Sort by date, name, size or duration, either way round, from the sort menu. In the list, click a column to sort by it and again to reverse it; type has the tabs instead. A new sort starts newest, A to Z, largest or longest first, and the sort survives a restart. Only date sorting groups by date.",
+		"每个标签打开资源库窗口的一种状态，都可以继续操作。压缩副本只用于 Instant 录制；导出显示在所属项目里，不单独成卡片。排序菜单可按日期、名称、大小或时长排序，升序降序都行。列表里点列头按这一列排序，再点一次反过来；类型用上面的分段筛选，不排序。换排序依据时默认最新、A 到 Z、最大或最长在前，排序跨启动记住。只有按日期排序时才分组。",
 	],
 	hand: [
 		"Hand-drawn touches",
 		"手绘点缀",
-		"Each is drawn once, then holds still, and only one shows in a window. The arrow sits in the compact window's footer beside the Library button, in place of the item count, until the library is first opened. The first recording adds one line, which goes away by itself. Every new recording gets a tick on its card while the card is highlighted. The empty library and no matches are in Library states; settings and the editor have their own on their pages.",
-		"每处只画一次，然后静止，一个窗口同时只有一处。箭头放在紧凑窗口底部、“资源库”按钮旁边，占掉条目数量的位置，第一次打开资源库后消失。第一次录制完成多一句话，它会自己消失。每次录制完成，新卡片高亮时画一个勾。资源库为空和无匹配在“资源库状态”里；设置和编辑器的在各自页面上。",
+		"Each is drawn once, then holds still, and only one shows in a window. The arrow sits in the recording window's footer beside the Library button, in place of the item count, until the library is first opened. The first recording adds one line, which goes away by itself. Every new recording gets a tick on its card while the card is highlighted. The empty library and no matches are in Library states; settings and the editor have their own on their pages.",
+		"每处只画一次，然后静止，一个窗口同时只有一处。箭头放在录制窗口底部、“资源库”按钮旁边，占掉条目数量的位置，第一次打开资源库后消失。第一次录制完成多一句话，它会自己消失。每次录制完成，新卡片高亮时画一个勾。资源库为空和无匹配在“资源库状态”里；设置和编辑器的在各自页面上。",
 	],
-	transition: [
-		"Expanding and collapsing",
-		"展开和收回",
-		"The window frame never animates: it snaps once and only the content moves (Fluent's container transform). The top-left corner stays put and the library fills the whole window. Near a screen edge the whole window is pushed back inside the work area with a 12 px margin.",
-		"窗口外框不做动画，只跳一次，动的是内容（Fluent 的容器变形）。左上角不动，资源库占满整个窗口；超出工作区时整体推回，四边留 12 px。",
+	windows: [
+		"Two windows",
+		"两个窗口",
+		"The recording window and the library are separate windows that can be open together. Neither one opens, closes or hides the other, so the library can be on screen while you record, and can be what you record.",
+		"录制窗口和资源库是两个独立的窗口，可以同时开着。谁也不会替对方开、关或隐藏，所以录制时资源库可以留在屏幕上，也可以把它当作录制对象。",
 	],
 	palette: [
 		"Command palette",
 		"命令面板",
-		"Ctrl+K in the main window, editor and screenshot editor. It finds commands, settings and projects, filtered by context. Prefixes become a chip in the input; Backspace removes it. No blur behind it, and it never expands the compact window.",
-		"主窗口、编辑器、截图编辑器里按 Ctrl+K 打开。查找命令、设置和项目，按上下文过滤。前缀输入后变成输入框里的标签块，退格删除。背后不模糊，紧凑态不触发展开。",
+		"Ctrl+K in the main window, editor and screenshot editor. It finds commands, settings and projects, filtered by context. Prefixes become a chip in the input; Backspace removes it. No blur behind it, and the recording window keeps its size.",
+		"主窗口、编辑器、截图编辑器里按 Ctrl+K 打开。查找命令、设置和项目，按上下文过滤。前缀输入后变成输入框里的标签块，退格删除。背后不模糊，录制窗口大小不变。",
 	],
 	delete: [
 		"Delete and undo",
@@ -1379,8 +1363,8 @@ const titles = {
 	keys: [
 		"Keyboard",
 		"键盘",
-		"Every action has a keyboard path. Esc unwinds one level at a time inside the window and never collapses it. Closing hides to the tray in both states.",
-		"每个操作都能用键盘完成。Esc 在窗口内逐层退，从不收回窗口。两种状态点关闭都是藏进托盘。",
+		"Every action has a keyboard path. Esc unwinds one level at a time inside the window and never closes it. Ctrl+L in the recording window opens the library or brings it forward; in the library it brings the recording window forward. Closing the library closes only the library; closing the recording window hides it to the tray.",
+		"每个操作都能用键盘完成。Esc 在窗口内逐层退，从不关闭窗口。在录制窗口按 Ctrl+L 打开资源库或把它带到前面，在资源库里按则把录制窗口带到前面。关资源库只关资源库；关录制窗口是藏进托盘。",
 	],
 };
 for (const [key, [en, zh, leadEn, leadZh]] of Object.entries(titles)) {
@@ -1395,7 +1379,7 @@ shell({
 		["live", "Try it", "试一试"],
 		["states", "Library states", "资源库状态"],
 		["hand", "Hand-drawn", "手绘"],
-		["transition", "Expand and collapse", "展开和收回"],
+		["windows", "Two windows", "两个窗口"],
 		["palette", "Command palette", "命令面板"],
 		["delete", "Delete", "删除"],
 		["gif", "Save as GIF", "存为 GIF"],
@@ -1403,8 +1387,43 @@ shell({
 	],
 });
 
-const live = new MainWindow(document.getElementById("live-stage"), {
-	unseen: 2,
+const liveStage = document.getElementById("live-stage");
+liveStage.innerHTML = `<div class="desk"><div class="desk-windows"><div id="live-main"></div><div id="live-library" hidden></div></div><div class="desk-tray"><span>${L("Tray", "托盘")}</span><button class="btn" data-tray="main">${L("Open FrameEver", "打开 FrameEver")}</button><button class="btn" data-tray="library">${L("Open library", "打开资源库")}</button></div></div>`;
+const liveMainHost = document.getElementById("live-main");
+const liveLibraryHost = document.getElementById("live-library");
+const bringForward = (host) => {
+	host.hidden = false;
+	host.querySelector(".win")?.focus();
+};
+const liveLibrary = new MainWindow(
+	liveLibraryHost,
+	{ expanded: true },
+	{
+		showMain: () => bringForward(liveMainHost),
+		close: () => {
+			liveLibraryHost.hidden = true;
+		},
+	},
+);
+const openLiveLibrary = (select) => {
+	if (select) liveLibrary.set({ selected: [select], anchor: select });
+	bringForward(liveLibraryHost);
+};
+const liveMain = new MainWindow(
+	liveMainHost,
+	{ unseen: 2 },
+	{
+		openLibrary: openLiveLibrary,
+		close: () => {
+			liveMainHost.hidden = true;
+		},
+	},
+);
+liveStage.addEventListener("click", (e) => {
+	const tray = e.target.closest("[data-tray]");
+	if (!tray) return;
+	if (tray.dataset.tray === "main") bringForward(liveMainHost);
+	else openLiveLibrary();
 });
 
 const tabRow = (id, tabs, on) => {
@@ -1500,72 +1519,37 @@ tabRow(
 );
 showHand("hint");
 
-document.getElementById("transition-steps").innerHTML = [
+document.getElementById("windows-steps").innerHTML = [
 	[
-		"Hide content",
-		"先藏内容",
-		"The library isn't drawn yet.",
-		"资源库先不画。",
+		"Opening the library",
+		"打开资源库",
+		"The Library button, Ctrl+L, the tray's Open library, Show in library after a recording and the editor's Library button all do one thing: open the library window, or bring it forward if it is open. The recording window does not move, resize or hide. The library just appears; nothing animates.",
+		"“资源库”按钮、Ctrl+L、托盘的“打开资源库”、录完后的“在资源库中显示”、编辑器的“资源库”按钮，做的是同一件事：打开资源库窗口，已经开着就把它带到前面。录制窗口不移动、不变大小、不隐藏。资源库直接出现，没有动画。",
 	],
 	[
-		"Snap the frame",
-		"外框跳一次",
-		"One SetWindowPos to 1200 × 760 or the remembered size, on top of nothing else.",
-		"一次 SetWindowPos 到 1200×760 或记住的大小。",
+		"Closing",
+		"关闭",
+		"The library's close button closes the library and nothing else. The recording window's close button hides it to the tray, as before. With both closed, FrameEver stays in the tray.",
+		"资源库的关闭按钮只关资源库。录制窗口的关闭按钮和以前一样，把它藏进托盘。两个都关了，FrameEver 还在托盘里。",
 	],
 	[
-		"Library arrives",
-		"资源库进入",
-		`${tokens.motion.duration.expand} ms: fade with Fluent decelerate, slide 24 px with the Klein Field move curve.`,
-		`${tokens.motion.duration.expand} ms：Fluent 减速淡入，Klein Field 移动曲线滑入 24 px。`,
+		"While recording",
+		"录制时",
+		"Starting a recording puts the recording window away as the setting says (hide or minimise). The library window is left exactly where it is, and it can be picked as the window to record.",
+		"开始录制时，录制窗口按设置收起（隐藏或最小化）。资源库窗口原样留着，也可以把它选作要录的窗口。",
 	],
 	[
-		"Collapse",
-		"收回",
-		`${tokens.motion.duration.collapse} ms fade with Fluent accelerate, then one snap back. With reduced motion, only the fades remain.`,
-		`${tokens.motion.duration.collapse} ms Fluent 加速淡出，再一次缩回。减少动态效果时只保留淡入淡出。`,
+		"Size and place",
+		"大小和位置",
+		"The library opens at 1200 × 760 the first time, no smaller than 900 × 600, and remembers its own size, place and maximised state. The recording window remembers its own place. FrameEver starts with only the recording window.",
+		"资源库第一次打开是 1200×760，最小 900×600，自己记住大小、位置和是否最大化。录制窗口记住自己的位置。FrameEver 启动时只开录制窗口。",
 	],
 ]
 	.map(
-		([a, b, c, d], i) =>
-			`<div class="card"><b>${i + 1} · ${L(a, b)}</b><span class="body">${L(c, d)}</span></div>`,
+		([a, b, c, d]) =>
+			`<div class="card"><b>${L(a, b)}</b><span class="body">${L(c, d)}</span></div>`,
 	)
 	.join("");
-
-const transitionHost = document.getElementById("transition-stage");
-const transition = { speed: 1, calm: false };
-const newTransition = () => {
-	transitionHost.replaceChildren();
-	const host = document.createElement("div");
-	transitionHost.append(host);
-	transition.window = new MainWindow(
-		host,
-		{},
-		{
-			expand: tokens.motion.duration.expand * transition.speed,
-			collapse: tokens.motion.duration.collapse * transition.speed,
-			calm: transition.calm,
-		},
-	);
-};
-const controls = document.getElementById("transition-controls");
-const drawControls = () => {
-	controls.innerHTML = `<button class="btn primary" data-t="go">${L("Expand or collapse", "展开或收回")}</button><div class="seg"><button class="${transition.speed === 1 ? "on" : ""}" data-t="speed" data-v="1">1×</button><button class="${transition.speed === 4 ? "on" : ""}" data-t="speed" data-v="4">${L("4× slower", "慢 4 倍")}</button></div><div class="seg"><button class="${transition.calm ? "" : "on"}" data-t="calm" data-v="0">${L("Full motion", "完整动效")}</button><button class="${transition.calm ? "on" : ""}" data-t="calm" data-v="1">${L("Reduced motion", "减少动态效果")}</button></div>`;
-};
-controls.addEventListener("click", (e) => {
-	const el = e.target.closest("[data-t]");
-	if (!el) return;
-	if (el.dataset.t === "go")
-		return transition.window.s.expanded
-			? transition.window.collapse()
-			: transition.window.expand();
-	if (el.dataset.t === "speed") transition.speed = Number(el.dataset.v);
-	if (el.dataset.t === "calm") transition.calm = el.dataset.v === "1";
-	drawControls();
-	newTransition();
-});
-drawControls();
-newTransition();
 
 const paletteLeft = document.createElement("div");
 paletteLeft.className = "stage";
@@ -1718,7 +1702,7 @@ document.getElementById("keys-grid").innerHTML =
 	])}<div class="label" style="margin-top:12px">${L("Dragging a Studio project with no export", "拖动没有导出的工作室项目")}</div><div class="drag-notice">${L("Export this project first to drag it out", "先导出这个项目才能拖出")}</div><div class="label" style="margin-top:12px">${L("Dragging a selection with some left out", "拖动部分无法拖出的选择")}</div><div class="drag-notice">${L("Left out 2 with no file to drag", "已略过 2 项没有可拖出文件的项目")}</div><div class="label" style="margin-top:12px">${L("Dragging an Instant recording whose video is missing", "拖动缺少视频的即时录制")}</div><div class="drag-notice">${L("Its file is missing, so it can't be dragged", "找不到它的文件，无法拖出")}</div></div><div class="card"><h3>${L("Window", "窗口")}</h3>${keyRows(
 		[
 			["Command palette", "命令面板", "Ctrl K"],
-			["Library, back to recording", "资源库、回到录制", "Ctrl L"],
+			["Library, recording window", "资源库、录制窗口", "Ctrl L"],
 		],
 	)}<h3 style="margin-top:16px">${L("Preview", "预览")}</h3>${keyRows([
 		["Previous, next", "上一个、下一个", "←", "→"],
@@ -1732,5 +1716,6 @@ document.getElementById("keys-grid").innerHTML =
 onChange(() => {
 	for (const input of document.querySelectorAll("[data-ph-en]"))
 		input.placeholder = pick(input.dataset.phEn, input.dataset.phZh);
-	live.render();
+	liveMain.render();
+	liveLibrary.render();
 });
