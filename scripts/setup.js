@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { env } from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { onnxRuntimeAsset } from "./onnx-runtime.mjs";
 
 const exec = promisify(execCb);
 const execFile = promisify(execFileCb);
@@ -319,111 +320,56 @@ async function signMacOSFrameworkLibs(frameworkDir) {
 		);
 }
 
-async function setupMacOSOnnxRuntime() {
-	const asset =
-		arch === "aarch64"
-			? {
-					version: "1.24.2",
-					name: "onnxruntime-osx-arm64-1.24.2.tgz",
-				}
-			: {
-					version: "1.23.2",
-					name: "onnxruntime-osx-x86_64-1.23.2.tgz",
-				};
-	const url = `https://github.com/microsoft/onnxruntime/releases/download/v${asset.version}/${asset.name}`;
-	const archivePath = path.join(targetDir, asset.name);
-	const extractDir = path.join(targetDir, asset.name.replace(/\.tgz$/, ""));
+async function prepareOnnxRuntime() {
+	const asset = onnxRuntimeAsset(process.platform, arch);
+	const archivePath = await downloadVerifiedAsset(asset);
 	const outputDir = path.join(targetDir, "native-deps", "onnxruntime", "lib");
-	const outputPath = path.join(outputDir, "libonnxruntime.dylib");
+	const names = asset.libraries.map((library) => path.posix.basename(library));
 	const markerPath = path.join(outputDir, "asset.txt");
-	const marker = await fs
+	const marker = `${asset.name}:${asset.libraries.join(",")}:${asset.sha256}`;
+	const currentMarker = await fs
 		.readFile(markerPath, "utf-8")
 		.then((value) => value.trim())
 		.catch(() => null);
+	const stale =
+		currentMarker !== marker ||
+		(await missingFiles(outputDir, names)).length > 0;
 
-	if (!(await fileExists(archivePath))) {
-		console.log(`Downloading ${asset.name}`);
-		await fs.writeFile(archivePath, await download(url));
-		console.log(`Downloaded ${asset.name}`);
-	} else console.log(`Using cached ${asset.name}`);
-
-	if (!(await fileExists(outputPath)) || marker !== asset.name) {
-		await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
-		await execFile("tar", ["xf", archivePath, "-C", targetDir]);
+	if (stale) {
+		const extractDir = path.join(targetDir, asset.name.replace(/\.zip$/, ""));
+		await fs.rm(extractDir, { recursive: true, force: true });
+		await extractZip(archivePath, extractDir, asset.libraries);
+		await fs.rm(outputDir, { recursive: true, force: true });
 		await fs.mkdir(outputDir, { recursive: true });
-		await fs.copyFile(
-			path.join(extractDir, "lib", "libonnxruntime.dylib"),
-			outputPath,
-		);
-		await signMacOSDylib(outputPath);
-		await fs.writeFile(markerPath, asset.name);
-		console.log("Prepared ONNX Runtime dylib");
-	} else {
-		console.log("Using cached ONNX Runtime dylib");
-		if (env.APPLE_SIGNING_IDENTITY) await signMacOSDylib(outputPath);
-	}
+		for (const library of asset.libraries)
+			await fs.copyFile(
+				path.join(extractDir, ...library.split("/")),
+				path.join(outputDir, path.posix.basename(library)),
+			);
+		await fs.rm(extractDir, { recursive: true, force: true });
+		await fs.writeFile(markerPath, marker);
+		console.log(`Prepared ONNX Runtime ${asset.version}`);
+	} else console.log(`Using cached ONNX Runtime ${asset.version}`);
+
+	return { outputDir, names, refreshed: stale };
+}
+
+async function setupMacOSOnnxRuntime() {
+	const { outputDir, refreshed } = await prepareOnnxRuntime();
+	const outputPath = path.join(outputDir, "libonnxruntime.dylib");
+
+	if (refreshed || env.APPLE_SIGNING_IDENTITY) await signMacOSDylib(outputPath);
 
 	return outputPath;
 }
 
 async function setupWindowsOnnxRuntime() {
-	const assets = {
-		x86_64: {
-			version: "1.24.2",
-			name: "onnxruntime-win-x64-1.24.2.zip",
-		},
-		aarch64: {
-			version: "1.24.2",
-			name: "onnxruntime-win-arm64-1.24.2.zip",
-		},
-	};
-	const asset = assets[arch];
-	if (!asset)
-		throw new Error(`Unsupported Windows arch for ONNX Runtime: ${arch}`);
+	const { outputDir, names } = await prepareOnnxRuntime();
 
-	const url = `https://github.com/microsoft/onnxruntime/releases/download/v${asset.version}/${asset.name}`;
-	const archivePath = path.join(targetDir, asset.name);
-	const extractDir = path.join(targetDir, asset.name.replace(/\.zip$/, ""));
-	const outputDir = path.join(targetDir, "native-deps", "onnxruntime", "lib");
-	const outputPath = path.join(outputDir, "onnxruntime.dll");
-	const markerPath = path.join(outputDir, "asset.txt");
-	const marker = await fs
-		.readFile(markerPath, "utf-8")
-		.then((value) => value.trim())
-		.catch(() => null);
-
-	if (!(await fileExists(archivePath))) {
-		console.log(`Downloading ${asset.name}`);
-		await fs.writeFile(archivePath, await download(url));
-		console.log(`Downloaded ${asset.name}`);
-	} else console.log(`Using cached ${asset.name}`);
-
-	if (!(await fileExists(outputPath)) || marker !== asset.name) {
-		await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
-		await extractZip(archivePath, targetDir);
-		await fs.rm(outputDir, { recursive: true, force: true }).catch(() => {});
-		await fs.mkdir(outputDir, { recursive: true });
-		const libDir = path.join(extractDir, "lib");
-		const dllNames = (await fs.readdir(libDir)).filter((name) =>
-			name.toLowerCase().endsWith(".dll"),
-		);
-		if (!dllNames.includes("onnxruntime.dll"))
-			throw new Error(`ONNX Runtime archive is missing onnxruntime.dll`);
-
-		for (const name of dllNames) {
-			await fs.copyFile(path.join(libDir, name), path.join(outputDir, name));
-		}
-		await fs.writeFile(markerPath, asset.name);
-		console.log("Prepared ONNX Runtime DLLs");
-	} else console.log("Using cached ONNX Runtime DLLs");
-
-	const dllNames = (await fs.readdir(outputDir)).filter((name) =>
-		name.toLowerCase().endsWith(".dll"),
-	);
 	for (const profile of ["debug", "release"]) {
 		const profileDir = path.join(targetDir, profile);
 		await fs.mkdir(profileDir, { recursive: true });
-		for (const name of dllNames) {
+		for (const name of names) {
 			await fs.copyFile(
 				path.join(outputDir, name),
 				path.join(profileDir, name),
@@ -432,7 +378,7 @@ async function setupWindowsOnnxRuntime() {
 	}
 	console.log("Copied ONNX Runtime DLLs to target/debug and target/release");
 
-	return outputPath;
+	return path.join(outputDir, "onnxruntime.dll");
 }
 
 async function setupWindowsDxc() {
@@ -512,12 +458,8 @@ async function setupWindowsDxc() {
 async function downloadVerifiedAsset(asset) {
 	const archivePath = path.join(targetDir, asset.name);
 	if (!(await fileExists(archivePath))) {
-		const response = await fetch(asset.url);
-		if (!response.ok)
-			throw new Error(
-				`Failed to download ${asset.name}: HTTP ${response.status}`,
-			);
-		await fs.writeFile(archivePath, Buffer.from(await response.arrayBuffer()));
+		console.log(`Downloading ${asset.name}`);
+		await fs.writeFile(archivePath, await download(asset.url));
 		console.log(`Downloaded ${asset.name}`);
 	} else console.log(`Using cached ${asset.name}`);
 
@@ -534,11 +476,13 @@ async function downloadVerifiedAsset(asset) {
 	return archivePath;
 }
 
-async function extractZip(archive, destination) {
+async function extractZip(archive, destination, members = []) {
 	await fs.mkdir(destination, { recursive: true });
 	await execFile(
-		path.join(env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"),
-		["-xf", archive, "-C", destination],
+		process.platform === "win32"
+			? path.join(env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+			: "tar",
+		["-xf", archive, "-C", destination, ...members],
 	);
 }
 

@@ -897,6 +897,7 @@ function test({ flags, positional }) {
 			"--test",
 			"scripts/bundle-gpui.test.mjs",
 			"scripts/fe.test.mjs",
+			"scripts/onnx-runtime.test.mjs",
 			"scripts/prepare-gpui-dependency.test.mjs",
 			"scripts/privacy.test.mjs",
 		]);
