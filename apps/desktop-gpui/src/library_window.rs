@@ -464,7 +464,7 @@ impl LibraryWindow {
                     app_windows::open_settings(crate::settings_window::last_page(), cx)
                 });
             }));
-        div()
+        let header = div()
             .when(cfg!(target_os = "windows"), |header| {
                 header.window_control_area(gpui::WindowControlArea::Drag)
             })
@@ -500,16 +500,20 @@ impl LibraryWindow {
                     )
                     .child(div().flex_1().min_w_0())
                     .child(settings),
-            )
-            .when(cfg!(target_os = "windows"), |header| {
-                header.child(ui::windows_caption_controls(
-                    theme,
-                    window.is_window_active(),
-                    window.is_maximized(),
-                    true,
-                    true,
-                ))
-            })
+            );
+
+        #[cfg(target_os = "windows")]
+        let header = header.child(ui::windows_caption_controls(
+            theme,
+            window.is_window_active(),
+            window.is_maximized(),
+            true,
+            true,
+        ));
+        #[cfg(not(target_os = "windows"))]
+        let _ = window;
+
+        header
     }
 }
 
