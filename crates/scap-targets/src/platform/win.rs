@@ -64,6 +64,25 @@ use crate::bounds::{
 // On Windows it's nigh impossible to get the logical position of a display
 // or window, since there's no simple API that accounts for each monitor having different DPI.
 
+static CAPTURABLE_OWN_WINDOWS: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
+
+pub fn allow_own_window(hwnd: isize) {
+    let mut allowed = CAPTURABLE_OWN_WINDOWS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !allowed.contains(&hwnd) {
+        allowed.push(hwnd);
+    }
+}
+
+fn hidden_as_own_window(hwnd: HWND, process_id: u32, current_process_id: u32) -> bool {
+    process_id == current_process_id
+        && !CAPTURABLE_OWN_WINDOWS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(&(hwnd.0 as isize))
+}
+
 static IGNORED_EXES: &[&str] = &[
     // As it's a system webview it isn't owned by the Cap process.
     "webview2",
@@ -1166,7 +1185,7 @@ impl WindowImpl {
 
         let mut id = 0;
         unsafe { GetWindowThreadProcessId(self.0, Some(&mut id)) };
-        if id == unsafe { GetCurrentProcessId() } {
+        if hidden_as_own_window(self.0, id, unsafe { GetCurrentProcessId() }) {
             return false;
         }
 
@@ -1219,7 +1238,7 @@ fn is_window_valid_for_enumeration(hwnd: HWND, current_process_id: u32) -> bool 
 
         let mut process_id = 0u32;
         GetWindowThreadProcessId(hwnd, Some(&mut process_id));
-        if process_id == current_process_id {
+        if hidden_as_own_window(hwnd, process_id, current_process_id) {
             return false;
         }
 
@@ -1245,7 +1264,7 @@ fn is_window_valid_for_topmost_selection(
 
         let mut process_id = 0u32;
         GetWindowThreadProcessId(hwnd, Some(&mut process_id));
-        if process_id == current_process_id {
+        if hidden_as_own_window(hwnd, process_id, current_process_id) {
             return false;
         }
 

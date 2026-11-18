@@ -747,7 +747,7 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
             app_windows::set_recording_mode(next_recording_mode(Mode::from_store()), cx);
         }
         HotkeyAction::OpenRecordingPicker => {
-            app_windows::show_compact_main(cx);
+            app_windows::show_main_window(cx);
             cx.activate(true);
         }
         HotkeyAction::OpenRecordingPickerDisplay => {

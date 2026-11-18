@@ -67,6 +67,7 @@ mod installer_control;
 mod instance_control;
 mod jpeg_thumbnail;
 mod library;
+mod library_window;
 mod logo;
 mod main_window;
 mod media_access;
@@ -579,11 +580,11 @@ fn main() {
             platform::install_main_window_limits(&native);
             let mut memory = crate::store::load().main_window;
             if restored_bounds.is_some() {
-                memory.compact_position = platform::main_window_screen(&native)
+                memory.compact_position = platform::shell_window_screen(&native)
                     .map(|screen| (screen.frame.x, screen.frame.y));
             }
-            if let Some(screen) = platform::main_window_launch_screen(memory.compact_position) {
-                platform::place_main_window(
+            if let Some(screen) = platform::shell_launch_screen(memory.compact_position) {
+                platform::place_shell_window(
                     &native,
                     main_window::shell::launch_placement(&memory, screen),
                     false,

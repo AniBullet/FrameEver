@@ -159,10 +159,10 @@ const side = () =>
 	s.sub === "recent" ? recent() : s.sub === "shot" ? shots() : "";
 
 const results = {
-	open: ["The compact main window opens.", "打开紧凑主窗口。"],
+	open: ["The recording window opens.", "打开录制窗口。"],
 	library: [
-		"The main window opens expanded on the library.",
-		"主窗口展开到资源库。",
+		"The library opens in its own window, or comes forward if it is open.",
+		"资源库开成自己的窗口，已经开着就带到前面。",
 	],
 	display: ["The display target is chosen.", "选好显示器目标。"],
 	window: ["The window picker opens.", "打开窗口选择。"],

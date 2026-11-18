@@ -1,4 +1,4 @@
-use super::{MainWindow, Mode, shell::Stage, surfaces::focus_ring};
+use super::{MainWindow, Mode, surfaces::focus_ring};
 use crate::{
     app_windows,
     i18n::{t, tr},
@@ -276,7 +276,6 @@ impl MainWindow {
     ) -> Option<gpui::AnyElement> {
         if !self.recording_options_open
             || self.panel.is_some()
-            || self.shell.stage() != Stage::Compact
             || self.session.read(cx).phase != crate::session::Phase::Idle
         {
             return None;

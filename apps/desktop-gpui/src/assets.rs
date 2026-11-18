@@ -273,8 +273,8 @@ mod tests {
     const ICON_SOURCES: &[&str] = &[
         include_str!("main_window.rs"),
         include_str!("main_window/surfaces.rs"),
-        include_str!("main_window/library_page/overlay.rs"),
-        include_str!("main_window/library_page/detail.rs"),
+        include_str!("library_window/overlay.rs"),
+        include_str!("library_window/detail.rs"),
         include_str!("logo.rs"),
         include_str!("app_icon.rs"),
         // Not a window: the Recents card's per-kind pill and fallback glyphs
@@ -320,7 +320,7 @@ mod tests {
         include_str!("screenshot_annotations.rs"),
         // The crop overlay's own ratio glyph.
         include_str!("screenshot_crop.rs"),
-        include_str!("main_window/library_page.rs"),
+        include_str!("library_window.rs"),
         // `ui::SelectionHeader` names the check and the trash itself.
         include_str!("ui/selection_header.rs"),
         include_str!("ui/radio_cards.rs"),

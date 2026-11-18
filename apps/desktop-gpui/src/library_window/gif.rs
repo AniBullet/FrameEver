@@ -14,7 +14,7 @@ use gpui::{
     canvas, div, img, prelude::FluentBuilder, px, svg,
 };
 
-use super::{MainWindow, delete::ButtonTone, focus_ring, library, t, ui, view};
+use super::{LibraryWindow, delete::ButtonTone, focus_ring, library, t, ui, view};
 use crate::{
     i18n::tc,
     library::gif::{
@@ -321,12 +321,8 @@ impl GifState {
     }
 }
 
-impl MainWindow {
-    pub(in crate::main_window) fn save_library_gif(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+impl LibraryWindow {
+    pub(super) fn save_library_gif(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(entry) = self
             .library
             .lead_entry()
@@ -364,7 +360,7 @@ impl MainWindow {
         .detach();
     }
 
-    pub(in crate::main_window) fn dismiss_library_dialog(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn dismiss_library_dialog(&mut self, cx: &mut Context<Self>) {
         if self.library.gif.dialog_open() {
             self.cancel_library_gif(cx);
         } else {
@@ -383,33 +379,21 @@ impl MainWindow {
         cx.notify();
     }
 
-    pub(in crate::main_window) fn step_library_gif(
-        &mut self,
-        forward: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn step_library_gif(&mut self, forward: bool, cx: &mut Context<Self>) {
         if let Some(dialog) = &mut self.library.gif.dialog {
             dialog.step(forward);
             cx.notify();
         }
     }
 
-    pub(in crate::main_window) fn tab_library_gif(
-        &mut self,
-        forward: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn tab_library_gif(&mut self, forward: bool, cx: &mut Context<Self>) {
         if let Some(dialog) = &mut self.library.gif.dialog {
             dialog.tab(forward);
             cx.notify();
         }
     }
 
-    pub(in crate::main_window) fn enter_library_gif(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn enter_library_gif(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.library.gif.dialog.as_ref().and_then(GifDialog::enter) {
             Some(DialogAnswer::Save) => self.start_library_gif(window, cx),
             Some(DialogAnswer::Cancel) => self.cancel_library_gif(cx),
@@ -729,7 +713,7 @@ impl MainWindow {
             })
     }
 
-    pub(in crate::main_window) fn render_library_gif(
+    pub(super) fn render_library_gif(
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
@@ -899,9 +883,7 @@ impl MainWindow {
         )
     }
 
-    pub(in crate::main_window) fn render_library_gif_toast(
-        &self,
-    ) -> Option<impl IntoElement + use<>> {
+    pub(super) fn render_library_gif_toast(&self) -> Option<impl IntoElement + use<>> {
         let theme = self.theme;
         let toast = self.library.gif.toast.as_ref()?;
         let undo_shown = self.library.delete.toast_shown();

@@ -430,7 +430,7 @@ impl OnboardingWindow {
             .child(self.heading(
                 t!("Everything lands in the library"),
                 t!(
-                    "Press Ctrl+L or click Library and the main window expands in place. Collapse it to record again."
+                    "Press Ctrl+L or click Library and the library opens in its own window. The recording window stays where it is."
                 ),
             ))
             .child(self.demo_card().w(px(640.)).flex_shrink_0())

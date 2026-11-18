@@ -178,14 +178,6 @@ pub fn screen(native: &NativeWindow) -> Option<Screen> {
     })
 }
 
-pub fn restore_minimized(native: &NativeWindow) -> bool {
-    let minimized = unsafe { IsIconic(native.hwnd()) } != 0;
-    if minimized {
-        unsafe { ShowWindow(native.hwnd(), SW_RESTORE) };
-    }
-    minimized
-}
-
 pub fn launch_screen(position: Option<(f64, f64)>) -> Option<Screen> {
     let (x, y) = position.unwrap_or_default();
     let point = POINT {

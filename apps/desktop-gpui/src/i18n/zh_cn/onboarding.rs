@@ -215,8 +215,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Weekly", "周报"),
     ("Everything lands in the library", "录好的都在资源库"),
     (
-        "Press Ctrl+L or click Library and the main window expands in place. Collapse it to record again.",
-        "按 Ctrl+L 或点“资源库”，主窗口会原地展开；收回去就能接着录。",
+        "Press Ctrl+L or click Library and the library opens in its own window. The recording window stays where it is.",
+        "按 Ctrl+L 或点“资源库”，资源库会开成自己的窗口；录制窗口留在原处。",
     ),
     ("Find any command", "查找任何命令"),
     ("Drag", "拖动"),

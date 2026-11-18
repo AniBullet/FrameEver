@@ -7,7 +7,7 @@ use gpui::{
 #[cfg(not(target_os = "windows"))]
 use gpui::{ExternalDragPayload, FileDragPaths};
 
-use super::MainWindow;
+use super::LibraryWindow;
 use crate::{
     i18n::t,
     library::{self, ShareGap},
@@ -40,7 +40,7 @@ impl Render for DragNotice {
     }
 }
 
-impl MainWindow {
+impl LibraryWindow {
     pub(super) fn library_item_drag(
         &self,
         item: gpui::Stateful<gpui::Div>,

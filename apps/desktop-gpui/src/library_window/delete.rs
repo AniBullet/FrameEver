@@ -5,7 +5,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Task, Window, div, prelude::FluentBuilder, px,
 };
 
-use super::{MainWindow, app_windows, focus_ring, library, t};
+use super::{LibraryWindow, app_windows, focus_ring, library, t};
 use crate::library::{
     Deleted, MediaKind, Version,
     view::{Compression, Entry},
@@ -198,7 +198,7 @@ fn failure_title(failed: &[Item], total: usize) -> String {
     }
 }
 
-impl MainWindow {
+impl LibraryWindow {
     fn selected_items(&self) -> Vec<Item> {
         self.library
             .selected_entries()
@@ -210,11 +210,7 @@ impl MainWindow {
             .collect()
     }
 
-    pub(in crate::main_window) fn delete_library_selection(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn delete_library_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let items = self.selected_items();
         if items.is_empty() {
             return;
@@ -235,33 +231,21 @@ impl MainWindow {
         cx.notify();
     }
 
-    pub(in crate::main_window) fn delete_library_now(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn delete_library_now(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let items = self.selected_items();
         if !items.is_empty() {
             self.run_library_delete(items, None, window, cx);
         }
     }
 
-    pub(in crate::main_window) fn step_library_dialog(
-        &mut self,
-        forward: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn step_library_dialog(&mut self, forward: bool, cx: &mut Context<Self>) {
         if let Some(dialog) = &mut self.library.delete.dialog {
             dialog.step(forward);
             cx.notify();
         }
     }
 
-    pub(in crate::main_window) fn tab_library_dialog(
-        &mut self,
-        forward: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn tab_library_dialog(&mut self, forward: bool, cx: &mut Context<Self>) {
         if let Some(dialog) = &mut self.library.delete.dialog {
             dialog.tab(forward);
             cx.notify();
@@ -283,17 +267,13 @@ impl MainWindow {
         }
     }
 
-    pub(in crate::main_window) fn enter_library_delete(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn enter_library_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(answer) = self.library.delete.dialog.as_ref().map(DeleteDialog::enter) {
             self.answer_library_delete(answer, window, cx);
         }
     }
 
-    pub(in crate::main_window) fn close_library_dialog(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn close_library_dialog(&mut self, cx: &mut Context<Self>) {
         self.library.delete.dialog = None;
         self.focus_library_items(cx);
         cx.notify();
@@ -434,11 +414,7 @@ impl MainWindow {
         cx.notify();
     }
 
-    pub(in crate::main_window) fn undo_library_delete(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn undo_library_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(toast) = self.library.delete.toast.take() else {
             return;
         };
@@ -580,7 +556,7 @@ impl MainWindow {
             )
     }
 
-    pub(in crate::main_window) fn render_library_dialog(
+    pub(super) fn render_library_dialog(
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
@@ -707,7 +683,7 @@ impl MainWindow {
         )
     }
 
-    pub(in crate::main_window) fn render_library_undo(
+    pub(super) fn render_library_undo(
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {

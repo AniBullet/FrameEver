@@ -524,7 +524,7 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
     tracing::info!(?item, "tray item activated");
     match item {
         TrayItem::OpenCap => {
-            app_windows::show_compact_main(cx);
+            app_windows::show_main_window(cx);
             // The status item is clickable while the app is inactive; an
             // Accessory app that just went Regular still needs activating for
             // the window (and the menu bar) to come forward.

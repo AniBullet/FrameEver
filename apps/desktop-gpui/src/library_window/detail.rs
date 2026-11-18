@@ -7,7 +7,7 @@ use gpui::{
 };
 
 use super::{
-    Clock, DETAIL_WIDTH, JobState, MainWindow, app_windows, day_label, focus_ring, kind_label,
+    Clock, DETAIL_WIDTH, JobState, LibraryWindow, app_windows, day_label, focus_ring, kind_label,
     library, preview, t, ui, view,
 };
 use crate::library::{
@@ -127,7 +127,7 @@ fn report_compression(summary: &QueueSummary) {
     }
 }
 
-impl MainWindow {
+impl LibraryWindow {
     pub(super) fn sync_library_detail(&mut self, cx: &mut Context<Self>) {
         let Some(entry) = self.library.single_entry().cloned() else {
             self.library.detail.clear();
@@ -172,11 +172,7 @@ impl MainWindow {
         }));
     }
 
-    pub(in crate::main_window) fn rename_library_selection(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn rename_library_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.library.selection.single().is_some() {
             self.library
                 .detail
@@ -185,7 +181,7 @@ impl MainWindow {
         }
     }
 
-    pub(in crate::main_window) fn on_library_name_event(
+    pub(super) fn on_library_name_event(
         &mut self,
         input: Entity<ui::TextInputState>,
         event: &ui::TextInputEvent,
@@ -212,9 +208,12 @@ impl MainWindow {
 
     pub(super) fn focus_library_items(&self, cx: &mut Context<Self>) {
         let focus = self.library.items_focus.clone();
-        let main = cx.global::<app_windows::AppWindows>().main;
+        let Some(library) = cx.global::<app_windows::AppWindows>().library else {
+            return;
+        };
         cx.defer(move |cx| {
-            main.update(cx, |_, window, cx| window.focus(&focus, cx))
+            library
+                .update(cx, |_, window, cx| window.focus(&focus, cx))
                 .ok();
         });
     }
@@ -289,14 +288,14 @@ impl MainWindow {
         }
     }
 
-    pub(in crate::main_window) fn copy_library_file(&self, cx: &mut Context<Self>) {
+    pub(super) fn copy_library_file(&self, cx: &mut Context<Self>) {
         let files = self.library_files_to_share();
         if !files.is_empty() {
             copy_files(&files, cx);
         }
     }
 
-    pub(in crate::main_window) fn open_library_file_externally(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn open_library_file_externally(&mut self, cx: &mut Context<Self>) {
         let file = self.library.lead_entry().and_then(library::file_to_share);
         if let Some(file) = file {
             self.pause_library_preview(cx);
@@ -318,11 +317,7 @@ impl MainWindow {
             .collect()
     }
 
-    pub(in crate::main_window) fn export_library_selection(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn export_library_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(entry) = self.library.lead_entry().cloned() else {
             return;
         };

@@ -965,15 +965,15 @@ mod mac {
         unsafe { (*view).window() }
     }
 
-    pub fn main_window_screen(_native: &NativeWindow) -> Option<crate::main_window::shell::Screen> {
+    pub fn shell_window_screen(
+        _native: &NativeWindow,
+    ) -> Option<crate::main_window::shell::Screen> {
         None
     }
 
-    pub fn restore_minimized_main_window(_native: &NativeWindow) -> bool {
-        false
-    }
+    pub fn allow_as_capture_target(_native: &NativeWindow) {}
 
-    pub fn place_main_window(
+    pub fn place_shell_window(
         _native: &NativeWindow,
         _placement: crate::main_window::shell::Placement,
         _hide: bool,

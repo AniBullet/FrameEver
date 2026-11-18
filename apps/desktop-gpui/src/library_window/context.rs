@@ -7,7 +7,8 @@ use gpui::{
 };
 
 use super::{
-    MainWindow, SortDirection, SortKey, Step, ViewMode, column_label, direction_label, library, t,
+    LibraryWindow, SortDirection, SortKey, Step, ViewMode, column_label, direction_label, library,
+    t,
 };
 use crate::{i18n::tc, library::MediaKind, library::view::Entry};
 
@@ -187,7 +188,7 @@ impl ContextMenu {
     }
 }
 
-impl MainWindow {
+impl LibraryWindow {
     pub(super) fn open_library_item_menu(
         &mut self,
         path: &Path,
@@ -216,7 +217,7 @@ impl MainWindow {
         cx.notify();
     }
 
-    pub(in crate::main_window) fn open_library_menu_from_keys(
+    pub(super) fn open_library_menu_from_keys(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -573,49 +574,31 @@ mod tests {
 
     #[gpui::test]
     fn a_command_picked_over_blank_space_still_runs(cx: &mut gpui::TestAppContext) {
-        let session = cx.update(|cx| {
-            crate::feeds::Feeds::init(cx);
-            crate::media_access::MediaAccess::init(cx);
-            crate::target_overlay::TargetSelect::init(cx);
-            crate::session::RecordingSession::init(cx)
-        });
-        let (main, cx) = cx.add_window_view(move |window, cx| MainWindow::new(session, window, cx));
-        main.update(cx, |main, _| {
-            use crate::main_window::shell::{Event, Frame, Screen};
-            let frame = Frame {
-                x: 0.,
-                y: 0.,
-                width: 1920.,
-                height: 1080.,
-            };
-            let screen = Screen {
-                frame,
-                work_area: frame,
-                scale: 1.,
-                maximized: false,
-            };
-            for event in [Event::Expand, Event::FrameSnapped, Event::FadeFinished] {
-                main.shell.handle(event, screen);
-            }
-        });
+        let session = cx.update(crate::session::RecordingSession::init);
+        let (library, cx) =
+            cx.add_window_view(move |window, cx| LibraryWindow::new(session, window, cx));
+        library.update(cx, |library, _| library.shown = true);
         let held = recording("held");
         let path = held.path.clone();
-        main.update_in(cx, |main, _, cx| {
-            main.library.entries = Some(vec![held]);
-            main.rebuild_library(cx);
+        library.update_in(cx, |library, _, cx| {
+            library.library.entries = Some(vec![held]);
+            library.rebuild_library(cx);
         });
         draw(cx);
-        let tile = main
-            .read_with(cx, |main, _| {
-                main.library.drawn.borrow().get(&path).copied()
+        let tile = library
+            .read_with(cx, |library, _| {
+                library.library.drawn.borrow().get(&path).copied()
             })
             .expect("the recording is drawn");
         let blank = point(tile.left(), tile.bottom() + px(60.));
-        main.update(cx, |main, cx| main.open_library_item_menu(&path, blank, cx));
+        library.update(cx, |library, cx| {
+            library.open_library_item_menu(&path, blank, cx)
+        });
         draw(cx);
-        let panel = main
-            .read_with(cx, |main, _| {
-                main.library
+        let panel = library
+            .read_with(cx, |library, _| {
+                library
+                    .library
                     .context
                     .as_ref()
                     .and_then(|menu| menu.panels.borrow().first().copied())
@@ -625,9 +608,9 @@ mod tests {
 
         cx.simulate_click(delete_row, gpui::Modifiers::none());
 
-        main.read_with(cx, |main, _| {
-            assert!(main.library.context.is_none());
-            assert!(main.library.delete.dialog_open());
+        library.read_with(cx, |library, _| {
+            assert!(library.library.context.is_none());
+            assert!(library.library.delete.dialog_open());
         });
     }
 

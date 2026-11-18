@@ -104,9 +104,11 @@ pub struct MainWindowMemory {
     #[serde(default)]
     pub compact_position: Option<(f64, f64)>,
     #[serde(default)]
-    pub expanded_size: Option<(f64, f64)>,
+    pub library_position: Option<(f64, f64)>,
     #[serde(default)]
-    pub expanded_maximized: bool,
+    pub library_size: Option<(f64, f64)>,
+    #[serde(default)]
+    pub library_maximized: bool,
     #[serde(default)]
     pub library_opened: bool,
 }

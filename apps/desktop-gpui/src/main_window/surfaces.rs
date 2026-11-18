@@ -6,7 +6,7 @@ use gpui::{
 
 use super::{
     MainWindow, Mode, Panel, PickerPurpose, ScreenCaptureTarget, ScreenshotButton, TargetType,
-    app_windows, library_page, shell::Stage,
+    app_windows,
 };
 use crate::{doodle, i18n::t, onboarding_doodles, theme::Theme, ui};
 
@@ -19,7 +19,7 @@ const FOOTER_HEIGHT: f32 = 44.;
 pub(super) const ABOVE_START: f32 = FOOTER_HEIGHT + CONTENT_PADDING + START_HEIGHT + CONTENT_GAP;
 const ARROW_WIDTH: f32 = 26.;
 
-pub(super) fn focus_ring<E: InteractiveElement + Styled>(element: E, theme: Theme) -> E {
+pub(crate) fn focus_ring<E: InteractiveElement + Styled>(element: E, theme: Theme) -> E {
     element
         .border_1()
         .border_color(transparent_black())
@@ -34,47 +34,47 @@ fn item_count_label(count: usize) -> String {
     }
 }
 
-impl MainWindow {
-    fn title_icon(
-        &self,
-        id: &'static str,
-        path: &'static str,
-        label: &'static str,
-    ) -> gpui::Stateful<gpui::Div> {
-        let theme = self.theme;
-        focus_ring(
-            div()
-                .id(id)
-                .group(id)
-                .when(cfg!(target_os = "windows"), |this| this.occlude())
-                .tab_index(0)
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(px(28.))
-                .flex_shrink_0()
-                .rounded(px(6.))
-                .hover(move |style| style.bg(theme.accent))
-                .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
-                .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
-                .child(
-                    svg()
-                        .path(path)
-                        .size(px(16.))
-                        .text_color(theme.muted_foreground)
-                        .group_hover(id, move |style| style.text_color(theme.foreground)),
-                ),
-            theme,
-        )
-    }
+pub(crate) fn title_icon(
+    theme: Theme,
+    id: &'static str,
+    path: &'static str,
+    label: &'static str,
+) -> gpui::Stateful<gpui::Div> {
+    focus_ring(
+        div()
+            .id(id)
+            .group(id)
+            .when(cfg!(target_os = "windows"), |this| this.occlude())
+            .tab_index(0)
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(28.))
+            .flex_shrink_0()
+            .rounded(px(6.))
+            .hover(move |style| style.bg(theme.accent))
+            .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
+            .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+            .child(
+                svg()
+                    .path(path)
+                    .size(px(16.))
+                    .text_color(theme.muted_foreground)
+                    .group_hover(id, move |style| style.text_color(theme.foreground)),
+            ),
+        theme,
+    )
+}
 
+impl MainWindow {
     fn settings_button(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
-        self.title_icon("settings", "icons/settings.svg", t!("Settings"))
-            .on_click(cx.listener(|_, _, _, cx| {
+        title_icon(self.theme, "settings", "icons/settings.svg", t!("Settings")).on_click(
+            cx.listener(|_, _, _, cx| {
                 cx.defer(|cx: &mut gpui::App| {
                     app_windows::open_settings(crate::settings_window::last_page(), cx)
                 });
-            }))
+            }),
+        )
     }
 
     pub(super) fn render_compact_title(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -98,77 +98,32 @@ impl MainWindow {
             )
             .child(div().flex_1().min_w_0())
             .child(
-                self.title_icon("teleprompter", "icons/scan-text.svg", t!("Teleprompter"))
-                    .on_click(cx.listener(|_, _, _, cx| {
-                        cx.defer(app_windows::open_teleprompter);
-                    })),
+                title_icon(
+                    theme,
+                    "teleprompter",
+                    "icons/scan-text.svg",
+                    t!("Teleprompter"),
+                )
+                .on_click(cx.listener(|_, _, _, cx| {
+                    cx.defer(app_windows::open_teleprompter);
+                })),
             )
             .child(
-                self.title_icon("help", "icons/circle-question-mark.svg", t!("Help & Tour"))
-                    .on_click(cx.listener(|_, _, _, cx| {
-                        cx.defer(app_windows::show_onboarding_again);
-                    })),
-            )
-    }
-
-    pub(super) fn render_library_title(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let back = focus_ring(
-            div()
-                .id("library-back")
-                .when(cfg!(target_os = "windows"), |this| this.occlude())
-                .tab_index(0)
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .h(px(28.))
-                .pl(px(4.))
-                .pr(px(8.))
-                .rounded(px(6.))
-                .text_size(px(13.))
-                .text_color(theme.foreground)
-                .hover(move |style| style.bg(theme.accent))
-                .tooltip(move |_, cx| {
-                    ui::Tooltip::new(&theme, t!("Back to recording  Ctrl+L")).view(cx)
-                })
-                .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
-                .child(
-                    svg()
-                        .path("icons/chevron-left.svg")
-                        .size(px(14.))
-                        .text_color(theme.foreground),
+                title_icon(
+                    theme,
+                    "help",
+                    "icons/circle-question-mark.svg",
+                    t!("Help & Tour"),
                 )
-                .child(t!("Record")),
-            theme,
-        )
-        .on_click(cx.listener(|this, _, window, cx| this.collapse_library(window, cx)));
-
-        div()
-            .flex()
-            .flex_1()
-            .h_full()
-            .min_w_0()
-            .items_center()
-            .pl(px(4.))
-            .pr(px(4.))
-            .child(back)
-            .child(div().flex_1().min_w_0())
-            .child(self.settings_button(cx))
+                .on_click(cx.listener(|_, _, _, cx| {
+                    cx.defer(app_windows::show_onboarding_again);
+                })),
+            )
     }
 
     pub(super) fn render_body(&self, cx: &mut Context<Self>) -> AnyElement {
-        match (self.shell.stage(), self.panel) {
-            (Stage::OpeningFrame | Stage::ClosingFrame, _) => {
-                div().flex_1().bg(self.theme.background).into_any_element()
-            }
-            (Stage::LibraryArriving | Stage::Expanded | Stage::LibraryLeaving, _) => {
-                if self.library_overlay_covers_page() {
-                    div().flex_1().into_any_element()
-                } else {
-                    self.render_library_page(cx).into_any_element()
-                }
-            }
-            (Stage::Compact, Some(panel)) => div()
+        match self.panel {
+            Some(panel) => div()
                 .flex()
                 .flex_col()
                 .flex_1()
@@ -179,7 +134,7 @@ impl MainWindow {
                 .text_color(self.theme.body_text())
                 .child(self.render_panel(panel, cx))
                 .into_any_element(),
-            (Stage::Compact, None) => self.render_compact_home(cx).into_any_element(),
+            None => self.render_compact_home(cx).into_any_element(),
         }
     }
 
@@ -289,10 +244,15 @@ impl MainWindow {
                     .child(segment(Mode::Studio, "mode-studio", 1)),
             )
             .child(
-                self.title_icon("mode-info", "icons/info.svg", t!("Recording mode info"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_panel(Panel::ModeInfo, window, cx);
-                    })),
+                title_icon(
+                    self.theme,
+                    "mode-info",
+                    "icons/info.svg",
+                    t!("Recording mode info"),
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_panel(Panel::ModeInfo, window, cx);
+                })),
             )
             .into_any_element()
     }
@@ -490,7 +450,7 @@ impl MainWindow {
         self.start_target.unwrap_or(TargetType::Display)
     }
 
-    pub(super) fn start_from_chosen_target(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn start_from_chosen_target(&mut self, cx: &mut Context<Self>) {
         self.purpose = PickerPurpose::Record;
         self.target = Some(self.chosen_target());
         self.sync_overlays(cx);
@@ -547,10 +507,10 @@ impl MainWindow {
                 .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Library  Ctrl+L")).view(cx))
                 .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
                 .child(t!("Library"))
-                .when(!self.library.unseen.is_empty(), |this| {
-                    this.child(library_page::library_badge(
+                .when(!self.unseen.is_empty(), |this| {
+                    this.child(crate::library_window::library_badge(
                         &theme,
-                        self.library.unseen.len(),
+                        self.unseen.len(),
                     ))
                 })
                 .child(
@@ -561,7 +521,7 @@ impl MainWindow {
                 ),
             theme,
         )
-        .on_click(cx.listener(|this, _, window, cx| this.expand_library(window, cx)));
+        .on_click(cx.listener(|this, _, _, cx| this.open_library(cx)));
 
         div()
             .flex()
@@ -590,7 +550,7 @@ impl MainWindow {
             .pl(px(6.))
             .items_center()
             .gap(px(8.));
-        if !self.shell.shows_arrow() {
+        if self.library_opened {
             return note
                 .children(self.project_count.map(item_count_label))
                 .into_any_element();

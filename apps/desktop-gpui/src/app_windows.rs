@@ -33,7 +33,11 @@ use crate::{
     editor_timeline,
     editor_window::{self, EditorWindow},
     i18n::{n, t, tr},
-    main_window::{MainWindow, Mode, TargetType},
+    library_window::LibraryWindow,
+    main_window::{
+        MainWindow, Mode, TargetType,
+        shell::{self, Action, Request, ShellWindow},
+    },
     mode_select_window::{self, ModeSelectWindow},
     onboarding_window::{self, OnboardingWindow},
     platform,
@@ -230,6 +234,7 @@ impl CountdownFocus {
 
 pub struct AppWindows {
     pub main: WindowHandle<MainWindow>,
+    pub library: Option<WindowHandle<LibraryWindow>>,
     pub controls: Option<WindowHandle<ControlsWindow>>,
     pub countdown: Option<WindowHandle<CountdownWindow>>,
     countdown_focus: CountdownFocus,
@@ -411,6 +416,7 @@ pub(crate) fn flush_pending_editor_saves(cx: &mut App) -> Result<(), String> {
 pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, cx: &mut App) {
     cx.set_global(AppWindows {
         main,
+        library: None,
         controls: None,
         countdown: None,
         countdown_focus: CountdownFocus::default(),
@@ -523,10 +529,7 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                 }
                 if let Some(project) = finished_studio.clone().or_else(|| finished_instant.clone())
                 {
-                    main.update(cx, |view, window, cx| {
-                        view.note_new_recording(project, window, cx);
-                    })
-                    .ok();
+                    note_new_recording(project, cx);
                 }
                 match (finish.next, finished_studio) {
                     (AfterRecording::OpenEditor, Some(project_dir)) => open_editor(project_dir, cx),
@@ -534,7 +537,10 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                         park_idle_camera_preview(cx);
                         crate::menus::schedule_dock_sync(cx);
                     }
-                    (AfterRecording::ShowLibrary, _) => show_library(cx),
+                    (AfterRecording::ShowLibrary, _) => {
+                        park_idle_camera_preview(cx);
+                        show_library(cx);
+                    }
                     _ => show_main_window(cx),
                 }
             }
@@ -763,34 +769,265 @@ pub(crate) fn show_main_window_after_capture_pause(cx: &mut App) {
     .detach();
 }
 
+fn open_library_handle(cx: &App) -> Option<WindowHandle<LibraryWindow>> {
+    cx.global::<AppWindows>()
+        .library
+        .filter(|handle| handle.read(cx).is_ok_and(LibraryWindow::is_shown))
+}
+
+fn shell_request(request: Request, cx: &mut App) {
+    let action = shell::route(request, open_library_handle(cx).is_some());
+    tracing::info!(?request, ?action, "shell window request");
+    match action {
+        Action::OpenLibrary => open_library_window(cx),
+        Action::FrontLibrary => front_library_window(cx),
+        Action::CloseLibrary => close_library_window(cx),
+        Action::ShowRecorder => {
+            let main = cx.global::<AppWindows>().main;
+            let visible = main
+                .update(cx, |_, window, _| platform::window_is_visible(window))
+                .unwrap_or(false);
+            if !visible {
+                show_main_window(cx);
+            }
+            activate_main_window(cx);
+        }
+        Action::HideRecorder => hide_main_window(cx),
+        Action::MinimiseRecorder => minimize_main_window(cx),
+    }
+}
+
 pub fn show_library(cx: &mut App) {
-    let main = cx.global::<AppWindows>().main;
-    let compact = main.read(cx).is_ok_and(|view| view.is_compact());
-    if compact && !crate::store::should_show_onboarding() {
-        main.update(cx, |view, window, cx| view.expand_then_show(window, cx))
-            .ok();
-    } else {
+    open_library(None, cx);
+}
+
+pub fn open_library(select: Option<PathBuf>, cx: &mut App) {
+    if crate::store::should_show_onboarding() {
         show_main_window(cx);
+        return;
+    }
+    shell_request(Request::OpenLibrary, cx);
+    if let Some(path) = select
+        && let Some(library) = cx.global::<AppWindows>().library
+    {
+        library
+            .update(cx, |view, window, cx| {
+                view.select_library_project(path, window, cx);
+            })
+            .ok();
     }
 }
 
-pub fn show_compact_main(cx: &mut App) {
-    let main = cx.global::<AppWindows>().main;
-    main.update(cx, |view, window, cx| view.return_to_compact(window, cx))
-        .ok();
-    show_main_window(cx);
+pub fn close_library(cx: &mut App) {
+    shell_request(Request::CloseLibrary, cx);
 }
 
-pub fn hide_compact_beside_settings(cx: &mut App) {
-    if cx.global::<AppWindows>().settings.is_some() {
-        hide_compact_main(cx);
+pub fn switch_shell_window(from: ShellWindow, cx: &mut App) {
+    let blocked = match from {
+        ShellWindow::Recorder => crate::store::should_show_onboarding(),
+        ShellWindow::Library => RecordingSession::global(cx).read(cx).phase != Phase::Idle,
+    };
+    if blocked {
+        return;
+    }
+    shell_request(Request::Switch { from }, cx);
+}
+
+pub fn show_recorder_from_library(cx: &mut App) {
+    switch_shell_window(ShellWindow::Library, cx);
+}
+
+pub fn start_recording_from_library(cx: &mut App) {
+    if RecordingSession::global(cx).read(cx).phase != Phase::Idle {
+        return;
+    }
+    shell_request(Request::ShowRecorder, cx);
+    let main = cx.global::<AppWindows>().main;
+    main.update(cx, |view, _, cx| view.start_from_chosen_target(cx))
+        .ok();
+}
+
+fn activate_main_window(cx: &mut App) {
+    let main = cx.global::<AppWindows>().main;
+    cx.spawn(async move |cx| {
+        cx.update(|cx| {
+            main.update(cx, |_, window, _| window.activate_window())
+                .ok();
+            cx.activate(true);
+        });
+    })
+    .detach();
+}
+
+fn create_library_window(cx: &mut App) -> Option<WindowHandle<LibraryWindow>> {
+    let preferred = size(
+        px(shell::FIRST_LIBRARY_WIDTH as f32),
+        px(shell::FIRST_LIBRARY_HEIGHT as f32),
+    );
+    let (bounds, display_id) = opening_window_placement(preferred, cx);
+    let session = RecordingSession::global(cx);
+    let handle = cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            display_id,
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some(concat!(app_name!(), " Library").into()),
+                appears_transparent: true,
+                ..Default::default()
+            }),
+            kind: WindowKind::Normal,
+            focus: true,
+            show: !cfg!(target_os = "windows"),
+            is_resizable: true,
+            is_minimizable: true,
+            window_min_size: Some(fitted_window_min_size(
+                size(
+                    px(shell::MIN_LIBRARY_WIDTH as f32),
+                    px(shell::MIN_LIBRARY_HEIGHT as f32),
+                ),
+                bounds,
+            )),
+            ..Default::default()
+        },
+        move |window, cx| cx.new(|cx| LibraryWindow::new(session, window, cx)),
+    );
+    match handle {
+        Ok(handle) => {
+            cx.global_mut::<AppWindows>().library = Some(handle);
+            Some(handle)
+        }
+        Err(error) => {
+            tracing::error!("library window failed to open: {error:#}");
+            None
+        }
     }
 }
 
-fn collapse_main_behind_hide(cx: &mut App) {
+fn open_library_window(cx: &mut App) {
+    let existing = cx
+        .global::<AppWindows>()
+        .library
+        .filter(|handle| handle.read(cx).is_ok());
+    let created = existing.is_none();
+    let Some(handle) = existing.or_else(|| create_library_window(cx)) else {
+        return;
+    };
     let main = cx.global::<AppWindows>().main;
-    main.update(cx, |view, window, cx| view.collapse_behind_hide(window, cx))
+    let unseen = main
+        .update(cx, |view, _, cx| view.library_opened(cx))
+        .unwrap_or_default();
+    let native = handle
+        .update(cx, |view, window, cx| {
+            platform::kick_display_link(window);
+            view.open_library_page(unseen, window, cx);
+            platform::native_window(window)
+        })
+        .ok()
+        .flatten();
+    cx.spawn(async move |cx| {
+        if let Some(native) = &native {
+            if created {
+                platform::allow_as_capture_target(native);
+                place_new_library_window(native);
+            }
+            platform::show_native(native);
+        }
+        cx.update(|cx| {
+            handle
+                .update(cx, |_, window, cx| {
+                    window.activate_window();
+                    cx.notify();
+                })
+                .ok();
+            crate::menus::schedule_dock_sync(cx);
+        });
+    })
+    .detach();
+}
+
+#[cfg(target_os = "windows")]
+fn place_new_library_window(native: &platform::NativeWindow) {
+    let memory = crate::store::load().main_window;
+    if let Some(screen) = platform::shell_launch_screen(shell::library_anchor(&memory)) {
+        platform::place_shell_window(native, shell::library_placement(&memory, screen), false);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn place_new_library_window(_native: &platform::NativeWindow) {}
+
+fn front_library_window(cx: &mut App) {
+    let Some(handle) = cx.global::<AppWindows>().library else {
+        return;
+    };
+    let native = handle
+        .update(cx, |_, window, _| platform::native_window(window))
+        .ok()
+        .flatten();
+    cx.spawn(async move |cx| {
+        if let Some(native) = &native {
+            platform::show_native(native);
+        }
+        cx.update(|cx| {
+            handle
+                .update(cx, |_, window, _| window.activate_window())
+                .ok();
+        });
+    })
+    .detach();
+}
+
+fn close_library_window(cx: &mut App) {
+    let Some(handle) = cx.global::<AppWindows>().library else {
+        return;
+    };
+    let native = handle
+        .update(cx, |view, window, cx| {
+            view.close_library_page(window, cx);
+            platform::native_window(window)
+        })
+        .ok()
+        .flatten();
+    let main = cx.global::<AppWindows>().main;
+    main.update(cx, |view, window, cx| {
+        view.refresh_project_count(window, cx)
+    })
+    .ok();
+    cx.spawn(async move |cx| {
+        if let Some(native) = &native {
+            platform::hide_native(native);
+            tracing::info!("library window closed");
+        }
+        cx.update(crate::menus::schedule_dock_sync);
+    })
+    .detach();
+}
+
+fn note_new_recording(project: PathBuf, cx: &mut App) {
+    if let Some(library) = open_library_handle(cx) {
+        library
+            .update(cx, |view, window, cx| {
+                view.note_new_recording(project, window, cx);
+            })
+            .ok();
+        return;
+    }
+    let main = cx.global::<AppWindows>().main;
+    main.update(cx, |view, _, cx| view.note_new_recording(project, cx))
         .ok();
+}
+
+pub(crate) fn refresh_open_library(cx: &mut App) {
+    if let Some(library) = cx.global::<AppWindows>().library {
+        library
+            .update(cx, |view, window, cx| view.refresh_open_library(window, cx))
+            .ok();
+    }
+    let main = cx.global::<AppWindows>().main;
+    main.update(cx, |view, window, cx| {
+        view.refresh_project_count(window, cx)
+    })
+    .ok();
 }
 
 /// Re-assert the main window's borderless style mask after an operation that
@@ -843,13 +1080,8 @@ pub fn hide_main_window(cx: &mut App) {
 }
 
 fn put_main_window_away_for_recording(cx: &mut App) {
-    if crate::store::GeneralSettings::load().main_window_recording_start_behaviour
-        == crate::store::MainWindowStartBehaviour::Minimise
-    {
-        minimize_main_window(cx);
-        return;
-    }
-    hide_main_window(cx);
+    let behaviour = crate::store::GeneralSettings::load().main_window_recording_start_behaviour;
+    shell_request(Request::StartRecording(behaviour), cx);
 }
 
 fn minimize_main_window(cx: &mut App) {
@@ -866,13 +1098,6 @@ fn minimize_main_window(cx: &mut App) {
         cx.update(crate::menus::schedule_dock_sync);
     })
     .detach();
-}
-
-fn hide_compact_main(cx: &mut App) {
-    let main = cx.global::<AppWindows>().main;
-    if main.read(cx).is_ok_and(|view| view.is_compact()) {
-        hide_main_and_park_camera_preview(cx);
-    }
 }
 
 fn hide_main_and_park_camera_preview(cx: &mut App) {
@@ -922,8 +1147,7 @@ pub fn request_close_main(cx: &mut App) {
         .ok();
     }
     cx.global_mut::<AppWindows>().main_closed_by_user = true;
-    hide_main_window(cx);
-    collapse_main_behind_hide(cx);
+    shell_request(Request::CloseRecorder, cx);
 
     // `state.is_recording_active_or_pending()`: everything but Idle.
     if RecordingSession::global(cx).read(cx).phase != Phase::Idle {
@@ -1089,7 +1313,7 @@ pub fn open_settings(page: Page, cx: &mut App) {
             }
         })
         .detach();
-        hide_compact_main(cx);
+        hide_main_and_park_camera_preview(cx);
         return;
     }
 
@@ -1206,7 +1430,7 @@ pub fn open_settings(page: Page, cx: &mut App) {
     })
     .detach();
 
-    hide_compact_main(cx);
+    hide_main_and_park_camera_preview(cx);
 }
 
 /// Close the settings window from our side (Cmd-W). The close button goes
@@ -1880,7 +2104,7 @@ pub fn open_editor_recording_main(editor_path: PathBuf, cx: &mut App) {
     })
     .ok();
     hide_editor_window(&key, cx);
-    show_compact_main(cx);
+    show_main_window(cx);
 }
 
 fn open_overlays_core(request: OverlayRequest, cx: &mut App) -> bool {
@@ -2775,6 +2999,7 @@ fn probe_own_window<V: 'static + gpui::Render>(
 fn own_windows(cx: &mut App) -> Vec<OwnWindowHandle> {
     let AppWindows {
         main,
+        library: _,
         controls,
         countdown: _,
         countdown_focus: _,
@@ -5242,12 +5467,7 @@ pub fn editor_closed(project_path: &Path, window_id: gpui::WindowId, cx: &mut Ap
             gpui_tokio::Tokio::spawn(cx, async move { instance.dispose_with_thumbnail().await });
         cx.spawn(async move |cx| {
             if refresh.await.unwrap_or(false) {
-                cx.update(|cx| {
-                    refresh_library_everywhere(cx);
-                    let main = cx.global::<AppWindows>().main;
-                    main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
-                        .ok();
-                });
+                cx.update(refresh_library_everywhere);
             }
         })
         .detach();
@@ -6187,9 +6407,7 @@ pub fn prepare_for_screenshot_capture(cx: &mut App) -> bool {
 
 pub fn screenshot_saved(cx: &mut App) {
     crate::tray::refresh_previous(cx);
-    let main = cx.global::<AppWindows>().main;
-    main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
-        .ok();
+    refresh_open_library(cx);
 }
 
 /// A screenshot finished (`Some` PNG path) or failed (`None`): refresh every
@@ -6379,9 +6597,7 @@ pub fn close_screenshot_editor_after_delete(bundle: &Path, cx: &mut App) {
 
 pub fn refresh_screenshot_surfaces(cx: &mut App) {
     crate::tray::refresh_previous(cx);
-    let main = cx.global::<AppWindows>().main;
-    main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
-        .ok();
+    refresh_open_library(cx);
 }
 
 /// A screenshot editor window is going away: flush its pending config write
@@ -6422,17 +6638,18 @@ fn copy_instant_recording(project: &Path, cx: &mut App) {
 }
 
 pub fn auto_library_play(spec: String, cx: &mut App) {
-    let main = cx.global::<AppWindows>().main;
-    main.update(cx, |view, window, cx| {
-        view.auto_library_play(spec, window, cx);
-    })
-    .ok();
+    show_library(cx);
+    if let Some(library) = cx.global::<AppWindows>().library {
+        library
+            .update(cx, |view, window, cx| {
+                view.auto_library_play(spec, window, cx);
+            })
+            .ok();
+    }
 }
 
 pub fn refresh_library_everywhere(cx: &mut App) {
-    let main = cx.global::<AppWindows>().main;
-    main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
-        .ok();
+    refresh_open_library(cx);
     crate::tray::refresh_previous(cx);
 }
 
@@ -7783,6 +8000,7 @@ mod countdown_hotkey_tests {
         cx.update(|cx| {
             cx.set_global(AppWindows {
                 main,
+                library: None,
                 controls: None,
                 countdown: None,
                 countdown_focus: CountdownFocus::default(),
@@ -7862,6 +8080,7 @@ mod controls_preflight_tests {
         cx.update(|cx| {
             cx.set_global(AppWindows {
                 main,
+                library: None,
                 controls: None,
                 countdown: None,
                 countdown_focus: CountdownFocus::default(),

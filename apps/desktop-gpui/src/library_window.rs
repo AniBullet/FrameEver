@@ -24,9 +24,8 @@ use gpui::{
     prelude::FluentBuilder, px, svg, transparent_black,
 };
 
-use super::{MainWindow, app_windows, surfaces::focus_ring};
 use crate::{
-    doodle,
+    app_windows, command_palette, doodle,
     i18n::t,
     library::{
         self, MediaKind,
@@ -37,7 +36,13 @@ use crate::{
         },
         watch::LibraryWatcher,
     },
+    main_window::{
+        HEADER_HEIGHT, focus_ring,
+        shell::{self, LibraryEscLayers, LibraryEscStep},
+        title_icon,
+    },
     onboarding_doodles,
+    session::{Phase, RecordingSession},
     theme::Theme,
     ui,
 };
@@ -59,6 +64,614 @@ const LIST_COLUMNS: [(Option<SortKey>, f32); 4] = [
     (Some(SortKey::Size), 74.),
     (Some(SortKey::Date), 88.),
 ];
+
+const MEMORY_SAVE_DELAY: Duration = Duration::from_millis(400);
+const TRAFFIC_LIGHTS_WIDTH: f32 = 72.;
+
+gpui::actions!(
+    library_window,
+    [
+        ShowRecorder,
+        FocusNext,
+        FocusPrevious,
+        FocusLibrarySearch,
+        LargerTiles,
+        SmallerTiles,
+        LibraryGrid,
+        LibraryList,
+        LibraryLeft,
+        LibraryRight,
+        LibraryUp,
+        LibraryDown,
+        LibraryExtendLeft,
+        LibraryExtendRight,
+        LibraryExtendUp,
+        LibraryExtendDown,
+        LibraryOpen,
+        LibraryPreview,
+        LibraryRename,
+        LibraryDelete,
+        LibraryDeleteNow,
+        LibraryUndo,
+        LibraryCopy,
+        LibrarySelectAll,
+        LibraryContextMenu,
+        DialogUp,
+        DialogDown,
+        DialogNext,
+        DialogPrevious,
+        DialogEnter,
+        DialogLeft,
+        DialogRight
+    ]
+);
+
+pub fn bind_keys(cx: &mut gpui::App) {
+    let context = Some("LibraryWindow");
+    cx.bind_keys([
+        gpui::KeyBinding::new("ctrl-l", ShowRecorder, context),
+        gpui::KeyBinding::new("ctrl-f", FocusLibrarySearch, context),
+        gpui::KeyBinding::new("ctrl-=", LargerTiles, context),
+        gpui::KeyBinding::new("ctrl--", SmallerTiles, context),
+        gpui::KeyBinding::new("ctrl-1", LibraryGrid, context),
+        gpui::KeyBinding::new("ctrl-2", LibraryList, context),
+        gpui::KeyBinding::new("tab", FocusNext, context),
+        gpui::KeyBinding::new("shift-tab", FocusPrevious, context),
+    ]);
+    let items = Some("LibraryItems");
+    cx.bind_keys([
+        gpui::KeyBinding::new("left", LibraryLeft, items),
+        gpui::KeyBinding::new("right", LibraryRight, items),
+        gpui::KeyBinding::new("up", LibraryUp, items),
+        gpui::KeyBinding::new("down", LibraryDown, items),
+        gpui::KeyBinding::new("shift-left", LibraryExtendLeft, items),
+        gpui::KeyBinding::new("shift-right", LibraryExtendRight, items),
+        gpui::KeyBinding::new("shift-up", LibraryExtendUp, items),
+        gpui::KeyBinding::new("shift-down", LibraryExtendDown, items),
+        gpui::KeyBinding::new("enter", LibraryOpen, items),
+        gpui::KeyBinding::new("space", LibraryPreview, items),
+        gpui::KeyBinding::new("f2", LibraryRename, items),
+        gpui::KeyBinding::new("delete", LibraryDelete, items),
+        gpui::KeyBinding::new("shift-delete", LibraryDeleteNow, items),
+        gpui::KeyBinding::new("ctrl-z", LibraryUndo, items),
+        gpui::KeyBinding::new("ctrl-c", LibraryCopy, items),
+        gpui::KeyBinding::new("ctrl-a", LibrarySelectAll, items),
+        gpui::KeyBinding::new("shift-f10", LibraryContextMenu, items),
+    ]);
+    let dialog = Some("LibraryDialog");
+    cx.bind_keys([
+        gpui::KeyBinding::new("up", DialogUp, dialog),
+        gpui::KeyBinding::new("down", DialogDown, dialog),
+        gpui::KeyBinding::new("left", DialogLeft, dialog),
+        gpui::KeyBinding::new("right", DialogRight, dialog),
+        gpui::KeyBinding::new("tab", DialogNext, dialog),
+        gpui::KeyBinding::new("shift-tab", DialogPrevious, dialog),
+        gpui::KeyBinding::new("enter", DialogEnter, dialog),
+    ]);
+}
+
+pub struct LibraryWindow {
+    theme: Theme,
+    library: LibraryPage,
+    shown: bool,
+    search: String,
+    search_input: Entity<ui::TextInputState>,
+    palette: command_palette::view::Slot,
+    session: Entity<RecordingSession>,
+    focus_handle: FocusHandle,
+    tracked: Option<shell::Screen>,
+    memory_save_task: Option<Task<()>>,
+    _search_events: gpui::Subscription,
+    _name_events: gpui::Subscription,
+}
+
+impl LibraryWindow {
+    pub fn new(
+        session: Entity<RecordingSession>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        crate::theme::bind_window(window, cx);
+        window.on_window_should_close(cx, |_, cx| {
+            cx.defer(app_windows::close_library);
+            false
+        });
+        cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() && this.shown {
+                this.refresh_library(window, cx);
+            }
+            cx.notify();
+        })
+        .detach();
+        cx.observe_window_bounds(window, |this, window, cx| this.track_frame(window, cx))
+            .detach();
+        cx.observe_in(&session, window, |this, session, window, cx| {
+            if session.read(cx).phase != Phase::Idle {
+                this.pause_library_preview(cx);
+                this.clear_library_scrub(cx);
+                this.close_library_overlay(window, cx);
+            }
+            cx.notify();
+        })
+        .detach();
+        let search_input = cx.new(|cx| ui::TextInputState::single_line(window, cx));
+        let search_events = cx.subscribe_in(&search_input, window, Self::on_search_event);
+        let name_input = cx.new(|cx| ui::TextInputState::single_line(window, cx));
+        let name_events = cx.subscribe(&name_input, Self::on_library_name_event);
+        Self {
+            theme: Theme::for_window(window, cx, false),
+            library: LibraryPage::new(name_input, cx.focus_handle(), cx.focus_handle()),
+            shown: false,
+            search: String::new(),
+            search_input,
+            palette: Default::default(),
+            session,
+            focus_handle: cx.focus_handle(),
+            tracked: None,
+            memory_save_task: None,
+            _search_events: search_events,
+            _name_events: name_events,
+        }
+    }
+
+    pub(crate) fn is_shown(&self) -> bool {
+        self.shown
+    }
+
+    pub(crate) fn refresh_open_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.shown {
+            self.refresh_library(window, cx);
+        }
+        cx.notify();
+    }
+
+    fn track_frame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.shown || window.is_fullscreen() {
+            return;
+        }
+        let Some(screen) = crate::platform::native_window(window)
+            .and_then(|native| crate::platform::shell_window_screen(&native))
+        else {
+            return;
+        };
+        if self.tracked.replace(screen) == Some(screen) {
+            return;
+        }
+        self.memory_save_task = Some(cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(MEMORY_SAVE_DELAY).await;
+            cx.background_spawn(async move {
+                crate::store::update(|state| {
+                    shell::remember_library(&mut state.main_window, screen);
+                });
+            })
+            .await;
+        }));
+    }
+
+    fn on_search_event(
+        &mut self,
+        input: &Entity<ui::TextInputState>,
+        event: &ui::TextInputEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            ui::TextInputEvent::Changed => {
+                self.search = input.read(cx).text().to_string();
+                self.rebuild_library(cx);
+                cx.notify();
+            }
+            ui::TextInputEvent::Cancelled => {
+                self.dismiss(true, window, cx);
+            }
+            _ => {}
+        }
+    }
+
+    fn clear_search(&mut self, cx: &mut Context<Self>) {
+        self.search.clear();
+        self.search_input
+            .update(cx, |input, cx| input.set_text("", cx));
+        self.rebuild_library(cx);
+        cx.notify();
+    }
+
+    fn render_import_card(
+        &self,
+        index: usize,
+        entry: &crate::import::ImportProgress,
+    ) -> impl IntoElement {
+        let theme = self.theme;
+        let converting = entry.stage == crate::import::ImportStage::Converting;
+        let ring = {
+            let ring = ui::CircularProgress::new(
+                px(36.),
+                px(3.),
+                gpui::Hsla::from(theme.secondary_hover),
+                theme.primary.into(),
+            );
+            if converting {
+                ring.progress(entry.progress as f32)
+                    .label(theme.foreground.into(), px(9.))
+            } else {
+                ring.indeterminate()
+            }
+        };
+
+        div()
+            .id(("library-importing", index))
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .overflow_hidden()
+            .rounded(px(8.))
+            .bg(theme.body_fill(3))
+            .child(
+                div()
+                    .relative()
+                    .w_full()
+                    .h(px(76.))
+                    .rounded_t(px(8.))
+                    .overflow_hidden()
+                    .bg(theme.body_fill(4))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(ring)
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(4.))
+                            .top(px(4.))
+                            .rounded_full()
+                            .bg(black_alpha(0.55))
+                            .px(px(6.))
+                            .py(px(2.))
+                            .text_size(px(10.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(gpui::white())
+                            .child(t!("Importing")),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w_full()
+                    .min_w_0()
+                    .px(px(8.))
+                    .py(px(6.))
+                    .pb(px(10.))
+                    .text_size(px(11.))
+                    .child(
+                        div()
+                            .w_full()
+                            .truncate()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme.foreground)
+                            .child(entry.pretty_name.clone()),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .truncate()
+                            .text_color(theme.muted_foreground)
+                            .child(entry.message.clone()),
+                    ),
+            )
+    }
+
+    fn save_screenshot(
+        &mut self,
+        src: std::path::PathBuf,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn_in(window, async move |this, cx| {
+            let dest =
+                crate::platform::save_file_panel_async(&format!("{name}.png"), &["png"], cx).await;
+            if this.update_in(cx, |_, _, _| ()).is_err() {
+                return;
+            }
+            let Some(dest) = dest else {
+                return;
+            };
+            if let Err(error) = library::copy_file_to_path(&src, &dest) {
+                tracing::error!("saving screenshot failed: {error}");
+            }
+        })
+        .detach();
+    }
+
+    fn dismiss(
+        &mut self,
+        search_focused: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let layers = LibraryEscLayers {
+            dialog: self.library.dialog_open(),
+            whole_screen: self.library_full_screen(),
+            preview: self.library_overlay_open(),
+            menu: self.library.menu_open(),
+            search_text: !self.search.is_empty(),
+            search_focused,
+            selection: self.library.has_selection(),
+        };
+        let Some(step) = shell::library_escape(layers) else {
+            return false;
+        };
+        match step {
+            LibraryEscStep::CloseDialog => self.dismiss_library_dialog(cx),
+            LibraryEscStep::LeaveWholeScreen => self.toggle_library_full_screen(window, cx),
+            LibraryEscStep::ClosePreview => {
+                self.close_library_overlay(window, cx);
+            }
+            LibraryEscStep::CloseMenu => self.close_library_menu(cx),
+            LibraryEscStep::ClearSearch => self.clear_search(cx),
+            LibraryEscStep::BlurSearch => self.focus_after_search(window, cx),
+            LibraryEscStep::ClearSelection => self.clear_library_selection(cx),
+        }
+        true
+    }
+
+    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.library.dialog_open() {
+            return;
+        }
+        let mut slot = std::mem::take(&mut self.palette);
+        command_palette::view::toggle(
+            &mut slot,
+            command_palette::Surface::Library,
+            Self::on_palette_event,
+            window,
+            cx,
+        );
+        self.palette = slot;
+    }
+
+    fn on_palette_event(
+        &mut self,
+        palette: &Entity<command_palette::view::CommandPalette>,
+        event: &command_palette::view::PaletteEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use command_palette::{Command, view};
+        self.palette.close(window, cx);
+        cx.notify();
+        let view::PaletteEvent::Chosen(outcome) = event else {
+            return;
+        };
+        match view::act(palette, outcome, cx) {
+            Some(Command::StartRecording) => cx.defer(app_windows::start_recording_from_library),
+            Some(Command::ShowRecordingWindow) => cx.defer(app_windows::show_recorder_from_library),
+            Some(Command::ExportSelection) => self.export_library_selection(window, cx),
+            Some(Command::GridView) => self.show_library_as(ViewMode::Grid, cx),
+            Some(Command::ListView) => self.show_library_as(ViewMode::List, cx),
+            Some(Command::RefreshLibrary) => self.refresh_library(window, cx),
+            _ => {}
+        }
+    }
+
+    fn render_header(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let settings = title_icon(theme, "settings", "icons/settings.svg", t!("Settings"))
+            .on_click(cx.listener(|_, _, _, cx| {
+                cx.defer(|cx: &mut gpui::App| {
+                    app_windows::open_settings(crate::settings_window::last_page(), cx)
+                });
+            }));
+        div()
+            .when(cfg!(target_os = "windows"), |header| {
+                header.window_control_area(gpui::WindowControlArea::Drag)
+            })
+            .flex()
+            .flex_row()
+            .items_center()
+            .w_full()
+            .h(px(HEADER_HEIGHT))
+            .flex_shrink_0()
+            .bg(theme.header_bg())
+            .border_b_1()
+            .border_color(theme.header_border())
+            .when(cfg!(target_os = "macos"), |header| {
+                header.child(div().w(px(TRAFFIC_LIGHTS_WIDTH)).flex_shrink_0())
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .h_full()
+                    .min_w_0()
+                    .items_center()
+                    .gap(px(4.))
+                    .pl(px(10.))
+                    .pr(px(4.))
+                    .child(crate::logo::app_icon(16.))
+                    .child(
+                        div()
+                            .pl(px(4.))
+                            .text_size(px(12.))
+                            .text_color(theme.foreground)
+                            .child(t!("Library")),
+                    )
+                    .child(div().flex_1().min_w_0())
+                    .child(settings),
+            )
+            .when(cfg!(target_os = "windows"), |header| {
+                header.child(ui::windows_caption_controls(
+                    theme,
+                    window.is_window_active(),
+                    window.is_maximized(),
+                    true,
+                    true,
+                ))
+            })
+    }
+}
+
+impl gpui::Render for LibraryWindow {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.theme.refresh(window, cx, false);
+        let theme = self.theme;
+        if self.shown {
+            self.sync_library_layout(window, cx);
+        }
+        if window.focused(cx).is_none() {
+            cx.defer_in(window, |this, window, cx| {
+                let focus = if this.library_overlay_open() {
+                    this.library.overlay_focus().clone()
+                } else {
+                    this.library.items_focus().clone()
+                };
+                window.focus(&focus, cx);
+            });
+        }
+        let body = if self.library_overlay_covers_page() {
+            div().flex_1().into_any_element()
+        } else {
+            self.render_library_page(cx).into_any_element()
+        };
+
+        div()
+            .track_focus(&self.focus_handle)
+            .key_context("LibraryWindow")
+            .on_action(
+                cx.listener(|this, _: &command_palette::view::Toggle, window, cx| {
+                    this.toggle_palette(window, cx);
+                }),
+            )
+            .on_action(cx.listener(|_, _: &ShowRecorder, _, cx| {
+                cx.defer(app_windows::show_recorder_from_library);
+            }))
+            .on_action(cx.listener(|this, _: &FocusLibrarySearch, window, cx| {
+                this.focus_library_search(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LargerTiles, _, cx| {
+                this.step_library_tiles(1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SmallerTiles, _, cx| {
+                this.step_library_tiles(-1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryGrid, _, cx| {
+                this.show_library_as(ViewMode::Grid, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryList, _, cx| {
+                this.show_library_as(ViewMode::List, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryLeft, _, cx| {
+                this.step_library(Step::Left, false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryRight, _, cx| {
+                this.step_library(Step::Right, false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryUp, _, cx| {
+                this.step_library(Step::Up, false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryDown, _, cx| {
+                this.step_library(Step::Down, false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryExtendLeft, _, cx| {
+                this.step_library(Step::Left, true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryExtendRight, _, cx| {
+                this.step_library(Step::Right, true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryExtendUp, _, cx| {
+                this.step_library(Step::Up, true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryExtendDown, _, cx| {
+                this.step_library(Step::Down, true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryOpen, window, cx| {
+                this.enter_library(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryPreview, window, cx| {
+                this.preview_library_lead(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryRename, window, cx| {
+                this.rename_library_selection(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryDelete, window, cx| {
+                this.delete_library_selection(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryDeleteNow, window, cx| {
+                this.delete_library_now(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryUndo, window, cx| {
+                this.undo_library_delete(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogUp, _, cx| {
+                this.step_library_dialog(false, cx);
+                this.step_library_gif(false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogDown, _, cx| {
+                this.step_library_dialog(true, cx);
+                this.step_library_gif(true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogLeft, _, cx| {
+                this.step_library_gif(false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogRight, _, cx| {
+                this.step_library_gif(true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogNext, _, cx| {
+                this.tab_library_dialog(true, cx);
+                this.tab_library_gif(true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogPrevious, _, cx| {
+                this.tab_library_dialog(false, cx);
+                this.tab_library_gif(false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &DialogEnter, window, cx| {
+                this.enter_library_delete(window, cx);
+                this.enter_library_gif(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryCopy, _, cx| {
+                this.copy_library_file(cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibrarySelectAll, _, cx| {
+                this.select_all_library(cx);
+            }))
+            .on_action(cx.listener(|this, _: &LibraryContextMenu, window, cx| {
+                this.open_library_menu_from_keys(window, cx);
+            }))
+            .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
+            .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
+            .size_full()
+            .relative()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .bg(theme.shell_bg())
+            .font_family(crate::theme::ui_font())
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme.foreground)
+            .child(self.render_header(window, cx))
+            .child(body)
+            .children(self.render_library_overlay(window, cx))
+            .when(self.library.slider_dragging, |this| {
+                this.child(self.render_library_slider_layer(cx))
+            })
+            .when(self.library_preview_dragging(), |this| {
+                this.child(self.render_library_preview_layer(cx))
+            })
+            .children(self.render_library_marquee(cx))
+            .children(self.render_library_undo(cx))
+            .children(self.render_library_gif_toast())
+            .children(self.render_library_dialog(cx))
+            .children(self.render_library_gif(cx))
+            .children(self.palette.view())
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key == "escape" && this.dismiss(false, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LibraryMenu {
@@ -134,7 +747,6 @@ pub(super) struct LibraryPage {
     fresh: Vec<PathBuf>,
     fresh_shown_at: Instant,
     fresh_task: Option<Task<()>>,
-    pub(super) unseen: Vec<PathBuf>,
     first_line: bool,
     selection: Selection,
     order: Vec<PathBuf>,
@@ -185,7 +797,6 @@ impl LibraryPage {
             fresh: Vec::new(),
             fresh_shown_at: Instant::now(),
             fresh_task: None,
-            unseen: Vec::new(),
             first_line: false,
             selection: Selection::default(),
             order: Vec::new(),
@@ -386,7 +997,7 @@ fn import_wanted(tab: Tab, kind: crate::import::ImportKind) -> bool {
     }
 }
 
-impl MainWindow {
+impl LibraryWindow {
     pub(super) fn refresh_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let active = crate::session::RecordingSession::active_project_dir_in(cx);
         self.library.scan_task = Some(cx.spawn_in(window, async move |this, cx| {
@@ -431,7 +1042,7 @@ impl MainWindow {
                 tracing::warn!(path = %path.display(), "the recent project is no longer in the library");
             }
         }
-        if self.shell.shows_library() && dirs != self.library.watched {
+        if self.shown && dirs != self.library.watched {
             self.watch_library(dirs, window, cx);
         }
     }
@@ -561,10 +1172,8 @@ impl MainWindow {
     }
 
     pub(super) fn show_library_as(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
-        if self.shell.shows_library() {
-            self.change_library_view(cx, |state| state.view = mode);
-            self.library.reveal_lead = true;
-        }
+        self.change_library_view(cx, |state| state.view = mode);
+        self.library.reveal_lead = true;
     }
 
     pub(super) fn step_library(&mut self, step: Step, extend: bool, cx: &mut Context<Self>) {
@@ -620,19 +1229,9 @@ impl MainWindow {
         open_entry(entry, cx);
     }
 
-    pub(super) fn focus_after_search(&self, cx: &mut Context<Self>) {
-        let main = cx.global::<app_windows::AppWindows>().main;
-        let in_library = self.shell.shows_library();
-        cx.defer(move |cx| {
-            main.update(cx, |this, window, cx| {
-                let focus = if in_library {
-                    &this.library.items_focus
-                } else {
-                    &this.focus_handle
-                };
-                window.focus(focus, cx);
-            })
-            .ok();
+    fn focus_after_search(&self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.defer_in(window, |this, window, cx| {
+            window.focus(&this.library.items_focus, cx);
         });
     }
 
@@ -761,16 +1360,28 @@ impl MainWindow {
         )
     }
 
-    pub(super) fn open_library_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_library_page(
+        &mut self,
+        unseen: Vec<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.shown = true;
         window.focus(&self.library.items_focus, cx);
-        let unseen = std::mem::take(&mut self.library.unseen);
         if !unseen.is_empty() {
             self.show_fresh(unseen, window, cx);
         }
         self.refresh_library(window, cx);
     }
 
-    pub(super) fn close_library_page(&mut self, window: &mut Window) {
+    pub(crate) fn close_library_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_library_overlay(window, cx);
+        if self.library.dialog_open() {
+            self.dismiss_library_dialog(cx);
+        }
+        self.shown = false;
+        self.palette.close(window, cx);
+        self.clear_search(cx);
         let page = &mut self.library;
         page.entries = None;
         page.scan_task = None;
@@ -813,13 +1424,8 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.shell.shows_library() {
-            self.show_fresh(vec![project], window, cx);
-            self.refresh_library(window, cx);
-        } else {
-            self.library.unseen.push(project);
-            cx.notify();
-        }
+        self.show_fresh(vec![project], window, cx);
+        self.refresh_library(window, cx);
     }
 
     pub(crate) fn select_library_project(
@@ -879,14 +1485,12 @@ impl MainWindow {
     }
 
     pub(super) fn step_library_tiles(&mut self, steps: i32, cx: &mut Context<Self>) {
-        if self.shell.shows_library() {
-            let size = self.library.state.tile_size + steps as f32 * view::TILE_STEP;
-            self.resize_library_tiles(size, cx);
-        }
+        let size = self.library.state.tile_size + steps as f32 * view::TILE_STEP;
+        self.resize_library_tiles(size, cx);
     }
 
     pub(super) fn focus_library_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.shell.shows_library() && !self.library_overlay_open() {
+        if !self.library_overlay_open() {
             let focus = self.search_input.read(cx).focus_handle();
             window.focus(&focus, cx);
         }
@@ -1027,14 +1631,9 @@ impl MainWindow {
 
     pub(super) fn render_library_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let (opacity, slide) = self
-            .shell
-            .library_fade(self.transition_started.elapsed(), cx.reduce_motion());
 
         div()
             .relative()
-            .left(px(slide))
-            .opacity(opacity)
             .flex()
             .flex_col()
             .flex_1()
@@ -1732,9 +2331,8 @@ impl MainWindow {
                 .bg(theme.primary)
                 .text_color(theme.primary_foreground)
                 .hover(move |style| style.bg(theme.primary_hover))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.collapse_library(window, cx);
-                    this.start_from_chosen_target(cx);
+                .on_click(cx.listener(|_, _, _, cx| {
+                    cx.defer(app_windows::start_recording_from_library);
                 })),
         )
     }
@@ -2229,7 +2827,13 @@ impl MainWindow {
     }
 }
 
-pub(super) fn library_badge(theme: &Theme, count: usize) -> impl IntoElement {
+fn black_alpha(alpha: f32) -> gpui::Hsla {
+    let mut color = gpui::black();
+    color.a = alpha;
+    color
+}
+
+pub(crate) fn library_badge(theme: &Theme, count: usize) -> impl IntoElement {
     div()
         .flex()
         .items_center()

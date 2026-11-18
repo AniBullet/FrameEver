@@ -455,7 +455,7 @@ const renderDetail = (id) => {
 
 const renderLibrary = () => {
 	const [screen, lab] = DEMO.library(s.phase);
-	return `${heading("Everything lands in the library", "录好的都在资源库", "Press Ctrl+L or click Library and the main window expands in place. Collapse it to record again.", "按 Ctrl+L 或点“资源库”，主窗口会原地展开；收回去就能接着录。")}
+	return `${heading("Everything lands in the library", "录好的都在资源库", "Press Ctrl+L or click Library and the library opens in its own window. The recording window stays where it is.", "按 Ctrl+L 或点“资源库”，资源库会开成自己的窗口；录制窗口留在原处。")}
 	<div class="paper demo-card wide" id="demo">${screen}${lab}</div>
 	<div class="keys"><div><span class="kbd">Space</span>${L("Preview", "预览")}</div><div><span class="kbd">Ctrl+K</span>${L("Find any command", "查找任何命令")}</div><div><span class="kbd">${pick("Drag", "拖动")}</span>${L("Drop the file into any app", "把文件拖进任意应用")}</div></div>`;
 };

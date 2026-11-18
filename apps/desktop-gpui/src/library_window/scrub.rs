@@ -6,7 +6,7 @@ use std::{
 
 use gpui::{AsyncWindowContext, Bounds, Context, Pixels, RenderImage, Task, WeakEntity, Window};
 
-use super::{MainWindow, TILE_PADDING};
+use super::{LibraryWindow, TILE_PADDING};
 use crate::library::{
     MediaKind,
     player::{
@@ -57,7 +57,7 @@ fn thumb_fraction(x: Pixels, tile: Bounds<Pixels>) -> f32 {
     (f32::from(x - tile.origin.x) - inset) / width
 }
 
-impl MainWindow {
+impl LibraryWindow {
     pub(super) fn scrub_library_tile(
         &mut self,
         path: &Path,
@@ -109,7 +109,7 @@ impl MainWindow {
     }
 
     fn start_library_strip(&mut self, key: StripKey, window: &mut Window, cx: &mut Context<Self>) {
-        if self.session.read(cx).phase != crate::main_window::Phase::Idle {
+        if self.session.read(cx).phase != crate::session::Phase::Idle {
             return;
         }
         let page = &mut self.library;
@@ -178,7 +178,7 @@ impl MainWindow {
         }
     }
 
-    pub(in crate::main_window) fn clear_library_scrub(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn clear_library_scrub(&mut self, cx: &mut Context<Self>) {
         let scrub = &mut self.library.scrub;
         scrub.stop_job();
         if scrub.hover.take().is_some() {
@@ -212,7 +212,7 @@ impl MainWindow {
 }
 
 pub(super) async fn sweep_library_tile(
-    this: WeakEntity<MainWindow>,
+    this: WeakEntity<LibraryWindow>,
     path: PathBuf,
     seconds: f64,
     cx: &mut AsyncWindowContext,

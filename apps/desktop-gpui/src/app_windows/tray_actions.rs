@@ -38,13 +38,7 @@ pub(crate) fn camera_capture_ready(
 }
 
 pub(crate) fn tray_open_library_item(path: PathBuf, cx: &mut App) {
-    let main = cx.global::<AppWindows>().main;
-    if let Err(error) = main.update(cx, |view, window, cx| {
-        view.select_library_project(path, window, cx);
-    }) {
-        tracing::error!("could not select the recent project in the library: {error}");
-    }
-    show_library(cx);
+    open_library(Some(path), cx);
     cx.activate(true);
 }
 

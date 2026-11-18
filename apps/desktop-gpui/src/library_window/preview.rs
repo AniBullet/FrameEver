@@ -10,7 +10,7 @@ use gpui::{
     Window, div, img, prelude::FluentBuilder, px, svg,
 };
 
-use super::{DETAIL_WIDTH, MainWindow, focus_ring, t, ui, view};
+use super::{DETAIL_WIDTH, LibraryWindow, focus_ring, t, ui, view};
 use crate::library::{
     MediaKind,
     player::{self, Event, PlayError, Player, Start},
@@ -158,7 +158,7 @@ impl PreviewState {
     }
 }
 
-impl MainWindow {
+impl LibraryWindow {
     fn open_library_preview(
         &mut self,
         entry: &Entry,
@@ -271,7 +271,7 @@ impl MainWindow {
         cx.notify();
     }
 
-    pub(in crate::main_window) fn pause_library_preview(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn pause_library_preview(&mut self, cx: &mut Context<Self>) {
         self.library.detail.preview.pause();
         cx.notify();
     }
@@ -377,7 +377,6 @@ impl MainWindow {
     }
 
     pub fn auto_library_play(&mut self, spec: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.expand_library(window, cx);
         let mut parts = spec.splitn(3, ':');
         let seconds = parts.next().and_then(|s| s.parse().ok()).unwrap_or(5.);
         let name = parts.next().unwrap_or_default().to_string();
@@ -748,11 +747,11 @@ impl MainWindow {
             })
     }
 
-    pub(in crate::main_window) fn library_preview_dragging(&self) -> bool {
+    pub(super) fn library_preview_dragging(&self) -> bool {
         self.library.detail.preview.dragging()
     }
 
-    pub(in crate::main_window) fn render_library_preview_layer(
+    pub(super) fn render_library_preview_layer(
         &self,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {

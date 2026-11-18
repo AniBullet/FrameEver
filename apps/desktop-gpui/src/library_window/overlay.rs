@@ -10,10 +10,9 @@ use gpui::{
     Styled, Task, Window, div, point, prelude::FluentBuilder, px, size,
 };
 
-use super::{MainWindow, kind_label, t, view};
+use super::{HEADER_HEIGHT, LibraryWindow, kind_label, t, view};
 use crate::{
     library::{self, MediaKind, view::Entry},
-    main_window::HEADER_HEIGHT,
     theme::motion,
 };
 
@@ -205,37 +204,33 @@ impl Overlay {
     }
 }
 
-impl MainWindow {
-    pub(in crate::main_window) fn library_overlay_covers_page(&self) -> bool {
+impl LibraryWindow {
+    pub(super) fn library_overlay_covers_page(&self) -> bool {
         self.library
             .overlay
             .as_ref()
             .is_some_and(|overlay| overlay.covers_page(Instant::now()))
     }
 
-    pub(in crate::main_window) fn library_overlay_open(&self) -> bool {
+    pub(super) fn library_overlay_open(&self) -> bool {
         self.library.overlay.as_ref().is_some_and(Overlay::is_open)
     }
 
-    pub(in crate::main_window) fn library_actual_size(&self) -> bool {
+    pub(super) fn library_actual_size(&self) -> bool {
         self.library
             .overlay
             .as_ref()
             .is_some_and(|overlay| overlay.is_open() && overlay.actual_size)
     }
 
-    pub(in crate::main_window) fn library_full_screen(&self) -> bool {
+    pub(super) fn library_full_screen(&self) -> bool {
         self.library
             .overlay
             .as_ref()
             .is_some_and(Overlay::is_full_screen)
     }
 
-    pub(in crate::main_window) fn preview_library_lead(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn preview_library_lead(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.library.context.is_some() {
             self.close_library_menu(cx);
         }
@@ -342,7 +337,7 @@ impl MainWindow {
         }
     }
 
-    pub(in crate::main_window) fn close_library_overlay(
+    pub(super) fn close_library_overlay(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -364,7 +359,7 @@ impl MainWindow {
         was_full_screen
     }
 
-    pub(in crate::main_window) fn toggle_library_full_screen(
+    pub(super) fn toggle_library_full_screen(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -680,7 +675,7 @@ impl MainWindow {
             )
     }
 
-    pub(in crate::main_window) fn render_library_overlay(
+    pub(super) fn render_library_overlay(
         &self,
         window: &Window,
         cx: &mut Context<Self>,

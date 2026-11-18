@@ -55,7 +55,7 @@ pub enum Command {
     StartRecording,
     TakeScreenshot,
     ShowLibrary,
-    BackToRecording,
+    ShowRecordingWindow,
     ExportSelection,
     GridView,
     ListView,
@@ -79,7 +79,7 @@ impl Command {
         Command::StartRecording,
         Command::TakeScreenshot,
         Command::ShowLibrary,
-        Command::BackToRecording,
+        Command::ShowRecordingWindow,
         Command::ExportSelection,
         Command::GridView,
         Command::ListView,
@@ -109,7 +109,7 @@ impl Command {
             Command::StartRecording => n!("Start recording"),
             Command::TakeScreenshot => n!("Take screenshot"),
             Command::ShowLibrary => n!("Show library"),
-            Command::BackToRecording => n!("Back to recording"),
+            Command::ShowRecordingWindow => n!("Show recording window"),
             Command::ExportSelection | Command::ExportProject => n!("Export…"),
             Command::GridView => n!("Grid view"),
             Command::ListView => n!("List view"),
@@ -133,7 +133,7 @@ impl Command {
             Command::StartRecording => "icons/circle.svg",
             Command::TakeScreenshot => "icons/image.svg",
             Command::ShowLibrary => "icons/chevron-right.svg",
-            Command::BackToRecording => "icons/chevron-left.svg",
+            Command::ShowRecordingWindow => "icons/circle.svg",
             Command::ExportSelection | Command::ExportProject => "icons/download.svg",
             Command::GridView => "icons/layout-grid.svg",
             Command::ListView => "icons/list.svg",
@@ -154,7 +154,7 @@ impl Command {
 
     pub fn keys(self) -> &'static [&'static str] {
         match self {
-            Command::ShowLibrary | Command::BackToRecording => &["Ctrl", "L"],
+            Command::ShowLibrary | Command::ShowRecordingWindow => &["Ctrl", "L"],
             Command::GridView => &["Ctrl", "1"],
             Command::ListView => &["Ctrl", "2"],
             Command::PlayPause => &["Space"],
@@ -175,7 +175,7 @@ impl Command {
                 matches!(surface, Recorder | Library)
             }
             Command::ShowLibrary => surface != Library,
-            Command::BackToRecording
+            Command::ShowRecordingWindow
             | Command::ExportSelection
             | Command::GridView
             | Command::ListView
@@ -759,7 +759,7 @@ mod tests {
         assert!(has(Surface::Recorder, Command::ShowLibrary));
         assert!(!has(Surface::Recorder, Command::GridView));
         assert!(has(Surface::Library, Command::GridView));
-        assert!(has(Surface::Library, Command::BackToRecording));
+        assert!(has(Surface::Library, Command::ShowRecordingWindow));
         assert!(!has(Surface::Library, Command::ShowLibrary));
         assert!(has(Surface::Editor, Command::ExportProject));
         assert!(!has(Surface::Editor, Command::StartRecording));

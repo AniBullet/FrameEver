@@ -257,7 +257,7 @@ fn apply_progress(update: ImportProgress, cx: &mut App) {
         }
     }
 
-    repaint_main_window(cx);
+    repaint_library_window(cx);
 }
 
 fn refresh_libraries(cx: &mut App) {
@@ -265,23 +265,20 @@ fn refresh_libraries(cx: &mut App) {
         return;
     }
     crate::app_windows::refresh_library_everywhere(cx);
-    let main = cx.global::<crate::app_windows::AppWindows>().main;
-    main.update(cx, |view, window, cx| view.refresh_open_library(window, cx))
-        .ok();
 }
 
-/// The main window is rarely the active window while an import ticks, and an
-/// inactive window only repaints when asked (the `refresh_recents` rule).
-fn repaint_main_window(cx: &mut App) {
+fn repaint_library_window(cx: &mut App) {
     if !cx.has_global::<crate::app_windows::AppWindows>() {
         return;
     }
-    let main = cx.global::<crate::app_windows::AppWindows>().main;
-    main.update(cx, |_, window, cx| {
-        cx.notify();
-        window.refresh();
-    })
-    .ok();
+    if let Some(library) = cx.global::<crate::app_windows::AppWindows>().library {
+        library
+            .update(cx, |_, window, cx| {
+                cx.notify();
+                window.refresh();
+            })
+            .ok();
+    }
 }
 
 // ---------------------------------------------------------------------------

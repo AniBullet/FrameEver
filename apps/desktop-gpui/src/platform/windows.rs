@@ -133,10 +133,13 @@ pub fn install_main_window_frame_policy(native: &NativeWindow) -> std::io::Resul
 
 pub use file_drag::drag_files_out;
 pub use main_frame::{
-    install as install_main_window_limits, launch_screen as main_window_launch_screen,
-    place as place_main_window, restore_minimized as restore_minimized_main_window,
-    screen as main_window_screen,
+    install as install_main_window_limits, launch_screen as shell_launch_screen,
+    place as place_shell_window, screen as shell_window_screen,
 };
+
+pub fn allow_as_capture_target(native: &NativeWindow) {
+    scap_targets::platform::allow_own_window(native.0);
+}
 
 pub fn follow_system_reduce_motion(cx: &mut gpui::App) {
     reduce_motion::follow(cx);
