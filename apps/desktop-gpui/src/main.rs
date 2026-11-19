@@ -291,6 +291,8 @@ fn app_runtime() -> tokio::runtime::Runtime {
 }
 
 fn main() {
+    frameever_enc_ffmpeg::isolated_self_test::run_child_or_register_host();
+
     let _log_guard = init_logging();
     crash_capture::install(&diagnostics::logs_dir());
 

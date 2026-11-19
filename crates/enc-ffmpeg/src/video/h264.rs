@@ -15,6 +15,7 @@ use crate::base::{EncoderBase, PacketSink};
 use crate::video::force_software_encoder;
 use crate::video::h264_packet::H264PacketEncoder;
 use crate::video::hardware_crash::{self, HardwareEncoderSession};
+use crate::video::isolated_self_test;
 #[cfg(target_os = "macos")]
 use crate::video::videotoolbox_hw::VideoToolboxHwFrames;
 use std::sync::Arc;
@@ -172,6 +173,16 @@ impl H264EncoderBuilder {
 
         for (codec, encoder_options) in candidates {
             let codec_name = codec.name().to_string();
+
+            if let Some(reason) = unsupported_frame_size(&codec_name, output_width, output_height) {
+                info!(
+                    encoder = %codec_name,
+                    %reason,
+                    "Skipping hardware H264 encoder that cannot take this frame size"
+                );
+                last_error = Some(H264EncoderError::SelfTest(reason));
+                continue;
+            }
 
             let hardware_session =
                 is_hardware_h264(&codec_name).then(|| HardwareEncoderSession::begin(&codec_name));
@@ -511,6 +522,16 @@ impl H264EncoderBuilder {
 
         for (codec, encoder_options) in candidates {
             let codec_name = codec.name().to_string();
+
+            if let Some(reason) = unsupported_frame_size(&codec_name, output_width, output_height) {
+                info!(
+                    encoder = %codec_name,
+                    %reason,
+                    "Skipping hardware H264 encoder that cannot take this frame size"
+                );
+                last_error = Some(H264EncoderError::SelfTest(reason));
+                continue;
+            }
 
             let hardware_session =
                 is_hardware_h264(&codec_name).then(|| HardwareEncoderSession::begin(&codec_name));
@@ -1289,7 +1310,30 @@ fn get_encoder_priority_with_override(
         return &["libx264"];
     }
 
+    #[cfg(debug_assertions)]
+    if let Some(order) = debug_encoder_order() {
+        return order;
+    }
+
     override_priority.unwrap_or_else(|| get_default_encoder_priority(config))
+}
+
+#[cfg(debug_assertions)]
+fn debug_encoder_order() -> Option<&'static [&'static str]> {
+    use std::sync::OnceLock;
+    static ORDER: OnceLock<Option<Vec<&'static str>>> = OnceLock::new();
+    ORDER
+        .get_or_init(|| {
+            let raw = std::env::var("FRAMEEVER_DEBUG_H264_ENCODER_ORDER").ok()?;
+            let order: Vec<&'static str> = raw
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(|name| &*Box::leak(name.to_owned().into_boxed_str()))
+                .collect();
+            (!order.is_empty()).then_some(order)
+        })
+        .as_deref()
 }
 
 fn export_encoder_priority_override(
@@ -1532,21 +1576,38 @@ fn cached_hardware_self_test(
     }
 
     let started = std::time::Instant::now();
-    let result = hardware_encoder_self_test(
-        codec,
-        clone_options(encoder_options),
-        input_config,
-        output_width,
-        output_height,
-        bpp,
-        crf,
-    );
+    let isolated = self_test_runs_isolated(codec.name())
+        .then(|| {
+            isolated_self_test::run(&isolated_self_test::Request::new(
+                codec.name(),
+                encoder_options,
+                input_config,
+                output_width,
+                output_height,
+                bpp,
+                crf,
+            ))
+        })
+        .flatten();
+    let is_isolated = isolated.is_some();
+    let result = isolated.unwrap_or_else(|| {
+        hardware_encoder_self_test(
+            codec,
+            clone_options(encoder_options),
+            input_config,
+            output_width,
+            output_height,
+            bpp,
+            crf,
+        )
+    });
     debug!(
         encoder = %codec.name(),
         width = output_width,
         height = output_height,
         elapsed_ms = started.elapsed().as_millis(),
         ok = result.is_ok(),
+        isolated = is_isolated,
         "Hardware H264 encoder self-test finished"
     );
     cache
@@ -1554,6 +1615,31 @@ fn cached_hardware_self_test(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(key, result.clone());
     result
+}
+
+fn self_test_runs_isolated(codec_name: &str) -> bool {
+    cfg!(target_os = "windows") && codec_name == "h264_mf"
+}
+
+fn unsupported_frame_size(codec_name: &str, width: u32, height: u32) -> Option<String> {
+    if codec_name != "h264_mf" {
+        return None;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::sync::OnceLock;
+        static FIRST_TRANSFORM: OnceLock<Option<String>> = OnceLock::new();
+        let name = FIRST_TRANSFORM
+            .get_or_init(frameever_enc_mediafoundation::mft::first_hardware_h264_encoder_name)
+            .as_deref()?;
+        if frameever_media_info::is_intel_h264_mft(name)
+            && !frameever_media_info::intel_h264_mft_accepts_frame_size(width, height)
+        {
+            return Some(format!("{name} does not take {width}x{height} frames"));
+        }
+    }
+    let _ = (width, height);
+    None
 }
 
 fn clone_options(options: &Dictionary<'static>) -> Dictionary<'static> {
@@ -1564,7 +1650,7 @@ fn clone_options(options: &Dictionary<'static>) -> Dictionary<'static> {
     copy
 }
 
-fn hardware_encoder_self_test(
+pub(crate) fn hardware_encoder_self_test(
     codec: Codec,
     encoder_options: Dictionary<'static>,
     input_config: &VideoInfo,
@@ -1573,6 +1659,9 @@ fn hardware_encoder_self_test(
     bpp: f32,
     crf: Option<u8>,
 ) -> Result<(), String> {
+    #[cfg(debug_assertions)]
+    isolated_self_test::inject_fault(codec.name())?;
+
     // A throwaway encoder with production settings; frames are built directly
     // in the negotiated output format, so no converter is needed.
     let opened = open_video_encoder_inner(
@@ -1886,6 +1975,103 @@ mod self_test_tests {
                 return;
             };
             assert_eq!(options.get("preset"), Some("p4"), "export {is_export}");
+        }
+    }
+
+    #[test]
+    fn only_media_foundation_self_tests_in_a_child_process() {
+        assert_eq!(
+            self_test_runs_isolated("h264_mf"),
+            cfg!(target_os = "windows")
+        );
+        for name in [
+            "h264_nvenc",
+            "h264_amf",
+            "h264_qsv",
+            "h264_videotoolbox",
+            "libx264",
+        ] {
+            assert!(!self_test_runs_isolated(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn only_media_foundation_is_skipped_for_its_frame_size() {
+        for name in ["h264_nvenc", "h264_amf", "h264_qsv", "libx264"] {
+            assert_eq!(unsupported_frame_size(name, 1438, 812), None, "{name}");
+        }
+        if !cfg!(target_os = "windows") {
+            assert_eq!(unsupported_frame_size("h264_mf", 1438, 812), None);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn odd_sizes_encode_and_a_faulting_media_foundation_self_test_falls_back_to_libx264() {
+        crate::video::isolated_self_test::tests::register_test_host();
+        for (width, height) in [(1438, 812), (1366, 768), (1448, 814)] {
+            let config = VideoInfo {
+                pixel_format: format::Pixel::NV12,
+                width,
+                height,
+                time_base: ffmpeg::Rational(1, 1_000_000),
+                frame_rate: ffmpeg::Rational(30, 1),
+            };
+            let mut encoder = H264EncoderBuilder::new(config)
+                .with_encoder_priority_override(&["h264_mf", "libx264"])
+                .build_standalone()
+                .unwrap_or_else(|e| panic!("{width}x{height}: {e}"));
+            let faulted = std::env::var_os("FRAMEEVER_H264_SELF_TEST_FAULT").is_some();
+            assert!(
+                encoder.codec_name() == "libx264" || !faulted,
+                "{width}x{height}: {}",
+                encoder.codec_name()
+            );
+            assert_eq!(
+                (encoder.output_width(), encoder.output_height()),
+                (width, height)
+            );
+
+            let mut packets = 0usize;
+            for index in 0..10u64 {
+                let mut frame = frame::Video::new(format::Pixel::NV12, width, height);
+                for plane in 0..frame.planes() {
+                    frame.data_mut(plane).fill(128);
+                }
+                encoder
+                    .encode_frame(frame, Duration::from_millis(index * 33), |_| {
+                        packets += 1;
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+            encoder
+                .flush(|_| {
+                    packets += 1;
+                    Ok(())
+                })
+                .unwrap();
+            assert!(packets >= 10, "{width}x{height}: {packets} packets");
+
+            if std::env::var_os("FRAMEEVER_H264_SELF_TEST_FAULT").is_some() {
+                let (codec, options) = get_codec_and_options(
+                    &config,
+                    H264Preset::Ultrafast,
+                    Some(&["h264_mf"]),
+                    false,
+                    None,
+                )
+                .into_iter()
+                .next()
+                .expect("FFmpeg build has h264_mf");
+                let reason =
+                    cached_hardware_self_test(codec, &options, &config, width, height, 0.3, None)
+                        .unwrap_err();
+                assert!(
+                    reason.starts_with("encoder crashed its isolated self-test process"),
+                    "{width}x{height}: {reason}"
+                );
+            }
         }
     }
 }

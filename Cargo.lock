@@ -1988,6 +1988,7 @@ dependencies = [
  "frameever-camera",
  "frameever-cli-install",
  "frameever-editor",
+ "frameever-enc-ffmpeg",
  "frameever-export",
  "frameever-media-info",
  "frameever-project",
@@ -2274,6 +2275,7 @@ name = "frameever-enc-ffmpeg"
 version = "0.1.0"
 dependencies = [
  "ffmpeg-next",
+ "frameever-enc-mediafoundation",
  "frameever-frame-converter",
  "frameever-media-info",
  "libc",

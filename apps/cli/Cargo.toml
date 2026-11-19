@@ -10,6 +10,7 @@ frameever-project = { path = "../../crates/project" }
 frameever-recording = { path = "../../crates/recording" }
 frameever-editor = { path = "../../crates/editor" }
 frameever-export = { path = "../../crates/export" }
+frameever-enc-ffmpeg = { path = "../../crates/enc-ffmpeg" }
 frameever-rendering = { path = "../../crates/rendering" }
 frameever-media-info = { path = "../../crates/media-info" }
 frameever-timestamp = { path = "../../crates/timestamp" }

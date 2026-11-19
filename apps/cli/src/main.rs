@@ -384,6 +384,8 @@ struct CompletionsArgs {
 }
 
 fn main() {
+    frameever_enc_ffmpeg::isolated_self_test::run_child_or_register_host();
+
     #[cfg(windows)]
     {
         use windows::Win32::UI::HiDpi::{PROCESS_PER_MONITOR_DPI_AWARE, SetProcessDpiAwareness};
