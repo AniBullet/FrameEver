@@ -139,13 +139,33 @@ const VOICE_ISOLATION_OPTIONS: [frameever_project::VoiceIsolation; 3] = [
     frameever_project::VoiceIsolation::Strong,
 ];
 
-fn waits_on_another_row(row: Row, settings: &GeneralSettings) -> bool {
+fn switched_on(row: Row, settings: &GeneralSettings) -> bool {
     match row {
-        Row::KeepCompressed => !settings.auto_compress_instant,
-        Row::InputPreset | Row::InputPosition => !settings.instant_show_input,
-        Row::FocusCenter => settings.window_capture_style != WindowCaptureStyle::FocusedWindow,
-        _ => false,
+        Row::CompressInstant => settings.auto_compress_instant,
+        Row::ShowInput => settings.instant_show_input,
+        Row::StudioSound => settings.studio_sound_by_default,
+        Row::WindowStyle => settings.window_capture_style == WindowCaptureStyle::FocusedWindow,
+        _ => true,
     }
+}
+
+fn waits_on_another_row(row: Row, settings: &GeneralSettings) -> bool {
+    row.follows()
+        .is_some_and(|leader| !switched_on(leader, settings))
+}
+
+fn rows_on_the_page(
+    group: &catalog::Group,
+    settings: &GeneralSettings,
+    landed_on: Option<Row>,
+) -> Vec<Row> {
+    group
+        .rows
+        .iter()
+        .copied()
+        .filter(|row| row.is_shown())
+        .filter(|row| !waits_on_another_row(*row, settings) || landed_on == Some(*row))
+        .collect()
 }
 
 fn menu_row(kind: MenuKind) -> Option<Row> {
@@ -939,7 +959,7 @@ impl SettingsWindow {
 
         let nav = Page::ALL.into_iter().map(|page| {
             let selected = !searching && page == self.page;
-            div()
+            let item = div()
                 .id(SharedString::from(format!("settings-nav-{}", page.slug())))
                 .tab_index(0)
                 .flex()
@@ -997,7 +1017,20 @@ impl SettingsWindow {
                             cx.stop_propagation();
                         }
                     }),
-                )
+                );
+            div()
+                .flex()
+                .flex_col()
+                .when(page.starts_cluster(), |this| {
+                    this.child(
+                        div()
+                            .h(px(1.))
+                            .mx(px(8.))
+                            .my(px(6.))
+                            .bg(theme.settings_divider()),
+                    )
+                })
+                .child(item)
         });
 
         div()
@@ -1250,12 +1283,7 @@ impl SettingsWindow {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let theme = self.theme;
-        let rows: Vec<Row> = group
-            .rows
-            .iter()
-            .copied()
-            .filter(|row| row.is_shown())
-            .collect();
+        let rows = rows_on_the_page(group, &self.settings, self.flash);
         if rows.is_empty() {
             return None;
         }
@@ -1322,6 +1350,7 @@ impl SettingsWindow {
                     .anchor_scroll(Some(self.jump_anchor.clone()))
             })
             .when(dimmed, |this| this.opacity(0.5))
+            .when(row.follows().is_some(), |this| this.pl(px(20.)))
             .child(body)
             .into_any_element()
     }
@@ -2989,12 +3018,15 @@ mod tests {
         assert_eq!(
             waiting(&settings),
             [
+                Row::FocusCenter,
                 Row::InputPreset,
                 Row::InputPosition,
-                Row::FocusCenter,
                 Row::KeepCompressed
             ]
         );
+        settings.studio_sound_by_default = false;
+        assert!(waiting(&settings).contains(&Row::VoiceIsolation));
+        settings.studio_sound_by_default = true;
         settings.instant_show_input = true;
         settings.window_capture_style = WindowCaptureStyle::FocusedWindow;
         settings.auto_compress_instant = true;
@@ -3002,6 +3034,45 @@ mod tests {
         assert_eq!(menu_row(MenuKind::InputPreset), Some(Row::InputPreset));
         assert_eq!(menu_row(MenuKind::InputPosition), Some(Row::InputPosition));
         assert_eq!(menu_row(MenuKind::AutoStop), None);
+    }
+
+    #[test]
+    fn a_follower_is_on_the_page_only_while_its_switch_is_on_or_a_search_landed_on_it() {
+        let drawn = |settings: &GeneralSettings, landed_on: Option<Row>| -> Vec<Row> {
+            Page::Instant
+                .groups()
+                .iter()
+                .flat_map(|group| rows_on_the_page(group, settings, landed_on))
+                .collect()
+        };
+        let mut settings = GeneralSettings::default();
+        assert_eq!(
+            drawn(&settings, None),
+            [
+                Row::InstantResolution,
+                Row::ClickHighlight,
+                Row::ShowInput,
+                Row::AfterInstant,
+                Row::CompressInstant
+            ]
+        );
+        assert!(drawn(&settings, Some(Row::InputPreset)).contains(&Row::InputPreset));
+        assert!(!drawn(&settings, Some(Row::InputPreset)).contains(&Row::InputPosition));
+        settings.instant_show_input = true;
+        settings.auto_compress_instant = true;
+        assert_eq!(
+            drawn(&settings, None),
+            [
+                Row::InstantResolution,
+                Row::ClickHighlight,
+                Row::ShowInput,
+                Row::InputPreset,
+                Row::InputPosition,
+                Row::AfterInstant,
+                Row::CompressInstant,
+                Row::KeepCompressed
+            ]
+        );
     }
 
     #[test]

@@ -248,7 +248,7 @@ const sections = [
 			},
 			{
 				en: "While recording",
-				zh: "录制期间",
+				zh: "录制时",
 				rows: [
 					{
 						k: "fps",

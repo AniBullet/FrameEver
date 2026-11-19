@@ -4,6 +4,8 @@ use crate::i18n::{Language, n, translate};
 pub enum Page {
     General,
     Recording,
+    Studio,
+    Instant,
     Editing,
     Storage,
     Shortcuts,
@@ -136,66 +138,62 @@ pub fn shortcut_label(action: &str) -> &'static str {
 const GENERAL: &[Group] = &[
     Group {
         title: n!("Appearance"),
-        rows: &[Row::Theme, Row::Language],
+        rows: &[Row::Theme, Row::Language, Row::DockIcon],
     },
     Group {
-        title: n!("App"),
+        title: n!("Notifications and sounds"),
         rows: &[
             Row::Notifications,
             Row::RecordingSounds,
             Row::ChapterMarkSound,
-            Row::DockIcon,
+        ],
+    },
+    Group {
+        title: n!("Recording window"),
+        rows: &[
             Row::MainWindowStart,
-            Row::AfterDelete,
             Row::AfterEditorClose,
             Row::AfterCancel,
+            Row::AfterDelete,
         ],
     },
 ];
 
 const RECORDING: &[Group] = &[
     Group {
-        title: n!("Quality"),
-        rows: &[Row::StudioQuality, Row::InstantResolution, Row::MaxFps],
-    },
-    Group {
         title: n!("Before you record"),
-        rows: &[Row::Countdown, Row::ConfirmMicrophone, Row::AutoStop],
+        rows: &[Row::Countdown, Row::ConfirmMicrophone],
     },
     Group {
-        title: n!("Studio recording"),
-        rows: &[Row::SeparateCursor, Row::RecordInput, Row::CrashRecovery],
-    },
-    Group {
-        title: n!("Instant recording"),
-        rows: &[
-            Row::ClickHighlight,
-            Row::ShowInput,
-            Row::InputPreset,
-            Row::InputPosition,
-        ],
+        title: n!("While recording"),
+        rows: &[Row::MaxFps, Row::AutoStop, Row::NotchOverlay],
     },
     Group {
         title: n!("Window recording"),
         rows: &[Row::WindowStyle, Row::FocusCenter],
     },
     Group {
-        title: n!("Screen recording"),
-        rows: &[Row::NotchOverlay],
-    },
-    Group {
         title: n!("Hidden from recordings"),
         rows: &[Row::ExcludedWindows],
     },
     Group {
-        title: n!("When it's done"),
-        rows: &[Row::AfterScreenshot, Row::AfterStudio, Row::AfterInstant],
+        title: n!("Screenshots"),
+        rows: &[Row::AfterScreenshot],
     },
 ];
 
-const EDITING: &[Group] = &[
+const STUDIO: &[Group] = &[
     Group {
-        title: n!("New Studio projects"),
+        title: n!("Recording"),
+        rows: &[
+            Row::StudioQuality,
+            Row::SeparateCursor,
+            Row::RecordInput,
+            Row::CrashRecovery,
+        ],
+    },
+    Group {
+        title: n!("New projects"),
         rows: &[
             Row::StudioSound,
             Row::VoiceIsolation,
@@ -204,10 +202,35 @@ const EDITING: &[Group] = &[
         ],
     },
     Group {
-        title: n!("Captions"),
-        rows: &[Row::RememberedTerms],
+        title: n!("When it's done"),
+        rows: &[Row::AfterStudio],
     },
 ];
+
+const INSTANT: &[Group] = &[
+    Group {
+        title: n!("Recording"),
+        rows: &[Row::InstantResolution],
+    },
+    Group {
+        title: n!("Drawn into the video"),
+        rows: &[
+            Row::ClickHighlight,
+            Row::ShowInput,
+            Row::InputPreset,
+            Row::InputPosition,
+        ],
+    },
+    Group {
+        title: n!("When it's done"),
+        rows: &[Row::AfterInstant, Row::CompressInstant, Row::KeepCompressed],
+    },
+];
+
+const EDITING: &[Group] = &[Group {
+    title: n!("Captions"),
+    rows: &[Row::RememberedTerms],
+}];
 
 const STORAGE: &[Group] = &[
     Group {
@@ -217,10 +240,6 @@ const STORAGE: &[Group] = &[
     Group {
         title: n!("Default project name"),
         rows: &[Row::NameTemplate],
-    },
-    Group {
-        title: n!("Compression"),
-        rows: &[Row::CompressInstant, Row::KeepCompressed],
     },
 ];
 
@@ -303,9 +322,11 @@ const ABOUT: &[Group] = &[
 ];
 
 impl Page {
-    pub const ALL: [Page; 8] = [
+    pub const ALL: [Page; 10] = [
         Page::General,
         Page::Recording,
+        Page::Studio,
+        Page::Instant,
         Page::Editing,
         Page::Storage,
         Page::Shortcuts,
@@ -318,6 +339,8 @@ impl Page {
         match self {
             Page::General => n!("General"),
             Page::Recording => n!("Recording"),
+            Page::Studio => n!("Studio"),
+            Page::Instant => n!("Instant"),
             Page::Editing => n!("Editing"),
             Page::Storage => n!("Storage"),
             Page::Shortcuts => n!("Shortcuts"),
@@ -330,9 +353,11 @@ impl Page {
     pub fn summary(self) -> &'static str {
         match self {
             Page::General => n!("Theme, language, notifications"),
-            Page::Recording => n!("Quality, countdown, what's captured"),
-            Page::Editing => n!("Defaults for new projects, captions"),
-            Page::Storage => n!("Storage folder, names, compression"),
+            Page::Recording => n!("What every recording shares"),
+            Page::Studio => n!("Recordings you edit afterwards"),
+            Page::Instant => n!("Recordings that are finished when you stop"),
+            Page::Editing => n!("Captions"),
+            Page::Storage => n!("Storage folder, names"),
             Page::Shortcuts => n!("Work from any app"),
             Page::Automations => n!("Rules that run only on this PC"),
             Page::Advanced => n!("CLI, diagnostics, logs"),
@@ -344,6 +369,8 @@ impl Page {
         match self {
             Page::General => "icons/settings.svg",
             Page::Recording => "icons/video.svg",
+            Page::Studio => "icons/clapperboard.svg",
+            Page::Instant => "icons/zap.svg",
             Page::Editing => "icons/pencil.svg",
             Page::Storage => "icons/folder.svg",
             Page::Shortcuts => "icons/keyboard.svg",
@@ -357,6 +384,8 @@ impl Page {
         match self {
             Page::General => "general",
             Page::Recording => "recording",
+            Page::Studio => "studio",
+            Page::Instant => "instant",
             Page::Editing => "editing",
             Page::Storage => "storage",
             Page::Shortcuts => "hotkeys",
@@ -381,10 +410,19 @@ impl Page {
         }
     }
 
+    pub fn starts_cluster(self) -> bool {
+        matches!(
+            self,
+            Page::Recording | Page::Editing | Page::Shortcuts | Page::Advanced
+        )
+    }
+
     pub fn groups(self) -> &'static [Group] {
         match self {
             Page::General => GENERAL,
             Page::Recording => RECORDING,
+            Page::Studio => STUDIO,
+            Page::Instant => INSTANT,
             Page::Editing => EDITING,
             Page::Storage => STORAGE,
             Page::Shortcuts => SHORTCUTS,
@@ -398,6 +436,16 @@ impl Page {
 impl Row {
     pub fn is_shown(self) -> bool {
         cfg!(target_os = "macos") || !matches!(self, Row::DockIcon | Row::NotchOverlay)
+    }
+
+    pub fn follows(self) -> Option<Row> {
+        match self {
+            Row::VoiceIsolation => Some(Row::StudioSound),
+            Row::InputPreset | Row::InputPosition => Some(Row::ShowInput),
+            Row::FocusCenter => Some(Row::WindowStyle),
+            Row::KeepCompressed => Some(Row::CompressInstant),
+            _ => None,
+        }
     }
 
     pub fn label(self) -> &'static str {
@@ -564,13 +612,21 @@ mod tests {
     }
 
     #[test]
-    fn the_sidebar_has_eight_pages_in_order() {
+    fn the_sidebar_has_ten_pages_in_five_clusters() {
         let labels: Vec<_> = Page::ALL.iter().map(|page| page.label()).collect();
+        let clusters: Vec<_> = Page::ALL
+            .iter()
+            .filter(|page| page.starts_cluster())
+            .map(|page| page.label())
+            .collect();
+        assert_eq!(clusters, ["Recording", "Editing", "Shortcuts", "Advanced"]);
         assert_eq!(
             labels,
             [
                 "General",
                 "Recording",
+                "Studio",
+                "Instant",
                 "Editing",
                 "Storage",
                 "Shortcuts",
@@ -593,54 +649,53 @@ mod tests {
                     "Recording sounds",
                     "Chapter mark sound",
                     "When recording starts",
-                    "After deleting a recording",
                     "When you close the editor",
                     "When you cancel",
+                    "After deleting a recording",
                 ],
             ),
             (
                 Page::Recording,
                 &[
-                    "Studio quality",
-                    "Instant resolution",
-                    "Maximum frame rate",
                     "Countdown",
                     "Confirm without microphone",
+                    "Maximum frame rate",
                     "Auto-stop",
-                    "Separate cursor",
-                    "Record input",
-                    "Crash recovery",
-                    "Click highlight",
-                    "Show input",
-                    "Input preset",
-                    "Input display position",
                     "Record a window as",
                     "Center the window on screen",
                     "Excluded windows",
                     "After a screenshot",
-                    "After a Studio recording",
-                    "After an Instant recording",
                 ],
             ),
             (
-                Page::Editing,
+                Page::Studio,
                 &[
+                    "Studio quality",
+                    "Separate cursor",
+                    "Record input",
+                    "Crash recovery",
                     "Studio Sound",
                     "Voice isolation",
                     "Auto zoom on clicks",
                     "Zoom amount",
-                    "Remembered terms",
+                    "After a Studio recording",
                 ],
             ),
             (
-                Page::Storage,
+                Page::Instant,
                 &[
-                    "Storage folder",
-                    "Name template",
+                    "Instant resolution",
+                    "Click highlight",
+                    "Show input",
+                    "Input preset",
+                    "Input display position",
+                    "After an Instant recording",
                     "Compress Instant recordings",
                     "Keep only the copy",
                 ],
             ),
+            (Page::Editing, &["Remembered terms"]),
+            (Page::Storage, &["Storage folder", "Name template"]),
             (
                 Page::Shortcuts,
                 &[
@@ -713,18 +768,13 @@ mod tests {
     fn search_matches_labels_descriptions_and_page_names_in_both_languages() {
         let zoom = search("zoom");
         assert_eq!(labels(&zoom), ["Auto zoom on clicks", "Zoom amount"]);
-        assert!(zoom.iter().all(|place| place.page == Page::Editing));
+        assert!(zoom.iter().all(|place| place.page == Page::Studio));
 
         assert_eq!(labels(&search("倒计时")), ["Countdown"]);
         assert_eq!(labels(&search("  WHISPER ")), ["Remembered terms"]);
         assert_eq!(
             labels(&search("storage")),
-            [
-                "Storage folder",
-                "Name template",
-                "Compress Instant recordings",
-                "Keep only the copy"
-            ]
+            ["Storage folder", "Name template"]
         );
         assert!(search("wxyz").is_empty());
         assert!(search("   ").is_empty());
@@ -741,24 +791,74 @@ mod tests {
     }
 
     #[test]
-    fn options_of_one_recording_mode_sit_in_the_group_of_that_mode() {
-        let group = |row| place_of(row).unwrap().group;
-        for row in [Row::SeparateCursor, Row::RecordInput, Row::CrashRecovery] {
-            assert_eq!(group(row), "Studio recording", "{row:?}");
+    fn options_of_one_recording_mode_sit_on_the_page_of_that_mode() {
+        let page = |row| place_of(row).unwrap().page;
+        for row in [
+            Row::StudioQuality,
+            Row::SeparateCursor,
+            Row::RecordInput,
+            Row::CrashRecovery,
+            Row::StudioSound,
+            Row::VoiceIsolation,
+            Row::AutoZoom,
+            Row::ZoomAmount,
+            Row::AfterStudio,
+        ] {
+            assert_eq!(page(row), Page::Studio, "{row:?}");
         }
         for row in [
+            Row::InstantResolution,
             Row::ClickHighlight,
             Row::ShowInput,
             Row::InputPreset,
             Row::InputPosition,
+            Row::AfterInstant,
+            Row::CompressInstant,
+            Row::KeepCompressed,
         ] {
-            assert_eq!(group(row), "Instant recording", "{row:?}");
+            assert_eq!(page(row), Page::Instant, "{row:?}");
         }
-        for row in [Row::WindowStyle, Row::FocusCenter] {
-            assert_eq!(group(row), "Window recording", "{row:?}");
+        for row in [
+            Row::Countdown,
+            Row::MaxFps,
+            Row::AutoStop,
+            Row::WindowStyle,
+            Row::AfterScreenshot,
+        ] {
+            assert_eq!(page(row), Page::Recording, "{row:?}");
         }
-        assert_eq!(group(Row::AutoStop), "Before you record");
-        assert_eq!(group(Row::VoiceIsolation), "New Studio projects");
+    }
+
+    #[test]
+    fn a_row_that_follows_a_switch_sits_right_after_it_in_the_same_group() {
+        let followers: Vec<Row> = places()
+            .map(|place| place.row)
+            .filter(|row| row.follows().is_some())
+            .collect();
+        assert_eq!(
+            followers,
+            [
+                Row::FocusCenter,
+                Row::VoiceIsolation,
+                Row::InputPreset,
+                Row::InputPosition,
+                Row::KeepCompressed
+            ]
+        );
+        for group in Page::ALL.iter().flat_map(|page| page.groups()) {
+            for (index, row) in group.rows.iter().enumerate() {
+                let Some(leader) = row.follows() else {
+                    continue;
+                };
+                let before = &group.rows[..index];
+                let last_leader = before.iter().rposition(|row| row.follows().is_none());
+                assert_eq!(
+                    last_leader.map(|at| before[at]),
+                    Some(leader),
+                    "{row:?} is not under {leader:?}"
+                );
+            }
+        }
     }
 
     fn keys_the_settings_store_reads() -> Vec<String> {
@@ -872,6 +972,8 @@ mod tests {
             assert_eq!(Page::from_slug(page.slug()), Some(page));
         }
         assert_eq!(Page::from_slug("quality"), Some(Page::Recording));
+        assert_eq!(Page::from_slug("studio"), Some(Page::Studio));
+        assert_eq!(Page::from_slug("instant"), Some(Page::Instant));
         assert_eq!(Page::from_slug("transcription"), Some(Page::Editing));
         assert_eq!(Page::from_slug("cli"), Some(Page::Advanced));
         assert_eq!(Page::from_slug("feedback"), Some(Page::Advanced));
@@ -883,7 +985,7 @@ mod tests {
     #[test]
     fn a_row_knows_where_it_lives() {
         let place = place_of(Row::AfterInstant).unwrap();
-        assert_eq!(place.page, Page::Recording);
+        assert_eq!(place.page, Page::Instant);
         assert_eq!(place.group, "When it's done");
         assert_eq!(
             place_of(Row::Shortcut("stopRecording")).unwrap().page,
