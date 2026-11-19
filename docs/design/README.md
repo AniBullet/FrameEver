@@ -45,6 +45,18 @@ A shared style goes into `design.css`; a token goes into `tokens.json`.
 - Icons: only names listed in `apps/desktop-gpui/assets/icons/sources.json`, with the path data copied from the pinned file in `apps/desktop-gpui/assets/icons/`. A test keeps an icon out of that list until the app draws it, so a design that needs a new glyph names it in its ticket and uses a listed one until the feature lands.
 - A page shows the states a press can reach; what it cannot show (drags, hover-only controls, shortcuts) is written in its tables.
 
+## Where a setting lives
+
+A ticket that adds a setting or a preset decides its places with these rules before it is built, and its design page shows every one of them.
+
+1. **The settings window holds every preference.** Anything the app saves and the person can choose has a row in the settings window, so settings search finds it. A value the app only remembers (a window position, the last export folder, the last preset used in the editor) is not a preference and has no row.
+2. **A control beside the work is a copy, never the only place.** The recording options popover, the picker's options and the recording bar hold only what a person changes from one recording to the next. Each of them writes the same stored value as its settings row, and the popover's link opens the settings group that holds the rest.
+3. **Settings are grouped by what they act on.** A row that works in only one recording mode sits in that mode's group (Studio recording, Instant recording), not in a shared group where it reads as if it covered both.
+4. **A preset is managed in one place and offered wherever it is chosen.** Every control that chooses a preset ends with New…, Import… and Manage presets…. The list they open is in the settings window and does not need an open project. Presets that only the editor uses (style presets) are managed in the editor.
+5. **State shows where the person starts.** When an option changes what a recording will contain (Show input, Click highlight), the main window says so without opening anything.
+
+AniBullet/FrameEver#180 adds the test that keeps rule 1: every key of the settings store either has a settings row or is named in the list of values the app only remembers. Until spec AniBullet/FrameEver#179 lands, the app does not follow these rules everywhere; its Problem Statement lists where.
+
 ## During implementation
 
 - Every implementation ticket links to the section it implements.
