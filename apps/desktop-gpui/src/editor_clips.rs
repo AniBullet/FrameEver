@@ -1979,6 +1979,7 @@ impl PreparedMp4Import {
                 cursor: None,
                 keyboard: None,
                 display_notch: None,
+                cursor_shape_version: None,
             },
             duration,
             cancelled,
@@ -2470,9 +2471,11 @@ fn ensure_multiple_segments(meta: &mut RecordingMeta) -> Result<&mut MultipleSeg
                     cursor: segment.cursor,
                     keyboard: None,
                     display_notch: None,
+                    cursor_shape_version: None,
                 }],
                 cursors: Cursors::default(),
                 status: Some(StudioRecordingStatus::Complete),
+                cursor_shape_version: 0,
             },
         };
     }
@@ -3093,6 +3096,7 @@ fn single_segment_to_multiple(segment: &frameever_project::SingleSegment) -> Mul
         cursor: segment.cursor.clone(),
         keyboard: None,
         display_notch: None,
+        cursor_shape_version: None,
     }
 }
 
@@ -3236,6 +3240,9 @@ fn copy_source_segment(
     target_relative_dir: &str,
     cursor_id_map: &HashMap<String, String>,
 ) -> Result<MultipleSegment, String> {
+    let source_cursor_shape_version = source_meta.studio_meta().map_or(0, |studio| {
+        studio.segment_cursor_shape_version(source_segment)
+    });
     let display = copy_video_meta(
         &source_meta.project_path,
         target_project_path,
@@ -3335,6 +3342,7 @@ fn copy_source_segment(
         cursor: cursor.map(|path| path.as_str().into()),
         keyboard: keyboard.map(|path| path.as_str().into()),
         display_notch: source_segment.display_notch,
+        cursor_shape_version: Some(source_cursor_shape_version),
     })
 }
 
@@ -3622,6 +3630,7 @@ mod tests {
                 cursor: None,
                 keyboard: None,
                 display_notch: None,
+                cursor_shape_version: None,
             };
             RecordingMeta {
                 project_path: project.clone(),
@@ -3634,6 +3643,7 @@ mod tests {
                             segments: vec![recording_segment.clone()],
                             cursors: Cursors::default(),
                             status: Some(StudioRecordingStatus::Complete),
+                            cursor_shape_version: 0,
                         },
                     },
                 )),
@@ -4516,5 +4526,54 @@ mod tests {
         assert!(removed.transitions.is_empty());
         let restored = apply_dragged_transition(&base, 1, kind, None);
         assert_eq!(bounds(&restored), bounds(&base));
+    }
+
+    #[test]
+    fn imported_projects_keep_their_own_cursor_shape_rule() {
+        fn set_version(project: &Path, version: Option<u32>) {
+            let path = project.join("recording-meta.json");
+            let mut meta: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let object = meta.as_object_mut().unwrap();
+            match version {
+                Some(version) => object.insert("cursorShapeVersion".into(), version.into()),
+                None => object.remove("cursorShapeVersion"),
+            };
+            std::fs::write(path, serde_json::to_string(&meta).unwrap()).unwrap();
+        }
+
+        for (target_version, source_version) in [
+            (None, Some(frameever_project::CURSOR_SHAPE_VERSION)),
+            (Some(frameever_project::CURSOR_SHAPE_VERSION), None),
+        ] {
+            let target = ImportFixture::new(MP4_WITHOUT_AUDIO);
+            let source = target.root.join("source.ever");
+            let source_segment = source.join("content/segments/segment-0");
+            std::fs::create_dir_all(&source_segment).unwrap();
+            std::fs::write(source_segment.join("display.mp4"), MP4_WITHOUT_AUDIO).unwrap();
+            std::fs::copy(
+                target.project.join("recording-meta.json"),
+                source.join("recording-meta.json"),
+            )
+            .unwrap();
+            set_version(&target.project, target_version);
+            set_version(&source, source_version);
+
+            append_cap_project_to_editor(&target.project, &source).unwrap();
+
+            let meta = RecordingMeta::load_for_project(&target.project).unwrap();
+            let studio = meta.studio_meta().unwrap();
+            let StudioRecordingMeta::MultipleSegments { inner } = studio else {
+                panic!("target is not multi-segment");
+            };
+            assert_eq!(
+                studio.segment_cursor_shape_version(&inner.segments[0]),
+                target_version.unwrap_or(0)
+            );
+            assert_eq!(
+                studio.segment_cursor_shape_version(&inner.segments[1]),
+                source_version.unwrap_or(0)
+            );
+        }
     }
 }

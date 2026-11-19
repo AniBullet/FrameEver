@@ -678,7 +678,6 @@ fn adapt(
             frameever_editor::initial_clip_configuration(&recording_meta.project_path, studio);
     }
     let descriptors = live.segments().ok_or_else(ended)?;
-    let pointer_ids = studio.pointer_cursor_ids();
     let mut segments = Vec::with_capacity(descriptors.len());
     let mut cursor_budget = MAX_CURSOR_BYTES;
     for descriptor in descriptors {
@@ -720,10 +719,7 @@ fn adapt(
         } else {
             CursorEvents::default()
         };
-        cursor.stabilize_short_lived_cursor_shapes(
-            (!pointer_ids.is_empty()).then_some(&pointer_ids),
-            frameever_project::cursor::SHORT_CURSOR_SHAPE_DEBOUNCE_MS,
-        );
+        studio.stabilize_cursor_shapes(Some(descriptor.metadata()), &mut cursor);
         segments.push(PreparingPreviewSegment {
             video: ManagedSegmentVideoInput::new(
                 descriptor.index() as usize,

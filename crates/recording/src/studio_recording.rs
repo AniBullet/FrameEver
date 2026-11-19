@@ -2229,6 +2229,7 @@ async fn stop_recording(
                             .map(make_relative)
                     }),
                     display_notch,
+                    cursor_shape_version: None,
                 },
                 diagnostics,
                 duration: display_media_duration,
@@ -2323,6 +2324,7 @@ async fn stop_recording(
                     .collect(),
             ),
             status,
+            cursor_shape_version: frameever_project::CURSOR_SHAPE_VERSION,
         },
     };
 
@@ -3014,6 +3016,7 @@ fn write_in_progress_meta(recording_dir: &Path, pretty_name: Option<&str>) -> an
                 segments: Vec::new(),
                 cursors: frameever_project::Cursors::default(),
                 status: Some(StudioRecordingStatus::InProgress),
+                cursor_shape_version: frameever_project::CURSOR_SHAPE_VERSION,
             },
         })),
         upload: None,
@@ -5377,6 +5380,7 @@ mod clean_stop_receipt_tests {
             cursor: None,
             keyboard: None,
             display_notch: None,
+            cursor_shape_version: None,
         };
         RecordingMeta {
             platform: Some(Platform::default()),
@@ -5402,6 +5406,7 @@ mod clean_stop_receipt_tests {
                             .collect(),
                     ),
                     status: Some(StudioRecordingStatus::NeedsRemux),
+                    cursor_shape_version: 0,
                 },
             })),
             upload: None,
@@ -5606,6 +5611,22 @@ mod pretty_name_tests {
     use super::*;
 
     #[test]
+    fn a_new_recording_is_marked_with_the_current_cursor_shape_version() {
+        let temp = tempfile::tempdir().unwrap();
+
+        write_in_progress_meta(temp.path(), None).unwrap();
+
+        assert_eq!(
+            RecordingMeta::load_for_project(temp.path())
+                .unwrap()
+                .studio_meta()
+                .unwrap()
+                .cursor_shape_version(),
+            frameever_project::CURSOR_SHAPE_VERSION
+        );
+    }
+
+    #[test]
     fn recording_metadata_keeps_the_given_project_name() {
         let name = "Untitled (Window) 2026-11-06 03.29 PM";
         let temp = tempfile::tempdir().unwrap();
@@ -5623,6 +5644,7 @@ mod pretty_name_tests {
                 segments: Vec::new(),
                 cursors: frameever_project::Cursors::default(),
                 status: Some(StudioRecordingStatus::Complete),
+                cursor_shape_version: 0,
             },
         };
         let persisted =
