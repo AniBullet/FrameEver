@@ -170,28 +170,74 @@ fn rows(mode: Mode, settings: &GeneralSettings, user_presets: &[ListedPreset]) -
             settings.instant_show_input,
         ));
         if settings.instant_show_input {
+            let device = settings.instant_input_device;
             rows.push(OptionRow {
-                label: t!("Preset"),
-                key: "instantInputPreset",
-                value: Value::from(settings.instant_input_preset.as_str()),
-                choices: crate::editor_input_display::INPUT_PRESETS
+                label: t!("Device"),
+                key: "instantInputDevice",
+                value: Value::from(device.as_json()),
+                choices: store::InstantInputDevice::ALL
                     .iter()
-                    .map(|(preset, label)| (tr(label).into(), Value::from(preset.id())))
-                    .chain(
-                        user_presets
-                            .iter()
-                            .map(|(id, name)| (name.clone(), Value::from(id.as_str()))),
-                    )
+                    .map(|device| (device.label().into(), Value::from(device.as_json())))
                     .collect(),
-                listed_in_menu: true,
+                listed_in_menu: false,
+            });
+            if device != store::InstantInputDevice::Gamepad {
+                rows.push(OptionRow {
+                    label: t!("Preset"),
+                    key: "instantInputPreset",
+                    value: Value::from(settings.instant_input_preset.as_str()),
+                    choices: crate::editor_input_display::keyboard_presets()
+                        .map(|(preset, label)| (tr(label).into(), Value::from(preset.id())))
+                        .chain(
+                            user_presets
+                                .iter()
+                                .map(|(id, name)| (name.clone(), Value::from(id.as_str()))),
+                        )
+                        .collect(),
+                    listed_in_menu: true,
+                });
+            }
+            let steps = |items: &[(f64, SharedString)]| {
+                items
+                    .iter()
+                    .map(|(value, label)| (label.clone(), Value::from(*value)))
+                    .collect()
+            };
+            rows.push(OptionRow {
+                label: t!("Size"),
+                key: "instantInputSize",
+                value: Value::from(settings.instant_input_size),
+                choices: steps(&[
+                    (40.0, t!("Small").into()),
+                    (60.0, t!("Medium").into()),
+                    (90.0, t!("Large").into()),
+                ]),
+                listed_in_menu: false,
+            });
+            rows.push(OptionRow {
+                label: t!("Opacity"),
+                key: "instantInputOpacity",
+                value: Value::from(settings.instant_input_opacity),
+                choices: steps(&[
+                    (40.0, "40%".into()),
+                    (60.0, "60%".into()),
+                    (80.0, "80%".into()),
+                    (100.0, "100%".into()),
+                ]),
+                listed_in_menu: false,
             });
             rows.push(OptionRow {
                 label: t!("Position"),
-                key: "instantInputCorner",
-                value: Value::from(settings.instant_input_corner.as_json()),
+                key: "instantInputPosition",
+                value: store::instant_input_position_json(settings.instant_input_position),
                 choices: store::InstantInputCorner::ALL
                     .iter()
-                    .map(|corner| (corner.label().into(), Value::from(corner.as_json())))
+                    .map(|corner| {
+                        (
+                            corner.label().into(),
+                            store::instant_input_position_json(corner.position()),
+                        )
+                    })
                     .collect(),
                 listed_in_menu: false,
             });
@@ -690,15 +736,7 @@ mod tests {
             .iter()
             .map(|item| item.label.to_string())
             .collect();
-        assert_eq!(
-            labels,
-            [
-                "WASD + mouse",
-                "Full keyboard",
-                "Gamepad",
-                "Manage presets…"
-            ]
-        );
+        assert_eq!(labels, ["WASD + mouse", "Full keyboard", "Manage presets…"]);
     }
 
     #[test]
@@ -730,15 +768,18 @@ mod tests {
                 "recordingCountdown",
                 "instantClickHighlight",
                 "instantShowInput",
+                "instantInputDevice",
                 "instantInputPreset",
-                "instantInputCorner",
+                "instantInputSize",
+                "instantInputOpacity",
+                "instantInputPosition",
                 "recordingAutoStopMinutes"
             ]
         );
     }
 
     #[test]
-    fn show_input_is_an_instant_option_whose_two_choices_appear_once_it_is_on() {
+    fn show_input_is_an_instant_option_whose_choices_appear_once_it_is_on() {
         let _store = TestStore::new();
         let keys = |mode| -> Vec<&'static str> {
             rows(mode, &GeneralSettings::load(), &[])
@@ -769,8 +810,11 @@ mod tests {
             keys(Mode::Instant),
             [
                 "instantShowInput",
+                "instantInputDevice",
                 "instantInputPreset",
-                "instantInputCorner"
+                "instantInputSize",
+                "instantInputOpacity",
+                "instantInputPosition"
             ]
         );
         assert!(keys(Mode::Studio).is_empty());
@@ -779,23 +823,62 @@ mod tests {
             .find(|row| row.key == "instantInputPreset")
             .unwrap();
         assert!(presets.listed_in_menu);
-        let corners = rows(Mode::Instant, &GeneralSettings::load(), &[])
-            .into_iter()
-            .find(|row| row.key == "instantInputCorner")
-            .unwrap();
+        let row = |key: &str| {
+            rows(Mode::Instant, &GeneralSettings::load(), &[])
+                .into_iter()
+                .find(|row| row.key == key)
+                .unwrap()
+        };
+        let corners = row("instantInputPosition");
         assert_eq!(corners.choices.len(), 4);
-        assert_eq!(corners.value, Value::from("bottomLeft"));
+        assert_eq!(corners.chosen(), Some(2));
+        assert_eq!(row("instantInputSize").chosen(), Some(1));
+        assert_eq!(row("instantInputOpacity").chosen(), Some(2));
+        assert_eq!(row("instantInputDevice").chosen(), Some(0));
         choose("instantInputPreset", Value::from("full-keyboard"));
-        choose("instantInputCorner", Value::from("topRight"));
+        choose(
+            "instantInputPosition",
+            store::instant_input_position_json((1.0, 0.0)),
+        );
+        choose("instantInputSize", Value::from(90.0));
+        choose("instantInputOpacity", Value::from(40.0));
         let shown = GeneralSettings::load().instant_input_display().unwrap();
         assert_eq!(shown.preset, "full-keyboard");
+        assert_eq!((shown.position.x, shown.position.y), (1.0, 0.0));
+        assert_eq!((shown.size, shown.opacity), (90.0, 40.0));
+        assert_eq!(row("instantInputPosition").chosen(), Some(1));
+        assert_eq!(row("instantInputSize").chosen(), Some(2));
+        assert!(store::set_store_setting(
+            store::GENERAL_SETTINGS,
+            "instantInputPosition",
+            store::instant_input_position_json((0.3, 0.6))
+        ));
+        assert_eq!(row("instantInputPosition").chosen(), None);
+        choose("instantInputDevice", Value::from("gamepad"));
         assert_eq!(
-            shown.corner,
-            frameever_recording::live_input_display::InputDisplayCorner::TopRight
+            shown_device(),
+            frameever_recording::live_input_display::InputDevice::Gamepad
+        );
+        assert_eq!(
+            keys(Mode::Instant),
+            [
+                "instantShowInput",
+                "instantInputDevice",
+                "instantInputSize",
+                "instantInputOpacity",
+                "instantInputPosition"
+            ]
         );
         choose("instantShowInput", Value::Bool(false));
         assert_eq!(keys(Mode::Instant), ["instantShowInput"]);
         assert_eq!(GeneralSettings::load().instant_input_display(), None);
+    }
+
+    fn shown_device() -> frameever_recording::live_input_display::InputDevice {
+        GeneralSettings::load()
+            .instant_input_display()
+            .unwrap()
+            .device
     }
 
     #[test]
@@ -824,22 +907,22 @@ mod tests {
         };
 
         assert_eq!(
-            listed(&row())[3..],
+            listed(&row())[2..],
             [
                 ("Speedrun".to_string(), "user:p-1".to_string()),
                 ("Pixel pad".to_string(), "user:p-2".to_string())
             ]
         );
         assert_eq!(
-            listed(&row())[..3]
+            listed(&row())[..2]
                 .iter()
                 .map(|(_, id)| id.as_str())
                 .collect::<Vec<_>>(),
-            ["wasd-mouse", "full-keyboard", "gamepad"]
+            ["wasd-mouse", "full-keyboard"]
         );
         assert_eq!(row().chosen(), Some(0));
-        assert!(row().save(4));
-        assert_eq!(row().chosen(), Some(4));
+        assert!(row().save(3));
+        assert_eq!(row().chosen(), Some(3));
         assert_eq!(
             GeneralSettings::load()
                 .instant_input_display()
@@ -853,7 +936,7 @@ mod tests {
                 .iter()
                 .map(|item| item.checked)
                 .collect::<Vec<_>>(),
-            [false, false, false, false, true, false]
+            [false, false, false, true, false]
         );
     }
 

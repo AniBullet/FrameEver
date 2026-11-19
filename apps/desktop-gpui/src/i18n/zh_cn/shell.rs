@@ -851,6 +851,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Top right", "右上"),
     ("Bottom left", "左下"),
     ("Bottom right", "右下"),
+    ("Device", "设备"),
+    ("Large", "大"),
     ("All recording settings", "全部录制设置"),
     ("Smaller", "更小"),
     ("Show library", "显示资源库"),

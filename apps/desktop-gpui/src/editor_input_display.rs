@@ -132,12 +132,17 @@ pub(crate) fn remove_preset(preset: &str) -> bool {
         .is_some_and(|dir| frameever_rendering::input_presets::remove(&dir, preset).is_ok())
 }
 
-pub(crate) fn listed_input_presets() -> Vec<ListedPreset> {
+pub(crate) fn keyboard_presets() -> impl Iterator<Item = &'static (BuiltinPresetId, &'static str)> {
+    INPUT_PRESETS
+        .iter()
+        .filter(|(preset, _)| preset.controller().is_none())
+}
+
+pub(crate) fn listed_keyboard_presets() -> Vec<ListedPreset> {
     let user_presets = frameever_rendering::input_presets::presets_dir()
         .map(|dir| frameever_rendering::input_presets::list(&dir))
         .unwrap_or_default();
-    INPUT_PRESETS
-        .iter()
+    keyboard_presets()
         .map(|(preset, label)| (preset.id().to_string(), SharedString::from(tr(label))))
         .chain(
             user_presets

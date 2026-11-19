@@ -3,8 +3,8 @@ use frameever_project::{
     InputDisplay, InputDisplayStyle, XY,
     input_display::{
         BuiltinPresetId, DisplayState, Element, ElementKind, GamepadAxes, GamepadKind,
-        GamepadSnapshot, Input, Preset, TRIGGER_FULL, WindowRule, display_rect, gamepad_buttons,
-        key_code, preset_for_controller,
+        GamepadSnapshot, INPUT_DISPLAY_DEFAULT_SIZE, INPUT_DISPLAY_OPACITY_RANGE, Input, Preset,
+        TRIGGER_FULL, WindowRule, display_rect, gamepad_buttons, key_code,
     },
 };
 use frameever_rendering::input_display::{LoadedPreset, atlas_scale_for, compose, resolve_preset};
@@ -21,38 +21,24 @@ use std::{
 pub const POLL_INTERVAL: Duration = Duration::from_millis(8);
 const MOUSE_BUTTONS: std::ops::RangeInclusive<u8> = 1..=5;
 
+pub const INSTANT_INPUT_DEFAULT_OPACITY: f64 = 80.0;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum InputDisplayCorner {
-    TopLeft,
-    TopRight,
+pub enum InputDevice {
     #[default]
-    BottomLeft,
-    BottomRight,
+    Auto,
+    KeyboardAndMouse,
+    Gamepad,
 }
 
-impl InputDisplayCorner {
-    pub const ALL: [Self; 4] = [
-        Self::TopLeft,
-        Self::TopRight,
-        Self::BottomLeft,
-        Self::BottomRight,
-    ];
-
-    fn position(self) -> XY<f64> {
-        match self {
-            Self::TopLeft => XY::new(0.0, 0.0),
-            Self::TopRight => XY::new(1.0, 0.0),
-            Self::BottomLeft => XY::new(0.0, 1.0),
-            Self::BottomRight => XY::new(1.0, 1.0),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct InstantInputDisplay {
     pub preset: String,
     pub style: InputDisplayStyle,
-    pub corner: InputDisplayCorner,
+    pub device: InputDevice,
+    pub position: XY<f64>,
+    pub size: f64,
+    pub opacity: f64,
 }
 
 impl Default for InstantInputDisplay {
@@ -60,8 +46,71 @@ impl Default for InstantInputDisplay {
         Self {
             preset: BuiltinPresetId::WasdMouse.id().to_string(),
             style: InputDisplayStyle::default(),
-            corner: InputDisplayCorner::default(),
+            device: InputDevice::default(),
+            position: XY::new(0.0, 1.0),
+            size: INPUT_DISPLAY_DEFAULT_SIZE,
+            opacity: INSTANT_INPUT_DEFAULT_OPACITY,
         }
+    }
+}
+
+impl InstantInputDisplay {
+    fn block(&self) -> InputDisplay {
+        InputDisplay {
+            enabled: true,
+            preset: self.preset.clone(),
+            style: self.style,
+            position: self.position,
+            size: self.size,
+            opacity: self
+                .opacity
+                .clamp(INPUT_DISPLAY_OPACITY_RANGE.0, INPUT_DISPLAY_OPACITY_RANGE.1),
+            ..Default::default()
+        }
+    }
+
+    fn keyboard_preset(&self) -> &str {
+        let draws_a_gamepad = BuiltinPresetId::from_id(&self.preset)
+            .is_some_and(|preset| preset.controller().is_some());
+        if draws_a_gamepad {
+            BuiltinPresetId::WasdMouse.id()
+        } else {
+            &self.preset
+        }
+    }
+
+    fn shown_preset(&self, gamepad_in_use: Option<GamepadKind>) -> &str {
+        match (self.device, gamepad_in_use) {
+            (InputDevice::Gamepad, _) | (InputDevice::Auto, Some(_)) => {
+                BuiltinPresetId::Gamepad.for_controller(gamepad_in_use).id()
+            }
+            (InputDevice::KeyboardAndMouse, _) | (InputDevice::Auto, None) => {
+                self.keyboard_preset()
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct DeviceInUse {
+    gamepad: bool,
+}
+
+impl DeviceInUse {
+    fn follow(&mut self, device: InputDevice, mut state: DisplayState) -> DisplayState {
+        let on_the_gamepad = |input: Input| matches!(input, Input::GamepadButton(_));
+        let gamepad = state.axes != GamepadAxes::default() || state.held().any(on_the_gamepad);
+        let keys = state.held().any(|input| !on_the_gamepad(input));
+        self.gamepad = match device {
+            InputDevice::Auto if gamepad != keys => gamepad,
+            InputDevice::Auto => self.gamepad,
+            InputDevice::KeyboardAndMouse => false,
+            InputDevice::Gamepad => true,
+        };
+        if !self.gamepad {
+            state.controller = None;
+        }
+        state
     }
 }
 
@@ -124,9 +173,14 @@ impl InputSource for Gamepad {
     }
 }
 
-pub fn live_sources() -> Vec<Box<dyn InputSource>> {
-    let mut sources: Vec<Box<dyn InputSource>> = vec![Box::new(KeyboardAndMouse::new())];
-    if let Some(watch) = GamepadWatch::connected() {
+pub fn live_sources(device: InputDevice) -> Vec<Box<dyn InputSource>> {
+    let mut sources: Vec<Box<dyn InputSource>> = Vec::new();
+    if device != InputDevice::Gamepad {
+        sources.push(Box::new(KeyboardAndMouse::new()));
+    }
+    if device != InputDevice::KeyboardAndMouse
+        && let Some(watch) = GamepadWatch::connected()
+    {
         sources.push(Box::new(Gamepad::new(watch)));
     }
     sources
@@ -171,8 +225,9 @@ impl LiveInputDisplay {
         target_window: Option<scap_targets::WindowId>,
         recording: impl Fn() -> bool + Send + 'static,
     ) {
+        let device = self.0.settings.device;
         self.watch_with(
-            live_sources,
+            move || live_sources(device),
             move || TargetFocus::of(target_window.as_ref()),
             recording,
         );
@@ -209,6 +264,7 @@ fn watch_sources(
     recording: impl Fn() -> bool,
 ) {
     let mut rule = WindowRule::default();
+    let mut in_use = DeviceInUse::default();
     loop {
         std::thread::sleep(POLL_INTERVAL);
         let Some(shared) = shared.upgrade() else {
@@ -221,7 +277,10 @@ fn watch_sources(
         for source in &mut sources {
             source.read(&mut polled);
         }
-        let shown = rule.follow(&polled, target.read().unwrap_or(true));
+        let shown = in_use.follow(
+            shared.settings.device,
+            rule.follow(&polled, target.read().unwrap_or(true)),
+        );
         let mut state = shared.state.lock();
         if !shared.paused.load(Ordering::SeqCst) {
             *state = shown;
@@ -234,7 +293,7 @@ fn loaded_preset(
     controller: Option<GamepadKind>,
     frame: (u32, u32),
 ) -> Option<(LoadedPreset, Rect)> {
-    let preset = preset_for_controller(&settings.preset, controller);
+    let preset = settings.shown_preset(controller);
     let resolve = |scale| {
         resolve_preset(preset, settings.style, scale)
             .or_else(|| resolve_preset(BuiltinPresetId::WasdMouse.id(), settings.style, scale))
@@ -264,15 +323,8 @@ impl Rect {
         loaded: &LoadedPreset,
         frame: (u32, u32),
     ) -> Option<Self> {
-        let block = InputDisplay {
-            enabled: true,
-            preset: settings.preset.clone(),
-            style: settings.style,
-            position: settings.corner.position(),
-            ..Default::default()
-        };
         let rect = display_rect(
-            &block,
+            &settings.block(),
             (loaded.preset.width, loaded.preset.height),
             loaded.frame_share,
             frame,
@@ -336,7 +388,17 @@ struct Prepared {
     pressed: Vec<u8>,
     knobs: Option<Knobs>,
     picture: Vec<u8>,
+    opacity: u32,
     shown: DisplayState,
+}
+
+fn fade(picture: &mut [u8], opacity: u32) {
+    if opacity >= 255 {
+        return;
+    }
+    for channel in picture {
+        *channel = ((u32::from(*channel) * opacity + 127) / 255) as u8;
+    }
 }
 
 fn is_stick(element: &Element) -> bool {
@@ -375,6 +437,7 @@ impl Prepared {
             pressed,
             knobs,
             preset: loaded.preset,
+            opacity: (settings.block().opacity_fraction() * 255.0).round() as u32,
             shown: DisplayState::default(),
         };
         prepared.draw(&DisplayState::default());
@@ -382,8 +445,7 @@ impl Prepared {
     }
 
     fn shows(&self, settings: &InstantInputDisplay, controller: Option<GamepadKind>) -> bool {
-        preset_for_controller(&settings.preset, controller)
-            == preset_for_controller(&settings.preset, self.controller)
+        settings.shown_preset(controller) == settings.shown_preset(self.controller)
     }
 
     fn show(&mut self, state: DisplayState) {
@@ -402,6 +464,11 @@ impl Prepared {
     }
 
     fn draw(&mut self, state: &DisplayState) {
+        self.compose(state);
+        fade(&mut self.picture, self.opacity);
+    }
+
+    fn compose(&mut self, state: &DisplayState) {
         self.picture.copy_from_slice(&self.released);
         let resting = self.preset.sprites(&DisplayState::default());
         let lit = self.preset.sprites(state);
@@ -614,9 +681,14 @@ mod tests {
         state
     }
 
-    fn display(corner: InputDisplayCorner) -> LiveInputDisplay {
+    const TOP_LEFT: XY<f64> = XY { x: 0.0, y: 0.0 };
+    const TOP_RIGHT: XY<f64> = XY { x: 1.0, y: 0.0 };
+    const BOTTOM_LEFT: XY<f64> = XY { x: 0.0, y: 1.0 };
+    const BOTTOM_RIGHT: XY<f64> = XY { x: 1.0, y: 1.0 };
+
+    fn display(position: XY<f64>) -> LiveInputDisplay {
         LiveInputDisplay::new(InstantInputDisplay {
-            corner,
+            position,
             ..Default::default()
         })
     }
@@ -689,7 +761,7 @@ mod tests {
 
     #[test]
     fn a_held_key_lights_up_in_the_recorded_frame() {
-        let display = display(InputDisplayCorner::BottomLeft);
+        let display = display(BOTTOM_LEFT);
         let resting = captured(&display);
         display.show(held(&[KEY_W]));
         let pressed = captured(&display);
@@ -713,7 +785,7 @@ mod tests {
 
     #[test]
     fn a_held_mouse_button_lights_up_too() {
-        let display = display(InputDisplayCorner::BottomLeft);
+        let display = display(BOTTOM_LEFT);
         let resting = captured(&display);
         display.show(held(&[Input::MouseButton(1)]));
         let pressed = captured(&display);
@@ -726,25 +798,24 @@ mod tests {
     #[test]
     fn the_display_sits_in_the_chosen_corner_inside_the_margin() {
         let margin = 19;
-        for corner in InputDisplayCorner::ALL {
+        for corner in [TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT] {
             let (left, top, right, bottom) = painted(&captured(&display(corner)));
             let at_left = left.abs_diff(margin) <= 2 && right < FRAME.0 / 2;
             let at_right = right.abs_diff(FRAME.0 - 1 - margin) <= 2 && left > FRAME.0 / 2;
             let at_top = top.abs_diff(margin) <= 2 && bottom < FRAME.1 / 2;
             let at_bottom = bottom.abs_diff(FRAME.1 - 1 - margin) <= 2 && top > FRAME.1 / 2;
-            let expected = match corner {
-                InputDisplayCorner::TopLeft => at_left && at_top,
-                InputDisplayCorner::TopRight => at_right && at_top,
-                InputDisplayCorner::BottomLeft => at_left && at_bottom,
-                InputDisplayCorner::BottomRight => at_right && at_bottom,
-            };
-            assert!(expected, "{corner:?}: {left}, {top}, {right}, {bottom}");
+            let across = if corner.x == 0.0 { at_left } else { at_right };
+            let down = if corner.y == 0.0 { at_top } else { at_bottom };
+            assert!(
+                across && down,
+                "{corner:?}: {left}, {top}, {right}, {bottom}"
+            );
         }
     }
 
     #[test]
     fn a_still_screen_shows_a_key_going_down_and_up() {
-        let display = display(InputDisplayCorner::BottomLeft);
+        let display = display(BOTTOM_LEFT);
         let mut baker = overlays(&display).baker().unwrap();
         let now = Instant::now();
         let mut resting = black_frame(ffmpeg::format::Pixel::RGBA);
@@ -763,7 +834,7 @@ mod tests {
 
     #[test]
     fn a_click_highlight_over_the_display_fades_back_to_the_display() {
-        let display = display(InputDisplayCorner::TopLeft);
+        let display = display(TOP_LEFT);
         let highlights = ClickHighlights::new(
             CaptureArea::new((0.0, 0.0, f64::from(FRAME.0), f64::from(FRAME.1)), None),
             1.0,
@@ -816,7 +887,7 @@ mod tests {
 
     #[test]
     fn a_bgra_frame_gets_the_display_too() {
-        let display = display(InputDisplayCorner::BottomLeft);
+        let display = display(BOTTOM_LEFT);
         let mut bgra = black_frame(ffmpeg::format::Pixel::BGRA);
         overlays(&display)
             .baker()
@@ -833,13 +904,7 @@ mod tests {
             ..Default::default()
         });
         let fallback = captured(&missing);
-        assert!(
-            differing(
-                &fallback,
-                &captured(&display(InputDisplayCorner::BottomLeft))
-            )
-            .is_empty()
-        );
+        assert!(differing(&fallback, &captured(&display(BOTTOM_LEFT))).is_empty());
         assert_ne!(painted(&fallback), (u32::MAX, u32::MAX, 0, 0));
     }
 
@@ -850,6 +915,7 @@ mod tests {
             .map(|preset| {
                 painted(&captured(&LiveInputDisplay::new(InstantInputDisplay {
                     preset: preset.id().into(),
+                    device: device_of(preset),
                     ..Default::default()
                 })))
             })
@@ -857,9 +923,16 @@ mod tests {
         assert_ne!(pictures[0], pictures[1]);
     }
 
+    fn device_of(preset: BuiltinPresetId) -> InputDevice {
+        match preset.controller() {
+            Some(_) => InputDevice::Gamepad,
+            None => InputDevice::KeyboardAndMouse,
+        }
+    }
+
     fn gamepad_display() -> LiveInputDisplay {
         LiveInputDisplay::new(InstantInputDisplay {
-            preset: BuiltinPresetId::Gamepad.id().into(),
+            device: InputDevice::Gamepad,
             ..Default::default()
         })
     }
@@ -998,18 +1071,283 @@ mod tests {
             &[],
         ));
         let playstation = baker.repeated(&first, now).unwrap();
-        let wasd = display_with_controller(GamepadKind::PlayStation);
 
         assert!(differing(&first, &xbox).is_empty());
         assert!(differing(&playstation, &xbox).len() > 50);
         assert_eq!(painted(&playstation), painted(&xbox));
-        assert!(differing(&wasd, &captured(&display(InputDisplayCorner::BottomLeft))).is_empty());
     }
 
-    fn display_with_controller(controller: GamepadKind) -> ffmpeg::frame::Video {
-        let display = display(InputDisplayCorner::BottomLeft);
-        display.show(gamepad(controller, GamepadAxes::default(), &[]));
+    fn with_settings(settings: InstantInputDisplay, state: DisplayState) -> ffmpeg::frame::Video {
+        let display = LiveInputDisplay::new(settings);
+        display.show(state);
         captured(&display)
+    }
+
+    fn of_device(device: InputDevice) -> InstantInputDisplay {
+        InstantInputDisplay {
+            device,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_chosen_device_decides_which_picture_is_drawn() {
+        let playstation = || gamepad(GamepadKind::PlayStation, GamepadAxes::default(), &[]);
+        let wasd = captured(&display(BOTTOM_LEFT));
+        let xbox_pad = captured(&gamepad_display());
+        let playstation_pad = with_settings(of_device(InputDevice::Gamepad), playstation());
+        let same = |a: &ffmpeg::frame::Video, b: &ffmpeg::frame::Video| differing(a, b).is_empty();
+
+        assert!(!same(&wasd, &xbox_pad));
+        assert!(!same(&playstation_pad, &xbox_pad));
+        assert!(same(
+            &with_settings(of_device(InputDevice::KeyboardAndMouse), playstation()),
+            &wasd
+        ));
+        assert!(same(
+            &with_settings(of_device(InputDevice::Auto), playstation()),
+            &playstation_pad
+        ));
+        assert!(same(
+            &with_settings(of_device(InputDevice::Auto), held(&[KEY_W])),
+            &with_settings(of_device(InputDevice::KeyboardAndMouse), held(&[KEY_W]))
+        ));
+        let stored_before_the_device_choice = InstantInputDisplay {
+            preset: BuiltinPresetId::Gamepad.id().into(),
+            device: InputDevice::KeyboardAndMouse,
+            ..Default::default()
+        };
+        assert!(same(
+            &with_settings(stored_before_the_device_choice, DisplayState::default()),
+            &wasd
+        ));
+    }
+
+    #[test]
+    fn the_device_in_use_is_the_one_that_last_produced_input() {
+        let pad_connected = || gamepad(GamepadKind::Switch, GamepadAxes::default(), &[]);
+        let pad_pressed = || {
+            gamepad(
+                GamepadKind::Switch,
+                GamepadAxes::default(),
+                &[gamepad_buttons::SOUTH],
+            )
+        };
+        let stick_pushed = || {
+            gamepad(
+                GamepadKind::Switch,
+                GamepadAxes {
+                    left_stick: [90, 0],
+                    ..Default::default()
+                },
+                &[],
+            )
+        };
+        let key_held_with_pad_connected = || {
+            let mut state = pad_connected();
+            state.apply(KEY_W, true);
+            state
+        };
+        let mut in_use = DeviceInUse::default();
+        let mut shown =
+            |device, state: DisplayState| in_use.follow(device, state).controller.is_some();
+
+        assert!(!shown(InputDevice::Auto, pad_connected()));
+        assert!(shown(InputDevice::Auto, pad_pressed()));
+        assert!(shown(InputDevice::Auto, pad_connected()));
+        assert!(!shown(InputDevice::Auto, key_held_with_pad_connected()));
+        assert!(!shown(InputDevice::Auto, pad_connected()));
+        assert!(shown(InputDevice::Auto, stick_pushed()));
+        assert!(!shown(InputDevice::KeyboardAndMouse, pad_pressed()));
+        assert!(shown(InputDevice::Gamepad, key_held_with_pad_connected()));
+        assert!(!shown(InputDevice::Gamepad, held(&[KEY_W])));
+    }
+
+    #[test]
+    fn a_device_that_was_not_chosen_is_not_read() {
+        assert_eq!(live_sources(InputDevice::KeyboardAndMouse).len(), 1);
+        assert!(live_sources(InputDevice::Gamepad).len() <= 1);
+    }
+
+    fn painted_size(settings: InstantInputDisplay) -> (u32, u32) {
+        let (left, top, right, bottom) = painted(&captured(&LiveInputDisplay::new(settings)));
+        (right - left + 1, bottom - top + 1)
+    }
+
+    #[test]
+    fn size_scales_the_display_like_the_editor_does() {
+        let sized = |size| {
+            painted_size(InstantInputDisplay {
+                size,
+                opacity: 100.0,
+                ..Default::default()
+            })
+        };
+        let (normal, large, small) = (sized(60.0), sized(120.0), sized(30.0));
+
+        assert!(normal.0.abs_diff(192) <= 3, "{normal:?}");
+        assert!(large.0.abs_diff(normal.0 * 2) <= 4, "{large:?}");
+        assert!(large.1.abs_diff(normal.1 * 2) <= 4, "{large:?}");
+        assert!(small.0.abs_diff(normal.0 / 2) <= 4, "{small:?}");
+        assert_eq!(sized(5000.0), large);
+    }
+
+    #[test]
+    fn the_display_can_sit_anywhere_inside_the_margin() {
+        let placed = |x, y| {
+            painted(&captured(&LiveInputDisplay::new(InstantInputDisplay {
+                position: XY::new(x, y),
+                ..Default::default()
+            })))
+        };
+        let (left, top, right, bottom) = placed(0.5, 0.5);
+        assert!((left + right).abs_diff(FRAME.0 - 1) <= 3, "{left} {right}");
+        assert!((top + bottom).abs_diff(FRAME.1 - 1) <= 3, "{top} {bottom}");
+
+        let corner = placed(0.0, 0.0);
+        let far_corner = placed(1.0, 1.0);
+        let quarter = placed(0.25, 0.75);
+        let between = |from: u32, to: u32, share: f64| {
+            (f64::from(from) + f64::from(to - from) * share).round() as u32
+        };
+        assert!(
+            quarter.0.abs_diff(between(corner.0, far_corner.0, 0.25)) <= 2,
+            "{quarter:?}"
+        );
+        assert!(
+            quarter.1.abs_diff(between(corner.1, far_corner.1, 0.75)) <= 2,
+            "{quarter:?}"
+        );
+    }
+
+    #[test]
+    fn the_default_display_is_not_fully_opaque() {
+        let settings = InstantInputDisplay::default();
+        assert!(settings.opacity < 100.0);
+        assert!(settings.opacity >= 50.0);
+    }
+
+    #[test]
+    fn opacity_fades_the_whole_picture_evenly_whatever_is_pressed() {
+        let pushed = gamepad(
+            GamepadKind::Xbox,
+            GamepadAxes {
+                left_stick: [127, 0],
+                ..Default::default()
+            },
+            &[gamepad_buttons::LEFT_STICK],
+        );
+        for (device, state) in [
+            (InputDevice::KeyboardAndMouse, DisplayState::default()),
+            (InputDevice::KeyboardAndMouse, held(&[KEY_W])),
+            (InputDevice::Gamepad, pushed),
+        ] {
+            let drawn = |opacity| {
+                with_settings(
+                    InstantInputDisplay {
+                        device,
+                        opacity,
+                        ..Default::default()
+                    },
+                    state.clone(),
+                )
+            };
+            let (opaque, half) = (drawn(100.0), drawn(50.0));
+            let mut seen = 0;
+            for y in 0..FRAME.1 {
+                for x in 0..FRAME.0 {
+                    let (full, faded) = (pixel(&opaque, x, y), pixel(&half, x, y));
+                    for channel in 0..3 {
+                        let expected = (u32::from(full[channel]) * 128 + 127) / 255;
+                        assert!(
+                            u32::from(faded[channel]).abs_diff(expected) <= 1,
+                            "({x}, {y}): {full:?} became {faded:?}"
+                        );
+                    }
+                    seen += usize::from(full != BLACK);
+                }
+            }
+            assert!(seen > 1000, "{seen}");
+        }
+    }
+
+    #[test]
+    fn a_see_through_display_lets_the_recording_show_through() {
+        let over_white = |opacity| {
+            let display = LiveInputDisplay::new(InstantInputDisplay {
+                opacity,
+                ..Default::default()
+            });
+            let mut frame = black_frame(ffmpeg::format::Pixel::RGBA);
+            for pixel in frame.data_mut(0).chunks_exact_mut(4) {
+                pixel.copy_from_slice(&[255, 255, 255, 255]);
+            }
+            overlays(&display)
+                .baker()
+                .unwrap()
+                .captured(&mut frame, Instant::now());
+            frame
+        };
+        let (opaque, faint) = (over_white(100.0), over_white(20.0));
+        let darkest = |frame: &ffmpeg::frame::Video| {
+            (0..FRAME.1)
+                .flat_map(|y| (0..FRAME.0).map(move |x| (x, y)))
+                .map(|(x, y)| pixel(frame, x, y)[0])
+                .min()
+                .unwrap()
+        };
+        assert!(darkest(&opaque) < 80, "{}", darkest(&opaque));
+        assert!(darkest(&faint) > 190, "{}", darkest(&faint));
+        assert!(differing(&over_white(1.0), &faint).is_empty());
+    }
+
+    struct PadAndKey {
+        pad_down: Arc<AtomicBool>,
+        key_down: Arc<AtomicBool>,
+    }
+
+    impl InputSource for PadAndKey {
+        fn read(&mut self, state: &mut DisplayState) {
+            let pad = GamepadSnapshot {
+                kind: GamepadKind::PlayStation,
+                ..Default::default()
+            };
+            state.show_gamepad(&if self.pad_down.load(Ordering::SeqCst) {
+                pad.with_button(gamepad_buttons::SOUTH)
+            } else {
+                pad
+            });
+            if self.key_down.load(Ordering::SeqCst) {
+                state.apply(KEY_W, true);
+            }
+        }
+    }
+
+    #[test]
+    fn a_gamepad_being_used_takes_over_the_picture_and_a_key_takes_it_back() {
+        let pad_down = Arc::new(AtomicBool::new(false));
+        let key_down = Arc::new(AtomicBool::new(false));
+        let display = display(BOTTOM_LEFT);
+        let source = PadAndKey {
+            pad_down: pad_down.clone(),
+            key_down: key_down.clone(),
+        };
+        display.watch_with(
+            move || vec![Box::new(source) as Box<dyn InputSource>],
+            TargetFocus::none,
+            || true,
+        );
+        let controller = || display.state().controller;
+
+        std::thread::sleep(POLL_INTERVAL * 6);
+        assert_eq!(controller(), None);
+        pad_down.store(true, Ordering::SeqCst);
+        assert!(eventually(|| controller() == Some(GamepadKind::PlayStation)));
+        pad_down.store(false, Ordering::SeqCst);
+        std::thread::sleep(POLL_INTERVAL * 6);
+        assert_eq!(controller(), Some(GamepadKind::PlayStation));
+        key_down.store(true, Ordering::SeqCst);
+        assert!(eventually(|| controller().is_none()));
     }
 
     #[test]
@@ -1098,7 +1436,7 @@ mod tests {
     fn input_is_read_only_while_the_display_is_watched_and_alive() {
         let reads = Arc::new(AtomicUsize::new(0));
         let down = Arc::new(AtomicBool::new(false));
-        let display = display(InputDisplayCorner::BottomLeft);
+        let display = display(BOTTOM_LEFT);
         let source = Scripted {
             reads: reads.clone(),
             down: down.clone(),
@@ -1145,7 +1483,7 @@ mod tests {
     fn nothing_is_read_while_the_recording_is_paused() {
         let reads = Arc::new(AtomicUsize::new(0));
         let down = Arc::new(AtomicBool::new(true));
-        let display = display(InputDisplayCorner::BottomLeft);
+        let display = display(BOTTOM_LEFT);
         let source = Scripted {
             reads: reads.clone(),
             down: down.clone(),
@@ -1170,7 +1508,7 @@ mod tests {
     fn input_pressed_while_another_window_is_in_front_is_not_drawn() {
         let down = Arc::new(AtomicBool::new(false));
         let in_front = Arc::new(AtomicBool::new(false));
-        let display = display(InputDisplayCorner::BottomLeft);
+        let display = display(BOTTOM_LEFT);
         let source = Scripted {
             reads: Arc::new(AtomicUsize::new(0)),
             down: down.clone(),
@@ -1222,9 +1560,14 @@ mod tests {
                 std::hint::black_box(frame.clone());
             });
             println!("{label}: display off 0.00 us (no baker), plain frame copy {copy:.2} us");
-            for preset in BuiltinPresetId::ALL {
+            for (preset, opacity) in BuiltinPresetId::ALL
+                .into_iter()
+                .flat_map(|preset| [(preset, 100.0), (preset, INSTANT_INPUT_DEFAULT_OPACITY)])
+            {
                 let display = LiveInputDisplay::new(InstantInputDisplay {
                     preset: preset.id().into(),
+                    device: device_of(preset),
+                    opacity,
                     ..Default::default()
                 });
                 let mut baker = overlays(&display).baker().unwrap();
@@ -1263,7 +1606,7 @@ mod tests {
                     assert!(baker.repeated(&frame, now).is_some());
                 });
                 println!(
-                    "{label} {}: display on, captured {held_frame:.2} us, captured with a key change {changing_frame:.2} us, still screen unchanged {still_idle:.2} us, still screen with a key change {still_changing:.2} us, one-time preparation {prepare:.1} ms",
+                    "{label} {} at {opacity}% opacity: display on, captured {held_frame:.2} us, captured with a key change {changing_frame:.2} us, still screen unchanged {still_idle:.2} us, still screen with a key change {still_changing:.2} us, one-time preparation {prepare:.1} ms",
                     preset.id()
                 );
             }

@@ -39,7 +39,7 @@ pub(super) fn preset_menu_labels(presets: &[ListedPreset]) -> Vec<SharedString> 
 
 impl SettingsWindow {
     pub(super) fn reload_input_presets(&mut self, cx: &mut Context<Self>) {
-        self.input_presets = editor_input_display::listed_input_presets();
+        self.input_presets = editor_input_display::listed_keyboard_presets();
         self.own_input_presets = own_presets();
         cx.notify();
     }

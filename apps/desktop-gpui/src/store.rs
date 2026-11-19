@@ -675,15 +675,71 @@ settings_enum! {
     default = BottomLeft
 }
 
-impl From<InstantInputCorner> for frameever_recording::live_input_display::InputDisplayCorner {
-    fn from(corner: InstantInputCorner) -> Self {
-        match corner {
-            InstantInputCorner::TopLeft => Self::TopLeft,
-            InstantInputCorner::TopRight => Self::TopRight,
-            InstantInputCorner::BottomLeft => Self::BottomLeft,
-            InstantInputCorner::BottomRight => Self::BottomRight,
+impl InstantInputCorner {
+    pub fn position(self) -> (f64, f64) {
+        match self {
+            InstantInputCorner::TopLeft => (0.0, 0.0),
+            InstantInputCorner::TopRight => (1.0, 0.0),
+            InstantInputCorner::BottomLeft => (0.0, 1.0),
+            InstantInputCorner::BottomRight => (1.0, 1.0),
         }
     }
+}
+
+pub fn instant_input_position_json((x, y): (f64, f64)) -> Value {
+    serde_json::json!({ "x": x, "y": y })
+}
+
+fn instant_input_position(stored: Option<&Value>, corner: InstantInputCorner) -> (f64, f64) {
+    let along = |axis: &str| {
+        stored?
+            .get(axis)?
+            .as_f64()
+            .filter(|share| share.is_finite())
+            .map(|share| share.clamp(0.0, 1.0))
+    };
+    match (along("x"), along("y")) {
+        (Some(x), Some(y)) => (x, y),
+        _ => corner.position(),
+    }
+}
+
+settings_enum! {
+    InstantInputDevice {
+        Auto = "auto", t!("Automatic");
+        KeyboardAndMouse = "keyboardAndMouse", t!("Keyboard and mouse");
+        Gamepad = "gamepad", t!("Gamepad");
+    }
+    default = Auto
+}
+
+impl InstantInputDevice {
+    fn stored_or_from_preset(stored: Option<String>, preset: &str) -> Self {
+        let preset_draws_a_gamepad =
+            frameever_project::input_display::BuiltinPresetId::from_id(preset)
+                .is_some_and(|preset| preset.controller().is_some());
+        stored
+            .and_then(|device| Self::from_json(&device))
+            .unwrap_or(if preset_draws_a_gamepad {
+                Self::Gamepad
+            } else {
+                Self::Auto
+            })
+    }
+}
+
+impl From<InstantInputDevice> for frameever_recording::live_input_display::InputDevice {
+    fn from(device: InstantInputDevice) -> Self {
+        match device {
+            InstantInputDevice::Auto => Self::Auto,
+            InstantInputDevice::KeyboardAndMouse => Self::KeyboardAndMouse,
+            InstantInputDevice::Gamepad => Self::Gamepad,
+        }
+    }
+}
+
+fn within((least, most): (f64, f64), value: f32) -> f64 {
+    f64::from(value).clamp(least, most)
 }
 
 settings_enum! {
@@ -960,7 +1016,10 @@ pub struct GeneralSettings {
     pub instant_click_highlight: bool,
     pub instant_show_input: bool,
     pub instant_input_preset: String,
-    pub instant_input_corner: InstantInputCorner,
+    pub instant_input_device: InstantInputDevice,
+    pub instant_input_size: f64,
+    pub instant_input_opacity: f64,
+    pub instant_input_position: (f64, f64),
     pub main_window_recording_start_behaviour: MainWindowStartBehaviour,
     pub post_studio_recording_behaviour: PostStudioBehaviour,
     pub post_screenshot_behaviour: PostScreenshotBehaviour,
@@ -1351,7 +1410,13 @@ impl GeneralSettings {
             frameever_recording::live_input_display::InstantInputDisplay {
                 preset: self.instant_input_preset.clone(),
                 style: Default::default(),
-                corner: self.instant_input_corner.into(),
+                device: self.instant_input_device.into(),
+                position: frameever_project::XY::new(
+                    self.instant_input_position.0,
+                    self.instant_input_position.1,
+                ),
+                size: self.instant_input_size,
+                opacity: self.instant_input_opacity,
             }
         })
     }
@@ -1372,6 +1437,13 @@ impl GeneralSettings {
         safety: &Map<String, Value>,
         audio_enhancement: &Map<String, Value>,
     ) -> Self {
+        use frameever_project::input_display::{
+            BuiltinPresetId, INPUT_DISPLAY_DEFAULT_SIZE, INPUT_DISPLAY_OPACITY_RANGE,
+            INPUT_DISPLAY_SIZE_RANGE,
+        };
+        use frameever_recording::live_input_display::INSTANT_INPUT_DEFAULT_OPACITY;
+        let instant_input_preset = opt_string_at(general, "instantInputPreset")
+            .unwrap_or_else(|| BuiltinPresetId::WasdMouse.id().to_string());
         Self {
             theme: enum_at(general, "theme"),
             language: opt_string_at(general, "language"),
@@ -1384,14 +1456,31 @@ impl GeneralSettings {
             recording_auto_stop_minutes: u32_at(general, "recordingAutoStopMinutes", 0),
             instant_click_highlight: bool_at(general, "instantClickHighlight", false),
             instant_show_input: bool_at(general, "instantShowInput", false),
-            instant_input_preset: opt_string_at(general, "instantInputPreset").unwrap_or_else(
-                || {
-                    frameever_project::input_display::BuiltinPresetId::WasdMouse
-                        .id()
-                        .to_string()
-                },
+            instant_input_device: InstantInputDevice::stored_or_from_preset(
+                opt_string_at(general, "instantInputDevice"),
+                &instant_input_preset,
             ),
-            instant_input_corner: enum_at(general, "instantInputCorner"),
+            instant_input_preset,
+            instant_input_size: within(
+                INPUT_DISPLAY_SIZE_RANGE,
+                f32_at(
+                    general,
+                    "instantInputSize",
+                    INPUT_DISPLAY_DEFAULT_SIZE as f32,
+                ),
+            ),
+            instant_input_opacity: within(
+                INPUT_DISPLAY_OPACITY_RANGE,
+                f32_at(
+                    general,
+                    "instantInputOpacity",
+                    INSTANT_INPUT_DEFAULT_OPACITY as f32,
+                ),
+            ),
+            instant_input_position: instant_input_position(
+                general.get("instantInputPosition"),
+                enum_at(general, "instantInputCorner"),
+            ),
             main_window_recording_start_behaviour: enum_at(
                 general,
                 "mainWindowRecordingStartBehaviour",
@@ -3040,7 +3129,8 @@ mod tests {
 
     #[test]
     fn instant_recordings_show_input_only_when_the_setting_is_on() {
-        use frameever_recording::live_input_display::{InputDisplayCorner, InstantInputDisplay};
+        use frameever_project::XY;
+        use frameever_recording::live_input_display::{InputDevice, InstantInputDisplay};
         let shown = |general: &str| {
             let _store = TempStore::new(
                 "instant-input",
@@ -3055,24 +3145,75 @@ mod tests {
             Some(InstantInputDisplay {
                 preset: "wasd-mouse".into(),
                 style: Default::default(),
-                corner: InputDisplayCorner::BottomLeft,
+                device: InputDevice::Auto,
+                position: XY::new(0.0, 1.0),
+                size: 60.0,
+                opacity: 80.0,
             })
         );
         assert_eq!(
             shown(
-                r#"{ "instantShowInput": true, "instantInputPreset": "full-keyboard", "instantInputCorner": "topRight" }"#
+                r#"{ "instantShowInput": true, "instantInputPreset": "full-keyboard", "instantInputDevice": "keyboardAndMouse", "instantInputSize": 90, "instantInputOpacity": 45, "instantInputPosition": { "x": 0.5, "y": 0.25 } }"#
             ),
             Some(InstantInputDisplay {
                 preset: "full-keyboard".into(),
                 style: Default::default(),
-                corner: InputDisplayCorner::TopRight,
+                device: InputDevice::KeyboardAndMouse,
+                position: XY::new(0.5, 0.25),
+                size: 90.0,
+                opacity: 45.0,
             })
         );
         assert_eq!(
             shown(
-                r#"{ "instantShowInput": false, "instantInputPreset": "full-keyboard", "instantInputCorner": "topRight" }"#
+                r#"{ "instantShowInput": false, "instantInputPreset": "full-keyboard", "instantInputSize": 90 }"#
             ),
             None
+        );
+    }
+
+    #[test]
+    fn instant_input_settings_saved_by_1_0_0_keep_their_meaning() {
+        use frameever_recording::live_input_display::InputDevice;
+        let shown = |general: &str| {
+            let _store = TempStore::new(
+                "instant-input-before",
+                Some(&format!(r#"{{ "general_settings": {general} }}"#)),
+            );
+            GeneralSettings::load().instant_input_display().unwrap()
+        };
+        let corner = shown(r#"{ "instantShowInput": true, "instantInputCorner": "topRight" }"#);
+        assert_eq!((corner.position.x, corner.position.y), (1.0, 0.0));
+        let moved = shown(
+            r#"{ "instantShowInput": true, "instantInputCorner": "topRight", "instantInputPosition": { "x": 0.2, "y": 0.7 } }"#,
+        );
+        assert_eq!((moved.position.x, moved.position.y), (0.2, 0.7));
+        let gamepad = shown(r#"{ "instantShowInput": true, "instantInputPreset": "gamepad" }"#);
+        assert_eq!(gamepad.device, InputDevice::Gamepad);
+        let chosen_since = shown(
+            r#"{ "instantShowInput": true, "instantInputPreset": "gamepad", "instantInputDevice": "auto" }"#,
+        );
+        assert_eq!(chosen_since.device, InputDevice::Auto);
+    }
+
+    #[test]
+    fn instant_input_values_outside_their_ranges_are_pulled_inside() {
+        let loaded = |general: &str| {
+            let _store = TempStore::new(
+                "instant-input-ranges",
+                Some(&format!(r#"{{ "general_settings": {general} }}"#)),
+            );
+            GeneralSettings::load()
+        };
+        let settings = loaded(
+            r#"{ "instantInputSize": 5000, "instantInputOpacity": 1, "instantInputPosition": { "x": 7, "y": -3 } }"#,
+        );
+        assert_eq!(settings.instant_input_size, 120.0);
+        assert_eq!(settings.instant_input_opacity, 20.0);
+        assert_eq!(settings.instant_input_position, (1.0, 0.0));
+        assert_eq!(
+            loaded(r#"{ "instantInputPosition": { "x": "left" } }"#).instant_input_position,
+            (0.0, 1.0)
         );
     }
 

@@ -828,3 +828,42 @@ main {
 	flex: 1;
 	min-width: 0;
 }
+
+.pos-pad {
+	position: relative;
+	width: 200px;
+	height: 112px;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background:
+		linear-gradient(var(--border), var(--border)) 50% 0 / 1px 100% no-repeat,
+		linear-gradient(var(--border), var(--border)) 0 50% / 100% 1px no-repeat,
+		var(--card);
+	cursor: crosshair;
+	touch-action: none;
+}
+
+.pos-pad:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+.pos-knob {
+	position: absolute;
+	width: 24px;
+	height: 24px;
+	margin: -12px 0 0 -12px;
+	border: 1px solid var(--muted-foreground);
+	border-radius: 50%;
+	background: var(--background);
+	pointer-events: none;
+}
+
+.pos-knob::after {
+	content: "";
+	position: absolute;
+	inset: 8px;
+	border-radius: 50%;
+	background: var(--border);
+}

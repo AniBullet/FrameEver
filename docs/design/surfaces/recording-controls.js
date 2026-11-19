@@ -36,6 +36,10 @@ const opt = {
 	keys: false,
 	clicks: false,
 	input: false,
+	device: "auto",
+	size: "60",
+	opacity: "80",
+	corner: "bl",
 };
 
 const fmt = (sec) => {
@@ -387,8 +391,48 @@ const optPop = (bottom) => {
 				: `<div class="opt-row"><span class="grow">${L("Click highlight", "点击高亮")}</span><button class="switch ${opt.clicks ? "on" : ""}" data-o="clicks" aria-label="${pick("Click highlight", "点击高亮")}"></button></div>
 		<div class="opt-row"><span class="grow">${L("Show input", "显示操作")}</span><button class="switch ${opt.input ? "on" : ""}" data-o="input" aria-label="${pick("Show input", "显示操作")}"></button></div>${
 			opt.input
-				? `<div class="opt-row"><span class="grow">${L("Preset", "预设")}</span><button class="btn ghost">${L("WASD + mouse", "WASD + 鼠标")}${icon("chevron-down", "sm")}</button></div>
-		<div class="opt-row"><span class="grow">${L("Position", "位置")}</span><button class="btn ghost">${L("Bottom left", "左下")}${icon("chevron-down", "sm")}</button></div>`
+				? `<div class="opt-row"><span class="grow">${L("Device", "设备")}</span>${seg(
+						"device",
+						opt.device,
+						[
+							["auto", "Automatic", "自动"],
+							["keys", "Keyboard and mouse", "键盘和鼠标"],
+							["gamepad", "Gamepad", "手柄"],
+						],
+					)}</div>${
+						opt.device === "gamepad"
+							? ""
+							: `<div class="opt-row"><span class="grow">${L("Preset", "预设")}</span><button class="btn ghost">${L("WASD + mouse", "WASD + 鼠标")}${icon("chevron-down", "sm")}</button></div>`
+					}
+		<div class="opt-row"><span class="grow">${L("Size", "大小")}</span>${seg(
+			"size",
+			opt.size,
+			[
+				["40", "Small", "小"],
+				["60", "Medium", "中等"],
+				["90", "Large", "大"],
+			],
+		)}</div>
+		<div class="opt-row"><span class="grow">${L("Opacity", "不透明度")}</span>${seg(
+			"opacity",
+			opt.opacity,
+			[
+				["40", "40%"],
+				["60", "60%"],
+				["80", "80%"],
+				["100", "100%"],
+			],
+		)}</div>
+		<div class="opt-row"><span class="grow">${L("Position", "位置")}</span>${seg(
+			"corner",
+			opt.corner,
+			[
+				["tl", "Top left", "左上"],
+				["tr", "Top right", "右上"],
+				["bl", "Bottom left", "左下"],
+				["br", "Bottom right", "右下"],
+			],
+		)}</div>`
 				: ""
 		}`
 		}
@@ -463,8 +507,8 @@ const copy = () => {
 		],
 		"t-options": ["Recording options before you start", "开始前的录制选项"],
 		"l-options": [
-			"The compact window already holds source, camera, microphone and system audio, so the popover carries only what lives on the Recording settings page, with the same names, in the order they are used: quality, frame rate, countdown, then the mode's own options (Studio: separate cursor and record input; Instant: click highlight and show input with its preset and position), then auto-stop. It opens from a summary in the footer, so the window stays 386 px and always shows what's set; for Instant the summary names click highlight and show input right after the resolution while they are on, because they change what the video contains and the end of the line is what gets cut. All recording settings opens the Studio or Instant page of the settings window. The summary replaces the item count, which the library shows anyway. Open it with Tab and Enter, close it with Esc. The recording mode is Studio or Instant only. A screenshot is its own button beside Start recording: it captures the chosen source at once and takes none of these options.",
-			"紧凑窗口已经有来源、摄像头、麦克风和系统声音，所以这个浮层只放设置“录制”页里的项目，名称完全一致，按使用顺序排：画质、帧率、倒计时，然后是这个模式自己的选项（工作室：单独捕获光标和记录操作输入；即时：点击高亮、显示操作及其预设和位置），最后是自动停止。它从底栏的摘要打开，所以窗口保持 386 px，并一直显示当前设置；即时模式下，点击高亮和显示操作开着时紧跟在分辨率后面写出来，因为它们会改变视频的内容，而被截断的总是行尾。“全部录制设置”打开设置窗口的工作室页或即时页。摘要替换的是条目数，资源库里本来就有。Tab 加 Enter 打开，Esc 关闭。录制模式只有工作室和即时。截图是“开始录制”旁边单独的按钮：点一下就截取当前选的来源，不受这些选项影响。",
+			"The compact window already holds source, camera, microphone and system audio, so the popover carries only what lives on the Recording settings page, with the same names, in the order they are used: quality, frame rate, countdown, then the mode's own options (Studio: separate cursor and record input; Instant: click highlight and show input with its device, preset, size, opacity and corner), then auto-stop. Size and opacity are steps here and sliders in Settings; the corner here is one of four, and Settings places the display anywhere. It opens from a summary in the footer, so the window stays 386 px and always shows what's set; for Instant the summary names click highlight and show input right after the resolution while they are on, because they change what the video contains and the end of the line is what gets cut. All recording settings opens the Studio or Instant page of the settings window. The summary replaces the item count, which the library shows anyway. Open it with Tab and Enter, close it with Esc. The recording mode is Studio or Instant only. A screenshot is its own button beside Start recording: it captures the chosen source at once and takes none of these options.",
+			"紧凑窗口已经有来源、摄像头、麦克风和系统声音，所以这个浮层只放设置“录制”页里的项目，名称完全一致，按使用顺序排：画质、帧率、倒计时，然后是这个模式自己的选项（工作室：单独捕获光标和记录操作输入；即时：点击高亮、显示操作及其设备、预设、大小、不透明度和角落），最后是自动停止。大小和不透明度在这里是几档，在设置里是滑块；这里的位置只有四个角，设置里可以放到任意位置。它从底栏的摘要打开，所以窗口保持 386 px，并一直显示当前设置；即时模式下，点击高亮和显示操作开着时紧跟在分辨率后面写出来，因为它们会改变视频的内容，而被截断的总是行尾。“全部录制设置”打开设置窗口的工作室页或即时页。摘要替换的是条目数，资源库里本来就有。Tab 加 Enter 打开，Esc 关闭。录制模式只有工作室和即时。截图是“开始录制”旁边单独的按钮：点一下就截取当前选的来源，不受这些选项影响。",
 		],
 		"t-keys": ["Keyboard", "键盘"],
 		"l-keys": [
@@ -933,7 +977,19 @@ document.addEventListener("click", (event) => {
 			opt.mode = v;
 			renderOptions();
 		}
-		if (["quality", "res", "fps", "countdown", "autostop"].includes(name)) {
+		if (
+			[
+				"quality",
+				"res",
+				"fps",
+				"countdown",
+				"autostop",
+				"device",
+				"size",
+				"opacity",
+				"corner",
+			].includes(name)
+		) {
 			opt[name] = v;
 			renderOptions();
 		}

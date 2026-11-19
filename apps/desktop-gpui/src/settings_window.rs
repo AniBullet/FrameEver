@@ -5,6 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+use frameever_project::input_display::{
+    INPUT_DISPLAY_OPACITY_RANGE, INPUT_DISPLAY_SIZE_RANGE, snap_position,
+};
 use gpui::{
     AnyElement, AppContext as _, Bounds, Context, Entity, FocusHandle, FontWeight, Hsla,
     InteractiveElement, IntoElement, ParentElement, Pixels, Point, Render, ScrollAnchor,
@@ -21,7 +24,7 @@ use crate::{
     onboarding_doodles,
     store::{
         self, AppTheme, DEFAULT_PROJECT_NAME_TEMPLATE, GENERAL_SETTINGS, GeneralSettings,
-        InstantInputCorner, MainWindowStartBehaviour, PostDeletionBehaviour, PostInstantBehaviour,
+        InstantInputDevice, MainWindowStartBehaviour, PostDeletionBehaviour, PostInstantBehaviour,
         PostScreenshotBehaviour, PostStudioBehaviour, RECORDING_START_SAFETY, SettingsEnum,
         StudioQuality, UpdateChannel, UpdateDownloadPolicy, WindowCaptureStyle, WindowExclusion,
     },
@@ -73,7 +76,6 @@ pub(crate) enum MenuKind {
     AfterInstant,
     AutoStop,
     InputPreset,
-    InputPosition,
     AddWindow,
     AutomationTrigger(usize),
     AutomationMatchMode(usize),
@@ -140,6 +142,101 @@ const VOICE_ISOLATION_OPTIONS: [frameever_project::VoiceIsolation; 3] = [
     frameever_project::VoiceIsolation::Strong,
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Dragged {
+    Zoom,
+    InputSize,
+    InputOpacity,
+    InputPosition,
+}
+
+impl Dragged {
+    fn row(self) -> Row {
+        match self {
+            Self::Zoom => Row::ZoomAmount,
+            Self::InputSize => Row::InputSize,
+            Self::InputOpacity => Row::InputOpacity,
+            Self::InputPosition => Row::InputPosition,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputSlider {
+    Size,
+    Opacity,
+}
+
+impl InputSlider {
+    fn range(self) -> (f32, f32) {
+        let (least, most) = match self {
+            Self::Size => INPUT_DISPLAY_SIZE_RANGE,
+            Self::Opacity => INPUT_DISPLAY_OPACITY_RANGE,
+        };
+        (least as f32, most as f32)
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Size => "instantInputSize",
+            Self::Opacity => "instantInputOpacity",
+        }
+    }
+
+    fn dragged(self) -> Dragged {
+        match self {
+            Self::Size => Dragged::InputSize,
+            Self::Opacity => Dragged::InputOpacity,
+        }
+    }
+
+    fn read(self, settings: &GeneralSettings) -> f32 {
+        (match self {
+            Self::Size => settings.instant_input_size,
+            Self::Opacity => settings.instant_input_opacity,
+        }) as f32
+    }
+
+    fn set(self, settings: &mut GeneralSettings, value: f32) {
+        let value = f64::from(value);
+        match self {
+            Self::Size => settings.instant_input_size = value,
+            Self::Opacity => settings.instant_input_opacity = value,
+        }
+    }
+
+    fn shown(self, value: f32) -> String {
+        match self {
+            Self::Size => format!("{value:.0}"),
+            Self::Opacity => format!("{value:.0}%"),
+        }
+    }
+}
+
+const INPUT_POSITION_STEP: f64 = 0.05;
+
+fn nudged_input_position(key: &str, (x, y): (f64, f64)) -> Option<(f64, f64)> {
+    let (across, down) = match key {
+        "left" => (-1.0, 0.0),
+        "right" => (1.0, 0.0),
+        "up" => (0.0, -1.0),
+        "down" => (0.0, 1.0),
+        _ => return None,
+    };
+    let moved = |share: f64, by: f64| {
+        ((share + by * INPUT_POSITION_STEP) / INPUT_POSITION_STEP).round() * INPUT_POSITION_STEP
+    };
+    Some((
+        moved(x, across).clamp(0.0, 1.0),
+        moved(y, down).clamp(0.0, 1.0),
+    ))
+}
+
+fn dropped_input_position(pad: (f64, f64)) -> (f64, f64) {
+    let (snapped, _) = snap_position(frameever_project::XY::new(pad.0, pad.1));
+    (snapped.x, snapped.y)
+}
+
 fn switched_on(row: Row, settings: &GeneralSettings) -> bool {
     match row {
         Row::CompressInstant => settings.auto_compress_instant,
@@ -172,7 +269,6 @@ fn rows_on_the_page(
 fn menu_row(kind: MenuKind) -> Option<Row> {
     match kind {
         MenuKind::InputPreset => Some(Row::InputPreset),
-        MenuKind::InputPosition => Some(Row::InputPosition),
         _ => None,
     }
 }
@@ -279,7 +375,10 @@ pub struct SettingsWindow {
     placeholders_task: Option<gpui::Task<()>>,
     changelog_all: bool,
     slider_track: Rc<Cell<Option<Bounds<Pixels>>>>,
-    slider_dragging: bool,
+    input_size_track: Rc<Cell<Option<Bounds<Pixels>>>>,
+    input_opacity_track: Rc<Cell<Option<Bounds<Pixels>>>>,
+    input_position_pad: Rc<Cell<Option<Bounds<Pixels>>>>,
+    dragging: Option<Dragged>,
     windows: Vec<WindowOption>,
     opened_at: Instant,
     pub(crate) focus: FocusHandle,
@@ -327,7 +426,7 @@ impl SettingsWindow {
             theme,
             page,
             pages,
-            input_presets: crate::editor_input_display::listed_input_presets(),
+            input_presets: crate::editor_input_display::listed_keyboard_presets(),
             own_input_presets: input_presets::own_presets(),
             input_maker: None,
             input_preset_note: None,
@@ -350,7 +449,10 @@ impl SettingsWindow {
             placeholders_task: None,
             changelog_all: false,
             slider_track: Rc::new(Cell::new(None)),
-            slider_dragging: false,
+            input_size_track: Rc::new(Cell::new(None)),
+            input_opacity_track: Rc::new(Cell::new(None)),
+            input_position_pad: Rc::new(Cell::new(None)),
+            dragging: None,
             windows: Vec::new(),
             opened_at: Instant::now(),
             focus: cx.focus_handle(),
@@ -640,7 +742,6 @@ impl SettingsWindow {
                     ui::MenuItem::new(label, chosen)
                 })
                 .collect(),
-            MenuKind::InputPosition => enum_items(self.settings.instant_input_corner),
             MenuKind::AddWindow => self
                 .add_window_options()
                 .into_iter()
@@ -725,12 +826,6 @@ impl SettingsWindow {
                     self.write("instantInputPreset", Value::from(id), cx);
                 } else {
                     self.show_row(Row::InputPresets, window, cx);
-                }
-            }
-            MenuKind::InputPosition => {
-                if let Some(value) = InstantInputCorner::ALL.get(index) {
-                    self.settings.instant_input_corner = *value;
-                    self.write_enum("instantInputCorner", *value, cx);
                 }
             }
             MenuKind::AddWindow => {
@@ -1558,14 +1653,67 @@ impl SettingsWindow {
                 self.select("instant-input-preset", label, MenuKind::InputPreset, cx)
                     .into_any_element()
             }
-            Row::InputPosition => self
-                .select(
-                    "instant-input-position",
-                    settings.instant_input_corner.label(),
-                    MenuKind::InputPosition,
+            Row::InputDevice => self
+                .segmented::<InstantInputDevice>(
+                    "instant-input-device",
+                    settings.instant_input_device,
                     cx,
+                    |this, value, cx| {
+                        if waits_on_another_row(Row::InputDevice, &this.settings) {
+                            return;
+                        }
+                        this.settings.instant_input_device = value;
+                        this.write_enum("instantInputDevice", value, cx);
+                    },
                 )
                 .into_any_element(),
+            Row::InputSize => self.render_input_slider(InputSlider::Size, cx),
+            Row::InputOpacity => self.render_input_slider(InputSlider::Opacity, cx),
+            Row::InputPosition => {
+                let theme = self.theme;
+                let (x, y) = settings.instant_input_position;
+                div()
+                    .id("instant-input-position")
+                    .tab_index(0)
+                    .w(px(200.))
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(transparent_black())
+                    .focus_visible(move |style| style.border_color(theme.ring))
+                    .aria_label(tr(Row::InputPosition.label()))
+                    .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                        if let Some(position) = nudged_input_position(
+                            event.keystroke.key.as_str(),
+                            this.settings.instant_input_position,
+                        )
+                        .filter(|_| !waits_on_another_row(Row::InputPosition, &this.settings))
+                        {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            this.settings.instant_input_position = position;
+                            this.write(
+                                "instantInputPosition",
+                                store::instant_input_position_json(position),
+                                cx,
+                            );
+                        }
+                    }))
+                    .child(
+                        ui::PositionPad::plain(
+                            &theme,
+                            "instant-input-position-pad",
+                            x,
+                            y,
+                            self.input_position_pad.clone(),
+                        )
+                        .on_press(cx.listener(
+                            |this, event: &gpui::MouseDownEvent, _window, cx| {
+                                this.start_drag(Dragged::InputPosition, event.position, cx);
+                            },
+                        )),
+                    )
+                    .into_any_element()
+            }
             Row::WindowStyle => self
                 .segmented::<WindowCaptureStyle>(
                     "window-capture-style",
@@ -2845,11 +2993,81 @@ impl SettingsWindow {
         }
     }
 
-    fn render_zoom_slider(&self, value: f32, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_input_slider(&self, slider: InputSlider, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let fraction = ((value - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)).clamp(0., 1.);
+        let (least, most) = slider.range();
+        let value = slider.read(&self.settings);
+        let track = match slider {
+            InputSlider::Size => self.input_size_track.clone(),
+            InputSlider::Opacity => self.input_opacity_track.clone(),
+        };
+        div()
+            .id(slider.key())
+            .tab_index(0)
+            .rounded(px(6.))
+            .focus_visible(move |style| style.bg(theme.selection))
+            .on_key_down(
+                cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                    let (least, most) = slider.range();
+                    if let Some(value) = ui::keyboard_slider_value(
+                        event.keystroke.key.as_str(),
+                        slider.read(&this.settings),
+                        least,
+                        most,
+                        1.,
+                    )
+                    .filter(|_| !waits_on_another_row(slider.dragged().row(), &this.settings))
+                    {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        slider.set(&mut this.settings, value);
+                        this.write(slider.key(), Value::from(f64::from(value)), cx);
+                    }
+                }),
+            )
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(8.))
+            .w(px(208.))
+            .child(self.render_slider(
+                slider.key(),
+                (value - least) / (most - least),
+                track,
+                slider.dragged(),
+                cx,
+            ))
+            .child(
+                div()
+                    .w(px(36.))
+                    .text_size(px(12.))
+                    .text_color(theme.settings_muted())
+                    .child(slider.shown(value)),
+            )
+            .into_any_element()
+    }
 
-        ui::Slider::new("zoom-slider", fraction, self.slider_track.clone())
+    fn render_zoom_slider(&self, value: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_slider(
+            "zoom-slider",
+            (value - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN),
+            self.slider_track.clone(),
+            Dragged::Zoom,
+            cx,
+        )
+    }
+
+    fn render_slider(
+        &self,
+        id: &'static str,
+        fraction: f32,
+        track: Rc<Cell<Option<Bounds<Pixels>>>>,
+        dragged: Dragged,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let theme = self.theme;
+
+        ui::Slider::new(id, fraction.clamp(0., 1.), track)
             .flex()
             .track(px(5.), theme.settings_fill())
             .fill(Hsla::from(theme.primary))
@@ -2864,35 +3082,94 @@ impl SettingsWindow {
             )
             .thumb_top(px(-6.))
             .on_drag_start(
-                cx.listener(|this, event: &gpui::MouseDownEvent, _window, cx| {
-                    this.slider_dragging = true;
-                    this.set_zoom_from(event.position, cx);
+                cx.listener(move |this, event: &gpui::MouseDownEvent, _window, cx| {
+                    this.start_drag(dragged, event.position, cx);
                 }),
             )
     }
 
     fn render_slider_drag_layer(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !self.slider_dragging {
-            return None;
-        }
+        self.dragging?;
         Some(
             ui::Slider::drag_layer(
-                "zoom-slider-drag",
+                "settings-drag",
                 cx.listener(|this, event: &gpui::MouseMoveEvent, _window, cx| {
-                    this.set_zoom_from(event.position, cx);
+                    this.drag_to(event.position, cx);
                 }),
-                cx.listener(|this, _, _window, cx| {
-                    this.slider_dragging = false;
-                    let value = this.settings.new_zoom_amount();
-                    this.write(
-                        "defaultZoomAmount",
-                        Value::from(f64::from(ui::snap_to_step(value, ZOOM_MIN, ZOOM_MAX, 0.1))),
-                        cx,
-                    );
-                }),
+                cx.listener(|this, _, _window, cx| this.finish_drag(cx)),
             )
             .into_any_element(),
         )
+    }
+
+    fn start_drag(&mut self, dragged: Dragged, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if waits_on_another_row(dragged.row(), &self.settings) {
+            return;
+        }
+        self.dragging = Some(dragged);
+        self.drag_to(position, cx);
+    }
+
+    fn drag_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let slider = match self.dragging {
+            None => return,
+            Some(Dragged::Zoom) => return self.set_zoom_from(position, cx),
+            Some(Dragged::InputPosition) => {
+                let dropped = self
+                    .input_position_pad
+                    .get()
+                    .and_then(|pad| ui::pad_position(position, pad))
+                    .map(dropped_input_position);
+                if let Some(dropped) = dropped
+                    && self.settings.instant_input_position != dropped
+                {
+                    self.settings.instant_input_position = dropped;
+                    cx.notify();
+                }
+                return;
+            }
+            Some(Dragged::InputSize) => InputSlider::Size,
+            Some(Dragged::InputOpacity) => InputSlider::Opacity,
+        };
+        let track = match slider {
+            InputSlider::Size => &self.input_size_track,
+            InputSlider::Opacity => &self.input_opacity_track,
+        };
+        let (least, most) = slider.range();
+        if let Some(value) = ui::slider_value_at(track, position, least, most, 1.)
+            && slider.read(&self.settings) != value
+        {
+            slider.set(&mut self.settings, value);
+            cx.notify();
+        }
+    }
+
+    fn finish_drag(&mut self, cx: &mut Context<Self>) {
+        let (key, value) = match self.dragging.take() {
+            None => return,
+            Some(Dragged::Zoom) => (
+                "defaultZoomAmount",
+                Value::from(f64::from(ui::snap_to_step(
+                    self.settings.new_zoom_amount(),
+                    ZOOM_MIN,
+                    ZOOM_MAX,
+                    0.1,
+                ))),
+            ),
+            Some(Dragged::InputSize) => (
+                InputSlider::Size.key(),
+                Value::from(self.settings.instant_input_size),
+            ),
+            Some(Dragged::InputOpacity) => (
+                InputSlider::Opacity.key(),
+                Value::from(self.settings.instant_input_opacity),
+            ),
+            Some(Dragged::InputPosition) => (
+                "instantInputPosition",
+                store::instant_input_position_json(self.settings.instant_input_position),
+            ),
+        };
+        self.write(key, value, cx);
     }
 
     fn set_zoom_from(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
@@ -3034,7 +3311,10 @@ mod tests {
             waiting(&settings),
             [
                 Row::FocusCenter,
+                Row::InputDevice,
                 Row::InputPreset,
+                Row::InputSize,
+                Row::InputOpacity,
                 Row::InputPosition,
                 Row::KeepCompressed
             ]
@@ -3047,7 +3327,6 @@ mod tests {
         settings.auto_compress_instant = true;
         assert!(waiting(&settings).is_empty());
         assert_eq!(menu_row(MenuKind::InputPreset), Some(Row::InputPreset));
-        assert_eq!(menu_row(MenuKind::InputPosition), Some(Row::InputPosition));
         assert_eq!(menu_row(MenuKind::AutoStop), None);
     }
 
@@ -3081,13 +3360,78 @@ mod tests {
                 Row::InstantResolution,
                 Row::ClickHighlight,
                 Row::ShowInput,
+                Row::InputDevice,
                 Row::InputPreset,
+                Row::InputSize,
+                Row::InputOpacity,
                 Row::InputPosition,
                 Row::AfterInstant,
                 Row::CompressInstant,
                 Row::KeepCompressed
             ]
         );
+    }
+
+    #[test]
+    fn every_input_display_control_waits_for_show_input() {
+        let settings = GeneralSettings::default();
+        for dragged in [
+            Dragged::InputSize,
+            Dragged::InputOpacity,
+            Dragged::InputPosition,
+        ] {
+            assert!(
+                waits_on_another_row(dragged.row(), &settings),
+                "{dragged:?}"
+            );
+        }
+        assert!(!waits_on_another_row(Dragged::Zoom.row(), &settings));
+    }
+
+    #[test]
+    fn the_instant_input_sliders_cover_the_ranges_the_editor_uses() {
+        use crate::editor_input_display::InputDisplaySlider;
+        for (ours, editors) in [
+            (InputSlider::Size, InputDisplaySlider::Size),
+            (InputSlider::Opacity, InputDisplaySlider::Opacity),
+        ] {
+            let (least, most, _) = editors.limits();
+            assert_eq!(ours.range(), (least, most));
+        }
+        let mut settings = GeneralSettings::default();
+        assert_eq!(InputSlider::Size.read(&settings), 60.);
+        assert_eq!(InputSlider::Opacity.read(&settings), 80.);
+        InputSlider::Opacity.set(&mut settings, 45.);
+        assert_eq!(settings.instant_input_opacity, 45.);
+        assert_eq!(InputSlider::Opacity.shown(45.), "45%");
+        assert_eq!(InputSlider::Size.shown(90.), "90");
+        assert_eq!(InputSlider::Size.key(), "instantInputSize");
+        assert_eq!(InputSlider::Opacity.key(), "instantInputOpacity");
+    }
+
+    #[test]
+    fn the_input_display_is_dropped_anywhere_and_snaps_near_an_edge_or_the_centre() {
+        assert_eq!(dropped_input_position((0.3, 0.72)), (0.3, 0.72));
+        assert_eq!(dropped_input_position((0.02, 0.98)), (0.0, 1.0));
+        assert_eq!(dropped_input_position((0.52, 0.3)), (0.5, 0.3));
+    }
+
+    #[test]
+    fn arrow_keys_move_the_input_display_in_even_steps_inside_the_frame() {
+        let near = |(x, y): (f64, f64), (to_x, to_y): (f64, f64)| {
+            (x - to_x).abs() < 1e-9 && (y - to_y).abs() < 1e-9
+        };
+        assert!(near(
+            nudged_input_position("right", (0.0, 1.0)).unwrap(),
+            (0.05, 1.0)
+        ));
+        assert!(near(
+            nudged_input_position("up", (0.32, 0.5)).unwrap(),
+            (0.3, 0.45)
+        ));
+        assert_eq!(nudged_input_position("down", (0.0, 1.0)), Some((0.0, 1.0)));
+        assert_eq!(nudged_input_position("left", (0.0, 1.0)), Some((0.0, 1.0)));
+        assert_eq!(nudged_input_position("enter", (0.0, 1.0)), None);
     }
 
     #[test]

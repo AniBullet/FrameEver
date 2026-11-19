@@ -28,8 +28,11 @@ const v = {
 	autoStop: "0",
 	clickHighlight: false,
 	showInput: false,
+	inputDevice: "auto",
 	inputPreset: "wasd",
-	inputCorner: "bl",
+	inputSize: "60",
+	inputOpacity: "80",
+	inputPos: { x: 0, y: 1 },
 	windowStyle: "region",
 	focusCenter: false,
 	isolation: "balanced",
@@ -547,32 +550,77 @@ const sections = [
 						kit: "switch",
 					},
 					{
+						k: "inputDevice",
+						en: "Input device",
+						zh: "操作显示设备",
+						den: "Automatic draws the one you are using.",
+						dzh: "“自动”会画出你正在用的设备。",
+						c: "seg",
+						opts: [
+							["auto", "Automatic", "自动"],
+							["keys", "Keyboard and mouse", "键盘和鼠标"],
+							["gamepad", "Gamepad", "手柄"],
+						],
+						was: [
+							"The Gamepad entry of the preset list",
+							"预设列表里的“手柄”一项",
+						],
+						kit: "tab::TabBar segmented · waits for Show input",
+						dep: "showInput",
+					},
+					{
 						k: "inputPreset",
 						en: "Input preset",
 						zh: "操作显示预设",
+						den: "The keys drawn for keyboard and mouse.",
+						dzh: "用键盘和鼠标时画出的按键。",
 						c: "select",
 						opts: [
 							["wasd", "WASD + mouse", "WASD + 鼠标"],
 							["full", "Full keyboard", "全键盘"],
-							["gamepad", "Gamepad", "手柄"],
 						],
 						was: ["Recording options popover only", "只在录制选项弹层"],
 						kit: "select · waits for Show input",
 						dep: "showInput",
 					},
 					{
-						k: "inputCorner",
+						k: "inputSize",
+						en: "Input display size",
+						zh: "操作显示大小",
+						c: "slider",
+						range: [30, 120, 1, ""],
+						was: [
+							"Editor only, for Studio projects",
+							"只在编辑器，只对工作室项目",
+						],
+						kit: "slider 30–120 · waits for Show input",
+						dep: "showInput",
+					},
+					{
+						k: "inputOpacity",
+						en: "Input display opacity",
+						zh: "操作显示不透明度",
+						c: "slider",
+						range: [20, 100, 1, "%"],
+						was: [
+							"Editor only, for Studio projects",
+							"只在编辑器，只对工作室项目",
+						],
+						kit: "slider 20–100 %, starts at 80 · waits for Show input",
+						dep: "showInput",
+					},
+					{
+						k: "inputPos",
 						en: "Input display position",
 						zh: "操作显示位置",
-						c: "select",
-						opts: [
-							["tl", "Top left", "左上"],
-							["tr", "Top right", "右上"],
-							["bl", "Bottom left", "左下"],
-							["br", "Bottom right", "右下"],
+						den: "Drag it anywhere. It snaps to the edges and the centre.",
+						dzh: "可以拖到任意位置，靠近边缘和中心时会吸附。",
+						c: "pad",
+						was: [
+							"Four corners, recording options popover only",
+							"四个角，只在录制选项弹层",
 						],
-						was: ["Recording options popover only", "只在录制选项弹层"],
-						kit: "select · waits for Show input",
+						kit: "position pad 200 × 112 · waits for Show input",
 						dep: "showInput",
 					},
 				],
@@ -1087,8 +1135,12 @@ const controls = {
 			.join("")}</div></div>`,
 	tiers: (row) =>
 		`<div class="tiers">${row.opts.map(([value, en, zh, den, dzh]) => `<button class="tier ${v[row.k] === value ? "on" : ""}" data-pick="${row.k}:${value}"><b>${L(en, zh)}</b><small>${L(den, dzh)}</small></button>`).join("")}</div>`,
-	slider: (row) =>
-		`<div class="row-control"><input type="range" min="1" max="4" step="0.1" value="${v[row.k]}" data-range="${row.k}" style="width:160px;accent-color:var(--primary)"><span class="tnum hint" style="width:32px">${Number(v[row.k]).toFixed(1)}x</span></div>`,
+	slider: (row) => {
+		const [min, max, step, unit] = row.range ?? [1, 4, 0.1, "x"];
+		return `<div class="row-control"><input type="range" min="${min}" max="${max}" step="${step}" value="${v[row.k]}" data-range="${row.k}" data-unit="${unit}" data-digits="${step < 1 ? 1 : 0}" aria-label="${pick(row.en, row.zh)}" style="width:160px;accent-color:var(--primary)"><span class="tnum hint" style="width:32px">${Number(v[row.k]).toFixed(step < 1 ? 1 : 0)}${unit}</span></div>`;
+	},
+	pad: (row) =>
+		`<div class="row-control"><div class="pos-pad" data-pad="${row.k}" role="group" tabindex="0" aria-label="${pick(row.en, row.zh)}"><i class="pos-knob" style="left:${v[row.k].x * 100}%;top:${v[row.k].y * 100}%"></i></div></div>`,
 	button: (row) =>
 		`<div class="row-control"><button class="btn">${L(...row.label)}</button></div>`,
 	logs: () =>
@@ -1294,9 +1346,36 @@ document.addEventListener("input", (event) => {
 		render();
 	} else if (event.target.dataset.range) {
 		const key = event.target.dataset.range;
+		const { unit, digits } = event.target.dataset;
 		v[key] = event.target.value;
-		if (key === "zoom") render();
+		event.target.nextElementSibling.textContent = `${Number(v[key]).toFixed(Number(digits))}${unit}`;
 	}
+});
+const padStops = [0, 0.5, 1];
+const dropOnPad = (pad, event) => {
+	const box = pad.getBoundingClientRect();
+	const along = (at, start, length) => {
+		const share = Math.min(1, Math.max(0, (at - start) / length));
+		return padStops.find((stop) => Math.abs(stop - share) < 0.04) ?? share;
+	};
+	const place = {
+		x: along(event.clientX, box.left, box.width),
+		y: along(event.clientY, box.top, box.height),
+	};
+	v[pad.dataset.pad] = place;
+	const knob = pad.querySelector(".pos-knob");
+	knob.style.left = `${place.x * 100}%`;
+	knob.style.top = `${place.y * 100}%`;
+};
+document.addEventListener("pointerdown", (event) => {
+	const pad = event.target.closest?.("#stage [data-pad]");
+	if (!pad) return;
+	pad.setPointerCapture(event.pointerId);
+	dropOnPad(pad, event);
+});
+document.addEventListener("pointermove", (event) => {
+	const pad = event.target.closest?.("#stage [data-pad]");
+	if (pad?.hasPointerCapture(event.pointerId)) dropOnPad(pad, event);
 });
 document.addEventListener("keydown", (event) => {
 	if (ui.listening) {
