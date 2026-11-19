@@ -146,11 +146,9 @@ enum State {
 }
 
 impl State {
-    fn try_as_open(&mut self) -> Result<&mut OpenState, FeedLockedError> {
-        let is_stale = matches!(self, Self::Locked { token, .. } if token.strong_count() == 0);
-
-        if is_stale {
-            warn!("Detected stale camera feed lock, auto-recovering");
+    fn release_dropped_lock(&mut self) -> bool {
+        let dropped = matches!(self, Self::Locked { token, .. } if token.strong_count() == 0);
+        if dropped {
             replace_with_or_abort(self, |state| {
                 if let Self::Locked { inner, .. } = state {
                     Self::Open(OpenState {
@@ -161,6 +159,13 @@ impl State {
                     state
                 }
             });
+        }
+        dropped
+    }
+
+    fn try_as_open(&mut self) -> Result<&mut OpenState, FeedLockedError> {
+        if self.release_dropped_lock() {
+            warn!("Detected stale camera feed lock, auto-recovering");
         }
 
         if let Self::Open(open_state) = self {
@@ -1269,6 +1274,9 @@ impl Message<SetInput> for CameraFeed {
             SetInputError::Initialisation
         );
 
+        if self.state.release_dropped_lock() {
+            debug!("CameraFeed.SetInput: the recording's lock was already dropped");
+        }
         if let State::Locked { inner, .. } = &self.state
             && inner.id != msg.id
         {
@@ -2038,6 +2046,59 @@ mod tests {
     }
 
     struct AttachedCamera;
+
+    #[test]
+    fn a_dropped_lock_does_not_refuse_the_next_camera() {
+        let (connection, _stopped) = test_camera_connection(1);
+        let id = connection.id.clone();
+        let token = Arc::new(());
+        let mut state = State::Locked {
+            inner: AttachedState::new(id, connection),
+            token: Arc::downgrade(&token),
+        };
+        assert!(!state.release_dropped_lock());
+        assert!(matches!(state, State::Locked { .. }));
+        drop(token);
+        assert!(state.release_dropped_lock());
+        assert!(matches!(
+            state,
+            State::Open(OpenState {
+                connecting: None,
+                attached: Some(_)
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn camera_selection_after_the_recording_drops_its_lock_is_accepted() {
+        let (connection, done_rx) = test_camera_connection(1);
+        let token = Arc::new(());
+        let camera = CameraFeed {
+            setup_slots: Arc::new(tokio::sync::Semaphore::new(0)),
+            lock_generation: 7,
+            setup_generation: 1,
+            state: State::Locked {
+                inner: AttachedState::new(connection.id.clone(), connection),
+                token: Arc::downgrade(&token),
+            },
+            ..CameraFeed::default()
+        };
+        let feed = CameraFeed::spawn(camera);
+        drop(token);
+        for id in ["different-camera", "another-camera"] {
+            let result = feed
+                .ask(SetInput {
+                    id: DeviceOrModelID::DeviceID(id.into()),
+                    settings: None,
+                })
+                .await;
+            assert!(result.is_ok());
+            feed.tell(Unlock { generation: 7 }).await.unwrap();
+        }
+        assert!(done_rx.try_recv().is_ok());
+        feed.kill();
+        feed.wait_for_shutdown().await;
+    }
 
     #[tokio::test]
     async fn camera_reuse_requires_matching_settings_and_recent_frames() {
