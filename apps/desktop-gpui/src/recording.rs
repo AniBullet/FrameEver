@@ -225,6 +225,12 @@ fn apply_camera_appearance(
     let (shape, rounding) = camera_preview_shape(preview);
     camera.insert("shape".into(), serde_json::to_value(shape).unwrap());
     camera.insert("rounding".into(), serde_json::Value::from(rounding));
+    if let Some(corners) = camera_preview_corners(preview.shape) {
+        camera.insert(
+            "roundingType".into(),
+            serde_json::to_value(corners).unwrap(),
+        );
+    }
     if preview.shape == crate::store::CameraShape::Full {
         camera.insert("aspectRatio".into(), serde_json::Value::from(16. / 9.));
     } else {
@@ -251,6 +257,12 @@ fn camera_preview_shape(
             (4000. / preview.size.max(1.)).clamp(0., 100.),
         ),
     }
+}
+
+fn camera_preview_corners(
+    shape: crate::store::CameraShape,
+) -> Option<frameever_project::CornerStyle> {
+    (shape == crate::store::CameraShape::Round).then_some(frameever_project::CornerStyle::Rounded)
 }
 
 #[derive(Clone, Default)]
@@ -1059,6 +1071,9 @@ pub(crate) fn preparing_presentation(
         let (shape, rounding) = camera_preview_shape(snapshot.preview);
         config.camera.shape = shape;
         config.camera.rounding = rounding;
+        if let Some(corners) = camera_preview_corners(snapshot.preview.shape) {
+            config.camera.rounding_type = corners;
+        }
         config.camera.aspect_ratio =
             (snapshot.preview.shape == crate::store::CameraShape::Full).then_some(16. / 9.);
         if let Some(size) = snapshot
@@ -2642,15 +2657,16 @@ mod tests {
     #[test]
     fn camera_appearance_carries_the_preview_shape_and_recorded_size() {
         use crate::store::{CameraShape, CameraWindowState};
-        for (shape, expected_shape, expected_rounding) in [
-            (CameraShape::Round, "square", 100.0),
-            (CameraShape::Square, "square", 20.0),
-            (CameraShape::Full, "source", 20.0),
+        for (shape, expected_shape, expected_rounding, expected_corners) in [
+            (CameraShape::Round, "square", 100.0, "rounded"),
+            (CameraShape::Square, "square", 20.0, "squircle"),
+            (CameraShape::Full, "source", 20.0, "squircle"),
         ] {
-            let mut camera = serde_json::json!({"size": 30.0, "futureField": 42})
-                .as_object()
-                .unwrap()
-                .clone();
+            let mut camera =
+                serde_json::json!({"size": 30.0, "futureField": 42, "roundingType": "squircle"})
+                    .as_object()
+                    .unwrap()
+                    .clone();
             apply_camera_appearance(
                 &mut camera,
                 CameraWindowState {
@@ -2662,6 +2678,7 @@ mod tests {
             );
             assert_eq!(camera["shape"], expected_shape);
             assert_eq!(camera["rounding"], expected_rounding);
+            assert_eq!(camera["roundingType"], expected_corners);
             assert_eq!(camera["size"], 25.0);
             assert_eq!(camera["sizeIncludesPadding"], true);
             assert_eq!(camera["futureField"], 42);
