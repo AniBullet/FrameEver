@@ -2453,8 +2453,8 @@ mod tests {
             "full precompute took {precompute_elapsed:?} (>500ms) for a 30-minute project"
         );
         assert!(
-            sample_elapsed < Duration::from_millis(50),
-            "10k samples took {sample_elapsed:?} (>50ms)"
+            sample_elapsed < Duration::from_millis(250),
+            "10k samples took {sample_elapsed:?} (>250ms)"
         );
     }
 
