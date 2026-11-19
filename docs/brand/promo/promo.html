@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>FrameEver promo image</title>
+<style>
+@font-face { font-family: Inter; font-weight: 400; src: url("../../../apps/desktop-gpui/assets/fonts/Inter-Regular.ttf"); }
+@font-face { font-family: Inter; font-weight: 600; src: url("../../../apps/desktop-gpui/assets/fonts/Inter-SemiBold.ttf"); }
+@font-face { font-family: Inter; font-weight: 700; src: url("../../../apps/desktop-gpui/assets/fonts/Inter-Bold.ttf"); }
+@font-face { font-family: Harmony; src: url("../../../apps/desktop-gpui/assets/fonts/harmonyos-sans/HarmonyOS_Sans_SC.ttf"); }
+* { box-sizing: border-box; margin: 0; }
+html, body { background: transparent; }
+#hero {
+	position: relative; width: 1280px; height: 720px; overflow: hidden;
+	border-radius: 28px; background: #E6E7EB; color: #1A1B24;
+	font-family: Inter, Harmony, "Microsoft YaHei UI", sans-serif;
+}
+.tile { position: absolute; overflow: hidden; border-radius: 22px; background: #F7F7F9; }
+.tile img { position: absolute; display: block; }
+.label { position: absolute; left: 24px; top: 20px; font-size: 14px; font-weight: 600; color: rgba(26,27,36,0.55); letter-spacing: 0.01em; white-space: nowrap; }
+.label b { color: #1A1B24; font-weight: 600; margin-right: 8px; }
+.win { border-radius: 10px; box-shadow: 0 0 0 1px rgba(26,27,36,0.10), 0 18px 40px rgba(20,24,44,0.22); }
+
+.t-head { left: 24px; top: 24px; width: 400px; height: 284px; }
+.brand { position: absolute; left: 28px; top: 26px; display: flex; align-items: center; gap: 12px; font-size: 19px; font-weight: 600; }
+.brand img { position: static; width: 38px; height: 38px; border-radius: 9px; }
+h1 { position: absolute; left: 28px; bottom: 64px; font-size: 42px; line-height: 1.16; font-weight: 700; letter-spacing: -0.01em; }
+:root[lang="en"] h1 { font-size: 31px; }
+.sub { position: absolute; left: 28px; bottom: 28px; font-size: 16px; color: #5D5E68; }
+
+.t-input { left: 24px; top: 320px; width: 400px; height: 376px; }
+.t-input .keys { left: 43px; top: 68px; width: 314px; filter: drop-shadow(0 10px 18px rgba(20,24,44,0.22)); }
+.t-input .pad { left: 92px; top: 216px; width: 216px; filter: drop-shadow(0 10px 18px rgba(20,24,44,0.22)); }
+
+.t-rec { left: 436px; top: 24px; width: 520px; height: 470px; }
+.t-rec .md { left: 24px; top: 70px; width: 224px; }
+.t-rec .ml { left: 272px; top: 70px; width: 224px; }
+.t-rec .bar { left: 86px; top: 378px; width: 348px; border-radius: 999px; box-shadow: 0 14px 28px rgba(20,24,44,0.26); }
+.t-rec .theme { left: 272px; }
+
+.t-local { left: 436px; top: 506px; width: 220px; height: 190px; background: #1F3FD8; color: #fff; }
+.t-local p { position: absolute; left: 24px; top: 22px; font-size: 24px; line-height: 1.25; font-weight: 700; }
+.t-local i { position: absolute; display: block; height: 30px; border-radius: 15px; }
+.t-local .upper { left: 24px; top: 102px; width: 112px; background: #FFFDED; }
+.t-local .lower { left: 24px; top: 140px; width: 66px; background: #87BFFF; }
+.t-local .ring { right: 22px; top: 126px; width: 42px; height: 42px; border-radius: 50%; background: #fff; }
+.t-local .dot { right: 30px; top: 134px; width: 26px; height: 26px; border-radius: 50%; background: #FF3B30; box-shadow: 0 0 0 4px #000F5C; }
+
+.t-edit { left: 668px; top: 506px; width: 588px; height: 190px; }
+.t-edit ul { position: absolute; left: 24px; top: 54px; list-style: none; padding: 0; font-size: 25px; line-height: 1.5; font-weight: 700; letter-spacing: -0.005em; }
+.t-edit li:nth-child(2) { color: rgba(26,27,36,0.62); }
+.t-edit li:nth-child(3) { color: rgba(26,27,36,0.36); }
+.t-edit img { left: 262px; top: -84px; width: 400px; border-radius: 10px; box-shadow: 0 0 0 1px rgba(26,27,36,0.10), 0 14px 30px rgba(20,24,44,0.22); }
+
+.t-lib { left: 968px; top: 24px; width: 288px; height: 470px; }
+.t-lib img { left: 24px; top: 58px; width: 640px; }
+</style>
+</head>
+<body>
+<div id="hero">
+	<div class="tile t-head">
+		<div class="brand"><img src="../../../apps/desktop-gpui/icons/128x128@2x.png" alt=""><span>FrameEver · 帧刻</span></div>
+		<h1 id="headline"></h1>
+		<p class="sub" id="sub"></p>
+	</div>
+	<div class="tile t-input">
+		<div class="label" id="label-input"></div>
+		<img class="keys" src="parts/keys.png" alt="">
+		<img class="pad" src="parts/pad.png" alt="">
+	</div>
+	<div class="tile t-rec">
+		<div class="label" id="label-rec"></div>
+		<div class="label theme" id="label-theme"></div>
+		<img class="win md" data-part="main-dark" alt="">
+		<img class="win ml" data-part="main-light" alt="">
+		<img class="bar" src="parts/bar.png" alt="">
+	</div>
+	<div class="tile t-local">
+		<p id="local"></p>
+		<i class="ring"></i><i class="dot"></i><i class="upper"></i><i class="lower"></i>
+	</div>
+	<div class="tile t-edit">
+		<div class="label" id="label-edit"></div>
+		<ul id="features"></ul>
+		<img data-part="editor" alt="">
+	</div>
+	<div class="tile t-lib">
+		<div class="label" id="label-lib"></div>
+		<img class="win" data-part="library" alt="">
+	</div>
+</div>
+<script>
+const lang = location.hash.slice(1) === "en" ? "en" : "zh";
+const text = {
+	zh: {
+		headline: "录屏、剪辑，<br>只在你的电脑上。",
+		sub: "免费开源的本地录屏工具",
+		local: "没有账号<br>没有云",
+		features: ["自动缩放", "离线字幕", "按文字剪"],
+		labels: {
+			input: ["操作显示", "键盘 · 鼠标 · 手柄"],
+			rec: ["录制", "工作室 · 即时"],
+			theme: ["主题", "浅色 · 深色"],
+			edit: ["剪辑", "录完就能剪"],
+			lib: ["资源库", "录制 · 截图"],
+		},
+	},
+	en: {
+		headline: "Record and edit.<br>Only on your machine.",
+		sub: "A free, open-source local screen recorder",
+		local: "No account<br>No cloud",
+		features: ["Auto zoom", "Offline captions", "Edit by text"],
+		labels: {
+			input: ["Input display", "Keyboard · Mouse · Gamepad"],
+			rec: ["Record", "Studio · Instant"],
+			theme: ["Themes", "Light · Dark"],
+			edit: ["Edit", "Right after recording"],
+			lib: ["Library", "Recordings · Screenshots"],
+		},
+	},
+}[lang];
+document.documentElement.lang = lang;
+document.getElementById("headline").innerHTML = text.headline;
+document.getElementById("sub").textContent = text.sub;
+document.getElementById("local").innerHTML = text.local;
+document.getElementById("features").innerHTML = text.features.map((feature) => `<li>${feature}</li>`).join("");
+for (const [id, [name, detail]] of Object.entries(text.labels))
+	document.getElementById(`label-${id}`).innerHTML = `<b>${name}</b>${detail}`;
+for (const image of document.querySelectorAll("[data-part]")) image.src = `parts/${image.dataset.part}-${lang}.png`;
+</script>
+</body>
+</html>
