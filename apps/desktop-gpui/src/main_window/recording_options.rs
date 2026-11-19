@@ -28,7 +28,18 @@ fn summary(mode: Mode, settings: &GeneralSettings) -> String {
             width => format!("{width} px"),
         },
     };
-    let mut result = format!("{first} · {}", t!("{fps} FPS", fps = settings.max_fps));
+    let mut result = first;
+    if mode == Mode::Instant {
+        for (on, label) in [
+            (settings.instant_click_highlight, t!("Click highlight")),
+            (settings.instant_show_input, t!("Show input")),
+        ] {
+            if on {
+                result.push_str(&format!(" · {label}"));
+            }
+        }
+    }
+    result.push_str(&format!(" · {}", t!("{fps} FPS", fps = settings.max_fps)));
     if let Some(seconds) = settings.recording_countdown.filter(|seconds| *seconds > 0) {
         result.push_str(&format!(" · {}", t!("{seconds} s", seconds = seconds)));
     }
@@ -146,13 +157,6 @@ fn rows(mode: Mode, settings: &GeneralSettings, user_presets: &[ListedPreset]) -
             settings.capture_keyboard_events,
         ));
     }
-    rows.push(OptionRow {
-        label: t!("Auto-stop, minutes"),
-        key: "recordingAutoStopMinutes",
-        value: Value::from(settings.recording_auto_stop_minutes),
-        choices: numbers(&[(0, t!("Off")), (5, "5"), (15, "15"), (30, "30")]),
-        listed_in_menu: false,
-    });
     if mode == Mode::Instant {
         rows.push(toggle(
             t!("Click highlight"),
@@ -192,6 +196,13 @@ fn rows(mode: Mode, settings: &GeneralSettings, user_presets: &[ListedPreset]) -
             });
         }
     }
+    rows.push(OptionRow {
+        label: t!("Auto-stop, minutes"),
+        key: "recordingAutoStopMinutes",
+        value: Value::from(settings.recording_auto_stop_minutes),
+        choices: numbers(&[(0, t!("Off")), (5, "5"), (15, "15"), (30, "30")]),
+        listed_in_menu: false,
+    });
     rows
 }
 
@@ -628,6 +639,63 @@ mod tests {
             !rows(Mode::Studio, &GeneralSettings::load(), &[])
                 .iter()
                 .any(|row| row.key == "instantClickHighlight")
+        );
+    }
+
+    #[test]
+    fn the_summary_names_what_an_instant_recording_will_draw_into_the_video() {
+        let mut settings = GeneralSettings {
+            recording_countdown: None,
+            ..GeneralSettings::default()
+        };
+        assert_eq!(summary(Mode::Instant, &settings), "1080p · 60 FPS");
+        settings.instant_click_highlight = true;
+        assert_eq!(
+            summary(Mode::Instant, &settings),
+            "1080p · Click highlight · 60 FPS"
+        );
+        settings.instant_show_input = true;
+        settings.recording_countdown = Some(3);
+        assert_eq!(
+            summary(Mode::Instant, &settings),
+            "1080p · Click highlight · Show input · 60 FPS · 3 s"
+        );
+        assert_eq!(summary(Mode::Studio, &settings), "Balanced · 60 FPS · 3 s");
+    }
+
+    #[test]
+    fn options_come_in_the_order_they_are_used_with_auto_stop_last() {
+        let keys = |mode, settings: &GeneralSettings| -> Vec<&'static str> {
+            rows(mode, settings, &[])
+                .iter()
+                .map(|row| row.key)
+                .collect()
+        };
+        let mut settings = GeneralSettings::default();
+        assert_eq!(
+            keys(Mode::Studio, &settings),
+            [
+                "studioRecordingQuality",
+                "maxFps",
+                "recordingCountdown",
+                "custom_cursor_capture2",
+                "captureKeyboardEvents",
+                "recordingAutoStopMinutes"
+            ]
+        );
+        settings.instant_show_input = true;
+        assert_eq!(
+            keys(Mode::Instant, &settings),
+            [
+                "instantModeMaxResolution",
+                "maxFps",
+                "recordingCountdown",
+                "instantClickHighlight",
+                "instantShowInput",
+                "instantInputPreset",
+                "instantInputCorner",
+                "recordingAutoStopMinutes"
+            ]
         );
     }
 
