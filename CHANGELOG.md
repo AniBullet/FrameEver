@@ -6,7 +6,7 @@ FrameEver · 帧刻（2.x 及以前名为 Cap - aniBullet Edition）各版本的
 
 ---
 
-## [1.0.0] — 未发布
+## [1.0.0] — 2026-11-19
 
 全新的原生界面版本，改名为 FrameEver · 帧刻。2.x 和官方 Cap 的录制、截图和设置用单独下载的 FrameEver Converter 转进来。
 
