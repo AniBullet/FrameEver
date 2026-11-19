@@ -478,6 +478,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Right button", "右键"),
     ("Wheel", "滚轮"),
     ("Side buttons", "侧键"),
+    ("Dark footage", "暗画面"),
+    ("Bright footage", "亮画面"),
     (
         "Couldn't save this preset. Try again.",
         "无法保存这个预设。再试一次。",

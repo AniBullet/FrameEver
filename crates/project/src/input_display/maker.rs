@@ -195,6 +195,10 @@ impl PresetMaker {
         }
     }
 
+    pub fn held(&self) -> &[u16] {
+        &self.held
+    }
+
     pub fn is_held(&self, code: u16) -> bool {
         self.held.contains(&code)
     }
@@ -426,6 +430,7 @@ mod tests {
         maker.key_down(SPACE);
 
         assert!(maker.is_held(letter('W')) && maker.is_held(SPACE));
+        assert_eq!(maker.held(), [letter('W'), SPACE]);
         maker.key_up(letter('W'));
         assert!(!maker.is_held(letter('W')) && maker.is_held(SPACE));
         maker.release_all();

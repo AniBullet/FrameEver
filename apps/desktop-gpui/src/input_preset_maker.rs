@@ -1,18 +1,33 @@
+use std::sync::Arc;
+
 use frameever_project::input_display::{
-    KeyLayout, MAKER_COLUMNS, MAKER_ROWS, MAKER_WIDTHS, MOUSE_BLOCK, MakerSelection, MakerStart,
-    MousePart, PresetMaker,
+    DisplayState, Input, InputDisplayStyle, KeyLayout, MAKER_COLUMNS, MAKER_ROWS, MAKER_WIDTHS,
+    MOUSE_BLOCK, MakerSelection, MakerStart, MousePart, PresetMaker,
     key_codes::{ALT_LEFT, CONTROL_LEFT, META_LEFT, SHIFT_LEFT},
     keystroke_code,
 };
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, FontWeight, Hsla, InteractiveElement,
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, Render,
-    SharedString, Styled, Subscription, Window, div, prelude::FluentBuilder, px, rgb,
+    RenderImage, SharedString, Styled, StyledImage, Subscription, Window, div, img,
+    prelude::FluentBuilder, px, relative, rgb,
 };
 
-use crate::{editor_input_display::PICTURE_BACKDROP, i18n::t, theme::Theme, ui};
+use crate::{
+    editor_input_display::{PICTURE_BACKDROP, style_label},
+    i18n::t,
+    theme::Theme,
+    ui,
+};
+use frameever_rendering::input_display::{LoadedPreset, compose, layout_preset, straighten_alpha};
 
-pub const MAKER_WINDOW_WIDTH: f32 = 784.;
+const PREVIEW_WIDTH: f32 = 224.;
+const PREVIEW_HEIGHT: f32 = 126.;
+const PREVIEW_GAP: f32 = 16.;
+const DARK_FOOTAGE: (u32, u32) = (0x1c2026, 0x272d35);
+const BRIGHT_FOOTAGE: (u32, u32) = (0xd5dbe1, 0xb9c2cb);
+
+pub const MAKER_WINDOW_WIDTH: f32 = 784. + PREVIEW_GAP + PREVIEW_WIDTH;
 pub const MAKER_WINDOW_HEIGHT: f32 = 460.;
 pub const MAKER_WINDOW_TITLE: &str = concat!(crate::brand::app_name!(), " Preset Maker");
 
@@ -65,6 +80,59 @@ impl MakerSeed {
     }
 }
 
+fn preview_input(held: &[u16]) -> DisplayState {
+    let mut input = DisplayState::default();
+    for code in held {
+        input.apply(Input::Key(*code), true);
+    }
+    input
+}
+
+fn preview_pixels(loaded: &LoadedPreset, input: &DisplayState) -> image::RgbaImage {
+    let mut picture = compose(loaded, input);
+    straighten_alpha(&mut picture);
+    picture
+}
+
+#[derive(Default)]
+struct MakerPreview {
+    drawn: Option<(KeyLayout, InputDisplayStyle, Option<LoadedPreset>)>,
+    input: DisplayState,
+    image: Option<Arc<RenderImage>>,
+    replaced: Vec<Arc<RenderImage>>,
+}
+
+impl MakerPreview {
+    fn refresh(
+        &mut self,
+        layout: KeyLayout,
+        style: InputDisplayStyle,
+        input: DisplayState,
+    ) -> bool {
+        let same_preset = self
+            .drawn
+            .as_ref()
+            .is_some_and(|(drawn, drawn_style, _)| *drawn == layout && *drawn_style == style);
+        if same_preset && self.input == input {
+            return false;
+        }
+        if !same_preset {
+            let loaded = layout_preset(&layout, style, layout.frame_share(), 1).ok();
+            self.drawn = Some((layout, style, loaded));
+        }
+        let loaded = self
+            .drawn
+            .as_ref()
+            .and_then(|(_, _, loaded)| loaded.as_ref());
+        let image = loaded
+            .map(|loaded| crate::library::rgba_to_render_image(preview_pixels(loaded, &input)));
+        self.replaced
+            .extend(std::mem::replace(&mut self.image, image));
+        self.input = input;
+        true
+    }
+}
+
 struct BoardDrag {
     item: MakerSelection,
     down: Point<Pixels>,
@@ -83,6 +151,9 @@ pub struct InputPresetMaker {
     name: Entity<ui::TextInputState>,
     label: Entity<ui::TextInputState>,
     drag: Option<BoardDrag>,
+    preview: MakerPreview,
+    preview_style: InputDisplayStyle,
+    bright_footage: bool,
     modifiers: gpui::Modifiers,
     save_failed: bool,
     _subscriptions: Vec<Subscription>,
@@ -140,6 +211,9 @@ impl InputPresetMaker {
             name,
             label,
             drag: None,
+            preview: MakerPreview::default(),
+            preview_style: InputDisplayStyle::default(),
+            bright_footage: false,
             modifiers: gpui::Modifiers::default(),
             save_failed: false,
             _subscriptions: subscriptions,
@@ -435,6 +509,81 @@ impl InputPresetMaker {
         board
     }
 
+    fn render_preview(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let (sky, ground) = if self.bright_footage {
+            BRIGHT_FOOTAGE
+        } else {
+            DARK_FOOTAGE
+        };
+        div()
+            .flex_none()
+            .w(px(PREVIEW_WIDTH))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(
+                div()
+                    .id("preset-maker-preview")
+                    .relative()
+                    .w_full()
+                    .h(px(PREVIEW_HEIGHT))
+                    .rounded(px(8.))
+                    .overflow_hidden()
+                    .bg(rgb(sky))
+                    .child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .h(relative(0.38))
+                            .bg(rgb(ground)),
+                    )
+                    .child(div().absolute().inset_0().p(px(12.)).children(
+                        self.preview.image.clone().map(|picture| {
+                            img(picture)
+                                .size_full()
+                                .object_fit(gpui::ObjectFit::Contain)
+                        }),
+                    )),
+            )
+            .child(
+                ui::SegmentedControl::editor(
+                    &theme,
+                    "preset-maker-preview-style",
+                    InputDisplayStyle::ALL
+                        .into_iter()
+                        .map(|style| {
+                            ui::SegmentOption::new(style_label(style), style == self.preview_style)
+                        })
+                        .collect(),
+                )
+                .on_select(cx.listener(|this, index: &usize, window, cx| {
+                    if let Some(style) = InputDisplayStyle::ALL.get(*index) {
+                        this.preview_style = *style;
+                    }
+                    this.focus_root(window, cx);
+                    cx.notify();
+                })),
+            )
+            .child(
+                ui::SegmentedControl::editor(
+                    &theme,
+                    "preset-maker-preview-footage",
+                    vec![
+                        ui::SegmentOption::new(t!("Dark footage"), !self.bright_footage),
+                        ui::SegmentOption::new(t!("Bright footage"), self.bright_footage),
+                    ],
+                )
+                .on_select(cx.listener(|this, index: &usize, window, cx| {
+                    this.bright_footage = *index == 1;
+                    this.focus_root(window, cx);
+                    cx.notify();
+                })),
+            )
+    }
+
     fn render_selected_mouse(&self, row: gpui::Div, cx: &mut Context<Self>) -> gpui::Div {
         let Some(mouse) = self.model.mouse else {
             return row;
@@ -546,6 +695,16 @@ impl Render for InputPresetMaker {
         self.theme.refresh(window, cx, false);
         let theme = self.theme;
         let can_save = self.model.can_save();
+        self.preview.refresh(
+            self.model.layout(),
+            self.preview_style,
+            preview_input(self.model.held()),
+        );
+        for replaced in self.preview.replaced.drain(..) {
+            if let Err(error) = window.drop_image(replaced) {
+                tracing::debug!(%error, "a replaced preset preview was not dropped");
+            }
+        }
 
         let bar = div()
             .flex()
@@ -692,7 +851,15 @@ impl Render for InputPresetMaker {
             .text_size(px(13.))
             .text_color(theme.foreground)
             .child(bar)
-            .child(self.render_board(cx))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .gap(px(PREVIEW_GAP))
+                    .child(self.render_board(cx))
+                    .child(self.render_preview(cx)),
+            )
             .child(self.render_selected_key(cx))
             .child(div().flex_1())
             .child(footer);
@@ -768,9 +935,88 @@ mod tests {
         }
     }
 
+    fn pixels_of(layout: &KeyLayout, style: InputDisplayStyle, held: &[u16]) -> Vec<u8> {
+        let loaded = layout_preset(layout, style, layout.frame_share(), 1).unwrap();
+        preview_pixels(&loaded, &preview_input(held)).into_raw()
+    }
+
+    fn shown(preview: &MakerPreview) -> Vec<u8> {
+        let image = preview.image.as_ref().unwrap();
+        let mut pixels = image.as_bytes(0).unwrap().to_vec();
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        pixels
+    }
+
+    #[test]
+    fn the_preview_is_the_saved_preset_drawn_by_the_renderer_in_the_chosen_style() {
+        let w = frameever_project::input_display::key_codes::letter('W');
+        let mut model = PresetMaker::starting(MakerStart::WasdMouse, "Mine");
+        let mut preview = MakerPreview::default();
+        let refresh = |preview: &mut MakerPreview, model: &PresetMaker, style| {
+            preview.refresh(model.layout(), style, preview_input(model.held()))
+        };
+        let (keycaps, ghost) = (InputDisplayStyle::Keycaps, InputDisplayStyle::Ghost);
+
+        assert!(refresh(&mut preview, &model, keycaps));
+        assert!(shown(&preview) == pixels_of(&model.layout(), keycaps, &[]));
+        assert!(!refresh(&mut preview, &model, keycaps));
+        assert!(preview.replaced.is_empty());
+
+        assert!(refresh(&mut preview, &model, ghost));
+        assert!(shown(&preview) == pixels_of(&model.layout(), ghost, &[]));
+        assert!(shown(&preview) != pixels_of(&model.layout(), keycaps, &[]));
+        assert_eq!(preview.replaced.len(), 1);
+
+        let before = shown(&preview);
+        model.key_down(w);
+        assert!(refresh(&mut preview, &model, ghost));
+        assert!(shown(&preview) == pixels_of(&model.layout(), ghost, &[w]));
+        assert!(shown(&preview) != before);
+        model.key_up(w);
+        assert!(refresh(&mut preview, &model, ghost));
+        assert!(shown(&preview) == before);
+
+        model.select(Some(MakerSelection::Key(0)));
+        assert!(!refresh(&mut preview, &model, ghost));
+        assert!(refresh(&mut preview, &model, keycaps));
+        let labelled = shown(&preview);
+        model.set_label("Run");
+        assert!(refresh(&mut preview, &model, keycaps));
+        let relabelled = shown(&preview);
+        assert!(relabelled != labelled);
+        model.move_mouse(9.0, 1.0);
+        assert!(refresh(&mut preview, &model, keycaps));
+        let moved = shown(&preview);
+        assert!(moved != relabelled);
+        model.set_mouse_part(MousePart::Side, false);
+        assert!(refresh(&mut preview, &model, keycaps));
+        assert!(shown(&preview) != moved);
+    }
+
+    #[test]
+    fn an_empty_board_has_no_preview_picture() {
+        let model = PresetMaker::starting(MakerStart::Empty, "Mine");
+        let mut preview = MakerPreview::default();
+        let mut refresh = || {
+            preview.refresh(
+                model.layout(),
+                InputDisplayStyle::Keycaps,
+                DisplayState::default(),
+            )
+        };
+
+        assert!(refresh());
+        assert!(!refresh());
+        assert!(preview.image.is_none());
+    }
+
     #[test]
     fn the_board_fits_inside_the_window() {
-        assert!(UNIT * MAKER_COLUMNS as f32 + 64. <= MAKER_WINDOW_WIDTH);
+        assert!(
+            UNIT * MAKER_COLUMNS as f32 + PREVIEW_GAP + PREVIEW_WIDTH + 64. <= MAKER_WINDOW_WIDTH
+        );
         assert!(UNIT * MAKER_ROWS as f32 + 240. <= MAKER_WINDOW_HEIGHT);
     }
 }

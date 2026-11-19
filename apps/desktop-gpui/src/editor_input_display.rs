@@ -198,7 +198,7 @@ impl InputDisplaySlider {
     }
 }
 
-fn style_label(style: InputDisplayStyle) -> &'static str {
+pub(crate) fn style_label(style: InputDisplayStyle) -> &'static str {
     match style {
         InputDisplayStyle::Keycaps => t!("Keycaps"),
         InputDisplayStyle::Outline => tc!("input display style", "Outline"),
