@@ -21,9 +21,9 @@ use crate::{
     onboarding_doodles,
     store::{
         self, AppTheme, DEFAULT_PROJECT_NAME_TEMPLATE, GENERAL_SETTINGS, GeneralSettings,
-        MainWindowStartBehaviour, PostDeletionBehaviour, PostInstantBehaviour,
+        InstantInputCorner, MainWindowStartBehaviour, PostDeletionBehaviour, PostInstantBehaviour,
         PostScreenshotBehaviour, PostStudioBehaviour, RECORDING_START_SAFETY, SettingsEnum,
-        StudioQuality, UpdateChannel, UpdateDownloadPolicy, WindowExclusion,
+        StudioQuality, UpdateChannel, UpdateDownloadPolicy, WindowCaptureStyle, WindowExclusion,
     },
     theme::Theme,
     ui,
@@ -70,6 +70,9 @@ pub(crate) enum MenuKind {
     AfterScreenshot,
     AfterStudio,
     AfterInstant,
+    AutoStop,
+    InputPreset,
+    InputPosition,
     AddWindow,
     AutomationTrigger(usize),
     AutomationMatchMode(usize),
@@ -122,6 +125,36 @@ const COUNTDOWN_OPTIONS: &[(u32, &str)] = &[
     (5, n!("5 seconds")),
     (10, n!("10 seconds")),
 ];
+
+const AUTO_STOP_OPTIONS: &[(u32, &str)] = &[
+    (0, n!("Off")),
+    (5, n!("5 minutes")),
+    (15, n!("15 minutes")),
+    (30, n!("30 minutes")),
+];
+
+const VOICE_ISOLATION_OPTIONS: [frameever_project::VoiceIsolation; 3] = [
+    frameever_project::VoiceIsolation::Light,
+    frameever_project::VoiceIsolation::Balanced,
+    frameever_project::VoiceIsolation::Strong,
+];
+
+fn waits_on_another_row(row: Row, settings: &GeneralSettings) -> bool {
+    match row {
+        Row::KeepCompressed => !settings.auto_compress_instant,
+        Row::InputPreset | Row::InputPosition => !settings.instant_show_input,
+        Row::FocusCenter => settings.window_capture_style != WindowCaptureStyle::FocusedWindow,
+        _ => false,
+    }
+}
+
+fn menu_row(kind: MenuKind) -> Option<Row> {
+    match kind {
+        MenuKind::InputPreset => Some(Row::InputPreset),
+        MenuKind::InputPosition => Some(Row::InputPosition),
+        _ => None,
+    }
+}
 
 const STUDIO_QUALITY_TIERS: &[(StudioQuality, &str, &str)] = &[
     (
@@ -211,6 +244,7 @@ pub struct SettingsWindow {
     instant_quality_save_failed: bool,
     studio_quality_save_failed: bool,
     pub(crate) pages: crate::settings_pages::PagesState,
+    input_presets: Vec<crate::editor_input_display::ListedPreset>,
     project_name: String,
     project_name_input: Entity<ui::TextInputState>,
     search_input: Entity<ui::TextInputState>,
@@ -268,6 +302,7 @@ impl SettingsWindow {
             theme,
             page,
             pages,
+            input_presets: crate::editor_input_display::listed_input_presets(),
             project_name: stored_template,
             settings,
             menu: None,
@@ -494,6 +529,12 @@ impl SettingsWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if menu_row(kind).is_some_and(|row| waits_on_another_row(row, &self.settings)) {
+            return;
+        }
+        if kind == MenuKind::InputPreset {
+            self.input_presets = crate::editor_input_display::listed_input_presets();
+        }
         let focus = self.focus.clone();
         window.focus(&focus, cx);
         let items = self.menu_items(kind);
@@ -551,6 +592,23 @@ impl SettingsWindow {
             MenuKind::AfterScreenshot => enum_items(self.settings.post_screenshot_behaviour),
             MenuKind::AfterStudio => enum_items(self.settings.post_studio_recording_behaviour),
             MenuKind::AfterInstant => enum_items(self.settings.post_instant_recording_behaviour),
+            MenuKind::AutoStop => AUTO_STOP_OPTIONS
+                .iter()
+                .map(|(value, label)| {
+                    ui::MenuItem::new(
+                        tr(label),
+                        *value == self.settings.recording_auto_stop_minutes,
+                    )
+                })
+                .collect(),
+            MenuKind::InputPreset => self
+                .input_presets
+                .iter()
+                .map(|(id, name)| {
+                    ui::MenuItem::new(name.clone(), *id == self.settings.instant_input_preset)
+                })
+                .collect(),
+            MenuKind::InputPosition => enum_items(self.settings.instant_input_corner),
             MenuKind::AddWindow => self
                 .add_window_options()
                 .into_iter()
@@ -621,6 +679,24 @@ impl SettingsWindow {
                 if let Some(value) = PostInstantBehaviour::ALL.get(index) {
                     self.settings.post_instant_recording_behaviour = *value;
                     self.write_enum("postInstantRecordingBehaviour", *value, cx);
+                }
+            }
+            MenuKind::AutoStop => {
+                if let Some((value, _)) = AUTO_STOP_OPTIONS.get(index) {
+                    self.settings.recording_auto_stop_minutes = *value;
+                    self.write_u32("recordingAutoStopMinutes", *value, cx);
+                }
+            }
+            MenuKind::InputPreset => {
+                if let Some((id, _)) = self.input_presets.get(index).cloned() {
+                    self.settings.instant_input_preset = id.clone();
+                    self.write("instantInputPreset", Value::from(id), cx);
+                }
+            }
+            MenuKind::InputPosition => {
+                if let Some(value) = InstantInputCorner::ALL.get(index) {
+                    self.settings.instant_input_corner = *value;
+                    self.write_enum("instantInputCorner", *value, cx);
                 }
             }
             MenuKind::AddWindow => {
@@ -1237,7 +1313,7 @@ impl SettingsWindow {
             )
             .into_any_element()
         };
-        let dimmed = row == Row::KeepCompressed && !self.settings.auto_compress_instant;
+        let dimmed = waits_on_another_row(row, &self.settings);
         div()
             .id(SharedString::from(format!("settings-row-{}", row.id())))
             .rounded(px(12.))
@@ -1388,6 +1464,105 @@ impl SettingsWindow {
                             Value::Bool(value),
                         ) {
                             this.settings = GeneralSettings::load();
+                        }
+                        cx.notify();
+                    },
+                )
+                .into_any_element(),
+            Row::AutoStop => {
+                let current = settings.recording_auto_stop_minutes;
+                let label = AUTO_STOP_OPTIONS
+                    .iter()
+                    .find(|(value, _)| *value == current)
+                    .map(|(_, label)| tr(label).to_string())
+                    .unwrap_or_else(|| t!("{minutes} minutes", minutes = current).to_string());
+                self.select("auto-stop", label, MenuKind::AutoStop, cx)
+                    .into_any_element()
+            }
+            Row::ClickHighlight => self
+                .toggle(
+                    "instant-click-highlight",
+                    settings.instant_click_highlight,
+                    cx,
+                    |this, cx| {
+                        this.settings.instant_click_highlight =
+                            !this.settings.instant_click_highlight;
+                        let value = this.settings.instant_click_highlight;
+                        this.write_bool("instantClickHighlight", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::ShowInput => self
+                .toggle(
+                    "instant-show-input",
+                    settings.instant_show_input,
+                    cx,
+                    |this, cx| {
+                        this.settings.instant_show_input = !this.settings.instant_show_input;
+                        let value = this.settings.instant_show_input;
+                        this.write_bool("instantShowInput", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::InputPreset => {
+                let label = self
+                    .input_presets
+                    .iter()
+                    .find(|(id, _)| *id == settings.instant_input_preset)
+                    .or(self.input_presets.first())
+                    .map(|(_, name)| name.clone())
+                    .unwrap_or_default();
+                self.select("instant-input-preset", label, MenuKind::InputPreset, cx)
+                    .into_any_element()
+            }
+            Row::InputPosition => self
+                .select(
+                    "instant-input-position",
+                    settings.instant_input_corner.label(),
+                    MenuKind::InputPosition,
+                    cx,
+                )
+                .into_any_element(),
+            Row::WindowStyle => self
+                .segmented::<WindowCaptureStyle>(
+                    "window-capture-style",
+                    settings.window_capture_style,
+                    cx,
+                    |this, value, cx| {
+                        this.settings.window_capture_style = value;
+                        this.write_enum("windowCaptureStyle", value, cx);
+                    },
+                )
+                .into_any_element(),
+            Row::FocusCenter => self
+                .toggle("focus-center", settings.focus_center, cx, |this, cx| {
+                    if waits_on_another_row(Row::FocusCenter, &this.settings) {
+                        return;
+                    }
+                    this.settings.focus_center = !this.settings.focus_center;
+                    let value = this.settings.focus_center;
+                    this.write_bool("focusCenter", value, cx);
+                })
+                .into_any_element(),
+            Row::VoiceIsolation => self
+                .segmented_raw(
+                    "voice-isolation-default",
+                    VOICE_ISOLATION_OPTIONS
+                        .iter()
+                        .map(|value| {
+                            ui::SegmentOption::new(
+                                crate::editor_tabs::voice_isolation_label(*value),
+                                *value == settings.studio_sound_isolation,
+                            )
+                        })
+                        .collect(),
+                    cx,
+                    |this, index, cx| {
+                        let Some(value) = VOICE_ISOLATION_OPTIONS.get(index).copied() else {
+                            return;
+                        };
+                        if store::set_studio_sound_isolation(value) {
+                            this.settings.studio_sound_isolation = value;
                         }
                         cx.notify();
                     },
@@ -2800,6 +2975,39 @@ mod tests {
             },
             &default
         ));
+    }
+
+    #[test]
+    fn a_row_that_follows_another_waits_until_that_one_is_on() {
+        let waiting = |settings: &GeneralSettings| -> Vec<Row> {
+            catalog::places()
+                .map(|place| place.row)
+                .filter(|row| waits_on_another_row(*row, settings))
+                .collect()
+        };
+        let mut settings = GeneralSettings::default();
+        assert_eq!(
+            waiting(&settings),
+            [
+                Row::InputPreset,
+                Row::InputPosition,
+                Row::FocusCenter,
+                Row::KeepCompressed
+            ]
+        );
+        settings.instant_show_input = true;
+        settings.window_capture_style = WindowCaptureStyle::FocusedWindow;
+        settings.auto_compress_instant = true;
+        assert!(waiting(&settings).is_empty());
+        assert_eq!(menu_row(MenuKind::InputPreset), Some(Row::InputPreset));
+        assert_eq!(menu_row(MenuKind::InputPosition), Some(Row::InputPosition));
+        assert_eq!(menu_row(MenuKind::AutoStop), None);
+    }
+
+    #[test]
+    fn the_settings_window_offers_the_auto_stop_times_of_the_recording_options() {
+        let minutes: Vec<u32> = AUTO_STOP_OPTIONS.iter().map(|(value, _)| *value).collect();
+        assert_eq!(minutes, [0, 5, 15, 30]);
     }
 
     #[test]

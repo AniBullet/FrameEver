@@ -29,15 +29,23 @@ pub enum Row {
     MaxFps,
     Countdown,
     ConfirmMicrophone,
+    AutoStop,
     SeparateCursor,
     RecordInput,
     CrashRecovery,
+    ClickHighlight,
+    ShowInput,
+    InputPreset,
+    InputPosition,
+    WindowStyle,
+    FocusCenter,
     NotchOverlay,
     ExcludedWindows,
     AfterScreenshot,
     AfterStudio,
     AfterInstant,
     StudioSound,
+    VoiceIsolation,
     AutoZoom,
     ZoomAmount,
     RememberedTerms,
@@ -152,16 +160,28 @@ const RECORDING: &[Group] = &[
     },
     Group {
         title: n!("Before you record"),
-        rows: &[Row::Countdown, Row::ConfirmMicrophone],
+        rows: &[Row::Countdown, Row::ConfirmMicrophone, Row::AutoStop],
     },
     Group {
-        title: n!("Captured with the video"),
+        title: n!("Studio recording"),
+        rows: &[Row::SeparateCursor, Row::RecordInput, Row::CrashRecovery],
+    },
+    Group {
+        title: n!("Instant recording"),
         rows: &[
-            Row::SeparateCursor,
-            Row::RecordInput,
-            Row::CrashRecovery,
-            Row::NotchOverlay,
+            Row::ClickHighlight,
+            Row::ShowInput,
+            Row::InputPreset,
+            Row::InputPosition,
         ],
+    },
+    Group {
+        title: n!("Window recording"),
+        rows: &[Row::WindowStyle, Row::FocusCenter],
+    },
+    Group {
+        title: n!("Screen recording"),
+        rows: &[Row::NotchOverlay],
     },
     Group {
         title: n!("Hidden from recordings"),
@@ -176,7 +196,12 @@ const RECORDING: &[Group] = &[
 const EDITING: &[Group] = &[
     Group {
         title: n!("New Studio projects"),
-        rows: &[Row::StudioSound, Row::AutoZoom, Row::ZoomAmount],
+        rows: &[
+            Row::StudioSound,
+            Row::VoiceIsolation,
+            Row::AutoZoom,
+            Row::ZoomAmount,
+        ],
     },
     Group {
         title: n!("Captions"),
@@ -392,6 +417,14 @@ impl Row {
             Row::MaxFps => n!("Maximum frame rate"),
             Row::Countdown => n!("Countdown"),
             Row::ConfirmMicrophone => n!("Confirm without microphone"),
+            Row::AutoStop => n!("Auto-stop"),
+            Row::ClickHighlight => n!("Click highlight"),
+            Row::ShowInput => n!("Show input"),
+            Row::InputPreset => n!("Input preset"),
+            Row::InputPosition => n!("Input display position"),
+            Row::WindowStyle => n!("Record a window as"),
+            Row::FocusCenter => n!("Center the window on screen"),
+            Row::VoiceIsolation => n!("Voice isolation"),
             Row::SeparateCursor => n!("Separate cursor"),
             Row::RecordInput => n!("Record input"),
             Row::CrashRecovery => n!("Crash recovery"),
@@ -442,7 +475,9 @@ impl Row {
             Row::InstantResolution => n!("The most Instant recordings are saved at."),
             Row::MaxFps => n!("Higher rates can drop frames on some PCs."),
             Row::ConfirmMicrophone => n!("Ask first if no microphone is selected or available."),
-            Row::SeparateCursor => n!("Studio only. Adjust size and smoothing in the editor."),
+            Row::SeparateCursor => n!("Adjust size and smoothing in the editor."),
+            Row::ShowInput => n!("Draws your keys, mouse or gamepad into the video."),
+            Row::VoiceIsolation => n!("What Studio Sound starts with in a new project."),
             Row::CrashRecovery => n!("Records in fragments, slightly larger while capturing."),
             Row::StudioSound => n!("Clean up microphone audio. Turn it off per project."),
             Row::AutoZoom => n!("Adds zoom segments around mouse clicks."),
@@ -571,9 +606,16 @@ mod tests {
                     "Maximum frame rate",
                     "Countdown",
                     "Confirm without microphone",
+                    "Auto-stop",
                     "Separate cursor",
                     "Record input",
                     "Crash recovery",
+                    "Click highlight",
+                    "Show input",
+                    "Input preset",
+                    "Input display position",
+                    "Record a window as",
+                    "Center the window on screen",
                     "Excluded windows",
                     "After a screenshot",
                     "After a Studio recording",
@@ -584,6 +626,7 @@ mod tests {
                 Page::Editing,
                 &[
                     "Studio Sound",
+                    "Voice isolation",
                     "Auto zoom on clicks",
                     "Zoom amount",
                     "Remembered terms",
@@ -685,6 +728,142 @@ mod tests {
         );
         assert!(search("wxyz").is_empty());
         assert!(search("   ").is_empty());
+    }
+
+    #[test]
+    fn search_finds_what_used_to_live_only_beside_the_recording() {
+        assert_eq!(labels(&search("自动停止")), ["Auto-stop"]);
+        assert_eq!(labels(&search("click highlight")), ["Click highlight"]);
+        assert_eq!(labels(&search("显示操作")), ["Show input"]);
+        assert_eq!(labels(&search("input preset")), ["Input preset"]);
+        assert_eq!(labels(&search("窗口录制方式")), ["Record a window as"]);
+        assert_eq!(labels(&search("人声隔离")), ["Voice isolation"]);
+    }
+
+    #[test]
+    fn options_of_one_recording_mode_sit_in_the_group_of_that_mode() {
+        let group = |row| place_of(row).unwrap().group;
+        for row in [Row::SeparateCursor, Row::RecordInput, Row::CrashRecovery] {
+            assert_eq!(group(row), "Studio recording", "{row:?}");
+        }
+        for row in [
+            Row::ClickHighlight,
+            Row::ShowInput,
+            Row::InputPreset,
+            Row::InputPosition,
+        ] {
+            assert_eq!(group(row), "Instant recording", "{row:?}");
+        }
+        for row in [Row::WindowStyle, Row::FocusCenter] {
+            assert_eq!(group(row), "Window recording", "{row:?}");
+        }
+        assert_eq!(group(Row::AutoStop), "Before you record");
+        assert_eq!(group(Row::VoiceIsolation), "New Studio projects");
+    }
+
+    fn keys_the_settings_store_reads() -> Vec<String> {
+        let source = include_str!("../store.rs");
+        let start = source.find("fn from_sections(").unwrap();
+        let end = start + source[start..].find("\n    }\n").unwrap();
+        let body: String = source[start..end]
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect();
+        let mut keys = vec!["storage".to_string()];
+        for section in ["general", "safety", "audio_enhancement"] {
+            for opening in [format!("_at({section},"), format!("{section}.get(")] {
+                for (at, _) in body.match_indices(&opening) {
+                    let rest = &body[at + opening.len()..];
+                    let quoted = rest.strip_prefix('"');
+                    let name = quoted.unwrap_or(rest);
+                    let length = name
+                        .find(|character: char| character != '_' && !character.is_alphanumeric())
+                        .unwrap();
+                    keys.push(name[..length].to_string());
+                }
+            }
+        }
+        keys.sort();
+        keys.dedup();
+        keys
+    }
+
+    fn row_of_stored_key(key: &str) -> Option<Option<Row>> {
+        Some(Some(match key {
+            "theme" => Row::Theme,
+            "language" => Row::Language,
+            "hideDockIcon" => Row::DockIcon,
+            "enableNotifications" => Row::Notifications,
+            "RECORDING_SOUNDS_KEY" => Row::RecordingSounds,
+            "CHAPTER_MARK_SOUND_KEY" => Row::ChapterMarkSound,
+            "mainWindowRecordingStartBehaviour" => Row::MainWindowStart,
+            "postDeletionBehaviour" => Row::AfterDelete,
+            "keepMainHiddenAfterEditor" => Row::AfterEditorClose,
+            "keepMainHiddenOnCancel" => Row::AfterCancel,
+            "studioRecordingQuality" => Row::StudioQuality,
+            "instantModeMaxResolution" => Row::InstantResolution,
+            "maxFps" => Row::MaxFps,
+            "recordingCountdown" => Row::Countdown,
+            "confirmBeforeRecordingWithoutMicrophone" => Row::ConfirmMicrophone,
+            "recordingAutoStopMinutes" => Row::AutoStop,
+            "custom_cursor_capture2" => Row::SeparateCursor,
+            "captureKeyboardEvents" => Row::RecordInput,
+            "crashRecoveryRecording" => Row::CrashRecovery,
+            "instantClickHighlight" => Row::ClickHighlight,
+            "instantShowInput" => Row::ShowInput,
+            "instantInputPreset" => Row::InputPreset,
+            "instantInputCorner" => Row::InputPosition,
+            "windowCaptureStyle" => Row::WindowStyle,
+            "focusCenter" => Row::FocusCenter,
+            "macbookNotchOverlay" => Row::NotchOverlay,
+            "excludedWindows" => Row::ExcludedWindows,
+            "postScreenshotBehaviour" => Row::AfterScreenshot,
+            "postStudioRecordingBehaviour" => Row::AfterStudio,
+            "postInstantRecordingBehaviour" => Row::AfterInstant,
+            "STUDIO_SOUND_BY_DEFAULT_KEY" => Row::StudioSound,
+            "isolation" => Row::VoiceIsolation,
+            "autoZoomOnClicks" => Row::AutoZoom,
+            "defaultZoomAmount" => Row::ZoomAmount,
+            "storage" => Row::StorageFolder,
+            "defaultProjectNameTemplate" => Row::NameTemplate,
+            "autoCompressInstant" => Row::CompressInstant,
+            "autoCompressDeleteOriginal" => Row::KeepCompressed,
+            "outOfProcessMuxer" => Row::Muxer,
+            "updateDownloadPolicy" => Row::UpdateDownloads,
+            "updateChannel" => Row::UpdateChannel,
+            "editorPreviewQuality"
+            | "editorSidebarWidth"
+            | "EDITOR_PREVIEW_SPEED_KEY"
+            | "deleteInstantRecordingsAfterUpload"
+            | "enableNativeCameraPreview" => return Some(None),
+            _ => return None,
+        }))
+    }
+
+    #[test]
+    fn every_stored_setting_has_a_row_or_is_only_remembered() {
+        let keys = keys_the_settings_store_reads();
+        assert!(
+            keys.len() >= 45,
+            "the store's keys were not found: {keys:?}"
+        );
+        for key in keys {
+            match row_of_stored_key(&key) {
+                Some(Some(row)) => assert!(
+                    Page::ALL
+                        .iter()
+                        .flat_map(|page| page.groups())
+                        .any(|group| group.rows.contains(&row)),
+                    "{key} names {row:?}, which is on no page"
+                ),
+                Some(None) => {}
+                None => panic!(
+                    "{key} is read from the settings store but has no settings row. Give it one, \
+                     or list it with the values the app only remembers \
+                     (docs/design/README.md, Where a setting lives)."
+                ),
+            }
+        }
     }
 
     #[test]

@@ -89,6 +89,23 @@ pub(crate) const INPUT_PRESETS: [(BuiltinPresetId, &str); 3] = [
     (BuiltinPresetId::Gamepad, n!("Gamepad")),
 ];
 
+pub(crate) type ListedPreset = (String, SharedString);
+
+pub(crate) fn listed_input_presets() -> Vec<ListedPreset> {
+    let user_presets = frameever_rendering::input_presets::presets_dir()
+        .map(|dir| frameever_rendering::input_presets::list(&dir))
+        .unwrap_or_default();
+    INPUT_PRESETS
+        .iter()
+        .map(|(preset, label)| (preset.id().to_string(), SharedString::from(tr(label))))
+        .chain(
+            user_presets
+                .into_iter()
+                .map(|preset| (preset.id, preset.name.into())),
+        )
+        .collect()
+}
+
 const INPUT_SETUP_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
 
 #[derive(Default)]

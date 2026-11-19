@@ -1002,6 +1002,7 @@ pub struct GeneralSettings {
     /// Also outside `general_settings`: the `audio_enhancement` section's
     /// `enabledByDefault`, rendered in the Recording card next to it.
     pub studio_sound_by_default: bool,
+    pub studio_sound_isolation: frameever_project::VoiceIsolation,
 }
 
 /// The section names, so the write calls read as the store keys they are.
@@ -1455,6 +1456,11 @@ impl GeneralSettings {
                 true,
             ),
             studio_sound_by_default: bool_at(audio_enhancement, STUDIO_SOUND_BY_DEFAULT_KEY, true),
+            studio_sound_isolation: audio_enhancement
+                .get("isolation")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or_default(),
         }
     }
 }

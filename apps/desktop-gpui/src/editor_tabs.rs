@@ -501,6 +501,14 @@ pub fn caption_at_default_center(settings: &CaptionSettings) -> bool {
     caption_manual_center(settings) == (x as f32, y as f32)
 }
 
+pub(crate) fn voice_isolation_label(isolation: frameever_project::VoiceIsolation) -> &'static str {
+    match isolation {
+        frameever_project::VoiceIsolation::Light => tc!("strength", "Light"),
+        frameever_project::VoiceIsolation::Balanced => t!("Balanced"),
+        frameever_project::VoiceIsolation::Strong => t!("Strong"),
+    }
+}
+
 fn caption_reason_customises_style(reason: &str) -> bool {
     !matches!(
         reason,
@@ -1750,17 +1758,17 @@ impl EditorWindow {
         let isolation_options = [
             (
                 frameever_project::VoiceIsolation::Light,
-                tc!("strength", "Light"),
+                voice_isolation_label(frameever_project::VoiceIsolation::Light),
                 t!("Keep more of your original voice and room sound."),
             ),
             (
                 frameever_project::VoiceIsolation::Balanced,
-                t!("Balanced"),
+                voice_isolation_label(frameever_project::VoiceIsolation::Balanced),
                 t!("Clearer isolation with natural voice detail."),
             ),
             (
                 frameever_project::VoiceIsolation::Strong,
-                t!("Strong"),
+                voice_isolation_label(frameever_project::VoiceIsolation::Strong),
                 t!("More isolation for noisy spaces. May change voice texture."),
             ),
         ];
