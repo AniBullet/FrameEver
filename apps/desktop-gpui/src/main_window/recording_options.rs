@@ -76,6 +76,7 @@ impl OptionRow {
         self.choices
             .iter()
             .map(|(label, value)| ui::MenuItem::new(label.clone(), *value == self.value))
+            .chain([ui::MenuItem::new(t!("Manage presets…"), false)])
             .collect()
     }
 
@@ -459,6 +460,17 @@ impl MainWindow {
     fn choose_from_recording_options_menu(&mut self, index: usize, cx: &mut Context<Self>) {
         self.recording_options_menu = None;
         if let Some(row) = self.recording_options_menu_row() {
+            if index == row.choices.len() {
+                self.recording_options_open = false;
+                cx.defer(|cx| {
+                    app_windows::open_settings_row(
+                        crate::settings_window::catalog::Row::InputPresets,
+                        cx,
+                    )
+                });
+                cx.notify();
+                return;
+            }
             self.recording_options_save_failed = !row.save(index);
             if self.recording_options_save_failed {
                 tracing::warn!(key = row.key, "recording option could not be saved");
@@ -664,6 +676,32 @@ mod tests {
     }
 
     #[test]
+    fn the_preset_list_ends_with_the_way_to_manage_presets() {
+        let settings = GeneralSettings {
+            instant_show_input: true,
+            ..GeneralSettings::default()
+        };
+        let presets = rows(Mode::Instant, &settings, &[])
+            .into_iter()
+            .find(|row| row.listed_in_menu)
+            .unwrap();
+        let labels: Vec<String> = presets
+            .menu_items()
+            .iter()
+            .map(|item| item.label.to_string())
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "WASD + mouse",
+                "Full keyboard",
+                "Gamepad",
+                "Manage presets…"
+            ]
+        );
+    }
+
+    #[test]
     fn options_come_in_the_order_they_are_used_with_auto_stop_last() {
         let keys = |mode, settings: &GeneralSettings| -> Vec<&'static str> {
             rows(mode, settings, &[])
@@ -815,7 +853,7 @@ mod tests {
                 .iter()
                 .map(|item| item.checked)
                 .collect::<Vec<_>>(),
-            [false, false, false, false, true]
+            [false, false, false, false, true, false]
         );
     }
 

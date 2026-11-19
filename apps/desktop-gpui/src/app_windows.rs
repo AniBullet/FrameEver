@@ -1738,18 +1738,15 @@ pub fn open_mode_select(cx: &mut App) -> bool {
 }
 
 pub fn open_input_preset_maker(
-    editor: WindowHandle<EditorWindow>,
+    open: Option<WindowHandle<crate::input_preset_maker::InputPresetMaker>>,
     seed: crate::input_preset_maker::MakerSeed,
+    on_saved: crate::input_preset_maker::PresetSaved,
     cx: &mut App,
-) {
+) -> Option<WindowHandle<crate::input_preset_maker::InputPresetMaker>> {
     use crate::input_preset_maker::{
         InputPresetMaker, MAKER_WINDOW_HEIGHT, MAKER_WINDOW_TITLE, MAKER_WINDOW_WIDTH,
     };
 
-    let open = editor
-        .update(cx, |editor, _, _| editor.sidebar.input_maker)
-        .ok()
-        .flatten();
     if let Some(open) = open
         && open
             .update(cx, |view, window, cx| {
@@ -1758,7 +1755,7 @@ pub fn open_input_preset_maker(
             })
             .is_ok()
     {
-        return;
+        return Some(open);
     }
 
     let (bounds, display_id) =
@@ -1779,24 +1776,22 @@ pub fn open_input_preset_maker(
             is_minimizable: true,
             ..Default::default()
         },
-        move |window, cx| cx.new(|cx| InputPresetMaker::new(seed, editor, window, cx)),
+        move |window, cx| cx.new(|cx| InputPresetMaker::new(seed, on_saved, window, cx)),
     );
     let handle = match handle {
         Ok(handle) => handle,
         Err(error) => {
             tracing::error!("preset maker window failed to open: {error:#}");
-            return;
+            return None;
         }
     };
-    editor
-        .update(cx, |editor, _, _| editor.sidebar.input_maker = Some(handle))
-        .ok();
     handle
         .update(cx, |view, window, cx| {
             platform::kick_display_link(window);
             view.focus_root(window, cx);
         })
         .ok();
+    Some(handle)
 }
 
 /// The mode select window is going away: same `Destroyed` arm as Upgrade,

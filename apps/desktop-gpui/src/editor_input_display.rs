@@ -91,6 +91,47 @@ pub(crate) const INPUT_PRESETS: [(BuiltinPresetId, &str); 3] = [
 
 pub(crate) type ListedPreset = (String, SharedString);
 
+pub(crate) fn maker_seed(preset: Option<UserPreset>) -> crate::input_preset_maker::MakerSeed {
+    match preset {
+        Some(preset) => crate::input_preset_maker::MakerSeed {
+            editing: Some(preset.id),
+            name: preset.name,
+            layout: preset.layout,
+        },
+        None => crate::input_preset_maker::MakerSeed {
+            editing: None,
+            name: t!("My preset").to_string(),
+            layout: None,
+        },
+    }
+}
+
+pub(crate) fn import_presets_from(folder: &std::path::Path) -> Result<Vec<String>, ImportRefusal> {
+    let dir = frameever_rendering::input_presets::presets_dir().ok_or_else(|| {
+        ImportRefusal::NotSaved {
+            detail: "the app data folder is not known".to_string(),
+        }
+    })?;
+    frameever_rendering::input_presets::import_folder(&dir, folder)
+}
+
+pub(crate) fn confirm_preset_removal() -> bool {
+    crate::platform::confirm_dialog(
+        t!("Remove this preset?"),
+        t!(
+            "Projects that use it show no input display until you choose another preset. This can't be undone."
+        ),
+        t!("Remove preset"),
+        t!("Cancel"),
+        true,
+    )
+}
+
+pub(crate) fn remove_preset(preset: &str) -> bool {
+    frameever_rendering::input_presets::presets_dir()
+        .is_some_and(|dir| frameever_rendering::input_presets::remove(&dir, preset).is_ok())
+}
+
 pub(crate) fn listed_input_presets() -> Vec<ListedPreset> {
     let user_presets = frameever_rendering::input_presets::presets_dir()
         .map(|dir| frameever_rendering::input_presets::list(&dir))
@@ -764,19 +805,28 @@ impl EditorWindow {
         let Some(editor) = window.window_handle().downcast::<Self>() else {
             return;
         };
-        let seed = match preset {
-            Some(preset) => crate::input_preset_maker::MakerSeed {
-                editing: Some(preset.id),
-                name: preset.name,
-                layout: preset.layout,
-            },
-            None => crate::input_preset_maker::MakerSeed {
-                editing: None,
-                name: t!("My preset").to_string(),
-                layout: None,
-            },
-        };
-        cx.defer(move |cx| crate::app_windows::open_input_preset_maker(editor, seed, cx));
+        let seed = maker_seed(preset);
+        cx.defer(move |cx| {
+            let open = editor
+                .update(cx, |editor, _, _| editor.sidebar.input_maker)
+                .ok()
+                .flatten();
+            let maker = crate::app_windows::open_input_preset_maker(
+                open,
+                seed,
+                std::rc::Rc::new(move |preset, cx| {
+                    editor
+                        .update(cx, |editor, window, cx| {
+                            editor.input_preset_saved(preset, window, cx)
+                        })
+                        .ok();
+                }),
+                cx,
+            );
+            editor
+                .update(cx, |editor, _, _| editor.sidebar.input_maker = maker)
+                .ok();
+        });
     }
 
     fn import_input_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -795,15 +845,7 @@ impl EditorWindow {
             };
             let result = cx
                 .background_executor()
-                .spawn(async move {
-                    let dir =
-                        frameever_rendering::input_presets::presets_dir().ok_or_else(|| {
-                            ImportRefusal::NotSaved {
-                                detail: "the app data folder is not known".to_string(),
-                            }
-                        })?;
-                    frameever_rendering::input_presets::import_folder(&dir, &folder)
-                })
+                .spawn(async move { import_presets_from(&folder) })
                 .await;
             this.update_in(cx, |this, window, cx| {
                 this.input_preset_imported(result, window, cx);
@@ -843,26 +885,14 @@ impl EditorWindow {
 
     fn remove_input_preset(&mut self, preset: String, window: &mut Window, cx: &mut Context<Self>) {
         cx.spawn_in(window, async move |this, cx| {
-            if !crate::platform::confirm_dialog(
-                t!("Remove this preset?"),
-                t!(
-                    "Projects that use it show no input display until you choose another preset. This can't be undone."
-                ),
-                t!("Remove preset"),
-                t!("Cancel"),
-                true,
-            ) {
+            if !confirm_preset_removal() {
                 return;
             }
             let removed = cx
                 .background_executor()
                 .spawn({
                     let preset = preset.clone();
-                    async move {
-                        frameever_rendering::input_presets::presets_dir().is_some_and(|dir| {
-                            frameever_rendering::input_presets::remove(&dir, &preset).is_ok()
-                        })
-                    }
+                    async move { remove_preset(&preset) }
                 })
                 .await;
             this.update_in(cx, |this, window, cx| {

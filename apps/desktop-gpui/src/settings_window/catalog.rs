@@ -51,6 +51,7 @@ pub enum Row {
     AutoZoom,
     ZoomAmount,
     RememberedTerms,
+    InputPresets,
     StorageFolder,
     NameTemplate,
     CompressInstant,
@@ -227,10 +228,16 @@ const INSTANT: &[Group] = &[
     },
 ];
 
-const EDITING: &[Group] = &[Group {
-    title: n!("Captions"),
-    rows: &[Row::RememberedTerms],
-}];
+const EDITING: &[Group] = &[
+    Group {
+        title: n!("Captions"),
+        rows: &[Row::RememberedTerms],
+    },
+    Group {
+        title: n!("Input display"),
+        rows: &[Row::InputPresets],
+    },
+];
 
 const STORAGE: &[Group] = &[
     Group {
@@ -356,7 +363,7 @@ impl Page {
             Page::Recording => n!("What every recording shares"),
             Page::Studio => n!("Recordings you edit afterwards"),
             Page::Instant => n!("Recordings that are finished when you stop"),
-            Page::Editing => n!("Captions"),
+            Page::Editing => n!("Captions, input presets"),
             Page::Storage => n!("Storage folder, names"),
             Page::Shortcuts => n!("Work from any app"),
             Page::Automations => n!("Rules that run only on this PC"),
@@ -485,6 +492,7 @@ impl Row {
             Row::AutoZoom => n!("Auto zoom on clicks"),
             Row::ZoomAmount => n!("Zoom amount"),
             Row::RememberedTerms => n!("Remembered terms"),
+            Row::InputPresets => n!("Input presets"),
             Row::StorageFolder => n!("Storage folder"),
             Row::NameTemplate => n!("Name template"),
             Row::CompressInstant => n!("Compress Instant recordings"),
@@ -531,6 +539,9 @@ impl Row {
             Row::AutoZoom => n!("Adds zoom segments around mouse clicks."),
             Row::ZoomAmount => n!("Also used for zoom segments you add yourself."),
             Row::RememberedTerms => n!("Names and jargon Whisper should spell your way."),
+            Row::InputPresets => {
+                n!("Layouts for the input display. Studio and Instant recordings share them.")
+            }
             Row::CompressInstant => {
                 n!("Makes an HEVC copy about half the size. The original stays.")
             }
@@ -694,7 +705,7 @@ mod tests {
                     "Keep only the copy",
                 ],
             ),
-            (Page::Editing, &["Remembered terms"]),
+            (Page::Editing, &["Remembered terms", "Input presets"]),
             (Page::Storage, &["Storage folder", "Name template"]),
             (
                 Page::Shortcuts,
@@ -785,7 +796,10 @@ mod tests {
         assert_eq!(labels(&search("自动停止")), ["Auto-stop"]);
         assert_eq!(labels(&search("click highlight")), ["Click highlight"]);
         assert_eq!(labels(&search("显示操作")), ["Show input"]);
-        assert_eq!(labels(&search("input preset")), ["Input preset"]);
+        assert_eq!(
+            labels(&search("input preset")),
+            ["Input preset", "Input presets"]
+        );
         assert_eq!(labels(&search("窗口录制方式")), ["Record a window as"]);
         assert_eq!(labels(&search("人声隔离")), ["Voice isolation"]);
     }

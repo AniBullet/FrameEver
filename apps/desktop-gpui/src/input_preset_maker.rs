@@ -6,12 +6,10 @@ use frameever_project::input_display::{
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, FontWeight, Hsla, InteractiveElement,
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, Render,
-    SharedString, Styled, Subscription, Window, WindowHandle, div, prelude::FluentBuilder, px, rgb,
+    SharedString, Styled, Subscription, Window, div, prelude::FluentBuilder, px, rgb,
 };
 
-use crate::{
-    editor_input_display::PICTURE_BACKDROP, editor_window::EditorWindow, i18n::t, theme::Theme, ui,
-};
+use crate::{editor_input_display::PICTURE_BACKDROP, i18n::t, theme::Theme, ui};
 
 pub const MAKER_WINDOW_WIDTH: f32 = 624.;
 pub const MAKER_WINDOW_HEIGHT: f32 = 460.;
@@ -46,12 +44,14 @@ struct KeyDrag {
     y: f64,
 }
 
+pub type PresetSaved = std::rc::Rc<dyn Fn(String, &mut gpui::App)>;
+
 pub struct InputPresetMaker {
     theme: Theme,
     focus: FocusHandle,
     model: PresetMaker,
     editing: Option<String>,
-    editor: WindowHandle<EditorWindow>,
+    on_saved: PresetSaved,
     name: Entity<ui::TextInputState>,
     label: Entity<ui::TextInputState>,
     drag: Option<KeyDrag>,
@@ -63,7 +63,7 @@ pub struct InputPresetMaker {
 impl InputPresetMaker {
     pub fn new(
         seed: MakerSeed,
-        editor: WindowHandle<EditorWindow>,
+        on_saved: PresetSaved,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -108,7 +108,7 @@ impl InputPresetMaker {
             focus: cx.focus_handle(),
             model,
             editing: seed.editing,
-            editor,
+            on_saved,
             name,
             label,
             drag: None,
@@ -247,14 +247,8 @@ impl InputPresetMaker {
             &self.model.layout(),
         ) {
             Ok(id) => {
-                let editor = self.editor;
-                cx.defer(move |cx| {
-                    editor
-                        .update(cx, |editor, window, cx| {
-                            editor.input_preset_saved(id, window, cx)
-                        })
-                        .ok();
-                });
+                let on_saved = self.on_saved.clone();
+                cx.defer(move |cx| on_saved(id, cx));
                 window.remove_window();
             }
             Err(error) => {

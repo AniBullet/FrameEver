@@ -30,6 +30,7 @@ use crate::{
 };
 
 pub mod catalog;
+mod input_presets;
 mod record_input;
 
 pub use catalog::{Page, Row};
@@ -233,6 +234,7 @@ fn is_stacked(row: Row) -> bool {
             | Row::ExcludedWindows
             | Row::Licences
             | Row::RememberedTerms
+            | Row::InputPresets
             | Row::Cli
             | Row::Diagnostic
     )
@@ -265,6 +267,9 @@ pub struct SettingsWindow {
     studio_quality_save_failed: bool,
     pub(crate) pages: crate::settings_pages::PagesState,
     input_presets: Vec<crate::editor_input_display::ListedPreset>,
+    own_input_presets: Vec<frameever_rendering::input_presets::UserPreset>,
+    input_maker: Option<gpui::WindowHandle<crate::input_preset_maker::InputPresetMaker>>,
+    input_preset_note: Option<SharedString>,
     project_name: String,
     project_name_input: Entity<ui::TextInputState>,
     search_input: Entity<ui::TextInputState>,
@@ -323,6 +328,9 @@ impl SettingsWindow {
             page,
             pages,
             input_presets: crate::editor_input_display::listed_input_presets(),
+            own_input_presets: input_presets::own_presets(),
+            input_maker: None,
+            input_preset_note: None,
             project_name: stored_template,
             settings,
             menu: None,
@@ -553,7 +561,7 @@ impl SettingsWindow {
             return;
         }
         if kind == MenuKind::InputPreset {
-            self.input_presets = crate::editor_input_display::listed_input_presets();
+            self.reload_input_presets(cx);
         }
         let focus = self.focus.clone();
         window.focus(&focus, cx);
@@ -621,11 +629,15 @@ impl SettingsWindow {
                     )
                 })
                 .collect(),
-            MenuKind::InputPreset => self
-                .input_presets
-                .iter()
-                .map(|(id, name)| {
-                    ui::MenuItem::new(name.clone(), *id == self.settings.instant_input_preset)
+            MenuKind::InputPreset => input_presets::preset_menu_labels(&self.input_presets)
+                .into_iter()
+                .enumerate()
+                .map(|(index, label)| {
+                    let chosen = self
+                        .input_presets
+                        .get(index)
+                        .is_some_and(|(id, _)| *id == self.settings.instant_input_preset);
+                    ui::MenuItem::new(label, chosen)
                 })
                 .collect(),
             MenuKind::InputPosition => enum_items(self.settings.instant_input_corner),
@@ -711,6 +723,8 @@ impl SettingsWindow {
                 if let Some((id, _)) = self.input_presets.get(index).cloned() {
                     self.settings.instant_input_preset = id.clone();
                     self.write("instantInputPreset", Value::from(id), cx);
+                } else {
+                    self.show_row(Row::InputPresets, window, cx);
                 }
             }
             MenuKind::InputPosition => {
@@ -1720,6 +1734,7 @@ impl SettingsWindow {
                     .into_any_element()
             }
             Row::RememberedTerms => self.render_remembered_terms(cx),
+            Row::InputPresets => self.render_input_presets(cx),
             Row::StorageFolder => self.render_storage_folder(cx),
             Row::NameTemplate => self.render_name_template(window, cx),
             Row::CompressInstant => self
