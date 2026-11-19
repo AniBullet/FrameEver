@@ -77,4 +77,4 @@ Environment variables the app reads: `FRAMEEVER_GPUI_APP_DATA_DIR` (also moves t
 
 1. `pnpm fe fmt` ran and the filtered tests for what you touched pass. `pnpm fe lint` and `pnpm fe test --all` pass once before the change lands on `main` (for a parallel batch, on the integration branch).
 2. For anything visible, the owner has looked at it in the running app.
-3. Update `docs/upstream-sync/HANDOFF.md` if the state of the work changed.
+3. The ticket's closing comment says what was done, measured and not checked. `docs/upstream-sync/HANDOFF.md` changes only when the state or the order of the work changed.

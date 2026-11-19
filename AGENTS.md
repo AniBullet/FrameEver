@@ -2,7 +2,7 @@
 
 FrameEver · 帧刻 is a local-only screen recorder and editor by aniBullet (`GLOSSARY.md`). Everything it captures, edits and exports stays on the user's machine. It ships on Windows first; macOS is built, tested and packaged in CI but has not run on a real Mac, and Linux is not supported (ADR-0008).
 
-Read `docs/upstream-sync/HANDOFF.md` first when resuming work: it holds the current state and what is next. The open issues on `AniBullet/FrameEver` are the one list of remaining work (`docs/agents/issue-tracker.md`).
+Read `docs/upstream-sync/HANDOFF.md` first when resuming work: one page with the current state, the order of what is next and what cost time before. What each ticket did is in its closing comment, not there. The open issues on `AniBullet/FrameEver` are the one list of remaining work (`docs/agents/issue-tracker.md`).
 
 ## What ships
 
@@ -80,7 +80,7 @@ These are denied in the workspace `Cargo.toml` and fail CI:
 
 ## Testing
 
-- For ticket work, inspect relevant upstream source/history and authoritative primary references before choosing an implementation. Upstream is always the original `CapSoftware/Cap` (`git fetch upstream`, then `upstream/main`), never the old Cap-aniBullet fork or its backup folders. Upstream is a read-only reference (ADR-0007), not a constraint: prefer a better solution when the ticket, design and measured results support it. Record the sources and reasoning in the handoff.
+- For ticket work, inspect relevant upstream source/history and authoritative primary references before choosing an implementation. Upstream is always the original `CapSoftware/Cap` (`git fetch upstream`, then `upstream/main`), never the old Cap-aniBullet fork or its backup folders. Upstream is a read-only reference (ADR-0007), not a constraint: prefer a better solution when the ticket, design and measured results support it. Record the sources and reasoning in the ticket's closing comment.
 - Agents choose routine test seams and implementation details within the ticket's scope; ask the owner when a product decision or missing requirement changes that scope.
 - Work test-first. Rust tests sit beside the code (`#[cfg(test)]`) or in a crate's `tests/`; script tests are `scripts/*.test.mjs` (`node --test`).
 - Checks come in two layers. After each edit: `pnpm fe fmt` and `pnpm fe test <filter>` for the code you touched (`--crate <package>` for a root-workspace crate); nothing wider. Once per change that lands on `main`, after code review and its fixes: `pnpm fe test --all` and `pnpm fe lint`. When several tickets are built in parallel, that pass runs once on the integration branch, not per ticket. Don't edit source while it runs.
@@ -89,6 +89,6 @@ These are denied in the workspace `Cargo.toml` and fail CI:
 ## Commits and PRs
 
 - Conventional prefixes (`feat:`, `fix:`, `improve:`, `refactor:`, `chore:`, `docs:`); messages in Chinese, naming the issue (`（#12）`).
-- One ticket at a time, in the main checkout. Keep scope tight and update docs (and `HANDOFF.md`) when behaviour or the state of the work changes.
+- One ticket at a time, in the main checkout. Keep scope tight and update docs when behaviour changes. Close a ticket with a comment that names its commits and says what was ported or not, what was seen failing, what was measured and what was not checked. Edit `HANDOFF.md` only when the state or the order of the work changes, and keep it to one page.
 - `git push` runs `pnpm fe privacy` through the `.githooks` pre-push hook; never bypass it.
 - `gh` targets `AniBullet/FrameEver`. Never push, open PRs, comment or file issues on `CapSoftware/Cap`.
