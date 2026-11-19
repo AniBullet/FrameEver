@@ -5623,11 +5623,15 @@ pub(crate) fn request_editor_deletion(
         let task = cx.update(|cx| gpui_tokio::Tokio::spawn(cx, async move {
             delete_after_editor_cleanup(
                 async move {
+                    let held = instance.as_ref().map(Arc::downgrade);
                     release_editor_media(instance).await;
+                    if let Some(held) = held {
+                        until_let_go(held).await;
+                    }
                     drop(ownership);
                     Ok(())
                 },
-                crate::library::delete_recording(deleting),
+                delete_with_retries(move || crate::library::delete_recording(deleting.clone())),
             ).await
         }));
         let notice = cx.background_executor().timer(std::time::Duration::from_secs(10));
@@ -5827,6 +5831,38 @@ pub(crate) fn finish_library_delete(key: &Path, outcome: Result<(), String>, cx:
     cx.global_mut::<AppWindows>()
         .deleting_editors
         .finish(key, outcome);
+}
+
+const MEDIA_RELEASE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+const MEDIA_RELEASE_POLL: std::time::Duration = std::time::Duration::from_millis(25);
+const DELETE_RETRIES: u32 = 3;
+const DELETE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+
+async fn until_let_go<T>(held: std::sync::Weak<T>) {
+    let deadline = std::time::Instant::now() + MEDIA_RELEASE_WAIT;
+    while held.strong_count() > 0 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(MEDIA_RELEASE_POLL).await;
+    }
+    if held.strong_count() > 0 {
+        tracing::warn!("the editor media is still held; deleting anyway");
+    }
+}
+
+async fn delete_with_retries<F>(mut delete: impl FnMut() -> F) -> Result<(), String>
+where
+    F: Future<Output = Result<(), String>>,
+{
+    let mut attempt = 0;
+    loop {
+        match delete().await {
+            Err(error) if attempt < DELETE_RETRIES => {
+                attempt += 1;
+                tracing::info!(%error, attempt, "recording deletion refused; trying again");
+                tokio::time::sleep(DELETE_RETRY_DELAY).await;
+            }
+            result => return result,
+        }
+    }
 }
 
 async fn delete_after_editor_cleanup(
@@ -7162,6 +7198,48 @@ mod tests {
         complete.send(()).unwrap();
         deletion.await.unwrap();
         assert!(!source.exists());
+    }
+
+    #[tokio::test]
+    async fn deletion_waits_until_nothing_holds_the_editor_media() {
+        let media = Arc::new(());
+        let held = Arc::downgrade(&media);
+        let holder = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            drop(media);
+        });
+        until_let_go(held.clone()).await;
+        assert_eq!(held.strong_count(), 0);
+        holder.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_delete_refused_while_files_close_is_tried_again() {
+        let calls = std::cell::Cell::new(0);
+        let result = delete_with_retries(|| {
+            calls.set(calls.get() + 1);
+            let refused = calls.get() < 3;
+            async move {
+                if refused {
+                    Err("access denied".to_string())
+                } else {
+                    Ok(())
+                }
+            }
+        })
+        .await;
+        assert_eq!((result, calls.get()), (Ok(()), 3));
+
+        let calls = std::cell::Cell::new(0);
+        let result = delete_with_retries(|| {
+            calls.set(calls.get() + 1);
+            async { Err("access denied".to_string()) }
+        })
+        .await;
+        assert_eq!(
+            (result, calls.get()),
+            (Err("access denied".to_string()), DELETE_RETRIES + 1)
+        );
     }
 
     #[tokio::test]
