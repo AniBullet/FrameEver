@@ -148,7 +148,11 @@
 
 .io .k text {
 	fill: var(--rest-ink);
-	font: 500 13px Inter, "HarmonyOS Sans SC", "Microsoft YaHei UI", sans-serif;
+	font:
+		500 13px Inter,
+		"HarmonyOS Sans SC",
+		"Microsoft YaHei UI",
+		sans-serif;
 	text-anchor: middle;
 	dominant-baseline: central;
 }
@@ -469,4 +473,66 @@
 
 .maker-bar .input.name {
 	width: 200px;
+}
+
+.maker-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 260px;
+	gap: 12px;
+	align-items: start;
+}
+
+.maker-preview {
+	display: grid;
+	gap: 8px;
+}
+
+.stage.mini {
+	display: grid;
+	place-items: center;
+	aspect-ratio: 16 / 9;
+	min-height: 0;
+	padding: 12px;
+}
+
+.stage.mini .io {
+	position: relative;
+	width: 80%;
+	max-height: 100%;
+}
+
+.board .io.pad {
+	display: block;
+	width: min(420px, 100%);
+	margin: 0 auto;
+}
+
+.board .block {
+	cursor: grab;
+}
+
+.board .block .hit {
+	fill: transparent;
+	stroke: transparent;
+}
+
+.board .block[data-sel] .hit {
+	stroke: var(--primary);
+	stroke-width: 2;
+}
+
+.maker-bar .chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.maker-bar .chip {
+	cursor: pointer;
+}
+
+@media (max-width: 760px) {
+	.maker-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
 }

@@ -31,7 +31,7 @@ const s = {
 	info: false,
 	record: true,
 	instant: false,
-	instantCorner: "bl",
+	instantDevice: "auto",
 };
 
 const live = new Set();
@@ -62,15 +62,37 @@ const rowWidth = (layout) =>
 	Math.max(...layout.map((row) => row.reduce((n, [, , w = 1]) => n + w, 0))) *
 	U;
 
-const mouse = (x, y) => `
+const MOUSE_PARTS = [
+	["left", "Left button", "左键"],
+	["right", "Right button", "右键"],
+	["wheel", "Wheel", "滚轮"],
+	["side", "Side buttons", "侧键"],
+];
+const PAD_PARTS = [
+	["sticks", "Sticks", "摇杆"],
+	["dpad", "D-pad", "方向键"],
+	["face", "Face buttons", "功能键"],
+	["shoulders", "Shoulders", "肩键"],
+	["triggers", "Triggers", "扳机"],
+	["menu", "Menu buttons", "菜单键"],
+];
+const every = (parts) => Object.fromEntries(parts.map(([id]) => [id, true]));
+const mouse = (x, y, parts = every(MOUSE_PARTS)) => `
 	<rect class="body" x="${x}" y="${y}" width="96" height="150" rx="44"/>
-	<g class="k" data-code="M0"><path d="M${x + 4} ${y + 66} V${y + 46} A42 42 0 0 1 ${x + 45} ${y + 4} V${y + 66} Z"/></g>
-	<g class="k" data-code="M2"><path d="M${x + 92} ${y + 66} V${y + 46} A42 42 0 0 0 ${x + 51} ${y + 4} V${y + 66} Z"/></g>
-	<g class="k" data-code="WheelUp M1"><path d="M${x + 41} ${y + 33} V${y + 25} a7 7 0 0 1 14 0 V${y + 33} Z"/></g>
-	<g class="k" data-code="WheelDown M1"><path d="M${x + 41} ${y + 35} V${y + 43} a7 7 0 0 0 14 0 V${y + 35} Z"/></g>
-	<g class="k" data-code="M3"><rect x="${x - 4}" y="${y + 74}" width="7" height="18" rx="3"/></g>
-	<g class="k" data-code="M4"><rect x="${x - 4}" y="${y + 96}" width="7" height="18" rx="3"/></g>`;
-
+	${parts.left ? `<g class="k" data-code="M0"><path d="M${x + 4} ${y + 66} V${y + 46} A42 42 0 0 1 ${x + 45} ${y + 4} V${y + 66} Z"/></g>` : ""}
+	${parts.right ? `<g class="k" data-code="M2"><path d="M${x + 92} ${y + 66} V${y + 46} A42 42 0 0 0 ${x + 51} ${y + 4} V${y + 66} Z"/></g>` : ""}
+	${
+		parts.wheel
+			? `<g class="k" data-code="WheelUp M1"><path d="M${x + 41} ${y + 33} V${y + 25} a7 7 0 0 1 14 0 V${y + 33} Z"/></g>
+	<g class="k" data-code="WheelDown M1"><path d="M${x + 41} ${y + 35} V${y + 43} a7 7 0 0 0 14 0 V${y + 35} Z"/></g>`
+			: ""
+	}
+	${
+		parts.side
+			? `<g class="k" data-code="M3"><rect x="${x - 4}" y="${y + 74}" width="7" height="18" rx="3"/></g>
+	<g class="k" data-code="M4"><rect x="${x - 4}" y="${y + 96}" width="7" height="18" rx="3"/></g>`
+			: ""
+	}`;
 const WASD = [
 	[
 		["Tab", "Tab", 1.5],
@@ -169,7 +191,7 @@ const dpad = (cx, cy) =>
 const trigger = (x, axis, label) =>
 	`<g class="k small"><rect x="${x}" y="4" width="46" height="20" rx="6"/><text x="${x + 23}" y="14">${label}</text></g><clipPath id="clip-${axis}-${++clipCount}"><rect x="${x}" y="4" width="46" height="20" rx="6"/></clipPath><rect class="trig-fill" data-axis="${axis}" clip-path="url(#clip-${axis}-${clipCount})" x="${x}" y="4" width="0" height="20"/>`;
 let clipCount = 0;
-const pad = (kind) => {
+const pad = (kind, parts = every(PAD_PARTS)) => {
 	const [bottom, right, left, top] = FACE[kind];
 	const symmetric = kind === "ps";
 	const leftStick = symmetric ? [165, 152] : [120, 108];
@@ -183,19 +205,23 @@ const pad = (kind) => {
 	return {
 		view: [420, 262],
 		body: `
-			${trigger(90, "lt", shoulders[2])}${trigger(284, "rt", shoulders[3])}
-			<g class="k small" data-code="GpLB"><rect x="76" y="30" width="74" height="18" rx="9"/><text x="113" y="39">${shoulders[0]}</text></g>
-			<g class="k small" data-code="GpRB"><rect x="270" y="30" width="74" height="18" rx="9"/><text x="307" y="39">${shoulders[1]}</text></g>
+			${parts.triggers ? `${trigger(90, "lt", shoulders[2])}${trigger(284, "rt", shoulders[3])}` : ""}
+			${
+				parts.shoulders
+					? `<g class="k small" data-code="GpLB"><rect x="76" y="30" width="74" height="18" rx="9"/><text x="113" y="39">${shoulders[0]}</text></g>
+			<g class="k small" data-code="GpRB"><rect x="270" y="30" width="74" height="18" rx="9"/><text x="307" y="39">${shoulders[1]}</text></g>`
+					: ""
+			}
 			<path class="body" d="M90 62 Q210 44 330 62 Q372 70 388 152 Q400 217 372 238 Q345 252 318 207 Q300 180 270 180 L150 180 Q120 180 102 207 Q75 252 48 238 Q20 217 32 152 Q48 70 90 62 Z"/>
-			${stick(leftStick[0], leftStick[1], "l", "GpL3")}
-			${dpad(cross[0], cross[1])}
-			${stick(255, 152, "r", "GpR3")}
-			${round(300, 130, 11, bottom, "GpA")}${round(322, 108, 11, right, "GpB")}${round(278, 108, 11, left, "GpX")}${round(300, 86, 11, top, "GpY")}
-			${round(185, 108, 7, "", "GpView")}${round(235, 108, 7, "", "GpMenu")}${round(210, 84, 9, "", "GpGuide")}`,
+			${parts.sticks ? stick(leftStick[0], leftStick[1], "l", "GpL3") : ""}
+			${parts.dpad ? dpad(cross[0], cross[1]) : ""}
+			${parts.sticks ? stick(255, 152, "r", "GpR3") : ""}
+			${parts.face ? `${round(300, 130, 11, bottom, "GpA")}${round(322, 108, 11, right, "GpB")}${round(278, 108, 11, left, "GpX")}${round(300, 86, 11, top, "GpY")}` : ""}
+			${parts.menu ? `${round(185, 108, 7, "", "GpView")}${round(235, 108, 7, "", "GpMenu")}${round(210, 84, 9, "", "GpGuide")}` : ""}`,
 	};
 };
 
-const COLS = 14;
+const COLS = 18;
 const ROWS = 5;
 const WIDTHS = [1, 1.5, 2, 4];
 const NAMES = {
@@ -223,8 +249,16 @@ const labelFor = (code) =>
 		: code.startsWith("Digit")
 			? code.slice(5)
 			: code);
-const seed = () =>
-	WASD.flatMap((row, y) => {
+const MOUSE_W = 2.5;
+const MOUSE_H = 3.75;
+const STARTS = [
+	["wasd", "WASD + mouse", "WASD + 鼠标"],
+	["full", "Full keyboard", "全键盘"],
+	["pad", "Gamepad", "手柄"],
+	["empty", "Empty", "空白"],
+];
+const seed = (layout) =>
+	layout.flatMap((row, y) => {
 		let x = 0;
 		return row.map(([label, code, w = 1]) => {
 			const placed = { label, code, x, y, w };
@@ -232,24 +266,42 @@ const seed = () =>
 			return placed;
 		});
 	});
-const m = { keys: seed(), sel: -1, capture: false, mouse: true };
-const mine = () => {
-	if (m.keys.length === 0 && !m.mouse) return { view: [U, U], body: "" };
-	const left = Math.min(...m.keys.map((k) => k.x), COLS);
-	const top = Math.min(...m.keys.map((k) => k.y), ROWS);
-	const width = Math.max(0, ...m.keys.map((k) => k.x + k.w - left)) * U;
-	const height = Math.max(0, ...m.keys.map((k) => k.y + 1 - top)) * U;
-	const total = m.mouse ? Math.max(height, 150) : height;
-	const drop = (total - height) / 2;
-	const keys = m.keys
-		.map((k) =>
-			key((k.x - left) * U, (k.y - top) * U + drop, k.w, k.label, k.code),
-		)
-		.join("");
-	const gap = width > 0 ? 24 : 0;
+const startFrom = (from) => {
+	const layout = from === "full" ? FULL : from === "wasd" ? WASD : [];
+	const keys = seed(layout);
+	const right = Math.max(0, ...keys.map((k) => k.x + k.w));
 	return {
-		view: [width + (m.mouse ? gap + 100 : 0), total],
-		body: `${keys}${m.mouse ? mouse(width + gap, (total - 150) / 2) : ""}`,
+		from,
+		kind: from === "pad" ? "pad" : "keys",
+		keys,
+		sel: -1,
+		capture: from === "empty",
+		mouse: {
+			on: from !== "empty",
+			x: Math.min(COLS - MOUSE_W, right + 0.5),
+			y: 0.5,
+			parts: every(MOUSE_PARTS),
+		},
+		pad: every(PAD_PARTS),
+	};
+};
+let m = startFrom("wasd");
+const mine = () => {
+	if (m.kind === "pad") return pad(s.pad, m.pad);
+	const blocks = m.keys.map((k) => [k.x, k.y, k.w, 1]);
+	if (m.mouse.on) blocks.push([m.mouse.x, m.mouse.y, MOUSE_W, MOUSE_H]);
+	if (blocks.length === 0) return { view: [U, U], body: "" };
+	const left = Math.min(...blocks.map(([x]) => x));
+	const top = Math.min(...blocks.map(([, y]) => y));
+	const keys = m.keys
+		.map((k) => key((k.x - left) * U, (k.y - top) * U, k.w, k.label, k.code))
+		.join("");
+	return {
+		view: [
+			Math.max(...blocks.map(([x, , w]) => x + w - left)) * U,
+			Math.max(...blocks.map(([, y, , h]) => y + h - top)) * U,
+		],
+		body: `${keys}${m.mouse.on ? mouse((m.mouse.x - left) * U + 2, (m.mouse.y - top) * U, m.mouse.parts) : ""}`,
 	};
 };
 const freeSlot = () => {
@@ -375,15 +427,19 @@ const paint = (now) => {
 		for (const el of root.querySelectorAll("[data-axis]"))
 			el.setAttribute("width", 46 * state[el.dataset.axis]);
 	}
-	for (const el of document.querySelectorAll("#board [data-code]"))
-		el.classList.toggle("on", live.has(el.dataset.code));
+	for (const el of document.querySelectorAll(
+		"#board [data-code], #maker-preview [data-code]",
+	))
+		el.classList.toggle(
+			"on",
+			el.dataset.code.split(" ").some((code) => live.has(code)),
+		);
 	requestAnimationFrame(paint);
 };
 
 const seg = (key, options) =>
 	`<div class="seg">${options.map(([value, en, zh]) => `<button data-p="${key}:${value}" class="${String(s[key]) === value ? "on" : ""}">${L(en, zh)}</button>`).join("")}</div>`;
-const tool = (en, zh, body) =>
-	`<div class="tool">${L(en, zh)}${body}</div>`;
+const tool = (en, zh, body) => `<div class="tool">${L(en, zh)}${body}</div>`;
 const toggle = (key) =>
 	`<button class="switch ${s[key] ? "on" : ""}" data-t="${key}" aria-label="${key}"></button>`;
 const slider = (key, min, max) => {
@@ -485,7 +541,9 @@ const renderInspector = () => {
 	).join("");
 	const number = (key) =>
 		`<label class="num">${key.toUpperCase()}<input class="input" type="number" min="0" max="100" data-n="${key}" value="${Math.round(s[key] * 100)}"></label>`;
-	const exact = s.xy ? `<div class="exact">${number("x")}${number("y")}</div>` : "";
+	const exact = s.xy
+		? `<div class="exact">${number("x")}${number("y")}</div>`
+		: "";
 	document.getElementById("inspector").innerHTML = `
 		<div class="head"><b>${L("Input display", "操作显示")}</b><span class="grow"></span>${toggle("on")}</div>
 		${
@@ -505,21 +563,26 @@ const renderRows = () => {
 		: "";
 	const instant = s.instant
 		? `<div class="sub"><button class="select">${L("WASD + mouse", "WASD 加鼠标")} ${icon("chevron-down")}</button>${seg(
-				"instantCorner",
+				"instantDevice",
 				[
-					["tl", "Top left", "左上"],
-					["tr", "Top right", "右上"],
-					["bl", "Bottom left", "左下"],
-					["br", "Bottom right", "右下"],
+					["auto", "Automatic", "自动"],
+					["keys", "Keyboard and mouse", "键盘和鼠标"],
+					["pad", "Gamepad", "手柄"],
 				],
 			)}</div>`
 		: "";
 	document.getElementById("rows").innerHTML = `
 		<div><div class="rowcard"><div class="row"><b>${L("Record input", "记录操作输入")}</b><button class="ibtn ${s.info ? "on" : ""}" data-t="info" aria-label="info">${icon("info")}</button><span class="grow"></span>${toggle("record")}</div>${pop}</div><p class="caption">${L("Settings → Recording. The notice sits behind the info button; the row itself carries no sentence.", "设置 → 录制。声明收在信息按钮后面，这一行本身没有说明文字。")}</p></div>
-		<div><div class="rowcard"><div class="row"><b>${L("Show input", "显示操作")}</b><span class="grow"></span>${toggle("instant")}</div>${instant}</div><p class="caption">${L("Instant settings. Off by default; the two choices appear only once it is on.", "即时录制设置。默认关闭，打开后才出现两个选项。")}</p></div>`;
+		<div><div class="rowcard"><div class="row"><b>${L("Show input", "显示操作")}</b><span class="grow"></span>${toggle("instant")}</div>${instant}</div><p class="caption">${L("Instant settings. Off by default; device, preset, size, opacity and position appear only once it is on. The Settings page draws all five.", "即时录制设置。默认关闭，打开后才出现设备、预设、大小、不透明度和位置，五项都画在设置页里。")}</p></div>`;
 };
 
 const renderBoard = () => {
+	const board = document.getElementById("board");
+	if (m.kind === "pad") {
+		const { view, body } = pad(s.pad, m.pad);
+		board.innerHTML = `<svg class="io ${s.variant} pad" viewBox="-6 -2 ${view[0] + 12} ${view[1] + 4}">${body}</svg>`;
+		return;
+	}
 	const keys = m.keys
 		.map((k, i) =>
 			key(k.x * U, k.y * U, k.w, k.label, k.code).replace(
@@ -528,19 +591,41 @@ const renderBoard = () => {
 			),
 		)
 		.join("");
-	document.getElementById("board").innerHTML =
-		`<svg class="io ${s.variant}" viewBox="0 0 ${COLS * U} ${ROWS * U}"><defs><pattern id="dots" width="${U / 2}" height="${U / 2}" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="rgba(255,255,255,0.16)"/></pattern></defs><rect width="${COLS * U}" height="${ROWS * U}" fill="url(#dots)"/>${keys}</svg>`;
+	const block = m.mouse.on
+		? `<g class="block" data-i="mouse" ${m.sel === "mouse" ? 'data-sel="1"' : ""}><rect class="hit" x="${m.mouse.x * U}" y="${m.mouse.y * U}" width="${MOUSE_W * U}" height="${MOUSE_H * U}" rx="8"/>${mouse(m.mouse.x * U + 2, m.mouse.y * U, m.mouse.parts)}</g>`
+		: "";
+	board.innerHTML = `<svg class="io ${s.variant}" viewBox="0 0 ${COLS * U} ${ROWS * U}"><defs><pattern id="dots" width="${U / 2}" height="${U / 2}" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="rgba(255,255,255,0.16)"/></pattern></defs><rect width="${COLS * U}" height="${ROWS * U}" fill="url(#dots)"/>${keys}${block}</svg>`;
 };
 const renderMaker = () => {
-	const flag = (key, en, zh) =>
-		`<label class="flag">${L(en, zh)}<button class="switch ${m[key] ? "on" : ""}" data-mt="${key}" aria-label="${key}"></button></label>`;
+	const flag = (key, on, en, zh) =>
+		`<label class="flag">${L(en, zh)}<button class="switch ${on ? "on" : ""}" data-mt="${key}" aria-label="${pick(en, zh)}"></button></label>`;
+	const chips = (attribute, parts, state) =>
+		`<div class="chips">${parts.map(([id, en, zh]) => `<button class="tag chip ${state[id] ? "on" : ""}" ${attribute}="${id}" aria-pressed="${Boolean(state[id])}">${L(en, zh)}</button>`).join("")}</div>`;
 	document.getElementById("maker-bar").innerHTML =
-		`${flag("capture", "Press keys to add", "按键添加")}${flag("mouse", "Mouse", "鼠标")}<span class="grow"></span><button class="btn" data-md="all">${L("Clear", "清空")}</button>`;
+		`<span class="caption">${L("Start from", "起点")}</span><div class="seg">${STARTS.map(([id, en, zh]) => `<button data-mf="${id}" class="${m.from === id ? "on" : ""}">${L(en, zh)}</button>`).join("")}</div><span class="grow"></span>${
+			m.kind === "keys"
+				? `${flag("capture", m.capture, "Press keys to add", "按键添加")}${flag("mouse", m.mouse.on, "Mouse", "鼠标")}<button class="btn" data-md="all">${L("Clear", "清空")}</button>`
+				: ""
+		}`;
 	renderBoard();
 	const picked = m.keys[m.sel];
-	document.getElementById("maker-key").innerHTML = picked
-		? `<input class="input" data-ml value="${picked.label}" aria-label="label"><div class="seg">${WIDTHS.map((w) => `<button data-mw="${w}" class="${picked.w === w ? "on" : ""}">${w}×</button>`).join("")}</div><button class="btn" data-md="one">${L("Delete", "删除")}</button>`
-		: "";
+	document.getElementById("maker-key").innerHTML =
+		m.kind === "pad"
+			? `<span class="caption">${L("Shown", "显示")}</span>${chips("data-pp", PAD_PARTS, m.pad)}`
+			: m.sel === "mouse"
+				? `<span class="caption">${L("Mouse", "鼠标")}</span>${chips("data-mp", MOUSE_PARTS, m.mouse.parts)}<span class="grow"></span><button class="btn" data-md="mouse">${L("Remove", "移除")}</button>`
+				: picked
+					? `<input class="input" data-ml value="${picked.label}" aria-label="label"><div class="seg">${WIDTHS.map((w) => `<button data-mw="${w}" class="${picked.w === w ? "on" : ""}">${w}×</button>`).join("")}</div><button class="btn" data-md="one">${L("Delete", "删除")}</button>`
+					: "";
+	const { view, body } = mine();
+	document.getElementById("maker-preview").innerHTML =
+		`<div class="stage ${s.scene} mini"><div class="ground"></div><svg class="io ${s.variant}" style="opacity:${s.opacity / 100}" viewBox="-6 -2 ${view[0] + 12} ${view[1] + 4}" aria-hidden="true">${body}</svg></div>${seg("variant", VARIANTS).replace('class="seg"', 'class="seg block"')}${seg(
+			"scene",
+			[
+				["dark", "Dark footage", "暗画面"],
+				["bright", "Bright footage", "亮画面"],
+			],
+		).replace('class="seg"', 'class="seg block"')}`;
 	document.getElementById("maker-save").innerHTML =
 		`<input class="input name" value="${pick("My preset", "我的预设")}" aria-label="name"><span class="grow"></span><button class="btn">${L("Cancel", "取消")}</button><button class="btn primary">${L("Save", "保存")}</button>`;
 };
@@ -567,28 +652,38 @@ const renderAll = () => {
 	renderStage();
 	renderInspector();
 	renderRows();
-	document.getElementById("t-maker").innerHTML = L(
-		"Make a preset",
-		"制作预设",
-	);
+	document.getElementById("t-maker").innerHTML = L("Make a preset", "制作预设");
 	document.getElementById("l-maker").innerHTML = L(
-		"Opened from New… in the preset list, or from the pencil on a preset you made. Switch on Press keys to add and press the keys you want; drag them on the grid. The result is My preset above.",
-		"从预设列表的「新建…」打开，或者点自己做的预设上的铅笔。打开「按键添加」，按下想显示的键；在网格上拖动摆放。结果就是上面的「我的预设」。",
+		"Proposal for #186, not built yet. A preset starts from any built-in one. A keyboard preset holds keys and one mouse block that is dragged like a key and shows only the buttons chosen for it. A gamepad preset is the built-in pad with parts switched off; its parts are not moved one by one. The right side draws the result the way the video will, in the chosen style, and lights up as you press. Today's maker has only the key grid, a mouse switch and WASD as the start.",
+		"#186 的方案，还没实现。预设可以从任何内置预设开始。键盘预设里有按键和一个鼠标块，鼠标块像按键一样拖动，只画选中的那些按钮。手柄预设是内置手柄去掉不要的部分，不逐个移动零件。右边按视频里的样子画出结果，用选中的样式，按下时会亮。现在的制作窗口只有按键网格、一个鼠标开关，并且只能从 WASD 开始。",
 	);
 	renderMaker();
 };
 
 document.addEventListener("click", (event) => {
-	const made = event.target.closest("[data-mt],[data-mw],[data-md]");
+	const made = event.target.closest(
+		"[data-mt],[data-mw],[data-md],[data-mf],[data-mp],[data-pp]",
+	);
 	if (made) {
-		const { mt, mw, md } = made.dataset;
-		if (mt) m[mt] = !m[mt];
+		const { mt, mw, md, mf, mp, pp } = made.dataset;
+		if (mf) m = startFrom(mf);
+		if (mt === "capture") m.capture = !m.capture;
+		if (mt === "mouse") {
+			m.mouse.on = !m.mouse.on;
+			m.sel = m.mouse.on ? "mouse" : -1;
+		}
+		if (mp) m.mouse.parts[mp] = !m.mouse.parts[mp];
+		if (pp) m.pad[pp] = !m.pad[pp];
 		if (mw && m.keys[m.sel]) {
 			m.keys[m.sel].w = Number(mw);
 			m.keys[m.sel].x = Math.min(m.keys[m.sel].x, COLS - Number(mw));
 		}
-		if (md === "all") m.keys = [];
+		if (md === "all") {
+			m.keys = [];
+			m.mouse.on = false;
+		}
 		if (md === "one") m.keys.splice(m.sel, 1);
+		if (md === "mouse") m.mouse.on = false;
 		if (md) m.sel = -1;
 		renderAll();
 		return;
@@ -658,7 +753,10 @@ document.addEventListener("pointerdown", (event) => {
 		const dy = e.clientY - start.y;
 		if (resize) {
 			s.size = Math.round(
-				Math.min(120, Math.max(30, (startSize * (startWidth + dx)) / startWidth)),
+				Math.min(
+					120,
+					Math.max(30, (startSize * (startWidth + dx)) / startWidth),
+				),
 			);
 			wrap.style.width = place().split(";")[0].slice(6);
 		} else {
@@ -682,7 +780,7 @@ window.addEventListener("resize", layout);
 const HELD = ["Tab", "Space", "AltLeft", "AltRight", "ContextMenu"];
 window.addEventListener("keydown", (event) => {
 	if (event.target.tagName === "INPUT") return;
-	if (m.capture) {
+	if (m.capture && m.kind === "keys") {
 		event.preventDefault();
 		if (!m.keys.some((k) => k.code === event.code)) {
 			m.keys.push({
@@ -709,22 +807,28 @@ document.addEventListener("pointerdown", (event) => {
 	const hit = event.target.closest("#board [data-i]");
 	if (!hit) return;
 	event.preventDefault();
-	m.sel = Number(hit.dataset.i);
-	const moved = m.keys[m.sel];
+	const onMouse = hit.dataset.i === "mouse";
+	m.sel = onMouse ? "mouse" : Number(hit.dataset.i);
+	const moved = onMouse ? m.mouse : m.keys[m.sel];
+	const [wide, high] = onMouse ? [MOUSE_W, MOUSE_H] : [moved.w, 1];
 	const board = document.getElementById("board").getBoundingClientRect();
 	const unit = board.width / COLS;
-	const start = { x: event.clientX, y: event.clientY, kx: moved.x, ky: moved.y };
+	const start = {
+		x: event.clientX,
+		y: event.clientY,
+		kx: moved.x,
+		ky: moved.y,
+	};
+	const halves = (value) => Math.round(value * 2) / 2;
 	const move = (e) => {
 		moved.x = Math.min(
-			COLS - moved.w,
-			Math.max(
-				0,
-				Math.round((start.kx + (e.clientX - start.x) / unit) * 2) / 2,
-			),
+			COLS - wide,
+			Math.max(0, halves(start.kx + (e.clientX - start.x) / unit)),
 		);
+		const down = start.ky + (e.clientY - start.y) / unit;
 		moved.y = Math.min(
-			ROWS - 1,
-			Math.max(0, Math.round(start.ky + (e.clientY - start.y) / unit)),
+			ROWS - high,
+			Math.max(0, onMouse ? halves(down) : Math.round(down)),
 		);
 		renderBoard();
 	};
