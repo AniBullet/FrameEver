@@ -448,3 +448,6 @@ impl CompositeVideoFramePipeline {
         )
     }
 }
+
+#[cfg(test)]
+mod downscale_filter_tests;
