@@ -5,14 +5,14 @@ use frameever_project::{
     InputDisplayStyle,
     input_display::{
         DisplayRect, InputRecord, Sprite, display_rect, input_record_generation,
-        preset_for_controller, take_at,
+        take_at,
     },
 };
 use wgpu::util::DeviceExt;
 
 use crate::{
     DecodedSegmentFrames, ProjectUniforms, RenderVideoConstants,
-    input_display::{LoadedPreset, atlas_scale_for, resolve_preset},
+    input_display::{LoadedPreset, atlas_scale_for, preset_for_controller, resolve_preset},
 };
 
 #[repr(C)]

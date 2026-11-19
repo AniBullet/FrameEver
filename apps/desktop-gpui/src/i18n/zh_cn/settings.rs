@@ -537,6 +537,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Input display position", "操作显示位置"),
     ("Input device", "操作显示设备"),
+    ("Gamepad preset", "手柄预设"),
+    ("The pad drawn for a gamepad.", "用手柄时画出的手柄。"),
     ("Input display size", "操作显示大小"),
     ("Input display opacity", "操作显示不透明度"),
     (

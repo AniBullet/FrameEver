@@ -1,7 +1,7 @@
 use frameever_project::{
     InputDisplayStyle,
     input_display::{
-        BuiltinPresetId, DisplayState, INPUT_DISPLAY_IMPORTED_FRAME_SHARE, KeyLayout,
+        BuiltinPresetId, DisplayState, GamepadKind, INPUT_DISPLAY_IMPORTED_FRAME_SHARE, KeyLayout,
         MAX_PRESET_ATLAS_BYTES, MAX_PRESET_ATLAS_DIMENSION, MAX_PRESET_CANVAS_DIMENSION, Preset,
         PresetArt, PresetRefusal,
     },
@@ -60,6 +60,31 @@ pub fn layout_preset(
     scale: u32,
 ) -> Result<LoadedPreset, PresetRefusal> {
     drawn_preset(&layout.art(style), frame_share, scale)
+}
+
+pub fn layout_preset_for(
+    layout: &KeyLayout,
+    style: InputDisplayStyle,
+    controller: GamepadKind,
+    scale: u32,
+) -> Result<LoadedPreset, PresetRefusal> {
+    drawn_preset(
+        &layout.art_for(style, controller),
+        layout.frame_share(),
+        scale,
+    )
+}
+
+pub fn preset_for_controller(
+    id: &str,
+    controller: Option<GamepadKind>,
+) -> std::borrow::Cow<'_, str> {
+    match (BuiltinPresetId::from_id(id), controller) {
+        (None, Some(controller)) if id.starts_with(crate::input_presets::USER_PRESET_PREFIX) => {
+            crate::input_presets::for_controller(id, controller).into()
+        }
+        _ => frameever_project::input_display::preset_for_controller(id, controller).into(),
+    }
 }
 
 pub fn resolve_preset(id: &str, style: InputDisplayStyle, scale: u32) -> Option<LoadedPreset> {
@@ -192,7 +217,6 @@ pub fn straighten_alpha(image: &mut RgbaImage) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frameever_project::input_display::preset_for_controller;
     use frameever_project::input_display::{
         GamepadAxes, GamepadKind, GamepadSnapshot, Input, gamepad_buttons, key_code,
     };
@@ -435,12 +459,12 @@ mod tests {
                 &DisplayState::default(),
             )
         };
-        let xbox = picture(preset_for_controller("gamepad", Some(GamepadKind::Xbox)));
-        let playstation = picture(preset_for_controller(
+        let xbox = picture(&preset_for_controller("gamepad", Some(GamepadKind::Xbox)));
+        let playstation = picture(&preset_for_controller(
             "gamepad",
             Some(GamepadKind::PlayStation),
         ));
-        let switch = picture(preset_for_controller("gamepad", Some(GamepadKind::Switch)));
+        let switch = picture(&preset_for_controller("gamepad", Some(GamepadKind::Switch)));
 
         assert_eq!(xbox.dimensions(), playstation.dimensions());
         assert_ne!(xbox, playstation);

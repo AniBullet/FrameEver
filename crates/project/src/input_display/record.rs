@@ -147,7 +147,11 @@ pub fn take_at(project: &ProjectConfiguration, output_time: f64, source_time: f6
     source.segment.recording_clip as usize
 }
 
-pub fn preset_for_recording<'a>(meta: &RecordingMeta, preset: &'a str) -> &'a str {
+pub fn preset_for_recording<'a>(
+    meta: &RecordingMeta,
+    preset: &'a str,
+    made_for_a_gamepad: bool,
+) -> &'a str {
     let takes = match meta.studio_meta() {
         Some(StudioRecordingMeta::MultipleSegments { inner }) => inner.segments.len(),
         _ => 0,
@@ -155,8 +159,8 @@ pub fn preset_for_recording<'a>(meta: &RecordingMeta, preset: &'a str) -> &'a st
     let records: Vec<InputRecord> = (0..takes)
         .map(|take| InputRecord::for_take(meta, take))
         .collect();
-    let shows_gamepad =
-        BuiltinPresetId::from_id(preset).is_some_and(|preset| preset.controller().is_some());
+    let shows_gamepad = made_for_a_gamepad
+        || BuiltinPresetId::from_id(preset).is_some_and(|preset| preset.controller().is_some());
     if records.iter().any(InputRecord::used_gamepad) {
         if shows_gamepad {
             preset
@@ -857,17 +861,44 @@ mod tests {
         let (_typed, with_mouse) = recording(&[vec![click(1, 10.0, true), resting]]);
         let (_silent, without_input) = recording(&[Vec::new()]);
 
-        assert_eq!(preset_for_recording(&with_gamepad, "wasd-mouse"), "gamepad");
-        assert_eq!(preset_for_recording(&with_gamepad, "my-preset"), "gamepad");
-        assert_eq!(preset_for_recording(&with_gamepad, "gamepad"), "gamepad");
-        assert_eq!(preset_for_recording(&with_mouse, "gamepad"), "wasd-mouse");
         assert_eq!(
-            preset_for_recording(&with_mouse, "full-keyboard"),
+            preset_for_recording(&with_gamepad, "wasd-mouse", false),
+            "gamepad"
+        );
+        assert_eq!(
+            preset_for_recording(&with_gamepad, "my-preset", false),
+            "gamepad"
+        );
+        assert_eq!(
+            preset_for_recording(&with_gamepad, "gamepad", false),
+            "gamepad"
+        );
+        assert_eq!(
+            preset_for_recording(&with_mouse, "gamepad", false),
+            "wasd-mouse"
+        );
+        assert_eq!(
+            preset_for_recording(&with_mouse, "full-keyboard", false),
             "full-keyboard"
         );
-        assert_eq!(preset_for_recording(&without_input, "gamepad"), "gamepad");
         assert_eq!(
-            preset_for_recording(&without_input, "my-preset"),
+            preset_for_recording(&without_input, "gamepad", false),
+            "gamepad"
+        );
+        assert_eq!(
+            preset_for_recording(&with_gamepad, "user:p-pad", true),
+            "user:p-pad"
+        );
+        assert_eq!(
+            preset_for_recording(&with_mouse, "user:p-pad", true),
+            "wasd-mouse"
+        );
+        assert_eq!(
+            preset_for_recording(&without_input, "user:p-pad", true),
+            "user:p-pad"
+        );
+        assert_eq!(
+            preset_for_recording(&without_input, "my-preset", false),
             "my-preset"
         );
     }

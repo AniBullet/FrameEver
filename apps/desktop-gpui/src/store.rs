@@ -1016,6 +1016,7 @@ pub struct GeneralSettings {
     pub instant_click_highlight: bool,
     pub instant_show_input: bool,
     pub instant_input_preset: String,
+    pub instant_input_gamepad_preset: String,
     pub instant_input_device: InstantInputDevice,
     pub instant_input_size: f64,
     pub instant_input_opacity: f64,
@@ -1409,6 +1410,7 @@ impl GeneralSettings {
         self.instant_show_input.then(|| {
             frameever_recording::live_input_display::InstantInputDisplay {
                 preset: self.instant_input_preset.clone(),
+                gamepad_preset: self.instant_input_gamepad_preset.clone(),
                 style: Default::default(),
                 device: self.instant_input_device.into(),
                 position: frameever_project::XY::new(
@@ -1461,6 +1463,8 @@ impl GeneralSettings {
                 &instant_input_preset,
             ),
             instant_input_preset,
+            instant_input_gamepad_preset: opt_string_at(general, "instantInputGamepadPreset")
+                .unwrap_or_else(|| BuiltinPresetId::Gamepad.id().to_string()),
             instant_input_size: within(
                 INPUT_DISPLAY_SIZE_RANGE,
                 f32_at(
@@ -3144,6 +3148,7 @@ mod tests {
             shown(r#"{ "instantShowInput": true }"#),
             Some(InstantInputDisplay {
                 preset: "wasd-mouse".into(),
+                gamepad_preset: "gamepad".into(),
                 style: Default::default(),
                 device: InputDevice::Auto,
                 position: XY::new(0.0, 1.0),
@@ -3153,10 +3158,11 @@ mod tests {
         );
         assert_eq!(
             shown(
-                r#"{ "instantShowInput": true, "instantInputPreset": "full-keyboard", "instantInputDevice": "keyboardAndMouse", "instantInputSize": 90, "instantInputOpacity": 45, "instantInputPosition": { "x": 0.5, "y": 0.25 } }"#
+                r#"{ "instantShowInput": true, "instantInputPreset": "full-keyboard", "instantInputGamepadPreset": "user:p-pad", "instantInputDevice": "keyboardAndMouse", "instantInputSize": 90, "instantInputOpacity": 45, "instantInputPosition": { "x": 0.5, "y": 0.25 } }"#
             ),
             Some(InstantInputDisplay {
                 preset: "full-keyboard".into(),
+                gamepad_preset: "user:p-pad".into(),
                 style: Default::default(),
                 device: InputDevice::KeyboardAndMouse,
                 position: XY::new(0.5, 0.25),

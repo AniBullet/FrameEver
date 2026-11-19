@@ -21,9 +21,13 @@ pub(super) fn own_presets() -> Vec<UserPreset> {
         .unwrap_or_default()
 }
 
-pub(super) fn preset_after_removal<'a>(chosen: &'a str, removed: &str) -> &'a str {
+pub(super) fn preset_after_removal<'a>(
+    chosen: &'a str,
+    removed: &str,
+    built_in: BuiltinPresetId,
+) -> &'a str {
     if chosen == removed {
-        BuiltinPresetId::WasdMouse.id()
+        built_in.id()
     } else {
         chosen
     }
@@ -40,6 +44,7 @@ pub(super) fn preset_menu_labels(presets: &[ListedPreset]) -> Vec<SharedString> 
 impl SettingsWindow {
     pub(super) fn reload_input_presets(&mut self, cx: &mut Context<Self>) {
         self.input_presets = editor_input_display::listed_keyboard_presets();
+        self.gamepad_presets = editor_input_display::listed_gamepad_presets();
         self.own_input_presets = own_presets();
         cx.notify();
     }
@@ -122,11 +127,25 @@ impl SettingsWindow {
                 .await;
             this.update(cx, |this, cx| {
                 if removed {
-                    let next = preset_after_removal(&this.settings.instant_input_preset, &preset)
-                        .to_string();
+                    let next = preset_after_removal(
+                        &this.settings.instant_input_preset,
+                        &preset,
+                        BuiltinPresetId::WasdMouse,
+                    )
+                    .to_string();
                     if next != this.settings.instant_input_preset {
                         this.settings.instant_input_preset = next.clone();
                         this.write("instantInputPreset", Value::from(next), cx);
+                    }
+                    let next = preset_after_removal(
+                        &this.settings.instant_input_gamepad_preset,
+                        &preset,
+                        BuiltinPresetId::Gamepad,
+                    )
+                    .to_string();
+                    if next != this.settings.instant_input_gamepad_preset {
+                        this.settings.instant_input_gamepad_preset = next.clone();
+                        this.write("instantInputGamepadPreset", Value::from(next), cx);
                     }
                     this.input_preset_note = None;
                 } else {
@@ -248,12 +267,15 @@ mod tests {
 
     #[test]
     fn removing_the_preset_instant_recordings_use_falls_back_to_wasd_and_mouse() {
+        let after =
+            |chosen, removed| preset_after_removal(chosen, removed, BuiltinPresetId::WasdMouse);
+        assert_eq!(after("user:stick", "user:stick"), "wasd-mouse");
+        assert_eq!(after("user:stick", "user:pad"), "user:stick");
+        assert_eq!(after("gamepad", "user:pad"), "gamepad");
         assert_eq!(
-            preset_after_removal("user:stick", "user:stick"),
-            "wasd-mouse"
+            preset_after_removal("user:pad", "user:pad", BuiltinPresetId::Gamepad),
+            "gamepad"
         );
-        assert_eq!(preset_after_removal("user:stick", "user:pad"), "user:stick");
-        assert_eq!(preset_after_removal("gamepad", "user:pad"), "gamepad");
     }
 
     #[test]

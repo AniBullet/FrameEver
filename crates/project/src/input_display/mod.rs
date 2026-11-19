@@ -9,8 +9,8 @@ mod preset;
 mod record;
 
 pub use builtin::{
-    BuiltinPresetId, KeyLayout, LayoutKey, LayoutMouse, MOUSE_BLOCK, MousePart, MouseParts,
-    PresetArt, preset_for_controller,
+    BuiltinPresetId, GamepadPart, GamepadParts, KeyLayout, LayoutKey, LayoutMouse, MOUSE_BLOCK,
+    MousePart, MouseParts, PresetArt, preset_for_controller,
 };
 pub use clear::{clear_input_record, has_input_record, input_record_generation};
 pub use events::{INPUT_EVENTS_FILE_NAME, InputEvent, InputEventKind, InputEvents};

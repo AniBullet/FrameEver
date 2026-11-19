@@ -7,9 +7,12 @@ use frameever_project::{
         TRIGGER_FULL, WindowRule, display_rect, gamepad_buttons, key_code,
     },
 };
-use frameever_rendering::input_display::{LoadedPreset, atlas_scale_for, compose, resolve_preset};
+use frameever_rendering::input_display::{
+    LoadedPreset, atlas_scale_for, compose, preset_for_controller, resolve_preset,
+};
 use image::imageops;
 use parking_lot::Mutex;
+use std::borrow::Cow;
 use std::{
     sync::{
         Arc, Weak,
@@ -34,6 +37,7 @@ pub enum InputDevice {
 #[derive(Clone, Debug, PartialEq)]
 pub struct InstantInputDisplay {
     pub preset: String,
+    pub gamepad_preset: String,
     pub style: InputDisplayStyle,
     pub device: InputDevice,
     pub position: XY<f64>,
@@ -45,6 +49,7 @@ impl Default for InstantInputDisplay {
     fn default() -> Self {
         Self {
             preset: BuiltinPresetId::WasdMouse.id().to_string(),
+            gamepad_preset: BuiltinPresetId::Gamepad.id().to_string(),
             style: InputDisplayStyle::default(),
             device: InputDevice::default(),
             position: XY::new(0.0, 1.0),
@@ -79,14 +84,26 @@ impl InstantInputDisplay {
         }
     }
 
-    fn shown_preset(&self, gamepad_in_use: Option<GamepadKind>) -> &str {
+    fn draws_the_gamepad(&self, gamepad_in_use: Option<GamepadKind>) -> bool {
         match (self.device, gamepad_in_use) {
-            (InputDevice::Gamepad, _) | (InputDevice::Auto, Some(_)) => {
-                BuiltinPresetId::Gamepad.for_controller(gamepad_in_use).id()
-            }
-            (InputDevice::KeyboardAndMouse, _) | (InputDevice::Auto, None) => {
-                self.keyboard_preset()
-            }
+            (InputDevice::Gamepad, _) | (InputDevice::Auto, Some(_)) => true,
+            (InputDevice::KeyboardAndMouse, _) | (InputDevice::Auto, None) => false,
+        }
+    }
+
+    fn shown_preset(&self, gamepad_in_use: Option<GamepadKind>) -> Cow<'_, str> {
+        if self.draws_the_gamepad(gamepad_in_use) {
+            preset_for_controller(&self.gamepad_preset, gamepad_in_use)
+        } else {
+            self.keyboard_preset().into()
+        }
+    }
+
+    fn built_in_preset(&self, gamepad_in_use: Option<GamepadKind>) -> &'static str {
+        if self.draws_the_gamepad(gamepad_in_use) {
+            BuiltinPresetId::Gamepad.for_controller(gamepad_in_use).id()
+        } else {
+            BuiltinPresetId::WasdMouse.id()
         }
     }
 }
@@ -295,8 +312,8 @@ fn loaded_preset(
 ) -> Option<(LoadedPreset, Rect)> {
     let preset = settings.shown_preset(controller);
     let resolve = |scale| {
-        resolve_preset(preset, settings.style, scale)
-            .or_else(|| resolve_preset(BuiltinPresetId::WasdMouse.id(), settings.style, scale))
+        resolve_preset(&preset, settings.style, scale)
+            .or_else(|| resolve_preset(settings.built_in_preset(controller), settings.style, scale))
     };
     let loaded = resolve(1)?;
     let rect = Rect::in_frame(settings, &loaded, frame)?;
@@ -1121,6 +1138,66 @@ mod tests {
             &with_settings(stored_before_the_device_choice, DisplayState::default()),
             &wasd
         ));
+    }
+
+    #[test]
+    fn a_made_gamepad_preset_is_drawn_when_the_gamepad_is_and_the_built_in_pad_when_it_is_gone() {
+        use frameever_project::input_display::{GamepadParts, KeyLayout};
+        use frameever_rendering::input_presets::{remove, save_layout, use_presets_dir};
+        let dir = std::env::temp_dir().join(format!(
+            "frameever-instant-gamepad-preset-{}",
+            std::process::id()
+        ));
+        use_presets_dir(dir.clone());
+        let made = save_layout(
+            &dir,
+            None,
+            "No triggers",
+            &KeyLayout {
+                gamepad: Some(GamepadParts {
+                    triggers: false,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let chosen = |device| InstantInputDisplay {
+            device,
+            gamepad_preset: made.clone(),
+            ..Default::default()
+        };
+        let playstation = || gamepad(GamepadKind::PlayStation, GamepadAxes::default(), &[]);
+        let same = |a: &ffmpeg::frame::Video, b: &ffmpeg::frame::Video| differing(a, b).is_empty();
+        let built_in = with_settings(of_device(InputDevice::Gamepad), DisplayState::default());
+        let built_in_playstation = with_settings(of_device(InputDevice::Gamepad), playstation());
+        let without_triggers = with_settings(chosen(InputDevice::Gamepad), DisplayState::default());
+
+        assert!(!same(&without_triggers, &built_in));
+        assert_eq!(painted(&without_triggers).2, painted(&built_in).2);
+        assert!(
+            differing(&without_triggers, &built_in)
+                .iter()
+                .all(|(_, y)| *y < painted(&built_in).1 + 14)
+        );
+        let on_a_playstation_pad = with_settings(chosen(InputDevice::Auto), playstation());
+        assert!(!same(&on_a_playstation_pad, &without_triggers));
+        assert!(!same(&on_a_playstation_pad, &built_in_playstation));
+        assert!(same(
+            &with_settings(chosen(InputDevice::Auto), held(&[KEY_W])),
+            &with_settings(of_device(InputDevice::KeyboardAndMouse), held(&[KEY_W]))
+        ));
+        assert!(same(
+            &with_settings(chosen(InputDevice::KeyboardAndMouse), playstation()),
+            &captured(&display(BOTTOM_LEFT))
+        ));
+
+        remove(&dir, &made).unwrap();
+        assert!(same(
+            &with_settings(chosen(InputDevice::Gamepad), playstation()),
+            &built_in_playstation
+        ));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

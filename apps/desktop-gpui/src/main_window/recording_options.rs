@@ -56,13 +56,28 @@ struct OptionRow {
 
 pub(super) type ListedPreset = (String, SharedString);
 
-pub(super) fn listed_user_presets() -> Vec<ListedPreset> {
-    frameever_rendering::input_presets::presets_dir()
+#[derive(Default)]
+pub(super) struct OwnPresets {
+    keyboard: Vec<ListedPreset>,
+    gamepad: Vec<ListedPreset>,
+}
+
+pub(super) fn listed_user_presets() -> OwnPresets {
+    let (gamepad, keyboard) = frameever_rendering::input_presets::presets_dir()
         .map(|dir| frameever_rendering::input_presets::list(&dir))
         .unwrap_or_default()
         .into_iter()
-        .map(|preset| (preset.id, preset.name.into()))
-        .collect()
+        .partition(crate::editor_input_display::draws_a_gamepad);
+    let listed = |presets: Vec<frameever_rendering::input_presets::UserPreset>| {
+        presets
+            .into_iter()
+            .map(|preset| (preset.id, preset.name.into()))
+            .collect()
+    };
+    OwnPresets {
+        keyboard: listed(keyboard),
+        gamepad: listed(gamepad),
+    }
 }
 
 impl OptionRow {
@@ -87,7 +102,7 @@ impl OptionRow {
     }
 }
 
-fn rows(mode: Mode, settings: &GeneralSettings, user_presets: &[ListedPreset]) -> Vec<OptionRow> {
+fn rows(mode: Mode, settings: &GeneralSettings, own_presets: &OwnPresets) -> Vec<OptionRow> {
     let numbers = |items: &[(u32, &'static str)]| {
         items
             .iter()
@@ -181,22 +196,35 @@ fn rows(mode: Mode, settings: &GeneralSettings, user_presets: &[ListedPreset]) -
                     .collect(),
                 listed_in_menu: false,
             });
-            if device != store::InstantInputDevice::Gamepad {
-                rows.push(OptionRow {
-                    label: t!("Preset"),
-                    key: "instantInputPreset",
-                    value: Value::from(settings.instant_input_preset.as_str()),
-                    choices: crate::editor_input_display::keyboard_presets()
-                        .map(|(preset, label)| (tr(label).into(), Value::from(preset.id())))
-                        .chain(
-                            user_presets
-                                .iter()
-                                .map(|(id, name)| (name.clone(), Value::from(id.as_str()))),
-                        )
-                        .collect(),
-                    listed_in_menu: true,
-                });
-            }
+            let (key, chosen, built_in, own): (_, _, Vec<ListedPreset>, _) =
+                if device == store::InstantInputDevice::Gamepad {
+                    (
+                        "instantInputGamepadPreset",
+                        &settings.instant_input_gamepad_preset,
+                        vec![crate::editor_input_display::built_in_gamepad_preset()],
+                        &own_presets.gamepad,
+                    )
+                } else {
+                    (
+                        "instantInputPreset",
+                        &settings.instant_input_preset,
+                        crate::editor_input_display::keyboard_presets()
+                            .map(|(preset, label)| (preset.id().to_string(), tr(label).into()))
+                            .collect(),
+                        &own_presets.keyboard,
+                    )
+                };
+            rows.push(OptionRow {
+                label: t!("Preset"),
+                key,
+                value: Value::from(chosen.as_str()),
+                choices: built_in
+                    .iter()
+                    .chain(own)
+                    .map(|(id, name)| (name.clone(), Value::from(id.as_str())))
+                    .collect(),
+                listed_in_menu: true,
+            });
             let steps = |items: &[(f64, SharedString)]| {
                 items
                     .iter()
@@ -656,7 +684,7 @@ mod tests {
             Value::from("Keep {date}")
         ));
         let choose = |mode, key, value: Value| {
-            let row = rows(mode, &GeneralSettings::load(), &[])
+            let row = rows(mode, &GeneralSettings::load(), &OwnPresets::default())
                 .into_iter()
                 .find(|row| row.key == key)
                 .unwrap();
@@ -694,9 +722,13 @@ mod tests {
             "Keep {date}"
         );
         assert!(
-            !rows(Mode::Studio, &GeneralSettings::load(), &[])
-                .iter()
-                .any(|row| row.key == "instantClickHighlight")
+            !rows(
+                Mode::Studio,
+                &GeneralSettings::load(),
+                &OwnPresets::default()
+            )
+            .iter()
+            .any(|row| row.key == "instantClickHighlight")
         );
     }
 
@@ -727,7 +759,7 @@ mod tests {
             instant_show_input: true,
             ..GeneralSettings::default()
         };
-        let presets = rows(Mode::Instant, &settings, &[])
+        let presets = rows(Mode::Instant, &settings, &OwnPresets::default())
             .into_iter()
             .find(|row| row.listed_in_menu)
             .unwrap();
@@ -742,7 +774,7 @@ mod tests {
     #[test]
     fn options_come_in_the_order_they_are_used_with_auto_stop_last() {
         let keys = |mode, settings: &GeneralSettings| -> Vec<&'static str> {
-            rows(mode, settings, &[])
+            rows(mode, settings, &OwnPresets::default())
                 .iter()
                 .map(|row| row.key)
                 .collect()
@@ -782,7 +814,7 @@ mod tests {
     fn show_input_is_an_instant_option_whose_choices_appear_once_it_is_on() {
         let _store = TestStore::new();
         let keys = |mode| -> Vec<&'static str> {
-            rows(mode, &GeneralSettings::load(), &[])
+            rows(mode, &GeneralSettings::load(), &OwnPresets::default())
                 .into_iter()
                 .map(|row| row.key)
                 .filter(|key| {
@@ -791,10 +823,14 @@ mod tests {
                 .collect()
         };
         let choose = |key, value: Value| {
-            let row = rows(Mode::Instant, &GeneralSettings::load(), &[])
-                .into_iter()
-                .find(|row| row.key == key)
-                .unwrap();
+            let row = rows(
+                Mode::Instant,
+                &GeneralSettings::load(),
+                &OwnPresets::default(),
+            )
+            .into_iter()
+            .find(|row| row.key == key)
+            .unwrap();
             let index = row
                 .choices
                 .iter()
@@ -818,16 +854,24 @@ mod tests {
             ]
         );
         assert!(keys(Mode::Studio).is_empty());
-        let presets = rows(Mode::Instant, &GeneralSettings::load(), &[])
-            .into_iter()
-            .find(|row| row.key == "instantInputPreset")
-            .unwrap();
+        let presets = rows(
+            Mode::Instant,
+            &GeneralSettings::load(),
+            &OwnPresets::default(),
+        )
+        .into_iter()
+        .find(|row| row.key == "instantInputPreset")
+        .unwrap();
         assert!(presets.listed_in_menu);
         let row = |key: &str| {
-            rows(Mode::Instant, &GeneralSettings::load(), &[])
-                .into_iter()
-                .find(|row| row.key == key)
-                .unwrap()
+            rows(
+                Mode::Instant,
+                &GeneralSettings::load(),
+                &OwnPresets::default(),
+            )
+            .into_iter()
+            .find(|row| row.key == key)
+            .unwrap()
         };
         let corners = row("instantInputPosition");
         assert_eq!(corners.choices.len(), 4);
@@ -864,11 +908,14 @@ mod tests {
             [
                 "instantShowInput",
                 "instantInputDevice",
+                "instantInputGamepadPreset",
                 "instantInputSize",
                 "instantInputOpacity",
                 "instantInputPosition"
             ]
         );
+        assert_eq!(row("instantInputGamepadPreset").choices.len(), 1);
+        assert_eq!(row("instantInputGamepadPreset").chosen(), Some(0));
         choose("instantShowInput", Value::Bool(false));
         assert_eq!(keys(Mode::Instant), ["instantShowInput"]);
         assert_eq!(GeneralSettings::load().instant_input_display(), None);
@@ -889,10 +936,13 @@ mod tests {
             "instantShowInput",
             Value::Bool(true)
         ));
-        let user = [
-            ("user:p-1".to_string(), SharedString::from("Speedrun")),
-            ("user:p-2".to_string(), SharedString::from("Pixel pad")),
-        ];
+        let user = OwnPresets {
+            keyboard: vec![
+                ("user:p-1".to_string(), SharedString::from("Speedrun")),
+                ("user:p-2".to_string(), SharedString::from("Pixel pad")),
+            ],
+            gamepad: vec![("user:p-3".to_string(), SharedString::from("No triggers"))],
+        };
         let row = || {
             rows(Mode::Instant, &GeneralSettings::load(), &user)
                 .into_iter()
@@ -938,12 +988,39 @@ mod tests {
                 .collect::<Vec<_>>(),
             [false, false, false, true, false]
         );
+        assert!(store::set_store_setting(
+            store::GENERAL_SETTINGS,
+            "instantInputDevice",
+            Value::from("gamepad")
+        ));
+        let pads = rows(Mode::Instant, &GeneralSettings::load(), &user)
+            .into_iter()
+            .find(|row| row.listed_in_menu)
+            .unwrap();
+        assert_eq!(
+            listed(&pads),
+            [
+                ("Gamepad".to_string(), "gamepad".to_string()),
+                ("No triggers".to_string(), "user:p-3".to_string())
+            ]
+        );
+        assert!(pads.save(1));
+        let shown = GeneralSettings::load().instant_input_display().unwrap();
+        assert_eq!(
+            (shown.gamepad_preset.as_str(), shown.preset.as_str()),
+            ("user:p-3", "user:p-2")
+        );
     }
 
     #[test]
     fn recording_options_keep_the_file_when_saving_fails() {
         let fixture = TestStore::new();
-        let row = rows(Mode::Studio, &GeneralSettings::load(), &[]).remove(0);
+        let row = rows(
+            Mode::Studio,
+            &GeneralSettings::load(),
+            &OwnPresets::default(),
+        )
+        .remove(0);
         std::fs::write(fixture.0.path().join("store"), b"invalid json").unwrap();
         assert!(!row.save(0));
         assert!(!row.save(usize::MAX));

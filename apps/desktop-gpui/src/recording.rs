@@ -1156,7 +1156,12 @@ fn match_input_preset_to_recording(
     ) else {
         return;
     };
-    let matched = frameever_project::input_display::preset_for_recording(&meta, preset).to_string();
+    let matched = frameever_project::input_display::preset_for_recording(
+        &meta,
+        preset,
+        crate::editor_input_display::made_for_a_gamepad(preset),
+    )
+    .to_string();
     block["preset"] = matched.into();
 }
 

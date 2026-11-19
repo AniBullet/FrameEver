@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use frameever_project::input_display::{
-    DisplayState, Input, InputDisplayStyle, KeyLayout, MAKER_COLUMNS, MAKER_ROWS, MAKER_WIDTHS,
-    MOUSE_BLOCK, MakerSelection, MakerStart, MousePart, PresetMaker,
+    DisplayState, GamepadPart, Input, InputDisplayStyle, KeyLayout, MAKER_COLUMNS, MAKER_ROWS,
+    MAKER_WIDTHS, MOUSE_BLOCK, MakerSelection, MakerStart, MousePart, PresetMaker,
     key_codes::{ALT_LEFT, CONTROL_LEFT, META_LEFT, SHIFT_LEFT},
     keystroke_code,
 };
@@ -43,7 +43,19 @@ fn start_label(start: MakerStart) -> &'static str {
     match start {
         MakerStart::WasdMouse => t!("WASD + mouse"),
         MakerStart::FullKeyboard => t!("Full keyboard"),
+        MakerStart::Gamepad => t!("Gamepad"),
         MakerStart::Empty => t!("Empty"),
+    }
+}
+
+fn gamepad_part_label(part: GamepadPart) -> &'static str {
+    match part {
+        GamepadPart::Sticks => t!("Sticks"),
+        GamepadPart::DPad => t!("D-pad"),
+        GamepadPart::Face => t!("Face buttons"),
+        GamepadPart::Shoulders => t!("Shoulders"),
+        GamepadPart::Triggers => t!("Triggers"),
+        GamepadPart::Menu => t!("Menu buttons"),
     }
 }
 
@@ -375,14 +387,14 @@ impl InputPresetMaker {
         }
     }
 
-    fn flag(
+    fn render_switch(
         &self,
-        id: &'static str,
+        id: SharedString,
         name: &'static str,
         on: bool,
         cx: &mut Context<Self>,
         flip: impl Fn(&mut PresetMaker) + 'static,
-    ) -> impl IntoElement {
+    ) -> gpui::Div {
         div()
             .flex()
             .flex_row()
@@ -398,23 +410,32 @@ impl InputPresetMaker {
             )))
     }
 
-    fn render_board(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_board(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
-        let mut board = div()
+        let board = div()
             .id("preset-maker-board")
             .relative()
             .flex_none()
             .w(px(UNIT * MAKER_COLUMNS as f32))
             .h(px(UNIT * MAKER_ROWS as f32))
             .rounded(px(8.))
-            .bg(rgb(PICTURE_BACKDROP))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
-                    this.focus_root(window, cx);
-                    this.select(None, cx);
+            .bg(rgb(PICTURE_BACKDROP));
+        if self.model.gamepad.is_some() {
+            return board.child(div().absolute().inset_0().p(px(12.)).children(
+                self.preview.image.clone().map(|picture| {
+                    img(picture)
+                        .size_full()
+                        .object_fit(gpui::ObjectFit::Contain)
                 }),
-            );
+            ));
+        }
+        let mut board = board.on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, window, cx| {
+                this.focus_root(window, cx);
+                this.select(None, cx);
+            }),
+        );
         for (index, key) in self.model.keys.iter().enumerate() {
             let held = self.model.is_held(key.code);
             let selected = self.model.selected == Some(MakerSelection::Key(index));
@@ -584,6 +605,24 @@ impl InputPresetMaker {
             )
     }
 
+    fn render_gamepad_parts(&self, row: gpui::Div, cx: &mut Context<Self>) -> gpui::Div {
+        let Some(parts) = self.model.gamepad else {
+            return row;
+        };
+        GamepadPart::ALL.into_iter().fold(row, |row, part| {
+            let shown = parts.shows(part);
+            row.child(self.render_switch(
+                SharedString::from(format!("preset-maker-gamepad-{part:?}")),
+                gamepad_part_label(part),
+                shown,
+                cx,
+                move |model| {
+                    model.set_gamepad_part(part, !shown);
+                },
+            ))
+        })
+    }
+
     fn render_selected_mouse(&self, row: gpui::Div, cx: &mut Context<Self>) -> gpui::Div {
         let Some(mouse) = self.model.mouse else {
             return row;
@@ -593,28 +632,15 @@ impl InputPresetMaker {
             .into_iter()
             .fold(row, |row, part| {
                 let shown = mouse.parts.shows(part);
-                row.child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(mouse_part_label(part))
-                        .child(
-                            ui::Toggle::plain(
-                                &theme,
-                                SharedString::from(format!("preset-maker-mouse-{part:?}")),
-                                shown,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
-                                    this.model.set_mouse_part(part, !shown);
-                                    this.focus_root(window, cx);
-                                    cx.notify();
-                                },
-                            )),
-                        ),
-                )
+                row.child(self.render_switch(
+                    SharedString::from(format!("preset-maker-mouse-{part:?}")),
+                    mouse_part_label(part),
+                    shown,
+                    cx,
+                    move |model| {
+                        model.set_mouse_part(part, !shown);
+                    },
+                ))
             })
             .child(div().flex_1())
             .child(
@@ -641,6 +667,9 @@ impl InputPresetMaker {
             .items_center()
             .gap(px(16.))
             .min_h(px(34.));
+        if self.model.gamepad.is_some() {
+            return self.render_gamepad_parts(row, cx);
+        }
         if self.model.selected == Some(MakerSelection::Mouse) {
             return self.render_selected_mouse(row, cx);
         }
@@ -738,16 +767,19 @@ impl Render for InputPresetMaker {
                         },
                     )),
                 )
-            })
-            .child(self.flag(
-                "preset-maker-capture",
+            });
+        let bar = if self.model.gamepad.is_some() {
+            bar
+        } else {
+            bar.child(self.render_switch(
+                "preset-maker-capture".into(),
                 t!("Press keys to add"),
                 self.model.capture,
                 cx,
                 |model| model.capture = !model.capture,
             ))
-            .child(self.flag(
-                "preset-maker-mouse",
+            .child(self.render_switch(
+                "preset-maker-mouse".into(),
                 t!("Mouse"),
                 self.model.mouse.is_some(),
                 cx,
@@ -767,7 +799,8 @@ impl Render for InputPresetMaker {
                     this.focus_root(window, cx);
                     this.select(None, cx);
                 })),
-            );
+            )
+        };
 
         let footer = div()
             .flex()
@@ -919,6 +952,26 @@ mod tests {
         .model();
         assert_eq!(edited.layout(), saved);
         assert_eq!(edited.start, None);
+    }
+
+    #[test]
+    fn a_gamepad_preset_previews_the_pad_without_the_parts_switched_off() {
+        let mut model = PresetMaker::starting(MakerStart::Gamepad, "Pad");
+        let mut preview = MakerPreview::default();
+        let style = InputDisplayStyle::Keycaps;
+        let built_in =
+            frameever_rendering::input_display::builtin_preset(BuiltinPresetId::Gamepad, style, 1)
+                .unwrap();
+
+        assert!(preview.refresh(model.layout(), style, DisplayState::default()));
+        assert!(shown(&preview) == preview_pixels(&built_in, &DisplayState::default()).into_raw());
+        model.set_gamepad_part(GamepadPart::Face, false);
+        assert!(preview.refresh(model.layout(), style, DisplayState::default()));
+        assert!(shown(&preview) == pixels_of(&model.layout(), style, &[]));
+        assert!(shown(&preview) != preview_pixels(&built_in, &DisplayState::default()).into_raw());
+        for part in GamepadPart::ALL {
+            assert!(!gamepad_part_label(part).is_empty());
+        }
     }
 
     #[test]

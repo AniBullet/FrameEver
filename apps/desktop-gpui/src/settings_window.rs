@@ -76,6 +76,7 @@ pub(crate) enum MenuKind {
     AfterInstant,
     AutoStop,
     InputPreset,
+    InputGamepadPreset,
     AddWindow,
     AutomationTrigger(usize),
     AutomationMatchMode(usize),
@@ -269,6 +270,7 @@ fn rows_on_the_page(
 fn menu_row(kind: MenuKind) -> Option<Row> {
     match kind {
         MenuKind::InputPreset => Some(Row::InputPreset),
+        MenuKind::InputGamepadPreset => Some(Row::InputGamepadPreset),
         _ => None,
     }
 }
@@ -363,6 +365,7 @@ pub struct SettingsWindow {
     studio_quality_save_failed: bool,
     pub(crate) pages: crate::settings_pages::PagesState,
     input_presets: Vec<crate::editor_input_display::ListedPreset>,
+    gamepad_presets: Vec<crate::editor_input_display::ListedPreset>,
     own_input_presets: Vec<frameever_rendering::input_presets::UserPreset>,
     input_maker: Option<gpui::WindowHandle<crate::input_preset_maker::InputPresetMaker>>,
     input_preset_note: Option<SharedString>,
@@ -427,6 +430,7 @@ impl SettingsWindow {
             page,
             pages,
             input_presets: crate::editor_input_display::listed_keyboard_presets(),
+            gamepad_presets: crate::editor_input_display::listed_gamepad_presets(),
             own_input_presets: input_presets::own_presets(),
             input_maker: None,
             input_preset_note: None,
@@ -652,6 +656,30 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    fn instant_presets(
+        &self,
+        kind: MenuKind,
+    ) -> (&[crate::editor_input_display::ListedPreset], &str) {
+        if kind == MenuKind::InputGamepadPreset {
+            (
+                &self.gamepad_presets,
+                &self.settings.instant_input_gamepad_preset,
+            )
+        } else {
+            (&self.input_presets, &self.settings.instant_input_preset)
+        }
+    }
+
+    fn instant_preset_label(&self, kind: MenuKind) -> SharedString {
+        let (presets, chosen) = self.instant_presets(kind);
+        presets
+            .iter()
+            .find(|(id, _)| id == chosen)
+            .or(presets.first())
+            .map(|(_, name)| name.clone())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn open_menu(
         &mut self,
         kind: MenuKind,
@@ -662,7 +690,7 @@ impl SettingsWindow {
         if menu_row(kind).is_some_and(|row| waits_on_another_row(row, &self.settings)) {
             return;
         }
-        if kind == MenuKind::InputPreset {
+        if matches!(kind, MenuKind::InputPreset | MenuKind::InputGamepadPreset) {
             self.reload_input_presets(cx);
         }
         let focus = self.focus.clone();
@@ -731,17 +759,17 @@ impl SettingsWindow {
                     )
                 })
                 .collect(),
-            MenuKind::InputPreset => input_presets::preset_menu_labels(&self.input_presets)
-                .into_iter()
-                .enumerate()
-                .map(|(index, label)| {
-                    let chosen = self
-                        .input_presets
-                        .get(index)
-                        .is_some_and(|(id, _)| *id == self.settings.instant_input_preset);
-                    ui::MenuItem::new(label, chosen)
-                })
-                .collect(),
+            MenuKind::InputPreset | MenuKind::InputGamepadPreset => {
+                let (presets, chosen) = self.instant_presets(kind);
+                input_presets::preset_menu_labels(presets)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, label)| {
+                        let checked = presets.get(index).is_some_and(|(id, _)| id == chosen);
+                        ui::MenuItem::new(label, checked)
+                    })
+                    .collect()
+            }
             MenuKind::AddWindow => self
                 .add_window_options()
                 .into_iter()
@@ -824,6 +852,14 @@ impl SettingsWindow {
                 if let Some((id, _)) = self.input_presets.get(index).cloned() {
                     self.settings.instant_input_preset = id.clone();
                     self.write("instantInputPreset", Value::from(id), cx);
+                } else {
+                    self.show_row(Row::InputPresets, window, cx);
+                }
+            }
+            MenuKind::InputGamepadPreset => {
+                if let Some((id, _)) = self.gamepad_presets.get(index).cloned() {
+                    self.settings.instant_input_gamepad_preset = id.clone();
+                    self.write("instantInputGamepadPreset", Value::from(id), cx);
                 } else {
                     self.show_row(Row::InputPresets, window, cx);
                 }
@@ -1642,17 +1678,22 @@ impl SettingsWindow {
                     },
                 )
                 .into_any_element(),
-            Row::InputPreset => {
-                let label = self
-                    .input_presets
-                    .iter()
-                    .find(|(id, _)| *id == settings.instant_input_preset)
-                    .or(self.input_presets.first())
-                    .map(|(_, name)| name.clone())
-                    .unwrap_or_default();
-                self.select("instant-input-preset", label, MenuKind::InputPreset, cx)
-                    .into_any_element()
-            }
+            Row::InputPreset => self
+                .select(
+                    "instant-input-preset",
+                    self.instant_preset_label(MenuKind::InputPreset),
+                    MenuKind::InputPreset,
+                    cx,
+                )
+                .into_any_element(),
+            Row::InputGamepadPreset => self
+                .select(
+                    "instant-input-gamepad-preset",
+                    self.instant_preset_label(MenuKind::InputGamepadPreset),
+                    MenuKind::InputGamepadPreset,
+                    cx,
+                )
+                .into_any_element(),
             Row::InputDevice => self
                 .segmented::<InstantInputDevice>(
                     "instant-input-device",
@@ -3313,6 +3354,7 @@ mod tests {
                 Row::FocusCenter,
                 Row::InputDevice,
                 Row::InputPreset,
+                Row::InputGamepadPreset,
                 Row::InputSize,
                 Row::InputOpacity,
                 Row::InputPosition,
@@ -3327,6 +3369,10 @@ mod tests {
         settings.auto_compress_instant = true;
         assert!(waiting(&settings).is_empty());
         assert_eq!(menu_row(MenuKind::InputPreset), Some(Row::InputPreset));
+        assert_eq!(
+            menu_row(MenuKind::InputGamepadPreset),
+            Some(Row::InputGamepadPreset)
+        );
         assert_eq!(menu_row(MenuKind::AutoStop), None);
     }
 
@@ -3362,6 +3408,7 @@ mod tests {
                 Row::ShowInput,
                 Row::InputDevice,
                 Row::InputPreset,
+                Row::InputGamepadPreset,
                 Row::InputSize,
                 Row::InputOpacity,
                 Row::InputPosition,

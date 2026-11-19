@@ -11,12 +11,13 @@ use std::{
 use frameever_project::{
     InputDisplayStyle,
     input_display::{
-        KeyLayout, MAKER_NAME_LENGTH, MAX_PRESET_ATLAS_BYTES, MAX_PRESET_JSON_BYTES, PresetRefusal,
+        GamepadKind, KeyLayout, MAKER_NAME_LENGTH, MAX_PRESET_ATLAS_BYTES, MAX_PRESET_JSON_BYTES,
+        PresetRefusal,
     },
 };
 use serde::{Deserialize, Serialize};
 
-use crate::input_display::{LoadedPreset, PresetShape, layout_preset, read_preset};
+use crate::input_display::{LoadedPreset, PresetShape, layout_preset_for, read_preset};
 
 pub const USER_PRESET_PREFIX: &str = "user:";
 pub const MAX_IMPORT_PRESETS: usize = 32;
@@ -103,6 +104,39 @@ impl std::fmt::Display for ImportRefusal {
 }
 
 impl std::error::Error for ImportRefusal {}
+
+const CONTROLLERS: [(GamepadKind, &str); 3] = [
+    (GamepadKind::Xbox, "xbox"),
+    (GamepadKind::PlayStation, "playstation"),
+    (GamepadKind::Switch, "switch"),
+];
+
+pub fn for_controller(id: &str, controller: GamepadKind) -> String {
+    let (id, _) = drawn_for(id);
+    let name = CONTROLLERS
+        .iter()
+        .find(|(kind, _)| *kind == controller)
+        .map_or("xbox", |(_, name)| name);
+    format!("{id}@{name}")
+}
+
+fn drawn_for(id: &str) -> (&str, GamepadKind) {
+    id.rsplit_once('@')
+        .and_then(|(preset, name)| {
+            let (kind, _) = CONTROLLERS.iter().find(|(_, known)| *known == name)?;
+            Some((preset, *kind))
+        })
+        .unwrap_or((id, GamepadKind::Xbox))
+}
+
+pub fn draws_a_gamepad(dir: &Path, id: &str) -> bool {
+    let (id, _) = drawn_for(id);
+    folder_of(dir, id)
+        .and_then(|folder| read_manifest(&folder))
+        .is_some_and(|manifest| {
+            matches!(manifest, Manifest::Layout { layout, .. } if layout.gamepad.is_some())
+        })
+}
 
 fn folder_of(dir: &Path, id: &str) -> Option<PathBuf> {
     let folder = id.strip_prefix(USER_PRESET_PREFIX)?;
@@ -342,11 +376,11 @@ pub fn import_folder(dir: &Path, source: &Path) -> Result<Vec<String>, ImportRef
 }
 
 pub fn load(dir: &Path, id: &str, style: InputDisplayStyle, scale: u32) -> Option<LoadedPreset> {
+    let (id, controller) = drawn_for(id);
     let folder = folder_of(dir, id)?;
     match read_manifest(&folder)? {
         Manifest::Layout { layout, .. } => {
-            let layout = layout.fitted();
-            layout_preset(&layout, style, layout.frame_share(), scale).ok()
+            layout_preset_for(&layout.fitted(), style, controller, scale).ok()
         }
         Manifest::Imported { .. } => {
             let json = read_limited(&folder.join(PRESET_FILE), MAX_PRESET_JSON_BYTES).ok()?;
@@ -357,6 +391,7 @@ pub fn load(dir: &Path, id: &str, style: InputDisplayStyle, scale: u32) -> Optio
 }
 
 pub fn shape(dir: &Path, id: &str) -> Option<PresetShape> {
+    let (id, _) = drawn_for(id);
     let folder = folder_of(dir, id)?;
     match read_manifest(&folder)? {
         Manifest::Layout { layout, .. } => {
@@ -748,5 +783,73 @@ mod tests {
             assert!(remove(&folders.presets, id).is_err());
         }
         assert!(folders.source.exists());
+    }
+
+    #[test]
+    fn a_made_gamepad_preset_is_drawn_for_the_controller_in_use() {
+        use crate::input_display::{builtin_preset, preset_for_controller};
+        use frameever_project::input_display::{GamepadKind, GamepadParts};
+        let folders = folders(&[]);
+        let whole = KeyLayout {
+            gamepad: Some(GamepadParts::default()),
+            ..Default::default()
+        };
+        let id = save_layout(&folders.presets, None, "Pad", &whole).unwrap();
+        let keys = save_layout(
+            &folders.presets,
+            None,
+            "Keys",
+            &BuiltinPresetId::WasdMouse.layout(),
+        )
+        .unwrap();
+        let style = InputDisplayStyle::Keycaps;
+        let drawn = |id: &str| load(&folders.presets, id, style, 1).unwrap().atlas;
+        let built_in = |preset| builtin_preset(preset, style, 1).unwrap().atlas;
+
+        assert!(draws_a_gamepad(&folders.presets, &id));
+        assert!(!draws_a_gamepad(&folders.presets, &keys));
+        assert!(!draws_a_gamepad(&folders.presets, "user:p-missing"));
+        assert!(drawn(&id) == built_in(BuiltinPresetId::Gamepad));
+
+        let playstation = preset_for_controller(&id, Some(GamepadKind::PlayStation));
+        assert_eq!(playstation, format!("{id}@playstation"));
+        assert!(drawn(&playstation) == built_in(BuiltinPresetId::GamepadPlayStation));
+        assert!(draws_a_gamepad(&folders.presets, &playstation));
+        assert_eq!(
+            preset_for_controller(&playstation, Some(GamepadKind::Switch)),
+            format!("{id}@switch")
+        );
+        assert_eq!(preset_for_controller(&id, None), id);
+        assert_eq!(
+            preset_for_controller("gamepad", Some(GamepadKind::Switch)),
+            "gamepad-switch"
+        );
+        assert_eq!(
+            shape(&folders.presets, &playstation),
+            shape(&folders.presets, &id)
+        );
+        assert_eq!(
+            shape(&folders.presets, &id).map(|shape| shape.size),
+            Some(BuiltinPresetId::Gamepad.size())
+        );
+        assert!(drawn(&preset_for_controller(&keys, Some(GamepadKind::Switch))) == drawn(&keys));
+
+        let fewer = KeyLayout {
+            gamepad: Some(GamepadParts {
+                triggers: false,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        save_layout(&folders.presets, Some(&id), "Pad", &fewer).unwrap();
+        let listed = list(&folders.presets);
+        assert_eq!(
+            listed
+                .iter()
+                .find(|preset| preset.id == id)
+                .and_then(|preset| preset.layout.clone()),
+            Some(fewer)
+        );
+        assert!(drawn(&id) != built_in(BuiltinPresetId::Gamepad));
     }
 }

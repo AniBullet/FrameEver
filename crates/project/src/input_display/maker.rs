@@ -1,6 +1,7 @@
 use super::{
     builtin::{
-        BuiltinPresetId, KeyLayout, LayoutKey, LayoutMouse, MOUSE_BLOCK, MousePart, MouseParts,
+        BuiltinPresetId, GamepadPart, GamepadParts, KeyLayout, LayoutKey, LayoutMouse, MOUSE_BLOCK,
+        MousePart, MouseParts,
     },
     keys::key_label,
 };
@@ -15,16 +16,26 @@ pub const MAKER_NAME_LENGTH: usize = 40;
 pub enum MakerStart {
     WasdMouse,
     FullKeyboard,
+    Gamepad,
     Empty,
 }
 
 impl MakerStart {
-    pub const ALL: [Self; 3] = [Self::WasdMouse, Self::FullKeyboard, Self::Empty];
+    pub const ALL: [Self; 4] = [
+        Self::WasdMouse,
+        Self::FullKeyboard,
+        Self::Gamepad,
+        Self::Empty,
+    ];
 
     fn layout(self) -> KeyLayout {
         match self {
             Self::WasdMouse => BuiltinPresetId::WasdMouse.layout(),
             Self::FullKeyboard => BuiltinPresetId::FullKeyboard.layout(),
+            Self::Gamepad => KeyLayout {
+                gamepad: Some(GamepadParts::default()),
+                ..Default::default()
+            },
             Self::Empty => KeyLayout::default(),
         }
     }
@@ -73,6 +84,7 @@ pub struct PresetMaker {
     pub name: String,
     pub keys: Vec<LayoutKey>,
     pub mouse: Option<BoardMouse>,
+    pub gamepad: Option<GamepadParts>,
     pub selected: Option<MakerSelection>,
     pub capture: bool,
     pub start: Option<MakerStart>,
@@ -101,6 +113,7 @@ impl PresetMaker {
                 }
             }),
             keys: layout.keys,
+            gamepad: layout.gamepad,
             selected: None,
             capture: false,
             start: None,
@@ -109,6 +122,12 @@ impl PresetMaker {
     }
 
     pub fn layout(&self) -> KeyLayout {
+        if self.gamepad.is_some() {
+            return KeyLayout {
+                gamepad: self.gamepad,
+                ..Default::default()
+            };
+        }
         let corner = |of: fn(&LayoutKey) -> f64, mouse: Option<f64>| {
             self.keys
                 .iter()
@@ -132,14 +151,30 @@ impl PresetMaker {
                 at: Some((mouse.x - left, mouse.y - top)),
                 parts: mouse.parts,
             }),
+            gamepad: None,
         }
     }
 
     pub fn can_save(&self) -> bool {
-        !self.name.trim().is_empty() && (self.mouse.is_some() || !self.keys.is_empty())
+        !self.name.trim().is_empty()
+            && (self.gamepad.is_some() || self.mouse.is_some() || !self.keys.is_empty())
+    }
+
+    pub fn set_gamepad_part(&mut self, part: GamepadPart, shown: bool) -> bool {
+        let Some(parts) = &mut self.gamepad else {
+            return false;
+        };
+        if parts.shows(part) == shown {
+            return false;
+        }
+        parts.set(part, shown);
+        true
     }
 
     pub fn toggle_mouse(&mut self) {
+        if self.gamepad.is_some() {
+            return;
+        }
         if self.mouse.take().is_some() {
             if self.selected == Some(MakerSelection::Mouse) {
                 self.selected = None;
@@ -229,7 +264,8 @@ impl PresetMaker {
         if !self.held.contains(&code) {
             self.held.push(code);
         }
-        if !self.capture || self.keys.iter().any(|key| key.code == code) {
+        let adds_keys = self.capture && self.gamepad.is_none();
+        if !adds_keys || self.keys.iter().any(|key| key.code == code) {
             return false;
         }
         let (x, y) = self.free_slot();
@@ -328,6 +364,11 @@ impl PresetMaker {
 
 impl KeyLayout {
     pub fn fitted(mut self) -> Self {
+        if self.gamepad.is_some() {
+            self.keys.clear();
+            self.mouse = None;
+            return self;
+        }
         let columns = f64::from(MAKER_COLUMNS);
         self.keys
             .retain(|key| key.x.is_finite() && key.y.is_finite() && key.width.is_finite());
@@ -583,6 +624,7 @@ mod tests {
                 at: Some((400.0, f64::NAN)),
                 parts: MouseParts::default(),
             }),
+            gamepad: None,
         }
         .fitted();
 
@@ -704,5 +746,48 @@ mod tests {
         let mouse = maker.mouse.unwrap();
         assert_eq!((mouse.x, mouse.y), (1.5, 0.0));
         assert_eq!(mouse.parts, MouseParts::default());
+    }
+
+    #[test]
+    fn a_gamepad_preset_starts_as_the_whole_pad_and_holds_nothing_else() {
+        let mut maker = PresetMaker::starting(MakerStart::Gamepad, "Pad");
+
+        assert_eq!(maker.gamepad, Some(GamepadParts::default()));
+        assert!(maker.keys.is_empty() && maker.mouse.is_none());
+        assert!(!maker.capture && maker.can_save());
+        maker.capture = true;
+        assert!(!maker.key_down(letter('W')));
+        maker.toggle_mouse();
+        assert!(maker.keys.is_empty() && maker.mouse.is_none());
+
+        assert!(maker.set_gamepad_part(GamepadPart::Triggers, false));
+        assert!(!maker.set_gamepad_part(GamepadPart::Triggers, false));
+        let layout = maker.layout();
+        assert_eq!(
+            layout,
+            KeyLayout {
+                gamepad: Some(GamepadParts {
+                    triggers: false,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }
+        );
+        let reopened = PresetMaker::editing("Pad", &layout);
+        assert_eq!(reopened.gamepad, maker.gamepad);
+        assert_eq!(reopened.layout(), layout);
+        assert!(!self::maker().set_gamepad_part(GamepadPart::Sticks, false));
+    }
+
+    #[test]
+    fn a_gamepad_layout_that_also_lists_keys_keeps_only_the_gamepad() {
+        let layout = KeyLayout {
+            gamepad: Some(GamepadParts::default()),
+            ..BuiltinPresetId::WasdMouse.layout()
+        }
+        .fitted();
+
+        assert!(layout.keys.is_empty() && layout.mouse.is_none());
+        assert!(layout.gamepad.is_some());
     }
 }

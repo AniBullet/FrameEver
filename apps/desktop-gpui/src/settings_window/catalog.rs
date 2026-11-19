@@ -39,6 +39,7 @@ pub enum Row {
     ShowInput,
     InputDevice,
     InputPreset,
+    InputGamepadPreset,
     InputSize,
     InputOpacity,
     InputPosition,
@@ -223,6 +224,7 @@ const INSTANT: &[Group] = &[
             Row::ShowInput,
             Row::InputDevice,
             Row::InputPreset,
+            Row::InputGamepadPreset,
             Row::InputSize,
             Row::InputOpacity,
             Row::InputPosition,
@@ -456,6 +458,7 @@ impl Row {
             Row::VoiceIsolation => Some(Row::StudioSound),
             Row::InputDevice
             | Row::InputPreset
+            | Row::InputGamepadPreset
             | Row::InputSize
             | Row::InputOpacity
             | Row::InputPosition => Some(Row::ShowInput),
@@ -487,6 +490,7 @@ impl Row {
             Row::ShowInput => n!("Show input"),
             Row::InputDevice => n!("Input device"),
             Row::InputPreset => n!("Input preset"),
+            Row::InputGamepadPreset => n!("Gamepad preset"),
             Row::InputSize => n!("Input display size"),
             Row::InputOpacity => n!("Input display opacity"),
             Row::InputPosition => n!("Input display position"),
@@ -548,6 +552,7 @@ impl Row {
             Row::ShowInput => n!("Draws your keys, mouse or gamepad into the video."),
             Row::InputDevice => n!("Automatic draws the one you are using."),
             Row::InputPreset => n!("The keys drawn for keyboard and mouse."),
+            Row::InputGamepadPreset => n!("The pad drawn for a gamepad."),
             Row::VoiceIsolation => n!("What Studio Sound starts with in a new project."),
             Row::CrashRecovery => n!("Records in fragments, slightly larger while capturing."),
             Row::StudioSound => n!("Clean up microphone audio. Turn it off per project."),
@@ -715,6 +720,7 @@ mod tests {
                     "Show input",
                     "Input device",
                     "Input preset",
+                    "Gamepad preset",
                     "Input display size",
                     "Input display opacity",
                     "Input display position",
@@ -844,6 +850,7 @@ mod tests {
             Row::ShowInput,
             Row::InputDevice,
             Row::InputPreset,
+            Row::InputGamepadPreset,
             Row::InputSize,
             Row::InputOpacity,
             Row::InputPosition,
@@ -877,6 +884,7 @@ mod tests {
                 Row::VoiceIsolation,
                 Row::InputDevice,
                 Row::InputPreset,
+                Row::InputGamepadPreset,
                 Row::InputSize,
                 Row::InputOpacity,
                 Row::InputPosition,
@@ -951,6 +959,7 @@ mod tests {
             "instantShowInput" => Row::ShowInput,
             "instantInputDevice" => Row::InputDevice,
             "instantInputPreset" => Row::InputPreset,
+            "instantInputGamepadPreset" => Row::InputGamepadPreset,
             "instantInputSize" => Row::InputSize,
             "instantInputOpacity" => Row::InputOpacity,
             "instantInputPosition" | "instantInputCorner" => Row::InputPosition,

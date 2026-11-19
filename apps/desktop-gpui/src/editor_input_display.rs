@@ -138,17 +138,45 @@ pub(crate) fn keyboard_presets() -> impl Iterator<Item = &'static (BuiltinPreset
         .filter(|(preset, _)| preset.controller().is_none())
 }
 
-pub(crate) fn listed_keyboard_presets() -> Vec<ListedPreset> {
-    let user_presets = frameever_rendering::input_presets::presets_dir()
+fn own_presets_for(gamepad: bool) -> impl Iterator<Item = ListedPreset> {
+    frameever_rendering::input_presets::presets_dir()
         .map(|dir| frameever_rendering::input_presets::list(&dir))
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(move |preset| draws_a_gamepad(preset) == gamepad)
+        .map(|preset| (preset.id, preset.name.into()))
+}
+
+pub(crate) fn draws_a_gamepad(preset: &UserPreset) -> bool {
+    preset
+        .layout
+        .as_ref()
+        .is_some_and(|layout| layout.gamepad.is_some())
+}
+
+pub(crate) fn made_for_a_gamepad(preset: &str) -> bool {
+    frameever_rendering::input_presets::presets_dir()
+        .is_some_and(|dir| frameever_rendering::input_presets::draws_a_gamepad(&dir, preset))
+}
+
+pub(crate) fn listed_keyboard_presets() -> Vec<ListedPreset> {
     keyboard_presets()
         .map(|(preset, label)| (preset.id().to_string(), SharedString::from(tr(label))))
-        .chain(
-            user_presets
-                .into_iter()
-                .map(|preset| (preset.id, preset.name.into())),
-        )
+        .chain(own_presets_for(false))
+        .collect()
+}
+
+pub(crate) fn built_in_gamepad_preset() -> ListedPreset {
+    (
+        BuiltinPresetId::Gamepad.id().to_string(),
+        SharedString::from(t!("Gamepad")),
+    )
+}
+
+pub(crate) fn listed_gamepad_presets() -> Vec<ListedPreset> {
+    [built_in_gamepad_preset()]
+        .into_iter()
+        .chain(own_presets_for(true))
         .collect()
 }
 
@@ -233,7 +261,8 @@ pub(crate) fn switch_input_display_for_recording(
             .filter(|block| !block.preset_chosen),
         frameever_project::RecordingMeta::load_for_project(project_path),
     ) {
-        block.preset = preset_for_recording(&meta, &block.preset).to_string();
+        let made_for_a_gamepad = made_for_a_gamepad(&block.preset);
+        block.preset = preset_for_recording(&meta, &block.preset, made_for_a_gamepad).to_string();
     }
     true
 }

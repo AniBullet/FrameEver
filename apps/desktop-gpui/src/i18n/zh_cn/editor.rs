@@ -480,6 +480,12 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Side buttons", "侧键"),
     ("Dark footage", "暗画面"),
     ("Bright footage", "亮画面"),
+    ("Sticks", "摇杆"),
+    ("D-pad", "方向键"),
+    ("Face buttons", "功能键"),
+    ("Shoulders", "肩键"),
+    ("Triggers", "扳机"),
+    ("Menu buttons", "菜单键"),
     (
         "Couldn't save this preset. Try again.",
         "无法保存这个预设。再试一次。",

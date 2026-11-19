@@ -113,12 +113,95 @@ fn mouse_in_file<'de, D: serde::Deserializer<'de>>(
     })
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GamepadPart {
+    Sticks,
+    DPad,
+    Face,
+    Shoulders,
+    Triggers,
+    Menu,
+}
+
+impl GamepadPart {
+    pub const ALL: [Self; 6] = [
+        Self::Sticks,
+        Self::DPad,
+        Self::Face,
+        Self::Shoulders,
+        Self::Triggers,
+        Self::Menu,
+    ];
+
+    fn of_element(id: &str) -> Option<Self> {
+        Some(match id.split('-').next()? {
+            "well" | "stick" => Self::Sticks,
+            "dpad" => Self::DPad,
+            "face" => Self::Face,
+            "shoulder" => Self::Shoulders,
+            "trigger" => Self::Triggers,
+            "back" | "start" | "guide" => Self::Menu,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GamepadParts {
+    pub sticks: bool,
+    pub dpad: bool,
+    pub face: bool,
+    pub shoulders: bool,
+    pub triggers: bool,
+    pub menu: bool,
+}
+
+impl Default for GamepadParts {
+    fn default() -> Self {
+        Self {
+            sticks: true,
+            dpad: true,
+            face: true,
+            shoulders: true,
+            triggers: true,
+            menu: true,
+        }
+    }
+}
+
+impl GamepadParts {
+    pub fn shows(&self, part: GamepadPart) -> bool {
+        match part {
+            GamepadPart::Sticks => self.sticks,
+            GamepadPart::DPad => self.dpad,
+            GamepadPart::Face => self.face,
+            GamepadPart::Shoulders => self.shoulders,
+            GamepadPart::Triggers => self.triggers,
+            GamepadPart::Menu => self.menu,
+        }
+    }
+
+    pub fn set(&mut self, part: GamepadPart, shown: bool) {
+        *match part {
+            GamepadPart::Sticks => &mut self.sticks,
+            GamepadPart::DPad => &mut self.dpad,
+            GamepadPart::Face => &mut self.face,
+            GamepadPart::Shoulders => &mut self.shoulders,
+            GamepadPart::Triggers => &mut self.triggers,
+            GamepadPart::Menu => &mut self.menu,
+        } = shown;
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct KeyLayout {
     #[serde(default)]
     pub keys: Vec<LayoutKey>,
     #[serde(default, deserialize_with = "mouse_in_file")]
     pub mouse: Option<LayoutMouse>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gamepad: Option<GamepadParts>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -287,6 +370,7 @@ impl BuiltinPresetId {
         KeyLayout {
             keys,
             mouse: Some(LayoutMouse::default()),
+            gamepad: None,
         }
     }
 
@@ -955,6 +1039,9 @@ impl KeyLayout {
     }
 
     pub fn frame_share(&self) -> f64 {
+        if self.gamepad.is_some() {
+            return BuiltinPresetId::Gamepad.frame_share();
+        }
         let reference = BuiltinPresetId::WasdMouse;
         let share = reference.frame_share() * f64::from(self.size().0)
             / f64::from(reference.layout().size().0.max(1));
@@ -962,12 +1049,27 @@ impl KeyLayout {
     }
 
     pub fn size(&self) -> (u32, u32) {
+        if self.gamepad.is_some() {
+            return BuiltinPresetId::Gamepad.size();
+        }
         let extent = self.extent();
         (extent.width, extent.height)
     }
 
     pub fn art(&self, style: InputDisplayStyle) -> PresetArt {
+        self.art_for(style, GamepadKind::Xbox)
+    }
+
+    pub fn art_for(&self, style: InputDisplayStyle, controller: GamepadKind) -> PresetArt {
         let palette = Palette::of(style);
+        if let Some(shown) = self.gamepad {
+            let (width, height) = self.size();
+            let mut parts = gamepad_parts(controller, &palette);
+            parts.retain(|part| {
+                GamepadPart::of_element(&part.id).is_none_or(|part| shown.shows(part))
+            });
+            return pack(parts, width, height);
+        }
         let LayoutExtent {
             keys_top,
             mouse,
@@ -1150,7 +1252,7 @@ mod tests {
         let wasd = BuiltinPresetId::WasdMouse.layout();
         let single = KeyLayout {
             keys: vec![wasd.keys[1].clone()],
-            mouse: None,
+            ..Default::default()
         };
 
         assert_eq!(wasd.frame_share(), BuiltinPresetId::WasdMouse.frame_share());
@@ -1293,6 +1395,84 @@ mod tests {
         assert_eq!(MOUSE_BLOCK, (2.5, 3.75));
     }
 
+    fn made_pad(parts: GamepadParts) -> KeyLayout {
+        KeyLayout {
+            gamepad: Some(parts),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_made_gamepad_with_every_part_is_the_built_in_pad() {
+        let made = made_pad(GamepadParts::default());
+
+        for style in InputDisplayStyle::ALL {
+            assert_eq!(made.art(style), BuiltinPresetId::Gamepad.art(style));
+            assert_eq!(
+                made.art_for(style, GamepadKind::Switch),
+                BuiltinPresetId::GamepadSwitch.art(style)
+            );
+        }
+        assert_eq!(made.size(), BuiltinPresetId::Gamepad.size());
+        assert_eq!(made.frame_share(), BuiltinPresetId::Gamepad.frame_share());
+        let saved = serde_json::to_string(&made).unwrap();
+        assert_eq!(serde_json::from_str::<KeyLayout>(&saved).unwrap(), made);
+        assert!(
+            !serde_json::to_string(&BuiltinPresetId::WasdMouse.layout())
+                .unwrap()
+                .contains("gamepad")
+        );
+    }
+
+    #[test]
+    fn a_made_gamepad_leaves_out_the_parts_switched_off_and_keeps_the_body() {
+        let ids = |parts: GamepadParts| -> Vec<String> {
+            let layout = made_pad(parts);
+            let preset =
+                read(&layout.art_for(InputDisplayStyle::Outline, GamepadKind::PlayStation));
+            assert_eq!((preset.width, preset.height), layout.size());
+            preset
+                .elements
+                .into_iter()
+                .map(|element| element.id)
+                .collect()
+        };
+        let everything = ids(GamepadParts::default());
+        let mut parts = GamepadParts::default();
+        parts.set(GamepadPart::Sticks, false);
+        parts.set(GamepadPart::Triggers, false);
+        parts.set(GamepadPart::Menu, false);
+        let fewer = ids(parts);
+
+        assert_eq!(everything.len(), 20);
+        assert_eq!(
+            fewer,
+            [
+                "gamepad-body",
+                "shoulder-left",
+                "shoulder-right",
+                "dpad-up",
+                "dpad-down",
+                "dpad-left",
+                "dpad-right",
+                "face-south",
+                "face-east",
+                "face-west",
+                "face-north"
+            ]
+        );
+        let nothing = GamepadPart::ALL.into_iter().fold(parts, |mut parts, part| {
+            parts.set(part, false);
+            parts
+        });
+        assert_eq!(ids(nothing), ["gamepad-body"]);
+        assert!(
+            GamepadPart::ALL
+                .into_iter()
+                .all(|part| !nothing.shows(part))
+        );
+    }
+
     #[test]
     fn a_layout_knows_its_size_without_being_drawn() {
         let mut layouts: Vec<KeyLayout> = BuiltinPresetId::ALL
@@ -1305,8 +1485,8 @@ mod tests {
             ..BuiltinPresetId::WasdMouse.layout()
         });
         layouts.push(KeyLayout {
-            keys: Vec::new(),
             mouse: Some(LayoutMouse::default()),
+            ..Default::default()
         });
         for layout in layouts {
             let preset = read(&layout.art(InputDisplayStyle::Outline));
@@ -1507,7 +1687,7 @@ mod tests {
                 y: 0.0,
                 width: 2.0,
             }],
-            mouse: None,
+            ..Default::default()
         };
         let art = layout.art(InputDisplayStyle::Keycaps);
         let preset = read(&art);
