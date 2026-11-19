@@ -339,16 +339,38 @@ impl ReferenceModel {
             .iter()
             .map(|f| (f.pts_secs * f64::from(timing.fps)).round() as i64)
             .collect();
+        let presented_next = |slot: i64| {
+            let into_cell = x - slot as f64;
+            let latest = request + SLOT_EPSILON / f64::from(timing.fps);
+            let earliest = request - SLOT_EPSILON / f64::from(timing.fps);
+            let next = track
+                .frames
+                .iter()
+                .zip(&numbers)
+                .filter(|(_, n)| **n == slot + 1);
+            let maybe = into_cell > 0.5 - SLOT_EPSILON
+                && next.clone().any(|(frame, _)| frame.pts_secs <= latest);
+            let surely = into_cell > 0.5 + SLOT_EPSILON
+                && next.clone().all(|(frame, _)| frame.pts_secs <= earliest)
+                && next.count() > 0;
+            (maybe, surely)
+        };
         let mut allowed = Vec::new();
         for slot in slots {
             let upto = numbers.partition_point(|&n| n <= slot);
-            let target = if upto == 0 {
+            let grid = if upto == 0 {
                 numbers[0]
             } else {
                 numbers[upto - 1]
             };
+            let targets = match presented_next(slot) {
+                _ if grid + 1 < slot => vec![grid],
+                (_, true) => vec![slot + 1],
+                (true, false) => vec![grid, slot + 1],
+                (false, false) => vec![grid],
+            };
             for (frame, &n) in track.frames.iter().zip(&numbers) {
-                if n == target && !allowed.contains(&frame.index) {
+                if targets.contains(&n) && !allowed.contains(&frame.index) {
                     allowed.push(frame.index);
                 }
             }

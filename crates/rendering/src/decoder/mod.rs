@@ -153,6 +153,7 @@ pub struct DecodedFrame {
     image_buf_backing: Option<Arc<SendableImageBuf>>,
     #[cfg(target_os = "windows")]
     d3d11_texture_backing: Option<Arc<SendableD3D11Texture>>,
+    presentation_secs: Option<f64>,
 }
 
 #[cfg(target_os = "macos")]
@@ -285,6 +286,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride: width * 4,
             uv_stride: 0,
+            presentation_secs: None,
             ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
@@ -302,6 +304,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride: width * 4,
             uv_stride: 0,
+            presentation_secs: None,
             ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
@@ -319,6 +322,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            presentation_secs: None,
             ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
@@ -342,6 +346,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            presentation_secs: None,
             ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
@@ -366,6 +371,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            presentation_secs: None,
             ffmpeg_backing: Some(frame),
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
@@ -417,6 +423,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            presentation_secs: None,
             ffmpeg_backing: None,
             image_buf_backing: Some(Arc::new(SendableImageBuf::new(image_buf))),
         }
@@ -437,6 +444,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            presentation_secs: None,
             ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
@@ -460,6 +468,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride,
             uv_stride,
+            presentation_secs: None,
             ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
@@ -478,6 +487,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride: width,
             uv_stride: width,
+            presentation_secs: None,
             ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
@@ -500,6 +510,7 @@ impl DecodedFrame {
             matrix: YuvMatrix::Bt601,
             y_stride: width,
             uv_stride: width,
+            presentation_secs: None,
             ffmpeg_backing: None,
             #[cfg(target_os = "macos")]
             image_buf_backing: None,
@@ -570,6 +581,15 @@ impl DecodedFrame {
     /// The Y'CbCr matrix to convert this frame's planes to RGB with.
     pub fn matrix(&self) -> YuvMatrix {
         self.matrix
+    }
+
+    pub fn presentation_secs(&self) -> Option<f64> {
+        self.presentation_secs
+    }
+
+    pub(crate) fn with_presentation_secs(mut self, secs: f64) -> Self {
+        self.presentation_secs = Some(secs);
+        self
     }
 
     pub fn with_matrix(mut self, matrix: YuvMatrix) -> Self {
@@ -749,11 +769,79 @@ const REQUEST_SLACK_MAX_FRAMES: f64 = 0.25;
 /// at `time`, `floor(time * fps)` once `time` is lifted by
 /// [`REQUEST_SLACK_STEPS`] f32 steps, at most [`REQUEST_SLACK_MAX_FRAMES`].
 pub fn request_frame(time: f32, fps: u32) -> u32 {
+    (f64::from(time) * f64::from(fps) + request_slack_frames(time, fps)).floor() as u32
+}
+
+fn request_slack_frames(time: f32, fps: u32) -> f64 {
     let magnitude = time.abs();
     let step = f32::from_bits(magnitude.to_bits() + 1) - magnitude;
-    let fps = f64::from(fps);
-    let slack = (f64::from(step * REQUEST_SLACK_STEPS) * fps).min(REQUEST_SLACK_MAX_FRAMES);
-    (f64::from(time) * fps + slack).floor() as u32
+    (f64::from(step * REQUEST_SLACK_STEPS) * f64::from(fps)).min(REQUEST_SLACK_MAX_FRAMES)
+}
+
+pub fn request_next_frame(time: f32, fps: u32) -> Option<u32> {
+    let frame = request_frame(time, fps);
+    let into_cell = f64::from(time) * f64::from(fps) - f64::from(frame);
+    if !(into_cell > 0.5 + request_slack_frames(time, fps) && into_cell < 1.0) {
+        return None;
+    }
+    frame.checked_add(1)
+}
+
+pub fn presented_by(secs: f64, time: f32, fps: u32) -> bool {
+    secs <= f64::from(time) + request_slack_frames(time, fps) / f64::from(fps)
+}
+
+fn answered_frame(frame: &DecodedFrame) -> Option<&DecodedFrame> {
+    Some(frame)
+}
+
+const LOOKAHEAD_TIMEOUT_MS: u64 = 250;
+
+async fn read_presented_frame<T, E, Fut, NextFut>(
+    decoder_time: f32,
+    fps: u32,
+    time: f32,
+    frame_of: for<'a> fn(&'a T) -> Option<&'a DecodedFrame>,
+    into_answer: fn(DecodedFrame) -> T,
+    fetch: impl FnOnce(f32) -> Fut,
+    fetch_next: impl FnOnce(f32) -> NextFut,
+) -> Result<T, E>
+where
+    Fut: std::future::Future<Output = Result<T, E>>,
+    NextFut: std::future::Future<Output = Result<Option<DecodedFrame>, E>>,
+{
+    let Some(next_frame) = (fps > 0)
+        .then(|| request_next_frame(decoder_time, fps))
+        .flatten()
+    else {
+        return fetch(time).await;
+    };
+    let next_cell_time = (f64::from(next_frame) + 0.25) / f64::from(fps);
+    let next_time = time + (next_cell_time - f64::from(decoder_time)) as f32;
+    let frame = fetch(time).await;
+    let holding = frame
+        .as_ref()
+        .ok()
+        .and_then(frame_of)
+        .and_then(DecodedFrame::presentation_secs)
+        .is_none_or(|secs| (secs * f64::from(fps)).round() + 1.0 < f64::from(next_frame - 1));
+    if holding {
+        return frame;
+    }
+    let Some(next) = fetch_next(next_time).await? else {
+        return frame;
+    };
+    if next
+        .presentation_secs()
+        .is_some_and(|secs| presented_by(secs, decoder_time, fps))
+    {
+        return Ok(into_answer(next));
+    }
+    frame
+}
+
+pub(crate) fn pts_secs(pts: i64, time_base: Rational) -> f64 {
+    pts as f64 * f64::from(time_base.numerator()) / f64::from(time_base.denominator())
 }
 
 pub fn pts_to_frame(pts: i64, time_base: Rational, fps: u32) -> u32 {
@@ -815,6 +903,7 @@ pub struct AsyncVideoDecoderHandle {
     offset: f64,
     status: DecoderStatus,
     max_fallback_distance: u32,
+    fps: u32,
     #[cfg(target_os = "macos")]
     fallback: Option<Arc<MacOsDecoderFallback>>,
     #[cfg(target_os = "macos")]
@@ -891,6 +980,58 @@ impl AsyncVideoDecoderHandle {
     }
 
     async fn get_frame_with_timeout(
+        &self,
+        time: f32,
+        timeout_ms: u64,
+        max_fallback_distance: u32,
+        deadline: FrameDeadline,
+    ) -> Result<Option<DecodedFrame>, DecodeStalled> {
+        Box::pin(read_presented_frame(
+            self.get_time(time),
+            self.fps,
+            time,
+            Option::as_ref,
+            Some,
+            |time| self.fetch_frame_with_timeout(time, timeout_ms, max_fallback_distance, deadline),
+            |time| self.fetch_next_frame(time, timeout_ms, max_fallback_distance, deadline),
+        ))
+        .await
+    }
+
+    async fn fetch_next_frame(
+        &self,
+        time: f32,
+        timeout_ms: u64,
+        max_fallback_distance: u32,
+        deadline: FrameDeadline,
+    ) -> Result<Option<DecodedFrame>, DecodeStalled> {
+        if deadline == FrameDeadline::Wait {
+            return self
+                .fetch_frame_with_timeout(time, timeout_ms, max_fallback_distance, deadline)
+                .await;
+        }
+        let timeout_ms = timeout_ms.min(LOOKAHEAD_TIMEOUT_MS);
+        #[cfg(target_os = "macos")]
+        if let Some(fallback) = &self.fallback
+            && let Some(result) = fallback.decoder.get()
+        {
+            let Ok(decoder) = result else {
+                return Ok(None);
+            };
+            return Ok(decoder
+                .request_frame(time, timeout_ms, max_fallback_distance, FrameDeadline::Drop)
+                .await
+                .ok()
+                .flatten());
+        }
+        Ok(self
+            .request_frame(time, timeout_ms, max_fallback_distance, FrameDeadline::Drop)
+            .await
+            .ok()
+            .flatten())
+    }
+
+    async fn fetch_frame_with_timeout(
         &self,
         time: f32,
         timeout_ms: u64,
@@ -1015,6 +1156,12 @@ impl AsyncVideoDecoderHandle {
         time + self.offset as f32
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_test_fps(mut self, fps: u32) -> Self {
+        self.fps = fps;
+        self
+    }
+
     /// A handle served by a test thread instead of a real decoder.
     #[cfg(test)]
     pub(crate) fn for_test(
@@ -1032,6 +1179,7 @@ impl AsyncVideoDecoderHandle {
                 fallback_reason: None,
             },
             max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
+            fps: 0,
             #[cfg(target_os = "macos")]
             fallback: None,
             #[cfg(target_os = "macos")]
@@ -1269,6 +1417,7 @@ pub struct ManagedVideoDecoder {
     decoder: Option<AsyncVideoDecoderHandle>,
     offset: f64,
     max_fallback_distance: u32,
+    fps: u32,
 }
 
 impl ManagedVideoDecoder {
@@ -1330,6 +1479,7 @@ impl ManagedVideoDecoder {
             offset: self.offset,
             status: status.clone(),
             max_fallback_distance: self.max_fallback_distance,
+            fps: self.fps,
             #[cfg(target_os = "macos")]
             fallback: None,
             #[cfg(target_os = "macos")]
@@ -1373,6 +1523,60 @@ impl ManagedVideoDecoder {
     }
 
     async fn get_frame_with_timeout(
+        &self,
+        time: f32,
+        timeout_ms: u64,
+        max_fallback_distance: u32,
+    ) -> Result<DecodedFrame, ManagedVideoError> {
+        if let Some(error) = self.terminal_error() {
+            return Err(error);
+        }
+        let decoder = self.decoder.as_ref().ok_or(ManagedVideoError::NotReady)?;
+        Box::pin(read_presented_frame(
+            decoder.get_time(time),
+            decoder.fps,
+            time,
+            answered_frame,
+            std::convert::identity,
+            |time| self.fetch_frame_with_timeout(time, timeout_ms, max_fallback_distance),
+            |time| self.fetch_next_frame(time, timeout_ms, max_fallback_distance),
+        ))
+        .await
+    }
+
+    async fn fetch_next_frame(
+        &self,
+        time: f32,
+        timeout_ms: u64,
+        max_fallback_distance: u32,
+    ) -> Result<Option<DecodedFrame>, ManagedVideoError> {
+        if self.terminal_error().is_some() {
+            return Ok(None);
+        }
+        let Some(decoder) = self.decoder.as_ref() else {
+            return Ok(None);
+        };
+        let (reply, receiver) = oneshot::channel();
+        if decoder
+            .sender
+            .send(VideoDecoderMessage::GetFrame(
+                decoder.get_time(time),
+                max_fallback_distance,
+                reply,
+            ))
+            .is_err()
+        {
+            return Ok(None);
+        }
+        let wait = Duration::from_millis(timeout_ms.min(LOOKAHEAD_TIMEOUT_MS));
+        Ok(tokio::time::timeout(wait, receiver)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .filter(|_| self.terminal_error().is_none()))
+    }
+
+    async fn fetch_frame_with_timeout(
         &self,
         time: f32,
         timeout_ms: u64,
@@ -1482,6 +1686,7 @@ pub fn spawn_managed_decoder<'a>(
         decoder: None,
         offset,
         max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
+        fps,
     })
 }
 
@@ -1518,6 +1723,7 @@ async fn spawn_ffmpeg_decoder(
                 offset,
                 status,
                 max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
+                fps,
                 #[cfg(target_os = "macos")]
                 fallback: None,
                 #[cfg(target_os = "macos")]
@@ -1587,6 +1793,7 @@ pub async fn spawn_decoder(
                         offset,
                         status,
                         max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
+                        fps,
                         #[cfg(target_os = "macos")]
                         fallback: Some(Arc::new(MacOsDecoderFallback {
                             name,
@@ -1641,6 +1848,7 @@ pub async fn spawn_decoder(
                             offset,
                             status,
                             max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
+                            fps,
                             #[cfg(target_os = "macos")]
                             fallback: None,
                             #[cfg(target_os = "macos")]
@@ -1688,6 +1896,7 @@ pub async fn spawn_decoder(
                         offset,
                         status,
                         max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
+                        fps,
                         #[cfg(target_os = "macos")]
                         fallback: None,
                         #[cfg(target_os = "macos")]
@@ -1726,6 +1935,7 @@ pub async fn spawn_decoder(
                             offset,
                             status,
                             max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
+                            fps,
                             #[cfg(target_os = "macos")]
                             fallback: None,
                             #[cfg(target_os = "macos")]
@@ -1783,6 +1993,7 @@ pub async fn spawn_decoder(
                             offset,
                             status,
                             max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
+                            fps,
                             #[cfg(target_os = "macos")]
                             fallback: None,
                             #[cfg(target_os = "macos")]
@@ -1999,6 +2210,29 @@ mod tests {
             assert_eq!(request_frame(time, fps), frame, "{time} at {fps} fps");
         }
         assert_eq!(request_frame(-0.5, 30), 0);
+    }
+
+    #[test]
+    fn request_next_frame_only_past_the_middle_of_a_cell() {
+        assert_eq!(request_next_frame(0.0, 60), None);
+        assert_eq!(request_next_frame(10.25 / 60.0, 60), None);
+        assert_eq!(request_next_frame(10.98 / 60.0, 60), Some(11));
+        for n in 0..3 * 3600 * 60 {
+            let time = (f64::from(n) / 60.0) as f32;
+            assert_eq!(request_next_frame(time, 30), None, "{n}");
+        }
+        for time in [f32::INFINITY, f32::NAN, -1.0, f32::MAX] {
+            assert_eq!(request_next_frame(time, 60), None, "{time}");
+        }
+        assert_eq!(request_next_frame(1.0, u32::MAX), None);
+    }
+
+    #[test]
+    fn presented_by_allows_the_request_slack() {
+        let time = (10.98 / 60.0) as f32;
+        assert!(presented_by(10.75 / 60.0, time, 60));
+        assert!(presented_by(f64::from(time), time, 60));
+        assert!(!presented_by(10.99 / 60.0, time, 60));
     }
 
     #[test]
@@ -2360,7 +2594,94 @@ mod managed_worker_tests {
             decoder: None,
             offset: 0.0,
             max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
+            fps: 30,
         }
+    }
+
+    async fn lookahead_worker(held: u32) -> (ManagedVideoDecoder, mpsc::Sender<()>) {
+        let (worker, requests, release) = {
+            let control = ManagedVideoControl::new();
+            let (wake, requests) = mpsc::channel();
+            let (release, released) = mpsc::channel::<()>();
+            let (ready_sender, ready_receiver) = oneshot::channel();
+            let (sent, ready_sent) = mpsc::channel();
+            let worker_control = control.clone();
+            let join = std::thread::spawn(move || {
+                worker_control.run_worker(|| {
+                    let _ = ready_sender.send(Ok(DecoderInitResult {
+                        width: 2,
+                        height: 2,
+                        decoder_type: DecoderType::FFmpegSoftware,
+                    }));
+                    let _ = sent.send(());
+                    while !worker_control.is_cancelled()
+                        && released.recv_timeout(Duration::from_millis(5)).is_err()
+                    {
+                    }
+                });
+            });
+            *control.join.lock().unwrap() = Some(join);
+            ready_sent.recv().unwrap();
+            let worker = ManagedVideoStopHandle { control, wake };
+            let mut decoder = pending_decoder(worker);
+            decoder.ready = Some(ready_receiver);
+            decoder.wait_ready().await.unwrap();
+            (decoder, requests, release)
+        };
+        tokio::spawn(async move {
+            let mut kept = Vec::new();
+            loop {
+                match requests.try_recv() {
+                    Ok(VideoDecoderMessage::GetFrame(time, _, reply)) => {
+                        let index = request_frame(time, 30);
+                        if index == held {
+                            kept.push(reply);
+                            continue;
+                        }
+                        let _ = reply.send(
+                            DecodedFrame::new(vec![index as u8; 16], 2, 2)
+                                .with_presentation_secs((f64::from(index) - 0.25) / 30.0),
+                        );
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => return,
+                }
+            }
+        });
+        (worker, release)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn managed_lookahead_past_its_wait_keeps_the_grid_frame_and_the_worker() {
+        let (decoder, release) = lookahead_worker(11).await;
+        let started = tokio::time::Instant::now();
+        let frame = decoder.get_frame(10.98 / 30.0).await.unwrap();
+        assert_eq!(frame.data()[0], 10);
+        assert!(started.elapsed() <= Duration::from_millis(LOOKAHEAD_TIMEOUT_MS + 50));
+        assert_eq!(decoder.terminal_error(), None);
+        assert!(!decoder.worker.control.is_cancelled());
+        let frame = decoder.get_frame_initial(10.98 / 30.0).await.unwrap();
+        assert_eq!(frame.data()[0], 10);
+        let frame = decoder.get_frame(5.98 / 30.0).await.unwrap();
+        assert_eq!(
+            frame.data()[0],
+            6,
+            "sample 6 is captured at 5.75, before 5.98"
+        );
+        assert_eq!(decoder.terminal_error(), None);
+        let _ = release.send(());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn managed_grid_timeout_still_fails_the_worker() {
+        let (decoder, release) = lookahead_worker(10).await;
+        assert_eq!(
+            decoder.get_frame(10.98 / 30.0).await.unwrap_err(),
+            ManagedVideoError::FrameTimeout
+        );
+        let _ = release.send(());
     }
 
     #[tokio::test]
@@ -2538,6 +2859,7 @@ mod managed_worker_tests {
                 fallback_reason: None,
             },
             max_fallback_distance: 2,
+            fps: 30,
             fallback: Some(Arc::new(MacOsDecoderFallback {
                 name: "screen",
                 path: directory.path().to_path_buf(),
@@ -2611,6 +2933,7 @@ mod managed_worker_tests {
                     fallback_reason: None,
                 },
                 max_fallback_distance: DEFAULT_MAX_FALLBACK_DISTANCE,
+                fps,
                 #[cfg(target_os = "macos")]
                 fallback: None,
                 #[cfg(target_os = "macos")]

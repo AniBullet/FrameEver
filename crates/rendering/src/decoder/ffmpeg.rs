@@ -36,6 +36,7 @@ mod tests;
 #[derive(Clone)]
 struct ProcessedFrame {
     number: u32,
+    presentation_secs: f64,
     data: Arc<Vec<u8>>,
     width: u32,
     height: u32,
@@ -101,7 +102,9 @@ impl ProcessedFrame {
                 ),
                 PixelFormat::Rgba => unreachable!("RGBA frames are copied out of FFmpeg"),
             };
-            return frame.with_matrix(self.matrix);
+            return frame
+                .with_matrix(self.matrix)
+                .with_presentation_secs(self.presentation_secs);
         }
         let frame = match self.format {
             PixelFormat::Rgba => {
@@ -122,7 +125,9 @@ impl ProcessedFrame {
                 self.uv_stride,
             ),
         };
-        frame.with_matrix(self.matrix)
+        frame
+            .with_matrix(self.matrix)
+            .with_presentation_secs(self.presentation_secs)
     }
 }
 
@@ -274,7 +279,11 @@ fn pack_yuv420p(
 impl CachedFrame {
     fn process_cpu(&mut self, converter: &mut FrameConverter) -> ProcessedFrame {
         match self {
-            Self::Raw { frame, number } => {
+            Self::Raw {
+                frame,
+                number,
+                presentation_secs,
+            } => {
                 let planes = Arc::clone(converter.plane_pool());
                 let width = frame.width();
                 let height = frame.height();
@@ -286,6 +295,7 @@ impl CachedFrame {
                     let data = ProcessedFrame {
                         data: empty_plane_slot(),
                         number: *number,
+                        presentation_secs: *presentation_secs,
                         width,
                         height,
                         format: pixel_format,
@@ -308,6 +318,7 @@ impl CachedFrame {
                     ProcessedFrame {
                         data: Arc::new(yuv_data),
                         number: *number,
+                        presentation_secs: *presentation_secs,
                         width,
                         height,
                         format: pixel_format,
@@ -322,6 +333,7 @@ impl CachedFrame {
                     ProcessedFrame {
                         data: Arc::new(frame_buffer),
                         number: *number,
+                        presentation_secs: *presentation_secs,
                         width,
                         height,
                         format: PixelFormat::Rgba,
@@ -370,6 +382,7 @@ enum CachedFrame {
     Raw {
         frame: frame::Video,
         number: u32,
+        presentation_secs: f64,
     },
     Processed(ProcessedFrame),
     #[cfg(target_os = "windows")]
@@ -771,9 +784,11 @@ impl FfmpegDecoder {
             }
             if let Some(frame) = first_software_frame {
                 let current_frame = pts_to_frame(frame.pts().unwrap_or(0), sw_time_base, fps);
+                let current_secs = super::pts_secs(frame.pts().unwrap_or(0), sw_time_base);
                 let mut cache_frame = CachedFrame::Raw {
                     frame,
                     number: current_frame,
+                    presentation_secs: current_secs,
                 };
                 let output = cache_frame.produce(&mut sw_converter);
                 sw_cache.insert(current_frame, cache_frame);
@@ -1021,6 +1036,7 @@ impl FfmpegDecoder {
                             continue;
                         };
                         let current_frame = pts_to_frame(pts, sw_time_base, fps);
+                        let current_secs = super::pts_secs(pts, sw_time_base);
 
                         if let Some(prev) = sw_prev_vended
                             && current_frame > prev + 1
@@ -1033,6 +1049,7 @@ impl FfmpegDecoder {
                         let mut cache_frame = CachedFrame::Raw {
                             frame,
                             number: current_frame,
+                            presentation_secs: current_secs,
                         };
 
                         if sw_first_ever_frame.borrow().is_none() {
@@ -1246,9 +1263,11 @@ impl FfmpegDecoder {
         }
         if let Some(frame) = first_frame_result {
             let current_frame = pts_to_frame(frame.pts().unwrap_or(0), time_base, fps);
+            let current_secs = super::pts_secs(frame.pts().unwrap_or(0), time_base);
             let mut cache_frame = CachedFrame::Raw {
                 frame,
                 number: current_frame,
+                presentation_secs: current_secs,
             };
             let output = cache_frame.produce(&mut converter);
 
@@ -1305,6 +1324,7 @@ impl FfmpegDecoder {
                                 Some(Ok(frame)) => {
                                     if let Some(pts) = frame.pts() {
                                         let current_frame = pts_to_frame(pts, time_base, fps);
+                                        let current_secs = super::pts_secs(pts, time_base);
                                         if let Some(prev) = prev_vended
                                             && current_frame > prev + 1
                                         {
@@ -1315,6 +1335,7 @@ impl FfmpegDecoder {
                                         let mut cache_frame = CachedFrame::Raw {
                                             frame,
                                             number: current_frame,
+                                            presentation_secs: current_secs,
                                         };
                                         cache_frame.produce(&mut converter);
                                         insert_cached_frame(
@@ -1577,6 +1598,7 @@ impl FfmpegDecoder {
                         continue;
                     };
                     let current_frame = pts_to_frame(pts, time_base, fps);
+                    let current_secs = super::pts_secs(pts, time_base);
 
                     if let Some(prev) = prev_vended
                         && current_frame > prev + 1
@@ -1589,6 +1611,7 @@ impl FfmpegDecoder {
                     let mut cache_frame = CachedFrame::Raw {
                         frame,
                         number: current_frame,
+                        presentation_secs: current_secs,
                     };
 
                     if first_ever_frame.borrow().is_none() {
@@ -1802,6 +1825,7 @@ mod cache_tests {
     fn frame(number: u32, bytes: usize) -> CachedFrame {
         CachedFrame::Processed(ProcessedFrame {
             number,
+            presentation_secs: f64::from(number),
             data: Arc::new(vec![0; bytes]),
             width: 2,
             height: 2,
@@ -2013,6 +2037,7 @@ mod cache_tests {
         let mut cached = CachedFrame::Raw {
             frame: source,
             number: u32::from(fill),
+            presentation_secs: f64::from(fill),
         };
         let output = cached.produce(converter);
         (cached, output)

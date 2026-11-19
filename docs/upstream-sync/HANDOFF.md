@@ -15,7 +15,7 @@ The state of the work on one page. Keep it that short: when something here stops
 
 Suggested order, from the blocking links and from which tickets touch the same files:
 
-1. Fixes: #195 (editor and app), #196 (macOS, checked by the macOS CI run), #207 (sharp paused preview, preview quality default), #208 (off-grid frame requests), then #209 (import keeps 4:4:4; blocked by #207 and #208), and #210 (late audio and captions, feature-sized, expect to split it).
+1. Fixes: #195 (editor and app), #196 (macOS, checked by the macOS CI run), #207 (sharp paused preview, preview quality default), then #209 (import keeps 4:4:4; blocked by #207; #208 is done), and #210 (late audio and captions, feature-sized, expect to split it).
 2. #206 (disconnect warning), then #205 (empty Studio segment). Both touch the recording session and the Studio actor, so they go before #202.
 3. #197 (design) blocks #198 to #203. Deliver it surface by surface so #199 and #198 can start first; #202 and #203 are the largest and go last.
 4. #204 waits for the owner: whether the app gets the in-app automations runner.
@@ -27,6 +27,8 @@ Agents never screenshot the owner's screen, so nothing visible is confirmed unti
 ## Things that cost time before
 
 - `pnpm fe test --all` does not run the library tests of `frameever-recording`, `frameever-project` or `frameever-rendering`: run `pnpm fe test --crate <package>` for the ones a change touches. No `pnpm fe` command runs a root-workspace crate's `tests/` folder, so a ported integration test goes into the library as a `#[cfg(test)]` module.
+- `pnpm fe fmt` and the format check in `pnpm fe lint` cover the GPUI workspace and six root crates only. They skip `frameever-rendering`, `frameever-editor`, `frameever-recording`, `frameever-project` and `frameever-verify`: after editing those, run `cargo fmt -p <package>` and restore the files you did not touch.
+- `crates/verify/tests/recording.rs` runs with `FRAMEEVER_VERIFY_CAPTURE=off cargo test -p frameever-verify --test recording` (FFmpeg's `bin` on `PATH`); without that variable its `real_capture` test opens a window and records it.
 - A single ticket never gets its own worktree: each one compiles the GPUI app from scratch (10 to 20 minutes). A worktree that is needed anyway wants the git-ignored setup copied from the main checkout first: `.cargo/config.toml`, `target/native-deps`, `target/ffmpeg` and `apps/desktop-gpui/assets/fonts/harmonyos-sans`.
 - After the checkout moves or is renamed, a stale `ffmpeg-sys-next` build cache points at the old folder and linking fails with `avcodec.lib` missing: `cargo clean -p ffmpeg-sys-next` in both workspaces.
 - Package from the main checkout. MSVC's linker and NSIS fail past 260 characters even with Windows long paths on.

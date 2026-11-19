@@ -183,7 +183,7 @@ impl MFDecoder {
             let mut requests = FrameRequests::new(readahead_frames);
             let answer =
                 |sender: oneshot::Sender<DecodedFrame>,
-                 frame: Option<frameever_video_decode::NV12Data>| {
+                 frame: Option<(frameever_video_decode::NV12Data, f64)>| {
                     let _ = sender.send(frame.map_or_else(
                         || {
                             DecodedFrame::new(
@@ -192,16 +192,7 @@ impl MFDecoder {
                                 video_height,
                             )
                         },
-                        |data| {
-                            DecodedFrame::new_nv12_with_arc(
-                                data.data,
-                                video_width,
-                                video_height,
-                                data.y_stride,
-                                data.uv_stride,
-                            )
-                            .with_matrix(matrix)
-                        },
+                        |sample| nv12_frame(sample, video_width, video_height, matrix),
                     ));
                 };
 
@@ -260,11 +251,8 @@ impl MFDecoder {
                             Ok(Some(sample)) => {
                                 health.record_success(decode_start.elapsed());
                                 let bytes = sample.data.data.len();
-                                requests.decoded(
-                                    pts_100ns_to_frame(sample.pts, fps),
-                                    sample.data,
-                                    bytes,
-                                )
+                                let (frame, presentation_secs) = sample_slot(sample.pts, fps);
+                                requests.decoded(frame, (sample.data, presentation_secs), bytes)
                             }
                             Ok(None) => requests.stopped(),
                             Err(e) => {
@@ -297,6 +285,24 @@ fn frame_to_100ns(frame: u32, fps: u32) -> i64 {
 // colliding with the real frame 0 and losing one of them from the cache.
 fn pts_100ns_to_frame(pts_100ns: i64, fps: u32) -> u32 {
     super::pts_to_frame(pts_100ns, ::ffmpeg::Rational::new(1, 10_000_000), fps)
+}
+
+fn sample_slot(pts_100ns: i64, fps: u32) -> (u32, f64) {
+    (
+        pts_100ns_to_frame(pts_100ns, fps),
+        pts_100ns as f64 / 10_000_000.0,
+    )
+}
+
+fn nv12_frame(
+    (data, presentation_secs): (frameever_video_decode::NV12Data, f64),
+    width: u32,
+    height: u32,
+    matrix: super::YuvMatrix,
+) -> DecodedFrame {
+    DecodedFrame::new_nv12_with_arc(data.data, width, height, data.y_stride, data.uv_stride)
+        .with_matrix(matrix)
+        .with_presentation_secs(presentation_secs)
 }
 
 enum Step {
@@ -529,6 +535,69 @@ mod tests {
             }
             answers
         }
+    }
+
+    fn off_grid_decoder(fps: u32, sample_pts: Vec<i64>) -> super::super::AsyncVideoDecoderHandle {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut requests = FrameRequests::new(0);
+            let mut next = 0;
+            while let Ok(VideoDecoderMessage::GetFrame(time, _, reply)) = receiver.recv() {
+                let mut answers: Vec<_> = requests
+                    .request(super::super::request_frame(time, fps), reply)
+                    .into_iter()
+                    .collect();
+                loop {
+                    match requests.next_step() {
+                        Step::Wait => break,
+                        Step::Seek(frame) => {
+                            next = 0;
+                            requests.seeked(frame);
+                        }
+                        Step::Decode => answers.extend(match sample_pts.get(next) {
+                            Some(&pts) => {
+                                next += 1;
+                                let (frame, presentation_secs) = sample_slot(pts, fps);
+                                let data = frameever_video_decode::NV12Data {
+                                    data: std::sync::Arc::new(vec![(next - 1) as u8; 6]),
+                                    y_stride: 2,
+                                    uv_stride: 2,
+                                };
+                                requests.decoded(frame, (data, presentation_secs), 1)
+                            }
+                            None => requests.stopped(),
+                        }),
+                    }
+                }
+                for (reply, sample) in answers {
+                    if let Some(sample) = sample {
+                        let _ = reply.send(nv12_frame(sample, 2, 2, Default::default()));
+                    }
+                }
+            }
+        });
+        super::super::AsyncVideoDecoderHandle::for_test(sender, 2, 2).with_test_fps(fps)
+    }
+
+    #[tokio::test]
+    async fn an_off_grid_request_gets_the_sample_captured_before_it() {
+        let fps = 60;
+        let pts = |frame: f64| (frame / f64::from(fps) * 10_000_000.0).round() as i64;
+        let decoder = off_grid_decoder(
+            fps,
+            (0..200)
+                .map(|sample| pts(f64::from(sample) - 0.25).max(0))
+                .collect(),
+        );
+        let shown = async |frame: f64| {
+            let time = (frame / f64::from(fps)) as f32;
+            decoder.get_frame(time).await.expect("a frame").data()[0]
+        };
+        assert_eq!(shown(10.0).await, 10);
+        assert_eq!(shown(10.6).await, 10, "sample 11 is captured at 10.75");
+        assert_eq!(shown(10.98).await, 11, "sample 11 is captured at 10.75");
+        assert_eq!(shown(150.98).await, 151);
+        assert_eq!(shown(5.98).await, 6, "a seek back reads the same way");
     }
 
     #[test]
