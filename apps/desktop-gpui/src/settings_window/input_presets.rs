@@ -1,5 +1,5 @@
 use gpui::{
-    Context, IntoElement, ParentElement, SharedString, Styled, Window, div, prelude::*, px,
+    Context, Entity, IntoElement, ParentElement, SharedString, Styled, Window, div, prelude::*, px,
 };
 use serde_json::Value;
 
@@ -7,13 +7,19 @@ use super::SettingsWindow;
 use crate::{
     editor_input_display::{
         self, INPUT_PRESETS, ListedPreset, confirm_preset_removal, import_presets_from,
-        import_refusal_message, maker_seed, remove_preset,
+        import_refusal_message, maker_seed, remove_preset, rename_preset,
     },
     i18n::{t, tr},
     ui,
 };
 use frameever_project::input_display::BuiltinPresetId;
 use frameever_rendering::input_presets::UserPreset;
+
+pub(super) struct PresetRename {
+    preset: String,
+    input: Entity<ui::TextInputState>,
+    _events: gpui::Subscription,
+}
 
 pub(super) fn own_presets() -> Vec<UserPreset> {
     frameever_rendering::input_presets::presets_dir()
@@ -113,6 +119,58 @@ impl SettingsWindow {
         .detach();
     }
 
+    fn start_preset_rename(
+        &mut self,
+        preset: &UserPreset,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = cx.new(|cx| {
+            let mut input = ui::TextInputState::single_line(window, cx);
+            input.set_text(preset.name.clone(), cx);
+            input.focus_and_select_all(window, cx);
+            input
+        });
+        let events = cx.subscribe_in(
+            &input,
+            window,
+            |this: &mut Self, _, event: &ui::TextInputEvent, window, cx| match event {
+                ui::TextInputEvent::Confirmed => this.save_preset_rename(window, cx),
+                ui::TextInputEvent::Cancelled => {
+                    this.input_preset_rename = None;
+                    this.focus_root(window, cx);
+                    cx.notify();
+                }
+                ui::TextInputEvent::Blurred => {
+                    this.input_preset_rename = None;
+                    cx.notify();
+                }
+                ui::TextInputEvent::Changed => {}
+            },
+        );
+        self.input_preset_rename = Some(PresetRename {
+            preset: preset.id.clone(),
+            input,
+            _events: events,
+        });
+        cx.notify();
+    }
+
+    fn save_preset_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(rename) = &self.input_preset_rename else {
+            return;
+        };
+        let name = rename.input.read(cx).text().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        self.input_preset_note = (!rename_preset(&rename.preset, &name))
+            .then(|| t!("Couldn't rename this preset. Try again.").into());
+        self.input_preset_rename = None;
+        self.focus_root(window, cx);
+        self.reload_input_presets(cx);
+    }
+
     fn remove_own_preset(&mut self, preset: String, window: &mut Window, cx: &mut Context<Self>) {
         cx.spawn_in(window, async move |this, cx| {
             if !confirm_preset_removal() {
@@ -188,7 +246,22 @@ impl SettingsWindow {
             .map(|(index, preset)| {
                 let editable = preset.layout.is_some();
                 let edited = preset.clone();
+                let renamed = preset.clone();
                 let removed = preset.id.clone();
+                if let Some(rename) = &self.input_preset_rename
+                    && rename.preset == preset.id
+                {
+                    return line()
+                        .child(
+                            ui::TextInput::settings(
+                                &theme,
+                                ("input-preset-name", index),
+                                &rename.input,
+                            )
+                            .height(px(28.)),
+                        )
+                        .into_any_element();
+                }
                 line()
                     .child(
                         div()
@@ -197,6 +270,18 @@ impl SettingsWindow {
                             .truncate()
                             .child(preset.name.clone()),
                     )
+                    .when(!editable, |this| {
+                        this.child(self.button(
+                            ("input-preset-rename", index),
+                            (ui::ButtonVariant::Gray, Some("icons/pencil.svg")),
+                            t!("Rename"),
+                            false,
+                            cx,
+                            move |this, window, cx| {
+                                this.start_preset_rename(&renamed, window, cx);
+                            },
+                        ))
+                    })
                     .when(editable, |this| {
                         this.child(self.button(
                             ("input-preset-edit", index),

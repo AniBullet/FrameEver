@@ -234,15 +234,41 @@ pub fn save_layout(
         && let Some(folder) = folder_of(dir, id)
         && matches!(read_manifest(&folder), Some(Manifest::Layout { .. }))
     {
-        let staged = folder.join(format!("{MANIFEST_FILE}.tmp"));
-        fs::write(&staged, manifest)?;
-        fs::rename(&staged, folder.join(MANIFEST_FILE))?;
-        GENERATION.fetch_add(1, Ordering::Relaxed);
+        replace_manifest(&folder, manifest)?;
         return Ok(id.to_string());
     }
     publish(dir, |folder| {
         fs::write(folder.join(MANIFEST_FILE), manifest)
     })
+}
+
+fn replace_manifest(folder: &Path, manifest: Vec<u8>) -> io::Result<()> {
+    let staged = folder.join(format!("{MANIFEST_FILE}.tmp"));
+    fs::write(&staged, manifest)?;
+    fs::rename(&staged, folder.join(MANIFEST_FILE))?;
+    GENERATION.fetch_add(1, Ordering::Relaxed);
+    Ok(())
+}
+
+pub fn rename(dir: &Path, id: &str, name: &str) -> io::Result<bool> {
+    let folder = folder_of(dir, id).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "not a preset the user added")
+    })?;
+    let mut manifest = read_manifest(&folder).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "the preset is not in the app data folder",
+        )
+    })?;
+    let (Manifest::Layout { name: stored, .. } | Manifest::Imported { name: stored }) =
+        &mut manifest;
+    let name = short_name(name);
+    if name.is_empty() || name == *stored {
+        return Ok(false);
+    }
+    *stored = name;
+    replace_manifest(&folder, serde_json::to_vec_pretty(&manifest)?)?;
+    Ok(true)
 }
 
 pub fn remove(dir: &Path, id: &str) -> io::Result<()> {
@@ -740,6 +766,78 @@ mod tests {
 
         assert_ne!(made, imported[0]);
         assert_eq!(list(&folders.presets).len(), 2);
+    }
+
+    #[test]
+    fn renaming_a_preset_keeps_its_id_and_files_and_writes_only_a_new_name() {
+        let folders = folders(&[("wasd.json", PRESET.as_bytes()), ("wasd.png", &png(32, 16))]);
+        let id = import_folder(&folders.presets, &folders.source)
+            .unwrap()
+            .remove(0);
+        let folder = folder_of(&folders.presets, &id).unwrap();
+        let files = || {
+            let mut files: Vec<(String, Vec<u8>)> = fs::read_dir(&folder)
+                .unwrap()
+                .flatten()
+                .map(|entry| {
+                    (
+                        entry.file_name().to_string_lossy().into_owned(),
+                        fs::read(entry.path()).unwrap(),
+                    )
+                })
+                .collect();
+            files.sort();
+            files
+        };
+        let drawn = || {
+            load(&folders.presets, &id, InputDisplayStyle::Keycaps, 1)
+                .unwrap()
+                .atlas
+        };
+        let (before, picture, generation_before) = (files(), drawn(), generation());
+
+        for refused in ["", "   ", "wasd", "  wasd  "] {
+            assert!(!rename(&folders.presets, &id, refused).unwrap());
+        }
+        assert!(files() == before);
+
+        assert!(rename(&folders.presets, &id, "  Fight stick  ").unwrap());
+
+        assert!(generation() > generation_before);
+        assert_eq!(
+            list(&folders.presets),
+            vec![UserPreset {
+                id: id.clone(),
+                name: "Fight stick".to_string(),
+                layout: None
+            }]
+        );
+        let after = files();
+        assert_eq!(after.len(), before.len());
+        for ((name, bytes), (name_before, bytes_before)) in after.iter().zip(&before) {
+            assert_eq!(name, name_before);
+            assert_eq!(bytes == bytes_before, name != MANIFEST_FILE, "{name}");
+        }
+        assert!(drawn() == picture);
+        let long = "x".repeat(MAKER_NAME_LENGTH + 5);
+        assert!(rename(&folders.presets, &id, &long).unwrap());
+        assert_eq!(list(&folders.presets)[0].name.len(), MAKER_NAME_LENGTH);
+
+        let layout = BuiltinPresetId::WasdMouse.layout();
+        let made = save_layout(&folders.presets, None, "Mine", &layout).unwrap();
+        assert!(rename(&folders.presets, &made, "Mine too").unwrap());
+        assert_eq!(
+            list(&folders.presets)
+                .into_iter()
+                .find(|preset| preset.id == made),
+            Some(UserPreset {
+                id: made,
+                name: "Mine too".to_string(),
+                layout: Some(layout)
+            })
+        );
+        assert!(rename(&folders.presets, "user:p-missing", "Gone").is_err());
+        assert!(rename(&folders.presets, "wasd-mouse", "Built in").is_err());
     }
 
     #[test]

@@ -1187,11 +1187,12 @@ const controls = {
 			["WASD + mouse", "WASD + 鼠标", false],
 			["Full keyboard", "全键盘", false],
 			["Gamepad", "手柄", false],
-			["My fighting stick", "我的摇杆", true],
+			["My fighting stick", "我的摇杆", "Edit", "编辑"],
+			["hitbox-layout", "hitbox-layout", "Rename", "重命名"],
 		]
 			.map(
-				([en, zh, own]) =>
-					`<div class="preset-line"><span class="grow">${L(en, zh)}</span>${own ? `<button class="btn ghost icon" title="${pick("Edit", "编辑")}">${icon("pencil")}</button><button class="btn ghost icon" title="${pick("Remove", "移除")}">${icon("trash")}</button>` : `<span class="hint">${L("Built in", "内置")}</span>`}</div>`,
+				([en, zh, own, ownZh]) =>
+					`<div class="preset-line"><span class="grow">${L(en, zh)}</span>${own ? `<button class="btn ghost icon" title="${pick(own, ownZh)}">${icon("pencil")}</button><button class="btn ghost icon" title="${pick("Remove", "移除")}">${icon("trash")}</button>` : `<span class="hint">${L("Built in", "内置")}</span>`}</div>`,
 			)
 			.join(
 				"",

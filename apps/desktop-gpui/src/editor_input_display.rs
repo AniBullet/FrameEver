@@ -132,6 +132,11 @@ pub(crate) fn remove_preset(preset: &str) -> bool {
         .is_some_and(|dir| frameever_rendering::input_presets::remove(&dir, preset).is_ok())
 }
 
+pub(crate) fn rename_preset(preset: &str, name: &str) -> bool {
+    frameever_rendering::input_presets::presets_dir()
+        .is_some_and(|dir| frameever_rendering::input_presets::rename(&dir, preset, name).is_ok())
+}
+
 pub(crate) fn keyboard_presets() -> impl Iterator<Item = &'static (BuiltinPresetId, &'static str)> {
     INPUT_PRESETS
         .iter()

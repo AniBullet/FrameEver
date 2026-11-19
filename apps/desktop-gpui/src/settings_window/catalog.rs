@@ -908,7 +908,7 @@ mod tests {
     }
 
     fn keys_the_settings_store_reads() -> Vec<String> {
-        let source = include_str!("../store.rs");
+        let source = include_str!("../store.rs").replace("\r\n", "\n");
         let start = source.find("fn from_sections(").unwrap();
         let end = start + source[start..].find("\n    }\n").unwrap();
         let body: String = source[start..end]

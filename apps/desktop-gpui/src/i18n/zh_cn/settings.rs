@@ -531,9 +531,14 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Built in", "内置"),
     ("New preset…", "新建预设…"),
     ("Manage presets…", "管理预设…"),
+    ("Rename", "重命名"),
     (
         "Couldn't remove this preset. Try again.",
         "无法移除这个预设，请重试。",
+    ),
+    (
+        "Couldn't rename this preset. Try again.",
+        "无法重命名这个预设，请重试。",
     ),
     ("Input display position", "操作显示位置"),
     ("Input device", "操作显示设备"),
