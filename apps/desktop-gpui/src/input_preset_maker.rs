@@ -1,5 +1,6 @@
 use frameever_project::input_display::{
-    BuiltinPresetId, KeyLayout, MAKER_COLUMNS, MAKER_ROWS, MAKER_WIDTHS, PresetMaker,
+    KeyLayout, MAKER_COLUMNS, MAKER_ROWS, MAKER_WIDTHS, MOUSE_BLOCK, MakerSelection, MakerStart,
+    MousePart, PresetMaker,
     key_codes::{ALT_LEFT, CONTROL_LEFT, META_LEFT, SHIFT_LEFT},
     keystroke_code,
 };
@@ -11,7 +12,7 @@ use gpui::{
 
 use crate::{editor_input_display::PICTURE_BACKDROP, i18n::t, theme::Theme, ui};
 
-pub const MAKER_WINDOW_WIDTH: f32 = 624.;
+pub const MAKER_WINDOW_WIDTH: f32 = 784.;
 pub const MAKER_WINDOW_HEIGHT: f32 = 460.;
 pub const MAKER_WINDOW_TITLE: &str = concat!(crate::brand::app_name!(), " Preset Maker");
 
@@ -21,6 +22,33 @@ const KEY_REST: u32 = 0x181818;
 const KEY_REST_INK: u32 = 0xc4c4c4;
 const KEY_HELD: u32 = 0xffffff;
 const KEY_HELD_INK: u32 = 0x111111;
+const MOUSE_BODY: u32 = 0x2b2b2b;
+
+fn start_label(start: MakerStart) -> &'static str {
+    match start {
+        MakerStart::WasdMouse => t!("WASD + mouse"),
+        MakerStart::FullKeyboard => t!("Full keyboard"),
+        MakerStart::Empty => t!("Empty"),
+    }
+}
+
+fn mouse_part_label(part: MousePart) -> &'static str {
+    match part {
+        MousePart::Left => t!("Left button"),
+        MousePart::Right => t!("Right button"),
+        MousePart::Wheel => t!("Wheel"),
+        MousePart::Side => t!("Side buttons"),
+    }
+}
+
+fn mouse_part_shapes(part: MousePart) -> &'static [(f32, f32, f32, f32)] {
+    match part {
+        MousePart::Left => &[(8., 4., 41., 62.)],
+        MousePart::Right => &[(55., 4., 41., 62.)],
+        MousePart::Wheel => &[(45., 18., 14., 32.)],
+        MousePart::Side => &[(0., 74., 7., 18.), (0., 96., 7., 18.)],
+    }
+}
 
 pub struct MakerSeed {
     pub editing: Option<String>,
@@ -32,13 +60,13 @@ impl MakerSeed {
     pub fn model(&self) -> PresetMaker {
         match &self.layout {
             Some(layout) => PresetMaker::editing(self.name.clone(), layout),
-            None => PresetMaker::starting_from(BuiltinPresetId::WasdMouse, self.name.clone()),
+            None => PresetMaker::starting(MakerStart::WasdMouse, self.name.clone()),
         }
     }
 }
 
-struct KeyDrag {
-    index: usize,
+struct BoardDrag {
+    item: MakerSelection,
     down: Point<Pixels>,
     x: f64,
     y: f64,
@@ -54,7 +82,7 @@ pub struct InputPresetMaker {
     on_saved: PresetSaved,
     name: Entity<ui::TextInputState>,
     label: Entity<ui::TextInputState>,
-    drag: Option<KeyDrag>,
+    drag: Option<BoardDrag>,
     modifiers: gpui::Modifiers,
     save_failed: bool,
     _subscriptions: Vec<Subscription>,
@@ -137,8 +165,8 @@ impl InputPresetMaker {
         cx.notify();
     }
 
-    fn select(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
-        self.model.select(index);
+    fn select(&mut self, selection: Option<MakerSelection>, cx: &mut Context<Self>) {
+        self.model.select(selection);
         let label = self
             .model
             .selected_key()
@@ -203,17 +231,21 @@ impl InputPresetMaker {
         cx.notify();
     }
 
-    fn begin_drag(&mut self, index: usize, event: &MouseDownEvent, cx: &mut Context<Self>) {
-        let Some(key) = self.model.keys.get(index) else {
+    fn begin_drag(&mut self, item: MakerSelection, event: &MouseDownEvent, cx: &mut Context<Self>) {
+        let place = match item {
+            MakerSelection::Key(index) => self.model.keys.get(index).map(|key| (key.x, key.y)),
+            MakerSelection::Mouse => self.model.mouse.map(|mouse| (mouse.x, mouse.y)),
+        };
+        let Some((x, y)) = place else {
             return;
         };
-        self.drag = Some(KeyDrag {
-            index,
+        self.drag = Some(BoardDrag {
+            item,
             down: event.position,
-            x: key.x,
-            y: key.y,
+            x,
+            y,
         });
-        self.select(Some(index), cx);
+        self.select(Some(item), cx);
     }
 
     fn drag_to(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
@@ -226,9 +258,19 @@ impl InputPresetMaker {
         }
         let x = drag.x + f64::from(f32::from(event.position.x - drag.down.x) / UNIT);
         let y = drag.y + f64::from(f32::from(event.position.y - drag.down.y) / UNIT);
-        if self.model.move_key(drag.index, x, y) {
+        let moved = match drag.item {
+            MakerSelection::Key(index) => self.model.move_key(index, x, y),
+            MakerSelection::Mouse => self.model.move_mouse(x, y),
+        };
+        if moved {
             cx.notify();
         }
+    }
+
+    fn start_from(&mut self, start: MakerStart, cx: &mut Context<Self>) {
+        self.model = PresetMaker::starting(start, self.model.name.clone());
+        self.drag = None;
+        self.select(None, cx);
     }
 
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -301,7 +343,7 @@ impl InputPresetMaker {
             );
         for (index, key) in self.model.keys.iter().enumerate() {
             let held = self.model.is_held(key.code);
-            let selected = self.model.selected == Some(index);
+            let selected = self.model.selected == Some(MakerSelection::Key(index));
             board = board.child(
                 div()
                     .id(SharedString::from(format!("preset-maker-key-{index}")))
@@ -332,12 +374,114 @@ impl InputPresetMaker {
                         cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                             cx.stop_propagation();
                             this.focus_root(window, cx);
-                            this.begin_drag(index, event, cx);
+                            this.begin_drag(MakerSelection::Key(index), event, cx);
                         }),
                     ),
             );
         }
+        if let Some(mouse) = self.model.mouse {
+            let selected = self.model.selected == Some(MakerSelection::Mouse);
+            let mut block = div()
+                .id("preset-maker-mouse-block")
+                .absolute()
+                .left(px(mouse.x as f32 * UNIT))
+                .top(px(mouse.y as f32 * UNIT))
+                .w(px(MOUSE_BLOCK.0 as f32 * UNIT))
+                .h(px(MOUSE_BLOCK.1 as f32 * UNIT))
+                .cursor_pointer()
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(4.))
+                        .top_0()
+                        .w(px(96.))
+                        .h(px(150.))
+                        .rounded(px(44.))
+                        .border_2()
+                        .border_color(if selected {
+                            Hsla::from(theme.primary)
+                        } else {
+                            gpui::transparent_black()
+                        })
+                        .bg(rgb(MOUSE_BODY)),
+                )
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.focus_root(window, cx);
+                        this.begin_drag(MakerSelection::Mouse, event, cx);
+                    }),
+                );
+            for part in MousePart::ALL
+                .into_iter()
+                .filter(|part| mouse.parts.shows(*part))
+            {
+                for (left, top, width, height) in mouse_part_shapes(part) {
+                    block = block.child(
+                        div()
+                            .absolute()
+                            .left(px(*left))
+                            .top(px(*top))
+                            .w(px(*width))
+                            .h(px(*height))
+                            .rounded(px(4.))
+                            .bg(rgb(KEY_REST)),
+                    );
+                }
+            }
+            board = board.child(block);
+        }
         board
+    }
+
+    fn render_selected_mouse(&self, row: gpui::Div, cx: &mut Context<Self>) -> gpui::Div {
+        let Some(mouse) = self.model.mouse else {
+            return row;
+        };
+        let theme = self.theme;
+        MousePart::ALL
+            .into_iter()
+            .fold(row, |row, part| {
+                let shown = mouse.parts.shows(part);
+                row.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(mouse_part_label(part))
+                        .child(
+                            ui::Toggle::plain(
+                                &theme,
+                                SharedString::from(format!("preset-maker-mouse-{part:?}")),
+                                shown,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.model.set_mouse_part(part, !shown);
+                                    this.focus_root(window, cx);
+                                    cx.notify();
+                                },
+                            )),
+                        ),
+                )
+            })
+            .child(div().flex_1())
+            .child(
+                ui::Button::plain(
+                    &theme,
+                    "preset-maker-remove-mouse",
+                    ui::ButtonVariant::Gray,
+                    ui::ButtonSize::Sm,
+                )
+                .label(t!("Remove"))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.model.delete_selected();
+                    this.focus_root(window, cx);
+                    this.select(None, cx);
+                })),
+            )
     }
 
     fn render_selected_key(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -348,6 +492,9 @@ impl InputPresetMaker {
             .items_center()
             .gap(px(16.))
             .min_h(px(34.));
+        if self.model.selected == Some(MakerSelection::Mouse) {
+            return self.render_selected_mouse(row, cx);
+        }
         let Some(key) = self.model.selected_key() else {
             return row;
         };
@@ -406,6 +553,33 @@ impl Render for InputPresetMaker {
             .items_center()
             .gap(px(16.))
             .min_h(px(34.))
+            .when_some(self.model.start, |bar, chosen| {
+                bar.child(
+                    div()
+                        .text_color(Hsla::from(theme.muted_foreground))
+                        .child(t!("Start from")),
+                )
+                .child(
+                    ui::SegmentedControl::editor(
+                        &theme,
+                        "preset-maker-start",
+                        MakerStart::ALL
+                            .into_iter()
+                            .map(|start| {
+                                ui::SegmentOption::new(start_label(start), start == chosen)
+                            })
+                            .collect(),
+                    )
+                    .on_select(cx.listener(
+                        |this, index: &usize, window, cx| {
+                            if let Some(start) = MakerStart::ALL.get(*index) {
+                                this.start_from(*start, cx);
+                            }
+                            this.focus_root(window, cx);
+                        },
+                    )),
+                )
+            })
             .child(self.flag(
                 "preset-maker-capture",
                 t!("Press keys to add"),
@@ -416,9 +590,9 @@ impl Render for InputPresetMaker {
             .child(self.flag(
                 "preset-maker-mouse",
                 t!("Mouse"),
-                self.model.mouse,
+                self.model.mouse.is_some(),
                 cx,
-                |model| model.mouse = !model.mouse,
+                PresetMaker::toggle_mouse,
             ))
             .child(div().flex_1())
             .child(
@@ -550,6 +724,7 @@ impl Render for InputPresetMaker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use frameever_project::input_display::BuiltinPresetId;
 
     #[test]
     fn a_new_preset_starts_from_wasd_and_an_edit_starts_from_the_saved_layout() {
@@ -559,11 +734,15 @@ mod tests {
             layout: None,
         }
         .model();
-        assert_eq!(fresh.layout(), BuiltinPresetId::WasdMouse.layout());
+        assert_eq!(
+            fresh.layout().keys,
+            BuiltinPresetId::WasdMouse.layout().keys
+        );
+        assert_eq!(fresh.start, Some(MakerStart::WasdMouse));
         assert_eq!(fresh.name, "My preset");
 
         let mut saved = BuiltinPresetId::WasdMouse.layout();
-        saved.mouse = false;
+        saved.mouse = None;
         saved.keys.truncate(2);
         let edited = MakerSeed {
             editing: Some("user:p-1".to_string()),
@@ -572,6 +751,21 @@ mod tests {
         }
         .model();
         assert_eq!(edited.layout(), saved);
+        assert_eq!(edited.start, None);
+    }
+
+    #[test]
+    fn the_mouse_on_the_board_is_drawn_inside_its_block() {
+        let (wide, high) = (MOUSE_BLOCK.0 as f32 * UNIT, MOUSE_BLOCK.1 as f32 * UNIT);
+        for part in MousePart::ALL {
+            for (left, top, width, height) in mouse_part_shapes(part) {
+                assert!(left + width <= wide && top + height <= high, "{part:?}");
+            }
+            assert!(!mouse_part_label(part).is_empty());
+        }
+        for start in MakerStart::ALL {
+            assert!(!start_label(start).is_empty());
+        }
     }
 
     #[test]

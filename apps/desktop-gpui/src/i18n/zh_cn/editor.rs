@@ -472,6 +472,12 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Preset name", "预设名称"),
     ("Press keys to add", "按键添加"),
     ("Mouse", "鼠标"),
+    ("Start from", "起点"),
+    ("Empty", "空白"),
+    ("Left button", "左键"),
+    ("Right button", "右键"),
+    ("Wheel", "滚轮"),
+    ("Side buttons", "侧键"),
     (
         "Couldn't save this preset. Try again.",
         "无法保存这个预设。再试一次。",

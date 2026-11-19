@@ -1,44 +1,123 @@
 use super::{
-    builtin::{BuiltinPresetId, KeyLayout, LayoutKey},
+    builtin::{
+        BuiltinPresetId, KeyLayout, LayoutKey, LayoutMouse, MOUSE_BLOCK, MousePart, MouseParts,
+    },
     keys::key_label,
 };
 
-pub const MAKER_COLUMNS: u32 = 14;
+pub const MAKER_COLUMNS: u32 = 18;
 pub const MAKER_ROWS: u32 = 5;
 pub const MAKER_WIDTHS: [f64; 4] = [1.0, 1.5, 2.0, 4.0];
 pub const MAKER_LABEL_LENGTH: usize = 12;
 pub const MAKER_NAME_LENGTH: usize = 40;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MakerStart {
+    WasdMouse,
+    FullKeyboard,
+    Empty,
+}
+
+impl MakerStart {
+    pub const ALL: [Self; 3] = [Self::WasdMouse, Self::FullKeyboard, Self::Empty];
+
+    fn layout(self) -> KeyLayout {
+        match self {
+            Self::WasdMouse => BuiltinPresetId::WasdMouse.layout(),
+            Self::FullKeyboard => BuiltinPresetId::FullKeyboard.layout(),
+            Self::Empty => KeyLayout::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MakerSelection {
+    Key(usize),
+    Mouse,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoardMouse {
+    pub x: f64,
+    pub y: f64,
+    pub parts: MouseParts,
+}
+
+fn halves(value: f64) -> f64 {
+    (value * 2.0).round() / 2.0
+}
+
+fn on_the_board((x, y): (f64, f64)) -> (f64, f64) {
+    let within = |value: f64, cells: u32, length: f64| {
+        if value.is_finite() {
+            halves(value).clamp(0.0, (f64::from(cells) - length).max(0.0))
+        } else {
+            0.0
+        }
+    };
+    (
+        within(x, MAKER_COLUMNS, MOUSE_BLOCK.0),
+        within(y, MAKER_ROWS, MOUSE_BLOCK.1),
+    )
+}
+
+fn beside(keys: &[LayoutKey]) -> (f64, f64) {
+    let right = keys.iter().map(|key| key.x + key.width).fold(0.0, f64::max);
+    let bottom = keys.iter().map(|key| key.y + 1.0).fold(0.0, f64::max);
+    let gap = if keys.is_empty() { 0.0 } else { 0.5 };
+    on_the_board((right + gap, (bottom - MOUSE_BLOCK.1) / 2.0))
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PresetMaker {
     pub name: String,
     pub keys: Vec<LayoutKey>,
-    pub mouse: bool,
-    pub selected: Option<usize>,
+    pub mouse: Option<BoardMouse>,
+    pub selected: Option<MakerSelection>,
     pub capture: bool,
+    pub start: Option<MakerStart>,
     held: Vec<u16>,
 }
 
 impl PresetMaker {
-    pub fn starting_from(preset: BuiltinPresetId, name: impl Into<String>) -> Self {
-        Self::editing(name, &preset.layout())
+    pub fn starting(start: MakerStart, name: impl Into<String>) -> Self {
+        Self {
+            capture: start == MakerStart::Empty,
+            start: Some(start),
+            ..Self::editing(name, &start.layout())
+        }
     }
 
     pub fn editing(name: impl Into<String>, layout: &KeyLayout) -> Self {
         let layout = layout.clone().fitted();
         Self {
             name: name.into(),
+            mouse: layout.mouse.map(|mouse| {
+                let (x, y) = mouse.at.unwrap_or_else(|| beside(&layout.keys));
+                BoardMouse {
+                    x,
+                    y,
+                    parts: mouse.parts,
+                }
+            }),
             keys: layout.keys,
-            mouse: layout.mouse,
             selected: None,
             capture: false,
+            start: None,
             held: Vec::new(),
         }
     }
 
     pub fn layout(&self) -> KeyLayout {
-        let left = self.keys.iter().map(|key| key.x).fold(f64::MAX, f64::min);
-        let top = self.keys.iter().map(|key| key.y).fold(f64::MAX, f64::min);
+        let corner = |of: fn(&LayoutKey) -> f64, mouse: Option<f64>| {
+            self.keys
+                .iter()
+                .map(of)
+                .chain(mouse)
+                .fold(f64::MAX, f64::min)
+        };
+        let left = corner(|key| key.x, self.mouse.map(|mouse| mouse.x));
+        let top = corner(|key| key.y, self.mouse.map(|mouse| mouse.y));
         KeyLayout {
             keys: self
                 .keys
@@ -49,16 +128,71 @@ impl PresetMaker {
                     ..key.clone()
                 })
                 .collect(),
-            mouse: self.mouse,
+            mouse: self.mouse.map(|mouse| LayoutMouse {
+                at: Some((mouse.x - left, mouse.y - top)),
+                parts: mouse.parts,
+            }),
         }
     }
 
     pub fn can_save(&self) -> bool {
-        !self.name.trim().is_empty() && (self.mouse || !self.keys.is_empty())
+        !self.name.trim().is_empty() && (self.mouse.is_some() || !self.keys.is_empty())
+    }
+
+    pub fn toggle_mouse(&mut self) {
+        if self.mouse.take().is_some() {
+            if self.selected == Some(MakerSelection::Mouse) {
+                self.selected = None;
+            }
+            return;
+        }
+        let (x, y) = beside(&self.keys);
+        self.mouse = Some(BoardMouse {
+            x,
+            y,
+            parts: MouseParts::default(),
+        });
+        self.selected = Some(MakerSelection::Mouse);
+    }
+
+    pub fn move_mouse(&mut self, x: f64, y: f64) -> bool {
+        let Some(mouse) = &mut self.mouse else {
+            return false;
+        };
+        if !x.is_finite() || !y.is_finite() {
+            return false;
+        }
+        let place = on_the_board((x, y));
+        if (mouse.x, mouse.y) == place {
+            return false;
+        }
+        (mouse.x, mouse.y) = place;
+        true
+    }
+
+    pub fn set_mouse_part(&mut self, part: MousePart, shown: bool) -> bool {
+        let Some(mouse) = &mut self.mouse else {
+            return false;
+        };
+        if mouse.parts.shows(part) == shown {
+            return false;
+        }
+        mouse.parts.set(part, shown);
+        true
     }
 
     pub fn selected_key(&self) -> Option<&LayoutKey> {
-        self.keys.get(self.selected?)
+        match self.selected? {
+            MakerSelection::Key(index) => self.keys.get(index),
+            MakerSelection::Mouse => None,
+        }
+    }
+
+    fn selected_key_mut(&mut self) -> Option<&mut LayoutKey> {
+        match self.selected? {
+            MakerSelection::Key(index) => self.keys.get_mut(index),
+            MakerSelection::Mouse => None,
+        }
     }
 
     pub fn is_held(&self, code: u16) -> bool {
@@ -69,11 +203,17 @@ impl PresetMaker {
         for row in 0..MAKER_ROWS {
             for column in 0..MAKER_COLUMNS {
                 let (x, y) = (f64::from(column), f64::from(row));
-                let taken = self
+                let under_a_key = self
                     .keys
                     .iter()
                     .any(|key| key.y == y && x < key.x + key.width && x + 1.0 > key.x);
-                if !taken {
+                let under_the_mouse = self.mouse.is_some_and(|mouse| {
+                    x < mouse.x + MOUSE_BLOCK.0
+                        && x + 1.0 > mouse.x
+                        && y < mouse.y + MOUSE_BLOCK.1
+                        && y + 1.0 > mouse.y
+                });
+                if !under_a_key && !under_the_mouse {
                     return (x, y);
                 }
             }
@@ -96,7 +236,7 @@ impl PresetMaker {
             y,
             width: 1.0,
         });
-        self.selected = Some(self.keys.len() - 1);
+        self.selected = Some(MakerSelection::Key(self.keys.len() - 1));
         true
     }
 
@@ -108,8 +248,11 @@ impl PresetMaker {
         self.held.clear();
     }
 
-    pub fn select(&mut self, index: Option<usize>) {
-        self.selected = index.filter(|index| *index < self.keys.len());
+    pub fn select(&mut self, selection: Option<MakerSelection>) {
+        self.selected = selection.filter(|selection| match selection {
+            MakerSelection::Key(index) => *index < self.keys.len(),
+            MakerSelection::Mouse => self.mouse.is_some(),
+        });
     }
 
     pub fn move_key(&mut self, index: usize, x: f64, y: f64) -> bool {
@@ -119,8 +262,7 @@ impl PresetMaker {
         if !x.is_finite() || !y.is_finite() {
             return false;
         }
-        let x =
-            ((x * 2.0).round() / 2.0).clamp(0.0, (f64::from(MAKER_COLUMNS) - key.width).max(0.0));
+        let x = halves(x).clamp(0.0, (f64::from(MAKER_COLUMNS) - key.width).max(0.0));
         let y = y.round().clamp(0.0, f64::from(MAKER_ROWS - 1));
         if (key.x, key.y) == (x, y) {
             return false;
@@ -130,7 +272,7 @@ impl PresetMaker {
     }
 
     pub fn set_label(&mut self, label: &str) -> bool {
-        let Some(key) = self.selected.and_then(|index| self.keys.get_mut(index)) else {
+        let Some(key) = self.selected_key_mut() else {
             return false;
         };
         let label: String = label.chars().take(MAKER_LABEL_LENGTH).collect();
@@ -142,7 +284,7 @@ impl PresetMaker {
     }
 
     pub fn set_width(&mut self, width: f64) -> bool {
-        let Some(key) = self.selected.and_then(|index| self.keys.get_mut(index)) else {
+        let Some(key) = self.selected_key_mut() else {
             return false;
         };
         if !MAKER_WIDTHS.contains(&width) || key.width == width {
@@ -154,12 +296,14 @@ impl PresetMaker {
     }
 
     pub fn delete_selected(&mut self) -> bool {
-        let Some(index) = self.selected.filter(|index| *index < self.keys.len()) else {
-            return false;
-        };
-        self.keys.remove(index);
-        self.selected = None;
-        true
+        match self.selected.take() {
+            Some(MakerSelection::Key(index)) if index < self.keys.len() => {
+                self.keys.remove(index);
+                true
+            }
+            Some(MakerSelection::Mouse) => self.mouse.take().is_some(),
+            _ => false,
+        }
     }
 
     pub fn clear(&mut self) -> bool {
@@ -167,7 +311,9 @@ impl PresetMaker {
             return false;
         }
         self.keys.clear();
-        self.selected = None;
+        if self.selected != Some(MakerSelection::Mouse) {
+            self.selected = None;
+        }
         true
     }
 
@@ -191,6 +337,9 @@ impl KeyLayout {
                 key.label = key.label.chars().take(MAKER_LABEL_LENGTH).collect();
             }
         }
+        if let Some(LayoutMouse { at: Some(at), .. }) = &mut self.mouse {
+            *at = on_the_board(*at);
+        }
         self
     }
 }
@@ -204,7 +353,7 @@ mod tests {
     };
 
     fn maker() -> PresetMaker {
-        PresetMaker::starting_from(BuiltinPresetId::WasdMouse, "Mine")
+        PresetMaker::starting(MakerStart::WasdMouse, "Mine")
     }
 
     fn capturing() -> PresetMaker {
@@ -217,8 +366,19 @@ mod tests {
     fn a_new_preset_starts_from_the_built_in_wasd_and_mouse() {
         let maker = maker();
 
-        assert_eq!(maker.layout(), BuiltinPresetId::WasdMouse.layout());
-        assert!(maker.mouse);
+        assert_eq!(
+            maker.layout().keys,
+            BuiltinPresetId::WasdMouse.layout().keys
+        );
+        assert_eq!(
+            maker.mouse,
+            Some(BoardMouse {
+                x: 6.0,
+                y: 0.0,
+                parts: MouseParts::default()
+            })
+        );
+        assert_eq!(maker.start, Some(MakerStart::WasdMouse));
         assert!(!maker.capture);
         assert_eq!(maker.selected, None);
         assert!(maker.can_save());
@@ -231,7 +391,7 @@ mod tests {
         assert!(maker.key_down(UP));
 
         let added = maker.selected_key().unwrap();
-        assert_eq!((added.x, added.y, added.width), (6.0, 0.0, 1.0));
+        assert_eq!((added.x, added.y, added.width), (9.0, 0.0, 1.0));
         assert_eq!((added.code, added.label.as_str()), (UP, "\u{2191}"));
         assert_eq!(maker.keys.len(), 13);
     }
@@ -276,6 +436,7 @@ mod tests {
     fn the_first_free_slot_skips_cells_under_wide_keys() {
         let mut maker = capturing();
         maker.clear();
+        maker.toggle_mouse();
 
         assert_eq!(maker.free_slot(), (0.0, 0.0));
         maker.key_down(SPACE);
@@ -289,13 +450,14 @@ mod tests {
     fn a_full_board_puts_the_next_key_at_the_start() {
         let mut maker = capturing();
         maker.clear();
+        maker.toggle_mouse();
         for code in 0..(MAKER_COLUMNS * MAKER_ROWS) as u16 {
             assert!(maker.key_down(1000 + code));
         }
 
         assert_eq!(maker.free_slot(), (0.0, 0.0));
         let last = maker.keys.last().unwrap();
-        assert_eq!((last.x, last.y), (13.0, 4.0));
+        assert_eq!((last.x, last.y), (17.0, 4.0));
     }
 
     #[test]
@@ -306,8 +468,8 @@ mod tests {
         assert!(maker.move_key(space, 3.3, 3.6));
         assert_eq!((maker.keys[space].x, maker.keys[space].y), (3.5, 4.0));
         assert!(maker.move_key(space, 40.0, -9.0));
-        assert_eq!((maker.keys[space].x, maker.keys[space].y), (10.0, 0.0));
-        assert!(!maker.move_key(space, 10.1, 0.2));
+        assert_eq!((maker.keys[space].x, maker.keys[space].y), (14.0, 0.0));
+        assert!(!maker.move_key(space, 14.1, 0.2));
         assert!(!maker.move_key(99, 1.0, 1.0));
         assert!(!maker.move_key(space, f64::NAN, 1.0));
     }
@@ -322,7 +484,7 @@ mod tests {
             .unwrap();
 
         assert!(!maker.set_label("Crouch"));
-        maker.select(Some(ctrl));
+        maker.select(Some(MakerSelection::Key(ctrl)));
         assert!(maker.set_label("Crouch, a very long label"));
         assert!(maker.set_width(2.0));
         assert!(!maker.set_width(3.0));
@@ -342,11 +504,11 @@ mod tests {
         let mut maker = capturing();
         maker.clear();
         maker.key_down(SPACE);
-        maker.move_key(0, 13.0, 2.0);
+        maker.move_key(0, 17.0, 2.0);
 
         assert!(maker.set_width(4.0));
 
-        assert_eq!(maker.keys[0].x, 10.0);
+        assert_eq!(maker.keys[0].x, 14.0);
     }
 
     #[test]
@@ -354,7 +516,7 @@ mod tests {
         let mut maker = maker();
         maker.clear();
         assert!(maker.can_save());
-        maker.mouse = false;
+        maker.toggle_mouse();
         assert!(!maker.can_save());
         maker.capture = true;
         maker.key_down(SPACE);
@@ -369,7 +531,7 @@ mod tests {
     fn the_saved_layout_starts_at_its_first_key_and_draws_in_every_style() {
         let mut maker = capturing();
         maker.clear();
-        maker.mouse = false;
+        maker.toggle_mouse();
         maker.key_down(letter('E'));
         maker.move_key(0, 6.0, 3.0);
         maker.key_down(letter('R'));
@@ -412,13 +574,130 @@ mod tests {
                     width: 1.0,
                 },
             ],
-            mouse: false,
+            mouse: Some(LayoutMouse {
+                at: Some((400.0, f64::NAN)),
+                parts: MouseParts::default(),
+            }),
         }
         .fitted();
 
         assert_eq!(layout.keys.len(), 1);
         let key = &layout.keys[0];
-        assert_eq!((key.x, key.y, key.width), (0.0, 0.0, 14.0));
+        assert_eq!((key.x, key.y, key.width), (0.0, 0.0, 18.0));
+        assert_eq!(layout.mouse.unwrap().at, Some((15.5, 0.0)));
         assert_eq!(key.label.len(), MAKER_LABEL_LENGTH);
+    }
+
+    #[test]
+    fn a_new_preset_starts_from_the_full_keyboard_or_from_nothing() {
+        let full = PresetMaker::starting(MakerStart::FullKeyboard, "Mine");
+        assert_eq!(
+            full.layout().keys,
+            BuiltinPresetId::FullKeyboard.layout().keys
+        );
+        let mouse = full.mouse.unwrap();
+        assert_eq!((mouse.x, mouse.y), (15.5, 0.5));
+        assert!(!full.capture);
+        for key in &full.keys {
+            assert!(key.x + key.width <= f64::from(MAKER_COLUMNS), "{key:?}");
+        }
+
+        let empty = PresetMaker::starting(MakerStart::Empty, "Mine");
+        assert!(empty.keys.is_empty() && empty.mouse.is_none());
+        assert!(empty.capture);
+        assert!(!empty.can_save());
+        assert_eq!(PresetMaker::editing("Mine", &full.layout()).start, None);
+    }
+
+    #[test]
+    fn the_mouse_is_dragged_in_half_steps_and_stays_on_the_board() {
+        let mut maker = maker();
+
+        assert!(maker.move_mouse(8.3, 0.8));
+        let mouse = maker.mouse.unwrap();
+        assert_eq!((mouse.x, mouse.y), (8.5, 1.0));
+        assert!(maker.move_mouse(90.0, 90.0));
+        let mouse = maker.mouse.unwrap();
+        assert_eq!((mouse.x, mouse.y), (15.5, 1.25));
+        assert!(maker.move_mouse(-3.0, -3.0));
+        assert!(!maker.move_mouse(0.1, 0.1));
+        assert!(!maker.move_mouse(f64::NAN, 0.0));
+        maker.toggle_mouse();
+        assert!(!maker.move_mouse(3.0, 1.0));
+    }
+
+    #[test]
+    fn the_mouse_switch_adds_the_block_beside_the_keys_and_selects_it() {
+        let mut maker = maker();
+        maker.select(Some(MakerSelection::Mouse));
+        maker.toggle_mouse();
+        assert_eq!((maker.mouse, maker.selected), (None, None));
+        maker.select(Some(MakerSelection::Mouse));
+        assert_eq!(maker.selected, None);
+
+        maker.toggle_mouse();
+        let mouse = maker.mouse.unwrap();
+        assert_eq!((mouse.x, mouse.y), (6.0, 0.0));
+        assert_eq!(maker.selected, Some(MakerSelection::Mouse));
+        assert_eq!(maker.selected_key(), None);
+        assert!(!maker.set_label("x") && !maker.set_width(2.0));
+
+        assert!(maker.delete_selected());
+        assert_eq!((maker.mouse, maker.selected), (None, None));
+    }
+
+    #[test]
+    fn the_mouse_shows_only_the_parts_left_on() {
+        let mut maker = maker();
+
+        assert!(maker.set_mouse_part(MousePart::Side, false));
+        assert!(!maker.set_mouse_part(MousePart::Side, false));
+        assert!(maker.set_mouse_part(MousePart::Wheel, false));
+
+        let saved = maker.layout().mouse.unwrap();
+        assert_eq!(
+            saved.parts,
+            MouseParts {
+                wheel: false,
+                side: false,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            PresetMaker::editing("Mine", &maker.layout()).mouse,
+            maker.mouse
+        );
+    }
+
+    #[test]
+    fn the_saved_layout_starts_at_whatever_is_furthest_up_and_left() {
+        let mut maker = maker();
+        for index in 0..maker.keys.len() {
+            let key = maker.keys[index].clone();
+            maker.move_key(index, key.x + 4.0, key.y + 2.0);
+        }
+        maker.move_mouse(1.0, 1.0);
+
+        let layout = maker.layout();
+
+        assert_eq!(layout.mouse.unwrap().at, Some((0.0, 0.0)));
+        assert_eq!((layout.keys[0].x, layout.keys[0].y), (3.0, 1.0));
+        let again = PresetMaker::editing("Mine", &layout).layout();
+        assert_eq!(again, layout);
+    }
+
+    #[test]
+    fn a_layout_saved_by_1_0_0_opens_with_its_mouse_beside_the_keys() {
+        let saved: KeyLayout = serde_json::from_value(serde_json::json!({
+            "keys": [{ "label": "W", "code": 87, "x": 0.0, "y": 0.0, "width": 1.0 }],
+            "mouse": true
+        }))
+        .unwrap();
+
+        let maker = PresetMaker::editing("Old", &saved);
+
+        let mouse = maker.mouse.unwrap();
+        assert_eq!((mouse.x, mouse.y), (1.5, 0.0));
+        assert_eq!(mouse.parts, MouseParts::default());
     }
 }

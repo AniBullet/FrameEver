@@ -31,12 +31,94 @@ pub struct LayoutKey {
     pub width: f64,
 }
 
+pub const MOUSE_BLOCK: (f64, f64) = (
+    (MOUSE_WIDTH + MOUSE_SIDE_OVERHANG) as f64 / UNIT,
+    MOUSE_HEIGHT as f64 / UNIT,
+);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MousePart {
+    Left,
+    Right,
+    Wheel,
+    Side,
+}
+
+impl MousePart {
+    pub const ALL: [Self; 4] = [Self::Left, Self::Right, Self::Wheel, Self::Side];
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MouseParts {
+    pub left: bool,
+    pub right: bool,
+    pub wheel: bool,
+    pub side: bool,
+}
+
+impl Default for MouseParts {
+    fn default() -> Self {
+        Self {
+            left: true,
+            right: true,
+            wheel: true,
+            side: true,
+        }
+    }
+}
+
+impl MouseParts {
+    pub fn shows(&self, part: MousePart) -> bool {
+        match part {
+            MousePart::Left => self.left,
+            MousePart::Right => self.right,
+            MousePart::Wheel => self.wheel,
+            MousePart::Side => self.side,
+        }
+    }
+
+    pub fn set(&mut self, part: MousePart, shown: bool) {
+        *match part {
+            MousePart::Left => &mut self.left,
+            MousePart::Right => &mut self.right,
+            MousePart::Wheel => &mut self.wheel,
+            MousePart::Side => &mut self.side,
+        } = shown;
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct LayoutMouse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<(f64, f64)>,
+    #[serde(default, flatten)]
+    pub parts: MouseParts,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum MouseInFile {
+    Whole(bool),
+    Block(LayoutMouse),
+}
+
+fn mouse_in_file<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<LayoutMouse>, D::Error> {
+    Ok(match Option::<MouseInFile>::deserialize(deserializer)? {
+        Some(MouseInFile::Whole(true)) => Some(LayoutMouse::default()),
+        Some(MouseInFile::Block(mouse)) => Some(mouse),
+        Some(MouseInFile::Whole(false)) | None => None,
+    })
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct KeyLayout {
     #[serde(default)]
     pub keys: Vec<LayoutKey>,
-    #[serde(default)]
-    pub mouse: bool,
+    #[serde(default, deserialize_with = "mouse_in_file")]
+    pub mouse: Option<LayoutMouse>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -202,7 +284,10 @@ impl BuiltinPresetId {
                 x += width;
             }
         }
-        KeyLayout { keys, mouse: true }
+        KeyLayout {
+            keys,
+            mouse: Some(LayoutMouse::default()),
+        }
     }
 
     pub fn art(self, style: InputDisplayStyle) -> PresetArt {
@@ -381,7 +466,7 @@ fn key_part(index: usize, key: &LayoutKey, origin_y: u32, palette: &Palette) -> 
     }
 }
 
-fn mouse_parts(origin_x: u32, origin_y: u32, palette: &Palette) -> Vec<Part> {
+fn mouse_parts(origin_x: u32, origin_y: u32, shown: MouseParts, palette: &Palette) -> Vec<Part> {
     let stroke = palette.line.stroke();
     let shape = |left: u32, top: u32, body: &str, fill: &Paint| {
         format!(
@@ -415,7 +500,7 @@ fn mouse_parts(origin_x: u32, origin_y: u32, palette: &Palette) -> Vec<Part> {
             shape(45, 18, wheel_down, down)
         )
     };
-    vec![
+    let mut parts = vec![
         Part {
             id: "mouse-body".to_string(),
             kind: ElementKind::Texture,
@@ -480,7 +565,15 @@ fn mouse_parts(origin_x: u32, origin_y: u32, palette: &Palette) -> Vec<Part> {
             18,
             r#"rect x="0" y="96" width="7" height="18" rx="3""#,
         ),
-    ]
+    ];
+    parts.retain(|part| match part.id.as_str() {
+        "mouse-left" => shown.left,
+        "mouse-right" => shown.right,
+        "mouse-wheel" => shown.wheel,
+        "mouse-side-1" | "mouse-side-2" => shown.side,
+        _ => true,
+    });
+    parts
 }
 
 struct Bounds {
@@ -803,10 +896,8 @@ fn pack(parts: Vec<Part>, width: u32, height: u32) -> PresetArt {
 }
 
 struct LayoutExtent {
-    keys_height: u32,
-    mouse_height: u32,
-    content_height: u32,
-    mouse_x: u32,
+    keys_top: u32,
+    mouse: Option<(u32, u32)>,
     width: u32,
     height: u32,
 }
@@ -825,25 +916,41 @@ impl KeyLayout {
             .map(|key| ((key.y + 1.0) * UNIT - KEY_GAP).round() as u32)
             .max()
             .unwrap_or(0);
-        let mouse_height = if self.mouse { MOUSE_HEIGHT } else { 0 };
-        let content_height = keys_height.max(mouse_height);
-        let mouse_x = if keys_width == 0 {
-            0
-        } else {
-            keys_width + MOUSE_GAP - MOUSE_SIDE_OVERHANG
+        let (keys_top, mouse) = match self.mouse.map(|mouse| mouse.at) {
+            None => (0, None),
+            Some(None) => {
+                let content_height = keys_height.max(MOUSE_HEIGHT);
+                let beside = if keys_width == 0 {
+                    0
+                } else {
+                    keys_width + MOUSE_GAP - MOUSE_SIDE_OVERHANG
+                };
+                (
+                    (content_height - keys_height) / 2,
+                    Some((beside, (content_height - MOUSE_HEIGHT) / 2)),
+                )
+            }
+            Some(Some((x, y))) => {
+                let pixels = |units: f64| {
+                    if units.is_finite() {
+                        (units.max(0.0) * UNIT).round() as u32
+                    } else {
+                        0
+                    }
+                };
+                (0, Some((pixels(x), pixels(y))))
+            }
         };
-        let width = if self.mouse {
-            mouse_x + MOUSE_SIDE_OVERHANG + MOUSE_WIDTH + 2 * BLEED
-        } else {
-            keys_width.saturating_sub(KEY_GAP as u32) + 2 * BLEED
-        };
+        let block = MOUSE_SIDE_OVERHANG + MOUSE_WIDTH;
         LayoutExtent {
-            keys_height,
-            mouse_height,
-            content_height,
-            mouse_x,
-            width,
-            height: content_height + 2 * BLEED,
+            keys_top,
+            mouse,
+            width: keys_width
+                .saturating_sub(KEY_GAP as u32)
+                .max(mouse.map_or(0, |(x, _)| x + block))
+                + 2 * BLEED,
+            height: (keys_top + keys_height).max(mouse.map_or(0, |(_, y)| y + MOUSE_HEIGHT))
+                + 2 * BLEED,
         }
     }
 
@@ -862,10 +969,8 @@ impl KeyLayout {
     pub fn art(&self, style: InputDisplayStyle) -> PresetArt {
         let palette = Palette::of(style);
         let LayoutExtent {
-            keys_height,
-            mouse_height,
-            content_height,
-            mouse_x,
+            keys_top,
+            mouse,
             width,
             height,
         } = self.extent();
@@ -873,14 +978,10 @@ impl KeyLayout {
             .keys
             .iter()
             .enumerate()
-            .map(|(index, key)| key_part(index, key, (content_height - keys_height) / 2, &palette))
+            .map(|(index, key)| key_part(index, key, keys_top, &palette))
             .collect();
-        if self.mouse {
-            parts.extend(mouse_parts(
-                mouse_x,
-                (content_height - mouse_height) / 2,
-                &palette,
-            ));
+        if let (Some((x, y)), Some(shown)) = (mouse, self.mouse) {
+            parts.extend(mouse_parts(x, y, shown.parts, &palette));
         }
 
         pack(parts, width, height)
@@ -1049,7 +1150,7 @@ mod tests {
         let wasd = BuiltinPresetId::WasdMouse.layout();
         let single = KeyLayout {
             keys: vec![wasd.keys[1].clone()],
-            mouse: false,
+            mouse: None,
         };
 
         assert_eq!(wasd.frame_share(), BuiltinPresetId::WasdMouse.frame_share());
@@ -1071,6 +1172,128 @@ mod tests {
     }
 
     #[test]
+    fn the_built_in_wasd_picture_keeps_its_size_and_places() {
+        let layout = BuiltinPresetId::WasdMouse.layout();
+        let preset = read(&layout.art(InputDisplayStyle::Keycaps));
+        let place = |id: &str| {
+            let element = preset
+                .elements
+                .iter()
+                .find(|element| element.id.starts_with(id))
+                .unwrap();
+            (element.x, element.y)
+        };
+
+        assert_eq!(layout.size(), (342, 152));
+        assert_eq!(place("mouse-body"), (244, 0));
+        assert_eq!(place("mouse-side-1"), (240, 74));
+        assert_eq!(place("key-0-"), (0, 17));
+        assert_eq!(preset.elements.len(), 12 + 6);
+    }
+
+    #[test]
+    fn a_layout_saved_by_1_0_0_reads_as_the_whole_mouse_beside_the_keys() {
+        let built_in = BuiltinPresetId::WasdMouse.layout();
+        let mut saved = serde_json::to_value(&built_in).unwrap();
+        saved["mouse"] = serde_json::json!(true);
+        let read_back: KeyLayout = serde_json::from_value(saved.clone()).unwrap();
+
+        assert_eq!(read_back, built_in);
+        assert_eq!(
+            read_back.art(InputDisplayStyle::Keycaps),
+            built_in.art(InputDisplayStyle::Keycaps)
+        );
+        saved["mouse"] = serde_json::json!(false);
+        assert_eq!(
+            serde_json::from_value::<KeyLayout>(saved).unwrap().mouse,
+            None
+        );
+    }
+
+    fn placed(at: (f64, f64), parts: MouseParts) -> KeyLayout {
+        KeyLayout {
+            mouse: Some(LayoutMouse {
+                at: Some(at),
+                parts,
+            }),
+            ..BuiltinPresetId::WasdMouse.layout()
+        }
+    }
+
+    #[test]
+    fn a_placed_mouse_is_drawn_where_it_was_put() {
+        let layout = placed((7.0, 0.5), MouseParts::default());
+        let preset = read(&layout.art(InputDisplayStyle::Keycaps));
+        let body = preset
+            .elements
+            .iter()
+            .find(|element| element.id == "mouse-body")
+            .unwrap();
+        let key = preset
+            .elements
+            .iter()
+            .find(|element| matches!(element.kind, ElementKind::KeyboardKey { .. }))
+            .unwrap();
+
+        assert_eq!((body.x, body.y), (7 * 40 + MOUSE_SIDE_OVERHANG, 20));
+        assert_eq!(key.y, 0);
+        assert_eq!(layout.size(), (7 * 40 + 100 + 2, 20 + 150 + 2));
+        assert_eq!(layout.size(), (preset.width, preset.height));
+
+        let left_of_the_keys = KeyLayout {
+            keys: layout
+                .keys
+                .iter()
+                .cloned()
+                .map(|key| LayoutKey {
+                    x: key.x + 3.0,
+                    ..key
+                })
+                .collect(),
+            ..placed((0.0, 0.0), MouseParts::default())
+        };
+        assert_eq!(
+            left_of_the_keys.size(),
+            ((3.0 * 40.0 + 216.0) as u32 + 2, 152)
+        );
+        let round_trip: KeyLayout =
+            serde_json::from_str(&serde_json::to_string(&layout).unwrap()).unwrap();
+        assert_eq!(round_trip, layout);
+    }
+
+    #[test]
+    fn a_mouse_draws_only_the_parts_chosen_for_it() {
+        let ids = |parts: MouseParts| -> Vec<String> {
+            read(&placed((7.0, 0.0), parts).art(InputDisplayStyle::Outline))
+                .elements
+                .into_iter()
+                .map(|element| element.id)
+                .filter(|id| id.starts_with("mouse-"))
+                .collect()
+        };
+
+        assert_eq!(ids(MouseParts::default()).len(), 6);
+        assert_eq!(
+            ids(MouseParts {
+                wheel: false,
+                side: false,
+                ..Default::default()
+            }),
+            ["mouse-body", "mouse-left", "mouse-right"]
+        );
+        let mut only_the_wheel = MouseParts {
+            left: false,
+            right: false,
+            side: false,
+            wheel: false,
+        };
+        only_the_wheel.set(MousePart::Wheel, true);
+        assert!(only_the_wheel.shows(MousePart::Wheel));
+        assert_eq!(ids(only_the_wheel), ["mouse-body", "mouse-wheel"]);
+        assert_eq!(MOUSE_BLOCK, (2.5, 3.75));
+    }
+
+    #[test]
     fn a_layout_knows_its_size_without_being_drawn() {
         let mut layouts: Vec<KeyLayout> = BuiltinPresetId::ALL
             .into_iter()
@@ -1078,12 +1301,12 @@ mod tests {
             .map(BuiltinPresetId::layout)
             .collect();
         layouts.push(KeyLayout {
-            mouse: false,
+            mouse: None,
             ..BuiltinPresetId::WasdMouse.layout()
         });
         layouts.push(KeyLayout {
             keys: Vec::new(),
-            mouse: true,
+            mouse: Some(LayoutMouse::default()),
         });
         for layout in layouts {
             let preset = read(&layout.art(InputDisplayStyle::Outline));
@@ -1284,7 +1507,7 @@ mod tests {
                 y: 0.0,
                 width: 2.0,
             }],
-            mouse: false,
+            mouse: None,
         };
         let art = layout.art(InputDisplayStyle::Keycaps);
         let preset = read(&art);

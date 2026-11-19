@@ -673,7 +673,7 @@ mod tests {
             })
         );
 
-        layout.mouse = false;
+        layout.mouse = None;
         layout.keys.truncate(3);
         let edited = save_layout(&folders.presets, Some(&id), "Mine too", &layout).unwrap();
         assert_eq!(edited, id);

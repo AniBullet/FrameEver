@@ -8,7 +8,10 @@ mod placement;
 mod preset;
 mod record;
 
-pub use builtin::{BuiltinPresetId, KeyLayout, LayoutKey, PresetArt, preset_for_controller};
+pub use builtin::{
+    BuiltinPresetId, KeyLayout, LayoutKey, LayoutMouse, MOUSE_BLOCK, MousePart, MouseParts,
+    PresetArt, preset_for_controller,
+};
 pub use clear::{clear_input_record, has_input_record, input_record_generation};
 pub use events::{INPUT_EVENTS_FILE_NAME, InputEvent, InputEventKind, InputEvents};
 pub use gamepad::{
@@ -16,7 +19,8 @@ pub use gamepad::{
 };
 pub use keys::{KeyCodeTable, key_code, key_codes, key_label, keystroke_code};
 pub use maker::{
-    MAKER_COLUMNS, MAKER_LABEL_LENGTH, MAKER_NAME_LENGTH, MAKER_ROWS, MAKER_WIDTHS, PresetMaker,
+    MAKER_COLUMNS, MAKER_LABEL_LENGTH, MAKER_NAME_LENGTH, MAKER_ROWS, MAKER_WIDTHS, MakerSelection,
+    MakerStart, PresetMaker,
 };
 pub use placement::{
     DisplayRect, INPUT_DISPLAY_SNAP_DISTANCE, INPUT_DISPLAY_SNAP_STOPS, display_rect,
