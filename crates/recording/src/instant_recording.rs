@@ -1093,6 +1093,19 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn instant_recording_uses_the_frame_rate_from_the_recording_defaults() {
+        let defaults = crate::RecordingDefaults {
+            max_fps: 60,
+            ..Default::default()
+        };
+        let builder = defaults.apply_to_instant_builder(ActorBuilder::new(
+            PathBuf::new(),
+            ScreenCaptureTarget::CameraOnly,
+        ));
+        assert_eq!(builder.max_fps, 60);
+    }
+
     #[tokio::test]
     async fn actor_retains_terminal_error_after_internal_stop() {
         let mut actor = Actor {

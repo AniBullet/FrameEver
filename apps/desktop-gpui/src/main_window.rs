@@ -2081,14 +2081,24 @@ impl MainWindow {
 
     /// Arm a target mode the way clicking its tile does, picking a concrete
     /// window for the window variant since the harness cannot hover one.
-    ///
-    /// Also the tray's Record Display/Window/Area path: those items are
-    /// `crate::open_target_picker(&app, RecordingTargetMode::*)` over there,
-    /// which is the same "set the target mode, open the overlays" pair.
     pub fn arm_overlay(
         &mut self,
         kind: TargetType,
         purpose: PickerPurpose,
+        cx: &mut Context<Self>,
+    ) {
+        self.arm_target(kind, purpose, WindowPin::Harness, cx);
+    }
+
+    pub fn arm_picker(&mut self, kind: TargetType, purpose: PickerPurpose, cx: &mut Context<Self>) {
+        self.arm_target(kind, purpose, WindowPin::Hovered, cx);
+    }
+
+    fn arm_target(
+        &mut self,
+        kind: TargetType,
+        purpose: PickerPurpose,
+        pin: WindowPin,
         cx: &mut Context<Self>,
     ) {
         if purpose == PickerPurpose::Screenshot
@@ -2098,15 +2108,8 @@ impl MainWindow {
         }
         self.purpose = purpose;
         if kind == TargetType::Window {
-            self.selected_window = match auto_window_title() {
-                Some(title) => self
-                    .devices
-                    .windows
-                    .iter()
-                    .find(|window| window_matches(window, &title))
-                    .cloned(),
-                None => self.devices.windows.first().cloned(),
-            };
+            self.selected_window =
+                window_to_pin(pin, auto_window_title().as_deref(), &self.devices.windows);
             if let Some(window) = &self.selected_window {
                 tracing::info!(app = %window.app, title = %window.label, "auto window target");
             }
@@ -5148,6 +5151,65 @@ pub(crate) fn auto_window_title() -> Option<String> {
 
 fn window_matches(window: &crate::devices::WindowOption, title: &str) -> bool {
     window.label == title
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowPin {
+    Hovered,
+    Harness,
+}
+
+fn window_to_pin(
+    pin: WindowPin,
+    title: Option<&str>,
+    windows: &[crate::devices::WindowOption],
+) -> Option<crate::devices::WindowOption> {
+    match (pin, title) {
+        (WindowPin::Hovered, _) => None,
+        (WindowPin::Harness, Some(title)) => windows
+            .iter()
+            .find(|window| window_matches(window, title))
+            .cloned(),
+        (WindowPin::Harness, None) => windows.first().cloned(),
+    }
+}
+
+#[cfg(test)]
+mod picker_window_tests {
+    use super::*;
+
+    fn window(id: &str, label: &str) -> crate::devices::WindowOption {
+        crate::devices::WindowOption {
+            id: id.parse().unwrap(),
+            label: label.into(),
+            app: "Example".into(),
+            size: None,
+            position: None,
+            refresh_rate: None,
+        }
+    }
+
+    #[test]
+    fn the_picker_pins_a_window_only_for_the_harness() {
+        let windows = [window("11", "First"), window("12", "Second")];
+        assert_eq!(window_to_pin(WindowPin::Hovered, None, &windows), None);
+        assert_eq!(
+            window_to_pin(WindowPin::Hovered, Some("Second"), &windows),
+            None
+        );
+        assert_eq!(
+            window_to_pin(WindowPin::Harness, None, &windows),
+            Some(windows[0].clone())
+        );
+        assert_eq!(
+            window_to_pin(WindowPin::Harness, Some("Second"), &windows),
+            Some(windows[1].clone())
+        );
+        assert_eq!(
+            window_to_pin(WindowPin::Harness, Some("Missing"), &windows),
+            None
+        );
+    }
 }
 
 /// `FRAMEEVER_GPUI_AUTO_AREA=x,y,width,height`, the harness's stand-in for drawing a

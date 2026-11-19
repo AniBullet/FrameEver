@@ -2658,19 +2658,13 @@ async fn create_segment_pipeline(
 
         let (display, crop) =
             target_to_display_and_crop(&capture_target).context("target_display_crop")?;
-        let compatibility_quality = matches!(quality, crate::StudioQuality::Compatibility);
         let max_capture_size = studio_max_capture_size(quality, camera_active);
-        let effective_max_fps = if compatibility_quality && camera_active {
-            max_fps.min(24)
-        } else {
-            max_fps
-        };
 
         let screen_config = ScreenCaptureConfig::<ScreenCaptureMethod>::init(
             display,
             crop,
             !custom_cursor_capture,
-            effective_max_fps,
+            max_fps,
             max_capture_size,
             start_time.system_time(),
             base_inputs.capture_system_audio,

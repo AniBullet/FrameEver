@@ -857,8 +857,8 @@ async fn start_recording(
         builder = builder.with_mic_feed(std::sync::Arc::new(lock));
     }
 
-    let builder = frameever_recording::RecordingDefaults::default()
-        .apply_to_studio_builder(builder, false, fps);
+    let builder =
+        frameever_recording::RecordingDefaults::default().apply_to_studio_builder(builder, fps);
 
     #[cfg(target_os = "macos")]
     let shareable_content = cidre::sc::ShareableContent::current()

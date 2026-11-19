@@ -1202,13 +1202,11 @@ fn studio_builder(
     target: ScreenCaptureTarget,
     excluded: Vec<scap_targets::WindowId>,
     fragmented: bool,
-    camera: bool,
     system_audio: bool,
 ) -> (studio_recording::ActorBuilder, u32) {
     let defaults = RecordingDefaults::default();
     let builder = defaults.apply_to_studio_builder(
         studio_recording::Actor::builder(project, target).with_system_audio(system_audio),
-        camera,
         None,
     );
     // Windows Graphics Capture records the display without per-window
@@ -1221,7 +1219,7 @@ fn studio_builder(
         .with_keyboard_capture(false)
         .with_fragmented(fragmented)
         .with_quality(StudioQuality::Balanced);
-    (builder, defaults.studio_max_fps(camera, None))
+    (builder, defaults.studio_max_fps(None))
 }
 
 async fn build_studio(
@@ -2185,7 +2183,6 @@ async fn record(
                 target,
                 excluded,
                 fragmented,
-                camera,
                 system_audio,
             );
             let mut builder = builder;
@@ -2225,7 +2222,7 @@ async fn record(
         }
         Mode::StudioCrashed => {
             let (builder, max_fps) =
-                studio_builder(project.clone(), target, excluded, true, false, system_audio);
+                studio_builder(project.clone(), target, excluded, true, system_audio);
             let builder = builder.with_mic_feed(mic_lock.clone());
             (
                 Handle::Studio(build_studio(builder, &shareable).await?),

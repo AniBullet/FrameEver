@@ -6090,10 +6090,10 @@ pub fn abort_editor_recording_flow(cx: &mut App) {
 ///
 /// `crate::open_target_picker(&app, RecordingTargetMode::*)` over there, which
 /// sets the target mode on the main window and opens the overlays; here the
-/// main window owns that state, so it is the same `arm_overlay` the tiles call.
+/// main window owns that state, and the window is picked by hovering.
 pub fn arm_target_mode(kind: crate::main_window::TargetType, purpose: PickerPurpose, cx: &mut App) {
     let main = cx.global::<AppWindows>().main;
-    main.update(cx, |view, _window, cx| view.arm_overlay(kind, purpose, cx))
+    main.update(cx, |view, _window, cx| view.arm_picker(kind, purpose, cx))
         .ok();
 }
 

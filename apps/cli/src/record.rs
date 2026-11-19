@@ -766,7 +766,6 @@ async fn start_recording(
         .with_system_audio(params.system_audio);
     let mut instant_builder = instant_recording::Actor::builder(path.clone(), target)
         .with_system_audio(params.system_audio);
-    let mut camera_active = false;
     let camera_recorded =
         !(cfg!(target_os = "macos") && params.mode == RecordMode::Instant && !camera_only_target);
 
@@ -808,7 +807,6 @@ async fn start_recording(
         let lock = Arc::new(lock);
         studio_builder = studio_builder.with_camera_feed(lock.clone());
         instant_builder = instant_builder.with_camera_feed(lock);
-        camera_active = true;
     }
 
     if let Some(mic_name) = params.mic.as_deref() {
@@ -851,7 +849,7 @@ async fn start_recording(
     match params.mode {
         RecordMode::Studio => {
             let builder = studio_defaults(&frameever_utils::storage::settings_file())
-                .apply_to_studio_builder(studio_builder, camera_active, params.fps);
+                .apply_to_studio_builder(studio_builder, params.fps);
 
             builder
                 .build(

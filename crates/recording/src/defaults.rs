@@ -1,10 +1,9 @@
-use crate::{StudioQuality, studio_recording};
+use crate::{StudioQuality, instant_recording, studio_recording};
 
 pub const FREE_INSTANT_MODE_MAX_RESOLUTION: u32 = 1280;
 pub const PRO_INSTANT_MODE_MAX_RESOLUTION: u32 = 1920;
 pub const DEFAULT_INSTANT_MODE_MAX_RESOLUTION: u32 = PRO_INSTANT_MODE_MAX_RESOLUTION;
 pub const DEFAULT_STUDIO_MAX_FPS: u32 = 60;
-pub const CAMERA_ACTIVE_STUDIO_MAX_FPS: u32 = 30;
 pub const DEFAULT_INSTANT_MODE_FPS: u32 = 30;
 pub const DEFAULT_CUSTOM_CURSOR_CAPTURE: bool = true;
 pub const DEFAULT_CAPTURE_KEYBOARD_EVENTS: bool = true;
@@ -42,19 +41,13 @@ impl Default for RecordingDefaults {
 }
 
 impl RecordingDefaults {
-    pub fn studio_max_fps(self, camera_active: bool, override_fps: Option<u32>) -> u32 {
-        let max_fps = override_fps.unwrap_or(self.max_fps);
-        if camera_active {
-            max_fps.min(CAMERA_ACTIVE_STUDIO_MAX_FPS)
-        } else {
-            max_fps
-        }
+    pub fn studio_max_fps(self, override_fps: Option<u32>) -> u32 {
+        override_fps.unwrap_or(self.max_fps)
     }
 
     pub fn apply_to_studio_builder(
         self,
         builder: studio_recording::ActorBuilder,
-        camera_active: bool,
         override_fps: Option<u32>,
     ) -> studio_recording::ActorBuilder {
         builder
@@ -62,8 +55,15 @@ impl RecordingDefaults {
             .with_keyboard_capture(self.capture_keyboard_events)
             .with_fragmented(self.crash_recovery_recording)
             .with_out_of_process_muxer(self.out_of_process_muxer)
-            .with_max_fps(self.studio_max_fps(camera_active, override_fps))
+            .with_max_fps(self.studio_max_fps(override_fps))
             .with_quality(self.studio_recording_quality)
+    }
+
+    pub fn apply_to_instant_builder(
+        self,
+        builder: instant_recording::ActorBuilder,
+    ) -> instant_recording::ActorBuilder {
+        builder.with_max_fps(self.max_fps)
     }
 }
 
@@ -81,5 +81,20 @@ pub fn default_studio_recording_quality() -> StudioQuality {
             StudioQuality::Compatibility
         }
         _ => StudioQuality::Balanced,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn studio_recording_uses_the_chosen_frame_rate() {
+        let defaults = RecordingDefaults {
+            max_fps: 60,
+            ..Default::default()
+        };
+        assert_eq!(defaults.studio_max_fps(None), 60);
+        assert_eq!(defaults.studio_max_fps(Some(120)), 120);
     }
 }
