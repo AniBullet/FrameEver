@@ -524,7 +524,7 @@ impl AudioSource for Microphone {
                                             attempt_cancel,
                                             async move {
                                                 #[cfg(windows)]
-                                                let reconnect = feed.reconnect_recording_subscription(subscription, reconnect_settings).await;
+                                                let reconnect = feed.reconnect_recording_subscription(subscription.clone(), reconnect_settings).await;
                                                 #[cfg(not(windows))]
                                                 let reconnect = feed.ask(microphone::SetInput {
                                                     label: name, settings: Some(reconnect_settings),
@@ -534,9 +534,11 @@ impl AudioSource for Microphone {
                                                     Err(e) => {
                                                         warn!("Microphone reconnect failed: {e}");
                                                         #[cfg(windows)]
-                                                        capture_scope.fail_required(format!(
-                                                            "Requested microphone reconnect failed: {e}"
-                                                        ));
+                                                        if !subscription.device_lost() {
+                                                            capture_scope.fail_required(format!(
+                                                                "Requested microphone reconnect failed: {e}"
+                                                            ));
+                                                        }
                                                         return;
                                                     }
                                                 };
@@ -547,9 +549,11 @@ impl AudioSource for Microphone {
                                                     Err(e) => {
                                                         warn!("Microphone reconnect stream failed: {e}");
                                                         #[cfg(windows)]
-                                                        capture_scope.fail_required(format!(
-                                                            "Requested microphone reconnect stream failed: {e}"
-                                                        ));
+                                                        if !subscription.device_lost() {
+                                                            capture_scope.fail_required(format!(
+                                                                "Requested microphone reconnect stream failed: {e}"
+                                                            ));
+                                                        }
                                                     }
                                                 }
                                             },
