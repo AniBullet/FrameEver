@@ -27,7 +27,7 @@
 <br>
 
 > [!NOTE]
-> **1.0.0 还在开发，尚未发布。** 想先试可以[从源码运行](#从源码运行)；[Releases](https://github.com/AniBullet/FrameEver/releases) 里目前是旧的 2.x。本页的图由设计稿（[`docs/design`](docs/design)）渲染，应用照着它实现。
+> **1.0.0 已发布。** 安装包和 FrameEver Converter 在 [Releases](https://github.com/AniBullet/FrameEver/releases/latest)，旧的 2.x 也还在那里。本页的图由设计稿（[`docs/design`](docs/design)）渲染，应用照着它实现。
 
 <br>
 
@@ -123,8 +123,8 @@ FrameEver 只在三种情况下联网，而且从不发送你的内容：
 
 | 平台 | 状态 |
 | --- | --- |
-| **Windows 10 / 11**（64 位） | 1.0.0 发布后在 [Releases](https://github.com/AniBullet/FrameEver/releases) 下载 `FrameEver_<版本>_x64-setup.exe`，之后应用自己检查更新 |
-| **macOS**（Apple 芯片） | 随 1.0.0 提供 `.dmg`。由 CI 编译、测试和打包，还没在真机上验证，也没有 Apple 开发者签名 |
+| **Windows 10 / 11**（64 位） | 在 [Releases](https://github.com/AniBullet/FrameEver/releases/latest) 下载 `FrameEver_<版本>_x64-setup.exe`，之后应用自己检查更新 |
+| **macOS**（Apple 芯片） | 在 Releases 下载 `.dmg`。由 CI 编译、测试和打包，还没在真机上验证，也没有 Apple 开发者签名 |
 | Linux | 不支持 |
 
 <details>
@@ -141,7 +141,7 @@ FrameEver 只在三种情况下联网，而且从不发送你的内容：
 
 <br>
 
-单独下载的 FrameEver Converter 会找到旧的设置、录制和截图，先让你预览，再转进 FrameEver 的存储文件夹。
+FrameEver 不会自动导入旧数据。在 [Releases](https://github.com/AniBullet/FrameEver/releases/latest) 单独下载的 FrameEver Converter 会找到旧的设置、录制和截图，先让你预览，再转进 FrameEver 的存储文件夹。
 
 </details>
 

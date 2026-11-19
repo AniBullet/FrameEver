@@ -27,7 +27,7 @@ Free and open source, and everything stays on your machine.
 <br>
 
 > [!NOTE]
-> **1.0.0 is in development and not released yet.** To try it now, [run it from source](#run-from-source); [Releases](https://github.com/AniBullet/FrameEver/releases) currently holds the older 2.x. The pictures here are rendered from the design pages ([`docs/design`](docs/design)), which the app is built to match, and show the Chinese interface.
+> **1.0.0 is released.** The installer and FrameEver Converter are in [Releases](https://github.com/AniBullet/FrameEver/releases/latest), where the older 2.x also stays. The pictures here are rendered from the design pages ([`docs/design`](docs/design)), which the app is built to match, and show the Chinese interface.
 
 <br>
 
@@ -123,8 +123,8 @@ An exported video contains only what the input display drew. Mouse clicks that d
 
 | Platform | Status |
 | --- | --- |
-| **Windows 10 / 11** (64-bit) | Once 1.0.0 is released, download `FrameEver_<version>_x64-setup.exe` from [Releases](https://github.com/AniBullet/FrameEver/releases); the app checks for updates itself after that |
-| **macOS** (Apple silicon) | A `.dmg` comes with 1.0.0. It is built, tested and packaged in CI, has not run on a real Mac, and has no Apple Developer signature |
+| **Windows 10 / 11** (64-bit) | Download `FrameEver_<version>_x64-setup.exe` from [Releases](https://github.com/AniBullet/FrameEver/releases/latest); the app checks for updates itself after that |
+| **macOS** (Apple silicon) | Download the `.dmg` from Releases. It is built, tested and packaged in CI, has not run on a real Mac, and has no Apple Developer signature |
 | Linux | Not supported |
 
 <details>
@@ -141,7 +141,7 @@ macOS blocks unsigned apps: open it once, then choose Open Anyway in System Sett
 
 <br>
 
-FrameEver Converter, a separate download, finds your old settings, recordings and screenshots, shows you what it will convert, then moves them into FrameEver's storage folder.
+FrameEver does not import old data by itself. FrameEver Converter, a separate download in [Releases](https://github.com/AniBullet/FrameEver/releases/latest), finds your old settings, recordings and screenshots, shows you what it will convert, then moves them into FrameEver's storage folder.
 
 </details>
 
