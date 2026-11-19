@@ -542,6 +542,13 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Input display position", "操作显示位置"),
     ("Input device", "操作显示设备"),
+    ("Xbox controller connected", "已连接 Xbox 手柄"),
+    (
+        "PlayStation controller connected",
+        "已连接 PlayStation 手柄",
+    ),
+    ("Switch controller connected", "已连接 Switch 手柄"),
+    ("No gamepad connected", "未连接手柄"),
     ("Gamepad preset", "手柄预设"),
     ("The pad drawn for a gamepad.", "用手柄时画出的手柄。"),
     ("Input display size", "操作显示大小"),

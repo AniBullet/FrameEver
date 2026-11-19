@@ -557,6 +557,7 @@ const sections = [
 						den: "Automatic draws the one you are using.",
 						dzh: "“自动”会画出你正在用的设备。",
 						c: "seg",
+						under: ["Xbox controller connected", "已连接 Xbox 手柄"],
 						opts: [
 							["auto", "Automatic", "自动"],
 							["keys", "Keyboard and mouse", "键盘和鼠标"],
@@ -1132,7 +1133,10 @@ const miniColors = {
 const controls = {
 	switch: (row) =>
 		`<div class="row-control"><button class="switch ${v[row.k] ? "on" : ""}" data-toggle="${row.k}" role="switch" aria-checked="${v[row.k]}" aria-label="${pick(row.en, row.zh)}" style="border:0;cursor:pointer"></button></div>`,
-	seg: (row) => `<div class="row-control">${seg(row.k, row.opts)}</div>`,
+	seg: (row) =>
+		row.under
+			? `<div class="row-control" style="flex-direction:column;align-items:flex-end;gap:4px">${seg(row.k, row.opts)}<div class="hint">${L(...row.under)}</div></div>`
+			: `<div class="row-control">${seg(row.k, row.opts)}</div>`,
 	select: (row) => {
 		const current = row.opts.find(([value]) => value === v[row.k]);
 		const open = ui.popup === row.k;

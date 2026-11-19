@@ -33,6 +33,7 @@ use crate::{
 };
 
 pub mod catalog;
+mod connected_gamepad;
 mod input_presets;
 mod record_input;
 
@@ -370,6 +371,7 @@ pub struct SettingsWindow {
     input_maker: Option<gpui::WindowHandle<crate::input_preset_maker::InputPresetMaker>>,
     input_preset_note: Option<SharedString>,
     input_preset_rename: Option<input_presets::PresetRename>,
+    connected_gamepad: connected_gamepad::ConnectedGamepadLine,
     project_name: String,
     project_name_input: Entity<ui::TextInputState>,
     search_input: Entity<ui::TextInputState>,
@@ -436,6 +438,7 @@ impl SettingsWindow {
             input_maker: None,
             input_preset_note: None,
             input_preset_rename: None,
+            connected_gamepad: Default::default(),
             project_name: stored_template,
             settings,
             menu: None,
@@ -521,6 +524,7 @@ impl SettingsWindow {
 
     pub fn page_shown(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.pages_shown(window, cx);
+        self.watch_connected_gamepad(cx);
     }
 
     fn jump_to(&mut self, row: Row, window: &mut Window, cx: &mut Context<Self>) {
@@ -1696,8 +1700,12 @@ impl SettingsWindow {
                     cx,
                 )
                 .into_any_element(),
-            Row::InputDevice => self
-                .segmented::<InstantInputDevice>(
+            Row::InputDevice => div()
+                .flex()
+                .flex_col()
+                .items_end()
+                .gap(px(4.))
+                .child(self.segmented::<InstantInputDevice>(
                     "instant-input-device",
                     settings.instant_input_device,
                     cx,
@@ -1708,7 +1716,8 @@ impl SettingsWindow {
                         this.settings.instant_input_device = value;
                         this.write_enum("instantInputDevice", value, cx);
                     },
-                )
+                ))
+                .children(self.connected_gamepad.text().map(|text| self.hint(text)))
                 .into_any_element(),
             Row::InputSize => self.render_input_slider(InputSlider::Size, cx),
             Row::InputOpacity => self.render_input_slider(InputSlider::Opacity, cx),

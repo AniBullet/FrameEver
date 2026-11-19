@@ -1,4 +1,30 @@
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
+    thread,
+    time::Duration,
+};
+
 use frameever_project::input_display::{GamepadKind, GamepadSnapshot};
+
+static RECORDING_WATCHES: AtomicUsize = AtomicUsize::new(0);
+
+struct RecordingWatch;
+
+impl RecordingWatch {
+    fn open() -> Self {
+        RECORDING_WATCHES.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for RecordingWatch {
+    fn drop(&mut self) {
+        RECORDING_WATCHES.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 pub const MAX_GAMEPADS: usize = 4;
 
@@ -12,6 +38,7 @@ pub struct GamepadWatch {
     source: Box<dyn GamepadPoll>,
     shown: Option<GamepadId>,
     controller: Option<GamepadKind>,
+    _recording: Option<RecordingWatch>,
 }
 
 impl GamepadWatch {
@@ -20,11 +47,16 @@ impl GamepadWatch {
             source: Box::new(source),
             shown: None,
             controller: None,
+            _recording: None,
         }
     }
 
     pub fn connected() -> Option<Self> {
-        platform::Gamepads::open().map(Self::new)
+        let recording = RecordingWatch::open();
+        platform::Gamepads::open().map(|gamepads| Self {
+            _recording: Some(recording),
+            ..Self::new(gamepads)
+        })
     }
 
     pub fn controller(&self) -> Option<GamepadKind> {
@@ -55,6 +87,93 @@ impl GamepadWatch {
             .find(|(_, snapshot)| !snapshot.is_idle())?;
         self.shown = Some(*id);
         Some(*snapshot)
+    }
+}
+
+struct Presence<Open> {
+    open: Open,
+    watch: Option<GamepadWatch>,
+    reported: Option<Option<GamepadKind>>,
+}
+
+impl<Open: FnMut() -> Option<GamepadWatch>> Presence<Open> {
+    fn new(open: Open) -> Self {
+        Self {
+            open,
+            watch: None,
+            reported: None,
+        }
+    }
+
+    fn look(&mut self, recording: bool) -> Option<Option<GamepadKind>> {
+        if recording {
+            self.watch = None;
+            return None;
+        }
+        if self.watch.is_none() {
+            self.watch = (self.open)();
+        }
+        let watch = self.watch.as_mut()?;
+        watch.read();
+        let connected = watch.controller();
+        if self.reported == Some(connected) {
+            return None;
+        }
+        self.reported = Some(connected);
+        Some(connected)
+    }
+}
+
+pub struct ConnectedGamepad {
+    stop: Option<mpsc::Sender<()>>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl ConnectedGamepad {
+    const INTERVAL: Duration = Duration::from_millis(250);
+
+    pub fn watch(report: impl FnMut(Option<GamepadKind>) + Send + 'static) -> Self {
+        Self::watching(
+            || platform::Gamepads::open().map(GamepadWatch::new),
+            Self::INTERVAL,
+            report,
+        )
+    }
+
+    fn watching(
+        open: impl FnMut() -> Option<GamepadWatch> + Send + 'static,
+        interval: Duration,
+        mut report: impl FnMut(Option<GamepadKind>) + Send + 'static,
+    ) -> Self {
+        let (stop, stopped) = mpsc::channel::<()>();
+        let thread = thread::Builder::new()
+            .name("connected-gamepad".to_string())
+            .spawn(move || {
+                let mut presence = Presence::new(open);
+                loop {
+                    let recording = RECORDING_WATCHES.load(Ordering::SeqCst) > 0;
+                    if let Some(connected) = presence.look(recording) {
+                        report(connected);
+                    }
+                    if stopped.recv_timeout(interval) != Err(mpsc::RecvTimeoutError::Timeout) {
+                        return;
+                    }
+                }
+            })
+            .ok();
+        Self {
+            stop: Some(stop),
+            thread,
+        }
+    }
+}
+
+impl Drop for ConnectedGamepad {
+    fn drop(&mut self) {
+        self.stop = None;
+        if let Some(thread) = self.thread.take() {
+            thread.join().ok();
+        }
     }
 }
 
@@ -302,6 +421,76 @@ mod tests {
         assert_eq!(watch.controller(), Some(GamepadKind::Switch));
         assert!(watch.read().is_some());
         assert_eq!(watch.controller(), Some(GamepadKind::PlayStation));
+    }
+
+    #[test]
+    fn the_connected_gamepad_is_reported_when_it_changes_and_not_read_during_a_recording() {
+        let opened = std::sync::Arc::new(AtomicUsize::new(0));
+        let script = Scripted::default()
+            .then(&[])
+            .then(&[])
+            .then(&[(1, idle(GamepadKind::Xbox))])
+            .then(&[(1, idle(GamepadKind::Xbox))])
+            .then(&[
+                (1, idle(GamepadKind::Xbox)),
+                (
+                    2,
+                    pressing(GamepadKind::PlayStation, gamepad_buttons::SOUTH),
+                ),
+            ])
+            .then(&[(1, idle(GamepadKind::Xbox))])
+            .then(&[])
+            .then(&[(3, idle(GamepadKind::Switch))]);
+        let mut presence = Presence::new({
+            let opened = opened.clone();
+            move || {
+                opened.fetch_add(1, Ordering::SeqCst);
+                Some(GamepadWatch::new(script.clone()))
+            }
+        });
+
+        assert_eq!(presence.look(false), Some(None));
+        assert_eq!(presence.look(false), None);
+        assert_eq!(presence.look(false), Some(Some(GamepadKind::Xbox)));
+        assert_eq!(presence.look(false), None);
+        assert_eq!(presence.look(false), Some(Some(GamepadKind::PlayStation)));
+        assert_eq!(presence.look(false), Some(Some(GamepadKind::Xbox)));
+        assert_eq!(presence.look(false), Some(None));
+        assert_eq!(opened.load(Ordering::SeqCst), 1);
+
+        assert_eq!(presence.look(true), None);
+        assert!(presence.watch.is_none());
+        assert_eq!(presence.look(true), None);
+        assert_eq!(opened.load(Ordering::SeqCst), 1);
+        assert_eq!(presence.look(false), Some(Some(GamepadKind::Switch)));
+        assert_eq!(opened.load(Ordering::SeqCst), 2);
+
+        let mut unavailable = Presence::new(|| None);
+        assert_eq!(unavailable.look(false), None);
+    }
+
+    #[test]
+    fn the_connected_gamepad_is_watched_on_its_own_thread_until_it_is_dropped() {
+        let (seen, reports) = mpsc::channel();
+        let script = Scripted::default()
+            .then(&[(1, idle(GamepadKind::Switch))])
+            .then(&[]);
+        let watching = ConnectedGamepad::watching(
+            move || Some(GamepadWatch::new(script.clone())),
+            Duration::from_millis(1),
+            move |connected| {
+                seen.send(connected).ok();
+            },
+        );
+
+        let wait = Duration::from_secs(5);
+        assert_eq!(reports.recv_timeout(wait), Ok(Some(GamepadKind::Switch)));
+        assert_eq!(reports.recv_timeout(wait), Ok(None));
+        drop(watching);
+        assert_eq!(
+            reports.recv_timeout(wait),
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        );
     }
 
     #[test]
