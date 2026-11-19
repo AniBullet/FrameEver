@@ -115,7 +115,7 @@ impl ExportFormatKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ExportResolution {
     P480,
     P720,
@@ -269,6 +269,15 @@ pub struct ExportUi {
     pub export_task: Option<gpui::Task<()>>,
     bpp_track: ui::SliderTrack,
     bpp_dragging: bool,
+    resolution_from_source: bool,
+    fps_from_source: bool,
+    source: ExportSource,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ExportSource {
+    pub size: Option<XY<u32>>,
+    pub fps: Option<u32>,
 }
 
 impl Drop for ExportUi {
@@ -285,9 +294,9 @@ impl ExportUi {
     pub fn load() -> Self {
         let prefs = store::load().export.unwrap_or(ExportPrefs {
             format: "Mp4".into(),
-            fps: 30,
+            fps: 60,
             export_to: "file".into(),
-            resolution: "720p".into(),
+            resolution: "1080p".into(),
             compression: "Maximum".into(),
             codec: None,
             optimize_filesize: false,
@@ -297,6 +306,8 @@ impl ExportUi {
             advanced_open: false,
             organization_id: None,
             gif_quality: None,
+            resolution_from_source: true,
+            fps_from_source: true,
         });
         Self::from_preferences(prefs)
     }
@@ -346,7 +357,20 @@ impl ExportUi {
             export_task: None,
             bpp_track: ui::SliderTrack::default(),
             bpp_dragging: false,
+            resolution_from_source: prefs.resolution_from_source,
+            fps_from_source: prefs.fps_from_source,
+            source: ExportSource::default(),
         }
+    }
+
+    fn choose_resolution(&mut self, resolution: ExportResolution) {
+        self.resolution = resolution;
+        self.resolution_from_source = false;
+    }
+
+    fn choose_fps(&mut self, fps: u32) {
+        self.fps = fps;
+        self.fps_from_source = false;
     }
 
     fn update_preview(&mut self, request: &Arc<()>, update: impl FnOnce(&mut Self)) -> bool {
@@ -358,7 +382,12 @@ impl ExportUi {
     }
 
     fn persist(&self) {
-        let prefs = ExportPrefs {
+        let prefs = self.preferences();
+        store::update(|state| state.export = Some(prefs));
+    }
+
+    fn preferences(&self) -> ExportPrefs {
+        ExportPrefs {
             format: self.format.slug().to_string(),
             fps: self.fps,
             export_to: self.destination.slug().to_string(),
@@ -372,8 +401,9 @@ impl ExportUi {
             advanced_open: self.advanced_open,
             organization_id: None,
             gif_quality: Some(self.gif_quality.slug().to_string()),
-        };
-        store::update(|state| state.export = Some(prefs));
+            resolution_from_source: self.resolution_from_source,
+            fps_from_source: self.fps_from_source,
+        }
     }
 
     fn offer_clip(&mut self, clip: Option<ExportClip>, clip_only: bool) {
@@ -566,6 +596,7 @@ impl EditorWindow {
         self.selection = None;
         let mut ui = ExportUi::load();
         ui.offer_clip(clip, clip_only);
+        ui.source = self.export_source();
         if has_transparent_background(&self.project) {
             ui.format = ExportFormatKind::Gif;
         }
@@ -604,6 +635,39 @@ impl EditorWindow {
 
     fn normalize_export_options(&self, ui: &mut ExportUi) {
         normalize_export_options(ui, has_transparent_background(&self.project));
+    }
+
+    fn export_source(&self) -> ExportSource {
+        let Some(summary) = self.summary() else {
+            return ExportSource::default();
+        };
+        let segments = &summary.recordings.segments;
+        let size = segments.first().map(|segment| {
+            let options = frameever_rendering::RenderOptions {
+                camera_size: segment
+                    .camera
+                    .as_ref()
+                    .map(|camera| XY::new(camera.width, camera.height)),
+                screen_size: XY::new(segment.display.width, segment.display.height),
+                preserve_screen_alpha: false,
+            };
+            let (width, height) =
+                frameever_rendering::ProjectUniforms::get_base_size(&options, &self.project);
+            XY::new(width, height)
+        });
+        let fps = highest_recorded_fps(
+            segments.iter().enumerate().map(|(index, segment)| {
+                let recorded = summary.recorded_fps.get(index);
+                (
+                    capture_fps(segment.display.fps, recorded.map(|(display, _)| *display)),
+                    segment.camera.as_ref().map(|camera| {
+                        capture_fps(camera.fps, recorded.and_then(|(_, camera)| *camera))
+                    }),
+                )
+            }),
+            !self.project.camera.hide,
+        );
+        ExportSource { size, fps }
     }
 
     fn normalize_loaded_export_options(&mut self) {
@@ -1649,7 +1713,7 @@ impl EditorWindow {
                         return;
                     };
                     if let Some(ui) = this.export.as_mut() {
-                        ui.resolution = resolution;
+                        ui.choose_resolution(resolution);
                         ui.persist();
                     }
                     this.refresh_export_preview(window, cx);
@@ -1683,7 +1747,7 @@ impl EditorWindow {
                         return;
                     };
                     if let Some(ui) = this.export.as_mut() {
-                        ui.fps = fps;
+                        ui.choose_fps(fps);
                         ui.persist();
                     }
                     this.refresh_export_preview(window, cx);
@@ -2493,20 +2557,84 @@ fn export_resolutions(
 }
 
 fn normalize_export_options(ui: &mut ExportUi, transparent: bool) {
-    if !export_fps_options(ui.format, ui.cursor_only).contains(&ui.fps) {
+    let fps_options = export_fps_options(ui.format, ui.cursor_only);
+    if ui.fps_from_source {
+        ui.fps = source_fps(ui.source.fps, fps_options);
+    }
+    let resolutions = export_resolutions(ui.format, ui.cursor_only, transparent);
+    if ui.resolution_from_source {
+        let largest = if ui.format == ExportFormatKind::Gif && !ui.cursor_only {
+            ExportResolution::P720
+        } else {
+            ExportResolution::P1080
+        };
+        ui.resolution = source_resolution(ui.source.size, resolutions, largest);
+    }
+    if !fps_options.contains(&ui.fps) {
         ui.fps = if ui.format == ExportFormatKind::Gif {
             15
         } else {
             30
         };
     }
-    if !export_resolutions(ui.format, ui.cursor_only, transparent).contains(&ui.resolution) {
+    if !resolutions.contains(&ui.resolution) {
         ui.resolution = if ui.resolution == ExportResolution::P4k {
             ExportResolution::P1080
         } else {
             ExportResolution::P720
         };
     }
+}
+
+fn capture_fps(probed: u32, recorded: Option<u32>) -> u32 {
+    probed.max(recorded.unwrap_or(0))
+}
+
+fn highest_recorded_fps(
+    segments: impl IntoIterator<Item = (u32, Option<u32>)>,
+    camera_visible: bool,
+) -> Option<u32> {
+    segments
+        .into_iter()
+        .flat_map(|(display, camera)| [Some(display), camera.filter(|_| camera_visible)])
+        .flatten()
+        .max()
+        .filter(|fps| *fps > 0)
+}
+
+fn source_resolution(
+    source: Option<XY<u32>>,
+    options: &[ExportResolution],
+    largest: ExportResolution,
+) -> ExportResolution {
+    let allowed = || options.iter().copied().filter(|res| *res <= largest);
+    let Some(smallest) = allowed().min() else {
+        return largest;
+    };
+    let Some(source) = source.filter(|size| size.x > 0 && size.y > 0) else {
+        return allowed().max().unwrap_or(smallest);
+    };
+    allowed()
+        .filter(|res| {
+            let (width, height) = res.size();
+            let scale = (width as f64 / source.x as f64).min(height as f64 / source.y as f64);
+            scale <= 1.0
+        })
+        .max()
+        .unwrap_or(smallest)
+}
+
+fn source_fps(source: Option<u32>, options: &[u32]) -> u32 {
+    let highest = options.iter().copied().max().unwrap_or(30);
+    let Some(source) = source else {
+        return highest;
+    };
+    options
+        .iter()
+        .copied()
+        .filter(|fps| u64::from(*fps) * 10 >= u64::from(source) * 9)
+        .min()
+        .unwrap_or(highest)
 }
 
 fn matches_compression(current: ExportCompression, expected: ExportCompression) -> bool {
@@ -2627,9 +2755,10 @@ async fn run_export(
 #[cfg(test)]
 mod tests {
     use super::{
-        ExportClip, ExportDestination, ExportFormatKind, ExportPhase, ExportResolution, ExportUi,
-        cancel_matching_export, export_fps_options, export_resolutions, normalize_export_options,
-        preview_time_in_range, selected_clip,
+        ExportClip, ExportDestination, ExportFormatKind, ExportPhase, ExportResolution,
+        ExportSource, ExportUi, cancel_matching_export, capture_fps, export_fps_options,
+        export_resolutions, highest_recorded_fps, normalize_export_options, preview_time_in_range,
+        selected_clip,
     };
     use crate::editor_edits::Selection;
     use crate::editor_timeline::TrackKind;
@@ -2637,6 +2766,7 @@ mod tests {
     use frameever_export::ExportRange;
     use frameever_export::gif::{GifExportSettings, GifQualityPreset};
     use frameever_export::settings::ExportSettings;
+    use frameever_project::XY;
     use std::path::PathBuf;
     use std::sync::{
         Arc,
@@ -2704,6 +2834,8 @@ mod tests {
             advanced_open: false,
             organization_id: None,
             gif_quality: None,
+            resolution_from_source: false,
+            fps_from_source: false,
         })
     }
 
@@ -2773,6 +2905,155 @@ mod tests {
         ui.fps = 60;
         normalize_export_options(&mut ui, false);
         assert_eq!((ui.resolution, ui.fps), (ExportResolution::P1080, 15));
+    }
+
+    fn new_export(width: u32, height: u32, fps: u32) -> ExportUi {
+        let mut ui = ExportUi::from_preferences(ExportPrefs {
+            export_to: "file".into(),
+            resolution: "1080p".into(),
+            fps: 60,
+            resolution_from_source: true,
+            fps_from_source: true,
+            ..clipboard_export().preferences()
+        });
+        ui.source = ExportSource {
+            size: Some(XY::new(width, height)),
+            fps: Some(fps),
+        };
+        normalize_export_options(&mut ui, false);
+        ui
+    }
+
+    fn chosen(ui: &ExportUi) -> (ExportResolution, u32) {
+        (ui.resolution, ui.fps)
+    }
+
+    #[test]
+    fn new_exports_default_to_1080p60_without_upscaling_the_source() {
+        let p1080 = ExportResolution::P1080;
+        let p720 = ExportResolution::P720;
+        for (width, height, fps, expected) in [
+            (3840, 2160, 60, (p1080, 60)),
+            (4148, 2332, 60, (p1080, 60)),
+            (3024, 1964, 60, (p1080, 60)),
+            (1920, 1080, 60, (p1080, 60)),
+            (2074, 1166, 60, (p1080, 60)),
+            (1080, 1920, 60, (p1080, 60)),
+            (1920, 1080, 30, (p1080, 30)),
+            (1918, 1078, 60, (p720, 60)),
+            (1382, 778, 60, (p720, 60)),
+            (1280, 720, 60, (p720, 60)),
+            (1280, 720, 30, (p720, 30)),
+            (800, 600, 30, (p720, 30)),
+        ] {
+            assert_eq!(
+                chosen(&new_export(width, height, fps)),
+                expected,
+                "{width}x{height} at {fps} fps"
+            );
+        }
+    }
+
+    #[test]
+    fn new_exports_keep_every_source_frame_without_inventing_frames() {
+        for (source, expected) in [
+            (120, 60),
+            (60, 60),
+            (58, 60),
+            (50, 60),
+            (34, 60),
+            (31, 30),
+            (30, 30),
+            (29, 30),
+            (24, 30),
+            (15, 15),
+        ] {
+            assert_eq!(new_export(1920, 1080, source).fps, expected, "{source} fps");
+        }
+
+        let mut unknown = new_export(1920, 1080, 60);
+        unknown.source = ExportSource::default();
+        normalize_export_options(&mut unknown, false);
+        assert_eq!(chosen(&unknown), (ExportResolution::P1080, 60));
+    }
+
+    #[test]
+    fn a_visible_faster_camera_sets_the_frame_rate() {
+        let segments = [(30, Some(60)), (30, None)];
+        assert_eq!(highest_recorded_fps(segments, true), Some(60));
+        assert_eq!(highest_recorded_fps(segments, false), Some(30));
+        assert_eq!(highest_recorded_fps([(0, None)], true), None);
+    }
+
+    #[test]
+    fn a_still_screen_exports_at_the_rate_it_was_captured_at() {
+        assert_eq!(capture_fps(5, Some(60)), 60);
+        assert_eq!(new_export(1920, 1200, capture_fps(5, Some(60))).fps, 60);
+        assert_eq!(capture_fps(60, Some(30)), 60);
+        assert_eq!(capture_fps(24, Some(0)), 24);
+        assert_eq!(capture_fps(48, None), 48);
+    }
+
+    #[test]
+    fn new_gif_exports_keep_their_smaller_defaults() {
+        let mut ui = new_export(3840, 2160, 60);
+        ui.format = ExportFormatKind::Gif;
+        normalize_export_options(&mut ui, false);
+        assert_eq!(chosen(&ui), (ExportResolution::P720, 30));
+
+        ui.format = ExportFormatKind::Mp4;
+        normalize_export_options(&mut ui, false);
+        assert_eq!(chosen(&ui), (ExportResolution::P1080, 60));
+    }
+
+    #[test]
+    fn a_remembered_choice_wins_over_the_source() {
+        let saved_by_1_0_0: ExportPrefs = serde_json::from_str(
+            r#"{"format":"Mp4","fps":30,"export_to":"file","resolution":"720p","compression":"Maximum","codec":"H264","optimize_filesize":false,"cursor_only":false,"custom_bpp":null,"force_ffmpeg_decoder":false,"advanced_open":false,"organization_id":null,"gif_quality":"high"}"#,
+        )
+        .unwrap();
+        assert!(!saved_by_1_0_0.resolution_from_source);
+        assert!(!saved_by_1_0_0.fps_from_source);
+        let mut ui = ExportUi::from_preferences(saved_by_1_0_0);
+        ui.source = ExportSource {
+            size: Some(XY::new(3840, 2160)),
+            fps: Some(60),
+        };
+        normalize_export_options(&mut ui, false);
+        assert_eq!(chosen(&ui), (ExportResolution::P720, 30));
+
+        let mut ui = new_export(1280, 720, 30);
+        ui.choose_resolution(ExportResolution::P4k);
+        ui.choose_fps(60);
+        let mut reopened = ExportUi::from_preferences(ui.preferences());
+        reopened.source = ExportSource {
+            size: Some(XY::new(1280, 720)),
+            fps: Some(30),
+        };
+        normalize_export_options(&mut reopened, false);
+        assert_eq!(chosen(&reopened), (ExportResolution::P4k, 60));
+    }
+
+    #[test]
+    fn untouched_defaults_follow_each_project() {
+        let first = new_export(3840, 2160, 60);
+        let mut second = ExportUi::from_preferences(first.preferences());
+        second.source = ExportSource {
+            size: Some(XY::new(1280, 720)),
+            fps: Some(30),
+        };
+        normalize_export_options(&mut second, false);
+        assert_eq!(chosen(&second), (ExportResolution::P720, 30));
+
+        let mut picked_fps_only = new_export(3840, 2160, 60);
+        picked_fps_only.choose_fps(30);
+        let mut third = ExportUi::from_preferences(picked_fps_only.preferences());
+        third.source = ExportSource {
+            size: Some(XY::new(1280, 720)),
+            fps: Some(60),
+        };
+        normalize_export_options(&mut third, false);
+        assert_eq!(chosen(&third), (ExportResolution::P720, 30));
     }
 
     #[test]

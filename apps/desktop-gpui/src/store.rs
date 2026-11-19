@@ -156,6 +156,10 @@ pub struct ExportPrefs {
     pub organization_id: Option<String>,
     #[serde(default)]
     pub gif_quality: Option<String>,
+    #[serde(default)]
+    pub resolution_from_source: bool,
+    #[serde(default)]
+    pub fps_from_source: bool,
 }
 
 pub fn app_data_dir() -> PathBuf {
