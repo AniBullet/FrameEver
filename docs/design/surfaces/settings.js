@@ -69,13 +69,6 @@ const v = {
 	],
 };
 
-const shot = [
-	["edit", "Open editor", "打开编辑器"],
-	["copy", "Copy", "复制"],
-	["both", "Copy and edit", "复制并编辑"],
-	["none", "Do nothing", "不做任何操作"],
-];
-
 const sections = [
 	{
 		id: "general",
@@ -115,8 +108,8 @@ const sections = [
 				],
 			},
 			{
-				en: "App",
-				zh: "应用",
+				en: "Notifications and sounds",
+				zh: "通知和提示音",
 				rows: [
 					{
 						k: "notify",
@@ -148,6 +141,12 @@ const sections = [
 						was: ["Upstream · General · Recording", "上游 · 通用 · 录制"],
 						kit: "switch",
 					},
+				],
+			},
+			{
+				en: "Recording window",
+				zh: "录制窗口",
+				rows: [
 					{
 						k: "mainStart",
 						en: "When recording starts",
@@ -158,18 +157,6 @@ const sections = [
 						opts: [
 							["close", "Close", "关闭"],
 							["minimise", "Minimise", "最小化"],
-						],
-						was: ["General · Recording", "通用 · 录制"],
-						kit: "select",
-					},
-					{
-						k: "afterDelete",
-						en: "After deleting a recording",
-						zh: "删除录制后",
-						c: "select",
-						opts: [
-							["nothing", "Do nothing", "不做任何操作"],
-							["reopen", "Reopen recorder", "重新打开录制窗口"],
 						],
 						was: ["General · Recording", "通用 · 录制"],
 						kit: "select",
@@ -204,6 +191,18 @@ const sections = [
 						was: ["Upstream · Shortcuts", "上游 · 快捷键"],
 						kit: "select",
 					},
+					{
+						k: "afterDelete",
+						en: "After deleting a recording",
+						zh: "删除录制后",
+						c: "select",
+						opts: [
+							["nothing", "Do nothing", "不做任何操作"],
+							["reopen", "Reopen recorder", "重新打开录制窗口"],
+						],
+						was: ["General · Recording", "通用 · 录制"],
+						kit: "select",
+					},
 				],
 			},
 		],
@@ -211,14 +210,155 @@ const sections = [
 	{
 		id: "recording",
 		icon: "video",
+		cluster: true,
 		en: "Recording",
 		zh: "录制",
-		sumEn: "Quality, countdown, what's captured",
-		sumZh: "画质、倒计时、捕获内容",
+		sumEn: "What every recording shares",
+		sumZh: "所有录制共用的设置",
 		groups: [
 			{
-				en: "Quality",
-				zh: "画质",
+				en: "Before you record",
+				zh: "开始之前",
+				rows: [
+					{
+						k: "countdown",
+						en: "Countdown",
+						zh: "倒计时",
+						c: "select",
+						opts: [
+							["0", "Off", "关闭"],
+							["3", "3 seconds", "3 秒"],
+							["5", "5 seconds", "5 秒"],
+							["10", "10 seconds", "10 秒"],
+						],
+						was: ["General · Recording", "通用 · 录制"],
+						kit: "select",
+					},
+					{
+						k: "confirmMic",
+						en: "Confirm without microphone",
+						zh: "无麦克风时确认",
+						den: "Ask first if no microphone is selected or available.",
+						dzh: "未选麦克风或麦克风不可用时先询问。",
+						c: "switch",
+						was: ["General · Recording", "通用 · 录制"],
+						kit: "switch",
+					},
+				],
+			},
+			{
+				en: "While recording",
+				zh: "录制期间",
+				rows: [
+					{
+						k: "fps",
+						en: "Maximum frame rate",
+						zh: "最高帧率",
+						den: "Higher rates can drop frames on some PCs.",
+						dzh: "部分电脑上较高帧率可能掉帧。",
+						c: "select",
+						opts: [
+							["24", "24 FPS", "24 帧/秒"],
+							["25", "25 FPS", "25 帧/秒"],
+							["30", "30 FPS", "30 帧/秒"],
+							["60", "60 FPS", "60 帧/秒"],
+							["120", "120 FPS", "120 帧/秒"],
+						],
+						was: ["General · Recording", "通用 · 录制"],
+						kit: "select",
+					},
+					{
+						k: "autoStop",
+						en: "Auto-stop",
+						zh: "自动停止",
+						c: "select",
+						opts: [
+							["0", "Off", "关闭"],
+							["5", "5 minutes", "5 分钟"],
+							["15", "15 minutes", "15 分钟"],
+							["30", "30 minutes", "30 分钟"],
+						],
+						was: ["Recording options popover only", "只在录制选项弹层"],
+						kit: "select",
+					},
+				],
+			},
+			{
+				en: "Window recording",
+				zh: "窗口录制",
+				rows: [
+					{
+						k: "windowStyle",
+						en: "Record a window as",
+						zh: "窗口录制方式",
+						c: "seg",
+						opts: [
+							["region", "Screen region", "屏幕区域"],
+							["focused", "Focused window", "只录窗口"],
+						],
+						was: ["Picker options only", "只在选择器选项"],
+						kit: "tab::TabBar segmented",
+					},
+					{
+						k: "focusCenter",
+						en: "Center the window on screen",
+						zh: "把窗口移到屏幕中央",
+						c: "switch",
+						was: ["Picker options only", "只在选择器选项"],
+						kit: "switch · waits for Focused window",
+						dep: "windowStyle",
+						depIs: "focused",
+					},
+				],
+			},
+			{
+				en: "Hidden from recordings",
+				zh: "在录制中隐藏",
+				rows: [
+					{
+						k: "excluded",
+						en: "Excluded windows",
+						zh: "排除的窗口",
+						c: "excluded",
+						stack: true,
+						was: ["General · Excluded windows", "通用 · 排除的窗口"],
+						kit: "setting + list + button",
+					},
+				],
+			},
+			{
+				en: "Screenshots",
+				zh: "截图",
+				rows: [
+					{
+						k: "afterShot",
+						en: "After a screenshot",
+						zh: "截图后",
+						c: "select",
+						opts: [
+							["edit", "Open editor", "打开编辑器"],
+							["copy", "Copy", "复制"],
+							["both", "Copy and edit", "复制并编辑"],
+							["none", "Do nothing", "不做任何操作"],
+						],
+						was: ["Shortcuts · outcome panel", "快捷键 · 结果面板"],
+						kit: "select",
+					},
+				],
+			},
+		],
+	},
+	{
+		id: "studio",
+		icon: "clapperboard",
+		en: "Studio",
+		zh: "工作室",
+		sumEn: "Recordings you edit afterwards",
+		sumZh: "录完再进编辑器的录制",
+		groups: [
+			{
+				en: "Recording",
+				zh: "录制",
 				rows: [
 					{
 						k: "studioQ",
@@ -252,89 +392,6 @@ const sections = [
 						kit: "radio::RadioGroup + card body",
 					},
 					{
-						k: "instantRes",
-						en: "Instant resolution",
-						zh: "即时录制分辨率",
-						den: "The most Instant recordings are saved at.",
-						dzh: "即时录制保存时的最高分辨率。",
-						c: "seg",
-						opts: [
-							["720", "720p", "720p"],
-							["1080", "1080p", "1080p"],
-							["1440", "1440p", "1440p"],
-							["2160", "4K", "4K"],
-						],
-						was: ["Recording quality", "录制画质"],
-						kit: "tab::TabBar segmented",
-					},
-					{
-						k: "fps",
-						en: "Maximum frame rate",
-						zh: "最高帧率",
-						den: "Higher rates can drop frames on some PCs.",
-						dzh: "部分电脑上较高帧率可能掉帧。",
-						c: "select",
-						opts: [
-							["24", "24 FPS", "24 帧/秒"],
-							["25", "25 FPS", "25 帧/秒"],
-							["30", "30 FPS", "30 帧/秒"],
-							["60", "60 FPS", "60 帧/秒"],
-							["120", "120 FPS", "120 帧/秒"],
-						],
-						was: ["General · Recording", "通用 · 录制"],
-						kit: "select",
-					},
-				],
-			},
-			{
-				en: "Before you record",
-				zh: "开始之前",
-				rows: [
-					{
-						k: "countdown",
-						en: "Countdown",
-						zh: "倒计时",
-						c: "select",
-						opts: [
-							["0", "Off", "关闭"],
-							["3", "3 seconds", "3 秒"],
-							["5", "5 seconds", "5 秒"],
-							["10", "10 seconds", "10 秒"],
-						],
-						was: ["General · Recording", "通用 · 录制"],
-						kit: "select",
-					},
-					{
-						k: "confirmMic",
-						en: "Confirm without microphone",
-						zh: "无麦克风时确认",
-						den: "Ask first if no microphone is selected or available.",
-						dzh: "未选麦克风或麦克风不可用时先询问。",
-						c: "switch",
-						was: ["General · Recording", "通用 · 录制"],
-						kit: "switch",
-					},
-					{
-						k: "autoStop",
-						en: "Auto-stop",
-						zh: "自动停止",
-						c: "select",
-						opts: [
-							["0", "Off", "关闭"],
-							["5", "5 minutes", "5 分钟"],
-							["15", "15 minutes", "15 分钟"],
-							["30", "30 minutes", "30 分钟"],
-						],
-						was: ["Recording options popover only", "只在录制选项弹层"],
-						kit: "select",
-					},
-				],
-			},
-			{
-				en: "Studio recording",
-				zh: "工作室录制",
-				rows: [
-					{
 						k: "cursor",
 						en: "Separate cursor",
 						zh: "单独捕获光标",
@@ -365,8 +422,111 @@ const sections = [
 				],
 			},
 			{
-				en: "Instant recording",
-				zh: "即时录制",
+				en: "New projects",
+				zh: "新项目",
+				rows: [
+					{
+						k: "studioSound",
+						en: "Studio Sound",
+						zh: "录音棚音质",
+						den: "Clean up microphone audio. Turn it off per project.",
+						dzh: "自动清理麦克风音频，可按项目关闭。",
+						c: "switch",
+						was: ["General · Recording", "通用 · 录制"],
+						kit: "switch",
+					},
+					{
+						k: "isolation",
+						en: "Voice isolation",
+						zh: "人声隔离",
+						den: "What Studio Sound starts with in a new project.",
+						dzh: "新项目里录音棚音质一开始用的强度。",
+						c: "seg",
+						opts: [
+							["light", "Light", "轻度"],
+							["balanced", "Balanced", "均衡"],
+							["strong", "Strong", "强力"],
+						],
+						was: ["Editor audio tab only", "只在编辑器音频页"],
+						kit: "tab::TabBar segmented",
+						dep: "studioSound",
+					},
+					{
+						k: "autoZoom",
+						en: "Auto zoom on clicks",
+						zh: "点击时自动缩放",
+						den: "Adds zoom segments around mouse clicks.",
+						dzh: "围绕鼠标点击添加缩放片段。",
+						c: "switch",
+						was: ["General · Recording", "通用 · 录制"],
+						kit: "switch",
+					},
+					{
+						k: "zoom",
+						en: "Zoom amount",
+						zh: "缩放倍数",
+						den: "Also used for zoom segments you add yourself.",
+						dzh: "手动添加的缩放片段也用这个倍数。",
+						c: "slider",
+						was: ["General · Recording", "通用 · 录制"],
+						kit: "slider::Slider",
+					},
+				],
+			},
+			{
+				en: "When it's done",
+				zh: "完成之后",
+				rows: [
+					{
+						k: "afterStudio",
+						en: "After a Studio recording",
+						zh: "工作室录制后",
+						c: "select",
+						opts: [
+							["edit", "Open editor", "打开编辑器"],
+							["show", "Show FrameEver", "显示帧刻"],
+							["none", "Do nothing", "不做任何操作"],
+						],
+						was: ["Shortcuts · outcome panel", "快捷键 · 结果面板"],
+						kit: "select",
+					},
+				],
+			},
+		],
+	},
+	{
+		id: "instant",
+		icon: "zap",
+		en: "Instant",
+		zh: "即时",
+		sumEn: "Recordings that are finished when you stop",
+		sumZh: "停止就是成片的录制",
+		groups: [
+			{
+				en: "Recording",
+				zh: "录制",
+				rows: [
+					{
+						k: "instantRes",
+						en: "Instant resolution",
+						zh: "即时录制分辨率",
+						den: "The most Instant recordings are saved at.",
+						dzh: "即时录制保存时的最高分辨率。",
+						c: "seg",
+						opts: [
+							["720", "720p", "720p"],
+							["1080", "1080p", "1080p"],
+							["1440", "1440p", "1440p"],
+							["2160", "4K", "4K"],
+						],
+						was: ["Recording quality", "录制画质"],
+						kit: "tab::TabBar segmented",
+					},
+				],
+			},
+			{
+				en: "Drawn into the video",
+				zh: "画进视频",
 				rows: [
 					{
 						k: "clickHighlight",
@@ -398,6 +558,7 @@ const sections = [
 						],
 						was: ["Recording options popover only", "只在录制选项弹层"],
 						kit: "select · waits for Show input",
+						dep: "showInput",
 					},
 					{
 						k: "inputCorner",
@@ -412,47 +573,7 @@ const sections = [
 						],
 						was: ["Recording options popover only", "只在录制选项弹层"],
 						kit: "select · waits for Show input",
-					},
-				],
-			},
-			{
-				en: "Window recording",
-				zh: "窗口录制",
-				rows: [
-					{
-						k: "windowStyle",
-						en: "Record a window as",
-						zh: "窗口录制方式",
-						c: "seg",
-						opts: [
-							["region", "Screen region", "屏幕区域"],
-							["focused", "Focused window", "只录窗口"],
-						],
-						was: ["Picker options only", "只在选择器选项"],
-						kit: "tab::TabBar segmented",
-					},
-					{
-						k: "focusCenter",
-						en: "Center the window on screen",
-						zh: "把窗口移到屏幕中央",
-						c: "switch",
-						was: ["Picker options only", "只在选择器选项"],
-						kit: "switch · waits for Focused window",
-					},
-				],
-			},
-			{
-				en: "Hidden from recordings",
-				zh: "在录制中隐藏",
-				rows: [
-					{
-						k: "excluded",
-						en: "Excluded windows",
-						zh: "排除的窗口",
-						c: "excluded",
-						stack: true,
-						was: ["General · Excluded windows", "通用 · 排除的窗口"],
-						kit: "setting + list + button",
+						dep: "showInput",
 					},
 				],
 			},
@@ -460,28 +581,6 @@ const sections = [
 				en: "When it's done",
 				zh: "完成之后",
 				rows: [
-					{
-						k: "afterShot",
-						en: "After a screenshot",
-						zh: "截图后",
-						c: "select",
-						opts: shot,
-						was: ["Shortcuts · outcome panel", "快捷键 · 结果面板"],
-						kit: "select",
-					},
-					{
-						k: "afterStudio",
-						en: "After a Studio recording",
-						zh: "工作室录制后",
-						c: "select",
-						opts: [
-							["edit", "Open editor", "打开编辑器"],
-							["show", "Show FrameEver", "显示帧刻"],
-							["none", "Do nothing", "不做任何操作"],
-						],
-						was: ["Shortcuts · outcome panel", "快捷键 · 结果面板"],
-						kit: "select",
-					},
 					{
 						k: "afterInstant",
 						en: "After an Instant recording",
@@ -496,6 +595,27 @@ const sections = [
 						kit: "select",
 						fresh: true,
 					},
+					{
+						k: "compress",
+						en: "Compress Instant recordings",
+						zh: "自动压缩即时录制",
+						den: "Makes an HEVC copy about half the size. The original stays.",
+						dzh: "生成约一半大小的 HEVC 副本，原版保留。",
+						c: "switch",
+						was: ["General · Recording", "通用 · 录制"],
+						kit: "switch",
+					},
+					{
+						k: "keepCompressed",
+						en: "Keep only the copy",
+						zh: "只保留压缩版",
+						den: "Deletes the original to save space.",
+						dzh: "删除原版以节省空间。",
+						c: "switch",
+						dep: "compress",
+						was: ["General · Recording", "通用 · 录制"],
+						kit: "switch",
+					},
 				],
 			},
 		],
@@ -503,62 +623,12 @@ const sections = [
 	{
 		id: "editing",
 		icon: "pencil",
+		cluster: true,
 		en: "Editing",
 		zh: "编辑",
-		sumEn: "Defaults for new projects, captions",
-		sumZh: "新项目默认值、字幕",
+		sumEn: "Captions, input presets",
+		sumZh: "字幕、操作显示预设",
 		groups: [
-			{
-				en: "New Studio projects",
-				zh: "新建工作室项目",
-				rows: [
-					{
-						k: "studioSound",
-						en: "Studio Sound",
-						zh: "录音棚音质",
-						den: "Clean up microphone audio. Turn it off per project.",
-						dzh: "自动清理麦克风音频，可按项目关闭。",
-						c: "switch",
-						was: ["General · Recording", "通用 · 录制"],
-						kit: "switch",
-					},
-					{
-						k: "isolation",
-						en: "Voice isolation",
-						zh: "人声隔离",
-						den: "What Studio Sound starts with in a new project.",
-						dzh: "新项目里录音棚音质一开始用的强度。",
-						c: "seg",
-						opts: [
-							["light", "Light", "轻度"],
-							["balanced", "Balanced", "均衡"],
-							["strong", "Strong", "强力"],
-						],
-						was: ["Editor audio tab only", "只在编辑器音频页"],
-						kit: "tab::TabBar segmented",
-					},
-					{
-						k: "autoZoom",
-						en: "Auto zoom on clicks",
-						zh: "点击时自动缩放",
-						den: "Adds zoom segments around mouse clicks.",
-						dzh: "围绕鼠标点击添加缩放片段。",
-						c: "switch",
-						was: ["General · Recording", "通用 · 录制"],
-						kit: "switch",
-					},
-					{
-						k: "zoom",
-						en: "Zoom amount",
-						zh: "缩放倍数",
-						den: "Also used for zoom segments you add yourself.",
-						dzh: "手动添加的缩放片段也用这个倍数。",
-						c: "slider",
-						was: ["General · Recording", "通用 · 录制"],
-						kit: "slider::Slider",
-					},
-				],
-			},
 			{
 				en: "Captions",
 				zh: "字幕",
@@ -576,6 +646,26 @@ const sections = [
 					},
 				],
 			},
+			{
+				en: "Input display",
+				zh: "操作显示",
+				rows: [
+					{
+						k: "inputPresets",
+						en: "Input presets",
+						zh: "操作显示预设",
+						den: "Layouts for the input display. Studio and Instant recordings share them.",
+						dzh: "操作显示的键位布局，工作室和即时录制共用。",
+						c: "presets",
+						stack: true,
+						was: [
+							"Editor · Input display tab only",
+							"只在编辑器的操作显示页签",
+						],
+						kit: "list + button",
+					},
+				],
+			},
 		],
 	},
 	{
@@ -583,8 +673,8 @@ const sections = [
 		icon: "folder",
 		en: "Storage",
 		zh: "存储",
-		sumEn: "Storage folder, names, compression",
-		sumZh: "存储文件夹、命名、压缩",
+		sumEn: "Storage folder, names",
+		sumZh: "存储文件夹、命名",
 		groups: [
 			{
 				en: "Storage folder",
@@ -613,33 +703,6 @@ const sections = [
 						stack: true,
 						was: ["General · Default project name", "通用 · 默认项目名称"],
 						kit: "input + tag",
-					},
-				],
-			},
-			{
-				en: "Compression",
-				zh: "压缩",
-				rows: [
-					{
-						k: "compress",
-						en: "Compress Instant recordings",
-						zh: "自动压缩即时录制",
-						den: "Makes an HEVC copy about half the size. The original stays.",
-						dzh: "生成约一半大小的 HEVC 副本，原版保留。",
-						c: "switch",
-						was: ["General · Recording", "通用 · 录制"],
-						kit: "switch",
-					},
-					{
-						k: "keepCompressed",
-						en: "Keep only the copy",
-						zh: "只保留压缩版",
-						den: "Deletes the original to save space.",
-						dzh: "删除原版以节省空间。",
-						c: "switch",
-						dep: "compress",
-						was: ["General · Recording", "通用 · 录制"],
-						kit: "switch",
 					},
 				],
 			},
@@ -681,7 +744,12 @@ const sections = [
 				en: "Start recording",
 				zh: "开始录制",
 				rows: [
-					{ k: "recArea", en: "Record an area", zh: "录制区域", c: "hotkey" },
+					{
+						k: "recArea",
+						en: "Record an area",
+						zh: "录制区域",
+						c: "hotkey",
+					},
 					{
 						k: "recWindow",
 						en: "Record a window",
@@ -706,21 +774,52 @@ const sections = [
 						zh: "开始即时录制",
 						c: "hotkey",
 					},
-					{ k: "picker", en: "Open picker", zh: "打开录制选择器", c: "hotkey" },
-					{ k: "cycle", en: "Cycle mode", zh: "切换录制模式", c: "hotkey" },
-					{ k: "cameraFocus", en: "Focus camera preview", zh: "聚焦摄像头预览", c: "hotkey" },
+					{
+						k: "picker",
+						en: "Open picker",
+						zh: "打开录制选择器",
+						c: "hotkey",
+					},
+					{
+						k: "cycle",
+						en: "Cycle mode",
+						zh: "切换录制模式",
+						c: "hotkey",
+					},
+					{
+						k: "cameraFocus",
+						en: "Focus camera preview",
+						zh: "聚焦摄像头预览",
+						c: "hotkey",
+					},
 				],
 			},
 			{
 				en: "While recording",
 				zh: "录制时",
 				rows: [
-					{ k: "stop", en: "Stop", zh: "停止录制", c: "hotkey" },
-					{ k: "pause", en: "Pause or resume", zh: "暂停或继续", c: "hotkey" },
-					{ k: "restart", en: "Restart", zh: "重新开始", c: "hotkey" },
+					{
+						k: "stop",
+						en: "Stop",
+						zh: "停止录制",
+						c: "hotkey",
+					},
+					{
+						k: "pause",
+						en: "Pause or resume",
+						zh: "暂停或继续",
+						c: "hotkey",
+					},
+					{
+						k: "restart",
+						en: "Restart",
+						zh: "重新开始",
+						c: "hotkey",
+					},
 				],
 			},
 		],
+		cluster: true,
 	},
 	{
 		id: "automations",
@@ -815,6 +914,7 @@ const sections = [
 				],
 			},
 		],
+		cluster: true,
 	},
 	{
 		id: "about",
@@ -1011,6 +1111,20 @@ const controls = {
 	},
 	excluded: () =>
 		`<div class="chips">${v.excluded.map((name) => `<span class="tag">${name}</span>`).join("")}<button class="btn ghost" style="height:24px">${icon("plus")}${L("Add window", "添加窗口")}</button></div><div class="hint">${L("Over Remote Desktop or a streaming app, FrameEver windows stay visible.", "通过远程桌面或串流软件使用时，帧刻的窗口会留在画面里。")}</div>`,
+	presets: () =>
+		`<div class="preset-list">${[
+			["WASD + mouse", "WASD + 鼠标", false],
+			["Full keyboard", "全键盘", false],
+			["Gamepad", "手柄", false],
+			["My fighting stick", "我的摇杆", true],
+		]
+			.map(
+				([en, zh, own]) =>
+					`<div class="preset-line"><span class="grow">${L(en, zh)}</span>${own ? `<button class="btn ghost icon" title="${pick("Edit", "编辑")}">${icon("pencil")}</button><button class="btn ghost icon" title="${pick("Remove", "移除")}">${icon("trash")}</button>` : `<span class="hint">${L("Built in", "内置")}</span>`}</div>`,
+			)
+			.join(
+				"",
+			)}</div><div class="chips"><button class="btn">${icon("plus")}${L("New preset…", "新建预设…")}</button><button class="btn ghost">${icon("import")}${L("Import…", "导入…")}</button></div>`,
 	terms: () =>
 		`<div class="chips">${v.terms.map((term) => `<span class="tag on">${term}</span>`).join("")}</div><div class="input">${icon("plus")}<input data-ph-en="Add a term" data-ph-zh="添加词条" placeholder="${pick("Add a term", "添加词条")}"></div>`,
 	folder: (row, broken) =>
@@ -1053,9 +1167,12 @@ const controls = {
 		`<div class="hint">${L("Based on Cap (AGPL-3.0). Icons: Lucide (ISC), Tabler (MIT). Chinese font: HarmonyOS Sans by Huawei.", "基于 Cap（AGPL-3.0）。图标：Lucide（ISC）、Tabler（MIT）。中文字体：华为 HarmonyOS Sans。")}</div>`,
 };
 
+const follows = (row) =>
+	row.depIs ? v[row.dep] === row.depIs : Boolean(v[row.dep]);
 const rowHtml = (row) => {
 	if (row.bare) return controls[row.c](row);
-	const off = row.dep && !v[row.dep];
+	const off = row.dep && !follows(row);
+	if (off && ui.flash !== row.k) return "";
 	const label = `<div class="row-label"><b>${L(row.en, row.zh)}</b>${row.den ? `<small>${L(row.den, row.dzh)}</small>` : ""}</div>`;
 	const stacked = row.stack || row.c === "tiers";
 	const hideLabel =
@@ -1101,7 +1218,7 @@ const renderA = () => {
 	const nav = sections
 		.map(
 			(entry) =>
-				`<button class="nav-item ${!ui.search && entry.id === ui.page ? "on" : ""}" data-page="${entry.id}">${icon(entry.icon)}${L(entry.en, entry.zh)}${entry.id === "about" && ui.updateState === "ready" ? `<span class="badge klein" style="margin-left:auto">1</span>` : ""}</button>`,
+				`${entry.cluster ? `<i class="nav-gap"></i>` : ""}<button class="nav-item ${!ui.search && entry.id === ui.page ? "on" : ""}" data-page="${entry.id}">${icon(entry.icon)}${L(entry.en, entry.zh)}${entry.id === "about" && ui.updateState === "ready" ? `<span class="badge klein" style="margin-left:auto">1</span>` : ""}</button>`,
 		)
 		.join("");
 	const content = ui.search
@@ -1373,8 +1490,8 @@ document.getElementById("inv").innerHTML =
 const copy = {
 	"t-live": ["Settings window", "设置窗口"],
 	"l-live": [
-		"The settings window in Klein Field. Eight pages, grouped by what you are doing. Search, shortcuts, dropdowns and switches all respond; press Ctrl+Shift+A on another shortcut row to see a conflict.",
-		"Klein Field 下的设置窗口。8 页，按要做的事分组。搜索、快捷键、下拉框、开关都能操作；在别的快捷键行按 Ctrl+Shift+A 可以看到冲突处理。",
+		"The settings window in Klein Field. Ten pages: what every recording shares, then one page for each recording mode. A row is a label with one control on the right; options that follow a switch appear under it once it is on. Search, shortcuts, dropdowns and switches all respond; press Ctrl+Shift+A on another shortcut row to see a conflict.",
+		"Klein Field 下的设置窗口。10 页：先是所有录制共用的，再是每种录制模式各一页。一行就是一个标签加右边一个控件；跟着某个开关的选项，开了才出现在它下面。搜索、快捷键、下拉框、开关都能操作；在别的快捷键行按 Ctrl+Shift+A 可以看到冲突处理。",
 	],
 	"t-states": ["States", "状态"],
 	"l-states": [
